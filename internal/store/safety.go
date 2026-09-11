@@ -68,6 +68,21 @@ type Report struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+// ModerationFlag is one block-net verdict (S1/S3/S5/S6) the OFF-PATH screener reached after
+// the relay had already been served. It is a review record, not an enforcement: nothing is
+// banned from it (features/moderation/off_path_screening.feature). Window holds the
+// broker-SEALED screened text (ciphertext, like CSAMIncident.Content), never plaintext.
+type ModerationFlag struct {
+	ID        int64  `json:"id"`
+	Pseudonym string `json:"pseudonym"`            // opaque relay pseudonym; never the real user
+	RequestID string `json:"request_id,omitempty"` // the relay's request id
+	Model     string `json:"model,omitempty"`
+	Node      string `json:"node,omitempty"` // the station that served it (empty if never picked)
+	Category  string `json:"category"`       // the block-net code (S1/S3/S5/S6)
+	Window    []byte `json:"-"`              // broker-sealed screened window; never serialized
+	CreatedAt int64  `json:"created_at"`     // unix seconds
+}
+
 // --- Mem safety storage ---------------------------------------------------
 //
 // Mirrors owners/nodeAcct: small maps under m.mu (these ops are rare and off the hot
@@ -523,5 +538,50 @@ func (m *Mem) ReportsByNode(nodeID string, limit int) ([]Report, error) {
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	return out, nil
+}
+
+func (m *Mem) AddModerationFlag(f ModerationFlag) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if f.CreatedAt == 0 {
+		f.CreatedAt = time.Now().Unix()
+	}
+	m.flagID++
+	f.ID = m.flagID
+	m.flags = append(m.flags, f)
+	return f.ID, nil
+}
+
+func (m *Mem) PurgeModerationFlags(olderThan time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cut := olderThan.Unix()
+	kept := m.flags[:0]
+	for _, f := range m.flags {
+		if f.CreatedAt > cut {
+			kept = append(kept, f)
+		}
+	}
+	purged := len(m.flags) - len(kept)
+	for i := len(kept); i < len(m.flags); i++ {
+		m.flags[i] = ModerationFlag{} // release the sealed windows, not just the slice headers
+	}
+	m.flags = kept
+	return purged, nil
+}
+
+func (m *Mem) ModerationFlagsByPseudonym(pseudonym string, since int64, limit int) ([]ModerationFlag, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []ModerationFlag
+	for i := len(m.flags) - 1; i >= 0 && len(out) < limit; i-- {
+		if f := m.flags[i]; f.Pseudonym == pseudonym && f.CreatedAt >= since {
+			out = append(out, f)
+		}
+	}
 	return out, nil
 }

@@ -225,6 +225,7 @@ type broker struct {
 	bill         billing
 	conn         connect
 	mod          moderation
+	scr          *screener             // off-path content screening (async mode); nil-safe no-op
 	mail         *mailer               // flag-gated (RESEND_API_KEY) transactional email; nil-safe no-op when disabled
 	towerPending *towerPendingNotifier // admin email on a Tower entering quarantine; nil-safe
 	// canaryVet is the may-Core-dial-this predicate (vetPublicIP in production). A FIELD
@@ -456,6 +457,26 @@ type broker struct {
 	alertFiring    map[string]bool
 	alertOnAirSeen map[string]bool
 	csamSLAHours   int
+	// Alert DELIVERY (alerts.go / alertstore.go / features/ops/alert_delivery.feature):
+	// the knobs, the clock seam (nil = real time), the onset claim time (dedup TTL), the
+	// per-model consecutive-absent tick count (debounce), the coalescing buffer + its armed
+	// flag, the per-key flap state, and the read-only counters /admin/live shows. The maps
+	// and buffer are guarded by alertMu; the Onces log their line once per process.
+	alertCfg          alertConfig
+	alertNow          func() time.Time
+	alertAfter        func(time.Duration) <-chan time.Time
+	alertFiredAt      map[string]time.Time
+	alertAbsent       map[string]int
+	alertPending      []alertCondition
+	alertFlushArmed   bool
+	alertFlap         map[string]*flapState
+	alertClearPending map[string]bool // keys whose shared DEL failed; retried each tick
+	alertInflight     atomic.Int64    // onset goroutines still running (shutdown waits)
+	alertCoalesced    atomic.Int64
+	alertDeduped      atomic.Int64
+	alertMuted        atomic.Int64
+	alertFallbackOnce sync.Once
+	alertGraceOnce    sync.Once
 
 	// maxNodesPerOwner is the HARD server backstop: the max number of SIMULTANEOUSLY
 	// on-air nodes a single owner account may have live (within nodeTTL) across all of
@@ -467,6 +488,29 @@ type broker struct {
 	// stationLimitExempt: owner pubkeys (lowercase hex) whose registrations skip
 	// the per-owner cap - the house allowlist (ROGERAI_STATION_LIMIT_EXEMPT).
 	stationLimitExempt map[string]bool
+
+	// nowFn is the clock seam for time-windowed routing state (station cooldowns, the
+	// cooling alert window): nil in production (time.Now); a scenario drives it forward
+	// instead of sleeping. See broker.now.
+	nowFn func() time.Time
+
+	// Station COOLDOWN (cooling.go; features/routing/upstream_failover.feature) - routing
+	// state, never trust: cooling is node -> expiry (this instance's own 429s + the merged
+	// shared set), coolModel the band it was cooling on, coolEvents the last hour's
+	// cooldowns for the founder alert. All guarded by metricsMu (pickFor reads cooling on
+	// the hot path). coolFallbackOnce logs a shared-store failure exactly once.
+	cooling          map[string]time.Time
+	coolModel        map[string]string
+	coolEvents       map[string][]coolEvent
+	coolFallbackOnce sync.Once
+}
+
+// now is the broker's clock for cooldown/alert windows (nowFn when set, else time.Now).
+func (b *broker) now() time.Time {
+	if b.nowFn != nil {
+		return b.nowFn()
+	}
+	return time.Now()
 }
 
 // priceQuote pins the price a user first saw for a (node, model) so an owner's
@@ -567,6 +611,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
 	go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
 	go b.alertCheckerLoop(stop)       // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
+	b.scr.start(b.scr.cfg.workers)    // off-path content screening workers (async mode only; a no-op in sync/off)
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 
@@ -618,6 +663,13 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		defer cancel()
 		log.Printf("shutdown: draining in-flight relays (grace %s) so no consumer hold is orphaned", shutdownGrace)
 		_ = srv.Shutdown(ctx)
+		// Screen what fits in the budget first (a late CSAM verdict may still page), settle the
+		// alert layer (in-flight onsets, then the still-open digest window is flushed at once),
+		// then flush queued email (sign-in codes first, then alerts) within its own budget;
+		// whatever does not make it is counted dropped{shutdown}, never silently lost.
+		b.scr.shutdown(screenerDrainBudget)
+		b.shutdownAlerts(2 * sharedOpTimeout)
+		b.mail.drain(emailDrainBudget)
 		close(drained)
 	}()
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -651,8 +703,9 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		edgeInflight: map[string]edgeAttemptLoad{}, edgeLoad: map[string]int{},
 		edgeOpenByAccount: map[string]int{},
 		successCount:      map[string]int{}, concurrentTPS: map[string]float64{},
-		toolsOK:      map[string]bool{},
-		toolsMerged:  map[string]bool{},
+		toolsOK:     map[string]bool{},
+		toolsMerged: map[string]bool{},
+		cooling:     map[string]time.Time{}, coolModel: map[string]string{}, coolEvents: map[string][]coolEvent{},
 		lastToolMark: map[string]time.Time{},
 		probeSched:   map[string]*probeState{},
 		lastPersist:  map[string]time.Time{},
@@ -680,6 +733,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		alertFiring:    map[string]bool{},
 		alertOnAirSeen: map[string]bool{},
 		csamSLAHours:   csamSLAHoursEnv(),
+		alertCfg:       loadAlertConfig(),
 		// Admin surface is gated on the STABLE broker secret (BROKER_PRIVATE_KEY hex). An
 		// ephemeral/unset key leaves adminKey empty => the key path is CLOSED.
 		adminKey: validAdminKey(os.Getenv("BROKER_PRIVATE_KEY")),
@@ -704,6 +758,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	loadAppleRoot() // StoreKit IAP trust anchor (Apple 3.1.1); /iap/credit is 503 until configured
 	b.conn = loadConnect()
 	b.mod = loadModeration()
+	b.scr = newScreener(b, loadScreenerConfig()) // off-path relay screening (async mode); workers start in runServe
 	b.canaryVet = vetPublicIP
 	b.mail = loadMailer()
 	b.towerPending = newTowerPendingNotifier(func(owner, towerID string, suppressed int) {
@@ -888,6 +943,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/owner/appeal", b.ownerAppeal)                                                    // owner-authed: file a self-serve appeal (GET = the caller's appeals/status)
 	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
 	mux.HandleFunc("/admin/unban-node", b.adminUnbanNode)                                             // admin-authed: lift a node ban (the node recovery path)
+	mux.HandleFunc("/admin/node/", b.adminNode)                                                       // admin-authed: per-node strikes vs upstream throttles (24h), hold + ban state
 	mux.HandleFunc("/admin/appeals", b.adminAppeals)                                                  // admin-authed: the open self-serve appeal review queue
 	mux.HandleFunc("/rc/enable", b.rcEnable)                                                          // host: create a remote-control session (BASE STATION)
 	mux.HandleFunc("/rc/sessions", b.rcSessions)                                                      // owner: the remote-control roster (metadata only)
@@ -898,6 +954,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/capsule/resolve", b.capsuleResolve)                                              // code-authed: fetch the blob ONCE (uniform-404, delete-on-read)
 	mux.HandleFunc("/admin/csam", b.adminCSAMQueue)                                                   // admin-authed: the CyberTipline drain queue (metadata only) + backlog stats
 	mux.HandleFunc("/admin/csam/submit", b.adminCSAMSubmit)                                           // admin-authed: mark an incident submitted with its CyberTipline report id
+	mux.HandleFunc("/admin/moderation", b.adminModeration)                                            // admin-authed: off-path screening counters + queue state (+ ?pseudonym= flag lookup)
 	mux.HandleFunc("/admin/live", b.adminLive)                                                        // admin-authed: LIVE in-memory ops (health, marketplace, dispatch, seed/fee/stripe) the private roger-admin portal merges with its own Postgres rollups
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }) // cheap liveness: the process is up
 	mux.HandleFunc("/ready", b.ready)                                                                 // real readiness: DB + shared store reachable (503 if not)

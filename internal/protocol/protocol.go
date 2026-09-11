@@ -20,6 +20,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -543,6 +544,13 @@ type UsageReceipt struct {
 	// Broker-set after the node signs (the node never sees the grant), so it is
 	// excluded from the node-signed bytes; see signingBytes.
 	GrantID string `json:"grant_id,omitempty"`
+	// VoidReason / UpstreamStatus are BROKER-set on a $0 voided receipt so the void survives
+	// as audit without a strike row to carry it: WHY nothing was billed (see the Void*
+	// constants) and the raw upstream status the station forwarded. Empty/0 on a settled
+	// receipt. Stamped after the node signs (zeroed in nodeSigningBytes, like GrantID) and
+	// before the broker signs (covered by brokerSigningBytes).
+	VoidReason     string `json:"void_reason,omitempty"`
+	UpstreamStatus int    `json:"upstream_status,omitempty"`
 	// SigVersion records WHICH canonical form BrokerSig was made over, so receipts
 	// co-signed before the coverage repair stay verifiable instead of reading as
 	// forged. Absent/0 = legacy (the node form, which did NOT cover the broker-set
@@ -554,15 +562,23 @@ type UsageReceipt struct {
 	BrokerSig  string `json:"broker_sig,omitempty"`
 }
 
+// Void reasons a broker stamps on a $0 receipt (UsageReceipt.VoidReason).
+const (
+	VoidUpstreamThrottled = "upstream-throttled" // the provider behind the station said 429: capacity, not misconduct
+	VoidUpstreamError     = "upstream-error"     // any other >= 400 from the station
+	VoidEmptyOutput       = "empty-output"       // a 2xx that carried no usable completion
+)
+
 // BrokerSigVersion is the current broker-signature canonical form.
 const BrokerSigVersion = 1
 
 // The node and the broker sign DIFFERENT canonical forms, because they sign at
 // different moments and are accountable for different fields.
 //
-// nodeSigningBytes is what the SERVING NODE signs. GrantID, BrokerPromptTokens, and
-// BrokerCompletionTokens are excluded: the node signs before the broker resolves the
-// grant or runs its own re-count, so including them would break VerifyNode.
+// nodeSigningBytes is what the SERVING NODE signs. GrantID, BrokerPromptTokens,
+// BrokerCompletionTokens, and the void audit fields are excluded: the node signs before
+// the broker resolves the grant, runs its own re-count, or voids the request, so
+// including them would break VerifyNode.
 //
 // brokerSigningBytes is what the BROKER counter-signs, and it is a superset - it
 // excludes only the two signature fields. This matters for money: billedTokens()
@@ -582,6 +598,11 @@ func (r UsageReceipt) nodeSigningBytes() []byte {
 	// keeps it, so the co-signed receipt still proves the designation.
 	c.Curated = false
 	c.CuratedAtCost = false
+	// The void audit fields are broker-set on the $0 path after the node signed, so they
+	// are zeroed here like GrantID; brokerSigningBytes keeps them, so a co-signed void
+	// receipt proves WHY nothing was billed and tampering with the reason is detectable.
+	c.VoidReason = ""
+	c.UpstreamStatus = 0
 	c.SigVersion = 0 // broker-set, and absent when the node signs
 	c.NodeSig = ""
 	c.BrokerSig = ""
@@ -731,6 +752,38 @@ type JobResult struct {
 	Status  int          `json:"status"`
 	Body    []byte       `json:"body"`
 	Receipt UsageReceipt `json:"receipt"`
+	// RetryAfterSec is the upstream's Retry-After, normalized to whole seconds, captured by
+	// the station ONLY on a 429/503 (0 = none/unknown: the broker applies its default). It
+	// drives the station's learned cooldown and the Retry-After the consumer sees
+	// (features/routing/upstream_failover.feature). Omitted on the wire when 0, so an old
+	// station's result decodes exactly as before.
+	RetryAfterSec int `json:"retry_after_sec,omitempty"`
+}
+
+// RetryAfterSeconds normalizes an HTTP Retry-After header value (RFC 9110 §10.2.3): a
+// delta-seconds integer is returned as-is, an HTTP-date becomes the whole seconds from now
+// (rounded up), and anything else - absent, garbage, negative, a date already past - is 0,
+// which every consumer reads as "no hint: use the default".
+func RetryAfterSeconds(v string, now time.Time) int {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		if n < 0 {
+			return 0
+		}
+		return n
+	}
+	t, err := http.ParseTime(v)
+	if err != nil {
+		return 0
+	}
+	d := t.Sub(now)
+	if d <= 0 {
+		return 0
+	}
+	return int((d + time.Second - 1) / time.Second)
 }
 
 // NewRequestID returns a short random hex id.

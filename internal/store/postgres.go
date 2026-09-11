@@ -293,6 +293,20 @@ CREATE INDEX IF NOT EXISTS csam_state ON rogerai.csam_incidents (report_state, i
 ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS report_id TEXT;
 ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS reported_at BIGINT;
 ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS reported_by TEXT;
+-- off-path moderation flags: a block-net verdict (S1/S3/S5/S6) reached AFTER the relay was
+-- served. A review record, never an enforcement. sealed_window is the broker-encrypted
+-- screened text (ciphertext, like csam_incidents.content); pseudonym is the opaque relay
+-- pseudonym. Indexed on the repeat-flag lookup (pseudonym, newest first).
+CREATE TABLE IF NOT EXISTS rogerai.moderation_flags (
+    id            BIGSERIAL PRIMARY KEY,
+    pseudonym     TEXT NOT NULL,
+    request_id    TEXT,
+    model         TEXT,
+    node          TEXT,
+    category      TEXT NOT NULL,
+    sealed_window BYTEA,
+    created_at    BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS moderation_flags_pseud ON rogerai.moderation_flags (pseudonym, id DESC);
 -- abuse/quality reports (POST /report; may be anonymous). The per-node count drives
 -- the auto-eject ban threshold. ip is the reporter (abuse-of-reporting forensics).
 CREATE TABLE IF NOT EXISTS rogerai.reports (
@@ -1230,6 +1244,22 @@ func (p *Postgres) ReleaseHoldFor(user, requestID string) (float64, error) {
 		return 0, err
 	}
 	return bal, tx.Commit()
+}
+
+// RekeyHold moves the tracked reservation row to the failover attempt's id (no wallet/ledger
+// change; a missing row is a no-op). See the Store interface.
+func (p *Postgres) RekeyHold(user, from, to string) error {
+	if from == to {
+		return nil
+	}
+	res, err := p.db.Exec(`UPDATE rogerai.pending_holds SET request_id=$3 WHERE request_id=$1 AND usr=$2`, from, user, to)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoPendingHold
+	}
+	return nil
 }
 
 // ReleaseStaleHolds reclaims every pending hold placed at or before olderThan, crediting the

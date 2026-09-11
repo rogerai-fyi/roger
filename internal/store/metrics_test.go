@@ -117,7 +117,7 @@ func freshPostgres(t *testing.T, dsn string) *Postgres {
 		rogerai.grants, rogerai.grant_usage, rogerai.payouts, rogerai.disputes, rogerai.refunds,
 		rogerai.rc_sessions, rogerai.rc_attach_tokens,
 		rogerai.pending_reversals, rogerai.account_settings, rogerai.account_recount_holds,
-		rogerai.recount_holds, rogerai.reports, rogerai.appeals, rogerai.csam_incidents,
+		rogerai.recount_holds, rogerai.reports, rogerai.appeals, rogerai.csam_incidents, rogerai.moderation_flags,
 		rogerai.banned_nodes, rogerai.banned_owners, rogerai.owner_strikes,
 		rogerai.checkout_charges, rogerai.offer_overrides, rogerai.private_bands,
 		rogerai.pending_holds

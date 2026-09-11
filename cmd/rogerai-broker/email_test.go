@@ -443,7 +443,7 @@ func TestMailerBuildsZeptoMailRequest(t *testing.T) {
 			return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
 		},
 	}
-	m.deliver("op@example.com", "Subject", "<b>hi</b>", "hi")
+	m.deliver(&emailJob{id: "idem-1", to: "op@example.com", subject: "Subject", html: "<b>hi</b>", text: "hi"})
 
 	if want := "Zoho-enczapikey zepto_raw_key"; gotAuth != want {
 		t.Errorf("auth = %q, want %q", gotAuth, want)
@@ -483,7 +483,7 @@ func TestMailerDoesNotDoublePrefixZeptoKey(t *testing.T) {
 			return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
 		},
 	}
-	m.deliver("op@example.com", "s", "h", "t")
+	m.deliver(&emailJob{id: "idem-2", to: "op@example.com", subject: "s", html: "h", text: "t"})
 	if want := "Zoho-enczapikey already_prefixed"; gotAuth != want {
 		t.Errorf("auth = %q, want %q (no double prefix)", gotAuth, want)
 	}

@@ -40,10 +40,9 @@ func TestRelayStreamUnsupported(t *testing.T) {
 	node := protocol.NodeRegistration{NodeID: "x", PubKey: "ab"}
 	offer := protocol.ModelOffer{Model: "m"}
 	tun := &nodeTunnel{jobs: make(chan protocol.Job, 1), waiters: map[string]chan protocol.JobResult{}}
-	job := protocol.Job{ID: "j1"}
-	resCh := make(chan protocol.JobResult, 1)
 	w := &nonFlusherWriter{}
-	b.relayStream(w, tun, node, offer, streamBill{user: "u", consumer: "u", model: "m", pricing: pricingPlan{free: true, fixed: true}}, job, resCh, 0)
+	plan := []attemptCand{{node: node, offer: offer, t: tun, pricing: pricingPlan{free: true, fixed: true}}}
+	b.relayStream(w, plan, streamBill{user: "u", consumer: "u", model: "m"}, "j1", nil, 0)
 	if w.code != http.StatusInternalServerError {
 		t.Fatalf("non-flusher stream = %d, want 500", w.code)
 	}

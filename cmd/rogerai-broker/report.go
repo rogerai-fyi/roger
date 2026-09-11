@@ -174,19 +174,37 @@ func (b *broker) reportRetentionSweep(stop <-chan struct{}) {
 	}
 }
 
+// moderationFlagRetention is how long an off-path moderation flag (a review record, never
+// an enforcement) is kept: ROGERAI_MODERATION_FLAG_RETENTION_DAYS, default 90.
+func moderationFlagRetention() time.Duration {
+	days := envInt("ROGERAI_MODERATION_FLAG_RETENTION_DAYS", 90)
+	if days <= 0 {
+		days = 90
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
 // reportRetentionSweepOnce purges reports past their category's horizon (one sweep
 // iteration). Split out of the loop so the purge is testable without the ticker, exactly as
 // the hold and node-ban sweeps are. `now` is passed in rather than read here so a test can
 // place rows on both sides of a horizon without sleeping.
 func (b *broker) reportRetentionSweepOnce(now time.Time) {
 	retention, csamRetention := b.reportRetention(), b.csamReportRetention()
-	n, err := b.db.PurgeReports(now.Add(-retention), now.Add(-csamRetention))
-	if err != nil {
+	// A reports purge failure is logged and does NOT skip the flag purge below: each horizon
+	// is enforced on its own (audit finding - the early return silently disabled flag
+	// retention whenever the reports purge errored).
+	if n, err := b.db.PurgeReports(now.Add(-retention), now.Add(-csamRetention)); err != nil {
 		log.Printf("report-retention: sweep failed: %v", err)
-		return
-	}
-	if n > 0 {
+	} else if n > 0 {
 		log.Printf("report-retention: reaped %d report(s) past their retention horizon (%s; csam-category %s)", n, retention, csamRetention)
+	}
+	// Off-path moderation flags ride the same sweep: a review record with its own horizon
+	// (ROGERAI_MODERATION_FLAG_RETENTION_DAYS), never a permanent file.
+	flagRetention := moderationFlagRetention()
+	if fn, ferr := b.db.PurgeModerationFlags(now.Add(-flagRetention)); ferr != nil {
+		log.Printf("report-retention: moderation flag sweep failed: %v", ferr)
+	} else if fn > 0 {
+		log.Printf("report-retention: reaped %d moderation flag(s) older than %s", fn, flagRetention)
 	}
 }
 
@@ -267,6 +285,11 @@ func (b *broker) preserveCSAM(pseudonym, ip, category string, content []byte) {
 		return
 	}
 	log.Printf("CSAM: incident #%d PRESERVED + report QUEUED (category=%s pseudonym=%s ip=%s) - CyberTipline report owed (18 USC 2258A)", id, category, pseudonym, ip)
+	// Page the founder on the FIRST preserved incident of this process lifetime (onset dedup;
+	// the CSAM SLA checker pages again if the queue ages past the filing window).
+	b.adminAlert("csam:first-report", "CSAM incident preserved - CyberTipline report owed", "CSAM incident preserved",
+		[][2]string{{"Incident", "#" + strconv.FormatInt(id, 10)}, {"Category", category}, {"Pseudonym", pseudonym}},
+		"A child-exploitation hit was preserved and a CyberTipline report is queued (18 USC 2258A). Drain via GET/POST /admin/csam.")
 }
 
 // warnCSAMBacklog logs a loud WARNING at boot (and is safe to call periodically) when the

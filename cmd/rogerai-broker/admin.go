@@ -183,11 +183,14 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 		"now":              now.Unix(),
 		"health":           health,
 		"infra":            b.infra(),
+		"routing":          b.routingLive(),
 		"marketplace_live": b.liveMarket(now),
 		"seed_funded":      seeded,
 		"seed_limit":       seedLimit,
 		"seed_remaining":   seedRemaining,
 		"fee_rate":         b.feeRate,
 		"stripe_mode":      b.stripeMode(),
+		"email":            b.mail.emailStats(), // the paced send queue: counters + depth per lane
+		"alerts":           b.alertStats(),      // coalesced / deduped / muted onsets
 	})
 }

@@ -5,6 +5,7 @@
 package store
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -133,6 +134,15 @@ type Store interface {
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is
 	// a no-op (no double-refund). This is the relay's deferred release for a HoldFor hold.
 	ReleaseHoldFor(user, requestID string) (newBalance float64, err error)
+	// RekeyHold moves a TRACKED reservation from one request id to another without touching
+	// the wallet or the ledger: the relay's upstream FAILOVER re-dispatches under a new
+	// attempt id (each attempt's receipt is its own row) while the consumer's ONE pre-auth
+	// hold must follow the attempt that finally settles (Finalize claims the hold by the
+	// receipt's request id). A row that is gone (already captured, released, or reclaimed
+	// by the backstop sweep) or not this payer's returns ErrNoPendingHold, so the relay
+	// answers with the failure it has instead of failing over onto a reservation that no
+	// longer exists (which would refund it twice: the sweep's credit and Finalize's).
+	RekeyHold(user, fromRequestID, toRequestID string) error
 	// ReleaseStaleHolds reclaims every pending hold whose placed_at is at or before
 	// olderThan (the deploy-orphan backstop sweep): an instance SIGKILLed mid-relay never
 	// runs its deferred release, stranding the consumer's pre-auth hold. The sweep returns
@@ -514,6 +524,21 @@ type Store interface {
 	// still on file (the retention job's read; evidence outlives the report per 2258A(h)).
 	CSAMContentRetained(id int64) (bool, error)
 
+	// AddModerationFlag RECORDS a block-net verdict (S1/S3/S5/S6) the off-path screener
+	// reached AFTER the relay was served (features/moderation/off_path_screening.feature):
+	// the consumer pseudonym, request id, model, station, category, the broker-SEALED
+	// screened window (ciphertext, never plaintext) and a timestamp. Nothing is enforced
+	// from it; it is the founder's review record. Returns the new flag id.
+	AddModerationFlag(f ModerationFlag) (int64, error)
+	// ModerationFlagsByPseudonym lists one pseudonym's flags created at or after `since`
+	// (unix seconds; 0 = all), newest first, at most `limit` (<=0 = 100) - the repeat-flag
+	// alert count and the admin lookup.
+	ModerationFlagsByPseudonym(pseudonym string, since int64, limit int) ([]ModerationFlag, error)
+	// PurgeModerationFlags deletes flags created at or before olderThan (the review record's
+	// retention horizon; the report retention sweep runs it) and returns how many it removed.
+	// Idempotent.
+	PurgeModerationFlags(olderThan time.Time) (int, error)
+
 	// AddReport persists an abuse/quality report (POST /report). Returns the report id.
 	AddReport(r Report) (int64, error)
 	// PurgeReports deletes report rows past their retention horizon and returns how many
@@ -635,6 +660,11 @@ type Store interface {
 	// Terminal "ban:*" marker strikes are excluded (they are an audit record of the ban,
 	// not an independent signal). `since`<=0 counts all strikes.
 	OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error)
+	// ThrottledCount is the number of a node's receipts the broker voided as
+	// upstream-throttled (an HTTP 429 from the provider behind the station) with a receipt
+	// ts at or after `since` (unix seconds). A throttle is recorded on the $0 receipt, never
+	// as a strike, so this is how the operator's and the admin's views count them apart.
+	ThrottledCount(node string, since int64) (int, error)
 
 	// --- self-serve appeals (ban hardening 3.3) ----------------------------
 	//
@@ -864,6 +894,8 @@ type Mem struct {
 	bannedAt map[string]int64  // node id -> unix when the ban was placed (report-ban auto-expiry)
 	appeals  []Appeal          // owner-filed self-serve appeals (admin review queue)
 	appealID int64             // monotonic appeal id
+	flags    []ModerationFlag  // off-path screener block-net records (sealed window)
+	flagID   int64             // monotonic flag id
 
 	// owner-keyed durable anti-abuse (anti-rotation): strikes carry provable evidence
 	// bound to the OWNER ACCOUNT (owner pubkey), bannedOwners is the durable owner ban
@@ -873,6 +905,10 @@ type Mem struct {
 	strikeID     int64             // monotonic strike id
 	bannedOwners map[string]string // owner pubkey -> ban reason (durable, anti-rotation)
 	accountHold  map[string]int64  // owner pubkey -> unix when all-lots hold was placed (auto-expires)
+	// receipts retains the broker-signed receipt per request id - the in-memory twin of the
+	// Postgres receipts.receipt column, so a void's audit fields (void_reason, upstream_status)
+	// survive on this store too and ThrottledCount / ReceiptOf can read them back.
+	receipts map[string]protocol.UsageReceipt
 
 	// pendingReversals are the durable Stripe Transfer Reversal intents still owed on
 	// disputed already-paid lots, keyed on "reverse:<dispute>:<lot>". The background
@@ -919,6 +955,7 @@ func NewMem() *Mem {
 		chainHead:        map[string]string{},
 		chainBreaks:      map[string]int64{},
 		chainSeen:        map[string]int64{},
+		receipts:         map[string]protocol.UsageReceipt{},
 	}
 }
 
@@ -1054,6 +1091,22 @@ func (m *Mem) SeedLotsForTest(lots []EarningLot) {
 		if l.ID > m.lotID {
 			m.lotID = l.ID
 		}
+	}
+}
+
+// SeedStrikesForTest APPENDS raw owner-strike rows. A deliberate test seam (like
+// SeedLotsForTest) for staging strikes with a created_at the time.Now()-stamped OwnerStrike
+// path cannot produce (the decay-window scenarios need strikes dated outside the window).
+// Never called in production.
+func (m *Mem) SeedStrikesForTest(rows []Strike) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range rows {
+		m.strikeID++
+		if r.ID == 0 {
+			r.ID = m.strikeID
+		}
+		m.strikes = append(m.strikes, r)
 	}
 }
 
@@ -1207,6 +1260,9 @@ func (m *Mem) PeekBalance(wallet string) (float64, error) {
 // only ever <= the claim on each axis (we never inflate a claim), so this can only
 // lower a count, never raise it.
 func billedTokens(rec protocol.UsageReceipt) (promptTok, completionTok int) {
+	if rec.VoidReason == protocol.VoidUpstreamThrottled {
+		return 0, 0 // the provider refused the request: nothing was consumed upstream, whatever the station claims
+	}
 	promptTok = rec.PromptTokens
 	if rec.BrokerPromptTokens > 0 && rec.BrokerPromptTokens < promptTok {
 		promptTok = rec.BrokerPromptTokens
@@ -1270,7 +1326,38 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
+	m.retainReceiptLocked(rec)
 	return m.wallet[user], nil
+}
+
+// retainReceiptLocked keeps the settled receipt by request id (the in-memory twin of the
+// Postgres receipts.receipt column). Caller holds m.mu.
+func (m *Mem) retainReceiptLocked(rec protocol.UsageReceipt) {
+	if rec.RequestID != "" {
+		m.receipts[rec.RequestID] = rec
+	}
+}
+
+// ReceiptOf returns the receipt retained for a request id (the in-memory read of what
+// Postgres keeps in receipts.receipt).
+func (m *Mem) ReceiptOf(requestID string) (protocol.UsageReceipt, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.receipts[requestID]
+	return rec, ok
+}
+
+// ThrottledCount counts a node's receipts voided as upstream-throttled at or after since.
+func (m *Mem) ThrottledCount(node string, since int64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, rec := range m.receipts {
+		if rec.NodeID == node && rec.VoidReason == protocol.VoidUpstreamThrottled && rec.TS >= since {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *Mem) Hold(user string, amount float64) (bool, error) {
@@ -1322,6 +1409,27 @@ func (m *Mem) ReleaseHoldFor(user, requestID string) (float64, error) {
 	return m.wallet[user], nil
 }
 
+// ErrNoPendingHold: RekeyHold found no tracked reservation under the source id for this
+// payer (captured, released, or swept already).
+var ErrNoPendingHold = errors.New("no pending hold to rekey")
+
+// RekeyHold moves the tracked reservation to the failover attempt's id (no wallet/ledger
+// change). See the Store interface.
+func (m *Mem) RekeyHold(user, from, to string) error {
+	if from == to {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ph, ok := m.pendingHolds[from]
+	if !ok || ph.user != user {
+		return ErrNoPendingHold
+	}
+	delete(m.pendingHolds, from)
+	m.pendingHolds[to] = ph
+	return nil
+}
+
 // ReleaseStaleHolds reclaims every pending hold placed at or before olderThan, returning
 // the EXACT held amount to each wallet (the deploy-orphan backstop sweep). Single-actor
 // under m.mu; idempotent (a re-run after a release finds nothing). See the Store interface.
@@ -1370,6 +1478,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
+	m.retainReceiptLocked(rec)
 	return m.wallet[user], nil
 }
 
@@ -1436,6 +1545,7 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	if towerAcct != "" && towerEarn > 0 {
 		m.addLotForAccountLocked(towerNode, towerAcct, rec.RequestID, towerEarn, selfRelayed, time.Now())
 	}
+	m.retainReceiptLocked(rec)
 	return m.wallet[user], nil
 }
 

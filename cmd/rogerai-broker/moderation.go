@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -46,6 +48,13 @@ import (
 //
 // Launch to real public traffic MUST run with a backend set and require=true.
 type moderation struct {
+	// mode is WHERE the chat-relay verdict is applied (ROGERAI_MODERATION_MODE): modeAsync
+	// (default) hands the screened text to the off-path screener and never waits; modeSync is
+	// the legacy in-line gate (451/503 before pick/hold/dispatch), kept revertible; modeOff
+	// never calls the classifier. See features/moderation/off_path_screening.feature. The
+	// other screens (concierge, TTS, STT, voice registration) keep their synchronous
+	// screen() regardless of mode.
+	mode     string
 	provider string // "" / "url" / "groq" (resolved at load)
 	url      string
 	require  bool
@@ -75,7 +84,8 @@ type moderation struct {
 // status is the HTTP code to reject with (451 flagged / 503 fail-closed). csam is true
 // ONLY for a child-exploitation hit (a matched csamCats category), which the relay must
 // PRESERVE + QUEUE for a CyberTipline report rather than silently discard; category is
-// the matched category string (for the incident record + log).
+// the matched category string (the CSAM category, or the block-net codes joined by ","),
+// for the incident / flag record + log.
 type modResult struct {
 	status   int
 	msg      string
@@ -235,15 +245,40 @@ var blockNetCategoryCodes = map[string]bool{
 // Override (replace) with ROGERAI_CSAM_CATEGORIES.
 var defaultCSAMCategories = []string{"s4", "sexual/minors"}
 
+// Chat-relay moderation modes (ROGERAI_MODERATION_MODE).
+const (
+	modeAsync = "async" // off-path, best-effort (the default)
+	modeSync  = "sync"  // legacy synchronous gate
+	modeOff   = "off"   // never call the classifier
+)
+
+// loadModerationMode parses ROGERAI_MODERATION_MODE: unset/empty is the async default; an
+// unknown value is a boot error (fail closed on a typo rather than silently picking a mode).
+func loadModerationMode(v string) (string, error) {
+	switch m := strings.ToLower(strings.TrimSpace(v)); m {
+	case "":
+		return modeAsync, nil
+	case modeAsync, modeSync, modeOff:
+		return m, nil
+	default:
+		return "", fmt.Errorf("ROGERAI_MODERATION_MODE=%q is not valid: use %q (default), %q, or %q", v, modeAsync, modeSync, modeOff)
+	}
+}
+
 func loadModeration() moderation {
+	mode, err := loadModerationMode(os.Getenv("ROGERAI_MODERATION_MODE"))
+	if err != nil {
+		log.Fatalf("MODERATION: %v", err)
+	}
 	m := moderation{
+		mode:     mode,
 		provider: strings.ToLower(strings.TrimSpace(os.Getenv("MODERATION_PROVIDER"))),
 		url:      os.Getenv("MODERATION_URL"),
 		require:  os.Getenv("ROGERAI_REQUIRE_MODERATION") == "1",
 		// The safeguard model is a 20B reasoning classifier; give it more headroom than a
 		// tiny Llama Guard pass needed (reasoning tokens count) so a legitimate verdict is
 		// not cut off into a fail-open/closed on every request.
-		client: &http.Client{Timeout: 12 * time.Second},
+		client: &http.Client{Timeout: envDuration("ROGERAI_MODERATION_TIMEOUT", 12*time.Second)},
 
 		// Dedicated moderation key (MODERATION_GROQ_KEY) so guard traffic is attributable +
 		// rate-limited separately from the concierge's GROQ_API_KEY; fall back to the shared
@@ -389,25 +424,64 @@ func (m moderation) screen(text string) modResult {
 	if m.provider == "groq" {
 		return m.screenGroq(text)
 	}
-	body, _ := json.Marshal(map[string]string{"input": text})
-	resp, err := m.client.Post(m.url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		if m.require {
-			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
-		}
-		log.Printf("MODERATION: screen unreachable (%v), failing open (require=false)", err)
-		return modResult{}
+	res, cerr := m.urlCall(context.Background(), text)
+	if cerr != nil {
+		return m.urlFailMode(cerr) // INFRA OUTAGE (no verdict at all) -> the require posture, unchanged
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	return res
+}
+
+// urlNoVerdict is the outage class of a 200 whose body carries no recognizable verdict.
+const urlNoVerdict = "no parseable verdict"
+
+// urlFailMode is the SYNCHRONOUS gate's posture for a URL-backend outage: 503 (fail-closed)
+// under require=1, else fail OPEN with a loud line. Messages and log lines are the ones the
+// in-line gate has always emitted; only the off-path screener bypasses this (it retries).
+func (m moderation) urlFailMode(cerr *classifierErr) modResult {
+	switch {
+	case cerr.status != 0:
 		if m.require {
 			return modResult{status: http.StatusServiceUnavailable, msg: "content screening error"}
 		}
 		// Fail-open path: log every skipped incident so it is recorded for review
 		// (matches the groq backend's fail-open log). Policy is unchanged - REQUIRE
 		// still controls open vs closed; this only guarantees the log.
-		log.Printf("MODERATION: screen returned HTTP %d, failing open (require=false)", resp.StatusCode)
-		return modResult{}
+		log.Printf("MODERATION: screen returned HTTP %d, failing open (require=false)", cerr.status)
+	case cerr.what == urlNoVerdict:
+		if m.require {
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
+		}
+		log.Printf("MODERATION: screen returned a 200 with no parseable verdict, failing open (require=false)")
+	default:
+		if m.require {
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
+		}
+		log.Printf("MODERATION: screen unreachable (%v), failing open (require=false)", cerr.err)
+	}
+	return modResult{}
+}
+
+// urlCall issues ONE classification call to the MODERATION_URL adapter and returns the
+// decision, or a classifierErr on an INFRA OUTAGE (transport error, non-200, or a 200 with
+// no parseable verdict - NO verdict at all). Split from screen() the way groqCall is, so the
+// off-path screener sees the outage class (status + Retry-After) and backs off / retries /
+// pages exactly as it does for Groq - instead of inheriting the synchronous gate's
+// require=false fail-open, which counted an adapter outage as "screened" (audit finding).
+func (m moderation) urlCall(ctx context.Context, text string) (modResult, *classifierErr) {
+	body, _ := json.Marshal(map[string]string{"input": text})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.url, bytes.NewReader(body))
+	if err != nil {
+		return modResult{}, &classifierErr{what: "build request", err: err}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return modResult{}, &classifierErr{what: "transport", err: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return modResult{}, &classifierErr{what: fmt.Sprintf("status %d %s", resp.StatusCode, http.StatusText(resp.StatusCode)), status: resp.StatusCode,
+			retryAfter: parseRetryAfter(strings.TrimSpace(resp.Header.Get("Retry-After")), time.Now())}
 	}
 	// Accept the OpenAI Moderation shape {"results":[{"flagged":bool,"categories":{...}}]}
 	// and a simpler adapter shape {"flagged":bool} (e.g. a Llama Guard wrapper). The
@@ -423,16 +497,12 @@ func (m moderation) screen(text string) modResult {
 	}
 	// A 200 MUST carry a recognizable verdict (a top-level "flagged" OR a "results" array).
 	// An empty / HTML / error-JSON body (a proxy truncation, adapter outage, or API-shape
-	// drift) decodes to neither and is screen-UNAVAILABLE, NOT an implicit ALLOW: apply the
-	// require posture, mirroring the non-200 branch and screenGroq's empty-verdict fail-closed
-	// (audit #8 - the URL backend used to pass such a body straight through, sending an
-	// unscreened prompt on to the provider even under require=1).
+	// drift) decodes to neither and is screen-UNAVAILABLE, NOT an implicit ALLOW (audit #8 -
+	// the URL backend used to pass such a body straight through, sending an unscreened
+	// prompt on to the provider even under require=1). The gate applies its require posture
+	// (urlFailMode); the off-path screener retries it.
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || (out.Flagged == nil && out.Results == nil) {
-		if m.require {
-			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
-		}
-		log.Printf("MODERATION: screen returned a 200 with no parseable verdict, failing open (require=false)")
-		return modResult{}
+		return modResult{}, &classifierErr{what: urlNoVerdict, err: err}
 	}
 	flagged := out.Flagged != nil && *out.Flagged
 	cats := out.Categories
@@ -459,11 +529,11 @@ func (m moderation) screen(text string) modResult {
 			log.Printf("MODERATION: blocked (categories: %s)", hit)
 		}
 		if csam, cat := m.isCSAM(matched); csam {
-			return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", csam: true, category: cat}
+			return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", csam: true, category: cat}, nil
 		}
-		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy"}
+		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", category: strings.Join(matched, ",")}, nil
 	}
-	return modResult{}
+	return modResult{}, nil
 }
 
 // screenGroq screens text with the Groq-hosted safeguard model over Groq's OpenAI-compatible
@@ -479,38 +549,88 @@ func (m moderation) screen(text string) modResult {
 //   - an INFRA OUTAGE (no verdict at all - transport/non-200/empty) -> FAIL OPEN + loud log,
 //     even under require=1 (groqVerdict/groqFailMode). Caller short-circuited empty input.
 func (m moderation) screenGroq(text string) modResult {
-	verdict, out := m.groqVerdict(text, moderationPolicy)
-	if out != nil {
-		return *out // INFRA OUTAGE (no verdict at all) -> fail-open + loud log (already logged)
+	res, cerr := m.classify(context.Background(), text)
+	if cerr != nil {
+		return m.groqFailMode(cerr.what, cerr.err) // INFRA OUTAGE (no verdict at all) -> fail-open + loud log
+	}
+	return res
+}
+
+// classifierErr is a classifier OUTAGE - NO verdict at all (transport error, non-200, empty
+// content). what names the class ("transport", "status Too Many Requests", "empty verdict"),
+// status carries the HTTP code when there was one (429 / 5xx drive the off-path backoff), and
+// retryAfter is the parsed Retry-After header when the classifier sent one. The synchronous
+// screen turns it into groqFailMode; the off-path screener backs off and retries instead.
+type classifierErr struct {
+	what       string
+	status     int
+	retryAfter time.Duration
+	err        error
+}
+
+// classify runs the FULL verdict policy for one text and returns the decision, or a
+// classifierErr when the classifier produced no verdict at all. This is the one policy both
+// the synchronous gate (screenGroq) and the off-path screener apply - it is never duplicated:
+//   - a CLEAR block-net code (S1/S3/S4/S5/S6, S4 CSAM) -> 451 (decideVerdict);
+//   - a pass-log code (S2/S7/S8) -> ALLOW + telemetry;
+//   - a MALFORMED verdict (no valid S1-S8 code, not "safe") -> retry ONCE with the tightened
+//     prompt, then lean-pass - unless a CSAM token is present anywhere, which ALWAYS blocks.
+func (m moderation) classify(ctx context.Context, text string) (modResult, *classifierErr) {
+	verdict, cerr := m.groqCall(ctx, text, moderationPolicy)
+	if cerr != nil {
+		return modResult{}, cerr
 	}
 	if res, decided := m.decideVerdict(verdict); decided {
-		return res
+		return res, nil
 	}
 	// MALFORMED (reliability fix R3): a non-empty verdict with no valid S1-S8 code and not a
 	// clean "safe" (and no CSAM signal - decideVerdict would have blocked that first). Retry ONCE
 	// with a tightened re-prompt before deciding. This is the aider/ai-benchy incident fix - a
 	// summary/refusal/rambling verdict no longer fails toward blocking a benign coding request.
 	log.Printf("MODERATION: malformed safeguard verdict (%.60q), retrying once with a tightened prompt", verdict)
-	retry, out2 := m.groqVerdict(text, moderationPolicy+moderationRetrySuffix)
-	if out2 != nil {
-		return *out2
+	retry, cerr := m.groqCall(ctx, text, moderationPolicy+moderationRetrySuffix)
+	if cerr != nil {
+		return modResult{}, cerr
 	}
 	if res, decided := m.decideVerdict(retry); decided {
-		return res
+		return res, nil
 	}
 	// Still no valid code after the retry (a present CSAM signal on either pass would already
 	// have blocked in decideVerdict, so this is genuinely code-less). Lean-pass: ALLOW, logged so
 	// the malformed classifier output stays auditable.
 	log.Printf("MODERATION: still-malformed safeguard verdict after retry (%.60q), passing (lean-pass)", retry)
-	return modResult{}
+	return modResult{}, nil
 }
 
-// groqVerdict issues ONE classification call with the given system policy and returns the
-// trimmed message.content verdict. On an INFRA OUTAGE (transport error, non-200, or empty
-// content - NO verdict at all) it returns a non-nil fail-open modResult (via groqFailMode) and
-// an empty verdict, so the caller returns it directly. The screened text is wrapped in explicit
+// classifyOffPath is the off-path screener's entry: the groq policy above, or the URL
+// adapter call. Both report an outage as a retryable classifierErr (never the synchronous
+// gate's require posture), so the worker's backoff / stale-drop / moderation_down logic is
+// identical on either backend. The screener enables itself only when configured() holds and
+// never queues empty text, so neither of screen()'s short-circuits applies here.
+func (m moderation) classifyOffPath(ctx context.Context, text string) (modResult, *classifierErr) {
+	if m.provider == "groq" {
+		return m.classify(ctx, text)
+	}
+	return m.urlCall(ctx, text)
+}
+
+// configured reports whether a classifier backend is fully configured (a provider AND its
+// credential / URL) - the off-path screener enables itself only then.
+func (m moderation) configured() bool {
+	switch m.provider {
+	case "url":
+		return m.url != ""
+	case "groq":
+		return m.groqKey != ""
+	}
+	return false
+}
+
+// groqCall issues ONE classification call with the given system policy and returns the
+// trimmed message.content verdict, or a classifierErr on an INFRA OUTAGE (transport error,
+// non-200, or empty content - NO verdict at all). The screened text is wrapped in explicit
 // data delimiters (wrapForClassification) so an agent payload cannot hijack the classifier (R1).
-func (m moderation) groqVerdict(text, policy string) (string, *modResult) {
+func (m moderation) groqCall(ctx context.Context, text, policy string) (string, *classifierErr) {
 	payload := map[string]any{
 		"model": m.groqModel,
 		"messages": []map[string]any{
@@ -526,22 +646,20 @@ func (m moderation) groqVerdict(text, policy string) (string, *modResult) {
 		"stream":           false,
 	}
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, m.groqURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.groqURL, bytes.NewReader(body))
 	if err != nil {
-		r := m.groqFailMode("build request", err)
-		return "", &r
+		return "", &classifierErr{what: "build request", err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+m.groqKey)
 	resp, err := m.client.Do(req)
 	if err != nil {
-		r := m.groqFailMode("transport", err)
-		return "", &r
+		return "", &classifierErr{what: "transport", err: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		r := m.groqFailMode("status "+http.StatusText(resp.StatusCode), nil)
-		return "", &r
+		return "", &classifierErr{what: fmt.Sprintf("status %d %s", resp.StatusCode, http.StatusText(resp.StatusCode)), status: resp.StatusCode,
+			retryAfter: parseRetryAfter(strings.TrimSpace(resp.Header.Get("Retry-After")), time.Now())}
 	}
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	// VERIFIED LIVE (Groq, openai/gpt-oss-safeguard-20b, 2026-06-27): with moderationPolicy
@@ -550,8 +668,7 @@ func (m moderation) groqVerdict(text, policy string) (string, *modResult) {
 	// So we parse content ONLY. An EMPTY content is treated as an outage (no verdict at all).
 	verdict := strings.TrimSpace(contentText(rb))
 	if verdict == "" {
-		r := m.groqFailMode("empty verdict", nil)
-		return "", &r
+		return "", &classifierErr{what: "empty verdict"}
 	}
 	return verdict, nil
 }
@@ -590,7 +707,7 @@ func (m moderation) decideVerdict(verdict string) (modResult, bool) {
 	}
 	if len(block) > 0 {
 		log.Printf("MODERATION: blocked by safeguard (categories: %s)", strings.Join(block, ", "))
-		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy"}, true
+		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", category: strings.Join(block, ",")}, true
 	}
 	if len(passLog) > 0 {
 		for _, c := range passLog {

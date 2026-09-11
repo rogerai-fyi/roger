@@ -121,9 +121,10 @@ func (s *modState) csamCategoriesOverride() error {
 
 // --- When -------------------------------------------------------------------
 
-func (s *modState) requestScreened() error { s.result = s.m.screen("a prompt to screen"); return nil }
-func (s *modState) brokerStarts() error    { s.result = s.m.screen("a prompt to screen"); return nil }
-func (s *modState) backendResolved() error { return nil } // loadModeration already resolved m.provider
+func (s *modState) modeIs(mode string) error { s.m.mode = mode; return nil }
+func (s *modState) requestScreened() error   { s.result = s.m.screen("a prompt to screen"); return nil }
+func (s *modState) brokerStarts() error      { s.result = s.m.screen("a prompt to screen"); return nil }
+func (s *modState) backendResolved() error   { return nil } // loadModeration already resolved m.provider
 func (s *modState) verdictCarriesCategory() error {
 	s.isCsam, _ = s.m.isCSAM([]string{"KiDDo"}) // configured category, mixed case
 	return nil
@@ -249,6 +250,7 @@ func TestModerationBDD(t *testing.T) {
 			sc.Step(`^MODERATION_URL is set and MODERATION_PROVIDER is empty$`, st.urlSetProviderEmpty)
 			sc.Step(`^MODERATION_GROQ_KEY \(or GROQ_API_KEY\) is set, no MODERATION_URL, provider empty$`, st.groqKeyNoURL)
 			sc.Step(`^ROGERAI_CSAM_CATEGORIES overrides the default category set$`, st.csamCategoriesOverride)
+			sc.Step(`^the moderation mode is "([^"]*)"$`, st.modeIs)
 			// When
 			sc.Step(`^a relay request is screened$`, st.requestScreened)
 			sc.Step(`^the broker starts$`, st.brokerStarts)

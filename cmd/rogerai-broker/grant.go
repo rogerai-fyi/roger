@@ -149,8 +149,11 @@ type streamBill struct {
 	// owner's mid-engagement price hike would not be held back on the streaming path.
 	consumer string
 	model    string
-	pricing  pricingPlan
 	grantID  string
+	// screening is the off-path screening job for this request (nil when nothing was
+	// queued); each streaming attempt names its station on it so an after-the-fact flag
+	// records the station that served, not the first pick.
+	screening *screenJob
 }
 
 // resolvePricing decides who pays and at what price for one request:
