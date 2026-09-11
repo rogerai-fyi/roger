@@ -177,6 +177,23 @@
 @media (max-width: 1000px) { .deployment-grid:has(> article:nth-child(8)) { grid-template-columns: 1fr 1fr; } } /* 4x2 -> 2x4, never a cramped four */
 .deployment-grid b { color: var(--ink-900); }
 .deployment-grid p { margin-bottom: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+/* the representative shot: bleeds to the card's outer edge (the article still owns the
+   padding, so the image cancels it on three sides), generic industry photography - not
+   the NDA'd engagements the section text is careful never to name. Credit rides ON the
+   photograph, same convention as the hardware board shots on research-hardware.html. */
+.deployment-grid__shot { margin: calc(var(--s-5) * -1) calc(var(--s-5) * -1) var(--s-4); position: relative; }
+.deployment-grid__shot img {
+  display: block; width: 100%; height: auto; aspect-ratio: 4 / 3;
+  object-fit: cover; background: var(--paper-2);
+}
+.deployment-grid__credit {
+  position: absolute; right: 0; bottom: 0; padding: 3px 7px;
+  background: rgba(21, 20, 15, .62); color: #fff;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: .03em;
+  border-top-left-radius: 4px;
+}
+.deployment-grid__credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.deployment-grid__credit a:hover { color: var(--paper-3); }
 .device-contract { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s-6); background: var(--paper-2); }
 .device-contract p { margin: 0; padding: var(--s-5); border-right: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract p:last-child { border-right: 0; }

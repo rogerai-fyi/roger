@@ -3,8 +3,8 @@
    Hero + the Ping concierge deck, the terminal demo, the two-way
    share/tune plates, the spec sheet, operating notes, the money meter,
    monetize, the CTA strip, the live signal tower / market, the money row,
-   the homepage hero-foundation overrides, the band teaser (FIG.2) and the
-   small /models entry link. The shared eyebrow line, the .ping mascot
+   the homepage hero-foundation overrides, the Roger Edge story reel (FIG.2)
+   and the small /models entry link. The shared eyebrow line, the .ping mascot
    shape + animations, the install command box, .market__refresh, the
    ((.)) beacon and .hero__dot live in base.css. Consumes tokens.css +
    base.css. Rules MOVED verbatim from site.css, in source order.
@@ -19,8 +19,9 @@
   display: flex; flex-direction: column; align-items: flex-start; text-align: left;
   padding-top: clamp(56px, 11vh, 104px); padding-bottom: var(--s-16);
 }
-/* the hero is now one left-bound column: eyebrow -> title -> subhead -> Ping ->
-   FIG.1 command -> FIG.2 teaser, all in the document grid. */
+/* the hero is a left-bound document: .hero__grid (eyebrow/title/subhead/Labs
+   proof beside FIG.1 install + Ping once there's room, single column below
+   it) then FIG.2, the Roger Edge story reel. */
 .hero__inner { padding-bottom: var(--s-16); }
 .hero__title {
   font-size: var(--t-display); line-height: var(--lh-tight);
@@ -62,11 +63,35 @@
 }
 .hero__proof b { color: var(--ink-900); }
 .hero__proof:hover, .hero__proof:focus-visible { color: var(--live); }
-/* Keep the conversion control above the optional concierge at every height.
-   Flex order avoids duplicating or moving the accessible source markup. */
-.install { order: 1; }
-.hero__ping { order: 2; }
-.teaser { order: 3; }
+/* Two columns above FIG.2 once there's room: .hero__copy (the narrative -
+   eyebrow, headline, subhead, Labs proof) beside .hero__tools (the two
+   things a visitor actually does - FIG.1 the install command, then Ping
+   stacked under it). Same information, same source order, as the old
+   single stacked column; this only changes layout, so FIG.2 sits higher on
+   the page once the columns fit side by side. Below the breakpoint it's a
+   single column top to bottom, same as before. */
+.hero__grid { display: grid; grid-template-columns: 1fr; gap: var(--s-8); }
+/* 1400px, not the usual breakpoint scale: below it there isn't enough room
+   for both the headline's nowrap "decentralized Models" at full display
+   size AND a install column wide enough not to truncate the command, and
+   shrinking either one was worse than just keeping the single column until
+   there's genuinely space (the .hero__inner width bump below is sized to
+   this exact breakpoint - narrower and the columns fight for the same
+   pixels the widened wrap was added to give them). */
+@media (min-width: 1400px) {
+  .hero__inner { max-width: 1300px; }
+  .hero__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+    gap: var(--s-10); align-items: start;
+  }
+  .hero__tools .install { margin-top: 0; }
+  /* the 460px column is still narrower than the command's natural width at
+     1rem - install__code already ellipsis-truncates gracefully rather than
+     breaking layout, but the whole point of this figure is a command a
+     visitor can read, so shrink it back to fully legible instead of
+     leaning on that fallback. */
+  .hero__tools .install__code { font-size: 0.85rem; }
+}
 @media (min-width: 641px) and (max-height: 800px) {
   .hero__inner { padding-top: 42px; }
   .hero__sub, .hero__proof { margin-top: var(--s-4); }
@@ -992,126 +1017,136 @@ html.js .mkt-quiet--nojs { display: none; }
 .market__tune a:hover { color: var(--live); border-bottom-color: var(--live); }
 
 /* =====================================================================
-   FIG.2 (homepage) - the BAND TEASER. A COMPACT fake-dial tuner: a short
-   frequency strip (notches + labels) under a fixed center needle, that
-   AUTO-sweeps + re-locks band to band (teaser.js, shared rAF on --carrier).
-   It links into /models.html (where the full INTERACTIVE dial lives, real
-   data). Marketing surface: representative data, gentle motion. Whole thing
-   is one <a>. Flat hairline plate, monochrome + the one red lock line. The
-   --lock (0..1, detent glow) + --sig (0..1, signal meter) vars are driven by
-   teaser.js; pre-seeded inline so JS-off / reduced-motion looks locked.
+   FIG.2 (homepage) - the ROGER EDGE STORY REEL. Two brand films playing
+   back to back on a loop (edge-story.js), muted with an optional sound
+   toggle. Power-on/off is an old CRT set: the picture unfolds from (and
+   collapses to) a bright center line, keyed to scroll via a repeating
+   IntersectionObserver. reel--fx (the clip-path machinery) is added by JS
+   only when motion is allowed - without it, or with JS off, the video is
+   just a plain looping film, never a set stuck "off". Flat hairline plate,
+   same left edge + max-width as FIG.1 (640px).
    ===================================================================== */
-/* FIG.2 sits BELOW the install command and shares its left edge + max-width
-   (640px, left-bound, no auto-centering). It is smaller than the old full-bleed
-   teaser: a short strip + compact rows. */
-.teaser {
-  display: block; max-width: 640px; width: 100%; margin: var(--s-8) 0 0;
-  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
-  background: var(--paper); text-decoration: none; color: inherit;
-  transition: border-color var(--d-2), box-shadow var(--d-2);
+.reel { display: block; max-width: 640px; width: 100%; margin: var(--s-8) 0 0; }
+.reel__bridge {
+  margin: 0 0 var(--s-2); font-family: var(--font-mono); font-size: var(--t-xs);
+  color: var(--ink-500); letter-spacing: -.01em; line-height: 1.4;
 }
-.teaser:hover { border-color: var(--ink-400); }
-.teaser:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--live-glow); border-top-color: var(--live); }
-.teaser__fig { display: block; padding: var(--s-3) var(--s-4) 0; }
-/* the honest, casual bridge line (these are representative models, not strictly
-   live) - sits under the FIG label, inside the plate's left padding. */
-.teaser__bridge {
-  margin: 0; padding: 2px var(--s-4) 0;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
-  letter-spacing: -.01em; line-height: 1.4;
-}
-.teaser__face { padding: var(--s-2) 0 0; --lock: 1; --sig: 0.87; }
-.teaser__top {
-  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
-  padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--hairline);
-}
-.teaser__locked { font-size: 0.82rem; color: var(--ink-900);
-  font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em; transition: color var(--d-2); }
-.teaser__locked b { color: var(--live); font-weight: var(--weight-semi); }
-.teaser__sig { font-size: 0.74rem; color: var(--ink-500); white-space: nowrap;
-  font-variant-numeric: tabular-nums slashed-zero; }
-.teaser__sig b { color: var(--live); font-weight: var(--weight-semi); }
+.reel__bridge a { color: var(--ink-700); border-bottom: 1px solid var(--hairline-2); }
+.reel__bridge a:hover { color: var(--live); border-bottom-color: var(--live); }
 
-/* the dial face: the auto-sweeping spectrum strip + fixed needle + glass +
-   a bottom signal meter that reacts to --sig. Compact (short height). */
-.teaser__dial { position: relative; background: var(--paper-2);
-  border-bottom: 1px solid var(--hairline); }
-.teaser__svgwrap { position: relative; overflow: hidden; padding: var(--s-2) 0 0;
-  background: linear-gradient(var(--paper) 0, var(--paper-2) 100%); }
-.teaser__svg { display: block; width: 100%; height: 58px; }
-@media (max-width: 560px) { .teaser__svg { height: 52px; } }
-.teaser__tick { transition: stroke .25s ease; }
-.teaser__pip { transition: fill .25s ease; }
-.teaser__lbl { opacity: .5; transition: opacity .25s ease, fill .2s ease; }
-.teaser__lbl--on { opacity: 1; fill: var(--live); font-weight: var(--weight-semi); }
-/* fixed red needle, dead center, with a soft lock-glow that brightens at a
-   detent (--lock -> 1). transform/opacity only. */
-.teaser__needle {
-  position: absolute; left: 50%; top: var(--s-2); bottom: 20px;
-  width: 2px; margin-left: -1px; background: var(--live);
-  box-shadow: 0 0 calc(2px + var(--lock) * 6px) var(--live-glow);
-  pointer-events: none;
+/* EXPERIMENT: the screen breaks out to the full content width (spine to
+   viewport edge). A plain sibling of .wrap - not a 100vw/-50vw bleed, which
+   overshoots on this page because body is inset by the fixed spine rather
+   than centered on the raw viewport (see .dialwrap in models.css, same bug,
+   same fix). position:relative so the mute button can overlay the screen's
+   corner despite being its DOM sibling, not its child (see the button's own
+   comment in index.html for why it isn't nested inside .reel__screen). */
+.reel-band { position: relative; width: 100%; margin-top: var(--s-6); }
+.reel__screen {
+  position: relative; overflow: hidden; background: #050505; cursor: pointer;
+  aspect-ratio: 1280 / 544;
+  border-top: 2px solid var(--ink-900); border-bottom: 2px solid var(--ink-900);
 }
-.teaser__needle::before, .teaser__needle::after {
-  content: ""; position: absolute; left: 50%; width: 8px; height: 8px;
-  margin-left: -4px; background: var(--live); transform: rotate(45deg);
-  opacity: calc(.35 + var(--lock) * .65);
+.reel__screen:focus-visible {
+  outline: none; box-shadow: inset 0 0 0 3px var(--live-glow);
 }
-.teaser__needle::before { top: -4px; }
-.teaser__needle::after  { bottom: -4px; }
-/* glass: a center detent column + faint scanlines + side vignette */
-.teaser__glass { position: absolute; inset: 0; pointer-events: none;
-  background:
-    linear-gradient(90deg, transparent calc(50% - 20px), var(--live-wash) 50%, transparent calc(50% + 20px)),
-    repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,.018) 3px),
-    linear-gradient(90deg, var(--paper) 0, transparent 10%, transparent 90%, var(--paper) 100%);
-  opacity: calc(.5 + var(--lock) * .5);
-}
-/* the signal meter along the dial bottom, reacting to --sig */
-.teaser__dial::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
-  background:
-    linear-gradient(90deg, var(--live) 0, var(--live) calc(var(--sig) * 100%), transparent calc(var(--sig) * 100%)),
-    var(--hairline-2);
-  background-clip: padding-box;
+.reel__video {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+  object-fit: cover; background: #050505;
 }
 
-.teaser__list { list-style: none; margin: 0; padding: 4px 0; }
-.teaser__band {
-  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
-  padding: 4px var(--s-4); font-family: var(--font-mono); font-size: 0.72rem;
-  color: var(--ink-500); border-left: 2px solid transparent;
-  transition: color var(--d-2), background var(--d-2), border-color var(--d-2);
-}
-.teaser__band .teaser__bm { color: var(--ink-700); letter-spacing: -0.01em; }
-.teaser__band .teaser__bd { color: var(--ink-400); font-variant-numeric: tabular-nums slashed-zero; }
-.teaser__band--idle { opacity: .6; }
-.teaser__band--idle .teaser__bd { font-style: italic; }
-.teaser__band.is-locked {
-  background: var(--live-tint); border-left-color: var(--live);
-}
-.teaser__band.is-locked .teaser__bm { color: var(--ink-900); font-weight: var(--weight-semi); }
-.teaser__band.is-locked .teaser__bd { color: var(--live); }
+/* THE SET. reel--fx hands sizing to JS: the screen's own HEIGHT collapses to
+   a thin bright line and back, not an internal clip over a box that stays
+   full-size - so an "off" set actually gives the page its space back, and
+   the video itself visibly compresses into that line (object-fit: cover
+   keeps it filling whatever height remains) rather than a synthetic bar
+   standing in for it. --reel-full-h is measured off the rendered width by
+   edge-story.js (the aspect ratio survives even once height stops being
+   CSS-derived); --reel-collapsed-h is a real custom property (not just a
+   var() fallback) so the calc() below can subtract it reliably.
 
-.teaser__foot {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: var(--s-2) var(--s-4); padding: var(--s-2) var(--s-4);
-  border-top: 1px solid var(--hairline); font-family: var(--font-mono); font-size: 0.7rem;
+   The two directions collapse asymmetrically, on purpose. Powering ON keeps
+   the top edge fixed and grows the height downward, pushing the page below
+   it down (a normal expand). Powering OFF is TWO motions (see the keyframes'
+   own comment): first the top edge slides down to meet a held bottom edge
+   (margin-top grows exactly as height shrinks, so their sum - the total
+   footprint - holds constant), matching the downward pull of a scroll-down
+   exit instead of fighting it; only once fully shut does the thin line
+   retract back up (margin-top eases to 0) to actually give the page its
+   space back, so the video never leaves a permanently-reserved gap sitting
+   above it at rest. margin-top is deliberately left unmentioned in
+   reelPowerOn's early keyframes (rather than pinned to 0) so it picks up
+   the CSS animation "underlying value" rule: it continues smoothly from
+   wherever reelPowerOff left it if power-on interrupts a still-running
+   power-off, instead of jumping. */
+.reel--fx .reel__screen {
+  aspect-ratio: auto; --reel-collapsed-h: 6px; height: var(--reel-collapsed-h);
+  filter: saturate(0); box-shadow: 0 0 0 0 rgba(255,255,255,0);
 }
-.teaser__chip { display: inline-flex; gap: var(--s-3); align-items: center; color: var(--ink-500);
-  font-variant-numeric: tabular-nums slashed-zero; }
-.teaser__chip b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.teaser__chip .meter__k { margin-right: 4px; color: var(--ink-400); }
-.teaser__open { color: var(--ink-700); border-bottom: 1px solid transparent; transition: color var(--d-2), border-color var(--d-2); }
-.teaser:hover .teaser__open { color: var(--live); border-bottom-color: var(--live); }
-@media (max-width: 480px) { .teaser__open { display: none; } }
-
-/* reduced-motion: static, pre-locked on the strongest band (teaser.js does not
-   start the sweep). No transitions / no lock-glow pulse. */
+.reel--fx.is-on .reel__screen { height: var(--reel-full-h, 400px); margin-top: 0; filter: none; }
+.reel--fx.is-powering-on .reel__screen {
+  animation: reelPowerOn .85s cubic-bezier(.2,.8,.3,1) forwards;
+}
+.reel--fx.is-powering-off .reel__screen {
+  animation: reelPowerOff .78s cubic-bezier(.6,0,.85,.25) forwards;
+}
+@keyframes reelPowerOn {
+  0%   { height: var(--reel-collapsed-h); filter: brightness(3.6) saturate(0);
+         box-shadow: 0 0 46px 14px rgba(255,255,255,.85); }
+  45%  { height: var(--reel-collapsed-h); filter: brightness(5) saturate(0);
+         box-shadow: 0 0 64px 20px rgba(255,255,255,.95); }
+  70%  { height: var(--reel-full-h, 400px); margin-top: 0; filter: brightness(2.2) saturate(.35);
+         box-shadow: 0 0 20px 4px rgba(255,255,255,.3); }
+  100% { height: var(--reel-full-h, 400px); margin-top: 0; filter: none;
+         box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+}
+/* Two motions, not one: first the top edge slides DOWN to meet a fixed
+   bottom edge (margin-top grows exactly as height shrinks, so their sum -
+   the box's total footprint - holds at --reel-full-h the whole time: this
+   is the "pulling the top down" collapse). Only once it's fully shut does
+   the now-thin line retract back up (margin-top eases back to 0) to
+   actually give the page its space back. Splitting it this way is what
+   makes both true at once: the collapse reads as top-down (matching the
+   downward pull of a scroll-down exit) instead of the page snapping up the
+   instant it shuts, AND the page still ends up with the space reclaimed
+   (never a permanently-reserved gap sitting above a thin idle line). */
+@keyframes reelPowerOff {
+  0%   { height: var(--reel-full-h, 400px); margin-top: 0; filter: none;
+         box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+  25%  { height: var(--reel-full-h, 400px); margin-top: 0; filter: brightness(1.7) saturate(.4);
+         box-shadow: 0 0 16px 3px rgba(255,255,255,.25); }
+  55%  { height: var(--reel-collapsed-h); margin-top: calc(var(--reel-full-h, 400px) - var(--reel-collapsed-h));
+         filter: brightness(5) saturate(0); box-shadow: 0 0 64px 18px rgba(255,255,255,.9); }
+  100% { height: var(--reel-collapsed-h); margin-top: 0;
+         filter: brightness(1) saturate(0); box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .teaser__tick, .teaser__pip, .teaser__lbl, .teaser__locked { transition: none; }
-  .teaser__needle { box-shadow: none; }
+  /* belt-and-suspenders: JS already gates reel--fx behind the same query and
+     never applies it here, but if that ever drifts, this keeps the set from
+     getting stuck collapsed with no animation left to open it. */
+  .reel--fx .reel__screen { height: var(--reel-full-h, auto); margin-top: 0; filter: none; animation: none; }
 }
+/* the channel tag: which half of the reel is airing right now */
+.reel__tag {
+  position: absolute; left: 0; bottom: 0; padding: 4px 10px;
+  background: rgba(5,5,5,.66); color: #fff; font-size: 10px; letter-spacing: .08em;
+  border-top-right-radius: 3px; opacity: .85;
+}
+
+/* overlaid on the screen's opposite corner, not a block below it - the
+   screen now runs edge to edge, so anything "under" it would too. */
+.reel__mute {
+  position: absolute; right: var(--gutter); bottom: 12px; z-index: 1;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border: 1px solid rgba(255,255,255,.35); background: rgba(5,5,5,.66);
+  color: rgba(255,255,255,.8); font-family: var(--font-mono); font-size: var(--t-xs);
+  cursor: pointer; transition: color var(--d-2), border-color var(--d-2);
+}
+.reel__mute:hover, .reel__mute:focus-visible { color: #fff; border-color: #fff; }
+.reel__mute .reel__icon--sound { display: none; }
+.reel__mute.is-unmuted .reel__icon--muted { display: none; }
+.reel__mute.is-unmuted .reel__icon--sound { display: block; }
+.reel__mute.is-unmuted { color: var(--live); border-color: var(--live); }
 
 /* Per-model $-tier on the market teaser price cell: a NEUTRAL "$".."$$$$" read of the
    model's BEST price vs the going rate, + a "good price" chip on the cheapest tier ONLY.
