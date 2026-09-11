@@ -379,6 +379,7 @@
     stopShimmer();
     rendered = [];
     listEl.classList.remove("is-stale");
+    heads = null; // the old nodes are gone, same as paint() - see tick()
     listEl.innerHTML =
       '<li class="mkt-quiet">' +
         '<span class="mkt-quiet__txt">The band is quiet right now - no stations on air yet. ' +
@@ -555,6 +556,12 @@
   }
   function stopShimmer() {
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    // without this, the next tick() after any stop/start (tab hidden, panel
+    // scrolled out, a held-market poll) computes elapsed against a stale
+    // timestamp - a huge one-off `elapsed`, so shimmer jumps by a
+    // correspondingly huge phase step and every bar snaps instead of
+    // resuming its breath smoothly.
+    lastWorkAt = 0;
   }
 
   /* ---------- status helpers ------------------------------------ */
