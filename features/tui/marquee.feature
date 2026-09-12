@@ -74,9 +74,9 @@ Feature: The selected row's elided cell marquees
 
   Scenario: The window advances exactly one column per offset
     Given the name "meta-llama/llama-3.1-70b-instruct-turbo" in a 20-column cell
-    Then offset 1 renders "eta-llama/llama-3.…"
-    And offset 2 renders "ta-llama/llama-3.1…"
-    And offset 3 renders "a-llama/llama-3.1-…"
+    Then offset 1 renders "eta-llama/llama-3.1…"
+    And offset 2 renders "ta-llama/llama-3.1-…"
+    And offset 3 renders "a-llama/llama-3.1-7…"
 
   Scenario: The last offset shows the tail in full, with no ellipsis
     Given the name "meta-llama/llama-3.1-70b-instruct-turbo" in a 20-column cell
