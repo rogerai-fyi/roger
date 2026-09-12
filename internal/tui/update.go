@@ -45,6 +45,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mm.statusFrame = mm.frame
 		}
 		mm = mm.syncComposerGeometry()
+		// Re-anchor the selected-cell marquee whenever the cell under the cursor changes
+		// (a move, a re-sort, a resize, a screen change). One central call, so no key
+		// handler has to remember to reset the scroll.
+		mm.syncMarquee()
 		return mm.refreshScroll(), cmd
 	}
 	return tm, cmd

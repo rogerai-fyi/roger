@@ -436,18 +436,46 @@ func bandBadgeLegend() string {
 //
 // A band with no stated quant renders as just the model. Absent is absent: no placeholder,
 // no "unknown", nothing that could be mistaken for a station's claim.
-func bandNameCell(bd band, w int) string {
+// bandNameW is the band table's identity-column width: the narrow grid's 14, the wide
+// grid's 20. ONE source, so the marquee measures the very column the row renders in - a
+// second, drifting copy of a column width is how a "width-safe" panel stops being one.
+func (m model) bandNameW() int {
+	if m.narrow() {
+		return 14
+	}
+	return 20
+}
+
+func bandNameCell(bd band, w int) string { return bandNameCellAt(bd, w, 0) }
+
+// bandNameParts splits the identity cell into the part that can SCROLL, the column width
+// it scrolls inside, and whether that column's static form is a hard cut (no ellipsis).
+//
+// With no quant the model owns the whole cell. With one, the QUANT IS PINNED on the right
+// - it is the half of the identity that tells two same-named rows apart - and only the
+// model moves, inside what is left. That is also why the quanted flavour hard-cuts: an
+// ellipsis was never in that sub-cell, and frame zero may not invent one.
+func bandNameParts(bd band, w int) (text string, cw int, hardCut bool) {
 	if bd.quant == "" || w <= 0 {
-		return pad(bd.model, w)
+		return bd.model, w, false
 	}
 	// Keep at least a few characters of the model, or the row loses the other half of its
 	// identity; below that there is no room for both and the name wins.
 	const minModel = 6
 	if w < minModel+1+len([]rune(bd.quant)) {
-		return pad(bd.model, w)
+		return bd.model, w, false
 	}
-	name := truncVisible(bd.model, w-1-len([]rune(bd.quant)))
-	return pad(name+" "+bd.quant, w)
+	return bd.model, w - 1 - len([]rune(bd.quant)), true
+}
+
+// bandNameCellAt is bandNameCell with the selected-row marquee applied at column offset
+// off. off 0 renders exactly what bandNameCell always has, byte for byte.
+func bandNameCellAt(bd band, w, off int) string {
+	text, cw, hardCut := bandNameParts(bd, w)
+	if !hardCut {
+		return padMarquee(text, cw, off)
+	}
+	return pad(cutMarquee(text, cw, off)+" "+bd.quant, w)
 }
 
 func groupBands(offers []offer, limits *LimitStore) []band {

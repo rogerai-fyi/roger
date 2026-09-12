@@ -690,6 +690,13 @@ type model struct {
 	// caratFrame stamps the frame the browse cursor last moved, so the selected-row `>` eases
 	// in for a beat (caratGutter) - a 1-cell motion cue. 0 = no pending slide.
 	caratFrame int
+	// marqKey / marqFrame drive the selected-cell MARQUEE: marqKey identifies the one cell
+	// that may scroll on the screen the operator is looking at, and marqFrame stamps the
+	// frame that cell became the selected one. Moving the selection changes the key, which
+	// re-anchors the scroll to frame zero. Kept on the model (not derived per view) so the
+	// scroll is a pure function of the carrier beat and nothing reads a wall clock.
+	marqKey   string
+	marqFrame int
 	// statusFrame stamps when the status line last changed, so the tick auto-dismisses it as a
 	// transient toast in the main views (A.6.6). Stamped centrally in Update. 0 = nothing fresh.
 	statusFrame int
@@ -1508,12 +1515,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a transient toast clearing). When idle the frame FREEZES, so the rendered screen is
 		// byte-identical tick-to-tick - the terminal's native mouse selection survives (a repaint
 		// would wipe the highlight) and the idle UI reads calm + intentional rather than flickering.
-		// A TRANSIENT toast keeps the clock ticking only until it auto-dismisses (the dismiss
-		// window). Bounding to m.frame-m.statusFrame < toastFrames is what stops the PERSISTENT
-		// browse ambient summary (which also sets a non-empty status) from pinning animating ON
-		// forever - without this bound, browse/command never freeze and native selection is wiped.
-		toastPending := m.status != "" && m.statusFrame > 0 && m.frame-m.statusFrame < toastFrames &&
-			(m.mode == modeBrowse || m.mode == modeCommand || m.mode == modeChat || m.mode == modeAgent)
+		// (The toast bound, and the rest of the set, live in m.animating below.)
 		// The BROWSE tuning-dial pointer glides toward the tuned band's detent (harmonica).
 		// Under quiet/reduced-motion it SNAPS (no animation); otherwise it eases, and while
 		// it's still settling it keeps the animation clock on (so the fast tick drives it).
@@ -1527,8 +1529,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dialPos, m.dialVel, dialSettling = dialGlide(m.dialPos, m.dialVel, target)
 			}
 		}
-		animating := m.relaying || m.agentBusy || m.shareLoading ||
-			m.mode == modeConnecting || m.mode == modePingWorld || toastPending || dialSettling
+		animating := m.animating(dialSettling)
 		if animating {
 			m.frame++
 		}
