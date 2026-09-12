@@ -128,6 +128,14 @@
     if (state === "poweringOff") forceReflow();
     reel.classList.add("is-powering-on");
     state = "poweringOn";
+    // belt-and-suspenders: animationend normally arms ioExit (below) right
+    // on schedule (~0.85s), but if the animation is ever suppressed after
+    // this point (reduced-motion toggled live mid-session, the element
+    // display:none'd elsewhere) that event may never arrive - without it,
+    // state sticks at "poweringOn" forever with no path left to power off a
+    // video that has since scrolled off-screen. armExitObserving's own guard
+    // makes this a no-op on the normal path, where animationend always wins.
+    setTimeout(armExitObserving, 1000);
   }
 
   function powerOff() {
@@ -144,13 +152,16 @@
   // instant as ioEnter, so a position already close to ioExit's shrunk top
   // line can't fire a conflicting powerOff() a tick after powerOn() starts.
   var exitObserving = false;
+  function armExitObserving() {
+    if (!exitObserving && CAN_FX) { exitObserving = true; ioExit.observe(reel); }
+  }
 
   reel.addEventListener("animationend", function (e) {
     if (e.animationName === "reelPowerOn" && state === "poweringOn") {
       reel.classList.remove("is-powering-on");
       reel.classList.add("is-on");
       state = "on";
-      if (!exitObserving && CAN_FX) { exitObserving = true; ioExit.observe(reel); }
+      armExitObserving();
     } else if (e.animationName === "reelPowerOff" && state === "poweringOff") {
       reel.classList.remove("is-powering-off", "is-on");
       video.pause(); // freeze on the collapsed line, not mid-picture

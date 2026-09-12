@@ -533,7 +533,12 @@
     lastWorkAt = now;
     // 0.035 was calibrated per ~60fps frame (~16.7ms) - scale by the REAL
     // elapsed time so throttling the call rate changes smoothness, not speed.
-    shimmer += 0.035 * (elapsed / (1000 / 60));
+    // Clamped: an occluded tab or a heavy main-thread stall can make a
+    // single `elapsed` huge, which would otherwise scale into an equally
+    // huge one-off phase jump - every bar snapping instead of resuming its
+    // breath, the same symptom stopShimmer's lastWorkAt reset guards against
+    // for the stop/start case.
+    shimmer += 0.035 * (Math.min(elapsed, 100) / (1000 / 60));
     if (!heads) heads = listEl.querySelectorAll(".sigbar--head");
     for (var i = 0; i < heads.length; i++) {
       var h = heads[i];

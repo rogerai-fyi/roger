@@ -1172,15 +1172,24 @@ html.js .mkt-quiet--nojs { display: none; }
    is-powering-off immediately, but is-on is not removed until animationend
    fires 0.78s later, so for that whole window neither selector matched and
    the control stayed fully visible, floating over whatever the collapsing
-   screen was revealing beneath it - the exact reported bug, just during the
-   closing half instead of the resting state. is-powering-off is listed
-   explicitly rather than dropping is-on earlier in powerOff() itself, to
-   avoid touching what is-on's presence means for anything else. */
-.reel--fx:not(.is-on) .reel__mute,
-.reel--fx.is-powering-off .reel__mute {
+   screen was revealing beneath it. Enumerating is-powering-off as a second
+   hide case fixed that, but missed the SAME gap for an interrupted re-open
+   (scroll past, then reverse within the 0.78s close): powerOn() also never
+   removes is-on, so the element can carry is-on and is-powering-on at once
+   and neither hide case matches, floating the control during the first 45%
+   of the open keyframe too. Inverted instead of enumerating a third
+   transitional combination: hidden is the default for any reel--fx state,
+   and only a CLEANLY settled is-on (neither transition class present) shows
+   it - correct for every current and future transitional state at once. */
+.reel--fx .reel__mute {
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
     visibility 0s linear var(--d-2);
+}
+.reel--fx.is-on:not(.is-powering-on):not(.is-powering-off) .reel__mute {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
+    visibility 0s linear 0s;
 }
 .reel__mute:hover, .reel__mute:focus-visible { color: #fff; border-color: #fff; }
 .reel__mute .reel__icon--sound { display: none; }
