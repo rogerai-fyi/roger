@@ -22,7 +22,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -371,9 +370,21 @@ func (s *edgeCLIBDD) aLoggedInOwnerWithAnEdge() error {
 		Transports: []store.EdgeTransport{{Kind: "relay", Addr: s.listener()}},
 		Presence:   string(edge.PresenceVerified), LastSeen: time.Now().Add(-2 * time.Minute).Unix(),
 	})
+	s.enroll(store.EdgeNode{
+		ID: "n_shed00000000000000000000000000000000000000000cc", Name: "shed-pi", Kind: "board",
+		Caps:       []store.EdgeCap{{Name: "sense", State: string(edge.Verified)}},
+		Transports: []store.EdgeTransport{{Kind: "lan", Addr: s.deadAddr(), Fingerprint: "cc33"}},
+		Presence:   string(edge.PresenceDark), LastSeen: time.Now().Add(-3 * time.Hour).Unix(),
+	})
+	s.candidate = "n_seen00000000000000000000000000000000000000000dd"
+	s.addCandidate(store.EdgeNode{
+		ID: s.candidate, Name: s.candidate, Kind: "host", Pin: "dd44",
+		Presence: string(edge.PresenceCandidate), LastSeen: time.Now().Add(-20 * time.Second).Unix(),
+		Transports: []store.EdgeTransport{{Kind: "lan", Addr: s.listener(), Fingerprint: "dd44"}},
+	})
 	s.useBus()
-	s.newPeer("owner", []string{"serve"}, "")                        // truthful: verified
-	s.newPeer("owner", []string{"serve"}, strings.Repeat("7", 64))   // lies about its certificate
+	s.newPeer("owner", []string{"serve"}, "")                      // truthful: verified
+	s.newPeer("owner", []string{"serve"}, strings.Repeat("7", 64)) // lies about its certificate
 	return nil
 }
 
@@ -404,7 +415,7 @@ func (s *edgeCLIBDD) aNodeClaimingWhoseProbeFailed(capName string) error {
 
 func (s *edgeCLIBDD) aNodeWhoseHeartbeatAgedOut() error {
 	s.enroll(store.EdgeNode{
-		ID: "n_dark0000000000000000000000000000000000000000ee", Name: "shed-pi", Kind: "board",
+		ID: "n_dark0000000000000000000000000000000000000000ee", Name: "loft-pi", Kind: "board",
 		Caps:       []store.EdgeCap{{Name: "sense", State: string(edge.Verified)}},
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: s.deadAddr(), Fingerprint: "ee55"}},
 		Presence:   string(edge.PresenceDark), LastSeen: time.Now().Add(-3 * time.Hour).Unix(),
@@ -719,7 +730,7 @@ func (s *edgeCLIBDD) darkIsListedWithItsAge() error {
 	if err := s.exits(0); err != nil {
 		return err
 	}
-	row := s.rowFor("shed-pi")
+	row := s.rowFor("loft-pi")
 	if row == "" {
 		return fmt.Errorf("the dark node was hidden:\n%s", s.out)
 	}
@@ -874,7 +885,7 @@ func (s *edgeCLIBDD) secondRunChangesNothing() error {
 }
 
 func (s *edgeCLIBDD) renamingAgainSucceeds(name string) error {
-	if err := s.run("roger edge name workshop-pi " + name); err != nil {
+	if err := s.run("roger edge name bench-pi " + name); err != nil {
 		return err
 	}
 	if err := s.exits(0); err != nil {

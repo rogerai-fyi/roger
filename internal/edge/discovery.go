@@ -97,8 +97,19 @@ type Refusal struct {
 	Observed   string
 }
 
+// Sighting is one peer this pass DIALED, checked against the authority and the pin, and
+// recorded. A report that lists only refusals cannot answer "what did the scan find?",
+// which is the first thing an owner running a scan asks.
+type Sighting struct {
+	NodeID string
+	Name   string
+	Addr   string
+}
+
 // Report is what one pass of discovery has to say.
 type Report struct {
+	// Verified are the peers that survived the certificate check on this pass.
+	Verified []Sighting
 	// Notes are the plain-language lines: "no peers found", "discovery unavailable".
 	Notes []string
 	// Warnings are the lines an owner must actually see - one per refusal.
@@ -410,12 +421,15 @@ func (d *Discovery) consider(ctx context.Context, ad Advert, rep *Report) {
 	if peer.Describe.Kind == "" {
 		peer.Describe.Kind = ad.Kind
 	}
-	if _, err := f.Observe(ad.NodeID, Observation{
+	n, err := f.Observe(ad.NodeID, Observation{
 		Name: name, Kind: peer.Describe.Kind, Caps: caps,
 		Addr: ad.Addr(), Fingerprint: peer.Fingerprint,
-	}); err != nil {
+	})
+	if err != nil {
 		rep.Notes = append(rep.Notes, "fleet write failed: "+err.Error())
+		return
 	}
+	rep.Verified = append(rep.Verified, Sighting{NodeID: ad.NodeID, Name: n.Name, Addr: ad.Addr()})
 }
 
 // refuse records a refusal and says it out loud, once, with everything the owner needs

@@ -774,7 +774,9 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		// 2 for a usage mistake, 1 for a real failure - so a script can tell the two
+		// apart, and tell both from an empty-but-working answer (0).
+		os.Exit(exitCode(err))
 	}
 }
 
@@ -915,6 +917,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdWebui(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
+	case "edge":
+		return cmdEdge(cfg, args[1:])
 	case "context":
 		return cmdContext(cfg, args[1:])
 	case "onboard", "setup":
@@ -2426,6 +2430,7 @@ func usage() {
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
   roger perms <mode>          agent tool approvals default: confirm | edits | all
   roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
+  roger edge                  your fleet: the machines you own (list · describe · name · forget · adopt · scan)
   roger remote                your private remote sessions: list · attach <code> · off · link
   roger resume [session-id]   resume a saved local AGENT session  (alias: continue)
 
