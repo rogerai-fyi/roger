@@ -850,8 +850,11 @@
   .radar__blip { animation: none; opacity: .8; transform: none; }
 }
 
+/* left-bound like everything else on this page (.term above it uses the
+   same margin:0 convention) - centering this with margin:0 auto is what
+   left it visibly inset from the heading and the terminal box above it. */
 .market__panel {
-  max-width: 880px; margin: 0 auto; background: var(--paper);
+  max-width: 880px; margin: 0; background: var(--paper);
   border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
   box-shadow: none; overflow: hidden;
 }
@@ -1134,13 +1137,59 @@ html.js .mkt-quiet--nojs { display: none; }
 }
 
 /* overlaid on the screen's opposite corner, not a block below it - the
-   screen now runs edge to edge, so anything "under" it would too. */
+   screen now runs edge to edge, so anything "under" it would too. It is
+   positioned against .reel-band (bottom:12px), not .reel__screen, and
+   .reel-band's own height is just whatever .reel__screen currently is - when
+   reel--fx has that collapsed to 6px (off, or mid power-on/off), 12px from
+   THAT bottom edge floats the ~28px-tall control up over whatever precedes
+   the band in the document, still fully clickable there. (Confirmed live,
+   2026-09-11: floating over hero copy at rest and after every scroll-out.)
+   Fix is to only show it once the set is actually confirmed on - reel--fx
+   without is-on covers every collapsed/transitional state at once, so
+   there's no state left where the band is too short to hold it. Plain
+   fallback paths (reduced motion / no IntersectionObserver / JS-off) never
+   gain reel--fx at all and keep the control visible always, matching how
+   they never collapse the screen either. */
 .reel__mute {
   position: absolute; right: var(--gutter); bottom: 12px; z-index: 1;
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border: 1px solid rgba(255,255,255,.35); background: rgba(5,5,5,.66);
   color: rgba(255,255,255,.8); font-family: var(--font-mono); font-size: var(--t-xs);
-  cursor: pointer; transition: color var(--d-2), border-color var(--d-2);
+  cursor: pointer;
+  /* only the transition list has any effect here - opacity/visibility/
+     pointer-events are already the element's default values; they exist as
+     the reverse-direction endpoints the transition below animates toward. */
+  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
+    visibility 0s linear 0s;
+}
+/* opacity:0 + pointer-events:none hides it from the mouse but leaves it
+   focusable and in the tab order - a keyboard user could land on a
+   perfectly invisible control. visibility:hidden removes it from the tab
+   order too, delayed so it only takes effect once the fade-out (above) has
+   actually finished, not the instant this class lands.
+
+   :not(.is-on) alone MISSED the close animation: powerOff() adds
+   is-powering-off immediately, but is-on is not removed until animationend
+   fires 0.78s later, so for that whole window neither selector matched and
+   the control stayed fully visible, floating over whatever the collapsing
+   screen was revealing beneath it. Enumerating is-powering-off as a second
+   hide case fixed that, but missed the SAME gap for an interrupted re-open
+   (scroll past, then reverse within the 0.78s close): powerOn() also never
+   removes is-on, so the element can carry is-on and is-powering-on at once
+   and neither hide case matches, floating the control during the first 45%
+   of the open keyframe too. Inverted instead of enumerating a third
+   transitional combination: hidden is the default for any reel--fx state,
+   and only a CLEANLY settled is-on (neither transition class present) shows
+   it - correct for every current and future transitional state at once. */
+.reel--fx .reel__mute {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
+    visibility 0s linear var(--d-2);
+}
+.reel--fx.is-on:not(.is-powering-on):not(.is-powering-off) .reel__mute {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
+    visibility 0s linear 0s;
 }
 .reel__mute:hover, .reel__mute:focus-visible { color: #fff; border-color: #fff; }
 .reel__mute .reel__icon--sound { display: none; }

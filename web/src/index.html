@@ -44,12 +44,12 @@
       </h1>
 
       <p class="hero__sub">
-        RogerAI is an inference network for the edge, that means you and your homelab, that
-        means factories and their fleet, and more. Our open model research targets the
-        whole spectrum of <a href="/pricing.html#why">hardware</a>. Our network runs one
-        OpenAI-compatible local endpoint only you have access to, in a privatized relay
-        on top of community and private hardware. It handles discovery, routing,
-        failover, metering, and signed receipts, and every upstream sees a station - never you.
+        RogerAI provides private inference networks for the edge, that means you and your
+        homelab, that means factories and their fleet. Our labs focus on enabling open models
+        to run on a spectrum of <a href="/research-hardware.html">hardware</a>. Our
+        network runs one OpenAI-compatible local endpoint only you have access to, in a
+        privatized relay on top of community and private hardware. It handles discovery,
+        routing, failover, metering, and signed receipts.
         Get Control, <a href="/pricing.html#why">Read the receipts &rarr;</a>
       </p>
 
@@ -210,8 +210,15 @@
         <video class="reel__video" id="edgeVideo" muted playsinline preload="none"
                poster="assets/edge/poster-a.webp"
                aria-label="Roger Edge brand film, Story A and Story B, looping">
-          <source type="video/webm">
+          <!-- mp4/H.264 FIRST: a <video> picks the first <source> whose type it
+               can play, in DOM order - not "best" by any quality/size metric.
+               H.264 hardware-decodes almost everywhere; VP9 hardware decode is
+               inconsistent across GPUs/drivers, and falls back to a notably
+               heavier software decode when it's missing or the GPU is already
+               busy (edge-story.js:tick-free by design, so a decode-side stutter
+               here is coming from the codec choice, not from this file). -->
           <source type="video/mp4">
+          <source type="video/webm">
         </video>
         <span class="reel__tag mono" id="edgeTag" aria-hidden="true">STORY A</span>
       </div>
@@ -422,7 +429,9 @@
           <span class="company__label">PRODUCT</span>
           <h3>The radio for Local Models</h3>
           <p>One OpenAI-compatible endpoint for developers and teams, over community
-            and private hardware; operators keep control of their machines.</p>
+            and private hardware; operators keep control of their machines - sharing
+            a model never shares your files or your machine
+            (<a href="/faq.html#share">what a requester can reach &rarr;</a>).</p>
           <p>Open model and runtime work ships under its stated model license.
             The network and broker remain source-visible under PolyForm Perimeter.</p>
           <p class="company__links">
@@ -436,7 +445,7 @@
         <article class="company__card company__card--labs">
           <!-- include: tube-ping.html -->
           <span class="company__label">ROGERAI LABS · THE WAVE SPECTRUM</span>
-          <h3>A model program with its gates in the open.</h3>
+          <h3>American open-source model programme</h3>
           <p><span class="status">TRAINED</span>
             Wave Pico, the edge child of the Spectrum, has a certified waypoint build -
             trained from scratch on our data, sized for a Raspberry Pi.

@@ -88,7 +88,10 @@ test("the why argument is one click from the homepage, and the old page is unlin
 
 test("the homepage tells the story (network_story.feature)", () => {
   const home = read("index.html");
-  assert.match(home, /sees a station -?\s*(never|not) you/i, "the unlinking line");
+  // the hero subhead clause making this claim was dropped 2026-09-11 -
+  // nothing moved, the claim just has one placement now instead of two: the
+  // pre-existing PRIVACY-FIRST AIRWAVES section headline already stated it.
+  assert.match(home, /hears a station\.?\s*(never|not) you/i, "the unlinking line");
   assert.match(home, /Two kinds of transmitter/i, "both earn paths framed as one verb");
   assert.match(home, /curated station/i, "the resale path is named");
   assert.match(home, /keeps <b>5%<\/b> of everything it\s+carries/i, "the tower relay earn");

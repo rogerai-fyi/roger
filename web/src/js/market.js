@@ -379,6 +379,7 @@
     stopShimmer();
     rendered = [];
     listEl.classList.remove("is-stale");
+    heads = null; // the old nodes are gone, same as paint() - see tick()
     listEl.innerHTML =
       '<li class="mkt-quiet">' +
         '<span class="mkt-quiet__txt">The band is quiet right now - no stations on air yet. ' +
@@ -504,6 +505,7 @@
       li.style.setProperty("--i", i);
       listEl.appendChild(li);
     });
+    heads = null; // the old nodes are gone - tick() re-queries once, lazily
   }
 
   /* ---------- live signal "VU" (rAF, only the head bars) ----------
@@ -512,10 +514,32 @@
      a sine and, at the peak of the breath, the glyph ticks up one notch
      on the ▁▂▃▄▅▆▇█ ramp so the level reads as ALIVE, not as decoration.
      The swap is RELATIVE to each cell's own base glyph, so a weak band
-     never jumps to a full bar. Cheap: one sine + an optional glyph swap. */
-  function tick() {
-    shimmer += 0.035;
-    var heads = listEl.querySelectorAll(".sigbar--head");
+     never jumps to a full bar. Cheap: one sine + an optional glyph swap -
+     but the glyph swap is a textContent write, and that reflows, so this
+     runs throttled (~20fps, same technique as radiomap's canvas loop) and
+     caches the node list instead of querying it every single frame; both
+     were previously reflowing on every full 60fps tick with a fresh
+     querySelectorAll, which read as a faint but steady stutter site-wide
+     once anything else on the page (a background video, say) was also
+     asking for main-thread time. */
+  var heads = null;
+  var lastWorkAt = 0;
+  var TICK_INTERVAL = 1000 / 20;
+  function tick(now) {
+    rafId = requestAnimationFrame(tick);
+    if (!lastWorkAt) lastWorkAt = now; // first call: nothing to measure elapsed against yet
+    var elapsed = now - lastWorkAt;
+    if (elapsed < TICK_INTERVAL) return;
+    lastWorkAt = now;
+    // 0.035 was calibrated per ~60fps frame (~16.7ms) - scale by the REAL
+    // elapsed time so throttling the call rate changes smoothness, not speed.
+    // Clamped: an occluded tab or a heavy main-thread stall can make a
+    // single `elapsed` huge, which would otherwise scale into an equally
+    // huge one-off phase jump - every bar snapping instead of resuming its
+    // breath, the same symptom stopShimmer's lastWorkAt reset guards against
+    // for the stop/start case.
+    shimmer += 0.035 * (Math.min(elapsed, 100) / (1000 / 60));
+    if (!heads) heads = listEl.querySelectorAll(".sigbar--head");
     for (var i = 0; i < heads.length; i++) {
       var h = heads[i];
       // remember each head's base glyph + its one-notch-up neighbour once
@@ -530,7 +554,6 @@
       var want = s > 0.82 ? h.__hi : h.__lo;   // peak of the breath = +1 notch
       if (h.textContent !== want) h.textContent = want;
     }
-    rafId = requestAnimationFrame(tick);
   }
   function startShimmer() {
     if (REDUCED || rafId || !visible) return;
@@ -538,6 +561,12 @@
   }
   function stopShimmer() {
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    // without this, the next tick() after any stop/start (tab hidden, panel
+    // scrolled out, a held-market poll) computes elapsed against a stale
+    // timestamp - a huge one-off `elapsed`, so shimmer jumps by a
+    // correspondingly huge phase step and every bar snaps instead of
+    // resuming its breath smoothly.
+    lastWorkAt = 0;
   }
 
   /* ---------- status helpers ------------------------------------ */
