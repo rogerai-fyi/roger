@@ -445,3 +445,41 @@ func TestEdgeDetailFitsEveryWidth(t *testing.T) {
 		}
 	}
 }
+
+// The drawing CLOSES: the last node at each level gets the corner, everything above it the
+// tee - so a graph never trails off into a line that goes nowhere.
+func TestEdgeConnectorsCloseTheDrawing(t *testing.T) {
+	m, f, _ := edgeFixture(t, Hooks{})
+	edgeAddNode(t, f, "aaa-tower", []store.EdgeTransport{{Kind: "relay", Addr: "relay.rogerai.fm"}}, edge.Relay)
+	edgeAddNode(t, f, "bbb-one", []store.EdgeTransport{{Kind: "relay", Addr: "aaa-tower"}}, edge.Sense)
+	edgeAddNode(t, f, "ccc-two", []store.EdgeTransport{{Kind: "relay", Addr: "aaa-tower"}}, edge.Sense)
+	edgeAddNode(t, f, "zzz-last", []store.EdgeTransport{{Kind: "lan", Addr: "10.0.0.9"}}, edge.Sense)
+	m.enterEdge()
+
+	want := map[string]string{
+		"aaa-tower": "├", // another node hangs off self below it
+		"bbb-one":   "├", // another child of the same relay follows
+		"ccc-two":   "└", // the last child of that relay
+		"zzz-last":  "└", // the last node on the spine
+	}
+	for _, ln := range strings.Split(stripANSI(m.edgeView(100)), "\n") {
+		for name, conn := range want {
+			if !strings.Contains(ln, name) {
+				continue
+			}
+			require.Contains(t, ln[:strings.Index(ln, name)], conn, "%s: %q", name, ln)
+		}
+	}
+
+	// A relay-only node that carries nobody says so plainly, and a LAN transport with no
+	// address still reads as a LAN link rather than as nothing.
+	require.Equal(t, "relay · 0s", m.edgeDetailCell(edgeRow{n: store.EdgeNode{
+		LastSeen: m.edge.at.Unix(), Transports: []store.EdgeTransport{{Kind: "relay"}}}}))
+	require.Equal(t, "lan · 0s", m.edgeDetailCell(edgeRow{n: store.EdgeNode{
+		LastSeen: m.edge.at.Unix(), Transports: []store.EdgeTransport{{Kind: "lan"}}}}))
+
+	// Nothing to travel: a node the graph does not draw, and a list that has no edges.
+	require.Zero(t, m.edgePulseCells("n_nobody"))
+	m.width = 40
+	require.Zero(t, m.edgePulseCells(m.edge.rows[0].n.ID))
+}
