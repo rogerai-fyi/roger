@@ -28,7 +28,7 @@ import (
 // terminal. On a narrow or minimized window every one of those boxes ran off the screen,
 // which the compact audit caught across four screens at once.
 //
-// Two geometry facts, learned the hard way on the [3] CONFIG edit box and stated here so
+// Two geometry facts, learned the hard way on the [4] CONFIG edit box and stated here so
 // they are stated once: Style.Width() sets the TOTAL width INCLUDING padding (so the
 // content gets width-2), and MaxWidth does NOT prevent a wrap - it clips a block that has
 // already wrapped. Prose is allowed to wrap here, unlike a single-line field; what must

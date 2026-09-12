@@ -824,7 +824,7 @@ func run(argv []string, cfg config) error {
 		hooks := tuiHooks(cfg)
 		ctrl := tui.NewController(cfg.Broker, hooks)
 		// ONE limit store for BOTH front-ends. Built here rather than at the runTUI call so
-		// the console gets the same pointer - the browser's spend table and [3] CONFIG are
+		// the console gets the same pointer - the browser's spend table and [4] CONFIG are
 		// two views of one setting, and two stores would silently diverge.
 		limits := tuiLimits(cfg)
 		if webuiOn {

@@ -83,7 +83,7 @@
   var PORT = "4141";
 
   // Brand lockup + preset bank, matching the real TUI header (`▟█▙ R O G E R · A I`)
-  // and the always-visible preset row ( [0] AGENT [1] TUNE IN [2] SHARE [3] CONFIG
+  // and the always-visible preset row ( [0] AGENT [1] TUNE IN [2] SHARE [3] EDGE [4] CONFIG
   // [L] LOGIN [?] HELP ). `lit` names which preset reads as pressed (red glint).
   var BRAND = head("▟█▙") + head(" R O G E R") + dim(" · A I");
   function presetLine(lit) {

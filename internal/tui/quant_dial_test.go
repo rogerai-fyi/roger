@@ -163,7 +163,7 @@ func TestTheNameFilterAlsoMatchesTheQuant(t *testing.T) {
 	}
 }
 
-// ── THE STANDING RULE ([3] CONFIG preference) ────────────────────────────────
+// ── THE STANDING RULE ([4] CONFIG preference) ────────────────────────────────
 //
 // The dial's Q filter is a VIEW. This is the RULE: it binds routing, so it also governs
 // the agent and `roger use` - turns nobody is watching, which is the case a filter can

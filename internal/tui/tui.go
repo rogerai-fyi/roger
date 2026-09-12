@@ -570,7 +570,7 @@ func (s *LimitStore) setLocked(model string, l Limit) {
 
 // Set is the exported mutator, for a SECOND front-end editing the same store.
 //
-// The browser console shows the same per-band caps [3] CONFIG does, and it must write to
+// The browser console shows the same per-band caps [4] CONFIG does, and it must write to
 // THIS store rather than a copy: two stores would let the terminal and the browser disagree
 // about what the operator is willing to pay, and the disagreement would only surface as an
 // unexplained refusal on some later turn. A zero value clears the cap rather than recording
@@ -870,7 +870,7 @@ type model struct {
 	// Since the curated work, every dial filter (this one, F/C/O, and U) also bounds what
 	// an unattended auto-tune may BIND: pickAutoBand reads visibleBands, because a turn
 	// silently bound to a band the operator asked not to see is the same bug whichever
-	// filter hid it. The standing [3] CONFIG preference remains the durable rule; a
+	// filter hid it. The standing [4] CONFIG preference remains the durable rule; a
 	// filter is session-scoped.
 	fQuant     string
 	browseTop  int    // first visible row index in the virtualized window
@@ -1185,7 +1185,7 @@ type model struct {
 	// reaching the bottom again (or sending) re-sticks.
 	chatUnstuck  bool
 	agentUnstuck bool
-	// limReturn is where [3] CONFIG goes back to. It is normally the browser; when the
+	// limReturn is where [4] CONFIG goes back to. It is normally the browser; when the
 	// BAND CARD routed here to edit one field, it is the card - otherwise an operator who
 	// pressed `e` on a card would be dropped on a spend-limit table they never opened.
 	limReturn    mode

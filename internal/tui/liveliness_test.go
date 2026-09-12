@@ -160,7 +160,7 @@ func TestPresetBarLitMode(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.width, mm.height = 100, 30
 	mm.mode = modeLimits
-	if !strings.Contains(stripANSI(mm.View()), "•[3] CONFIG") {
+	if !strings.Contains(stripANSI(mm.View()), "•[4] CONFIG") {
 		t.Errorf("CONFIG preset should be lit in the limits screen:\n%s", stripANSI(mm.View()))
 	}
 	mm.mode = modeShare

@@ -882,6 +882,10 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	case "limits", "limit":
 		m.enterLimits()
 		return m, nil
+	case "edge":
+		// [3] EDGE: the fleet topology - what is on my Edge, and how is it connected.
+		m.enterEdge()
+		return m, m.edgeResume()
 	case "config", "cfg":
 		m.status = fmt.Sprintf("broker %s · user %s  (roger config set broker <url>)", m.broker, m.user)
 	case "confidential", "conf":
