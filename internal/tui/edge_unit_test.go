@@ -407,9 +407,13 @@ func TestEdgeViewCorners(t *testing.T) {
 	require.Contains(t, stripANSI(m.edgeView(100)), "nothing selected")
 	m.edge.detail = false
 
-	// A fleet that could not be read is SAID, never swallowed.
+	// A fleet that could not be read is SAID, never swallowed - and it is never mistaken
+	// for an empty Edge, which would be the screen claiming something it does not know.
 	m.edge.err = "the store is unreachable"
-	require.Contains(t, stripANSI(m.edgeView(100)), "the Edge could not be read: the store is unreachable")
+	out := stripANSI(m.edgeView(100))
+	require.Contains(t, out, "the Edge could not be read: the store is unreachable")
+	require.NotContains(t, out, "the only node on the Edge")
+	require.Contains(t, out, "nothing can be drawn until the fleet can be read")
 	m.edge.err = ""
 
 	// A candidate's detail names what it is and what to do about it.
@@ -417,7 +421,7 @@ func TestEdgeViewCorners(t *testing.T) {
 	m.hooks.EdgeCandidates = func() []store.EdgeNode { return []store.EdgeNode{cand} }
 	m.refreshEdge()
 	m.edge.sel, m.edge.detail = cand.ID, true
-	out := stripANSI(m.edgeView(100))
+	out = stripANSI(m.edgeView(100))
 	require.Contains(t, out, "CANDIDATE · new-pi5")
 	require.Contains(t, out, "not on your Edge")
 	require.NotContains(t, out, "fingerprint", "an unadopted peer has no pin to show")

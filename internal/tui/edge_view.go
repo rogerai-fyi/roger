@@ -195,6 +195,12 @@ func (m model) edgeView(w int) string {
 		return b.String()
 	}
 	if len(st.rows) == 0 && len(st.cands) == 0 {
+		if st.err != "" {
+			// An Edge that could not be READ is not an empty Edge. Saying "this machine
+			// is the only node" here would be the screen's one unforgivable lie.
+			line("  " + stDim.Render("nothing can be drawn until the fleet can be read · r retries"))
+			return b.String()
+		}
 		m.edgeEmptyView(w, line)
 		return b.String()
 	}
