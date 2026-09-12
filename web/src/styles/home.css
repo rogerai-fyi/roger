@@ -1155,7 +1155,10 @@ html.js .mkt-quiet--nojs { display: none; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border: 1px solid rgba(255,255,255,.35); background: rgba(5,5,5,.66);
   color: rgba(255,255,255,.8); font-family: var(--font-mono); font-size: var(--t-xs);
-  cursor: pointer; opacity: 1; visibility: visible; pointer-events: auto;
+  cursor: pointer;
+  /* only the transition list has any effect here - opacity/visibility/
+     pointer-events are already the element's default values; they exist as
+     the reverse-direction endpoints the transition below animates toward. */
   transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
     visibility 0s linear 0s;
 }
@@ -1163,8 +1166,18 @@ html.js .mkt-quiet--nojs { display: none; }
    focusable and in the tab order - a keyboard user could land on a
    perfectly invisible control. visibility:hidden removes it from the tab
    order too, delayed so it only takes effect once the fade-out (above) has
-   actually finished, not the instant this class lands. */
-.reel--fx:not(.is-on) .reel__mute {
+   actually finished, not the instant this class lands.
+
+   :not(.is-on) alone MISSED the close animation: powerOff() adds
+   is-powering-off immediately, but is-on is not removed until animationend
+   fires 0.78s later, so for that whole window neither selector matched and
+   the control stayed fully visible, floating over whatever the collapsing
+   screen was revealing beneath it - the exact reported bug, just during the
+   closing half instead of the resting state. is-powering-off is listed
+   explicitly rather than dropping is-on earlier in powerOff() itself, to
+   avoid touching what is-on's presence means for anything else. */
+.reel--fx:not(.is-on) .reel__mute,
+.reel--fx.is-powering-off .reel__mute {
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
     visibility 0s linear var(--d-2);

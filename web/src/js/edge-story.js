@@ -223,24 +223,23 @@
     // intersecting throughout, so nothing calls powerOn() again, and the set
     // is stuck dark until scrolled fully past. Being bidirectional here
     // restores that recovery path; ioEnter still owns the one read that has
-    // to be trustworthy (the very first), since ioExit ignores its own first
-    // callback (see ioExitPrimed below).
+    // to be trustworthy on the very first activation.
     //
-    // This one only ever runs after the set is already on, so the risky
-    // first-read case above does not apply to its OWN activation - it can be
-    // as eager as the close animation needs, firing while a solid chunk of
-    // the reel is still on screen instead of catching only its last sliver.
-    var ioExitPrimed = false;
+    // This one only ever runs after the set is already on, so it can be as
+    // eager as the close animation needs, firing while a solid chunk of the
+    // reel is still on screen instead of catching only its last sliver. It
+    // also acts on its OWN first read (unlike ioEnter) - an earlier version
+    // skipped that read to dodge an "on-then-immediately-off" case where a
+    // fast scroll during the open animation leaves the reel already past the
+    // -40% line by the time this starts watching. That skip was itself a
+    // worse bug (caught in review): if THAT swallowed read was the only
+    // moment the reel was ever out of range, nothing calls powerOff() again,
+    // and the video keeps playing off-screen indefinitely. Reacting to the
+    // first read is correct either way: if the reel is still in range it's a
+    // harmless powerOn() no-op, and if fast scrolling already carried it out
+    // of range, immediately closing again is the right response, not a flash
+    // to guard against.
     var ioExit = new IntersectionObserver(function (entries) {
-      // IntersectionObserver.observe() delivers one synchronous-ish read of
-      // CURRENT geometry the instant it starts - and it starts right as the
-      // power-on animation finishes (below). On a tall viewport where the
-      // fully-open reel already sits above the -40% line, that first read
-      // says "not intersecting" and would power off the instant power-on
-      // completes: an on-then-off flash. Skipping exactly that one read (not
-      // deferring observe() itself, which only delays the same problem) is
-      // what actually avoids it; every read after is a real scroll change.
-      if (!ioExitPrimed) { ioExitPrimed = true; return; }
       entries.forEach(function (e) { e.isIntersecting ? powerOn() : powerOff(); });
     }, { threshold: 0, rootMargin: "-40% 0px 0px 0px" });
     // Stay collapsed on load, even if the reel is already geometrically in
