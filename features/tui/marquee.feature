@@ -112,6 +112,14 @@ Feature: The selected row's elided cell marquees
     Given the name "モデル・ディープシーク・ターミナス" in a 12-column cell
     Then no offset from 0 to 60 splits a rune
 
+  Scenario: A wide-rune name never renders wider than the cell it replaces
+    Given the name "モデル・ディープシーク・ターミナス" in a 12-column cell
+    Then no offset from 0 to 60 renders more columns than the static cell
+
+  Scenario: A wide-rune hard-cut cell never renders wider than the cell it replaces
+    Given the name "モデル・ディープシーク・ターミナス" in a 12-column hard-cut cell
+    Then no offset from 0 to 60 renders more columns than the static cell
+
   Scenario: An emoji name is never split mid-grapheme-cluster
     Given the name "rocket-🚀-model-👩‍🚀-astronaut-🛰-relay" in a 16-column cell
     Then no offset from 0 to 60 splits a rune
@@ -213,6 +221,23 @@ Feature: The selected row's elided cell marquees
     Given a band list with a long-named band selected
     And the windowshade is down
     Then the marquee offset is 0
+
+  # THE FREEZE CONTRACT WINS. Two approved specs already promise that when the operator
+  # has taken the mouse back for native terminal selection, idle ticks do not repaint -
+  # a repaint wipes the highlight they are dragging. A marquee is a repaint every other
+  # tick, so it stands down for as long as native selection owns the mouse. Smart mouse
+  # mode (the default) owns its own selection and is unaffected.
+  Scenario: Native selection owning the mouse stops the marquee dead
+    Given a band list with a long-named band selected
+    And native selection owns the mouse
+    Then the marquee is not running
+    And the marquee offset is 0
+    And the whole band view is byte-identical as the frame advances
+
+  Scenario: Native selection lets the carrier beat freeze again
+    Given a band list with a long-named band selected
+    And native selection owns the mouse
+    Then the frame clock is not animating
 
   Scenario: Moving the selection resets the marquee to frame zero
     Given a band list with a long-named band selected

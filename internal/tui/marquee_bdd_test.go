@@ -188,6 +188,15 @@ func (b *marqueeBDD) renamingStation() error {
 	return nil
 }
 
+func (b *marqueeBDD) nativeSelection() error {
+	mm := b.mm()
+	mm.mouseOff = true
+	mm.frame = mm.marqFrame + marqueeHoldFrames + marqueeStepFrames*3
+	mm.syncMarquee()
+	b.setModel(mm)
+	return nil
+}
+
 func (b *marqueeBDD) windowshadeDown() error {
 	mm := b.mm()
 	mm.compact = true
@@ -359,6 +368,17 @@ func (b *marqueeBDD) noOffsetSplitsCluster(lo, hi int) error {
 			if !containsCluster(full, g) {
 				return fmt.Errorf("offset %d split a grapheme cluster: %q is not a cluster of %q (cell %q)", off, g, b.name, b.cell(off))
 			}
+		}
+	}
+	return nil
+}
+
+func (b *marqueeBDD) noOffsetWiderThanStatic(lo, hi int) error {
+	want := lipgloss.Width(b.static())
+	for off := lo; off <= hi; off++ {
+		if got := lipgloss.Width(b.cell(off)); got > want {
+			return fmt.Errorf("offset %d rendered %d columns, wider than the static cell's %d (%q)",
+				off, got, want, b.cell(off))
 		}
 	}
 	return nil
@@ -650,6 +670,7 @@ func TestMarqueeBDD(t *testing.T) {
 			sc.Step(`^the operator is on the CHANNEL screen$`, st.onChannel)
 			sc.Step(`^the operator is typing a filter$`, st.typingFilter)
 			sc.Step(`^the operator is renaming the station$`, st.renamingStation)
+			sc.Step(`^native selection owns the mouse$`, st.nativeSelection)
 			sc.Step(`^the windowshade is down$`, st.windowshadeDown)
 			sc.Step(`^the terminal is (\d+) columns wide$`, st.terminalWide)
 			sc.Step(`^the marquee has scrolled off frame zero$`, st.scrolledOff)
@@ -671,6 +692,7 @@ func TestMarqueeBDD(t *testing.T) {
 			sc.Step(`^every offset from (-?\d+) to (-?\d+) renders the same cell as the last offset$`, st.offsetsClampToLast)
 			sc.Step(`^no offset from (-?\d+) to (-?\d+) splits a rune$`, st.noOffsetSplitsRune)
 			sc.Step(`^no offset from (-?\d+) to (-?\d+) splits a grapheme cluster$`, st.noOffsetSplitsCluster)
+			sc.Step(`^no offset from (-?\d+) to (-?\d+) renders more columns than the static cell$`, st.noOffsetWiderThanStatic)
 			sc.Step(`^no offset from (-?\d+) to (-?\d+) carries an ANSI escape$`, st.noOffsetHasANSI)
 			sc.Step(`^no offset from (-?\d+) to (-?\d+) ends in an ellipsis$`, st.noOffsetEndsEllipsis)
 			sc.Step(`^offset (\d+) differs from frame 0$`, st.offsetDiffersFromZero)
