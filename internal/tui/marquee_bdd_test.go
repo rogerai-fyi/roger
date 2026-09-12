@@ -214,6 +214,18 @@ func (b *marqueeBDD) scrolledOff() error {
 	return nil
 }
 
+func (b *marqueeBDD) selectedIsConnected() error {
+	mm := b.mm()
+	bd, ok := mm.selectedBand()
+	if !ok {
+		return fmt.Errorf("no band is selected")
+	}
+	mm.connected = &offer{NodeID: "a", Model: bd.model, Online: true}
+	mm.syncMarquee()
+	b.setModel(mm)
+	return nil
+}
+
 // --- When ---------------------------------------------------------------------------------
 
 func (b *marqueeBDD) moveDown() error {
@@ -545,6 +557,21 @@ func (b *marqueeBDD) wholeViewStill() error {
 	return nil
 }
 
+// endShows walks a whole marquee cycle and reports whether the tail of the name ever
+// makes it into the rendered view. "Eventually readable" is the entire feature; a cell
+// measured against the wrong column silently never gets there.
+func (b *marqueeBDD) endShows() error {
+	tail := marqLongName[len(marqLongName)-8:]
+	span := b.mm().marqueeTravel()
+	for e := 0; e <= marqueeCycle(span); e++ {
+		if strings.Contains(strings.Join(b.atFrame(e), "\n"), tail) {
+			return nil
+		}
+	}
+	return fmt.Errorf("the tail %q never came into view over a full %d-frame cycle (travel %d)",
+		tail, marqueeCycle(span), span)
+}
+
 func (b *marqueeBDD) clockAnimating() error {
 	if !b.mm().animating(false) {
 		return fmt.Errorf("the frame clock is frozen; a running marquee must keep it alive")
@@ -665,6 +692,8 @@ func TestMarqueeBDD(t *testing.T) {
 			sc.Step(`^the selected SHARE row changes as the frame advances$`, st.selectedRowChanges)
 			sc.Step(`^the unselected band rows are byte-identical as the frame advances$`, st.unselectedRowsStill)
 			sc.Step(`^the whole band view is byte-identical as the frame advances$`, st.wholeViewStill)
+			sc.Step(`^the selected band is the one you are connected to$`, st.selectedIsConnected)
+			sc.Step(`^the selected band row eventually shows the end of the name$`, st.endShows)
 			sc.Step(`^the frame clock is animating$`, st.clockAnimating)
 			sc.Step(`^the frame clock is not animating$`, st.clockNotAnimating)
 			sc.Step(`^no rendered line exceeds the terminal width at any offset$`, st.noLineOverflows)

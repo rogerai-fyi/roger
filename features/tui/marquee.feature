@@ -238,6 +238,19 @@ Feature: The selected row's elided cell marquees
     Given a band list with a long-named band selected
     Then no rendered line exceeds the terminal width at any offset
 
+  Scenario: The selected row eventually shows the end of the name
+    Given a band list with a long-named band selected
+    Then the selected band row eventually shows the end of the name
+
+  # A connected row leads with the lit ◉ marker, which costs the name two columns. The
+  # scroll must be measured against THAT cell, not the plain row's - otherwise the last
+  # two characters of the name are the two you can never read, which is the whole point.
+  Scenario: A connected row reaches the end of its own, tighter column
+    Given a band list with a long-named band selected
+    And the terminal is 40 columns wide
+    And the selected band is the one you are connected to
+    Then the selected band row eventually shows the end of the name
+
   Scenario: The band table stays width-safe on a narrow terminal
     Given a band list with a long-named band selected
     And the terminal is 40 columns wide
