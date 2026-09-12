@@ -148,6 +148,18 @@ func edgeMarks(n store.EdgeNode) string {
 	return "[" + strings.Join(out, " ") + "]"
 }
 
+// edgeWidestMarks is the widest capability cell in this snapshot, floored so the column
+// never collapses to nothing.
+func edgeWidestMarks(rows []edgeRow) int {
+	widest := 4
+	for _, r := range rows {
+		if n := len([]rune(edgeMarks(r.n))); n > widest {
+			widest = n
+		}
+	}
+	return widest
+}
+
 func edgeIsDark(n store.EdgeNode) bool { return n.Presence == string(edge.PresenceDark) }
 
 // edgeTexture is the edge a node has EARNED: solid only for a LAN-direct transport, dim for
@@ -188,6 +200,11 @@ func (m model) edgeView(w int) string {
 	}
 
 	g := edgeGeomFor(w, len(st.rows))
+	g.marksW = min(g.marksW, edgeWidestMarks(st.rows))
+	g.detailW = w - (g.lead + g.nameW + 1 + g.marksW + 1)
+	if g.detailW < 0 {
+		g.detailW = 0
+	}
 	line("  " + stDim.Render(edgeHeadline(st)))
 	line("")
 	switch g.layout {
@@ -265,16 +282,17 @@ func (m model) edgeGraphBody(g edgeGeom, line func(string)) {
 	}
 	if g.layout == edgeLayoutGraph {
 		line("")
-		line("  " + stDim.Render("CAPS  "+edgeCapLegend()+"  ·  UPPER verified, lower claimed"))
+		line("  " + stDim.Render("CAPS  "+edgeCapLegend()))
+		line("  " + stDim.Render("      UPPER = VERIFIED · lower = CLAIMED (nothing routes on a claim)"))
 	}
 }
 
 func edgeCapLegend() string {
 	var out []string
 	for _, c := range edge.Capabilities() {
-		out = append(out, edgeCapMark[c]+" "+string(c))
+		out = append(out, edgeCapMark[c]+"="+string(c))
 	}
-	return strings.Join(out, " · ")
+	return strings.Join(out, " ")
 }
 
 // edgeNodeLine draws one node: its edge back to self (or to its relay), its name, its
@@ -443,7 +461,7 @@ func (m model) edgeDetailView(w int, line func(string)) {
 		}
 		row := pad(t.Kind, 7) + t.Addr
 		if i == 0 {
-			row = pad(row, max(8, w-24)) + stDim.Render("preferred")
+			row = pad(row, 40) + stDim.Render("preferred")
 		}
 		label(k, row)
 	}
