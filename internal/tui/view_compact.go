@@ -185,7 +185,7 @@ func (m model) compactOnAirLine(w int) string {
 // screen. Anything else must not be handed the default, which teaches the dial's keys.
 func compactKnowsMode(md mode) bool {
 	switch md {
-	case modeBrowse, modeChat, modeAgent, modeShare, modeLimits,
+	case modeBrowse, modeChat, modeAgent, modeShare, modeLimits, modeEdge,
 		modeShareEditor, modeShareSetup, modeConnectConfirm, modeOverLimit:
 		return true
 	}
@@ -206,6 +206,8 @@ func (m model) compactFooter(w int) string {
 		keys = "↑↓ · ⏎/a air · p price · b card · esc"
 	case modeLimits:
 		keys = "↑↓ · ⏎ edit · d clear · esc"
+	case modeEdge:
+		keys = "↑↓ · ⏎ detail · a adopt · esc"
 	case modeShareEditor:
 		keys = "tab field · ⏎ save · esc"
 	case modeShareSetup:

@@ -37,12 +37,14 @@ import (
 	"rogerai.fm/roger/v6/internal/capsule"
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/glyphs"
 	"rogerai.fm/roger/v6/internal/harness"
 	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/operator"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/session"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // Hooks lets the host (cmd/rogerai) supply the few platform/auth bits the TUI
@@ -83,7 +85,19 @@ type Hooks struct {
 	// the ON AIR n/max slots and BLOCKS flipping another row on air at the cap. <=0 means
 	// "use the package default" (defaultShareMaxOnAir).
 	ShareMaxOnAir int
-	Login         func(broker, clientID string) (string, error) // device-flow login -> github login
+	// ROGER EDGE ([3] EDGE). The fleet the screen draws, and the two things that only
+	// the host can do with it. All optional: with no fleet wired the screen renders the
+	// honest empty Edge rather than a guess.
+	//
+	// EdgeSelf is what THIS instance is called on its own graph (it falls back to the
+	// station callsign); EdgeFleet is the account-scoped fleet; EdgeCandidates are the
+	// unenrolled peers discovery has seen on this LAN (never members - they are drawn
+	// with no edge to self); EdgeAdopt is the owner's explicit adoption of one.
+	EdgeSelf       string
+	EdgeFleet      *edge.Fleet
+	EdgeCandidates func() []store.EdgeNode
+	EdgeAdopt      func(id, name string) error
+	Login          func(broker, clientID string) (string, error) // device-flow login -> github login
 	// LoginBegin starts the GitHub device flow and returns the URL + code to show
 	// (no polling); LoginPoll then blocks until the user authorizes and returns the
 	// linked login. Split so the TUI can render its own clean login panel + auto-open
@@ -468,7 +482,8 @@ const (
 	modeConnectConfirm    // 3.2 cost confirmation (default DENY)
 	modeConnecting        // staged scan/lock/handshake/CHANNEL-OPEN sequence (the web's tune-in)
 	modeOverLimit         // 3.3 over-limit + inline edit-your-max
-	modeLimits            // 3.4 per-model spend limits
+	modeLimits            // [4] CONFIG: per-model spend limits
+	modeEdge              // [3] EDGE: the fleet topology - what is on my Edge, and how is it connected (edge.go)
 	modeShare             // k9s-style provider table: list local models, toggle on/off-air
 	modeBandCard          // private band code card: shows the one-time frequency code after going private
 	modeShareEditor       // per-model pricing + time-of-use schedule editor (login-gated)
@@ -1175,6 +1190,10 @@ type model struct {
 	// pressed `e` on a card would be dropped on a spend-limit table they never opened.
 	limReturn    mode
 	limReturnSet bool
+	// [3] EDGE: the fleet topology screen's whole state (edge.go), and its clock -
+	// injectable so a last-seen age is never a race against the wall clock.
+	edge      edgeState
+	edgeClock func() time.Time
 	// A LOCAL channel: the open CHANNEL runs DIRECT against a server on this machine
 	// (harness.LocalCompleter) instead of through the broker relay. Set by openLocalChannel
 	// when tuning one of your own private bands whose model runs here; cleared by
@@ -1472,6 +1491,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case smartCopyResultMsg:
 		return m.onSmartCopyResult(msg), nil
+	case edgeHeartbeatMsg:
+		// A REAL event: this node was heard from. It is the only thing that starts a
+		// pulse on the Edge graph.
+		return m.onEdgeHeartbeat(msg)
+	case edgeAnimMsg:
+		return m.onEdgeAnim()
 	case tickMsg:
 		// A stale tick chain (a kick bumped m.tickGen since this one was scheduled): let it die
 		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.
@@ -3123,6 +3148,8 @@ func (m model) modeName() string {
 		return "OVER LIMIT"
 	case modeLimits:
 		return "SPEND LIMITS"
+	case modeEdge:
+		return "EDGE"
 	case modeShare:
 		return "SHARE"
 	case modeShareEditor:
@@ -4491,6 +4518,12 @@ func (m model) footer(w int) string {
 		left = stDim.Render("↑↓ move  ·  ⏎ edit  ·  tab field  ·  d clear  ·  esc done")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎ edit · tab · d · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeEdge:
+		left = stDim.Render("↑↓ select  ·  ⏎ detail  ·  a adopt  ·  r re-read  ·  esc back")
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎ detail · a adopt · esc")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShare:

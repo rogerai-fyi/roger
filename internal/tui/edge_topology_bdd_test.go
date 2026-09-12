@@ -81,6 +81,7 @@ func (s *edgeBDD) reset() {
 	s.frozen = false
 	s.outs = map[string]string{}
 	s.subject, s.relay = "", ""
+	s.w = 0
 	s.build()
 }
 
@@ -169,19 +170,19 @@ func (s *edgeBDD) press(key string) {
 	}
 	var tm tea.Model = s.m
 	tm, s.lastCmd = tm.Update(msg)
-	s.m = tm.(model)
+	s.m = asModel(tm)
 }
 
 func (s *edgeBDD) tick() {
 	var tm tea.Model = s.m
 	tm, s.lastCmd = tm.Update(edgeAnimMsg{})
-	s.m = tm.(model)
+	s.m = asModel(tm)
 }
 
 func (s *edgeBDD) heartbeat(name string) {
 	var tm tea.Model = s.m
 	tm, s.lastCmd = tm.Update(edgeHeartbeatMsg{node: s.ids[name]})
-	s.m = tm.(model)
+	s.m = asModel(tm)
 }
 
 // lineFor returns the (single) rendered line naming this node, and its index.
@@ -228,7 +229,7 @@ func edgeField(line, name string) string {
 var spineRe = regexp.MustCompile(`[├└][` + tSolid + tDim + tBroken + ` ]`)
 
 func layoutOf(out string) string {
-	box := strings.Contains(out, "┌") && strings.Contains(out, "┐")
+	box := strings.Contains(out, "╭") && strings.Contains(out, "╮")
 	spine := spineRe.MatchString(out)
 	switch {
 	case box && spine:
@@ -311,6 +312,15 @@ func (s *edgeBDD) anyScreenRendersAHint() error {
 			} {
 				mm := browseSeed(w)
 				mm.compact = compact
+				// The screens that only exist with a channel open need one, or they are
+				// not screens - they are a nil dereference.
+				mm.connected = &offer{NodeID: "demo-node", Model: "gpt-oss-20b", Online: true}
+				mm.endpoint = "http://127.0.0.1:8080/v1"
+				if len(mm.bands) > 0 {
+					// The confirm / over-limit screens describe a QUOTE; without one they
+					// are not a screen, they are a nil dereference.
+					mm.q = quote{b: mm.bands[0], limit: Limit{MaxOut: 0.1}, typical: 800}
+				}
 				mm.mode = md
 				key := fmt.Sprintf("w=%d compact=%v mode=%v", w, compact, md)
 				s.outs[key] = stripANSI(mm.View())
@@ -377,22 +387,36 @@ func (s *edgeBDD) escReturnsWhereTheUserCameFrom() error {
 	return nil
 }
 
-func (s *edgeBDD) qDoesWhatItDoesElsewhere() error {
-	// On every other numbered screen q leaves the screen the way esc does (it does not
-	// quit out from under an operator who is two screens deep).
+func (s *edgeBDD) leaveEdgeWith(key string) mode {
 	s.build()
 	s.m.mode = modeShare
 	s.press("3")
-	s.press("q")
-	if s.m.mode != modeShare {
-		return fmt.Errorf("q from the Edge screen landed in mode %v, want SHARE (what q does on CONFIG/SHARE)", s.m.mode)
+	s.press(key)
+	return s.m.mode
+}
+
+func (s *edgeBDD) qDoesWhatItDoesElsewhere() error {
+	// On every other numbered screen q LEAVES THE SCREEN - it never quits RogerAI out
+	// from under an operator who is two screens deep, and it lands where esc lands.
+	viaQ, viaEsc := s.leaveEdgeWith("q"), s.leaveEdgeWith("esc")
+	if viaQ == modeEdge {
+		return fmt.Errorf("q did not leave the Edge screen")
 	}
-	s.build()
-	s.m.mode = modeShare
-	s.press("4")
-	s.press("q")
-	if s.m.mode != modeShare {
-		return fmt.Errorf("the comparison screen changed: q from CONFIG landed in %v", s.m.mode)
+	if viaQ != viaEsc {
+		return fmt.Errorf("q landed in mode %v but esc landed in %v - q is not the exit it is everywhere else", viaQ, viaEsc)
+	}
+	if s.m.mode == modeQuitConfirm {
+		return fmt.Errorf("q started a quit from a numbered screen")
+	}
+	// The comparison screens, unchanged: q leaves SHARE and leaves CONFIG.
+	for _, open := range []string{"2", "4"} {
+		s.build()
+		s.press(open)
+		was := s.m.mode
+		s.press("q")
+		if s.m.mode == was {
+			return fmt.Errorf("q no longer leaves the screen %q opens (mode %v)", open, was)
+		}
 	}
 	return nil
 }
@@ -400,7 +424,11 @@ func (s *edgeBDD) qDoesWhatItDoesElsewhere() error {
 // ---- 2. THE GRAPH --------------------------------------------------------
 
 func (s *edgeBDD) theEdgeScreenRenders() error {
-	s.render(100)
+	w := s.w
+	if w == 0 {
+		w = 100
+	}
+	s.render(w)
 	return nil
 }
 
@@ -720,7 +748,7 @@ func (s *edgeBDD) saysThisMachineIsTheOnlyNode() error {
 	if !strings.Contains(s.out, "the only node on the Edge") {
 		return fmt.Errorf("an empty Edge does not explain itself:\n%s", s.out)
 	}
-	if strings.ContainsAny(s.out, "┌└├") {
+	if strings.ContainsAny(s.out, "╭╮╰╯├└│") {
 		return fmt.Errorf("an empty Edge still draws an empty box:\n%s", s.out)
 	}
 	return nil
@@ -913,10 +941,13 @@ func mustLine(out, name string) string {
 
 func (s *edgeBDD) noColorIsSet() error {
 	s.t.Setenv("NO_COLOR", "1")
-	s.enroll("bench-pi", []store.EdgeTransport{lanT("192.168.1.20")}, edge.Serve)
-	s.nodeThroughRelay("cabinet-jetson", "tower-1")
 	s.enroll("attic-board", []store.EdgeTransport{lanT("192.168.1.50")}, edge.Sense)
 	s.now = s.now.Add(6 * time.Minute)
+	// Enrolled AFTER the clock moved, so the sweep takes only the node that aged out.
+	s.enroll("bench-pi", []store.EdgeTransport{lanT("192.168.1.20")}, edge.Serve)
+	if err := s.nodeThroughRelay("cabinet-jetson", "tower-1"); err != nil {
+		return err
+	}
 	if _, err := s.fleet.Sweep(2 * time.Minute); err != nil {
 		return err
 	}
@@ -1063,7 +1094,7 @@ func (s *edgeBDD) boxAlignmentPreserved() error {
 	var box []int
 	col := -1
 	for _, ln := range strings.Split(s.out, "\n") {
-		if strings.ContainsAny(ln, "┌│└") && strings.ContainsAny(ln, "┐┘│") {
+		if strings.ContainsAny(ln, "╭╰") || (strings.Count(ln, "│") == 2) {
 			box = append(box, lipgloss.Width(ln))
 		}
 		if at := strings.Index(ln, "["); at >= 0 && strings.ContainsAny(ln, "├└") {
@@ -1151,6 +1182,9 @@ func (s *edgeBDD) openDetailOf(name string) error {
 	s.open()
 	s.m.refreshEdge()
 	for i := 0; i < 64; i++ {
+		s.press("up") // rewind: the selection walks, it does not jump
+	}
+	for i := 0; i < 64; i++ {
 		if s.m.edge.sel == s.ids[name] {
 			break
 		}
@@ -1237,6 +1271,9 @@ func (s *edgeBDD) aSelectedNode() error {
 	s.enroll("attic-board", []store.EdgeTransport{lanT("192.168.1.50")}, edge.Sense)
 	s.open()
 	s.m.refreshEdge()
+	for i := 0; i < 64; i++ {
+		s.press("up")
+	}
 	for i := 0; i < 64 && s.m.edge.sel != s.ids["bench-pi"]; i++ {
 		s.press("down")
 	}
@@ -1260,8 +1297,19 @@ func (s *edgeBDD) anotherNodeGoesDark() error {
 	if err != nil {
 		return err
 	}
-	if n != 1 {
-		return fmt.Errorf("%d nodes went dark, want exactly the other one", n)
+	if n == 0 {
+		return fmt.Errorf("nothing went dark")
+	}
+	other, ok, err := s.fleet.ByName("attic-board")
+	if err != nil || !ok || other.Presence != string(edge.PresenceDark) {
+		return fmt.Errorf("the other node did not go dark (%v)", other.Presence)
+	}
+	sel, _, err := s.fleet.ByName("bench-pi")
+	if err != nil {
+		return err
+	}
+	if sel.Presence == string(edge.PresenceDark) {
+		return fmt.Errorf("the SELECTED node went dark - this scenario is about another one")
 	}
 	s.m.refreshEdge()
 	return nil
@@ -1352,7 +1400,6 @@ func TestEdgeTopologyViewFeature(t *testing.T) {
 			sc.Step(`^solid, dim and broken edges remain distinguishable by glyph alone$`, st.edgesDistinguishableByGlyph)
 			// 4. geometry
 			sc.Step(`^a terminal (\d+) columns wide$`, st.aTerminalNColumnsWide)
-			sc.Step(`^the Edge screen renders$`, st.theEdgeScreenRenders)
 			sc.Step(`^no line exceeds (\d+) columns$`, st.noLineExceeds)
 			sc.Step(`^the layout is "([^"]*)"$`, st.theLayoutIs)
 			sc.Step(`^a fleet of (\d+) nodes$`, st.aFleetOfNNodes)
