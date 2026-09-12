@@ -622,6 +622,22 @@ func edgeResolve(nodes []store.EdgeNode, want string) (store.EdgeNode, bool, err
 		want, strings.Join(lines, "\n"))
 }
 
+// edgeLookup loads the Edge and finds the node the owner named. Its four callers differ
+// only in what they do when it is NOT there - describe and name refuse, forget shrugs,
+// adopt looks in the candidates instead - so the loading and the resolving live here once.
+func edgeLookup(want string) (*edgeState, store.EdgeNode, bool, error) {
+	st, err := loadEdgeState()
+	if err != nil {
+		return nil, store.EdgeNode{}, false, err
+	}
+	nodes, err := st.list()
+	if err != nil {
+		return nil, store.EdgeNode{}, false, err
+	}
+	n, ok, err := edgeResolve(nodes, want)
+	return st, n, ok, err
+}
+
 // errNoSuchNode is the ONE answer to "that is not on this Edge", whether the node does
 // not exist at all or belongs to somebody else. It names nothing about the other account:
 // a message that distinguished the two would turn `roger edge describe` into an oracle
@@ -638,15 +654,7 @@ func cmdEdgeDescribe(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := loadEdgeState()
-	if err != nil {
-		return err
-	}
-	nodes, err := st.list()
-	if err != nil {
-		return err
-	}
-	n, ok, err := edgeResolve(nodes, argv.pos[0])
+	st, n, ok, err := edgeLookup(argv.pos[0])
 	if err != nil {
 		return err
 	}
@@ -733,20 +741,16 @@ func cmdEdgeName(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := loadEdgeState()
-	if err != nil {
-		return err
-	}
-	nodes, err := st.list()
-	if err != nil {
-		return err
-	}
-	n, ok, err := edgeResolve(nodes, argv.pos[0])
+	st, n, ok, err := edgeLookup(argv.pos[0])
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return errNoSuchNode(argv.pos[0])
+	}
+	nodes, err := st.list()
+	if err != nil {
+		return err
 	}
 	want := argv.pos[1]
 	if n.Name == want {
@@ -781,15 +785,7 @@ func cmdEdgeForget(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := loadEdgeState()
-	if err != nil {
-		return err
-	}
-	nodes, err := st.list()
-	if err != nil {
-		return err
-	}
-	n, ok, err := edgeResolve(nodes, argv.pos[0])
+	st, n, ok, err := edgeLookup(argv.pos[0])
 	if err != nil {
 		return err
 	}
@@ -855,24 +851,20 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := loadEdgeState()
-	if err != nil {
-		return err
-	}
-	nodes, err := st.list()
-	if err != nil {
-		return err
-	}
 	want := argv.pos[0]
-	if n, ok, _ := edgeResolve(nodes, want); ok {
+	st, n, ok, err := edgeLookup(want)
+	if err != nil {
+		return err
+	}
+	if ok {
 		fmt.Printf("%s is already a member of this Edge - nothing to do.\n", n.Name)
 		return nil
 	}
-	c, ok, err := edgeResolve(st.candidates, want)
+	c, found, err := edgeResolve(st.candidates, want)
 	if err != nil {
 		return err
 	}
-	if !ok {
+	if !found {
 		return fmt.Errorf("no candidate %q was seen on this network (run `roger edge scan`)", want)
 	}
 	if st.account == "" {
@@ -897,7 +889,7 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	c.Caps = nil
 	c.Presence = string(edge.PresenceVerified)
 	c.LastSeen = time.Now().Unix()
-	n, err := st.fleet.Enroll(c)
+	n, err = st.fleet.Enroll(c)
 	if err != nil {
 		return err
 	}

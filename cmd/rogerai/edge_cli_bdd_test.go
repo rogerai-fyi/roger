@@ -448,7 +448,7 @@ func (s *edgeCLIBDD) twoNodesWhoseIdsShareAPrefix() error {
 	s.prefix = "n_twins"
 	for i, name := range []string{"twin-one", "twin-two"} {
 		s.enroll(store.EdgeNode{
-			ID: fmt.Sprintf("n_twins%d000000000000000000000000000000000000000%d", i, i),
+			ID:   fmt.Sprintf("n_twins%d000000000000000000000000000000000000000%d", i, i),
 			Name: name, Kind: "host",
 			Transports: []store.EdgeTransport{{Kind: "lan", Addr: s.listener(), Fingerprint: "22aa"}},
 			Presence:   string(edge.PresenceVerified), LastSeen: time.Now().Unix(),
