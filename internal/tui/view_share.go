@@ -253,6 +253,29 @@ func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
 	return p.In, p.Out
 }
 
+// shareDense reports whether the SHARE table is on its 3-column layout (the full grid is
+// ~88 cols; the windowshade forces dense regardless of width). shareNameW is that
+// layout's MODEL column width. Both mirror what shareView computes, from the one width
+// View draws at, so the marquee measures the column the row actually renders in.
+func (m model) shareDense(w int) bool { return w < 88 || m.compact }
+
+func (m model) shareNameW(w int) int {
+	if m.shareDense(w) {
+		return 14
+	}
+	return 24
+}
+
+// shareModelCell is a SHARE row's MODEL cell text: the model, plus the tiny mono modality
+// tag a voice row carries (♪ tts / ▽ stt), so the operator sees which rows are voices
+// without a separate section.
+func shareModelCell(r shareRow) string {
+	if tag := shareModalityTag(r.modality); tag != "" {
+		return r.model + "  " + tag
+	}
+	return r.model
+}
+
 // shareView is the k9s-style provider table: one row per locally-detected model
 // with an unmistakable reverse-video selection cursor, a clear ON-AIR / OFF-AIR
 // status column, the price (FREE or $/1M out), and the live earning metrics
@@ -270,7 +293,7 @@ func (m model) shareView(w int) string {
 	// ~88 cols, so anything narrower uses the 3-column model·status·price layout to
 	// stay width-safe (the band grid uses the same idea at its own threshold). The
 	// windowshade compact mode forces the dense layout regardless of width.
-	dense := w < 88 || m.compact
+	dense := m.shareDense(w)
 	head := stSelBar.Render("▌") + " " + stBrand.Render("SHARE")
 	// Slot meter: ON AIR n/max (the soft share.max_on_air cap). At the cap the count
 	// reads in the ember accent so the operator sees there are no free slots; below it,
@@ -324,10 +347,7 @@ func (m model) shareView(w int) string {
 	}
 
 	// Column geometry. dense drops the metrics columns so nothing overflows.
-	nameW := 24
-	if dense {
-		nameW = 14
-	}
+	nameW := m.shareNameW(w)
 	// Header (k9s-style ALL-CAPS column labels). Windowshade compact omits the header
 	// row entirely for density (the cells stay self-evident).
 	switch {
@@ -391,10 +411,7 @@ func (m model) shareView(w int) string {
 		// operator sees which rows are voices without a separate section (founder DELTA §D2). A tts
 		// row's price is in its REAL unit ($/1k chars); until a voice is picked it prompts "set
 		// voice…" (you can't go on air as a nameless default). An stt row can go straight on air.
-		modelCell := row.model
-		if tag := shareModalityTag(row.modality); tag != "" {
-			modelCell = row.model + "  " + tag
-		}
+		modelCell := shareModelCell(row)
 		if row.modality == "tts" {
 			vc := m.ctrl.VoiceConfigFor(row.model)
 			if vc.Voice == "" {
@@ -414,9 +431,15 @@ func (m model) shareView(w int) string {
 		// Build the row body as PLAIN text first (cells padded), then color it: a
 		// selected row is one reverse-video bar; an unselected row tints the status
 		// + price cells. This keeps the k9s "the cursor row is obvious" contract.
+		// The SELECTED row's model name marquees when it overflows; offset 0 (every other
+		// row) is the static pad the table has always rendered.
+		off := 0
+		if sel {
+			off = m.marqueeOff()
+		}
 		var plain string
 		if dense {
-			plain = fmt.Sprintf("%s %-14s  %-8s  %s", lampG, pad(modelCell, 14), statusTxt, priceTxt)
+			plain = fmt.Sprintf("%s %s  %-8s  %s", lampG, padMarquee(modelCell, nameW, off), statusTxt, priceTxt)
 		} else {
 			served, outTok, earn := "-", "-", "-"
 			if on {
@@ -426,7 +449,7 @@ func (m model) shareView(w int) string {
 				earn = dollars(live.Earnings())
 			}
 			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-				lampG, pad(modelCell, nameW), statusTxt, priceTxt, served, outTok, earn)
+				lampG, padMarquee(modelCell, nameW, off), statusTxt, priceTxt, served, outTok, earn)
 		}
 
 		if sel {

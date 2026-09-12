@@ -502,7 +502,7 @@ func (m model) browseView(w int) string {
 	// Narrow (< 64 col): a slim three-column table (band · on air · price), dropping
 	// the signal + flags columns so nothing overflows the real width. Wide: the full
 	// fixed grid (band · on air · range · signal · flags). (TUI-V2-CRITIQUE A.)
-	nameW := 20
+	nameW := m.bandNameW()
 	// The ctx + t/s columns ride ONLY when the terminal is wide enough to add them
 	// without overflowing the fixed 80-col grid (the default wide layout at w=80 stays
 	// exactly as it was). The expanded station log [i] always carries per-station ctx +
@@ -513,7 +513,6 @@ func (m model) browseView(w int) string {
 	showTPS := !m.narrow() && w >= 88
 	showCtx := !m.narrow() && w >= 90
 	if m.narrow() {
-		nameW = 14
 		if !m.compact {
 			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-9s  %s", "band", "on air", "$/1M out")) + "\n")
 		}
@@ -596,9 +595,17 @@ func (m model) browseView(w int) string {
 				free = "  FREE"
 			}
 			// PLAIN row for the reverse-video bar; the selected row is one accent bar.
-			plain := fmt.Sprintf("%s  %s  %s%s", pad(bd.model, nameW), pad(stationsLbl, 9), rangeStr(bd), free)
+			// The SELECTED row's name marquees when it overflows; every other row (and
+			// offset 0 of this one) is exactly the static pad it always was. marqueeSel
+			// measures the cell this row actually draws - including the two columns the
+			// ◉ marker costs a connected row - so the offset is right for either branch.
+			off := 0
+			if sel {
+				off = m.marqueeOff()
+			}
+			plain := fmt.Sprintf("%s  %s  %s%s", padMarquee(bd.model, nameW, off), pad(stationsLbl, 9), rangeStr(bd), free)
 			if connected {
-				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", pad(bd.model, nameW-2), pad(stationsLbl, 9), rangeStr(bd))
+				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", padMarquee(bd.model, nameW-2, off), pad(stationsLbl, 9), rangeStr(bd))
 			}
 			if sel {
 				b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
@@ -676,7 +683,7 @@ func (m model) browseView(w int) string {
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := m.bandSMeter(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations, true)
 			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
-				bandNameCell(bd, nameW), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
+				bandNameCellAt(bd, nameW, m.marqueeOff()), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
