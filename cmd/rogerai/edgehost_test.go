@@ -328,3 +328,35 @@ func TestRunNoArgsWiresTheEdgeScreen(t *testing.T) {
 	require.Len(t, list, 1)
 	require.Equal(t, "bench-pi", list[0].Name)
 }
+
+// The screen's `a` can only adopt something discovery actually saw, and it never guesses
+// between two of them.
+func TestEdgeAdoptFromTheScreenRefusesWhatWasNotSeen(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	st.candidates = []store.EdgeNode{
+		{ID: "n_twin_a", Name: "n_twin_a", Kind: "host", Presence: string(edge.PresenceCandidate)},
+		{ID: "n_twin_b", Name: "n_twin_b", Kind: "host", Presence: string(edge.PresenceCandidate)},
+	}
+	require.NoError(t, st.save())
+	_, hooks := edgeHostOff(t)
+
+	for _, tc := range []struct {
+		name, id, want string
+	}{
+		{"never seen", "n_ghost", "no candidate"},
+		{"two of them", "n_twin", "matches more than one"},
+		{"no address to check", "n_twin_a", "no LAN address"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := hooks.EdgeAdopt(tc.id, tc.id)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.want)
+		})
+	}
+	members, err := hooks.EdgeFleet.List()
+	require.NoError(t, err)
+	require.Empty(t, members, "nothing was added by a refusal")
+}

@@ -144,10 +144,9 @@ func (h *edgeHost) start(ctx context.Context) {
 // serve brings the engine up and paces the passes. A pass that fails is a pass: it is
 // retried on the NEXT interval, never in a tight loop.
 func (h *edgeHost) serve(ctx context.Context) {
-	if err := h.disc.Start(ctx); err != nil {
-		log.Println("edge discovery did not start:", err, "- serving and relaying are unaffected")
-		return
-	}
+	// Start never blocks and never fails: an unusable network is one log line from the
+	// engine itself, not an error, and the pass is simply retried on the next interval.
+	_ = h.disc.Start(ctx)
 	defer h.disc.Stop()
 	t := time.NewTicker(h.every)
 	defer t.Stop()
