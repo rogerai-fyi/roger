@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -386,4 +387,28 @@ func TestEdgeMergeCandidatesKeepsWhatThisPassMissed(t *testing.T) {
 	require.Len(t, got, 2)
 	require.Equal(t, "n_a", got[0].ID)
 	require.Equal(t, "fresh-b", got[1].Name, "a candidate seen again is refreshed, not duplicated")
+}
+
+func TestEdgeReachAllAnswersForEveryNode(t *testing.T) {
+	useTempConfig(t)
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+	edgeDialTimeout = 300 * time.Millisecond
+	live, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = live.Close() })
+	nodes := []store.EdgeNode{
+		{ID: "n_live", Transports: []store.EdgeTransport{{Kind: "lan", Addr: live.Addr().String()}}},
+		{ID: "n_dead", Transports: []store.EdgeTransport{{Kind: "lan", Addr: "127.0.0.1:1"}}},
+		{ID: "n_dark", Presence: string(edge.PresenceDark),
+			Transports: []store.EdgeTransport{{Kind: "lan", Addr: live.Addr().String()}}},
+		{ID: "n_noaddr", Transports: []store.EdgeTransport{{Kind: "lan"}}},
+	}
+	got := edgeReachAll(loadConfig(), nodes)
+	require.Len(t, got, len(nodes))
+	require.Equal(t, "lan", got["n_live"].Via)
+	require.Empty(t, got["n_dead"].Via)
+	require.NotEmpty(t, got["n_dead"].Attempts)
+	require.Empty(t, got["n_dark"].Via, "a node already known dark is not dialed")
+	require.Empty(t, got["n_dark"].Attempts)
+	require.Contains(t, got["n_noaddr"].Attempts[0], "no address")
 }

@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/client"
@@ -332,6 +333,25 @@ func edgeReachOf(cfg config, n store.EdgeNode) edgeReach {
 	return r
 }
 
+// edgeReachAll probes every node AT ONCE. A fleet view must cost one timeout, not one
+// per node: on a network that swallows packets, ten nodes probed in turn is twenty
+// seconds of an owner's time for an answer that is already cached. Each probe writes only
+// its own slot, so there is nothing here two goroutines share.
+func edgeReachAll(cfg config, nodes []store.EdgeNode) map[string]edgeReach {
+	got := make([]edgeReach, len(nodes))
+	var wg sync.WaitGroup
+	for i := range nodes {
+		wg.Add(1)
+		go func(i int) { defer wg.Done(); got[i] = edgeReachOf(cfg, nodes[i]) }(i)
+	}
+	wg.Wait()
+	out := make(map[string]edgeReach, len(nodes))
+	for i, n := range nodes {
+		out[n.ID] = got[i]
+	}
+	return out
+}
+
 // edgeBrokerAddr is the relay's host:port, for a relay transport that names no address
 // of its own (the ordinary case: the node is reached through the fabric this CLI already
 // talks to).
@@ -454,11 +474,9 @@ func cmdEdgeList(cfg config, args []string) error {
 
 	// Reach every member ONCE, and reuse the answer: the transport column, the staleness
 	// banner and --verbose are three views of the same probe.
-	reach := make(map[string]edgeReach, len(nodes))
+	reach := edgeReachAll(cfg, nodes)
 	reachable := 0
-	for _, n := range nodes {
-		r := edgeReachOf(cfg, n)
-		reach[n.ID] = r
+	for _, r := range reach {
 		if r.Via != "" {
 			reachable++
 		}
