@@ -9,6 +9,7 @@ package tui
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -374,6 +375,27 @@ func TestEdgePulseArrivesAndStops(t *testing.T) {
 	require.Empty(t, m.edge.pulses, "the pulse arrived")
 	require.Nil(t, cmd, "and nothing further was scheduled")
 	require.NotContains(t, stripANSI(m.edgeView(100)), string(edgeGlyphPulse))
+}
+
+// A list too long to draw scrolls to keep the selection visible - a cursor nobody can see
+// is a cursor they act on blind.
+func TestEdgeListFollowsTheSelection(t *testing.T) {
+	m, f, _ := edgeFixture(t, Hooks{})
+	var last store.EdgeNode
+	for i := 0; i < edgeListRows*2; i++ {
+		last = edgeAddNode(t, f, fmt.Sprintf("node-%03d", i),
+			[]store.EdgeTransport{{Kind: "lan", Addr: "10.0.0.1"}}, edge.Sense)
+	}
+	m.enterEdge()
+	require.Equal(t, edgeLayoutList, edgeLayoutFor(100, len(m.edge.rows)))
+	out := stripANSI(m.edgeView(100))
+	require.Contains(t, out, "showing 20 of 40 nodes")
+	require.NotContains(t, out, last.Name, "the far end is off the window to start with")
+
+	m.edge.sel = last.ID
+	out = stripANSI(m.edgeView(100))
+	require.Contains(t, out, last.Name, "the window did not follow the selection")
+	require.Contains(t, out, string(edgeGlyphSel)+" "+last.Name[:8])
 }
 
 func TestEdgeViewCorners(t *testing.T) {

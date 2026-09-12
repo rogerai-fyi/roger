@@ -377,13 +377,16 @@ func (m model) edgeDetailCell(r edgeRow) string {
 // what it is not showing.
 func (m model) edgeListBody(g edgeGeom, line func(string)) {
 	line("  " + edgeGlyphSelf + " " + pad(m.edgeSelfName(), g.nameW) + " " + stDim.Render("SELF"))
-	shown := len(m.edge.rows)
-	if shown > edgeListRows {
-		shown = edgeListRows
+	shown := min(len(m.edge.rows), edgeListRows)
+	// The window FOLLOWS the selection: a cursor the operator cannot see is a cursor
+	// they will act on blind.
+	top := 0
+	if at := m.edgeRowOf(m.edge.sel); at >= shown {
+		top = at - shown + 1
 	}
 	line("  " + stDim.Render("showing "+strconv.Itoa(shown)+" of "+strconv.Itoa(len(m.edge.rows))+" nodes"))
 	line("")
-	for i := 0; i < shown; i++ {
+	for i := top; i < top+shown; i++ {
 		r := m.edge.rows[i]
 		sel := "  "
 		if r.n.ID == m.edge.sel {
