@@ -253,17 +253,6 @@ func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
 	return p.In, p.Out
 }
 
-// shareView is the k9s-style provider table: one row per locally-detected model
-// with an unmistakable reverse-video selection cursor, a clear ON-AIR / OFF-AIR
-// status column, the price (FREE or $/1M out), and the live earning metrics
-// (requests served, out tokens, earnings $) for any model that is on air. The
-// founder can glance and instantly see what is shared vs not, and flip any model
-// on/off air with one key. This replaces the old silent auto-share.
-//
-// k9s patterns applied (cited for the local design record): a highly visible
-// cursor row (k9s flips the selected row to its accent background; we use the
-// brand-volt reverse-video bar, with a `>` carat under NO_COLOR), status columns
-// per resource, and a contextual key footer - k9scli.io + github.com/derailed/k9s.
 // shareDense reports whether the SHARE table is on its 3-column layout (the full grid is
 // ~88 cols; the windowshade forces dense regardless of width). shareNameW is that
 // layout's MODEL column width. Both mirror what shareView computes, from the one width
@@ -287,13 +276,24 @@ func shareModelCell(r shareRow) string {
 	return r.model
 }
 
+// shareView is the k9s-style provider table: one row per locally-detected model
+// with an unmistakable reverse-video selection cursor, a clear ON-AIR / OFF-AIR
+// status column, the price (FREE or $/1M out), and the live earning metrics
+// (requests served, out tokens, earnings $) for any model that is on air. The
+// founder can glance and instantly see what is shared vs not, and flip any model
+// on/off air with one key. This replaces the old silent auto-share.
+//
+// k9s patterns applied (cited for the local design record): a highly visible
+// cursor row (k9s flips the selected row to its accent background; we use the
+// brand-volt reverse-video bar, with a `>` carat under NO_COLOR), status columns
+// per resource, and a contextual key footer - k9scli.io + github.com/derailed/k9s.
 func (m model) shareView(w int) string {
 	var b strings.Builder
 	// dense drops the metrics columns (SERVED/OUT TOK/EARNINGS): the full grid is
 	// ~88 cols, so anything narrower uses the 3-column model·status·price layout to
 	// stay width-safe (the band grid uses the same idea at its own threshold). The
 	// windowshade compact mode forces the dense layout regardless of width.
-	dense := w < 88 || m.compact
+	dense := m.shareDense()
 	head := stSelBar.Render("▌") + " " + stBrand.Render("SHARE")
 	// Slot meter: ON AIR n/max (the soft share.max_on_air cap). At the cap the count
 	// reads in the ember accent so the operator sees there are no free slots; below it,
