@@ -824,6 +824,11 @@ func run(argv []string, cfg config) error {
 		// browser console (unless disabled) over the SAME shared node controller, so a
 		// change in either front-end shows up in the other.
 		hooks := tuiHooks(cfg)
+		// ROGER EDGE: give [3] EDGE this machine's real fleet - the one `roger edge`
+		// keeps - and start LAN discovery on its own goroutine behind it. Nothing here
+		// blocks the launch, and ROGERAI_EDGE_DISCOVERY=0 starts nothing at all.
+		stopEdge := startEdge(&hooks)
+		defer stopEdge()
 		ctrl := tui.NewController(cfg.Broker, hooks)
 		// ONE limit store for BOTH front-ends. Built here rather than at the runTUI call so
 		// the console gets the same pointer - the browser's spend table and [4] CONFIG are

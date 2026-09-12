@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/tui"
 )
@@ -295,4 +296,35 @@ func edgeCountingPlane(t *testing.T) func() int {
 		return o
 	})
 	return func() int { return int(n.Load()) }
+}
+
+// --- the launch path ------------------------------------------------------
+
+// The no-args launch - the one a founder gets by typing `roger` - hands the TUI a wired
+// Edge. Without this the screen is honest and empty forever, whatever the fleet holds.
+func TestRunNoArgsWiresTheEdgeScreen(t *testing.T) {
+	useTempConfig(t)
+	t.Setenv(edge.EnvDiscovery, "0") // the launch is under test, not the network
+	edgeWriteAuth(t, "owner")
+	edgeSeed(t, store.EdgeNode{ID: "n_a1", Name: "bench-pi", Kind: "board"})
+
+	origTUI, origWeb := runTUI, startWebConsoleFn
+	var got tui.Hooks
+	runTUI = func(_, _ string, _ *tui.LimitStore, _ string, hooks tui.Hooks, _ *node.Controller) error {
+		got = hooks
+		return nil
+	}
+	startWebConsoleFn = func(config, *node.Controller, string, *tui.LimitStore) string { return "" }
+	t.Cleanup(func() { runTUI, startWebConsoleFn = origTUI, origWeb })
+
+	require.NoError(t, run(nil, config{Broker: "https://b", User: "u", Onboarded: true}))
+	require.NotNil(t, got.EdgeFleet, "`roger` launched with no Edge wired to [3] EDGE")
+	require.NotNil(t, got.EdgeCandidates)
+	require.NotNil(t, got.EdgeAdopt)
+	require.NotNil(t, got.EdgeHeartbeats)
+	require.NotEmpty(t, got.EdgeSelf)
+	list, err := got.EdgeFleet.List()
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.Equal(t, "bench-pi", list[0].Name)
 }

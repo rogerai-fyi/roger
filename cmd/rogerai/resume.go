@@ -75,6 +75,9 @@ func cmdResumeWithRuntime(cfg config, args []string, notice string, webuiOn bool
 	info, statErr := os.Stat(selected.Workdir)
 	selected.WorkdirAvailable = statErr == nil && info.IsDir()
 	hooks := tuiHooks(cfg)
+	// The resumed TUI gets the same one Edge the fresh launch does (see run()).
+	stopEdge := startEdge(&hooks)
+	defer stopEdge()
 	ctrl := tui.NewController(cfg.Broker, hooks)
 	// One store for both front-ends - see run()'s note.
 	limits := tuiLimits(cfg)
