@@ -97,6 +97,11 @@ type Hooks struct {
 	EdgeFleet      *edge.Fleet
 	EdgeCandidates func() []store.EdgeNode
 	EdgeAdopt      func(id, name string) error
+	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
+	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
+	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still
+	// graph, and a still graph is information. nil = no live events.
+	EdgeHeartbeats <-chan string
 	Login          func(broker, clientID string) (string, error) // device-flow login -> github login
 	// LoginBegin starts the GitHub device flow and returns the URL + code to show
 	// (no polling); LoginPoll then blocks until the user authorizes and returns the
@@ -1416,6 +1421,9 @@ func (m model) Init() tea.Cmd {
 	if m.autoStartArmedAtLaunch() {
 		cmds = append(cmds, autoStartDetectCmd(m.shareUp, m.shareKey))
 	}
+	// The host's Edge heartbeats, drained from launch: a node heard from before the
+	// operator ever opens [3] EDGE still pulses when they get there.
+	cmds = append(cmds, waitEdgeHeartbeat(m.hooks.EdgeHeartbeats))
 	return tea.Batch(cmds...)
 }
 
@@ -1493,8 +1501,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onSmartCopyResult(msg), nil
 	case edgeHeartbeatMsg:
 		// A REAL event: this node was heard from. It is the only thing that starts a
-		// pulse on the Edge graph.
-		return m.onEdgeHeartbeat(msg)
+		// pulse on the Edge graph. The drain over the host's channel is re-armed
+		// WHATEVER the pulse did - a heartbeat for a node this graph does not draw must
+		// not be the last one the screen ever hears.
+		mm, cmd := m.onEdgeHeartbeat(msg)
+		return mm, tea.Batch(cmd, waitEdgeHeartbeat(m.hooks.EdgeHeartbeats))
 	case edgeAnimMsg:
 		return m.onEdgeAnim()
 	case tickMsg:

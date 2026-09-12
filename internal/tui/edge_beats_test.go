@@ -70,7 +70,8 @@ func TestEdgeHeartbeatDrainReArmsEvenForANodeItDoesNotDraw(t *testing.T) {
 	tm, cmd := m.Update(edgeHeartbeatMsg{node: "n_nobody"})
 	require.Empty(t, asModel(tm).edge.pulses)
 	require.NotNil(t, cmd, "the drain is re-armed even though nothing animated")
-	require.Equal(t, 1, batchLen(t, cmd))
+	beats <- "n_next"
+	require.Equal(t, edgeHeartbeatMsg{node: "n_next"}, cmd(), "and the next heartbeat is read")
 }
 
 // With no host wired there is no drain, and the screen behaves exactly as it did before

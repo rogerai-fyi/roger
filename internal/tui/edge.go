@@ -342,6 +342,27 @@ type edgeAnimMsg struct{}
 // EdgeHeartbeat is how the host tells the TUI a node was heard from.
 func EdgeHeartbeat(nodeID string) tea.Msg { return edgeHeartbeatMsg{node: nodeID} }
 
+// edgeBeatsClosedMsg says the host's heartbeat channel is closed - the host has gone away.
+// It is a distinct message because it must NOT re-arm the drain: reading a closed channel
+// returns instantly, so re-arming would spin a goroutine flat out for the life of the run.
+type edgeBeatsClosedMsg struct{}
+
+// waitEdgeHeartbeat is the drain over the host's heartbeat channel: one read, one message,
+// re-armed by the update loop. It is the only path a REAL sighting takes into the
+// animation, and with no host wired (nil channel) there is no drain at all.
+func waitEdgeHeartbeat(ch <-chan string) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		id, ok := <-ch
+		if !ok {
+			return edgeBeatsClosedMsg{}
+		}
+		return EdgeHeartbeat(id)
+	}
+}
+
 func edgeAnimCmd() tea.Cmd {
 	return tea.Tick(edgeAnimEvery, func(time.Time) tea.Msg { return edgeAnimMsg{} })
 }
