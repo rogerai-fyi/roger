@@ -18,33 +18,48 @@
 # establishes. Naming them keeps this spec honest about what it does not cover.
 #
 # ============================================================================
-# THE DECISION THIS SPEC NEEDS FROM THE FOUNDER - please read before approving
+# THE TRUST ROOT - founder ruling 2026-09-12: AN EDGE MUST BE ABLE TO FORM WITH
+# NO INTERNET, EVER. An earlier draft required Core to issue every certificate,
+# which meant a machine had to be online once before it could be seen on an
+# offline LAN. That is rejected. This spec is written around a CHOSEN AUTHORITY.
 # ============================================================================
 #
-# There is no single "account key" to act as a trust root. `internal/client/identity.go`
+# There is no single "account key" to root an Edge in. `internal/client/identity.go`
 # LoadOrCreateUserKey() CREATES A DIFFERENT ed25519 KEY ON EVERY MACHINE (<config>/rogerai/
-# user.key); machines are bound to the account because Core records each public key against it
-# at login. So machine A cannot verify machine B's Edge certificate from anything either of them
-# holds locally today. Three ways to give an Edge a trust root:
+# user.key); machines are bound to the account only because Core records each public key at
+# login. So the Edge needs a root of its own, and the owner chooses where it lives:
 #
-#   (a) A ROOT THAT TRAVELS. Generate one Edge root on the first machine and copy it to the
-#       others. Fully offline. Rejected in the draft below: it moves a private root key between
-#       machines, and a root that travels is a root that leaks.
-#   (b) CORE ISSUES, THE EDGE VERIFIES OFFLINE  <-- what this spec is written against.
-#       Enrollment is an ONLINE, once-per-node call: the node generates its key, signs the
-#       request with the user key it already holds, and Core - which already knows that key
-#       belongs to this account - returns a certificate plus the account's Edge root. From then
-#       on discovery, verification and the whole fleet work with NO internet at all. This is
-#       exactly how a Tower already enrolls (internal/towercore/{enroll,cert,admit}), so it
-#       reuses machinery that exists and is audited, and no private root ever moves.
-#   (c) A ROSTER OF PEERS. No root: Core publishes the set of public keys authorized on the
-#       account and each node trusts that set. Also offline-capable after a sync, but it invents
-#       a second trust model beside the certificate one the codebase already has.
+#   CORE AUTHORITY (the default, zero setup). Core issues, exactly as a Tower already enrolls.
+#   Convenient, nothing to run, and the right answer for a desk and a cabinet that both have
+#   internet. Costs one online moment per node, and nothing after that.
 #
-# The cost of (b), stated plainly so it is chosen with eyes open: A MACHINE MUST BE ONLINE ONCE,
-# at enrollment, before it can be seen on a fully offline LAN. If the founder wants a plant
-# network that has NEVER had internet to form an Edge, (b) is the wrong answer and this spec
-# must be rewritten around (c). That is the single question to settle before approval.
+#   LOCAL AUTHORITY (the airgap answer). The owner designates one machine or Tower as their
+#   Edge authority. It generates the Edge root, keeps the private half where it was made, and
+#   issues certificates to nodes over the LAN. CORE IS NEVER CONTACTED, NOT ONCE. A plant
+#   network that has never had internet forms a complete Edge: enroll, discover, verify, revoke.
+#
+# This is not a new idea in this codebase, which is why it is the right one. `roger-tower-local`
+# is already Core-free BY CONSTRUCTION: its dependency graph links none of towerjoin, towercore
+# or towerhub, and a dependency-graph test enforces it (see cmd/roger-tower-local/main.go and
+# features/tower/standalone_consumer_plane.feature). The local Edge authority earns the same
+# structural guarantee and the same kind of test, so "no Core" is a property of the build rather
+# than a promise in a comment.
+#
+# WHAT MUST BE IDENTICAL EITHER WAY. One certificate shape, one verification path, one fleet.
+# `internal/edge/verify.go VerifyPeer` already takes a *cert.Authority and must not learn which
+# kind it was handed. A node cannot tell, and must not care, whether its peer's certificate came
+# from Core or from the shed. The ONLY difference is who signed and whether the network was
+# needed to ask.
+#
+# THE ROOT DOES NOT TRAVEL. A third option, copying one root private key between machines, is
+# rejected outright: a root that travels is a root that leaks. Under a local authority the
+# private half never leaves the machine that made it; only the public root is distributed, which
+# is what every node needs in order to verify and what nothing needs to be kept secret.
+#
+# ONE EDGE, ONE AUTHORITY. An Edge has exactly one root at a time. Mixing them silently would
+# mean a peer that verifies for one half of the fleet and not the other, which is the failure
+# this whole layer exists to make visible rather than mysterious. Changing authority is a
+# deliberate, owner-driven migration, specified below.
 #
 # GROUND TRUTH: internal/client/identity.go (LoadOrCreateUserKey, SignRequestWith - the signing
 # the node already does), internal/towercore/cert (Authority, LoadOrCreate, ExportRoot,
@@ -115,12 +130,86 @@ Feature: A machine the owner is logged in on enrolls itself, and from then on th
     Then the machine is still a member
     And its certificate is still honoured until it expires
 
-  Scenario: enrolling REQUIRES connectivity, and says so plainly when it is missing
-    Given there is no route to Core
+  Scenario: under a Core authority, enrolling needs the network and says so plainly
+    Given this Edge uses the Core authority
+    And there is no route to Core
     When the owner tries to enroll this machine
     Then it fails with a message naming connectivity as the reason
-    And it says the machine can be enrolled later without losing anything
+    And it names the local authority as the way to enroll with no internet at all
     And nothing half-enrolled is left behind
+
+  # =========================================================================
+  # 2b. THE CHOSEN AUTHORITY - and the airgap that needs no Core, ever
+  # =========================================================================
+
+  Scenario: an Edge with no internet at all forms completely under a local authority
+    Given a network that has never had a route to the internet
+    And the owner designates this machine as the Edge authority
+    When the owner enrolls this machine and a second machine on that network
+    Then both hold certificates issued by that authority
+    And both appear as VERIFIED members of one fleet
+    And Core was never contacted, not once, at any point
+
+  Scenario: the local authority generates its root once and keeps the private half at home
+    When a machine is designated as the Edge authority
+    Then it generates the Edge root locally
+    And the root's private half is stored readable only by its owner
+    And it never appears in any request, advertisement or certificate
+
+  Scenario: only the PUBLIC root is distributed, because that is all a node needs
+    Given a local authority
+    When a node enrolls against it
+    Then the node receives the public root
+    And the node can verify every peer of this Edge with it
+    And the node never receives the root's private half
+
+  Scenario: a node cannot tell which kind of authority signed its peer
+    Given one node enrolled under a Core authority
+    And one node enrolled under a local authority of the same Edge
+    Then the certificate shape is the same
+    And the verification path is the same code
+    And neither node can distinguish the origin of the other's certificate
+
+  Scenario: the local authority is Core-free by construction, not by promise
+    Then the local authority's dependency graph links no Core-dialing package
+    And a dependency-graph test enforces it, the way the standalone consumer plane already does
+
+  Scenario: an Edge has exactly one authority at a time
+    Given an Edge rooted at a local authority
+    When enrollment is attempted against a different authority for the same Edge
+    Then it is refused
+    And the refusal names the authority this Edge already has
+    And no second root is created
+
+  Scenario: a peer holding a certificate from an authority this Edge does not use is refused
+    Given a peer whose certificate was issued by another Edge's authority
+    When this node verifies it
+    Then it is refused as "unknown authority"
+    And it does not become a member
+
+  Scenario: changing authority is a deliberate migration, never a silent switch
+    Given an Edge rooted at a local authority with enrolled members
+    When the owner moves the Edge to a different authority
+    Then the owner is told every member must re-enroll
+    And members are not silently dropped
+    And until a member re-enrolls it is shown as needing re-enrollment, with the reason
+
+  Scenario: designating an authority does not require a login when there is no Core to log in to
+    Given a machine on a network with no route to the internet
+    When the owner designates it as the Edge authority
+    Then it succeeds
+    And the Edge it roots is a complete Edge
+
+  Scenario Outline: the authority is the owner's choice, and the choice is visible
+    Given an Edge using the <kind> authority
+    When the owner asks what roots this Edge
+    Then it names <named>
+    And it says whether enrolling a new node will need the network
+
+    Examples:
+      | kind  | named                      |
+      | Core  | Core                       |
+      | local | the designated machine     |
 
   # =========================================================================
   # 3. AUTHORITY - who may enroll what

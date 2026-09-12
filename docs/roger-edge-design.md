@@ -80,6 +80,15 @@ the owner confirms it at enrollment, because the cost of a wrong guess is physic
 One path, three ergonomics. The differences are how the secret crosses to the device, not what
 the device ends up holding.
 
+0. **The authority comes first.** An Edge has exactly one root, and the owner chooses where it
+   lives: Core (the default, zero setup, one online moment per node) or a machine the owner
+   designates as a LOCAL authority (the airgap answer, where Core is never contacted at all).
+   One certificate shape and one verification path either way, so a node can never tell which
+   kind signed its peer. Founder ruling 2026-09-12: an Edge must be able to form on a network
+   that has never had internet, so the local authority is a first-class path, not a fallback.
+   The local authority is Core-free BY CONSTRUCTION, enforced by a dependency-graph test, the
+   way `roger-tower-local` already is.
+
 1. **Self-enroll** - the node runs `roger` and the owner is logged in there. It generates keys
    and signs its own join with the account key it already holds. This is the `roger share`
    self-attach pattern that already exists.
