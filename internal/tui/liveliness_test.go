@@ -139,8 +139,11 @@ func TestPresetKeysSwitchMode(t *testing.T) {
 	if got := asModel(press('2')).mode; got != modeShare {
 		t.Errorf("[2] should open SHARE (modeShare), got %v", got)
 	}
-	if got := asModel(press('3')).mode; got != modeLimits {
-		t.Errorf("[3] should open CONFIG (modeLimits), got %v", got)
+	if got := asModel(press('3')).mode; got != modeEdge {
+		t.Errorf("[3] should open EDGE (modeEdge), got %v", got)
+	}
+	if got := asModel(press('4')).mode; got != modeLimits {
+		t.Errorf("[4] should open CONFIG (modeLimits), got %v", got)
 	}
 	if got := asModel(press('?')).mode; got != modeHelp {
 		t.Errorf("[?] should open HELP, got %v", got)
