@@ -596,14 +596,16 @@ func (m model) browseView(w int) string {
 			}
 			// PLAIN row for the reverse-video bar; the selected row is one accent bar.
 			// The SELECTED row's name marquees when it overflows; every other row (and
-			// offset 0 of this one) is exactly the static pad it always was.
-			off := 0
+			// offset 0 of this one) is exactly the static pad it always was. The offset is
+			// measured against the width the CELL actually gets, which the ◉ marker on a
+			// connected row narrows by two.
+			off, offConn := 0, 0
 			if sel {
-				off = m.marqueeOff()
+				off, offConn = m.marqueeOffAt(bd.model, nameW), m.marqueeOffAt(bd.model, nameW-2)
 			}
 			plain := fmt.Sprintf("%s  %s  %s%s", padMarquee(bd.model, nameW, off), pad(stationsLbl, 9), rangeStr(bd), free)
 			if connected {
-				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", padMarquee(bd.model, nameW-2, off), pad(stationsLbl, 9), rangeStr(bd))
+				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", padMarquee(bd.model, nameW-2, offConn), pad(stationsLbl, 9), rangeStr(bd))
 			}
 			if sel {
 				b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")

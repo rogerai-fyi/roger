@@ -194,7 +194,20 @@ func (m model) marqueeRunning() bool { return !m.compact && m.marqueeTravel() > 
 
 // marqueeOff is the column offset the selected cell is currently showing.
 func (m model) marqueeOff() int {
-	span := m.marqueeTravel()
+	text, w, ok := m.marqueeSel()
+	if !ok {
+		return 0
+	}
+	return m.marqueeOffAt(text, w)
+}
+
+// marqueeOffAt is marqueeOff for a cell the caller already has in hand, measured against
+// THAT cell's own width. A row can render its name in a tighter column than the plain row
+// does (a connected band leads with the lit ◉, which costs it two columns), and a phase
+// taken from the wider cell would stop two columns short - leaving the tail of the name
+// the one part you can never read, which is the whole thing this feature exists to fix.
+func (m model) marqueeOffAt(text string, w int) int {
+	span := marqueeTravel(text, w)
 	if m.compact || span <= 0 {
 		return 0
 	}
