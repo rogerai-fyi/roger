@@ -275,25 +275,37 @@ func (d *Discovery) Start(ctx context.Context) error {
 	if !d.cfg.Enabled {
 		return nil
 	}
-	ap, err := d.opts.Plane()
-	if err != nil {
-		d.unavailable(err.Error())
-		return nil
+	// A node with no identity of its own - a one-shot `roger edge scan`, which holds no
+	// certificate because enrollment is what issues one - browses and advertises
+	// NOTHING. An empty advertisement is worse than none: every other node on the
+	// network would offer this machine as a candidate for a record naming nobody.
+	advertising := d.opts.Self.NodeID != ""
+	var ap Transport
+	if advertising {
+		var err error
+		if ap, err = d.opts.Plane(); err != nil {
+			d.unavailable(err.Error())
+			return nil
+		}
 	}
 	bp, err := d.opts.Plane()
 	if err != nil {
-		_ = ap.Close()
+		if ap != nil {
+			_ = ap.Close()
+		}
 		d.unavailable(err.Error())
 		return nil
 	}
 	d.ap, d.tp = ap, bp
-	d.resp = NewResponder(d.ap, d.cfg.Service, d.opts.Self, d.opts.AdvertiseIPs)
 	ctx, d.cancel = context.WithCancel(ctx)
 	d.mu.Lock()
-	d.advertising, d.browsing = true, true
+	d.advertising, d.browsing = advertising, true
 	d.mu.Unlock()
-	d.wg.Add(1)
-	go func() { defer d.wg.Done(); _ = d.resp.Serve(ctx) }()
+	if advertising {
+		d.resp = NewResponder(d.ap, d.cfg.Service, d.opts.Self, d.opts.AdvertiseIPs)
+		d.wg.Add(1)
+		go func() { defer d.wg.Done(); _ = d.resp.Serve(ctx) }()
+	}
 	if !d.cfg.ManualPasses {
 		d.wg.Add(1)
 		go func() { defer d.wg.Done(); d.loop(ctx) }()

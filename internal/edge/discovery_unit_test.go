@@ -223,3 +223,29 @@ func countWith(lines []string, sub string) int {
 	}
 	return n
 }
+
+// TestABrowseOnlyInstanceAdvertisesNothing covers the one-shot `roger edge scan`: a CLI
+// run has no identity of its own to advertise (enrollment is what issues one), so it must
+// browse WITHOUT putting a record on the LAN. An empty advertisement is worse than none -
+// every other node on the network would offer this machine as a candidate for a record
+// that names nothing and serves no certificate.
+func TestABrowseOnlyInstanceAdvertisesNothing(t *testing.T) {
+	cfg := edge.ConfigFromEnv(func(string) string { return "" })
+	cfg.ManualPasses = true
+	opened := 0
+	d := edge.New(edge.Options{
+		Fleet:  edge.NewFleet(store.NewMem(), "acct-1"),
+		Config: cfg,
+		Plane: func() (edge.Transport, error) {
+			opened++
+			return &deafPlane{}, nil
+		},
+		Interfaces: func() []net.Interface { return nil },
+	})
+	t.Cleanup(d.Stop)
+	require.NoError(t, d.Start(context.Background()))
+	require.False(t, d.Advertising(), "a node with nothing to advertise advertises nothing")
+	require.Nil(t, d.Responder())
+	require.True(t, d.Browsing(), "it still looks for the owner's other machines")
+	require.Equal(t, 1, opened, "no socket is opened for an advertising half that does not exist")
+}
