@@ -8,14 +8,16 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
-	"github.com/rivo/uniseg"
 )
 
 // the two names the model-level scenarios use: one that cannot fit any column the
@@ -28,6 +30,11 @@ const (
 type marqueeBDD struct {
 	t *testing.T
 
+	// env holds the variables a Given set, so sc.After can put them back. t.Setenv would
+	// only unwind at the END of TestMarqueeBDD, leaking NO_COLOR / ROGERAI_ASCII into
+	// every scenario declared after the one that set them.
+	env map[string]*string
+
 	// the pure-helper scenarios
 	name string
 	w    int
@@ -38,7 +45,30 @@ type marqueeBDD struct {
 	m tea.Model
 }
 
-func (b *marqueeBDD) reset() { *b = marqueeBDD{t: b.t} }
+func (b *marqueeBDD) reset() { *b = marqueeBDD{t: b.t, env: map[string]*string{}} }
+
+// setEnv sets k for THIS scenario only; restoreEnv puts the old value (or its absence) back.
+func (b *marqueeBDD) setEnv(k, v string) error {
+	if _, seen := b.env[k]; !seen {
+		if old, ok := os.LookupEnv(k); ok {
+			b.env[k] = &old
+		} else {
+			b.env[k] = nil
+		}
+	}
+	return os.Setenv(k, v)
+}
+
+func (b *marqueeBDD) restoreEnv() {
+	for k, old := range b.env {
+		if old == nil {
+			_ = os.Unsetenv(k)
+			continue
+		}
+		_ = os.Setenv(k, *old)
+	}
+	b.env = map[string]*string{}
+}
 
 // cell renders the cell under test at off, in whichever flavour the scenario declared.
 func (b *marqueeBDD) cell(off int) string {
@@ -97,8 +127,8 @@ func (b *marqueeBDD) nameInCutCell(name string, w int) error {
 	return nil
 }
 
-func (b *marqueeBDD) noColor() error       { b.t.Setenv("NO_COLOR", "1"); return nil }
-func (b *marqueeBDD) asciiSet() error      { b.t.Setenv("ROGERAI_ASCII", "1"); return nil }
+func (b *marqueeBDD) noColor() error       { return b.setEnv("NO_COLOR", "1") }
+func (b *marqueeBDD) asciiSet() error      { return b.setEnv("ROGERAI_ASCII", "1") }
 func (b *marqueeBDD) travelOf(n int) error { b.span = n; return nil }
 
 // --- Given: the model ---------------------------------------------------------------------
@@ -357,20 +387,32 @@ func (b *marqueeBDD) noOffsetSplitsRune(lo, hi int) error {
 	return nil
 }
 
+// noOffsetSplitsCluster demands the window be a CONTIGUOUS run of the source's own
+// clusters, not merely a bag of clusters that appear in it somewhere: dropping the
+// combining half of "é" leaves a bare "e" that IS a cluster of the name elsewhere, and a
+// membership test would wave that through.
 func (b *marqueeBDD) noOffsetSplitsCluster(lo, hi int) error {
 	full := clusters(b.name)
 	for off := lo; off <= hi; off++ {
 		c := strings.TrimRight(strings.TrimSuffix(b.cell(off), "…"), " ")
-		for _, g := range clusters(c) {
-			if g == " " || g == "…" {
-				continue
-			}
-			if !containsCluster(full, g) {
-				return fmt.Errorf("offset %d split a grapheme cluster: %q is not a cluster of %q (cell %q)", off, g, b.name, b.cell(off))
-			}
+		if c == "" {
+			continue
+		}
+		if !isRun(full, clusters(c)) {
+			return fmt.Errorf("offset %d is not a contiguous run of %q's clusters (cell %q)", off, b.name, b.cell(off))
 		}
 	}
 	return nil
+}
+
+// isRun reports whether want appears as a contiguous subslice of full.
+func isRun(full, want []string) bool {
+	for i := 0; i+len(want) <= len(full); i++ {
+		if slices.Equal(full[i:i+len(want)], want) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *marqueeBDD) noOffsetWiderThanStatic(lo, hi int) error {
@@ -490,14 +532,14 @@ func (b *marqueeBDD) offsetAtElapsed(want, e int) error {
 
 func (b *marqueeBDD) marqueeRunning() error {
 	if !b.mm().marqueeRunning() {
-		return fmt.Errorf("the marquee is not running (travel %d)", b.mm().marqueeTravel())
+		return fmt.Errorf("the marquee is not running (travel %d)", b.mm().selMarqueeTravel())
 	}
 	return nil
 }
 
 func (b *marqueeBDD) marqueeNotRunning() error {
 	if b.mm().marqueeRunning() {
-		return fmt.Errorf("the marquee is running when it should be still (travel %d)", b.mm().marqueeTravel())
+		return fmt.Errorf("the marquee is running when it should be still (travel %d)", b.mm().selMarqueeTravel())
 	}
 	return nil
 }
@@ -582,7 +624,7 @@ func (b *marqueeBDD) wholeViewStill() error {
 // measured against the wrong column silently never gets there.
 func (b *marqueeBDD) endShows() error {
 	tail := marqLongName[len(marqLongName)-8:]
-	span := b.mm().marqueeTravel()
+	span := b.mm().selMarqueeTravel()
 	for e := 0; e <= marqueeCycle(span); e++ {
 		if strings.Contains(strings.Join(b.atFrame(e), "\n"), tail) {
 			return nil
@@ -621,32 +663,11 @@ func (b *marqueeBDD) noLineOverflows() error {
 
 // --- small text helpers used by the assertions --------------------------------------------
 
-func isValidUTF8(s string) bool {
-	for _, r := range s {
-		if r == '�' {
-			return false
-		}
-	}
-	return true
-}
+func isValidUTF8(s string) bool { return utf8.ValidString(s) }
 
-func clusters(s string) []string {
-	var out []string
-	g := uniseg.NewGraphemes(s)
-	for g.Next() {
-		out = append(out, g.Str())
-	}
-	return out
-}
-
-func containsCluster(all []string, g string) bool {
-	for _, c := range all {
-		if c == g {
-			return true
-		}
-	}
-	return false
-}
+// clusters shares the production splitter. The assertions above never compare a window to
+// itself through it - they compare it to the SOURCE name - so nothing here is circular.
+func clusters(s string) []string { return marqueeClusters(s) }
 
 func TestMarqueeBDD(t *testing.T) {
 	st := &marqueeBDD{t: t}
@@ -655,6 +676,10 @@ func TestMarqueeBDD(t *testing.T) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 				st.reset()
 				return ctx, nil
+			})
+			sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
+				st.restoreEnv()
+				return ctx, err
 			})
 			sc.Step(`^the name "([^"]*)" in a (-?\d+)-column cell$`, st.nameInCell)
 			sc.Step(`^the name "([^"]*)" in a (-?\d+)-column hard-cut cell$`, st.nameInCutCell)

@@ -257,10 +257,10 @@ func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
 // ~88 cols; the windowshade forces dense regardless of width). shareNameW is that
 // layout's MODEL column width. Both mirror what shareView computes, from the one width
 // View draws at, so the marquee measures the column the row actually renders in.
-func (m model) shareDense() bool { return m.effWidth() < 88 || m.compact }
+func (m model) shareDense(w int) bool { return w < 88 || m.compact }
 
-func (m model) shareNameW() int {
-	if m.shareDense() {
+func (m model) shareNameW(w int) int {
+	if m.shareDense(w) {
 		return 14
 	}
 	return 24
@@ -293,7 +293,7 @@ func (m model) shareView(w int) string {
 	// ~88 cols, so anything narrower uses the 3-column model·status·price layout to
 	// stay width-safe (the band grid uses the same idea at its own threshold). The
 	// windowshade compact mode forces the dense layout regardless of width.
-	dense := m.shareDense()
+	dense := m.shareDense(w)
 	head := stSelBar.Render("▌") + " " + stBrand.Render("SHARE")
 	// Slot meter: ON AIR n/max (the soft share.max_on_air cap). At the cap the count
 	// reads in the ember accent so the operator sees there are no free slots; below it,
@@ -347,7 +347,7 @@ func (m model) shareView(w int) string {
 	}
 
 	// Column geometry. dense drops the metrics columns so nothing overflows.
-	nameW := m.shareNameW()
+	nameW := m.shareNameW(w)
 	// Header (k9s-style ALL-CAPS column labels). Windowshade compact omits the header
 	// row entirely for density (the cells stay self-evident).
 	switch {
@@ -439,7 +439,7 @@ func (m model) shareView(w int) string {
 		}
 		var plain string
 		if dense {
-			plain = fmt.Sprintf("%s %-14s  %-8s  %s", lampG, padMarquee(modelCell, 14, off), statusTxt, priceTxt)
+			plain = fmt.Sprintf("%s %s  %-8s  %s", lampG, padMarquee(modelCell, nameW, off), statusTxt, priceTxt)
 		} else {
 			served, outTok, earn := "-", "-", "-"
 			if on {

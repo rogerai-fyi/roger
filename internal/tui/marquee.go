@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/rivo/uniseg"
 )
 
@@ -125,16 +126,25 @@ func marqueeCellWindow(s string, w, off int, tail string) (string, bool) {
 	if off == span {
 		// The tail of the text, in full: there is nothing further right to promise, so
 		// the marker comes off and the last column carries a real character.
-		return strings.Join(g[len(g)-w:], ""), true
+		return truncVisible(strings.Join(g[len(g)-w:], ""), w), true
 	}
 	keep := max(0, w-uniseg.GraphemeClusterCount(tail))
-	return strings.Join(g[off:off+keep], "") + tail, true
+	// CLAMP TO DISPLAY COLUMNS, not clusters. w clusters of CJK is 2w columns wide;
+	// pad() counts runes and would overflow there too, but a moving cell that is wider
+	// than the still one it replaces is a regression this feature must not introduce, so
+	// the window is trimmed to the real column budget on its way out.
+	return truncVisible(strings.Join(g[off:off+keep], "")+tail, w), true
 }
 
 // padMarquee is pad() with a marquee: the same elided-and-padded cell at offset 0, sliding
 // one column per offset after that. The pad flavour keeps pad's "…" marker.
 func padMarquee(s string, w, off int) string {
 	if win, ok := marqueeCellWindow(s, w, off, "…"); ok {
+		// The column clamp can leave a cell a column short where a wide rune straddled
+		// the edge; pad's cells are always full, so this one is too.
+		if d := w - lipgloss.Width(win); d > 0 {
+			win += strings.Repeat(" ", d)
+		}
 		return win
 	}
 	return pad(s, w)
@@ -166,20 +176,32 @@ func (m model) marqueeSel() (string, int, bool) {
 		if !ok {
 			return "", 0, false
 		}
-		text, cw, _ := bandNameParts(bd, m.bandNameW())
+		w := m.bandNameW()
+		if m.narrow() {
+			// The narrow grid drops the quant entirely and renders the bare model; a
+			// CONNECTED row also leads with the lit ◉, which costs the name two columns.
+			// Measure what the row draws, or the scroll stops short of the tail (or runs
+			// on a cell that never moves).
+			if m.connectedModel() == bd.model {
+				w -= 2
+			}
+			return bd.model, w, true
+		}
+		text, cw, _ := bandNameParts(bd, w)
 		return text, cw, true
 	case m.mode == modeShare && !m.renaming:
 		if m.shareCursor < 0 || m.shareCursor >= len(m.shareRows) {
 			return "", 0, false
 		}
-		return shareModelCell(m.shareRows[m.shareCursor]), m.shareNameW(), true
+		return shareModelCell(m.shareRows[m.shareCursor]), m.shareNameW(m.effWidth()), true
 	}
 	return "", 0, false
 }
 
-// marqueeTravel is how far the currently selected cell has to travel (0 = it fits, or
-// there is nothing selected to scroll).
-func (m model) marqueeTravel() int {
+// selMarqueeTravel is how far the currently SELECTED cell has to travel (0 = it fits, or
+// there is nothing selected to scroll). Named apart from the package-level marqueeTravel
+// so a reader never has to work out which of the two a bare call meant.
+func (m model) selMarqueeTravel() int {
 	text, w, ok := m.marqueeSel()
 	if !ok {
 		return 0
@@ -187,10 +209,26 @@ func (m model) marqueeTravel() int {
 	return marqueeTravel(text, w)
 }
 
-// marqueeRunning reports whether a marquee is actually in motion right now. It is the
-// carrier beat's reason to keep ticking (animating), so it must be false whenever the
-// scroll is frozen - including the windowshade, which is this app's reduced-motion mode.
-func (m model) marqueeRunning() bool { return !m.compact && m.marqueeTravel() > 0 }
+// marqueeStill reports whether the scroll is held at frame zero regardless of what is
+// selected. Two reasons, and both are contracts older than this feature:
+//
+//   - THE WINDOWSHADE is the app's reduced-motion mode; everything freezes in it.
+//   - NATIVE SELECTION owning the mouse (ctrl+o / "/mouse") is a promise, spelled out in
+//     conversation_hierarchy_and_selection.feature and chat_prompt_wrapping.feature, that
+//     idle ticks will not repaint - because a repaint wipes the highlight the operator is
+//     dragging. A marquee is a repaint every other tick, so it stands down until they
+//     hand the mouse back. Smart mouse mode (the default) owns its own selection and is
+//     unaffected, so the feature is on for almost everyone almost always.
+//
+// NO_COLOR is deliberately NOT in this list. It strips color; it does not remove the need
+// to read a name, and for an elided cell the marquee IS the reading. It is information,
+// not decoration, so it survives where the beacon and the signal shimmer do not.
+func (m model) marqueeStill() bool { return m.compact || m.mouseOff }
+
+// marqueeRunning reports whether a marquee is actually in motion right now - the carrier
+// beat's reason to keep ticking. It reads the key syncMarquee already computed rather than
+// re-deriving the selection, so the per-tick cost is a string compare.
+func (m model) marqueeRunning() bool { return !m.marqueeStill() && m.marqKey != "" }
 
 // marqueeOff is the column offset the selected cell is currently showing.
 func (m model) marqueeOff() int {
@@ -198,17 +236,8 @@ func (m model) marqueeOff() int {
 	if !ok {
 		return 0
 	}
-	return m.marqueeOffAt(text, w)
-}
-
-// marqueeOffAt is marqueeOff for a cell the caller already has in hand, measured against
-// THAT cell's own width. A row can render its name in a tighter column than the plain row
-// does (a connected band leads with the lit ◉, which costs it two columns), and a phase
-// taken from the wider cell would stop two columns short - leaving the tail of the name
-// the one part you can never read, which is the whole thing this feature exists to fix.
-func (m model) marqueeOffAt(text string, w int) int {
 	span := marqueeTravel(text, w)
-	if m.compact || span <= 0 {
+	if m.marqueeStill() || span <= 0 {
 		return 0
 	}
 	return marqueePhase(m.frame-m.marqFrame, span)
