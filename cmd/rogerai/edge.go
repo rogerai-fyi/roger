@@ -885,38 +885,56 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if !found {
 		return fmt.Errorf("no candidate %q was seen on this network (run `roger edge scan`)", want)
 	}
+	n, err = edgeAdoptCandidate(st, c, c.Name, want)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("adopted %s (%s) - it has no capabilities until it declares them.\n", n.Name, edgeShortID(n.ID))
+	return nil
+}
+
+// edgeAdoptCandidate is the ONE adoption path, shared by the command leaf and the TUI's
+// `a` on the [3] EDGE screen, so both check the same things in the same order and both
+// leave the same Edge behind: dial the candidate, compare what it SERVES against what it
+// ADVERTISED, enroll it with no capabilities, drop it from the candidate list and write
+// the cache. label is what the owner called it, so a refusal names the thing they asked
+// for rather than an id they never typed.
+func edgeAdoptCandidate(st *edgeState, c store.EdgeNode, name, label string) (store.EdgeNode, error) {
+	none := store.EdgeNode{}
 	if st.account == "" {
-		return fmt.Errorf("adopting a node into an Edge requires a login (run `roger login`)")
+		return none, fmt.Errorf("adopting a node into an Edge requires a login (run `roger login`)")
 	}
 	// The advertisement is a hint; the certificate is the proof. Look before adopting,
 	// and refuse a candidate that does not serve what it advertised.
 	addr := edge.LANAddr(c)
 	if addr == "" {
-		return fmt.Errorf("%s has no LAN address to check (run `roger edge scan`)", want)
+		return none, fmt.Errorf("%s has no LAN address to check (run `roger edge scan`)", label)
 	}
 	peer, err := edgeDialPeer(context.Background(), addr)
 	if err != nil {
-		return fmt.Errorf("could not reach %s at %s: %w", want, addr, err)
+		return none, fmt.Errorf("could not reach %s at %s: %w", label, addr, err)
 	}
 	if peer.Fingerprint != c.Pin {
-		return fmt.Errorf("refused %s: %s - it advertised %s but serves %s; nothing was added",
-			want, edge.ReasonFingerprintMismatch, edgeShortFP(c.Pin), edgeShortFP(peer.Fingerprint))
+		return none, fmt.Errorf("refused %s: %s - it advertised %s but serves %s; nothing was added",
+			label, edge.ReasonFingerprintMismatch, edgeShortFP(c.Pin), edgeShortFP(peer.Fingerprint))
 	}
 	// A candidate becomes a member with NO capabilities: what it can do is something it
 	// declares and the fleet verifies, not something adoption grants.
 	c.Caps = nil
+	if name != "" {
+		c.Name = name
+	}
 	c.Presence = string(edge.PresenceVerified)
 	c.LastSeen = time.Now().Unix()
-	n, err = st.fleet.Enroll(c)
+	n, err := st.fleet.Enroll(c)
 	if err != nil {
-		return err
+		return none, err
 	}
 	st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
 	if err := st.save(); err != nil {
-		return err
+		return n, err
 	}
-	fmt.Printf("adopted %s (%s) - it has no capabilities until it declares them.\n", n.Name, edgeShortID(n.ID))
-	return nil
+	return n, nil
 }
 
 func edgeShortFP(fp string) string {

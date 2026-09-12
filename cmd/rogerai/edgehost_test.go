@@ -197,9 +197,14 @@ func TestEdgeVerifiedSightingBeatsExactlyThatNode(t *testing.T) {
 	require.NoError(t, err)
 	var hooks tui.Hooks
 	h.wire(&hooks)
-	h.start(context.Background())
-	t.Cleanup(h.stop)
-	rep := h.runPass(context.Background())
+	// One pass, driven by the test rather than the daemon's ticker, so the assertion is
+	// about what a pass DOES and not about when it happened.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	require.True(t, h.arm())
+	require.NoError(t, h.disc.Start(ctx))
+	t.Cleanup(h.disc.Stop)
+	rep := h.runPass(ctx)
 	require.Len(t, rep.Verified, 1, "the member was dialed and checked: %+v", rep)
 	require.Equal(t, member.id, rep.Verified[0].NodeID)
 
