@@ -194,7 +194,7 @@ func (m model) edgeView(w int) string {
 		m.edgeDetailView(w, line)
 		return b.String()
 	}
-	if st.total == 0 && len(st.cands) == 0 {
+	if len(st.rows) == 0 && len(st.cands) == 0 {
 		m.edgeEmptyView(w, line)
 		return b.String()
 	}
@@ -229,7 +229,7 @@ func edgeHeadline(st edgeState) string {
 			dark++
 		}
 	}
-	out := "EDGE · " + plural(st.total, "node")
+	out := "EDGE · " + plural(len(st.rows), "node")
 	if dark > 0 {
 		out += " · " + strconv.Itoa(dark) + " dark"
 	}
@@ -381,7 +381,7 @@ func (m model) edgeListBody(g edgeGeom, line func(string)) {
 	if shown > edgeListRows {
 		shown = edgeListRows
 	}
-	line("  " + stDim.Render("showing "+strconv.Itoa(shown)+" of "+strconv.Itoa(m.edge.total)+" nodes"))
+	line("  " + stDim.Render("showing "+strconv.Itoa(shown)+" of "+strconv.Itoa(len(m.edge.rows))+" nodes"))
 	line("")
 	for i := 0; i < shown; i++ {
 		r := m.edge.rows[i]

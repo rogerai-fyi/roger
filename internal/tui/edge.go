@@ -62,7 +62,6 @@ type edgeState struct {
 	rows   []edgeRow
 	cands  []store.EdgeNode
 	at     time.Time // when the snapshot was taken; every age on screen is measured from it
-	total  int       // how many nodes the fleet holds, before any drawing cap
 	err    string    // the fleet could not be read (shown, never swallowed)
 	sel    string    // the selected node/candidate id - STICKY across fleet changes
 	detail bool
@@ -125,8 +124,7 @@ func (m *model) refreshEdge() {
 		}
 		list = got
 	}
-	m.edge.total = len(list)
-	m.edge.rows = edgeArrange(list)
+	m.edge.rows = edgeArrange(list) // one row per member, always
 	m.edge.cands = nil
 	if m.hooks.EdgeCandidates != nil {
 		m.edge.cands = m.hooks.EdgeCandidates()
@@ -171,6 +169,11 @@ func edgeVia(n store.EdgeNode) string {
 // edgeArrange orders the fleet for drawing: every node hangs off self, and a node reached
 // through a relay that is ITSELF on this Edge is drawn immediately under that relay, so the
 // hop is a thing you can see rather than a thing you have to know.
+//
+// It draws EVERY member exactly once, which is the half of the rule that is easy to lose: a
+// relay chain, or two nodes that name each other as their relay, must not make a node
+// disappear off the fleet view - so anything the walk did not reach is drawn on its own dim
+// edge at the end.
 func edgeArrange(list []store.EdgeNode) []edgeRow {
 	member := make(map[string]bool, len(list))
 	for _, n := range list {
@@ -187,14 +190,26 @@ func edgeArrange(list []store.EdgeNode) []edgeRow {
 		children[v] = append(children[v], n)
 	}
 	rows := make([]edgeRow, 0, len(list))
-	for _, n := range list {
-		if via[n.ID] != "" {
-			continue // drawn under its relay, below
+	drawn := make(map[string]bool, len(list))
+	var emit func(n store.EdgeNode, parent string)
+	emit = func(n store.EdgeNode, parent string) {
+		if drawn[n.ID] {
+			return // a cycle, or a node already placed under its relay
 		}
-		rows = append(rows, edgeRow{n: n, relay: len(children[n.Name]) > 0})
+		drawn[n.ID] = true
+		rows = append(rows, edgeRow{
+			n: n, relay: len(children[n.Name]) > 0, child: parent != "", via: parent})
 		for _, c := range children[n.Name] {
-			rows = append(rows, edgeRow{n: c, child: true, via: n.Name})
+			emit(c, n.Name)
 		}
+	}
+	for _, n := range list {
+		if via[n.ID] == "" {
+			emit(n, "")
+		}
+	}
+	for _, n := range list {
+		emit(n, "") // whatever a cycle stranded, drawn rather than dropped
 	}
 	return rows
 }

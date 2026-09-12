@@ -121,6 +121,57 @@ func TestEdgeArrangeOnlyHopsItCanSee(t *testing.T) {
 	require.Equal(t, relayAt+1, childAt)
 }
 
+// A FLEET VIEW NEVER LOSES A MEMBER. A relay chain and a pair of nodes that name each
+// other as their relay both used to strand a node off the drawing entirely - which is the
+// exact failure a fleet view exists to show.
+func TestEdgeArrangeNeverDropsANode(t *testing.T) {
+	relay := func(id, name, via string) store.EdgeNode {
+		return store.EdgeNode{ID: id, Name: name,
+			Transports: []store.EdgeTransport{{Kind: "relay", Addr: via}}}
+	}
+	for _, tc := range []struct {
+		name string
+		list []store.EdgeNode
+	}{
+		{"a three-deep chain", []store.EdgeNode{
+			relay("1", "tower-1", "relay.rogerai.fm"),
+			relay("2", "shed", "tower-1"),
+			relay("3", "gate", "shed"),
+		}},
+		{"two nodes that name each other", []store.EdgeNode{
+			relay("1", "a", "b"),
+			relay("2", "b", "a"),
+		}},
+		{"a three-node cycle", []store.EdgeNode{
+			relay("1", "a", "b"), relay("2", "b", "c"), relay("3", "c", "a"),
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := edgeArrange(tc.list)
+			require.Len(t, rows, len(tc.list), "a node was dropped from the drawing")
+			seen := map[string]bool{}
+			for _, r := range rows {
+				require.False(t, seen[r.n.ID], "%s is drawn twice", r.n.Name)
+				seen[r.n.ID] = true
+				if r.child {
+					// A child is drawn UNDER the relay it names - never above it, and
+					// never pointing at a node the frame does not draw.
+					require.True(t, seen[relayIDByName(tc.list, r.via)], "%s hangs off a relay drawn after it", r.n.Name)
+				}
+			}
+		})
+	}
+}
+
+func relayIDByName(list []store.EdgeNode, name string) string {
+	for _, n := range list {
+		if n.Name == name {
+			return n.ID
+		}
+	}
+	return ""
+}
+
 func TestEdgeMarks(t *testing.T) {
 	require.Empty(t, edgeMarks(store.EdgeNode{}), "nothing declared, nothing marked")
 	n := store.EdgeNode{Caps: []store.EdgeCap{
