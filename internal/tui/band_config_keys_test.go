@@ -19,7 +19,7 @@ func cardKeys(t *testing.T) model {
 	return asModel(mm)
 }
 
-// e and t hand off to the [3] CONFIG spend-limit editor, parked on THIS band's row and on
+// e and t hand off to the [4] CONFIG spend-limit editor, parked on THIS band's row and on
 // the field the key names - so the edit uses the same buffer and the same save path.
 func TestTheCardRoutesToTheSpendEditor(t *testing.T) {
 	for _, tc := range []struct {

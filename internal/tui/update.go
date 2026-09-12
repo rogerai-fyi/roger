@@ -376,6 +376,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onOverLimitKey(k)
 	case modeLimits:
 		return m.onLimitsKey(k)
+	case modeEdge:
+		return m.onEdgeKey(k)
 	case modeShare:
 		return m.onShareKey(k)
 	case modeBandCard:
@@ -492,7 +494,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clampBrowse()
 			return m, c
 		}
-		// The preset bank: 1 TUNE IN · 2 SHARE · 3 CONFIG · L LOGIN · ? HELP. Handled
+		// The preset bank: 1 TUNE IN · 2 SHARE · 3 EDGE · 4 CONFIG · L LOGIN · ? HELP. Handled
 		// first so the always-visible top bar's buttons jump straight to their mode.
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
@@ -880,6 +882,10 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	case "limits", "limit":
 		m.enterLimits()
 		return m, nil
+	case "edge":
+		// [3] EDGE: the fleet topology - what is on my Edge, and how is it connected.
+		m.enterEdge()
+		return m, m.edgeResume()
 	case "config", "cfg":
 		m.status = fmt.Sprintf("broker %s · user %s  (roger config set broker <url>)", m.broker, m.user)
 	case "confidential", "conf":
@@ -1236,7 +1242,7 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.renaming {
 		return m.onStationRenameKey(k)
 	}
-	// Preset bank: 1 TUNE IN · 3 CONFIG · L LOGIN · ? HELP jump straight out of the
+	// Preset bank: 1 TUNE IN · 3 EDGE · 4 CONFIG · L LOGIN · ? HELP jump straight out of the
 	// table. (2 SHARE is the current screen, so it is a no-op pressed-state and falls
 	// through to the table keys below; `a`/`enter` toggle on-air as before.)
 	if k.String() != "2" {
@@ -1920,8 +1926,8 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	editing := m.editField >= 0
 	if !editing {
 		// Preset bank jumps (only when NOT editing a numeric field, so a typed digit in
-		// the editor is never stolen). 3 CONFIG is the current screen -> no-op.
-		if k.String() != "3" {
+		// the editor is never stolen). 4 CONFIG is the current screen -> no-op.
+		if k.String() != "4" {
 			if nm, cmd, ok := m.presetForKey(k.String()); ok {
 				return nm, cmd
 			}
@@ -2040,8 +2046,8 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // presetForKey maps a top-level key press to its preset action, returning the new
 // model + cmd and true when the key was a preset jump (so onKey can short-circuit).
-// It is the keyboard half of the preset bank: 1 -> TUNE IN, 2 -> SHARE, 3 -> CONFIG
-// (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
+// It is the keyboard half of the preset bank: 1 -> TUNE IN, 2 -> SHARE, 3 -> EDGE,
+// 4 -> CONFIG (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
 // (browse / a SHARE sub-screen / limits / help) so it never steals a typed digit in
 // the command palette, the chat input, or a numeric price/limit editor.
 // toggleCompact flips the windowshade compact mode and persists the choice via the

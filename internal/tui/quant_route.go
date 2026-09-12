@@ -50,7 +50,7 @@ func (m model) quantExcludes(bd band) []string {
 }
 
 // prefExcludes returns the node ids to skip for `model` under the operator's STANDING
-// preference (Limit.Quants) - the [3] CONFIG rule rather than the dial's view.
+// preference (Limit.Quants) - the [4] CONFIG rule rather than the dial's view.
 //
 // This is what makes the preference a rule rather than a view. The dial filter cannot
 // protect a turn nobody is watching: the agent picks a model and runs, and it never

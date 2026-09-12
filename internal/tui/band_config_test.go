@@ -11,7 +11,7 @@ import (
 // ONE CARD PER BAND (band_config.go).
 //
 // Everything about a single model used to be scattered across four screens - on air and
-// visibility in [2] SHARE, earnings in its pricing editor, spend caps in [3] CONFIG, the
+// visibility in [2] SHARE, earnings in its pricing editor, spend caps in [4] CONFIG, the
 // dial and its code in BASE STATION - and no screen anywhere could answer "how is this band
 // set up?". The card is the detail view that was missing.
 
@@ -33,8 +33,8 @@ func TestTheCardCarriesEverySettingForABandItServes(t *testing.T) {
 		"band",         // BASE STATION
 		"name",         // the label, which had no write path at all
 		"you earn",     // the pricing editor
-		"max $/1M out", // [3] CONFIG
-		"min t/s",      // [3] CONFIG
+		"max $/1M out", // [4] CONFIG
+		"min t/s",      // [4] CONFIG
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the card is missing %q - it is still split across screens:\n%s", want, out)
@@ -161,7 +161,7 @@ func TestBOpensTheCardFromEveryList(t *testing.T) {
 			m.mode = modeShare
 			return m
 		}},
-		{"[3] CONFIG", func() model {
+		{"[4] CONFIG", func() model {
 			m := privateTab(t)
 			m.bands = []band{{model: "grok-4.6", online: true, cheapest: &offer{Model: "grok-4.6"}}}
 			mm := &m

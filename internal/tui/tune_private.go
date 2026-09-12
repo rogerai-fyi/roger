@@ -228,7 +228,7 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	// [d] would drop a channel the operator cannot see from here, and [f] would open a
 	// filter that narrows a list this view does not render.
 	switch k.String() {
-	case "q", "w", "z", "/", ":", "?", "~", "p", "P", "v", "V", "0", "1", "2", "3", "l", "L":
+	case "q", "w", "z", "/", ":", "?", "~", "p", "P", "v", "V", "0", "1", "2", "3", "4", "l", "L":
 		return m, nil, false
 	}
 	return m, nil, true

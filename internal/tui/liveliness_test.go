@@ -139,8 +139,11 @@ func TestPresetKeysSwitchMode(t *testing.T) {
 	if got := asModel(press('2')).mode; got != modeShare {
 		t.Errorf("[2] should open SHARE (modeShare), got %v", got)
 	}
-	if got := asModel(press('3')).mode; got != modeLimits {
-		t.Errorf("[3] should open CONFIG (modeLimits), got %v", got)
+	if got := asModel(press('3')).mode; got != modeEdge {
+		t.Errorf("[3] should open EDGE (modeEdge), got %v", got)
+	}
+	if got := asModel(press('4')).mode; got != modeLimits {
+		t.Errorf("[4] should open CONFIG (modeLimits), got %v", got)
 	}
 	if got := asModel(press('?')).mode; got != modeHelp {
 		t.Errorf("[?] should open HELP, got %v", got)
@@ -160,7 +163,7 @@ func TestPresetBarLitMode(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.width, mm.height = 100, 30
 	mm.mode = modeLimits
-	if !strings.Contains(stripANSI(mm.View()), "•[3] CONFIG") {
+	if !strings.Contains(stripANSI(mm.View()), "•[4] CONFIG") {
 		t.Errorf("CONFIG preset should be lit in the limits screen:\n%s", stripANSI(mm.View()))
 	}
 	mm.mode = modeShare

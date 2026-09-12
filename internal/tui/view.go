@@ -127,6 +127,8 @@ func (m model) View() string {
 		b.WriteString(m.overLimitView(w))
 	case modeLimits:
 		b.WriteString(m.limitsView(w))
+	case modeEdge:
+		b.WriteString(m.edgeView(w))
 	case modeShare:
 		b.WriteString(m.shareView(w))
 	case modeBandCard:
@@ -278,7 +280,8 @@ var paletteCmds = []paletteCmd{
 	{"/search", "re-scan the band for stations", "r"},
 	{"/connect", "tune in to the selected station", "⏎"},
 	{"/share", "put a local model on air (earn or free)", "2"},
-	{"/limits", "your per-model spend caps", "3"},
+	{"/edge", "your fleet, and how it is connected", "3"},
+	{"/limits", "your per-model spend caps", "4"},
 	{"/login", "link GitHub (needed to earn)", "L"},
 	{"/balance", "wallet balance", ""},
 	{"/topup", "add funds", ""},
@@ -911,7 +914,8 @@ func (m model) helpView() string {
 		{"/share [off]", "SHARE: the provider table - flip your models on/off air"},
 		{"/login", "link GitHub - only needed to EARN (CLI: roger login)"},
 		{"/balance · /topup", "your wallet balance · add funds (CLI: roger balance)"},
-		{"/limits", "see + edit your per-model spend maxes"},
+		{"/edge ([3])", "your Edge: what is on it, and how it is connected"},
+		{"/limits ([4])", "see + edit your per-model spend maxes"},
 		{"/grant [create <name>]", "private free keys for your bots/family"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
 		{"/endpoint · /config", "endpoint + key · broker/identity"},

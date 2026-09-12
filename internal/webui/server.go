@@ -40,7 +40,7 @@ type Options struct {
 	User     string // signed user id (X-Roger-User)
 	ClientID string // GitHub OAuth client id for the device-flow login
 	// ReadLimits / WriteLimit expose the operator's PER-BAND spend caps to the console.
-	// They are wired to the SAME store the TUI's [3] CONFIG edits: two copies would let
+	// They are wired to the SAME store the TUI's [4] CONFIG edits: two copies would let
 	// the browser and the terminal disagree about what the operator is willing to pay,
 	// and the one that loses is whichever wrote first. Nil = the node cannot edit them
 	// (the console then shows the table as unavailable rather than empty, which would

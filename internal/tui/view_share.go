@@ -66,11 +66,11 @@ type presetKey struct {
 
 // presetButtons returns the preset bank for the current mode, with exactly one
 // preset lit (the section/screen the user is in). TUNE IN covers browse/command/
-// chat/connect; SHARE covers the provider table / editor / setup; CONFIG maps to
-// the limits screen (the in-TUI config surface). LOGIN + HELP are always-available
+// chat/connect; SHARE covers the provider table / editor / setup; EDGE is the fleet
+// topology; CONFIG maps to the limits screen (the in-TUI config surface). LOGIN + HELP are always-available
 // actions (lit only while their screen shows).
 func (m model) presetButtons() []presetKey {
-	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeHelp && m.mode != modeAgent && m.mode != modeLogin
+	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeEdge && m.mode != modeHelp && m.mode != modeAgent && m.mode != modeLogin
 	// [L] flips its label by state: LOGOUT when an account is linked, LOGIN otherwise.
 	// It is a resting-capable mode now (the confirmable panel), so it lights while open.
 	loginLabel := "LOGIN"
@@ -81,14 +81,15 @@ func (m model) presetButtons() []presetKey {
 		{"0", "AGENT", m.mode == modeAgent},
 		{"1", "TUNE IN", tuneActive},
 		{"2", "SHARE", m.inShareSection()},
-		{"3", "CONFIG", m.mode == modeLimits},
+		{"3", "EDGE", m.mode == modeEdge},
+		{"4", "CONFIG", m.mode == modeLimits},
 		{"L", loginLabel, m.mode == modeLogin},
 		{"?", "HELP", m.mode == modeHelp},
 	}
 }
 
 // presetBar renders the always-visible "preset bank" of radio-station buttons:
-// [1] TUNE IN  [2] SHARE  [3] CONFIG  [L] LOGIN  [?] HELP, with the CURRENT mode
+// [1] TUNE IN  [2] SHARE  [3] EDGE  [4] CONFIG  [L] LOGIN  [?] HELP, with the CURRENT mode
 // lit like a pressed preset. It replaces the buried single "s share" hint and makes
 // the two modes unmistakable. Compact + NO_COLOR-safe: under a narrow width it drops
 // to just key glyphs ([1][2][3][L][?]) so it never overflows.
@@ -129,7 +130,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	switch key {
 	case "right":
 		// Sequential tab navigation across the preset bank: step to the NEXT preset
-		// (0 -> 1 -> 2 -> 3 -> L -> ? -> wrap to 0) and fire its jump, so left/right
+		// (0 -> 1 -> 2 -> 3 -> 4 -> L -> ? -> wrap to 0) and fire its jump, so left/right
 		// behave exactly like pressing the number/letter. presetForKey is only ever
 		// consulted from non-text-entry contexts (browse / a SHARE sub-screen not pasting
 		// / limits-not-editing / help), so left/right inherit that exact guard and never
@@ -137,7 +138,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		// palette, chat, the AGENT prompt, the `f` filter, or a numeric field.
 		return m.cyclePreset(+1)
 	case "left":
-		// Previous preset (wraps the other way: 0 -> ? -> L -> 3 -> 2 -> 1 -> 0).
+		// Previous preset (wraps the other way: 0 -> ? -> L -> 4 -> 3 -> 2 -> 1 -> 0).
 		return m.cyclePreset(-1)
 	case "m":
 		// COMPACT (the "windowshade"): toggle the calm, dense, animation-free view. Lives
@@ -155,7 +156,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "1":
 		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
 		// channel stays open (tab/c returns to it).
-		if m.inShareSection() || m.mode == modeLimits {
+		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge {
 			m.mode = modeBrowse
 			m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
 		}
@@ -166,6 +167,10 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		nm, cmd := m.doShare(nil)
 		return nm, cmd, true
 	case "3":
+		// EDGE: the fleet topology - what is on my Edge, and how is it connected.
+		m.enterEdge()
+		return m, m.edgeResume(), true
+	case "4":
 		// CONFIG: the in-TUI per-model spend-limits screen.
 		m.enterLimits()
 		return m, nil, true

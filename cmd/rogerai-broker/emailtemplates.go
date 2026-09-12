@@ -475,8 +475,8 @@ func (b *broker) emailCapNotice(holder string, threshold string, spend, cap floa
 		subj = "Monthly spend limit reached"
 		bodyHTML := receipt(hero, nil) +
 			p(`You have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit.`) +
-			p(`<span style="color:`+colInk500+`;">Raise it from the billing page, or on the CLI with <span style="font-family:`+fontMono+`;">roger limit --monthly</span> (or [3] CONFIG).</span>`)
-		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nYou have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit with `roger limit --monthly` (or [3] CONFIG).", round6(spend), round6(cap), pct)
+			p(`<span style="color:`+colInk500+`;">Raise it from the billing page, or on the CLI with <span style="font-family:`+fontMono+`;">roger limit --monthly</span> (or [4] CONFIG).</span>`)
+		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nYou have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit with `roger limit --monthly` (or [4] CONFIG).", round6(spend), round6(cap), pct)
 		d = emailDoc{
 			kicker:    "Spend limit reached",
 			heading:   "You hit your monthly spend limit",

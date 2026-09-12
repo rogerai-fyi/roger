@@ -97,7 +97,7 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 	s := webui.New(ctrl, webui.Options{
 		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
-		// [3] CONFIG are two views of one setting; two stores would let them disagree
+		// [4] CONFIG are two views of one setting; two stores would let them disagree
 		// about what the operator is willing to pay, and the loser is whichever wrote
 		// first. Nil-safe: a console with no store shows the table as unavailable.
 		ReadLimits: func() map[string]webui.SpendLimit {

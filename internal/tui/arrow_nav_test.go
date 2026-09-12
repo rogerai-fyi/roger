@@ -53,25 +53,33 @@ func TestArrowCyclesPresetsFromBrowse(t *testing.T) {
 }
 
 // TestArrowCycleWraps: stepping Left from TUNE IN past AGENT does NOT fall off the
-// end - and a Right walk visits SHARE then CONFIG then HELP, proving the sequential
-// order 1 -> 2 -> 3 -> ... is followed (LOGIN has no resting mode, so a Right onto it
-// lands in whatever doLogin returns; we assert the ordered, observable jumps).
+// end - and a Right walk visits SHARE then EDGE then CONFIG then HELP, proving the
+// sequential order 1 -> 2 -> 3 -> 4 -> ... is followed (LOGIN has no resting mode, so a
+// Right onto it lands in whatever doLogin returns; we assert the ordered, observable jumps).
 func TestArrowCycleWraps(t *testing.T) {
-	// Right walk: TUNE IN -> SHARE -> CONFIG.
+	// Right walk: TUNE IN -> SHARE -> EDGE -> CONFIG.
 	m := browseModel(t)
 	m, _ = m.Update(keyRight()) // -> SHARE
 	if got := asModel(m).mode; got != modeShare {
 		t.Fatalf("step 1 should be SHARE, got %v", got)
 	}
+	m, _ = m.Update(keyRight()) // -> EDGE
+	if got := asModel(m).mode; got != modeEdge {
+		t.Errorf("step 2 should be EDGE, got %v", got)
+	}
 	m, _ = m.Update(keyRight()) // -> CONFIG (limits)
 	if got := asModel(m).mode; got != modeLimits {
-		t.Errorf("step 2 should be CONFIG (limits), got %v", got)
+		t.Errorf("step 3 should be CONFIG (limits), got %v", got)
 	}
 
-	// Left walk wraps the other way: from CONFIG, Left -> SHARE -> TUNE IN (browse).
-	m, _ = m.Update(keyLeft()) // CONFIG -> SHARE
+	// Left walk wraps the other way: from CONFIG, Left -> EDGE -> SHARE -> TUNE IN (browse).
+	m, _ = m.Update(keyLeft()) // CONFIG -> EDGE
+	if got := asModel(m).mode; got != modeEdge {
+		t.Errorf("Left from CONFIG should step back to EDGE, got %v", got)
+	}
+	m, _ = m.Update(keyLeft()) // EDGE -> SHARE
 	if got := asModel(m).mode; got != modeShare {
-		t.Errorf("Left from CONFIG should step back to SHARE, got %v", got)
+		t.Errorf("Left from EDGE should step back to SHARE, got %v", got)
 	}
 	m, _ = m.Update(keyLeft()) // SHARE -> TUNE IN
 	if got := asModel(m).mode; got != modeBrowse {

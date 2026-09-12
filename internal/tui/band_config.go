@@ -22,7 +22,7 @@ import (
 //	on air / off air ............ [2] SHARE            (a / space)
 //	public or private band ...... [2] SHARE            (h)
 //	what you EARN + windows ..... [2] SHARE -> p       (modeShareEditor)
-//	what you PAY ................ [3] CONFIG           (modeLimits)
+//	what you PAY ................ [4] CONFIG           (modeLimits)
 //	dial · move · new code ...... BASE STATION [p]     (the band card)
 //	can I reach it .............. [1] TUNE IN
 //
@@ -40,7 +40,7 @@ import (
 // returns here. Forking those would give the product two implementations of each edit that
 // would drift, and the drift would be about money.
 //
-// The right-hand column names the screen each section came from ([2] SHARE, [3] CONFIG).
+// The right-hand column names the screen each section came from ([2] SHARE, [4] CONFIG).
 // That is deliberate: the card teaches the map instead of replacing it silently, so an
 // operator who knows the old route keeps it and one who does not learns it here.
 
@@ -142,7 +142,7 @@ func (m model) bandConfigView(w int) string {
 	lim := m.limits.resolve(m.cfgModel)
 	_, onMarket := m.bandForModel(m.cfgModel)
 	if onMarket || !served || lim.MaxOut > 0 || lim.MinTPS > 0 {
-		m.cfgSection(&b, w, "WHAT YOU PAY", "[3] CONFIG", m.cfgConsumerRows())
+		m.cfgSection(&b, w, "WHAT YOU PAY", "[4] CONFIG", m.cfgConsumerRows())
 	}
 	// CURATED - the price, taken apart. The posted number folds the upstream's list and
 	// our routing fee together; a consumer deciding whether the routing fee is worth it needs the
@@ -241,7 +241,7 @@ func cfgVariant(sr shareRow) string {
 	return strings.Join(parts, stDim.Render(" · "))
 }
 
-// cfgConsumerRows is the "what you are willing to pay" half - the [3] CONFIG fields.
+// cfgConsumerRows is the "what you are willing to pay" half - the [4] CONFIG fields.
 func (m model) cfgConsumerRows() []bandConfigRow {
 	lim := m.limits.resolve(m.cfgModel)
 	return []bandConfigRow{
@@ -553,11 +553,11 @@ func (m model) cfgOpenPricing() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// cfgEditLimit opens the [3] CONFIG spend-limit editor on this band's row, field 0 (max
+// cfgEditLimit opens the [4] CONFIG spend-limit editor on this band's row, field 0 (max
 // $/1M out) or 1 (min t/s), so the edit uses the same buffer and the same save path.
 func (m model) cfgEditLimit(field int) (tea.Model, tea.Cmd) {
 	mm := &m
-	mm.enterLimits() // the SAME builder [3] CONFIG uses, so the row set can never differ
+	mm.enterLimits() // the SAME builder [4] CONFIG uses, so the row set can never differ
 	m = *mm
 	for i, mdl := range m.limModels {
 		if mdl != m.cfgModel {

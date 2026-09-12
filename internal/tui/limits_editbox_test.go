@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// THE [3] CONFIG EDIT BOX. The founder reported it "a bit skewed/off" twice.
+// THE [4] CONFIG EDIT BOX. The founder reported it "a bit skewed/off" twice.
 //
 // The border was never the problem. The plate was one cell too wide for the content area,
 // lipgloss WRAPPED it, and the box grew a second row with "esc / cancel" split across the
