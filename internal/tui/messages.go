@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // ---- messages ----
@@ -77,6 +78,10 @@ type chatMsg struct {
 	// local marks a turn that ran DIRECT on this machine. It is not "cost 0": it is "there
 	// is no cost", and the footer says so in words rather than printing a dollar figure.
 	local bool
+	// receipt is the broker's receipt for this turn. It is what the Edge's session layer
+	// draws the turn from: a turn with no receipt is not drawn, because the Edge is a
+	// window onto receipted traffic and never a second ledger.
+	receipt protocol.UsageReceipt
 }
 
 type chatErrMsg string

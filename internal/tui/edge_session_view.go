@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // The session vocabulary. Three DIFFERENT glyphs, not three colours: the TUI's palette is
@@ -233,4 +234,23 @@ func (m model) edgeSessionBlock(g edgeGeom, line func(string)) {
 		}
 		line(m.edgeSessLine(sg, r))
 	}
+}
+
+// recordEdgeSession puts a turn the TUI's own agent just took onto the Edge.
+//
+// It is DERIVED, not bookkept: the only input is the broker's own signed receipt, which
+// the client already decodes for the reply footer. A turn with no receipt is not drawn -
+// not dimmed, not pending, not drawn - because the Edge is a window onto receipted
+// traffic. This is the whole write path from the TUI into the ledger, and it cannot run
+// unless a relay already happened and was already billed.
+func (m *model) recordEdgeSession(rec protocol.UsageReceipt) {
+	if m.hooks.EdgeSessions == nil || rec.RequestID == "" {
+		return
+	}
+	_, _ = m.hooks.EdgeSessions.Record(edge.Traffic{
+		Account:  m.hooks.EdgeSessions.Account(),
+		Kind:     edge.FromAgent,
+		Request:  rec.RequestID,
+		Receipts: []protocol.UsageReceipt{rec},
+	})
 }

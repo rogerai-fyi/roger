@@ -104,6 +104,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 		hooks.EdgeSelf = name
 	}
 	hooks.EdgeFleet = h.st.fleet
+	hooks.EdgeSessions = h.st.sessions
 	hooks.EdgeCandidates = h.candidates
 	hooks.EdgeAdopt = h.adopt
 	hooks.EdgeHeartbeats = h.beats

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 func sess(kind edge.Initiator, who, band, station string) edge.Session {
@@ -146,4 +147,27 @@ func TestEdgeSessionGlyphsFoldForALegacyConsole(t *testing.T) {
 		require.False(t, seen[r], "the three marks folded onto the same character: %q", folded)
 		seen[r] = true
 	}
+}
+
+func TestRecordEdgeSessionDrawsOnlyReceiptedTurns(t *testing.T) {
+	led := edge.NewSessions("acct-1")
+	m := browseSeed(100)
+	m.hooks.EdgeSessions = led
+
+	m.recordEdgeSession(protocol.UsageReceipt{}) // no receipt id: the turn was not receipted
+	require.Zero(t, led.Len(), "a turn with no receipt is not drawn")
+
+	m.recordEdgeSession(protocol.UsageReceipt{
+		RequestID: "req-live", NodeID: "house-cb", Model: "gpt-oss-120b"})
+	require.Equal(t, 1, led.Len())
+	got, ok := led.Get("req-live")
+	require.True(t, ok)
+	require.Equal(t, edge.FromAgent, got.Kind)
+	require.Equal(t, "house-cb", got.Station)
+	require.Equal(t, "gpt-oss-120b", got.Band)
+
+	// With no ledger wired there is no write path at all.
+	m.hooks.EdgeSessions = nil
+	m.recordEdgeSession(protocol.UsageReceipt{RequestID: "req-2", NodeID: "n", Model: "m"})
+	require.Equal(t, 1, led.Len())
 }

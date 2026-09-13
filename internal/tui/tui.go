@@ -1768,6 +1768,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case chatMsg:
 		m.relaying = false
+		m.recordEdgeSession(msg.receipt)
 		m.sessCost += msg.cost
 		m.sessTokensIn += msg.tokensIn // running ↑ billed tokens (broker re-count), mirrors the AGENT meter
 		m.sessTokensOut += msg.tokensOut
@@ -5172,6 +5173,7 @@ func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float6
 			reply: r.Reply, status: r.Status, cost: r.Cost,
 			provider: r.Provider, tokensIn: r.TokensIn, tokensOut: r.TokensOut,
 			tps: r.TPS, priceIn: r.PriceIn, priceOut: r.PriceOut, latency: r.Latency,
+			receipt: r.Receipt,
 		}
 	}
 }

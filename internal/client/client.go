@@ -1829,6 +1829,12 @@ type ChatResult struct {
 	PriceIn   float64       // $/1M in for this turn (locked price)
 	PriceOut  float64       // $/1M out
 	Latency   time.Duration // wall-clock time of the served request (how long you waited)
+	// Receipt is the broker's signed receipt for this turn, as it arrived on the
+	// X-RogerAI-Receipt header (the zero value when the broker sent none). It is the
+	// SAME record the token counts above are read out of - carried on rather than
+	// discarded, so a surface that wants to show the turn as traffic (the Edge's session
+	// layer) derives it from the receipt instead of keeping a second set of books.
+	Receipt protocol.UsageReceipt
 }
 
 // FormatUSD is the ONE canonical money renderer for every consumer surface, so a cost or
@@ -2009,6 +2015,7 @@ func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, 
 		// stays zero and the renderer omits it). The signed receipt carries the BILLED token
 		// counts (broker re-count when present), the truthful in/out the user actually paid for.
 		if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil {
+			res.Receipt = rec
 			res.TokensIn, res.TokensOut = rec.PromptTokens, rec.CompletionTokens
 			if rec.BrokerPromptTokens > 0 {
 				res.TokensIn = rec.BrokerPromptTokens

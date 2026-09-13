@@ -246,6 +246,11 @@ type edgeState struct {
 	db         *store.Mem
 	fleet      *edge.Fleet
 	candidates []store.EdgeNode
+	// sessions is this run's live session ledger: the traffic this Edge carried, as the
+	// relay's own receipts describe it. It is deliberately NOT part of the snapshot -
+	// sessions fade rather than accumulate, so a session that outlived the process it
+	// happened in would be a lie about what is happening now.
+	sessions *edge.Sessions
 }
 
 // edgeAccount is the owner this machine's Edge belongs to. Anonymous is a real state and
@@ -264,7 +269,8 @@ func edgeAccount() string {
 func loadEdgeState() (*edgeState, error) {
 	acct := edgeAccount()
 	db := store.NewMem()
-	st := &edgeState{account: acct, db: db, fleet: edge.NewFleet(db, acct)}
+	st := &edgeState{account: acct, db: db, fleet: edge.NewFleet(db, acct),
+		sessions: edge.NewSessions(acct)}
 	b, err := os.ReadFile(edgeStatePath())
 	if err != nil {
 		if os.IsNotExist(err) {
