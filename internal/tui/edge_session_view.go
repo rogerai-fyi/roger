@@ -208,7 +208,14 @@ func edgeSessCount(n int) string {
 // count is the load-bearing half of a busy edge, so it is the half that cannot move.
 func edgeSessPathCell(r edgeSessRow, w int) string {
 	c := edgeSessCount(r.n)
-	return pad(edgeSessHops(r.s), max(0, w-len([]rune(c)))) + c
+	// The count is pinned right, but it is not exempt from the column. Below its own
+	// width pad() returned "" and the count was appended anyway, so the cell ran over
+	// and shoved the outcome column right - the one thing measured geometry forbids.
+	// Narrower than the count: the count IS the cell, trimmed to fit.
+	if w <= len([]rune(c)) {
+		return pad(c, w)
+	}
+	return pad(edgeSessHops(r.s), w-len([]rune(c))) + c
 }
 
 // edgeSessOutcome is how it ended, in words. A refusal says WHY; an escalation says it was

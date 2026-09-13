@@ -192,3 +192,26 @@ func TestRecordEdgeSessionDrawsOnlyReceiptedTurns(t *testing.T) {
 	m.recordEdgeSession(protocol.UsageReceipt{RequestID: "req-2", NodeID: "n", Model: "m"})
 	require.Equal(t, 1, led.Len())
 }
+
+// TestEdgeSessPathCellNeverOverflowsItsColumn pins the pre-push audit's finding: below the
+// width of the count itself, pad() returned "" and the count was appended anyway, so the cell
+// ran wider than the column it was given and shoved the outcome column right. A session view
+// whose whole job is measured geometry may not be the thing that breaks it. The count is still
+// pinned right at every width that can hold it; narrower than that, the count IS the cell.
+func TestEdgeSessPathCellNeverOverflowsItsColumn(t *testing.T) {
+	rows := []edgeSessRow{
+		{s: edge.Session{Station: "house-or-gpt-oss-20b"}, n: 1},
+		{s: edge.Session{Station: "house-or-gpt-oss-20b"}, n: 31},
+		{s: edge.Session{Station: "a"}, n: 9999},
+		{s: edge.Session{}, n: 0},
+	}
+	for _, r := range rows {
+		for w := 0; w <= 48; w++ {
+			got := edgeSessPathCell(r, w)
+			if n := len([]rune(got)); n > w {
+				t.Errorf("width %d, n=%d: cell is %d runes (%q), wider than its column",
+					w, r.n, n, got)
+			}
+		}
+	}
+}

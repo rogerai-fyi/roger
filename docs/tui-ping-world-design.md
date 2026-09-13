@@ -1,3 +1,7 @@
+> HISTORICAL (2026-09-13): the preset bar in this document predates the Roger Edge
+> renumber. The bar now reads [0] AGENT [1] TUNE IN [2] SHARE [3] EDGE [4] CONFIG.
+> The layouts below are kept as they were written; only the key digits moved.
+
 # RogerAI — TUI Beautification + `roger --ping` "Ping World" Screensaver
 ### A design proposal (DESIGN ONLY — no production Go in this doc)
 
