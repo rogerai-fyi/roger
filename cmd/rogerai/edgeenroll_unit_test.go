@@ -316,3 +316,20 @@ func TestAnUnreadableAuthorityRecordIsUnknownAndNotCore(t *testing.T) {
 	require.Contains(t, out, "could not be read")
 	require.NotContains(t, out, "this Edge is rooted at Core")
 }
+
+// An Edge that cannot be WRITTEN must not report success. A machine that says it
+// enrolled and then cannot show the node it enrolled is worse than one that refused.
+func TestAnEdgeThatCannotBeWrittenIsNotReportedAsEnrolled(t *testing.T) {
+	offline(t)
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	// The state file's path taken by a directory: the same shape as the corrupted
+	// install TestEdgeHostRefusesToInventAFleetItCouldNotRead already guards against.
+	require.NoError(t, os.MkdirAll(edgeStatePath(), 0o700))
+
+	out, code := edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 1, code, out)
+
+	out, code = edgeRun(t, "edge", "authority", "local", "annex", "--force")
+	require.Equal(t, 1, code, out)
+}
