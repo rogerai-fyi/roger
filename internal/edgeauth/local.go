@@ -55,32 +55,15 @@ func Designate(edgeDir, where string) (*Local, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	fresh, err := cert.NewAuthority(cert.Config{TTL: EdgeCertTTL})
-	if err != nil {
-		return nil, err
-	}
-	keyPEM, certPEM, err := cert.ExportRoot(fresh)
-	if err != nil {
-		return nil, err
-	}
-	// The private half first and 0600, so there is no window where it exists readable.
-	if err := os.WriteFile(filepath.Join(dir, RootKeyFile), keyPEM, 0o600); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(filepath.Join(dir, RootCertFile), certPEM, 0o600); err != nil {
-		return nil, err
-	}
 	if err := os.WriteFile(filepath.Join(dir, whereFile), []byte(where), 0o600); err != nil {
 		return nil, err
 	}
-	l, ok, err := OpenLocal(edgeDir)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, errors.New("the Edge root was generated but could not be read back")
-	}
-	return l, nil
+	// cert.LoadOrCreate's third rung: nothing configured and nothing stored, so it
+	// generates once and hands the root straight to custody, which writes it 0600. The
+	// generation, the storage and the refusal to overwrite are all already written and
+	// already tested there; duplicating them here would be a second root ceremony to
+	// keep in step with the first.
+	return open(dir)
 }
 
 // whereFile records the name the owner gave the designated machine.
@@ -89,39 +72,39 @@ const whereFile = "where"
 // OpenLocal loads a designated machine's authority. Not being one is not an error.
 func OpenLocal(edgeDir string) (*Local, bool, error) {
 	dir := filepath.Join(edgeDir, AuthorityDir)
-	keyPEM, err := os.ReadFile(filepath.Join(dir, RootKeyFile))
-	if os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, RootKeyFile)); os.IsNotExist(err) {
 		return nil, false, nil
+	} else if err != nil {
+		return nil, false, err
 	}
+	l, err := open(dir)
 	if err != nil {
 		return nil, false, err
 	}
-	certPEM, err := os.ReadFile(filepath.Join(dir, RootCertFile))
+	return l, true, nil
+}
+
+// open builds the authority over whatever custody holds in this directory.
+func open(dir string) (*Local, error) {
+	auth, err := cert.LoadOrCreate(cert.Config{TTL: EdgeCertTTL}, &fileCustody{dir: dir})
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	l := &Local{dir: dir}
+	l := &Local{dir: dir, auth: auth}
 	if b, err := os.ReadFile(filepath.Join(dir, whereFile)); err == nil {
 		l.where = string(b)
 	}
-	// The injected path: the root comes from these files, custody carries the
-	// revocations, and nothing is generated or overwritten.
-	auth, err := cert.LoadOrCreate(
-		cert.Config{TTL: EdgeCertTTL, RootKeyPEM: keyPEM, RootCertPEM: certPEM},
-		&fileCustody{dir: dir})
-	if err != nil {
-		return nil, false, err
-	}
-	l.auth = auth
 	l.iss = NewIssuer(IssuerConfig{Authority: auth, Accounts: l.registry()})
-	if issued, err := l.loadIssued(); err == nil {
-		for id, serial := range issued {
-			l.iss.mu.Lock()
-			l.iss.issued[id] = serial
-			l.iss.mu.Unlock()
-		}
+	issued, err := l.loadIssued()
+	if err != nil {
+		return nil, err
 	}
-	return l, true, nil
+	l.iss.mu.Lock()
+	for id, serial := range issued {
+		l.iss.issued[id] = serial
+	}
+	l.iss.mu.Unlock()
+	return l, nil
 }
 
 // Authority is the issuing authority. It holds the root's private half, which is why it
@@ -289,6 +272,9 @@ func (f *fileCustody) LoadRoot() ([]byte, []byte, bool, error) {
 	return keyPEM, certPEM, true, nil
 }
 
+// SaveRoot writes a freshly generated root, private half first and 0600, and REFUSES to
+// replace one that is already here: overwriting a root silently would invalidate every
+// certificate on the Edge at once.
 func (f *fileCustody) SaveRoot(keyPEM, certPEM []byte) error {
 	if _, err := os.Stat(filepath.Join(f.dir, RootKeyFile)); err == nil {
 		return ErrRootExists
