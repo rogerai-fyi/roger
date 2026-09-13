@@ -255,16 +255,6 @@ func TestSessionsFadeAndNeverAccumulate(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestSetLifeShortensTheFade(t *testing.T) {
-	s, now := newLedger(t)
-	s.SetLife(time.Second)
-	_, err := s.Record(Traffic{Account: "acct-1", Kind: FromUse, Request: "req-1",
-		Receipts: []protocol.UsageReceipt{recAt("req-1", "house-cb", "m", now.Unix())}})
-	require.NoError(t, err)
-	*now = now.Add(2 * time.Second)
-	require.Zero(t, s.Len())
-}
-
 func TestTheRingIsBoundedAndDropsTheOldest(t *testing.T) {
 	s, now := newLedger(t)
 	for i := 0; i < SessionsMax+50; i++ {

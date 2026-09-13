@@ -81,7 +81,9 @@ func TestEdgeSessPathIsThePathItTook(t *testing.T) {
 		{"nothing served it", edgeSessRow{s: none, n: 1}, "—"},
 		{"a busy edge carries its count", edgeSessRow{s: base, n: 30}, "→ house-cb ×30"},
 	} {
-		t.Run(c.name, func(t *testing.T) { require.Equal(t, c.want, edgeSessPath(c.row)) })
+		t.Run(c.name, func(t *testing.T) {
+			require.Equal(t, c.want, edgeSessHops(c.row.s)+edgeSessCount(c.row.n))
+		})
 	}
 }
 

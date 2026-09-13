@@ -201,9 +201,6 @@ func edgeSessCount(n int) string {
 	return " " + edgeGlyphTimes + strconv.Itoa(n)
 }
 
-// edgeSessPath is the whole path cell's text: the hops, then the count.
-func edgeSessPath(r edgeSessRow) string { return edgeSessHops(r.s) + edgeSessCount(r.n) }
-
 // edgeSessPathCell pins the count to the RIGHT of the column and elides only the hops.
 //
 // Found live at 64 columns: padding the whole string cut "→ house-cb ×31" down to

@@ -134,8 +134,6 @@ type Session struct {
 	// Who is the guest's or the device's own name; empty for the mechanisms that are
 	// named after themselves.
 	Who string
-	// From is the participant the session originated at ("" = this machine).
-	From string
 	// Via is the relay the path really went through ("" = direct). Drawn as its own hop
 	// so the path is visible rather than implied.
 	Via string
@@ -183,7 +181,6 @@ type Traffic struct {
 	Request  string
 	Kind     Initiator
 	Who      string
-	From     string
 	Via      string
 	Band     string // a fallback only: the band is read from the receipt when it names one
 	Escalate bool
@@ -210,26 +207,18 @@ type Sessions struct {
 	mu      sync.Mutex
 	account string
 	now     func() time.Time
-	life    time.Duration
-	max     int
 	order   []string // request ids, oldest first
 	byReq   map[string]Session
 }
 
 // NewSessions returns the session ledger for one account.
 func NewSessions(account string) *Sessions {
-	return &Sessions{
-		account: account, now: time.Now, life: SessionLife, max: SessionsMax,
-		byReq: map[string]Session{},
-	}
+	return &Sessions{account: account, now: time.Now, byReq: map[string]Session{}}
 }
 
 // SetClock replaces the ledger's clock. Test seam, for the same reason the Fleet has one:
 // a session that fades "after a while" must fade because the clock moved.
 func (s *Sessions) SetClock(now func() time.Time) { s.mu.Lock(); s.now = now; s.mu.Unlock() }
-
-// SetLife replaces how long a session stays visible.
-func (s *Sessions) SetLife(d time.Duration) { s.mu.Lock(); s.life = d; s.mu.Unlock() }
 
 // Account is the owner this ledger belongs to.
 func (s *Sessions) Account() string { return s.account }
@@ -281,7 +270,7 @@ func (s *Sessions) Record(t Traffic) (Session, error) {
 
 	ses := Session{
 		Request: t.Request, Account: s.account, Kind: t.Kind, Who: t.Who,
-		From: t.From, Via: t.Via, Escalate: t.Escalate, Contract: t.Contract,
+		Via: t.Via, Escalate: t.Escalate, Contract: t.Contract,
 		Answer: t.Answer, Route: t.Route, At: now.Unix(),
 		Receipts: append([]protocol.UsageReceipt(nil), t.Receipts...),
 	}
@@ -393,7 +382,7 @@ func (s *Sessions) Len() int {
 // pruneLocked drops everything past its visible life. Sessions fade; they never
 // accumulate, and nothing about the fleet changes when one goes.
 func (s *Sessions) pruneLocked(now time.Time) {
-	cut := now.Add(-s.life).Unix()
+	cut := now.Add(-SessionLife).Unix()
 	keep := s.order[:0]
 	for _, id := range s.order {
 		if s.byReq[id].At < cut {
@@ -408,7 +397,7 @@ func (s *Sessions) pruneLocked(now time.Time) {
 // evictLocked holds the ring to its bound by dropping the OLDEST. The relay is never
 // refused and never waits: the view is what gives way.
 func (s *Sessions) evictLocked() {
-	for len(s.order) > s.max {
+	for len(s.order) > SessionsMax {
 		delete(s.byReq, s.order[0])
 		s.order = s.order[1:]
 	}

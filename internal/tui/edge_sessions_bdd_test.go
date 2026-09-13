@@ -405,7 +405,7 @@ func (s *edgeSessBDD) theInitiator(desc string) error {
 		s.last = edge.Session{Kind: edge.FromConsole}
 	case "a board that escalated a reading":
 		s.board = "bench-pi"
-		s.last = edge.Session{Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true}
+		s.last = edge.Session{Kind: edge.FromDevice, Who: s.board, Escalate: true}
 	default:
 		return fmt.Errorf("the Examples table names an initiator this spec does not know: %q", desc)
 	}
@@ -415,7 +415,7 @@ func (s *edgeSessBDD) theInitiator(desc string) error {
 func (s *edgeSessBDD) itOpensATurnAgainstABand() error {
 	req := "req-" + string(s.last.Kind)
 	got, err := s.serve(edge.Traffic{
-		Kind: s.last.Kind, Who: s.last.Who, From: s.last.From, Escalate: s.last.Escalate,
+		Kind: s.last.Kind, Who: s.last.Who, Escalate: s.last.Escalate,
 		Request: req,
 		Receipts: []protocol.UsageReceipt{
 			receiptFor(req, s.station, s.band, 1, s.now.Unix()),
@@ -646,7 +646,7 @@ func (s *edgeSessBDD) itEscalatesToABand() error {
 	}
 	c := n.Contract
 	_, err = s.serve(edge.Traffic{
-		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true,
+		Kind: edge.FromDevice, Who: s.board, Escalate: true,
 		Contract: c, Request: "req-esc",
 		Receipts: []protocol.UsageReceipt{receiptFor("req-esc", s.station, s.band, 1, s.now.Unix())},
 	})
@@ -777,7 +777,7 @@ func (s *edgeSessBDD) aCompletedEscalationWithAModelAnswer() error {
 	n, _, _ := s.fleet.ByName(s.board)
 	c := n.Contract
 	got, err := s.serve(edge.Traffic{
-		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true,
+		Kind: edge.FromDevice, Who: s.board, Escalate: true,
 		Contract: c, Request: "req-route", Answer: `{"verdict":"chattering","confidence":0.81}`,
 		Route:    "log",
 		Receipts: []protocol.UsageReceipt{receiptFor("req-route", s.station, s.band, 1, s.now.Unix())},
@@ -863,7 +863,7 @@ func (s *edgeSessBDD) aBoardEscalates() error {
 	// void shape settleVoid records, with no station to name.
 	rec := voidReceiptFor("req-cold", "", s.band, 1, edge.RefusedNoStation, s.now.Unix())
 	_, err := s.serve(edge.Traffic{
-		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true,
+		Kind: edge.FromDevice, Who: s.board, Escalate: true,
 		Contract: c, Request: "req-cold",
 		Receipts: []protocol.UsageReceipt{rec},
 	})
@@ -928,7 +928,7 @@ func (s *edgeSessBDD) anySessionDrawnOnTheEdge() error {
 	for i, kd := range kinds {
 		req := fmt.Sprintf("req-sweep-%d", i)
 		if _, err := s.serve(edge.Traffic{
-			Kind: kd.k, Who: kd.who, From: kd.who, Escalate: kd.k == edge.FromDevice, Request: req,
+			Kind: kd.k, Who: kd.who, Escalate: kd.k == edge.FromDevice, Request: req,
 			Receipts: []protocol.UsageReceipt{receiptFor(req, s.station, s.band, 1, s.now.Unix())},
 		}); err != nil {
 			return err
@@ -946,7 +946,7 @@ func (s *edgeSessBDD) anySessionDrawnOnTheEdge() error {
 	}
 	// ...and a refused one.
 	if _, err := s.serve(edge.Traffic{
-		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true, Request: "req-sweep-cold",
+		Kind: edge.FromDevice, Who: s.board, Escalate: true, Request: "req-sweep-cold",
 		Receipts: []protocol.UsageReceipt{
 			voidReceiptFor("req-sweep-cold", "", s.band, 1, edge.RefusedNoStation, s.now.Unix()),
 		},
@@ -1184,7 +1184,7 @@ func (s *edgeSessBDD) nSessionsAcrossMParticipants(n, parts int) error {
 		who := fmt.Sprintf("participant-%d", i%parts)
 		req := fmt.Sprintf("req-busy-%d", i)
 		if _, err := s.serve(edge.Traffic{
-			Kind: edge.FromDevice, Who: who, From: who, Escalate: true, Request: req,
+			Kind: edge.FromDevice, Who: who, Escalate: true, Request: req,
 			Receipts: []protocol.UsageReceipt{receiptFor(req, s.station, s.band, 1, s.now.Unix())},
 		}); err != nil {
 			return err
@@ -1295,7 +1295,7 @@ func (s *edgeSessBDD) sessionEscalationAndRefusalStayDistinct() error {
 	n, _, _ := s.fleet.ByName(s.board)
 	c := n.Contract
 	if _, err := s.serve(edge.Traffic{
-		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true, Contract: c, Request: "req-up",
+		Kind: edge.FromDevice, Who: s.board, Escalate: true, Contract: c, Request: "req-up",
 		Receipts: []protocol.UsageReceipt{receiptFor("req-up", s.station, s.band, 1, s.now.Unix())},
 	}); err != nil {
 		return err
