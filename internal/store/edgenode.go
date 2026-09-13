@@ -55,9 +55,26 @@ type EdgeNode struct {
 	LastSeen   int64           `json:"last_seen,omitempty"`
 	Pin        string          `json:"pin,omitempty"` // pinned certificate SHA-256 (hex)
 	History    []EdgeEvent     `json:"history,omitempty"`
+	// Contract is what a CLASSIFYING node is framed with. Wave models are contract
+	// models - the device prompt is PART of the device - so the framing lives on the
+	// node record and travels with every escalation it raises. Empty for a node that
+	// declares no classify contract. The record is kept here; the MEANING (what a valid
+	// contract is, and what the production framings are) lives in internal/edge, the
+	// same split as EdgeCap and edge.Capability.
+	Contract EdgeContract `json:"contract,omitempty"`
 	// Station marks a row DERIVED from the existing Station registry rather than stored
 	// here. It is never persisted: it is recomputed on every fleet listing.
 	Station bool `json:"station,omitempty"`
+}
+
+// EdgeContract is the fixed framing a classifying device carries: its task class, the
+// system framing it is always given (verbatim - never a paraphrase and never a summary),
+// and the closed label set it may answer with. A reading outside that set is one the
+// device cannot name, which is what an escalation is.
+type EdgeContract struct {
+	Class   string   `json:"class,omitempty"`
+	Framing string   `json:"framing,omitempty"`
+	Labels  []string `json:"labels,omitempty"`
 }
 
 // ErrEdgeNameTaken is returned when a name is already used by another node in the SAME

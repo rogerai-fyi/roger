@@ -97,6 +97,12 @@ type Hooks struct {
 	EdgeFleet      *edge.Fleet
 	EdgeCandidates func() []store.EdgeNode
 	EdgeAdopt      func(id, name string) error
+	// EdgeSessions is the account's live session ledger: the traffic this Edge really
+	// carried, derived by the relay path from its OWN receipts. The screen only READS
+	// it. There is no hook here that could open a session, because looking at the Edge
+	// must never be a way to cause one. nil = no session layer, and the screen draws
+	// the fleet exactly as it did before.
+	EdgeSessions *edge.Sessions
 	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
 	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
 	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still

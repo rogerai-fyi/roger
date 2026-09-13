@@ -246,8 +246,8 @@ func (s *edgeSessBDD) serve(t edge.Traffic) (edge.Session, error) {
 
 func (s *edgeSessBDD) anEdgeWithThisMachineAndAStation() error {
 	s.station = "house-cb"
-	s.enroll("bench-pi", edge.Board, edge.Classify, edge.Sense)
-	return nil
+	n := s.enroll(s.station, edge.Host, edge.Serve)
+	return s.fleet.RecordProbe(n.ID, edge.Serve, true)
 }
 
 // ---- 1. a session is traffic, not a capability ---------------------------
@@ -286,12 +286,8 @@ func (s *edgeSessBDD) theGraphIsStillBecauseMovementMeansTraffic() error {
 }
 
 func (s *edgeSessBDD) aStationThatCouldServeButHasNotBeenAsked() error {
-	s.station = "house-cb"
-	// It is a real member of the fleet, declaring serve, and it has been asked NOTHING.
-	s.enroll(s.station, edge.Host, edge.Serve)
-	if err := s.fleet.RecordProbe(s.ids[s.station], edge.Serve, true); err != nil {
-		return err
-	}
+	// The Background's station is a real member declaring a VERIFIED serve, and it has
+	// been asked nothing at all.
 	s.render(100)
 	return nil
 }
@@ -353,9 +349,6 @@ func (s *edgeSessBDD) theFleetIsUnchangedByItsPassing() error {
 }
 
 func (s *edgeSessBDD) manySessionsBetweenTheSameTwoParticipants() error {
-	s.station = "house-cb"
-	s.enroll(s.station, edge.Host, edge.Serve)
-	s.nodesPre = 0
 	for i := 0; i < 30; i++ {
 		req := fmt.Sprintf("req-many-%d", i)
 		if _, err := s.serve(edge.Traffic{
@@ -651,10 +644,7 @@ func (s *edgeSessBDD) itEscalatesToABand() error {
 	if err != nil || !ok {
 		return fmt.Errorf("the board is not on the fleet: %v", err)
 	}
-	c, err := edge.ContractOf(n)
-	if err != nil {
-		return err
-	}
+	c := n.Contract
 	_, err = s.serve(edge.Traffic{
 		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true,
 		Contract: c, Request: "req-esc",
@@ -741,10 +731,7 @@ func (s *edgeSessBDD) theFramingIsPartOfWhatWasSent() error {
 	if err != nil || !ok {
 		return fmt.Errorf("the board is not on the fleet: %v", err)
 	}
-	c, err := edge.ContractOf(n)
-	if err != nil {
-		return err
-	}
+	c := n.Contract
 	if c.Framing == "" {
 		return errors.New("the device carries no framing, so nothing could travel with the escalation")
 	}
@@ -788,10 +775,7 @@ func (s *edgeSessBDD) aCompletedEscalationWithAModelAnswer() error {
 		return err
 	}
 	n, _, _ := s.fleet.ByName(s.board)
-	c, err := edge.ContractOf(n)
-	if err != nil {
-		return err
-	}
+	c := n.Contract
 	got, err := s.serve(edge.Traffic{
 		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true,
 		Contract: c, Request: "req-route", Answer: `{"verdict":"chattering","confidence":0.81}`,
@@ -874,14 +858,11 @@ func (s *edgeSessBDD) everyStationForTheBandIsCoolingOrAbsent() error {
 
 func (s *edgeSessBDD) aBoardEscalates() error {
 	n, _, _ := s.fleet.ByName(s.board)
-	c, err := edge.ContractOf(n)
-	if err != nil {
-		return err
-	}
+	c := n.Contract
 	// Nothing served it, so the only receipt is the $0 one that says why - the same
 	// void shape settleVoid records, with no station to name.
 	rec := voidReceiptFor("req-cold", "", s.band, 1, edge.RefusedNoStation, s.now.Unix())
-	_, err = s.serve(edge.Traffic{
+	_, err := s.serve(edge.Traffic{
 		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true,
 		Contract: c, Request: "req-cold",
 		Receipts: []protocol.UsageReceipt{rec},
@@ -1312,7 +1293,7 @@ func (s *edgeSessBDD) sessionEscalationAndRefusalStayDistinct() error {
 		return err
 	}
 	n, _, _ := s.fleet.ByName(s.board)
-	c, _ := edge.ContractOf(n)
+	c := n.Contract
 	if _, err := s.serve(edge.Traffic{
 		Kind: edge.FromDevice, Who: s.board, From: s.board, Escalate: true, Contract: c, Request: "req-up",
 		Receipts: []protocol.UsageReceipt{receiptFor("req-up", s.station, s.band, 1, s.now.Unix())},
