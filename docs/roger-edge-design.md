@@ -236,3 +236,112 @@ can serve this model", the other is "what machines do I own". They are never joi
    spec and its own decision to make.
 
 Steps 1 to 3 are the founder-approved build scope. Steps 4 onward need spec sign-off first.
+
+## 12. Sessions, agents, and the escalation chain
+
+Founder direction 2026-09-12: work out how `roger use`, the TUI agent and device traffic all
+appear on the Edge, because an agent session is itself a connection, and the Playbox is the
+picture of how the factory and the models are meant to work in unison.
+
+### 12.1 A node is a thing. A session is a thing happening.
+
+The fleet so far has only nouns: machines and devices. That is half the picture, and it is the
+static half. What an owner actually wants to see is **who is talking to whom right now**.
+
+So the Edge has two kinds of object:
+
+- **Participants** are the nodes already specified: machines, boards, relays. They persist.
+- **Sessions** are live exchanges between participants. They appear, carry traffic, and end.
+
+A session is drawn as motion along the path it really took, never as a line between two boxes
+that merely could talk. This is the same rule the topology already obeys for links, applied to
+traffic: **the graph shows what happened, not what is possible**.
+
+### 12.2 Every consumer is the same shape, including the agents
+
+The insight that makes this tractable: `roger use`, the TUI's own agent, a guest operator like
+opencode or hermes, the web console, and a sensor escalating a reading are **not five different
+things**. Each is a participant opening a session against a band, which some station serves.
+
+| Initiator | What it is today | On the Edge |
+|---|---|---|
+| `roger use` | a local OpenAI-shaped endpoint through the broker | a session from this node to the serving station |
+| the TUI agent | a turn on the tuned band | a session, one per turn |
+| a guest operator | opencode/hermes/aider through the local proxy | a session, attributed to the guest |
+| the web console / Playbox | a browser-session relay caller | a session, attributed to the browser identity |
+| a device escalating | a board that cannot name what it sees | a session, from the board, to a band |
+
+They differ in **who initiated** and **what authority they carried**, never in shape. That is
+why one view can hold all of them, and why the same receipt already covers them all.
+
+### 12.3 Devices reach models through the contract, not through a special case
+
+The Playbox already settled how a device and a model fit together, and Roger Edge must not
+invent a second answer. From the approved `features/web/playbox_edge_honesty.feature`:
+
+- Wave models are **contract models**: the device prompt is part of the device. Unframed they
+  floor; framed they perform. **Model and prompt ship as one unit.**
+- **ESCALATE is the models' strongest measured skill** and renders as a good outcome, never as a
+  warning state.
+
+So a node declaring `classify` carries its contract: the task class, the fixed framing, and the
+label set it may answer with. When it cannot name what it sees, it escalates, and escalation is
+a success path. On the Edge that is one session from the board to a band, and the topology draws
+it travelling up the chain rather than hiding it inside the device.
+
+The Wave Mesh ladder from `features/web/playbox_mesh_workbench.feature` is the real chain, not a
+simulator conceit: a window passes through the seated tiers, each inspects, and **response
+routing happens after the finding**, never instead of it. Roger Edge is what makes that ladder
+real outside the browser: the board is the first rung, the escalation is a relayed session, and
+where the finding goes (log, human review, policy queue) is routing, which never rewrites the
+model's answer.
+
+### 12.4 What the Edge screen shows once sessions exist
+
+The topology gains a second layer over the same graph:
+
+- An **active session** animates along its real path: board to relay to station, or this node
+  straight to a LAN peer.
+- A session is labelled by its **initiator and its band**, so "the agent is asking gpt-oss-120b"
+  and "the bench sensor escalated to Wave Nano" read differently at a glance.
+- An **escalation** is drawn as a good event, in the positive style, because the approved
+  framing says it is the right call rather than a fault.
+- A session that **failed over** shows the station it left as well as the one that served, since
+  the failover already writes both receipts.
+- Sessions are **ephemeral**: they fade rather than accumulate, and a still graph means a quiet
+  fleet, exactly as the heartbeat rule already promises.
+
+### 12.5 Authority is unchanged, and that is the point
+
+Nothing here invents a new permission. A session is authorized the way traffic already is: a
+consumer session against a band spends from a wallet under the existing limits, and a device
+`invoke` carries a grant scoped to nodes and actions. The Edge view is a **window onto authorized
+traffic**, never a new way to cause it. Anything visible in the topology was already receipted.
+
+### 12.6 Pushing Roger Edge
+
+Getting the software onto a thing has three shapes, and only the first exists today:
+
+1. **Hosts** already have it: `roger` ships through the existing packaging, and a host joins by
+   enrolling. Nothing new is needed.
+2. **Single-board Linux** (Pi, Jetson) is the same binary and the same enrollment. What is
+   missing is a documented path and a service unit, not a mechanism.
+3. **Microcontrollers** need a firmware image, and that is the only genuinely new build. Flash
+   enroll (section 4, path 3) exists precisely so a board is a member on first boot without ever
+   shipping a shared secret.
+
+Updates follow the same order: a host updates itself the way `roger` already does, a board needs
+a signed image and a way to fall back if it does not come up. That rollback story is a spec of
+its own and is not attempted here.
+
+### 12.7 A naming conflict to settle
+
+`features/web/playbox_edge_honesty.feature` is approved and states: "Wave Nano (350M) is the
+trained gateway-class brain; **Roger Edge is the MCU classifier line** with no trained artifact
+yet." The 2026-09-11 ruling promotes Roger Edge to the whole layer, with the classifier line as
+one product inside it.
+
+Both cannot stay literally true. The Playbox text is not wrong about the artifact - there is
+still no trained classifier - but it now names the layer when it means the line. This wants a
+small, deliberate correction to that spec's wording rather than a silent drift, and it is listed
+here so the two do not quietly disagree.
