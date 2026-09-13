@@ -59,19 +59,19 @@ type edgeRow struct {
 
 // edgeState is the screen's whole state: one snapshot, one selection, the live pulses.
 type edgeState struct {
-	rows   []edgeRow
-	cands  []store.EdgeNode
-	at     time.Time // when the snapshot was taken; every age on screen is measured from it
-	err    string    // the fleet could not be read (shown, never swallowed)
-	sel    string    // the selected node/candidate id - STICKY across fleet changes
+	rows  []edgeRow
+	cands []store.EdgeNode
+	at    time.Time // when the snapshot was taken; every age on screen is measured from it
+	err   string    // the fleet could not be read (shown, never swallowed)
+	sel   string    // the selected node/candidate id - STICKY across fleet changes
 	// sessions is the frame's session snapshot: the traffic this Edge really carried,
 	// read once per frame like everything else here. It is READ-ONLY to the screen -
 	// there is no path from the view back into the ledger that could open one.
 	sessions []edge.Session
-	detail bool
-	pulses []edgePulse
-	ret    mode // where esc goes back to
-	retSet bool
+	detail   bool
+	pulses   []edgePulse
+	ret      mode // where esc goes back to
+	retSet   bool
 }
 
 // edgeNow is the screen's clock. Injectable so a test can assert on "last seen 6m ago"

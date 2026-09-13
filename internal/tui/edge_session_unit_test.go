@@ -27,10 +27,14 @@ func TestEdgeSessGeomFitsEveryWidth(t *testing.T) {
 		require.LessOrEqual(t, total, max(w, 7), "the columns overflow the terminal at w=%d", w)
 		require.GreaterOrEqual(t, sg.nameW, 0, w)
 		require.GreaterOrEqual(t, sg.outW, 0, w)
-		if w >= 80 {
+		if w >= 40 {
 			require.Equal(t, w, total, "at a real width the row fills the terminal exactly")
-			require.GreaterOrEqual(t, sg.outW, len([]rune("REFUSED · over-limit")),
-				"the outcome column must fit what it has to say")
+			// The two protected columns. Found live at 80 columns: an earlier ladder drew
+			// "gpt-oss…" (which is two different bands) and "escalate · right ca…".
+			require.GreaterOrEqual(t, sg.outW, len([]rune(edgeEscalateLabel)),
+				"the outcome must fit the longest thing it says, at w=%d", w)
+			require.GreaterOrEqual(t, sg.bandW, len([]rune("gpt-oss-120b")),
+				"the band the owner is watching must not be elided, at w=%d", w)
 		}
 	}
 }
@@ -79,6 +83,21 @@ func TestEdgeSessPathIsThePathItTook(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) { require.Equal(t, c.want, edgeSessPath(c.row)) })
 	}
+}
+
+func TestEdgeSessPathCellNeverElidesTheCount(t *testing.T) {
+	// Found live at 64 columns: "→ house-cb ×31" padded down to "→ house-cb …", which
+	// makes an edge that carried thirty-one sessions read as one.
+	busy := edgeSessRow{s: sess(edge.FromAgent, "", "m", "house-cb"), n: 31}
+	for _, w := range []int{28, 14, 12, 10, 6, 4} {
+		got := edgeSessPathCell(busy, w)
+		require.Len(t, []rune(got), w, "the cell must fill its column at w=%d", w)
+		require.True(t, strings.HasSuffix(got, "×31"),
+			"the count was elided at w=%d: %q", w, got)
+	}
+	lone := edgeSessRow{s: busy.s, n: 1}
+	require.Equal(t, pad("→ house-cb", 14), edgeSessPathCell(lone, 14))
+	require.Equal(t, "", edgeSessPathCell(lone, 0))
 }
 
 func TestEdgeSessOutcomeReadsHonestly(t *testing.T) {

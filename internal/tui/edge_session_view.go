@@ -64,40 +64,49 @@ type edgeSessGeom struct {
 }
 
 func edgeSessGeomFor(g edgeGeom) edgeSessGeom {
-	// edgeSessOutMin is what the OUTCOME column must keep. It is reserved FIRST and given
-	// up last, because it is the column that says whether anything was served: an elided
-	// "REFUSED · over-limit" is the one cell on this screen that must never be a guess.
-	const edgeSessOutMin = 20
-	sg := edgeSessGeom{lead: 4, nameW: g.nameW, bandW: 14, pathW: 28}
+	// TWO COLUMNS ARE PROTECTED, and a live run at 80 columns is what proved it. An
+	// earlier ladder gave the band up first and drew "gpt-oss…", which makes gpt-oss-120b
+	// and gpt-oss-20b the same string on a screen whose whole job is naming the band the
+	// owner is watching. It also clipped the outcome to "escalate · right ca…", which is
+	// the one label the approved framing says must read as the right call.
+	//
+	// So: the OUTCOME keeps room for the longest thing it ever says, the BAND is given up
+	// last, and the attribution and the path are what a narrow terminal spends.
+	edgeSessOutMin := max(len([]rune(edgeEscalateLabel)), len([]rune("REFUSED · over-limit")))
+	// The attribution column is NOT the graph's name column: it holds "roger use",
+	// "agent", "console" or a guest/board name, none of which need a node column's width.
+	// Found live at 88 columns, where the graph's 22 left the PATH too narrow to name a
+	// real broker station ("house-or-wave-pico-29…"), and the station that served is the
+	// thing the row exists to say.
+	sg := edgeSessGeom{lead: 4, nameW: min(g.nameW, 16), bandW: 14, pathW: 32}
 	fits := func() bool {
 		return sg.lead+sg.nameW+1+sg.bandW+1+sg.pathW+1+edgeSessOutMin <= g.w
 	}
-	// Given up in order of what a narrow terminal can most afford to lose: the band
-	// abbreviates, then the attribution, and the PATH last - it carries the stations.
-	for sg.bandW > 8 && !fits() {
-		sg.bandW--
-	}
-	for sg.nameW > 8 && !fits() {
-		sg.nameW--
-	}
-	for sg.pathW > 12 && !fits() {
-		sg.pathW--
-	}
-	sg.outW = g.w - (sg.lead + sg.nameW + 1 + sg.bandW + 1 + sg.pathW + 1)
-	if sg.outW < 0 {
-		// Past the last honest degradation. Rather than let a padded cell push the row
-		// off the end (where the clip would silently eat the OUTCOME - the one column
-		// that says whether anything was served), give the space back from the right.
-		over := -sg.outW
-		for _, col := range []*int{&sg.pathW, &sg.bandW, &sg.nameW} {
-			take := min(*col, over)
-			*col, over = *col-take, over-take
-			if over == 0 {
-				break
-			}
+	for _, step := range []struct {
+		col   *int
+		floor int
+	}{
+		{&sg.pathW, 26}, {&sg.nameW, 12}, {&sg.pathW, 12}, {&sg.nameW, 10}, {&sg.bandW, 13},
+	} {
+		for *step.col > step.floor && !fits() {
+			*step.col--
 		}
-		sg.outW = 0
 	}
+	// Past the last honest degradation the outcome takes its floor back by force, from
+	// the path first and the band last. Nothing here can push the row off the end: what
+	// the clip would eat is the right-hand column, which is the one that must survive.
+	remaining := func() int {
+		return g.w - (sg.lead + sg.nameW + 1 + sg.bandW + 1 + sg.pathW + 1)
+	}
+	for _, col := range []*int{&sg.pathW, &sg.nameW, &sg.bandW} {
+		need := edgeSessOutMin - remaining()
+		if need <= 0 {
+			break
+		}
+		take := min(*col, need)
+		*col -= take
+	}
+	sg.outW = max(0, remaining())
 	return sg
 }
 
@@ -163,29 +172,46 @@ func edgeSessGlyph(s edge.Session) string {
 	}
 }
 
-// edgeSessPath is the path the session really TOOK, in order: the relay it went through
+// edgeSessHops is the path the session really TOOK, in order: the relay it went through
 // (drawn as its own hop, so it is visible rather than implied), the station a failover
-// walked away from, and the station that served. A busy edge carries its count here,
-// because the count belongs on the edge rather than beside it.
-func edgeSessPath(r edgeSessRow) string {
+// walked away from, and the station that served.
+func edgeSessHops(s edge.Session) string {
 	var hops []string
-	if r.s.Via != "" {
-		hops = append(hops, r.s.Via)
+	if s.Via != "" {
+		hops = append(hops, s.Via)
 	}
-	if r.s.Left != "" {
-		hops = append(hops, r.s.Left+" "+edgeGlyphRefused)
+	if s.Left != "" {
+		hops = append(hops, s.Left+" "+edgeGlyphRefused)
 	}
-	if r.s.Station != "" {
-		hops = append(hops, r.s.Station)
+	if s.Station != "" {
+		hops = append(hops, s.Station)
 	}
-	out := "—"
-	if len(hops) > 0 {
-		out = edgeGlyphHop + " " + strings.Join(hops, " "+edgeGlyphHop+" ")
+	if len(hops) == 0 {
+		return "—"
 	}
-	if r.n > 1 {
-		out += " " + edgeGlyphTimes + strconv.Itoa(r.n)
+	return edgeGlyphHop + " " + strings.Join(hops, " "+edgeGlyphHop+" ")
+}
+
+// edgeSessCount is the count a busy edge carries. It belongs ON the edge rather than
+// beside it, so it lives in the path cell.
+func edgeSessCount(n int) string {
+	if n <= 1 {
+		return ""
 	}
-	return out
+	return " " + edgeGlyphTimes + strconv.Itoa(n)
+}
+
+// edgeSessPath is the whole path cell's text: the hops, then the count.
+func edgeSessPath(r edgeSessRow) string { return edgeSessHops(r.s) + edgeSessCount(r.n) }
+
+// edgeSessPathCell pins the count to the RIGHT of the column and elides only the hops.
+//
+// Found live at 64 columns: padding the whole string cut "→ house-cb ×31" down to
+// "→ house-cb …", which makes an edge that carried thirty-one sessions read as one. The
+// count is the load-bearing half of a busy edge, so it is the half that cannot move.
+func edgeSessPathCell(r edgeSessRow, w int) string {
+	c := edgeSessCount(r.n)
+	return pad(edgeSessHops(r.s), max(0, w-len([]rune(c)))) + c
 }
 
 // edgeSessOutcome is how it ended, in words. A refusal says WHY; an escalation says it was
@@ -210,7 +236,7 @@ func (m model) edgeSessLine(sg edgeSessGeom, r edgeSessRow) string {
 	return "  " + edgeSessGlyph(r.s) + " " +
 		pad(r.s.Attribution(), sg.nameW) + " " +
 		pad(r.s.Band, sg.bandW) + " " +
-		pad(edgeSessPath(r), sg.pathW) + " " +
+		edgeSessPathCell(r, sg.pathW) + " " +
 		pad(edgeSessOutcome(r.s), sg.outW)
 }
 
