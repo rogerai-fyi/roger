@@ -13,6 +13,7 @@ package main
 // --authority.
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,8 @@ import (
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // offline is a machine with no login and no route anywhere.
@@ -171,4 +174,109 @@ func TestADefaultNameIsThisMachinesOwn(t *testing.T) {
 	require.NoError(t, edge.ValidName(edgeDefaultName()))
 	require.Equal(t, "127.0.0.1:9443", edgeAuthorityLabel("http://127.0.0.1:9443/"))
 	require.Equal(t, "not a url", edgeAuthorityLabel("not a url"))
+}
+
+func TestTheBindAddressesAreThisMachinesToPin(t *testing.T) {
+	require.Equal(t, ":0", edgeFaceBind())
+	require.Equal(t, ":0", edgeAuthorityBind())
+	t.Setenv(envFaceBind, "127.0.0.1:19443")
+	t.Setenv(envAuthorityBind, "127.0.0.1:19444")
+	require.Equal(t, "127.0.0.1:19443", edgeFaceBind())
+	require.Equal(t, "127.0.0.1:19444", edgeAuthorityBind())
+}
+
+func TestAMachineThatHasNotEnrolledServesNothingAndIsNamedByItsStation(t *testing.T) {
+	useTempConfig(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(h.stop)
+
+	require.Empty(t, h.enrolledName(), "a machine that never joined an Edge has no name on one")
+	require.Empty(t, h.authorityAddr(), "it is nobody's authority")
+	require.Nil(t, h.authorityIssuer())
+	require.False(t, h.serving())
+	_, ok := h.startFace()
+	require.False(t, ok, "there is nothing true to advertise yet")
+
+	var hooks tui.Hooks
+	h.wire(&hooks)
+	require.Equal(t, "roger-desk", hooks.EdgeSelf, "so the Station name stands")
+}
+
+func TestAnEnrolledMachineServesItsOwnIdentityAndIsNamedByIt(t *testing.T) {
+	offline(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code)
+
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+
+	require.Equal(t, "workshop", h.enrolledName())
+	var hooks tui.Hooks
+	h.wire(&hooks)
+	require.Equal(t, "workshop", hooks.EdgeSelf, "the owner's name for it beats the Station label")
+
+	self, ok := h.startFace()
+	require.True(t, ok)
+	require.True(t, h.serving())
+	require.NotEmpty(t, self.NodeID)
+	require.Equal(t, edgeauth.LocalAccount, self.Account)
+	require.NotEmpty(t, self.Fingerprint, "an advertisement commits it to a certificate")
+	require.Positive(t, self.Port)
+
+	// A second call binds no second socket.
+	_, again := h.startFace()
+	require.False(t, again)
+
+	// And the designated machine serves enrollment on the LAN, so a second machine can
+	// join an Edge that has never had internet.
+	h.startAuthority()
+	require.NotEmpty(t, h.authorityAddr())
+	require.NotNil(t, h.authorityIssuer())
+	addr := h.authorityAddr()
+	h.startAuthority()
+	require.Equal(t, addr, h.authorityAddr(), "re-arming binds no second socket")
+
+	h.closeListeners()
+	require.False(t, h.serving())
+}
+
+func TestASecondAuthorityIsRefusedAndAnUnreachableOneIsNot(t *testing.T) {
+	offline(t)
+	st := edgeIdentityStore()
+
+	// Nothing held yet: whichever authority the owner names becomes this Edge's.
+	require.NoError(t, edgeRefuseASecondAuthority(st, "http://127.0.0.1:1"))
+
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code)
+
+	// An authority that cannot say whose root it is is not evidence of anything; the
+	// response check still refuses a root that is not ours.
+	require.NoError(t, edgeRefuseASecondAuthority(st, "http://127.0.0.1:1"))
+
+	// Its OWN authority, served for real, is not a second one.
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	mine := httptest.NewServer(enrollhttp.Handler(local))
+	defer mine.Close()
+	require.NoError(t, edgeRefuseASecondAuthority(st, mine.URL))
+
+	// Somebody else's is.
+	other, err := edgeauth.Designate(t.TempDir(), "annex")
+	require.NoError(t, err)
+	theirs := httptest.NewServer(enrollhttp.Handler(other))
+	defer theirs.Close()
+	err = edgeRefuseASecondAuthority(st, theirs.URL)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `the designated machine "shed"`)
+	require.Contains(t, err.Error(), "exactly one root")
 }
