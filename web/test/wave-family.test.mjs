@@ -287,15 +287,16 @@ test("the industrial market set is consistent wherever it is named", () => {
                    /aerospace/i, /mining/i, /water/i, /healthcare/i, /defense/i];
   const industry = read("research-industry.html");
   const grid = industry.match(/<div class="deployment-grid">[\s\S]*?<\/div>/)[0];
-  // one <b> title per <article>, whatever else (a representative photo) leads it.
-  const cards = [...grid.matchAll(/<article>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1]);
+  // one <b> title per <article>, whatever else (an id, a representative
+  // photo) leads it.
+  const cards = [...grid.matchAll(/<article[^>]*>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1]);
   assert.equal(cards.length, MARKETS.length, `one card per market, found ${cards.length}`);
   for (const m of MARKETS) {
     assert.ok(cards.some((c) => m.test(c)), `the grid names ${m}`);
     assert.match(visible(read("research.html")), m, `the hub names ${m} too`);
   }
   // Every card must say what the work IS, not just name the sector.
-  for (const card of grid.matchAll(/<article>[\s\S]*?<b>[^<]+<\/b><p>([\s\S]*?)<\/p>/g)) {
+  for (const card of grid.matchAll(/<article[^>]*>[\s\S]*?<b>[^<]+<\/b><p>([\s\S]*?)<\/p>/g)) {
     assert.ok(visible(card[1]).length > 40, "each market names a concrete workload");
   }
   // The stated count and the actual count cannot disagree.
@@ -319,6 +320,21 @@ const envelope = () => {
   assert.ok(s, "the industrial page explains the physical envelope");
   return s;
 };
+
+test("the use-case strip's deep links land clear of the sticky nav", () => {
+  const industry = read("research-industry.html");
+  const strip = industry.match(/<nav class="usecase-strip"[\s\S]*?<\/nav>/)[0];
+  const hrefs = [...strip.matchAll(/href="#(market-[a-z]+)"/g)].map((m) => m[1]);
+  assert.equal(hrefs.length, 8, "one deep link per market");
+  const ids = [...industry.matchAll(/<article id="(market-[a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...hrefs].sort(), [...new Set(ids)].sort(),
+    "every strip link resolves to exactly one article id on the same page");
+  // A fragment jump puts the target's top at y=0. Without scroll-margin-top the
+  // sticky opaque nav (base.css) covers the card's bleed photo underneath it.
+  const research = read("styles/research.css");
+  assert.match(research, /\.deployment-grid article\[id\]\s*\{[^}]*scroll-margin-top:\s*\d/,
+    "deployment-grid articles reserve room for the sticky nav on a fragment jump");
+});
 
 test("the envelope names the certification limits, not just the conclusion", () => {
   const copy = visible(envelope());
