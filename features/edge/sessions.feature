@@ -1,6 +1,7 @@
 # ROGER EDGE - SESSIONS ("a node is a thing; a session is a thing happening").
 #
-# STATUS: APPROVED 2026-09-12. Not yet implemented; enrollment landed first.
+# STATUS: APPROVED 2026-09-12. IMPLEMENTED 2026-09-13 - all 27 scenarios green
+# (internal/tui/edge_sessions_bdd_test.go). Not one scenario was changed to get there.
 #
 # WHY THIS EXISTS
 #

@@ -216,6 +216,9 @@ can serve this model", the other is "what machines do I own". They are never joi
 | The Edge message set and its board encoding | **Not built** |
 | `roger edge` CLI surface | Shipped on `wt/roger-edge` |
 | Edge screen and topology graph in the TUI | Shipped on `wt/roger-edge` |
+| The session layer: sessions drawn on the graph, attributed, counted, faded | Shipped on `wt/roger-edge` |
+| A classifying node's contract (task class, fixed framing, label set) on the record | Shipped on `wt/roger-edge` |
+| Sessions recorded from `roger use` and the guest-operator proxy | **Not built** (the TUI's own turns are; see 12.8) |
 | Edge view in the web console | **Not built** |
 | Microcontroller firmware, any on-device classifier artifact | **Not built** |
 
@@ -236,9 +239,12 @@ can serve this model", the other is "what machines do I own". They are never joi
 7. **Boards.** The compact encoding, then firmware, then a classifier artifact. Each is its own
    spec and its own decision to make.
 
-Steps 1 to 4 are BUILT and green on `wt/roger-edge`. Step 5 (the message set) and step 6
-(control) are specified in `features/edge/sessions.feature`, approved 2026-09-12 and not yet
-implemented. Step 7 (boards) is each its own decision.
+Steps 1 to 4 are BUILT and green on `wt/roger-edge`, and so is the SESSION LAYER of section
+12 (`features/edge/sessions.feature`, approved 2026-09-12: 27 scenarios green). Step 5 (the
+message set, `features/edge/protocol.feature`) and step 6 (control, `invoke` with grants,
+`features/edge/control.feature`) are still to be written and built - the session layer draws
+what those paths will produce, and needs neither of them to draw what the relay already
+produces today. Step 7 (boards) is each its own decision.
 
 ## 12. Sessions, agents, and the escalation chain
 
@@ -321,7 +327,27 @@ consumer session against a band spends from a wallet under the existing limits, 
 `invoke` carries a grant scoped to nodes and actions. The Edge view is a **window onto authorized
 traffic**, never a new way to cause it. Anything visible in the topology was already receipted.
 
-### 12.6 Pushing Roger Edge
+### 12.6 What the session layer records today, and what it does not
+
+The layer is BUILT and its 27 scenarios are green. What it draws is derived, never bookkept:
+one `edge.Sessions` ledger per account takes `edge.Traffic` - a request id and the relay's own
+`protocol.UsageReceipt`s - and reads the band off the receipt's model, the station that served
+off the last un-voided receipt, the station a failover LEFT off the first voided one, and a
+refusal off a $0 `VoidReason` receipt. With no receipt there is no session, so there is no code
+path from the view to a relay.
+
+ONE initiator is wired to real traffic today: the TUI's own turns. `internal/client` already
+decoded the broker's `X-RogerAI-Receipt` for the reply footer and discarded it; it now carries
+it on `ChatResult`, and `recordEdgeSession` turns it into a session. Proven live against
+production on a free band.
+
+`roger use` and the guest operators are NOT wired, and it is not a gap in the layer: they are
+served by the local proxy in `internal/client.copyRelayResponse`, which already forwards the
+same receipt header, so the seam is one callback wide. What is missing is the ATTRIBUTION - who
+the caller was - and inventing that without a spec would be guessing at exactly the field the
+approved scenarios say must be honest. It wants its own spec and its own approval.
+
+### 12.7 Pushing Roger Edge
 
 Getting the software onto a thing has three shapes, and only the first exists today:
 
@@ -337,7 +363,7 @@ Updates follow the same order: a host updates itself the way `roger` already doe
 a signed image and a way to fall back if it does not come up. That rollback story is a spec of
 its own and is not attempted here.
 
-### 12.7 A naming conflict to settle
+### 12.8 A naming conflict to settle
 
 `features/web/playbox_edge_honesty.feature` is approved and states: "Wave Nano (350M) is the
 trained gateway-class brain; **Roger Edge is the MCU classifier line** with no trained artifact
