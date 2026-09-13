@@ -44,6 +44,8 @@ const (
 // three different characters there too.
 var edgeASCII = strings.NewReplacer(
 	"─", "-", "┈", ".", "╌", "=", "●", "*", "▣", "#", "›", ">",
+	// The session layer's three marks stay three DIFFERENT characters here too.
+	"▸", "}", "▲", "^", "✕", "x", "→", "->", "×", "*",
 	"├", "+", "└", "+", "│", "|", "╭", "+", "╮", "+", "╰", "+", "╯", "+", "┬", "+",
 )
 
@@ -202,6 +204,10 @@ func (m model) edgeView(w int) string {
 			return b.String()
 		}
 		m.edgeEmptyView(w, line)
+		// A fleet of one still carries traffic: `roger use` against a market station is
+		// a session with no second node on the graph, and hiding it would be the same
+		// lie as hiding a node.
+		m.edgeSessionBlock(edgeGeomFor(w, 0), line)
 		return b.String()
 	}
 
@@ -219,6 +225,7 @@ func (m model) edgeView(w int) string {
 	default:
 		m.edgeGraphBody(g, line)
 	}
+	m.edgeSessionBlock(g, line)
 	if len(st.cands) > 0 {
 		m.edgeCandidateBlock(g, line)
 	}
@@ -473,6 +480,23 @@ func (m model) edgeDetailView(w int, line func(string)) {
 			row = pad(row, 40) + stDim.Render("preferred")
 		}
 		label(k, row)
+	}
+	// THE CONTRACT IS PART OF THE DEVICE. A classifying node's framing is not a setting
+	// on it - model and prompt ship as one unit - so it is shown here in FULL, wrapped
+	// at whitespace rather than elided: a framing you can only see half of is a framing
+	// you cannot check, and this is the text that travels with every escalation.
+	if c := n.Contract; c.Class != "" || c.Framing != "" {
+		label("contract", c.Class)
+		if len(c.Labels) > 0 {
+			label("", stDim.Render("labels  ")+strings.Join(c.Labels, " "))
+		}
+		for i, ln := range wrapCommand(c.Framing, max(20, w-18)) {
+			k := ""
+			if i == 0 {
+				k = "framing"
+			}
+			label(k, ln)
+		}
 	}
 	if via := edgeVia(n); via != "" {
 		label("reached via", via)

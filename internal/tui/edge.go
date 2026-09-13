@@ -64,6 +64,10 @@ type edgeState struct {
 	at     time.Time // when the snapshot was taken; every age on screen is measured from it
 	err    string    // the fleet could not be read (shown, never swallowed)
 	sel    string    // the selected node/candidate id - STICKY across fleet changes
+	// sessions is the frame's session snapshot: the traffic this Edge really carried,
+	// read once per frame like everything else here. It is READ-ONLY to the screen -
+	// there is no path from the view back into the ledger that could open one.
+	sessions []edge.Session
 	detail bool
 	pulses []edgePulse
 	ret    mode // where esc goes back to
@@ -129,6 +133,7 @@ func (m *model) refreshEdge() {
 	if m.hooks.EdgeCandidates != nil {
 		m.edge.cands = m.hooks.EdgeCandidates()
 	}
+	m.edge.sessions = m.edgeSessions()
 	m.clampEdgeSel()
 }
 
