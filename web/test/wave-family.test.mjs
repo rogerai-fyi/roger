@@ -321,6 +321,21 @@ const envelope = () => {
   return s;
 };
 
+test("the use-case strip's deep links land clear of the sticky nav", () => {
+  const industry = read("research-industry.html");
+  const strip = industry.match(/<nav class="usecase-strip"[\s\S]*?<\/nav>/)[0];
+  const hrefs = [...strip.matchAll(/href="#(market-[a-z]+)"/g)].map((m) => m[1]);
+  assert.equal(hrefs.length, 8, "one deep link per market");
+  const ids = [...industry.matchAll(/<article id="(market-[a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...hrefs].sort(), [...new Set(ids)].sort(),
+    "every strip link resolves to exactly one article id on the same page");
+  // A fragment jump puts the target's top at y=0. Without scroll-margin-top the
+  // sticky opaque nav (base.css) covers the card's bleed photo underneath it.
+  const research = read("styles/research.css");
+  assert.match(research, /\.deployment-grid article\[id\]\s*\{[^}]*scroll-margin-top:\s*\d/,
+    "deployment-grid articles reserve room for the sticky nav on a fragment jump");
+});
+
 test("the envelope names the certification limits, not just the conclusion", () => {
   const copy = visible(envelope());
   assert.match(copy, /T4|135\s?&deg;C|135°C/i, "the temperature class that caps sealed compute");

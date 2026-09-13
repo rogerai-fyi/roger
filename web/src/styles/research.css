@@ -199,6 +199,9 @@
   border-block: 2px solid var(--ink-900);
 }
 .deployment-grid article { padding: var(--s-5); background: var(--paper); }
+/* usecase-strip (:23) jumps here by fragment; without this the sticky 64px .nav
+   (base.css) covers the card's bleed photo. Same convention as manual.css/wave-factory.css. */
+.deployment-grid article[id] { scroll-margin-top: 88px; }
 /* Eight markets (research-industry): four across so the grid closes 4+4. At three across
    the eighth card left an empty cell, and with the gap-as-divider technique that empty
    cell painted hairline grey and read as a missing card. Keyed on the count itself so
