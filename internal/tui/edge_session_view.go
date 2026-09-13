@@ -63,19 +63,38 @@ type edgeSessGeom struct {
 }
 
 func edgeSessGeomFor(g edgeGeom) edgeSessGeom {
+	// edgeSessOutMin is what the OUTCOME column must keep. It is reserved FIRST and given
+	// up last, because it is the column that says whether anything was served: an elided
+	// "REFUSED · over-limit" is the one cell on this screen that must never be a guess.
+	const edgeSessOutMin = 20
 	sg := edgeSessGeom{lead: 4, nameW: g.nameW, bandW: 14, pathW: 28}
-	fits := func() bool { return sg.lead+sg.nameW+1+sg.bandW+1+sg.pathW+1+10 <= g.w }
-	for sg.pathW > 12 && !fits() {
-		sg.pathW--
+	fits := func() bool {
+		return sg.lead+sg.nameW+1+sg.bandW+1+sg.pathW+1+edgeSessOutMin <= g.w
 	}
+	// Given up in order of what a narrow terminal can most afford to lose: the band
+	// abbreviates, then the attribution, and the PATH last - it carries the stations.
 	for sg.bandW > 8 && !fits() {
 		sg.bandW--
 	}
 	for sg.nameW > 8 && !fits() {
 		sg.nameW--
 	}
+	for sg.pathW > 12 && !fits() {
+		sg.pathW--
+	}
 	sg.outW = g.w - (sg.lead + sg.nameW + 1 + sg.bandW + 1 + sg.pathW + 1)
 	if sg.outW < 0 {
+		// Past the last honest degradation. Rather than let a padded cell push the row
+		// off the end (where the clip would silently eat the OUTCOME - the one column
+		// that says whether anything was served), give the space back from the right.
+		over := -sg.outW
+		for _, col := range []*int{&sg.pathW, &sg.bandW, &sg.nameW} {
+			take := min(*col, over)
+			*col, over = *col-take, over-take
+			if over == 0 {
+				break
+			}
+		}
 		sg.outW = 0
 	}
 	return sg
