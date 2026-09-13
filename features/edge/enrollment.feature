@@ -1,7 +1,8 @@
 # ROGER EDGE - SELF-ENROLL ("the machine you are already logged in on joins itself").
 #
-# STATUS: PROPOSED. Written for the founder's approval. NO production code exists for this and
-# none will be written until the spec is signed off (CLAUDE.md step 3).
+# STATUS: APPROVED 2026-09-12 and IMPLEMENTED. Every scenario below is executable and green
+# (internal/edgeauth + cmd/rogerai/edgeenroll.go). The Core-free guarantee in section 2b is
+# enforced structurally by internal/edgeauth/structural_test.go, not by this comment.
 #
 # WHY THIS IS THE GATE
 #

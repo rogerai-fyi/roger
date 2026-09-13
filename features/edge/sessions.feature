@@ -1,6 +1,6 @@
 # ROGER EDGE - SESSIONS ("a node is a thing; a session is a thing happening").
 #
-# STATUS: PROPOSED. Written for the founder's approval alongside enrollment. No production code.
+# STATUS: APPROVED 2026-09-12. Not yet implemented; enrollment landed first.
 #
 # WHY THIS EXISTS
 #

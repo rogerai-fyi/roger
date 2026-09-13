@@ -209,12 +209,13 @@ can serve this model", the other is "what machines do I own". They are never joi
 | Stations serving models, `roger share`, `roger tower` | Shipped |
 | Grants with scope, rate and expiry | Shipped |
 | `internal/localplane` LAN-bindable consumer plane | Shipped |
-| LAN discovery of roger instances (mDNS) | **Not built** |
-| A node class for devices that host no model | **Not built** |
-| Capability declaration and verification | **Not built** |
+| LAN discovery of roger instances (mDNS) | Shipped on `wt/roger-edge` |
+| A node class for devices that host no model | Shipped on `wt/roger-edge` |
+| Capability declaration and verification | Shipped on `wt/roger-edge` |
+| Enrollment: self-enroll, Core or local authority, revocation | Shipped on `wt/roger-edge` |
 | The Edge message set and its board encoding | **Not built** |
-| `roger edge` CLI surface | **Not built** |
-| Edge screen and topology graph in the TUI | **Not built** |
+| `roger edge` CLI surface | Shipped on `wt/roger-edge` |
+| Edge screen and topology graph in the TUI | Shipped on `wt/roger-edge` |
 | Edge view in the web console | **Not built** |
 | Microcontroller firmware, any on-device classifier artifact | **Not built** |
 
@@ -235,7 +236,9 @@ can serve this model", the other is "what machines do I own". They are never joi
 7. **Boards.** The compact encoding, then firmware, then a classifier artifact. Each is its own
    spec and its own decision to make.
 
-Steps 1 to 3 are the founder-approved build scope. Steps 4 onward need spec sign-off first.
+Steps 1 to 4 are BUILT and green on `wt/roger-edge`. Step 5 (the message set) and step 6
+(control) are specified in `features/edge/sessions.feature`, approved 2026-09-12 and not yet
+implemented. Step 7 (boards) is each its own decision.
 
 ## 12. Sessions, agents, and the escalation chain
 
