@@ -14,6 +14,8 @@ package main
 
 import (
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -279,4 +281,38 @@ func TestASecondAuthorityIsRefusedAndAnUnreachableOneIsNot(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `the designated machine "shed"`)
 	require.Contains(t, err.Error(), "exactly one root")
+}
+
+// A machine whose Edge directory is not a directory: every path that has to read or
+// write it says so, rather than treating "I could not look" as "there is nothing here".
+// An Edge that reports itself as empty because the disk is broken is the one failure
+// this layer must never produce.
+func TestABrokenEdgeDirectoryIsSaidOutLoudAndNeverReadAsAnEmptyEdge(t *testing.T) {
+	offline(t)
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath()), 0o700))
+	require.NoError(t, os.WriteFile(edgeAuthDir(), []byte("not a directory"), 0o600))
+
+	for _, args := range [][]string{
+		{"edge", "authority"},
+		{"edge", "authority", "local", "shed"},
+		{"edge", "authority", "allow", strings.Repeat("aa", 32)},
+		{"edge", "enroll", "workshop"},
+	} {
+		out, code := edgeRun(t, args...)
+		require.NotEqual(t, 0, code, "roger %v answered as if nothing were wrong:\n%s", args, out)
+	}
+}
+
+// An Edge record that cannot be READ is not an Edge rooted at Core. Saying so would be
+// a confident lie the owner would act on.
+func TestAnUnreadableAuthorityRecordIsUnknownAndNotCore(t *testing.T) {
+	offline(t)
+	require.NoError(t, os.MkdirAll(edgeAuthDir(), 0o700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(edgeAuthDir(), edgeauth.DescriptorFile), []byte("{"), 0o600))
+
+	out, code := edgeRun(t, "edge", "authority")
+	require.Equal(t, 1, code, out)
+	require.Contains(t, out, "could not be read")
+	require.NotContains(t, out, "this Edge is rooted at Core")
 }

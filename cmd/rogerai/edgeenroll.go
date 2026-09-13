@@ -389,13 +389,24 @@ func cmdEdgeAuthority(cfg config, args []string) error {
 // edgeShowAuthority answers the owner's real question: who roots this Edge, and can I
 // add a machine to it right now without a network.
 func edgeShowAuthority() error {
-	d := edgeDescriptor()
+	// A read that FAILED is not an answer. "This Edge is rooted at Core" printed because
+	// the record could not be read would be a confident lie, and the owner would act on
+	// it - which is the whole failure this layer exists to make visible.
+	d, _, err := edgeIdentityStore().Descriptor()
+	if err != nil {
+		return fmt.Errorf("this machine's Edge record could not be read, so what roots this "+
+			"Edge is unknown: %w", err)
+	}
+	local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return fmt.Errorf("this machine's Edge authority could not be read: %w", err)
+	}
 	fmt.Printf("this Edge is rooted at %s.\n", d.Names())
 	fmt.Printf("  %s\n", d.NetworkLine())
 	if d.Fingerprint != "" {
 		fmt.Printf("  root %s\n", edgeShortFP(d.Fingerprint))
 	}
-	if local, ok, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && ok {
+	if isAuthority {
 		fmt.Printf("  this machine IS the authority: it holds the root's private half, and nothing else does.\n")
 		allowed, _ := local.Allowed()
 		fmt.Printf("  %d machine(s) may enroll against it (roger edge authority allow <user key>)\n", len(allowed))
