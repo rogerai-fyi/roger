@@ -14,6 +14,36 @@
 .research-hero { padding-block: clamp(64px, 9vw, 112px); border-bottom: 1px solid var(--hairline); }
 .research-hero h1 { max-width: 880px; margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-display); line-height: var(--lh-tight); letter-spacing: var(--tracking-display); }
 .research-hero__lead { max-width: 720px; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); }
+
+/* the eight markets, above the fold: a compact icon strip jumping straight to
+   each one's card in the deployment-grid further down (#market-<slug>). Mono
+   stroke + one red accent, this page's own copy of home.css's .pc-ic language
+   (that file is not loaded here - see CSS_BUNDLES in build.mjs) so the icon
+   style still reads as the same system. */
+.usecase-strip {
+  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900);
+  margin-top: var(--s-8);
+}
+.usecase-strip a {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s-2);
+  padding: var(--s-4) var(--s-2); background: var(--paper);
+  color: var(--ink-700); text-decoration: none; text-align: center;
+  transition: background var(--d-2), color var(--d-2);
+}
+.usecase-strip a:hover, .usecase-strip a:focus-visible { background: var(--paper-2); color: var(--live); }
+.usecase-strip a:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
+.usecase-strip span { font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .01em; }
+.uc-ic {
+  width: 30px; height: 30px; fill: none; stroke: var(--ink-900);
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  transition: stroke var(--d-2);
+}
+.usecase-strip a:hover .uc-ic, .usecase-strip a:focus-visible .uc-ic { stroke: var(--live); }
+.uc-ic .uc-red { stroke: var(--live); }
+.uc-ic .uc-fill { fill: var(--live); stroke: none; }
+@media (max-width: 880px) { .usecase-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .usecase-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .research-hero__layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: var(--s-12); align-items: center; }
 .research-hero__mascot { min-width: 0; }
 /* The hub hero's four section buttons: a 2x2 block. As a flex row inside the narrower

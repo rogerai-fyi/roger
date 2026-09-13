@@ -28,6 +28,38 @@
           Control networks are segmented below a DMZ and do not route to the internet.
           A local model fits that design, and the placement follows from it.
         </p>
+
+        <!-- The eight markets, at a glance, above the fold - a visitor should not
+             have to scroll to §1 to see whether their own industry is on the list.
+             Each icon jumps straight to its own card in the deployment-grid below
+             (id="market-<slug>", matching the asset filename slugs already used for
+             the photos), rather than just to the section - a wendy.dev pattern
+             (a use-case strip anchored to their detail grid), adapted to this
+             page's own monochrome + one-red icon language (.pc-ic in home.css). -->
+        <nav class="usecase-strip" aria-label="Jump to an industry">
+          <a href="#market-oilgas"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <rect x="14" y="14" width="20" height="24" rx="2"/><path d="M14 22h20M14 30h20"/>
+              <path class="uc-red" d="M24 6v8"/></svg><span>Oil &amp; gas</span></a>
+          <a href="#market-power"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M26 6 16 26h9l-3 16 17-24h-10z"/><circle class="uc-fill" cx="35" cy="11" r="1.8"/></svg><span>Power</span></a>
+          <a href="#market-manufacturing"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <circle cx="24" cy="24" r="8"/>
+              <path d="M24 8v6M24 34v6M8 24h6M34 24h6M12.9 12.9l4.2 4.2M30.9 30.9l4.2 4.2M35.1 12.9l-4.2 4.2M17.1 30.9l-4.2 4.2"/>
+              <circle class="uc-fill" cx="24" cy="24" r="2.4"/></svg><span>Manufacturing</span></a>
+          <a href="#market-aerospace"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M24 6 27 20 40 27v3L27 26l-1 12 5 4v2l-7-2-7 2v-2l5-4-1-12L8 30v-3l13-7Z"/>
+              <circle class="uc-fill" cx="24" cy="14" r="1.6"/></svg><span>Aerospace</span></a>
+          <a href="#market-mining"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M6 36 16 18 22 28 28 14 42 36Z"/><path class="uc-red" d="M22 28 28 14"/></svg><span>Mining</span></a>
+          <a href="#market-water"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M24 6C24 6 12 22 12 30a12 12 0 0 0 24 0C36 22 24 6 24 6Z"/>
+              <path class="uc-red" d="M18 30a6 6 0 0 0 6 6" fill="none"/></svg><span>Water</span></a>
+          <a href="#market-healthcare"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <rect x="8" y="8" width="32" height="32" rx="6"/><path class="uc-red" d="M24 16v16M16 24h16"/></svg><span>Healthcare</span></a>
+          <a href="#market-defense"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M24 6 38 12v12c0 10-6 16-14 19-8-3-14-9-14-19V12Z"/>
+              <path class="uc-red" d="M18 24l4 4 8-10"/></svg><span>Defense</span></a>
+        </nav>
       </div>
     </section>
 
@@ -45,7 +77,7 @@
              safety path.</p>
         </div>
         <div class="deployment-grid">
-          <article>
+          <article id="market-oilgas">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/oilgas.webp" srcset="assets/industry/oilgas-500.webp 500w, assets/industry/oilgas.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A refinery's stacks and towers lit up at dusk.">
@@ -53,7 +85,7 @@
             </figure>
             <b>Oil and gas</b><p>Rotating-equipment anomaly explanation and operator copilots
              grounded in the OEM manuals and P&amp;IDs already on site.</p></article>
-          <article>
+          <article id="market-power">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/power.webp" srcset="assets/industry/power-500.webp 500w, assets/industry/power.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A transformer and switchgear inside a power substation.">
@@ -61,7 +93,7 @@
             </figure>
             <b>Power generation</b><p>Historian questions in plain language, alarm-flood triage,
              and work-order drafting for turbines and substation assets.</p></article>
-          <article>
+          <article id="market-manufacturing">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/manufacturing.webp" srcset="assets/industry/manufacturing-500.webp 500w, assets/industry/manufacturing.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Robotic arms working a factory assembly line.">
@@ -69,7 +101,7 @@
             </figure>
             <b>Manufacturing</b><p>Prompt-defined inspection over the existing classifier, and
              shift notes, maintenance logs, and fault codes read together.</p></article>
-          <article>
+          <article id="market-aerospace">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/aerospace.webp" srcset="assets/industry/aerospace-500.webp 500w, assets/industry/aerospace.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A jet aircraft parked inside a maintenance hangar.">
@@ -77,7 +109,7 @@
             </figure>
             <b>Aerospace</b><p>Document intelligence and assistant workloads on
              disconnected networks, where deployment is the security model.</p></article>
-          <article>
+          <article id="market-mining">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/mining.webp" srcset="assets/industry/mining-500.webp 500w, assets/industry/mining.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Excavators and haul trucks working an open-pit mine.">
@@ -85,7 +117,7 @@
             </figure>
             <b>Mining and metals</b><p>Fixed-plant and haul-fleet condition explanation, with
              shift and geology logs read together at sites a link barely reaches.</p></article>
-          <article>
+          <article id="market-water">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/water.webp" srcset="assets/industry/water-500.webp 500w, assets/industry/water.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Circular treatment tanks at a water treatment plant, seen from above.">
@@ -93,7 +125,7 @@
             </figure>
             <b>Water and wastewater</b><p>Treatment-process questions against the local
              historian, and permit and compliance drafting on a network that does not route out.</p></article>
-          <article>
+          <article id="market-healthcare">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/healthcare.webp" srcset="assets/industry/healthcare-500.webp 500w, assets/industry/healthcare.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="An empty hospital imaging suite with a CT scanner.">
@@ -102,7 +134,7 @@
             <b>Healthcare</b><p>The equipment layer of a hospital: imaging-fleet service logs,
              biomedical work orders, alarm-configuration review, and cold-chain records - on the
              segmented networks that data cannot leave.</p></article>
-          <article>
+          <article id="market-defense">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/defense.webp" srcset="assets/industry/defense-500.webp 500w, assets/industry/defense.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A military aircraft undergoing maintenance inside a hangar.">
