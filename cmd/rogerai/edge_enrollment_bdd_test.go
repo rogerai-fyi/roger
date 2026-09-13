@@ -342,13 +342,18 @@ func (s *enrollBDD) newMachine(label string) *enrollMachine {
 func (s *enrollBDD) use(m *enrollMachine) {
 	s.t.Helper()
 	if s.restored == nil {
+		// Every environment variable this suite moves is put back. ROGER_BROKER in
+		// particular: leaving one scenario's loopback address behind made two unrelated
+		// tests in this package fail, because an env override beats the config file.
 		home, hOK := os.LookupEnv("HOME")
 		xdg, xOK := os.LookupEnv("XDG_CONFIG_HOME")
 		app, aOK := os.LookupEnv("AppData")
+		brk, bOK := os.LookupEnv("ROGER_BROKER")
 		s.restored = func() {
 			restoreEnv("HOME", home, hOK)
 			restoreEnv("XDG_CONFIG_HOME", xdg, xOK)
 			restoreEnv("AppData", app, aOK)
+			restoreEnv("ROGER_BROKER", brk, bOK)
 		}
 	}
 	_ = os.Setenv("HOME", m.dir)
