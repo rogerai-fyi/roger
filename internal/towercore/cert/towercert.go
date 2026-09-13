@@ -177,6 +177,27 @@ func NewAuthorityFrom(key crypto.Signer, root *x509.Certificate, cfg Config, rev
 	return a, nil
 }
 
+// NewVerifier builds a VERIFY-ONLY authority over a PUBLIC root.
+//
+// This is what a node holds. It can authenticate every certificate this root issued and
+// it CANNOT issue one, because it was never given the private half to issue with - the
+// refusal is structural, not a flag. It is the shape that lets "the root does not
+// travel" be true: distributing the public root costs nothing, and a node that holds it
+// gains verification and no authority at all.
+func NewVerifier(root *x509.Certificate, revoked []string) (*Authority, error) {
+	if root == nil {
+		return nil, errors.New("a verifier needs a root certificate")
+	}
+	if !root.IsCA {
+		return nil, errors.New("that root is not a certificate authority")
+	}
+	a := &Authority{cfg: Config{TTL: defaultTTL}, root: root, revoked: map[string]bool{}}
+	for _, s := range revoked {
+		a.revoked[s] = true
+	}
+	return a, nil
+}
+
 // Root returns the issuing certificate.
 func (a *Authority) Root() *x509.Certificate { return a.root }
 
@@ -197,6 +218,9 @@ func (a *Authority) Issue(towerID string, pub crypto.PublicKey) (*x509.Certifica
 // interesting failures are the ones that chain correctly and are still wrong, and a
 // hand-rolled certificate would not test the same thing.
 func (a *Authority) issueForTest(towerID string, pub crypto.PublicKey, mutate func(*x509.Certificate)) (*x509.Certificate, error) {
+	if a.key == nil {
+		return nil, errors.New("this authority holds no root private key, so it can verify but never issue")
+	}
 	if !validTowerID(towerID) {
 		return nil, fmt.Errorf("%q is not a usable Tower ID", towerID)
 	}

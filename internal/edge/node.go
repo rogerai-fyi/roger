@@ -2,12 +2,11 @@ package edge
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
 
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -137,19 +136,12 @@ func (k Kind) MayDeclare(c Capability) bool {
 }
 
 // NodeID derives a node's stable identity from the public half of the keypair the node
-// generated for itself. The private half never leaves the node, so an id is a claim
-// only the key holder can make good on: two nodes cannot share an id without sharing a
-// key. sha256 of the raw key, hex, prefixed so an id is recognisable in a log line.
+// generated for itself: two nodes cannot share an id without sharing a key.
 //
-// Truncated to 24 bytes (192 bits) for ONE reason: an id is also the mDNS service
-// INSTANCE label, and a DNS label is at most 63 bytes. "n_" plus 48 hex characters is
-// 50, which fits with room to spare, and 192 bits is far past any collision anyone can
-// mount - the property the spec asks for is that two nodes cannot share an id without
-// sharing a key, and a 192-bit digest gives that.
-func NodeID(pub ed25519.PublicKey) string {
-	sum := sha256.Sum256(pub)
-	return "n_" + hex.EncodeToString(sum[:24])
-}
+// The derivation itself lives in internal/edgeauth, because the issuing authority has
+// to make the same check without linking this package's LAN face. One derivation, two
+// callers: see edgeauth.NodeID for why it is shaped the way it is.
+func NodeID(pub ed25519.PublicKey) string { return edgeauth.NodeID(pub) }
 
 // MaxNameLen bounds an owner-chosen name. A name is typed into a command line and drawn
 // in a topology box at 80 columns; 64 is generous for both.
