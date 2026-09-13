@@ -63,11 +63,16 @@ type edgeHost struct {
 	// face is this machine's LAN identity: the TLS describe listener a peer dials to
 	// check who we are. It exists only once this machine has enrolled, because before
 	// that there is nothing true to serve.
-	face   *http.Server
-	faceLn net.Listener
+	//
 	// auth is the LAN issuing service, on the ONE machine per Edge the owner
 	// designated as its authority. Without it a plant network could form a root and
 	// never enroll a second machine against it.
+	//
+	// BOTH are guarded by mu: the discovery goroutine brings them up (an enrollment can
+	// happen while this process is already running) and a quit takes them down, and a
+	// quit that timed out is a quit racing a pass that is still going.
+	face   *http.Server
+	faceLn net.Listener
 	auth   *http.Server
 	authLn net.Listener
 	issuer *edgeauth.Issuer
@@ -176,6 +181,9 @@ func (h *edgeHost) arm() bool {
 // peer dials. It reports the advertisement, and false when this machine has not
 // enrolled and so has nothing true to advertise.
 func (h *edgeHost) startFace() (edge.Advert, bool) {
+	if h.serving() {
+		return edge.Advert{}, false
+	}
 	id, key, ok, err := edgeIdentityStore().LoadIdentity()
 	if err != nil || !ok {
 		return edge.Advert{}, false
@@ -188,18 +196,30 @@ func (h *edgeHost) startFace() (edge.Advert, bool) {
 		log.Println("edge: could not open this machine's LAN face:", err)
 		return edge.Advert{}, false
 	}
-	h.faceLn = ln
-	h.face = &http.Server{Handler: srv.Handler(), TLSConfig: srv.TLSConfig(),
+	face := &http.Server{Handler: srv.Handler(), TLSConfig: srv.TLSConfig(),
 		ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = h.face.ServeTLS(ln, "", "") }()
+	h.mu.Lock()
+	h.faceLn, h.face = ln, face
+	h.mu.Unlock()
+	go func() { _ = face.ServeTLS(ln, "", "") }()
 	return srv.Advert(ln.Addr().(*net.TCPAddr).Port), true
+}
+
+// serving reports whether this machine's LAN face is already up.
+func (h *edgeHost) serving() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.face != nil
 }
 
 // startAuthority serves enrollment for the ONE machine the owner designated. It is not
 // started anywhere else: a machine that holds no root has nothing to issue with.
 func (h *edgeHost) startAuthority() {
-	if h.auth != nil {
-		return // already serving; re-arming discovery must not bind a second socket
+	h.mu.Lock()
+	already := h.auth != nil
+	h.mu.Unlock()
+	if already {
+		return // re-arming discovery must not bind a second socket
 	}
 	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil || !ok {
@@ -210,9 +230,11 @@ func (h *edgeHost) startAuthority() {
 		log.Println("edge: could not open the Edge authority's LAN service:", err)
 		return
 	}
-	h.authLn, h.issuer = ln, local.Issuer()
-	h.auth = &http.Server{Handler: enrollhttp.Handler(local), ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = h.auth.Serve(ln) }()
+	auth := &http.Server{Handler: enrollhttp.Handler(local), ReadHeaderTimeout: 10 * time.Second}
+	h.mu.Lock()
+	h.authLn, h.issuer, h.auth = ln, local.Issuer(), auth
+	h.mu.Unlock()
+	go func() { _ = auth.Serve(ln) }()
 }
 
 // EnvFaceBind and EnvAuthorityBind let an operator pin the ports. Both default to an
@@ -239,6 +261,8 @@ func edgeAuthorityBind() string {
 
 // authorityAddr is where this machine's Edge authority answers, or "" if it is not one.
 func (h *edgeHost) authorityAddr() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.authLn == nil {
 		return ""
 	}
@@ -246,7 +270,11 @@ func (h *edgeHost) authorityAddr() string {
 }
 
 // authorityIssuer is the issuer behind that service, for the surfaces that report on it.
-func (h *edgeHost) authorityIssuer() *edgeauth.Issuer { return h.issuer }
+func (h *edgeHost) authorityIssuer() *edgeauth.Issuer {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.issuer
+}
 
 // running reports whether this host has a discovery engine at all.
 func (h *edgeHost) running() bool { return h.disc != nil }
@@ -310,7 +338,7 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 // precisely the "nothing advertises" state enrollment exists to end. It costs one cheap
 // file check per pass and does nothing at all on a machine that has not enrolled.
 func (h *edgeHost) adoptEnrollment(ctx context.Context) {
-	if h.face != nil || h.disc == nil {
+	if h.disc == nil || h.serving() {
 		return
 	}
 	id, _, ok, err := edgeIdentityStore().LoadIdentity()
@@ -367,12 +395,15 @@ func (h *edgeHost) stop() {
 // closeListeners takes the LAN face and the authority service down. A quit that leaves
 // a socket open leaves a machine advertising an identity nothing is behind.
 func (h *edgeHost) closeListeners() {
-	for _, srv := range []*http.Server{h.face, h.auth} {
+	h.mu.Lock()
+	face, auth := h.face, h.auth
+	h.face, h.auth = nil, nil
+	h.mu.Unlock()
+	for _, srv := range []*http.Server{face, auth} {
 		if srv != nil {
 			_ = srv.Close()
 		}
 	}
-	h.face, h.auth = nil, nil
 }
 
 // startEdge gives the TUI this machine's ONE Edge - the same fleet, cache and candidates

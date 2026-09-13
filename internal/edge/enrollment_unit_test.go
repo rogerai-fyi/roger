@@ -97,6 +97,8 @@ func TestVerifyPeerRefusesRevocationAsRevocationAndBindsIdentityToTheKey(t *test
 	peer := &edge.Peer{Cert: leaf, Fingerprint: ad.Fingerprint, Describe: edge.Describe{NodeID: id}}
 
 	require.Empty(t, edge.VerifyPeer(ad, peer, a, ad.Fingerprint, now))
+	require.Equal(t, edge.ReasonUnknownAuthority, edge.VerifyPeer(ad, peer, nil, ad.Fingerprint, now),
+		"a machine that holds no Edge root verifies nobody, rather than everybody")
 
 	t.Run("a renewed certificate still verifies against the pin a peer holds", func(t *testing.T) {
 		// A NEW certificate for the SAME key: new paper, same identity. Certificates are

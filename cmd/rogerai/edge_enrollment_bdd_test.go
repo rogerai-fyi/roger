@@ -66,13 +66,21 @@ type enrollMachine struct {
 	dir        string
 	user       ed25519.PrivateKey
 	host       *edgeHost
+	cancel     context.CancelFunc
 	hooks      tui.Hooks
 	lastReport edge.Report
 }
 
 func (m *enrollMachine) stop() {
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+	}
 	if m.host != nil {
-		m.host.stop()
+		if m.host.disc != nil {
+			m.host.disc.Stop()
+		}
+		m.host.closeListeners()
 		m.host = nil
 	}
 }
@@ -459,6 +467,9 @@ func (s *enrollBDD) fleet() []store.EdgeNode {
 
 // startHost brings this machine's Edge host up: the describe listener, the advertiser,
 // the browser and (when this machine is the authority) the LAN issuing service.
+// startHost brings a machine's Edge host up WITHOUT the daemon's ticker: every pass in
+// this suite is an explicit browse, so the engine must have exactly one driver. Running
+// the serve loop as well would be two callers on one Discovery.
 func (s *enrollBDD) startHost(m *enrollMachine) error {
 	s.use(m)
 	h, err := newEdgeHost("")
@@ -467,7 +478,14 @@ func (s *enrollBDD) startHost(m *enrollMachine) error {
 	}
 	m.host = h
 	h.wire(&m.hooks)
-	h.start(context.Background())
+	if !h.arm() {
+		return fmt.Errorf("%s: discovery did not arm", m.label)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	if err := h.disc.Start(ctx); err != nil {
+		return err
+	}
 	if !h.running() {
 		return fmt.Errorf("%s: discovery did not start", m.label)
 	}
@@ -2167,13 +2185,9 @@ func (s *enrollBDD) noPartialIdentity() error {
 // =========================================================================
 
 func (s *enrollBDD) ownerRunsRogerWithoutEnrolling() error {
-	h, err := newEdgeHost("")
-	if err != nil {
+	if err := s.startHost(s.cur); err != nil {
 		return err
 	}
-	s.cur.host = h
-	h.wire(&s.cur.hooks)
-	h.start(context.Background())
 	s.browse(s.cur)
 	return nil
 }
