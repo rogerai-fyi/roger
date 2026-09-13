@@ -1492,10 +1492,11 @@ func (s *enrollBDD) itSucceeds() error {
 }
 
 func (s *enrollBDD) theEdgeItRootsIsComplete() error {
-	if err := s.serveAuthority(); err != nil {
-		return err
-	}
-	if err := s.mustRun("roger edge enroll workshop --authority " + s.authorityURL); err != nil {
+	// No --authority and no login: this machine holds the root, so enrolling it needs
+	// nothing outside itself. (A live run caught this: the login check used to fire on
+	// the very machine that IS the authority, which made an airgap Edge unformable
+	// unless the owner named their own address back to themselves.)
+	if err := s.mustRun("roger edge enroll workshop"); err != nil {
 		return err
 	}
 	if err := s.mustRun("roger edge list"); err != nil {

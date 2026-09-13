@@ -75,11 +75,16 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	}
 	endpoint := argv.flags["authority"]
 	account := client.LinkedLogin()
+	local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return err
+	}
 
-	// A login is what ties this machine to an account. The one case where it is not
-	// needed is the owner naming an authority themselves: on a network with no Core
-	// there is nothing to log in to, and the authority decides who may join.
-	if account == "" && endpoint == "" {
+	// A login is what ties this machine to an account. It is NOT needed when the Edge
+	// is rooted locally - the owner naming an authority, or this machine being one -
+	// because on a network with no Core there is nothing to log in to, and it is the
+	// authority that decides who may join.
+	if account == "" && endpoint == "" && !isAuthority {
 		return usagef("this machine is not logged in, so there is no account to enroll it into.\n" +
 			"  log in first:                 roger login\n" +
 			"  or, with no internet at all:  roger edge authority local <name>, then " +
@@ -133,10 +138,6 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 		}
 	}
 
-	local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir())
-	if err != nil {
-		return err
-	}
 	// WHICH ACCOUNT. Against Core, this machine's login says, and a request naming any
 	// other account is refused. Against an authority the owner NAMED - a machine in a
 	// shed on a network with no Core - there is no login to speak for: the authority
@@ -297,6 +298,18 @@ func edgeRecordSelf(id *edgeauth.Identity, pub ed25519.PublicKey, name string, n
 		return err
 	}
 	fp := edge.FingerprintOf(id.Cert)
+	// A member the owner was told to RE-ENROLL, doing exactly that. Its old row is that
+	// instruction, not a rival for the name: retire it, so the machine can come back
+	// under the Edge's new authority. (A live run caught this: without it an authority
+	// migration told every member to re-enroll and then refused them the name they were
+	// listed under.)
+	if old, ok, err := state.fleet.ByName(name); err != nil {
+		return err
+	} else if ok && old.ID != id.NodeID && old.Presence == string(edge.PresenceReenroll) {
+		if err := state.fleet.Forget(old.ID); err != nil {
+			return err
+		}
+	}
 	if _, ok, err := state.fleet.Get(id.NodeID); err != nil {
 		return err
 	} else if ok {
@@ -469,7 +482,13 @@ func edgeRetireRoot(dir string) error {
 	if err := st.ForgetIdentity(); err != nil {
 		return err
 	}
-	return os.Remove(filepath.Join(dir, edgeauth.RootCertFile))
+	// The Edge's public root goes with the authority that made it. Its absence is not a
+	// failure: a machine that designated an authority and never enrolled against it has
+	// nothing here to remove.
+	if err := os.Remove(filepath.Join(dir, edgeauth.RootCertFile)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // edgeAnnounceMigration marks every member as needing re-enrollment and says so. A
