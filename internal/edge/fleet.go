@@ -267,6 +267,50 @@ func (f *Fleet) Forget(id string) error {
 	return nil
 }
 
+// RepinNode records the certificate a node now presents, for a node whose IDENTITY has
+// not changed - a renewal. The id, the name, the history and the node's place in the
+// fleet are untouched, because none of them is a property of the paper.
+//
+// It is deliberately not a general "set the pin": the only caller is the renewal path,
+// which has already established that the KEY is the same one.
+func (f *Fleet) RepinNode(id, fingerprint string) error {
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		if n.Pin == fingerprint {
+			return nil
+		}
+		n.Pin = fingerprint
+		n.History = append(n.History, store.EdgeEvent{
+			At: f.now().Unix(), What: "renewed", Detail: fingerprint})
+		return nil
+	})
+}
+
+// RequireReenrollment marks every member of this Edge as needing to re-enroll, with the
+// reason, and returns how many were marked.
+//
+// Nothing is deleted. Changing an Edge's authority invalidates every certificate at
+// once, and the honest way to show that is a fleet full of nodes saying WHY they stopped
+// verifying - not an empty screen the owner has to work out for themselves.
+func (f *Fleet) RequireReenrollment(reason string) (int, error) {
+	list, err := f.db.EdgeNodesOfAccount(f.account)
+	if err != nil {
+		return 0, err
+	}
+	marked := 0
+	for _, n := range list {
+		if err := f.mutate(n.ID, func(m *store.EdgeNode) error {
+			m.Presence = string(PresenceReenroll)
+			m.History = append(m.History, store.EdgeEvent{
+				At: f.now().Unix(), What: "re-enrollment required", Detail: reason})
+			return nil
+		}); err != nil {
+			return marked, err
+		}
+		marked++
+	}
+	return marked, nil
+}
+
 // Declare replaces the node's declared capability set. Identity does not move: the id,
 // the name and the history are the node's, and what it can do is merely current state.
 func (f *Fleet) Declare(id string, caps []Capability) error {

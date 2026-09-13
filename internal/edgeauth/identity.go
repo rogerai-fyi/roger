@@ -233,7 +233,7 @@ func (s Store) LoadIdentity() (*Identity, ed25519.PrivateKey, bool, error) {
 		NodeID: leaf.Subject.CommonName, Cert: leaf, Root: root,
 		CertPEM: string(certPEM), RootPEM: string(rootPEM),
 	}
-	if acct, err := s.account(); err == nil {
+	if acct, err := s.AccountName(); err == nil {
 		id.Account = acct
 	}
 	return id, ed25519.PrivateKey(raw), true, nil
@@ -244,8 +244,13 @@ func (s Store) LoadIdentity() (*Identity, ed25519.PrivateKey, bool, error) {
 // a NODE, not an account - the account is Edge state.
 const accountFile = "account"
 
-func (s Store) account() (string, error) {
+// AccountName is the account this machine's certificate enrolled it into. Absent is not
+// an error: a machine that has never enrolled belongs to no Edge.
+func (s Store) AccountName() (string, error) {
 	b, err := os.ReadFile(s.path(accountFile))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
 	return strings.TrimSpace(string(b)), err
 }
 
@@ -287,16 +292,20 @@ func (s Store) SaveDescriptor(d Descriptor) error {
 }
 
 // ForgetIdentity removes the NODE identity and leaves the Edge. The root, the
-// descriptor and the revocation list stay: the owner still owns this Edge, this machine
-// is simply no longer a member of it - and a machine that re-enrolls after this is a
-// NEW node, because it has no key to keep.
+// descriptor, the revocation list and the ACCOUNT LABEL stay: the owner still owns this
+// Edge and its fleet, this machine is simply no longer a member of it - and a machine
+// that re-enrolls after this is a NEW node, because it has no key to keep.
+//
+// The account label in particular must survive, because it is what the fleet on disk is
+// filed under. Dropping it here would make every administrative change - a forget, an
+// authority migration - look like a fleet that emptied itself.
 func (s Store) ForgetIdentity() error {
 	s.forgetIdentityFiles()
 	return nil
 }
 
 func (s Store) forgetIdentityFiles() {
-	for _, n := range []string{NodeKeyFile, NodeCertFile, accountFile} {
+	for _, n := range []string{NodeKeyFile, NodeCertFile} {
 		_ = os.Remove(s.path(n))
 	}
 }

@@ -20,12 +20,18 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/tui"
 )
@@ -54,6 +60,18 @@ type edgeHost struct {
 	done   chan struct{}
 	once   sync.Once
 
+	// face is this machine's LAN identity: the TLS describe listener a peer dials to
+	// check who we are. It exists only once this machine has enrolled, because before
+	// that there is nothing true to serve.
+	face   *http.Server
+	faceLn net.Listener
+	// auth is the LAN issuing service, on the ONE machine per Edge the owner
+	// designated as its authority. Without it a plant network could form a root and
+	// never enroll a second machine against it.
+	auth   *http.Server
+	authLn net.Listener
+	issuer *edgeauth.Issuer
+
 	// mu guards the candidate list and the state-file write: the discovery goroutine
 	// refreshes both while the UI goroutine reads them for a frame.
 	mu sync.Mutex
@@ -73,6 +91,12 @@ func newEdgeHost(self string) (*edgeHost, error) {
 func (h *edgeHost) wire(hooks *tui.Hooks) {
 	if h.self != "" {
 		hooks.EdgeSelf = h.self
+	}
+	// An ENROLLED machine knows what it is called on its own graph: the name the owner
+	// gave it when it joined. That beats the Station name, which is a supply-side label
+	// and may not exist at all.
+	if name := h.enrolledName(); name != "" {
+		hooks.EdgeSelf = name
 	}
 	hooks.EdgeFleet = h.st.fleet
 	hooks.EdgeCandidates = h.candidates
@@ -107,6 +131,19 @@ func (h *edgeHost) adopt(id, name string) error {
 	return err
 }
 
+// enrolledName is what this machine is called on its own Edge, or "" if it has not
+// joined one.
+func (h *edgeHost) enrolledName() string {
+	id, _, ok, err := edgeIdentityStore().LoadIdentity()
+	if err != nil || !ok {
+		return ""
+	}
+	if n, found, err := h.st.fleet.Get(id.NodeID); err == nil && found && n.Name != "" {
+		return n.Name
+	}
+	return id.NodeID
+}
+
 // arm builds the discovery engine from the environment's knobs, and reports whether there
 // is one. ROGERAI_EDGE_DISCOVERY=0 builds NOTHING: no engine, no socket, no goroutine.
 // edge.New touches no network, so this is safe on the launch path.
@@ -115,6 +152,14 @@ func (h *edgeHost) arm() bool {
 	if !opts.Config.Enabled {
 		return false
 	}
+	// THIS IS THE PAYOFF OF ENROLLMENT. Until a machine had a certificate it could only
+	// browse, because an advertisement it could not back up is noise. Now it serves its
+	// own describe endpoint over its own certificate and advertises the fingerprint of
+	// it, so the owner's other machines can dial, check, and see it as a member.
+	if self, ok := h.startFace(); ok {
+		opts.Self = self
+	}
+	h.startAuthority()
 	// The daemon paces its own passes here (see serve), because the host needs each
 	// pass's report - to beat the screen, refresh the candidates and write the cache -
 	// and the engine's own loop reports to nobody.
@@ -125,6 +170,83 @@ func (h *edgeHost) arm() bool {
 	h.disc, h.every = edge.New(opts), opts.Config.Interval
 	return true
 }
+
+// startFace stands this machine's LAN identity up: a TLS listener whose certificate IS
+// its identity, and the advertisement that commits it to that certificate before any
+// peer dials. It reports the advertisement, and false when this machine has not
+// enrolled and so has nothing true to advertise.
+func (h *edgeHost) startFace() (edge.Advert, bool) {
+	id, key, ok, err := edgeIdentityStore().LoadIdentity()
+	if err != nil || !ok {
+		return edge.Advert{}, false
+	}
+	srv := edge.NewServer(edge.Describe{
+		NodeID: id.NodeID, Account: id.Account, Kind: string(edge.Host),
+	}, tls.Certificate{Certificate: [][]byte{id.Cert.Raw}, PrivateKey: key})
+	ln, err := net.Listen("tcp", edgeFaceBind())
+	if err != nil {
+		log.Println("edge: could not open this machine's LAN face:", err)
+		return edge.Advert{}, false
+	}
+	h.faceLn = ln
+	h.face = &http.Server{Handler: srv.Handler(), TLSConfig: srv.TLSConfig(),
+		ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = h.face.ServeTLS(ln, "", "") }()
+	return srv.Advert(ln.Addr().(*net.TCPAddr).Port), true
+}
+
+// startAuthority serves enrollment for the ONE machine the owner designated. It is not
+// started anywhere else: a machine that holds no root has nothing to issue with.
+func (h *edgeHost) startAuthority() {
+	if h.auth != nil {
+		return // already serving; re-arming discovery must not bind a second socket
+	}
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !ok {
+		return
+	}
+	ln, err := net.Listen("tcp", edgeAuthorityBind())
+	if err != nil {
+		log.Println("edge: could not open the Edge authority's LAN service:", err)
+		return
+	}
+	h.authLn, h.issuer = ln, local.Issuer()
+	h.auth = &http.Server{Handler: enrollhttp.Handler(local), ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = h.auth.Serve(ln) }()
+}
+
+// EnvFaceBind and EnvAuthorityBind let an operator pin the ports. Both default to an
+// ephemeral port on every interface: the advertisement carries the port, so nothing has
+// to agree on a number in advance.
+const (
+	envFaceBind      = "ROGERAI_EDGE_BIND"
+	envAuthorityBind = "ROGERAI_EDGE_AUTHORITY_BIND"
+)
+
+func edgeFaceBind() string {
+	if v := os.Getenv(envFaceBind); v != "" {
+		return v
+	}
+	return ":0"
+}
+
+func edgeAuthorityBind() string {
+	if v := os.Getenv(envAuthorityBind); v != "" {
+		return v
+	}
+	return ":0"
+}
+
+// authorityAddr is where this machine's Edge authority answers, or "" if it is not one.
+func (h *edgeHost) authorityAddr() string {
+	if h.authLn == nil {
+		return ""
+	}
+	return h.authLn.Addr().String()
+}
+
+// authorityIssuer is the issuer behind that service, for the surfaces that report on it.
+func (h *edgeHost) authorityIssuer() *edgeauth.Issuer { return h.issuer }
 
 // running reports whether this host has a discovery engine at all.
 func (h *edgeHost) running() bool { return h.disc != nil }
@@ -164,6 +286,7 @@ func (h *edgeHost) serve(ctx context.Context) {
 // the fleet itself, the candidates it saw are merged into the list the CLI reads, the
 // result is written to the cache, and every VERIFIED sighting becomes a heartbeat.
 func (h *edgeHost) runPass(ctx context.Context) edge.Report {
+	h.adoptEnrollment(ctx)
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
@@ -179,6 +302,39 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 		h.beat(s.NodeID)
 	}
 	return rep
+}
+
+// adoptEnrollment picks up an enrollment that happened while this process was ALREADY
+// running - `roger edge enroll` in another terminal with the TUI open. Without it a
+// machine would join its Edge and then stay silent until the next launch, which is
+// precisely the "nothing advertises" state enrollment exists to end. It costs one cheap
+// file check per pass and does nothing at all on a machine that has not enrolled.
+func (h *edgeHost) adoptEnrollment(ctx context.Context) {
+	if h.face != nil || h.disc == nil {
+		return
+	}
+	id, _, ok, err := edgeIdentityStore().LoadIdentity()
+	if err != nil || !ok {
+		return
+	}
+	// Joining an Edge can move which fleet this machine belongs to - an Edge rooted at
+	// a designated machine has an account of its own, not the Core login's. Discovery
+	// filters on that account, so it has to be reloaded here or every peer of the Edge
+	// this machine just joined would be silently discarded as somebody else's.
+	if id.Account != "" && id.Account != h.st.account {
+		if st, err := loadEdgeState(); err == nil {
+			h.mu.Lock()
+			h.st = st
+			h.mu.Unlock()
+			log.Println("edge: this machine enrolled into", id.Account+
+				"; the EDGE screen draws that Edge from the next launch")
+		}
+	}
+	h.disc.Stop()
+	if !h.arm() {
+		return
+	}
+	_ = h.disc.Start(ctx)
 }
 
 // beat hands the screen one real heartbeat and NEVER blocks. A run with no TUI drains
@@ -204,7 +360,19 @@ func (h *edgeHost) stop() {
 			close(h.beats) // no sender is left, so the screen's drain ends cleanly
 		case <-time.After(edgeStopGrace):
 		}
+		h.closeListeners()
 	})
+}
+
+// closeListeners takes the LAN face and the authority service down. A quit that leaves
+// a socket open leaves a machine advertising an identity nothing is behind.
+func (h *edgeHost) closeListeners() {
+	for _, srv := range []*http.Server{h.face, h.auth} {
+		if srv != nil {
+			_ = srv.Close()
+		}
+	}
+	h.face, h.auth = nil, nil
 }
 
 // startEdge gives the TUI this machine's ONE Edge - the same fleet, cache and candidates

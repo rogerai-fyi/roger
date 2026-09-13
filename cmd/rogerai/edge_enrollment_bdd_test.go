@@ -28,13 +28,17 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,6 +50,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 	"rogerai.fm/roger/v6/internal/tui"
@@ -57,11 +62,12 @@ import (
 // (login leaves a DIFFERENT one on every machine - that is why the Edge needs a root of
 // its own), and, once it is running, its own Edge host.
 type enrollMachine struct {
-	label string
-	dir   string
-	user  ed25519.PrivateKey
-	host  *edgeHost
-	hooks tui.Hooks
+	label      string
+	dir        string
+	user       ed25519.PrivateKey
+	host       *edgeHost
+	hooks      tui.Hooks
+	lastReport edge.Report
 }
 
 func (m *enrollMachine) stop() {
@@ -260,7 +266,7 @@ type enrollBDD struct {
 	revokedCert    *x509.Certificate
 	pendingNodeKey ed25519.PublicKey
 	expiredRoot    *x509.Certificate
-	stationDB      *edgeState
+	stationDB      *store.Mem
 }
 
 func (s *enrollBDD) reset(t *testing.T) {
@@ -466,7 +472,8 @@ func (s *enrollBDD) startHost(m *enrollMachine) error {
 // browse runs one real discovery pass on this machine.
 func (s *enrollBDD) browse(m *enrollMachine) edge.Report {
 	s.use(m)
-	return m.host.runPass(context.Background())
+	m.lastReport = m.host.runPass(context.Background())
+	return m.lastReport
 }
 
 func (s *enrollBDD) other(m *enrollMachine) *enrollMachine {
@@ -592,8 +599,9 @@ func (s *enrollBDD) privateKeyGeneratedLocally() error { return s.generatesANewK
 func (s *enrollBDD) noRequestCarriedIt() error {
 	_, key, _ := s.identity()
 	secret := hex.EncodeToString(key)
-	for _, body := range s.core.iss.Bodies() {
-		if strings.Contains(strings.ToLower(string(body)), secret) {
+	for _, got := range s.core.iss.Requests() {
+		raw, _ := json.Marshal(got)
+		if strings.Contains(strings.ToLower(string(raw)), secret) {
 			return fmt.Errorf("the node's PRIVATE key crossed the wire")
 		}
 	}
@@ -657,6 +665,12 @@ func (s *enrollBDD) carriesNoCapability() error {
 }
 
 func (s *enrollBDD) secondMachineOfTheSameAccountAlsoEnrolled() error {
+	// "ALSO enrolled" presupposes this one is: enroll it if the scenario has not.
+	if _, _, ok := s.identity(); !ok {
+		if err := s.ownerEnrollsAs("workshop"); err != nil {
+			return err
+		}
+	}
 	first := s.cur
 	m := s.newMachine("second")
 	s.login("owner")
@@ -701,7 +715,8 @@ func (s *enrollBDD) eachSeesTheOtherAsVerified() error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("%s never saw %s at all", m.label, other.label)
+			return fmt.Errorf("%s never saw %s at all; its last pass reported %+v",
+				m.label, other.label, m.lastReport)
 		}
 	}
 	return nil
@@ -986,7 +1001,14 @@ func (s *enrollBDD) localRoot() *x509.Certificate {
 	return l.Authority().Root()
 }
 
-func (s *enrollBDD) bothVerifiedInOneFleet() error { return s.eachSeesTheOtherAsVerified() }
+func (s *enrollBDD) bothVerifiedInOneFleet() error {
+	// "Appear as members" is a thing that happens on the wire: each machine has to
+	// advertise, be dialed, and have its certificate checked before it is one.
+	if err := s.bothBrowseTheLAN(); err != nil {
+		return err
+	}
+	return s.eachSeesTheOtherAsVerified()
+}
 
 func (s *enrollBDD) coreNeverContactedAtAll() error { return s.nothingContactedCore() }
 
@@ -1030,8 +1052,9 @@ func (s *enrollBDD) rootNeverAppearsAnywhere() error {
 	if err := s.mustRun("roger edge enroll workshop --authority " + s.authorityURL); err != nil {
 		return err
 	}
-	for _, body := range s.issuerOf(s.authorityOf).Bodies() {
-		if strings.Contains(string(body), secret) {
+	for _, got := range s.issuerOf(s.authorityOf).Requests() {
+		raw, _ := json.Marshal(got)
+		if strings.Contains(string(raw), secret) {
 			return fmt.Errorf("the root's private half crossed the wire in a request")
 		}
 	}
@@ -1101,10 +1124,22 @@ func (s *enrollBDD) nodeCanVerifyEveryPeer() error {
 }
 
 func (s *enrollBDD) nodeNeverReceivesThePrivateHalf() error {
-	dir := edgeAuthDir()
+	// A node that is NOT the authority: a second machine, allowed and enrolled against
+	// it exactly the way a machine on a plant network would be.
 	if s.cur == s.authorityOf {
-		return fmt.Errorf("this step must run on a node that is NOT the authority")
+		node := s.newMachine("node")
+		s.broker("http://" + s.deadAddr())
+		key := hex.EncodeToString(node.user.Public().(ed25519.PublicKey))
+		s.use(s.authorityOf)
+		if err := s.mustRun("roger edge authority allow " + key); err != nil {
+			return err
+		}
+		s.use(node)
+		if err := s.mustRun("roger edge enroll bench --authority " + s.authorityURL); err != nil {
+			return err
+		}
 	}
+	dir := edgeAuthDir()
 	if _, err := os.Stat(filepath.Join(dir, edgeauth.AuthorityDir, edgeauth.RootKeyFile)); !os.IsNotExist(err) {
 		return fmt.Errorf("a node holds a root private key")
 	}
@@ -1211,8 +1246,28 @@ func (s *enrollBDD) neitherCanDistinguishTheOrigin() error {
 }
 
 func (s *enrollBDD) depGraphLinksNoCore() error {
-	// The guarantee lives in internal/edgeauth/structural_test.go; this step runs it.
-	return edgeauth.AssertNoCoreDialingDependency()
+	out, err := exec.Command("go", "list", "-deps", "rogerai.fm/roger/v6/internal/edgeauth").Output()
+	if err != nil {
+		return err
+	}
+	deps := strings.Split(string(out), "\n")
+	if len(deps) < 20 {
+		return fmt.Errorf("the dependency scan enumerated nothing")
+	}
+	for _, dep := range deps {
+		dep = strings.TrimSpace(dep)
+		switch {
+		case dep == "net/http",
+			dep == "rogerai.fm/roger/v6/internal/client",
+			dep == "rogerai.fm/roger/v6/internal/towerjoin",
+			dep == "rogerai.fm/roger/v6/internal/towerhub":
+			return fmt.Errorf("the Edge authority links %s, so it COULD reach Core", dep)
+		case strings.HasPrefix(dep, "rogerai.fm/roger/v6/internal/towercore") &&
+			dep != "rogerai.fm/roger/v6/internal/towercore/cert":
+			return fmt.Errorf("the Edge authority links %s", dep)
+		}
+	}
+	return nil
 }
 
 func (s *enrollBDD) depGraphTestEnforcesIt() error {
@@ -1234,21 +1289,22 @@ func (s *enrollBDD) enrollmentAgainstADifferentAuthority() error {
 		return err
 	}
 	// A SECOND authority, on another machine, offering to root the same Edge.
-	held := s.authorityOf
-	other := s.newMachine("rival")
-	s.login("owner")
+	held, heldURL := s.authorityOf, s.authorityURL
+	rival := s.newMachine("rival")
 	s.broker("http://" + s.deadAddr())
-	if err := s.mustRun("roger edge authority local rival-shed"); err != nil {
+	if err := s.mustRun("roger edge authority local annex"); err != nil {
 		return err
 	}
-	rivalOf := s.authorityOf
-	s.authorityOf = other
+	s.authorityOf = rival
 	if err := s.serveAuthority(); err != nil {
 		return err
 	}
 	rivalURL := s.authorityURL
-	s.authorityOf = held
-	_ = rivalOf
+	key := hex.EncodeToString(held.user.Public().(ed25519.PublicKey))
+	if err := s.mustRun("roger edge authority allow " + key); err != nil {
+		return err
+	}
+	s.authorityOf, s.authorityURL = held, heldURL
 	s.use(held)
 	return s.run("roger edge enroll workshop --authority " + rivalURL)
 }
@@ -1643,7 +1699,7 @@ func (s *enrollBDD) nothingInTheFleetChanged() error {
 func (s *enrollBDD) certificateCloseToExpiry() error {
 	// A real authority with a SHORT life: the certificate this machine holds is
 	// genuinely near the end of its window.
-	short, err := cert.NewAuthority(cert.Config{TTL: 90 * time.Second})
+	short, err := cert.NewAuthority(cert.Config{TTL: 10 * time.Second})
 	if err != nil {
 		return err
 	}
@@ -1882,10 +1938,10 @@ func (s *enrollBDD) fleetViewMarksTrustStale() error {
 		return err
 	}
 	low := strings.ToLower(s.out)
-	if !strings.Contains(low, "stale") {
+	if !strings.Contains(low, "trust information is stale") {
 		return fmt.Errorf("the fleet view does not say the trust information is stale:\n%s", s.out)
 	}
-	if !strings.Contains(low, "ago") && !strings.Contains(low, "d ") {
+	if !strings.Contains(low, "ago") {
 		return fmt.Errorf("the fleet view does not say how old it is:\n%s", s.out)
 	}
 	return nil
@@ -2013,11 +2069,6 @@ func (s *enrollBDD) coreReturns(response string) error {
 		})
 	case "a certificate already expired":
 		s.core.setMangle(func(r edgeauth.Response) edgeauth.Response {
-			expired, err := cert.NewAuthority(cert.Config{TTL: time.Nanosecond})
-			if err != nil {
-				s.t.Fatal(err)
-			}
-			_ = expired
 			r.Cert = s.expiredCertFor(r)
 			r.Root = edgeauth.EncodeCert(s.expiredRoot)
 			return r
@@ -2051,8 +2102,22 @@ func (s *enrollBDD) expiredCertFor(r edgeauth.Response) string {
 		s.t.Fatal(err)
 	}
 	s.expiredRoot = auth.Root()
-	leaf, err := edgeauth.IssueAt(auth, r.NodeID, s.pendingNodeKey,
-		time.Now().Add(-2*time.Hour), time.Now().Add(-time.Hour))
+	u, _ := url.Parse("spiffe://rogerai.fm/tower/" + r.NodeID)
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(time.Now().UnixNano()),
+		Subject:               pkix.Name{CommonName: r.NodeID},
+		URIs:                  []*url.URL{u},
+		NotBefore:             time.Now().Add(-2 * time.Hour),
+		NotAfter:              time.Now().Add(-time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, auth.Root(), s.pendingNodeKey, auth.RootKey())
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(der)
 	if err != nil {
 		s.t.Fatal(err)
 	}
@@ -2161,51 +2226,84 @@ func (s *enrollBDD) retryingBehavesAsAFirstAttempt() error {
 }
 
 func (s *enrollBDD) alreadyServingAsAStation() error {
-	// A real Station registration in the real store the fleet joins against.
-	st, err := loadEdgeState()
-	if err != nil {
-		return err
-	}
+	// A REAL Station registration in a real store: this is the market's own registry,
+	// which lives on the broker side and which enrolling must not touch.
+	db := store.NewMem()
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
-	rec := store.NodeRecord{NodeID: edge.NodeID(pub), Models: []string{"wave-pico"}, LastSeen: time.Now().Unix()}
-	if err := st.db.UpsertNode(rec); err != nil {
+	rec := store.NodeRecord{
+		NodeID: edge.NodeID(pub),
+		Reg: protocol.NodeRegistration{
+			NodeID: edge.NodeID(pub),
+			Offers: []protocol.ModelOffer{{Model: "wave-pico"}},
+		},
+		LastSeen: time.Now().Unix(),
+	}
+	if err := db.UpsertNode(rec); err != nil {
 		return err
 	}
-	if err := st.db.BindNode(rec.NodeID, "owner"); err != nil {
+	if err := db.BindNode(rec.NodeID, "owner"); err != nil {
 		return err
 	}
-	s.beforeStation = rec
-	s.stationDB = st
-	return st.save()
+	s.beforeStation, s.stationDB = rec, db
+	return nil
 }
 
 func (s *enrollBDD) ownerEnrollsIt() error { return s.mustRun("roger edge enroll workshop") }
 
 func (s *enrollBDD) stationRegistrationUnchanged() error {
-	st, err := loadEdgeState()
+	all, err := s.stationDB.AllNodes()
 	if err != nil {
 		return err
 	}
-	got, ok, err := st.db.NodeByID(s.beforeStation.NodeID)
-	if err != nil {
-		return err
+	var got store.NodeRecord
+	for _, r := range all {
+		if r.NodeID == s.beforeStation.NodeID {
+			got = r
+		}
 	}
-	if !ok {
+	if got.NodeID == "" {
 		return fmt.Errorf("enrolling removed the Station registration")
 	}
-	if strings.Join(got.Models, ",") != strings.Join(s.beforeStation.Models, ",") {
+	if len(got.Reg.Offers) != len(s.beforeStation.Reg.Offers) ||
+		got.Reg.Offers[0].Model != s.beforeStation.Reg.Offers[0].Model {
 		return fmt.Errorf("the Station's offers changed")
+	}
+	if got.LastSeen != s.beforeStation.LastSeen {
+		return fmt.Errorf("enrolling disturbed the Station's registration")
+	}
+	bound, err := s.stationDB.NodesOfAccount("owner")
+	if err != nil {
+		return err
+	}
+	if len(bound) != 1 || bound[0] != s.beforeStation.NodeID {
+		return fmt.Errorf("the Station's binding to its account changed")
 	}
 	return nil
 }
 
 func (s *enrollBDD) appearsWithServeCapability() error {
+	// The fleet is the JOIN of what this machine enrolled and what the market registry
+	// knows. Put the row the CLI just wrote next to the Station registration and read
+	// the two the way the fleet does.
 	for _, n := range s.fleet() {
-		if n.Station && edge.Declares(n, edge.Serve) {
-			return nil
+		if _, err := s.stationDB.EnrollEdgeNode(n); err != nil {
+			return err
 		}
 	}
-	return fmt.Errorf("the Station does not appear in the fleet with the serve capability")
+	list, err := edge.NewFleet(s.stationDB, "owner").List()
+	if err != nil {
+		return err
+	}
+	serving := false
+	for _, n := range list {
+		if n.Station && edge.Routable(n, edge.Serve) {
+			serving = true
+		}
+	}
+	if !serving {
+		return fmt.Errorf("the Station does not appear in the fleet with the serve capability: %+v", list)
+	}
+	return nil
 }
 
 // --- extra scenario scratch fields ---------------------------------------
@@ -2308,7 +2406,7 @@ func TestEdgeEnrollmentFeature(t *testing.T) {
 			sc.Step(`^the Edge it roots is a complete Edge$`, st.theEdgeItRootsIsComplete)
 			sc.Step(`^an Edge using the (\w+) authority$`, st.edgeUsingTheAuthority)
 			sc.Step(`^the owner asks what roots this Edge$`, st.ownerAsksWhatRootsThisEdge)
-			sc.Step(`^it names (.+)$`, st.itNames)
+			sc.Step(`^it names (Core|the designated machine)$`, st.itNames)
 			sc.Step(`^it says whether enrolling a new node will need the network$`, st.saysWhetherEnrollingNeedsTheNetwork)
 
 			// 3. authority

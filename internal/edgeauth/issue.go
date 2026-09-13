@@ -182,6 +182,9 @@ func (i *Issuer) SerialOf(nodeID string) (string, bool) {
 	return s, ok
 }
 
+// RootPEM is the PUBLIC root this issuer signs under, as it is published.
+func (i *Issuer) RootPEM() string { return EncodeCert(i.Root()) }
+
 // Root is the PUBLIC root this issuer signs under.
 func (i *Issuer) Root() *x509.Certificate {
 	if i.cfg.Authority == nil {

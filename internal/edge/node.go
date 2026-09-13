@@ -255,6 +255,11 @@ const (
 	PresenceVerified Presence = "VERIFIED"
 	// PresenceDark: enrolled, but not heard from within the liveness window. KEPT.
 	PresenceDark Presence = "DARK"
+	// PresenceReenroll: still a member of record, but the Edge's authority changed
+	// under it, so the certificate it holds is no longer one this Edge can verify. It
+	// is KEPT and shown with the reason: an authority migration that silently emptied
+	// the fleet would hide the very thing the owner has to act on.
+	PresenceReenroll Presence = "NEEDS RE-ENROLLMENT"
 	// PresenceCandidate: seen on the LAN, not enrolled. Not a member: no capabilities,
 	// no traffic, until the owner adopts it.
 	PresenceCandidate Presence = "CANDIDATE"

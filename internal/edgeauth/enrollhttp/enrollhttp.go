@@ -30,6 +30,12 @@ const Path = "/edge/enroll"
 // RevocationsPath is where a node refreshes what this authority has revoked.
 const RevocationsPath = "/edge/revocations"
 
+// RootPath is where an authority publishes its PUBLIC root. It is how a node already on
+// an Edge can tell, before it asks for anything, whether the authority in front of it is
+// the one that roots that Edge - and refuse a second one without spending a request or
+// minting a certificate nobody will use.
+const RootPath = "/edge/root"
+
 // maxBody bounds what an unauthenticated caller may make us hold. An enrollment request
 // is a few hundred bytes; a certificate answer is a few kilobytes.
 const maxBody = 64 << 10
@@ -47,6 +53,9 @@ type Issuer interface {
 
 // Revoker is an authority that can say what it has revoked.
 type Revoker interface{ Revocations() []string }
+
+// Rooted is an authority that can show the PUBLIC root it signs under.
+type Rooted interface{ RootPEM() string }
 
 // Handler answers enrollment for one authority.
 //
@@ -78,6 +87,15 @@ func Handler(iss Issuer) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
+	})
+	mux.HandleFunc(RootPath, func(w http.ResponseWriter, r *http.Request) {
+		rooted, ok := iss.(Rooted)
+		if !ok {
+			http.Error(w, "this authority publishes no root", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		_, _ = io.WriteString(w, rooted.RootPEM())
 	})
 	mux.HandleFunc(RevocationsPath, func(w http.ResponseWriter, r *http.Request) {
 		rev, ok := iss.(Revoker)
@@ -124,6 +142,15 @@ func Revocations(ctx context.Context, endpoint string) ([]string, error) {
 		return nil, fmt.Errorf("%w: the revocation list could not be read", edgeauth.ErrMalformed)
 	}
 	return out, nil
+}
+
+// Root fetches the PUBLIC root an authority signs under.
+func Root(ctx context.Context, endpoint string) (string, error) {
+	raw, err := get(ctx, endpoint, RootPath)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func post(ctx context.Context, endpoint, path string, body []byte) ([]byte, error) {

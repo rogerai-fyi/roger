@@ -170,11 +170,19 @@ func (l *Local) registry() Registry {
 	}
 }
 
-// Account is the account a locally rooted Edge enrolls into. It is derived from the
-// root rather than from a login, because there is no Core here to have a login with.
-func (l *Local) Account() string {
-	return "edge-" + RootFingerprint(l.auth.Root())[:12]
-}
+// LocalAccount is the account label a locally rooted Edge enrolls into.
+//
+// It is a CONSTANT rather than something derived from the root, and that is deliberate:
+// the account is only a scoping label for one machine's fleet, and deriving it from the
+// root would mean that changing authority silently emptied the fleet - the exact
+// failure "members are not silently dropped" forbids. What actually distinguishes one
+// Edge from another is the ROOT, and a peer from another Edge is refused as an unknown
+// authority however its advertisement is labelled.
+const LocalAccount = "edge-local"
+
+// Account is the account a locally rooted Edge enrolls into. There is no Core here to
+// have a login with, so the Edge names itself.
+func (l *Local) Account() string { return LocalAccount }
 
 // Allow adds a machine's user key to the list this authority will issue to.
 func (l *Local) Allow(userKeyHex string) error {
@@ -217,6 +225,9 @@ func (l *Local) Revoke(nodeID string) (string, error) {
 	}
 	return serial, nil
 }
+
+// RootPEM is the PUBLIC root this authority signs under - the only half that travels.
+func (l *Local) RootPEM() string { return EncodeCert(l.auth.Root()) }
 
 // Revocations is every serial this authority has revoked - what a node refreshes.
 func (l *Local) Revocations() []string { return l.auth.RevokedSerials() }

@@ -77,6 +77,8 @@ var edgeSubcommands = []edgeSubcommand{
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
 	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
+	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
+	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
 }
 
 func edgeLeaf(name string) (edgeSubcommand, bool) {
@@ -150,6 +152,10 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeForget(cfg, rest)
 	case "adopt":
 		return cmdEdgeAdopt(cfg, rest)
+	case "enroll":
+		return cmdEdgeEnroll(cfg, rest)
+	case "authority":
+		return cmdEdgeAuthority(cfg, rest)
 	default:
 		return cmdEdgeScan(cfg, rest)
 	}
@@ -169,7 +175,8 @@ func edgeWantsHelp(args []string) bool {
 // edgeFlags is what one leaf's flags may be: the name, and whether it takes a value.
 var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false,
-	"capability": true,
+	"force":      false,
+	"capability": true, "authority": true, "account": true,
 }
 
 type edgeArgv struct {
@@ -244,7 +251,15 @@ type edgeState struct {
 // edgeAccount is the owner this machine's Edge belongs to. Anonymous is a real state and
 // not an error: a LAN scan needs no login. Its findings are cached under the anonymous
 // account, so a later login never silently inherits them.
-func edgeAccount() string { return client.LinkedLogin() }
+func edgeAccount() string {
+	// The account of record is the one this machine's CERTIFICATE enrolled it into: an
+	// Edge rooted at a designated machine has no Core login behind it at all. A machine
+	// that has not enrolled falls back to the login, so a plain LAN scan still works.
+	if a, err := edgeIdentityStore().AccountName(); err == nil && a != "" {
+		return a
+	}
+	return client.LinkedLogin()
+}
 
 func loadEdgeState() (*edgeState, error) {
 	acct := edgeAccount()
@@ -422,8 +437,13 @@ func edgeCapsLabel(n store.EdgeNode) string {
 // edgeSeenLabel is the last-seen cell: a dark node says so here, with its age, because a
 // fleet that drops silent members hides the problem it exists to show.
 func edgeSeenLabel(n store.EdgeNode) string {
-	if n.Presence == string(edge.PresenceDark) {
+	switch n.Presence {
+	case string(edge.PresenceDark):
 		return "dark, " + edgeAge(n.LastSeen)
+	case string(edge.PresenceReenroll):
+		// Not a liveness problem and not sayable as an age: this node is still a member
+		// and its credential is no longer one this Edge can check.
+		return "NEEDS RE-ENROLL (roger edge enroll)"
 	}
 	return edgeAge(n.LastSeen)
 }
@@ -500,6 +520,9 @@ func cmdEdgeList(cfg config, args []string) error {
 	if len(nodes) > 0 && reachable == 0 {
 		fmt.Printf("(stale: nothing on your Edge answered just now - this is the last known fleet, as of %s)\n",
 			edgeAge(edgeNewestSeen(nodes)))
+	}
+	if note := edgeTrustNote(time.Now()); note != "" {
+		fmt.Println(note)
 	}
 	if len(nodes) > 0 {
 		edgeWriteTable(os.Stdout, nodes, reach)
@@ -693,6 +716,9 @@ func edgeWriteDetail(w io.Writer, st *edgeState, n store.EdgeNode, r edgeReach, 
 	fmt.Fprintf(w, "  capabilities  %s\n", edgeDetailCaps(st, n))
 	fmt.Fprintf(w, "  transports    %s\n", edgeDetailTransports(n))
 	fmt.Fprintf(w, "  presence      %s\n", edgePresence(n))
+	if why := edgePresenceReason(n); why != "" {
+		fmt.Fprintf(w, "  because       %s\n", why)
+	}
 	fmt.Fprintf(w, "  last seen     %s\n", edgeAge(n.LastSeen))
 	if !verbose {
 		return
@@ -712,6 +738,21 @@ func edgePresence(n store.EdgeNode) string {
 		return string(edge.PresenceVerified)
 	}
 	return n.Presence
+}
+
+// edgePresenceReason is WHY a node is not simply verified, in the words that were
+// recorded when it stopped being. A state with no reason is a state the owner cannot
+// act on.
+func edgePresenceReason(n store.EdgeNode) string {
+	if n.Presence != string(edge.PresenceReenroll) {
+		return ""
+	}
+	for i := len(n.History) - 1; i >= 0; i-- {
+		if n.History[i].What == "re-enrollment required" {
+			return n.History[i].Detail
+		}
+	}
+	return "the Edge authority changed"
 }
 
 // edgeDetailCaps spells a claimed capability out with HOW it would be verified, so an
@@ -820,13 +861,19 @@ func cmdEdgeForget(cfg config, args []string) error {
 			return nil
 		}
 	}
+	// The certificate goes too. A node whose pin is merely cleared could come straight
+	// back; a node whose certificate is revoked is refused by every peer that holds the
+	// list, on a LAN with no internet, and after a restart.
+	if err := edgeRevokeOnForget(n.ID, n); err != nil {
+		return err
+	}
 	if err := st.fleet.Forget(n.ID); err != nil {
 		return err
 	}
 	if err := st.save(); err != nil {
 		return err
 	}
-	fmt.Printf("forgot %s - it is off this Edge and its pin is cleared.\n", n.Name)
+	fmt.Printf("forgot %s - it is off this Edge, its certificate is revoked and its pin is cleared.\n", n.Name)
 	return nil
 }
 
@@ -956,14 +1003,15 @@ func defaultEdgeDiscoveryOptions(f *edge.Fleet) edge.Options {
 	// ONE pass, driven by this command, rather than the daemon's ticker: a scan is a
 	// thing the owner asked for once.
 	cfg.ManualPasses = true
-	return edge.Options{
-		Fleet:  f,
-		Config: cfg,
-		// No authority yet: issuing this Edge's certificates is enrollment
-		// (features/edge/enrollment.feature), which is not built. Until it is, a peer
-		// cannot be certificate-verified, and the scan says so rather than pretending.
-		Authority: nil,
+	o := edge.Options{Fleet: f, Config: cfg}
+	// The authority is whatever THIS machine was enrolled under - Core's root or a
+	// designated machine's, indistinguishably. A machine that has not enrolled holds
+	// none, so a peer cannot be certificate-verified and the scan says so rather than
+	// pretending.
+	if auth, _, err := edgeIdentityStore().Trust(time.Now()); err == nil {
+		o.Authority = auth
 	}
+	return o
 }
 
 func cmdEdgeScan(cfg config, args []string) error {

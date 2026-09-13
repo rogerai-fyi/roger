@@ -2,6 +2,7 @@ package edge
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -24,6 +25,7 @@ const (
 	ReasonUnknownAuthority    = "unknown authority"
 	ReasonIdentityMismatch    = "identity mismatch"
 	ReasonIdentityCollision   = "identity collision"
+	ReasonRevoked             = "revoked"
 	ReasonUnreachable         = "unreachable"
 )
 
@@ -134,6 +136,14 @@ func VerifyPeer(ad Advert, p *Peer, auth *cert.Authority, pin string, now time.T
 	if auth == nil {
 		return ReasonUnknownAuthority
 	}
+	// REVOCATION, before the chain check, because the two are different problems and
+	// the owner has to be able to tell them apart. The authority refuses a revoked
+	// serial inside Authenticate as well, but as "this did not come from your
+	// authority" - and "the machine you took off this Edge is still on your network"
+	// deserves its own word.
+	if p.Cert.SerialNumber != nil && auth.SerialRevoked(p.Cert.SerialNumber.String()) {
+		return ReasonRevoked
+	}
 	id, err := auth.Authenticate(p.Cert)
 	if err != nil {
 		// Everything the authority refuses that is not expiry (checked above) or a
@@ -145,6 +155,25 @@ func VerifyPeer(ad Advert, p *Peer, auth *cert.Authority, pin string, now time.T
 	if id != ad.NodeID || (p.Describe.NodeID != "" && p.Describe.NodeID != ad.NodeID) {
 		return ReasonIdentityMismatch
 	}
+	// 5. THE KEY ITSELF. A node id IS the hash of the node's public key, so a
+	//    certificate that names this node while binding a DIFFERENT key is a misissue -
+	//    the one failure that chains correctly and is still wrong. Deriving the id from
+	//    the key catches it without needing to have met the node before, which the
+	//    fingerprint pin does not.
+	//
+	//    It is also what makes the pin survive RENEWAL. Certificates are deliberately
+	//    short-lived, so a fleet whose members stopped verifying every time one was
+	//    reissued would be a fleet that breaks on schedule. What a peer is really
+	//    pinning is the node's KEY: a renewed certificate is new paper for the same
+	//    identity, and a returning node with a new KEY is a different node.
+	if pub, ok := p.Cert.PublicKey.(ed25519.PublicKey); ok {
+		if NodeID(pub) != ad.NodeID {
+			return ReasonIdentityMismatch
+		}
+		return ""
+	}
+	// A key shape no node id can be derived from is not one of ours; fall back to the
+	// certificate the owner actually accepted.
 	if pin != "" && p.Fingerprint != pin {
 		return ReasonIdentityMismatch
 	}
