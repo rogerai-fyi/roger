@@ -558,7 +558,11 @@ func (s *enrollBDD) generatesANewKeypair() error {
 }
 
 func (s *enrollBDD) requestSignedWithUserKey() error {
-	got := s.core.iss.LastRequest()
+	seen := s.core.iss.Requests()
+	if len(seen) == 0 {
+		return fmt.Errorf("the authority saw no request at all")
+	}
+	got := seen[len(seen)-1]
 	if got.UserKey != hex.EncodeToString(s.cur.user.Public().(ed25519.PublicKey)) {
 		return fmt.Errorf("the request was signed by %q, not the machine's user key", got.UserKey)
 	}
@@ -1602,7 +1606,8 @@ func (s *enrollBDD) identityTriple() (string, string, bool) {
 }
 
 func (s *enrollBDD) sameSignedRequestSubmittedAgain() error {
-	req := s.core.iss.LastRequest()
+	seen := s.core.iss.Requests()
+	req := seen[len(seen)-1]
 	_, err := s.core.iss.Issue(req)
 	s.failReason = ""
 	if err != nil {

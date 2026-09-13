@@ -34,10 +34,6 @@ const EdgeCertTTL = 30 * 24 * time.Hour
 // ErrRootExists refuses to generate a second root. An Edge has exactly one.
 var ErrRootExists = errors.New("this machine already holds an Edge root")
 
-// ErrNoLocalAuthority is returned when a caller asks for a local authority that has not
-// been designated.
-var ErrNoLocalAuthority = errors.New("this machine is not an Edge authority")
-
 // Local is a designated machine's Edge authority.
 type Local struct {
 	dir   string // <edge dir>/authority
@@ -110,9 +106,6 @@ func open(dir string) (*Local, error) {
 // Authority is the issuing authority. It holds the root's private half, which is why it
 // exists only on the designated machine.
 func (l *Local) Authority() *cert.Authority { return l.auth }
-
-// Where is the name the owner gave this machine when they designated it.
-func (l *Local) Where() string { return l.where }
 
 // Descriptor is what this authority is, for the owner and for the machines it roots.
 func (l *Local) Descriptor() Descriptor {

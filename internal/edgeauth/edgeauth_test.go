@@ -176,8 +176,7 @@ func TestTheIssuerRefusesEveryWayARequestCanBeWrong(t *testing.T) {
 		serial, ok := iss.SerialOf(resp.NodeID)
 		require.True(t, ok)
 		require.Equal(t, leaf.SerialNumber.String(), serial)
-		require.Equal(t, req, iss.LastRequest())
-		require.Len(t, iss.Requests(), 1)
+		require.Equal(t, []edgeauth.Request{req}, iss.Requests())
 		require.NotEmpty(t, iss.RootPEM())
 
 		// THE SAME signed request, again: good once and not forever.
@@ -258,7 +257,7 @@ func TestTheIssuerRefusesEveryWayARequestCanBeWrong(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, iss.Root())
 		require.Empty(t, iss.RootPEM())
-		require.Equal(t, edgeauth.Request{}, edgeauth.NewIssuer(edgeauth.IssuerConfig{}).LastRequest())
+		require.Empty(t, edgeauth.NewIssuer(edgeauth.IssuerConfig{}).Requests())
 	})
 
 	t.Run("the attempt log is bounded", func(t *testing.T) {
@@ -574,7 +573,7 @@ func TestALocalAuthorityGeneratesOneRootAndKeepsThePrivateHalfAtHome(t *testing.
 
 	local, err := edgeauth.Designate(dir, "shed")
 	require.NoError(t, err)
-	require.Equal(t, "shed", local.Where())
+	require.Equal(t, "shed", local.Descriptor().Where)
 	require.Equal(t, edgeauth.KindLocal, local.Descriptor().Kind)
 	require.Equal(t, edgeauth.LocalAccount, local.Account())
 	require.True(t, local.Authority().Root().IsCA)

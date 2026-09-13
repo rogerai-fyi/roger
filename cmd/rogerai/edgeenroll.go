@@ -35,7 +35,6 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
-	"rogerai.fm/roger/v6/internal/store"
 )
 
 // edgeAuthDir is where this machine keeps its Edge identity - and, on the one machine
@@ -528,7 +527,7 @@ func edgeAllow(userKey string) error {
 // machine is one and it issued that certificate), and this machine records the serial
 // in its own trust store (so its own verification refuses it immediately, rather than
 // at the next refresh).
-func edgeRevokeOnForget(nodeID string, n store.EdgeNode) error {
+func edgeRevokeOnForget(nodeID string) error {
 	st := edgeIdentityStore()
 	now := time.Now()
 	var serial string
@@ -551,7 +550,6 @@ func edgeRevokeOnForget(nodeID string, n store.EdgeNode) error {
 	if serial == "" {
 		return nil // nothing this machine can revoke: the pin going is all it can do
 	}
-	_ = n
 	return st.Revoke(serial, now)
 }
 

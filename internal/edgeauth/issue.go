@@ -163,16 +163,6 @@ func (i *Issuer) Requests() []Request {
 	return append([]Request(nil), i.log...)
 }
 
-// LastRequest is the most recent attempt, or a zero Request if there has been none.
-func (i *Issuer) LastRequest() Request {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if len(i.log) == 0 {
-		return Request{}
-	}
-	return i.log[len(i.log)-1]
-}
-
 // SerialOf is the certificate serial this issuer last handed a node, which is what a
 // revocation names.
 func (i *Issuer) SerialOf(nodeID string) (string, bool) {

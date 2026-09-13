@@ -864,7 +864,7 @@ func cmdEdgeForget(cfg config, args []string) error {
 	// The certificate goes too. A node whose pin is merely cleared could come straight
 	// back; a node whose certificate is revoked is refused by every peer that holds the
 	// list, on a LAN with no internet, and after a restart.
-	if err := edgeRevokeOnForget(n.ID, n); err != nil {
+	if err := edgeRevokeOnForget(n.ID); err != nil {
 		return err
 	}
 	if err := st.fleet.Forget(n.ID); err != nil {

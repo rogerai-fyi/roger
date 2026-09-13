@@ -224,11 +224,6 @@ func (s Store) LoadIdentity() (*Identity, ed25519.PrivateKey, bool, error) {
 	if err != nil {
 		return nil, nil, false, err
 	}
-	d, _, err := s.Descriptor()
-	if err != nil {
-		return nil, nil, false, err
-	}
-	_ = d
 	id := &Identity{
 		NodeID: leaf.Subject.CommonName, Cert: leaf, Root: root,
 		CertPEM: string(certPEM), RootPEM: string(rootPEM),
