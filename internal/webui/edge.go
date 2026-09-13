@@ -36,6 +36,9 @@ type EdgeHooks struct {
 	Candidates func() []store.EdgeNode
 	Adopt      func(id, name string) error
 	Sessions   *edge.Sessions
+	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
+	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
+	Status func() edge.SelfStatus
 	// Now is the snapshot clock. Injectable so a test can assert on an age without
 	// racing the wall clock; nil means time.Now.
 	Now func() time.Time
@@ -96,16 +99,27 @@ type edgeSessJSON struct {
 	Age      string           `json:"age"`
 }
 
+// edgeFacts are the empty state's sentences, worded ONCE in internal/edge and printed
+// verbatim by the browser, so the console says exactly what the terminal says.
+type edgeFacts struct {
+	Machine       string   `json:"machine"`
+	Authority     []string `json:"authority"`
+	Discovery     string   `json:"discovery"`
+	EnrollAgainst string   `json:"enroll_against"`
+}
+
 type edgeSnap struct {
-	Configured bool           `json:"configured"`
-	Self       string         `json:"self,omitempty"`
-	Account    string         `json:"account,omitempty"`
-	At         int64          `json:"at,omitempty"`
-	Nodes      []edgeNodeJSON `json:"nodes"`
-	Candidates []edgeNodeJSON `json:"candidates"`
-	Sessions   []edgeSessJSON `json:"sessions"`
-	TooMany    bool           `json:"too_many"`
-	GraphMax   int            `json:"graph_max"`
+	Configured bool             `json:"configured"`
+	SelfStatus *edge.SelfStatus `json:"self_status,omitempty"`
+	Facts      *edgeFacts       `json:"facts,omitempty"`
+	Self       string           `json:"self,omitempty"`
+	Account    string           `json:"account,omitempty"`
+	At         int64            `json:"at,omitempty"`
+	Nodes      []edgeNodeJSON   `json:"nodes"`
+	Candidates []edgeNodeJSON   `json:"candidates"`
+	Sessions   []edgeSessJSON   `json:"sessions"`
+	TooMany    bool             `json:"too_many"`
+	GraphMax   int              `json:"graph_max"`
 }
 
 func (s *Server) edgeNow() time.Time {
@@ -168,6 +182,14 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		snap.Nodes = append(snap.Nodes, n)
 	}
 	snap.TooMany = len(snap.Nodes) > edgeGraphMax
+	if h.Status != nil {
+		st := h.Status()
+		snap.SelfStatus = &st
+		if st.Err == "" {
+			snap.Facts = &edgeFacts{Machine: st.MachineLine(), Authority: st.AuthorityLines(),
+				Discovery: st.DiscoveryLine(now), EnrollAgainst: st.EnrollAgainstLine()}
+		}
+	}
 	if h.Candidates != nil {
 		for _, c := range h.Candidates() {
 			snap.Candidates = append(snap.Candidates, edgeNodeOf(c, now))

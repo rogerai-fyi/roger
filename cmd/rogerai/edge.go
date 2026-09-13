@@ -517,8 +517,28 @@ func cmdEdgeList(cfg config, args []string) error {
 			return nil
 		}
 		fmt.Println("your Edge: this machine is the only node.")
+		// The three facts that decide what to do next, worded once in internal/edge
+		// (features/edge/empty_edge.feature) so the TUI and the console say the same.
+		self := edgeSelfStatus(st.fleet, edgeDiscoveryFactsFromEnv())
+		fact := func(label string, lines ...string) {
+			for i, l := range lines {
+				if i > 0 {
+					label = ""
+				}
+				fmt.Printf("  %-14s%s\n", label, l)
+			}
+		}
+		if self.Err != "" {
+			fact("STATUS", "could not be read: "+self.Err)
+		} else {
+			fact("THIS MACHINE", self.MachineLine())
+			fact("AUTHORITY", self.AuthorityLines()...)
+			fact("DISCOVERY", self.DiscoveryLine(time.Now())+" (roger edge scan looks now)")
+		}
 		fmt.Println("  find the others on this network:  roger edge scan")
 		fmt.Println("  then take one into the fleet:     roger edge adopt <node>")
+		fmt.Println("  or enroll another machine against this Edge's authority:")
+		fmt.Println("                                    " + self.EnrollAgainstLine())
 		return nil
 	}
 	// Nothing answered, but the fleet is not empty: say that this is remembered, not

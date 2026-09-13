@@ -270,8 +270,17 @@
         <div class="edge-empty" id="edge-empty" hidden>
           <p><b class="mono" id="edge-self-name">this machine</b> is the only node on the Edge.
              Nothing else has been seen, and this screen draws only what it has seen.</p>
+          <!-- THE THREE FACTS, worded by the server (one wording for every surface) -->
+          <div class="edge-facts mono small" id="edge-facts" hidden>
+            <div class="kv"><span>THIS MACHINE</span><b id="edge-fact-machine"></b></div>
+            <div class="kv"><span>AUTHORITY</span><b id="edge-fact-authority"></b></div>
+            <div class="kv"><span>DISCOVERY</span><b id="edge-fact-discovery"></b></div>
+          </div>
+          <div class="not-configured" id="edge-status-error" hidden></div>
           <p class="muted small"><b>ADD A NODE</b> &mdash; run RogerAI on another machine on this network.
-             It appears here as a candidate; <b>adopt</b> takes it onto your Edge.</p>
+             It appears here as a candidate; <b>adopt</b> takes it onto your Edge.
+             Or enroll another machine against this Edge's authority:
+             <code id="edge-fact-enroll">roger edge enroll &lt;name&gt; --authority &lt;address&gt;</code></p>
         </div>
 
         <div class="edge-stage" id="edge-stage" hidden>

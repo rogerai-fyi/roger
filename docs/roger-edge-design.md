@@ -220,6 +220,7 @@ can serve this model", the other is "what machines do I own". They are never joi
 | A classifying node's contract (task class, fixed framing, label set) on the record | Shipped on `wt/roger-edge` |
 | Sessions recorded from `roger use` and the guest-operator proxy | **Not built** (the TUI's own turns and the console's chat turns are; see 12.8) |
 | Edge view in the web console (EDGE tab: graph, list fallback, detail, adopt, sessions; console chat turns recorded as sessions) | Shipped on `wt/roger-edge` |
+| The empty Edge as a STATUS (THIS MACHINE / AUTHORITY / DISCOVERY + both ways to add a node) on TUI, console and `roger edge`; an unstarted host is never drawn as "the only node" | Shipped on `wt/roger-edge` (`features/edge/empty_edge.feature`) |
 | Microcontroller firmware, any on-device classifier artifact | **Not built** |
 
 ## 11. Order of work

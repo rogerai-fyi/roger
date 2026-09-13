@@ -77,6 +77,13 @@ type edgeHost struct {
 	authLn net.Listener
 	issuer *edgeauth.Issuer
 
+	// The last discovery pass, for the empty screen's DISCOVERY fact: when it ran and
+	// what it found. Guarded by mu like the candidates it produced.
+	lastPass    time.Time
+	lastFound   string
+	unavailable bool
+	armed       bool // the engine exists (ROGERAI_EDGE_DISCOVERY was not 0)
+
 	// mu guards the candidate list and the state-file write: the discovery goroutine
 	// refreshes both while the UI goroutine reads them for a frame.
 	mu sync.Mutex
@@ -108,6 +115,25 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeCandidates = h.candidates
 	hooks.EdgeAdopt = h.adopt
 	hooks.EdgeHeartbeats = h.beats
+	hooks.EdgeStatus = h.status
+}
+
+// status is what is true about THIS machine right now - enrolled, rooted where, scanning
+// - read from the same files the CLI reads, plus what only the running host knows: the
+// last pass and this machine's authority address.
+func (h *edgeHost) status() edge.SelfStatus {
+	h.mu.Lock()
+	facts := edgeDiscoveryFacts{
+		Enabled: h.armed, Unavailable: h.unavailable, Interval: h.every,
+		LastPass: h.lastPass, Found: h.lastFound, AuthorityAddr: edgeAuthorityURL(h.authLn),
+	}
+	h.mu.Unlock()
+	// Enabled is whether the ENGINE exists (arm built one), not what the environment
+	// says: a knob that reads "on" over an engine that never came up would be a claim.
+	if facts.Interval == 0 {
+		facts.Interval = edge.ConfigFromEnv(nil).Interval
+	}
+	return edgeSelfStatus(h.st.fleet, facts)
 }
 
 // candidates is what discovery has SEEN and nobody has adopted. They are handed over as a
@@ -174,6 +200,9 @@ func (h *edgeHost) arm() bool {
 		opts.Log = func(line string) { log.Println(line) }
 	}
 	h.disc, h.every = edge.New(opts), opts.Config.Interval
+	h.mu.Lock()
+	h.armed = true
+	h.mu.Unlock()
 	return true
 }
 
@@ -319,6 +348,8 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
+	h.lastPass, h.unavailable = time.Now(), rep.Unavailable()
+	h.lastFound = edge.PassSummary(len(rep.Verified), len(h.st.candidates))
 	err := h.st.save()
 	h.mu.Unlock()
 	if err != nil {

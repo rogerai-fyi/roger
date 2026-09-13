@@ -1644,6 +1644,7 @@
 
     var empty = !d.nodes.length && !d.candidates.length;
     show($("edge-empty"), empty);
+    if (empty) edgeRenderFacts(d);
     show($("edge-stage"), !empty);
     if (!empty) {
       if (d.too_many) {
@@ -1659,6 +1660,30 @@
     edgeRenderCandidates(d);
     edgeRenderSessions(d);
     edgeRenderDetail(d);
+  }
+
+  // edgeRenderFacts fills the empty state's three facts from the server's wording. The
+  // sentences are the server's (d.facts), verbatim: the console says what the terminal
+  // says. A status that could not be read shows its error and claims nothing.
+  function edgeRenderFacts(d) {
+    var st = d.self_status, facts = d.facts;
+    var box = $("edge-facts"), er = $("edge-status-error");
+    if (st && st.error) {
+      show(box, false);
+      if (er) { er.textContent = "this machine's Edge status could not be read: " + st.error; show(er, true); }
+      return;
+    }
+    show(er, false);
+    if (!facts) { show(box, false); return; }
+    var m = $("edge-fact-machine"), a = $("edge-fact-authority"), dd = $("edge-fact-discovery"), en = $("edge-fact-enroll");
+    if (m) m.textContent = facts.machine || "";
+    if (a) {
+      a.innerHTML = "";
+      (facts.authority || []).forEach(function (t, i) { if (i) a.appendChild(document.createElement("br")); a.appendChild(document.createTextNode(t)); });
+    }
+    if (dd) dd.textContent = facts.discovery || "";
+    if (en && facts.enroll_against) en.textContent = facts.enroll_against;
+    show(box, true);
   }
 
   // edgeLayout places self at the centre and every top-level node around it; a node

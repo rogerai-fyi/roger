@@ -264,12 +264,47 @@ func edgeHints(w int) string {
 func (m model) edgeEmptyView(w int, line func(string)) {
 	line("  " + stDim.Render("EDGE"))
 	line("")
+	if m.hooks.EdgeFleet == nil {
+		// AN UNREAD EDGE IS NOT AN EMPTY ONE. The host did not start (the launch log said
+		// why), so nothing about the fleet is known - and "the only node" would be the
+		// screen's one unforgivable lie.
+		line("  " + stEmber.Render("the Edge host did not start this run, so nothing here can be drawn - the log says why."))
+		line("  " + stDim.Render("roger edge list reads the last-known Edge; start roger again to bring the host up."))
+		return
+	}
 	line("  " + stKey.Render(m.edgeSelfName()) + stDim.Render(" is the only node on the Edge."))
 	line("  " + stDim.Render("Nothing else has been seen, and this screen draws only what it has seen."))
 	line("")
-	line("  " + stKey.Render("ADD A NODE") + stDim.Render("  run RogerAI on another machine on this network."))
-	line("  " + stDim.Render("              It appears here as a CANDIDATE; a adopts it onto your Edge."))
+	// THE THREE FACTS. What is true about THIS machine, and the next command for each
+	// fact that is not yet what the owner wants (features/edge/empty_edge.feature).
+	fact := func(label string, lines ...string) {
+		for i, t := range lines {
+			for j, part := range wrapCommand(t, max(20, w-2-edgeFactW)) {
+				k := ""
+				if i == 0 && j == 0 {
+					k = label
+				}
+				line("  " + stKey.Render(pad(k, edgeFactW)) + part)
+			}
+		}
+	}
+	if st := m.edge.status; st != nil {
+		if st.Err != "" {
+			fact("STATUS", stEmber.Render("could not be read: "+st.Err))
+		} else {
+			fact("THIS MACHINE", st.MachineLine())
+			fact("AUTHORITY", st.AuthorityLines()...)
+			fact("DISCOVERY", st.DiscoveryLine(m.edge.at))
+		}
+		line("")
+		fact("ADD A NODE", st.AddNodeLines()...)
+		return
+	}
+	fact("ADD A NODE", edge.SelfStatus{}.AddNodeLines()...)
 }
+
+// edgeFactW is the label column of the empty screen's fact block.
+const edgeFactW = 14
 
 // edgeGraphBody draws self at the centre and every node in relation to it.
 func (m model) edgeGraphBody(g edgeGeom, line func(string)) {

@@ -1342,3 +1342,6 @@ body.is-chat .content { padding-bottom: var(--s-6); }
    never the error colour. */
 .sess--escalate { color: var(--ink-900); font-weight: var(--weight-medium); }
 .sess--refused { color: var(--ink-500); }
+.edge-facts { margin: var(--s-4) 0; max-width: 72ch; }
+.edge-facts .kv > span { flex: 0 0 9rem; letter-spacing: var(--tracking-label); font-size: var(--t-micro); text-transform: uppercase; }
+.edge-facts .kv > b { white-space: normal; text-align: left; font-weight: var(--weight-regular); }

@@ -66,6 +66,7 @@ type consoleEdgeBDD struct {
 	cands    []store.EdgeNode
 	adoptErr error
 	noAdopt  bool
+	self     *edge.SelfStatus // nil = no status hook wired
 	noEdge   bool
 	adopts   []string // "<id> <name>" per adopt hook call
 
@@ -94,7 +95,7 @@ func (s *consoleEdgeBDD) reset() {
 	s.fleet.SetClock(func() time.Time { return s.now })
 	s.sessions = edge.NewSessions("acct-1")
 	s.sessions.SetClock(func() time.Time { return s.now })
-	s.cands, s.adoptErr, s.noAdopt, s.noEdge, s.adopts = nil, nil, false, false, nil
+	s.cands, s.adoptErr, s.noAdopt, s.noEdge, s.adopts, s.self = nil, nil, false, false, nil, nil
 	s.ids, s.priv = map[string]string{}, map[string][]byte{}
 	s.status, s.body, s.snap, s.prev, s.err = 0, nil, edgeSnap{}, nil, ""
 	if s.http != nil {
@@ -123,6 +124,10 @@ func (s *consoleEdgeBDD) build() {
 			Candidates: func() []store.EdgeNode { return append([]store.EdgeNode(nil), s.cands...) },
 			Sessions:   s.sessions,
 			Now:        func() time.Time { return s.now },
+		}
+		if s.self != nil {
+			st := s.self
+			opts.Edge.Status = func() edge.SelfStatus { return *st }
 		}
 		if !s.noAdopt {
 			opts.Edge.Adopt = func(id, name string) error {
@@ -1208,157 +1213,172 @@ func (s *consoleEdgeBDD) readsOwnEndpointAtCadence() error {
 
 // ---- suite -----------------------------------------------------------------
 
+// init registers every console Edge step; both the console_view suite and the empty_edge
+// (@console) suite are built from it.
+func (st *consoleEdgeBDD) init(sc *godog.ScenarioContext) {
+	sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) { st.reset(); return c, nil })
+	sc.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		if st.http != nil {
+			st.http.Close()
+			st.http = nil
+		}
+		if st.up != nil {
+			st.up.Close()
+			st.up = nil
+		}
+		return c, nil
+	})
+	// 1. the tab
+	sc.Step(`^a console over a fleet of nodes$`, st.aConsoleOverAFleet)
+	sc.Step(`^the console shell is served$`, st.shellServed)
+	sc.Step(`^the tab strip reads CHAT, SHARE, ACCOUNT, BROWSE, EDGE, SETTINGS in that order$`, st.tabStripOrder)
+	sc.Step(`^there is a panel for EDGE hidden until its tab is chosen$`, st.panelHiddenUntilChosen)
+	sc.Step(`^the hash #edge opens it, like every other tab's hash$`, st.hashOpensIt)
+	sc.Step(`^the console shell is fetched with no token$`, st.shellFetchedNoToken)
+	sc.Step(`^it is served, because it carries no node data$`, st.itIsServedNoNodeData)
+	sc.Step(`^the Edge data is fetched with no token$`, st.edgeFetchedNoToken)
+	sc.Step(`^the Edge data is fetched with the wrong token$`, st.edgeFetchedWrongToken)
+	sc.Step(`^it is refused with (\d+)$`, st.refusedWith)
+	sc.Step(`^it loads no script from outside the console$`, st.noOutsideScript)
+	sc.Step(`^the Edge graph is drawn as inline SVG the console ships$`, st.inlineSVG)
+	// 2. the read
+	sc.Step(`^nodes "shed" and "bench" on the Edge and a candidate "attic"$`, st.nodesAndCandidate)
+	sc.Step(`^the Edge data is read$`, st.edgeRead)
+	sc.Step(`^it names this instance as self$`, st.namesSelf)
+	sc.Step(`^it lists exactly "([^"]*)" and "([^"]*)" as nodes$`, st.listsExactlyNodes)
+	sc.Step(`^it lists exactly "([^"]*)" as a candidate, outside the nodes$`, st.listsExactlyCandidate)
+	sc.Step(`^it carries the moment the snapshot was taken, so every age is measured from one clock$`, st.carriesTheMoment)
+	sc.Step(`^no node's private key material appears anywhere in it$`, st.noPrivateKeyMaterial)
+	sc.Step(`^the Edge data is requested with POST$`, st.edgeRequestedPOST)
+	sc.Step(`^nothing about the fleet changed$`, st.nothingChanged)
+	sc.Step(`^a console built with no Edge wired$`, st.consoleNoEdge)
+	sc.Step(`^it reports the Edge as not configured$`, st.reportsNotConfigured)
+	sc.Step(`^the panel explains that this build has no Edge host, rather than showing an empty graph$`, st.panelExplainsNoHost)
+	sc.Step(`^the fleet store fails on read$`, st.storeFailsOnRead)
+	sc.Step(`^it is refused with 502 and the store's own words$`, st.refusedWithStoreWords)
+	sc.Step(`^the panel shows that message, not "the only node"$`, st.panelShowsThatMessage)
+	sc.Step(`^"([^"]*)" is reached only through the relay "([^"]*)", which is on the Edge$`, st.reachedOnlyThroughRelay)
+	sc.Step(`^"([^"]*)" is listed immediately under "([^"]*)" and names "[^"]*" as the relay it is reached through$`, st.listedUnderRelay)
+	sc.Step(`^"([^"]*)" is flagged as a relay$`, st.flaggedRelay)
+	sc.Step(`^that is the same order the TUI's Edge screen draws them in$`, st.sameOrderAsTUI)
+	sc.Step(`^"([^"]*)" has a LAN transport and a relay transport$`, st.bothTransports)
+	sc.Step(`^"([^"]*)" appears once$`, st.appearsOnce)
+	sc.Step(`^it is reported as LAN-direct, with no relay named$`, func() error { return st.reportedLANNoRelay("bench") })
+	sc.Step(`^"([^"]*)" names "([^"]*)" as its relay and "[^"]*" names "[^"]*" as its relay$`, st.relayCycle)
+	sc.Step(`^both "([^"]*)" and "([^"]*)" are listed$`, st.bothListed)
+	sc.Step(`^each is listed exactly once$`, st.eachExactlyOnce)
+	sc.Step(`^"([^"]*)" has not been heard from past the dark threshold$`, st.notHeardPastDark)
+	sc.Step(`^"([^"]*)" is still listed$`, st.stillListed)
+	sc.Step(`^its presence is DARK and its last-seen age is carried$`, st.darkWithAge)
+	sc.Step(`^"([^"]*)" declares serve verified, sense declared and actuate unconfirmed$`, st.declaresThreeCaps)
+	sc.Step(`^"([^"]*)" carries all three capabilities with their states$`, st.carriesThreeCaps)
+	sc.Step(`^an unverified capability names how it will be verified, as the TUI's detail does$`, st.unverifiedNamesMethod)
+	sc.Step(`^(\d+) nodes on the Edge$`, st.nNodes)
+	sc.Step(`^it says the graph is too large to draw$`, st.saysTooLarge)
+	sc.Step(`^it still lists all (\d+) nodes$`, st.listsAllN)
+	sc.Step(`^the panel renders the list, not a broken picture$`, st.panelRendersList)
+	sc.Step(`^"([^"]*)" names a relay "([^"]*)" that is not on the Edge$`, st.relayNotOnEdge)
+	sc.Step(`^"([^"]*)" is listed on its own relayed edge with no relay named$`, st.ownRelayedEdgeNoVia)
+	sc.Step(`^no node in the snapshot is reached through a name that is not in the snapshot$`, st.noViaOutsideSnapshot)
+	// 3. the drawing
+	sc.Step(`^the Edge graph places self at the centre and every node in relation to it$`, st.selfAtCentre)
+	sc.Step(`^a LAN-direct node is drawn with a solid stroke$`, st.lanSolid)
+	sc.Step(`^a relayed node is drawn with a dashed stroke to its relay, and the relay is drawn as its own node$`, st.relayDashedThroughRelay)
+	sc.Step(`^a dark node is drawn dim with a broken stroke, and it is kept$`, st.darkBrokenKept)
+	sc.Step(`^live, relayed and dark differ by stroke pattern, not only by colour$`, st.notColourAlone)
+	sc.Step(`^a verified capability differs from a declared one by case, as it does in the terminal$`, func() error { return st.jsHas("case", `toUpperCase\(\)`) })
+	sc.Step(`^this instance is the only node$`, st.onlyNode)
+	sc.Step(`^the panel says this instance is the only node on the Edge$`, st.panelSaysOnlyNode)
+	sc.Step(`^it says the screen draws only what it has seen$`, st.panelSaysDrawsOnlySeen)
+	sc.Step(`^it says how to add a node: run RogerAI on another machine on this network, and adopt it$`, st.panelSaysHowToAdd)
+	sc.Step(`^a node label is clipped to its cell$`, st.labelClipped)
+	sc.Step(`^the full name is still available on the node$`, st.fullNameAvailable)
+	// 4. the animation
+	sc.Step(`^a pulse is started only when a node's last-seen advanced since the previous read$`, st.pulseOnlyOnAdvance)
+	sc.Step(`^nothing starts a pulse on a bare timer$`, st.noBareTimerPulse)
+	sc.Step(`^a pulse for a relayed node runs along its edge to the relay and then the relay's edge to self$`, st.relayedPulsePath)
+	sc.Step(`^the Edge tab polls and animates only while it is the shown tab and the page is visible$`, st.pollsOnlyWhileShown)
+	sc.Step(`^leaving the tab stops both$`, st.leavingStopsBoth)
+	sc.Step(`^under prefers-reduced-motion a heartbeat is shown as a still mark on the node, not a travelling pulse$`, st.reducedMotionStill)
+	sc.Step(`^the mark still appears only on a real heartbeat$`, st.markOnlyOnHeartbeat)
+	// 5. selection
+	sc.Step(`^choosing a node opens its detail beside the graph$`, st.choosingOpensDetail)
+	sc.Step(`^the detail carries id, kind, capabilities with their states, transports, presence with last-seen, pin and history$`, st.detailCarries)
+	sc.Step(`^a relayed node's detail names its relay$`, st.relayedDetailNamesRelay)
+	sc.Step(`^the selection is kept by node id across reads$`, st.selectionByID)
+	sc.Step(`^a node arriving, going dark or being forgotten does not move it onto a different node$`, st.selectionNotMoved)
+	sc.Step(`^candidates are drawn in their own block, with no edge to self$`, st.candidatesOwnBlock)
+	sc.Step(`^a candidate's detail says it is not on your Edge and offers adopt$`, st.candidateDetailAdopt)
+	// 6. adopt
+	sc.Step(`^a candidate "([^"]*)"$`, st.aCandidate)
+	sc.Step(`^the owner adopts "([^"]*)" from the console$`, st.ownerAdopts)
+	sc.Step(`^the adopt hook is called with the candidate's id and name$`, st.adoptHookCalledWith)
+	sc.Step(`^the next Edge read lists "([^"]*)" as a node and no longer as a candidate$`, st.nextReadListsAsNode)
+	sc.Step(`^adopt is requested with GET$`, st.adoptRequestedGET)
+	sc.Step(`^adopt is requested with no token$`, st.adoptRequestedNoToken)
+	sc.Step(`^no adopt hook was called$`, st.noAdoptCalled)
+	sc.Step(`^the owner adopts an id that is not a candidate$`, st.adoptsNotACandidate)
+	sc.Step(`^adopting "([^"]*)" fails with "([^"]*)"$`, st.adoptFailsWith)
+	sc.Step(`^it is refused with 502 and that message$`, st.refusedWithThatMessage)
+	sc.Step(`^"([^"]*)" is still a candidate$`, st.stillACandidate)
+	sc.Step(`^a console built with a fleet but no adopt hook$`, st.fleetNoAdopt)
+	sc.Step(`^it is refused with 501 and says this build cannot adopt$`, st.refused501CannotAdopt)
+	sc.Step(`^adopt happens only on the owner's click$`, st.adoptOnlyOnClick)
+	sc.Step(`^no read, poll or timer calls adopt$`, st.noPollCallsAdopt)
+	// 7. sessions
+	sc.Step(`^the sessions list is empty$`, st.sessionsEmpty)
+	sc.Step(`^the panel says the Edge is quiet rather than drawing an empty table$`, st.panelSaysQuiet)
+	sc.Step(`^a receipted turn from a guest "([^"]*)" against "([^"]*)" served by "([^"]*)"$`, st.guestTurn)
+	sc.Step(`^one session is listed, attributed to "([^"]*)", band "([^"]*)", station "([^"]*)", outcome "([^"]*)"$`, st.oneSessionListed)
+	sc.Step(`^a receipted turn (\d+) seconds ago$`, st.turnSecondsAgo)
+	sc.Step(`^no session is listed$`, st.sessionsEmpty)
+	sc.Step(`^a turn that left "([^"]*)" and was served by "([^"]*)"$`, st.failoverTurn)
+	sc.Step(`^the session names "([^"]*)" as left and "([^"]*)" as station$`, st.namesLeftAndStation)
+	sc.Step(`^a turn relayed through "([^"]*)" and served by "([^"]*)"$`, st.relayedTurn)
+	sc.Step(`^the session names "([^"]*)" as via and "([^"]*)" as station$`, st.namesViaAndStation)
+	sc.Step(`^the panel draws the path participant, relay, station in that order$`, st.panelDrawsPathInOrder)
+	sc.Step(`^a board "([^"]*)" that escalated a reading under contract "([^"]*)" with labels "([^"]*)"$`, st.boardEscalated)
+	sc.Step(`^the session is marked escalate with outcome "([^"]*)"$`, st.markedEscalate)
+	sc.Step(`^it carries the contract's class and labels$`, st.carriesContract)
+	sc.Step(`^the panel styles an escalation as a positive outcome, never as an error$`, st.escalationStyledPositive)
+	sc.Step(`^a turn refused for "([^"]*)"$`, st.refusedTurn)
+	sc.Step(`^the session's outcome reads "([^"]*)"$`, st.outcomeReads)
+	sc.Step(`^(\d+) identical receipted turns from "([^"]*)" and (\d+) from "([^"]*)"$`, st.manyIdentical)
+	sc.Step(`^the sessions are grouped into (\d+) rows$`, st.groupedIntoRows)
+	sc.Step(`^the sessions are grouped into two rows$`, func() error { return st.groupedIntoRows(2) })
+	sc.Step(`^the "([^"]*)" row comes first with a count of (\d+)$`, st.rowFirstWithCount)
+	sc.Step(`^traffic belonging to a different account$`, st.otherAccountTraffic)
+	sc.Step(`^no session for it is listed$`, st.noSessionForIt)
+	sc.Step(`^nothing about it is inferable from the snapshot$`, st.nothingInferable)
+	sc.Step(`^the console relays a chat turn that returns a receipt$`, st.consoleChatWithReceipt)
+	sc.Step(`^a session attributed to "([^"]*)" is recorded from that receipt$`, st.sessionAttributedConsole)
+	sc.Step(`^it names the band and the station the receipt names$`, st.namesBandAndStation)
+	sc.Step(`^the console relays a chat turn that fails$`, st.consoleChatFails)
+	sc.Step(`^no session is recorded$`, st.noSessionRecorded)
+	sc.Step(`^the Edge data is read many times$`, st.readManyTimes)
+	sc.Step(`^no turn was dispatched$`, st.noTurnDispatched)
+	sc.Step(`^the session ledger is unchanged$`, st.ledgerUnchanged)
+	// 8. the node snapshot
+	sc.Step(`^the node state and the event stream are read$`, st.stateAndEventsRead)
+	sc.Step(`^neither carries fleet, candidate or session data$`, st.neitherCarriesEdge)
+	sc.Step(`^the Edge tab reads its own endpoint, while shown, at the stream's cadence$`, st.readsOwnEndpointAtCadence)
+	// empty_edge.feature (@console)
+	sc.Step(`^a console over a machine that is not enrolled, rooted at Core, scanning every (\d+) seconds$`, st.machineFresh)
+	sc.Step(`^it carries a self status with enrolled false, authority "([^"]*)", discovery "([^"]*)" and an interval of (\d+) seconds$`, st.selfStatusIs)
+	sc.Step(`^the empty state has a slot for THIS MACHINE, AUTHORITY and DISCOVERY$`, st.emptySlots)
+	sc.Step(`^the Edge code fills them from the self status$`, st.fillsFromStatus)
+	sc.Step(`^it names both ways to add a node$`, st.bothWays)
+	sc.Step(`^a console over a machine whose discovery is off$`, st.machineDiscoveryOff)
+	sc.Step(`^the self status says discovery "([^"]*)"$`, st.selfDiscovery)
+	sc.Step(`^a console over a machine whose Edge record cannot be read$`, st.machineRecordUnread)
+	sc.Step(`^the self status carries the error$`, st.selfStatusErr)
+	sc.Step(`^the nodes are still listed$`, st.nodesStillListed)
+}
+
 func TestEdgeConsoleViewFeature(t *testing.T) {
 	st := &consoleEdgeBDD{t: t}
 	suite := godog.TestSuite{
-		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) { st.reset(); return c, nil })
-			sc.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
-				if st.http != nil {
-					st.http.Close()
-					st.http = nil
-				}
-				if st.up != nil {
-					st.up.Close()
-					st.up = nil
-				}
-				return c, nil
-			})
-			// 1. the tab
-			sc.Step(`^a console over a fleet of nodes$`, st.aConsoleOverAFleet)
-			sc.Step(`^the console shell is served$`, st.shellServed)
-			sc.Step(`^the tab strip reads CHAT, SHARE, ACCOUNT, BROWSE, EDGE, SETTINGS in that order$`, st.tabStripOrder)
-			sc.Step(`^there is a panel for EDGE hidden until its tab is chosen$`, st.panelHiddenUntilChosen)
-			sc.Step(`^the hash #edge opens it, like every other tab's hash$`, st.hashOpensIt)
-			sc.Step(`^the console shell is fetched with no token$`, st.shellFetchedNoToken)
-			sc.Step(`^it is served, because it carries no node data$`, st.itIsServedNoNodeData)
-			sc.Step(`^the Edge data is fetched with no token$`, st.edgeFetchedNoToken)
-			sc.Step(`^the Edge data is fetched with the wrong token$`, st.edgeFetchedWrongToken)
-			sc.Step(`^it is refused with (\d+)$`, st.refusedWith)
-			sc.Step(`^it loads no script from outside the console$`, st.noOutsideScript)
-			sc.Step(`^the Edge graph is drawn as inline SVG the console ships$`, st.inlineSVG)
-			// 2. the read
-			sc.Step(`^nodes "shed" and "bench" on the Edge and a candidate "attic"$`, st.nodesAndCandidate)
-			sc.Step(`^the Edge data is read$`, st.edgeRead)
-			sc.Step(`^it names this instance as self$`, st.namesSelf)
-			sc.Step(`^it lists exactly "([^"]*)" and "([^"]*)" as nodes$`, st.listsExactlyNodes)
-			sc.Step(`^it lists exactly "([^"]*)" as a candidate, outside the nodes$`, st.listsExactlyCandidate)
-			sc.Step(`^it carries the moment the snapshot was taken, so every age is measured from one clock$`, st.carriesTheMoment)
-			sc.Step(`^no node's private key material appears anywhere in it$`, st.noPrivateKeyMaterial)
-			sc.Step(`^the Edge data is requested with POST$`, st.edgeRequestedPOST)
-			sc.Step(`^nothing about the fleet changed$`, st.nothingChanged)
-			sc.Step(`^a console built with no Edge wired$`, st.consoleNoEdge)
-			sc.Step(`^it reports the Edge as not configured$`, st.reportsNotConfigured)
-			sc.Step(`^the panel explains that this build has no Edge host, rather than showing an empty graph$`, st.panelExplainsNoHost)
-			sc.Step(`^the fleet store fails on read$`, st.storeFailsOnRead)
-			sc.Step(`^it is refused with 502 and the store's own words$`, st.refusedWithStoreWords)
-			sc.Step(`^the panel shows that message, not "the only node"$`, st.panelShowsThatMessage)
-			sc.Step(`^"([^"]*)" is reached only through the relay "([^"]*)", which is on the Edge$`, st.reachedOnlyThroughRelay)
-			sc.Step(`^"([^"]*)" is listed immediately under "([^"]*)" and names "[^"]*" as the relay it is reached through$`, st.listedUnderRelay)
-			sc.Step(`^"([^"]*)" is flagged as a relay$`, st.flaggedRelay)
-			sc.Step(`^that is the same order the TUI's Edge screen draws them in$`, st.sameOrderAsTUI)
-			sc.Step(`^"([^"]*)" has a LAN transport and a relay transport$`, st.bothTransports)
-			sc.Step(`^"([^"]*)" appears once$`, st.appearsOnce)
-			sc.Step(`^it is reported as LAN-direct, with no relay named$`, func() error { return st.reportedLANNoRelay("bench") })
-			sc.Step(`^"([^"]*)" names "([^"]*)" as its relay and "[^"]*" names "[^"]*" as its relay$`, st.relayCycle)
-			sc.Step(`^both "([^"]*)" and "([^"]*)" are listed$`, st.bothListed)
-			sc.Step(`^each is listed exactly once$`, st.eachExactlyOnce)
-			sc.Step(`^"([^"]*)" has not been heard from past the dark threshold$`, st.notHeardPastDark)
-			sc.Step(`^"([^"]*)" is still listed$`, st.stillListed)
-			sc.Step(`^its presence is DARK and its last-seen age is carried$`, st.darkWithAge)
-			sc.Step(`^"([^"]*)" declares serve verified, sense declared and actuate unconfirmed$`, st.declaresThreeCaps)
-			sc.Step(`^"([^"]*)" carries all three capabilities with their states$`, st.carriesThreeCaps)
-			sc.Step(`^an unverified capability names how it will be verified, as the TUI's detail does$`, st.unverifiedNamesMethod)
-			sc.Step(`^(\d+) nodes on the Edge$`, st.nNodes)
-			sc.Step(`^it says the graph is too large to draw$`, st.saysTooLarge)
-			sc.Step(`^it still lists all (\d+) nodes$`, st.listsAllN)
-			sc.Step(`^the panel renders the list, not a broken picture$`, st.panelRendersList)
-			sc.Step(`^"([^"]*)" names a relay "([^"]*)" that is not on the Edge$`, st.relayNotOnEdge)
-			sc.Step(`^"([^"]*)" is listed on its own relayed edge with no relay named$`, st.ownRelayedEdgeNoVia)
-			sc.Step(`^no node in the snapshot is reached through a name that is not in the snapshot$`, st.noViaOutsideSnapshot)
-			// 3. the drawing
-			sc.Step(`^the Edge graph places self at the centre and every node in relation to it$`, st.selfAtCentre)
-			sc.Step(`^a LAN-direct node is drawn with a solid stroke$`, st.lanSolid)
-			sc.Step(`^a relayed node is drawn with a dashed stroke to its relay, and the relay is drawn as its own node$`, st.relayDashedThroughRelay)
-			sc.Step(`^a dark node is drawn dim with a broken stroke, and it is kept$`, st.darkBrokenKept)
-			sc.Step(`^live, relayed and dark differ by stroke pattern, not only by colour$`, st.notColourAlone)
-			sc.Step(`^a verified capability differs from a declared one by case, as it does in the terminal$`, func() error { return st.jsHas("case", `toUpperCase\(\)`) })
-			sc.Step(`^this instance is the only node$`, st.onlyNode)
-			sc.Step(`^the panel says this instance is the only node on the Edge$`, st.panelSaysOnlyNode)
-			sc.Step(`^it says the screen draws only what it has seen$`, st.panelSaysDrawsOnlySeen)
-			sc.Step(`^it says how to add a node: run RogerAI on another machine on this network, and adopt it$`, st.panelSaysHowToAdd)
-			sc.Step(`^a node label is clipped to its cell$`, st.labelClipped)
-			sc.Step(`^the full name is still available on the node$`, st.fullNameAvailable)
-			// 4. the animation
-			sc.Step(`^a pulse is started only when a node's last-seen advanced since the previous read$`, st.pulseOnlyOnAdvance)
-			sc.Step(`^nothing starts a pulse on a bare timer$`, st.noBareTimerPulse)
-			sc.Step(`^a pulse for a relayed node runs along its edge to the relay and then the relay's edge to self$`, st.relayedPulsePath)
-			sc.Step(`^the Edge tab polls and animates only while it is the shown tab and the page is visible$`, st.pollsOnlyWhileShown)
-			sc.Step(`^leaving the tab stops both$`, st.leavingStopsBoth)
-			sc.Step(`^under prefers-reduced-motion a heartbeat is shown as a still mark on the node, not a travelling pulse$`, st.reducedMotionStill)
-			sc.Step(`^the mark still appears only on a real heartbeat$`, st.markOnlyOnHeartbeat)
-			// 5. selection
-			sc.Step(`^choosing a node opens its detail beside the graph$`, st.choosingOpensDetail)
-			sc.Step(`^the detail carries id, kind, capabilities with their states, transports, presence with last-seen, pin and history$`, st.detailCarries)
-			sc.Step(`^a relayed node's detail names its relay$`, st.relayedDetailNamesRelay)
-			sc.Step(`^the selection is kept by node id across reads$`, st.selectionByID)
-			sc.Step(`^a node arriving, going dark or being forgotten does not move it onto a different node$`, st.selectionNotMoved)
-			sc.Step(`^candidates are drawn in their own block, with no edge to self$`, st.candidatesOwnBlock)
-			sc.Step(`^a candidate's detail says it is not on your Edge and offers adopt$`, st.candidateDetailAdopt)
-			// 6. adopt
-			sc.Step(`^a candidate "([^"]*)"$`, st.aCandidate)
-			sc.Step(`^the owner adopts "([^"]*)" from the console$`, st.ownerAdopts)
-			sc.Step(`^the adopt hook is called with the candidate's id and name$`, st.adoptHookCalledWith)
-			sc.Step(`^the next Edge read lists "([^"]*)" as a node and no longer as a candidate$`, st.nextReadListsAsNode)
-			sc.Step(`^adopt is requested with GET$`, st.adoptRequestedGET)
-			sc.Step(`^adopt is requested with no token$`, st.adoptRequestedNoToken)
-			sc.Step(`^no adopt hook was called$`, st.noAdoptCalled)
-			sc.Step(`^the owner adopts an id that is not a candidate$`, st.adoptsNotACandidate)
-			sc.Step(`^adopting "([^"]*)" fails with "([^"]*)"$`, st.adoptFailsWith)
-			sc.Step(`^it is refused with 502 and that message$`, st.refusedWithThatMessage)
-			sc.Step(`^"([^"]*)" is still a candidate$`, st.stillACandidate)
-			sc.Step(`^a console built with a fleet but no adopt hook$`, st.fleetNoAdopt)
-			sc.Step(`^it is refused with 501 and says this build cannot adopt$`, st.refused501CannotAdopt)
-			sc.Step(`^adopt happens only on the owner's click$`, st.adoptOnlyOnClick)
-			sc.Step(`^no read, poll or timer calls adopt$`, st.noPollCallsAdopt)
-			// 7. sessions
-			sc.Step(`^the sessions list is empty$`, st.sessionsEmpty)
-			sc.Step(`^the panel says the Edge is quiet rather than drawing an empty table$`, st.panelSaysQuiet)
-			sc.Step(`^a receipted turn from a guest "([^"]*)" against "([^"]*)" served by "([^"]*)"$`, st.guestTurn)
-			sc.Step(`^one session is listed, attributed to "([^"]*)", band "([^"]*)", station "([^"]*)", outcome "([^"]*)"$`, st.oneSessionListed)
-			sc.Step(`^a receipted turn (\d+) seconds ago$`, st.turnSecondsAgo)
-			sc.Step(`^no session is listed$`, st.sessionsEmpty)
-			sc.Step(`^a turn that left "([^"]*)" and was served by "([^"]*)"$`, st.failoverTurn)
-			sc.Step(`^the session names "([^"]*)" as left and "([^"]*)" as station$`, st.namesLeftAndStation)
-			sc.Step(`^a turn relayed through "([^"]*)" and served by "([^"]*)"$`, st.relayedTurn)
-			sc.Step(`^the session names "([^"]*)" as via and "([^"]*)" as station$`, st.namesViaAndStation)
-			sc.Step(`^the panel draws the path participant, relay, station in that order$`, st.panelDrawsPathInOrder)
-			sc.Step(`^a board "([^"]*)" that escalated a reading under contract "([^"]*)" with labels "([^"]*)"$`, st.boardEscalated)
-			sc.Step(`^the session is marked escalate with outcome "([^"]*)"$`, st.markedEscalate)
-			sc.Step(`^it carries the contract's class and labels$`, st.carriesContract)
-			sc.Step(`^the panel styles an escalation as a positive outcome, never as an error$`, st.escalationStyledPositive)
-			sc.Step(`^a turn refused for "([^"]*)"$`, st.refusedTurn)
-			sc.Step(`^the session's outcome reads "([^"]*)"$`, st.outcomeReads)
-			sc.Step(`^(\d+) identical receipted turns from "([^"]*)" and (\d+) from "([^"]*)"$`, st.manyIdentical)
-			sc.Step(`^the sessions are grouped into (\d+) rows$`, st.groupedIntoRows)
-			sc.Step(`^the sessions are grouped into two rows$`, func() error { return st.groupedIntoRows(2) })
-			sc.Step(`^the "([^"]*)" row comes first with a count of (\d+)$`, st.rowFirstWithCount)
-			sc.Step(`^traffic belonging to a different account$`, st.otherAccountTraffic)
-			sc.Step(`^no session for it is listed$`, st.noSessionForIt)
-			sc.Step(`^nothing about it is inferable from the snapshot$`, st.nothingInferable)
-			sc.Step(`^the console relays a chat turn that returns a receipt$`, st.consoleChatWithReceipt)
-			sc.Step(`^a session attributed to "([^"]*)" is recorded from that receipt$`, st.sessionAttributedConsole)
-			sc.Step(`^it names the band and the station the receipt names$`, st.namesBandAndStation)
-			sc.Step(`^the console relays a chat turn that fails$`, st.consoleChatFails)
-			sc.Step(`^no session is recorded$`, st.noSessionRecorded)
-			sc.Step(`^the Edge data is read many times$`, st.readManyTimes)
-			sc.Step(`^no turn was dispatched$`, st.noTurnDispatched)
-			sc.Step(`^the session ledger is unchanged$`, st.ledgerUnchanged)
-			// 8. the node snapshot
-			sc.Step(`^the node state and the event stream are read$`, st.stateAndEventsRead)
-			sc.Step(`^neither carries fleet, candidate or session data$`, st.neitherCarriesEdge)
-			sc.Step(`^the Edge tab reads its own endpoint, while shown, at the stream's cadence$`, st.readsOwnEndpointAtCadence)
-		},
+		ScenarioInitializer: st.init,
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{"../../features/edge/console_view.feature"},
@@ -1366,5 +1386,77 @@ func TestEdgeConsoleViewFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("the console Edge scenarios failed")
+	}
+}
+
+// ---- empty_edge.feature (@console) ----------------------------------------------
+
+func (s *consoleEdgeBDD) machineFresh(every int) error {
+	s.self = &edge.SelfStatus{Authority: "Core", Discovery: edge.DiscoveryScanning, IntervalS: int64(every)}
+	return nil
+}
+
+func (s *consoleEdgeBDD) selfStatusIs(authority, discovery string, every int) error {
+	st := s.snap.SelfStatus
+	if st == nil {
+		return fmt.Errorf("no self_status in the snapshot: %s", s.body)
+	}
+	return want(!st.Enrolled && st.Authority == authority && st.Discovery == discovery && st.IntervalS == int64(every),
+		"self_status = %+v", *st)
+}
+
+func (s *consoleEdgeBDD) emptySlots() error {
+	return s.htmlHas("empty-state slots", `id="edge-fact-machine"`, `id="edge-fact-authority"`, `id="edge-fact-discovery"`,
+		"THIS MACHINE", "AUTHORITY", "DISCOVERY")
+}
+
+func (s *consoleEdgeBDD) fillsFromStatus() error {
+	return s.jsHas("facts from the status", `d\.facts`, `edge-fact-machine`, `edge-fact-authority`, `edge-fact-discovery`)
+}
+
+func (s *consoleEdgeBDD) bothWays() error {
+	if err := s.htmlHas("both ways", "run RogerAI on another machine on this network", "adopt"); err != nil {
+		return err
+	}
+	return s.jsHas("enroll-against line", `edge-fact-enroll`, `enroll_against`)
+}
+
+func (s *consoleEdgeBDD) machineDiscoveryOff() error {
+	s.self = &edge.SelfStatus{Authority: "Core", Discovery: edge.DiscoveryOff}
+	return nil
+}
+
+func (s *consoleEdgeBDD) selfDiscovery(want_ string) error {
+	st := s.snap.SelfStatus
+	return want(st != nil && st.Discovery == want_, "self_status = %+v", st)
+}
+
+func (s *consoleEdgeBDD) machineRecordUnread() error {
+	s.self = &edge.SelfStatus{Err: "edge record: permission denied"}
+	s.enroll("shed", []store.EdgeTransport{lanTr("192.168.1.10")}, edge.Serve)
+	return nil
+}
+
+func (s *consoleEdgeBDD) selfStatusErr() error {
+	st := s.snap.SelfStatus
+	return want(st != nil && strings.Contains(st.Err, "permission denied"), "self_status = %+v", st)
+}
+
+func (s *consoleEdgeBDD) nodesStillListed() error {
+	_, ok := s.node("shed")
+	return want(ok && s.status == 200, "nodes = %v (status %d)", names(s.snap.Nodes), s.status)
+}
+
+func TestEmptyEdgeFeatureConsole(t *testing.T) {
+	st := &consoleEdgeBDD{t: t}
+	suite := godog.TestSuite{
+		ScenarioInitializer: st.init,
+		Options: &godog.Options{
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@console",
+			Paths: []string{"../../features/edge/empty_edge.feature"},
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("the empty-Edge console scenarios failed")
 	}
 }

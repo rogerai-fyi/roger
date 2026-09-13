@@ -67,10 +67,13 @@ type edgeState struct {
 	// read once per frame like everything else here. It is READ-ONLY to the screen -
 	// there is no path from the view back into the ledger that could open one.
 	sessions []edge.Session
-	detail   bool
-	pulses   []edgePulse
-	ret      mode // where esc goes back to
-	retSet   bool
+	// status is this machine's own place on the Edge (enrolled? rooted where? scanning?),
+	// read once per frame like everything else; nil when no hook is wired.
+	status *edge.SelfStatus
+	detail bool
+	pulses []edgePulse
+	ret    mode // where esc goes back to
+	retSet bool
 }
 
 // edgeNow is the screen's clock. Injectable so a test can assert on "last seen 6m ago"
@@ -133,6 +136,11 @@ func (m *model) refreshEdge() {
 		m.edge.cands = m.hooks.EdgeCandidates()
 	}
 	m.edge.sessions = m.edgeSessions()
+	m.edge.status = nil
+	if m.hooks.EdgeStatus != nil {
+		st := m.hooks.EdgeStatus()
+		m.edge.status = &st
+	}
 	m.clampEdgeSel()
 }
 

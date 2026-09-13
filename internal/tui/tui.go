@@ -103,6 +103,10 @@ type Hooks struct {
 	// must never be a way to cause one. nil = no session layer, and the screen draws
 	// the fleet exactly as it did before.
 	EdgeSessions *edge.Sessions
+	// EdgeStatus is what is true about THIS machine's place on its Edge - enrolled,
+	// authority, discovery - for the screen an owner sees before anything is set up.
+	// Nil = unknown, and the empty screen then names only the LAN path.
+	EdgeStatus func() edge.SelfStatus
 	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
 	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
 	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still
