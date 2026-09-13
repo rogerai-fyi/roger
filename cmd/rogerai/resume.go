@@ -82,7 +82,7 @@ func cmdResumeWithRuntime(cfg config, args []string, notice string, webuiOn bool
 	// One store for both front-ends - see run()'s note.
 	limits := tuiLimits(cfg)
 	if webuiOn {
-		hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits)
+		hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits, &hooks)
 	}
 	return runResumedTUI(cfg.Broker, cfg.User, limits, notice, hooks, ctrl, selected)
 }

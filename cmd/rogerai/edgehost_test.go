@@ -314,7 +314,7 @@ func TestRunNoArgsWiresTheEdgeScreen(t *testing.T) {
 		got = hooks
 		return nil
 	}
-	startWebConsoleFn = func(config, *node.Controller, string, *tui.LimitStore) string { return "" }
+	startWebConsoleFn = func(config, *node.Controller, string, *tui.LimitStore, *tui.Hooks) string { return "" }
 	t.Cleanup(func() { runTUI, startWebConsoleFn = origTUI, origWeb })
 
 	require.NoError(t, run(nil, config{Broker: "https://b", User: "u", Onboarded: true}))

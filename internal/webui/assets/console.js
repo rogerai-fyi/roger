@@ -1303,7 +1303,7 @@
   }
 
   /* TABS ------------------------------------------------------------------- */
-  var TABS = ["chat", "share", "account", "browse", "settings"];
+  var TABS = ["chat", "share", "account", "browse", "edge", "settings"];
 
   // CHAT IS THE LANDING TAB (founder 2026-08-21: "lets make sure we start the webui on
   // the chat"). The console used to open on SHARE, which is the provider surface - it
@@ -1325,6 +1325,9 @@
     if (name === "account") loadAccount();
     if (name === "browse") loadBrowse();
     if (name === "settings") loadSettings();
+    // The EDGE tab polls and animates ONLY while it is the shown tab (edgeStart/edgeStop
+    // below): a hidden graph reading the fleet once a second would be a cost with no eyes.
+    if (name === "edge") edgeStart(); else edgeStop();
     if (name === "chat") {
       // Refresh the market half (the LOCAL half is already live off the snapshot stream),
       // then focus the composer - opening CHAT means you intend to type.
@@ -1518,6 +1521,424 @@
     }
   }
 
+  /* EDGE -------------------------------------------------------------------
+     ROGER EDGE - "what is on my Edge, and how is it connected?" (features/edge/
+     console_view.feature). This is the console's window on the SAME Edge the terminal's
+     [3] EDGE screen draws; the server decides the arrangement (which relay a node hangs
+     under) and the words, and this block paints exactly what it is told.
+
+     THE RULE: never draw a link that has not been seen. Solid = LAN-direct, dashed = through
+     a relay (drawn as its own node so the hop is visible), broken + dim = dark, and KEPT.
+
+     THE ANIMATION IS EVIDENCE. A browser has no heartbeat channel, so "heard from" is a
+     node's last_seen advancing between two reads, and that comparison is the ONLY thing
+     that starts a pulse. The read tick is the one timer here, and it never pulses by
+     itself: a still graph means a quiet fleet. prefers-reduced-motion turns the travelling
+     pulse into a still mark on the node, gated on the same heartbeat.
+
+     Everything is textContent / createElement(NS): node names come off the network. */
+  var edgeTimer = null;      // the read tick, alive only while the tab is shown
+  var edgeRaf = null;        // the pulse frame, alive only while a pulse is travelling
+  var edgePrev = null;       // id -> node from the previous read (the heartbeat baseline)
+  var edgeLast = null;       // the latest snapshot
+  var edgeSel = null;        // the selected node/candidate ID - sticky across reads
+  var edgePos = {};          // id -> [x, y] on the current drawing
+  var edgePulses = [];       // {path: [[x,y],...], t: 0..1}
+  var edgeReduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var EDGE_W = 640, EDGE_H = 400, EDGE_CX = 320, EDGE_CY = 200, EDGE_R = 140, EDGE_CHILD = 78;
+  // the capability vocabulary as MARKS, UPPER when VERIFIED - case, not colour
+  var EDGE_MARK = { serve: "sv", classify: "cl", sense: "se", actuate: "ac", relay: "rl", operate: "op" };
+
+  function svgEl(tag, attrs) {
+    var n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    return n;
+  }
+
+  // edgeClip bounds a label to its cell; the full name stays on the node's <title>.
+  function edgeClip(str, n) {
+    str = String(str || "");
+    return str.length > n ? str.slice(0, Math.max(1, n - 1)) + "…" : str;
+  }
+
+  function edgeMarks(n) {
+    var out = [];
+    (n.caps || []).forEach(function (c) {
+      var mk = EDGE_MARK[c.name] || c.name.slice(0, 2);
+      out.push(c.state === "VERIFIED" ? mk.toUpperCase() : mk);
+    });
+    return out.length ? "[" + out.join(" ") + "]" : "";
+  }
+
+  function edgeLinkClass(n) {
+    if (n.dark) return "edge-link edge-link--dark";
+    if (n.lan) return "edge-link edge-link--lan";
+    return "edge-link edge-link--relay";
+  }
+
+  function edgeStart() {
+    if (edgeTimer) return;
+    edgeTick();
+    edgeTimer = setInterval(edgeTick, 1000);
+  }
+
+  function edgeStop() {
+    if (edgeTimer) clearInterval(edgeTimer);
+    edgeTimer = null;
+    if (edgeRaf) cancelAnimationFrame(edgeRaf);
+    edgeRaf = null;
+    edgePulses = [];
+  }
+
+  function edgeTick() {
+    if (document.hidden) return; // a page nobody can see reads nothing
+    loadEdge();
+  }
+
+  function loadEdge() {
+    apiGet("/api/edge").then(function (d) {
+      show($("edge-error"), false);
+      edgeRender(d);
+    }).catch(function (e) {
+      // A fleet that could not be READ is an error on screen, never an empty Edge.
+      var er = $("edge-error");
+      if (er) { er.textContent = "could not read your Edge: " + e.message; show(er, true); }
+      show($("edge-empty"), false);
+    });
+  }
+
+  function edgeHeadline(d) {
+    var dark = 0;
+    d.nodes.forEach(function (n) { if (n.dark) dark++; });
+    var out = d.nodes.length + (d.nodes.length === 1 ? " node" : " nodes");
+    if (dark) out += " · " + dark + " dark";
+    if (d.candidates.length) out += " · " + d.candidates.length + (d.candidates.length === 1 ? " candidate" : " candidates");
+    return "· " + out;
+  }
+
+  function edgeRender(d) {
+    edgeLast = d;
+    if (!d || d.configured === false) {
+      show($("edge-disabled"), true);
+      show($("edge-empty"), false);
+      show($("edge-stage"), false);
+      return;
+    }
+    show($("edge-disabled"), false);
+    var hl = $("edge-headline");
+    if (hl) hl.textContent = edgeHeadline(d);
+    var selfName = $("edge-self-name");
+    if (selfName) selfName.textContent = d.self || "this machine";
+
+    // HEARTBEATS: a node whose last_seen advanced since the previous read was really heard
+    // from. That comparison is the one and only trigger of a pulse.
+    var seen = {};
+    d.nodes.forEach(function (n) {
+      seen[n.id] = n;
+      var prev = edgePrev ? edgePrev[n.id] : null;
+      if (prev && n.last_seen > prev.last_seen) {
+        edgePulse(n, d.nodes);
+      }
+    });
+    edgePrev = seen;
+
+    var empty = !d.nodes.length && !d.candidates.length;
+    show($("edge-empty"), empty);
+    show($("edge-stage"), !empty);
+    if (!empty) {
+      if (d.too_many) {
+        show($("edge-graph-wrap"), false);
+        show($("edge-list-wrap"), true);
+        edgeRenderList(d);
+      } else {
+        show($("edge-list-wrap"), false);
+        show($("edge-graph-wrap"), true);
+        edgeRenderGraph(d);
+      }
+    }
+    edgeRenderCandidates(d);
+    edgeRenderSessions(d);
+    edgeRenderDetail(d);
+  }
+
+  // edgeLayout places self at the centre and every top-level node around it; a node
+  // reached through a relay sits OUTSIDE its relay, on the relay's bearing, so the hop
+  // reads as a hop.
+  function edgeLayout(nodes) {
+    var pos = {}, tops = nodes.filter(function (n) { return !n.child; });
+    var byName = {};
+    nodes.forEach(function (n) { byName[n.name] = n; });
+    var bearing = {};
+    tops.forEach(function (n, i) {
+      var a = -Math.PI / 2 + (i * 2 * Math.PI) / Math.max(1, tops.length);
+      bearing[n.id] = a;
+      pos[n.id] = [EDGE_CX + EDGE_R * Math.cos(a), EDGE_CY + EDGE_R * Math.sin(a)];
+    });
+    var kids = {};
+    nodes.forEach(function (n) {
+      if (!n.child) return;
+      var r = byName[n.via];
+      if (!r || !pos[r.id]) { // its relay was not drawn (cannot happen server-side; be safe)
+        var a0 = -Math.PI / 2 + Math.random() * 2 * Math.PI;
+        pos[n.id] = [EDGE_CX + EDGE_R * Math.cos(a0), EDGE_CY + EDGE_R * Math.sin(a0)];
+        return;
+      }
+      kids[r.id] = (kids[r.id] || 0) + 1;
+      var spread = (kids[r.id] - 1) * 0.45 - 0.45;
+      var a = bearing[r.id] + spread;
+      pos[n.id] = [pos[r.id][0] + EDGE_CHILD * Math.cos(a), pos[r.id][1] + EDGE_CHILD * Math.sin(a)];
+    });
+    return pos;
+  }
+
+  // edgePath is the route a heartbeat travels, node to self, THROUGH its relay when it has
+  // one - the hop is drawn, so the pulse takes it.
+  function edgePath(n, nodes) {
+    var from = edgePos[n.id];
+    if (!from) return null;
+    var path = [from];
+    if (n.via) {
+      var relay = null;
+      nodes.forEach(function (x) { if (x.name === n.via) relay = x; });
+      if (relay && edgePos[relay.id]) path.push(edgePos[relay.id]);
+    }
+    path.push([EDGE_CX, EDGE_CY]);
+    return path;
+  }
+
+  function edgeRenderGraph(d) {
+    var svg = $("edge-graph");
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    edgePos = edgeLayout(d.nodes);
+    var byName = {};
+    d.nodes.forEach(function (n) { byName[n.name] = n; });
+
+    // links first, so nodes paint over them
+    d.nodes.forEach(function (n) {
+      var p = edgePos[n.id];
+      if (!p) return;
+      var to = [EDGE_CX, EDGE_CY];
+      if (n.child && byName[n.via] && edgePos[byName[n.via].id]) to = edgePos[byName[n.via].id];
+      svg.appendChild(svgEl("line", { x1: p[0], y1: p[1], x2: to[0], y2: to[1], "class": edgeLinkClass(n) }));
+    });
+
+    // self, at the centre
+    var self = svgEl("g", { "class": "edge-node edge-self" });
+    self.appendChild(svgEl("circle", { cx: EDGE_CX, cy: EDGE_CY, r: 9 }));
+    var st = svgEl("text", { x: EDGE_CX, y: EDGE_CY + 24, "text-anchor": "middle" });
+    st.textContent = edgeClip(d.self || "this machine", 16);
+    self.appendChild(st);
+    svg.appendChild(self);
+
+    d.nodes.forEach(function (n) {
+      var p = edgePos[n.id];
+      if (!p) return;
+      var cls = "edge-node" + (n.dark ? " edge-node--dark" : "") + (n.id === edgeSel ? " edge-node--sel" : "");
+      var g = svgEl("g", { "class": cls, "data-id": n.id, tabindex: "0", role: "button" });
+      var title = svgEl("title");
+      title.textContent = n.name + (n.via ? " (through " + n.via + ")" : "");
+      g.appendChild(title);
+      g.appendChild(svgEl("circle", { cx: p[0], cy: p[1], r: n.relay ? 8 : 6 }));
+      var label = svgEl("text", { x: p[0], y: p[1] - 12, "text-anchor": "middle" });
+      label.textContent = edgeClip(n.name, 14);
+      g.appendChild(label);
+      var marks = svgEl("text", { x: p[0], y: p[1] + 20, "text-anchor": "middle", "class": "edge-marks" });
+      marks.textContent = edgeMarks(n) + (n.dark ? " DARK " + (n.age || "") : "");
+      g.appendChild(marks);
+      g.addEventListener("click", function () { edgeSelect(n.id); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); edgeSelect(n.id); } });
+      svg.appendChild(g);
+    });
+    // re-place any pulse in flight onto the new geometry
+    edgePulses.forEach(function (pl) { var n = pl.node; var path = edgePath(n, d.nodes); if (path) pl.path = path; });
+    edgeDrawPulses(svg);
+    var lg = $("edge-legend");
+    if (lg) lg.textContent = "─ direct  ┄ through a relay  ╌ dark (kept)  ·  marks: sv serve  cl classify  se sense  ac actuate  rl relay  op operate  (UPPER = verified)";
+  }
+
+  function edgeRenderList(d) {
+    var body = $("edge-list");
+    if (!body) return;
+    body.innerHTML = "";
+    d.nodes.forEach(function (n) {
+      var tr = el("tr", n.id === edgeSel ? "is-selected" : null);
+      tr.setAttribute("data-id", n.id);
+      var name = el("td", "mono", (n.child ? "└ " : "") + n.name);
+      name.title = n.name;
+      tr.appendChild(name);
+      tr.appendChild(el("td", null, n.kind));
+      tr.appendChild(el("td", "mono", edgeMarks(n)));
+      tr.appendChild(el("td", null, n.dark ? "broken" : n.lan ? "direct" : n.via ? "through " + n.via : "relay"));
+      tr.appendChild(el("td", n.dark ? "muted" : null, n.presence));
+      tr.appendChild(el("td", "num", n.age || "—"));
+      tr.addEventListener("click", function () { edgeSelect(n.id); });
+      body.appendChild(tr);
+    });
+  }
+
+  function edgeRenderCandidates(d) {
+    var box = $("edge-candidates");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!d.candidates.length) {
+      box.appendChild(el("span", "muted small", "none seen on this network"));
+      return;
+    }
+    d.candidates.forEach(function (c) {
+      var b = el("button", "edge-cand", c.name + "  " + (c.kind || ""));
+      b.setAttribute("type", "button");
+      b.setAttribute("aria-pressed", c.id === edgeSel ? "true" : "false");
+      b.title = c.name;
+      b.addEventListener("click", function () { edgeSelect(c.id); });
+      box.appendChild(b);
+    });
+  }
+
+  // edgeSelect picks a node or candidate BY ID. The selection is sticky across reads: a
+  // node arriving, going dark or being forgotten never moves it onto a different machine.
+  function edgeSelect(id) {
+    edgeSel = (edgeSel === id) ? null : id;
+    if (edgeLast) edgeRender(edgeLast);
+  }
+
+  function edgeFind(d, id) {
+    var hit = null, cand = false;
+    d.nodes.forEach(function (n) { if (n.id === id) hit = n; });
+    if (!hit) d.candidates.forEach(function (c) { if (c.id === id) { hit = c; cand = true; } });
+    return { n: hit, cand: cand };
+  }
+
+  function edgeKV(card, k, v, cls) {
+    var row = el("div", "kv");
+    row.appendChild(el("span", null, k));
+    row.appendChild(el("b", "mono" + (cls ? " " + cls : ""), v));
+    card.appendChild(row);
+  }
+
+  function edgeRenderDetail(d) {
+    var card = $("edge-detail");
+    if (!card) return;
+    var f = edgeSel ? edgeFind(d, edgeSel) : { n: null };
+    if (!f.n) { show(card, false); return; }
+    var n = f.n;
+    card.innerHTML = "";
+    var title = el("div", "card-title", (f.cand ? "CANDIDATE · " : "NODE · ") + n.name);
+    card.appendChild(title);
+    edgeKV(card, "id", n.id);
+    edgeKV(card, "kind", n.kind || "—");
+    if (f.cand) edgeKV(card, "status", "not on your Edge");
+    var caps = n.caps || [];
+    if (!caps.length) edgeKV(card, "capabilities", "none declared", "muted");
+    caps.forEach(function (c, i) {
+      edgeKV(card, i === 0 ? "capabilities" : "", c.name + "  " + c.state + (c.verify ? "  (verified by " + c.verify + ")" : ""));
+    });
+    (n.transports || []).forEach(function (t, i) {
+      edgeKV(card, i === 0 ? "transports" : "", t.kind + (t.addr ? "  " + t.addr : ""));
+    });
+    if (n.via) edgeKV(card, "reached through", n.via);
+    edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
+    if (n.pin) edgeKV(card, "pin", edgeClip(n.pin, 24));
+    if (n.contract && n.contract.class) edgeKV(card, "contract", n.contract.class + "  [" + (n.contract.labels || []).join(", ") + "]");
+    var hist = n.history || [];
+    hist.slice(-5).forEach(function (h, i) {
+      edgeKV(card, i === 0 ? "history" : "", h.what + (h.detail ? "  " + h.detail : ""), "muted");
+    });
+    if (f.cand) {
+      var acts = el("div", "card-actions");
+      var btn = el("button", "btn primary edge-adopt", "adopt onto your Edge");
+      btn.setAttribute("type", "button");
+      // ADOPT HAPPENS ONLY HERE, on the owner's click - never from a read, a poll or a timer.
+      btn.addEventListener("click", function () { edgeAdopt(n.id, n.name); });
+      acts.appendChild(btn);
+      card.appendChild(acts);
+    }
+    show(card, true);
+  }
+
+  // edgeAdopt takes the SAME path as the terminal's `a` and `roger edge adopt`: the server
+  // checks the certificate before anything is enrolled, and answers with the fresh
+  // snapshot so the tab shows what it just did.
+  function edgeAdopt(id, name) {
+    apiPost("/api/edge/adopt", { id: id }).then(function (d) {
+      toast(name + " adopted onto your Edge");
+      edgePrev = null; // a fresh member is not a heartbeat
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  /* SESSIONS: a window over the relay's receipts. WHO / BAND / PATH / OUTCOME, one row per
+     identical group with its count on the path, busiest first (the server groups). An
+     ESCALATION is a good outcome and is styled as one. */
+  function edgeRenderSessions(d) {
+    var body = $("edge-sessions");
+    if (!body) return;
+    body.innerHTML = "";
+    if (!d.sessions.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "The Edge is quiet: no sessions in the last 90 seconds.");
+      ec.colSpan = 4; er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    d.sessions.forEach(function (s) {
+      var tr = el("tr");
+      var glyph = s.outcome.indexOf("REFUSED") === 0 ? "✗ " : s.escalate ? "↑ " : "● ";
+      tr.appendChild(el("td", "mono", glyph + s.who));
+      tr.appendChild(el("td", "mono", s.band || "—"));
+      // the path in order: who, via, station - the relay is its own hop, a failover shows
+      // the station it left
+      var hops = [];
+      if (s.via) hops.push(s.via);
+      if (s.left) hops.push(s.left + " ✗");
+      if (s.station) hops.push(s.station);
+      var path = el("td", "path mono", hops.length ? "→ " + hops.join(" → ") : "—");
+      if (s.count > 1) path.appendChild(el("span", "sess-count", "×" + s.count));
+      tr.appendChild(path);
+      var cls = s.outcome.indexOf("REFUSED") === 0 ? "sess--refused" : s.escalate ? "sess--escalate" : "sess--served";
+      tr.appendChild(el("td", "mono " + cls, s.outcome));
+      body.appendChild(tr);
+    });
+  }
+
+  /* THE PULSE. Started ONLY by edgeRender's last_seen comparison. Under reduced motion it
+     is a still mark on the node for a moment, gated on the very same heartbeat. */
+  function edgePulse(n, nodes) {
+    if (edgeReduced) {
+      var g = document.querySelector('#edge-graph .edge-node[data-id="' + n.id + '"]');
+      if (g) { g.classList.add("edge-beat"); setTimeout(function () { g.classList.remove("edge-beat"); }, 900); }
+      return;
+    }
+    var path = edgePath(n, nodes);
+    if (!path) return;
+    edgePulses.push({ node: n, path: path, t: 0 });
+    if (!edgeRaf) edgeRaf = requestAnimationFrame(edgeFrame);
+  }
+
+  function edgeLerpPath(path, t) {
+    var segs = path.length - 1, f = t * segs, i = Math.min(segs - 1, Math.floor(f)), u = f - i;
+    var a = path[i], b = path[i + 1];
+    return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+  }
+
+  function edgeDrawPulses(svg) {
+    Array.prototype.forEach.call(svg.querySelectorAll(".edge-pulse"), function (c) { svg.removeChild(c); });
+    edgePulses.forEach(function (pl) {
+      var p = edgeLerpPath(pl.path, pl.t);
+      svg.appendChild(svgEl("circle", { cx: p[0], cy: p[1], r: 4, "class": "edge-pulse" }));
+    });
+  }
+
+  function edgeFrame() {
+    edgeRaf = null;
+    var svg = $("edge-graph");
+    if (!svg || document.hidden || !edgeTimer) { edgePulses = []; return; }
+    edgePulses.forEach(function (pl) { pl.t += 0.02; });
+    edgePulses = edgePulses.filter(function (pl) { return pl.t < 1; });
+    edgeDrawPulses(svg);
+    if (edgePulses.length) edgeRaf = requestAnimationFrame(edgeFrame);
+  }
+  /* end EDGE */
+
   /* 9. BOOT / WIRING ------------------------------------------------------- */
   function wire() {
     wireChat();
@@ -1546,6 +1967,10 @@
     });
     var refresh = $("btn-settings-refresh");
     if (refresh) refresh.addEventListener("click", loadSettings);
+    var edgeRefresh = $("btn-edge-refresh");
+    if (edgeRefresh) edgeRefresh.addEventListener("click", loadEdge);
+    // a page brought back into view re-reads at once rather than waiting out the tick
+    document.addEventListener("visibilitychange", function () { if (!document.hidden && edgeTimer) loadEdge(); });
     var bcc = $("band-code-copy");
     if (bcc) bcc.addEventListener("click", function () {
       var v = $("band-code-value").textContent || "";

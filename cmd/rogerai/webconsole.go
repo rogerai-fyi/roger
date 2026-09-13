@@ -93,8 +93,11 @@ func writeLimit(limits *tui.LimitStore) func(string, webui.SpendLimit) {
 	}
 }
 
-func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui.LimitStore) string {
+func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui.LimitStore, hooks *tui.Hooks) string {
 	s := webui.New(ctrl, webui.Options{
+		// THE SAME EDGE the TUI's [3] EDGE screen holds: one fleet, one candidate list, one
+		// adopt path, one session ledger. A console with its own would draw a second Edge.
+		Edge:   edgeHooksFor(hooks),
 		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
 		// [4] CONFIG are two views of one setting; two stores would let them disagree
@@ -135,4 +138,16 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 		openBrowser(url)
 	}
 	return url
+}
+
+// edgeHooksFor lifts the Edge seams off the TUI hooks for the console. Nil hooks (a
+// caller with no TUI) or an unwired Edge leave the console's EDGE tab honestly disabled.
+func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
+	if h == nil || h.EdgeFleet == nil {
+		return webui.EdgeHooks{}
+	}
+	return webui.EdgeHooks{
+		Self: h.EdgeSelf, Fleet: h.EdgeFleet, Candidates: h.EdgeCandidates,
+		Adopt: h.EdgeAdopt, Sessions: h.EdgeSessions,
+	}
 }

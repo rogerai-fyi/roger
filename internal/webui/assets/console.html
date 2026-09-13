@@ -42,6 +42,7 @@
         <button class="tab" data-tab="share" role="tab" aria-selected="false">SHARE</button>
         <button class="tab" data-tab="account" role="tab" aria-selected="false">ACCOUNT</button>
         <button class="tab" data-tab="browse" role="tab" aria-selected="false">BROWSE</button>
+        <button class="tab" data-tab="edge" role="tab" aria-selected="false">EDGE</button>
         <button class="tab" data-tab="settings" role="tab" aria-selected="false">SETTINGS</button>
       </nav>
       <div class="topbar-right">
@@ -232,6 +233,79 @@
         <div class="not-configured" id="account-disabled" hidden>
           The broker is not configured for this node, so account, payout and grant
           features are unavailable.
+        </div>
+      </section>
+
+      <!-- ===================== EDGE =====================
+           ROGER EDGE (founder 2026-09-11/13): the console's window on THIS machine's Edge -
+           the same fleet, candidates, adopt path and session ledger the terminal's [3] EDGE
+           screen draws. One rule: it never draws a link it has not seen. Solid = reached
+           directly on this network and verified; dashed = reached through a relay, and the
+           relay is drawn as its own node so the hop is visible; broken + dim = not heard
+           from lately, and KEPT. A pulse travels an edge only when that node's last-seen
+           really advanced between two reads. Sessions are a window over receipts the relay
+           already wrote: this tab can look, it cannot dial, it cannot spend. -->
+      <section class="panel" id="panel-edge" role="tabpanel" hidden>
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <h2>EDGE <span class="mono muted edge-headline" id="edge-headline"></span></h2>
+            <div class="panel-head-actions">
+              <button class="btn" id="btn-edge-refresh">re-read</button>
+            </div>
+          </div>
+          <p class="muted small">
+            What is on your Edge, and how it is connected. Solid: reached directly on this
+            network. Dashed: reached through a relay, drawn as its own node. Broken: not heard
+            from lately, and kept.
+          </p>
+        </div>
+
+        <div class="not-configured" id="edge-error" hidden></div>
+        <div class="not-configured" id="edge-disabled" hidden>
+          This build has no Edge host, so there is nothing to draw here. Start
+          <code>roger</code> on this machine and the fleet it keeps appears in this tab.
+        </div>
+
+        <!-- an EMPTY Edge explains itself instead of drawing an empty box -->
+        <div class="edge-empty" id="edge-empty" hidden>
+          <p><b class="mono" id="edge-self-name">this machine</b> is the only node on the Edge.
+             Nothing else has been seen, and this screen draws only what it has seen.</p>
+          <p class="muted small"><b>ADD A NODE</b> &mdash; run RogerAI on another machine on this network.
+             It appears here as a candidate; <b>adopt</b> takes it onto your Edge.</p>
+        </div>
+
+        <div class="edge-stage" id="edge-stage" hidden>
+          <div class="edge-graph" id="edge-graph-wrap">
+            <svg id="edge-graph" viewBox="0 0 640 400" role="img" aria-label="Edge topology"></svg>
+            <div class="edge-legend mono small muted" id="edge-legend"></div>
+          </div>
+          <!-- past the graph bound the fleet is a LIST that says so, not a broken picture -->
+          <div class="table-wrap" id="edge-list-wrap" hidden>
+            <table class="data-table edge-table">
+              <thead>
+                <tr><th>NODE</th><th>KIND</th><th>CAPS</th><th>LINK</th><th>PRESENCE</th><th class="num">LAST SEEN</th></tr>
+              </thead>
+              <tbody id="edge-list"></tbody>
+            </table>
+          </div>
+          <div class="card edge-detail" id="edge-detail" hidden></div>
+        </div>
+
+        <h3 class="sub-head">Candidates</h3>
+        <p class="muted small">Seen on this network, not on your Edge. Nothing about a candidate is verified until you adopt it.</p>
+        <div class="edge-cands" id="edge-candidates"><span class="muted small">none seen on this network</span></div>
+
+        <h3 class="sub-head">Sessions</h3>
+        <p class="muted small">The traffic this Edge really carried, from the relay's receipts. Sessions fade after 90 seconds.</p>
+        <div class="table-wrap">
+          <table class="data-table sess-table">
+            <thead>
+              <tr><th>WHO</th><th>BAND</th><th>PATH</th><th>OUTCOME</th></tr>
+            </thead>
+            <tbody id="edge-sessions">
+              <tr class="empty-row"><td colspan="4">The Edge is quiet: no sessions in the last 90 seconds.</td></tr>
+            </tbody>
+          </table>
         </div>
       </section>
 

@@ -56,13 +56,17 @@ func cmdWebui(cfg config, args []string) error {
 	}
 
 	hooks := tuiHooks(cfg)
+	// The console's EDGE tab is this machine's real Edge here too - `roger webui` without
+	// a TUI must not be the one place the fleet is invisible.
+	stopEdge := startEdge(&hooks)
+	defer stopEdge()
 	ctrl := tui.NewController(cfg.Broker, hooks)
 	limits := tuiLimits(cfg)
 	// startWebConsole prints the URL, serves in the background and self-gates its own
 	// auto-open on the saved config. Reuse it whole rather than standing up a second
 	// launcher: a divergence here would mean the console you get from `roger webui`
 	// differs from the one `roger` gives you, in ways nobody would think to test.
-	url := webConsoleFor(cfg, ctrl, port, limits)
+	url := webConsoleFor(cfg, ctrl, port, limits, &hooks)
 	if url == "" {
 		return fmt.Errorf("could not bind a localhost port for the console")
 	}

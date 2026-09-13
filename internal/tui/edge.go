@@ -19,7 +19,6 @@ package tui
 // Spec: features/edge/topology_view.feature.
 
 import (
-	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -146,75 +145,18 @@ func (m model) edgeNodes() []store.EdgeNode {
 	return out
 }
 
-// edgeHasLAN reports a LAN-direct transport - the one a solid edge means.
-func edgeHasLAN(n store.EdgeNode) bool {
-	for _, t := range n.Transports {
-		if t.Kind == "lan" {
-			return true
-		}
-	}
-	return false
-}
+// edgeHasLAN, edgeVia and edgeArrange are the SHARED view rules (internal/edge/view.go):
+// the console's EDGE tab arranges the same fleet with the same function, so the two
+// windows can never disagree about which relay a node is drawn under.
+func edgeHasLAN(n store.EdgeNode) bool { return edge.HasLANTransport(n) }
 
-// edgeVia names the relay a node is reached THROUGH, or "" when it is reached directly.
-// A node with both transports is NOT relayed: the fleet keeps them in preference order, and
-// the preferred one is the LAN link, so the node is drawn once on the edge it actually uses.
-func edgeVia(n store.EdgeNode) string {
-	if edgeHasLAN(n) {
-		return ""
-	}
-	for _, t := range n.Transports {
-		if t.Kind == "relay" {
-			return t.Addr
-		}
-	}
-	return ""
-}
+func edgeVia(n store.EdgeNode) string { return edge.Via(n) }
 
-// edgeArrange orders the fleet for drawing: every node hangs off self, and a node reached
-// through a relay that is ITSELF on this Edge is drawn immediately under that relay, so the
-// hop is a thing you can see rather than a thing you have to know.
-//
-// It draws EVERY member exactly once, which is the half of the rule that is easy to lose: a
-// relay chain, or two nodes that name each other as their relay, must not make a node
-// disappear off the fleet view - so anything the walk did not reach is drawn on its own dim
-// edge at the end.
 func edgeArrange(list []store.EdgeNode) []edgeRow {
-	member := make(map[string]bool, len(list))
-	for _, n := range list {
-		member[n.Name] = true
-	}
-	via := map[string]string{}
-	children := map[string][]store.EdgeNode{}
-	for _, n := range list {
-		v := edgeVia(n)
-		if v == "" || v == n.Name || !member[v] {
-			continue
-		}
-		via[n.ID] = v
-		children[v] = append(children[v], n)
-	}
-	rows := make([]edgeRow, 0, len(list))
-	drawn := make(map[string]bool, len(list))
-	var emit func(n store.EdgeNode, parent string)
-	emit = func(n store.EdgeNode, parent string) {
-		if drawn[n.ID] {
-			return // a cycle, or a node already placed under its relay
-		}
-		drawn[n.ID] = true
-		rows = append(rows, edgeRow{
-			n: n, relay: len(children[n.Name]) > 0, child: parent != "", via: parent})
-		for _, c := range children[n.Name] {
-			emit(c, n.Name)
-		}
-	}
-	for _, n := range list {
-		if via[n.ID] == "" {
-			emit(n, "")
-		}
-	}
-	for _, n := range list {
-		emit(n, "") // whatever a cycle stranded, drawn rather than dropped
+	shared := edge.Arrange(list)
+	rows := make([]edgeRow, 0, len(shared))
+	for _, r := range shared {
+		rows = append(rows, edgeRow{n: r.Node, relay: r.Relay, child: r.Child, via: r.Via})
 	}
 	return rows
 }
@@ -481,21 +423,8 @@ func (m model) edgePulseAt(g edgeGeom, i int) int {
 	return -1
 }
 
-// edgeAge renders how long ago something was, in one cell's worth of characters.
-func edgeAge(d time.Duration) string {
-	switch {
-	case d < 0:
-		return "0s"
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
-}
+// edgeAge is the shared age wording (edge.Age): "6m", "3h", "2d".
+func edgeAge(d time.Duration) string { return edge.Age(d) }
 
 // edgeCapMark is the capability vocabulary as MARKS: a distinct two-letter mark per
 // capability, UPPER for VERIFIED and lower for merely CLAIMED. Case, not colour, so the

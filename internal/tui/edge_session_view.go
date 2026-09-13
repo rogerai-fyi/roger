@@ -41,7 +41,7 @@ const (
 // edgeEscalateLabel is the approved wording, matching the Playbox's own verdict copy
 // ("escalate · right call"): the models agent's ruling is that an escalation is the RIGHT
 // CALL, so the label says so rather than merely not saying "fault".
-const edgeEscalateLabel = "escalate · right call"
+const edgeEscalateLabel = edge.EscalateLabel
 
 // edgeSessMaxRows bounds the block. Fifty sessions must stay legible, so the busiest
 // edges are shown with their counts and the rest are counted off rather than drawn.
@@ -122,39 +122,14 @@ func (m model) edgeSessions() []edge.Session {
 // edgeSessKey is what makes two sessions the SAME edge on the graph: the same participant
 // asking the same band of the same station, the same way, ending the same. Anything that
 // differs is a different edge and gets its own row; anything identical is a count.
-func edgeSessKey(s edge.Session) string {
-	return strings.Join([]string{
-		string(s.Kind), s.Who, s.Via, s.Left, s.Station, s.Band,
-		strconv.FormatBool(s.Escalate), string(s.Outcome), s.Reason,
-	}, "\x00")
-}
-
-// edgeSessRows groups the snapshot into drawn rows, busiest first. Grouping is the whole
-// answer to "the session count is shown on the edge between them, not as new boxes".
+// edgeSessRows groups the snapshot into drawn rows, busiest first, through the SHARED
+// rule (edge.GroupSessions) the console uses too. Grouping is the whole answer to "the
+// session count is shown on the edge between them, not as new boxes".
 func edgeSessRows(list []edge.Session) []edgeSessRow {
-	var rows []edgeSessRow
-	at := map[string]int{}
-	for _, s := range list {
-		k := edgeSessKey(s)
-		if i, ok := at[k]; ok {
-			rows[i].n++
-			continue
-		}
-		at[k] = len(rows)
-		rows = append(rows, edgeSessRow{s: s, n: 1})
-	}
-	// Busiest first, then newest, then by request so the order is deterministic.
-	for i := 1; i < len(rows); i++ {
-		for j := i; j > 0; j-- {
-			a, b := rows[j-1], rows[j]
-			less := b.n > a.n ||
-				(b.n == a.n && b.s.At > a.s.At) ||
-				(b.n == a.n && b.s.At == a.s.At && b.s.Request < a.s.Request)
-			if !less {
-				break
-			}
-			rows[j-1], rows[j] = b, a
-		}
+	groups := edge.GroupSessions(list)
+	rows := make([]edgeSessRow, 0, len(groups))
+	for _, g := range groups {
+		rows = append(rows, edgeSessRow{s: g.Session, n: g.Count})
 	}
 	return rows
 }
@@ -220,19 +195,7 @@ func edgeSessPathCell(r edgeSessRow, w int) string {
 
 // edgeSessOutcome is how it ended, in words. A refusal says WHY; an escalation says it was
 // the right call; anything else simply served.
-func edgeSessOutcome(s edge.Session) string {
-	if s.Outcome == edge.OutcomeRefused {
-		out := string(edge.OutcomeRefused)
-		if s.Reason != "" {
-			out += " · " + s.Reason
-		}
-		return out
-	}
-	if s.Escalate {
-		return edgeEscalateLabel
-	}
-	return "served"
-}
+func edgeSessOutcome(s edge.Session) string { return s.OutcomeLabel() }
 
 // edgeSessLine draws one row. Every cell is padded to its measured column and the finished
 // line is clipped by the caller, the same discipline the graph rows keep.

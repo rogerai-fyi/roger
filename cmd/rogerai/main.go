@@ -837,7 +837,7 @@ func run(argv []string, cfg config) error {
 		if webuiOn {
 			// The console URL rides into the TUI so `w` / /webui open it on demand
 			// (the console itself no longer auto-opens a browser by default).
-			hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits)
+			hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits, &hooks)
 		}
 		return runTUI(cfg.Broker, cfg.User, limits, notice, hooks, ctrl)
 	}

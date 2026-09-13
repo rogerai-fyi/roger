@@ -47,6 +47,9 @@ type Options struct {
 	// read as "you have no caps").
 	ReadLimits func() map[string]SpendLimit
 	WriteLimit func(model string, l SpendLimit)
+	// Edge is this machine's Edge, for the EDGE tab (edge.go): the same fleet, candidates,
+	// adopt path and session ledger the TUI's [3] EDGE screen holds. Zero = no Edge host.
+	Edge EdgeHooks
 }
 
 // Server is the node console HTTP server. It is safe for concurrent requests: all live
@@ -121,6 +124,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/bands", s.auth(s.handleBands))
 	s.mux.HandleFunc("/api/bands/", s.action(s.handleBandAction))
 	s.mux.HandleFunc("/api/grants", s.auth(s.handleGrants)) // GET lists, POST creates
+	// EDGE: the fleet snapshot (read, GET only) and the owner's adopt (POST only).
+	s.mux.HandleFunc("/api/edge", s.auth(s.handleEdge))
+	s.mux.HandleFunc("/api/edge/adopt", s.action(s.handleEdgeAdopt))
 	// Browse (the open-market discover feed).
 	s.mux.HandleFunc("/api/browse", s.auth(s.handleBrowse))
 }

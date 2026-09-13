@@ -218,8 +218,8 @@ can serve this model", the other is "what machines do I own". They are never joi
 | Edge screen and topology graph in the TUI | Shipped on `wt/roger-edge` |
 | The session layer: sessions drawn on the graph, attributed, counted, faded | Shipped on `wt/roger-edge` |
 | A classifying node's contract (task class, fixed framing, label set) on the record | Shipped on `wt/roger-edge` |
-| Sessions recorded from `roger use` and the guest-operator proxy | **Not built** (the TUI's own turns are; see 12.8) |
-| Edge view in the web console | **Not built** |
+| Sessions recorded from `roger use` and the guest-operator proxy | **Not built** (the TUI's own turns and the console's chat turns are; see 12.8) |
+| Edge view in the web console (EDGE tab: graph, list fallback, detail, adopt, sessions; console chat turns recorded as sessions) | Shipped on `wt/roger-edge` |
 | Microcontroller firmware, any on-device classifier artifact | **Not built** |
 
 ## 11. Order of work

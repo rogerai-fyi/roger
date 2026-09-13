@@ -1300,3 +1300,45 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   margin-top: -8px;
 }
 .chat-receipt-row b { font-weight: 500; color: var(--live); }
+
+/* ---------------------------------------------------------------------------
+   EDGE - the fleet graph. State is carried by STROKE PATTERN and case, never by
+   colour alone: solid = LAN-direct, dashed = through a relay, broken = dark. The
+   one red is the selection ring and the live pulse - the console's own "live".
+   --------------------------------------------------------------------------- */
+.edge-headline { font-size: var(--t-sm); font-weight: var(--weight-regular); margin-left: var(--s-2); }
+.edge-empty { padding: var(--s-5) 0; max-width: 56ch; }
+.edge-empty p { margin-bottom: var(--s-3); }
+.edge-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); gap: var(--s-5); align-items: start; }
+@media (max-width: 900px) { .edge-stage { grid-template-columns: minmax(0, 1fr); } }
+.edge-graph { border: 1px solid var(--hairline); background: var(--paper-2); padding: var(--s-2); }
+.edge-graph svg { width: 100%; height: auto; display: block; }
+.edge-legend { padding: var(--s-2) var(--s-2) 0; }
+.edge-link { fill: none; stroke-width: 1.5; stroke: var(--ink-500); }
+.edge-link--lan { stroke-dasharray: none; stroke: var(--ink-700); }
+.edge-link--relay { stroke-dasharray: 6 4; stroke: var(--ink-400); }
+.edge-link--dark { stroke-dasharray: 2 6; stroke: var(--ink-300); }
+.edge-node { cursor: pointer; }
+.edge-node circle { fill: var(--paper); stroke: var(--ink-700); stroke-width: 1.5; }
+.edge-node text { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-900); }
+.edge-node .edge-marks { fill: var(--ink-400); font-size: 10px; }
+.edge-node--dark { opacity: 0.45; }
+.edge-node--dark circle { stroke-dasharray: 2 3; }
+.edge-node--sel circle { stroke: var(--live); stroke-width: 2.5; }
+.edge-self circle { fill: var(--ink-900); stroke: var(--ink-900); }
+.edge-self text { font-weight: var(--weight-medium); }
+.edge-pulse { fill: var(--live); }
+.edge-beat circle { stroke: var(--live); stroke-width: 3; }
+.edge-detail .kv > b { white-space: normal; text-align: right; }
+.edge-detail .card-title small { color: var(--ink-400); font-weight: var(--weight-regular); }
+.edge-cands { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.edge-cand { font-family: var(--font-mono); font-size: var(--t-sm); padding: var(--s-1) var(--s-3); border: 1px dashed var(--ink-400); background: transparent; color: var(--ink-700); cursor: pointer; }
+.edge-cand[aria-pressed="true"] { border-color: var(--live); color: var(--ink-900); }
+.sess-table td.path { color: var(--ink-500); }
+.sess-table td.path b { color: var(--ink-700); font-weight: var(--weight-regular); }
+.sess-table .sess-count { color: var(--ink-900); font-weight: var(--weight-medium); margin-left: var(--s-2); }
+.sess--served { color: var(--ink-700); }
+/* an ESCALATION is the right call: primary ink and weight, the same treatment as money -
+   never the error colour. */
+.sess--escalate { color: var(--ink-900); font-weight: var(--weight-medium); }
+.sess--refused { color: var(--ink-500); }

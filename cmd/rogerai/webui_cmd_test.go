@@ -61,7 +61,7 @@ func TestWebuiHelpSpellings(t *testing.T) {
 func withWebuiSeams(t *testing.T, url string, stopped *bool) {
 	t.Helper()
 	oldFor, oldWait := webConsoleFor, waitForStop
-	webConsoleFor = func(config, *node.Controller, string, *tui.LimitStore) string { return url }
+	webConsoleFor = func(config, *node.Controller, string, *tui.LimitStore, *tui.Hooks) string { return url }
 	waitForStop = func() {
 		if stopped != nil {
 			*stopped = true
@@ -110,7 +110,7 @@ func TestWebuiPassesThePortThrough(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	var gotPort string
 	oldFor, oldWait := webConsoleFor, waitForStop
-	webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore) string {
+	webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore, _ *tui.Hooks) string {
 		gotPort = port
 		return "http://127.0.0.1:8391/?t=abc"
 	}
@@ -134,7 +134,7 @@ func TestWebuiPortAcceptsBothSpellings(t *testing.T) {
 	} {
 		var gotPort string
 		prev := webConsoleFor
-		webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore) string {
+		webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore, _ *tui.Hooks) string {
 			gotPort = port
 			return "http://127.0.0.1:8391"
 		}
