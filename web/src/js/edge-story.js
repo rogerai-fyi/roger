@@ -1,7 +1,7 @@
 /* =====================================================================
-   RogerAI - homepage FIG.2, the Roger Edge story reel. Three films (the
-   FireDefense use case, the Roger hero, and Nest Two) muted, played back to
-   back forever in random order - edge-story.js swaps <source> on `ended`,
+   RogerAI - homepage FIG.2, the Roger Edge story reel. Three films (Story
+   A, Story B, and the FireDefense use case) muted, played back to back
+   forever in random order - edge-story.js swaps <source> on `ended`,
    never repeating the film that just played, and picks which one opens at
    random per page load.
 
@@ -41,13 +41,14 @@
   var muteBtn = document.getElementById("edgeMute");
   var muteLabel = document.getElementById("edgeMuteLabel");
 
-  // Three films now, not two. The order is random but never repeats the one
-  // that just played, so a visitor who stays sees all three before any
-  // recurs, and a repeat visit does not always open on the same one.
+  // Three films: the two original brand films plus the FireDefense use case.
+  // The order is random but never repeats the one that just played, so a
+  // visitor who stays sees all three before any recurs, and a repeat visit
+  // does not always open on the same one.
   var STORIES = {
-    fd:    { webm: "assets/edge/hero-fd.webm",    mp4: "assets/edge/hero-fd.mp4",    poster: "assets/edge/poster-fd.webp",    tag: "FIREDEFENSE" },
-    roger: { webm: "assets/edge/hero-roger.webm", mp4: "assets/edge/hero-roger.mp4", poster: "assets/edge/poster-roger.webp", tag: "ROGER" },
-    g:     { webm: "assets/edge/hero-g.webm",     mp4: "assets/edge/hero-g.mp4",     poster: "assets/edge/poster-g.webp",     tag: "NEST TWO" }
+    a:  { webm: "assets/edge/story-a.webm", mp4: "assets/edge/story-a.mp4", poster: "assets/edge/poster-a.webp", tag: "STORY A" },
+    b:  { webm: "assets/edge/story-b.webm", mp4: "assets/edge/story-b.mp4", poster: "assets/edge/poster-b.webp", tag: "STORY B" },
+    fd: { webm: "assets/edge/hero-fd.webm", mp4: "assets/edge/hero-fd.mp4", poster: "assets/edge/poster-fd.webp", tag: "FIREDEFENSE" }
   };
   var KEYS = Object.keys(STORIES);
   function pick(except) {
@@ -115,7 +116,7 @@
 
   function measureFullHeight() {
     var w = screenEl.getBoundingClientRect().width;
-    if (w > 0) screenEl.style.setProperty("--reel-full-h", Math.round(w * (800 / 1920)) + "px");
+    if (w > 0) screenEl.style.setProperty("--reel-full-h", Math.round(w * (544 / 1280)) + "px");
   }
 
   // one of "off" | "on" | "poweringOn" | "poweringOff" - a plain state
