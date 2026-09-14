@@ -1047,7 +1047,7 @@ html.js .mkt-quiet--nojs { display: none; }
 .reel-band { position: relative; width: 100%; margin-top: var(--s-6); }
 .reel__screen {
   position: relative; overflow: hidden; background: #050505; cursor: pointer;
-  aspect-ratio: 1280 / 544;
+  aspect-ratio: 1920 / 800;
   border-top: 2px solid var(--ink-900); border-bottom: 2px solid var(--ink-900);
 }
 .reel__screen:focus-visible {

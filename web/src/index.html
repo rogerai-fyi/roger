@@ -178,10 +178,11 @@
       </div><!-- /hero__tools -->
       </div><!-- /hero__grid -->
 
-      <!-- FIG.2 - the Roger Edge story reel. Two ~65s brand films (Story A / Story
-           B), muted + playing back to back forever; edge-story.js swaps the
-           <source> on `ended` and randomizes which story opens on each page load
-           so a repeat visit doesn't always start on the same half. The power-on/
+      <!-- FIG.2 - the Roger Edge story reel. Three films (the FireDefense use
+           case, the Roger hero, Nest Two), muted + playing back to back forever
+           in random order; edge-story.js swaps the <source> on `ended`, never
+           repeating the one that just played, and randomizes which opens on each
+           page load. The power-on/
            off (the picture unfolding from / collapsing to a bright center line,
            an old CRT set) is keyed to scroll via IntersectionObserver: it plays
            once when the reel enters the viewport and once when it leaves, either
@@ -208,8 +209,8 @@
       <div class="reel__screen" id="edgeScreen" role="button" tabindex="0"
            aria-pressed="true" aria-label="Turn the Roger Edge set off">
         <video class="reel__video" id="edgeVideo" muted playsinline preload="none"
-               poster="assets/edge/poster-a.webp"
-               aria-label="Roger Edge brand film, Story A and Story B, looping">
+               poster="assets/edge/poster-fd.webp"
+               aria-label="RogerAI films: the FireDefense use case, the Roger hero and Nest Two, looping in random order">
           <!-- mp4/H.264 FIRST: a <video> picks the first <source> whose type it
                can play, in DOM order - not "best" by any quality/size metric.
                H.264 hardware-decodes almost everywhere; VP9 hardware decode is
@@ -220,7 +221,7 @@
           <source type="video/mp4">
           <source type="video/webm">
         </video>
-        <span class="reel__tag mono" id="edgeTag" aria-hidden="true">STORY A</span>
+        <span class="reel__tag mono" id="edgeTag" aria-hidden="true">FIREDEFENSE</span>
       </div>
       <!-- a DOM sibling of .reel__screen, not a child - .reel__screen already
            has role="button" for the power toggle, and a real <button> nested

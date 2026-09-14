@@ -1,8 +1,9 @@
 /* =====================================================================
-   RogerAI - homepage FIG.2, the Roger Edge story reel. Two brand films
-   (Story A / Story B) muted, played back to back forever - edge-story.js
-   swaps <source> on `ended` and picks which one opens at random per page
-   load, so the two halves trade first place across visits.
+   RogerAI - homepage FIG.2, the Roger Edge story reel. Three films (the
+   FireDefense use case, the Roger hero, and Nest Two) muted, played back to
+   back forever in random order - edge-story.js swaps <source> on `ended`,
+   never repeating the film that just played, and picks which one opens at
+   random per page load.
 
    The power-on/off is an old CRT set, and it is the screen's actual HEIGHT
    that collapses to a thin bright line and back - not an internal clip over
@@ -40,12 +41,21 @@
   var muteBtn = document.getElementById("edgeMute");
   var muteLabel = document.getElementById("edgeMuteLabel");
 
+  // Three films now, not two. The order is random but never repeats the one
+  // that just played, so a visitor who stays sees all three before any
+  // recurs, and a repeat visit does not always open on the same one.
   var STORIES = {
-    a: { webm: "assets/edge/story-a.webm", mp4: "assets/edge/story-a.mp4", poster: "assets/edge/poster-a.webp", tag: "STORY A" },
-    b: { webm: "assets/edge/story-b.webm", mp4: "assets/edge/story-b.mp4", poster: "assets/edge/poster-b.webp", tag: "STORY B" }
+    fd:    { webm: "assets/edge/hero-fd.webm",    mp4: "assets/edge/hero-fd.mp4",    poster: "assets/edge/poster-fd.webp",    tag: "FIREDEFENSE" },
+    roger: { webm: "assets/edge/hero-roger.webm", mp4: "assets/edge/hero-roger.mp4", poster: "assets/edge/poster-roger.webp", tag: "ROGER" },
+    g:     { webm: "assets/edge/hero-g.webm",     mp4: "assets/edge/hero-g.mp4",     poster: "assets/edge/poster-g.webp",     tag: "NEST TWO" }
   };
+  var KEYS = Object.keys(STORIES);
+  function pick(except) {
+    var pool = KEYS.filter(function (k) { return k !== except; });
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
   var sources = video.querySelectorAll("source");
-  var current = Math.random() < 0.5 ? "a" : "b";
+  var current = pick(null);
   var loaded = false;
 
   function setStory(key) {
@@ -65,9 +75,9 @@
     if (p && p.catch) p.catch(function () {});
   }
 
-  // advance to the OTHER story and keep going - the alternating loop.
+  // advance to a different film at random and keep going.
   video.addEventListener("ended", function () {
-    setStory(current === "a" ? "b" : "a");
+    setStory(pick(current));
     playCurrent();
   });
 
@@ -105,7 +115,7 @@
 
   function measureFullHeight() {
     var w = screenEl.getBoundingClientRect().width;
-    if (w > 0) screenEl.style.setProperty("--reel-full-h", Math.round(w * (544 / 1280)) + "px");
+    if (w > 0) screenEl.style.setProperty("--reel-full-h", Math.round(w * (800 / 1920)) + "px");
   }
 
   // one of "off" | "on" | "poweringOn" | "poweringOff" - a plain state
