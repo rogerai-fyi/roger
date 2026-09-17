@@ -1,0 +1,128 @@
+/* Broadcast 013 - agent governance identity dispatch. Scoped under .gov-post.
+   research.css's .uc-ic/.usecase-strip icon language is NOT reused directly (this page
+   does not load research.css - see CSS_BUNDLES in build.mjs); .gov-ic below is this
+   page's own small copy of the same mono-stroke + one-red-accent icon idiom. */
+
+.gov-post .bc-post__wrap { max-width: 900px; }
+.gov-post .bc-post__head,
+.gov-post .bc-post__body { max-width: 760px; margin-inline: auto; }
+
+/* ---- hero plate: same framed-plate treatment as broadcast-routing's .route-hero ---- */
+.gov-hero {
+  margin: var(--s-8) 0 0; padding: 14px;
+  background: #f3f1ea; border: 1px solid var(--hairline-2);
+  border-radius: var(--r-md);
+}
+.gov-hero img { display: block; width: 100%; height: auto; border-radius: 6px; }
+.gov-hero .fig { margin: 10px 2px 0; color: var(--ink-400); }
+
+/* ---- §1 timeline: a real dated list, not a raster plate, so it stays crawlable
+   and the dates are marked up as <time>. Horizontal band on desktop (a hairline
+   spine + a dot per stop), a left-rail vertical list under 860px. */
+.gov-timeline {
+  list-style: none; margin: var(--s-8) 0 0; padding: 0; position: relative;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-4);
+}
+.gov-timeline::before {
+  content: ""; position: absolute; top: 7px; left: 0; right: 0; height: 2px;
+  background: var(--hairline-2);
+}
+.gov-timeline li { position: relative; padding-top: var(--s-6); }
+.gov-timeline li::before {
+  content: ""; position: absolute; top: 0; left: 0; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--paper); border: 2px solid var(--ink-900);
+}
+.gov-timeline li:last-child::before { border-color: var(--live); background: var(--live); }
+.gov-timeline time {
+  display: block; font-family: var(--font-mono); font-size: var(--t-xs);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-400);
+  margin-bottom: 4px;
+}
+.gov-timeline b { display: block; color: var(--ink-900); font-size: var(--t-sm); margin-bottom: 4px; }
+.gov-timeline p { margin: 0; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-500); }
+@media (max-width: 860px) {
+  .gov-timeline { grid-template-columns: 1fr; gap: var(--s-6); }
+  .gov-timeline::before { top: 0; bottom: 0; left: 7px; right: auto; width: 2px; height: auto; }
+  .gov-timeline li { padding-top: 0; padding-left: var(--s-6); }
+  .gov-timeline li::before { top: 2px; }
+}
+
+/* ---- §2 pull-quote: same red-rail plate as broadcast-routing's .route-answer ---- */
+.gov-quote {
+  max-width: 100%; margin: var(--s-6) 0 0; padding: 1rem 1.25rem;
+  border-left: 3px solid var(--live); background: rgba(224,35,28,.05);
+  border-radius: 0 6px 6px 0; color: var(--ink-900); font-size: var(--t-lead);
+  line-height: 1.6; font-style: italic;
+}
+.gov-quote cite {
+  display: block; margin-top: var(--s-3); font-style: normal; font-size: var(--t-xs);
+  letter-spacing: .02em; color: var(--ink-500); text-transform: none;
+}
+
+/* ---- §3 comparison: generic service account vs. Governance Identity ---- */
+.gov-compare {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-6);
+  margin: var(--s-6) 0 0;
+}
+.gov-compare__col {
+  padding: var(--s-6); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper-2);
+}
+.gov-compare__col--live { background: var(--live-tint); border-color: rgba(224,35,28,.25); }
+.gov-compare__badge {
+  display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center;
+  margin-bottom: var(--s-4);
+}
+.gov-compare__col h3 {
+  margin: 0 0 var(--s-3); color: var(--ink-900); font-size: var(--t-h3); font-weight: var(--weight-semi);
+}
+.gov-compare__col ul { margin: 0; padding-left: 1.1em; color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
+.gov-compare__col li + li { margin-top: 4px; }
+.gov-ic {
+  width: 30px; height: 30px; fill: none; stroke: var(--ink-900);
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+.gov-ic .gov-red { fill: var(--live); stroke: none; }
+@media (max-width: 640px) { .gov-compare { grid-template-columns: 1fr; } }
+
+/* ---- §4 flow: Agent -> Governance Identity -> Action -> Signed receipt ---- */
+.gov-flow {
+  display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  align-items: stretch; gap: var(--s-3); margin: var(--s-6) 0 0;
+}
+.gov-flow__step {
+  padding: var(--s-5) var(--s-4); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper-2);
+}
+.gov-flow__step--live { background: var(--live-tint); border-color: rgba(224,35,28,.25); }
+.gov-flow__no {
+  display: block; font-size: var(--t-xs); letter-spacing: .08em; color: var(--ink-400);
+  margin-bottom: var(--s-2);
+}
+.gov-flow__step h3 { margin: 0 0 4px; color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
+.gov-flow__step p { margin: 0; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-500); }
+.gov-flow__arrow {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-300); font-size: 1.1rem;
+}
+@media (max-width: 760px) {
+  .gov-flow { grid-template-columns: 1fr; }
+  .gov-flow__arrow { transform: rotate(90deg); padding-block: 2px; }
+}
+
+/* ---- FAQ: .bc-faq ships with no CSS anywhere in the repo (relies on browser <dl>
+   defaults on every other broadcast that uses it); this page styles its own copy so
+   it does not depend on that being fixed elsewhere. ---- */
+.gov-post .bc-faq { margin: var(--s-6) 0 0; }
+.gov-post .bc-faq dt {
+  margin: var(--s-5) 0 var(--s-2); padding-top: var(--s-5); border-top: 1px solid var(--hairline);
+  color: var(--ink-900); font-size: var(--t-sm);
+}
+.gov-post .bc-faq dt:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.gov-post .bc-faq dd { margin: 0; padding: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.6; }
+
+/* ---- sources list ---- */
+.gov-sources { margin-top: var(--s-8); padding-top: var(--s-6); border-top: 1px solid var(--hairline); }
+.gov-sources ol { margin: var(--s-3) 0 0; padding-left: 1.2em; color: var(--ink-500); font-size: var(--t-xs); line-height: 1.8; }
+.gov-sources a { color: var(--ink-500); }
+.gov-sources a:hover, .gov-sources a:focus-visible { color: var(--live); }
