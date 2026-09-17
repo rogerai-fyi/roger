@@ -8,13 +8,16 @@ package main
 // Spec: features/edge/empty_edge.feature.
 
 import (
+	"log"
 	"net"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // edgeDiscoveryFacts is what the running host knows about discovery that the files do
@@ -117,4 +120,27 @@ func edgeAuthorityURL(ln net.Listener) string {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	return "http://" + net.JoinHostPort(ip, strconv.Itoa(port))
+}
+
+// edgeSessionsDir is where this machine's processes publish their live sessions for one
+// another (internal/edge/mirror.go): `roger use` in one terminal, the TUI in another, the
+// console inside it - one view.
+func edgeSessionsDir() string { return filepath.Join(filepath.Dir(configPath()), "edge-sessions") }
+
+// edgeUseRecorder is how `roger use` puts its turns on this machine's Edge: every receipted
+// turn through its endpoint becomes a `roger use` session, published through the mirror so
+// the Edge screen in another process draws it. A receipt with no request id records
+// nothing - a session is a request, never a claim.
+func edgeUseRecorder() func(protocol.UsageReceipt) {
+	acct := edgeAccount()
+	sessions := edge.NewSessions(acct)
+	sessions.Mirror(edgeSessionsDir())
+	sessions.OnError(func(err error) { log.Println(err) })
+	return func(rec protocol.UsageReceipt) {
+		if rec.RequestID == "" {
+			return
+		}
+		_, _ = sessions.Record(edge.Traffic{Account: acct, Kind: edge.FromUse, Request: rec.RequestID,
+			Receipts: []protocol.UsageReceipt{rec}})
+	}
 }

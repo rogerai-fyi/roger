@@ -209,6 +209,12 @@ type Sessions struct {
 	now     func() time.Time
 	order   []string // request ids, oldest first
 	byReq   map[string]Session
+
+	// The MIRROR (mirror.go): dir is where this machine's processes publish their live
+	// lists, path is this ledger's own file, onErr hears the first write failure.
+	dir, path string
+	onErr     func(error)
+	errSaid   bool
 }
 
 // NewSessions returns the session ledger for one account.
@@ -290,6 +296,7 @@ func (s *Sessions) Record(t Traffic) (Session, error) {
 	}
 	s.byReq[t.Request] = ses
 	s.evictLocked()
+	s.publishLocked()
 	return ses, nil
 }
 
@@ -362,6 +369,7 @@ func (s *Sessions) Live() []Session {
 	for _, id := range s.order {
 		out = append(out, s.byReq[id])
 	}
+	out = append(out, s.mirroredLocked(now)...)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].At != out[j].At {
 			return out[i].At > out[j].At

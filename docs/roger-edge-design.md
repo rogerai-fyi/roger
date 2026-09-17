@@ -218,7 +218,7 @@ can serve this model", the other is "what machines do I own". They are never joi
 | Edge screen and topology graph in the TUI | Shipped on `wt/roger-edge` |
 | The session layer: sessions drawn on the graph, attributed, counted, faded | Shipped on `wt/roger-edge` |
 | A classifying node's contract (task class, fixed framing, label set) on the record | Shipped on `wt/roger-edge` |
-| Sessions recorded from `roger use` and the guest-operator proxy | **Not built** (the TUI's own turns and the console's chat turns are; see 12.8) |
+| Sessions recorded from `roger use` and the guest-operator proxy, attributed and mirrored across processes | Shipped on `wt/roger-edge` (`features/edge/session_attribution.feature`) |
 | Edge view in the web console (EDGE tab: graph, list fallback, detail, adopt, sessions; console chat turns recorded as sessions) | Shipped on `wt/roger-edge` |
 | The empty Edge as a STATUS (THIS MACHINE / AUTHORITY / DISCOVERY + both ways to add a node) on TUI, console and `roger edge`; an unstarted host is never drawn as "the only node" | Shipped on `wt/roger-edge` (`features/edge/empty_edge.feature`) |
 | Microcontroller firmware, any on-device classifier artifact | **Not built** |
@@ -342,11 +342,16 @@ decoded the broker's `X-RogerAI-Receipt` for the reply footer and discarded it; 
 it on `ChatResult`, and `recordEdgeSession` turns it into a session. Proven live against
 production on a free band.
 
-`roger use` and the guest operators are NOT wired, and it is not a gap in the layer: they are
-served by the local proxy in `internal/client.copyRelayResponse`, which already forwards the
-same receipt header, so the seam is one callback wide. What is missing is the ATTRIBUTION - who
-the caller was - and inventing that without a spec would be guessing at exactly the field the
-approved scenarios say must be honest. It wants its own spec and its own approval.
+`roger use` and the guest operators are wired too (2026-09-17, `features/edge/
+session_attribution.feature`): the local proxy hands each relayed response's receipt to one
+optional callback (`ProxyOptions.OnReceipt`), and the surface that owns the proxy decides the
+attribution, never the proxy: the TUI's endpoint attributes to the GUEST'S NAME while a guest
+holds the mic (exec to return) and to `roger use` otherwise; the `roger use` process attributes
+to `roger use`. A session opened in one process reaches every Edge view on the machine through
+the session MIRROR: each recording ledger publishes its live list to its own private file under
+`<config>/rogerai/edge-sessions/`, and a viewer merges its same-account siblings - no shared
+memory, no locks, nobody writes another process's file, receipts never written, the same 90 s
+life, and a dead process's file removed by the first reader that finds it faded.
 
 ### 12.7 Pushing Roger Edge
 

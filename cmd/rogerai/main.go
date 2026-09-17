@@ -1040,6 +1040,9 @@ func cmdUse(cfg config, args []string) error {
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
 		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
+		// Every turn through this endpoint is a `roger use` session on this machine's
+		// Edge, visible from the TUI and the console in their own processes.
+		OnReceipt: edgeUseRecorder(),
 	})
 }
 

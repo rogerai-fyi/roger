@@ -823,6 +823,10 @@ type model struct {
 	monthlySpend    float64 // month-to-date captured spend ($)
 	status          string
 	alert           *alertBox
+	// mic is who holds the TUI's endpoint right now: a guest's name from its exec to its
+	// return, empty otherwise. Shared by pointer so the live proxy options can ask it at
+	// receipt time (edge_attribution.go).
+	mic *edgeMic
 	// pricing UX state
 	limits *LimitStore
 	bands  []band // offers grouped by model (the band list, 3.1)
@@ -1421,7 +1425,7 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// Independent transcript scroll regions (mouse-wheel enabled by viewport.New); sized
 		// from the window on the first WindowSizeMsg (refreshScroll).
 		chatVP: viewport.New(0, 0), agentVP: viewport.New(0, 0),
-		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits,
+		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, mic: &edgeMic{}, limits: limits,
 		// Smart selection owns transcript drags by default: release copies exactly once and
 		// produces counted feedback. ctrl+o / /mouse restores native terminal selection.
 		mouseOff: false}
@@ -2791,6 +2795,9 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
 		ReasoningFallbackOff: client.RawReasoningEnv(),
 		Alert:                func(s string) { alert.set(s) },
+		// Every receipted turn through this endpoint is a session on the Edge, attributed
+		// to the guest holding the mic or to `roger use` (edge_attribution.go).
+		OnReceipt: m.edgeReceiptSink(),
 	}
 }
 

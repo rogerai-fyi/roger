@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -271,6 +272,10 @@ func loadEdgeState() (*edgeState, error) {
 	db := store.NewMem()
 	st := &edgeState{account: acct, db: db, fleet: edge.NewFleet(db, acct),
 		sessions: edge.NewSessions(acct)}
+	// The TUI's and the console's ledger merges what `roger use` processes publish, and
+	// publishes its own turns for them: one machine, one view of its sessions.
+	st.sessions.Mirror(edgeSessionsDir())
+	st.sessions.OnError(func(err error) { log.Println(err) })
 	b, err := os.ReadFile(edgeStatePath())
 	if err != nil {
 		if os.IsNotExist(err) {

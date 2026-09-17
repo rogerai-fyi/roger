@@ -437,6 +437,12 @@ type ProxyOptions struct {
 	// launch sets DefaultSessionBudget.
 	Budget float64
 	Alert  AlertFunc // surfaced when failover is exhausted (nil = silent)
+	// OnReceipt, when non-nil, is handed each relayed response's decoded receipt (the
+	// broker's X-RogerAI-Receipt), once, before the body is streamed - the seam the Edge
+	// session layer records from. It never blocks or reshapes the relay, and a response
+	// with no receipt hands back nothing: a session is a request the relay receipted,
+	// never a claim. A refusal's voided receipt is handed back as-is.
+	OnReceipt func(protocol.UsageReceipt)
 	// ReasoningFallbackOff disables the reasoning->content fallback (founder ruling, option
 	// A, 2026-07-08). The fallback is ON by default (this flag's zero value): when an upstream
 	// reply leaves message.content EMPTY but carries reasoning (message.reasoning or
@@ -882,6 +888,11 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// serialized. A response with no cost header accumulates nothing (fail-safe).
 			cost, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64)
 			onServed(cost)
+			if opts.OnReceipt != nil {
+				if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil && rec.RequestID != "" {
+					opts.OnReceipt(rec)
+				}
+			}
 			// Streamed responses carry no cost header; copyRelayResponse scans the body for
 			// the broker's `: rogerai-cost=` SSE meter comment (passed through unchanged) and
 			// returns it - billed at stream END, per the ceiling (the crossing stream
@@ -1459,6 +1470,9 @@ type UseOptions struct {
 	// disable the proxy already supported programmatically (ProxyOptions.ReasoningFallbackOff)
 	// but had no user-facing surface for - a caller that wants the untouched provider body.
 	Raw bool
+	// OnReceipt is handed each relayed turn's receipt (see ProxyOptions.OnReceipt): how
+	// `roger use` puts its turns on this machine's Edge as `roger use` sessions.
+	OnReceipt func(protocol.UsageReceipt)
 }
 
 // balanceOf fetches the caller's wallet credits (best-effort; -1 if unavailable).
@@ -1619,7 +1633,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
-	}}
+	}, OnReceipt: opt.OnReceipt}
 	return useServe(addr, newProxyHandler(opts))
 }
 
@@ -1723,7 +1737,7 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
-	}}
+	}, OnReceipt: opt.OnReceipt}
 	return useServe(addr, newProxyHandler(opts))
 }
 
