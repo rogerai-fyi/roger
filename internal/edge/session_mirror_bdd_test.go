@@ -30,7 +30,6 @@ type mirrorBDD struct {
 	errs     []error
 	before   []byte // the first's mirror file as written
 	panicked bool
-	deadFile string
 }
 
 func (s *mirrorBDD) reset() {
@@ -120,7 +119,6 @@ func (s *mirrorBDD) firstRecordsAndDies() error {
 	if err := os.Chtimes(s.first.MirrorPath(), s.now, s.now); err != nil {
 		return err
 	}
-	s.deadFile = s.first.MirrorPath()
 	s.first = nil
 	return nil
 }

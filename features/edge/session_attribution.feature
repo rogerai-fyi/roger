@@ -25,7 +25,7 @@
 #
 # 3. A session opened in one process reaches every Edge view on the machine through a MIRROR:
 #    each process that records sessions writes its own live list to one private file under the
-#    config dir (edge-sessions/<pid>.json); a viewer merges its siblings of the SAME account.
+#    config dir (edge-sessions/<pid>-<seq>.json); a viewer merges its siblings of the SAME account.
 #    Nothing is shared in memory, nothing is locked, nobody writes another process's file. A
 #    mirror carries what the view draws and never the receipt bodies. Mirrored sessions fade on
 #    the same 90-second life, a corrupt file is ignored, and a dead process's file is removed

@@ -161,6 +161,9 @@ func (s *Sessions) mirroredLocked(now time.Time) []Session {
 			// whole life is a dead process's leftovers. A live process rewrites its file
 			// on every Record, so a fresh mtime means a session may have just landed
 			// between this read and the remove; leave it and let the next read see it.
+			// (A republish that lands between this stat and the remove is the one window
+			// left; the owner's next Record republishes it, so a session is delayed a
+			// turn at most, never lost.)
 			if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) > SessionLife {
 				_ = os.Remove(p)
 			}
