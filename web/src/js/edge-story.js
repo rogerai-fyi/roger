@@ -1,9 +1,9 @@
 /* =====================================================================
-   RogerAI - homepage FIG.2, the Roger Edge story reel. Three films (Story
-   A, Story B, and the FireDefense use case) muted, played back to back
-   forever in random order - edge-story.js swaps <source> on `ended`,
-   never repeating the film that just played, and picks which one opens at
-   random per page load.
+   RogerAI - homepage FIG.2, the Roger Edge story reel. Four films (Story
+   A, Story B, the FireDefense use case and The Band, the Network film)
+   muted, played back to back forever in random order - edge-story.js swaps
+   <source> on `ended`, never repeating the film that just played, and
+   picks which one opens at random per page load.
 
    The power-on/off is an old CRT set, and it is the screen's actual HEIGHT
    that collapses to a thin bright line and back - not an internal clip over
@@ -41,14 +41,15 @@
   var muteBtn = document.getElementById("edgeMute");
   var muteLabel = document.getElementById("edgeMuteLabel");
 
-  // Three films: the two original brand films plus the FireDefense use case.
-  // The order is random but never repeats the one that just played, so a
-  // visitor who stays sees all three before any recurs, and a repeat visit
-  // does not always open on the same one.
+  // Four films: the two original brand films, the FireDefense use case and
+  // The Band (the Network film). The order is random but never repeats the
+  // one that just played, so a visitor who stays sees a different film each
+  // time, and a repeat visit does not always open on the same one.
   var STORIES = {
     a:  { webm: "assets/edge/story-a.webm", mp4: "assets/edge/story-a.mp4", poster: "assets/edge/poster-a.webp", tag: "STORY A" },
     b:  { webm: "assets/edge/story-b.webm", mp4: "assets/edge/story-b.mp4", poster: "assets/edge/poster-b.webp", tag: "STORY B" },
-    fd: { webm: "assets/edge/hero-fd.webm", mp4: "assets/edge/hero-fd.mp4", poster: "assets/edge/poster-fd.webp", tag: "FIREDEFENSE" }
+    fd: { webm: "assets/edge/hero-fd.webm", mp4: "assets/edge/hero-fd.mp4", poster: "assets/edge/poster-fd.webp", tag: "FIREDEFENSE" },
+    n:  { webm: "assets/edge/hero-n.webm",  mp4: "assets/edge/hero-n.mp4",  poster: "assets/edge/poster-n.webp",  tag: "THE BAND" }
   };
   var KEYS = Object.keys(STORIES);
   function pick(except) {
@@ -57,6 +58,12 @@
   }
   var sources = video.querySelectorAll("source");
   var current = pick(null);
+  // the film that follows is decided as soon as one starts, so its poster
+  // (a ~20KB webp) can be warmed while this one plays and the hand-over
+  // shows the right frame instantly instead of a blank screen while the
+  // next file's first bytes arrive. Only the poster is warmed: the video
+  // bytes themselves stay lazy, fetched by the <video> when it is its turn.
+  var next = null;
   var loaded = false;
 
   function setStory(key) {
@@ -69,6 +76,7 @@
     video.setAttribute("poster", s.poster);
     if (tagEl) tagEl.textContent = s.tag;
     video.load();
+    next = pick(key);
   }
 
   function playCurrent() {
@@ -76,9 +84,16 @@
     if (p && p.catch) p.catch(function () {});
   }
 
+  // once the current film is actually rolling, warm the next film's poster.
+  video.addEventListener("playing", function () {
+    if (!next) return;
+    var img = new Image();
+    img.src = STORIES[next].poster;
+  });
+
   // advance to a different film at random and keep going.
   video.addEventListener("ended", function () {
-    setStory(pick(current));
+    setStory(next || pick(current));
     playCurrent();
   });
 
