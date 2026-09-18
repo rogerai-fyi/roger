@@ -157,7 +157,13 @@ func (s *Sessions) mirroredLocked(now time.Time) []Session {
 			out = append(out, m.session(s.account))
 		}
 		if live == 0 && len(f.Sessions) > 0 {
-			_ = os.Remove(p) // everything in it has faded: a dead process's leftovers
+			// Everything in it has faded - but only a file nobody has REPUBLISHED for a
+			// whole life is a dead process's leftovers. A live process rewrites its file
+			// on every Record, so a fresh mtime means a session may have just landed
+			// between this read and the remove; leave it and let the next read see it.
+			if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) > SessionLife {
+				_ = os.Remove(p)
+			}
 		}
 	}
 	return out

@@ -124,6 +124,8 @@ func TestEdgeHostStatusReportsTheEngineNotTheKnob(t *testing.T) {
 	useTempConfig(t)
 	h, err := newEdgeHost("gentle-mongoose-93")
 	require.NoError(t, err)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	h.statusNow = func() time.Time { return now }
 	// Never armed: discovery is reported off however the environment reads, because no
 	// engine exists to be scanning.
 	st := h.status()
@@ -134,8 +136,24 @@ func TestEdgeHostStatusReportsTheEngineNotTheKnob(t *testing.T) {
 	h.mu.Lock()
 	h.armed, h.every, h.lastPass, h.lastFound = true, 30*time.Second, time.Now().Add(-12*time.Second), edge.PassSummary(0, 0)
 	h.mu.Unlock()
+	now = now.Add(edgeStatusTTL) // arming happens at launch, before any viewer polls
 	st = h.status()
 	require.Equal(t, edge.DiscoveryScanning, st.Discovery)
 	require.EqualValues(t, 30, st.IntervalS)
 	require.Contains(t, st.DiscoveryLine(time.Now()), "last pass 12s ago, nothing answered")
+}
+
+func TestEdgeHostStatusIsCachedUnderAPollingViewer(t *testing.T) {
+	useTempConfig(t)
+	h, err := newEdgeHost("gentle-mongoose-93")
+	require.NoError(t, err)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	h.statusNow = func() time.Time { return now }
+	first := h.status()
+	// A change on disk within the TTL is not seen: the console polls once a second and
+	// the status opens the authority's root each real read.
+	runEdgeCLI(t, "edge", "authority", "local", "shed")
+	require.Equal(t, first, h.status(), "within the TTL the cached status is served")
+	now = now.Add(edgeStatusTTL)
+	require.True(t, h.status().AuthorityHere, "past the TTL the status is really read again")
 }

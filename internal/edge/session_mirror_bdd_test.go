@@ -30,6 +30,7 @@ type mirrorBDD struct {
 	errs     []error
 	before   []byte // the first's mirror file as written
 	panicked bool
+	deadFile string
 }
 
 func (s *mirrorBDD) reset() {
@@ -114,7 +115,13 @@ func (s *mirrorBDD) firstRecordsAndDies() error {
 	if err := s.firstRecords(); err != nil {
 		return err
 	}
-	s.first = nil // gone: it writes nothing more
+	// Gone: it writes nothing more, so its file's last write is the one it made now, on
+	// the ledger's clock (the suite's clock is injected; the file's mtime is set to match).
+	if err := os.Chtimes(s.first.MirrorPath(), s.now, s.now); err != nil {
+		return err
+	}
+	s.deadFile = s.first.MirrorPath()
+	s.first = nil
 	return nil
 }
 

@@ -83,6 +83,13 @@ type edgeHost struct {
 	lastFound   string
 	unavailable bool
 	armed       bool // the engine exists (ROGERAI_EDGE_DISCOVERY was not 0)
+	// The status is polled - once a frame by the TUI, once a second by the console - and
+	// reading it opens the authority's root and dials for the LAN address. It is cached
+	// for edgeStatusTTL; the files it reads change on the owner's own commands, not
+	// per second. statusNow is a clock seam for the cache's test.
+	statusVal edge.SelfStatus
+	statusAt  time.Time
+	statusNow func() time.Time
 
 	// mu guards the candidate list and the state-file write: the discovery goroutine
 	// refreshes both while the UI goroutine reads them for a frame.
@@ -122,7 +129,19 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 // - read from the same files the CLI reads, plus what only the running host knows: the
 // last pass and this machine's authority address.
 func (h *edgeHost) status() edge.SelfStatus {
+	now := time.Now
+	if h.statusNow != nil {
+		now = h.statusNow
+	}
 	h.mu.Lock()
+	if !h.statusAt.IsZero() && now().Sub(h.statusAt) < edgeStatusTTL {
+		v := h.statusVal
+		h.mu.Unlock()
+		return v
+	}
+	// st is read under the lock: adoptEnrollment replaces it when this machine joins
+	// an Edge while running, and a status must be read from one state, not two.
+	st := h.st
 	facts := edgeDiscoveryFacts{
 		Enabled: h.armed, Unavailable: h.unavailable, Interval: h.every,
 		LastPass: h.lastPass, Found: h.lastFound, AuthorityAddr: edgeAuthorityURL(h.authLn),
@@ -133,8 +152,15 @@ func (h *edgeHost) status() edge.SelfStatus {
 	if facts.Interval == 0 {
 		facts.Interval = edge.ConfigFromEnv(nil).Interval
 	}
-	return edgeSelfStatus(h.st.fleet, facts)
+	v := edgeSelfStatus(st.fleet, facts)
+	h.mu.Lock()
+	h.statusVal, h.statusAt = v, now()
+	h.mu.Unlock()
+	return v
 }
+
+// edgeStatusTTL bounds how often the status is really read under a polling viewer.
+const edgeStatusTTL = 5 * time.Second
 
 // candidates is what discovery has SEEN and nobody has adopted. They are handed over as a
 // copy of their own list, never merged into the fleet: this machine holds no Edge
