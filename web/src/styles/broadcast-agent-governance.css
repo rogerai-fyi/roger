@@ -73,6 +73,7 @@
   display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center;
   margin-bottom: var(--s-4);
 }
+.gov-compare__badge--live { background: var(--white); border-radius: var(--r-pill); }
 .gov-compare__col h3 {
   margin: 0 0 var(--s-3); color: var(--ink-900); font-size: var(--t-h3); font-weight: var(--weight-semi);
 }
