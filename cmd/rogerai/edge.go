@@ -538,7 +538,7 @@ func cmdEdgeList(cfg config, args []string) error {
 		} else {
 			fact("THIS MACHINE", self.MachineLine())
 			fact("AUTHORITY", self.AuthorityLines()...)
-			fact("DISCOVERY", self.DiscoveryLine(time.Now())+" (roger edge scan looks now)")
+			fact("DISCOVERY", self.DiscoveryLine(time.Now()))
 		}
 		fmt.Println("  find the others on this network:  roger edge scan")
 		fmt.Println("  then take one into the fleet:     roger edge adopt <node>")

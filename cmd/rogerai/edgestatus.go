@@ -26,9 +26,11 @@ import (
 type edgeDiscoveryFacts struct {
 	Enabled     bool
 	Unavailable bool
-	Interval    time.Duration
-	LastPass    time.Time
-	Found       string
+	// NoEngine: the switch is on but this process runs no discovery (a one-shot CLI).
+	NoEngine bool
+	Interval time.Duration
+	LastPass time.Time
+	Found    string
 	// AuthorityAddr is the address other machines enroll against when THIS machine is
 	// the authority and its LAN service is up; "" otherwise.
 	AuthorityAddr string
@@ -37,7 +39,7 @@ type edgeDiscoveryFacts struct {
 // edgeDiscoveryFactsFromEnv is the CLI's view: the knobs, and no pass yet.
 func edgeDiscoveryFactsFromEnv() edgeDiscoveryFacts {
 	cfg := edge.ConfigFromEnv(nil)
-	return edgeDiscoveryFacts{Enabled: cfg.Enabled, Interval: cfg.Interval}
+	return edgeDiscoveryFacts{Enabled: cfg.Enabled, Interval: cfg.Interval, NoEngine: true}
 }
 
 // edgeSelfStatus fills the record. A record that cannot be read is reported as such
@@ -84,6 +86,8 @@ func edgeSelfStatus(fleet *edge.Fleet, disc edgeDiscoveryFacts) edge.SelfStatus 
 		st.Discovery = edge.DiscoveryOff
 	case disc.Unavailable:
 		st.Discovery = edge.DiscoveryUnavailable
+	case disc.NoEngine:
+		st.Discovery = edge.DiscoveryIdle
 	default:
 		st.Discovery = edge.DiscoveryScanning
 	}

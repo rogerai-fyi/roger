@@ -888,16 +888,21 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// serialized. A response with no cost header accumulates nothing (fail-safe).
 			cost, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64)
 			onServed(cost)
-			if opts.OnReceipt != nil {
+			// The receipt: a non-streamed response carries it as a header, a stream carries
+			// it as the `: rogerai-receipt=` comment at its end (beside the cost). One or the
+			// other hands it to OnReceipt, never both.
+			onReceipt := opts.OnReceipt
+			if onReceipt != nil {
 				if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil && rec.RequestID != "" {
-					opts.OnReceipt(rec)
+					onReceipt(rec)
+					onReceipt = nil
 				}
 			}
 			// Streamed responses carry no cost header; copyRelayResponse scans the body for
 			// the broker's `: rogerai-cost=` SSE meter comment (passed through unchanged) and
 			// returns it - billed at stream END, per the ceiling (the crossing stream
 			// completes; the NEXT call is refused).
-			if sc := copyRelayResponse(w, resp, !opts.ReasoningFallbackOff); sc > 0 && onStreamCost != nil {
+			if sc := copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, onReceipt); sc > 0 && onStreamCost != nil {
 				onStreamCost(sc)
 			}
 			resp.Body.Close()
@@ -977,7 +982,7 @@ const maxTransformBody = 8 << 20
 // body it buffers, applies applyReasoningFallback when enabled, and forwards. reasoningFallbackOn
 // only reshapes body text; status, headers (incl. the billed X-RogerAI-Cost), and the SSE meter
 // pass through untouched.
-func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFallbackOn bool) (sseCost float64) {
+func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFallbackOn bool, onReceipt func(protocol.UsageReceipt)) (sseCost float64) {
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
@@ -994,7 +999,7 @@ func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFall
 	w.WriteHeader(resp.StatusCode)
 
 	if strings.Contains(ct, "text/event-stream") {
-		return streamRelayBody(w, resp.Body, reasoningFallbackOn)
+		return streamRelayBody(w, resp.Body, reasoningFallbackOn, onReceipt)
 	}
 
 	// Non-streaming JSON: buffer (bounded), transform if enabled, forward. Billing is in the
@@ -1024,7 +1029,19 @@ type sseMeter struct {
 	line     []byte
 	overflow bool
 	cost     float64
+	// receipt is the broker's stream-end `: rogerai-receipt=` comment, decoded; hasReceipt
+	// says one arrived. A malformed comment is ignored the way a malformed cost is.
+	receipt    protocol.UsageReceipt
+	hasReceipt bool
 }
+
+// sseReceiptPrefix is the stream-end receipt comment the broker emits beside the cost
+// meter (cmd/rogerai-broker relayStream). A receipt is longer than a cost, so the meter's
+// line bound is sized for it.
+const (
+	sseReceiptPrefix = ": rogerai-receipt="
+	sseMeterLineMax  = 8 << 10
+)
 
 func (m *sseMeter) scan(p []byte) {
 	for _, c := range p {
@@ -1035,13 +1052,17 @@ func (m *sseMeter) scan(p []byte) {
 					if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil && f > 0 {
 						m.cost = f // a malformed / non-positive amount is ignored (fail-safe)
 					}
+				} else if v, ok := strings.CutPrefix(line, sseReceiptPrefix); ok {
+					if rec, err := protocol.DecodeReceipt(strings.TrimSpace(v)); err == nil && rec.RequestID != "" {
+						m.receipt, m.hasReceipt = rec, true
+					}
 				}
 			}
 			m.line = m.line[:0]
 			m.overflow = false
 			continue
 		}
-		if len(m.line) < 128 {
+		if len(m.line) < sseMeterLineMax {
 			m.line = append(m.line, c)
 		} else {
 			m.overflow = true
@@ -1168,9 +1189,16 @@ const maxSSELine = 1 << 20
 // delivered as a single consolidated delta at stream end, not re-chunked live as it arrives.
 // Everything else - the original reasoning deltas (the accepted double-mirror), the finish
 // chunk, [DONE], and the meter comment - passes through byte-for-byte.
-func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn bool) (sseCost float64) {
+func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn bool, onReceipt func(protocol.UsageReceipt)) (sseCost float64) {
 	flusher, _ := w.(http.Flusher)
 	meter := &sseMeter{}
+	// The stream-end receipt comment is handed back once the stream has fully passed
+	// through - after the caller's bytes, never instead of them.
+	defer func() {
+		if onReceipt != nil && meter.hasReceipt {
+			onReceipt(meter.receipt)
+		}
+	}()
 	write := func(p []byte) {
 		w.Write(p)
 		meter.scan(p)

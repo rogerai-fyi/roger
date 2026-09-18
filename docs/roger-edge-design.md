@@ -344,7 +344,10 @@ production on a free band.
 
 `roger use` and the guest operators are wired too (2026-09-17, `features/edge/
 session_attribution.feature`): the local proxy hands each relayed response's receipt to one
-optional callback (`ProxyOptions.OnReceipt`), and the surface that owns the proxy decides the
+optional callback (`ProxyOptions.OnReceipt`) - from the `X-RogerAI-Receipt` header on a
+non-streamed reply, and from the `: rogerai-receipt=` SSE comment the broker now emits at a
+settled stream's end beside its cost comment (a stream's headers flush before any output, and
+guests stream by default) - and the surface that owns the proxy decides the
 attribution, never the proxy: the TUI's endpoint attributes to the GUEST'S NAME while a guest
 holds the mic (exec to return) and to `roger use` otherwise; the `roger use` process attributes
 to `roger use`. A session opened in one process reaches every Edge view on the machine through

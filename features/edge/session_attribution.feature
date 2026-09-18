@@ -68,6 +68,43 @@ Feature: Every turn through the local proxy is a session, attributed to whoever 
     Then the callback receives the voided receipt with its reason
     And the program saw the refusal status
 
+  # A STREAM carries no receipt header: the broker flushes its headers before any output, so
+  # the receipt, like the cost, can only ride the stream's END as an SSE comment. Guests
+  # stream by default; without this they would never become sessions.
+  @broker
+  Scenario: a settled stream ends with its receipt beside its cost
+    Given a broker relaying a streamed turn that settles
+    Then the stream ends with the ": rogerai-cost=" comment as today
+    And a ": rogerai-receipt=" comment carrying the settled receipt follows it
+    And the receipt names the request, the station and the model that served
+
+  @broker
+  Scenario: a stream that did not settle carries no receipt comment
+    Given a broker relaying a streamed turn whose station produced no output
+    Then the stream carries neither a cost comment nor a receipt comment
+
+  @client
+  Scenario: a streamed turn hands its receipt from the stream's end
+    Given a local proxy with a receipt callback over a stream-faithful broker that ends with a receipt comment
+    When a program relays one streamed turn through the proxy
+    Then the callback receives exactly one receipt
+    And it names the request id, the band and the station the broker named
+    And the receipt comment passes through to the program unchanged
+
+  @client
+  Scenario: a stream with no receipt comment hands back nothing
+    Given a local proxy with a receipt callback over a stream-faithful broker that ends with a cost comment only
+    When a program relays one streamed turn through the proxy
+    Then the callback is not called
+    And the reply still reached the program
+
+  @client
+  Scenario: a malformed receipt comment hands back nothing and breaks nothing
+    Given a local proxy with a receipt callback over a stream-faithful broker that ends with a malformed receipt comment
+    When a program relays one streamed turn through the proxy
+    Then the callback is not called
+    And the reply still reached the program
+
   @client
   Scenario: a proxy with no callback relays exactly as before
     Given a local proxy with no receipt callback
@@ -201,6 +238,13 @@ Feature: Every turn through the local proxy is a session, attributed to whoever 
     When the first records a receipted turn
     Then the mirror directory is readable by the owner only
     And the mirror file is readable by the owner only
+
+  @edge
+  Scenario: routing a finding republishes it
+    Given two session ledgers for account "acct-1" mirrored under one directory
+    When the first records a receipted turn
+    And the first routes it to "human review"
+    Then the second lists it routed to "human review"
 
   @edge
   Scenario: a ledger with no mirror directory behaves exactly as before

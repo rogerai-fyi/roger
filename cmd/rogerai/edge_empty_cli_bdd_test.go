@@ -72,6 +72,18 @@ func TestEmptyEdgeFeatureCLI(t *testing.T) {
 			sc.Then(`^it prints AUTHORITY as Core$`, func() error { return st.printsFact("AUTHORITY", "Core") })
 			sc.Then(`^it prints the scan and adopt hints$`, st.printsScanAdoptHints)
 			sc.Then(`^it names "([^"]*)" and "([^"]*)"$`, st.namesBoth)
+			sc.Then(`^it prints DISCOVERY as not scanning in this process$`, func() error {
+				if err := st.printsFact("DISCOVERY", "not scanning in this process"); err != nil {
+					return err
+				}
+				for _, ln := range strings.Split(st.out, "\n") {
+					if strings.Contains(ln, "DISCOVERY") && strings.Contains(ln, "scanning this network") {
+						return fmt.Errorf("the one-shot CLI claims to be scanning: %q", ln)
+					}
+				}
+				return nil
+			})
+			sc.Then(`^it names "([^"]*)" as the way to look now$`, func(w string) error { return st.namesBoth(w, w) })
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true, Tags: "@cli",

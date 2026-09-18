@@ -2787,6 +2787,12 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				waitPump() // never write w while the multi-instance pump may still be writing
 				lw.commit()
 				fmt.Fprintf(lw, ": rogerai-cost=%s\n\n", fmtCostHeader(cost))
+				// SSE RECEIPT (features/edge/session_attribution.feature): the same reason
+				// and the same shape as the cost meter. A stream's headers were flushed
+				// before any output, so X-RogerAI-Receipt cannot ride them; without this
+				// a streamed turn (every guest operator, by default) could never become a
+				// session on the caller's Edge. Comment line, after the cost, settled only.
+				fmt.Fprintf(lw, ": rogerai-receipt=%s\n\n", protocol.EncodeReceipt(rec))
 				lw.flush()
 			} else {
 				lw.commit() // a served-but-unsettled stream still ends as the stream it was

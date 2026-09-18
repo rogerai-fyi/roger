@@ -215,3 +215,10 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
     And it prints AUTHORITY as Core
     And it prints the scan and adopt hints
     And it names "roger edge enroll" and "roger edge authority local"
+
+  @cli
+  Scenario: `roger edge` without a running host does not claim to be scanning
+    Given an owner who is not logged in
+    When they run "roger edge"
+    Then it prints DISCOVERY as not scanning in this process
+    And it names "roger edge scan" as the way to look now

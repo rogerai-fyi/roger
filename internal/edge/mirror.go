@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -163,7 +162,3 @@ func (s *Sessions) mirroredLocked(now time.Time) []Session {
 	}
 	return out
 }
-
-// mirrorName is exported for the surfaces' own tests only through MirrorPath; the base
-// name's shape is documented here: "<pid>-<seq>.json".
-var _ = strconv.Itoa

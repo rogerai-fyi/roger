@@ -78,6 +78,8 @@ func TestSelfStatusDiscoveryLine(t *testing.T) {
 	}{
 		{"off", SelfStatus{Discovery: DiscoveryOff}, []string{"off", "ROGERAI_EDGE_DISCOVERY"}, []string{"scanning"}},
 		{"unavailable", SelfStatus{Discovery: DiscoveryUnavailable}, []string{"unavailable"}, []string{"scanning"}},
+		{"idle: no engine in this process", SelfStatus{Discovery: DiscoveryIdle, IntervalS: 30},
+			[]string{"not scanning in this process", "roger edge scan", "every 30s"}, []string{"scanning this network"}},
 		{"scanning, no pass yet", SelfStatus{Discovery: DiscoveryScanning, IntervalS: 30},
 			[]string{"scanning this network every 30s", "no pass has completed yet"}, []string{"ago"}},
 		{"scanning, nothing answered", SelfStatus{Discovery: DiscoveryScanning, IntervalS: 30, LastPass: now.Add(-12 * time.Second).Unix(), Found: PassSummary(0, 0)},

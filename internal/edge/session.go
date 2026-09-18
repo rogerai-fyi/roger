@@ -345,6 +345,7 @@ func (s *Sessions) Route(request, dest string) (Session, error) {
 	}
 	ses.Route = dest
 	s.byReq[request] = ses
+	s.publishLocked() // routing is drawn by every window, so it crosses processes too
 	return ses, nil
 }
 

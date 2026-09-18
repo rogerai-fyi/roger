@@ -132,6 +132,19 @@ func (s *mirrorBDD) secondReadsManyTimes() error {
 
 func (s *mirrorBDD) secondReads() error { s.second.Live(); return nil }
 
+func (s *mirrorBDD) firstRoutes(dest string) error {
+	_, err := s.first.Route("r1", dest)
+	return err
+}
+
+func (s *mirrorBDD) secondListsRouted(dest string) error {
+	live := s.second.Live()
+	if len(live) != 1 || live[0].Route != dest {
+		return fmt.Errorf("second lists %+v, want route %q", live, dest)
+	}
+	return nil
+}
+
 func (s *mirrorBDD) itRecords() error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -330,6 +343,8 @@ func TestSessionMirrorFeature(t *testing.T) {
 			sc.Step(`^(\d+) seconds pass$`, st.secondsPass)
 			sc.Step(`^the second reads its sessions many times$`, st.secondReadsManyTimes)
 			sc.Step(`^the second reads its sessions$`, st.secondReads)
+			sc.Step(`^the first routes it to "([^"]*)"$`, st.firstRoutes)
+			sc.Step(`^the second lists it routed to "([^"]*)"$`, st.secondListsRouted)
 			sc.Step(`^it records a receipted turn$`, st.itRecords)
 			sc.Step(`^the second lists that session$`, st.secondListsIt)
 			sc.Step(`^the first lists it once, not twice$`, st.firstListsOnce)

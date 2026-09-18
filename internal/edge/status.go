@@ -22,6 +22,9 @@ const (
 	DiscoveryScanning    = "scanning"
 	DiscoveryOff         = "off"
 	DiscoveryUnavailable = "unavailable"
+	// DiscoveryIdle: the switch is on but THIS process runs no engine - a one-shot
+	// `roger edge` - so it must not claim to be scanning. The TUI and the console scan.
+	DiscoveryIdle = "idle"
 )
 
 // SelfStatus is the record. Err set means the status could not be read: a surface shows
@@ -111,6 +114,12 @@ func (s SelfStatus) DiscoveryLine(now time.Time) string {
 		return "off · ROGERAI_EDGE_DISCOVERY=0 in this environment; unset it to scan this network"
 	case DiscoveryUnavailable:
 		return "unavailable on this network · roger edge scan says why"
+	case DiscoveryIdle:
+		out := "not scanning in this process · roger edge scan looks now; the TUI and the console scan while open"
+		if s.IntervalS > 0 {
+			out += " (every " + (time.Duration(s.IntervalS) * time.Second).String() + ")"
+		}
+		return out
 	}
 	out := "scanning this network"
 	if s.IntervalS > 0 {

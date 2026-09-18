@@ -45,6 +45,22 @@ func (s *receiptBDD) startBroker() {
 			_, _ = io.WriteString(w, `{"offers":[{"node_id":"house-or-1","model":"gpt-oss-120b","price_out":0.5,"price_in":0.2,"online":true}]}`)
 			return
 		}
+		if strings.HasPrefix(s.mode, "stream") {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("X-RogerAI-Provider", "house-or-1")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"pong\"}}]}\n\n")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			_, _ = io.WriteString(w, ": rogerai-cost=0.001\n\n")
+			switch s.mode {
+			case "stream":
+				_, _ = io.WriteString(w, ": rogerai-receipt="+protocol.EncodeReceipt(protocol.UsageReceipt{
+					RequestID: "req-77", NodeID: "house-or-1", Model: "gpt-oss-120b", CompletionTokens: 9})+"\n\n")
+			case "stream-bad":
+				_, _ = io.WriteString(w, ": rogerai-receipt={not json\n\n")
+			}
+			return
+		}
 		switch s.mode {
 		case "receipt":
 			w.Header().Set("X-RogerAI-Provider", "house-or-1")
@@ -84,6 +100,28 @@ func (s *receiptBDD) proxyWith(mode string, withCallback bool) error {
 }
 
 func (s *receiptBDD) proxyReceipts() error   { return s.proxyWith("receipt", true) }
+func (s *receiptBDD) proxyStream() error     { return s.proxyWith("stream", true) }
+func (s *receiptBDD) proxyStreamCost() error { return s.proxyWith("stream-cost-only", true) }
+func (s *receiptBDD) proxyStreamBad() error  { return s.proxyWith("stream-bad", true) }
+
+func (s *receiptBDD) relayStreamed() error {
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"model":"x","stream":true,"messages":[{"role":"user","content":"ping"}]}`))
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:5555"
+	s.resp = httptest.NewRecorder()
+	s.handler.ServeHTTP(s.resp, req)
+	return nil
+}
+
+func (s *receiptBDD) receiptCommentPassedThrough() error {
+	body := s.resp.Body.String()
+	if !strings.Contains(body, ": rogerai-receipt=") || !strings.Contains(body, "pong") {
+		return fmt.Errorf("the stream reaching the program is not the broker's:\n%s", body)
+	}
+	return nil
+}
 func (s *receiptBDD) proxyNoReceipt() error  { return s.proxyWith("none", true) }
 func (s *receiptBDD) proxyRefuses() error    { return s.proxyWith("refuse", true) }
 func (s *receiptBDD) proxyNoCallback() error { return s.proxyWith("receipt", false) }
@@ -181,6 +219,11 @@ func TestProxyReceiptCallbackFeature(t *testing.T) {
 			sc.Step(`^a local proxy with a receipt callback over a broker that sends no receipt header$`, st.proxyNoReceipt)
 			sc.Step(`^a local proxy with a receipt callback over a broker that refuses with a voided receipt$`, st.proxyRefuses)
 			sc.Step(`^a local proxy with no receipt callback$`, st.proxyNoCallback)
+			sc.Step(`^a local proxy with a receipt callback over a stream-faithful broker that ends with a receipt comment$`, st.proxyStream)
+			sc.Step(`^a local proxy with a receipt callback over a stream-faithful broker that ends with a cost comment only$`, st.proxyStreamCost)
+			sc.Step(`^a local proxy with a receipt callback over a stream-faithful broker that ends with a malformed receipt comment$`, st.proxyStreamBad)
+			sc.Step(`^a program relays one streamed turn through the proxy$`, st.relayStreamed)
+			sc.Step(`^the receipt comment passes through to the program unchanged$`, st.receiptCommentPassedThrough)
 			sc.Step("^`roger use` opened with a receipt callback, confirmed$", st.useWithCallback)
 			sc.Step(`^a program relays one turn through (?:the proxy|that endpoint)$`, st.relayOnce)
 			sc.Step(`^the callback receives exactly one receipt$`, st.exactlyOne)
