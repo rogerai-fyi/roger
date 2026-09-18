@@ -4,7 +4,7 @@ rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:104:			serve				80.0%
 rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:112:			run				85.7%
 rogerai.fm/roger/v6/cmd/roger-tower/earnings.go:23:			cmdEarnings			96.3%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:112:				tlsWanted			100.0%
-rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		73.1%
+rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		71.9%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:505:				registerHubNodes		100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:555:				limitConns			100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:564:				Accept				100.0%
@@ -556,7 +556,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:407:		screen				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:440:		urlFailMode			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:470:		urlCall				96.8%
 rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:551:		screenGroq			100.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:578:		classify			92.3%
+rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:578:		classify			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:610:		classifyOffPath			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:619:		configured			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/moderation.go:633:		groqCall			94.4%
@@ -668,7 +668,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:405:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:436:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:466:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:477:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				66.7%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				72.2%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:568:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:595:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:639:			rcStream			71.9%
@@ -1761,7 +1761,7 @@ rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:128:		readOffset			100.0%
 rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:136:		advance				100.0%
 rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:143:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:155:		Start				80.0%
-rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:196:		Poll				83.9%
+rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:196:		Poll				87.1%
 rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:258:		Approve				66.7%
 rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:266:		Deny				100.0%
 rogerai.fm/roger/v6/internal/deviceauth/deviceauth.go:273:		settle				92.9%
@@ -2738,7 +2738,7 @@ rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:88:		PutAuthorizationC
 rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:110:		Reap				100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:129:		CountLiveAttachments		100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:141:		Authorization			100.0%
-rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:150:		Admit				95.0%
+rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:150:		Admit				90.0%
 rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:227:		ByStation			100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:237:		ByStations			100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/memstore.go:253:		TouchRoutable			100.0%
@@ -3144,7 +3144,7 @@ rogerai.fm/roger/v6/internal/towerhub/client.go:355:			httpClient			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:368:			refuseRedirect			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:373:			url				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:383:			authenticate			88.9%
-rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			95.5%
+rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:446:			PollJob				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:521:			errSnippet			100.0%
