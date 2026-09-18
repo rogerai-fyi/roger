@@ -78,6 +78,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
 	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
+	{"sessions", "", "show the live sessions on this machine's Edge", 0, 0},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
 }
@@ -109,6 +110,7 @@ func edgeUsage() string {
 	}
 	b.WriteString(`
   list    --json  --capability <cap>  --dark  --candidates
+  sessions --json
   forget  --yes                       skip the confirmation
   any     --verbose                   say which transport carried the request
 `)
@@ -153,6 +155,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeForget(cfg, rest)
 	case "adopt":
 		return cmdEdgeAdopt(cfg, rest)
+	case "sessions":
+		return cmdEdgeSessions(cfg, rest)
 	case "enroll":
 		return cmdEdgeEnroll(cfg, rest)
 	case "authority":
@@ -1116,4 +1120,80 @@ func edgeMergeCandidates(old, fresh []store.EdgeNode) []store.EdgeNode {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// --- sessions -------------------------------------------------------------
+
+// edgeSessionRow is the JSON shape of one drawn session: the same fields the console's
+// EDGE tab serves, so a script and the browser read one snapshot.
+type edgeSessionRow struct {
+	Request  string `json:"request"`
+	Kind     string `json:"kind"`
+	Who      string `json:"who"`
+	Band     string `json:"band"`
+	Station  string `json:"station,omitempty"`
+	Left     string `json:"left,omitempty"`
+	Via      string `json:"via,omitempty"`
+	Escalate bool   `json:"escalate"`
+	Outcome  string `json:"outcome"`
+	Count    int    `json:"count"`
+	At       int64  `json:"at"`
+}
+
+// cmdEdgeSessions is the CLI's window on the traffic this machine's Edge is carrying: the
+// same mirrored ledger the TUI's [3] EDGE and the console's EDGE tab merge (every process
+// on the machine that records sessions publishes to it), grouped and worded by the same
+// rules. It reads; it cannot open a session, the same as the screens.
+func cmdEdgeSessions(cfg config, args []string) error {
+	leaf, _ := edgeLeaf("sessions")
+	argv, err := parseEdgeArgv(leaf, args)
+	if err != nil {
+		return err
+	}
+	st, err := loadEdgeState()
+	if err != nil {
+		return err
+	}
+	groups := edge.GroupSessions(st.sessions.Live())
+	if argv.has("json") {
+		rows := make([]edgeSessionRow, 0, len(groups))
+		for _, g := range groups {
+			x := g.Session
+			rows = append(rows, edgeSessionRow{Request: x.Request, Kind: string(x.Kind), Who: x.Attribution(),
+				Band: x.Band, Station: x.Station, Left: x.Left, Via: x.Via, Escalate: x.Escalate,
+				Outcome: x.OutcomeLabel(), Count: g.Count, At: x.At})
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rows)
+	}
+	if len(groups) == 0 {
+		fmt.Printf("the Edge is quiet: no sessions in the last %d seconds.\n", int(edge.SessionLife.Seconds()))
+		fmt.Println("  a session appears here once a turn through roger use, the TUI, a guest or the console is receipted.")
+		return nil
+	}
+	fmt.Printf("SESSIONS · %d in the last %d seconds\n", len(st.sessions.Live()), int(edge.SessionLife.Seconds()))
+	fmt.Printf("  %-18s %-22s %-40s %s\n", "WHO", "BAND", "PATH", "OUTCOME")
+	for _, g := range groups {
+		x := g.Session
+		var hops []string
+		if x.Via != "" {
+			hops = append(hops, x.Via)
+		}
+		if x.Left != "" {
+			hops = append(hops, x.Left+" ✗")
+		}
+		if x.Station != "" {
+			hops = append(hops, x.Station)
+		}
+		path := "—"
+		if len(hops) > 0 {
+			path = "→ " + strings.Join(hops, " → ")
+		}
+		if g.Count > 1 {
+			path += fmt.Sprintf(" ×%d", g.Count)
+		}
+		fmt.Printf("  %-18s %-22s %-40s %s\n", x.Attribution(), x.Band, path, x.OutcomeLabel())
+	}
+	return nil
 }

@@ -7,7 +7,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -17,11 +19,90 @@ import (
 )
 
 type useSessBDD struct {
-	t   *testing.T
-	rec func(protocol.UsageReceipt)
+	t    *testing.T
+	rec  func(protocol.UsageReceipt)
+	out  string
+	err  error
+	code int
 }
 
-func (s *useSessBDD) reset() { useTempConfig(s.t); s.rec = nil }
+func (s *useSessBDD) reset() { useTempConfig(s.t); s.rec, s.out, s.err, s.code = nil, "", nil, 0 }
+
+func (s *useSessBDD) run(line string) error {
+	args := strings.Fields(line)
+	if len(args) == 0 || args[0] != "roger" {
+		return fmt.Errorf("a command line starts with `roger`, got %q", line)
+	}
+	edgeStdin = strings.NewReader("")
+	out, err := captureEdgeStdout(func() error { return dispatch(loadConfig(), args[1:]) })
+	s.out, s.err, s.code = out, err, exitCode(err)
+	if err != nil {
+		s.out += "\nerror: " + err.Error() + "\n"
+	}
+	return nil
+}
+
+func (s *useSessBDD) printsOneRow(who, band, station, outcome string) error {
+	for _, ln := range strings.Split(s.out, "\n") {
+		if strings.Contains(ln, who) && strings.Contains(ln, band) && strings.Contains(ln, station) && strings.Contains(ln, outcome) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no row with %q %q %q %q:\n%s", who, band, station, outcome, s.out)
+}
+
+func (s *useSessBDD) columns() error {
+	for _, c := range []string{"WHO", "BAND", "PATH", "OUTCOME"} {
+		if !strings.Contains(s.out, c) {
+			return fmt.Errorf("no %s column:\n%s", c, s.out)
+		}
+	}
+	return nil
+}
+
+func (s *useSessBDD) saysQuiet() error {
+	if !strings.Contains(s.out, "quiet") || !strings.Contains(s.out, "90") {
+		return fmt.Errorf("a quiet Edge is not said:\n%s", s.out)
+	}
+	return nil
+}
+
+func (s *useSessBDD) exits0() error {
+	if s.code != 0 || s.err != nil {
+		return fmt.Errorf("exit %d err %v", s.code, s.err)
+	}
+	return nil
+}
+
+func (s *useSessBDD) printsJSONRow() error {
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(s.out)), &rows); err != nil {
+		return fmt.Errorf("not a JSON list: %v\n%s", err, s.out)
+	}
+	if len(rows) != 1 {
+		return fmt.Errorf("%d rows: %s", len(rows), s.out)
+	}
+	for _, k := range []string{"request", "who", "band", "station", "outcome", "count"} {
+		if _, ok := rows[0][k]; !ok {
+			return fmt.Errorf("row lacks %q: %s", k, s.out)
+		}
+	}
+	return nil
+}
+
+func (s *useSessBDD) describes(purpose string) error {
+	if !strings.Contains(s.out, purpose) {
+		return fmt.Errorf("help does not describe %q:\n%s", purpose, s.out)
+	}
+	return nil
+}
+
+func (s *useSessBDD) usageError() error {
+	if s.code != 2 {
+		return fmt.Errorf("exit %d, want 2 (usage):\n%s", s.code, s.out)
+	}
+	return nil
+}
 
 func (s *useSessBDD) recorder() error { s.rec = edgeUseRecorder(); return nil }
 
@@ -72,6 +153,14 @@ func TestEdgeUseSessionsFeature(t *testing.T) {
 			sc.Step(`^it is handed a receipt with no request id$`, st.handedNoID)
 			sc.Step(`^this machine's session mirror holds one session attributed to "([^"]*)", band "([^"]*)", station "([^"]*)"$`, st.mirrorHoldsOne)
 			sc.Step(`^this machine's session mirror holds no session$`, st.mirrorHoldsNone)
+			sc.Step(`^they run "([^"]*)"$`, st.run)
+			sc.Step(`^it prints one session row attributed to "([^"]*)", band "([^"]*)", station "([^"]*)", outcome "([^"]*)"$`, st.printsOneRow)
+			sc.Step(`^the columns are WHO, BAND, PATH and OUTCOME, as on the screens$`, st.columns)
+			sc.Step(`^it says the Edge is quiet and names the 90 second window$`, st.saysQuiet)
+			sc.Step(`^it exits 0$`, st.exits0)
+			sc.Step(`^it prints a JSON list with one row carrying request, who, band, station, outcome and count$`, st.printsJSONRow)
+			sc.Step(`^it describes "([^"]*)"$`, st.describes)
+			sc.Step(`^it is a usage error$`, st.usageError)
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true, Tags: "@cli",

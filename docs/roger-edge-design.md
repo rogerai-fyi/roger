@@ -218,7 +218,7 @@ can serve this model", the other is "what machines do I own". They are never joi
 | Edge screen and topology graph in the TUI | Shipped on `wt/roger-edge` |
 | The session layer: sessions drawn on the graph, attributed, counted, faded | Shipped on `wt/roger-edge` |
 | A classifying node's contract (task class, fixed framing, label set) on the record | Shipped on `wt/roger-edge` |
-| Sessions recorded from `roger use` and the guest-operator proxy, attributed and mirrored across processes | Shipped on `wt/roger-edge` (`features/edge/session_attribution.feature`) |
+| Sessions recorded from `roger use` and the guest-operator proxy, attributed and mirrored across processes; `roger edge sessions` | Shipped on `wt/roger-edge` (`features/edge/session_attribution.feature`) |
 | Edge view in the web console (EDGE tab: graph, list fallback, detail, adopt, sessions; console chat turns recorded as sessions) | Shipped on `wt/roger-edge` |
 | The empty Edge as a STATUS (THIS MACHINE / AUTHORITY / DISCOVERY + both ways to add a node) on TUI, console and `roger edge`; an unstarted host is never drawn as "the only node" | Shipped on `wt/roger-edge` (`features/edge/empty_edge.feature`) |
 | Microcontroller firmware, any on-device classifier artifact | **Not built** |
@@ -354,7 +354,9 @@ to `roger use`. A session opened in one process reaches every Edge view on the m
 the session MIRROR: each recording ledger publishes its live list to its own private file under
 `<config>/rogerai/edge-sessions/`, and a viewer merges its same-account siblings - no shared
 memory, no locks, nobody writes another process's file, receipts never written, the same 90 s
-life, and a dead process's file removed by the first reader that finds it faded.
+life, and a dead process's file removed by the first reader that finds it faded. `roger edge
+sessions` (and `--json`) is the CLI's window on that same mirror, so a shell with no TUI open
+still sees what the machine is carrying.
 
 ### 12.7 Pushing Roger Edge
 

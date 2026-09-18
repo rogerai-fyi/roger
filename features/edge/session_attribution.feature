@@ -168,6 +168,36 @@ Feature: Every turn through the local proxy is a session, attributed to whoever 
     When it is handed a receipt with no request id
     Then this machine's session mirror holds no session
 
+  # The CLI is the third window. `roger edge sessions` reads the same mirror the TUI and the
+  # console merge, so a shell with no TUI open still sees what the machine is carrying.
+  @cli
+  Scenario: `roger edge sessions` lists the live sessions on this machine, from every process
+    Given the `roger use` recorder for this machine
+    And it is handed a receipt for "gpt-oss-120b" served by "house-or-1"
+    When they run "roger edge sessions"
+    Then it prints one session row attributed to "roger use", band "gpt-oss-120b", station "house-or-1", outcome "served"
+    And the columns are WHO, BAND, PATH and OUTCOME, as on the screens
+
+  @cli
+  Scenario: `roger edge sessions` on a quiet Edge says so
+    When they run "roger edge sessions"
+    Then it says the Edge is quiet and names the 90 second window
+    And it exits 0
+
+  @cli
+  Scenario: `roger edge sessions --json` is the same snapshot the console serves
+    Given the `roger use` recorder for this machine
+    And it is handed a receipt for "gpt-oss-120b" served by "house-or-1"
+    When they run "roger edge sessions --json"
+    Then it prints a JSON list with one row carrying request, who, band, station, outcome and count
+
+  @cli
+  Scenario: `roger edge sessions` is in the help and takes no arguments
+    When they run "roger edge sessions --help"
+    Then it describes "show the live sessions on this machine's Edge"
+    When they run "roger edge sessions extra"
+    Then it is a usage error
+
   # =========================================================================
   # 3. ONE MACHINE, MANY PROCESSES, ONE VIEW
   # =========================================================================
