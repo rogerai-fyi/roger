@@ -69,6 +69,36 @@ test("gpu-isolation: the wire protocol really is limited to chat/audio paths, pe
   assert.doesNotMatch(proto, /"shell"|"exec"|"run_command"|RunShell/i, "the wire protocol names no execution primitive");
 });
 
+// A first draft of this page said the allowlist was ONE path (chat completions) and "text
+// only" - the merge-round audit caught that isAllowedUpstreamPath actually allows FOUR
+// (plus blank as a chat alias), including two audio paths. Pinned two ways: against the
+// source directly, and against the page's own enumeration, so the two cannot drift apart.
+test("gpu-isolation: the upstream path allowlist is exactly four canonical paths (plus blank), per internal/agent/agent.go", () => {
+  const agent = readSrc("internal/agent/agent.go");
+  assert.match(agent, /func isAllowedUpstreamPath/);
+  for (const p of ["/v1/chat/completions", "/chat/completions", "/v1/audio/speech", "/v1/audio/transcriptions"]) {
+    assert.ok(agent.includes(`"${p}"`), `allowlist source names ${p}`);
+  }
+});
+
+test("gpu-isolation: the page enumerates four endpoints and never claims 'text only'", () => {
+  const html = read(PAGE);
+  const visible = html.replace(/<!--[\s\S]*?-->/g, ""); // exclude the audit-trail comments, which discuss the retired claim by name
+  assert.match(html, /four (fixed )?(API (calls|endpoints)|allowed endpoints|values)/i);
+  assert.doesNotMatch(visible, /text only/i, "audio in/out is real; 'text only' undersells and misstates the actual guarantee");
+});
+
+// The moderation broker is a real, shipped safety layer, but it fails OPEN on a classifier
+// outage (cmd/rogerai-broker/moderation.go groqFailMode) even under require=1 - so the page
+// must never claim screened content "never" reaches a station. Pinned so a future edit
+// cannot quietly restore the overstated absolute the audit caught.
+test("gpu-isolation: the moderation claim is not an unqualified absolute", () => {
+  const mod = readSrc("cmd/rogerai-broker/moderation.go");
+  assert.match(mod, /FAIL OPEN/, "moderation.go documents fail-open on a classifier outage");
+  const html = read(PAGE);
+  assert.doesNotMatch(html, /never gets that far/i);
+});
+
 // grep exits 1 (not 0) when it finds nothing, which execFileSync treats as a thrown
 // error - so "no matches" is the expected, passing outcome here and must be caught,
 // while a real grep failure (exit >1) or an actual match (a real violation) must not be.
@@ -97,10 +127,14 @@ test("gpu-isolation: the node's serve path forwards job.Body verbatim to cfg.Ups
 
 test("gpu-isolation: no inbound listener exists in the share/node code path", () => {
   const files = grepFiles("ListenAndServe|net\\.Listen\\(", ["cmd/rogerai", "internal/agent", "internal/node"]);
-  // onboard.go's 127.0.0.1 OAuth-callback listener is the one known, unrelated exception.
-  for (const f of files) {
-    assert.match(f, /onboard\.go$/, `unexpected inbound listener outside onboard.go: ${f}`);
-  }
+  // Asserted as an EXACT set, not a loop over matches: a loop passes vacuously if the
+  // pattern or paths drift and grep starts matching nothing, which is exactly the failure
+  // mode a security claim like this one cannot afford. onboard.go's 127.0.0.1 OAuth-callback
+  // listener is the one known, unrelated exception - internal/webui and internal/tui also
+  // bind loopback-only listeners for local features (browser console, TUI proxy), but they
+  // sit outside these three directories entirely, so they never enter this comparison.
+  assert.deepEqual(files, ["cmd/rogerai/onboard.go"],
+    `expected only onboard.go's listener in the sharing path, found: ${files.join(", ") || "(none)"}`);
 });
 
 test("gpu-isolation: no em dashes in the copy", () => {
