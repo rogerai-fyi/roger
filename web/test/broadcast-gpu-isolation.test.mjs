@@ -84,7 +84,7 @@ test("gpu-isolation: the upstream path allowlist is exactly four canonical paths
 test("gpu-isolation: the page enumerates four endpoints and never claims 'text only'", () => {
   const html = read(PAGE);
   const visible = html.replace(/<!--[\s\S]*?-->/g, ""); // exclude the audit-trail comments, which discuss the retired claim by name
-  assert.match(html, /four (fixed )?(API (calls|endpoints)|allowed endpoints|values)/i);
+  assert.match(visible, /four (fixed )?(API (calls|endpoints)|allowed endpoints|values)/i);
   assert.doesNotMatch(visible, /text only/i, "audio in/out is real; 'text only' undersells and misstates the actual guarantee");
 });
 

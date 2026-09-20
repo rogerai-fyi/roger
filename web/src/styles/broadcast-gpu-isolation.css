@@ -56,7 +56,6 @@
   display: flex; flex-direction: column; margin: var(--s-6) 0 0; padding: var(--s-5);
   background: var(--ink-900); border-radius: var(--r-md);
 }
-.gpu-wire .fig { color: var(--ink-400) !important; }
 .gpu-wire__code {
   /* .gpu-wire's background is --ink-900, which FLIPS to near-white in dark mode
      (tokens.css:177) - a hardcoded light hex here would go near-invisible on that

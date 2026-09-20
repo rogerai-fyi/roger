@@ -144,9 +144,10 @@
             That path is not free text: it is checked against a fixed
             allowlist of exactly four values, chat completions, its
             back-compat alias, text-to-speech, and speech-to-text, and
-            anything else is rejected before it reaches your model. There
-            is no fifth path, no field for a file, a shell command, or a
-            permission to execute anything. The message format itself
+            anything else is rejected before it reaches your model. Nothing
+            outside that set gets through, and there is no field for a
+            file, a shell command, or a permission to execute anything. The
+            message format itself
             cannot carry one.
           </p>
 
@@ -165,10 +166,12 @@
             field to your local model server unread, and forwards what
             comes back to the broker unread too. It does not parse the
             conversation for intent and does not act on anything the model
-            writes. The only rewrites that happen are narrow and protective
+            writes. The rewrites that do happen are narrow and protective
             of you: your own default voice fills in a speech request that
-            omitted one, and your upstream key is stripped from anything
-            relayed back, in case your local server ever echoed it. A
+            omitted one, your upstream key is stripped from anything relayed
+            back in case your local server ever echoed it, and on some
+            backends the request is pinned to the model you offered so it
+            cannot be talked into loading a different one. A
             prompt that says "read /etc/passwd" is, to your machine,
             indistinguishable from a prompt that says "write me a poem":
             both are just bytes in a JSON field that get forwarded to a
