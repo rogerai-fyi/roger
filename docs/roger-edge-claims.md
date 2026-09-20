@@ -57,6 +57,11 @@ Apple surfaces. Each is its own decision in the design doc's order of work. None
 claimed anywhere today, and `features/web/playbox_edge_honesty.feature` exists to keep it that
 way for the classifier in particular.
 
+The iOS/macOS app is not yet an Edge member: it can consume the market but cannot enroll,
+appear on the fleet, or use peer inference. The handoff and the wire contract it needs are in
+`docs/roger-edge-ios-handoff.md` and `docs/roger-edge-enroll-wire.md`. Nothing about iOS on
+the Edge may be claimed until the app ships it.
+
 ---
 
 ## Keeping this file honest

@@ -614,6 +614,24 @@ assumed nodes rather than instances. Corrected, with 1 to 4 and the session laye
 Steps 5 and 6 are foundations and are worth building before 7 to 9 depend on them. Step 8 is the
 one a user would feel first, and it is the one to demo.
 
+### 13.9a Testing, and the iOS gap
+
+The hands-on multi-device test plan is `docs/roger-edge-testing.md`: designate this PC as the
+authority, run two named instances on it (`ROGER_EDGE_INSTANCE=<name>` per process, so two
+rogers on one config each get their own name), enroll a Mac over the LAN, and use one
+machine's model from another. Proven live on 2026-09-20: cross-machine enrolment against a
+local authority over the LAN, two named instances under one node, and this machine's real GPU
+and RAM on `roger edge describe`. Same-host cross-discovery is not reliable (loopback
+multicast) and is not needed - two processes on one machine are one node, seen through the
+household, not discovery; machine-to-machine discovery is the real path and needs two devices
+on one subnet with multicast.
+
+The iOS/macOS app is not yet a member. What it must implement (enrol, be seen, use peer
+inference), what iOS cannot do (a reliable background listener, so it is a "present while
+open" node and a client of peer inference first), and the enrollment wire contract are in
+`docs/roger-edge-ios-handoff.md` and `docs/roger-edge-enroll-wire.md`. The one Go-side gap
+worth doing before that integration is the wire doc itself, now written.
+
 ### 13.10 The article this is for
 
 The founder intends to write about how agents and devices use each other on a network to build

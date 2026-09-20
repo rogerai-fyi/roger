@@ -22,6 +22,10 @@ func TestEdgeInstanceNameAndCaps(t *testing.T) {
 	require.Equal(t, "workshop-2", edgeInstanceName(config{}, "workshop", []string{"workshop"}))
 	require.Equal(t, "desk", edgeInstanceName(config{EdgeInstance: "desk"}, "workshop", nil))
 	require.Equal(t, "workshop", edgeInstanceName(config{EdgeInstance: "Not Valid"}, "workshop", nil), "an unusable choice falls back to the default")
+	t.Setenv("ROGER_EDGE_INSTANCE", "lab")
+	require.Equal(t, "lab", edgeInstanceName(config{EdgeInstance: "desk"}, "workshop", nil), "the env override wins over the config, so two rogers on one config each get their own name")
+	t.Setenv("ROGER_EDGE_INSTANCE", "Not Valid")
+	require.Equal(t, "desk", edgeInstanceName(config{EdgeInstance: "desk"}, "workshop", nil), "an unusable env override is ignored")
 
 	caps := edgeInstanceCaps(nil)
 	require.Len(t, caps, 1)
@@ -164,4 +168,51 @@ func nodeIDOf(t *testing.T) string {
 	require.NoError(t, err)
 	require.True(t, ok)
 	return id.NodeID
+}
+
+// registerInstance's collision fallback and beat/rename paths, and peerServing's upstream
+// resolution when this process has a model on air.
+func TestRegisterInstanceCollisionAndBeat(t *testing.T) {
+	useTempConfig(t)
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+	enrollThisMachine(t, "workshop")
+
+	// A sibling already holds the default name: registerInstance falls back to the next
+	// default rather than leaving this roger off its own Edge.
+	_, err := edge.Register(edgeInstancesDir(), nodeIDOf(t), edge.Instance{Name: "workshop", Caps: edgeInstanceCaps(nil)}, time.Now())
+	require.NoError(t, err)
+	h, err := newEdgeHost("workshop")
+	require.NoError(t, err)
+	h.registerInstance(config{})
+	require.NotNil(t, h.reg)
+	require.NotEqual(t, "workshop", h.reg.Instance().Name, "the second roger took a distinct default")
+
+	// A band goes on air: beat records it, and peerServing resolves its upstream.
+	edgeAttachOnAir(func() []string { return []string{"gpt-oss-20b"} })
+	edgeAttachUpstream(func(band string) (string, string, bool) {
+		if band == "gpt-oss-20b" {
+			return "http://127.0.0.1:9/v1/chat/completions", "sk-x", true
+		}
+		return "", "", false
+	})
+	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })
+	h.beatInstance(config{})
+	found := false
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		if in.Name == h.reg.Instance().Name {
+			require.Equal(t, []string{"gpt-oss-20b"}, in.Bands)
+			found = true
+		}
+	}
+	require.True(t, found, "the beating instance is in the household with its band")
+
+	id, key, _, _ := edgeIdentityStore().LoadIdentity()
+	sv, ok := h.peerServing(key, id.NodeID)
+	require.True(t, ok)
+	u, k, inst, ok := sv.Upstream("gpt-oss-20b")
+	require.True(t, ok)
+	require.Contains(t, u, "127.0.0.1:9")
+	require.Equal(t, "sk-x", k)
+	require.NotEmpty(t, inst)
+	h.deregisterInstance()
 }

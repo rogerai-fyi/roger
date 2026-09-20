@@ -37,6 +37,13 @@ func edgeAttachOnAir(fn func() []string) { edgeOnAir = fn }
 // edgeInstanceName is the name this process registers under: the owner's choice from the
 // config, or the first free default derived from the node's name.
 func edgeInstanceName(cfg config, node string, taken []string) string {
+	// ROGER_EDGE_INSTANCE is a PER-PROCESS override, so two rogers sharing one config dir
+	// (two instances of one node - "2 or 3 rogers on this PC") each get the name the owner
+	// chose without fighting over the one saved EdgeInstance. The env wins over the config,
+	// the config over a derived default.
+	if v := strings.TrimSpace(os.Getenv("ROGER_EDGE_INSTANCE")); v != "" && edge.ValidInstanceName(v) == nil {
+		return v
+	}
 	if cfg.EdgeInstance != "" && edge.ValidInstanceName(cfg.EdgeInstance) == nil {
 		return cfg.EdgeInstance
 	}
@@ -97,8 +104,12 @@ func (h *edgeHost) beatInstance(cfg config) {
 	_ = reg.Update(node, func(i *edge.Instance) {
 		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCaps(bands), edgeReadResources(now)
 	})
-	if want := cfg.EdgeInstance; want != "" && want != reg.Instance().Name {
-		_ = reg.Rename(node, want, now)
+	// An env-named process keeps its env name; only a config choice (and only when no env
+	// override is set) renames a running instance to follow the owner's `roger edge name .`.
+	if os.Getenv("ROGER_EDGE_INSTANCE") == "" {
+		if want := cfg.EdgeInstance; want != "" && want != reg.Instance().Name {
+			_ = reg.Rename(node, want, now)
+		}
 	}
 	_ = reg.Beat(now)
 }

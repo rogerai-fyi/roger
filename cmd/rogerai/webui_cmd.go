@@ -75,6 +75,10 @@ func cmdWebui(cfg config, args []string) error {
 		return out
 	})
 
+	// The peer-serving upstream: a model this process has on air is served to Edge
+	// peers from the same backend the market uses (features/edge/local_inference.feature).
+	edgeAttachUpstream(func(band string) (string, string, bool) { return ctrl.ServeUpstreamFor(band) })
+
 	// The dispatch ladder: the booth tries a peer on this Edge before the market
 	// (features/edge/local_inference.feature), the same wiring `roger use` gets.
 	hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o) }

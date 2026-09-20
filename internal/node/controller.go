@@ -831,6 +831,32 @@ func (c *Controller) rowFor(model string) (ShareRow, bool) {
 	return ShareRow{}, false
 }
 
+// ServeUpstreamFor resolves an ON-AIR model to the local chat-completions URL that serves
+// it and the bearer key that URL needs, so a peer on the Edge can be relayed to the same
+// backend the market is (features/edge/local_inference.feature). It returns ok=false for a
+// model that is not on air here: only a model this process is actually broadcasting may be
+// served to a peer. The key is returned to the CALLER IN-PROCESS only - it never crosses
+// the wire, exactly as the market relay treats it.
+func (c *Controller) ServeUpstreamFor(model string) (chatURL, key string, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessions[model] == nil {
+		return "", "", false // not on air: not servable to a peer
+	}
+	row, found := c.rowFor(model)
+	if !found {
+		return "", "", false
+	}
+	up := row.Upstream
+	if up == "" {
+		up = c.upstream
+	}
+	if up == "" {
+		return "", "", false
+	}
+	return NormalizeUpstream(up), pickUpstreamKey(row.Upstream, row.UpstreamKey, c.upstream, c.upstreamKey), true
+}
+
 // MaxOnAir is the effective soft on-air cap.
 func (c *Controller) MaxOnAir() int {
 	c.mu.Lock()
