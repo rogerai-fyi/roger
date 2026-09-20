@@ -334,3 +334,34 @@ Feature: A running roger registers itself on its node's Edge, several to a machi
     When the owner forgets "workshop"
     Then neither instance is a member
     And the node's certificate is revoked exactly as today
+
+  # =========================================================================
+  # 8. LOCAL RESOURCES, REPORTED NEVER INVENTED
+  # =========================================================================
+
+  @edge
+  Scenario: an instance reports its node's resources when it can read them
+    Given an enrolled node "jetson" running the instance "serve"
+    When the instance can read its GPU, its GPU memory and its RAM
+    Then describe carries those facts with a moment they were read
+    And they are drawn on the node's strip as levels
+
+  @edge
+  Scenario: a resource that cannot be read is absent, never zero
+    Given an enrolled node "pi" running an instance on a machine with no GPU
+    When describe is read
+    Then it carries no GPU fact
+    And it does not carry a GPU at 0%
+
+  @edge
+  Scenario: the bands an instance serves and the models it has loaded are on the record
+    Given an enrolled node "jetson" running the instance "serve" with "qwen-3.8-27b" loaded and on air
+    When describe is read
+    Then the instance lists "qwen-3.8-27b" as served
+    And the fleet can answer "who on this Edge serves qwen-3.8-27b" without dialling anyone
+
+  @edge
+  Scenario: resource facts are advisory and never route by themselves
+    Given two instances serving the same band, one reporting more free GPU memory
+    Then the fact is shown
+    And routing prefers the one that measured faster, never the one that merely reports more room
