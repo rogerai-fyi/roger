@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/edge"
 )
@@ -99,4 +100,34 @@ func TestEdgeBandsFeatureCLI(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("the edge bands CLI scenarios failed")
 	}
+}
+
+// The bands and this-machine display paths that the scenarios do not reach: the empty
+// household line, the truncation note, and the capability-and-serving labels.
+func TestEdgeBandsAndHouseholdDisplay(t *testing.T) {
+	useTempConfig(t)
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+
+	// Enrolled, nothing on air: bands says there is nothing local and the market gets it.
+	runEdgeCLI(t, "edge", "authority", "local", "workshop")
+	runEdgeCLI(t, "edge", "enroll", "workshop")
+	out := runEdgeCLI(t, "edge", "bands")
+	require.Contains(t, out, "no instance on this Edge serves any band")
+
+	// This machine running two rogers, one on air: `roger edge` shows the household line
+	// on this machine's own row, with the served band.
+	id, _, _, _ := edgeIdentityStore().LoadIdentity()
+	_, err := edge.Register(edgeInstancesDir(), id.NodeID, edge.Instance{Name: "share",
+		Caps: edgeInstanceCaps([]string{"gpt-oss-20b"}), Bands: []string{"gpt-oss-20b"}}, time.Now())
+	require.NoError(t, err)
+	_, err = edge.Register(edgeInstancesDir(), id.NodeID, edge.Instance{Name: "desk",
+		Caps: edgeInstanceCaps(nil)}, time.Now())
+	require.NoError(t, err)
+	out = runEdgeCLI(t, "edge")
+	require.Contains(t, out, "/share")
+	require.Contains(t, out, "serves gpt-oss-20b")
+	require.Contains(t, out, "/desk")
+	out = runEdgeCLI(t, "edge", "bands")
+	require.Contains(t, out, "gpt-oss-20b")
+	require.Contains(t, out, "this machine/share")
 }
