@@ -385,3 +385,268 @@ Both cannot stay literally true. The Playbox text is not wrong about the artifac
 still no trained classifier - but it now names the layer when it means the line. This wants a
 small, deliberate correction to that spec's wording rather than a silent drift, and it is listed
 here so the two do not quietly disagree.
+
+## 13. The fabric: instances, local-first, and agents that can call each other
+
+Founder direction 2026-09-19, verbatim: *"reach roger instance should be able to be added to
+roger edge ... i want to be able to register roger on the edge, and now it's part of the edge
+network, always being local by default so we should have a label clearly specifying the mode ...
+say on this pc i have 2 or 3 roger instances, each with a different name, but same node ... so
+the raspberry pi agent can use or communicate to the agents and ask for inference or use its
+agents in some way ... i should be able to use other edge inference from any of them"*.
+
+Sections 1 to 12 built a fleet you can SEE. This section is the fleet you can USE. It is four
+moves, and they are one move: the Edge stops being a picture of the machines you own and becomes
+the fabric they talk over.
+
+### 13.1 What was wrong with the model
+
+**A node was a machine, and that was the whole model.** One machine, one certificate, one place
+on the graph, one set of capabilities. But a machine does not serve a model or run an agent. A
+PROCESS does. The owner's mental model is already the right one: "on this PC I have 2 or 3 roger
+instances, each with a different name".
+
+The tree already half-knows this and the halves disagree:
+
+- `internal/edge` calls a MACHINE a node, identified by a key it holds
+  (`internal/edge/node.go`, `edgeauth.NodeID`).
+- `internal/node` calls `<station>-<model>` a node id (`controller.go:586`), which is a SUPPLY
+  identity: one per model a process is broadcasting.
+- `internal/onair` already arbitrates between two roger processes on ONE machine, keyed on that
+  supply id, and its own comment says "THE LOCK IS WHY MULTIPLE INSTANCES ARE SAFE"
+  (`controller.go:961`).
+
+So multiple instances per machine is not a new idea to be introduced. It is an existing
+situation the code handles at the lock and nowhere else: the Edge cannot see it, cannot name it,
+and cannot route to it. The voice-station work hit exactly this and logged it as a defect (a TUI
+booth and a headless `roger share` on one machine fighting over one id, jobs black-holed). The
+instance model is the fix, not an addition.
+
+### 13.2 Node, instance, station
+
+Three levels, named once and used everywhere:
+
+| | what it is | how many | identity | lifetime |
+|---|---|---|---|---|
+| **Node** | a machine | one per machine | a certificate under the Edge's root | as long as the machine is enrolled |
+| **Instance** | a running `roger` on it | several per node | a name the owner chooses, under the node | as long as the process runs |
+| **Station** | an instance broadcasting one model | several per instance | `<station>-<model>`, the existing supply id | as long as that model is on air |
+
+The capability vocabulary (serve, classify, sense, actuate, relay, operate) **belongs to
+instances**. A node's capabilities are the union of its instances'. That is the correction the
+whole section turns on: "this Jetson can serve" is shorthand for "a roger on this Jetson is
+serving", and when that process exits the machine can no longer serve, which today the fleet has
+no way to notice.
+
+Addressing is the name when it is unique on the Edge, and `node/instance` when it is not.
+
+**An instance is INSIDE its node's trust boundary, and gets no certificate of its own.** This is
+deliberate and it is what keeps the ceremony at one per machine. An instance shares the node's
+key because it is the same machine under the same owner: anything that could forge an instance
+could already read the node's private half and BE the node. The node's LAN face reports which
+instances it is running, over its own certificate, and that report is the only account of them
+anybody believes - the same rule `describe` already follows for capabilities (section 4).
+
+Registration is therefore not a ceremony. **A roger starting on an enrolled node registers
+itself**, with a default name the owner can change, and deregisters when it exits. Joining the
+Edge stays a per-machine act; being on it is per-process and automatic. The owner's ask, "I want
+to be able to register roger on the edge", is answered by there being nothing to do.
+
+### 13.3 Mode: two words that both mean "local"
+
+The direction says "always being local by default so we should have a label clearly specifying
+the mode". There are TWO things that both get called local and they must never share a label,
+because one is about trust and the other is about where your prompt went:
+
+- **ROOT** is what the Edge is rooted at: `LOCAL` (a machine the owner designated, section 4) or
+  `CORE`. It answers "can this Edge form and run with no internet?"
+- **ROUTE** is where one turn actually went: `local` (it stayed on the Edge, on hardware the
+  owner owns) or `market` (it went out through the broker to a station that may be a stranger's).
+  It answers "did this prompt leave the building?"
+
+Every surface shows the ROOT in its header and the ROUTE on every session row. A fleet where
+three turns went local and one went to the market says so, on the screen, without being asked.
+
+**The default is local.** A new setting, `edge.prefer`, takes `local` (default: try the Edge
+first, fall out to the market), `market` (the old behaviour), or `local-only` (never leave the
+Edge). Under `local-only` a band no instance serves is an honest refusal naming what is missing,
+never a silent trip to the market. That setting is the difference between believing your data
+stayed home and being able to show it.
+
+### 13.4 The ladder: your fleet is one inference pool
+
+Today a turn has two possible fates: a model loaded in this very process, or the market through
+the broker. There is nothing in between, which means a Pi and a Jetson on the same switch talk
+to each other by way of the internet, and on an airgapped Edge they cannot talk at all. That is
+the single biggest gap between what Roger Edge draws and what it is for.
+
+Dispatch becomes a ladder, tried in order:
+
+1. **This instance's own model**, if it has one loaded (exists today: `harness.LocalCompleter`).
+2. **An Edge peer that serves that band** - an instance with `serve` VERIFIED, reachable
+   LAN-direct, dialled over its own certificate and checked against its pin. No broker, no
+   internet, no account lookup. Failover across peers before the rung is given up.
+3. **The market**, through the broker, exactly as today - and only when the ROOT is Core-linked
+   and `edge.prefer` is not `local-only`.
+
+Rung 2 is new and is the product. It is what makes "I have Jetsons and Pis and this laptop" into
+one pool instead of four lonely machines.
+
+**Rung 2 moves no money.** The owner owns both ends: there is no counterparty, no hold, no fee,
+no ledger entry. But the Edge's honesty rule ("everything drawn was already receipted",
+`features/edge/sessions.feature`) still binds, so a local turn produces a **local receipt**:
+the same shape as a broker receipt, signed by the SERVING NODE's key rather than the broker's,
+cost zero, marked local. It exists for the view and for audit, never for settlement. This
+introduces a second issuer of receipts and that is worth stating plainly rather than discovering
+later. It cannot become a fee dodge by construction: rung 2 can only reach nodes enrolled under
+this Edge's own root, which is to say machines the same owner already owns.
+
+### 13.5 The four arrows
+
+With instances addressable and rung 2 carrying inference, the last move is to let the members
+ask each other for things. The capability vocabulary already anticipated it: `operate` is
+defined as "runs an agent that can act on other nodes" and its verification method is already
+written as "declared, and gated by grant at use time" (`internal/edge/node.go`). The endpoint
+for it was reserved, not forgotten: `internal/edge/server.go` says describe is "the one endpoint
+the LAN face exposes at this stage ... being asked to DO something is protocol.feature and
+control.feature".
+
+Four things can now happen over one fabric:
+
+| | arrow | example |
+|---|---|---|
+| **escalate** | device to agent | a gate camera cannot name what it sees and hands the reading up (built, section 12) |
+| **infer** | anything to a model | the Pi asks the Jetson's band for a completion (13.4) |
+| **delegate** | agent to agent | the laptop's agent hands a long job to the workstation's agent, which has the tools and the disk |
+| **act** | agent to device | an agent asks a board for a reading, or to actuate, under a grant |
+
+The point worth writing down, because it is the whole claim: **these are not four mechanisms.**
+One addressing scheme (node/instance), one trust root (the Edge's certificate), one authorization
+object (a grant), one evidence shape (a receipt), one view (a session drawn on the graph). Most
+stacks need a different answer for each row of that table.
+
+The grant record needs no new fields to carry this. `store.Grant` already has `Nodes`, `Models`,
+`Free`, `ExpiresAt`, `Revoked`, rate limits and caps, and a `Self` flag documented as "owner's
+own boxes/agents; always $0" - which is precisely this case, written before there was a fabric
+to use it on.
+
+### 13.6 The rules that keep a fabric from becoming a botnet
+
+A network where agents invoke agents needs its refusals specified before its features:
+
+1. **Delegation does not launder permission.** A task arriving from a peer runs under the grant
+   it carries and the receiving instance's own rules, intersected. It can never do something the
+   caller could not have done, and never something the receiver would refuse locally.
+2. **Actuate keeps its owner confirmation.** An agent may ask a board to act; the board still
+   requires the owner's standing confirmation for that capability. A delegated task is not a
+   second way in.
+3. **No transitive delegation unless the grant says so.** If A delegates to B, B may not delegate
+   onward by default. Amplification is the failure mode that turns a helpful fleet into a loop.
+4. **Every task carries its origin and a hop count**, and an instance refuses a task whose chain
+   already names it. Cycles are refused at the node, not detected by a human later.
+5. **Every invocation is receipted and drawn**, including the refusals. A refused invoke is
+   information; a silent one is a hole.
+6. **A locally-rooted Edge contacts Core for nothing**, dispatch included. The structural test
+   that proves the local authority links nothing that can reach Core (section 4) extends to the
+   dispatch path.
+
+### 13.7 What this contradicts, and what needs re-approving
+
+Two approved things collide with this and must be settled deliberately rather than drifted past:
+
+- **`features/edge/topology_view.feature`** specifies today's screen: rows with wires, one node
+  per line. The direction asks for something "more ux friendly and novel ... like a game or
+  something". A redesign supersedes those scenarios, so that spec needs re-approval rather than
+  quiet replacement. The proposal is in 13.8.
+- **`internal/edge/server.go`'s comment** that describe is the only endpoint the LAN face will
+  expose "at this stage" is correct as written and stops being true here. It should be updated
+  with the new endpoints rather than left to read as a promise that was broken.
+
+### 13.8 The screen: a patch bay, not a diagram
+
+The Edge screen is a list with wires drawn on it. What the product has always been, in every
+other surface, is a radio station: bands, stations, tuning in, the desk, the mic, patching a
+guest through. The Edge screen should be the room those words come from - **a patch bay with
+signal meters** - and that is also the answer to "novel, like a game":
+
+- **The rail**: this instance is the desk on the left. Every node is a horizontal strip.
+- **Instances hang under their node**, indented, each with its own marks, so "2 or 3 rogers on
+  this PC" is a thing you can see at a glance.
+- **The wire** between a node and the desk keeps its earned texture (solid LAN-direct, dashed
+  through a relay, broken and dim when dark) and gains a **VU meter**: a needle that jumps on
+  real traffic and decays. A busy link reads busy from across the room.
+- **Traffic is a packet** travelling the wire with a short trail, arriving with a small burst -
+  and, as today, only on a real heartbeat or a real session. A quiet fleet is a still board.
+- **Discovery is a sweep** along the rail that reveals candidates at the bottom edge.
+- **Focus** re-centres the board on the selected node and dims the rest.
+- **The mode badge** sits in the header: `EDGE · LOCAL ROOT · 4 nodes · 7 instances`, with the
+  route mix beside it.
+
+Mono and red, like the rest of the product. The novelty is motion, density and layout, not
+colour: Ping World stays the one deliberate exception (`docs` and the screensaver ruling).
+
+### 13.9 Order of work, corrected
+
+The order in section 11 is not wrong so much as incomplete: it never had a rung 2, and it
+assumed nodes rather than instances. Corrected, with 1 to 4 and the session layer already built:
+
+5. **Instances.** A running roger is a member: registered, named, several per node, capabilities
+   at the instance level, reported by the node's face. (`features/edge/instances.feature`.)
+6. **Mode.** ROOT and ROUTE labelled everywhere, `edge.prefer`, and `local-only` that means it.
+   (`features/edge/mode.feature`.)
+7. **The message set.** `hello`, `heartbeat`, `describe`, `read`, `classify`, `escalate` on the
+   host encoding. (`features/edge/protocol.feature`.)
+8. **Local inference.** The ladder, the peer serve endpoint, the local receipt, failover.
+   (`features/edge/local_inference.feature`.)
+9. **Control and delegation.** `invoke` under a grant, the four arrows, and every refusal in
+   13.6. (`features/edge/control.feature`.)
+10. **The patch bay.** The screen redesign, superseding `topology_view.feature` with its
+    re-approval. (`features/edge/patchbay.feature`.)
+11. **Boards.** The compact encoding, then firmware, then a classifier artifact. Each its own
+    decision, unchanged.
+
+Steps 5 and 6 are foundations and are worth building before 7 to 9 depend on them. Step 8 is the
+one a user would feel first, and it is the one to demo.
+
+### 13.10 The article this is for
+
+The founder intends to write about how agents and devices use each other on a network to build
+things that were not possible before. The honest form of that claim is not "distributed
+inference" (llama.cpp, exo and others do that) and not "device fleet management" (many do that).
+It is the table in 13.5: **one fabric on which a sensor, a model and an agent are the same kind
+of citizen**, addressable the same way, trusted the same way, authorized the same way, and
+receipted the same way - and which forms with no internet at all, so the network is the owner's
+rather than a vendor's.
+
+What that unlocks, concretely, is worth writing as scenarios before it is written as prose: a
+camera that escalates to a model on a machine in the next room and an agent that acts on the
+result; a laptop that borrows a workstation's GPU without either of them having an account with
+anyone; an agent that hands work to the machine that has the disk, the tools or the sensors it
+lacks. Each of those should be a passing scenario in this spec set before it is a paragraph in
+the article, which is also how the article stays true as the code moves.
+
+### 13.11 Keeping the product, the specs, the code and the article aligned
+
+The direction asks for "ways to make sure we are all aligned into the product". This repo
+already has the right instrument and uses it in one place: `features/web/playbox_edge_honesty.
+feature` pins what the website may claim about the device line, and it was written because copy
+had drifted from the artifact. Generalise that.
+
+**`docs/roger-edge-claims.md` is the claims ledger.** Every sentence we say about Roger Edge in
+public, with the scenario that proves it, and a state: BUILT, DESIGNED or INTENDED. The article
+and the website are written FROM that file. A claim with no passing scenario is marketing, and
+the file says so at the top.
+
+Four mechanisms, all cheap, all fitting a spec-first repo:
+
+1. **`@claim` tags.** A scenario that backs a public claim carries the tag. The mapping becomes
+   mechanical rather than a promise in prose.
+2. **A both-directions check.** One test asserts every claim in the ledger names a feature file
+   that exists with a `@claim` scenario, and every `@claim` scenario appears in the ledger.
+   Drift fails the build instead of surfacing in a blog post.
+3. **Publish from BUILT only.** Anything else is labelled roadmap, in the copy itself.
+4. **Rows move in the commit that moves the code.** A claim becomes BUILT in the same commit that
+   turns its scenarios green - never in a tidy-up afterwards, which is where drift is born.
+
+The design doc's what-exists table (section 10) and the order of work (13.9) stay the engineering
+view; the ledger is the product view. They are checked against each other by the same test.
