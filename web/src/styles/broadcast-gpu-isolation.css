@@ -58,7 +58,12 @@
 }
 .gpu-wire .fig { color: var(--ink-400) !important; }
 .gpu-wire__code {
-  margin: 0; padding: 0; background: transparent; color: #E8E6DE;
+  /* .gpu-wire's background is --ink-900, which FLIPS to near-white in dark mode
+     (tokens.css:177) - a hardcoded light hex here would go near-invisible on that
+     flipped background. --white inverts the other way (white bg / dark-mode raised
+     surface, tokens.css:21,170), so it stays legible against --ink-900 in both themes,
+     same pairing as .route-sim__next in broadcast-routing.css. */
+  margin: 0; padding: 0; background: transparent; color: var(--white);
   font-size: var(--t-sm); line-height: 1.6; overflow-x: auto; white-space: pre;
 }
 .gpu-wire__code code { color: inherit; }

@@ -113,9 +113,38 @@ function grepFiles(pattern, dirs) {
 }
 
 test("gpu-isolation: the tool-executing harness is never imported by the node/sharing path", () => {
+  // Positive control first: if this pattern stops matching its two known, legitimate
+  // importers (a module path bump, a directory rename), an empty result below would
+  // otherwise look identical to a genuine "not imported" pass - the exact vacuous-pass
+  // shape the listener test's own comment warns about.
+  const control = grepFiles("rogerai\\.fm/roger/v6/internal/harness", ["internal/tui", "internal/webui"]);
+  assert.ok(control.some((f) => f.startsWith("internal/tui/")), "the import pattern still matches internal/tui");
+  assert.ok(control.some((f) => f.startsWith("internal/webui/")), "the import pattern still matches internal/webui");
+
   const importers = grepFiles("rogerai\\.fm/roger/v6/internal/harness", ["cmd/rogerai", "internal/agent", "internal/node"]);
   assert.deepEqual(importers, [],
     `the sharing path must never import internal/harness (the tool-executing agent), found: ${importers.join(", ")}`);
+});
+
+// A first draft claimed every harness action is "confirmed before it runs" - the
+// merge-round audit caught that read_file is Mutating:false (auto-runs, loop.go's
+// needsConfirm only gates Mutating tools) and that a permissive session (/perms all,
+// /yolo) auto-approves the rest. Pinned against the source so the page's more careful
+// "reads run on their own; writes/shell ask by default, unless permissive" claim cannot
+// quietly regress back to the blanket overstatement.
+test("gpu-isolation: the confirm-gate claim matches the actual default (reads auto-run, writes/shell ask, permissive mode can skip it)", () => {
+  const tools = readSrc("internal/harness/tools.go");
+  const loop = readSrc("internal/harness/loop.go");
+  assert.match(tools, /read-only tools \(read\/list\/fetch\) auto-run/i, "Tool.Mutating's own doc comment states read-only tools auto-run");
+  assert.match(tools, /Name:\s*"read_file"[\s\S]{0,600}Mutating:\s*false/, "read_file is non-mutating in source");
+  assert.match(loop, /func \(l \*Loop\) needsConfirm/);
+  assert.match(loop, /if t\.Mutating \{\s*return true/, "confirmation is gated on Mutating, so a non-mutating read is not forced through it");
+
+  const html = read(PAGE);
+  const visible = html.replace(/<!--[\s\S]*?-->/g, "");
+  assert.doesNotMatch(visible, /confirmed before any of it runs/i,
+    "reads auto-run by design; 'confirmed before any of it runs' overstates every tool, including reads");
+  assert.match(visible, /permissive/i, "the permissive-mode bypass (/perms all, /yolo) is acknowledged, not hidden");
 });
 
 test("gpu-isolation: the node's serve path forwards job.Body verbatim to cfg.Upstream, with no tool-call branch", () => {
