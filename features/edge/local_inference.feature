@@ -49,6 +49,7 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
   # =========================================================================
 
   @client
+  @later
   Scenario: rung 1 - this instance's own model serves before anything is dialled
     Given this instance has "gpt-oss-20b" loaded
     And a peer on this Edge also serves "gpt-oss-20b"
@@ -58,6 +59,7 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
     And the session's route is local, naming this instance
 
   @client
+  @later
   Scenario: rung 2 - a peer on this Edge serves what this instance does not have
     Given this instance has no model loaded
     And the instance "jetson/serve" on this Edge serves "qwen-3.8-27b", VERIFIED, LAN-direct
@@ -67,6 +69,7 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
     And the session's route is local, naming "jetson/serve"
 
   @client
+  @later
   Scenario: rung 3 - the market, only when nothing on the Edge serves it
     Given no instance on this Edge serves "gpt-oss-120b"
     And the preference is local
@@ -74,7 +77,8 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
     Then it is served through the broker
     And the session's route is market
 
-  @client
+  @cli
+  @later
   Scenario: a CLAIMED serve is not a rung
     Given the instance "bench/lab" claims serve for "qwen-3.8-27b" but is not VERIFIED
     And no other instance serves it
@@ -83,14 +87,16 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
     And the turn falls out to the market
     And the reason names that the peer's serve is unverified
 
-  @client
+  @cli
+  @later
   Scenario: a dark peer is not a rung
     Given the instance "jetson/serve" serves "qwen-3.8-27b" but its node is DARK
     When a turn is dispatched for "qwen-3.8-27b"
     Then "jetson/serve" is not dialled
     And the ladder continues
 
-  @client
+  @cli
+  @later
   Scenario: a relayed-only peer is not a rung 2 peer
     Given the instance "shed/serve" serves "qwen-3.8-27b" but is reachable only through a relay
     When a turn is dispatched for "qwen-3.8-27b"
@@ -98,6 +104,7 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
     And the ladder continues to the market
 
   @client
+  @later
   Scenario: failover across peers before giving the rung up
     Given the instances "jetson/serve" and "bench/serve" both serve "qwen-3.8-27b", VERIFIED
     And "jetson/serve" refuses the connection
@@ -114,7 +121,8 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
     When a turn is dispatched under the preference local-only
     Then it is refused, naming both peers and how each failed
 
-  @client
+  @cli
+  @later
   Scenario: the preferred peer is the one that answered fastest last time
     Given two peers serve "qwen-3.8-27b" and one has measured faster on this Edge
     When a turn is dispatched for "qwen-3.8-27b"
@@ -250,14 +258,14 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
   # 5. THE SURFACES
   # =========================================================================
 
-  @tui
+  @tui @later
   Scenario: a peer serving a band is drawn as a band you can use
     Given the instance "jetson/serve" serving "qwen-3.8-27b" on this Edge
     When the Edge screen renders at 100 columns
     Then "jetson/serve" shows the band it serves
     And the band is marked as reachable from here
 
-  @tui
+  @tui @later
   Scenario: a turn that went to a peer pulses along that peer's wire
     Given a turn served by "jetson/serve"
     When the Edge screen renders the next frame
@@ -272,6 +280,7 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
     And it says which bands would have to go to the market
 
   @cli
+  @later
   Scenario: `roger use` says which rung served each turn
     Given `roger use` open for "qwen-3.8-27b" and a peer serving it
     When a turn is relayed

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/client"
 	"time"
 
 	"github.com/mattn/go-isatty"
@@ -79,6 +80,22 @@ func cmdResumeWithRuntime(cfg config, args []string, notice string, webuiOn bool
 	stopEdge := startEdge(&hooks)
 	defer stopEdge()
 	ctrl := tui.NewController(cfg.Broker, hooks)
+
+	// This roger's bands on air feed its Edge registration (edgeinstance.go): the
+	// household says what each process is really serving.
+	edgeAttachOnAir(func() []string {
+		var out []string
+		for _, r := range ctrl.Snapshot().Rows {
+			if r.Link == "on-air" {
+				out = append(out, r.Model)
+			}
+		}
+		return out
+	})
+
+	// The dispatch ladder: the booth tries a peer on this Edge before the market
+	// (features/edge/local_inference.feature), the same wiring `roger use` gets.
+	hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o) }
 	// One store for both front-ends - see run()'s note.
 	limits := tuiLimits(cfg)
 	if webuiOn {

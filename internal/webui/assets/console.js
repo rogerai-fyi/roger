@@ -1611,6 +1611,9 @@
     var dark = 0;
     d.nodes.forEach(function (n) { if (n.dark) dark++; });
     var out = d.nodes.length + (d.nodes.length === 1 ? " node" : " nodes");
+    var ni = (d.self_instances || []).length;
+    d.nodes.forEach(function (n) { ni += (n.instances || []).length; });
+    if (ni) out += " \u00b7 " + ni + (ni === 1 ? " instance" : " instances");
     if (dark) out += " · " + dark + " dark";
     if (d.candidates.length) out += " · " + d.candidates.length + (d.candidates.length === 1 ? " candidate" : " candidates");
     return "· " + out;
@@ -1627,6 +1630,20 @@
     show($("edge-disabled"), false);
     var hl = $("edge-headline");
     if (hl) hl.textContent = edgeHeadline(d);
+    // THE MODE BADGE: root and preference, two words never collapsed into one, and the
+    // route mix of the live sessions, so a fleet leaking to the market is obvious.
+    var md = $("edge-mode");
+    if (md) {
+      var f = d.facts || {};
+      var local = 0, market = 0;
+      (d.sessions || []).forEach(function (s) { if (s.route === "market") market += s.count || 1; else if (s.route === "local") local += s.count || 1; });
+      var parts = [];
+      if (f.root) parts.push(f.root);
+      if (f.prefer) parts.push(f.prefer);
+      if (local + market) parts.push(local + " local \u00b7 " + market + " market");
+      md.textContent = parts.join(" \u00b7 ");
+      md.className = "mono edge-mode" + (f.prefer === "LOCAL-ONLY" ? " edge-mode--only" : "");
+    }
     var selfName = $("edge-self-name");
     if (selfName) selfName.textContent = d.self || "this machine";
 
@@ -1771,6 +1788,13 @@
       var marks = svgEl("text", { x: p[0], y: p[1] + 20, "text-anchor": "middle", "class": "edge-marks" });
       marks.textContent = edgeMarks(n) + (n.dark ? " DARK " + (n.age || "") : "");
       g.appendChild(marks);
+      // the household: the rogers running on this node, under its name
+      var insts = n.instances || [];
+      if (insts.length) {
+        var it = svgEl("text", { x: p[0], y: p[1] + 32, "text-anchor": "middle", "class": "edge-insts" });
+        it.textContent = insts.slice(0, 3).map(function (i) { return "/" + i.name; }).join(" ") + (insts.length > 3 ? " +" + (insts.length - 3) : "");
+        g.appendChild(it);
+      }
       g.addEventListener("click", function () { edgeSelect(n.id); });
       g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); edgeSelect(n.id); } });
       svg.appendChild(g);
@@ -1799,6 +1823,16 @@
       tr.appendChild(el("td", "num", n.age || "—"));
       tr.addEventListener("click", function () { edgeSelect(n.id); });
       body.appendChild(tr);
+      (n.instances || []).forEach(function (i) {
+        var ir = el("tr", "edge-inst-row");
+        ir.appendChild(el("td", "mono muted", "\u2514 /" + i.name));
+        ir.appendChild(el("td", "muted", "roger"));
+        ir.appendChild(el("td", "mono", edgeMarks(i)));
+        ir.appendChild(el("td", "muted", (i.bands || []).length ? "serves " + i.bands.join(", ") : ""));
+        ir.appendChild(el("td", null, ""));
+        ir.appendChild(el("td", "num", ""));
+        body.appendChild(ir);
+      });
     });
   }
 
@@ -1862,6 +1896,10 @@
       edgeKV(card, i === 0 ? "transports" : "", t.kind + (t.addr ? "  " + t.addr : ""));
     });
     if (n.via) edgeKV(card, "reached through", n.via);
+    (n.instances || []).forEach(function (i, idx) {
+      edgeKV(card, idx === 0 ? "instances" : "", "/" + i.name + "  " + edgeMarks(i) + ((i.bands || []).length ? "  serves " + i.bands.join(", ") : ""));
+    });
+    if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
     if (n.pin) edgeKV(card, "pin", edgeClip(n.pin, 24));
     if (n.contract && n.contract.class) edgeKV(card, "contract", n.contract.class + "  [" + (n.contract.labels || []).join(", ") + "]");
@@ -1902,7 +1940,7 @@
     if (!d.sessions.length) {
       var er = el("tr", "empty-row");
       var ec = el("td", null, "The Edge is quiet: no sessions in the last 90 seconds.");
-      ec.colSpan = 4; er.appendChild(ec); body.appendChild(er);
+      ec.colSpan = 5; er.appendChild(ec); body.appendChild(er);
       return;
     }
     d.sessions.forEach(function (s) {
@@ -1910,6 +1948,8 @@
       var glyph = s.outcome.indexOf("REFUSED") === 0 ? "✗ " : s.escalate ? "↑ " : "● ";
       tr.appendChild(el("td", "mono", glyph + s.who));
       tr.appendChild(el("td", "mono", s.band || "—"));
+      // the ROUTE: where the turn really went, as a word beside its colour
+      tr.appendChild(el("td", "mono " + (s.route === "market" ? "route--market" : s.route === "local" ? "route--local" : "muted"), s.route || "—"));
       // the path in order: who, via, station - the relay is its own hop, a failover shows
       // the station it left
       var hops = [];

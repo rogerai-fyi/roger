@@ -592,8 +592,14 @@ assumed nodes rather than instances. Corrected, with 1 to 4 and the session laye
 
 5. **Instances.** A running roger is a member: registered, named, several per node, capabilities
    at the instance level, reported by the node's face. (`features/edge/instances.feature`.)
+   BUILT 2026-09-20 for internal/edge, the CLI and the console; the TUI's drawing of instances
+   lands with the patch bay (step 10). Proven live: a `roger webui` in one process appears
+   under the node in `roger edge` from another, with real GPU and RAM facts, and `roger edge
+   name . desk` renames it within a pass.
 6. **Mode.** ROOT and ROUTE labelled everywhere, `edge.prefer`, and `local-only` that means it.
-   (`features/edge/mode.feature`.)
+   (`features/edge/mode.feature`.) BUILT 2026-09-20 on all three surfaces: the badges, the
+   route on every session, the mix in the header, `roger edge prefer`. The dispatch half
+   (prefer honoured, local-only structural) lands with step 8.
 7. **The message set.** `hello`, `heartbeat`, `describe`, `read`, `classify`, `escalate` on the
    host encoding. (`features/edge/protocol.feature`.)
 8. **Local inference.** The ladder, the peer serve endpoint, the local receipt, failover.

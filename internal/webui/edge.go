@@ -39,6 +39,8 @@ type EdgeHooks struct {
 	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
 	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
 	Status func() edge.SelfStatus
+	// Household is this machine's running instances (nil = unknown).
+	Household func() []edge.Instance
 	// Now is the snapshot clock. Injectable so a test can assert on an age without
 	// racing the wall clock; nil means time.Now.
 	Now func() time.Time
@@ -76,6 +78,9 @@ type edgeNodeJSON struct {
 	Via   string `json:"via,omitempty"`
 	Relay bool   `json:"relay"`
 	Child bool   `json:"child"`
+	// Instances are the rogers running on the node as its face last reported them.
+	Instances          []edge.Instance `json:"instances"`
+	InstancesTruncated bool            `json:"instances_truncated,omitempty"`
 }
 
 type edgeContractJSON struct {
@@ -93,6 +98,7 @@ type edgeSessJSON struct {
 	Via      string           `json:"via,omitempty"`
 	Escalate bool             `json:"escalate"`
 	Outcome  string           `json:"outcome"`
+	Route    string           `json:"route,omitempty"` // local | market, from the evidence
 	Contract edgeContractJSON `json:"contract,omitempty"`
 	Count    int              `json:"count"`
 	At       int64            `json:"at"`
@@ -102,6 +108,9 @@ type edgeSessJSON struct {
 // edgeFacts are the empty state's sentences, worded ONCE in internal/edge and printed
 // verbatim by the browser, so the console says exactly what the terminal says.
 type edgeFacts struct {
+	// Root and Prefer are the header's two badges, worded once (mode.feature).
+	Root          string   `json:"root"`
+	Prefer        string   `json:"prefer"`
 	Machine       string   `json:"machine"`
 	Authority     []string `json:"authority"`
 	Discovery     string   `json:"discovery"`
@@ -109,17 +118,20 @@ type edgeFacts struct {
 }
 
 type edgeSnap struct {
-	Configured bool             `json:"configured"`
-	SelfStatus *edge.SelfStatus `json:"self_status,omitempty"`
-	Facts      *edgeFacts       `json:"facts,omitempty"`
-	Self       string           `json:"self,omitempty"`
-	Account    string           `json:"account,omitempty"`
-	At         int64            `json:"at,omitempty"`
-	Nodes      []edgeNodeJSON   `json:"nodes"`
-	Candidates []edgeNodeJSON   `json:"candidates"`
-	Sessions   []edgeSessJSON   `json:"sessions"`
-	TooMany    bool             `json:"too_many"`
-	GraphMax   int              `json:"graph_max"`
+	Configured bool `json:"configured"`
+	// SelfInstances is THIS machine's household: the rogers running here, this one among
+	// them. Self is not a row in its own fleet, so its instances ride beside it.
+	SelfInstances []edge.Instance  `json:"self_instances"`
+	SelfStatus    *edge.SelfStatus `json:"self_status,omitempty"`
+	Facts         *edgeFacts       `json:"facts,omitempty"`
+	Self          string           `json:"self,omitempty"`
+	Account       string           `json:"account,omitempty"`
+	At            int64            `json:"at,omitempty"`
+	Nodes         []edgeNodeJSON   `json:"nodes"`
+	Candidates    []edgeNodeJSON   `json:"candidates"`
+	Sessions      []edgeSessJSON   `json:"sessions"`
+	TooMany       bool             `json:"too_many"`
+	GraphMax      int              `json:"graph_max"`
 }
 
 func (s *Server) edgeNow() time.Time {
@@ -133,11 +145,13 @@ func edgeNodeOf(n store.EdgeNode, now time.Time) edgeNodeJSON {
 	out := edgeNodeJSON{
 		ID: n.ID, Name: n.Name, Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
 		Pin: n.Pin, Contract: n.Contract, Station: n.Station,
-		Caps:       []edgeCapJSON{},
-		Transports: append([]store.EdgeTransport{}, n.Transports...),
-		History:    append([]store.EdgeEvent{}, n.History...),
-		LAN:        edge.HasLANTransport(n),
-		Dark:       n.Presence == string(edge.PresenceDark),
+		Caps:               []edgeCapJSON{},
+		Transports:         append([]store.EdgeTransport{}, n.Transports...),
+		History:            append([]store.EdgeEvent{}, n.History...),
+		LAN:                edge.HasLANTransport(n),
+		Dark:               n.Presence == string(edge.PresenceDark),
+		Instances:          append([]edge.Instance{}, n.Instances...),
+		InstancesTruncated: n.InstancesTruncated,
 	}
 	if n.LastSeen > 0 {
 		out.Age = edge.Age(now.Sub(time.Unix(n.LastSeen, 0)))
@@ -158,6 +172,7 @@ func edgeSessOf(g edge.SessionGroup, now time.Time) edgeSessJSON {
 		Request: x.Request, Kind: string(x.Kind), Who: x.Attribution(), Band: x.Band,
 		Station: x.Station, Left: x.Left, Via: x.Via, Escalate: x.Escalate,
 		Outcome:  x.OutcomeLabel(),
+		Route:    x.Where,
 		Contract: edgeContractJSON{Class: x.Contract.Class, Labels: x.Contract.Labels},
 		Count:    g.Count, At: x.At, Age: edge.Age(now.Sub(time.Unix(x.At, 0))),
 	}
@@ -166,7 +181,7 @@ func edgeSessOf(g edge.SessionGroup, now time.Time) edgeSessJSON {
 // edgeSnapshot is the one read. Everything the tab shows comes from this, taken once.
 func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	h := s.opts.Edge
-	snap := edgeSnap{Nodes: []edgeNodeJSON{}, Candidates: []edgeNodeJSON{}, Sessions: []edgeSessJSON{}, GraphMax: edgeGraphMax}
+	snap := edgeSnap{Nodes: []edgeNodeJSON{}, Candidates: []edgeNodeJSON{}, Sessions: []edgeSessJSON{}, GraphMax: edgeGraphMax, SelfInstances: []edge.Instance{}}
 	if h.Fleet == nil {
 		return snap, nil
 	}
@@ -176,6 +191,10 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		return snap, err
 	}
 	snap.Configured, snap.Self, snap.Account, snap.At = true, h.Self, h.Fleet.Account(), now.Unix()
+	snap.SelfInstances = []edge.Instance{}
+	if h.Household != nil {
+		snap.SelfInstances = append(snap.SelfInstances, h.Household()...)
+	}
 	for _, r := range edge.Arrange(list) {
 		n := edgeNodeOf(r.Node, now)
 		n.Via, n.Relay, n.Child = r.Via, r.Relay, r.Child
@@ -186,7 +205,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		st := h.Status()
 		snap.SelfStatus = &st
 		if st.Err == "" {
-			snap.Facts = &edgeFacts{Machine: st.MachineLine(), Authority: st.AuthorityLines(),
+			snap.Facts = &edgeFacts{Root: st.RootBadge(), Prefer: st.PreferBadge(), Machine: st.MachineLine(), Authority: st.AuthorityLines(),
 				Discovery: st.DiscoveryLine(now), EnrollAgainst: st.EnrollAgainstLine()}
 		}
 	}

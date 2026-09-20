@@ -1362,6 +1362,13 @@ func (st *consoleEdgeBDD) init(sc *godog.ScenarioContext) {
 	sc.Step(`^the node state and the event stream are read$`, st.stateAndEventsRead)
 	sc.Step(`^neither carries fleet, candidate or session data$`, st.neitherCarriesEdge)
 	sc.Step(`^the Edge tab reads its own endpoint, while shown, at the stream's cadence$`, st.readsOwnEndpointAtCadence)
+	// instances.feature (@console)
+	sc.Step(`^each node carries its instances with their names and capabilities$`, st.nodesCarryInstances)
+	sc.Step(`^the panel draws them under the node, and the detail lists them$`, st.panelDrawsInstances)
+	// mode.feature (@console)
+	sc.Step(`^a console over an Edge rooted at the designated machine "([^"]*)"$`, st.consoleRootedLocal)
+	sc.Step(`^it carries the root as LOCAL and the authority "([^"]*)"$`, st.carriesRootLocal)
+	sc.Step(`^the panel shows the badge in the header$`, st.panelShowsBadge)
 	// empty_edge.feature (@console)
 	sc.Step(`^a console over a machine that is not enrolled, rooted at Core, scanning every (\d+) seconds$`, st.machineFresh)
 	sc.Step(`^it carries a self status with enrolled false, authority "([^"]*)", discovery "([^"]*)" and an interval of (\d+) seconds$`, st.selfStatusIs)
@@ -1458,5 +1465,92 @@ func TestEmptyEdgeFeatureConsole(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("the empty-Edge console scenarios failed")
+	}
+}
+
+// ---- instances.feature (@console) ------------------------------------------------
+
+func (s *consoleEdgeBDD) nodesCarryInstances() error {
+	// a node whose face reported two rogers: what the console must carry
+	s.enroll("workshop", []store.EdgeTransport{lanTr("192.168.1.10")}, edge.Serve)
+	_, err := s.fleet.Observe(s.ids["workshop"], edge.Observation{Name: "workshop", Kind: "host",
+		Addr: "192.168.1.10:1", Fingerprint: strings.Repeat("ab", 32),
+		Instances: []edge.Instance{
+			{Name: "desk", Caps: []store.EdgeCap{{Name: "operate", State: "CLAIMED"}}},
+			{Name: "share", Caps: []store.EdgeCap{{Name: "serve", State: "VERIFIED"}}, Bands: []string{"gpt-oss-20b"}},
+		}})
+	if err != nil {
+		return err
+	}
+	s.readEdge()
+	n, ok := s.node("workshop")
+	if !ok || len(n.Instances) != 2 {
+		return fmt.Errorf("node = %+v", n)
+	}
+	for _, in := range n.Instances {
+		if in.Name == "" || len(in.Caps) == 0 {
+			return fmt.Errorf("instance = %+v", in)
+		}
+	}
+	if s.snap.SelfInstances == nil {
+		return fmt.Errorf("self_instances absent: %s", s.body)
+	}
+	return nil
+}
+
+func (s *consoleEdgeBDD) panelDrawsInstances() error {
+	return s.jsHas("instances drawn", `n\.instances`, `edge-insts`, `edge-inst-row`, `"instances"`)
+}
+
+func TestInstancesFeatureConsole(t *testing.T) {
+	st := &consoleEdgeBDD{t: t}
+	suite := godog.TestSuite{
+		ScenarioInitializer: st.init,
+		Options: &godog.Options{
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@console",
+			Paths: []string{"../../features/edge/instances.feature"},
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("the instances console scenarios failed")
+	}
+}
+
+// ---- mode.feature (@console) ---------------------------------------------------
+
+func (s *consoleEdgeBDD) consoleRootedLocal(where string) error {
+	s.self = &edge.SelfStatus{Root: edge.RootLocal, Authority: where, AuthorityLocal: true, Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	return nil
+}
+
+func (s *consoleEdgeBDD) carriesRootLocal(where string) error {
+	st := s.snap.SelfStatus
+	if st == nil || st.Root != edge.RootLocal || st.Authority != where {
+		return fmt.Errorf("self_status = %+v", st)
+	}
+	if s.snap.Facts == nil || !strings.Contains(s.snap.Facts.Root, "LOCAL ROOT") || !strings.Contains(s.snap.Facts.Root, where) {
+		return fmt.Errorf("facts = %+v", s.snap.Facts)
+	}
+	return nil
+}
+
+func (s *consoleEdgeBDD) panelShowsBadge() error {
+	if err := s.htmlHas("mode badge", `id="edge-mode"`); err != nil {
+		return err
+	}
+	return s.jsHas("badge from the facts", `f\.root`, `f\.prefer`, `edge-mode`)
+}
+
+func TestModeFeatureConsole(t *testing.T) {
+	st := &consoleEdgeBDD{t: t}
+	suite := godog.TestSuite{
+		ScenarioInitializer: st.init,
+		Options: &godog.Options{
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@console",
+			Paths: []string{"../../features/edge/mode.feature"},
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("the mode console scenarios failed")
 	}
 }

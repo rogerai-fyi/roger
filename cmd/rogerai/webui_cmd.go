@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"rogerai.fm/roger/v6/internal/client"
 	"strings"
 	"syscall"
 
@@ -61,6 +62,22 @@ func cmdWebui(cfg config, args []string) error {
 	stopEdge := startEdge(&hooks)
 	defer stopEdge()
 	ctrl := tui.NewController(cfg.Broker, hooks)
+
+	// This roger's bands on air feed its Edge registration (edgeinstance.go): the
+	// household says what each process is really serving.
+	edgeAttachOnAir(func() []string {
+		var out []string
+		for _, r := range ctrl.Snapshot().Rows {
+			if r.Link == "on-air" {
+				out = append(out, r.Model)
+			}
+		}
+		return out
+	})
+
+	// The dispatch ladder: the booth tries a peer on this Edge before the market
+	// (features/edge/local_inference.feature), the same wiring `roger use` gets.
+	hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o) }
 	limits := tuiLimits(cfg)
 	// startWebConsole prints the URL, serves in the background and self-gates its own
 	// auto-open on the saved config. Reuse it whole rather than standing up a second

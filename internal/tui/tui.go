@@ -107,6 +107,9 @@ type Hooks struct {
 	// authority, discovery - for the screen an owner sees before anything is set up.
 	// Nil = unknown, and the empty screen then names only the LAN path.
 	EdgeStatus func() edge.SelfStatus
+	// EdgeLadder fills the dispatch-ladder seams on the live proxy options, so the TUI
+	// booth tries a peer on this Edge before the market exactly as `roger use` does.
+	EdgeLadder func(o *client.ProxyOptions)
 	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
 	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
 	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still
@@ -2782,7 +2785,7 @@ func freqLabelShort(display string) string {
 // model (the proxy rewrites incoming models to it). Budget stays 0 (the interactive TUI is a
 // single-user, hands-on flow; the guest-operator launch is where DefaultSessionBudget applies).
 func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
-	return client.ProxyOptions{
+	opts := client.ProxyOptions{
 		Broker: m.broker, User: m.user, Model: o.Model, SessionKey: m.proxyKey,
 		Confidential: m.confidentialOnly,
 		MaxPriceIn:   m.q.limit.MaxIn, MaxPriceOut: m.q.limit.MaxOut, MinTPS: m.q.limit.MinTPS,
@@ -2799,6 +2802,10 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		// to the guest holding the mic or to `roger use` (edge_attribution.go).
 		OnReceipt: m.edgeReceiptSink(),
 	}
+	if m.hooks.EdgeLadder != nil {
+		m.hooks.EdgeLadder(&opts) // a peer on this Edge before the market
+	}
+	return opts
 }
 
 // bindChannel is the endpoint-binding half of tuning in, factored out of openChannel so

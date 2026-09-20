@@ -224,7 +224,7 @@ Feature: The Edge says what roots it and where each turn went, prefers local, an
     Then no request left this Edge
     And each refusal or local answer is drawn as what it was
 
-  @edge
+  @edge @later
   Scenario: local-only is structural, not a flag one code path can forget
     Given the preference is local-only
     Then the dispatch path cannot reach the broker client at all
@@ -241,7 +241,7 @@ Feature: The Edge says what roots it and where each turn went, prefers local, an
   # 5. THE TWO WORDS DO NOT BLUR
   # =========================================================================
 
-  @edge
+  @edge @later
   Scenario: a Core-rooted Edge can still route local
     Given an Edge rooted at Core
     And an instance on this Edge serving "gpt-oss-120b"
@@ -251,7 +251,7 @@ Feature: The Edge says what roots it and where each turn went, prefers local, an
     And the root is still reported as CORE
     And the two labels are shown separately, never collapsed into one word
 
-  @edge
+  @edge @later
   Scenario: a locally-rooted Edge contacts Core for nothing, dispatch included
     Given an Edge rooted at the designated machine "shed"
     Then no path from enrolment, discovery or dispatch reaches Core

@@ -33,19 +33,20 @@ yet). Nothing is published from anything but BUILT, except as a plainly-labelled
 | Actuate is never inferred from behaviour. It is declared and confirmed by the owner. | `node_identity.feature` |
 | An empty Edge tells you what is true about this machine and what to do next, and never says "the only node" when it could not read the fleet. | `empty_edge.feature` |
 | The same fleet, sessions and words appear in the terminal, the web console and the CLI. | `console_view.feature`, `empty_edge.feature` |
+| Several rogers can run on one machine, each named and addressable as node/instance, and the fleet routes to the process rather than the box. | `instances.feature` (the TUI drawing of instances lands with the patch bay) |
+| Capabilities belong to the running process, so a machine stops offering what its process stopped providing. | `instances.feature` |
+| A roger reports the resources it could read (GPU, GPU memory, RAM) and invents nothing it could not. | `instances.feature` |
+| Every surface says what roots the Edge (LOCAL or CORE) and, on every session, whether the turn stayed on your hardware or went to the market. The two are never one label. | `mode.feature` |
 
 ## Designed, not built
 
-These are specified in `docs/roger-edge-design.md` section 13. They may be described as where
-Roger Edge is going. They may not be described as something it does.
+These are specified in `docs/roger-edge-design.md` section 13. Where a row says BUILT
+inside its state, that half is green now and may be described as working; the rest is roadmap.
 
 | Claim | Spec | State |
 |---|---|---|
-| Several rogers can run on one machine, each named and addressable, and the fleet routes to the process rather than the box. | `instances.feature` | awaiting approval |
-| Capabilities belong to the running process, so a machine stops offering what its process stopped providing. | `instances.feature` | awaiting approval |
-| You can always see whether a turn stayed on your own hardware or went out to the market. | `mode.feature` | awaiting approval |
-| Local is the default, and `local-only` provably never leaves your Edge. | `mode.feature` | awaiting approval |
-| Your fleet is one inference pool: a Pi can use a Jetson's model over the LAN, with no broker and no internet. | `local_inference.feature` | not written |
+| Your fleet is one inference pool: a Pi can use a Jetson's model over the LAN, with no broker and no internet, and a turn falls out to the market only when nothing here serves it. | `local_inference.feature` | the LAN serving face, the local receipt, and the proxy ladder are BUILT and green; the @later end-to-end scenarios (rung order under load, faster-peer choice, `roger use` naming the rung) land next |
+| Local-only provably never leaves your Edge. | `mode.feature`, `local_inference.feature` | the refusal is BUILT and green; the structural (link-level) proof lands with control |
 | An agent on one machine can delegate to the agent on another, under a scoped, revocable, receipted grant. | `control.feature` | not written |
 | A sensor, a model and an agent are the same kind of citizen on one fabric: one address, one trust root, one grant, one receipt. | `control.feature` | not written |
 

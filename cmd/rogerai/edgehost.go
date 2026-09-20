@@ -73,9 +73,14 @@ type edgeHost struct {
 	// quit that timed out is a quit racing a pass that is still going.
 	face   *http.Server
 	faceLn net.Listener
-	auth   *http.Server
-	authLn net.Listener
-	issuer *edgeauth.Issuer
+	srv    *edge.Server
+	// reg is this process's registration in the node's household (edgeinstance.go).
+	reg     *edge.Registry
+	regNode string
+	cfg     config
+	auth    *http.Server
+	authLn  net.Listener
+	issuer  *edgeauth.Issuer
 
 	// The last discovery pass, for the empty screen's DISCOVERY fact: when it ran and
 	// what it found. Guarded by mu like the candidates it produced.
@@ -103,7 +108,7 @@ func newEdgeHost(self string) (*edgeHost, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &edgeHost{self: self, st: st, beats: make(chan string, edgeBeatBuffer)}, nil
+	return &edgeHost{self: self, st: st, beats: make(chan string, edgeBeatBuffer), cfg: loadConfig()}, nil
 }
 
 // wire fills the Edge seams on the hooks the TUI is built from.
@@ -218,6 +223,7 @@ func (h *edgeHost) arm() bool {
 		opts.Self = self
 	}
 	h.startAuthority()
+	h.registerInstance(h.cfg)
 	// The daemon paces its own passes here (see serve), because the host needs each
 	// pass's report - to beat the screen, refresh the candidates and write the cache -
 	// and the engine's own loop reports to nobody.
@@ -252,10 +258,14 @@ func (h *edgeHost) startFace() (edge.Advert, bool) {
 		log.Println("edge: could not open this machine's LAN face:", err)
 		return edge.Advert{}, false
 	}
-	face := &http.Server{Handler: srv.Handler(), TLSConfig: srv.TLSConfig(),
+	srv.SetHousehold(h.household) // the instances, as of each describe
+	if sv, ok := h.peerServing(key, id.NodeID); ok {
+		srv.SetServing(sv) // peers may ask this node for a turn, over mutual TLS
+	}
+	face := &http.Server{Handler: srv.Handler(), TLSConfig: srv.ListenerTLS(),
 		ReadHeaderTimeout: 10 * time.Second}
 	h.mu.Lock()
-	h.faceLn, h.face = ln, face
+	h.faceLn, h.face, h.srv = ln, face, srv
 	h.mu.Unlock()
 	go func() { _ = face.ServeTLS(ln, "", "") }()
 	return srv.Advert(ln.Addr().(*net.TCPAddr).Port), true
@@ -371,6 +381,10 @@ func (h *edgeHost) serve(ctx context.Context) {
 // result is written to the cache, and every VERIFIED sighting becomes a heartbeat.
 func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.adoptEnrollment(ctx)
+	if h.reg == nil {
+		h.registerInstance(h.cfg) // an enrollment that happened while running
+	}
+	h.beatInstance(loadConfig())
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
@@ -446,6 +460,7 @@ func (h *edgeHost) stop() {
 			close(h.beats) // no sender is left, so the screen's drain ends cleanly
 		case <-time.After(edgeStopGrace):
 		}
+		h.deregisterInstance()
 		h.closeListeners()
 	})
 }

@@ -20,11 +20,18 @@ type Describe struct {
 	Account string   `json:"account"`
 	Kind    string   `json:"kind"`
 	Caps    []string `json:"caps"`
+	// Instances is the household: every running roger on this node, each with the
+	// capabilities and bands IT provides (features/edge/instances.feature). Bounded;
+	// InstancesTruncated says the node runs more than the bound. The advertisement never
+	// carries this list - it is learned only here, over the node's own certificate.
+	Instances          []Instance `json:"instances"` // never omitted: [] means "nothing running"
+	InstancesTruncated bool       `json:"instances_truncated,omitempty"`
 }
 
-// DescribePath is the one endpoint the LAN face exposes at this stage. Discovery is
-// discovery: it finds nodes and verifies who they are. Being asked to DO something is
-// protocol.feature and control.feature, and neither is reachable from here.
+// DescribePath is the read endpoint of the LAN face: it finds nodes and verifies who they
+// are, and reports their household. Being asked to DO something - serve a turn
+// (local_inference.feature) or run a task (control.feature) - is the face's other paths,
+// each mutually authenticated, and none of them reachable from describe.
 const DescribePath = "/edge/describe"
 
 // Server is a node's LAN face: an HTTPS listener whose certificate IS its identity.
@@ -32,6 +39,26 @@ type Server struct {
 	desc Describe
 	cert tls.Certificate
 	fp   string
+	// household, when set, supplies the instances at REQUEST time: a roger starting or
+	// exiting on this node changes the answer without restarting the face.
+	household func() ([]Instance, bool)
+	// serving, when set, arms the infer path (infer.go).
+	serving *Serving
+}
+
+// SetHousehold makes describe report the node's running instances live.
+func (s *Server) SetHousehold(fn func() ([]Instance, bool)) { s.household = fn }
+
+// describe is the answer as of now.
+func (s *Server) describe() Describe {
+	d := s.desc
+	if s.household != nil {
+		d.Instances, d.InstancesTruncated = s.household()
+	}
+	if d.Instances == nil {
+		d.Instances = []Instance{}
+	}
+	return d
 }
 
 // NewServer builds the LAN face from the node's own certificate.
@@ -52,6 +79,10 @@ func (s *Server) TLSConfig() *tls.Config {
 	return &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: tls.VersionTLS12}
 }
 
+// ListenerTLS is the TLS the face LISTENS with: TLSConfig plus client certificates
+// requested and verified against the Edge's root when the face serves peers (infer.go).
+func (s *Server) ListenerTLS() *tls.Config { return s.tlsConfigServing() }
+
 // Handler answers describe. It is a plain read of what this node declares: no argument
 // is taken from the request, so there is nothing here for a caller to steer.
 func (s *Server) Handler() http.Handler {
@@ -62,8 +93,9 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(s.desc)
+		_ = json.NewEncoder(w).Encode(s.describe())
 	})
+	mux.HandleFunc(InferPath, s.handleInfer)
 	return mux
 }
 

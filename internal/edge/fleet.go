@@ -480,6 +480,11 @@ type Observation struct {
 	Caps        []Capability
 	Addr        string
 	Fingerprint string
+	// Instances is the household the node's face reported, already bounded by the
+	// reader. When present it is the truth about capabilities: the node's Caps become
+	// the union of its instances' (features/edge/instances.feature).
+	Instances          []Instance
+	InstancesTruncated bool
 }
 
 // Observe records a verified sighting. It is the ONLY way discovery writes to the
@@ -504,6 +509,7 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 		for _, c := range obs.Caps {
 			n.Caps = append(n.Caps, store.EdgeCap{Name: string(c), State: string(initialState(c))})
 		}
+		applyInstances(&n, obs)
 		n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: obs.Addr, Fingerprint: obs.Fingerprint}}
 		n.Presence = string(PresenceVerified)
 		n.LastSeen = now
@@ -526,6 +532,7 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 			next = append(next, store.EdgeCap{Name: string(c), State: string(initialState(c))})
 		}
 		n.Caps = next
+		applyInstances(n, obs)
 		n.Presence = string(PresenceVerified)
 		n.LastSeen = now
 		if n.Pin == "" {
@@ -595,3 +602,165 @@ func LANAddr(n store.EdgeNode) string {
 	}
 	return ""
 }
+
+// applyInstances records the household a node's face reported. The instances' states are
+// carried per (instance, capability) from what the node already held, so a probe passed
+// against one instance is not forgotten by the next describe; the node's Caps become the
+// union of its instances' with the providers named.
+func applyInstances(n *store.EdgeNode, obs Observation) {
+	if obs.Instances == nil {
+		return // an older face that reports no household: the node-level caps stand
+	}
+	prev := map[string]map[string]store.EdgeCap{}
+	for _, in := range n.Instances {
+		m := map[string]store.EdgeCap{}
+		for _, c := range in.Caps {
+			m[c.Name] = c
+		}
+		prev[in.Name] = m
+	}
+	next := make([]Instance, 0, len(obs.Instances))
+	for i, in := range obs.Instances {
+		if i >= MaxInstances {
+			break
+		}
+		cp := in
+		cp.Caps = nil
+		for _, c := range in.Caps {
+			state := c.State
+			if state == "" {
+				state = string(initialState(Capability(c.Name)))
+			}
+			if p, ok := prev[in.Name][c.Name]; ok && rank(p.State) > rank(state) {
+				state = p.State // earned once, kept
+			}
+			cp.Caps = append(cp.Caps, store.EdgeCap{Name: c.Name, State: state})
+		}
+		next = append(next, cp)
+	}
+	n.Instances = next
+	n.InstancesTruncated = obs.InstancesTruncated || len(obs.Instances) > MaxInstances
+	if len(next) > 0 {
+		n.Caps = unionCaps(n.Caps, next)
+	}
+}
+
+// InstancesOf is the household of one node as the fleet last recorded it.
+func (f *Fleet) InstancesOf(id string) ([]Instance, error) {
+	n, ok, err := f.db.EdgeNodeByID(f.account, id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNoSuchNode
+	}
+	return append([]Instance(nil), n.Instances...), nil
+}
+
+// RecordInstanceProbe verifies a capability on ONE instance, never on the whole machine:
+// the probe passed against that process. Actuate is never probed, on an instance either.
+func (f *Fleet) RecordInstanceProbe(id, instance string, c Capability, passed bool) error {
+	if c == Actuate {
+		return fmt.Errorf("actuate is never probed; it is confirmed by the owner")
+	}
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		for i := range n.Instances {
+			if n.Instances[i].Name != instance {
+				continue
+			}
+			for j, d := range n.Instances[i].Caps {
+				if d.Name != string(c) {
+					continue
+				}
+				state := Claimed
+				if passed {
+					state = Verified
+				}
+				n.Instances[i].Caps[j].State = string(state)
+				n.Caps = unionCaps(n.Caps, n.Instances)
+				n.History = append(n.History, store.EdgeEvent{At: f.now().Unix(), What: "probe",
+					Detail: instance + ": " + string(c) + " -> " + string(state)})
+				return nil
+			}
+			return fmt.Errorf("instance %q does not declare %q", instance, c)
+		}
+		return fmt.Errorf("%w: %s/%s", ErrNoSuchInstance, n.Name, instance)
+	})
+}
+
+// Located is one instance and the node it runs on.
+type Located struct {
+	Node     store.EdgeNode
+	Instance Instance
+}
+
+// Resolve turns an address into an instance: "node/instance" exactly, or a bare name
+// when exactly one instance on the Edge carries it. A bare name on more than one node is
+// ambiguous, and the error names every node it is on so the owner can say which.
+func (f *Fleet) Resolve(addr string) (Located, error) {
+	list, err := f.List()
+	if err != nil {
+		return Located{}, err
+	}
+	nodeName, instName := SplitAddress(addr)
+	var hits []Located
+	for _, n := range list {
+		if nodeName != "" && n.Name != nodeName && n.ID != nodeName {
+			continue
+		}
+		for _, in := range n.Instances {
+			if in.Name == instName {
+				hits = append(hits, Located{Node: n, Instance: in})
+			}
+		}
+	}
+	switch len(hits) {
+	case 0:
+		return Located{}, fmt.Errorf("%w: %s", ErrNoSuchInstance, addr)
+	case 1:
+		return hits[0], nil
+	}
+	var on []string
+	for _, h := range hits {
+		on = append(on, h.Node.Name+"/"+h.Instance.Name)
+	}
+	return Located{}, fmt.Errorf("%w: %s", ErrAmbiguousInstance, strings.Join(on, ", "))
+}
+
+// ServersOf answers "who on this Edge serves this band" from the record alone, without
+// dialling anyone: every instance that lists the band on air, on a node that is not dark.
+// A CLAIMED serve is listed but reported as unverified, so nothing routes on it.
+func (f *Fleet) ServersOf(band string) ([]Located, error) {
+	list, err := f.List()
+	if err != nil {
+		return nil, err
+	}
+	var out []Located
+	for _, n := range list {
+		if n.Presence == string(PresenceDark) {
+			continue
+		}
+		for _, in := range n.Instances {
+			for _, b := range in.Bands {
+				if b == band {
+					out = append(out, Located{Node: n, Instance: in})
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// Serves reports whether the instance's serve capability is VERIFIED - the only state the
+// ladder may dispatch to.
+func (l Located) Serves() bool {
+	for _, c := range l.Instance.Caps {
+		if c.Name == string(Serve) && c.State == string(Verified) {
+			return true
+		}
+	}
+	return false
+}
+
+// Address is how the owner writes this instance: node/instance.
+func (l Located) Address() string { return l.Node.Name + "/" + l.Instance.Name }

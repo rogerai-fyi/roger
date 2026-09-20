@@ -156,6 +156,10 @@ type Session struct {
 	// only thing Route() changes.
 	Route   string
 	Outcome Outcome
+	// Where is the ROUTE the turn took (features/edge/mode.feature): WhereLocal when it
+	// stayed on hardware the owner owns (a local receipt), WhereMarket when it went out
+	// through the broker. Read from the evidence, never from the preference.
+	Where string
 	// Reason is why nothing served it. Empty on a served session.
 	Reason string
 	// At is when the session was recorded; it is what the fade is measured from.
@@ -281,6 +285,7 @@ func (s *Sessions) Record(t Traffic) (Session, error) {
 		Receipts: append([]protocol.UsageReceipt(nil), t.Receipts...),
 	}
 	ses.Band, ses.Station, ses.Left, ses.Outcome, ses.Reason = deriveFromReceipts(t.Receipts, t.Band)
+	ses.Where = whereFromReceipts(t.Receipts)
 	if ses.Outcome == OutcomeRefused {
 		// A refusal is drawn as what it was. It never carries an answer, because no
 		// model produced one.
@@ -410,4 +415,40 @@ func (s *Sessions) evictLocked() {
 		delete(s.byReq, s.order[0])
 		s.order = s.order[1:]
 	}
+}
+
+// The two routes a turn can take. They are a report of where it went, never a promise.
+const (
+	WhereLocal  = "local"
+	WhereMarket = "market"
+)
+
+// whereFromReceipts reads the route out of the evidence: a turn served on a local receipt
+// stayed on the Edge; anything the broker receipted went to the market. A failover that
+// left a local peer for the market is market - the answer came from outside.
+func whereFromReceipts(recs []protocol.UsageReceipt) string {
+	where := WhereMarket
+	for _, rec := range recs {
+		if rec.VoidReason == "" {
+			if rec.Local {
+				where = WhereLocal
+			} else {
+				where = WhereMarket
+			}
+		}
+	}
+	if len(recs) > 0 && where == WhereMarket {
+		// every receipt void and the last void was local: it never left either
+		last := recs[len(recs)-1]
+		allVoid := true
+		for _, r := range recs {
+			if r.VoidReason == "" {
+				allVoid = false
+			}
+		}
+		if allVoid && last.Local {
+			return WhereLocal
+		}
+	}
+	return where
 }

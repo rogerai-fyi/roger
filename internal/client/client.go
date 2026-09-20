@@ -11,7 +11,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -437,6 +440,17 @@ type ProxyOptions struct {
 	// launch sets DefaultSessionBudget.
 	Budget float64
 	Alert  AlertFunc // surfaced when failover is exhausted (nil = silent)
+	// THE LADDER (features/edge/local_inference.feature). EdgePeers, when non-nil, lists
+	// the instances on this machine's Edge that serve a band, LAN-direct and verified;
+	// Prefer is the owner's standing choice ("local" default, "market", "local-only");
+	// EdgeCert is this node's certificate, presented to a peer as the caller's identity;
+	// EdgeVerify checks a peer's local receipt against the certificate it served. A turn
+	// tries the Edge before the market unless Prefer says otherwise, and under
+	// "local-only" never reaches the broker at all.
+	EdgePeers  func(band string) []EdgePeer
+	Prefer     string
+	EdgeCert   *tls.Certificate
+	EdgeVerify func(rec protocol.UsageReceipt, serving *x509.Certificate) bool
 	// OnReceipt, when non-nil, is handed each relayed response's decoded receipt (the
 	// broker's X-RogerAI-Receipt), once, before the body is streamed - the seam the Edge
 	// session layer records from. It never blocks or reshapes the relay, and a response
@@ -815,6 +829,12 @@ func readCappedBody(r io.Reader, limit int64) (body []byte, over bool) {
 // the streamed body has fully copied (streamed responses carry no cost header - the broker
 // flushes headers before output; the comment at stream end is the only meter).
 func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, crit Criteria, body []byte, httpClient *http.Client, policy failoverPolicy, onServed, onStreamCost func(cost float64)) {
+	// RUNG 2 FIRST: a peer on this Edge that serves the band, before any broker. Under
+	// local-only a band nothing here serves is refused here, and the broker is never
+	// reached by this function at all.
+	if served, refused := relayEdgeFirst(ctx, w, opts, crit.Model, body, onServed); served || refused {
+		return
+	}
 	if onServed == nil {
 		onServed = func(float64) {}
 	}
@@ -1501,6 +1521,12 @@ type UseOptions struct {
 	// OnReceipt is handed each relayed turn's receipt (see ProxyOptions.OnReceipt): how
 	// `roger use` puts its turns on this machine's Edge as `roger use` sessions.
 	OnReceipt func(protocol.UsageReceipt)
+	// The dispatch ladder (features/edge/local_inference.feature): a peer on this Edge is
+	// tried before the market. See ProxyOptions for each field.
+	EdgePeers  func(band string) []EdgePeer
+	Prefer     string
+	EdgeCert   *tls.Certificate
+	EdgeVerify func(rec protocol.UsageReceipt, serving *x509.Certificate) bool
 }
 
 // balanceOf fetches the caller's wallet credits (best-effort; -1 if unavailable).
@@ -1661,7 +1687,8 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
-	}, OnReceipt: opt.OnReceipt}
+	}, OnReceipt: opt.OnReceipt,
+		EdgePeers: opt.EdgePeers, Prefer: opt.Prefer, EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify}
 	return useServe(addr, newProxyHandler(opts))
 }
 
@@ -1765,7 +1792,8 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
-	}, OnReceipt: opt.OnReceipt}
+	}, OnReceipt: opt.OnReceipt,
+		EdgePeers: opt.EdgePeers, Prefer: opt.Prefer, EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify}
 	return useServe(addr, newProxyHandler(opts))
 }
 
@@ -2123,4 +2151,132 @@ func parseChatError(raw []byte, status int) error {
 		return fmt.Errorf("the station returned status %d with no reply", status)
 	}
 	return fmt.Errorf("the station sent an empty response (status %d)", status)
+}
+
+// EdgePeer is one instance on this machine's Edge that serves a band: where to dial it,
+// the certificate fingerprint the fleet pinned for it, and who it is for the receipt.
+type EdgePeer struct {
+	Addr     string // host:port of the instance's LAN face
+	Pin      string // SHA-256 of the certificate it must present
+	Node     string
+	Instance string
+}
+
+// preferOf is the effective preference: local unless the owner said otherwise.
+func preferOf(p string) string {
+	switch p {
+	case "market", "local-only":
+		return p
+	}
+	return "local"
+}
+
+// relayEdgeFirst walks rung 2. It returns served=true when a peer answered (the reply has
+// been written), refused=true when local-only stopped the turn here (the refusal has been
+// written), and false/false when the ladder should fall out to the market.
+func relayEdgeFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) (served, refused bool) {
+	prefer := preferOf(opts.Prefer)
+	if prefer == "market" || opts.EdgePeers == nil {
+		if prefer == "local-only" {
+			// local-only with no Edge wired at all: nothing here can serve, and nothing may leave
+			openAIError(w, http.StatusServiceUnavailable, "edge_error", "local_only",
+				"local-only: no instance on this Edge serves "+band+" and this roger will not go to the market - serve it here, or roger edge prefer local")
+			return false, true
+		}
+		return false, false
+	}
+	peers := opts.EdgePeers(band)
+	var tried []string
+	for _, p := range peers {
+		resp, leaf, err := dialEdgePeer(ctx, p, body, opts)
+		if err != nil {
+			tried = append(tried, p.Node+"/"+p.Instance+": "+err.Error())
+			continue
+		}
+		// A peer that answered is the answer, whatever it said: a refusal from a machine
+		// the owner owns is drawn as what it was, not papered over by the market.
+		onServed(0)
+		if opts.OnReceipt != nil {
+			if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil && rec.RequestID != "" {
+				if opts.EdgeVerify == nil || opts.EdgeVerify(rec, leaf) {
+					opts.OnReceipt(rec)
+				}
+			}
+		}
+		var onRec func(protocol.UsageReceipt)
+		if opts.OnReceipt != nil {
+			onRec = func(rec protocol.UsageReceipt) {
+				if opts.EdgeVerify == nil || opts.EdgeVerify(rec, leaf) {
+					opts.OnReceipt(rec)
+				}
+			}
+		}
+		if resp.Header.Get("X-RogerAI-Receipt") != "" {
+			onRec = nil // the header already fired
+		}
+		copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, onRec)
+		resp.Body.Close()
+		return true, false
+	}
+	if prefer == "local-only" {
+		msg := "local-only: no instance on this Edge serves " + band + " and this roger will not go to the market - serve it here, or roger edge prefer local"
+		if len(tried) > 0 {
+			msg = "local-only: every peer serving " + band + " failed (" + strings.Join(tried, "; ") + ") and this roger will not go to the market"
+		}
+		openAIError(w, http.StatusServiceUnavailable, "edge_error", "local_only", msg)
+		return false, true
+	}
+	return false, false
+}
+
+// dialEdgePeer sends one turn to a peer's face over mutual TLS: this node's certificate
+// presented, the peer's checked against the pin the fleet recorded. It returns the reply
+// and the certificate the peer served, so the local receipt can be checked against it.
+func dialEdgePeer(ctx context.Context, p EdgePeer, body []byte, opts ProxyOptions) (*http.Response, *x509.Certificate, error) {
+	var leaf *x509.Certificate
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: true, // verified below, against the pin, before any byte is sent
+		MinVersion:         tls.VersionTLS12,
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
+				return fmt.Errorf("the peer presented no certificate")
+			}
+			leaf = cs.PeerCertificates[0]
+			if fp := fmt.Sprintf("%x", sha256.Sum256(leaf.Raw)); fp != p.Pin {
+				return fmt.Errorf("the peer's certificate does not match its pin")
+			}
+			return nil
+		},
+	}
+	if opts.EdgeCert != nil {
+		tlsCfg.Certificates = []tls.Certificate{*opts.EdgeCert}
+	}
+	tr := &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true,
+		ResponseHeaderTimeout: proxyResponseHeaderTimeout}
+	defer tr.CloseIdleConnections()
+	dctx, cancel := context.WithTimeout(ctx, proxyDialTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+p.Addr+"/edge/infer", bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Roger-Request", newRequestID())
+	_ = dctx
+	resp, err := (&http.Client{Transport: tr}).Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if retryable(resp.StatusCode, nil) {
+		resp.Body.Close()
+		return nil, nil, fmt.Errorf("answered %d", resp.StatusCode)
+	}
+	return resp, leaf, nil
+}
+
+// newRequestID names a peer turn so its receipt binds to it.
+func newRequestID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "edge-" + hex.EncodeToString(b)
 }

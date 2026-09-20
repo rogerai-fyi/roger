@@ -95,16 +95,24 @@ type config struct {
 	Broker          string                `json:"broker"`
 	User            string                `json:"user"`
 	Limits          Limits                `json:"limits"`
-	Onboarded       bool                  `json:"onboarded,omitempty"`         // first-run wizard completed
-	Share           *Share                `json:"share,omitempty"`             // saved provider config (the wizard's earn/free choice)
-	Prices          map[string]SharePrice `json:"share_prices,omitempty"`      // per-model price + schedule from the in-TUI editor
-	Voices          map[string]ShareVoice `json:"share_voices,omitempty"`      // per-model voice identity (dj name / voice / speed / language / sample_url)
-	Compact         bool                  `json:"compact,omitempty"`           // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
-	Webui           *bool                 `json:"webui,omitempty"`             // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
-	WebuiOpen       *bool                 `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
-	Palette         string                `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
-	Deck            string                `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
-	LastSeenVersion string                `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	Onboarded       bool                  `json:"onboarded,omitempty"`    // first-run wizard completed
+	Share           *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
+	Prices          map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
+	Voices          map[string]ShareVoice `json:"share_voices,omitempty"` // per-model voice identity (dj name / voice / speed / language / sample_url)
+	Compact         bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
+	Webui           *bool                 `json:"webui,omitempty"`        // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
+	WebuiOpen       *bool                 `json:"webui_open,omitempty"`   // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
+	Palette         string                `json:"palette,omitempty"`      // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
+	Deck            string                `json:"deck,omitempty"`         // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
+	LastSeenVersion string                `json:"last_seen_version,omitempty"`
+	// EdgeInstance is the name THIS roger goes by on its node's Edge (features/edge/
+	// instances.feature). Empty = a default derived from the node's name. Set by
+	// `roger edge name . <name>`; a running roger picks a change up on its next pass.
+	EdgeInstance string `json:"edge_instance,omitempty"`
+	// EdgePrefer is where a turn goes first (features/edge/mode.feature): "" or "local"
+	// tries this Edge before the market, "market" goes out first, "local-only" never
+	// leaves. Set by `roger edge prefer`.
+	EdgePrefer string `json:"edge_prefer,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -830,6 +838,22 @@ func run(argv []string, cfg config) error {
 		stopEdge := startEdge(&hooks)
 		defer stopEdge()
 		ctrl := tui.NewController(cfg.Broker, hooks)
+
+		// This roger's bands on air feed its Edge registration (edgeinstance.go): the
+		// household says what each process is really serving.
+		edgeAttachOnAir(func() []string {
+			var out []string
+			for _, r := range ctrl.Snapshot().Rows {
+				if r.Link == "on-air" {
+					out = append(out, r.Model)
+				}
+			}
+			return out
+		})
+
+		// The dispatch ladder: the booth tries a peer on this Edge before the market
+		// (features/edge/local_inference.feature), the same wiring `roger use` gets.
+		hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o) }
 		// ONE limit store for BOTH front-ends. Built here rather than at the runTUI call so
 		// the console gets the same pointer - the browser's spend table and [4] CONFIG are
 		// two views of one setting, and two stores would silently diverge.
@@ -1036,14 +1060,20 @@ func cmdUse(cfg config, args []string) error {
 		}
 		useport = p
 	}
-	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
+	uo := client.UseOptions{
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
 		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
 		// Every turn through this endpoint is a `roger use` session on this machine's
 		// Edge, visible from the TUI and the console in their own processes.
 		OnReceipt: edgeUseRecorder(),
-	})
+	}
+	// THE LADDER: a peer on this Edge before the market (features/edge/local_inference.
+	// feature). A machine that has not enrolled and set no preference is untouched.
+	var po client.ProxyOptions
+	applyEdgeLadder(cfg, &po)
+	uo.EdgePeers, uo.Prefer, uo.EdgeCert, uo.EdgeVerify = po.EdgePeers, po.Prefer, po.EdgeCert, po.EdgeVerify
+	return client.Use(cfg.Broker, cfg.User, model, uo)
 }
 
 // shareModelArg pulls an optional LEADING positional model token out of `share`'s

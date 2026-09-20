@@ -242,14 +242,48 @@ func edgeHeadline(st edgeState) string {
 			dark++
 		}
 	}
-	out := "EDGE · " + plural(len(st.rows), "node")
+	out := "EDGE"
+	if b := edgeModeBadge(st); b != "" {
+		out += " · " + b
+	}
+	out += " · " + plural(len(st.rows), "node")
 	if dark > 0 {
 		out += " · " + strconv.Itoa(dark) + " dark"
 	}
 	if n := len(st.cands); n > 0 {
 		out += " · " + plural(n, "candidate")
 	}
+	if mix := edgeRouteMix(st.sessions); mix != "" {
+		out += " · " + mix
+	}
 	return out
+}
+
+// edgeModeBadge is the ROOT and the PREFERENCE, side by side and never collapsed into one
+// word (features/edge/mode.feature): "LOCAL ROOT · shed · prefers local", or "CORE ·
+// LOCAL-ONLY". Absent when no status is wired.
+func edgeModeBadge(st edgeState) string {
+	if st.status == nil {
+		return ""
+	}
+	return st.status.RootBadge() + " · " + st.status.PreferBadge()
+}
+
+// edgeRouteMix says where the live sessions went: "3 local · 1 market". A fleet that is
+// leaking to the market is obvious from the header alone.
+func edgeRouteMix(sessions []edge.Session) string {
+	local, market := 0, 0
+	for _, s := range sessions {
+		if s.Where == edge.WhereMarket {
+			market++
+		} else if s.Where == edge.WhereLocal {
+			local++
+		}
+	}
+	if local+market == 0 {
+		return ""
+	}
+	return strconv.Itoa(local) + " local · " + strconv.Itoa(market) + " market"
 }
 
 func edgeHints(w int) string {
@@ -262,7 +296,14 @@ func edgeHints(w int) string {
 // edgeEmptyView explains an empty Edge instead of drawing an empty box, and names the ONE
 // action that would add a node to it.
 func (m model) edgeEmptyView(w int, line func(string)) {
-	line("  " + stDim.Render("EDGE"))
+	head := "EDGE"
+	if b := edgeModeBadge(m.edge); b != "" {
+		head += " · " + b
+	}
+	if mix := edgeRouteMix(m.edge.sessions); mix != "" {
+		head += " · " + mix // a fleet of one still carries traffic, and where it went matters
+	}
+	line("  " + stDim.Render(head))
 	line("")
 	if m.hooks.EdgeFleet == nil {
 		// AN UNREAD EDGE IS NOT AN EMPTY ONE. The host did not start (the launch log said

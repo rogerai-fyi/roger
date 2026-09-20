@@ -17,6 +17,67 @@ import (
 	"time"
 )
 
+// The ROOT badges and the route PREFERENCES (features/edge/mode.feature).
+const (
+	RootLocal = "LOCAL"
+	RootCore  = "CORE"
+
+	PreferLocal     = "local"
+	PreferMarket    = "market"
+	PreferLocalOnly = "local-only"
+)
+
+// ValidPrefer reports whether p is one of the three preferences.
+func ValidPrefer(p string) bool {
+	return p == PreferLocal || p == PreferMarket || p == PreferLocalOnly
+}
+
+// PreferMeaning is the one line each preference means, for `roger edge prefer`.
+func PreferMeaning(p string) string {
+	switch p {
+	case PreferLocal:
+		return "try this Edge first, fall out to the market when nothing here serves the band"
+	case PreferMarket:
+		return "go to the market first, as before this setting existed"
+	case PreferLocalOnly:
+		return "never leave this Edge: a band nothing here serves is refused, not bought"
+	}
+	return ""
+}
+
+// EffectivePrefer is the preference in force: local when none was ever set.
+func (s SelfStatus) EffectivePrefer() string {
+	if ValidPrefer(s.Prefer) {
+		return s.Prefer
+	}
+	return PreferLocal
+}
+
+// RootBadge is the header's badge for the root: LOCAL names the designated machine.
+func (s SelfStatus) RootBadge() string {
+	switch {
+	case s.Err != "":
+		return "ROOT UNKNOWN"
+	case s.Root == RootLocal && s.Authority != "":
+		return "LOCAL ROOT · " + s.Authority
+	case s.Root == RootLocal:
+		return "LOCAL ROOT"
+	}
+	return "CORE"
+}
+
+// PreferBadge is the header's badge for the preference; local-only is the one an owner
+// turns on to be sure, so it is the one that must be visible.
+func (s SelfStatus) PreferBadge() string {
+	switch s.EffectivePrefer() {
+	case PreferLocalOnly:
+		return "LOCAL-ONLY"
+	case PreferMarket:
+		return "prefers market"
+	}
+	return "prefers local"
+}
+
 // The discovery states a status can report.
 const (
 	DiscoveryScanning    = "scanning"
@@ -40,11 +101,16 @@ type SelfStatus struct {
 	AuthorityHere  bool   `json:"authority_here"`           // this machine holds the root
 	AuthorityAddr  string `json:"authority_addr,omitempty"` // when here: what others enroll against
 	Allowed        int    `json:"allowed"`                  // when here: user keys admitted so far
-	Discovery      string `json:"discovery"`
-	IntervalS      int64  `json:"interval_s,omitempty"`
-	LastPass       int64  `json:"last_pass,omitempty"` // unix; 0 = no pass has completed
-	Found          string `json:"found,omitempty"`     // PassSummary of the last pass
-	Err            string `json:"error,omitempty"`
+	// Root is what this Edge is rooted at, as a badge: RootLocal or RootCore. Prefer is the
+	// owner's standing choice about route (PreferLocal, PreferMarket, PreferLocalOnly).
+	// Two words that both mean "local" and must never share a label (mode.feature).
+	Root      string `json:"root"`
+	Prefer    string `json:"prefer"`
+	Discovery string `json:"discovery"`
+	IntervalS int64  `json:"interval_s,omitempty"`
+	LastPass  int64  `json:"last_pass,omitempty"` // unix; 0 = no pass has completed
+	Found     string `json:"found,omitempty"`     // PassSummary of the last pass
+	Err       string `json:"error,omitempty"`
 }
 
 // PassSummary words one discovery pass: what it found, or that nothing answered.

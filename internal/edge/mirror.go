@@ -40,6 +40,7 @@ type mirrorSession struct {
 	Route    string             `json:"route,omitempty"`
 	Outcome  Outcome            `json:"outcome"`
 	Reason   string             `json:"reason,omitempty"`
+	Where    string             `json:"where,omitempty"`
 	At       int64              `json:"at"`
 }
 
@@ -79,13 +80,13 @@ func (s *Sessions) OnError(fn func(error)) { s.mu.Lock(); s.onErr = fn; s.mu.Unl
 func toMirror(x Session) mirrorSession {
 	return mirrorSession{Request: x.Request, Kind: x.Kind, Who: x.Who, Via: x.Via, Band: x.Band,
 		Station: x.Station, Left: x.Left, Escalate: x.Escalate, Contract: x.Contract, Route: x.Route,
-		Outcome: x.Outcome, Reason: x.Reason, At: x.At}
+		Outcome: x.Outcome, Reason: x.Reason, Where: x.Where, At: x.At}
 }
 
 func (m mirrorSession) session(account string) Session {
 	return Session{Request: m.Request, Account: account, Kind: m.Kind, Who: m.Who, Via: m.Via, Band: m.Band,
 		Station: m.Station, Left: m.Left, Escalate: m.Escalate, Contract: m.Contract, Route: m.Route,
-		Outcome: m.Outcome, Reason: m.Reason, At: m.At}
+		Outcome: m.Outcome, Reason: m.Reason, Where: m.Where, At: m.At}
 }
 
 // publishLocked writes this ledger's live list to its own file, atomically (a reader never

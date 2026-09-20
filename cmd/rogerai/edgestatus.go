@@ -64,13 +64,14 @@ func edgeSelfStatus(fleet *edge.Fleet, disc edgeDiscoveryFacts) edge.SelfStatus 
 	if err != nil {
 		return edge.SelfStatus{Err: err.Error()}
 	}
-	st.Authority = "Core"
+	st.Authority, st.Root = "Core", edge.RootCore
 	if d.Kind == edgeauth.KindLocal {
-		st.AuthorityLocal, st.Authority = true, d.Where
+		st.AuthorityLocal, st.Authority, st.Root = true, d.Where, edge.RootLocal
 		if st.Authority == "" {
 			st.Authority = "the designated machine"
 		}
 	}
+	st.Prefer = loadConfig().EdgePrefer
 	local, here, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
 		return edge.SelfStatus{Err: err.Error()}

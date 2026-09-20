@@ -1345,3 +1345,7 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edge-facts { margin: var(--s-4) 0; max-width: 72ch; }
 .edge-facts .kv > span { flex: 0 0 9rem; letter-spacing: var(--tracking-label); font-size: var(--t-micro); text-transform: uppercase; }
 .edge-facts .kv > b { white-space: normal; text-align: left; font-weight: var(--weight-regular); }
+.edge-mode { font-size: var(--t-sm); font-weight: var(--weight-medium); color: var(--ink-700); margin-left: var(--s-2); }
+.edge-mode--only { color: var(--ink-900); text-decoration: underline; }
+.route--local { color: var(--ink-900); }
+.route--market { color: var(--ink-500); }

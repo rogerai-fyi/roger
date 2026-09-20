@@ -433,9 +433,15 @@ func (d *Discovery) consider(ctx context.Context, ad Advert, rep *Report) {
 	if peer.Describe.Kind == "" {
 		peer.Describe.Kind = ad.Kind
 	}
+	insts := peer.Describe.Instances
+	truncated := peer.Describe.InstancesTruncated
+	if len(insts) > MaxInstances {
+		insts, truncated = insts[:MaxInstances], true // a peer does not choose our memory
+	}
 	n, err := f.Observe(ad.NodeID, Observation{
 		Name: name, Kind: peer.Describe.Kind, Caps: caps,
 		Addr: ad.Addr(), Fingerprint: peer.Fingerprint,
+		Instances: insts, InstancesTruncated: truncated,
 	})
 	if err != nil {
 		rep.Notes = append(rep.Notes, "fleet write failed: "+err.Error())

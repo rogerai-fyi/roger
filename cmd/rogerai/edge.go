@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -74,11 +75,13 @@ type edgeSubcommand struct {
 var edgeSubcommands = []edgeSubcommand{
 	{"list", "", "show every node on this Edge", 0, 0},
 	{"describe", "<node>", "show one node in full", 1, 1},
-	{"name", "<node> <name>", "give a node a name the owner chooses", 2, 2},
+	{"name", "<node>|. <name>", "give a node a name the owner chooses", 2, 2},
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
 	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
 	{"sessions", "", "show the live sessions on this machine's Edge", 0, 0},
+	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
+	{"bands", "", "show the models this Edge can serve locally, and who serves each", 0, 0},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
 }
@@ -157,6 +160,10 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeAdopt(cfg, rest)
 	case "sessions":
 		return cmdEdgeSessions(cfg, rest)
+	case "prefer":
+		return cmdEdgePrefer(cfg, rest)
+	case "bands":
+		return cmdEdgeBands(cfg, rest)
 	case "enroll":
 		return cmdEdgeEnroll(cfg, rest)
 	case "authority":
@@ -520,6 +527,11 @@ func cmdEdgeList(cfg config, args []string) error {
 	if argv.has("json") {
 		return edgeWriteJSON(os.Stdout, nodes, cands, reach)
 	}
+	// THE MODE, first: what roots this Edge and where turns go first - two words that
+	// must never share a label (features/edge/mode.feature).
+	if self := edgeSelfStatus(st.fleet, edgeDiscoveryFactsFromEnv()); self.Err == "" {
+		fmt.Printf("EDGE · %s · %s\n", self.RootBadge(), self.PreferBadge())
+	}
 	if len(nodes) == 0 && len(cands) == 0 {
 		if filtered {
 			fmt.Println("nothing on this Edge matches that.")
@@ -558,6 +570,11 @@ func cmdEdgeList(cfg config, args []string) error {
 	}
 	if note := edgeTrustNote(time.Now()); note != "" {
 		fmt.Println(note)
+	}
+	// This machine's household rides on its own row when it is a row of its fleet (an
+	// authority machine is), and is printed on its own line when it is not.
+	if !edgeAttachOwnHousehold(nodes, time.Now()) {
+		edgeWriteThisMachine(os.Stdout, st, time.Now())
 	}
 	if len(nodes) > 0 {
 		edgeWriteTable(os.Stdout, nodes, reach)
@@ -601,7 +618,8 @@ func edgeNewestSeen(ns []store.EdgeNode) int64 {
 	return newest
 }
 
-// edgeWriteTable is the fleet view: one row per node, the columns the spec names.
+// edgeWriteTable is the fleet view: one row per node, the columns the spec names, and the
+// node's running instances indented under it (features/edge/instances.feature).
 func edgeWriteTable(w io.Writer, nodes []store.EdgeNode, reach map[string]edgeReach) {
 	fmt.Fprintf(w, "%-18s %-6s %-30s %-10s %s\n", "name", "kind", "capabilities", "transport", "last seen")
 	for _, n := range nodes {
@@ -611,7 +629,67 @@ func edgeWriteTable(w io.Writer, nodes []store.EdgeNode, reach map[string]edgeRe
 		}
 		fmt.Fprintf(w, "%-18s %-6s %-30s %-10s %s\n",
 			n.Name, n.Kind, edgeCapsLabel(n), via, edgeSeenLabel(n))
+		edgeWriteInstances(w, n.Instances, n.InstancesTruncated)
 	}
+}
+
+// edgeWriteInstances is the household under a node: name, what it provides, what it serves.
+func edgeWriteInstances(w io.Writer, insts []edge.Instance, truncated bool) {
+	for _, in := range insts {
+		fmt.Fprintf(w, "  %-16s %-6s %-30s %s\n", "/"+in.Name, "roger", edgeInstanceCapsLabel(in), edgeInstanceServes(in))
+	}
+	if truncated {
+		fmt.Fprintf(w, "  %-16s (this node runs more instances than are shown)\n", "")
+	}
+}
+
+func edgeInstanceCapsLabel(in edge.Instance) string {
+	if len(in.Caps) == 0 {
+		return "-"
+	}
+	var out []string
+	for _, c := range in.Caps {
+		mk := c.Name
+		if c.State == string(edge.Verified) {
+			mk = strings.ToUpper(mk)
+		}
+		out = append(out, mk)
+	}
+	return strings.Join(out, " ")
+}
+
+func edgeInstanceServes(in edge.Instance) string {
+	if len(in.Bands) == 0 {
+		return ""
+	}
+	return "serves " + strings.Join(in.Bands, ", ")
+}
+
+// edgeWriteThisMachine is the household of THIS node, which is not a row in its own fleet:
+// the rogers running here right now, from the registrations they keep.
+func edgeWriteThisMachine(w io.Writer, st *edgeState, now time.Time) {
+	id, _, ok, err := edgeIdentityStore().LoadIdentity()
+	if err != nil || !ok {
+		return
+	}
+	name := id.NodeID
+	if n, found, err := st.fleet.Get(id.NodeID); err == nil && found && n.Name != "" {
+		name = n.Name
+	}
+	insts := edge.Household(edgeInstancesDir(), now)
+	if len(insts) == 0 {
+		fmt.Fprintf(w, "this machine: %s · no roger running on it right now\n", name)
+		return
+	}
+	fmt.Fprintf(w, "this machine: %s · %s\n", name, plural(len(insts), "instance"))
+	edgeWriteInstances(w, insts, false)
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
 }
 
 // edgeJSONNode is the scriptable shape. It carries what a script needs to address a node
@@ -730,6 +808,9 @@ func cmdEdgeDescribe(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
+	if strings.Contains(argv.pos[0], "/") {
+		return cmdEdgeDescribeInstance(argv.pos[0])
+	}
 	st, n, ok, err := edgeLookup(argv.pos[0])
 	if err != nil {
 		return err
@@ -834,6 +915,9 @@ func cmdEdgeName(cfg config, args []string) error {
 	argv, err := parseEdgeArgv(leaf, args)
 	if err != nil {
 		return err
+	}
+	if argv.pos[0] == "." {
+		return cmdEdgeNameInstance(cfg, argv.pos[1])
 	}
 	st, n, ok, err := edgeLookup(argv.pos[0])
 	if err != nil {
@@ -1136,6 +1220,7 @@ type edgeSessionRow struct {
 	Via      string `json:"via,omitempty"`
 	Escalate bool   `json:"escalate"`
 	Outcome  string `json:"outcome"`
+	Route    string `json:"route,omitempty"` // local | market, from the evidence
 	Count    int    `json:"count"`
 	At       int64  `json:"at"`
 }
@@ -1161,7 +1246,7 @@ func cmdEdgeSessions(cfg config, args []string) error {
 			x := g.Session
 			rows = append(rows, edgeSessionRow{Request: x.Request, Kind: string(x.Kind), Who: x.Attribution(),
 				Band: x.Band, Station: x.Station, Left: x.Left, Via: x.Via, Escalate: x.Escalate,
-				Outcome: x.OutcomeLabel(), Count: g.Count, At: x.At})
+				Outcome: x.OutcomeLabel(), Route: x.Where, Count: g.Count, At: x.At})
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1173,7 +1258,7 @@ func cmdEdgeSessions(cfg config, args []string) error {
 		return nil
 	}
 	fmt.Printf("SESSIONS · %d in the last %d seconds\n", len(st.sessions.Live()), int(edge.SessionLife.Seconds()))
-	fmt.Printf("  %-18s %-22s %-40s %s\n", "WHO", "BAND", "PATH", "OUTCOME")
+	fmt.Printf("  %-18s %-22s %-7s %-40s %s\n", "WHO", "BAND", "ROUTE", "PATH", "OUTCOME")
 	for _, g := range groups {
 		x := g.Session
 		var hops []string
@@ -1193,7 +1278,187 @@ func cmdEdgeSessions(cfg config, args []string) error {
 		if g.Count > 1 {
 			path += fmt.Sprintf(" ×%d", g.Count)
 		}
-		fmt.Printf("  %-18s %-22s %-40s %s\n", x.Attribution(), x.Band, path, x.OutcomeLabel())
+		route := x.Where
+		if route == "" {
+			route = "-"
+		}
+		fmt.Printf("  %-18s %-22s %-7s %-40s %s\n", x.Attribution(), x.Band, route, path, x.OutcomeLabel())
+	}
+	return nil
+}
+
+// cmdEdgeDescribeInstance describes ONE running roger: node/instance. This machine's own
+// household is read from its registrations; a peer's from what its face last reported.
+func cmdEdgeDescribeInstance(addr string) error {
+	st, err := loadEdgeState()
+	if err != nil {
+		return err
+	}
+	nodeName, instName := edge.SplitAddress(addr)
+	var (
+		found edge.Instance
+		on    string
+		ok    bool
+	)
+	if id, _, enrolled, _ := edgeIdentityStore().LoadIdentity(); enrolled {
+		selfName := id.NodeID
+		if n, f, err := st.fleet.Get(id.NodeID); err == nil && f && n.Name != "" {
+			selfName = n.Name
+		}
+		if nodeName == selfName || nodeName == id.NodeID || nodeName == "." {
+			for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+				if in.Name == instName {
+					found, on, ok = in, selfName, true
+				}
+			}
+		}
+	}
+	if !ok {
+		l, rerr := st.fleet.Resolve(addr)
+		if rerr != nil {
+			return rerr
+		}
+		found, on, ok = l.Instance, l.Node.Name, true
+	}
+	fmt.Printf("%s/%s\n", on, found.Name)
+	fmt.Printf("  node          %s\n", on)
+	fmt.Printf("  capabilities  %s\n", edgeInstanceCapsLabel(found))
+	if len(found.Bands) > 0 {
+		fmt.Printf("  serving       %s\n", strings.Join(found.Bands, ", "))
+	} else {
+		fmt.Printf("  serving       nothing on air\n")
+	}
+	if found.Started > 0 {
+		fmt.Printf("  started       %s ago\n", edge.Age(time.Since(time.Unix(found.Started, 0))))
+	}
+	if r := found.Resources; r != nil {
+		if r.GPU != "" {
+			fmt.Printf("  gpu           %s · %.0f%% memory used\n", r.GPU, r.GPUMemUsed*100)
+		}
+		if r.RAMTotalGB > 0 {
+			fmt.Printf("  ram           %.1f of %.1f GB used\n", r.RAMUsedGB, r.RAMTotalGB)
+		}
+	}
+	fmt.Printf("  certificate   none of its own: the node %q vouches for it\n", on)
+	return nil
+}
+
+// cmdEdgeNameInstance renames THIS roger on its Edge: the choice is saved in the config and
+// a running roger picks it up on its next pass (edgeinstance.go). The node's name is
+// untouched - that is `roger edge name <node> <name>`.
+func cmdEdgeNameInstance(cfg config, want string) error {
+	if err := edge.ValidInstanceName(want); err != nil {
+		return usagef("%v", err)
+	}
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		if in.Name == want && in.Name != cfg.EdgeInstance {
+			return fmt.Errorf("%w: %s", edge.ErrInstanceNameTaken, want)
+		}
+	}
+	cfg.EdgeInstance = want
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("this roger is now %q on its Edge.\n", want)
+	return nil
+}
+
+// edgeAttachOwnHousehold puts this machine's running rogers on its own fleet row, and
+// reports whether there was one to put them on.
+func edgeAttachOwnHousehold(nodes []store.EdgeNode, now time.Time) bool {
+	id, _, ok, err := edgeIdentityStore().LoadIdentity()
+	if err != nil || !ok {
+		return false
+	}
+	for i := range nodes {
+		if nodes[i].ID == id.NodeID {
+			nodes[i].Instances = edge.Household(edgeInstancesDir(), now)
+			return true
+		}
+	}
+	return false
+}
+
+// cmdEdgePrefer shows or sets where a turn goes first. It is a standing choice, not a
+// report: the ROUTE drawn on each session is where the turn really went.
+func cmdEdgePrefer(cfg config, args []string) error {
+	leaf, _ := edgeLeaf("prefer")
+	argv, err := parseEdgeArgv(leaf, args)
+	if err != nil {
+		return err
+	}
+	if len(argv.pos) == 0 {
+		cur := edge.SelfStatus{Prefer: cfg.EdgePrefer}.EffectivePrefer()
+		fmt.Printf("%s · %s\n", cur, edge.PreferMeaning(cur))
+		fmt.Println("  roger edge prefer local | market | local-only")
+		return nil
+	}
+	want := argv.pos[0]
+	if !edge.ValidPrefer(want) {
+		return usagef("roger edge prefer takes local, market or local-only; %q is none of them", want)
+	}
+	cfg.EdgePrefer = want
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("%s · %s\n", want, edge.PreferMeaning(want))
+	return nil
+}
+
+// cmdEdgeBands answers "what can my Edge serve without the market", from the fleet record
+// alone: every band an instance has on air, who serves it, and whether it is reachable from
+// here right now (features/edge/local_inference.feature). A band nothing here serves is one
+// that would have to go to the market.
+func cmdEdgeBands(cfg config, args []string) error {
+	leaf, _ := edgeLeaf("bands")
+	if _, err := parseEdgeArgv(leaf, args); err != nil {
+		return err
+	}
+	st, err := loadEdgeState()
+	if err != nil {
+		return err
+	}
+	nodes, err := st.fleet.List()
+	if err != nil {
+		return err
+	}
+	// this machine's own household serves too, and is not a row of its own fleet
+	self := edge.Household(edgeInstancesDir(), time.Now())
+	byBand := map[string][]string{}
+	order := []string{}
+	add := func(band, who string, reachable bool) {
+		if _, seen := byBand[band]; !seen {
+			order = append(order, band)
+		}
+		mark := who
+		if !reachable {
+			mark += " (unreachable)"
+		}
+		byBand[band] = append(byBand[band], mark)
+	}
+	for _, in := range self {
+		for _, b := range in.Bands {
+			add(b, "this machine/"+in.Name, true)
+		}
+	}
+	for _, n := range nodes {
+		reachable := n.Presence != string(edge.PresenceDark) && edge.HasLANTransport(n)
+		for _, in := range n.Instances {
+			for _, b := range in.Bands {
+				add(b, n.Name+"/"+in.Name, reachable)
+			}
+		}
+	}
+	if len(order) == 0 {
+		fmt.Println("no instance on this Edge serves any band right now.")
+		fmt.Println("  put a model on air here (roger share), or on another machine you own.")
+		fmt.Println("  anything you ask for that no one here serves goes to the market.")
+		return nil
+	}
+	sort.Strings(order)
+	fmt.Println("bands this Edge can serve locally:")
+	for _, b := range order {
+		fmt.Printf("  %-24s %s\n", b, strings.Join(byBand[b], ", "))
 	}
 	return nil
 }

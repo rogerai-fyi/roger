@@ -25,6 +25,32 @@ type EdgeCap struct {
 	State       string `json:"state"`
 	ConfirmedBy string `json:"confirmed_by,omitempty"` // actuate only: who said yes
 	ConfirmedAt int64  `json:"confirmed_at,omitempty"` // unix seconds
+	// Instances names the running instances that PROVIDE this capability on the node
+	// (features/edge/instances.feature): a node's capabilities are the union of its
+	// instances', and this is the provenance. Empty on a record older than instances.
+	Instances []string `json:"instances,omitempty"`
+}
+
+// EdgeInstance is one running `roger` on a node: a process, named by the owner, with the
+// capabilities and bands IT provides. It holds no certificate of its own - it is inside
+// its node's trust boundary - and it exists only while the process runs.
+type EdgeInstance struct {
+	Name      string         `json:"name"`
+	Caps      []EdgeCap      `json:"caps,omitempty"`
+	Bands     []string       `json:"bands,omitempty"` // models this instance has on air
+	Started   int64          `json:"started,omitempty"`
+	Port      int            `json:"port,omitempty"` // its own LAN face, when it has one
+	Resources *EdgeResources `json:"resources,omitempty"`
+}
+
+// EdgeResources are the local resource facts an instance could READ - never invented: a
+// field that could not be read is absent, not zero. Advisory only; nothing routes on them.
+type EdgeResources struct {
+	GPU        string  `json:"gpu,omitempty"`
+	GPUMemUsed float64 `json:"gpu_mem_used,omitempty"` // fraction 0..1
+	RAMUsedGB  float64 `json:"ram_used_gb,omitempty"`
+	RAMTotalGB float64 `json:"ram_total_gb,omitempty"`
+	ReadAt     int64   `json:"read_at,omitempty"`
 }
 
 // EdgeTransport is one way a node can be reached. Kind is "lan" or "relay"; a LAN entry
@@ -65,6 +91,10 @@ type EdgeNode struct {
 	// Station marks a row DERIVED from the existing Station registry rather than stored
 	// here. It is never persisted: it is recomputed on every fleet listing.
 	Station bool `json:"station,omitempty"`
+	// Instances are the running rogers on this node as its LAN face last reported them,
+	// bounded; InstancesTruncated says the face reported more than the bound.
+	Instances          []EdgeInstance `json:"instances,omitempty"`
+	InstancesTruncated bool           `json:"instances_truncated,omitempty"`
 }
 
 // EdgeContract is the fixed framing a classifying device carries: its task class, the

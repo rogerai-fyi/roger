@@ -152,6 +152,9 @@ func edgeSessGlyph(s edge.Session) string {
 // walked away from, and the station that served.
 func edgeSessHops(s edge.Session) string {
 	var hops []string
+	if w := edgeSessRoute(s); w != "" {
+		hops = append(hops, w+":")
+	}
 	if s.Via != "" {
 		hops = append(hops, s.Via)
 	}
@@ -205,6 +208,19 @@ func (m model) edgeSessLine(sg edgeSessGeom, r edgeSessRow) string {
 		pad(r.s.Band, sg.bandW) + " " +
 		edgeSessPathCell(r, sg.pathW) + " " +
 		pad(edgeSessOutcome(r.s), sg.outW)
+}
+
+// edgeSessRoute is the ROUTE word on a row: where the turn really went, from the
+// evidence. It rides in the path cell's lead so every width carries it, as a word - a
+// colour alone would be lost under NO_COLOR (features/edge/mode.feature).
+func edgeSessRoute(s edge.Session) string {
+	switch s.Where {
+	case edge.WhereLocal:
+		return "local"
+	case edge.WhereMarket:
+		return "market"
+	}
+	return ""
 }
 
 // edgeSessionBlock draws the traffic this Edge carried. With no traffic there is no block

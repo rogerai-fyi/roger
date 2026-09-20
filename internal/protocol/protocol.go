@@ -560,6 +560,13 @@ type UsageReceipt struct {
 	SigVersion int    `json:"sig_version,omitempty"`
 	NodeSig    string `json:"node_sig,omitempty"`
 	BrokerSig  string `json:"broker_sig,omitempty"`
+	// Local marks a receipt issued by the SERVING NODE for a turn that never left the
+	// owner's Edge (features/edge/local_inference.feature): same shape, zero cost, signed
+	// with the node key and never by the broker. It exists for the Edge view and for
+	// audit, never for settlement - the broker refuses it (no broker signature).
+	Local bool `json:"local,omitempty"`
+	// Instance names the running roger that served, on a local receipt.
+	Instance string `json:"instance,omitempty"`
 }
 
 // Void reasons a broker stamps on a $0 receipt (UsageReceipt.VoidReason).

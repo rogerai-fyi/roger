@@ -136,7 +136,7 @@ type SessionGroup struct {
 func groupKey(s Session) string {
 	return strings.Join([]string{
 		string(s.Kind), s.Who, s.Via, s.Left, s.Station, s.Band,
-		strconv.FormatBool(s.Escalate), string(s.Outcome), s.Reason,
+		strconv.FormatBool(s.Escalate), string(s.Outcome), s.Reason, s.Where,
 	}, "\x00")
 }
 
