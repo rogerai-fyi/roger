@@ -336,9 +336,94 @@
             line is ours.
           </p>
 
+          <figure class="bc-figure bc-figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 430" role="img" style="width:100%;height:auto"
+                 aria-label="Diagram: where each model runs. Along the plant floor, left to right: a sensor node (ESP32 or Arduino, reads vibration, temperature and current, no model), Wave Pico on a single-board computer beside the machine, Wave Nano on a gateway rolling up a zone, Wave Giga on a plant server with one 32 GB card, Wave Tera in the company's own cloud. They share one wire, Wave Mesh, and a small model that is unsure passes its read upward. Above a dashed internet line sits Jev in TypeSafe's cloud, reachable from the office network as a text API, not from the floor.">
+              <style>
+                .w-hair{stroke:currentColor;opacity:.18}.w-net{stroke:currentColor;opacity:.35;stroke-dasharray:3 5}
+                .w-box{fill:currentColor;opacity:.06;stroke:currentColor;stroke-opacity:.22}
+                .w-wave{fill:#E0231C;fill-opacity:.07;stroke:#E0231C;stroke-opacity:.6}
+                .w-arrow{stroke:currentColor;opacity:.5;fill:none}
+                .w-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .w-h{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;fill:currentColor}
+                .w-hr{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;fill:#E0231C}
+                .w-t{font-family:"JetBrains Mono",monospace;font-size:11.5px;fill:currentColor;opacity:.8}
+                .w-n{font-family:"JetBrains Mono",monospace;font-size:11.5px;fill:currentColor;opacity:.55}
+                .w-wire{stroke:#E0231C;stroke-opacity:.7;stroke-width:2}
+              </style>
+              <text x="24" y="34" class="w-cap">FIG. 4 - WHERE IT RUNS</text>
+              <line x1="24" y1="48" x2="796" y2="48" class="w-hair"/>
+
+              <!-- Jev in the cloud -->
+              <rect x="300" y="66" width="220" height="70" rx="4" class="w-box"/>
+              <text x="316" y="90" class="w-h">JEV</text>
+              <text x="316" y="108" class="w-t">TypeSafe's cloud. Text API only.</text>
+              <text x="316" y="124" class="w-n">Reachable from the office, not the floor.</text>
+              <line x1="24" y1="160" x2="796" y2="160" class="w-net"/>
+              <text x="24" y="152" class="w-n">INTERNET</text>
+              <text x="796" y="152" text-anchor="end" class="w-n">THE PLANT, YOUR OWN ESTATE</text>
+
+              <!-- the floor chain -->
+              <rect x="24" y="190" width="140" height="132" rx="4" class="w-box"/>
+              <text x="36" y="214" class="w-h">SENSOR NODE</text>
+              <text x="36" y="234" class="w-t">ESP32 / Arduino</text>
+              <text x="36" y="252" class="w-n">reads vibration,</text>
+              <text x="36" y="268" class="w-n">temperature, current.</text>
+              <text x="36" y="284" class="w-n">Not a model: a few</text>
+              <text x="36" y="300" class="w-n">MB of flash. Hands up.</text>
+
+              <rect x="182" y="190" width="140" height="132" rx="4" class="w-wave"/>
+              <text x="194" y="214" class="w-hr">WAVE PICO</text>
+              <text x="194" y="234" class="w-t">single-board computer</text>
+              <text x="194" y="252" class="w-n">beside the machine.</text>
+              <text x="194" y="268" class="w-n">~165 MB, no GPU,</text>
+              <text x="194" y="284" class="w-n">offline. One machine's</text>
+              <text x="194" y="300" class="w-n">channels, one verdict.</text>
+
+              <rect x="340" y="190" width="140" height="132" rx="4" class="w-wave"/>
+              <text x="352" y="214" class="w-hr">WAVE NANO</text>
+              <text x="352" y="234" class="w-t">the gateway</text>
+              <text x="352" y="252" class="w-n">a dozen Picos rolled</text>
+              <text x="352" y="268" class="w-n">up to one plain state</text>
+              <text x="352" y="284" class="w-n">per zone. 0.8-1.5B,</text>
+              <text x="352" y="300" class="w-n">from scratch.</text>
+
+              <rect x="498" y="190" width="140" height="132" rx="4" class="w-wave"/>
+              <text x="510" y="214" class="w-hr">WAVE GIGA</text>
+              <text x="510" y="234" class="w-t">plant server, 1 card</text>
+              <text x="510" y="252" class="w-n">reasons across the</text>
+              <text x="510" y="268" class="w-n">plant's channels, names</text>
+              <text x="510" y="284" class="w-n">the asset condition.</text>
+              <text x="510" y="300" class="w-n">27B, one 32 GB GPU.</text>
+
+              <rect x="656" y="190" width="140" height="132" rx="4" class="w-wave"/>
+              <text x="668" y="214" class="w-hr">WAVE TERA</text>
+              <text x="668" y="234" class="w-t">enterprise cloud</text>
+              <text x="668" y="252" class="w-n">many plants at once:</text>
+              <text x="668" y="268" class="w-n">faults, trends, the</text>
+              <text x="668" y="284" class="w-n">report and the SQL.</text>
+              <text x="668" y="300" class="w-n">80-120B, your estate.</text>
+
+              <!-- arrows between boxes -->
+              <path d="M164 256 L182 256" class="w-arrow" stroke-width="2"/><path d="M176 251 L182 256 L176 261" class="w-arrow" stroke-width="2"/>
+              <path d="M322 256 L340 256" class="w-arrow" stroke-width="2"/><path d="M334 251 L340 256 L334 261" class="w-arrow" stroke-width="2"/>
+              <path d="M480 256 L498 256" class="w-arrow" stroke-width="2"/><path d="M492 251 L498 256 L492 261" class="w-arrow" stroke-width="2"/>
+              <path d="M638 256 L656 256" class="w-arrow" stroke-width="2"/><path d="M650 251 L656 256 L650 261" class="w-arrow" stroke-width="2"/>
+
+              <!-- one wire -->
+              <line x1="182" y1="346" x2="796" y2="346" class="w-wire"/>
+              <line x1="182" y1="340" x2="182" y2="352" class="w-wire"/>
+              <line x1="796" y1="340" x2="796" y2="352" class="w-wire"/>
+              <text x="489" y="370" text-anchor="middle" class="w-hr">WAVE MESH - ONE WIRE, BUILT IN</text>
+              <text x="489" y="388" text-anchor="middle" class="w-n">a tier that is not sure of a read sends it up rather than guessing; the tier above reads it directly</text>
+              <text x="24" y="416" class="w-n">Everything right of the internet line is a model you host. Local or remote is a deployment choice, not a different product.</text>
+            </svg>
+            <figcaption class="fig mono">FIG. 4 &middot; The floor is one wire. Jev is on the other side of the internet.</figcaption>
+          </figure>
+
           <figure class="bc-figure" data-reveal>
             <table class="mono" style="width:100%;border-collapse:collapse;font-size:.92em">
-              <caption class="fig mono" style="text-align:left;padding:0 0 .6em">FIG. 4 &middot; SIDE BY SIDE, NO SPIN</caption>
+              <caption class="fig mono" style="text-align:left;padding:0 0 .6em">FIG. 5 &middot; SIDE BY SIDE, NO SPIN</caption>
               <thead>
                 <tr style="text-align:left;border-bottom:1px solid currentColor">
                   <th style="padding:.4em .6em .4em 0"></th>
