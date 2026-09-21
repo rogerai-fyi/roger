@@ -45,7 +45,7 @@
         </p>
         <div class="bc-post__meta mono">
           <span>Jev: <b>hosted API, text in, closed weights</b></span>
-          <span>Wave Pico: <b>293M, from scratch, telemetry in</b></span>
+          <span>Wave Pico: <b>293M, from scratch, on air now</b></span>
           <span>Wave Giga: <b>27B, Apache-2.0 base, 16.5 GB on disk</b></span>
         </div>
       </header>
@@ -235,9 +235,10 @@
             building, the network to the floor is often air-gapped or
             metered, a decision about a bearing has to happen in
             milliseconds beside the bearing, and the person who needs the
-            answer is a technician, not an API. A hosted decision model,
-            however good, cannot be on that floor. A 165 MB quantized model
-            on a single-board computer can.
+            answer is a technician, not an API. A hosted decision model, however good, cannot be on that floor. A 165 MB quantized model
+            on a single-board computer can. And if you want to hear it before you wire one up,
+            it is already on air: <code>roger search</code> lists it as
+            <code>wave-pico-293m</code>, a free band served from our own station.
           </p>
         </section>
 
@@ -295,7 +296,8 @@
           <p>
             Two of those bars are real artifacts that have passed their
             release gates. Wave Pico is the 293M model above, converted
-            losslessly to four runtime formats and re-scored through each.
+            losslessly to four runtime formats and re-scored through each,
+            and it is the one you can tune in to today.
             Wave Giga is built on Qwen3.8-27B (Apache-2.0) with the
             specialization merged into the weights; the shipped Q4_K_M
             quantization is 16.5 GB, fits one 32 GB card, and on a single
@@ -434,9 +436,9 @@
                 <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Runs</td><td style="padding:.4em .6em">TypeSafe's cloud, API only</td><td style="padding:.4em .6em">a single-board computer or any GPU, offline</td><td style="padding:.4em .6em">one 32 GB card, offline</td></tr>
                 <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Weights</td><td style="padding:.4em .6em">closed, params undisclosed</td><td style="padding:.4em .6em">ours, from scratch, 293M</td><td style="padding:.4em .6em">Apache-2.0 base, merged, 27B</td></tr>
                 <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Size on disk</td><td style="padding:.4em .6em">none</td><td style="padding:.4em .6em">~165 MB quantized</td><td style="padding:.4em .6em">16.5 GB at Q4_K_M</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Price</td><td style="padding:.4em .6em">$0.042 per M input tokens</td><td style="padding:.4em .6em">your own hardware</td><td style="padding:.4em .6em">your own hardware, or on air via RogerAI</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Price</td><td style="padding:.4em .6em">$0.042 per M input tokens</td><td style="padding:.4em .6em">free on air now, or your own hardware</td><td style="padding:.4em .6em">your own hardware, or on air via RogerAI</td></tr>
                 <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Cannot</td><td style="padding:.4em .6em">explain, count, do arithmetic, read a sensor</td><td style="padding:.4em .6em">chat, answer trivia, reason across machines</td><td style="padding:.4em .6em">run on a Pi</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">built and gated, no public checkpoint yet</td><td style="padding:.4em .6em">built and gated, no public checkpoint yet</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">on air as a free band, <code>wave-pico-293m</code>; weights not published yet</td><td style="padding:.4em .6em">built and gated, public checkpoint pending</td></tr>
               </tbody>
             </table>
             <figcaption class="fig mono">FIG. 5 &middot; SIDE BY SIDE, NO SPIN.</figcaption>
@@ -461,12 +463,15 @@
               never trained on telemetry has no idea what a vibration
               spectrum or a Modbus register looks like. That is the gap the
               scratch-trained Wave tiers exist to close.</dd>
-            <dt><b>Can I download a Wave model today?</b></dt>
-            <dd>Not yet. Wave Pico (293M) and Wave Giga (27B) have both
-              passed their release gates, and Giga is built on an Apache-2.0
-              base. Public checkpoints go out when the founder signs off on
-              the release, not before. Follow the family guide and this
-              broadcast log for the date.</dd>
+            <dt><b>Can I use a Wave model today?</b></dt>
+            <dd>Yes. Wave Pico (293M) is on air right now as a free band on
+              RogerAI: run <code>roger search</code> and it is listed as
+              <code>wave-pico-293m</code>, then <code>roger use wave-pico-293m</code>
+              gives your tools a local OpenAI-style endpoint that reaches it.
+              Send it a window of telemetry and get a verdict back. The
+              weights themselves are not published yet; Wave Giga (27B) has
+              passed its release gate on an Apache-2.0 base and its public
+              checkpoint waits on the founder's sign-off.</dd>
             <dt><b>Why train small models from scratch instead of fine-tuning?</b></dt>
             <dd>Because the input is not language. A pretrained base has
               learned the web's vocabulary and would have to unlearn it to
@@ -481,15 +486,16 @@
               machine, on a server in the plant, or on your own GPU at home.
               A model you run locally can also go on air as a band with
               <code>roger share</code>, which is how anything on RogerAI is
-              reached remotely. Local or remote is a deployment choice, not
-              a different product.</dd>
+              reached remotely, and exactly how <code>wave-pico-293m</code> is
+              on air today from our station. Local or remote is a deployment
+              choice, not a different product.</dd>
           </dl>
         </section>
 
         <div class="man-note man-note--live">
           <span class="man-note__tag">roger that</span>
+          Tune in to Wave Pico now: <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>, then <code>roger use wave-pico-293m</code>.
           The full family guide, with the jobs table and the mesh: <a href="/research-wave-family.html">The Wave Spectrum</a>.
-          To run any model you own on air: <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>, then <code>roger share</code>.
         </div>
 
       </div>
@@ -501,7 +507,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Wave a competitor to Jev?","acceptedAnswer":{"@type":"Answer","text":"No. Both are decision models, but Jev reads text and runs in TypeSafe's cloud; Wave reads what machines emit and runs on hardware you own, down to a single-board computer beside the machine. A plant could reasonably use both: Jev to route the maintenance ticket, Wave to read the pump that raised it."}},{"@type":"Question","name":"Can Jev read sensor data?","acceptedAnswer":{"@type":"Answer","text":"Not as designed. It takes text, and its own documentation lists counting, arithmetic and dates as weak spots. A decision model never trained on telemetry has no idea what a vibration spectrum or a Modbus register looks like. That is the gap the scratch-trained Wave tiers exist to close."}},{"@type":"Question","name":"Can I download a Wave model today?","acceptedAnswer":{"@type":"Answer","text":"Not yet. Wave Pico (293M) and Wave Giga (27B) have both passed their release gates, and Giga is built on an Apache-2.0 base. Public checkpoints go out when the founder signs off on the release. Follow the family guide and the broadcast log for the date."}},{"@type":"Question","name":"Why train small models from scratch instead of fine-tuning?","acceptedAnswer":{"@type":"Answer","text":"Because the input is not language. A pretrained base has learned the web's vocabulary and would have to unlearn it to read a raw telemetry window. Below about 1.5B parameters scratch training on machine data is healthy and nothing is lost by skipping the web. From Giga up, a model is expected to converse and reason in general too, so those tiers start from a strong open base and get industrial training on top."}},{"@type":"Question","name":"Where does RogerAI come in?","acceptedAnswer":{"@type":"Answer","text":"Every Wave tier is a model you host: on the board beside the machine, on a server in the plant, or on your own GPU at home. A model you run locally can also go on air as a band with roger share, which is how anything on RogerAI is reached remotely."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Wave a competitor to Jev?","acceptedAnswer":{"@type":"Answer","text":"No. Both are decision models, but Jev reads text and runs in TypeSafe's cloud; Wave reads what machines emit and runs on hardware you own, down to a single-board computer beside the machine. A plant could reasonably use both: Jev to route the maintenance ticket, Wave to read the pump that raised it."}},{"@type":"Question","name":"Can Jev read sensor data?","acceptedAnswer":{"@type":"Answer","text":"Not as designed. It takes text, and its own documentation lists counting, arithmetic and dates as weak spots. A decision model never trained on telemetry has no idea what a vibration spectrum or a Modbus register looks like. That is the gap the scratch-trained Wave tiers exist to close."}},{"@type":"Question","name":"Can I use a Wave model today?","acceptedAnswer":{"@type":"Answer","text":"Yes. Wave Pico (293M) is on air right now as a free band on RogerAI: roger search lists it as wave-pico-293m, and roger use wave-pico-293m gives your tools a local OpenAI-style endpoint that reaches it. The weights themselves are not published yet; Wave Giga (27B) has passed its release gate on an Apache-2.0 base and its public checkpoint waits on the founder sign-off."}},{"@type":"Question","name":"Why train small models from scratch instead of fine-tuning?","acceptedAnswer":{"@type":"Answer","text":"Because the input is not language. A pretrained base has learned the web's vocabulary and would have to unlearn it to read a raw telemetry window. Below about 1.5B parameters scratch training on machine data is healthy and nothing is lost by skipping the web. From Giga up, a model is expected to converse and reason in general too, so those tiers start from a strong open base and get industrial training on top."}},{"@type":"Question","name":"Where does RogerAI come in?","acceptedAnswer":{"@type":"Answer","text":"Every Wave tier is a model you host: on the board beside the machine, on a server in the plant, or on your own GPU at home. A model you run locally can also go on air as a band with roger share, which is how anything on RogerAI is reached remotely, and how wave-pico-293m is on air today."}}]}</script>
 
   <script src="js/lets-talk.js" defer></script>
   <script src="js/site.js" defer></script>
