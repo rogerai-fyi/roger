@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<!-- Broadcast 015: Jev vs the Wave family. A field guide to decision models: what TypeSafe's
+     Jev is (facts from its own docs and launch coverage, 2026-09-15/20), where it sits on the
+     map of model types, and where Wave sits. Every Wave number here is an engineering fact or
+     an external-harness number (params, tokens, size on disk, tok/s, ARC/HellaSwag/WinoGrande,
+     MMLU). No internal benchmark scores are published on this page, by standing rule.
+     Sources for the Jev facts: docs.typesafe.ai/models, typesafe.ai/blog (System One models),
+     the HN launch thread, and independent checks by MindStudio and Novel Cognition. The
+     industrial-readiness numbers are FactoryBench (arXiv 2605.07675). Assets: a Flux-generated
+     hero (brandlocked, one red) + two inline theme-adaptive SVG figures. Registered in
+     build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Jev decides about text. Wave decides about machines." desc="TypeSafe's Jev made decision models a category last week: text in, a calibrated yes, no or score out, no chat. We build the same idea for industrial telemetry, from a 293M model that runs beside the pump to a 27B that reasons across a plant. A map of where each fits." theme=external og=post ogtype=article ogtitle="Jev decides about text. Wave decides about machines." ogdesc="A decision model for text just launched. Ours reads the machine. Where Jev, chat models, time-series models and the Wave family each fit, and why we build for the plant floor." ogurl="https://rogerai.fm/broadcasts-jev-vs-wave.html" ogimage="https://rogerai.fm/assets/broadcasts/jev-wave-og.png" -->
+</head>
+<body data-onair="idle">
+
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.09 &middot; ((&bull;))</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 015 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-09-22">SEPTEMBER 2026</time>
+        </span>
+        <h1 class="bc-post__title">Jev decides about text. Wave decides about machines.</h1>
+        <p class="bc-post__dek">
+          Last week TypeSafe shipped Jev and made "decide, don't chat" a
+          category overnight: hand it text and a question, get back a
+          calibrated yes, no or score in under a second. We have been
+          building the same idea for a different input. Here is the map of
+          model types, where Jev sits on it, and where Wave does.
+        </p>
+        <div class="bc-post__meta mono">
+          <span>Jev: <b>hosted API, text in, closed weights</b></span>
+          <span>Wave Pico: <b>293M, from scratch, telemetry in</b></span>
+          <span>Wave Giga: <b>27B, Apache-2.0 base, 16.5 GB on disk</b></span>
+        </div>
+      </header>
+
+      <figure class="bc-figure" data-reveal>
+        <img src="assets/broadcasts/jev-wave-hero.png" width="1600" height="896"
+             alt="A vintage technical-manual cutaway illustration: a small sealed instrument box bolted to the side of an industrial pump, thin sensor wires running from the pump's gauges into the box, a single round beacon lamp on the box lit, and a distant plant with a tall tower on the horizon."
+             loading="eager" decoding="async" />
+        <figcaption class="fig mono">FIG. 1 &middot; THE MODEL BESIDE THE MACHINE. WIRES IN, ONE VERDICT OUT.</figcaption>
+      </figure>
+
+      <div class="bc-post__body">
+
+        <p class="bc-post__lead" data-reveal>
+          Two things happened in September. A well-funded lab shipped a model
+          that does not talk at all, and developers loved it. And a Reddit
+          thread asked us how our tiny industrial model relates to it. The
+          honest answer is that they are cousins: both are decision models,
+          built to answer a narrow question fast instead of writing a
+          paragraph. They differ in what they read, where they run, and who
+          gets the weights. That difference is the whole story of why we
+          build for the plant floor.
+        </p>
+
+        <!-- §1 what Jev is -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; What Jev actually is</span>
+          <h2>A general-purpose classifier that needs no training set.</h2>
+          <p>
+            Jev is TypeSafe AI's "System One" model, released to a waitlist
+            on September 15 and opened to everyone on September 20. You send
+            one block of text (a document, a ticket, a JSON state) plus a
+            list of typed questions. It returns a probability for each
+            question in a single forward pass. Three question types exist:
+            yes or no, a choice among up to 255 options, and an ordered
+            score with 2 to 10 levels. It generates no text. It cannot
+            explain itself. That is the design, not a limitation someone
+            forgot to fix.
+          </p>
+          <p>
+            The pitch is speed and price. TypeSafe quotes 70 to 500 ms per
+            call and $0.042 per million input tokens with output free, and
+            claims 40 to 400 times cheaper than frontier chat models on
+            decision work. Independent testers found the real gap smaller
+            but real: about five times faster and eight to nine times cheaper
+            than a mid-size open chat model on the same routing job. Vercel
+            said it was the fastest-adopted model in its gateway's history.
+            On Hacker News, when a commenter called it "basically a zero-shot
+            classifier", the CEO answered "exactly right". We think that is
+            the most useful sentence written about it.
+          </p>
+          <p>
+            What Jev is not: open. There are no weights, no paper, no
+            parameter count and no self-hosting. It is text only, with a
+            64k-token window. Its own docs list counting, arithmetic and
+            dates as weak spots. Within a week the community had shipped
+            small open reproductions on Qwen bases (OpenJev, NanoJev) that
+            read a model's logits instead of generating, which tells you how
+            portable the idea is even if the product is not.
+          </p>
+        </section>
+
+        <!-- §2 the map -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; The map</span>
+          <h2>Two questions place any model: what does it read, what does it return?</h2>
+          <p>
+            Most confusion about "which model do I need" clears up once you
+            ask two questions. First, what is the input: human language, or
+            what a machine emits (a window of telemetry, a log line, a
+            serial dump)? Second, what comes out: a conversation, or a
+            decision? Put those on two axes and the crowded field sorts
+            itself into four corners.
+          </p>
+
+          <figure class="bc-figure bc-figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 520" role="img" style="width:100%;height:auto"
+                 aria-label="Diagram: a two-by-two map of model types. Horizontal axis: what the model reads, from human text on the left to machine signals on the right. Vertical axis: what it returns, from a conversation at the top to a decision at the bottom. Top left: chat models such as Qwen3.8-27B, Gemma 4 and gpt-oss. Bottom left: decision models such as Jev, Laya, GLiClass and guard models. Top right: Wave Giga and Wave Tera, which read telemetry and also converse. Bottom right: Wave Pico and Wave Nano beside time-series forecasters such as TimesFM and Chronos-2. Wave is the only family present in both right-hand corners.">
+              <style>
+                .m-hair{stroke:currentColor;opacity:.18}.m-axis{stroke:currentColor;opacity:.45}
+                .m-box{fill:currentColor;opacity:.06;stroke:currentColor;stroke-opacity:.22}
+                .m-wave{fill:#E0231C;fill-opacity:.07;stroke:#E0231C;stroke-opacity:.6}
+                .m-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .m-ax{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:1px;fill:currentColor;opacity:.6}
+                .m-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:600;fill:currentColor}
+                .m-hr{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:600;fill:#E0231C}
+                .m-t{font-family:"JetBrains Mono",monospace;font-size:13px;fill:currentColor;opacity:.8}
+                .m-n{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.55}
+              </style>
+              <text x="24" y="34" class="m-cap">FIG. 2 - WHAT IT READS &#215; WHAT IT RETURNS</text>
+              <line x1="24" y1="48" x2="796" y2="48" class="m-hair"/>
+
+              <!-- axes -->
+              <line x1="150" y1="80" x2="780" y2="80" class="m-axis"/>
+              <line x1="150" y1="80" x2="150" y2="470" class="m-axis"/>
+              <text x="160" y="72" class="m-ax">READS: HUMAN TEXT</text>
+              <text x="780" y="72" text-anchor="end" class="m-ax">READS: MACHINE SIGNALS</text>
+              <text x="140" y="120" text-anchor="end" class="m-ax">RETURNS</text>
+              <text x="140" y="136" text-anchor="end" class="m-ax">A CHAT</text>
+              <text x="140" y="440" text-anchor="end" class="m-ax">RETURNS</text>
+              <text x="140" y="456" text-anchor="end" class="m-ax">A DECISION</text>
+
+              <!-- top-left: chat models -->
+              <rect x="166" y="96" width="296" height="170" rx="4" class="m-box"/>
+              <text x="182" y="124" class="m-h">CHAT MODELS</text>
+              <text x="182" y="150" class="m-t">Qwen3.8-27B, Gemma 4, gpt-oss</text>
+              <text x="182" y="172" class="m-t">Llama, Mistral, DeepSeek</text>
+              <text x="182" y="206" class="m-n">Read the web. Write paragraphs.</text>
+              <text x="182" y="224" class="m-n">Under 50% on telemetry reasoning</text>
+              <text x="182" y="242" class="m-n">in FactoryBench, six frontier LLMs.</text>
+
+              <!-- bottom-left: decision models -->
+              <rect x="166" y="284" width="296" height="170" rx="4" class="m-box"/>
+              <text x="182" y="312" class="m-h">DECISION MODELS</text>
+              <text x="182" y="338" class="m-t">Jev, Laya, GLiClass, Arch-Router</text>
+              <text x="182" y="360" class="m-t">Qwen3Guard, Llama Guard</text>
+              <text x="182" y="394" class="m-n">Text in, a probability out.</text>
+              <text x="182" y="412" class="m-n">Routing, triage, moderation,</text>
+              <text x="182" y="430" class="m-n">screening. Jev is hosted only.</text>
+
+              <!-- top-right: wave giga/tera -->
+              <rect x="486" y="96" width="296" height="170" rx="4" class="m-wave"/>
+              <text x="502" y="124" class="m-hr">WAVE GIGA &middot; WAVE TERA</text>
+              <text x="502" y="150" class="m-t">27B plant model, 80-120B enterprise</text>
+              <text x="502" y="172" class="m-t">Open base + industrial training</text>
+              <text x="502" y="206" class="m-n">Read telemetry and talk to the</text>
+              <text x="502" y="224" class="m-n">people who run it. Name the asset</text>
+              <text x="502" y="242" class="m-n">condition across channels.</text>
+
+              <!-- bottom-right: wave pico/nano + ts -->
+              <rect x="486" y="284" width="296" height="170" rx="4" class="m-wave"/>
+              <text x="502" y="312" class="m-hr">WAVE PICO &middot; WAVE NANO</text>
+              <text x="502" y="338" class="m-t">293M and 0.8-1.5B, from scratch</text>
+              <text x="502" y="360" class="m-t">beside TimesFM, Chronos-2 (forecast)</text>
+              <text x="502" y="394" class="m-n">A window of sensor data in,</text>
+              <text x="502" y="412" class="m-n">fault or no fault out, or "I cannot</text>
+              <text x="502" y="430" class="m-n">read this". Runs without a GPU.</text>
+
+              <text x="24" y="500" class="m-n">Red = the Wave family. It is the only family that lives in both right-hand corners, on one wire.</text>
+            </svg>
+            <figcaption class="fig mono">FIG. 2 &middot; Four corners. Jev owns the lower left. Wave is built for the right-hand side.</figcaption>
+          </figure>
+
+          <p>
+            Jev, Laya, the GLiClass family and the guard models all live in
+            the lower left: language in, a decision out. Chat models live
+            above them. The right-hand side is where a plant lives, and it
+            is nearly empty. Time-series forecasters like TimesFM and
+            Chronos-2 sit in the lower right and are genuinely good at
+            "what will this signal do next", but they do not name a fault
+            or read a log line. The Wave family was built to fill both
+            right-hand corners with one set of models that speak to each
+            other.
+          </p>
+        </section>
+
+        <!-- §3 why industrial -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; Why we build for the plant floor</span>
+          <h2>The vocabulary is the plant's, not the web's.</h2>
+          <p>
+            Ask a frontier chat model to reason over a robot's torque and
+            force logs and it struggles. FactoryBench, an ETH Zurich
+            benchmark published this May, put six frontier LLMs on question
+            answering over real robot telemetry: all of them scored under
+            50% on structured reasoning and under 18% on decision tasks. The
+            authors called it an industrial readiness gap. We call it the
+            reason the small Wave tiers are trained from scratch.
+          </p>
+          <p>
+            A model trained on the web learns the web's tokens. A model
+            trained from scratch on what machines emit learns the machine's:
+            Modbus registers, Sparkplug B payloads, Prometheus and InfluxDB
+            lines, syslog, a serial dump from a bench instrument. Wave Pico
+            is 293,702,656 parameters trained on 18.2 billion tokens of that
+            material. It is at chance on MMLU (23.2) by design, because it
+            was never shown the web. It does one job: look at a window of
+            sensor data and say whether the instrument is faulting, which
+            fault it looks like, or that the rendering is unreadable and it
+            will not guess. That last answer matters more in a plant than
+            any other.
+          </p>
+          <p>
+            Why we care about this at all: RogerAI exists so people can run
+            models on hardware they own and put them on air for others. The
+            plant floor is the purest case of that. Data cannot leave the
+            building, the network to the floor is often air-gapped or
+            metered, a decision about a bearing has to happen in
+            milliseconds beside the bearing, and the person who needs the
+            answer is a technician, not an API. A hosted decision model,
+            however good, cannot be on that floor. A 165 MB quantized model
+            on a single-board computer can.
+          </p>
+        </section>
+
+        <!-- §4 the ladder -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; The ladder</span>
+          <h2>One family, one SI scale, from the board beside the machine to the enterprise.</h2>
+          <p>
+            Each Wave tier is cut for the machine that has to run it. The
+            three smallest are trained from scratch so the plant's vocabulary
+            is the only one they know. From Giga up, a strong open base gets
+            industrial training on top, because at that size a model is
+            expected to hold its own on general questions too. The chart is
+            the artifact you would actually download, quantized, on a log
+            scale, with Jev marked where it belongs: nowhere on the disk.
+          </p>
+
+          <figure class="bc-figure bc-figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" role="img" style="width:100%;height:auto"
+                 aria-label="Chart: size on disk of each Wave tier, quantized, on a log scale from 100 MB to 1 TB. Wave Pico about 165 MB, built. Wave Nano about 690 MB at 1.15B, training. Wave Micro planned. Wave Giga 16.5 GB at Q4_K_M, built on Qwen3.8-27B. Wave Tera about 60 GB at 100B, base being selected. Wave Peta about 105 GB and Wave Exa about 170 GB, planned. Jev has no bar: hosted only, parameter count undisclosed.">
+              <style>
+                .l-hair{stroke:currentColor;opacity:.18}.l-tick{stroke:currentColor;opacity:.30;stroke-dasharray:2 4}
+                .l-bar{fill:currentColor;opacity:.82}.l-plan{fill:currentColor;opacity:.28}.l-built{fill:#E0231C}
+                .l-lbl{font-family:"JetBrains Mono",monospace;font-size:15px;fill:currentColor}
+                .l-val{font-family:"JetBrains Mono",monospace;font-size:14px;fill:currentColor}
+                .l-live{font-family:"JetBrains Mono",monospace;font-size:14px;fill:#E0231C}
+                .l-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .l-t{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.55}
+              </style>
+              <text x="24" y="34" class="l-cap">FIG. 3 - SIZE ON DISK, QUANTIZED (LOG SCALE)</text>
+              <line x1="24" y1="48" x2="796" y2="48" class="l-hair"/>
+              <text x="24" y="72" class="l-t">red = built and gated &middot; grey = training or planned &middot; dashed = decades</text>
+              <g>
+                <line x1="250" y1="80" x2="250" y2="404" class="l-tick"/><text x="250" y="424" text-anchor="middle" class="l-t">100 MB</text>
+                <line x1="386" y1="80" x2="386" y2="404" class="l-tick"/><text x="386" y="424" text-anchor="middle" class="l-t">1 GB</text>
+                <line x1="522" y1="80" x2="522" y2="404" class="l-tick"/><text x="522" y="424" text-anchor="middle" class="l-t">10 GB</text>
+                <line x1="658" y1="80" x2="658" y2="404" class="l-tick"/><text x="658" y="424" text-anchor="middle" class="l-t">100 GB</text>
+                <line x1="794" y1="80" x2="794" y2="404" class="l-tick"/><text x="780" y="424" text-anchor="middle" class="l-t">1 TB</text>
+              </g>
+              <!-- x = 250 + 136*log10(size_MB/100). Pico 165MB -> 279.6; Nano 690MB -> 364.1; Micro 4.5GB (planned band) -> 474.8; Giga 16.5GB -> 551.7; Tera 60GB -> 628.0; Peta 105GB -> 661.0; Exa 170GB -> 689.5 -->
+              <text x="234" y="102" text-anchor="end" class="l-lbl">Pico 293M</text><rect x="250" y="90" width="29.6" height="17" rx="2" class="l-built"/><text x="288" y="103" class="l-live">~165 MB &middot; built</text>
+              <text x="234" y="144" text-anchor="end" class="l-lbl">Nano 0.8-1.5B</text><rect x="250" y="132" width="114.1" height="17" rx="2" class="l-plan"/><text x="372" y="145" class="l-val">~690 MB &middot; training</text>
+              <text x="234" y="186" text-anchor="end" class="l-lbl">Micro</text><rect x="250" y="174" width="224.8" height="17" rx="2" class="l-plan"/><text x="483" y="187" class="l-val">next scratch build</text>
+              <text x="234" y="228" text-anchor="end" class="l-lbl">Giga 27B</text><rect x="250" y="216" width="301.7" height="17" rx="2" class="l-built"/><text x="560" y="229" class="l-live">16.5 GB &middot; built</text>
+              <text x="234" y="270" text-anchor="end" class="l-lbl">Tera 80-120B</text><rect x="250" y="258" width="378" height="17" rx="2" class="l-plan"/><text x="636" y="271" class="l-val">~60 GB &middot; base pick</text>
+              <text x="234" y="312" text-anchor="end" class="l-lbl">Peta 150-200B</text><rect x="250" y="300" width="411" height="17" rx="2" class="l-plan"/><text x="669" y="313" class="l-val">~105 GB</text>
+              <text x="234" y="354" text-anchor="end" class="l-lbl">Exa ~284B</text><rect x="250" y="342" width="439.5" height="17" rx="2" class="l-plan"/><text x="697" y="355" class="l-val">~170 GB</text>
+              <text x="234" y="396" text-anchor="end" class="l-lbl">Jev</text><text x="250" y="397" class="l-t">no bar. hosted only, parameter count undisclosed, nothing to download.</text>
+              <line x1="24" y1="404" x2="796" y2="404" class="l-hair"/>
+              <text x="24" y="458" class="l-t">Sizes above Giga are targets from the public family guide. Pico and Giga are measured artifacts.</text>
+            </svg>
+            <figcaption class="fig mono">FIG. 3 &middot; The artifact you would download, per tier. Two are real today.</figcaption>
+          </figure>
+
+          <p>
+            Two of those bars are real artifacts that have passed their
+            release gates. Wave Pico is the 293M model above, converted
+            losslessly to four runtime formats and re-scored through each.
+            Wave Giga is built on Qwen3.8-27B (Apache-2.0) with the
+            specialization merged into the weights; the shipped Q4_K_M
+            quantization is 16.5 GB, fits one 32 GB card, and on a single
+            workstation GPU it generates at 35.9 tokens per second and
+            processes prompts at 298.6 at 8k context with two slots. It
+            still holds its general ground: against the unmodified base,
+            ARC went 82.5 to 84.5, HellaSwag 63.7 to 61.1, WinoGrande 75.5 to
+            72.9. Specialization did not make it narrow. It made it read
+            telemetry.
+          </p>
+        </section>
+
+        <!-- §5 enterprise -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; The enterprise tier</span>
+          <h2>Tera is where the plant's data meets the company's questions.</h2>
+          <p>
+            Pico reads one machine. Nano rolls up a dozen Picos into one
+            state per zone. Giga reasons across the channels of a whole
+            plant and names the asset condition that explains them together.
+            Tera, at 80 to 120B, is the tier that correlates faults and
+            trends across many plants and answers the questions a company
+            actually asks of its operations: which line's decline matters
+            given a size threshold, what the downtime cost, write the SQL
+            for that, draft the report with only the numbers in the table.
+          </p>
+          <p>
+            That is a different skill from reading a sensor, and it is why
+            Tera starts from a strong open base rather than from scratch.
+            We are scoring candidate bases this month on an enterprise
+            probe suite where every answer is machine-checked, never judged
+            by another model, and the base that wins is the one with the
+            best delta after a short specialization run, not the one with
+            the best leaderboard number. Where does Jev fit in that
+            company? Honestly, beside it. Routing the ticket, screening the
+            email, triaging the log line by text: that is Jev's corner and
+            it is a good corner. Reading the machine that produced the log
+            line is ours.
+          </p>
+
+          <figure class="bc-figure" data-reveal>
+            <table class="mono" style="width:100%;border-collapse:collapse;font-size:.92em">
+              <caption class="fig mono" style="text-align:left;padding:0 0 .6em">FIG. 4 &middot; SIDE BY SIDE, NO SPIN</caption>
+              <thead>
+                <tr style="text-align:left;border-bottom:1px solid currentColor">
+                  <th style="padding:.4em .6em .4em 0"></th>
+                  <th style="padding:.4em .6em">Jev</th>
+                  <th style="padding:.4em .6em">Wave Pico</th>
+                  <th style="padding:.4em .6em">Wave Giga</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Reads</td><td style="padding:.4em .6em">text, 64k window</td><td style="padding:.4em .6em">a window of telemetry, a log line</td><td style="padding:.4em .6em">telemetry across channels, plus language</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Returns</td><td style="padding:.4em .6em">probabilities: yes/no, choice, score</td><td style="padding:.4em .6em">fault, which fault, or "unreadable"</td><td style="padding:.4em .6em">asset condition, plus a conversation</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Runs</td><td style="padding:.4em .6em">TypeSafe's cloud, API only</td><td style="padding:.4em .6em">a single-board computer or any GPU, offline</td><td style="padding:.4em .6em">one 32 GB card, offline</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Weights</td><td style="padding:.4em .6em">closed, params undisclosed</td><td style="padding:.4em .6em">ours, from scratch, 293M</td><td style="padding:.4em .6em">Apache-2.0 base, merged, 27B</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Size on disk</td><td style="padding:.4em .6em">none</td><td style="padding:.4em .6em">~165 MB quantized</td><td style="padding:.4em .6em">16.5 GB at Q4_K_M</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Price</td><td style="padding:.4em .6em">$0.042 per M input tokens</td><td style="padding:.4em .6em">your own hardware</td><td style="padding:.4em .6em">your own hardware, or on air via RogerAI</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Cannot</td><td style="padding:.4em .6em">explain, count, do arithmetic, read a sensor</td><td style="padding:.4em .6em">chat, answer trivia, reason across machines</td><td style="padding:.4em .6em">run on a Pi</td></tr>
+                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">built and gated, no public checkpoint yet</td><td style="padding:.4em .6em">built and gated, no public checkpoint yet</td></tr>
+              </tbody>
+            </table>
+          </figure>
+        </section>
+
+        <!-- §6 FAQ -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
+          <h2>Questions people actually ask</h2>
+          <dl class="bc-faq">
+            <dt><b>Is Wave a competitor to Jev?</b></dt>
+            <dd>No. Both are decision models, but Jev reads text and runs in
+              TypeSafe's cloud; Wave reads what machines emit and runs on
+              hardware you own, down to a single-board computer beside the
+              machine. A plant could reasonably use both: Jev to route the
+              maintenance ticket, Wave to read the pump that raised it.</dd>
+            <dt><b>Can Jev read sensor data?</b></dt>
+            <dd>Not as designed. It takes text, and its own documentation
+              lists counting, arithmetic and dates as weak spots. You could
+              paste numbers into it as text, but a decision model that was
+              never trained on telemetry has no idea what a vibration
+              spectrum or a Modbus register looks like. That is the gap the
+              scratch-trained Wave tiers exist to close.</dd>
+            <dt><b>Can I download a Wave model today?</b></dt>
+            <dd>Not yet. Wave Pico (293M) and Wave Giga (27B) have both
+              passed their release gates, and Giga is built on an Apache-2.0
+              base. Public checkpoints go out when the founder signs off on
+              the release, not before. Follow the family guide and this
+              broadcast log for the date.</dd>
+            <dt><b>Why train small models from scratch instead of fine-tuning?</b></dt>
+            <dd>Because the input is not language. A pretrained base has
+              learned the web's vocabulary and would have to unlearn it to
+              read a raw telemetry window. Below about 1.5B parameters we
+              measured that scratch training on machine data is healthy and
+              nothing is lost by skipping the web. From Giga up the calculus
+              flips: at 27B a model is expected to converse and reason in
+              general too, so those tiers start from a strong open base and
+              get industrial training on top.</dd>
+            <dt><b>Where does RogerAI come in?</b></dt>
+            <dd>Every Wave tier is a model you host: on the board beside the
+              machine, on a server in the plant, or on your own GPU at home.
+              A model you run locally can also go on air as a band with
+              <code>roger share</code>, which is how anything on RogerAI is
+              reached remotely. Local or remote is a deployment choice, not
+              a different product.</dd>
+          </dl>
+        </section>
+
+        <div class="man-note man-note--live">
+          <span class="man-note__tag">roger that</span>
+          The full family guide, with the jobs table and the mesh: <a href="/research-wave-family.html">The Wave Spectrum</a>.
+          To run any model you own on air: <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>, then <code>roger share</code>.
+        </div>
+
+      </div>
+
+    </div>
+  </article>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Wave a competitor to Jev?","acceptedAnswer":{"@type":"Answer","text":"No. Both are decision models, but Jev reads text and runs in TypeSafe's cloud; Wave reads what machines emit and runs on hardware you own, down to a single-board computer beside the machine. A plant could reasonably use both: Jev to route the maintenance ticket, Wave to read the pump that raised it."}},{"@type":"Question","name":"Can Jev read sensor data?","acceptedAnswer":{"@type":"Answer","text":"Not as designed. It takes text, and its own documentation lists counting, arithmetic and dates as weak spots. A decision model never trained on telemetry has no idea what a vibration spectrum or a Modbus register looks like. That is the gap the scratch-trained Wave tiers exist to close."}},{"@type":"Question","name":"Can I download a Wave model today?","acceptedAnswer":{"@type":"Answer","text":"Not yet. Wave Pico (293M) and Wave Giga (27B) have both passed their release gates, and Giga is built on an Apache-2.0 base. Public checkpoints go out when the founder signs off on the release. Follow the family guide and the broadcast log for the date."}},{"@type":"Question","name":"Why train small models from scratch instead of fine-tuning?","acceptedAnswer":{"@type":"Answer","text":"Because the input is not language. A pretrained base has learned the web's vocabulary and would have to unlearn it to read a raw telemetry window. Below about 1.5B parameters scratch training on machine data is healthy and nothing is lost by skipping the web. From Giga up, a model is expected to converse and reason in general too, so those tiers start from a strong open base and get industrial training on top."}},{"@type":"Question","name":"Where does RogerAI come in?","acceptedAnswer":{"@type":"Answer","text":"Every Wave tier is a model you host: on the board beside the machine, on a server in the plant, or on your own GPU at home. A model you run locally can also go on air as a band with roger share, which is how anything on RogerAI is reached remotely."}}]}</script>
+
+  <script src="js/lets-talk.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
