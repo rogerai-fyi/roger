@@ -296,7 +296,13 @@ func (h *edgeHost) startAuthority() {
 		log.Println("edge: could not open the Edge authority's LAN service:", err)
 		return
 	}
-	auth := &http.Server{Handler: enrollhttp.Handler(local), ReadHeaderTimeout: 10 * time.Second}
+	// The authority server answers BOTH enrollment (issue a certificate) and PRESENCE (a member
+	// that dials out to say it is here, so a phone that cannot serve an inbound face still appears -
+	// features/edge/presence.feature). Presence writes to the same fleet discovery does.
+	authMux := http.NewServeMux()
+	authMux.Handle(edge.PresencePath, edge.PresenceHandler(h.st.fleet, local.Authority(), nil))
+	authMux.Handle("/", enrollhttp.Handler(local))
+	auth := &http.Server{Handler: authMux, ReadHeaderTimeout: 10 * time.Second}
 	h.mu.Lock()
 	h.authLn, h.issuer, h.auth = ln, local.Issuer(), auth
 	h.mu.Unlock()
