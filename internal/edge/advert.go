@@ -24,6 +24,12 @@ type Advert struct {
 	IP          net.IP
 	Port        int
 	Fingerprint string // SHA-256 of the certificate this node will present, lowercase hex
+	// AuthPort is where THIS node's authority answers enrollment and claims, when it roots the
+	// Edge - the plain-HTTP /edge/enroll + /edge/claim listener, distinct from Port (the TLS face).
+	// A node that is not an authority leaves it 0 and emits no `auth` key, so a member or a phone
+	// advertises exactly the six keys it always did. It is what lets a phone that was adopted find
+	// where to send its claim without the owner reading an address to it (features/edge/claim.feature).
+	AuthPort int
 }
 
 // TXT keys. Short, because a TXT character-string is at most 255 bytes.
@@ -34,6 +40,7 @@ const (
 	txtCaps   = "caps"
 	txtPort   = "port"
 	txtFP     = "fp"
+	txtAuth   = "auth"
 )
 
 // TXT renders the advertisement's TXT record.
@@ -50,6 +57,11 @@ func (a Advert) TXT() []string {
 		txtCaps + "=" + strings.Join(a.Caps, ","),
 		txtPort + "=" + strconv.Itoa(a.Port),
 		txtFP + "=" + a.Fingerprint,
+	}
+	// Only an authority advertises where it answers claims. A member or a phone emits nothing here,
+	// so its record stays the six keys every other node has (and byte-identical to the phone's).
+	if a.AuthPort > 0 {
+		out = append(out, txtAuth+"="+strconv.Itoa(a.AuthPort))
 	}
 	return out
 }
@@ -79,6 +91,8 @@ func advertFromTXT(txt []string) Advert {
 			a.Port, _ = strconv.Atoi(v)
 		case txtFP:
 			a.Fingerprint = strings.ToLower(v)
+		case txtAuth:
+			a.AuthPort, _ = strconv.Atoi(v)
 		}
 	}
 	return a

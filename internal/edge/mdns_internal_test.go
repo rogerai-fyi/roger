@@ -342,3 +342,16 @@ func TestNewMulticastTransportJoinsARealGroup(t *testing.T) {
 	}
 	require.NoError(t, tp.Close())
 }
+
+// TestAdvertFromTXTParsesAuthPort: the unexported parser reads the authority claim/enroll port back
+// (features/edge/claim.feature), and leaves it 0 when absent.
+func TestAdvertFromTXTParsesAuthPort(t *testing.T) {
+	with := advertFromTXT([]string{"id=n_a", "acct=edge-local", "kind=host", "caps=", "port=8791", "fp=aa", "auth=33537"})
+	if with.AuthPort != 33537 {
+		t.Fatalf("auth port not parsed, got %d", with.AuthPort)
+	}
+	without := advertFromTXT([]string{"id=n_b", "acct=edge-local", "port=1", "fp=bb"})
+	if without.AuthPort != 0 {
+		t.Fatalf("absent auth should parse to 0, got %d", without.AuthPort)
+	}
+}

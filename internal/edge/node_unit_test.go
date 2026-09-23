@@ -128,6 +128,25 @@ func TestAdvertTXTRoundTripAndAddr(t *testing.T) {
 	require.Empty(t, edge.Advert{NodeID: "n_c", IP: net.ParseIP("10.0.0.1")}.Addr())
 }
 
+// TestAdvertAuthPort: only an authority advertises where it answers claims (auth=), and a member or
+// phone stays byte-identical to the six keys it always had (features/edge/claim.feature).
+func TestAdvertAuthPort(t *testing.T) {
+	// An authority carries auth=<port>, so a phone that was adopted knows where to claim.
+	authority := edge.Advert{NodeID: "n_a", Account: "edge-local", Kind: "host",
+		Port: 8791, Fingerprint: "aabb", AuthPort: 33537}
+	require.Contains(t, authority.TXT(), "auth=33537")
+
+	// A member (or a phone) with no authority port emits NO auth key - the record is the same six
+	// keys as before, so nothing that reads the phone's advert is surprised.
+	member := edge.Advert{NodeID: "n_b", Account: "edge-local", Kind: "mobile",
+		Port: 9001, Fingerprint: "ccdd"}
+	for _, kv := range member.TXT() {
+		require.NotContains(t, kv, "auth=", "a non-authority must not advertise an auth port")
+	}
+	require.Len(t, member.TXT(), 6)
+
+}
+
 func TestAdvertiseAddrsAndHasLAN(t *testing.T) {
 	mk := func(cidr string) net.Addr {
 		ip, n, err := net.ParseCIDR(cidr)

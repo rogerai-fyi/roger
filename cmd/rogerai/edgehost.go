@@ -225,10 +225,18 @@ func (h *edgeHost) arm() bool {
 	// browse, because an advertisement it could not back up is noise. Now it serves its
 	// own describe endpoint over its own certificate and advertises the fingerprint of
 	// it, so the owner's other machines can dial, check, and see it as a member.
+	// Start the authority FIRST, so its enrollment/claim port is known and can be advertised on the
+	// self record (auth=): a phone that gets adopted then finds where to send its claim from the
+	// advertisement alone, no address read to it (features/edge/claim.feature).
+	h.startAuthority()
 	if self, ok := h.startFace(); ok {
+		if h.authLn != nil {
+			if tcp, ok := h.authLn.Addr().(*net.TCPAddr); ok {
+				self.AuthPort = tcp.Port
+			}
+		}
 		opts.Self = self
 	}
-	h.startAuthority()
 	h.registerInstance(h.cfg)
 	// The daemon paces its own passes here (see serve), because the host needs each
 	// pass's report - to beat the screen, refresh the candidates and write the cache -
