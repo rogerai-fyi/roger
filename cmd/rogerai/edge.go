@@ -84,6 +84,10 @@ var edgeSubcommands = []edgeSubcommand{
 	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
 	{"bands", "", "show the models this Edge can serve locally, and who serves each", 0, 0},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
+	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
+	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
+	{"model", "<agent> <model> [use|share|use,share]", "bind a model to an agent, to use or share on the Edge", 2, 3},
+	{"job", "<agent> <serve|watch|relay|none> [targets...]", "give an agent a job, or clear it", 2, 16},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
 }
 
@@ -167,6 +171,14 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeBands(cfg, rest)
 	case "enroll":
 		return cmdEdgeEnroll(cfg, rest)
+	case "setup":
+		return cmdEdgeSetup(cfg, rest)
+	case "agent":
+		return cmdEdgeAgent(cfg, rest)
+	case "model":
+		return cmdEdgeModel(cfg, rest)
+	case "job":
+		return cmdEdgeJob(cfg, rest)
 	case "authority":
 		return cmdEdgeAuthority(cfg, rest)
 	default:
@@ -561,6 +573,12 @@ func cmdEdgeList(cfg config, args []string) error {
 		fmt.Println("  then take one into the fleet:     roger edge adopt <node>")
 		fmt.Println("  or enroll another machine against this Edge's authority:")
 		fmt.Println("                                    " + self.EnrollAgainstLine())
+		// The interactive way in - the same wizard the TUI opens on `e` (onboard.feature).
+		// It points here rather than replacing the named commands above, which stay for
+		// scripts and for anyone who prefers them.
+		if !self.Enrolled {
+			fmt.Println("  or set it up interactively:       roger edge setup")
+		}
 		return nil
 	}
 	// Nothing answered, but the fleet is not empty: say that this is remembered, not
@@ -1052,6 +1070,14 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if !found {
 		return fmt.Errorf("no candidate %q was seen on this network (run `roger edge scan`)", want)
 	}
+	// A candidate that advertises no certificate (a phone) joins by CLAIM, not by being dialed.
+	if c.Pin == "" {
+		if err := edgeAdoptByClaim(c.ID); err != nil {
+			return err
+		}
+		fmt.Printf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
+		return nil
+	}
 	n, err = edgeAdoptCandidate(st, c, c.Name, want)
 	if err != nil {
 		return err
@@ -1059,6 +1085,19 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	edgeGrantClaimIfAuthority(c.ID)
 	fmt.Printf("adopted %s (%s) - it can now claim its certificate and become a member.\n", n.Name, edgeShortID(n.ID))
 	return nil
+}
+
+// edgeAdoptByClaim adopts a non-serving candidate (a phone) by GRANTING it a claim, so it can fetch
+// its certificate from this authority. Only the machine that roots the Edge can do it.
+func edgeAdoptByClaim(nodeID string) error {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return err
+	}
+	if !hasRoot {
+		return fmt.Errorf("only the machine that roots this Edge can adopt a device that joins by claim")
+	}
+	return local.GrantClaim(nodeID)
 }
 
 // edgeGrantClaimIfAuthority grants an adopted node a claim when THIS machine roots the Edge, so the
@@ -1394,6 +1433,48 @@ func edgeAttachOwnHousehold(nodes []store.EdgeNode, now time.Time) bool {
 
 // cmdEdgePrefer shows or sets where a turn goes first. It is a standing choice, not a
 // report: the ROUTE drawn on each session is where the turn really went.
+// cmdEdgeAgent is the agent verb group (features/edge/agents.feature): show, on/off (the role +
+// persistence), resume a dark persistent agent, or remove one. Implementations live in
+// edgeagentcmd.go so this stays a small router.
+func cmdEdgeAgent(cfg config, args []string) error {
+	leaf, _ := edgeLeaf("agent")
+	argv, err := parseEdgeArgv(leaf, args)
+	if err != nil {
+		return err
+	}
+	if len(argv.pos) == 0 {
+		return edgeAgentShow(cfg)
+	}
+	switch strings.ToLower(argv.pos[0]) {
+	case "resume":
+		if len(argv.pos) < 2 {
+			return usagef("roger edge agent resume <name>")
+		}
+		return edgeAgentResume(cfg, argv.pos[1])
+	case "remove":
+		if len(argv.pos) < 2 {
+			return usagef("roger edge agent remove <name>")
+		}
+		return edgeAgentRemove(cfg, argv.pos[1])
+	}
+	on, ok := edgeParseOnOff(argv.pos[0])
+	if !ok {
+		return usagef("roger edge agent takes on, off, resume <name> or remove <name>; %q is none of them", argv.pos[0])
+	}
+	return edgeAgentSetRole(cfg, on)
+}
+
+// edgeParseOnOff reads a human on/off word.
+func edgeParseOnOff(s string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "on", "yes", "true", "1":
+		return true, true
+	case "off", "no", "false", "0":
+		return false, true
+	}
+	return false, false
+}
+
 func cmdEdgePrefer(cfg config, args []string) error {
 	leaf, _ := edgeLeaf("prefer")
 	argv, err := parseEdgeArgv(leaf, args)

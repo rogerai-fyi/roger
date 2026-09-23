@@ -52,12 +52,11 @@ func TestArrowCyclesPresetsFromBrowse(t *testing.T) {
 	}
 }
 
-// TestArrowCycleWraps: stepping Left from TUNE IN past AGENT does NOT fall off the
-// end - and a Right walk visits SHARE then EDGE then CONFIG then HELP, proving the
-// sequential order 1 -> 2 -> 3 -> 4 -> ... is followed (LOGIN has no resting mode, so a
-// Right onto it lands in whatever doLogin returns; we assert the ordered, observable jumps).
+// TestArrowCycleWraps: the preset bank steps in order and wraps, EXCEPT the EDGE screen owns
+// the arrow keys for its own map/action navigation (2026-09-23) - so an arrow onto EDGE enters it
+// and further arrows stay, while number keys still jump. Left from TUNE IN wraps to AGENT.
 func TestArrowCycleWraps(t *testing.T) {
-	// Right walk: TUNE IN -> SHARE -> EDGE -> CONFIG.
+	// Right walk: TUNE IN -> SHARE -> EDGE.
 	m := browseModel(t)
 	m, _ = m.Update(keyRight()) // -> SHARE
 	if got := asModel(m).mode; got != modeShare {
@@ -67,19 +66,32 @@ func TestArrowCycleWraps(t *testing.T) {
 	if got := asModel(m).mode; got != modeEdge {
 		t.Errorf("step 2 should be EDGE, got %v", got)
 	}
-	m, _ = m.Update(keyRight()) // -> CONFIG (limits)
+	// The EDGE screen OWNS the arrow keys - it has its own map + action-button navigation
+	// (2026-09-23: a stray Right must not leave mid-navigation). So a further Right STAYS on EDGE
+	// rather than stepping to CONFIG; leaving is esc or a number key.
+	m, _ = m.Update(keyRight())
+	if got := asModel(m).mode; got != modeEdge {
+		t.Errorf("Right on EDGE must stay on EDGE (it owns the arrows), got %v", got)
+	}
+	// A number key still jumps: 4 -> CONFIG.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
 	if got := asModel(m).mode; got != modeLimits {
-		t.Errorf("step 3 should be CONFIG (limits), got %v", got)
+		t.Errorf("4 from EDGE should jump to CONFIG (limits), got %v", got)
 	}
 
-	// Left walk wraps the other way: from CONFIG, Left -> EDGE -> SHARE -> TUNE IN (browse).
+	// Left walk among the presets still steps. From CONFIG, Left -> EDGE (entering); EDGE then
+	// owns Left too, so it stays. Leave with a number key and continue the walk.
 	m, _ = m.Update(keyLeft()) // CONFIG -> EDGE
 	if got := asModel(m).mode; got != modeEdge {
 		t.Errorf("Left from CONFIG should step back to EDGE, got %v", got)
 	}
-	m, _ = m.Update(keyLeft()) // EDGE -> SHARE
+	m, _ = m.Update(keyLeft()) // EDGE owns Left; stays
+	if got := asModel(m).mode; got != modeEdge {
+		t.Errorf("Left on EDGE must stay on EDGE (it owns the arrows), got %v", got)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}}) // -> SHARE
 	if got := asModel(m).mode; got != modeShare {
-		t.Errorf("Left from EDGE should step back to SHARE, got %v", got)
+		t.Errorf("2 from EDGE should jump to SHARE, got %v", got)
 	}
 	m, _ = m.Update(keyLeft()) // SHARE -> TUNE IN
 	if got := asModel(m).mode; got != modeBrowse {

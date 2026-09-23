@@ -115,6 +115,9 @@ type edgeFacts struct {
 	Authority     []string `json:"authority"`
 	Discovery     string   `json:"discovery"`
 	EnrollAgainst string   `json:"enroll_against"`
+	// Setup points at the terminal wizard when this machine is not yet a member. Empty once
+	// enrolled, so the console shows it exactly when the terminal offers `e` (onboard.feature).
+	Setup string `json:"setup,omitempty"`
 }
 
 type edgeSnap struct {
@@ -207,6 +210,9 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		if st.Err == "" {
 			snap.Facts = &edgeFacts{Root: st.RootBadge(), Prefer: st.PreferBadge(), Machine: st.MachineLine(), Authority: st.AuthorityLines(),
 				Discovery: st.DiscoveryLine(now), EnrollAgainst: st.EnrollAgainstLine()}
+			if !st.Enrolled {
+				snap.Facts.Setup = st.SetupConsoleLine()
+			}
 		}
 	}
 	if h.Candidates != nil {

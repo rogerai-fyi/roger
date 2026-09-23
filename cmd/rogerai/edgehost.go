@@ -128,6 +128,29 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeAdopt = h.adopt
 	hooks.EdgeHeartbeats = h.beats
 	hooks.EdgeStatus = h.status
+	// The rogers running on THIS machine, read live from the local instance registry - so [3]
+	// shows the owner's own instances and agents (mDNS cannot see them over loopback).
+	hooks.EdgeHousehold = func() []edge.Instance { return edge.Household(edgeInstancesDir(), time.Now()) }
+	// The agents the owner marked persistent - a durable record, so one that has stopped still
+	// draws (dark) with resume/remove (features/edge/agents.feature).
+	hooks.EdgePersistentAgents = func() []edge.PersistentAgent { return edge.PersistentAgents(edgePersistDir()) }
+	hooks.EdgeSelfInstance = h.selfInstanceName
+	// The [3] control panel's in-place actions, so the owner acts from the screen (no leaving to
+	// type `roger edge agent on`).
+	hooks.EdgeAgentActive = func() bool { return edgeIsAgentRole(loadConfig()) }
+	hooks.EdgeSetAgent = h.setAgentRoleLive
+	hooks.EdgeAddAgent = h.addAgentLive
+	hooks.EdgeRenameSelf = h.renameSelfLive
+	hooks.EdgeResumeAgent = h.resumeAgentLive
+	hooks.EdgeRemoveAgent = h.removeAgentLive
+	hooks.EdgeAgentJobs = func() []edge.AgentJob { return edge.AgentJobs(edgeJobsDir()) }
+	hooks.EdgeSetAgentJob = h.setAgentJobLive
+	hooks.EdgeClearAgentJob = h.clearAgentJobLive
+	// The onboarding wizard (features/edge/onboard.feature) drives the SAME enrollment the
+	// `roger edge` commands do, through this seam - never its own copy of the logic.
+	setup := edgeSetupHooks(h.cfg)
+	hooks.EdgeSetup = &setup
+	hooks.EdgeSetupOf = edgeSetupState
 }
 
 // status is what is true about THIS machine right now - enrolled, rooted where, scanning
@@ -190,12 +213,17 @@ func (h *edgeHost) adopt(id, name string) error {
 	if !ok {
 		return fmt.Errorf("no candidate %q was seen on this network", id)
 	}
+	// A candidate that advertises NO certificate (Pin empty) - a phone - cannot be dialed and
+	// verified; it joins by CLAIM. Adopting it GRANTS the claim, and it becomes a member when it
+	// claims its certificate and checks in (features/edge/claim.feature). A candidate that DOES
+	// serve a certificate is dialed, verified, and taken into the fleet the original way (and also
+	// granted, in case it too claims).
+	if c.Pin == "" {
+		return edgeAdoptByClaim(c.ID)
+	}
 	if _, err = edgeAdoptCandidate(h.st, c, name, name); err != nil {
 		return err
 	}
-	// If this machine roots the Edge, adopting a candidate GRANTS it a claim, so a phone that
-	// advertised itself can now claim its certificate from us and become a real member without the
-	// owner typing anything into the phone (features/edge/claim.feature).
 	edgeGrantClaimIfAuthority(c.ID)
 	return nil
 }

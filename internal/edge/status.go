@@ -211,6 +211,13 @@ func (s SelfStatus) EnrollAgainstLine() string {
 	return fmt.Sprintf("roger edge enroll <name> --authority %s", addr)
 }
 
+// SetupConsoleLine is what the console says about the interactive wizard: it is a terminal
+// thing for now, so the browser points at the terminal rather than pretending to run it. Worded
+// once here so the console and any future in-browser setup agree on the command's name.
+func (s SelfStatus) SetupConsoleLine() string {
+	return "Setting up the Edge is done from the terminal for now: run roger edge setup there."
+}
+
 // AddNodeLines names BOTH ways to add a node, in the terminal's voice (the console words
 // the first line itself, since its adopt is a button rather than a key).
 func (s SelfStatus) AddNodeLines() []string {

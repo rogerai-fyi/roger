@@ -89,8 +89,21 @@ func (s *modeTUIBDD) rootedCoreWithPrefer(p string) error {
 	return nil
 }
 func (s *modeTUIBDD) rendersAt(cols int) error { s.render(cols); return nil }
+
+// faceplateLine finds the Edge screen's mode faceplate - the line carrying the root/preference
+// badges and the route mix. Since the [3] surface now wears an arcade cabinet on top (patchbay
+// §8), the faceplate is no longer line 0; it is the line that carries a root word (every mode
+// badge has ROOT or CORE), so the test keys off content, not position.
+func (s *modeTUIBDD) faceplateLine() string {
+	for _, ln := range strings.Split(s.out, "\n") {
+		if strings.Contains(ln, "ROOT") || strings.Contains(ln, "CORE") {
+			return ln
+		}
+	}
+	return strings.SplitN(s.out, "\n", 2)[0]
+}
 func (s *modeTUIBDD) headerBadge(word string) error {
-	first := strings.SplitN(s.out, "\n", 2)[0]
+	first := s.faceplateLine()
 	if !strings.Contains(first, word) {
 		return fmt.Errorf("header %q lacks %q", first, word)
 	}
@@ -157,7 +170,7 @@ func (s *modeTUIBDD) headerReportsMix(n, m int) error {
 func (s *modeTUIBDD) preferenceIs(p string) error { s.status.Prefer = p; return nil }
 func (s *modeTUIBDD) headerSaysLocalOnly() error  { return s.headerBadge("LOCAL-ONLY") }
 func (s *modeTUIBDD) distinctFromLocallyRooted() error {
-	first := strings.SplitN(s.out, "\n", 2)[0]
+	first := s.faceplateLine()
 	// the two labels are both there and both distinct: CORE (root) beside LOCAL-ONLY (preference)
 	if !regexp.MustCompile(`CORE.*LOCAL-ONLY|LOCAL ROOT.*LOCAL-ONLY`).MatchString(first) {
 		return fmt.Errorf("header does not keep root and preference distinct: %q", first)
@@ -165,14 +178,14 @@ func (s *modeTUIBDD) distinctFromLocallyRooted() error {
 	return nil
 }
 func (s *modeTUIBDD) bothReadable() error {
-	first := strings.SplitN(s.out, "\n", 2)[0]
+	first := s.faceplateLine()
 	if !strings.Contains(first, "CORE") || !strings.Contains(first, "prefers local") {
 		return fmt.Errorf("header = %q", first)
 	}
 	return nil
 }
 func (s *modeTUIBDD) neitherPresentedAsOther() error {
-	first := strings.SplitN(s.out, "\n", 2)[0]
+	first := s.faceplateLine()
 	if strings.Contains(first, "LOCAL ROOT") {
 		return fmt.Errorf("a Core-rooted Edge shows a LOCAL ROOT badge: %q", first)
 	}

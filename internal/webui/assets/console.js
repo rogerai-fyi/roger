@@ -1700,6 +1700,10 @@
     }
     if (dd) dd.textContent = facts.discovery || "";
     if (en && facts.enroll_against) en.textContent = facts.enroll_against;
+    // The interactive wizard is a terminal thing for now: point at it when this machine is
+    // not yet a member, hide it once it is (onboard.feature @console).
+    var sp = $("edge-fact-setup"), spt = $("edge-fact-setup-text");
+    if (sp) { if (facts.setup) { if (spt) spt.textContent = facts.setup; show(sp, true); } else show(sp, false); }
     show(box, true);
   }
 

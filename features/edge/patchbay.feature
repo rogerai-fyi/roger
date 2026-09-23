@@ -307,3 +307,52 @@ Feature: The Edge screen is a patch bay: colourful, alive on real events only, l
     And the screen is measured, never guessed, at every width
     And it is legible under NO_COLOR
     And these are the scenarios carried forward from topology_view.feature, and the row-and-wire layout scenarios there are retired by this spec
+
+  # =========================================================================
+  # 8. THE GAME CABINET - one instrument with the onboarding wizard (2026-09-21)
+  # =========================================================================
+  #
+  # FOUNDER DIRECTION 2026-09-21: "i'm not satisfied with the current tui for edge [3] we need it
+  # to be a game basically, make it beautiful and colorful." The onboarding wizard
+  # (features/edge/onboard.feature) already established the game language: an arcade CABINET (a
+  # double-ruled marquee with Wave-Spectrum gradient shoulders and a call sign), a radio TUNING
+  # DIAL, Wave-Spectrum carrier motion, and lamp-role colour. The patch bay wears the SAME cabinet,
+  # so entering [3] and running setup feel like one instrument, not two screens.
+
+  Scenario: the board sits in the same arcade cabinet as the wizard
+    When the patch bay renders at 100 columns with colour
+    Then it wears the same marquee cabinet the setup wizard wears, titled for the fleet
+    And the marquee carries the Wave-Spectrum shoulders and the call sign
+    And under NO_COLOR the cabinet is drawn in box characters alone, still legible
+
+  Scenario: the header is a faceplate, not a label line
+    Given an Edge rooted at the designated machine "shed" with 3 nodes and 5 instances
+    When the patch bay renders at 100 columns with colour
+    Then the mode, the node and instance counts and the route mix read as a radio faceplate
+    And each still carries its glyph so NO_COLOR reads the same faceplate
+
+  Scenario: a VU meter is drawn in the Wave Spectrum and by bar height together
+    Given a node with a busy wire
+    When the patch bay renders at 100 columns with colour
+    Then its needle is tinted along the Wave Spectrum by how busy it is
+    And its height alone says the same under NO_COLOR
+
+  Scenario: a node's health rides its strip as spectrum bars, from the health layer
+    Given a node "pi" reporting 71 degrees CPU, 60 percent memory and 82 percent disk
+    When the patch bay renders at 100 columns with colour
+    Then its strip carries a temperature, a memory and a disk bar, tinted by level
+    And each bar's fill glyph says its level under NO_COLOR
+    And a node reporting a metric shows its bar and one that does not shows none, never a 0
+
+  Scenario: a firing alert lights a beacon on its strip, on the real event only
+    Given a CPU-temperature rule that begins firing for "pi"
+    When the frames render across the moment it fires
+    Then a red beacon lights on "pi"'s strip and it reads the alert in words
+    And the beacon does not appear on any node whose rules are quiet
+    And when the alert clears the beacon goes out, and nothing pulses on a still board
+
+  Scenario: the cabinet transmits only while something is really happening
+    Given a fleet with a turn in flight to "jetson"
+    When the frames render
+    Then the marquee's spectrum shoulders shift while traffic moves
+    And on a still fleet the shoulders are static, like every other motion on this board

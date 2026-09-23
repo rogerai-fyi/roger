@@ -113,6 +113,10 @@ type config struct {
 	// tries this Edge before the market, "market" goes out first, "local-only" never
 	// leaves. Set by `roger edge prefer`.
 	EdgePrefer string `json:"edge_prefer,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	// EdgeAgent is the config ROLE that marks this roger an agent on its Edge (features/edge/
+	// agents.feature): it operates on other nodes and draws as ◆. Set by `roger edge agent on`;
+	// the ROGER_EDGE_AGENT env overrides per-run for a launched agent job.
+	EdgeAgent bool `json:"edge_agent,omitempty"`
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted

@@ -75,55 +75,85 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	}
 	endpoint := argv.flags["authority"]
 	account := client.LinkedLogin()
-	local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir())
-	if err != nil {
-		return err
-	}
-
-	// A login is what ties this machine to an account. It is NOT needed when the Edge
-	// is rooted locally - the owner naming an authority, or this machine being one -
-	// because on a network with no Core there is nothing to log in to, and it is the
-	// authority that decides who may join.
-	if account == "" && endpoint == "" && !isAuthority {
-		return usagef("this machine is not logged in, so there is no account to enroll it into.\n" +
-			"  log in first:                 roger login\n" +
-			"  or, with no internet at all:  roger edge authority local <name>, then " +
-			"roger edge enroll <name> --authority <address>")
-	}
 	if want, ok := argv.flags["account"]; ok && want != account {
 		// Never repeated back, and nothing is sent: a refusal that names the other
 		// account turns "does this account exist?" into a question anyone can ask.
 		return fmt.Errorf("this machine is logged in as %s, and can only enroll into its own Edge", account)
 	}
+	res, err := edgeEnrollCore(cfg, name, endpoint, account)
+	if err != nil {
+		return err
+	}
+	if res.AlreadyEnrolled {
+		fmt.Printf("already enrolled as %s (%s), on the Edge rooted at %s.\n",
+			res.Name, edgeShortID(res.NodeID), res.Authority)
+		fmt.Printf("  its certificate is good until %s; nothing to do.\n",
+			res.NotAfter.UTC().Format(time.RFC3339))
+		return nil
+	}
+	fmt.Printf("enrolled %q as %s on the Edge rooted at %s.\n", res.Name, edgeShortID(res.NodeID), res.Authority)
+	fmt.Printf("  this machine now advertises itself, so your other machines can see it.\n")
+	return nil
+}
+
+// edgeEnrollResult is what an enrollment did, for a caller that prints its own UX (the CLI
+// wrapper) or drives a wizard (the TUI hook). No printing happens in the core.
+type edgeEnrollResult struct {
+	NodeID          string
+	Name            string
+	Authority       string // the descriptor's human name, for "rooted at ..."
+	AlreadyEnrolled bool
+	NotAfter        time.Time
+}
+
+// edgeEnrollCore is the whole enrollment orchestration with NO printing, so the CLI and the
+// TUI wizard drive the same code (the wizard cannot print into the alt screen). It returns
+// typed errors the wizard can classify - in particular a join refused because this machine
+// is not on the authority's allow-list comes back wrapping edgeauth.ErrUnknownMachine, so a
+// caller can tell "allow me" from every other refusal. account is the resolved login (may be
+// empty); name "" takes the default.
+func edgeEnrollCore(cfg config, name, endpoint, account string) (edgeEnrollResult, error) {
+	var res edgeEnrollResult
+	local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return res, err
+	}
+	// A login is what ties this machine to an account. It is NOT needed when the Edge is
+	// rooted locally - the owner naming an authority, or this machine being one - because
+	// on a network with no Core there is nothing to log in to, and it is the authority
+	// that decides who may join.
+	if account == "" && endpoint == "" && !isAuthority {
+		return res, usagef("this machine is not logged in, so there is no account to enroll it into.\n" +
+			"  log in first:                 roger login\n" +
+			"  or, with no internet at all:  roger edge authority local <name>, then " +
+			"roger edge enroll <name> --authority <address>")
+	}
 	if name == "" {
 		name = edgeDefaultName()
 	}
 	if err := edge.ValidName(name); err != nil {
-		return usagef("%v", err)
+		return res, usagef("%v", err)
 	}
+	res.Name = name
 
 	st := edgeIdentityStore()
 	held, heldKey, enrolled, err := st.LoadIdentity()
 	if err != nil {
-		return err
+		return res, err
 	}
 	now := time.Now()
 
-	// ONE EDGE, ONE AUTHORITY. When the owner names an authority and this machine
-	// already has a root, ask that authority whose root it is BEFORE asking it for
-	// anything. A second root would mean a peer that verifies for half the fleet, and
-	// the refusal is worth more than the certificate it would otherwise mint first.
+	// ONE EDGE, ONE AUTHORITY. When the owner names an authority and this machine already
+	// has a root, ask that authority whose root it is BEFORE asking it for anything.
 	if endpoint != "" {
 		if err := edgeRefuseASecondAuthority(st, endpoint); err != nil {
-			return err
+			return res, err
 		}
 	}
 	if enrolled && !held.NeedsRenewal(now) {
-		fmt.Printf("already enrolled as %s (%s), on the Edge rooted at %s.\n",
-			edgeNameOf(held.NodeID, name), edgeShortID(held.NodeID), edgeDescriptor().Names())
-		fmt.Printf("  its certificate is good until %s; nothing to do.\n",
-			held.NotAfter().UTC().Format(time.RFC3339))
-		return nil
+		res.NodeID, res.Name = held.NodeID, edgeNameOf(held.NodeID, name)
+		res.Authority, res.AlreadyEnrolled, res.NotAfter = edgeDescriptor().Names(), true, held.NotAfter()
+		return res, nil
 	}
 
 	// A renewal keeps the key, and therefore the node id, and therefore its place, its
@@ -134,15 +164,13 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	} else {
 		pub, priv, err = ed25519.GenerateKey(rand.Reader)
 		if err != nil {
-			return err
+			return res, err
 		}
 	}
 
-	// WHICH ACCOUNT. Against Core, this machine's login says, and a request naming any
-	// other account is refused. Against an authority the owner NAMED - a machine in a
-	// shed on a network with no Core - there is no login to speak for: the authority
-	// owns its Edge's account and says which it is. Claiming one here would refuse
-	// every airgap enrollment for disagreeing with a login that means nothing there.
+	// WHICH ACCOUNT. Against Core, this machine's login says. Against an authority the
+	// owner NAMED, or this machine being one, there is no login to speak for: the
+	// authority owns its Edge's account and says which it is.
 	claim := account
 	if endpoint != "" || isAuthority {
 		claim = ""
@@ -153,18 +181,20 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	var resp edgeauth.Response
 	switch {
 	case endpoint == "" && isAuthority:
-		// This machine IS the authority. Nothing crosses a wire at all.
 		resp, err = local.Issue(req)
 	case endpoint == "":
 		resp, err = enrollhttp.Enroll(context.Background(), cfg.Broker, req)
 		if err != nil {
-			return edgeUnreachableAuthority(err)
+			return res, edgeUnreachableAuthority(err)
 		}
 	default:
 		resp, err = enrollhttp.Enroll(context.Background(), endpoint, req)
+		if err != nil {
+			return res, edgeClassifyEnrollErr(err)
+		}
 	}
 	if err != nil {
-		return err
+		return res, err
 	}
 
 	want := edgeauth.Expect{NodeID: req.NodeID, Account: claim, Key: pub, Now: now}
@@ -175,32 +205,43 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	}
 	id, err := edgeauth.CheckResponse(resp, want)
 	if errors.Is(err, edgeauth.ErrDifferentAuthority) {
-		return fmt.Errorf("this Edge is rooted at %s, and that certificate comes from somewhere else.\n"+
+		return res, fmt.Errorf("this Edge is rooted at %s, and that certificate comes from somewhere else.\n"+
 			"  an Edge has exactly one authority; moving it is a deliberate migration:\n"+
 			"    roger edge authority local <name> --force", edgeDescriptor().Names())
 	}
 	if err != nil {
-		return err
+		return res, err
 	}
 
 	// Only now is anything written. Everything above is checks; nothing below can leave
 	// half an identity behind, because there was nothing to half-write until here.
 	if err := st.SaveAccount(id.Account); err != nil {
-		return err
+		return res, err
 	}
 	if err := st.SaveIdentity(id, priv, edgeAuthorityDescriptor(endpoint, local, isAuthority)); err != nil {
-		return err
+		return res, err
 	}
 	if err := edgeRefreshTrust(st, endpoint, local, isAuthority, now); err != nil {
-		return err
+		return res, err
 	}
 	if err := edgeRecordSelf(id, pub, name, now); err != nil {
-		return err
+		return res, err
 	}
-	fmt.Printf("enrolled %q as %s on the Edge rooted at %s.\n", name, edgeShortID(id.NodeID),
-		edgeDescriptor().Names())
-	fmt.Printf("  this machine now advertises itself, so your other machines can see it.\n")
-	return nil
+	res.NodeID, res.Authority = id.NodeID, edgeDescriptor().Names()
+	return res, nil
+}
+
+// edgeClassifyEnrollErr turns the authority's flattened 403 back into a typed error a
+// wizard can act on: a refusal because this machine is not on the allow-list wraps
+// edgeauth.ErrUnknownMachine, so the caller shows the allow instructions; anything it
+// cannot classify is returned as-is, so a stale or foreign-account refusal is never
+// mislabeled "you need to be allowed". (The transport flattens the type; this is the
+// contained fix - the wire-level typed sentinel is a larger change noted in the design.)
+func edgeClassifyEnrollErr(err error) error {
+	if err != nil && strings.Contains(err.Error(), edgeauth.ErrUnknownMachine.Error()) {
+		return fmt.Errorf("%w", edgeauth.ErrUnknownMachine)
+	}
+	return err
 }
 
 // edgeRefuseASecondAuthority refuses an authority that is not the one rooting this Edge.
@@ -437,17 +478,8 @@ func edgeDesignateLocal(where string, force bool) error {
 			return err
 		}
 	}
-	local, err := edgeauth.Designate(dir, where)
+	local, err := edgeDesignateCore(dir, where)
 	if err != nil {
-		return err
-	}
-	// The machine that designated is the first machine allowed to enroll against it.
-	pub := edgeUserKey().Public().(ed25519.PublicKey)
-	if err := local.Allow(hex.EncodeToString(pub)); err != nil {
-		return err
-	}
-	st := edgeIdentityStore()
-	if err := st.SaveDescriptor(local.Descriptor()); err != nil {
 		return err
 	}
 	fmt.Printf("this machine is now the Edge authority %q.\n", where)
@@ -457,6 +489,24 @@ func edgeDesignateLocal(where string, force bool) error {
 		return edgeAnnounceMigration(before, local.Descriptor())
 	}
 	return nil
+}
+
+// edgeDesignateCore generates this Edge's root here and allows this machine, with NO
+// printing, so the CLI and the TUI wizard share it. Force/migration stays in the wrapper.
+func edgeDesignateCore(dir, where string) (*edgeauth.Local, error) {
+	local, err := edgeauth.Designate(dir, where)
+	if err != nil {
+		return nil, err
+	}
+	// The machine that designated is the first machine allowed to enroll against it.
+	pub := edgeUserKey().Public().(ed25519.PublicKey)
+	if err := local.Allow(hex.EncodeToString(pub)); err != nil {
+		return nil, err
+	}
+	if err := edgeIdentityStore().SaveDescriptor(local.Descriptor()); err != nil {
+		return nil, err
+	}
+	return local, nil
 }
 
 // edgeMoveToCore hands the Edge back to Core. Like every authority change it is a

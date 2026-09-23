@@ -674,3 +674,52 @@ Four mechanisms, all cheap, all fitting a spec-first repo:
 
 The design doc's what-exists table (section 10) and the order of work (13.9) stay the engineering
 view; the ledger is the product view. They are checked against each other by the same test.
+
+### 13.12 Onboarding: setting up an Edge as a game, from the TUI and the CLI
+
+Pressing [3] on a machine that has set nothing up used to show only passive command hints. That
+is a wall for the first-time owner: it names `roger edge enroll` and `roger edge authority local`
+but does not walk anyone through the choice between them. The onboarding wizard
+(`features/edge/onboard.feature`) turns that empty screen into an interactive flow, driven from
+the TUI itself and mirrored in the CLI, so the first Edge is formed by answering three questions
+rather than by reading three man pages.
+
+**It is additive, never a replacement.** The empty screen keeps its three honest facts (THIS
+MACHINE / AUTHORITY / DISCOVERY) and every named command. The wizard adds one line - `press e` -
+and a sub-flow behind it. An owner who prefers the commands loses nothing; an owner who does not
+know them gets a path.
+
+**The flow.** `e` opens a modal sub-state of the Edge screen (not a new mode - the fleet keeps
+drawing behind it). It asks new-or-join: a NEW Edge makes this machine the authority and enrolls
+it with no internet at all; JOIN asks for the authority's LAN address and this machine's name,
+then enrolls against it. A name is validated in place. A step that was missed on the CLI - this
+machine roots an Edge but never enrolled itself - is detected and offered as a one-step FINISH,
+opening straight at "enroll this machine" rather than at the choice.
+
+**It calls one source of truth.** Enrollment is security- and spec-load-bearing (never automatic;
+a failed enroll leaves the machine exactly as it was; one Edge, one authority). The wizard does
+NOT re-implement any of it. The host exposes the real `edgeEnrollCore` / `edgeDesignateCore`
+through the Hooks seam (`tui.EdgeSetup`, wired in `edgehost.wire()`, exactly as
+LoginBegin/LoginPoll are), so the TUI wizard, `roger edge setup`, and `roger edge enroll` all run
+the same code. A join refused because this machine is not on the allow-list is reclassified to
+`tui.ErrNotAllowedYet` - and ONLY that case - so the wizard can show this machine's user key and
+the exact `roger edge authority allow <key>` command to run on the authority; every other refusal
+is shown in the authority's own words, and an unreachable authority says so with its address.
+
+**The handshake animation** is the one deliberate exception to the fleet's "motion only from real
+events" rule: a real operation is in flight. It is a carrier sweep - literally the Wave Spectrum
+sweeping past, the same hues the website's wave mark wears, which is what makes [3] the colourful
+tab the founder asked for - that runs in the wizard's OWN operation-scoped loop
+(`edgeSetupTickMsg`), never the graph's pulse loop; it starts when the enroll is dispatched and
+stops the instant it returns. It degrades to static phase lines under NO_COLOR, reduced motion, a
+pipe and narrow widths, and every state carries a glyph and words so colour is never load-bearing.
+
+**The CLI mirror** is `roger edge setup`: the same three questions over stdin, driving the same
+backend. When it cannot prompt (no terminal) it declines cleanly and names the non-interactive
+commands instead of guessing. Bare `roger edge` on an unconfigured machine now points at it
+alongside the individual commands.
+
+**The console** knows setup is a terminal thing for now: its empty Edge panel points at
+`roger edge setup` in the terminal rather than pretending to run a wizard the browser cannot yet
+drive. When in-browser setup is built, `SelfStatus.SetupConsoleLine` is the one place its wording
+changes.

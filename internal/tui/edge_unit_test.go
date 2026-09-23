@@ -308,7 +308,7 @@ func (e errAdopt) Error() string { return string(e) }
 
 func TestEdgeAdoptEnrolls(t *testing.T) {
 	var f *edge.Fleet
-	cand := store.EdgeNode{ID: "n_cand", Name: "new-pi5", Kind: string(edge.Host),
+	cand := store.EdgeNode{ID: "n_cand", Name: "new-pi5", Kind: string(edge.Host), Pin: "beef",
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "10.0.0.9", Fingerprint: "beef"}}}
 	live := []store.EdgeNode{cand}
 	m, fleet, _ := edgeFixture(t, Hooks{
@@ -479,7 +479,7 @@ func TestEdgeConnectorsCloseTheDrawing(t *testing.T) {
 	// address still reads as a LAN link rather than as nothing.
 	require.Equal(t, "relay · 0s", m.edgeDetailCell(edgeRow{n: store.EdgeNode{
 		LastSeen: m.edge.at.Unix(), Transports: []store.EdgeTransport{{Kind: "relay"}}}}))
-	require.Equal(t, "lan · 0s", m.edgeDetailCell(edgeRow{n: store.EdgeNode{
+	require.Equal(t, "lan · live · 0s", m.edgeDetailCell(edgeRow{n: store.EdgeNode{
 		LastSeen: m.edge.at.Unix(), Transports: []store.EdgeTransport{{Kind: "lan"}}}}))
 
 	// Nothing to travel: a node the graph does not draw, and a list that has no edges.

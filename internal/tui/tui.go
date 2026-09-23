@@ -107,9 +107,50 @@ type Hooks struct {
 	// authority, discovery - for the screen an owner sees before anything is set up.
 	// Nil = unknown, and the empty screen then names only the LAN path.
 	EdgeStatus func() edge.SelfStatus
+	// EdgeHousehold is the rogers running on THIS machine right now (this instance among
+	// them) - the local instance registry, read live. It is how [3] shows the owner's own
+	// instances and agents even on one machine, where mDNS cannot see loopback. Nil = unknown.
+	EdgeHousehold func() []edge.Instance
+	// EdgePersistentAgents are the agents the owner marked persistent (durable, features/edge/
+	// agents.feature): one that is not in the live household is drawn DARK with resume/remove.
+	EdgePersistentAgents func() []edge.PersistentAgent
+	// EdgeSelfInstance is THIS roger's own instance name, so [3] can mark which of the several
+	// rogers running here is the one you are looking at. "" when unknown.
+	EdgeSelfInstance func() string
+	// The in-place ACTIONS the [3] control panel performs on this machine, so the owner never has
+	// to leave the screen and type a command (features/edge/agents.feature, the manager). Each is
+	// nil when the build cannot do it, and the button then says so rather than lying.
+	//   EdgeAgentActive - is THIS roger an agent right now?
+	//   EdgeSetAgent    - make this roger an agent, or stop being one, at once.
+	//   EdgeAddAgent    - launch a NEW agent roger on this machine.
+	//   EdgeRenameSelf  - rename this roger among the rogers here.
+	//   EdgeResumeAgent - relaunch a DARK persistent agent by name.
+	//   EdgeRemoveAgent - forget a persistent agent (drop its durable record) by name.
+	EdgeAgentActive func() bool
+	EdgeSetAgent    func(on bool) error
+	EdgeAddAgent    func() error
+	EdgeRenameSelf  func(name string) error
+	EdgeResumeAgent func(name string) error
+	EdgeRemoveAgent func(name string) error
+	// EdgeAgentJobs is the durable ASSIGNMENTS on this Edge (features/edge/jobs.feature): each
+	// agent's bound model, its use/share posture, and its job. [3] reads it to show what each
+	// agent is DOING - the model it serves or uses, its job - instead of a bare "agent". nil when
+	// the build wired none; the detail then says "not assigned yet" honestly.
+	EdgeAgentJobs func() []edge.AgentJob
+	// EdgeSetAgentJob and EdgeClearAgentJob set/clear an agent's assignment in place, so the owner
+	// binds a model or a job from [3] without leaving the screen.
+	EdgeSetAgentJob   func(j edge.AgentJob) error
+	EdgeClearAgentJob func(name string) error
 	// EdgeLadder fills the dispatch-ladder seams on the live proxy options, so the TUI
 	// booth tries a peer on this Edge before the market exactly as `roger use` does.
 	EdgeLadder func(o *client.ProxyOptions)
+	// EdgeSetup is the onboarding backend the [3] wizard drives (features/edge/onboard.
+	// feature): start a new Edge, join one, finish a missed step. Nil = this build cannot
+	// set up an Edge here, and the wizard says so rather than half-doing it. Wired by the
+	// host (edgesetup.go), single-sourced with the CLI, following the LoginBegin/LoginPoll
+	// precedent.
+	EdgeSetup   *EdgeSetup
+	EdgeSetupOf func() EdgeSetupState
 	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
 	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
 	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still
@@ -1532,6 +1573,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return mm, tea.Batch(cmd, waitEdgeHeartbeat(m.hooks.EdgeHeartbeats))
 	case edgeAnimMsg:
 		return m.onEdgeAnim()
+	case edgeSetupTickMsg:
+		// The onboarding handshake's OWN loop (features/edge/onboard.feature). It ticks
+		// only while an enroll is in flight and stops itself the instant it returns, so it
+		// never touches the fleet graph's pulse loop and a still fleet stays still.
+		return m.onEdgeSetupTick()
+	case edgeSetupDoneMsg:
+		return m.onEdgeSetupDone(msg)
 	case tickMsg:
 		// A stale tick chain (a kick bumped m.tickGen since this one was scheduled): let it die
 		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.

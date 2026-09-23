@@ -19,6 +19,7 @@ package tui
 // Spec: features/edge/topology_view.feature.
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -74,6 +75,34 @@ type edgeState struct {
 	pulses []edgePulse
 	ret    mode // where esc goes back to
 	retSet bool
+	// setup is the onboarding wizard's state when it is open; nil when closed. It is a
+	// sub-state of this screen (features/edge/onboard.feature), never a separate mode, so
+	// the fleet keeps drawing behind it and esc returns here.
+	setup *edgeSetup
+	// renaming + renameBuf drive the inline "Rename" prompt for this roger.
+	renaming  bool
+	renameBuf string
+	// binding + bindBuf + bindTarget drive the inline "Bind Model" prompt (jobs.feature): the
+	// owner types a model to put on air for the selected agent. bindTarget is that agent's name.
+	binding    bool
+	bindBuf    string
+	bindTarget string
+	// netSel is the highlighted node in the network map (index into edgeNetItems): the machine,
+	// then the rogers/agents on it. Arrow keys move it; the actions act on it. Until the owner first
+	// moves (netSelSet), the highlight defaults to THIS roger, so the commonest action (make this
+	// roger an agent, rename) is right there without navigating.
+	netSel    int
+	netSelSet bool
+	// netDetail is open when the owner pressed ⏎ on a node in the network map: a full-card readout
+	// of that node - its kind, capabilities, the models it serves (shares) or uses, its resources,
+	// and its job. esc/⏎ closes it back to the map.
+	netDetail bool
+	// actionFocused moves the highlight OFF the node map and onto the WHAT YOU CAN DO buttons, so
+	// the owner can arrow to a button and press enter to run it (2026-09-23: the founder's instinct
+	// was to arrow-key to "Bind Model"). actionSel is the highlighted button while focused. The
+	// letter shortcuts (g/b/n/...) still work regardless.
+	actionFocused bool
+	actionSel     int
 }
 
 // edgeNow is the screen's clock. Injectable so a test can assert on "last seen 6m ago"
@@ -93,6 +122,8 @@ func (m *model) enterEdge() {
 	}
 	m.mode = modeEdge
 	m.edge.detail = false
+	m.edge.netDetail = false
+	m.edge.actionFocused = false
 	m.refreshEdge()
 	m.status = stDim.Render("EDGE - your fleet, and how it is connected")
 }
@@ -114,6 +145,7 @@ func (m *model) leaveEdge() {
 		m.edge.ret, m.edge.retSet = 0, false
 	}
 	m.edge.detail = false
+	m.edge.netDetail = false
 }
 
 // refreshEdge takes the frame's snapshot. Everything the view draws comes from here, and
@@ -122,6 +154,11 @@ func (m *model) leaveEdge() {
 func (m *model) refreshEdge() {
 	m.edge.at = m.edgeNow()
 	m.edge.err = ""
+	m.edge.status = nil
+	if m.hooks.EdgeStatus != nil {
+		st := m.hooks.EdgeStatus()
+		m.edge.status = &st
+	}
 	var list []store.EdgeNode
 	if m.hooks.EdgeFleet != nil {
 		got, err := m.hooks.EdgeFleet.List()
@@ -130,17 +167,26 @@ func (m *model) refreshEdge() {
 		}
 		list = got
 	}
+	// This machine is drawn ONCE - as the SELF hub, never also as a fleet row. When it is set
+	// up, drop its own (possibly stale/dark) node record from the rows so it does not appear as
+	// a ghost of itself below the hub. Its live state comes from the hub + RUNNING HERE.
+	if st := m.edge.status; st != nil && (st.Enrolled || st.AuthorityHere) {
+		self := m.edgeSelfName()
+		kept := list[:0:0]
+		for _, n := range list {
+			if n.Name == self {
+				continue
+			}
+			kept = append(kept, n)
+		}
+		list = kept
+	}
 	m.edge.rows = edgeArrange(list) // one row per member, always
 	m.edge.cands = nil
 	if m.hooks.EdgeCandidates != nil {
 		m.edge.cands = m.hooks.EdgeCandidates()
 	}
 	m.edge.sessions = m.edgeSessions()
-	m.edge.status = nil
-	if m.hooks.EdgeStatus != nil {
-		st := m.hooks.EdgeStatus()
-		m.edge.status = &st
-	}
 	m.clampEdgeSel()
 }
 
@@ -231,6 +277,22 @@ func (m model) edgeSelected() (store.EdgeNode, bool, bool) {
 // onEdgeKey drives the screen: move the selection, open a node, adopt a candidate, leave.
 func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
+	// The onboarding wizard, when open, owns every key - it is a modal sub-state of this
+	// screen (features/edge/onboard.feature), never a separate mode. It swallows the preset
+	// bank too, so typing a name that starts with a digit does not jump screens.
+	if m.edge.setup != nil && m.edge.setup.open {
+		mm, cmd, _ := m.onEdgeSetupKey(k)
+		return mm, cmd
+	}
+	// The inline Rename prompt owns every key while it is open.
+	if m.edge.renaming {
+		m.onEdgeRenameKey(k)
+		return m, nil
+	}
+	if m.edge.binding {
+		m.onEdgeBindKey(k)
+		return m, nil
+	}
 	if m.edge.detail {
 		switch key {
 		case "esc", "q", "enter", "i":
@@ -238,8 +300,26 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	// The preset bank jumps, exactly as the other numbered screens allow. 3 is this
-	// screen, so it is a no-op rather than a re-entry that would reset the selection.
+	if m.edge.netDetail {
+		switch key {
+		case "esc", "q", "enter", "i":
+			m.edge.netDetail = false
+			return m, nil
+		case "up", "k", "left":
+			m.edgeMoveNetSel(-1)
+			return m, nil
+		case "down", "j", "right":
+			m.edgeMoveNetSel(+1)
+			return m, nil
+		}
+	}
+	// Navigation and the action buttons own the arrow keys on THIS screen, so a stray left/right
+	// never falls through to the preset bank and jumps to another tab mid-navigation (2026-09-23:
+	// the founder pressed right to reach a button and landed on [4]). esc/q leave; number keys jump.
+	if nm, cmd, handled := m.onEdgeNavKey(key); handled {
+		return nm, cmd
+	}
+	// The preset bank jumps by NUMBER (0-4 / L / ?); 3 is this screen, so it is a no-op.
 	if key != "3" {
 		if nm, cmd, ok := m.presetForKey(key); ok {
 			return nm, cmd
@@ -248,21 +328,357 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		m.leaveEdge()
-	case "up", "k":
-		m.moveEdgeSel(-1)
-	case "down", "j":
-		m.moveEdgeSel(+1)
-	case "enter", "i":
-		if m.edge.sel != "" {
-			m.edge.detail = true
-		}
 	case "r":
 		m.refreshEdge()
 		m.status = stDim.Render("EDGE - re-read the fleet")
-	case "a":
-		m.adoptEdgeCandidate()
+	case "e":
+		// Open the onboarding wizard - but only where it makes sense: on a machine that is
+		// not already a member. Once enrolled, e is a no-op (the screen is unchanged), so a
+		// stray press never re-runs setup on a working node.
+		if !m.edgeSetupState().Enrolled {
+			m.openEdgeSetup()
+		}
+	case "g", "+", "s", "n", "y", "u", "x", "b", "a":
+		// The lettered actions - each also reachable by focusing its button (Tab / down) and
+		// pressing enter. One dispatch, so a key press and a button press do the same thing.
+		return m.edgeDispatchAction(key)
 	}
 	return m, nil
+}
+
+// onEdgeNavKey moves the highlight - across the NODE map, or (once focus drops into the panel) along
+// the WHAT YOU CAN DO buttons. It returns handled=true for any key it consumed, so those keys never
+// reach the preset bank. Tab or down-past-the-last-node moves focus onto the buttons; up leaves them.
+func (m *model) onEdgeNavKey(key string) (tea.Model, tea.Cmd, bool) {
+	acts := m.edgeActions()
+	if m.edge.actionFocused && len(acts) == 0 {
+		m.edge.actionFocused = false
+	}
+	if m.edge.actionSel >= len(acts) {
+		m.edge.actionSel = max(0, len(acts)-1)
+	}
+	switch key {
+	case "tab":
+		if !m.edge.actionFocused {
+			if len(acts) > 0 {
+				m.edge.actionFocused, m.edge.actionSel = true, 0
+			}
+		} else if m.edge.actionSel++; m.edge.actionSel >= len(acts) {
+			m.edge.actionFocused, m.edge.actionSel = false, 0 // past the last button, back to the map
+		}
+		return m, nil, true
+	case "shift+tab":
+		if m.edge.actionFocused {
+			if m.edge.actionSel > 0 {
+				m.edge.actionSel--
+			} else {
+				m.edge.actionFocused = false
+			}
+		}
+		return m, nil, true
+	case "left":
+		if m.edge.actionFocused {
+			if m.edge.actionSel > 0 {
+				m.edge.actionSel--
+			}
+		} else {
+			m.edgeMoveSel(-1)
+		}
+		return m, nil, true
+	case "right":
+		if m.edge.actionFocused {
+			if m.edge.actionSel < len(acts)-1 {
+				m.edge.actionSel++
+			}
+		} else {
+			m.edgeMoveSel(+1)
+		}
+		return m, nil, true
+	case "up", "k":
+		if m.edge.actionFocused {
+			m.edge.actionFocused = false // back up onto the node map
+		} else {
+			m.edgeMoveSel(-1)
+		}
+		return m, nil, true
+	case "down", "j":
+		switch {
+		case m.edge.actionFocused:
+			// already in the bottom zone
+		case m.edgeAtLastNode() && len(acts) > 0:
+			m.edge.actionFocused, m.edge.actionSel = true, 0 // drop into the actions
+		default:
+			m.edgeMoveSel(+1)
+		}
+		return m, nil, true
+	case "enter", "i":
+		if m.edge.actionFocused {
+			nm, cmd := m.edgeActivateFocusedAction()
+			return nm, cmd, true
+		}
+		switch {
+		case m.edgeMapActive():
+			m.edge.netDetail = true
+		case m.edge.sel != "":
+			m.edge.detail = true
+		}
+		return m, nil, true
+	}
+	return m, nil, false
+}
+
+// edgeMoveSel moves the node highlight one step (map or graph), and drops any action-button focus -
+// moving through nodes is a map gesture, so it returns attention to the map.
+func (m *model) edgeMoveSel(d int) {
+	m.edge.actionFocused = false
+	if m.edgeMapActive() {
+		m.edgeMoveNetSel(d)
+	} else {
+		m.moveEdgeSel(d)
+	}
+}
+
+// edgeAtLastNode reports whether the map highlight is on the last node, so a further "down" flows
+// into the action buttons instead of clamping. Only the map does this; the graph list keeps its own.
+func (m model) edgeAtLastNode() bool {
+	if !m.edgeMapActive() {
+		return false
+	}
+	n := len(m.edgeNetItems())
+	_, sel := m.edgeSelectedNet()
+	return n == 0 || sel >= n-1
+}
+
+// edgeActivateFocusedAction runs the button the panel highlight is on - the same as pressing its
+// letter. After it, the focus stays on the panel so the owner can keep acting.
+func (m *model) edgeActivateFocusedAction() (tea.Model, tea.Cmd) {
+	acts := m.edgeActions()
+	if m.edge.actionSel < 0 || m.edge.actionSel >= len(acts) {
+		return m, nil
+	}
+	return m.edgeDispatchAction(acts[m.edge.actionSel].key)
+}
+
+// edgeDispatchAction performs one lettered action - the single place a key press and a focused
+// button press both land, so they never drift apart.
+func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "g":
+		return m, m.edgeToggleAgent()
+	case "+":
+		return m, m.edgeAddAgent()
+	case "s":
+		// Add a device: on a machine that has set nothing up, open the wizard to set THIS one up;
+		// on a set-up machine, show the exact command the OTHER machine runs to join.
+		if st := m.edge.status; st != nil && st.Enrolled {
+			m.edgeShowAddDevice()
+		} else {
+			m.openEdgeSetup()
+		}
+	case "n":
+		m.edgeStartRename()
+	case "y":
+		m.edgeShowAllowKey()
+	case "u":
+		m.edgeResumeSelected()
+	case "x":
+		m.edgeRemoveSelected()
+	case "b":
+		m.edgeStartBind()
+	case "a":
+		if m.edgeMapActive() {
+			m.edgeAdoptSelectedNet()
+		} else {
+			m.adoptEdgeCandidate()
+		}
+	}
+	return m, nil
+}
+
+// edgeStartBind opens the inline "Bind Model" prompt for the selected agent - the founder's
+// agent-1 uses qwen, agent-2 uses pico (2026-09-21). It binds to a running instance node only;
+// the machine and a dark agent have nothing to serve.
+func (m *model) edgeStartBind() {
+	it, _ := m.edgeSelectedNet()
+	if it.machine || it.dark || it.inst == nil {
+		m.status = stDim.Render("Bind Model acts on a running roger - select one first")
+		return
+	}
+	if m.hooks.EdgeSetAgentJob == nil {
+		m.status = stEmber.Render("this build cannot bind a model here - run `roger edge model " + it.name + " <model>`")
+		return
+	}
+	m.edge.binding = true
+	m.edge.bindTarget = it.name
+	m.edge.bindBuf = ""
+	if j, ok := m.edgeJobOf(it.name); ok {
+		m.edge.bindBuf = j.Model
+	}
+}
+
+// onEdgeBindKey drives the bind prompt: type a model, enter to put it on air (serve + share, the
+// common path), esc to cancel. Precise postures (use-only) are the `roger edge model` command.
+func (m *model) onEdgeBindKey(k tea.KeyMsg) {
+	switch k.Type {
+	case tea.KeyEsc:
+		m.edge.binding = false
+	case tea.KeyEnter:
+		model := strings.TrimSpace(m.edge.bindBuf)
+		target := m.edge.bindTarget
+		m.edge.binding = false
+		if model == "" {
+			return
+		}
+		j := edge.AgentJob{Name: target, Model: model, Share: true, Job: "serve"}
+		if err := m.hooks.EdgeSetAgentJob(j); err != nil {
+			m.status = stEmber.Render("bind: " + err.Error())
+			return
+		}
+		m.status = stLive.Render(target + " now serves " + model + " on the Edge")
+		m.refreshEdge()
+	case tea.KeyBackspace, tea.KeyDelete:
+		if n := len(m.edge.bindBuf); n > 0 {
+			m.edge.bindBuf = m.edge.bindBuf[:n-1]
+		}
+	case tea.KeyRunes:
+		m.edge.bindBuf += string(k.Runes)
+	}
+}
+
+// edgeResumeSelected relaunches the selected DARK persistent agent - the "Resume" button. It acts
+// on the highlighted node, so the owner resumes the agent they are looking at, not a fixed one.
+func (m *model) edgeResumeSelected() {
+	it, _ := m.edgeSelectedNet()
+	if !it.dark {
+		m.status = stDim.Render("Resume acts on an offline agent - select a ◇ node first")
+		return
+	}
+	if m.hooks.EdgeResumeAgent == nil {
+		m.status = stEmber.Render("this build cannot resume an agent - run `roger edge agent resume " + it.name + "`")
+		return
+	}
+	if err := m.hooks.EdgeResumeAgent(it.name); err != nil {
+		m.status = stEmber.Render("could not resume " + it.name + ": " + err.Error())
+		return
+	}
+	m.status = stLive.Render("resuming " + it.name + " - it returns to the rogers here shortly")
+}
+
+// edgeRemoveSelected forgets the selected persistent agent - the "Remove" button. It drops the
+// durable record only; a live process is left alone (remove ends the persistence, not the run).
+func (m *model) edgeRemoveSelected() {
+	it, _ := m.edgeSelectedNet()
+	if !it.dark {
+		m.status = stDim.Render("Remove forgets an offline agent - select a ◇ node first")
+		return
+	}
+	if m.hooks.EdgeRemoveAgent == nil {
+		m.status = stEmber.Render("this build cannot remove an agent - run `roger edge agent remove " + it.name + "`")
+		return
+	}
+	if err := m.hooks.EdgeRemoveAgent(it.name); err != nil {
+		m.status = stEmber.Render("could not remove " + it.name + ": " + err.Error())
+		return
+	}
+	if m.edge.netSel > 0 {
+		m.edge.netSel--
+	}
+	m.status = stDim.Render("removed " + it.name + " from the Edge - it is no longer offered to resume")
+	m.refreshEdge()
+}
+
+// edgeToggleAgent makes this roger an agent, or stops it, in place - the "Make/Stop Agent" button.
+func (m *model) edgeToggleAgent() tea.Cmd {
+	if m.hooks.EdgeSetAgent == nil {
+		m.status = stEmber.Render("this build cannot change the agent role here")
+		return nil
+	}
+	on := !(m.hooks.EdgeAgentActive != nil && m.hooks.EdgeAgentActive())
+	if err := m.hooks.EdgeSetAgent(on); err != nil {
+		m.status = stEmber.Render("could not change the agent role: " + err.Error())
+		return nil
+	}
+	if on {
+		m.status = stLive.Render("this roger is now an agent (◆) - it can act on the fleet")
+	} else {
+		m.status = stDim.Render("this roger is no longer an agent")
+	}
+	m.refreshEdge()
+	return nil
+}
+
+// edgeAddAgent launches a new agent roger on this machine - the "Add Agent" button.
+func (m *model) edgeAddAgent() tea.Cmd {
+	if m.hooks.EdgeAddAgent == nil {
+		m.status = stEmber.Render("this build cannot add an agent here")
+		return nil
+	}
+	if err := m.hooks.EdgeAddAgent(); err != nil {
+		m.status = stEmber.Render("could not add an agent: " + err.Error())
+		return nil
+	}
+	m.status = stLive.Render("launched a new agent - it joins the rogers here shortly")
+	return nil
+}
+
+// edgeShowAddDevice puts the exact command another machine runs to join on the status line - the
+// "Add Device" button. Adding a device is the other machine's action, so this is what to hand it.
+func (m *model) edgeShowAddDevice() {
+	line := "roger edge setup"
+	if st := m.edge.status; st != nil {
+		line = st.EnrollAgainstLine()
+	}
+	m.status = stKey.Render("on the other machine, run: ") + stEmber.Render(line) +
+		stDim.Render("  (or roger edge setup to join interactively)")
+}
+
+// edgeStartRename opens the inline rename prompt, seeded with this roger's current name.
+func (m *model) edgeStartRename() {
+	if m.hooks.EdgeRenameSelf == nil {
+		m.status = stEmber.Render("this build cannot rename this roger here")
+		return
+	}
+	m.edge.renaming = true
+	m.edge.renameBuf = ""
+	if m.hooks.EdgeSelfInstance != nil {
+		m.edge.renameBuf = m.hooks.EdgeSelfInstance()
+	}
+}
+
+// onEdgeRenameKey drives the inline rename prompt: type, enter to apply, esc to cancel.
+func (m *model) onEdgeRenameKey(k tea.KeyMsg) {
+	switch k.Type {
+	case tea.KeyEsc:
+		m.edge.renaming = false
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.edge.renameBuf)
+		m.edge.renaming = false
+		if name == "" {
+			return
+		}
+		if err := m.hooks.EdgeRenameSelf(name); err != nil {
+			m.status = stEmber.Render("rename: " + err.Error())
+			return
+		}
+		m.status = stLive.Render("renamed this roger to " + name)
+		m.refreshEdge()
+	case tea.KeyBackspace, tea.KeyDelete:
+		if n := len(m.edge.renameBuf); n > 0 {
+			m.edge.renameBuf = m.edge.renameBuf[:n-1]
+		}
+	case tea.KeyRunes:
+		m.edge.renameBuf += string(k.Runes)
+	}
+}
+
+// edgeShowAllowKey puts this machine's user key on the status line so the owner can hand it to a
+// machine they want to admit - the "Allow Machine" button.
+func (m *model) edgeShowAllowKey() {
+	if m.hooks.EdgeSetup == nil || m.hooks.EdgeSetup.UserKeyHex == nil {
+		m.status = stEmber.Render("run `roger account` on the other machine for its key, then `roger edge authority allow <key>` here")
+		return
+	}
+	m.status = stKey.Render("allow this on another machine's owner: ") + stEmber.Render("roger edge authority allow "+m.hooks.EdgeSetup.UserKeyHex())
 }
 
 // adoptEdgeCandidate is the owner's explicit action that turns a candidate into a member.
@@ -282,7 +698,43 @@ func (m *model) adoptEdgeCandidate() {
 		return
 	}
 	m.refreshEdge()
-	m.status = stLive.Render(n.Name + " adopted onto your Edge")
+	m.status = edgeAdoptedMessage(n.Name, n.Pin)
+}
+
+// edgeAdoptSelectedNet adopts the candidate the network-map highlight is on - the UniFi moment for
+// a phone or machine discovered on the LAN. It acts only on a DISCOVERED node; anything else is a
+// no-op with a nudge, so a stray press never adopts the wrong thing.
+func (m *model) edgeAdoptSelectedNet() {
+	it, _ := m.edgeSelectedNet()
+	if !it.cand {
+		m.status = stDim.Render("a adopts a DISCOVERED machine - select one in that band first")
+		return
+	}
+	if m.hooks.EdgeAdopt == nil {
+		m.status = stEmber.Render("this build cannot adopt - no fleet is wired to the Edge screen")
+		return
+	}
+	if err := m.hooks.EdgeAdopt(it.id, it.name); err != nil {
+		m.status = stEmber.Render("adopt " + it.name + ": " + err.Error())
+		return
+	}
+	m.refreshEdge()
+	pin := ""
+	if it.node != nil {
+		pin = it.node.Pin
+	}
+	m.status = edgeAdoptedMessage(it.name, pin)
+}
+
+// edgeAdoptedMessage is the confirmation after adopting a candidate. A candidate that advertised no
+// certificate (an empty pin) joins by CLAIM - it is not a member yet, it is authorised to become
+// one - so the message says so rather than claiming a membership that has not happened.
+func edgeAdoptedMessage(name, pin string) string {
+	if pin == "" {
+		return stLive.Render(name+" can now claim its certificate") +
+			stDim.Render(" - it appears as a member when it checks in")
+	}
+	return stLive.Render(name + " adopted onto your Edge")
 }
 
 // ---- the animation -------------------------------------------------------

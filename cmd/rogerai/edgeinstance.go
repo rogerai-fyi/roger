@@ -13,6 +13,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/ed25519"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,20 @@ func edgeInstanceCaps(bands []string) []store.EdgeCap {
 	return caps
 }
 
+// edgeIsAgentRole reports whether THIS roger is declared an agent on its Edge, by ANY of the
+// three ways the founder ruled (features/edge/agents.feature): the ROGER_EDGE_AGENT launch env
+// (a scripted/automatic agent job, wins per-run), or the persisted config role (set by
+// `roger edge agent on`). Claiming the operate capability is not itself this declaration.
+func edgeIsAgentRole(cfg config) bool {
+	if v, ok := os.LookupEnv("ROGER_EDGE_AGENT"); ok {
+		if on, valid := edgeParseOnOff(v); valid {
+			return on // on/off/yes/no/true/false/1/0 all understood, incl. an explicit off
+		}
+		return strings.TrimSpace(v) != "" // any other non-empty value reads as on
+	}
+	return cfg.EdgeAgent
+}
+
 // registerInstance joins the household. A machine that has not enrolled registers
 // nothing, and that is a state, not an error.
 func (h *edgeHost) registerInstance(cfg config) {
@@ -75,7 +90,7 @@ func (h *edgeHost) registerInstance(cfg config) {
 	}
 	bands := edgeBandsOnAir()
 	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCaps(bands),
-		Bands: bands, Resources: edgeReadResources(now)}
+		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now)}
 	reg, err := edge.Register(dir, id.NodeID, inst, now)
 	if err != nil {
 		// A taken name is the one refusal a default cannot avoid on a race: fall back to
@@ -101,8 +116,10 @@ func (h *edgeHost) beatInstance(cfg config) {
 	}
 	now := time.Now()
 	bands := edgeBandsOnAir()
+	agent := edgeIsAgentRole(cfg)
 	_ = reg.Update(node, func(i *edge.Instance) {
 		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCaps(bands), edgeReadResources(now)
+		i.Agent = agent // a change via `roger edge agent on` is picked up on the next pass
 	})
 	// An env-named process keeps its env name; only a config choice (and only when no env
 	// override is set) renames a running instance to follow the owner's `roger edge name .`.
@@ -228,4 +245,99 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 		},
 		NodeID: nodeID, Key: key,
 	}, true
+}
+
+// selfInstanceName is the name THIS running roger goes by in its own household, so the TUI can
+// mark it among the several rogers on this machine. Empty until this instance has registered.
+func (h *edgeHost) selfInstanceName() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.reg == nil {
+		return ""
+	}
+	return h.reg.Instance().Name
+}
+
+// setAgentRoleLive makes THIS roger an agent (or stops), in place: it persists the role, marks or
+// unmarks the durable record, and re-registers at once so [3] shows the change immediately - the
+// screen action behind `roger edge agent on`, without leaving the TUI.
+func (h *edgeHost) setAgentRoleLive(on bool) error {
+	cfg := loadConfig()
+	cfg.EdgeAgent = on
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	h.cfg = cfg
+	h.mu.Unlock()
+	name := edgeThisAgentName(cfg)
+	if on {
+		_ = edge.MarkPersistent(edgePersistDir(), edgeThisNodeID(), name, time.Now())
+	} else {
+		_, _ = edge.UnmarkPersistent(edgePersistDir(), name)
+	}
+	h.beatInstance(cfg) // stamp the Agent flag on this instance's registration now
+	return nil
+}
+
+// addAgentLive launches a NEW agent roger on this machine - a plain, detached roger with the agent
+// role and a fresh default name - so "Add Agent" on [3] spawns one without leaving the screen.
+func (h *edgeHost) addAgentLive() error {
+	taken := []string{}
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		taken = append(taken, in.Name)
+	}
+	name := edge.DefaultInstanceName(h.enrolledName(), taken)
+	return edgeSpawnRoger(map[string]string{"ROGER_EDGE_AGENT": "1", "ROGER_EDGE_INSTANCE": name})
+}
+
+// renameSelfLive renames THIS roger among the rogers here, at once.
+func (h *edgeHost) renameSelfLive(name string) error {
+	if err := edge.ValidInstanceName(name); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	reg, node := h.reg, h.regNode
+	h.mu.Unlock()
+	if reg == nil {
+		return nil
+	}
+	return reg.Rename(node, name, time.Now())
+}
+
+// resumeAgentLive relaunches a DARK persistent agent from the [3] panel - the same detached
+// plain-roger spawn `roger edge agent resume` uses, but silent (the TUI owns the screen). It
+// declines when the name is not a known persistent agent, or when it is already running.
+func (h *edgeHost) resumeAgentLive(name string) error {
+	if !edge.IsPersistent(edgePersistDir(), name) {
+		return fmt.Errorf("no persistent agent named %q", name)
+	}
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		if in.Name == name {
+			return nil // already running - nothing to do
+		}
+	}
+	return edgeSpawnRoger(map[string]string{"ROGER_EDGE_AGENT": "1", "ROGER_EDGE_INSTANCE": name})
+}
+
+// removeAgentLive forgets a persistent agent from the [3] panel - drops the durable record only,
+// never touching a live process (remove ends the persistence, it does not kill a run).
+func (h *edgeHost) removeAgentLive(name string) error {
+	_, err := edge.UnmarkPersistent(edgePersistDir(), name)
+	return err
+}
+
+// setAgentJobLive binds a model/job to an agent from the [3] panel - the durable assignment the
+// `roger edge model`/`roger edge job` commands write, but silent (the TUI owns the screen).
+func (h *edgeHost) setAgentJobLive(j edge.AgentJob) error {
+	if j.Node == "" {
+		j.Node = edgeThisNodeID()
+	}
+	return edge.SetAgentJob(edgeJobsDir(), j, time.Now())
+}
+
+// clearAgentJobLive drops an agent's assignment from the [3] panel.
+func (h *edgeHost) clearAgentJobLive(name string) error {
+	_, err := edge.ClearAgentJob(edgeJobsDir(), name)
+	return err
 }

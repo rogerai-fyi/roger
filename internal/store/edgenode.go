@@ -35,9 +35,14 @@ type EdgeCap struct {
 // capabilities and bands IT provides. It holds no certificate of its own - it is inside
 // its node's trust boundary - and it exists only while the process runs.
 type EdgeInstance struct {
-	Name      string         `json:"name"`
-	Caps      []EdgeCap      `json:"caps,omitempty"`
-	Bands     []string       `json:"bands,omitempty"` // models this instance has on air
+	Name  string    `json:"name"`
+	Caps  []EdgeCap `json:"caps,omitempty"`
+	Bands []string  `json:"bands,omitempty"` // models this instance has on air
+	// Agent is true when this instance runs as an AGENT on the Edge - it operates on other nodes,
+	// and the surfaces draw it as ◆ (features/edge/agents.feature). Distinct from merely claiming
+	// the operate capability, which any instance may do; Agent is the owner's declaration - a
+	// command, a config role, or the ROGER_EDGE_AGENT launch env.
+	Agent     bool           `json:"agent,omitempty"`
 	Started   int64          `json:"started,omitempty"`
 	Port      int            `json:"port,omitempty"` // its own LAN face, when it has one
 	Resources *EdgeResources `json:"resources,omitempty"`
