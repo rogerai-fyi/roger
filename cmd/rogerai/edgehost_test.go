@@ -336,9 +336,12 @@ func TestEdgeAdoptFromTheScreenRefusesWhatWasNotSeen(t *testing.T) {
 	edgeWriteAuth(t, "owner")
 	st, err := loadEdgeState()
 	require.NoError(t, err)
+	// n_twin_a carries a certificate fingerprint (a SERVING candidate), so adopting it takes the
+	// dial-and-verify path and fails on its missing address - the "no LAN address" refusal. (A
+	// candidate with an EMPTY fingerprint is a phone that joins by claim, a different path.)
 	st.candidates = []store.EdgeNode{
-		{ID: "n_twin_a", Name: "n_twin_a", Kind: "host", Presence: string(edge.PresenceCandidate)},
-		{ID: "n_twin_b", Name: "n_twin_b", Kind: "host", Presence: string(edge.PresenceCandidate)},
+		{ID: "n_twin_a", Name: "n_twin_a", Kind: "host", Pin: "aa", Presence: string(edge.PresenceCandidate)},
+		{ID: "n_twin_b", Name: "n_twin_b", Kind: "host", Pin: "bb", Presence: string(edge.PresenceCandidate)},
 	}
 	require.NoError(t, st.save())
 	_, hooks := edgeHostOff(t)
