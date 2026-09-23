@@ -655,3 +655,48 @@ func TestAdoptedMessageBranchesOnCert(t *testing.T) {
 		t.Errorf("a serving candidate should read as adopted, got: %q", member)
 	}
 }
+
+// TestMapListView drives the v toggle between the card map and the compact list (map_scale.feature,
+// founder 2026-09-23 "put it in a table ... minimal"): the list shows one row per node with the
+// selection marked, and v toggles back to the map.
+func TestMapListView(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "hub", AuthorityLocal: true, AuthorityHere: true,
+		AuthorityAddr: "http://192.168.1.9:8791", Enrolled: true, Name: "hub", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	phone := nodeOf("p", "gentle-ibex-14", "mobile")
+	phone.Name = "gentle-ibex-14"
+	phone.Presence = string(edge.PresenceCandidate)
+	m := networkModel(t, self)
+	m.hooks.EdgeCandidates = func() []store.EdgeNode { return []store.EdgeNode{phone} }
+	m.hooks.EdgeHousehold = func() []edge.Instance { return []edge.Instance{{Name: "hub", Agent: true}} }
+	m.hooks.EdgeSelfInstance = func() string { return "hub" }
+	m.enterEdge()
+
+	// Default is the card map (a bordered node card).
+	if m.edge.mapList {
+		t.Fatalf("map should default to cards")
+	}
+
+	// v switches to the list.
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = asModel(tm)
+	if !m.edge.mapList {
+		t.Fatalf("v did not switch to the list view")
+	}
+	out := stripANSI(m.edgeView(92))
+	for _, want := range []string{"NODE", "KIND", "STATE", "◉ hub", "▯ gentle-ibex-14", "phone", "adopt with a", "▸ "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list view missing %q:\n%s", want, out)
+		}
+	}
+	// The list is dense: the phone is one row, not a 3-line bordered card.
+	if strings.Contains(out, "╭────") {
+		t.Errorf("list view should not draw bordered node cards:\n%s", out)
+	}
+
+	// v toggles back to the map (cards return).
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = asModel(tm)
+	if m.edge.mapList {
+		t.Errorf("v did not toggle back to the map")
+	}
+}

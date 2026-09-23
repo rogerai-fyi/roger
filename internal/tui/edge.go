@@ -103,6 +103,9 @@ type edgeState struct {
 	// letter shortcuts (g/b/n/...) still work regardless.
 	actionFocused bool
 	actionSel     int
+	// mapList toggles the topology between the card MAP (default, spatial) and a compact LIST/table
+	// (one row per node), for a dense read when there are many nodes or a small screen. `v` switches.
+	mapList bool
 }
 
 // edgeNow is the screen's clock. Injectable so a test can assert on "last seen 6m ago"
@@ -331,6 +334,13 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.refreshEdge()
 		m.status = stDim.Render("EDGE - re-read the fleet")
+	case "v":
+		m.edge.mapList = !m.edge.mapList
+		if m.edge.mapList {
+			m.status = stDim.Render("EDGE - list view (v for the map)")
+		} else {
+			m.status = stDim.Render("EDGE - map view (v for the list)")
+		}
 	case "e":
 		// Open the onboarding wizard - but only where it makes sense: on a machine that is
 		// not already a member. Once enrolled, e is a no-op (the screen is unchanged), so a

@@ -629,3 +629,56 @@ func (m model) edgeJobOf(name string) (edge.AgentJob, bool) {
 	}
 	return edge.AgentJob{}, false
 }
+
+// edgeItemKind is the one-word kind shown in the list view.
+func (it edgeNetItem) kindLabel() string {
+	switch {
+	case it.machine:
+		return "machine"
+	case it.cand:
+		g := it.kind
+		switch g {
+		case "board":
+			return "board"
+		case "mobile":
+			return "phone"
+		case "host":
+			return "machine"
+		}
+		return "device"
+	case it.member:
+		return "machine"
+	case it.dark:
+		return "agent"
+	case it.agent:
+		return "agent"
+	default:
+		return "roger"
+	}
+}
+
+// edgeMapList draws the topology as a compact table - one row per node - for a dense read when the
+// card map would run off the screen (founder 2026-09-23). Same nodes, same selection (netSel), same
+// actions; `v` switches back to the map. The selected row glows with a ▸.
+func (m model) edgeMapList(cw int, line func(string)) {
+	items := m.edgeNetItems()
+	_, sel := m.edgeSelectedNet()
+	nameW := 22
+	kindW := 9
+	line("  " + stDim.Render(pad("  NODE", nameW+4)+pad("KIND", kindW)+"STATE"))
+	for i, it := range items {
+		glyph, gs := it.icon()
+		name := edgeTrunc(it.name, nameW-2)
+		state := it.sub()
+		if it.self {
+			state = "‹ this one · " + state
+		}
+		marker := "  "
+		if i == sel {
+			marker = lampStyle(roleLive).Render("▸ ")
+		}
+		row := marker + gs.Render(glyph) + " " + stKey.Render(pad(name, nameW)) +
+			stDim.Render(pad(it.kindLabel(), kindW)+state)
+		line("  " + truncVisible(row, cw))
+	}
+}

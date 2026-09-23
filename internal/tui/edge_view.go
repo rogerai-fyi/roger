@@ -390,9 +390,13 @@ func (m model) edgeNetworkMap(w, cw int, line func(string)) {
 	line("")
 	line("  " + edgeSetupCenter(stKey.Render("YOUR EDGE NETWORK")+stDim.Render("   the authority controls your machines, agents & devices"), cw))
 
-	// The topology: the machine and the rogers/agents on it, as cards, the selected one glowing.
-	m.edgeMapTopology(cw, line)
-	line("  " + edgeSetupCenter(stDim.Render("↑↓←→ move the highlight · ⏎ open · ")+stKey.Render("↓ or Tab")+stDim.Render(" for the buttons below"), cw))
+	// The topology: cards (spatial) or a compact list (dense), the selected node glowing. `v` toggles.
+	if m.edge.mapList {
+		m.edgeMapList(cw, line)
+	} else {
+		m.edgeMapTopology(cw, line)
+	}
+	line("  " + edgeSetupCenter(stDim.Render("↑↓←→ move · ⏎ open · ")+stKey.Render("↓/Tab")+stDim.Render(" for buttons · ")+stKey.Render("v")+stDim.Render(" map/list"), cw))
 	line("")
 
 	// FINDING DEVICES: when devices are discovered they already show in the topology; this only
