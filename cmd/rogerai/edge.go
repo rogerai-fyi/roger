@@ -30,6 +30,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -1055,8 +1056,20 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("adopted %s (%s) - it has no capabilities until it declares them.\n", n.Name, edgeShortID(n.ID))
+	edgeGrantClaimIfAuthority(c.ID)
+	fmt.Printf("adopted %s (%s) - it can now claim its certificate and become a member.\n", n.Name, edgeShortID(n.ID))
 	return nil
+}
+
+// edgeGrantClaimIfAuthority grants an adopted node a claim when THIS machine roots the Edge, so the
+// node can fetch its certificate from us (features/edge/claim.feature). Best-effort and silent on a
+// machine that holds no root - it simply cannot grant, and the typed-address path remains.
+func edgeGrantClaimIfAuthority(nodeID string) {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !hasRoot {
+		return
+	}
+	_ = local.GrantClaim(nodeID)
 }
 
 // edgeAdoptCandidate is the ONE adoption path, shared by the command leaf and the TUI's

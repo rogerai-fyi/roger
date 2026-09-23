@@ -21,6 +21,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/towercore/cert"
@@ -179,6 +180,95 @@ func (l *Local) Allowed() ([]string, error) {
 	var out []string
 	err := l.readJSON(AllowFile, &out)
 	return out, err
+}
+
+// GrantClaim records that the owner has ADOPTED a node id, so it may claim a certificate
+// (features/edge/claim.feature). Idempotent - adopting twice grants once.
+func (l *Local) GrantClaim(nodeID string) error {
+	if strings.TrimSpace(nodeID) == "" {
+		return nil
+	}
+	got, err := l.Claims()
+	if err != nil {
+		return err
+	}
+	for _, id := range got {
+		if id == nodeID {
+			return nil
+		}
+	}
+	return l.writeJSON(ClaimsFile, append(got, nodeID))
+}
+
+// Claims lists the node ids the owner has adopted and that may claim a certificate.
+func (l *Local) Claims() ([]string, error) {
+	var out []string
+	err := l.readJSON(ClaimsFile, &out)
+	return out, err
+}
+
+// ClaimGranted reports whether a node id has been adopted.
+func (l *Local) ClaimGranted(nodeID string) bool {
+	got, _ := l.Claims()
+	for _, id := range got {
+		if id == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
+// ConsumeClaim removes one grant, so a claim is one-time: one adopt, one certificate. Removing a
+// grant that is not there is not an error (the desired end state already holds).
+func (l *Local) ConsumeClaim(nodeID string) error {
+	got, err := l.Claims()
+	if err != nil {
+		return err
+	}
+	kept := got[:0]
+	for _, id := range got {
+		if id != nodeID {
+			kept = append(kept, id)
+		}
+	}
+	return l.writeJSON(ClaimsFile, kept)
+}
+
+// Claim issues a certificate to an ADOPTED candidate that proves possession of its node key. It is
+// the node-key-authorised counterpart of Issue (which is account-key-authorised): the owner's adopt
+// is the authorisation, the node-key signature is the proof, and the grant is consumed on success.
+func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
+	if err := c.VerifySignature(); err != nil {
+		return Response{}, err
+	}
+	if d := now.Sub(time.Unix(c.TS, 0)); d > RequestFreshness || d < -RequestFreshness {
+		return Response{}, ErrStaleRequest
+	}
+	if !l.ClaimGranted(c.NodeID) {
+		return Response{}, ErrNotAdopted
+	}
+	pub, err := c.NodePublicKey()
+	if err != nil {
+		return Response{}, err
+	}
+	leaf, err := l.auth.Issue(c.NodeID, pub)
+	if err != nil {
+		return Response{}, fmt.Errorf("that certificate could not be issued: %w", err)
+	}
+	if err := l.recordIssued(c.NodeID, leaf.SerialNumber.String()); err != nil {
+		return Response{}, fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+	}
+	// Consume the grant only AFTER the certificate is safely recorded, so a write failure does not
+	// spend the owner's adopt for nothing.
+	if err := l.ConsumeClaim(c.NodeID); err != nil {
+		return Response{}, err
+	}
+	return Response{
+		NodeID:  c.NodeID,
+		Account: l.Account(),
+		Cert:    EncodeCert(leaf),
+		Root:    EncodeCert(l.auth.Root()),
+	}, nil
 }
 
 // Revoke ends the certificate this authority issued to a node. It returns the serial it

@@ -30,6 +30,9 @@ const Path = "/edge/enroll"
 // RevocationsPath is where a node refreshes what this authority has revoked.
 const RevocationsPath = "/edge/revocations"
 
+// ClaimPath is where an ADOPTED candidate claims its certificate (features/edge/claim.feature).
+const ClaimPath = "/edge/claim"
+
 // RootPath is where an authority publishes its PUBLIC root. It is how a node already on
 // an Edge can tell, before it asks for anything, whether the authority in front of it is
 // the one that roots that Edge - and refuse a second one without spending a request or
@@ -56,6 +59,11 @@ type Revoker interface{ Revocations() []string }
 
 // Rooted is an authority that can show the PUBLIC root it signs under.
 type Rooted interface{ RootPEM() string }
+
+// Claimer is an authority that can issue a certificate to an adopted candidate.
+type Claimer interface {
+	Claim(edgeauth.ClaimRequest, time.Time) (edgeauth.Response, error)
+}
 
 // Handler answers enrollment for one authority.
 //
@@ -106,7 +114,54 @@ func Handler(iss Issuer) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(rev.Revocations())
 	})
+	mux.HandleFunc(ClaimPath, func(w http.ResponseWriter, r *http.Request) {
+		claimer, ok := iss.(Claimer)
+		if !ok {
+			http.Error(w, "this authority does not accept claims", http.StatusNotFound)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+		if err != nil {
+			http.Error(w, "that claim could not be read", http.StatusBadRequest)
+			return
+		}
+		var req edgeauth.ClaimRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "that is not a claim", http.StatusBadRequest)
+			return
+		}
+		resp, err := claimer.Claim(req, time.Now())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
 	return mux
+}
+
+// Claim POSTs a signed claim to the authority and decodes the certificate answer - the client half
+// of ClaimPath, for a node that was adopted.
+func Claim(ctx context.Context, endpoint string, req edgeauth.ClaimRequest) (edgeauth.Response, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return edgeauth.Response{}, err
+	}
+	raw, err := post(ctx, endpoint, ClaimPath, body)
+	if err != nil {
+		return edgeauth.Response{}, err
+	}
+	var resp edgeauth.Response
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return edgeauth.Response{}, fmt.Errorf("%w: the authority's answer could not be read",
+			edgeauth.ErrMalformed)
+	}
+	return resp, nil
 }
 
 // Enroll asks one authority - Core, or the machine in the shed - for a certificate.

@@ -47,6 +47,9 @@ const (
 	// IssuedFile maps a node to the serial of the certificate it was issued, which is
 	// what a revocation names.
 	IssuedFile = "issued.json"
+	// ClaimsFile is the node ids the owner has ADOPTED and that may therefore claim a
+	// certificate (features/edge/claim.feature). A grant is consumed on a successful claim.
+	ClaimsFile = "claims.json"
 )
 
 // ErrDifferentAuthority refuses an answer from an authority that is not the one this

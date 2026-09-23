@@ -190,8 +190,14 @@ func (h *edgeHost) adopt(id, name string) error {
 	if !ok {
 		return fmt.Errorf("no candidate %q was seen on this network", id)
 	}
-	_, err = edgeAdoptCandidate(h.st, c, name, name)
-	return err
+	if _, err = edgeAdoptCandidate(h.st, c, name, name); err != nil {
+		return err
+	}
+	// If this machine roots the Edge, adopting a candidate GRANTS it a claim, so a phone that
+	// advertised itself can now claim its certificate from us and become a real member without the
+	// owner typing anything into the phone (features/edge/claim.feature).
+	edgeGrantClaimIfAuthority(c.ID)
+	return nil
 }
 
 // enrolledName is what this machine is called on its own Edge, or "" if it has not
