@@ -18,6 +18,7 @@ import (
 type Advert struct {
 	NodeID      string
 	Account     string // empty on an unenrolled instance: a candidate, never a member
+	Name        string // a friendly display name the node calls itself (a hint; the owner renames)
 	Kind        string
 	Caps        []string
 	Host        string // the mDNS host label the A record answers for
@@ -41,6 +42,7 @@ const (
 	txtPort   = "port"
 	txtFP     = "fp"
 	txtAuth   = "auth"
+	txtName   = "nm"
 )
 
 // TXT renders the advertisement's TXT record.
@@ -57,6 +59,11 @@ func (a Advert) TXT() []string {
 		txtCaps + "=" + strings.Join(a.Caps, ","),
 		txtPort + "=" + strconv.Itoa(a.Port),
 		txtFP + "=" + a.Fingerprint,
+	}
+	// A node that calls itself something friendly advertises it, so a candidate shows a name a
+	// person recognises ("gentle-ibex-14") rather than its raw node id before it is adopted.
+	if a.Name != "" {
+		out = append(out, txtName+"="+a.Name)
 	}
 	// Only an authority advertises where it answers claims. A member or a phone emits nothing here,
 	// so its record stays the six keys every other node has (and byte-identical to the phone's).
@@ -93,6 +100,8 @@ func advertFromTXT(txt []string) Advert {
 			a.Fingerprint = strings.ToLower(v)
 		case txtAuth:
 			a.AuthPort, _ = strconv.Atoi(v)
+		case txtName:
+			a.Name = v
 		}
 	}
 	return a

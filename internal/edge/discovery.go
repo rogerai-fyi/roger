@@ -493,8 +493,12 @@ func (d *Discovery) remember(ad Advert) {
 	if kind == "" {
 		kind = string(Host)
 	}
+	name := ad.Name // the friendly name the node advertises, or its id when it offers none
+	if name == "" {
+		name = ad.NodeID
+	}
 	d.candidates[ad.NodeID] = store.EdgeNode{
-		ID: ad.NodeID, Name: ad.NodeID, Kind: kind,
+		ID: ad.NodeID, Name: name, Kind: kind,
 		Presence: string(PresenceCandidate), LastSeen: d.now().Unix(),
 		Pin:        ad.Fingerprint,
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: ad.Addr(), Fingerprint: ad.Fingerprint}},

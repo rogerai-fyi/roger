@@ -355,24 +355,42 @@ func advertsFrom(m *message, service string, from net.Addr) []Advert {
 	}
 	var out []Advert
 	for inst := range instances {
-		s, ok := srv[inst]
-		if !ok {
-			continue
-		}
+		s, hasSRV := srv[inst]
 		ad := advertFromTXT(txt[inst])
-		ad.Host = trimRoot(s.target)
-		if ad.Port == 0 {
-			ad.Port = int(s.port)
+		idFromTXT := ad.NodeID != "" // a real self-identification, not the instance-name fallback
+		if hasSRV {
+			ad.Host = trimRoot(s.target)
+			if ad.Port == 0 {
+				ad.Port = int(s.port)
+			}
+			if ip, ok := hosts[trimRoot(s.target)]; ok {
+				ad.IP = ip
+			}
 		}
-		if ip, ok := hosts[trimRoot(s.target)]; ok {
-			ad.IP = ip
-		} else if ip := addrIP(from); ip != nil {
-			// No address record: fall back to where the packet came from. It is still
-			// only a hint, and the certificate check is unchanged either way.
-			ad.IP = ip
+		if ad.IP == nil {
+			if ip := addrIP(from); ip != nil {
+				// No address record: fall back to where the packet came from. Still only a
+				// hint, and the certificate check is unchanged either way.
+				ad.IP = ip
+			}
 		}
 		if ad.NodeID == "" {
 			ad.NodeID = strings.TrimSuffix(inst, "."+svc)
+		}
+		// A CANDIDATE (no account) joins by adoption/claim and is NEVER dialed from here, so it
+		// need not carry a certificate fingerprint or a servable SRV/address - only an identity.
+		// This is the whole point of a phone: it advertises itself with no cert yet. A MEMBER (an
+		// account set) IS dialed and verified, so it must be fully usable (SRV + fingerprint + addr).
+		if ad.Account == "" {
+			// Keep it only if it actually named itself (id= in its TXT); a bare PTR with no TXT is
+			// noise, not a device.
+			if idFromTXT {
+				out = append(out, ad)
+			}
+			continue
+		}
+		if !hasSRV {
+			continue
 		}
 		if err := ad.usable(); err != nil {
 			continue

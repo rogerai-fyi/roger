@@ -198,9 +198,10 @@ func TestAdvertsFromIgnoresIncompleteRecordSets(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, advertsFrom(m, DefaultService, nil))
 
-	// A complete set but no fingerprint: unverifiable, so it is not a lead.
+	// A MEMBER (an account) with no fingerprint: unverifiable, so it is not a lead. (A CANDIDATE
+	// with no fingerprint IS kept - it is adopted/claimed, never dialed - see the candidate test.)
 	pkt, err := buildResponse(DefaultService, "n_y", "n_y", 80,
-		[]string{"id=n_y", "port=80"}, []net.IP{net.ParseIP("10.0.0.2")})
+		[]string{"id=n_y", "acct=edge-local", "port=80"}, []net.IP{net.ParseIP("10.0.0.2")})
 	require.NoError(t, err)
 	m, err = parseMessage(pkt)
 	require.NoError(t, err)
@@ -214,17 +215,16 @@ func TestAdvertsFromIgnoresIncompleteRecordSets(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, advertsFrom(m, DefaultService, nil))
 
-	// No A record: the packet's source address is the fallback, and it is still only
-	// a hint - the certificate check is unchanged either way.
+	// A MEMBER with no A record: the packet's source address is the fallback, still only a hint.
 	pkt, err = buildResponse(DefaultService, "n_w", "n_w", 81,
-		Advert{NodeID: "n_w", Fingerprint: "bb", Port: 81}.TXT(), nil)
+		Advert{NodeID: "n_w", Account: "edge-local", Fingerprint: "bb", Port: 81}.TXT(), nil)
 	require.NoError(t, err)
 	m, err = parseMessage(pkt)
 	require.NoError(t, err)
 	got := advertsFrom(m, DefaultService, &net.UDPAddr{IP: net.ParseIP("10.0.0.9")})
 	require.Len(t, got, 1)
 	require.Equal(t, "10.0.0.9:81", got[0].Addr())
-	// And with no source either, there is nowhere to dial.
+	// And with no source either, a MEMBER has nowhere to dial, so it is dropped.
 	require.Empty(t, advertsFrom(m, DefaultService, nil))
 }
 

@@ -388,32 +388,44 @@ func (m model) edgeNetworkMap(w, cw int, line func(string)) {
 	st := m.edge.status
 	line("  " + edgeColorSegments(edgeEmptyHeadline(m.edge)))
 	line("")
-	line("  " + edgeSetupCenter(stKey.Render("YOUR EDGE NETWORK"), cw))
-	line("  " + edgeSetupCenter(stDim.Render("your private network of authorized rogers, agents & devices"), cw))
-	line("  " + edgeSetupCenter(stDim.Render("the authority controls them all and lets them reach each other"), cw))
-	line("")
+	line("  " + edgeSetupCenter(stKey.Render("YOUR EDGE NETWORK")+stDim.Render("   the authority controls your machines, agents & devices"), cw))
 
 	// The topology: the machine and the rogers/agents on it, as cards, the selected one glowing.
 	m.edgeMapTopology(cw, line)
 	line("  " + edgeSetupCenter(stDim.Render("↑↓←→ move the highlight · ⏎ open · ")+stKey.Render("↓ or Tab")+stDim.Render(" for the buttons below"), cw))
 	line("")
 
-	// The address another machine joins at, when this machine is the authority - the one command
-	// to hand a device, kept on the map so it is always to hand (also behind the Add Device button).
-	if st != nil && st.AuthorityHere && st.AuthorityAddr != "" {
-		line("  " + edgeSetupCenter(stDim.Render("another machine joins with  ")+stEmber.Render(st.EnrollAgainstLine()), cw))
-		line("")
-	}
-
-	// FINDING DEVICES - the founder could not tell how a phone would appear (2026-09-23). Say it
-	// plainly: what is discovered, or - when nothing is - how a device shows up and how to add one.
+	// FINDING DEVICES: when devices are discovered they already show in the topology; this only
+	// speaks up when nothing is found, to explain where a device appears.
 	m.edgeFindDevicesHint(cw, line)
 
 	// WHAT YOU CAN DO - big buttons the owner presses to act, in place, from this screen.
 	m.edgeActionBar(cw, line)
 	line("")
 
-	// The details, below and quiet: this machine, its authority, discovery.
+	// SPARSE vs POPULATED. A machine with nothing else on its Edge yet is in the ONBOARDING state:
+	// it gets the full getting-started facts and how-to-add-a-node (features/edge/empty_edge.feature).
+	// Once there are other rogers, members or candidates to see, the screen is tight, so it drops to
+	// a single live DISCOVERY line - the role is on the card, the how-tos are behind the buttons
+	// (founder 2026-09-23: "optimize space ... minimal").
+	household := 0
+	if m.hooks.EdgeHousehold != nil {
+		household = len(m.hooks.EdgeHousehold())
+	}
+	sparse := len(m.edge.rows) == 0 && len(m.edge.cands) == 0 && household <= 1
+	if st == nil {
+		return
+	}
+	if !sparse {
+		line("  " + edgeFactLabelStyle("DISCOVERY").Render(pad("DISCOVERY", edgeFactW)) +
+			truncVisible(st.DiscoveryLine(m.edge.at), max(20, w-2-edgeFactW)))
+		return
+	}
+	// Onboarding: the enroll command another MACHINE runs, then the three facts in full.
+	if st.AuthorityHere && st.AuthorityAddr != "" {
+		line("  " + edgeSetupCenter(stDim.Render("another machine joins with  ")+stEmber.Render(st.EnrollAgainstLine()), cw))
+		line("")
+	}
 	fact := func(label string, lines ...string) {
 		for i, t := range lines {
 			for j, part := range wrapCommand(t, max(20, w-2-edgeFactW)) {
@@ -425,11 +437,9 @@ func (m model) edgeNetworkMap(w, cw int, line func(string)) {
 			}
 		}
 	}
-	if st != nil {
-		fact("THIS MACHINE", st.MachineLine())
-		fact("AUTHORITY", st.AuthorityLines()...)
-		fact("DISCOVERY", st.DiscoveryLine(m.edge.at))
-	}
+	fact("THIS MACHINE", st.MachineLine())
+	fact("AUTHORITY", st.AuthorityLines()...)
+	fact("DISCOVERY", st.DiscoveryLine(m.edge.at))
 }
 
 // edgeAction is one button on the [3] control panel: a hotkey, a label, a one-line why, and
@@ -497,24 +507,13 @@ func (m model) edgeActions() []edgeAction {
 // edgeFindDevicesHint tells the owner what is discoverable, or - when nothing is - how a device
 // shows up and how to add one, so "where is my phone?" has an answer on the screen (2026-09-23).
 func (m model) edgeFindDevicesHint(cw int, line func(string)) {
-	st := m.edge.status
-	if n := len(m.edge.cands); n > 0 {
-		word := "device"
-		if n > 1 {
-			word = "devices"
-		}
-		line("  " + edgeSetupCenter(lampStyle(roleLive).Render(strconv.Itoa(n)+" "+word+" discovered")+
-			stDim.Render(" on your network · ")+stKey.Render("↓")+stDim.Render(" to one in DISCOVERED, then ")+
-			stKey.Render("a")+stDim.Render(" to adopt"), cw))
-		line("")
+	// When devices ARE discovered they already show in the DISCOVERED band with "adopt with a" and
+	// the Adopt button, so say nothing more here - the screen is tight (2026-09-23). Only when
+	// nothing is found is a single quiet line worth the space, to explain where a device appears.
+	if len(m.edge.cands) > 0 {
 		return
 	}
-	line("  " + edgeSetupCenter(stKey.Render("LOOKING FOR DEVICES")+stDim.Render("  none found on this network yet"), cw))
-	line("  " + edgeSetupCenter(stDim.Render("a phone or machine running roger on this SAME network appears here to adopt (")+stKey.Render("a")+stDim.Render(")"), cw))
-	if st != nil {
-		line("  " + edgeSetupCenter(stDim.Render(st.DiscoveryLine(m.edge.at)), cw))
-	}
-	line("")
+	line("  " + edgeSetupCenter(stDim.Render("no devices yet · a phone or machine running roger on this network appears here to adopt"), cw))
 }
 
 // edgeActionBar draws the buttons as bordered cards, packed into rows that fit the width. The lit

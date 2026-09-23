@@ -86,7 +86,7 @@ func TestNetworkHubMapOneNode(t *testing.T) {
 		Discovery: edge.DiscoveryScanning, IntervalS: 30}
 	m := networkModel(t, self)
 	out := stripANSI(m.edgeView(104))
-	for _, want := range []string{"YOUR EDGE NETWORK", "your private network", "◉ desk", "no rogers running here", "WHAT YOU CAN DO"} {
+	for _, want := range []string{"YOUR EDGE NETWORK", "the authority controls your", "◉ desk", "no rogers running here", "WHAT YOU CAN DO"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hub map missing %q:\n%s", want, out)
 		}
@@ -636,7 +636,7 @@ func TestEdgeFindDevicesHint(t *testing.T) {
 	m.hooks.EdgeSelfInstance = func() string { return "hub" }
 	m.enterEdge()
 	out := stripANSI(m.edgeView(100))
-	for _, want := range []string{"LOOKING FOR DEVICES", "running roger on this SAME network appears here"} {
+	for _, want := range []string{"no devices yet", "running roger on this network appears here to adopt"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing find-devices hint %q:\n%s", want, out)
 		}
