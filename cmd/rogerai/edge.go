@@ -1249,8 +1249,13 @@ func edgeMergeCandidates(old, fresh []store.EdgeNode) []store.EdgeNode {
 		seen[c.ID] = true
 		out = append(out, c)
 	}
+	// Keeping a previously-seen candidate across a pass makes it resilient to a single missed
+	// announcement - but only until the discovery TTL. Past that it is STALE (the device left, or
+	// stopped pinging), so drop it rather than show "last seen an hour ago" forever. A candidate
+	// that is still around is re-seen and re-stamped every pass and so never crosses the cutoff.
+	cutoff := time.Now().Add(-edge.DefaultTTL).Unix()
 	for _, c := range old {
-		if !seen[c.ID] {
+		if !seen[c.ID] && c.LastSeen >= cutoff {
 			out = append(out, c)
 		}
 	}

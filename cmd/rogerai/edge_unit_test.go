@@ -381,8 +381,11 @@ func TestEdgeScanSaysSoWhenTheNetworkHasNoDiscovery(t *testing.T) {
 }
 
 func TestEdgeMergeCandidatesKeepsWhatThisPassMissed(t *testing.T) {
-	old := []store.EdgeNode{{ID: "n_a", Name: "old-a"}, {ID: "n_b", Name: "old-b"}}
-	fresh := []store.EdgeNode{{ID: "n_b", Name: "fresh-b"}}
+	// Real candidates always carry a last-seen (remember() stamps it); a recently-seen one survives
+	// a missed pass, while a superseded one is refreshed from the fresh entry.
+	recent := time.Now().Unix()
+	old := []store.EdgeNode{{ID: "n_a", Name: "old-a", LastSeen: recent}, {ID: "n_b", Name: "old-b", LastSeen: recent}}
+	fresh := []store.EdgeNode{{ID: "n_b", Name: "fresh-b", LastSeen: recent}}
 	got := edgeMergeCandidates(old, fresh)
 	require.Len(t, got, 2)
 	require.Equal(t, "n_a", got[0].ID)
