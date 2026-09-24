@@ -70,7 +70,15 @@
    single stacked column; this only changes layout, so FIG.2 sits higher on
    the page once the columns fit side by side. Below the breakpoint it's a
    single column top to bottom, same as before. */
-.hero__grid { display: grid; grid-template-columns: 1fr; gap: var(--s-8); }
+/* minmax(0, 1fr), not a bare 1fr (= minmax(auto, 1fr)): the single column must not be
+   forced wider than a phone by its longest unbreakable line. */
+.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-8); }
+/* A phone: the nowrap "decentralized Models" runs about 10 em, wider than the column
+   at the 2.4rem display floor (384px in a 350px column on a 390 screen). Scale the
+   headline with the viewport there so the underlined phrase stays whole and on-screen. */
+@media (max-width: 480px) {
+  .hero__title { font-size: min(var(--t-display), calc((100vw - 2 * var(--gutter)) / 10.6)); }
+}
 /* 1400px, not the usual breakpoint scale: below it there isn't enough room
    for both the headline's nowrap "decentralized Models" at full display
    size AND a install column wide enough not to truncate the command, and

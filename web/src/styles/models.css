@@ -240,8 +240,11 @@
 .band-dot { font-size: 11px; line-height: 1; }
 .band-dot--on { color: var(--live); }
 .band-dot--off { color: var(--ink-300); }
-.band-name { font-weight: var(--weight-semi); color: var(--ink-900); letter-spacing: -.01em;
-  word-break: break-word; }
+/* overflow-wrap:break-word still wraps a name too long for its row, but unlike
+   word-break:break-word it does not shrink the MIN-CONTENT width to one glyph - that
+   is what let the grid starve this column to a character a line on a phone. */
+.band-name { flex: 0 1 auto; min-width: 0; font-weight: var(--weight-semi); color: var(--ink-900);
+  letter-spacing: -.01em; overflow-wrap: break-word; }
 .band-prov { display: block; font-size: var(--t-xs); color: var(--live); font-weight: var(--weight-medium); margin-top: 2px; }
 .band-prov--idle { color: var(--ink-400); font-weight: var(--weight-regular); }
 .band-ctx { display: inline-block; font-size: var(--t-xs); color: var(--ink-400); margin-top: 2px; }
@@ -253,7 +256,7 @@
 .band-hw { font-size: 0.625rem; letter-spacing: 0.06em; color: var(--ink-500);
   border: 1px solid var(--hairline-2); border-radius: var(--r-xs); padding: 0 5px; text-transform: uppercase; }
 .band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
-  padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
+  white-space: nowrap; padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
 .band-tag--free { color: var(--live); border-color: var(--live); }
 /* neutral $-tier read of a band's price vs the going rate for its model (FREE/unknown
    render nothing). Only the cheapest tier is editorialized, via .band-tag--deal. */
@@ -412,6 +415,14 @@
   .band-cell--name { grid-area: name; } .band-cell--price { grid-area: price; } .band-cell--tps { grid-area: tps; }
 }
 @media (max-width: 560px) {
+  /* a phone: each band is a small card - the name (with its tags) owns the first row,
+     price and speed share the second. Same cells, same content, stacked. */
+  .band-row, .band-row--head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name name" "price tps";
+    gap: var(--s-2) var(--s-4);
+  }
+  .band-cell--price { text-align: left; }
   .qsl-row, .qsl-row--head { grid-template-columns: minmax(0, 1.6fr) minmax(70px, 1fr) 42px;
     grid-template-areas: "cs price tps"; }
   .qsl-row > span:nth-child(4), .qsl-row > span:nth-child(5),

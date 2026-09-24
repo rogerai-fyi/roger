@@ -36,10 +36,10 @@
         </p>
       </header>
 
-      <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
-        <img src="assets/broadcasts/vram-hero.png" width="1280" height="560" style="display:block;width:100%;height:auto;border-radius:6px;"
+      <figure class="bc-figure bc-figure--plate" data-reveal>
+        <img src="assets/broadcasts/vram-hero.png" width="1280" height="560"
              alt="A graphics card drawn as a vintage two-way radio with a red VRAM gauge, in the RogerAI operating-manual style." loading="lazy" />
-        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - THE VRAM GAUGE</figcaption>
+        <figcaption class="fig mono">FIG. 1 - THE VRAM GAUGE</figcaption>
       </figure>
 
       <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
@@ -117,10 +117,10 @@
         <section class="bc-sec" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; Quantization</span>
           <h2>Does quantization hurt quality?</h2>
-          <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
-            <img src="assets/broadcasts/quantization.png" width="1280" height="720" style="display:block;width:100%;height:auto;border-radius:6px;"
+          <figure class="bc-figure bc-figure--plate" data-reveal>
+            <img src="assets/broadcasts/quantization.png" width="1280" height="720"
                  alt="A large model being compressed into a smaller dense block, RogerAI operating-manual illustration." loading="lazy" />
-            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 3 - QUANTIZATION SHRINKS THE MODEL, NOT ITS SKILL</figcaption>
+            <figcaption class="fig mono">FIG. 3 - QUANTIZATION SHRINKS THE MODEL, NOT ITS SKILL</figcaption>
           </figure>
           <p>
             Barely, at the levels people use. <b>Q4</b> (4-bit) is the popular default and keeps almost
@@ -183,7 +183,7 @@
         <div class="man-note man-note--live">
           <span class="man-note__tag">roger that</span>
           Model too big for your card? Route it to a bigger GPU - install the set and tune in:
-          <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>
+          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>
         </div>
 
       </div>

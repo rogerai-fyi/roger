@@ -5,7 +5,7 @@
 
 .route-hero {
   margin: var(--s-8) 0 0; padding: 14px;
-  background: #f3f1ea; border: 1px solid var(--hairline-2);
+  background: var(--paper-2); border: 1px solid var(--hairline-2);
   border-radius: var(--r-md);
 }
 .route-hero img { display: block; width: 100%; height: auto; border-radius: 6px; }
@@ -14,11 +14,11 @@
 .route-process {
   margin: var(--s-7) 0 0; padding: 10px;
   border: 1px solid var(--hairline-2); border-radius: var(--r-md);
-  background: #f3f1ea; overflow: hidden;
+  background: var(--paper-2); overflow: hidden;
 }
 .route-process__image {
   position: relative; overflow: hidden; border-radius: 5px;
-  background: #f3f1ea;
+  background: var(--paper-2);
 }
 .route-process__image img {
   display: block; width: 100%; height: auto;

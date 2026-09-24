@@ -177,7 +177,7 @@
    width and leaves the fourth alone on its own row - the same orphan the board grid had. */
 .hw-exps {
   display: grid; gap: var(--s-5); margin-top: var(--s-8);
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr); /* a bare 1fr let the bench table's nowrap cells force it wide */
 }
 @media (min-width: 760px) {
   .hw-exps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -213,6 +213,9 @@
   color: var(--ink-700); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .hw-bench__win { color: var(--live); font-weight: var(--weight-semi); }
+@media (max-width: 560px) {
+  .hw-bench th, .hw-bench td { white-space: normal; }
+}
 
 /* the stage line is the honest part: what gate this run is actually at right now */
 .hw-exp__stage {
@@ -241,5 +244,5 @@
 .hw-rent code {
   font-family: var(--font-mono); font-size: var(--t-xs);
   background: var(--paper-2); border: 1px solid var(--hairline);
-  border-radius: 3px; padding: 1px 5px; white-space: nowrap;
+  border-radius: 3px; padding: 1px 5px; /* its words stay whole via .cmd-words, the line may wrap */
 }
