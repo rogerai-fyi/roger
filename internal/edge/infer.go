@@ -50,7 +50,10 @@ type Upstream func(band string) (chatURL, key, instance string, ok bool)
 // Serving is what the face needs to serve peers: the trust to authenticate them, the
 // membership to admit them, the upstreams to answer with, and the key to receipt with.
 type Serving struct {
-	Trust    *cert.Authority          // the verify-only authority: who may call
+	Trust *cert.Authority // the verify-only authority: the TLS root pool, set once
+	// TrustNow, when set, returns a FRESH authority per request so a serial revoked while the face
+	// runs is refused at once, not only after a restart (audit 2026-09-23). Falls back to Trust.
+	TrustNow func() *cert.Authority
 	Member   func(nodeID string) bool // is that node on THIS Edge (account scope)
 	Upstream Upstream
 	NodeID   string
@@ -87,7 +90,13 @@ func (s *Server) caller(r *http.Request) (string, int, string) {
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		return "", http.StatusUnauthorized, "a peer turn needs your node certificate"
 	}
-	id, err := s.serving.Trust.Authenticate(r.TLS.PeerCertificates[0])
+	trust := s.serving.Trust
+	if s.serving.TrustNow != nil {
+		if fresh := s.serving.TrustNow(); fresh != nil {
+			trust = fresh // re-read so revocations made since the face started are seen now
+		}
+	}
+	id, err := trust.Authenticate(r.TLS.PeerCertificates[0])
 	if err != nil {
 		return "", http.StatusUnauthorized, "that certificate is not under this Edge's root"
 	}
@@ -202,6 +211,16 @@ func (s *Server) streamInfer(w http.ResponseWriter, resp *http.Response, rec pro
 		if flusher != nil && line == "" {
 			flusher.Flush()
 		}
+	}
+	// A read error (an oversized line, a dropped upstream) means the turn did NOT complete. Do not
+	// sign a receipt for a partial reply - a signed receipt attests a completed turn - emit an error
+	// comment instead so nothing bills the caller for what they did not get (audit 2026-09-23).
+	if err := sc.Err(); err != nil {
+		_, _ = io.WriteString(w, "\n: rogerai-error=stream-truncated\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return
 	}
 	if len(s.serving.Key) == ed25519.PrivateKeySize {
 		rec.SignNode(s.serving.Key)

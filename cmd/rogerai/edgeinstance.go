@@ -23,6 +23,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
 
 // edgeInstancesDir is the node's household: every running roger's registration.
@@ -220,10 +221,20 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 	}
 	return edge.Serving{
 		Trust: auth,
+		// Re-read trust per request so a node revoked while this face runs is refused at once.
+		TrustNow: func() *cert.Authority {
+			fresh, _, err := edgeIdentityStore().Trust(time.Now())
+			if err != nil {
+				return nil
+			}
+			return fresh
+		},
 		Member: func(id string) bool {
 			if id == nodeID {
 				return true
 			}
+			h.mu.Lock()
+			defer h.mu.Unlock()
 			_, ok, err := h.st.fleet.Get(id)
 			return err == nil && ok
 		},
