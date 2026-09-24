@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,21 +169,21 @@ func TestForgetCancelsAPendingAdoption(t *testing.T) {
 	require.NoError(t, local.GrantClaim("n_pending", "gentle-ibex-14"))
 	require.True(t, local.ClaimGranted("n_pending"))
 
-	// Forget by the friendly name it was adopted under.
-	n, who, err := edgeForgetNotInFleet("gentle-ibex-14")
+	// Forget by the friendly name it was adopted under (confirmed via --yes).
+	_, err = captureEdgeStdout(func() error {
+		return cmdEdgeForget(loadConfig(), []string{"gentle-ibex-14", "--yes"})
+	})
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
-	require.Equal(t, "gentle-ibex-14", who)
 
 	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.False(t, reopened.ClaimGranted("n_pending"), "the pending grant is gone")
 
-	// Forgetting again finds nothing to cancel.
-	n, _, err = edgeForgetNotInFleet("gentle-ibex-14")
+	// Forgetting again resolves nothing to cancel.
+	ids, _, err := edgeResolveNotInFleet("gentle-ibex-14")
 	require.NoError(t, err)
-	require.Equal(t, 0, n)
+	require.Empty(t, ids)
 }
 
 // Forgetting a device that CLAIMED its certificate but has not checked in yet (so it is not in the
@@ -208,10 +209,11 @@ func TestForgetRevokesAClaimedButNotYetPresentDevice(t *testing.T) {
 	require.False(t, local.ClaimGranted(id), "the grant was consumed by the claim")
 
 	// It is not in the fleet (never presented) and its grant is gone, so it is forgotten by its node
-	// id, and that revokes its certificate.
-	n, _, err := edgeForgetNotInFleet(id)
+	// id (confirmed via --yes), and that revokes its certificate.
+	_, err = captureEdgeStdout(func() error {
+		return cmdEdgeForget(loadConfig(), []string{id, "--yes"})
+	})
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
 
 	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	require.NoError(t, err)
@@ -220,10 +222,10 @@ func TestForgetRevokesAClaimedButNotYetPresentDevice(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, revs, serial, "the claimed-but-not-present device's certificate is revoked")
 
-	// A mistyped node id that matches nothing forgets nothing - it is NOT falsely reported as revoked.
-	m, _, err := edgeForgetNotInFleet("n_typodoesnotexist000000000000000000000000000")
+	// A mistyped node id that matches nothing resolves nothing - it is NOT falsely reported as revoked.
+	ids, _, err := edgeResolveNotInFleet("n_typodoesnotexist000000000000000000000000000")
 	require.NoError(t, err)
-	require.Equal(t, 0, m, "a node id with no grant and no issued cert is not 'forgotten'")
+	require.Empty(t, ids, "a node id with no grant and no issued cert is not 'forgotten'")
 }
 
 // Forgetting by a NAME that more than one pending adoption shares is ambiguous - it refuses and
@@ -235,7 +237,32 @@ func TestForgetRefusesAnAmbiguousName(t *testing.T) {
 	require.NoError(t, local.GrantClaim("n_one", "iPhone"))
 	require.NoError(t, local.GrantClaim("n_two", "iPhone"))
 
-	_, _, err = edgeForgetNotInFleet("iPhone")
+	_, _, err = edgeResolveNotInFleet("iPhone")
 	require.Error(t, err, "an ambiguous name must be refused, not applied to every match")
 	require.Contains(t, err.Error(), "node id")
+}
+
+// Forgetting a not-in-fleet device is DESTRUCTIVE (it revokes a certificate / gives up an identity),
+// so it must ask first, exactly as the in-fleet path does. Answering no leaves everything intact
+// (audit 2026-09-24).
+func TestForgetNotInFleetAsksBeforeRevoking(t *testing.T) {
+	useTempConfig(t)
+	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	require.NoError(t, local.GrantClaim("n_ask", "gentle-ibex-14"))
+
+	// No --yes, and the prompt is answered "n".
+	prev := edgeStdin
+	t.Cleanup(func() { edgeStdin = prev })
+	edgeStdin = strings.NewReader("n\n")
+	out, err := captureEdgeStdout(func() error {
+		return cmdEdgeForget(loadConfig(), []string{"gentle-ibex-14"})
+	})
+	require.NoError(t, err)
+	require.Contains(t, out, "left alone")
+
+	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.True(t, reopened.ClaimGranted("n_ask"), "declining the prompt leaves the grant intact")
 }

@@ -195,8 +195,11 @@ type nonceCache struct {
 // admit returns true the FIRST time a nonce is seen, false on a repeat. It prunes expired entries
 // as it goes so the map cannot grow without bound.
 func (n *nonceCache) admit(nonce string, expiry, nowUnix int64) bool {
-	if nonce == "" {
-		return false // an unnonced presence is replayable by definition
+	// A too-short nonce is a small space an attacker could exhaust or collide; presence nonces are a
+	// 16-byte random rendered as 32 hex chars, so require a floor rather than accept any non-empty
+	// string (audit 2026-09-24).
+	if len(nonce) < 16 {
+		return false
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()

@@ -989,22 +989,33 @@ func cmdEdgeForget(cfg config, args []string) error {
 	if !ok {
 		// A device not in the fleet may still have a live relationship with this authority: a claim
 		// GRANT standing (adopted, not yet claimed) OR an issued CERTIFICATE (claimed, not yet
-		// checked in). Forgetting must end BOTH - clear the grant AND revoke every issued serial -
-		// under one lock, or the device could claim later or check in with a live cert and rejoin
+		// checked in) - and a raw node id may be THIS machine's own identity. Resolve what would be
+		// forgotten WITHOUT touching anything yet, so the same y/N confirmation the in-fleet path
+		// uses gates this destructive action too (revoking a certificate, giving up an identity)
 		// (audit 2026-09-24).
-		n, who, err := edgeForgetNotInFleet(argv.pos[0])
+		ids, who, err := edgeResolveNotInFleet(argv.pos[0])
 		if err != nil {
 			return err
 		}
-		if n > 0 {
-			fmt.Printf("forgot %s: its claim grant is cleared and any certificate it holds is revoked.\n", who)
+		if len(ids) == 0 {
+			// Forgetting something that is not there is what the owner wanted anyway.
+			fmt.Printf("nothing to forget: %q is not on this Edge.\n", argv.pos[0])
+			fmt.Println("  (a device that claimed but has not checked in is forgotten by its node id.)")
 			return nil
 		}
-		// Forgetting something that is not there is what the owner wanted anyway. A device that
-		// claimed a certificate but has not checked in yet is not visible by name; it is forgotten by
-		// its node id.
-		fmt.Printf("nothing to forget: %q is not on this Edge.\n", argv.pos[0])
-		fmt.Println("  (a device that claimed but has not checked in is forgotten by its node id.)")
+		if !argv.has("yes") {
+			fmt.Printf("forget %s? its claim grant is cleared and any certificate it holds is revoked [y/N]: ", who)
+			if !edgeConfirmed() {
+				fmt.Println("left alone.")
+				return nil
+			}
+		}
+		for id := range ids {
+			if err := edgeRevokeOnForget(id); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("forgot %s: its claim grant is cleared and any certificate it holds is revoked.\n", who)
 		return nil
 	}
 	if !argv.has("yes") {
@@ -1114,19 +1125,19 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 // grant and revokes every issued serial under one lock - so neither a pending claim nor a live cert
 // survives. It returns how many nodes it forgot and a label for them. Only an authority has grants;
 // elsewhere a raw node id can still be revoked (audit 2026-09-24).
-func edgeForgetNotInFleet(want string) (int, string, error) {
+func edgeResolveNotInFleet(want string) (map[string]string, string, error) {
 	ids := map[string]string{} // node id -> label
 	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
 		// The authority is here but unreadable - do NOT report "nothing to forget" and exit 0,
 		// leaving a grant or certificate live (audit 2026-09-24).
-		return 0, "", fmt.Errorf("could not open the Edge authority to forget %q: %w", want, err)
+		return nil, "", fmt.Errorf("could not open the Edge authority to forget %q: %w", want, err)
 	}
 	if hasRoot {
 		// A standing GRANT (adopted, not yet claimed): resolvable by node id or the name it carries.
 		grants, err := local.Claims()
 		if err != nil {
-			return 0, "", err
+			return nil, "", err
 		}
 		var byName []string // grants matched by NAME (not the exact node id), for ambiguity check
 		for _, g := range grants {
@@ -1145,7 +1156,7 @@ func edgeForgetNotInFleet(want string) (int, string, error) {
 		// A name that matches more than one pending adoption is ambiguous - refuse and list the node
 		// ids, the same way edgeResolve does for the fleet, rather than silently forgetting them all.
 		if !strings.HasPrefix(want, "n_") && len(byName) > 1 {
-			return 0, "", fmt.Errorf("%q names %d adopted devices - forget one by its node id: %s",
+			return nil, "", fmt.Errorf("%q names %d adopted devices - forget one by its node id: %s",
 				want, len(byName), strings.Join(byName, ", "))
 		}
 		// A raw node id that actually holds an issued CERTIFICATE (claimed, addressed by id). The
@@ -1153,7 +1164,7 @@ func edgeForgetNotInFleet(want string) (int, string, error) {
 		if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") {
 			issued, err := local.HasIssued(want)
 			if err != nil {
-				return 0, "", fmt.Errorf("could not read this Edge's issued certificates: %w", err)
+				return nil, "", fmt.Errorf("could not read this Edge's issued certificates: %w", err)
 			}
 			if issued {
 				ids[want] = edgeShortID(want)
@@ -1167,17 +1178,14 @@ func edgeForgetNotInFleet(want string) (int, string, error) {
 		held, _, ok, err := edgeIdentityStore().LoadIdentity()
 		if err != nil {
 			// An unreadable identity must not be reported as "nothing to forget" (fail closed).
-			return 0, "", fmt.Errorf("could not read this machine's Edge identity to forget %q: %w", want, err)
+			return nil, "", fmt.Errorf("could not read this machine's Edge identity to forget %q: %w", want, err)
 		}
 		if ok && held.NodeID == want {
 			ids[want] = edgeShortID(want)
 		}
 	}
 	label := ""
-	for id, who := range ids {
-		if err := edgeRevokeOnForget(id); err != nil {
-			return 0, "", err
-		}
+	for _, who := range ids {
 		if label == "" {
 			label = who
 		}
@@ -1185,7 +1193,7 @@ func edgeForgetNotInFleet(want string) (int, string, error) {
 	if len(ids) > 1 {
 		label = fmt.Sprintf("%s and %d more", label, len(ids)-1)
 	}
-	return len(ids), label, nil
+	return ids, label, nil
 }
 
 // edgeAdoptByClaim adopts a non-serving candidate (a phone) by GRANTING it a claim, so it can fetch
