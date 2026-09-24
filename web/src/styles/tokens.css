@@ -167,11 +167,9 @@
    Driven by [data-theme="dark"] on <html>. Same single-accent discipline.
    ===================================================================== */
 /* .tone-zone (the homepage's on-air ink zones) borrows this same ink set, so
-   everything inside a zone re-themes the way the whole site does in dark mode;
-   so does the chrome (nav, promo, rail) while an ink zone is under the nav. */
+   everything inside a zone re-themes the way the whole site does in dark mode. */
 :root[data-theme="dark"],
-.tone-zone,
-:root[data-chrome="ink"] :is(.nav, .promo, .rail) {
+.tone-zone {
   --white:        #1C1A14; /* raised surface */
   --paper:        #0E0D0B; /* warm ink ground */
   --paper-2:      #16140F; /* bands / bars */
@@ -214,19 +212,16 @@
 
   color-scheme: dark;
 }
-/* Text inks inside the zones (and the ink chrome), a step lighter than the
-   site's dark set: secondary and tertiary text must hold AA on the zone ground
-   AND under the red bloom at its peak (tone-zones.test). Zone-only; the
-   site-wide dark theme keeps its own values. */
-:root[data-chrome="ink"] :is(.nav, .promo, .rail),
+/* Text inks inside the zones, a step lighter than the site's dark set, so
+   secondary and tertiary text hold AA on the zone ground (tone-zones.test).
+   Zone-only; the site-wide dark theme keeps its own values. */
 .tone-zone {
   --ink-500:      #ADA99E;
   --ink-400:      #A29E93;
 }
 /* ...and on a dark site the zones go one step deeper, to near-black, so the
    turn into an on-air zone still reads as a deliberate change of room. */
-:root[data-theme="dark"] .tone-zone,
-:root[data-theme="dark"][data-chrome="ink"] :is(.nav, .promo, .rail) {
+:root[data-theme="dark"] .tone-zone {
   --white:        #16100D;
   --paper:        #080504; /* warm red-black: a different room, not just darker */
   --paper-2:      #100A08;

@@ -17,10 +17,29 @@
 
   <!-- ============================ HERO ============================ -->
   <main id="top">
-  <!-- ON-AIR ZONE 0 (ink): the cover. The first screen is on air: the red
-       bloom sits behind FIG. 1 and the LED station field tunes in on load
-       (radiomap.js, data-onload). The paper strip below divides it from zone 1. -->
-  <div class="tone-zone" data-tone="ink" data-onload>
+  <!-- THE INSTRUMENT (round 8): a tuning dial under the nav for the whole page.
+       Its stations are the nine sections, as plain links (it is the page's
+       index without JS). scroll-stage.js moves the needle: it holds on a
+       station while that section is read and glides to the next through the
+       last 30% of it (darkbloom-style progress windows, native scrolling). -->
+  <nav class="dial" aria-label="Sections">
+    <div class="dial__band">
+    <ol class="dial__scale">
+      <li><a class="dial__st" href="#demo">§1</a></li>
+      <li><a class="dial__st" href="#market">§2</a></li>
+      <li><a class="dial__st" href="#company">§3</a></li>
+      <li><a class="dial__st" href="#what">§4</a></li>
+      <li><a class="dial__st" href="#spec">§5</a></li>
+      <li><a class="dial__st" href="#books">§6</a></li>
+      <li><a class="dial__st" href="#monetize">§7</a></li>
+      <li><a class="dial__st" href="#operator">§8</a></li>
+      <li><a class="dial__st" href="#go">§9</a></li>
+    </ol>
+    <span class="dial__needle" aria-hidden="true"></span>
+    </div>
+  </nav>
+  <!-- INK PANEL: the cover. -->
+  <div class="tone-zone" data-tone="ink">
   <section class="hero">
     <div class="wrap hero__inner">
 
@@ -265,9 +284,7 @@
     </div>
   </aside>
 
-  <!-- ON-AIR ZONE 1 (ink): the console + the band. The page turns from paper to
-       ink here - a studio door opening (home.css tone-door), one red on-air bloom
-       (tone-bloom) and the LED station field (radiomap.js) behind the content. -->
+  <!-- INK PANEL: the console + the band. -->
   <div class="tone-zone" data-tone="ink">
   <!-- ===================== TERMINAL DEMO (multi-demo player) ===================== -->
   <section class="demo" id="demo">
@@ -617,9 +634,8 @@
     </div>
   </section>
 
-  <!-- ON-AIR ZONE 2 (ink): monetize, privacy, go - the transmitter and the finale.
-       Its bloom sits low and centred, under the closing install command. -->
-  <div class="tone-zone" data-tone="ink" data-bloom="low">
+  <!-- INK PANEL: monetize, privacy, go. -->
+  <div class="tone-zone" data-tone="ink">
   <!-- ===================== MONETIZE ===================== -->
   <section class="section band" id="monetize">
     <div class="wrap monetize">
@@ -744,7 +760,7 @@
   </section>
 
   <!-- ===================== CTA STRIP ===================== -->
-  <section class="cta">
+  <section class="cta" id="go">
     <div class="wrap cta__inner" data-reveal>
       <span class="sectionno">§9 / GO</span>
       <h2>Start with one command.</h2>
@@ -793,7 +809,6 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors="" -->
 
-  <script src="js/radiomap.js" defer></script>
   <script src="js/scroll-stage.js" defer></script>
   <script src="js/edge-story.js" defer></script>
   <script src="js/terminal.js" defer></script>

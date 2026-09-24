@@ -133,8 +133,9 @@
 .hero__head { container-type: inline-size; }
 .hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); font-size: min(var(--t-display), 9.5cqi); }
 @media (min-width: 1100px) {
-  /* a tighter top, so FIG. 1 and Ping sit inside a 900px-tall first screen */
-  .hero__inner { padding-top: clamp(40px, 6vh, 64px); }
+  /* a tighter top, so FIG. 1 and Ping sit inside a 900px-tall first screen
+     (under the nav, the dial and the panel's inset) */
+  .hero__inner { padding-top: clamp(24px, 3.5vh, 44px); padding-bottom: var(--s-10); }
   /* equal columns: at .75rem the whole install command fits one line in
      FIG. 1 from 1100px up (464px column at 1280, the tightest case) */
   .hero__grid {
@@ -144,9 +145,9 @@
   .hero__head { grid-column: 1 / -1; }
   /* level with the paragraph's first line (.hero__sub's top margin); both a
      notch tighter here so FIG. 1 and Ping fit a 1440x900 first screen */
-  .hero__sub, .hero__tools { margin-top: var(--s-6); }
+  .hero__sub, .hero__tools { margin-top: var(--s-5); }
   .install[data-frame="panel"] { gap: var(--s-3); }
-  .hero__ping { margin-top: var(--s-4); }
+  .hero__ping { margin-top: var(--s-2); }
   .hero__tools .install { margin-top: 0; }
   /* the column is narrower than the command's natural width at 1rem;
      install__code ellipsis-truncates gracefully, but this figure exists to be
@@ -212,13 +213,8 @@
       animation-range: entry 0% entry 15vh;
     }
 
-    /* the zones (every variant): the door opens as a zone arrives and
-       closes as it leaves; the bloom grows in with it */
-    .tone-zone { animation: tone-door linear both; animation-timeline: --zone; }
-    .tone-zone::before { animation: tone-bloom linear both; animation-timeline: --zone; }
-
-    /* the cover's bloom swells in on load instead of on scroll */
-    .tone-zone[data-onload]::before { animation: tone-bloom-load 1.6s var(--ease-out-quint) both; }
+    /* the instrument's needle sweeps in from the left of the scale on load */
+    .dial__needle { animation: dial-tune 1.2s var(--ease-out-quint) both; }
     /* the middle's scroll moment: the Wave Spectrum tunes in, pico to exa,
        each wave drawing across and flashing the live red as it locks; only
        Pico (the one trained tier) stays red. The spec plate ticks in. */
@@ -305,9 +301,8 @@
     }
   }
 }
-@keyframes tone-bloom-load {
-  from { opacity: 0; transform: scale(0.4); }
-  to   { opacity: 1; transform: none; }
+@keyframes dial-tune {
+  from { left: 0; }
 }
 @keyframes spec-wave {
   0%   { transform: scaleX(0.08); color: var(--ink-300); }
@@ -326,18 +321,6 @@
 @keyframes lift-touch {
   from { transform: translateY(20px); }
   to   { transform: none; }
-}
-@keyframes tone-door {
-  entry 0%   { clip-path: inset(0 var(--door-x) round 40px); }
-  entry 65%  { clip-path: inset(0 0 round 0); }
-  exit 35%   { clip-path: inset(0 0 round 0); }
-  exit 100%  { clip-path: inset(0 var(--door-x) round 40px); }
-}
-@keyframes tone-bloom {
-  entry 0%   { opacity: 0; transform: scale(0.55); }
-  entry 100% { opacity: 1; transform: none; }
-  exit 40%   { opacity: 1; transform: none; }
-  exit 100%  { opacity: 0.2; transform: scale(1.2); }
 }
 @keyframes lift-recede {
   to { transform: translateY(18vh) scale(0.95); }
@@ -847,71 +830,87 @@
 /* ---------- company -------------------------------------------- */
 .company { border-top: 1px solid var(--hairline); }
 /* an #anchor (and the C snap, and the fragment hold in scroll-stage.js)
-   lands the section's top just under the sticky nav, not behind it */
-main section[id] { scroll-margin-top: 72px; }
+   lands the section's top just under the sticky nav + dial, not behind them */
+main section[id] { scroll-margin-top: calc(var(--nav-h) + var(--dial-h) + 8px); }
 /* sideways motion (the two sides of the tune) must never widen the page */
 main > section { overflow-x: clip; }
 /* Bands are a translucent wash of the local ink rather than solid paper-2:
-   the same tone on paper, and inside an ink zone the zone's bloom and LED
-   field show through instead of stopping at the band's edge. */
+   the same tone on paper, and inside an ink panel the band stays ink. */
 main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
-/* ---- the on-air zones (2026-09-23, round 4) -------------------------------
-   The page turns from paper to ink twice: §1-§2 (the console, the band) and
-   §7-§9 (monetize, privacy, go). A zone carries the site's ink tokens
-   (tokens.css), so everything in it re-themes as it does in dark mode, and
-   its text is always on its own solid ground: AA in every state, because the
-   motion below only ever changes the SHAPE of that ground (the door), never
-   the colour under the words.
-   - the bloom: one red on-air glow, sticky behind the zone's content, grows
-     as you enter and dims as you leave (--bloom-peak is its strongest red)
-   - the LED field: radiomap.js adds a sticky canvas (.tone-field)
-   - the door (motion only): the zone arrives as an inset, rounded card and
-     widens to full bleed, and narrows again as it leaves */
+/* ---- the ink panels (round 8) --------------------------------------------
+   The cover, §1-§2 (the console, the band) and §7-§9 (monetize, privacy, go)
+   sit in ink panels on the paper page: inset from the page edge, rounded,
+   still. A panel carries the site's ink tokens (tokens.css), so everything
+   in it re-themes as it does in dark mode (one step deeper on a dark site). */
+:root {
+  --panel-inset: clamp(8px, 1.6vw, 24px);
+  --panel-r: clamp(14px, 1.4vw, 22px);
+}
 .tone-zone {
-  --bloom-peak: 0.24;
-  --bloom-at: 82% 38%;
   position: relative;
-  overflow: clip;        /* the sticky bloom/field never paint past the zone */
+  overflow: clip;
+  margin: var(--panel-inset);
+  border-radius: var(--panel-r);
   color: var(--ink-700);
   background: var(--paper);
-  view-timeline: --zone block;
-  --door-x: calc(max(0px, (100vw - var(--spine-w, 0px) - var(--maxw)) / 2) + var(--gutter) - 16px);
 }
-/* (--door-x: the door narrows the zone only to 16px outside the text column,
-   so every word stays on ink at every step; 100vw - spine = the zone's width) */
-@media (min-width: 1080px) { .tone-zone { --spine-w: var(--spine); } }
-.tone-zone[data-bloom="low"] { --bloom-at: 50% 88%; }
-.tone-zone[data-onload] { --bloom-at: 76% 46%; }   /* the cover: behind FIG. 1 */
-/* dark site: near-black zones on a dark page need more to land - a stronger
-   bloom (still AA, see tone-zones.test) and a red-lit edge where each zone
-   begins and ends */
-:root[data-theme="dark"] .tone-zone {
-  --bloom-peak: 0.28;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--live) 60%, transparent),
-              inset 0 -1px 0 color-mix(in srgb, var(--live) 60%, transparent);
-}
-.tone-zone::before,
-.tone-field {
-  position: sticky; top: 0; display: block;
-  width: 100%; height: 100vh; margin-bottom: -100vh;
-  pointer-events: none;
-}
-.tone-zone::before {
-  content: "";
-  background: radial-gradient(58% 62% at var(--bloom-at),
-    color-mix(in srgb, var(--live) calc(var(--bloom-peak) * 100%), transparent), transparent 72%);
-}
-.tone-zone > section { position: relative; z-index: 1; }
+.dial + .tone-zone { margin-top: 10px; }   /* the cover sits close under the dial */
 
-/* adaptive chrome (scroll-stage.js sets data-chrome): over an ink zone the
-   nav, promo and rail carry the zone's ink tokens (tokens.css), so the bar
-   and the stage read as one surface. They cross-fade on the site's timing
-   (instant under reduced motion, where the --d tokens are 0); the first set
-   on load is instant (data-chrome-instant). */
-:root[data-chrome="ink"] :is(.nav, .promo, .rail) { color: var(--ink-700); }
-:root[data-chrome="ink"] .nav { background: var(--paper); border-bottom-color: var(--hairline); }
-:root[data-chrome-instant] :is(.nav, .promo, .rail),
-:root[data-chrome-instant] :is(.nav, .promo, .rail) * { transition: none !important; }
+/* ---- THE INSTRUMENT (round 8) -----------------------------------------------
+   A tuning dial under the nav for the whole page: a hairline scale of fine
+   ticks, the nine sections as stations, and one red needle. scroll-stage.js
+   sets --needle (0..1) and aria-current on the station being read; without
+   JS it is a plain index of links and the needle rests at the start. */
+:root { --nav-h: 65px; --dial-h: 40px; }
+.dial {
+  position: sticky; top: var(--nav-h); z-index: calc(var(--z-nav) - 1);
+  height: var(--dial-h);
+  background: var(--paper);
+  border-bottom: 1px solid var(--hairline);
+}
+.dial__band {
+  position: relative; height: 100%;
+  margin: 0 auto; padding: 0 var(--gutter); max-width: var(--maxw);
+  /* the scale: a fine tick every 1/45 of the band, a longer one per station */
+  background:
+    repeating-linear-gradient(90deg, var(--ink-300) 0 1px, transparent 1px calc((100% - 2 * var(--gutter)) / 45))
+      var(--gutter) 0 / calc(100% - 2 * var(--gutter)) 6px no-repeat;
+}
+.dial__scale {
+  display: grid; grid-template-columns: repeat(9, minmax(0, 1fr));
+  height: 100%; margin: 0; padding: 0; list-style: none;
+}
+.dial__scale li { display: flex; justify-content: center; }
+.dial__scale a {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 2px; min-width: 32px; height: 100%; padding-bottom: 7px;
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); color: var(--ink-400);
+  transition: color var(--d-2);
+}
+/* the station's own tick, taller than the scale's */
+.dial__scale a::before {
+  content: ""; position: absolute; top: 0; left: 50%;
+  width: 1px; height: 12px; background: var(--ink-400);
+}
+.dial__scale a:hover, .dial__scale a[aria-current] { color: var(--ink-900); }
+.dial__scale a[aria-current]::before { background: var(--ink-900); }
+.dial__needle {
+  position: absolute; top: 0; bottom: 0;
+  /* --needle is a share of the scale (station k sits at (k + .5) / 9) */
+  left: calc(var(--gutter) + var(--needle, 0) * (100% - 2 * var(--gutter)));
+  width: 1px; background: var(--live); pointer-events: none;
+}
+.dial__needle::before {
+  content: ""; position: absolute; top: 0; left: -3px;
+  border: 3.5px solid transparent; border-top-color: var(--live);
+}
+@media (max-width: 640px) {
+  :root { --dial-h: 36px; }
+  .dial__band { padding: 0 8px; --gutter: 8px; }
+  .dial__scale a { min-width: 0; padding-bottom: 5px; font-size: 0.625rem; letter-spacing: 0.04em; }
+}
 
 /* the market price cell: the "$" tier never splits, and the "good price"
    chip always sits whole on its own line under the price */

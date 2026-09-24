@@ -13,7 +13,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -29,9 +29,10 @@ test("three ink zones: the hero (the cover), the console + the band, then moneti
   assert.match(z[0], /^\s*<section class="hero">/, "round 5: the first screen is on air");
   assert.match(z[1], /<section class="demo" id="demo">[\s\S]*<section class="market" id="market">/);
   assert.doesNotMatch(z[1], /id="company"/, "the company section is back on paper");
-  assert.match(z[2], /id="monetize"[\s\S]*id="operator"[\s\S]*<section class="cta">/);
+  assert.match(z[2], /id="monetize"[\s\S]*id="operator"[\s\S]*<section class="cta"( id="go")?>/);
   const html = read("index.html");
-  assert.match(html, /<div class="tone-zone" data-tone="ink" data-onload>\s*<section class="hero">/, "the hero zone tunes in on load");
+  assert.match(html, /<div class="tone-zone" data-tone="ink">\s*<section class="hero">/, "the cover is an ink panel");
+  assert.doesNotMatch(html, /data-onload|data-bloom/, "round 8: no load tune-in field, no bloom placement");
   assert.ok(html.indexOf('class="institution-strip"') > html.indexOf("<!-- /tone-zone -->"), "the paper strip divides the cover from zone 1");
 });
 
@@ -46,26 +47,18 @@ function block(css, selRe) {
   return Object.fromEntries([...m[1].matchAll(/(--[\w-]+):\s*(#[0-9A-Fa-f]{6})/g)].map((x) => [x[1], hex(x[2])]));
 }
 
-test("zone text stays AA (4.5:1) on the zone ground AND under the bloom at its peak, light and dark site", () => {
+test("zone text stays AA (4.5:1) on the zone ground, ink-900 to ink-400, light and dark site", () => {
   const tokens = read("styles/tokens.css");
-  const home = read("styles/home.css");
-  // the zone's text inks (round 7: a zone-only lift of ink-400/-500) sit on top of the shared ink set
-  const zoneText = block(tokens, /:root\[data-chrome="ink"\] :is\(\.nav, \.promo, \.rail\),\s*\.tone-zone\s*(?=\{)/);
+  // the zone's text inks (a zone-only lift of ink-400/-500) sit on top of the shared ink set
+  const zoneText = block(tokens, /\.tone-zone\s*(?=\{\s*--ink-500)/);
   const lightZone = { ...block(tokens, /:root\[data-theme="dark"\],\s*\.tone-zone/), ...zoneText };
   const darkZone = { ...lightZone, ...block(tokens, /:root\[data-theme="dark"\] \.tone-zone/), ...zoneText };
-  const live = hex(tokens.match(/:root\[data-theme="dark"\],\s*\.tone-zone[^{]*\{[^}]*--live:\s*(#[0-9A-Fa-f]{6})/)[1]);
-  const peak = Number(home.match(/--bloom-peak:\s*([\d.]+)/)[1]);
-  const darkPeak = Number(home.match(/:root\[data-theme="dark"\] \.tone-zone\s*\{[^}]*--bloom-peak:\s*([\d.]+)/)?.[1] || peak);
-  assert.ok(peak > 0.1, "the bloom is actually visible");
-  for (const [name, z, pk] of [["light site", lightZone, peak], ["dark site", darkZone, darkPeak]]) {
+  for (const [name, z] of [["light site", lightZone], ["dark site", darkZone]]) {
     for (const ground of [z["--paper"], z["--paper-2"]]) {
-      const bloomed = over(live, pk, ground);
       // ink-400 too: .sectionno, the eyebrow, FIG. labels, .demo__fine, .market__foot
       for (const ink of ["--ink-900", "--ink-700", "--ink-500", "--ink-400"]) {
-        for (const [where, bg] of [["ground", ground], ["peak bloom", bloomed]]) {
-          const r = ratio(z[ink], bg);
-          assert.ok(r >= 4.5, `${name}: ${ink} on ${where} is ${r.toFixed(2)}:1`);
-        }
+        const r = ratio(z[ink], ground);
+        assert.ok(r >= 4.5, `${name}: ${ink} on the zone ground is ${r.toFixed(2)}:1`);
       }
     }
   }
@@ -76,24 +69,25 @@ test("zones re-derive their own text colour and ground from the ink tokens", () 
   assert.match(home, /\.tone-zone\s*\{[^}]*color:\s*var\(--ink-700\)[^}]*background:\s*var\(--paper\)/s);
 });
 
-test("the door, the bloom and the section motion are opt-in; reduced motion gets a still, full-bleed zone", () => {
+// Round 8 (founder: "no grid looking thing ... or the lamp looking color thing,
+// keep it simple and more subtle and more cool"): the ink zones stay, as calm
+// inset panels on the paper page. No LED field, no red bloom, no door.
+test("zones are calm inset panels: rounded, inset from the page edge, nothing animated on them", () => {
   const home = read("styles/home.css");
-  const noPref = home.indexOf("prefers-reduced-motion: no-preference");
-  for (const name of ["tone-door", "tone-bloom"]) {
-    const use = home.search(new RegExp(`animation[^;]*\\b${name}\\b`));
-    assert.ok(use > noPref && noPref > 0, `${name} is only applied under no-preference`);
-  }
-  assert.doesNotMatch(home.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, ""), /\.tone-zone\s*\{[^}]*clip-path/,
-    "at rest (and without motion) the zone is not clipped");
+  const zone = home.match(/\.tone-zone\s*\{([^}]*)\}/)?.[1] || "";
+  assert.match(zone, /margin:[^;]*var\(--panel-inset\)/, "inset from the page edge");
+  assert.match(zone, /border-radius:\s*var\(--panel-r\)/, "rounded");
+  assert.doesNotMatch(home, /tone-door|tone-bloom|tone-field|bloom-peak|\.tone-zone::before/, "no door, bloom or field");
+  assert.doesNotMatch(home, /\.tone-zone[^{]*\{[^}]*clip-path/, "never clipped");
 });
 
-test("the network lines are gone: the map is LEDs in the zones, not a page-wide canvas", () => {
-  const js = readFileSync(path.join(WEB, "src/js/radiomap.js"), "utf8");
-  assert.doesNotMatch(js, /lineTo|links/, "no links, no lines");
+test("no background field of any kind: the LED canvas and its script are gone", () => {
+  assert.ok(!existsSync(path.join(WEB, "src/js/radiomap.js")), "radiomap.js deleted");
   for (const p of ["index.html", "models.html", "voices.html"]) {
-    assert.doesNotMatch(readFileSync(path.join(WEB, "src", p), "utf8"), /id="blipmap"/, `${p}: the page-wide canvas is gone`);
+    const html = readFileSync(path.join(WEB, "src", p), "utf8");
+    assert.doesNotMatch(html, /radiomap|blipmap|tone-field/, `${p}: nothing left of the fields`);
   }
-  assert.doesNotMatch(read("styles/base.css"), /\.blipmap/, "and its CSS");
+  assert.doesNotMatch(read("styles/base.css"), /\.blipmap/);
 });
 
 test("commands only break at spaces, never inside a flag", () => {
@@ -110,14 +104,6 @@ test("wide screens (1600+): a wider page box, the panel alongside the headline",
   const wide = home.match(/@media \(min-width: 1600px\)\s*\{([\s\S]*?)\n\}/)?.[1] || "";
   assert.match(wide, /:root\s*\{[^}]*--maxw:/, "the whole page box (nav included) widens together");
   assert.match(wide, /\.hero__tools\s*\{[^}]*grid-row:\s*1 \/ span 2/);
-});
-
-test("dark site: the zones land harder (a stronger bloom and a lit door edge), still AA (checked above)", () => {
-  const home = read("styles/home.css");
-  const dark = home.match(/:root\[data-theme="dark"\] \.tone-zone\s*\{([^}]*)\}/)?.[1] || "";
-  const light = Number(home.match(/\.tone-zone\s*\{[^}]*--bloom-peak:\s*([\d.]+)/)[1]);
-  assert.ok(Number(dark.match(/--bloom-peak:\s*([\d.]+)/)?.[1]) > light, "a stronger bloom on a dark site");
-  assert.match(dark, /box-shadow:[^;]*var\(--live/, "a red-lit edge where the zone begins and ends");
 });
 
 test("1100-1599: FIG. 1 gets an equal column and a command size that fits one line", () => {
@@ -220,10 +206,10 @@ test("no choreography rule is shadowed: its targets are not [data-reveal] blocks
   }
 });
 
-test("chrome colours never cross-fade (a half-way nav is unreadable): no transitions on the chrome's colours", () => {
-  const home = read("styles/home.css");
-  assert.doesNotMatch(home, /\.promo, \.rail \{ transition/);
-  assert.doesNotMatch(home, /\.rail__head, \.rail__rev, \.promo__msg \{ transition/);
+test("no adaptive chrome: on a paper page with inset panels the nav simply stays paper", () => {
+  assert.doesNotMatch(read("styles/tokens.css"), /data-chrome/);
+  assert.doesNotMatch(read("styles/home.css"), /data-chrome/);
+  assert.doesNotMatch(readFileSync(path.join(WEB, "src/js/scroll-stage.js"), "utf8"), /data-chrome/);
 });
 
 test("the ?lab switcher label is readable (AA on its white pill)", () => {

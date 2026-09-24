@@ -6,8 +6,8 @@
      ?motion=a  scroll-driven background + the plain section reveals
      ?motion=b  A + the section choreography in home.css (DEFAULT)
      ?motion=c  B + a gentle snap between major sections (desktop only)
-   It also runs the adaptive chrome (all variants): the nav, promo and rail
-   turn ink over the ink zones.
+   It also drives the instrument (all variants): the tuning dial under the
+   nav, whose needle moves through the sections as you read.
    No parameter = the default, with no attribute at all, so production pages
    carry nothing extra. ?lab=1 (or any ?motion=) shows a small switcher.
 
@@ -43,31 +43,53 @@
     document.body.appendChild(lab);
   }
 
-  // ---- adaptive chrome: the nav, promo and rail take the tone under them ----
-  // data-chrome="ink" whenever an ink zone sits under the nav's bottom edge
-  // (tokens.css re-themes .nav/.promo/.rail from it). EVERY swap is instant
-  // (data-chrome-instant holds transitions off for a moment): a cross-fade
-  // moves background and text in opposite directions and passes through an
-  // unreadable half-way state. No JS: the default paper chrome.
-  var zones = document.querySelectorAll(".tone-zone");
+  // ---- the instrument: the needle tunes through the sections ----
+  // Darkbloom's control, on native scrolling: one reading line (a quarter of
+  // the viewport under the dial); the section it falls in is the station on
+  // air (aria-current). The needle HOLDS on that station for the first 70% of
+  // the section and GLIDES to the next, eased, through the last 30%: a
+  // progress window per step, so it settles while you read. Above the first
+  // section (the cover) it rests at the start of the scale.
   var navBar = document.querySelector(".nav");
-  var ink = null;
-  function chrome() {
-    if (!navBar || !zones.length) return;
-    var line = navBar.getBoundingClientRect().bottom + 1, over = false;
-    for (var z = 0; z < zones.length; z++) {
-      var zr = zones[z].getBoundingClientRect();
-      if (zr.top <= line && zr.bottom > line) { over = true; break; }
-    }
-    if (over === ink) return;
-    ink = over;
-    root.setAttribute("data-chrome-instant", "");
-    window.setTimeout(function () { root.removeAttribute("data-chrome-instant"); }, 60);
-    if (over) root.setAttribute("data-chrome", "ink"); else root.removeAttribute("data-chrome");
+  var dial = document.querySelector(".dial");
+  var stations = dial ? dial.querySelectorAll('a[href^="#"]') : [];
+  var targets = [];
+  for (var s = 0; s < stations.length; s++) {
+    targets.push(document.getElementById(stations[s].getAttribute("href").slice(1)));
   }
-  chrome();
-  window.addEventListener("scroll", chrome, { passive: true });
-  window.addEventListener("resize", chrome);
+  var HOLD = 0.7, onAir = -1;
+  function ease(t) { return t * t * (3 - 2 * t); }
+  function slot(k) { return (k + 0.5) / stations.length; }
+  function tune() {
+    if (!dial || !stations.length) return;
+    var line = dial.getBoundingClientRect().bottom + window.innerHeight * 0.25;
+    var k = -1, t = 0;
+    for (var i = 0; i < targets.length; i++) {
+      if (!targets[i]) continue;
+      var r = targets[i].getBoundingClientRect();
+      if (r.top <= line) { k = i; t = Math.min(1, (line - r.top) / Math.max(1, r.height)); }
+    }
+    var at;
+    if (k < 0) {
+      // the cover: glide from the start of the scale onto station 1 as §1 arrives
+      var first = targets[0] ? targets[0].getBoundingClientRect().top : Infinity;
+      var h = window.innerHeight;
+      at = slot(0) * ease(Math.max(0, Math.min(1, 1 - (first - line) / (h * (1 - HOLD)))));
+      at = Math.min(at, slot(0) * 0.999);
+    } else {
+      var next = k + 1 < stations.length ? slot(k + 1) : slot(k);
+      at = slot(k) + (next - slot(k)) * ease(Math.max(0, (t - HOLD) / (1 - HOLD)));
+    }
+    dial.style.setProperty("--needle", at.toFixed(4));
+    if (k !== onAir) {
+      if (onAir >= 0) stations[onAir].removeAttribute("aria-current");
+      if (k >= 0) stations[k].setAttribute("aria-current", "true");
+      onAir = k;
+    }
+  }
+  tune();
+  window.addEventListener("scroll", tune, { passive: true });
+  window.addEventListener("resize", tune);
 
   // ---- hold a #fragment while late content loads above it ----
   // The market rows and the reel's power-on grow the page ABOVE a target like
@@ -108,7 +130,8 @@
     var byWheel = wheeled;
     wheeled = false;
     if (!byWheel || !fine.matches || reduced.matches || busy()) return;
-    var line = navBar ? navBar.getBoundingClientRect().bottom : 0;
+    var bar = dial || navBar;                        // sections line up under the dial
+    var line = bar ? bar.getBoundingClientRect().bottom : 0;
     var H = window.innerHeight;
     var max = (document.documentElement.scrollHeight || 0) - H;
     var best = null;

@@ -17,7 +17,8 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(path.join(WEB, "src/js/scroll-stage.js"), "utf8");
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-function run({ search = "", hash = "", w = 1440, h = 900, fine = true, reduced = false, sections = [0, 900, 1900], navBottom = 65, scrollY = 0, docH = 5000, zones = [] }) {
+// `dial`: the instrument's stations as [id, top, height] in page px (round 8)
+function run({ search = "", hash = "", w = 1440, h = 900, fine = true, reduced = false, sections = [0, 900, 1900], navBottom = 65, scrollY = 0, docH = 5000, zones = [], dial = null }) {
   const attrs = {};
   const appended = [];
   const listeners = {};
@@ -36,13 +37,26 @@ function run({ search = "", hash = "", w = 1440, h = 900, fine = true, reduced =
     getSelection: () => "",
     onscrollend: null,
   };
+  // the dial: a bar under the nav (bottom at navBottom + 44) and one link per station
+  const dialStyle = {};
+  const stationEls = (dial || []).map(([id, top, height]) => ({
+    id, attrs: {}, top, height,
+    getAttribute(k) { return k === "href" ? "#" + id : this.attrs[k] ?? null; },
+    setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; },
+  }));
+  const dialEl = dial && {
+    style: { setProperty: (k, v) => { dialStyle[k] = v; } },
+    getBoundingClientRect: () => ({ bottom: navBottom + 44 }),
+    querySelectorAll: () => stationEls,
+  };
   const doc = {
     documentElement: { setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; }, scrollHeight: docH },
     body: { appendChild: (c) => appended.push(c) },
     activeElement: { tagName: "BODY" },
     createElement: mk,
     createTextNode: (t) => ({ text: t }),
-    querySelector: (s) => (s === ".nav" ? { getBoundingClientRect: () => ({ bottom: navBottom }) } : null),
+    querySelector: (s) => (s === ".nav" ? { getBoundingClientRect: () => ({ bottom: navBottom }) }
+      : s === ".dial" && dialEl ? dialEl : null),
     querySelectorAll: (s) => (s === "main > section, .tone-zone > section"
       ? sections.map((top) => ({ getBoundingClientRect: () => ({ top: top - win.scrollY }) }))
       : s === ".tone-zone"
@@ -53,7 +67,11 @@ function run({ search = "", hash = "", w = 1440, h = 900, fine = true, reduced =
   // the hash target (round 7, 8a) and a ResizeObserver the test can fire by hand
   const aligned = [];
   const target = { scrollIntoView: (o) => aligned.push(o) };
-  doc.getElementById = (id) => (hash === "#" + id ? target : null);
+  doc.getElementById = (id) => {
+    if (hash === "#" + id) return target;
+    const st = stationEls.find((e) => e.id === id);
+    return st ? { getBoundingClientRect: () => ({ top: st.top - win.scrollY, bottom: st.top + st.height - win.scrollY, height: st.height }) } : null;
+  };
   const observers = [];
   win.ResizeObserver = function (cb) { this.cb = cb; this.observe = () => {}; this.disconnect = () => { this.cb = null; }; observers.push(this); };
   const grow = () => { for (const o of observers) if (o.cb) o.cb([]); };
@@ -68,7 +86,9 @@ function run({ search = "", hash = "", w = 1440, h = 900, fine = true, reduced =
   const keyTo = (y) => { fire("keydown"); land(y); };           // PageDown, Space, arrows
   const flush = () => { while (later.length) later.shift()(); };
   const scrollToFlushed = (y) => { scrollTo(y); flush(); };
-  return { attrs, appended, scrolls, scrollTo: scrollToFlushed, land: (y) => { land(y); flush(); }, keyTo: (y) => { keyTo(y); flush(); }, fire, grow, aligned, doc, win, flush };
+  const needle = () => Number(dialStyle["--needle"]);
+  const current = () => stationEls.filter((e) => e.attrs["aria-current"]).map((e) => e.id);
+  return { needle, current, attrs, appended, scrolls, scrollTo: scrollToFlushed, land: (y) => { land(y); flush(); }, keyTo: (y) => { keyTo(y); flush(); }, fire, grow, aligned, doc, win, flush };
 }
 
 test("?motion=a|b|c sets the variant; anything else (or nothing) leaves the page untouched", () => {
@@ -144,40 +164,6 @@ test("the homepage loads the stage; the choreography CSS is opt-in motion and of
   assert.ok(guard > 0 && css.indexOf(':root:not([data-motion="a"])') > guard);
 });
 
-// ---- adaptive chrome (round 6): the nav, promo and rail take the tone under them ----
-// The sticky nav was a white slab over the ink cover. scroll-stage.js now sets
-// data-chrome="ink" on <html> whenever an ink zone sits under the nav's bottom edge;
-// tokens.css re-themes .nav/.promo/.rail from that. The first set is instant (no fade
-// on load), later swaps transition; no JS = the default paper chrome.
-test("the chrome goes ink over an ink zone and back to paper over paper", () => {
-  const r = run({ zones: [[65, 1000], [2000, 1500]] });   // the cover starts right under the nav
-  r.flush();
-  assert.equal(r.attrs["data-chrome"], "ink", "on load, over the ink cover");
-  r.scrollTo(1100);                                      // paper between the zones
-  assert.equal(r.attrs["data-chrome"], undefined);
-  r.scrollTo(2100);
-  assert.equal(r.attrs["data-chrome"], "ink");
-  r.scrollTo(4000);
-  assert.equal(r.attrs["data-chrome"], undefined);
-});
-
-test("the first chrome swap is instant (no fade-in on load); later ones transition", () => {
-  const r = run({ zones: [[65, 1000]] });
-  assert.equal(r.attrs["data-chrome"], "ink");
-  assert.equal(r.attrs["data-chrome-instant"], "", "transitions held off for the first paint");
-  r.flush();
-  assert.equal(r.attrs["data-chrome-instant"], undefined, "and released right after");
-});
-
-test("tokens and home.css: the chrome re-themes from the attribute, AA by the same ink tokens", () => {
-  const tokens = readFileSync(path.join(WEB, "dist/styles/tokens.css"), "utf8");
-  assert.match(tokens, /:root\[data-theme="dark"\],\s*\.tone-zone,\s*:root\[data-chrome="ink"\] :is\(\.nav, \.promo, \.rail\)\s*\{/);
-  assert.match(tokens, /:root\[data-theme="dark"\] \.tone-zone,\s*:root\[data-theme="dark"\]\[data-chrome="ink"\] :is\(\.nav, \.promo, \.rail\)\s*\{/);
-  const home = readFileSync(path.join(WEB, "dist/styles/home.css"), "utf8");
-  assert.match(home, /:root\[data-chrome="ink"\] \.nav\s*\{[^}]*background:\s*var\(--paper\)/);
-  assert.match(home, /:root\[data-chrome-instant\][^{]*\{[^}]*transition:\s*none/);
-});
-
 // ---- round 7 ----
 test("C snaps only after a wheel/trackpad scroll: never after PageDown, Space or arrows", () => {
   const key = run({ search: "?motion=c" });
@@ -186,18 +172,6 @@ test("C snaps only after a wheel/trackpad scroll: never after PageDown, Space or
   const mixed = run({ search: "?motion=c" });
   mixed.fire("wheel"); mixed.fire("keydown"); mixed.land(780);
   assert.equal(mixed.scrolls.length, 0, "a key after the wheel hands control back to the reader");
-});
-
-test("every chrome swap is instant, not only the first: no half-faded, unreadable nav", () => {
-  const r = run({ zones: [[65, 1000], [2000, 1500]] });
-  r.flush();
-  r.scrollTo(1100);                        // flushes: check the attribute was set on the swap
-  const seen = [];
-  const orig = r.doc.documentElement.setAttribute;
-  r.doc.documentElement.setAttribute = (k, v) => { seen.push(k); orig(k, v); };
-  r.scrollTo(2100);
-  assert.ok(seen.includes("data-chrome-instant"), "the paper -> ink swap holds transitions off");
-  assert.equal(r.attrs["data-chrome-instant"], undefined, "and releases them right after");
 });
 
 test("a page opened on #anchor stays on its target while late content above it loads", () => {
@@ -211,4 +185,73 @@ test("a page opened on #anchor stays on its target while late content above it l
   const none = run({});
   none.grow();
   assert.equal(none.aligned.length, 0, "no hash, nothing to hold");
+});
+
+// ---- round 8: the instrument stage ----
+// A tuning dial sits under the nav for the whole page. Its stations are the
+// sections, evenly spaced; the needle HOLDS on a station while you read that
+// section and GLIDES to the next only through the last 30% of it - darkbloom's
+// progress windows (hold, then an eased move), on native scrolling.
+const DIAL = [["demo", 1000, 1000], ["market", 2000, 1000], ["company", 3000, 1000], ["what", 4000, 1000]];
+const slot = (k, n = DIAL.length) => (k + 0.5) / n;
+// the reading line: dial bottom (65 + 44) + a quarter of the viewport (900) = 334px down
+const at = (pageY) => pageY - 334;
+
+test("the needle holds on a station while its section is read", () => {
+  const r = run({ dial: DIAL });
+  r.scrollTo(at(2200));                         // 20% into "market"
+  assert.deepEqual(r.current(), ["market"]);
+  assert.ok(Math.abs(r.needle() - slot(1)) < 1e-6, `held at station 2 (${r.needle()})`);
+  r.scrollTo(at(2600));                         // 60% in: still holding
+  assert.ok(Math.abs(r.needle() - slot(1)) < 1e-6);
+});
+
+test("the needle glides to the next station only through the last 30% of a section", () => {
+  const r = run({ dial: DIAL });
+  r.scrollTo(at(2850));                         // 85% into "market"
+  const n = r.needle();
+  assert.ok(n > slot(1) + 0.01 && n < slot(2) - 0.01, `between stations 2 and 3 (${n})`);
+  r.scrollTo(at(3050));                         // just into "company"
+  assert.deepEqual(r.current(), ["company"]);
+  assert.ok(Math.abs(r.needle() - slot(2)) < 1e-6);
+});
+
+test("above the first station (the cover) the needle rests at the start of the scale", () => {
+  const r = run({ dial: DIAL });
+  r.scrollTo(0);
+  assert.deepEqual(r.current(), []);
+  assert.ok(r.needle() < slot(0), `before station 1 (${r.needle()})`);
+});
+
+test("the dial is real navigation without JS: one link per section, in page order, to ids that exist", () => {
+  const html = readFileSync(path.join(WEB, "dist/index.html"), "utf8");
+  const dial = html.match(/<nav class="dial"[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
+  assert.match(dial, /aria-label="Sections"/);
+  assert.match(html, /<main id="top">\s*(<!--[\s\S]*?-->\s*)?<nav class="dial"/, "the dial leads the page, under the nav");
+  const ids = [...dial.matchAll(/href="#([\w-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids, ["demo", "market", "company", "what", "spec", "books", "monetize", "operator", "go"]);
+  let last = -1;
+  for (const id of ids) {
+    const i = html.indexOf(`id="${id}"`);
+    assert.ok(i > last, `#${id} exists after the one before it`);
+    last = i;
+  }
+  assert.match(dial, /class="dial__needle" aria-hidden="true"/);
+});
+
+test("the dial's CSS: sticky under the nav, red only on the needle, tune-in only with motion allowed", () => {
+  const css = readFileSync(path.join(WEB, "dist/styles/home.css"), "utf8");
+  assert.match(css, /\.dial\s*\{[^}]*position:\s*sticky[^}]*top:\s*var\(--nav-h\)/);
+  const redRules = [...css.matchAll(/(\.dial[^{]*)\{[^}]*var\(--live\)/g)].map((m) => m[1].trim());
+  assert.ok(redRules.length >= 1 && redRules.every((sel) => /dial__needle/.test(sel)), `red only on the needle: ${redRules.join(" | ")}`);
+  const noPref = css.indexOf("prefers-reduced-motion: no-preference");
+  assert.ok(css.search(/animation[^;]*\bdial-tune\b/) > noPref, "the tune-in sweep is opt-in motion");
+  assert.match(css, /main section\[id\]\s*\{[^}]*scroll-margin-top:\s*calc\(var\(--nav-h\) \+ var\(--dial-h\)/);
+});
+
+test("C's snap lines sections up under the dial, not under the nav", () => {
+  const r = run({ search: "?motion=c", dial: DIAL, sections: [0, 900, 1900] });
+  r.scrollTo(780 - 44);                         // the section at 900 sits 55px under the DIAL's bottom
+  assert.equal(r.scrolls.length, 1);
+  assert.equal(r.scrolls[0].top, 900 - (780 - 44) - (65 + 44));
 });
