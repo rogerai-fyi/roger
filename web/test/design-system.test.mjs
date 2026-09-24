@@ -58,7 +58,7 @@ test("every page is assembled from the head, nav and footer partials", () => {
 });
 
 test("every page runs the shared page runtime from the site-js partial, never a hand-copied tail", () => {
-  const shared = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold"];
+  const shared = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin"];
   for (const page of PAGES) {
     const src = stripHtml(read(page));
     for (const js of shared) {
@@ -68,7 +68,7 @@ test("every page runs the shared page runtime from the site-js partial, never a 
     assert.match(read(page), /<!--\s*include:\s*site-js\.html/, `${page} includes site-js.html`);
     // ...so every component module ships with it, and a page gets a behaviour by markup alone
     const built = dist(page);
-    for (const js of ["site", "tuner", "scrub", "anchor-hold"]) {
+    for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin"]) {
       assert.match(built, new RegExp(`<script src="js/${js}\\.js\\?v=`), `${page} ships js/${js}.js`);
     }
   }
@@ -269,7 +269,7 @@ const OWN_CLIPBOARD = {
 
 test("no page script re-implements a shared behaviour", () => {
   const js = readdirSync(path.join(SRC, "js")).filter((f) => f.endsWith(".js"));
-  const HOOKS = { "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js" };
+  const HOOKS = { "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js", "[data-range-twin]": "range-twin.js" };
   for (const f of js) {
     const src = read(`js/${f}`);
     if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {
@@ -285,5 +285,6 @@ test("the component modules initialize from their data- hook, so markup alone op
   assert.match(read("js/tuner.js"), /querySelectorAll\("\[data-tuner\]"\)/);
   assert.match(read("js/scrub.js"), /querySelectorAll\("\[data-scrub\]"\)/);
   assert.match(read("js/anchor-hold.js"), /querySelector\("\[data-anchor-hold\]"\)/);
+  assert.match(read("js/range-twin.js"), /querySelectorAll\("\[data-range-twin\]"\)/);
   assert.match(read("js/site.js"), /closest\("\[data-copy-target\]"\)/);
 });

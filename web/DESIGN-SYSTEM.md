@@ -31,7 +31,7 @@ runtime), `rail.html`, `onair.html`, `install-box.html`, and the smaller brand p
 **JS**: `site.js` is the page runtime (theme, nav, reveal settle, the copy tick, OS
 detection). Each shared behaviour beyond it is a small module that initializes itself
 from a `data-` hook and does nothing on a page without one: `tuner.js`, `scrub.js`,
-`anchor-hold.js`. `site-js.html` ships all of them on every page, so **a page gets a
+`anchor-hold.js`, `range-twin.js`. `site-js.html` ships all of them on every page, so **a page gets a
 behaviour by markup alone**.
 
 ## Changing the theme
@@ -162,6 +162,18 @@ search bar, a different thing.)
 list's `aria-label`, reading out each item's `<b>`. Dragging, arrowing or pointing tunes an
 item: it gets `.is-tuned`, which the page styles (homepage: a quiet ground and a red wave).
 Items never fade. No-JS: the complete static list, no control.
+
+### Range twin
+```html
+<input type="number" id="opHours" value="8" min="0" max="24" step="0.5" data-range-twin />
+```
+`range-twin.js` inserts `<input type="range" class="range-twin">` right after the field,
+with its min, max and step, synced both ways; dragging it writes the field and fires the
+field's own `input` event, so existing listeners (the Pricing calculator) need no change.
+A hairline track filled in ink to the value, the red needle for a thumb; it spans its grid
+row. The typed field stays the accessible control: the twin is out of the tab order and
+`aria-hidden`, a pointer and touch convenience. Give a twin only to a bounded field whose
+range reads well on a slider. No-JS: the field alone.
 
 ### Scroll lift and reveal
 `[data-reveal]` on a block (base.css + site.js): visible without JS, settled by site.js;
