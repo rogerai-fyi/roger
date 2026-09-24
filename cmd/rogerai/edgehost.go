@@ -219,12 +219,21 @@ func (h *edgeHost) adopt(id, name string) error {
 	// serve a certificate is dialed, verified, and taken into the fleet the original way (and also
 	// granted, in case it too claims).
 	if c.Pin == "" {
-		return edgeAdoptByClaim(c.ID)
+		if err := edgeAdoptByClaim(c.ID); err != nil {
+			return err
+		}
+	} else {
+		if _, err = edgeAdoptCandidate(h.st, c, name, name); err != nil {
+			return err
+		}
+		edgeGrantClaimIfAuthority(c.ID)
 	}
-	if _, err = edgeAdoptCandidate(h.st, c, name, name); err != nil {
-		return err
-	}
-	edgeGrantClaimIfAuthority(c.ID)
+	// AUTO-CLEAR: the instant it is adopted it leaves the DISCOVERED band - it is now adopting (a
+	// claim was granted) or already a member, not something to adopt again. It will not be
+	// re-offered on the next pass either (runPass drops granted candidates). (edgeAdoptCandidate
+	// already removed a serving candidate; this also covers the claim path, idempotently.)
+	h.st.candidates = edgeFilter(h.st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
+	_ = h.st.save()
 	return nil
 }
 
@@ -436,6 +445,7 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
+	h.st.candidates = edgeDropGranted(h.st.candidates) // a candidate we already adopted is adopting, not to-adopt
 	h.lastPass, h.unavailable = time.Now(), rep.Unavailable()
 	h.lastFound = edge.PassSummary(len(rep.Verified), len(h.st.candidates))
 	err := h.st.save()

@@ -1075,6 +1075,9 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 		if err := edgeAdoptByClaim(c.ID); err != nil {
 			return err
 		}
+		// Auto-clear: it leaves DISCOVERED at once (it is adopting now, not to-adopt).
+		st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
+		_ = st.save()
 		fmt.Printf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
 		return nil
 	}
@@ -1109,6 +1112,25 @@ func edgeGrantClaimIfAuthority(nodeID string) {
 		return
 	}
 	_ = local.GrantClaim(nodeID)
+}
+
+// edgeDropGranted removes candidates this authority has already granted a claim to: they are
+// ADOPTING (the owner acted), not still on offer, so they should not linger in the DISCOVERED band
+// while the device fetches its certificate. Only an authority has grants; elsewhere it is a no-op.
+func edgeDropGranted(cands []store.EdgeNode) []store.EdgeNode {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !hasRoot {
+		return cands
+	}
+	granted, err := local.Claims()
+	if err != nil || len(granted) == 0 {
+		return cands
+	}
+	set := make(map[string]bool, len(granted))
+	for _, id := range granted {
+		set[id] = true
+	}
+	return edgeFilter(cands, func(c store.EdgeNode) bool { return !set[c.ID] })
 }
 
 // edgeAdoptCandidate is the ONE adoption path, shared by the command leaf and the TUI's
