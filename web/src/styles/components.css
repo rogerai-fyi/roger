@@ -420,6 +420,10 @@
   content: "\2713"; width: auto; height: auto; margin: 0; border: 0; box-shadow: none; background: none;
   font: 600 .8em / 1 var(--font-mono); color: var(--live);
 }
+/* --block: a command on a line of its own (an install line in a register). It fills
+   its column and wraps at spaces; a long unbroken token may break rather than overflow. */
+.copy-code--block { display: flex; width: 100%; justify-content: space-between; padding: 7px 10px; }
+.copy-code--block code { white-space: normal; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .copy-code { transition: none; } .copy-code:active { transform: none; } }
 
 /* ---- component: range twin (added by models rollout) ----------------------

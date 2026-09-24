@@ -108,7 +108,8 @@ An inline command inside prose is `copy-code`, the same control dressed as inlin
 ```
 A small two-sheet glyph (CSS, no icon file) sits after the command and becomes the tick
 while `.is-copied`. The command never breaks inside itself. No-JS: selectable code text.
-(Pricing's plates use it.)
+(Pricing's plates use it.) `copy-code--block` is the same control on a line of its own: it
+fills its column and wraps at spaces (the Integrations desk's install lines).
 
 ### Framed instrument panel
 `<div class="install" data-frame="panel">`: the one place a bezel and shadow are allowed,
