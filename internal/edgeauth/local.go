@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/towercore/cert"
@@ -32,6 +33,11 @@ import (
 // eventually stops working on its own.
 const EdgeCertTTL = 30 * 24 * time.Hour
 
+// GrantValidity bounds how long an unclaimed adopt stands open. A phone claims within seconds of
+// being adopted; a grant that is never claimed should not remain a live invitation forever, so an
+// accidental or coerced adopt expires on its own (defence in depth beside consume-on-forget).
+const GrantValidity = 24 * time.Hour
+
 // ErrRootExists refuses to generate a second root. An Edge has exactly one.
 var ErrRootExists = errors.New("this machine already holds an Edge root")
 
@@ -41,6 +47,9 @@ type Local struct {
 	where string
 	auth  *cert.Authority
 	iss   *Issuer
+	// mu serialises claim, grant and issue: check-take-issue-record-consume must be atomic so two
+	// racing claims cannot both mint a certificate for one adopt (audit 2026-09-23).
+	mu sync.Mutex
 }
 
 // Designate generates this Edge's root, here, once.
@@ -197,7 +206,9 @@ func (l *Local) GrantClaim(nodeID, name string) error {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil
 	}
-	got, err := l.Claims()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	got, err := l.readClaims()
 	if err != nil {
 		return err
 	}
@@ -215,6 +226,13 @@ func (l *Local) GrantClaim(nodeID, name string) error {
 
 // Claims lists the nodes the owner has adopted and that may claim a certificate.
 func (l *Local) Claims() ([]ClaimGrant, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.readClaims()
+}
+
+// readClaims is the unlocked read the claim/grant/consume path shares while holding l.mu.
+func (l *Local) readClaims() ([]ClaimGrant, error) {
 	var out []ClaimGrant
 	err := l.readJSON(ClaimsFile, &out)
 	return out, err
@@ -222,19 +240,34 @@ func (l *Local) Claims() ([]ClaimGrant, error) {
 
 // ClaimGranted reports whether a node has been adopted.
 func (l *Local) ClaimGranted(nodeID string) bool {
-	got, _ := l.Claims()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.grantFor(nodeID)
+	return ok
+}
+
+// grantFor returns the standing grant for a node id, unlocked. Callers hold l.mu.
+func (l *Local) grantFor(nodeID string) (ClaimGrant, bool) {
+	got, _ := l.readClaims()
 	for _, g := range got {
 		if g.NodeID == nodeID {
-			return true
+			return g, true
 		}
 	}
-	return false
+	return ClaimGrant{}, false
 }
 
 // ConsumeClaim removes one grant, so a claim is one-time: one adopt, one certificate. Removing a
 // grant that is not there is not an error (the desired end state already holds).
 func (l *Local) ConsumeClaim(nodeID string) error {
-	got, err := l.Claims()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.consumeClaim(nodeID)
+}
+
+// consumeClaim removes one grant, unlocked. Callers hold l.mu.
+func (l *Local) consumeClaim(nodeID string) error {
+	got, err := l.readClaims()
 	if err != nil {
 		return err
 	}
@@ -257,7 +290,24 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 	if d := now.Sub(time.Unix(c.TS, 0)); d > RequestFreshness || d < -RequestFreshness {
 		return Response{}, ErrStaleRequest
 	}
-	if !l.ClaimGranted(c.NodeID) {
+	// The whole take-grant -> issue -> record -> consume runs under l.mu so two racing claims for one
+	// adopt cannot both mint a certificate (only the first finds the grant; the rest see none).
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	grant, ok := l.grantFor(c.NodeID)
+	if !ok {
+		return Response{}, ErrNotAdopted
+	}
+	// A grant that has stood too long is as good as none: it expires on its own, and the stale record
+	// is cleared so it cannot be leaned on again.
+	if grant.At > 0 && now.Sub(time.Unix(grant.At, 0)) > GrantValidity {
+		_ = l.consumeClaim(c.NodeID)
+		return Response{}, ErrNotAdopted
+	}
+	// A node whose certificate stands REVOKED must not mint a fresh one, even if a grant reappears
+	// (a stale serving-path grant, a mistaken re-adopt): revocation is final until a new root
+	// relationship is established. This is the tombstone the audit asked for.
+	if l.nodeHasRevokedSerial(c.NodeID) {
 		return Response{}, ErrNotAdopted
 	}
 	pub, err := c.NodePublicKey()
@@ -273,7 +323,7 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 	}
 	// Consume the grant only AFTER the certificate is safely recorded, so a write failure does not
 	// spend the owner's adopt for nothing.
-	if err := l.ConsumeClaim(c.NodeID); err != nil {
+	if err := l.consumeClaim(c.NodeID); err != nil {
 		return Response{}, err
 	}
 	return Response{
@@ -287,6 +337,8 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 // Revoke ends the certificate this authority issued to a node. It returns the serial it
 // revoked so the caller can put it in its own trust store too.
 func (l *Local) Revoke(nodeID string) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	issued, err := l.loadIssued()
 	if err != nil {
 		return "", err
@@ -315,6 +367,25 @@ func (l *Local) loadIssued() (map[string]string, error) {
 	out := map[string]string{}
 	err := l.readJSON(IssuedFile, &out)
 	return out, err
+}
+
+// nodeHasRevokedSerial reports whether the certificate this authority last issued to a node stands
+// revoked. Unlocked; callers hold l.mu.
+func (l *Local) nodeHasRevokedSerial(nodeID string) bool {
+	issued, err := l.loadIssued()
+	if err != nil {
+		return false
+	}
+	serial, ok := issued[nodeID]
+	if !ok {
+		return false
+	}
+	for _, r := range l.auth.RevokedSerials() {
+		if r == serial {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *Local) recordIssued(nodeID, serial string) error {
