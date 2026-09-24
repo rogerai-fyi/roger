@@ -195,7 +195,7 @@ func TestForgetClearsGrantAndRevokesEveryCert(t *testing.T) {
 
 	// A grant is standing again (a mistaken re-adopt) when forget runs.
 	require.NoError(t, local.GrantClaim(id, "pixel-8"))
-	revoked, err := local.Forget(id)
+	revoked, _, err := local.Forget(id)
 	require.NoError(t, err)
 	require.Contains(t, revoked, leafA.SerialNumber.String())
 	require.Contains(t, revoked, leafB.SerialNumber.String())
@@ -236,7 +236,7 @@ func TestEnrollRefusesARevokedNode(t *testing.T) {
 	require.Contains(t, resp.Cert, "BEGIN CERTIFICATE")
 
 	// The machine is forgotten (its certificate revoked).
-	revoked, err := local.Forget(nodeID)
+	revoked, _, err := local.Forget(nodeID)
 	require.NoError(t, err)
 	require.NotEmpty(t, revoked)
 
@@ -272,7 +272,7 @@ func TestForgetEvictsTheEnrollingKeyIncludingStaleRecords(t *testing.T) {
 	n2 := enroll()
 
 	// Forgetting N2 evicts K despite the orphan N1 record.
-	_, err := local.Forget(n2)
+	_, _, err := local.Forget(n2)
 	require.NoError(t, err)
 	allowed, err := local.Allowed()
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestAllowAndForgetAreSerialised(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() { defer wg.Done(); _ = local.Allow(hexEncode(otherPub)) }()
-		go func() { defer wg.Done(); _, _ = local.Forget(nodeID) }()
+		go func() { defer wg.Done(); _, _, _ = local.Forget(nodeID) }()
 		wg.Wait()
 
 		allowed, err := local.Allowed()
@@ -328,7 +328,7 @@ func TestForgetNeverEvictsAProtectedKey(t *testing.T) {
 	_, err := local.Issue(req)
 	require.NoError(t, err)
 
-	_, err = local.Forget(edgeauth.NodeID(nodePub))
+	_, _, err = local.Forget(edgeauth.NodeID(nodePub))
 	require.NoError(t, err)
 	allowed, err := local.Allowed()
 	require.NoError(t, err)

@@ -629,34 +629,35 @@ func edgeAllow(userKey string) error {
 // machine is one and it issued that certificate), and this machine records the serial
 // in its own trust store (so its own verification refuses it immediately, rather than
 // at the next refresh).
-func edgeRevokeOnForget(nodeID string) ([]string, error) {
+func edgeRevokeOnForget(nodeID string) ([]string, string, error) {
 	st := edgeIdentityStore()
 	now := time.Now()
 	var authorityRevoked []string // what THIS machine, as the authority, actually revoked
+	var evictedKey string         // the enrolling key forget removed from the allow-list, or ""
 
 	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
 		// The authority is here but could not be opened (a corrupt issued.json / revoked.json). We
 		// must NOT go on to forget the node from the fleet and report success while revoking nothing
 		// - that is the fail-open the audit caught. Stop and report (audit 2026-09-24).
-		return nil, fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
+		return nil, "", fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
 	}
 	if ok {
 		// Clear any standing claim grant AND revoke every certificate the node was issued in ONE
 		// locked step, so a claim cannot mint a fresh certificate between the two (audit 2026-09-24).
 		// Errors are reported, not swallowed, so a forget that could not take effect is never
 		// reported as done.
-		revoked, err := local.Forget(nodeID)
+		revoked, ek, err := local.Forget(nodeID)
 		if err != nil {
-			return nil, fmt.Errorf("could not forget %s from the authority: %w", edgeShortID(nodeID), err)
+			return nil, "", fmt.Errorf("could not forget %s from the authority: %w", edgeShortID(nodeID), err)
 		}
-		authorityRevoked = revoked
+		authorityRevoked, evictedKey = revoked, ek
 	}
 	// The node being forgotten may be THIS machine, in which case its certificate is
 	// right here and leaving the Edge means giving it up.
 	held, _, ok, err := st.LoadIdentity()
 	if err != nil {
-		return nil, fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeShortID(nodeID), err)
+		return nil, "", fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeShortID(nodeID), err)
 	}
 	toRecord := append([]string{}, authorityRevoked...)
 	if ok && held.NodeID == nodeID {
@@ -667,19 +668,19 @@ func edgeRevokeOnForget(nodeID string) ([]string, error) {
 			toRecord = append(toRecord, held.Cert.SerialNumber.String())
 		}
 		if err := st.ForgetIdentity(); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 	// Record every revoked serial in THIS machine's own trust store too, so its verification refuses
 	// them at once rather than at the next refresh.
 	for _, s := range toRecord {
 		if err := st.Revoke(s, now); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
-	// Return ONLY what the authority actually revoked, so the caller's message does not claim a
-	// revocation this machine could not perform (audit 2026-09-24).
-	return authorityRevoked, nil
+	// Return what the authority actually revoked AND the enrolling key it evicted (or ""), so the
+	// caller's message claims only what really happened (audit 2026-09-24).
+	return authorityRevoked, evictedKey, nil
 }
 
 // edgeTrustNote is the line a fleet view prints when this machine's revocation list has

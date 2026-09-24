@@ -1026,14 +1026,17 @@ func cmdEdgeForget(cfg config, args []string) error {
 				return nil
 			}
 		}
-		anyRevoked := false
+		anyRevoked, anyEvicted := false, false
 		for id := range ids {
-			revoked, err := edgeRevokeOnForget(id)
+			revoked, evictedKey, err := edgeRevokeOnForget(id)
 			if err != nil {
 				return err
 			}
 			if len(revoked) > 0 {
 				anyRevoked = true
+			}
+			if evictedKey != "" {
+				anyEvicted = true
 			}
 		}
 		if anyRevoked {
@@ -1042,6 +1045,9 @@ func cmdEdgeForget(cfg config, args []string) error {
 			// It had a standing grant but no certificate yet (or nothing this authority issued): the
 			// grant is gone, and there is no certificate to revoke.
 			fmt.Printf("forgot %s: its claim grant is cleared.\n", who)
+		}
+		if anyEvicted {
+			fmt.Println("  its enrollment key was removed from the allow-list; run `roger edge authority allow <key>` to re-admit a machine under it.")
 		}
 		return nil
 	}
@@ -1056,7 +1062,7 @@ func cmdEdgeForget(cfg config, args []string) error {
 	// The certificate goes too - when THIS machine is the authority. A node whose pin is merely
 	// cleared could come straight back; a node whose certificate is revoked is refused by every peer
 	// that holds the list, on a LAN with no internet, and after a restart.
-	revoked, err := edgeRevokeOnForget(n.ID)
+	revoked, evictedKey, err := edgeRevokeOnForget(n.ID)
 	if err != nil {
 		return err
 	}
@@ -1068,11 +1074,14 @@ func cmdEdgeForget(cfg config, args []string) error {
 	}
 	if len(revoked) > 0 {
 		fmt.Printf("forgot %s - it is off this Edge, its certificate is revoked and its pin is cleared.\n", n.Name)
-		fmt.Println("  its enrollment key was removed from the allow-list; run `roger edge authority allow <key>` to re-admit a machine under it.")
 	} else {
 		// This machine did not issue that certificate, so it cannot revoke it - only drop its pin.
 		// Say so plainly rather than claim a revocation that did not happen (audit 2026-09-24).
 		fmt.Printf("forgot %s - it is off this Edge and its pin is cleared; the authority that issued its certificate must revoke it.\n", n.Name)
+	}
+	// Only claim a key was removed when one actually was (protected/claim-joined/unrecorded keep it).
+	if evictedKey != "" {
+		fmt.Println("  its enrollment key was removed from the allow-list; run `roger edge authority allow <key>` to re-admit a machine under it.")
 	}
 	return nil
 }

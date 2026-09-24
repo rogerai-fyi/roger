@@ -101,6 +101,7 @@ func open(dir string) (*Local, error) {
 		l.where = string(b)
 	}
 	l.iss = NewIssuer(IssuerConfig{Authority: auth, Accounts: l.registry()})
+	l.backfillProtection()
 	issued, err := l.loadIssued()
 	if err != nil {
 		return nil, err
@@ -481,8 +482,9 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 // FIRST, then revokes every certificate the node was issued, returning the revoked serials. Doing
 // both under a single lock closes the window the audit found, where a claim could mint a fresh
 // certificate between a separate Revoke and ConsumeClaim (audit 2026-09-24).
-func (l *Local) Forget(nodeID string) ([]string, error) {
+func (l *Local) Forget(nodeID string) ([]string, string, error) {
 	var revoked []string
+	var evictedKey string
 	err := l.withLock(func() error {
 		if err := l.consumeClaim(nodeID); err != nil {
 			return err
@@ -501,15 +503,13 @@ func (l *Local) Forget(nodeID string) ([]string, error) {
 			}
 			revoked = append(revoked, srl)
 		}
-		// Drop the node's enrolling user key from the allow-list if nothing else uses it, so a
-		// forgotten machine cannot re-enroll under a FRESH node key on the strength of a still-allowed
-		// key (audit 2026-09-24).
-		if err := l.dropEnrolledBy(nodeID); err != nil {
-			return err
-		}
-		return nil
+		// Drop the node's enrolling user key from the allow-list (unless protected), so a forgotten
+		// machine cannot re-enroll under a FRESH node key on the strength of a still-allowed key. The
+		// key it evicted (or "") is returned so the caller can tell the owner accurately (audit 2026-09-24).
+		evictedKey, err = l.dropEnrolledBy(nodeID)
+		return err
 	})
-	return revoked, err
+	return revoked, evictedKey, err
 }
 
 // Revoke ends the certificate this authority issued to a node. It returns the serial it
@@ -628,10 +628,10 @@ func (l *Local) recordEnrolledBy(nodeID, userKey string) error {
 // user key from the allow-list, so the forgotten machine cannot re-enrol under a fresh node key.
 // Keys are per-device, so this de-authorises exactly that machine; the authority's own protected key
 // is never evicted. Unlocked; callers hold the lock.
-func (l *Local) dropEnrolledBy(nodeID string) error {
+func (l *Local) dropEnrolledBy(nodeID string) (string, error) {
 	m, err := l.loadEnrolledBy()
 	if err != nil {
-		return err
+		return "", err
 	}
 	key, had := m[nodeID]
 	if !had {
@@ -639,35 +639,52 @@ func (l *Local) dropEnrolledBy(nodeID string) error {
 		// joined by CLAIM which uses no user key). We cannot know which key to evict, so we leave the
 		// allow-list untouched; the node's certificate is still revoked. The owner can `roger edge
 		// authority` to review allowed keys. A residual, documented rather than guessed (audit 2026-09-24).
-		return nil
+		return "", nil
 	}
 	delete(m, nodeID)
-	if err := l.writeJSON(EnrolledByFile, m); err != nil {
-		return err
+	// A PROTECTED key (the authority's own designation key) is never evicted, and its records are
+	// left intact: forgetting an orphan self node id must not lock the authority out of renewing its
+	// own certificate, nor erase its current enrolled-by record.
+	if key == "" || l.isProtected(key) {
+		return "", l.writeJSON(EnrolledByFile, m)
 	}
-	if key == "" {
-		return nil
-	}
-	// Drop stale enrolled-by records that named this key so the record does not grow without bound.
+	// Drop stale enrolled-by records that named this (unprotected) key so the record does not grow
+	// without bound.
 	for other, k := range m {
 		if k == key {
 			delete(m, other)
 		}
 	}
 	if err := l.writeJSON(EnrolledByFile, m); err != nil {
-		return err
+		return "", err
 	}
-	// A PROTECTED key (the authority's own designation key) is never evicted: forgetting an orphan
-	// self node id must not lock the authority out of renewing its own certificate.
-	if l.isProtected(key) {
-		return nil
+	// Drop the enrolling key from the allow-list. Keys are per-device (each machine's own login), so
+	// this de-authorises exactly the forgotten machine; an orphan record for its prior node id under
+	// the same key cannot keep it alive. Existing members keep their certificates until renewal; to
+	// admit a machine under this key again the owner re-runs `roger edge authority allow <key>`
+	// (audit 2026-09-24).
+	if err := l.disallow(key); err != nil {
+		return "", err
 	}
-	// Otherwise drop the enrolling key from the allow-list. Keys are per-device (each machine's own
-	// login), so this de-authorises exactly the forgotten machine; an orphan record for its prior
-	// node id under the same key cannot keep it alive. Existing members keep their certificates until
-	// renewal; to admit a machine under this key again the owner re-runs `roger edge authority allow
-	// <key>` (audit 2026-09-24).
-	return l.disallow(key)
+	return key, nil
+}
+
+// backfillProtection protects the designating key for an authority created before protection
+// existed: if this machine holds a root and no protected-keys file is present yet, the FIRST allowed
+// key (the designating machine's own, added at Designate) is protected. A one-time migration so an
+// older local authority cannot evict its own key on a forget (audit 2026-09-24).
+func (l *Local) backfillProtection() {
+	if l.auth == nil || l.auth.Root() == nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(l.dir, ProtectedKeysFile)); err == nil {
+		return // already have a protected set
+	}
+	allowed, err := l.Allowed()
+	if err != nil || len(allowed) == 0 {
+		return
+	}
+	_ = l.Protect(allowed[0])
 }
 
 // Protect marks a user key as one forget must never evict (the designating machine's own key).
