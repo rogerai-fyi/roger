@@ -10,11 +10,11 @@
   margin: var(--s-4) 0 0; max-width: 68ch;
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
-.wf-rail { margin: 0; border-block: 2px solid var(--ink-900); background: var(--paper); }
+.wf-rail { margin: 0; border: 1px solid var(--hairline); border-radius: var(--panel-r); background: var(--paper); }
 .wf-rail__head {
   display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); justify-content: space-between;
   padding: var(--s-3) var(--s-5); border-bottom: 1px solid var(--hairline);
-  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 .wf-rail__scroll { overflow-x: auto; padding: var(--s-8) var(--s-5) var(--s-5); }
@@ -30,7 +30,7 @@
 }
 .wf-tick i { display: block; width: 1px; height: 12px; margin: 4px auto 0; background: var(--hairline-2); }
 .wf-tick b {
-  display: block; color: var(--ink-400); font-family: var(--font-mono);
+  display: block; color: var(--ink-500); font-family: var(--font-mono);
   font-size: var(--t-micro); font-weight: 400; letter-spacing: .04em;
   white-space: nowrap;
 }
@@ -103,13 +103,14 @@
    caption so the caption can do the reader's job instead of ours. Side by side
    while there is room, so they cost one band rather than two. */
 .wf-rail__notes {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  /* min(19rem, 100%): a 19rem track is wider than a 320px phone's column */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
   gap: var(--s-3) var(--s-6);
   padding: 0 var(--s-5) var(--s-5);
 }
 .wf-rail__note {
   margin: 0; padding-left: var(--s-4); border-left: 2px solid var(--hairline-2);
-  color: var(--ink-400); font-size: var(--t-sm); line-height: var(--lh-body);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 .wf-rail__note b { color: var(--ink-900); }
 .wf-rail__note a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); }
@@ -122,7 +123,7 @@
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 .wf-rail__meanslead {
-  margin: 0 0 var(--s-3); color: var(--ink-400);
+  margin: 0 0 var(--s-3); color: var(--ink-500);
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
@@ -137,7 +138,7 @@
   font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
 }
 .wf-rail__means li > span {
-  margin-left: 6px; color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  margin-left: 6px; color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .06em;
 }
 .wf-rail__means small {
@@ -179,7 +180,7 @@
    with their own headings, and a bounded panel so the section is one screen tall
    however many jobs land here later. Every constraint is added by script
    (.is-live) - the served page is the whole table, scrolling with the document. */
-.wj { position: relative; border-block: 2px solid var(--ink-900); background: var(--paper); }
+.wj { position: relative; border: 1px solid var(--hairline); border-radius: var(--panel-r); background: var(--paper); }
 /* display:grid would beat the UA's [hidden] rule, and the toolbar ships hidden -
    without this the filters appear, inert, on a page whose script never ran. */
 .wj__bar[hidden] { display: none; }
@@ -198,7 +199,7 @@
 .wj__pick { flex: 0 0 auto; display: flex; align-items: center; gap: var(--s-2); margin: 0; }
 .wj__legend {
   flex: 0 0 auto;
-  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 .wj__chip {
@@ -224,13 +225,13 @@
 .wj__chip[disabled] { opacity: .4; cursor: default; }
 .wj__chip[disabled]:hover { border-color: var(--hairline-2); color: var(--ink-700); }
 .wj__n {
-  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   font-variant-numeric: tabular-nums;
 }
 .wj__chip[aria-pressed="true"] .wj__n { color: var(--paper); opacity: .7; }
 .wj__count {
   flex: 0 0 auto; margin: 0 0 0 auto;
-  color: var(--ink-400); font-family: var(--font-mono);
+  color: var(--ink-500); font-family: var(--font-mono);
   font-size: var(--t-micro); letter-spacing: .06em; text-transform: uppercase;
 }
 .wj__scroll { overflow: auto; }
@@ -250,9 +251,9 @@
   color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs);
   font-weight: 500; letter-spacing: .08em; text-transform: uppercase;
 }
-.wj__group span { color: var(--ink-400); font-size: var(--t-xs); }
+.wj__group span { color: var(--ink-500); font-size: var(--t-xs); }
 .wj__tally {
-  float: right; color: var(--ink-400); font-family: var(--font-mono);
+  float: right; color: var(--ink-500); font-family: var(--font-mono);
   font-size: var(--t-micro); font-variant-numeric: tabular-nums;
 }
 .wj table tbody[hidden], .wj table tr[hidden] { display: none; }
@@ -314,7 +315,7 @@
   #jobs .tier-matrix td::before, #jobs .tier-matrix .tier-cell::before,
   #slots .tier-matrix td::before, #variations .tier-matrix td::before {
     display: block; margin-top: var(--s-3);
-    color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+    color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
     letter-spacing: var(--tracking-label); text-transform: uppercase;
   }
   #jobs .tier-matrix .tier-cell::before { content: "Smallest slot"; margin-top: var(--s-2); }
@@ -387,7 +388,7 @@
   .wf-inf__title .wf-inf__shimmer { background: none; color: var(--live); animation: none; }
 }
 
-.wf-inf { margin: 0 0 var(--s-7); border-block: 2px solid var(--ink-900); background: var(--paper); }
+.wf-inf { margin: 0 0 var(--s-8); border: 1px solid var(--hairline); border-radius: var(--panel-r); background: var(--paper); }
 .wf-inf__claim {
   margin: 0; padding: var(--s-6);
   border-bottom: 1px solid var(--hairline);
@@ -396,7 +397,7 @@
 .wf-inf__claim b { color: var(--live); font-family: var(--font-mono); }
 .wf-inf__claim small {
   display: block; margin-top: var(--s-3);
-  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .05em; text-transform: uppercase;
 }
 
@@ -410,7 +411,7 @@
 }
 .wf-inf__loop li:last-child { border-right: 0; }
 .wf-inf__step {
-  display: block; color: var(--ink-300);
+  display: block; color: var(--ink-500);
   font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em;
 }
 .wf-inf__loop b { display: block; margin-top: var(--s-2); color: var(--ink-900); font-size: var(--t-h3); }
@@ -591,7 +592,7 @@
   .wf-inf__proven dl div { grid-template-columns: 1fr; gap: var(--s-2); }
 }
 .wf-inf__provenance {
-  margin: var(--s-4) 0 0; color: var(--ink-400);
+  margin: var(--s-4) 0 0; color: var(--ink-500);
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .04em; line-height: var(--lh-body);
 }
@@ -681,7 +682,7 @@
   50%      { transform: scale(1.12); }
 }
 .wave-mark figcaption {
-  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 @media (prefers-reduced-motion: reduce) {

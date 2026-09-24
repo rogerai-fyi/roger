@@ -128,9 +128,11 @@ const PAGE_SHEET_COMPONENT_RULES = {
 test("each shared component is defined in components.css and nowhere else", () => {
   const blocks = new Set(selectors(read("styles/components.css")).map(leadClass).filter(Boolean).map(blockOf));
   for (const b of ["section", "research-button", "man-note", "install", "tone-zone", "toc-tuner", "scrub",
-                   "tint-panel", "spectrum", "steps", "page-index"]) {
+                   "tint-panel", "spectrum", "steps", "page-index", "figure", "scroll-box", "code-block"]) {
+    // (band--inset is a modifier of .section's .band; see the next assertion)
     assert.ok(blocks.has(b), `components.css defines .${b}`);
   }
+  assert.match(read("styles/components.css"), /\.band--inset\s*\{/, "components.css defines .band--inset");
   for (const sheet of SHEETS) {
     if (sheet === "components.css" || sheet === "tokens.css") continue;
     const allowed = PAGE_SHEET_COMPONENT_RULES[sheet] || {};
@@ -165,9 +167,7 @@ const CSS_COLOR_BUDGET = {
   "app.css": 9,                        // phone/screenshot drop shadows per theme
   "base.css": 2,                       // the OC orange's drop shadow, the nav panel shadow
   "billing.css": 1,                    // modal scrim
-  "broadcast-agent-governance.css": 3, // hard-coded paper + red tints (dark-mode debt)
-  "broadcast-gpu-isolation.css": 2,    // hard-coded paper + red tints (dark-mode debt)
-  "broadcast-routing.css": 10,         // the routing diagram's palette
+  "broadcast-routing.css": 5,          // the routing diagram's palette
   "home.css": 24,                      // the reel's film black, book shadows, the wave mask
   "models.css": 2,                     // modal scrim
   "playbox.css": 56,                   // Playbox deck palette
@@ -178,16 +178,8 @@ const CSS_COLOR_BUDGET = {
 };
 // inline style="" and <style> colours in page sources (the article figures' drift)
 const HTML_COLOR_BUDGET = {
-  "broadcasts-connect-bots-openai-api.html": 7,
-  "broadcasts-deepseek-mtp-gguf.html": 14,
-  "broadcasts-free-chatgpt-alternative.html": 6,
-  "broadcasts-jev-vs-wave.html": 9,
-  "broadcasts-llm-on-iphone.html": 8,
-  "broadcasts-one-gpu-many-users.html": 2,
-  "broadcasts-run-a-tower.html": 9,
-  "broadcasts-run-local-llm.html": 2,
-  "broadcasts-share-gpu-earn.html": 7,
-  "broadcasts-vram-for-llm.html": 8,
+  // (empty: the articles' inline figure colours were paid down in the research rollout;
+  // their SVG charts colour with var(--live) / var(--paper))
 };
 
 test("colours are tokens: no new colour literal outside tokens.css", () => {
@@ -263,7 +255,7 @@ const OWN_CLIPBOARD = {
 
 test("no page script re-implements a shared behaviour", () => {
   const js = readdirSync(path.join(SRC, "js")).filter((f) => f.endsWith(".js"));
-  const HOOKS = { "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js", "[data-range-twin]": "range-twin.js" };
+  const HOOKS = { "[data-fold-narrow]": "site.js", "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js", "[data-range-twin]": "range-twin.js" };
   for (const f of js) {
     const src = read(`js/${f}`);
     if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {
@@ -281,4 +273,5 @@ test("the component modules initialize from their data- hook, so markup alone op
   assert.match(read("js/anchor-hold.js"), /querySelector\("\[data-anchor-hold\]"\)/);
   assert.match(read("js/range-twin.js"), /querySelectorAll\("\[data-range-twin\]"\)/);
   assert.match(read("js/site.js"), /closest\("\[data-copy-target\]"\)/);
+  assert.match(read("js/site.js"), /querySelectorAll\("details\[data-fold-narrow\]"\)/);
 });

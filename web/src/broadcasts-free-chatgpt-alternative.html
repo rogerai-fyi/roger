@@ -34,13 +34,13 @@
         </p>
       </header>
 
-      <figure class="bc-figure bc-figure--plate" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/alt-hero.png" width="1280" height="720"
              alt="A radio operator at his own home station keying the mic to go on air, a small ON-AIR beacon lit, a giant corporate broadcast tower far on the horizon - RogerAI operating-manual illustration." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 - YOUR OWN FREQUENCY, INDEPENDENT OF THE GIANT'S TOWER</figcaption>
       </figure>
 
-      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> The best free ChatGPT alternative is an open model - gpt-oss, Qwen, or
         Llama - run on your own machine or on a community GPU. It's free, private, and has no
         subscription or lock-in. Self-host it with Ollama, or, if you don't have the hardware, tune
@@ -87,7 +87,7 @@
             <li><b>Self-host.</b> Install <b>Ollama</b> (or LM Studio / llama.cpp), pull a model, and chat - a private, offline assistant. Our <a href="/broadcasts-run-local-llm.html">local-LLM guide</a> walks it through, and the <a href="/broadcasts-vram-for-llm.html">VRAM guide</a> tells you which model your card can run.</li>
             <li><b>No GPU? Tune in.</b> <code>roger use gpt-oss-120b</code> gives you a local, OpenAI-compatible endpoint backed by a <b>community GPU</b>, with free models on the <a href="/bands.html">band</a> right now. Same models, no hardware to buy.</li>
           </ul>
-          <figure class="bc-figure bc-figure--plate" data-reveal>
+          <figure class="figure figure--plate" data-reveal>
             <img src="assets/broadcasts/alt-tunein.png" width="1280" height="720"
                  alt="A listener at a small home radio set tuning in to a free broadcast, an ON-AIR beacon glowing, in the RogerAI operating-manual style." loading="lazy" />
             <figcaption class="fig mono">FIG. 2 - NO TRANSMITTER OF YOUR OWN? JUST TUNE IN</figcaption>
@@ -137,11 +137,13 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
-          Start your own station or just tune in - install the set:
-          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>
-        </div>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
+          <p>Start your own station or just tune in - install the set:</p>
+          <div class="install">
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+          </div>
+        </aside>
 
       </div>
 

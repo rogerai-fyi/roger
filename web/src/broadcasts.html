@@ -44,14 +44,17 @@
   <!-- ===================== FOUNDER'S TELEGRAM (pinned) ============ -->
   <section class="bc-telegram-wrap">
     <div class="wrap">
-      <aside class="bc-tg" data-reveal aria-label="A word from the founder">
-        <div class="bc-tg__head">
+      <!-- the telegram: an inset panel, written open; on a phone site.js folds it to its
+           head line (data-fold-narrow) so the log is not pushed a screen down -->
+      <aside class="bc-tg-wrap" data-reveal aria-label="A word from the founder">
+      <details class="bc-tg tint-panel" data-fold-narrow open>
+        <summary class="bc-tg__head">
           <span class="bc-tg__label mono">
             <!-- include: onair.html -->
             TELEGRAM
           </span>
           <span class="bc-tg__meta mono">FROM: THE FOUNDER &middot; <time datetime="2026">2026</time></span>
-        </div>
+        </summary>
         <blockquote class="bc-tg__body">
           <p>When I was growing up, I heard we would all have compute in our pockets.
             That came true. Now we have learned to turn that compute into intelligence,
@@ -76,6 +79,7 @@
           <span class="bc-tg__callsign">- @founder</span>
           <span class="bc-tg__stop" aria-hidden="true">&middot; &middot; &middot; STOP &middot; &middot; &middot;</span>
         </p>
+      </details>
       </aside>
     </div>
   </section>

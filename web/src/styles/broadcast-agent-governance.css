@@ -3,18 +3,6 @@
    does not load research.css - see CSS_BUNDLES in build.mjs); .gov-ic below is this
    page's own small copy of the same mono-stroke + one-red-accent icon idiom. */
 
-.gov-post .bc-post__wrap { max-width: 900px; }
-.gov-post .bc-post__head,
-.gov-post .bc-post__body { max-width: 760px; margin-inline: auto; }
-
-/* ---- hero plate: same framed-plate treatment as broadcast-routing's .route-hero ---- */
-.gov-hero {
-  margin: var(--s-8) 0 0; padding: 14px;
-  background: var(--paper-2); border: 1px solid var(--hairline-2);
-  border-radius: var(--r-md);
-}
-.gov-hero img { display: block; width: 100%; height: auto; border-radius: 6px; }
-.gov-hero .fig { margin: 10px 2px 0; color: var(--ink-400); }
 
 /* ---- §1 timeline: a real dated list, not a raster plate, so it stays crawlable
    and the dates are marked up as <time>. Horizontal band on desktop (a hairline
@@ -35,7 +23,7 @@
 .gov-timeline li:last-child::before { border-color: var(--live); background: var(--live); }
 .gov-timeline time {
   display: block; font-family: var(--font-mono); font-size: var(--t-xs);
-  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-400);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-500);
   margin-bottom: 4px;
 }
 .gov-timeline b { display: block; color: var(--ink-900); font-size: var(--t-sm); margin-bottom: 4px; }
@@ -47,12 +35,13 @@
   .gov-timeline li::before { top: 2px; }
 }
 
-/* ---- §2 pull-quote: same red-rail plate as broadcast-routing's .route-answer ---- */
+/* ---- §2 pull-quote: the article kit's pull quote - a large prose line on a red
+   hairline, no box ---- */
 .gov-quote {
-  max-width: 100%; margin: var(--s-6) 0 0; padding: 1rem 1.25rem;
-  border-left: 3px solid var(--live); background: rgba(224,35,28,.05);
-  border-radius: 0 6px 6px 0; color: var(--ink-900); font-size: var(--t-lead);
-  line-height: 1.6; font-style: italic;
+  max-width: 100%; margin: var(--s-8) 0 0; padding: 2px 0 2px var(--s-5);
+  border-left: 2px solid var(--live); color: var(--ink-900);
+  font-size: clamp(1.25rem, 1.1rem + .6vw, 1.5rem); line-height: 1.45;
+  letter-spacing: var(--tracking-tight); font-style: normal;
 }
 .gov-quote cite {
   display: block; margin-top: var(--s-3); font-style: normal; font-size: var(--t-xs);
@@ -68,7 +57,6 @@
   padding: var(--s-6); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   background: var(--paper-2);
 }
-.gov-compare__col--live { background: var(--live-tint); border-color: rgba(224,35,28,.25); }
 .gov-compare__badge {
   display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center;
   margin-bottom: var(--s-4);
@@ -95,9 +83,8 @@
   padding: var(--s-5) var(--s-4); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   background: var(--paper-2);
 }
-.gov-flow__step--live { background: var(--live-tint); border-color: rgba(224,35,28,.25); }
 .gov-flow__no {
-  display: block; font-size: var(--t-xs); letter-spacing: .08em; color: var(--ink-400);
+  display: block; font-size: var(--t-xs); letter-spacing: .08em; color: var(--ink-500);
   margin-bottom: var(--s-2);
 }
 .gov-flow__step h3 { margin: 0 0 4px; color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
@@ -111,19 +98,14 @@
   .gov-flow__arrow { transform: rotate(90deg); padding-block: 2px; }
 }
 
-/* ---- FAQ: .bc-faq ships with no CSS anywhere in the repo (relies on browser <dl>
-   defaults on every other broadcast that uses it); this page styles its own copy so
-   it does not depend on that being fixed elsewhere. ---- */
-.gov-post .bc-faq { margin: var(--s-6) 0 0; }
-.gov-post .bc-faq dt {
-  margin: var(--s-5) 0 var(--s-2); padding-top: var(--s-5); border-top: 1px solid var(--hairline);
-  color: var(--ink-900); font-size: var(--t-sm);
-}
-.gov-post .bc-faq dt:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-.gov-post .bc-faq dd { margin: 0; padding: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.6; }
-
 /* ---- sources list ---- */
 .gov-sources { margin-top: var(--s-8); padding-top: var(--s-6); border-top: 1px solid var(--hairline); }
 .gov-sources ol { margin: var(--s-3) 0 0; padding-left: 1.2em; color: var(--ink-500); font-size: var(--t-xs); line-height: 1.8; }
 .gov-sources a { color: var(--ink-500); }
 .gov-sources a:hover, .gov-sources a:focus-visible { color: var(--live); }
+
+/* ---- the governed side as an ink panel (it was a pink tint): ink and paper swapped,
+   red stays an indicator; AA both ways (paper on ink-900, ink-300 labels). ---- */
+.gov-compare__col--live, .gov-flow__step--live { background: var(--ink-900); border-color: var(--ink-900); }
+.gov-compare__col--live :is(h3, ul), .gov-flow__step--live :is(h3, p) { color: var(--paper); }
+.gov-flow__step--live .gov-flow__no { color: var(--ink-300); }

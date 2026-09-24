@@ -43,7 +43,9 @@ test("Research is a concise first-class destination", () => {
   // reads. So the conciseness budget now measures the page with the instruments
   // collapsed, and a separate, looser ceiling keeps total page weight honest so this
   // cannot become a loophole for dumping unbounded SVG.
-  const collapsed = main.replace(/<svg[\s\S]*?<\/svg>/g, "<svg/>");
+  // The contents tuner (research rollout) is collapsed for the same reason: it is
+  // navigation that repeats the section labels already counted below, not prose.
+  const collapsed = main.replace(/<svg[\s\S]*?<\/svg>/g, "<svg/>").replace(/<nav class="toc-tuner"[\s\S]*?<\/nav>/g, "<nav/>");
   assert.ok(collapsed.length < 19500, `research content is concise (${collapsed.length} bytes of prose)`);
   assert.ok(main.length < 40000, `research page stays light (${main.length} bytes total)`);
 });

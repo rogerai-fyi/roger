@@ -624,3 +624,97 @@
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale { grid-template-columns: minmax(0, 1fr); }
 }
 
+
+/* ---- component: figure (added by research rollout) --------------------------------
+   <figure class="figure [figure--plate|figure--phone|figure--chart]">
+     <img|video|svg ...> <figcaption class="fig">FIG. n - ...</figcaption></figure>
+   Promoted from the articles (broadcasts.css). The figure and its media never outgrow
+   the column, whatever the asset's natural size. --plate sets it on a calm tinted
+   inset panel (theme tokens, so it recedes on the dark theme instead of lighting up);
+   --phone centres a portrait screenshot at a readable size; --chart is an inline SVG
+   chart: set in heading ink, and on a column narrower than the chart it scrolls in
+   its own box (the caption stays put) rather than shrinking its text below reading
+   size. The caption uses --ink-500: the .fig label's --ink-400 is not AA on paper. */
+.figure { margin: var(--s-8) 0; max-width: 100%; }
+.figure > img, .figure > video, .figure > svg { display: block; max-width: 100%; width: 100%; height: auto; }
+.figure > img, .figure > video { border-radius: var(--r-lg); }
+.figure > figcaption { margin: var(--s-3) 2px 0; color: var(--ink-500); }
+.figure--plate { padding: var(--s-4); background: var(--paper-2); border-radius: var(--panel-r); }
+.figure--phone > img { max-width: 440px; margin-inline: auto; }
+.figure--chart { color: var(--ink-900); overflow-x: auto; }
+.figure--chart > svg { min-width: 34rem; }
+.figure--chart > figcaption { position: sticky; left: 0; }
+
+/* ---- component: scroll box (added by research rollout) ----------------------------
+   <div class="scroll-box"><table>...</table></div>
+   Anything wider than a phone (a data table, a diagram) scrolls sideways inside this
+   box, never the page. */
+.scroll-box { overflow-x: auto; max-width: 100%; }
+
+/* ---- component: code block (added by research rollout) ----------------------------
+   <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> cmd
+   <span class="code-block__comment"># comment</span></pre></div>
+   A long line scrolls inside the block, never the page. site.js adds the copy control
+   (.code-block__copy, the shared [data-copy-target] copy tick) to every block; the
+   copied text leaves out aria-hidden prompts. No-JS: the plain, selectable <pre>, and
+   no dead button. */
+.code-block {
+  position: relative; margin-top: var(--s-4); max-width: 100%;
+  background: var(--paper-2); border-radius: var(--r-xl);
+}
+.code-block pre {
+  margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
+  background: transparent;
+  font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.6;
+  color: var(--ink-900); white-space: pre;
+}
+.code-block pre code { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+/* with its copy control the block is two columns: the <pre> scrolls in its own, so a
+   long line never slides under the button */
+.code-block:has(.code-block__copy) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.code-block__comment { color: var(--ink-500); }
+.code-block__prompt { color: var(--live); user-select: none; }
+.code-block__copy {
+  position: relative; margin: 6px 6px 0 0; display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: var(--r-xl);
+  background: var(--paper-2); color: var(--ink-500); transition: color var(--d-2);
+}
+.code-block__copy:hover, .code-block__copy:focus-visible { color: var(--live); }
+.code-block__copy:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.code-block__copy:active { transform: translateY(1px); }
+.code-block__copy.is-copied { color: var(--live); }
+.code-block__copy.is-copied svg { opacity: 0; }
+.code-block__copy.is-copied::after { content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); }
+@media (prefers-reduced-motion: reduce) { .code-block__copy:active { transform: none; } }
+
+/* ---- component: tint-panel tag (added by research rollout) -----------------------
+   <aside|div class="tint-panel"> <span class="tint-panel__tag">LABEL</span> ... </aside>
+   The small mono label at the top of a .tint-panel (the panel itself is defined above). */
+.tint-panel__tag {
+  display: block; margin-bottom: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+}
+
+/* ---- component: fold on a phone (added by research rollout) -----------------------
+   <details class="..." data-fold-narrow open><summary>...</summary> ... </details>
+   Written open; site.js folds it on a phone (<=640px) so it does not push the page
+   down. The summary keeps its own content and gains a quiet +/- mark at its end. */
+details[data-fold-narrow] > summary { list-style: none; cursor: pointer; position: relative; padding-right: 28px; }
+details[data-fold-narrow] > summary::-webkit-details-marker { display: none; }
+details[data-fold-narrow] > summary::after {
+  content: "+"; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  font: 500 1.1rem / 1 var(--font-mono); color: var(--ink-500);
+}
+details[data-fold-narrow][open] > summary::after { content: "\2212"; }
+details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
+
+/* ---- component: inset band (added by research rollout) ----------------------------
+   <section class="section band band--inset"> : the tinted .band as a rounded panel,
+   inset from the page edge on the same geometry as the ink panel (64px outside the
+   text column, never closer than --panel-inset), with no top/bottom rules. The calm
+   way to set one section apart. */
+.band--inset {
+  --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
+  margin: var(--panel-inset) var(--panel-mx); border-block: 0; border-radius: var(--panel-r);
+}

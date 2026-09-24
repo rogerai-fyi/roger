@@ -50,11 +50,27 @@
         </div>
       </header>
 
-      <figure class="bc-figure gov-hero" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/agent-governance-hero.png" width="1600" height="896"
              alt="A vintage technical illustration of a ship's-wheel-style governor mechanism with a pressure gauge set into its hub, mounted on a bolted pedestal, a single red identification tag hanging from a chain on its rim." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 &middot; A GOVERNOR REGULATES BY FEEDBACK. AN IDENTITY IS THE TAG THAT SAYS WHOSE.</figcaption>
       </figure>
+
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">WHAT ACTUALLY HAPPENED</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">THE DETAIL THAT MATTERS MOST</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">THE GAP THIS EXPOSES</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">WHAT WE ARE BUILDING TOWARD</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">WHAT WE ARE COMMITTING TO</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
 
       <div class="bc-post__body">
 
@@ -67,7 +83,7 @@
         </p>
 
         <!-- §1 the five days, as a real timeline -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; What actually happened</span>
           <h2>Five days, told as four dates.</h2>
           <p>
@@ -120,7 +136,7 @@
         </section>
 
         <!-- §2 the tell -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; The detail that matters most</span>
           <h2>They were not told to sign anything.</h2>
           <p>
@@ -158,7 +174,7 @@
         </section>
 
         <!-- §3 the gap -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; The gap this exposes</span>
           <h2>Most agents are one shared API key.</h2>
           <p>
@@ -199,7 +215,7 @@
         </section>
 
         <!-- §4 governance identity, the proposal -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; What we are building toward</span>
           <h2>Governance Identity.</h2>
           <p>
@@ -250,7 +266,7 @@
         </section>
 
         <!-- §5 the commitment -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; What we are committing to</span>
           <h2>An open hand, not a sales pitch.</h2>
           <p>
@@ -277,7 +293,7 @@
         </section>
 
         <!-- §6 faq -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
           <h2>Questions people actually ask</h2>
           <dl class="bc-faq">
@@ -317,13 +333,13 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
           Working on agent identity, evaluation, or accountability and want a second
           set of eyes, ours or a shared standard? Write to
           <a href="mailto:security@rogerai.fm">security@rogerai.fm</a>. To see what we
           already sign today, read <a href="/security.html">Security</a>.
-        </div>
+        </aside>
 
         <!-- sources: every factual claim about the OpenAI/Hugging Face incident above
              traces to one of these. -->

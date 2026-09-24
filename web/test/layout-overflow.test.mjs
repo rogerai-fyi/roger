@@ -97,21 +97,22 @@ test("models: a model name never collapses to its narrowest possible width", () 
 });
 
 // ---- 2 + 3. article figures ------------------------------------------------------------
+// (the figure, scroll box and code block were promoted from broadcasts.css to shared
+// components in the research rollout; these pin the same guarantees where they now live)
 test("broadcasts: one shared figure style keeps every figure inside the column", () => {
-  const c = css("broadcasts.css");
-  assert.equal(decl(c, ".bc-figure")["max-width"], "100%", ".bc-figure is capped at the column");
-  for (const media of ["img", "video"]) {
-    const d = decl(c, `.bc-figure ${media}`);
-    assert.equal(d["max-width"], "100%", `.bc-figure ${media} never exceeds the column`);
-    assert.equal(d["height"], "auto", `.bc-figure ${media} keeps its aspect ratio`);
+  const c = css("components.css");
+  assert.equal(decl(c, ".figure")["max-width"], "100%", ".figure is capped at the column");
+  for (const media of ["img", "video", "svg"]) {
+    const d = decl(c, `.figure > ${media}`);
+    assert.equal(d["max-width"], "100%", `.figure > ${media} never exceeds the column`);
+    assert.equal(d["height"], "auto", `.figure > ${media} keeps its aspect ratio`);
   }
-  assert.ok(Object.keys(decl(c, ".bc-figure figcaption")).length, "figcaption has a shared style");
+  assert.ok(Object.keys(decl(c, ".figure > figcaption")).length, "figcaption has a shared style");
 });
 
 test("broadcasts: the figure plate is themed, never a hard-coded paper color", () => {
-  const plate = decl(css("broadcasts.css"), ".bc-figure--plate");
+  const plate = decl(css("components.css"), ".figure--plate");
   assert.match(plate.background || "", /var\(--paper-2\)/, "the plate reads the theme's paper token");
-  assert.match(plate.border || "", /var\(--hairline/, "and a theme hairline");
   // the page-scoped hero plates had the same hard-coded paper
   for (const f of ["broadcast-routing.css", "broadcast-agent-governance.css", "broadcast-gpu-isolation.css"]) {
     for (const r of rules(css(f))) {
@@ -137,15 +138,15 @@ test("broadcasts: a wide table inside a figure scrolls in its own box", () => {
   for (const f of BROADCASTS) {
     for (const fig of page(f).match(/<figure\b[\s\S]*?<\/figure>/g) || []) {
       if (!/<table\b/.test(fig)) continue;
-      assert.match(fig, /<div class="bc-scroll">\s*<table\b/, `${f}: a figure's table sits in .bc-scroll`);
+      assert.match(fig, /<div class="scroll-box">\s*<table\b/, `${f}: a figure's table sits in .scroll-box`);
     }
   }
-  assert.equal(decl(css("broadcasts.css"), ".bc-scroll")["overflow-x"], "auto");
+  assert.equal(decl(css("components.css"), ".scroll-box")["overflow-x"], "auto");
 });
 
 // ---- 4. code blocks ------------------------------------------------------------------
 test("broadcasts: article code blocks scroll inside their own box", () => {
-  const d = decl(css("broadcasts.css"), ":where(.bc-post__body) pre");
+  const d = decl(css("components.css"), ".code-block pre");
   assert.equal(d["overflow-x"], "auto", "a long line scrolls inside the <pre>");
   assert.equal(d["max-width"], "100%", "and the <pre> never widens the column");
 });
@@ -173,11 +174,22 @@ function assertCmdWords(where, code) {
 }
 
 test("commands: every multi-word command in a sign-off note breaks only at spaces", () => {
+  // A sign-off is an .tint-panel.bc-signoff (research rollout) or a .man-note. Its
+  // inline commands are .cmd-words; a closing install command is the shared install pill,
+  // whose every hyphenated or slashed word sits in a nowrap .tok.
   let n = 0;
   for (const f of BROADCASTS) {
-    for (const note of page(f).match(/<div class="man-note[^"]*">[\s\S]*?<\/div>/g) || []) {
+    const html = page(f);
+    const notes = [...(html.match(/<div class="man-note[^"]*">[\s\S]*?<\/div>/g) || []),
+      ...(html.match(/<aside class="tint-panel bc-signoff">[\s\S]*?<\/aside>/g) || [])];
+    for (const note of notes) {
       for (const code of note.match(/<code\b[\s\S]*?<\/code>/g) || []) {
         if (words(code).length < 2) continue;
+        if (/^<code class="install__code">/.test(code)) {
+          const bare = code.replace(/<span class="tok">[^<]*<\/span>/g, "TOK").replace(/<[^>]+>/g, "");
+          assert.doesNotMatch(bare, /[-/]/, `${f}: ${code.slice(0, 80)}: every word with a hyphen or slash is a .tok`);
+          n++; continue;
+        }
         assertCmdWords(f, code); n++;
       }
     }

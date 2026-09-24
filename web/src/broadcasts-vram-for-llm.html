@@ -33,13 +33,13 @@
         </p>
       </header>
 
-      <figure class="bc-figure bc-figure--plate" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/vram-hero.png" width="1280" height="560"
              alt="A graphics card drawn as a vintage two-way radio with a red VRAM gauge, in the RogerAI operating-manual style." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 - THE VRAM GAUGE</figcaption>
       </figure>
 
-      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> A 4-bit (Q4) model needs roughly <b>0.6&nbsp;GB of VRAM per billion
         parameters</b>, plus a few GB for context. So an 8&nbsp;GB card runs a 7-8B model, 12-16&nbsp;GB
         runs 13-14B, 24&nbsp;GB runs a 32B or gpt-oss-20B, and a 70B needs 48&nbsp;GB+ (multiple GPUs) -
@@ -62,17 +62,18 @@
             At 4-bit quantization - the sweet spot most people run - here is roughly what each model
             class needs. Red bars are models that don't fit on a single consumer GPU.
           </p>
-          <figure class="bc-figure bc-figure--chart" data-reveal>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" role="img" style="width:100%;height:auto"
+          <figure class="figure figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" role="img"
                  aria-label="Chart: approximate VRAM needed to run common LLMs at 4-bit quantization, by model size, with consumer GPU tiers marked. 3B ~3GB, 7B ~5GB, 8B ~6GB, 13-14B ~9GB, 32B ~20GB, gpt-oss-20B ~13GB, 70B ~42GB, gpt-oss-120B ~63GB.">
               <style>
                 .c-hair{stroke:currentColor;opacity:.18}.c-tier{stroke:currentColor;opacity:.30;stroke-dasharray:2 4}
-                .c-bar{fill:currentColor;opacity:.82}.c-over{fill:#E0231C}
+                .c-bar{fill:currentColor;opacity:.82}.c-over{fill:var(--live)}
                 .c-lbl{font-family:"JetBrains Mono",monospace;font-size:15px;fill:currentColor}
                 .c-val{font-family:"JetBrains Mono",monospace;font-size:14px;fill:currentColor}
-                .c-live{font-family:"JetBrains Mono",monospace;font-size:14px;fill:#E0231C}
-                .c-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
-                .c-t{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.55}
+                .c-live{font-family:"JetBrains Mono",monospace;font-size:14px;fill:var(--live)}
+                .c-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .c-t{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.7}
+                .c-inv{fill:var(--paper)}
               </style>
               <text x="24" y="34" class="c-cap">FIG. 2 - VRAM BY MODEL SIZE (4-BIT)</text>
               <line x1="24" y1="48" x2="796" y2="48" class="c-hair"/>
@@ -91,7 +92,7 @@
               <text x="234" y="270" text-anchor="end" class="c-lbl">32B</text><rect x="250" y="258" width="162.5" height="17" rx="2" class="c-bar"/><text x="420" y="271" class="c-val">~20 GB</text>
               <text x="234" y="312" text-anchor="end" class="c-lbl">gpt-oss-20B</text><rect x="250" y="300" width="105.6" height="17" rx="2" class="c-bar"/><text x="363" y="313" class="c-val">~13 GB</text>
               <text x="234" y="354" text-anchor="end" class="c-lbl">70B</text><rect x="250" y="342" width="341" height="17" rx="2" class="c-over"/><text x="599" y="355" class="c-live">~42 GB</text>
-              <text x="234" y="396" text-anchor="end" class="c-lbl">gpt-oss-120B</text><rect x="250" y="384" width="512" height="17" rx="2" class="c-over"/><text x="602" y="397" class="c-val" fill="#FBFBFA">~63 GB</text>
+              <text x="234" y="396" text-anchor="end" class="c-lbl">gpt-oss-120B</text><rect x="250" y="384" width="512" height="17" rx="2" class="c-over"/><text x="602" y="397" class="c-val c-inv">~63 GB</text>
               <line x1="24" y1="404" x2="796" y2="404" class="c-hair"/>
               <text x="24" y="458" class="c-t">~0.6 GB VRAM per 1B params (4-bit) + a few GB for context. Red = more than one consumer GPU.</text>
             </svg>
@@ -114,7 +115,7 @@
         <section class="bc-sec" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; Quantization</span>
           <h2>Does quantization hurt quality?</h2>
-          <figure class="bc-figure bc-figure--plate" data-reveal>
+          <figure class="figure figure--plate" data-reveal>
             <img src="assets/broadcasts/quantization.png" width="1280" height="720"
                  alt="A large model being compressed into a smaller dense block, RogerAI operating-manual illustration." loading="lazy" />
             <figcaption class="fig mono">FIG. 3 - QUANTIZATION SHRINKS THE MODEL, NOT ITS SKILL</figcaption>
@@ -177,11 +178,13 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
-          Model too big for your card? Route it to a bigger GPU - install the set and tune in:
-          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>
-        </div>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
+          <p>Model too big for your card? Route it to a bigger GPU - install the set and tune in:</p>
+          <div class="install">
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+          </div>
+        </aside>
 
       </div>
 

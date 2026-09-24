@@ -35,13 +35,13 @@
         </p>
       </header>
 
-      <figure class="bc-figure bc-figure--plate" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/connect-hero.png" width="1280" height="720"
              alt="A vintage patch-panel switchboard with many service cables plugging into one central jack lit with a red indicator, in the RogerAI operating-manual style." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 - MANY SERVICES, ONE PATCH INTO THE BAND</figcaption>
       </figure>
 
-      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> RogerAI is OpenAI-compatible, so any OpenAI-SDK bot connects by changing
         two lines - a base URL and a key. On the bot's own machine, <code>roger use &lt;model&gt;</code>
         prints a localhost endpoint that can reach <b>any</b> band on the market. For a remote or
@@ -65,7 +65,7 @@
             Change the client's <code>base_url</code> and <code>api_key</code>, keep everything else.
             With the OpenAI Python SDK:
           </p>
-          <pre class="bc-code mono" style="margin:1rem 0;padding:1rem 1.25rem;background:rgba(21,20,15,.05);border:1px solid rgba(21,20,15,.1);border-radius:8px;overflow-x:auto;line-height:1.6;"><code>from openai import OpenAI
+          <div class="code-block"><pre><code>from openai import OpenAI
 
 client = OpenAI(
     base_url="https://broker.rogerai.fm/v1",
@@ -76,7 +76,7 @@ resp = client.chat.completions.create(
     model="gpt-oss-120b",             # a model your key can reach
     messages=[{"role": "user", "content": "roger, radio check"}],
     stream=True,                       # SSE streaming works
-)</code></pre>
+)</code></pre></div>
           <p>
             That's the whole integration. The same two fields work from the JS SDK, LangChain,
             LlamaIndex, a Discord bot, or a plain <code>curl</code> with an
@@ -84,16 +84,17 @@ resp = client.chat.completions.create(
             serves <b>your own</b> GPUs; to reach the wider market from a bot, use the local endpoint
             from <code>roger use</code> - see &sect;3.
           </p>
-          <figure class="bc-figure bc-figure--chart" data-reveal>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img" style="width:100%;height:auto"
+          <figure class="figure figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img"
                  aria-label="Diagram: your bot or service, using the OpenAI SDK, points its base_url at https://broker.rogerai.fm/v1 with a grant key; the RogerAI broker screens and routes the request to a community GPU that serves your model.">
               <style>
                 .g-box{fill:currentColor;opacity:.04}.g-stroke{stroke:currentColor;fill:none;opacity:.32}
-                .g-arrow{stroke:currentColor;opacity:.5;fill:none}.g-live{fill:#E0231C}
-                .g-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.6}
+                .g-arrow{stroke:currentColor;opacity:.5;fill:none}.g-live{fill:var(--live)}
+                .g-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.7}
                 .g-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;fill:currentColor}
                 .g-b{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.8}
-                .g-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .g-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .g-dim{opacity:.7}
               </style>
               <text x="24" y="30" class="g-cap">FIG. 2 - POINT YOUR BASE_URL HERE</text>
               <line x1="24" y1="44" x2="796" y2="44" class="g-stroke"/>
@@ -114,7 +115,7 @@ resp = client.chat.completions.create(
               <text x="578" y="140" class="g-h">serves it</text>
               <text x="578" y="163" class="g-b">your model, streamed</text>
               <text x="578" y="181" class="g-b">back token by token</text>
-              <text x="24" y="234" class="g-b" style="opacity:.6">base_url = https://broker.rogerai.fm/v1  ·  Authorization: Bearer rog-grant_...  ·  model = an id from /discover</text>
+              <text x="24" y="234" class="g-b g-dim">base_url = https://broker.rogerai.fm/v1  ·  Authorization: Bearer rog-grant_...  ·  model = an id from /discover</text>
             </svg>
             <figcaption class="fig mono">FIG. 2 - The same OpenAI call, repatched to the band.</figcaption>
           </figure>
@@ -150,7 +151,7 @@ resp = client.chat.completions.create(
             <b>Connecting a bot to a band you don't own?</b> That always goes through signed identity,
             so run the CLI where the bot lives - a grant key can't reach another operator's hardware:
           </p>
-          <ol class="bc-steps mono" style="margin:1rem 0;padding-left:1.4rem;line-height:1.7;">
+          <ol class="bc-steps mono">
             <li>Install <code>roger</code> on the bot's machine (or a sidecar it can reach).</li>
             <li>Only for a <b>paid</b> band: <code>roger login</code> and fund your wallet. A <b>free</b> band needs no account - your local key signs anonymously, at $0.</li>
             <li><code>roger use &lt;model&gt;</code> - it finds a station serving that model, confirms the price, and prints a <code>http://127.0.0.1:&lt;port&gt;/v1</code> endpoint + a key.</li>
@@ -209,11 +210,13 @@ resp = client.chat.completions.create(
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
-          Mint a key and repatch your bot - install the set:
-          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>
-        </div>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
+          <p>Mint a key and repatch your bot - install the set:</p>
+          <div class="install">
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+          </div>
+        </aside>
 
       </div>
 

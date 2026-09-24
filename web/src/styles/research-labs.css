@@ -1,0 +1,68 @@
+/* =====================================================================
+   RogerAI - research-labs.css : the research program pages in the homepage
+   language (the Labs hub, Models and status, the Wave family, Hardware,
+   Industrial deployment). Loaded after research.css on those five pages only.
+
+   research.css is also the shell of the company, pricing, FAQ, careers and Tower
+   pages, which are being moved over separately; this sheet carries the research
+   pages' side of that move so the two can land independently. Fold it into
+   research.css once every page on the shell has been lifted.
+
+   The one idea: space separates, not rules. The heavy 2px ink frames around the
+   grids become calm tinted panels on the shared radius; set-apart sections are
+   inset bands (components.css .band--inset); secondary labels move from --ink-400
+   (2.85:1 on paper) to --ink-500 (AA). Nothing pinned, no new colour.
+   ===================================================================== */
+
+/* anchors (the contents tuner) land under the nav */
+main section[id] { scroll-margin-top: 72px; }
+
+/* ---- the hero: no rule under it; the in-page strip becomes an inset panel ---- */
+.research-hero { border-bottom: 0; }
+.research-distinction {
+  margin-inline: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
+  border-bottom: 0; border-radius: var(--panel-r);
+}
+.usecase-strip { border-block: 0; border-radius: var(--panel-r); overflow: hidden; }
+
+/* ---- cards and grids: tinted panels, no ruled frames ---- */
+.research-grid { gap: var(--s-4); }
+.research-card { border: 0; border-radius: var(--panel-r); background: var(--paper-2); }
+.research-card dl, .research-card dl div { border-color: var(--hairline-2); }
+.research-prose { border-top: 0; }
+.research-onward { border-block: 0; gap: var(--s-4); }
+.research-onward > * { border: 0; border-radius: var(--panel-r); background: var(--paper-2); }
+
+.developer-steps { border-block: 0; gap: var(--s-4); }
+.developer-step, .developer-step:last-child { border: 0; border-radius: var(--panel-r); background: var(--paper-2); }
+
+.deployment-grid { border-block: 0; gap: var(--s-4); background: none; }
+.deployment-grid article { border-radius: var(--panel-r); background: var(--paper-2); overflow: hidden; }
+/* photographs: one treatment across the research pages - the panel's radius, and
+   the stock industry photography set in mono so the ink-and-one-red palette holds
+   (the hardware board shots keep their colour: they identify real products) */
+.deployment-grid__shot img { filter: grayscale(1) contrast(1.04); }
+
+.model-list { border-top: 0; }
+.capability, .tier-scroll { border-block: 0; border: 1px solid var(--hairline); border-radius: var(--panel-r); }
+.model-roadmap, .model-naming { border-radius: 0 var(--r-xl) var(--r-xl) 0; }
+
+/* inside an inset band the tinted cards step to the raised ground */
+main .band--inset :is(.research-card, .developer-step, .deployment-grid article, .research-onward > *) { background: var(--paper); }
+
+/* ---- labels that must be read: AA ink on paper ---- */
+.research-kicker, .model-group-head p, .research-card dt, .release-evidence dt,
+.capability__cutline, .capability figcaption small, .tier-matrix thead th,
+.scope__head, .scope__mode, .scope__carries { color: var(--ink-500); }
+.tier-matrix thead th { border-bottom-width: 1px; border-bottom-color: var(--hairline-2); }
+.scope__head { border-bottom: 1px solid var(--hairline-2); }
+.purdue__tag { fill: var(--ink-500); }
+.research-tone.band--inset { border-block: 0; }
+
+/* AA at rest: the shared section label and figure label (--ink-400, 2.85:1 on paper,
+   less on a tinted band) are read here, so they take --ink-500; a state chip and the
+   release ticker's name keep their red rule but set their words in ink */
+main .sectionno, main .fig { color: var(--ink-500); }
+.status--none { color: var(--ink-900); }
+.release-ticker b { color: var(--ink-900); }
+.developer-step__no { color: var(--ink-500); }

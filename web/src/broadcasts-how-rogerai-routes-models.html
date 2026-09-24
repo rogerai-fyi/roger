@@ -32,13 +32,13 @@
         </p>
       </header>
 
-      <figure class="bc-figure route-hero" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/router-airwaves-hero.png" width="1700" height="925"
              alt="A mid-century technical illustration of ten independent radio stations connected to one central tuning console, with two selected routes shown in red." />
         <figcaption class="fig mono">FIG. 1 &middot; MANY OPERATORS, ONE OPEN FREQUENCY</figcaption>
       </figure>
 
-      <blockquote class="route-answer mono" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> RogerAI first removes stations that cannot satisfy the request.
         It then scores the healthy remainder by reliability, request-aware speed, price,
         live load, and measured capacity. From the reliable top band it compares two
@@ -120,11 +120,10 @@
             </div>
           </div>
 
-          <figure class="bc-figure route-process" data-reveal>
+          <figure class="figure route-process" data-reveal>
             <div class="route-process__image">
               <img src="assets/broadcasts/router-three-stage.png" width="1820" height="864"
                    alt="Three technical illustrations show ten stations entering consideration, one healthy station receiving the first request, and a second station receiving concurrent work when the first station is occupied." />
-              <i class="route-process__sweep" aria-hidden="true"></i>
             </div>
             <div class="route-process__steps mono" aria-hidden="true">
               <span><b>01</b> discover + filter</span>
@@ -209,7 +208,7 @@
             the current load, the measured serving evidence, and the price lock. The next station
             is compatible by construction.
           </p>
-          <figure class="bc-figure route-process route-process--failover" data-reveal>
+          <figure class="figure route-process route-process--failover" data-reveal>
             <div class="route-process__image">
               <img src="assets/broadcasts/router-exact-failover.png" width="1870" height="841"
                    alt="A radio routing console encounters an interrupted station and reroutes the same waveform to a healthy replacement without changing frequency." />
@@ -257,11 +256,11 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
           Put another station on the band, or tune your app into the network:
           <code class="cmd-words"><span>roger</span> <span>share</span> <span>&lt;model&gt;</span></code> &middot; <code class="cmd-words"><span>roger</span> <span>use</span> <span>&lt;model&gt;</span></code>
-        </div>
+        </aside>
       </div>
     </div>
   </article>

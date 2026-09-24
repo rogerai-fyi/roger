@@ -180,11 +180,13 @@
         </section>
 
         <!-- a boxed dispatch note (reuses the shared .man-note plate) -->
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
-          Ready to go independent? Install the set and put your GPU on air:
-          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>
-        </div>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
+          <p>Ready to go independent? Install the set and put your GPU on air:</p>
+          <div class="install">
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+          </div>
+        </aside>
 
       </div>
 
