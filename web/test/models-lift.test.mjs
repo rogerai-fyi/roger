@@ -248,3 +248,40 @@ test("tower: no inline styles; every action row leads with one primary", () => {
     assert.doesNotMatch(row, /class="research-button"/, "the rest are quiet links");
   }
 });
+
+/* ---- INTEGRATIONS ---------------------------------------------------------------- */
+
+test("integrations: a TOC tuner over its five sections", () => {
+  const st = tunerOf("integrations.html");
+  assert.deepEqual(st.map((s) => s.id), ["oneline", "serve", "desk", "anything", "ask"]);
+});
+
+test("integrations: the one-line migration is the ink panel, a diff in ink and red, no inline style", () => {
+  const html = src("integrations.html");
+  const zones = [...html.matchAll(/<div class="tone-zone" data-tone="ink">([\s\S]*?)<!-- \/tone-zone -->/g)].map((m) => m[1]);
+  assert.equal(zones.length, 1);
+  assert.match(zones[0], /<section class="section" id="oneline">/);
+  assert.match(zones[0], /<pre class="mono intg-diff"><code><span class="intg-diff__del">- base_url/);
+  assert.match(zones[0], /<span class="intg-diff__add">\+ base_url/);
+  assert.doesNotMatch(mainOf(html), /style="/);
+});
+
+test("integrations: each guest's install line copies with the shared tick", () => {
+  const html = src("integrations.html");
+  const n = (html.match(/data-guest="/g) || []).length;
+  const btns = [...html.matchAll(/<button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy ([^"]+)"><code class="guests__install">([^<]+)<\/code><\/button>/g)];
+  assert.equal(btns.length, n, "one per guest");
+  for (const [, label, cmd] of btns) assert.equal(label, cmd, "the label names the command it copies");
+});
+
+test("integrations: panels, not 2px rules; AA inks on paper", () => {
+  const css = stripCss(src("styles/integrations.css"));
+  assert.doesNotMatch(css, /2px solid var\(--ink-900\)/);
+  for (const sel of [".intg th", ".guests__meta", ".ways__fine"]) {
+    const rule = css.match(new RegExp(`${sel.replace(".", "\\.")}\\s*\\{([^}]*)\\}`))?.[1] || "";
+    assert.ok(rule, sel);
+    assert.doesNotMatch(rule, /--ink-400/, `${sel}: AA ink on paper`);
+  }
+  const html = src("integrations.html");
+  assert.equal((html.match(/<div class="research-actions research-actions--lead">/g) || []).length, 2);
+});
