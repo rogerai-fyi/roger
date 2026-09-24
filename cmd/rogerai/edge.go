@@ -987,13 +987,17 @@ func cmdEdgeForget(cfg config, args []string) error {
 		return err
 	}
 	if !ok {
-		// It may be a device that was ADOPTED but has not claimed yet: it is not in the fleet, but a
-		// live claim grant is still standing for it. Forgetting must cancel that pending adoption,
-		// or the device could still claim a certificate later (audit 2026-09-24).
-		if canceled, who, err := edgeCancelPendingAdoption(argv.pos[0]); err != nil {
+		// A device not in the fleet may still have a live relationship with this authority: a claim
+		// GRANT standing (adopted, not yet claimed) OR an issued CERTIFICATE (claimed, not yet
+		// checked in). Forgetting must end BOTH - clear the grant AND revoke every issued serial -
+		// under one lock, or the device could claim later or check in with a live cert and rejoin
+		// (audit 2026-09-24).
+		n, who, err := edgeForgetNotInFleet(argv.pos[0])
+		if err != nil {
 			return err
-		} else if canceled {
-			fmt.Printf("canceled the pending adoption of %s; it can no longer claim a certificate.\n", who)
+		}
+		if n > 0 {
+			fmt.Printf("forgot %s: its claim grant is cleared and any certificate it holds is revoked.\n", who)
 			return nil
 		}
 		// Forgetting something that is not there is what the owner wanted anyway.
@@ -1100,35 +1104,47 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	return nil
 }
 
-// edgeCancelPendingAdoption clears a standing claim grant for a device that was adopted but has not
-// yet claimed (so it is not in the fleet). want may be the node id or the friendly name the grant
-// carries. It reports whether a grant was canceled and the name to show. Only an authority has
-// grants; elsewhere it is a no-op (audit 2026-09-24).
-func edgeCancelPendingAdoption(want string) (bool, string, error) {
-	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
-	if err != nil {
-		return false, "", err
-	}
-	if !hasRoot {
-		return false, "", nil
-	}
-	grants, err := local.Claims()
-	if err != nil {
-		return false, "", err
-	}
-	for _, g := range grants {
-		if g.NodeID == want || (g.Name != "" && g.Name == want) {
-			if err := local.ConsumeClaim(g.NodeID); err != nil {
-				return false, "", err
+// edgeForgetNotInFleet forgets a device that is not (yet) in the fleet but still has a relationship
+// with this authority: a standing claim grant (adopted, not yet claimed) and/or an issued
+// certificate (claimed, not yet checked in). want may be a node id or the friendly name a grant
+// carried. It resolves the matching node ids and runs edgeRevokeOnForget on EACH - which clears the
+// grant and revokes every issued serial under one lock - so neither a pending claim nor a live cert
+// survives. It returns how many nodes it forgot and a label for them. Only an authority has grants;
+// elsewhere a raw node id can still be revoked (audit 2026-09-24).
+func edgeForgetNotInFleet(want string) (int, string, error) {
+	ids := map[string]string{} // node id -> label
+	if local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && hasRoot {
+		grants, err := local.Claims()
+		if err != nil {
+			return 0, "", err
+		}
+		for _, g := range grants {
+			if g.NodeID == want || (g.Name != "" && g.Name == want) {
+				who := g.Name
+				if who == "" {
+					who = edgeShortID(g.NodeID)
+				}
+				ids[g.NodeID] = who
 			}
-			who := g.Name
-			if who == "" {
-				who = edgeShortID(g.NodeID)
-			}
-			return true, who, nil
 		}
 	}
-	return false, "", nil
+	// A raw node id with no grant may still hold an issued certificate to revoke.
+	if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") {
+		ids[want] = edgeShortID(want)
+	}
+	label := ""
+	for id, who := range ids {
+		if err := edgeRevokeOnForget(id); err != nil {
+			return 0, "", err
+		}
+		if label == "" {
+			label = who
+		}
+	}
+	if len(ids) > 1 {
+		label = fmt.Sprintf("%s and %d more", label, len(ids)-1)
+	}
+	return len(ids), label, nil
 }
 
 // edgeAdoptByClaim adopts a non-serving candidate (a phone) by GRANTING it a claim, so it can fetch

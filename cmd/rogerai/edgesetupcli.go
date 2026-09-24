@@ -77,8 +77,13 @@ func cmdEdgeSetup(cfg config, args []string) error {
 // re-designating and just finishes the enroll (so it recovers rather than hitting ErrRootExists).
 func edgeSetupNew(cfg config, name string) error {
 	// If this machine already has an identity it is already on an Edge - forming a NEW one here would
-	// silently re-root it and abandon that membership. Refuse and point at the deliberate override.
-	if held, _, enrolled, err := edgeIdentityStore().LoadIdentity(); err == nil && enrolled {
+	// silently re-root it and abandon that membership. Refuse and point at the deliberate override. A
+	// LoadIdentity ERROR also refuses (fail closed): an unreadable identity must not be re-rooted over.
+	held, _, enrolled, err := edgeIdentityStore().LoadIdentity()
+	if err != nil {
+		return fmt.Errorf("could not read this machine's Edge identity, so it will not be re-rooted: %w", err)
+	}
+	if enrolled {
 		return usagef("this machine is already on an Edge (as %q). To re-root it deliberately, run "+
 			"`roger edge authority local <name> --force`.", edgeNameOf(held.NodeID, ""))
 	}

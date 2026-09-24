@@ -99,7 +99,8 @@ func (r Request) VerifySignature() error {
 func (r Request) NodePublicKey() (ed25519.PublicKey, error) {
 	raw, err := hex.DecodeString(r.NodeKey)
 	if err != nil || len(raw) != ed25519.PublicKeySize {
-		return nil, errors.New("that enrollment request carries no usable node key")
+		// A client-caused fault, so it is a shaped refusal (a 403), not an internal error.
+		return nil, fmt.Errorf("%w: that enrollment request carries no usable node key", ErrMalformed)
 	}
 	return ed25519.PublicKey(raw), nil
 }

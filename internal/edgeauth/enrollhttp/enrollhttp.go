@@ -37,6 +37,7 @@ func writeAuthError(w http.ResponseWriter, what string, err error) {
 		errors.Is(err, edgeauth.ErrStaleRequest),
 		errors.Is(err, edgeauth.ErrReplayed),
 		errors.Is(err, edgeauth.ErrKeyMismatch),
+		errors.Is(err, edgeauth.ErrMalformed),
 		errors.Is(err, edgeauth.ErrUnknownMachine),
 		errors.Is(err, edgeauth.ErrForeignAccount),
 		errors.Is(err, edgeauth.ErrNotAdopted):

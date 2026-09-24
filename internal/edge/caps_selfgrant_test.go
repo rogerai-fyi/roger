@@ -59,3 +59,27 @@ func TestANodeCannotSelfGrantVerifiedCaps(t *testing.T) {
 	n, _, _ = f.Get(id)
 	require.False(t, Routable(n, Actuate), "actuate still needs the owner after a re-report")
 }
+
+// A serve verification is earned for the bands it was probed against. If the instance later
+// advertises a DIFFERENT band set, the verification does not carry - it must be re-probed - so a
+// re-banded instance cannot route on the strength of an old probe (audit 2026-09-24).
+func TestServeVerificationResetsWhenBandsChange(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	id := "n_bandchange0000000000000000000000000000000000"
+
+	_, err := f.Observe(id, Observation{Name: "w", Kind: "host", Addr: "1.2.3.4:1",
+		Instances: []Instance{{Name: "serve", Bands: []string{"gpt"},
+			Caps: []store.EdgeCap{{Name: string(Serve), State: string(Claimed)}}}}})
+	require.NoError(t, err)
+	require.NoError(t, f.RecordInstanceProbe(id, "serve", Serve, true))
+	n, _, _ := f.Get(id)
+	require.True(t, Routable(n, Serve), "a probed serve routes for its bands")
+
+	// The instance re-appears advertising a different band.
+	_, err = f.Observe(id, Observation{Name: "w", Kind: "host", Addr: "1.2.3.4:1",
+		Instances: []Instance{{Name: "serve", Bands: []string{"llama"},
+			Caps: []store.EdgeCap{{Name: string(Serve), State: string(Claimed)}}}}})
+	require.NoError(t, err)
+	n, _, _ = f.Get(id)
+	require.False(t, Routable(n, Serve), "a re-banded instance must be re-probed before it routes")
+}

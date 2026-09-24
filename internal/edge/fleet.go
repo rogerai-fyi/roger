@@ -603,6 +603,25 @@ func LANAddr(n store.EdgeNode) string {
 	return ""
 }
 
+// sameBands reports whether two band sets are equal as sets (order-insensitive). A serve
+// verification is tied to the bands it was probed against, so a change here re-opens the probe.
+func sameBands(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, x := range a {
+		seen[x]++
+	}
+	for _, x := range b {
+		seen[x]--
+		if seen[x] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // applyInstances records the household a node's face reported. The instances' states are
 // carried per (instance, capability) from what the node already held, so a probe passed
 // against one instance is not forgotten by the next describe; the node's Caps become the
@@ -612,12 +631,14 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 		return // an older face that reports no household: the node-level caps stand
 	}
 	prev := map[string]map[string]store.EdgeCap{}
+	prevBands := map[string][]string{}
 	for _, in := range n.Instances {
 		m := map[string]store.EdgeCap{}
 		for _, c := range in.Caps {
 			m[c.Name] = c
 		}
 		prev[in.Name] = m
+		prevBands[in.Name] = in.Bands
 	}
 	kind := Kind(n.Kind)
 	next := make([]Instance, 0, len(obs.Instances))
@@ -643,7 +664,15 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 			// promote itself).
 			state := string(initialState(cap))
 			if p, ok := prev[in.Name][c.Name]; ok && rank(p.State) > rank(state) {
-				state = p.State // earned once, kept
+				// serve is verified for a SPECIFIC band set (the probe served those bands). If the
+				// instance now advertises different bands, the earned state does not carry - it must
+				// be re-probed - so a re-banded instance cannot route on an old serve probe (audit
+				// 2026-09-24). Other capabilities are not band-scoped and carry as before.
+				if cap == Serve && !sameBands(prevBands[in.Name], in.Bands) {
+					// keep initialState: re-probe required for the new bands
+				} else {
+					state = p.State // earned once, kept
+				}
 			}
 			cp.Caps = append(cp.Caps, store.EdgeCap{Name: c.Name, State: state})
 		}

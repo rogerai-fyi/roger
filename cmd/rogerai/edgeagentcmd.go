@@ -132,10 +132,17 @@ func runEdgeAgent(cfg config) error {
 // runEdgeAgentCtx is runEdgeAgent with the lifetime injected, so a test can start and stop it
 // without sending a real signal to the test process.
 func runEdgeAgentCtx(ctx context.Context, cfg config) error {
+	// Build the host directly so a failure to read/stand up this machine's Edge is an ERROR that
+	// exits, not a silent no-op that blocks forever while the launcher thinks the agent is running
+	// (audit 2026-09-24).
+	h, err := newEdgeHost(loadOrCreateStation())
+	if err != nil {
+		return fmt.Errorf("the Edge agent could not start: %w", err)
+	}
 	var hooks tui.Hooks
-	hooks.Station = loadOrCreateStation()
-	stopEdge := startEdge(&hooks)
-	defer stopEdge()
+	h.wire(&hooks)
+	h.start(context.Background())
+	defer h.stop()
 	<-ctx.Done()
 	return nil
 }
