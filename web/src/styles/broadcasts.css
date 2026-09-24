@@ -213,7 +213,7 @@
   color: var(--ink-700); font-size: var(--t-lead); line-height: 1.6; text-wrap: pretty;
 }
 .bc-answer b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.bc-answer :not(pre) > code {
+.bc-answer code {
   font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: anywhere;
   background: var(--paper-2); border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
 }
@@ -289,8 +289,8 @@
 .bc-signoff { margin-top: var(--s-12); font-size: var(--t-body); line-height: 1.65; }
 .bc-signoff p { margin: 0; color: var(--ink-700); }
 .bc-signoff .install { margin-top: var(--s-4); max-width: none; }
-.bc-signoff :not(pre, .install__box) > code {
-  font-family: var(--font-mono); font-size: 0.88em; overflow-wrap: anywhere;
+.bc-signoff code:not(.install__code) {
+  font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: anywhere;
   background: var(--paper); border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
 }
 .bc-signoff a { color: var(--ink-900); }
@@ -308,3 +308,9 @@
    its anchors land under the nav ---- */
 .bc-post .toc-tuner { padding-block: var(--s-10) 0; }
 .bc-sec[id] { scroll-margin-top: 72px; }
+/* the narrowest phones (<=360px): a command word longer than the whole line (a full
+   URL at the 18px body) may break inside itself rather than push the page sideways;
+   everywhere wider, command words still break only at their spaces */
+@media (max-width: 360px) {
+  .bc-post .cmd-words > span { white-space: normal; overflow-wrap: anywhere; }
+}

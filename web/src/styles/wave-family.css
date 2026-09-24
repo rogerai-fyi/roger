@@ -103,7 +103,8 @@
    caption so the caption can do the reader's job instead of ours. Side by side
    while there is room, so they cost one band rather than two. */
 .wf-rail__notes {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  /* min(19rem, 100%): a 19rem track is wider than a 320px phone's column */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
   gap: var(--s-3) var(--s-6);
   padding: 0 var(--s-5) var(--s-5);
 }
