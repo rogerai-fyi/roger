@@ -132,10 +132,10 @@
    Hero: the lines come into focus the way a station does when you tune
    in - out of a blur, rising, 90ms apart, on the site's ease-out-quint, one
    pass on load and then still. They start faint, never at opacity 0, so the
-   headline paints (and counts as painted) on the first frame. Sections: a CSS scroll
-   timeline moves and sharpens each [data-reveal] block as it enters; it
-   never touches opacity, and browsers without scroll timelines keep the
-   existing site.js settle. fill-mode backwards on the hero, so nothing is
+   headline paints (and counts as painted) on the first frame. Sections: the
+   shared scroll lift (components.css, main[data-lift]) moves and sharpens
+   each [data-reveal] block as it enters; it never touches opacity, and
+   browsers without scroll timelines keep the existing site.js settle. fill-mode backwards on the hero, so nothing is
    left holding a transform (and a stacking context) after it lands. */
 @keyframes lift-line {
   from { opacity: 0.2; transform: translateY(0.4em); filter: blur(8px); }
@@ -144,10 +144,6 @@
 @keyframes lift-panel {
   from { opacity: 0.2; transform: translateY(18px); }
   to   { opacity: 1; transform: none; }
-}
-@keyframes lift-rise {
-  from { transform: translateY(32px); filter: blur(5px); }
-  to   { transform: none; filter: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .hero__eyebrow, .hero__line, .hero__sub, .hero__proof {
@@ -160,12 +156,8 @@
   .hero__proof { animation-delay: 0.5s; }
   .hero__tools { animation: lift-panel 0.9s var(--ease-out-quint) 0.45s backwards; }
   @supports (animation-timeline: view()) {
-    /* outermost blocks only: a reveal nested in a reveal would blur twice */
-    main [data-reveal]:not(.reel):not([data-reveal] [data-reveal]) {
-      animation: lift-rise linear both;
-      animation-timeline: view();
-      animation-range: entry 0% entry 15vh;
-    }
+    /* (the section blocks' rise is the shared scroll lift: main[data-lift],
+       components.css; the reel opts out with data-lift-skip) */
 
     /* the middle's scroll moment: the Wave Spectrum tunes in, pico to exa,
        each wave drawing across and flashing the live red as it locks (the
@@ -242,7 +234,6 @@
        is 85% up the screen (!important: it must beat every staggered range
        above, whatever their specificity) */
     @media (max-width: 1024px), (pointer: coarse) {
-      main [data-reveal],
       main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book, .twoway__side),
       main .plate__grid > div {
         animation-name: lift-touch !important;
@@ -258,10 +249,6 @@
 }
 @keyframes plate-tick {
   from { transform: translateX(-14px); }
-  to   { transform: none; }
-}
-@keyframes lift-touch {
-  from { transform: translateY(20px); }
   to   { transform: none; }
 }
 @keyframes lift-recede {

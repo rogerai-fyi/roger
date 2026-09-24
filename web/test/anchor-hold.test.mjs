@@ -61,7 +61,7 @@ test("a page opened on #anchor stays on its target while late content above it l
 
 test("the homepage opts in to the hold by markup", () => {
   const html = dist("index.html");
-  assert.match(html, /<main id="top" data-anchor-hold>/);
+  assert.match(html, /<main id="top"[^>]*\sdata-anchor-hold[\s>]/);
   assert.match(html, /<script src="js\/anchor-hold\.js(\?v=[0-9a-f]+)?" defer><\/script>/);
 });
 

@@ -309,6 +309,41 @@
 .scrub::-moz-range-thumb { width: 3px; height: 22px; border: 0; border-radius: 1px; background: var(--live); }
 .scrub:focus-visible { outline: 2px solid var(--ink-500); outline-offset: 3px; border-radius: 2px; }
 
+/* ============================ SCROLL LIFT ====================== */
+/* [data-reveal] (base.css + site.js) is the site-wide reveal primitive:
+   visible without JS, settled by site.js. A page opts in to the scroll lift
+   by marking a container [data-lift] (the homepage's <main>): each
+   outermost [data-reveal] block in it rises and sharpens as it enters, on a
+   CSS scroll timeline where supported. Transform and blur only, never
+   opacity, so wherever the reader stops is a resting state. Touch, phones
+   and tablets get one plain rise, finished by 85% of the viewport. A block
+   that must not lift carries data-lift-skip. Reduced motion: nothing. */
+@keyframes lift-rise {
+  from { transform: translateY(32px); filter: blur(5px); }
+  to   { transform: none; filter: none; }
+}
+@keyframes lift-touch {
+  from { transform: translateY(20px); }
+  to   { transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    /* outermost blocks only: a reveal nested in a reveal would blur twice */
+    [data-lift] [data-reveal]:not([data-lift-skip]):not([data-reveal] [data-reveal]) {
+      animation: lift-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 15vh;
+    }
+    /* (!important: it must beat any page's staggered ranges, whatever their specificity) */
+    @media (max-width: 1024px), (pointer: coarse) {
+      [data-lift] [data-reveal] {
+        animation-name: lift-touch !important;
+        animation-range: entry 0% entry 15vh !important;
+      }
+    }
+  }
+}
+
 /* ======================= PRESS + COPY TICK ===================== */
 /* hardware-button feedback: a pressable sinks 1px while held; a copy button
    with an icon swaps the icon for a tick while site.js marks it .is-copied */

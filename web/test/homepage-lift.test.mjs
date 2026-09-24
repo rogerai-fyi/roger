@@ -87,8 +87,14 @@ test("(b) the scroll reveal is progressive: CSS scroll timelines only where supp
   const css = read("styles/home.css");
   const inside = mediaBlocks(css, /prefers-reduced-motion:\s*no-preference/).map((b) => b.body).join("\n");
   assert.match(inside, /@supports\s*\(animation-timeline:\s*view\(\)\)[\s\S]*animation-timeline:\s*view\(\)/);
+  // the section rise is the shared scroll lift (components.css), opted into by <main data-lift>
+  assert.match(read("index.html"), /<main id="top"[^>]*\sdata-lift[\s>]/, "the homepage opts in to the scroll lift");
+  const shared = read("styles/components.css");
+  const lift = mediaBlocks(shared, /prefers-reduced-motion:\s*no-preference/).map((b) => b.body).join("\n");
+  assert.match(lift, /@supports\s*\(animation-timeline:\s*view\(\)\)[\s\S]*\[data-lift\] \[data-reveal\][^{]*\{[^}]*animation:\s*lift-rise[^}]*animation-timeline:\s*view\(\)/,
+    "the lift runs only under no-preference, only where scroll timelines exist");
   // the reveal never fades content out: opacity is not part of it
-  const reveal = css.match(/@keyframes\s+lift-rise\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
+  const reveal = shared.match(/@keyframes\s+lift-rise\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
   assert.ok(reveal, "lift-rise keyframes found");
   assert.doesNotMatch(reveal, /opacity/, "the scroll reveal moves and sharpens, it never hides");
 });

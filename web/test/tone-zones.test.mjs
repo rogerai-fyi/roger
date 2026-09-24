@@ -125,7 +125,11 @@ test("touch, phones and tablets: reveals never blur and never rest below 0.9 opa
   const touch = home.match(/@media \(max-width: 1024px\), \(pointer: coarse\)\s*\{([\s\S]*?)\n    \}/)?.[1] || "";
   assert.match(touch, /animation-name:\s*lift-touch/, "one plain reveal for every block");
   assert.match(touch, /animation-range:\s*entry 0% entry 15vh/, "finished by 85% of the viewport");
-  const kf = home.match(/@keyframes lift-touch\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
+  // ...and the [data-reveal] blocks themselves get the same plain rise from the shared lift
+  const shared = read("styles/components.css");
+  const sharedTouch = shared.match(/@media \(max-width: 1024px\), \(pointer: coarse\)\s*\{([\s\S]*?)\n    \}/)?.[1] || "";
+  assert.match(sharedTouch, /\[data-lift\] \[data-reveal\]\s*\{[^}]*animation-name:\s*lift-touch !important[^}]*animation-range:\s*entry 0% entry 15vh !important/);
+  const kf = shared.match(/@keyframes lift-touch\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
   assert.ok(kf, "lift-touch keyframes");
   assert.doesNotMatch(kf, /filter/);
   for (const m of kf.matchAll(/opacity:\s*([\d.]+)/g)) assert.ok(Number(m[1]) >= 0.9);
