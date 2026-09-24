@@ -9,66 +9,103 @@
    on the dial, so this file has no live-data state to style.
    ===================================================================== */
 
-/* the three ways in: free, paid, your own. Same divider-by-gap trick as
-   .deployment-grid, so the rules never have to be re-derived per breakpoint. */
-.paths {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px; background: var(--hairline);
-  border-block: 2px solid var(--ink-900);
-}
-.paths article { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-6); background: var(--paper); }
+/* anchors (the tuner, the hero links) land under the nav, not beneath it */
+section[id] { scroll-margin-top: 72px; }
+/* the tuner under the hero is the divider: no hairline as well */
+.research-hero:has(+ .toc-tuner) { border-bottom: 0; padding-bottom: 0; }
+
+/* the six ways in: tinted panels (components.css .tint-panel) separated by
+   space, the cost chip the only mark on each. Phones get a swipeable row
+   (a dense card set, the homepage's gallery idiom) instead of six screens. */
+.paths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-5); }
+.paths article { display: flex; flex-direction: column; gap: var(--s-3); }
 .paths h3 { margin: 0; color: var(--ink-900); font-size: var(--t-h3); }
 .paths p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
 .paths__cost {
   align-self: flex-start; font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .08em; text-transform: uppercase; color: var(--live);
-  border: 1px solid var(--live); padding: 3px 7px;
+  border: 1px solid var(--live); border-radius: var(--r-pill); padding: 3px 9px;
 }
 .paths__cost--none { color: var(--ink-500); border-color: var(--hairline-2); }
-.paths a { margin-top: auto; padding-top: var(--s-4); font-size: var(--t-sm); }
+.paths a { align-self: flex-start; margin-top: auto; font-size: var(--t-sm); }
+.paths p:last-of-type { margin-bottom: var(--s-4); }
 
-/* the rule plates. A row is a rule and its consequence, never a price. */
-.pplate { margin: 0; border-top: 2px solid var(--ink-900); }
+/* the rule plates, on a tinted panel. A row is a rule and its consequence,
+   never a price. Hairlines between rows only. */
+.pplate { margin: 0; padding-block: var(--s-2); }
 .pplate > div {
   display: grid; grid-template-columns: minmax(150px, 210px) 1fr;
   gap: var(--s-5); padding-block: var(--s-4);
-  border-bottom: 1px solid var(--hairline);
 }
+.pplate > div + div { border-top: 1px solid var(--hairline); }
 .pplate dt {
-  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .08em; text-transform: uppercase; padding-top: 2px;
 }
 .pplate dd { margin: 0; color: var(--ink-700); line-height: var(--lh-body); }
 .pplate dd b { color: var(--ink-900); }
-.pplate dd code {
-  font-family: var(--font-mono); font-size: .9em; color: var(--ink-900);
-  background: var(--paper-2); border: 1px solid var(--hairline); padding: 1px 5px;
-}
+/* a link in a plate row gets the site's in-prose treatment (base.css covers p and li only) */
+.pplate dd > a:not([class]) { border-bottom: 1px solid color-mix(in srgb, var(--live) 55%, transparent); }
+.pplate dd > a:not([class]):is(:hover, :focus-visible) { color: var(--live); border-bottom-color: var(--live); }
+.pplate .copy-code { background: var(--paper); }
+.pplate .copy-code::after { background: var(--paper); box-shadow: 2px -2px 0 -1px var(--paper), 2px -2px 0 0 var(--ink-500); }
 
-/* the four price-safety guards, two across */
+/* the four price-safety guards, two across, on tinted panels */
 .guards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5); }
-.guards article { border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900); padding: var(--s-5); }
 .guards h3 { margin: 0 0 var(--s-3); color: var(--ink-900); font-size: var(--t-sm); font-family: var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
 .guards p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
 
-/* the earnings lifecycle, as a row of stages rather than a diagram */
-.lifecycle { margin-top: var(--s-8); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900); }
-.lifecycle article { padding: var(--s-5); background: var(--paper); }
-.lifecycle b { display: block; font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em; text-transform: uppercase; color: var(--live); }
+/* the earnings lifecycle as a scale: four stations on one hairline, a tick
+   above each. scrub.js puts its needle above the row; the tuned stage wears
+   the red (its tick and its name). */
+.lifecycle {
+  list-style: none; margin: var(--s-10) 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+/* the scrubber's track lies on the scale's own hairline */
+#earn .scrub { position: relative; z-index: 1; margin-top: var(--s-10); margin-bottom: -12px; }
+#earn .scrub + .lifecycle { margin-top: 0; }
+.lifecycle li { position: relative; padding: var(--s-5) var(--s-3) 0; border-top: 1px solid var(--hairline-2); }
+.lifecycle li::before {
+  content: ""; position: absolute; top: -7px; left: 50%; width: 1px; height: 13px;
+  background: var(--ink-500); transition: background-color var(--d-2);
+}
+.lifecycle b { display: block; text-align: center; font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-900); }
 .lifecycle span { display: block; margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.lifecycle li.is-tuned::before { width: 2px; margin-left: -.5px; background: var(--live); }
+.lifecycle li.is-tuned b { color: var(--live); }
 
-/* the free list: things that never reach a wallet */
-.freelist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hairline); }
-.freelist li { padding-block: var(--s-4); border-bottom: 1px solid var(--hairline); color: var(--ink-700); }
+/* the free list: things that never reach a wallet. Two columns, hairlines on top. */
+.freelist {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--s-8);
+}
+.freelist li { padding-block: var(--s-4); border-top: 1px solid var(--hairline); color: var(--ink-700); line-height: var(--lh-body); }
 .freelist li b { color: var(--ink-900); }
 
 @media (max-width: 900px) {
-  .paths, .lifecycle { grid-template-columns: 1fr; }
-  .guards { grid-template-columns: 1fr; }
+  .paths { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .guards, .freelist { grid-template-columns: 1fr; }
+  .lifecycle { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--s-8); column-gap: var(--s-5); }
+  .lifecycle li { padding-inline: 0; }
+  #earn .scrub { display: none; }
+}
+@media (max-width: 640px) {
+  /* six panels become one swipeable row; each shows a sliver of the next */
+  .paths {
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 84%;
+    gap: var(--s-3); overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory; scroll-padding-inline: 0; padding-bottom: var(--s-3);
+  }
+  .paths article { scroll-snap-align: start; }
+  .lifecycle { grid-template-columns: 1fr; row-gap: var(--s-6); }
+  .lifecycle b { text-align: left; }
+  .lifecycle li::before { left: 0; }
 }
 @media (max-width: 620px) {
   .pplate > div { grid-template-columns: 1fr; gap: var(--s-2); }
 }
+@media (prefers-reduced-motion: reduce) { .lifecycle li::before { transition: none; } }
 
 /* =====================================================================
    THE CALCULATOR
@@ -76,8 +113,8 @@
    the arithmetic that produced it. The working is shown because the whole
    argument against the competitor's version is that theirs has none.
    ===================================================================== */
-.calc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-8); }
-.calc__card { border-top: 2px solid var(--ink-900); padding-top: var(--s-5); display: flex; flex-direction: column; }
+.calc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5); }
+.calc__card { display: flex; flex-direction: column; }
 .calc__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3); }
 .calc__head h3 { margin: 0; color: var(--ink-900); font-size: var(--t-h3); }
 .calc__tag {
@@ -92,12 +129,12 @@
   align-items: center; padding-block: var(--s-3); border-bottom: 1px solid var(--hairline);
 }
 .calc__field label { color: var(--ink-700); font-size: var(--t-sm); line-height: 1.4; }
-.calc__field input {
+.calc__field input[type="number"] {
   width: 8ch; padding: 5px 8px; text-align: right;
   font-family: var(--font-mono); font-size: var(--t-sm); font-variant-numeric: tabular-nums;
   color: var(--ink-900); background: var(--paper); border: 1px solid var(--hairline-2);
 }
-.calc__field input:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.calc__field input[type="number"]:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .calc__hint {
   grid-column: 1 / -1; margin-top: -2px;
   font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
@@ -112,13 +149,13 @@
 
 .calc__formula {
   margin: var(--s-4) 0 0; padding: var(--s-3) var(--s-4);
-  background: var(--paper-2); border: 1px solid var(--hairline);
+  background: var(--paper); border-radius: var(--r-md);
   font-family: var(--font-mono); font-size: var(--t-xs); line-height: 1.7;
   color: var(--ink-500); overflow-x: auto;
 }
 .calc__fine { margin: var(--s-4) 0 0; color: var(--ink-400); font-size: var(--t-xs); line-height: var(--lh-body); }
 
-@media (max-width: 820px) { .calc { grid-template-columns: 1fr; gap: var(--s-10); } }
+@media (max-width: 820px) { .calc { grid-template-columns: 1fr; } }
 
 /* ==== §0 THE RELAY WIRE - what the fee buys, drawn ==========================
    Two payloads leave YOU: the job (the one red) and the identity chips (grey).
@@ -134,7 +171,7 @@
   font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em;
   fill: var(--ink-700);
 }
-.rwire__micro { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink-400); }
+.rwire__micro { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink-500); }
 .rwire__chip { fill: var(--paper-2); stroke: var(--hairline-2); stroke-width: 1; }
 .rwire__chiptext {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
@@ -169,20 +206,19 @@
 /* the four claims - trust rows, not prose */
 .whyrows {
   list-style: none; margin: var(--s-6) 0 0; padding: 0;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
-  background: var(--hairline); border: 1px solid var(--hairline);
+  display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--s-8);
 }
 .whyrows li {
-  display: flex; align-items: baseline; gap: var(--s-4);
-  padding: var(--s-4) var(--s-5); background: var(--paper);
+  display: grid; grid-template-columns: 6.5em 1fr; align-items: baseline; gap: var(--s-4);
+  padding-block: var(--s-4); border-top: 1px solid var(--hairline);
   font-size: var(--t-sm); line-height: var(--lh-body); color: var(--ink-700);
 }
 .whyrows__k {
-  flex: 0 0 5.5em; font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: 0.1em; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: 0.1em; color: var(--ink-500);
 }
 .whyfine {
-  margin: var(--s-4) 0 0; color: var(--ink-400); font-size: var(--t-xs);
+  margin: var(--s-4) 0 0; color: var(--ink-500); font-size: var(--t-xs);
   line-height: var(--lh-body);
 }
 @media (max-width: 640px) { .whyrows { grid-template-columns: 1fr; } }
@@ -192,7 +228,7 @@
 @media (max-width: 640px) {
   .rwire svg { min-width: 0; }
   .rwire__nodelabel { font-size: 20px; }
-  .rwire__micro { font-size: 16px; }
+  .rwire__micro { font-size: 13px; }
   .rwire__chiptext { font-size: 15px; }
   .rwire__line, .rwire__ring, .rwire__tower { stroke-width: 3; }
 }

@@ -21,7 +21,7 @@
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 pricingcurrent='aria-current="page"' -->
 
-  <main id="top">
+  <main id="top" data-lift>
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
@@ -38,17 +38,37 @@
           the dial and it moves. What does not move is the
           part below: how you are billed, what you can be billed, and what an operator keeps.
         </p>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="/models.html">Live prices on the dial <span aria-hidden="true">&rarr;</span></a>
-          <a class="research-button" href="#paths">Ways in <span aria-hidden="true">&darr;</span></a>
-          <a class="research-button" href="#earn">Earning <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button research-button--quiet" href="#paths">Ways in <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button research-button--quiet" href="#earn">Earning <span aria-hidden="true">&darr;</span></a>
         </div>
       </div>
     </section>
 
+    <!-- The page's contents as the homepage's tuning scale (components.css .toc-tuner,
+         tuner.js). Each station reads its section's own label, so the tuner adds no
+         words. Never pinned. Contract: test/models-lift.test.mjs. -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#why"><b>&sect;0</b><span class="toc-tuner__name">WHAT THE FEE BUYS</span></a></li>
+        <li><a class="toc-tuner__st" href="#paths"><b>&sect;1</b><span class="toc-tuner__name">THE WAYS IN</span></a></li>
+        <li><a class="toc-tuner__st" href="#pay"><b>&sect;2</b><span class="toc-tuner__name">WHAT YOU PAY</span></a></li>
+        <li><a class="toc-tuner__st" href="#safety"><b>&sect;3</b><span class="toc-tuner__name">PRICE SAFETY</span></a></li>
+        <li><a class="toc-tuner__st" href="#earn"><b>&sect;4</b><span class="toc-tuner__name">WHAT YOU EARN</span></a></li>
+        <li><a class="toc-tuner__st" href="#calc"><b>&sect;5</b><span class="toc-tuner__name">THE ARITHMETIC</span></a></li>
+        <li><a class="toc-tuner__st" href="#free"><b>&sect;6</b><span class="toc-tuner__name">WHAT IS NOT BILLED</span></a></li>
+        <li><a class="toc-tuner__st" href="#ask"><b>&sect;7</b><span class="toc-tuner__name">STILL UNSURE</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
     <section class="section" id="why">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;0 / WHAT THE FEE BUYS</span>
           <h2>The waves carry your words. Never your name.</h2>
         </div>
@@ -91,7 +111,7 @@
           </svg>
         </figure>
 
-        <ul class="whyrows">
+        <ul class="whyrows" data-reveal>
           <li><span class="whyrows__k">SEEN</span>
             <span>The upstream sees a station, never a person. Not your name, not your
               card, not your IP.</span></li>
@@ -146,7 +166,7 @@
 
     <section class="section" id="paths">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;1 / THE WAYS IN</span>
           <h2>Every way onto the band.</h2>
           <p>Start wherever you already are - your own machine, a friend&rsquo;s, the open
@@ -156,7 +176,7 @@
         </div>
 
         <div class="paths">
-          <article>
+          <article class="tint-panel">
             <span class="paths__cost paths__cost--none">costs nothing</span>
             <h3>Your own station</h3>
             <p>Run <code>roger share</code> and your machine is on the air - free by
@@ -164,7 +184,7 @@
                metered, and there is nobody to pay.</p>
             <a class="tlink" href="/broadcasts-share-gpu-earn.html">One command puts it up &rarr;</a>
           </article>
-          <article>
+          <article class="tint-panel">
             <span class="paths__cost paths__cost--none">costs nothing</span>
             <h3>A friend&rsquo;s station</h3>
             <p>Someone you trust runs the same command and reads you the callsign. Their
@@ -172,7 +192,7 @@
                zero, between friends.</p>
             <a class="tlink" href="/manual.html#quickstart">How to tune in &rarr;</a>
           </article>
-          <article>
+          <article class="tint-panel">
             <span class="paths__cost paths__cost--none">costs nothing</span>
             <h3>A free station</h3>
             <p>Bands broadcast at zero all the time - people who put a machine up because they
@@ -181,7 +201,7 @@
                in, point your tool at it.</p>
             <a class="tlink" href="/models.html">See what is free right now &rarr;</a>
           </article>
-          <article>
+          <article class="tint-panel">
             <span class="paths__cost">per token</span>
             <h3>A paid station</h3>
             <p>You log in once, so there is a wallet to debit, and pay per token - input and
@@ -189,7 +209,7 @@
                published. The balance ticks down as the answer streams.</p>
             <a class="tlink" href="#pay">What you can be charged &darr;</a>
           </article>
-          <article>
+          <article class="tint-panel">
             <span class="paths__cost">list + 10%</span>
             <h3>A curated station</h3>
             <p>Run by a person like every other station - one who resells <b>their own
@@ -200,7 +220,7 @@
                list.</p>
             <a class="tlink" href="#why">What the fee buys &rarr;</a>
           </article>
-          <article>
+          <article class="tint-panel">
             <span class="paths__cost paths__cost--none">costs nothing</span>
             <h3>Your own tower</h3>
             <p>A Tower is a program, and one running standalone needs nothing from us: your
@@ -214,14 +234,14 @@
 
     <section class="section" id="pay">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;2 / WHAT YOU PAY</span>
           <h2>Per token, from a wallet, at a price the operator set.</h2>
           <p>The whole billing model in one plate. None of these are introductory and none of
              them change when you spend more.</p>
         </div>
 
-        <dl class="pplate">
+        <dl class="pplate tint-panel" data-reveal>
           <div>
             <dt>Unit</dt>
             <dd>Per <b>token</b>, input and output priced separately, quoted in dollars per
@@ -253,7 +273,7 @@
           <div>
             <dt>Top-ups</dt>
             <dd>Through Stripe Checkout, in whatever amount you choose above the
-                <b>$1</b> minimum: <code>roger topup 25</code>. Stripe is the payments
+                <b>$1</b> minimum: <button class="copy-code" type="button" data-copy-target aria-label="Copy roger topup 25"><code>roger topup 25</code></button>. Stripe is the payments
                 provider and holds every card detail; we never see one.</dd>
           </div>
           <div>
@@ -274,33 +294,33 @@
 
     <section class="section" id="safety">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;3 / PRICE SAFETY</span>
           <h2>An open market needs a guard rail on the expensive side.</h2>
           <p>Anyone can list a station, which means anyone can list an absurd one. Four rules
              stand between a typo - yours or theirs - and your balance.</p>
         </div>
 
-        <div class="guards">
-          <article>
+        <div class="guards" data-reveal>
+          <article class="tint-panel">
             <h3>A ceiling you did not have to set</h3>
             <p>Set no limit and the client still caps every connection at <b>$10 / 1M</b> out.
                That floor holds even under <code>--yes</code>, so an unattended bot can never
                quietly bind itself to an expensive band.</p>
           </article>
-          <article>
+          <article class="tint-panel">
             <h3>Type the price back</h3>
             <p>To accept a station above <b>$20 / 1M</b> out you have to type the number, not
                press y. A deliberate speed bump on the genuinely costly end of the dial.</p>
           </article>
-          <article>
+          <article class="tint-panel">
             <h3>A listing ceiling</h3>
             <p>The broker refuses to register a station above <b>$100 / 1M</b> out or
                <b>$50 / 1M</b> in, base rate and every scheduled window. It binds
                <b>every band, public or private</b>: a private band hides a station from the
                market, it is not a way around the ceiling.</p>
           </article>
-          <article>
+          <article class="tint-panel">
             <h3>No price hike, ever</h3>
             <p>Your ceiling is not a one-time check at connect. It rides <b>every request</b>
                as a header, so a station cannot raise its rate under you mid-session. If a
@@ -312,7 +332,7 @@
 
     <section class="section" id="earn">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;4 / WHAT YOU EARN</span>
           <h2>You set the price. You keep 90 percent.</h2>
           <p>The other side of the same market, and there are two ways to be on it: serve a
@@ -321,7 +341,7 @@
              operator.</p>
         </div>
 
-        <dl class="pplate">
+        <dl class="pplate tint-panel" data-reveal>
           <div>
             <dt>Your GPU</dt>
             <dd><b>90%</b> of every token you serve, at a price you set. The 10% platform
@@ -334,7 +354,7 @@
                 <b>list back whole, plus half the routing fee</b> - the network keeps the
                 other half. Stated as a share of the fee, never of the price, so you
                 cannot be underwater at any markup. One flag:
-                <code>roger share --curated</code>.</dd>
+                <button class="copy-code" type="button" data-copy-target aria-label="Copy roger share --curated"><code>roger share --curated</code></button>.</dd>
           </div>
           <div>
             <dt>What the 10% is</dt>
@@ -373,12 +393,12 @@
           </div>
         </dl>
 
-        <div class="lifecycle">
-          <article><b>Accrued</b><span>A served request credits your share the moment it settles.</span></article>
-          <article><b>Held</b><span>The principal for 30 days; a 10% reserve slice stays back until day 90 to cover the late-chargeback tail.</span></article>
-          <article><b>Payable</b><span>Hold cleared, no open dispute, Connect onboarding done.</span></article>
-          <article><b>Paid</b><span>You request a payout and Stripe transfers it to your bank.</span></article>
-        </div>
+        <ol class="lifecycle" data-scrub aria-label="The life of an earning, accrued to paid">
+          <li><b>Accrued</b><span>A served request credits your share the moment it settles.</span></li>
+          <li><b>Held</b><span>The principal for 30 days; a 10% reserve slice stays back until day 90 to cover the late-chargeback tail.</span></li>
+          <li><b>Payable</b><span>Hold cleared, no open dispute, Connect onboarding done.</span></li>
+          <li><b>Paid</b><span>You request a payout and Stripe transfers it to your bank.</span></li>
+        </ol>
       </div>
     </section>
 
@@ -388,17 +408,19 @@
          keeping somebody else's rate sheet current, on the one page whose whole argument
          is that we do not publish prices we do not control.
          Contract: test/calculator.test.mjs. -->
+    <!-- INK PANEL: the page's one moment, the two sums (components.css .tone-zone). -->
+    <div class="tone-zone" data-tone="ink">
     <section class="section" id="calc">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;5 / THE ARITHMETIC</span>
           <h2>Two sums, both of which show their working.</h2>
           <p>Neither of these is a forecast. One is capacity times a price you set; the
              other is your own bill, re-priced. The numbers you type stay in your browser.</p>
         </div>
 
-        <div class="calc">
-          <article class="calc__card" data-calc="operator">
+        <div class="calc" data-reveal>
+          <article class="calc__card tint-panel" data-calc="operator">
             <header class="calc__head">
               <h3>What could a card earn?</h3>
               <span class="calc__tag">estimate</span>
@@ -417,11 +439,11 @@
             </div>
             <div class="calc__field">
               <label for="opHours">Hours on air per day</label>
-              <input type="number" id="opHours" value="8" min="0" max="24" step="0.5" inputmode="decimal" />
+              <input type="number" id="opHours" value="8" min="0" max="24" step="0.5" inputmode="decimal" data-range-twin />
             </div>
             <div class="calc__field">
               <label for="opBusy">How busy, % of on-air time actually serving</label>
-              <input type="number" id="opBusy" value="25" min="0" max="100" step="1" inputmode="numeric" />
+              <input type="number" id="opBusy" value="25" min="0" max="100" step="1" inputmode="numeric" data-range-twin />
             </div>
 
             <output class="calc__out" id="opOut" for="opRate opTps opHours opBusy" aria-live="polite">
@@ -436,7 +458,7 @@
                rest. A station nobody tunes to earns nothing, however fast the card.</p>
           </article>
 
-          <article class="calc__card" data-calc="consumer">
+          <article class="calc__card tint-panel" data-calc="consumer">
             <header class="calc__head">
               <h3>What are you paying now?</h3>
               <span class="calc__tag">your numbers</span>
@@ -492,14 +514,15 @@
         </noscript>
       </div>
     </section>
+    </div><!-- /tone-zone -->
 
     <section class="section" id="free">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;6 / WHAT IS NOT BILLED</span>
           <h2>The list of things nobody is charging you for.</h2>
         </div>
-        <ul class="freelist">
+        <ul class="freelist" data-reveal>
           <li><b>Reading the dial.</b> The whole live directory, every station and every price, with no account.</li>
           <li><b>The software.</b> The CLI, the terminal app, the iOS and Mac app, and the source. There is no paid edition.</li>
           <li><b>Serving for free.</b> Running a station at a rate of zero costs nothing and is not rate-limited into uselessness.</li>
@@ -512,17 +535,17 @@
 
     <section class="section research-closing" id="ask">
       <div class="wrap">
-        <div class="section__head">
+        <div class="section__head" data-reveal>
           <span class="sectionno">&sect;7 / STILL UNSURE</span>
           <h2>The questions people actually write in with.</h2>
           <p>Whether an operator can read your prompts, what happens when a station drops
              mid-answer, and whether you need to open a port. All answered plainly, with a
              line into the manual where the full version lives.</p>
         </div>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="/faq.html">Read the FAQ <span aria-hidden="true">&rarr;</span></a>
-          <a class="research-button" href="/manual.html#s6">The manual on money</a>
-          <a class="research-button" data-lets-talk aria-expanded="false"
+          <a class="research-button research-button--quiet" href="/manual.html#s6">The manual on money</a>
+          <a class="research-button research-button--quiet" data-lets-talk aria-expanded="false"
              href="mailto:labs@rogerai.fm?subject=Pricing%20question">Let&rsquo;s talk</a>
         </div>
       </div>

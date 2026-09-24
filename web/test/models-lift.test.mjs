@@ -99,9 +99,9 @@ test("pricing: the cards and plates are tinted panels, not boxed grids", () => {
   const html = src("pricing.html");
   assert.equal((sectionOf(html, "paths").match(/<article class="tint-panel">/g) || []).length, 6, "six path panels");
   assert.equal((sectionOf(html, "safety").match(/<article class="tint-panel">/g) || []).length, 4, "four guard panels");
-  assert.equal((html.match(/<dl class="pplate tint-panel">/g) || []).length, 2, "both rule plates sit on a panel");
+  assert.equal((html.match(/<dl class="pplate tint-panel"[ >]/g) || []).length, 2, "both rule plates sit on a panel");
   const css = stripCss(src("styles/pricing.css"));
-  assert.doesNotMatch(css, /2px solid/, "no 2px ink rules left on the pricing sheet");
+  assert.doesNotMatch(css, /2px solid var\(--ink-900\)/, "no 2px ink rules left on the pricing sheet");
   assert.doesNotMatch(css, /gap:\s*1px;\s*background:\s*var\(--hairline\)/, "no divider-by-gap box grids");
 });
 
