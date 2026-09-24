@@ -17,6 +17,7 @@ never the other way round.
 | Components | `src/styles/components.css` | the shared components below, each with a markup contract. |
 | Account base | `src/styles/account-base.css` | the signed-in surface (account pages only). |
 | Page | `src/styles/<page>.css` | only what is true of one page (or one family: `research.css` is the shell of the research, company, pricing, FAQ and careers pages; `broadcasts.css` of the articles). |
+| Research overlay | `src/styles/research-labs.css` | the research pages' side of the site lift (panels instead of ruled frames, AA labels), loaded after `research.css` on the five research pages only, so the shell's other pages can move separately. Fold it into `research.css` once they have. |
 
 The first three load on every page, in that order: `CSS_SHARED` in `build.mjs`. A
 page's bundle is `CSS_BUNDLES[page]` in the same file, and `head.html`'s
@@ -213,6 +214,17 @@ its own words and gains a quiet `+`/`-` mark. Used by the broadcasts telegram.
 ink panel's inset geometry (64px outside the text column, never closer than
 `--panel-inset`), no top/bottom rules. Used by the research pages for their set-apart
 sections instead of full-bleed ruled bands.
+
+### The article kit (broadcasts.css)
+Every `broadcasts-*.html` reads the same way: one measure (`--bc-measure`, 42rem), one
+body size, the lead step, quiet section numbers (`.bc-sec__no`: muted mono, only the
+section mark red), `.bc-answer` for a Quick Answer (prose face, 2px red rule), the FAQ
+`<dl class="bc-faq">` (its `<dt><b>` mirrors the FAQPage JSON-LD, tested), a sign-off
+`<aside class="inset-panel bc-signoff">` whose closing install command is the
+install-box partial (`id=signoffInstall`), `.bc-table` for a data table in a
+`.figure > .scroll-box`, and the shared `.figure`/`.code-block`. Long pieces carry the
+toc-tuner above the body, one station per numbered `.bc-sec` (`id="sN"`). No inline
+style and no colour literal in an article (guarded).
 
 ## Adding a page
 
