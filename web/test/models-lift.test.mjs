@@ -97,9 +97,9 @@ test("pricing: the calculators are the page's one ink panel", () => {
 
 test("pricing: the cards and plates are tinted panels, not boxed grids", () => {
   const html = src("pricing.html");
-  assert.equal((sectionOf(html, "paths").match(/<article class="panel">/g) || []).length, 6, "six path panels");
-  assert.equal((sectionOf(html, "safety").match(/<article class="panel">/g) || []).length, 4, "four guard panels");
-  assert.equal((html.match(/<dl class="pplate panel">/g) || []).length, 2, "both rule plates sit on a panel");
+  assert.equal((sectionOf(html, "paths").match(/<article class="tint-panel">/g) || []).length, 6, "six path panels");
+  assert.equal((sectionOf(html, "safety").match(/<article class="tint-panel">/g) || []).length, 4, "four guard panels");
+  assert.equal((html.match(/<dl class="pplate tint-panel">/g) || []).length, 2, "both rule plates sit on a panel");
   const css = stripCss(src("styles/pricing.css"));
   assert.doesNotMatch(css, /2px solid/, "no 2px ink rules left on the pricing sheet");
   assert.doesNotMatch(css, /gap:\s*1px;\s*background:\s*var\(--hairline\)/, "no divider-by-gap box grids");
@@ -147,7 +147,7 @@ test("pricing: sections land under the nav and reveal through the shared lift", 
 
 test("system: the new components are defined once, in components.css, with a behaviour module", () => {
   const css = stripCss(src("styles/components.css"));
-  for (const sel of [".panel", ".research-actions--lead", ".research-button--quiet", ".copy-code", ".range-twin"]) {
+  for (const sel of [".tint-panel", ".research-actions--lead", ".research-button--quiet", ".copy-code", ".range-twin"]) {
     assert.ok(css.includes(sel), `components.css defines ${sel}`);
   }
   const js = src("js/range-twin.js");
@@ -162,6 +162,6 @@ test("system: the new components are defined once, in components.css, with a beh
 
 test("system: every new motion is opt-in or switched off under reduced motion", () => {
   const css = stripCss(src("styles/components.css"));
-  const block = css.slice(css.indexOf(".panel"));
+  const block = css.slice(css.indexOf(".tint-panel"));
   assert.doesNotMatch(block.replace(/@media \(prefers-reduced-motion: no-preference\)\s*\{[\s\S]*?\n\}/g, ""), /animation:\s*(?!none)[\w-]+\s+[\d.]+m?s/, "animations live under no-preference");
 });

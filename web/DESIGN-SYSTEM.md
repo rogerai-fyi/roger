@@ -124,7 +124,7 @@ Inset from the page edge (64px outside the text column, never closer than
 Everything inside re-themes via the scoped tokens.
 
 ### Tinted panel
-`<article class="panel">` (or `class="x panel"` on any block): `--paper-2` ground, radius
+`<article class="tint-panel">` (or `class="x tint-panel"` on any block; `.panel` is the account pages' own card): `--paper-2` ground, radius
 `--panel-r`, a fluid padding, no border and no shadow. Space separates panels, never a
 rule. Inside an ink panel it re-themes with the scoped tokens. The homepage still writes
 the same look per component (the tuner band, its cards); the Models-menu pages use the
