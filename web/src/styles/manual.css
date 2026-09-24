@@ -7,11 +7,7 @@
    ===================================================================== */
 /* page masthead: the cover plate of the manual */
 .man-cover { padding-block: clamp(56px, 8vw, 104px) clamp(32px, 5vw, 56px); }
-.man-cover__plate {
-  border: 1px solid var(--hairline-2); border-radius: var(--r-lg);
-  background: var(--white); box-shadow: var(--e-1);
-  padding: clamp(28px, 4vw, 48px); position: relative;
-}
+.man-cover__plate { padding: clamp(28px, 4vw, 48px); position: relative; } /* the plate is a .tint-panel */
 .man-cover h1 {
   font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
   color: var(--ink-900); margin-top: var(--s-4);
@@ -19,13 +15,13 @@
 .man-cover__sub { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
 .man-cover__meta {
   margin-top: var(--s-6); display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-6);
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 .man-cover__meta b { color: var(--ink-700); font-weight: var(--weight-semi); }
 
 /* ---- quickstart: the 30-second path, above the full reference ---- */
-.man-quick { padding-block: 0 clamp(40px, 6vw, 72px); border-bottom: 1px solid var(--hairline); }
+.man-quick { padding-block: 0 clamp(16px, 3vw, 32px); }
 .man-quick__eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--volt);
@@ -35,63 +31,50 @@
 .man-quick__lead { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
 .man-quick__grid {
   margin-top: var(--s-6); display: grid; gap: var(--s-4);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
 }
 /* Single column on a phone. minmax(0, 1fr) - NOT a bare 1fr (= minmax(auto,1fr)) - so the
    column may shrink below a child <pre>'s min-content instead of being forced wide by it. */
 @media (max-width: 880px) { .man-quick__grid { grid-template-columns: minmax(0, 1fr); } }
 .man-quick__card {
-  border: 1px solid var(--hairline-2); border-radius: var(--r-lg);
-  background: var(--white); box-shadow: var(--e-1);
-  padding: clamp(18px, 2vw, 24px);
-  min-width: 0; /* a grid item defaults to min-width:auto; 0 lets the <pre> scroll, not bleed */
+  /* a .tint-panel; a grid item defaults to min-width:auto, 0 lets the <pre> scroll, not bleed */
+  padding: clamp(18px, 2vw, 24px); min-width: 0;
 }
+/* the install command in a narrow card wraps at its spaces rather than cutting off */
+.man-quick__card .install__box { margin-top: var(--s-3); background: var(--paper); }
+/* (the URL is one long token: in a card this narrow it may break inside, never cut off) */
+.man-quick__card .install__code { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-size: .8125rem; }
 .man-quick__step {
   display: inline-block;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.1em;
 }
 .man-quick__card p { margin-top: var(--s-3); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
 .man-quick__card pre {
   margin-top: var(--s-3); padding: 14px 16px; overflow-x: auto; max-width: 100%;
-  background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
 }
-.man-quick__card pre .c { color: var(--ink-400); }
+.man-quick__card pre .c { color: var(--ink-500); }
 .man-quick__card pre .p { color: var(--volt); }
-.man-quick__card code {
+.man-quick__card code:not(.install__code) {
   font-family: var(--font-mono); font-size: 0.88em;
-  background: var(--paper-2); border: 1px solid var(--hairline);
+  background: var(--paper); border: 1px solid var(--hairline);
   border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
 }
 .man-quick__more { margin-top: var(--s-6); color: var(--ink-500); font-size: var(--t-sm); }
 .man-quick__ref { color: var(--volt); font-weight: var(--weight-medium); }
 .man-quick__ref:hover { text-decoration: underline; }
 
-/* the document body: a contents rail beside the flowing sections */
+/* the document body: one flowing column under the contents tuner (the tuner is the
+   shared component; the old sticky contents rail is gone: nothing here is pinned) */
 .man-doc { padding-block: var(--s-8) var(--section-y); }
-.man-doc__grid { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: clamp(32px, 5vw, 72px); align-items: start; }
-@media (max-width: 880px) { .man-doc__grid { grid-template-columns: minmax(0, 1fr); } }
-/* the flowing content column: a grid item, so cap its min-width or a long <pre> pushes the
-   whole column (and the body text with it) off the right of a phone screen. */
-.man-doc__body { min-width: 0; }
-
-/* sticky contents */
-.man-toc { position: sticky; top: 88px; align-self: start; }
-@media (max-width: 880px) { .man-toc { position: static; } }
-.man-toc__head {
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
-  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: var(--s-3);
-}
-.man-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--hairline-2); }
-.man-toc li { margin: 0; }
-.man-toc a {
-  display: block; padding: 6px 0 6px 14px; margin-left: -1px;
-  border-left: 2px solid transparent; color: var(--ink-500);
-  font-size: var(--t-sm); transition: color var(--d-2), border-color var(--d-2);
-}
-.man-toc a:hover { color: var(--ink-900); border-left-color: var(--volt); }
-.man-toc a .man-toc__no { font-family: var(--font-mono); color: var(--ink-400); margin-right: 8px; }
+.man-doc__grid { display: block; }
+/* the flowing content column: cap its min-width so a long <pre> scrolls in place */
+.man-doc__body { min-width: 0; max-width: 820px; }
+/* the contents: its label, then the scale */
+.man-contents { padding-block: clamp(24px, 4vw, 48px) 0; }
+.man-contents__head { margin-bottom: var(--s-3); }
 
 /* a section of the manual */
 .man-sec { padding-block: clamp(28px, 4vw, 44px); border-top: 1px solid var(--hairline); scroll-margin-top: 88px; }
@@ -120,7 +103,7 @@
   background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
 }
-.man-sec pre .c { color: var(--ink-400); } /* a comment inside a pre */
+.man-sec pre .c { color: var(--ink-500); } /* a comment inside a pre */
 .man-sec pre .p { color: var(--volt); }    /* a prompt / sigil */
 .man-sec :not(pre) > code {
   font-family: var(--font-mono); font-size: 0.88em;
@@ -132,7 +115,7 @@
 /* a numbered figure caption inside the manual (reuses .fig look) */
 .man-fig {
   display: inline-block; margin-top: var(--s-6);
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.1em;
 }
 
@@ -148,13 +131,13 @@
 .man-plate__row { display: grid; grid-template-columns: 200px 1fr; gap: 16px; padding: 12px 16px; border-top: 1px solid var(--hairline); background: var(--white); }
 .man-plate__row:first-child { border-top: 0; }
 @media (max-width: 560px) { .man-plate__row { grid-template-columns: 1fr; gap: 4px; } }
-.man-plate__row dt, .man-plate__k { font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-400); }
+.man-plate__row dt, .man-plate__k { font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-500); }
 .man-plate__row dd, .man-plate__v { margin: 0; font-size: var(--t-sm); color: var(--ink-700); }
 
 /* command reference table */
 .man-table-wrap { margin-top: var(--s-5); overflow-x: auto; border: 1px solid var(--hairline-2); border-radius: var(--r-md); }
 table.man-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); min-width: 540px; }
-table.man-table caption { caption-side: top; text-align: left; padding: 12px 16px; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-400); background: var(--paper-2); border-bottom: 1px solid var(--hairline); }
+table.man-table caption { caption-side: top; text-align: left; padding: 12px 16px; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-500); background: var(--paper-2); border-bottom: 1px solid var(--hairline); }
 table.man-table th { text-align: left; padding: 10px 16px; background: var(--paper-2); color: var(--ink-500); font-weight: var(--weight-semi); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--hairline-2); }
 table.man-table td { padding: 10px 16px; border-top: 1px solid var(--hairline); color: var(--ink-700); vertical-align: top; }
 table.man-table td:first-child { white-space: nowrap; }

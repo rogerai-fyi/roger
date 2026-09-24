@@ -47,7 +47,7 @@ for (const page of Object.keys(fixture)) {
 
 /* ---- (b) the tuners ---------------------------------------------------------------- */
 
-const tunerOf = (html) => html.match(/<nav class="toc-tuner" data-tuner[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
+const tunerOf = (html) => html.match(/<nav class="toc-tuner[^"]*" data-tuner[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
 const stations = (tuner) => [...tuner.matchAll(/<a class="toc-tuner__st" href="#([^"]+)"><b>([^<]*)<\/b><span class="toc-tuner__name">([^<]*)<\/span><\/a>/g)]
   .map((m) => ({ id: m[1], no: m[2], name: m[3] }));
 
