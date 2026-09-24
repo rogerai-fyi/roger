@@ -74,6 +74,11 @@ the one primary. (Historical name, kept so no markup had to change; a rename to 
 name is a one-commit job for the rollout.) Pressable: sinks 1px while held
 (none under reduced motion).
 
+A page's lead row is `.research-actions.research-actions--lead`: ONE primary, then quiet
+text links, `.research-button--quiet` (the mono label, tap height and press, no box; a
+hairline underline that turns red on hover or focus). The lead row keeps every button at
+its own width on phones, so it never becomes a stack of full-width outlines.
+
 ### Callout
 `<div class="man-note">` with an optional `<span class="man-note__tag">`; `--live` and
 `--ember` modifiers.

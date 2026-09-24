@@ -373,3 +373,23 @@
   border-radius: var(--panel-r);
   background: var(--paper-2);
 }
+
+/* ---- component: lead action row + quiet button (added by models rollout) --
+   <div class="research-actions research-actions--lead">: ONE primary button,
+   then quiet text links (.research-button--quiet). The row never stacks
+   full-width outlines on a phone (the research shell's phone rule sets every
+   button to width 100%; the lead row keeps each at its own width and lets the
+   links wrap beside the primary). A quiet button keeps the button's mono label,
+   its tap height and its press, but has no box: a hairline underline that goes
+   red on hover or focus. */
+.research-actions--lead { align-items: center; gap: var(--s-2) var(--s-4); }
+.research-actions--lead .research-button { width: auto; }
+.research-button--quiet {
+  padding-inline: 2px; border-color: transparent;
+  text-decoration: underline; text-decoration-color: var(--hairline-2);
+  text-decoration-thickness: 1px; text-underline-offset: 6px;
+}
+.research-button--quiet:hover, .research-button--quiet:focus-visible {
+  border-color: transparent; text-decoration-color: var(--live);
+}
+.research-button--quiet:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
