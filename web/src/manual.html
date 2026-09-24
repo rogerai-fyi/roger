@@ -16,7 +16,7 @@
   <!-- ============================ COVER ============================ -->
   <section class="man-cover">
     <div class="wrap">
-      <div class="man-cover__plate">
+      <div class="man-cover__plate tint-panel">
         <span class="hero__eyebrow">
           <!-- include: onair.html -->
           <span class="hero__callsign">ON AIR</span>
@@ -53,13 +53,13 @@
         only sign in to spend from a wallet or to earn as a provider.</p>
 
       <div class="man-quick__grid">
-        <div class="man-quick__card">
+        <div class="man-quick__card tint-panel">
           <span class="man-quick__step">1 · Install</span>
           <p>macOS or Linux, one line (Windows: <code>install.ps1</code> in PowerShell).</p>
-          <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | sh</pre>
+          <!-- include: install-box.html id=installCmdManual cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
         </div>
 
-        <div class="man-quick__card">
+        <div class="man-quick__card tint-panel">
           <span class="man-quick__step">2 · Use a model</span>
           <p>Open a local OpenAI-compatible endpoint for your bots, or just run
             <code>roger</code> to browse the band.</p>
@@ -69,7 +69,7 @@
   MODEL     qwen3-coder-30b</pre>
         </div>
 
-        <div class="man-quick__card">
+        <div class="man-quick__card tint-panel">
           <span class="man-quick__step">3 · Share your model</span>
           <p>Free, no login: the radio detects your local model and puts it on air.</p>
           <pre><span class="p">$</span> roger onboard --free   <span class="c"># set up to share, no login</span>
@@ -85,36 +85,43 @@
     </div>
   </section>
 
+  <!-- ============================ CONTENTS ============================ -->
+  <!-- The contents as the site's tuning scale (components.css .toc-tuner): in the page,
+       never pinned; the needle rests on the section in view while the scale is on screen.
+       Under 760px its 19 stations become a two-column contents list. -->
+  <nav class="toc-tuner man-contents" data-tuner aria-label="Manual contents">
+    <div class="wrap man-contents__head"><span class="sectionno">Contents</span></div>
+    <div class="wrap toc-tuner__band">
+    <div class="toc-tuner__readout" aria-hidden="true"></div>
+    <ol class="toc-tuner__scale">
+      <li><a class="toc-tuner__st" href="#s0"><b>§0</b><span class="toc-tuner__name">Front matter</span></a></li>
+      <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">Installation</span></a></li>
+      <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">First contact</span></a></li>
+      <li><a class="toc-tuner__st" href="#sAG"><b>§A</b><span class="toc-tuner__name">The [0] agent</span></a></li>
+      <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">Tune in</span></a></li>
+      <li><a class="toc-tuner__st" href="#sPlay"><b>§P</b><span class="toc-tuner__name">Playbox</span></a></li>
+      <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">Go on air</span></a></li>
+      <li><a class="toc-tuner__st" href="#sTower"><b>§T</b><span class="toc-tuner__name">Run a Tower</span></a></li>
+      <li><a class="toc-tuner__st" href="#sV"><b>§V</b><span class="toc-tuner__name">Voices</span></a></li>
+      <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">Private channels</span></a></li>
+      <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">Wallet &amp; billing</span></a></li>
+      <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">Earnings &amp; payouts</span></a></li>
+      <li><a class="toc-tuner__st" href="#s8"><b>§8</b><span class="toc-tuner__name">Configuration</span></a></li>
+      <li><a class="toc-tuner__st" href="#s9"><b>§9</b><span class="toc-tuner__name">Command reference</span></a></li>
+      <li><a class="toc-tuner__st" href="#s10"><b>§10</b><span class="toc-tuner__name">Verification</span></a></li>
+      <li><a class="toc-tuner__st" href="#s11"><b>§11</b><span class="toc-tuner__name">Troubleshooting</span></a></li>
+      <li><a class="toc-tuner__st" href="#sAPI"><b>B</b><span class="toc-tuner__name">The API</span></a></li>
+      <li><a class="toc-tuner__st" href="#sTOOLS"><b>B2</b><span class="toc-tuner__name">In your editors</span></a></li>
+      <li><a class="toc-tuner__st" href="#schangelog"><b>C</b><span class="toc-tuner__name">Changelog</span></a></li>
+    </ol>
+    <span class="toc-tuner__needle" aria-hidden="true"></span>
+    </div>
+  </nav>
+
   <!-- ============================ DOC BODY ============================ -->
   <section class="man-doc">
     <div class="wrap">
       <div class="man-doc__grid">
-
-        <!-- ---- contents rail ---- -->
-        <nav class="man-toc" aria-label="Manual contents">
-          <div class="man-toc__head">Contents</div>
-          <ol>
-            <li><a href="#s0"><span class="man-toc__no">§0</span>Front matter</a></li>
-            <li><a href="#s1"><span class="man-toc__no">§1</span>Installation</a></li>
-            <li><a href="#s2"><span class="man-toc__no">§2</span>First contact</a></li>
-            <li><a href="#sAG"><span class="man-toc__no">§A</span>The [0] agent</a></li>
-            <li><a href="#s3"><span class="man-toc__no">§3</span>Tune in</a></li>
-            <li><a href="#sPlay"><span class="man-toc__no">§P</span>Playbox</a></li>
-            <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
-            <li><a href="#sTower"><span class="man-toc__no">§T</span>Run a Tower</a></li>
-            <li><a href="#sV"><span class="man-toc__no">§V</span>Voices</a></li>
-            <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
-            <li><a href="#s6"><span class="man-toc__no">§6</span>Wallet &amp; billing</a></li>
-            <li><a href="#s7"><span class="man-toc__no">§7</span>Earnings &amp; payouts</a></li>
-            <li><a href="#s8"><span class="man-toc__no">§8</span>Configuration</a></li>
-            <li><a href="#s9"><span class="man-toc__no">§9</span>Command reference</a></li>
-            <li><a href="#s10"><span class="man-toc__no">§10</span>Verification</a></li>
-            <li><a href="#s11"><span class="man-toc__no">§11</span>Troubleshooting</a></li>
-            <li><a href="#sAPI"><span class="man-toc__no">B</span>The API</a></li>
-            <li><a href="#sTOOLS"><span class="man-toc__no">B2</span>In your editors</a></li>
-            <li><a href="#schangelog"><span class="man-toc__no">C</span>Changelog</a></li>
-          </ol>
-        </nav>
 
         <!-- ---- the sections ---- -->
         <div class="man-doc__body">

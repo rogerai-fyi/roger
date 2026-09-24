@@ -99,7 +99,7 @@ const CSS_BUNDLES = {
   "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
   "privacy.html":   [...CSS_MARKETING, "company.css"],   // legal reading column (Company section sheet)
   "security.html":  [...CSS_MARKETING, "company.css"],   // ditto
-  "confidential.html": [...CSS_ACCOUNT],                 // gated TEE-tier info: shared chrome only
+  "confidential.html": [...CSS_MARKETING, "confidential.css"], // gated TEE-tier info: section head + tinted panels
   "tos.html":       [...CSS_MARKETING, "company.css"],   // ditto
 };
 

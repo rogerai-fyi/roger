@@ -133,7 +133,8 @@ hairline card with a heavy black top rule. Inside an ink panel it re-themes. Gri
 panels are placed by the page. (Named `tint-panel`, not `panel`: the account sheet already
 uses `.panel` for its hairline-divided sections.) The tuner band and the homepage cards
 still write the same two declarations by hand and can adopt the class. The
-Models-menu pages use it (Pricing's path, guard and plate panels), as do the Company pages.
+Models-menu pages use it (Pricing's path, guard and plate panels), as do the Company pages, the
+manual, 404, confidential, and the account pages' plate ground.
 
 ### Wave Spectrum scale
 ```html
@@ -188,7 +189,9 @@ pages (every section).
   </div>
 </nav>
 ```
-2 to 12 stations; the count is read from the markup. The band must carry `.wrap` (the
+2 to 20 stations; the count is read from the markup. Past 12 (a long document: the
+manual) the scale gets finer on a desktop, and under 760px it becomes a plain two-column
+contents list, number and name on every station, no needle. The band must carry `.wrap` (the
 needle is laid out against its gutter). Keep the `toc-tuner__st` class on each link: a
 classless link in an `<li>` gets the site's in-prose underline. CSS alone moves the needle
 and the readout to the pointed or focused station; `tuner.js` adds roving focus (one tab
@@ -248,8 +251,9 @@ use them with no markup change. The copy hook for a code block is `data-copy-tar
 
 1. `src/<page>.html`: `<!-- include: head.html title=... desc=... theme=external -->`,
    `<!-- include: nav.html variant=marketing ... -->`, content, `<!-- include: footer.html -->`,
-   then `<!-- include: site-js.html -->` (`sync=1` for the account pages' blocking form,
-   `promo=0` to leave out the promo strip script). Page scripts that need site.js to have run
+   then `<!-- include: site-js.html -->` (`promo=0` to leave out the promo strip script).
+   Every script is deferred, so they run in document order: a page script written before
+   the include runs before site.js, one written after it runs after. Page scripts that need site.js to have run
    go after the include.
 2. Register its bundle in `CSS_BUNDLES` (`build.mjs`): `[...CSS_MARKETING, "<page>.css"]`
    or `[...CSS_ACCOUNT, ...]`. The build fails if you forget.
@@ -303,10 +307,13 @@ fails on a bare component selector outside `components.css`.
 ## Pages that do not fit the system yet
 
 - **Account pages** (account, billing, payouts, usage, dashboard, console, keys, private,
-  r, login, legal): their own `account-base.css` surface and blocking scripts; they share
-  the tokens and chrome but none of the new components yet.
-- **device.html, stations.html**: their own minimal runtime (no site.js), and hard-coded
-  fallbacks of tokens that do not exist.
+  r, login, device, stations, legal): on the shared runtime now (deferred, like every page)
+  and on real tokens, but still their own `account-base.css` surface: the plate (`.card`)
+  is a raised `--white` face on an inset tinted panel (`.authwrap`), with its tertiary ink
+  scoped to the secondary one in `tokens.css` so its labels hold AA. Their buttons
+  (`.primary`, `.ghost`, `.gh`) and fields are account-base's own, not `.research-button`:
+  full-width form controls, a different job. Page scripts keep their own affordances
+  (keys, private copy).
 - **Playbox** (playbox, wave-patch, wave-factory sheets): self-contained games with their
   own palettes; 310 of the remaining colour literals.
 - **Articles**: inline figure styles with light-only colours (dark-mode debt, being fixed

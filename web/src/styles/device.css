@@ -1,41 +1,56 @@
 /* Device approval page. Deliberately plain: this is a routine sign-in step, and dressing
-   it as a security incident teaches people to click through warnings. */
+   it as a security incident teaches people to click through warnings. Tokens only; the
+   input's focus ring is the plate's shared one (account-base.css). */
 
 .dv-label {
   display: block;
-  margin: 0.8rem 0 0.35rem;
-  font-size: 0.9rem;
-  opacity: 0.8;
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
 }
 
 .dv-input {
   width: 100%;
   max-width: 22ch;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 1.35rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   padding: 0.5rem 0.6rem;
-  border: 1px solid var(--rule, #2a2a2a);
-  border-radius: 3px;
-  background: transparent;
-  color: inherit;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-900);
 }
 
 .dv-facts dd {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   letter-spacing: 0.08em;
 }
 
 /* One sentence of caution, sitting where it is read before the buttons. No alarm
    colour: it informs, it does not frighten. */
 .dv-caution {
-  border-left: 2px solid var(--rule, #2a2a2a);
+  border-left: 2px solid var(--hairline-2);
   padding-left: 0.8rem;
-  opacity: 0.9;
+  color: var(--ink-700);
 }
 
+/* the second choice: a quiet outline beside the one solid action */
 .dv-deny {
+  margin-top: var(--s-3);
+  width: 100%;
+  padding: 13px 16px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
   background: transparent;
-  border: 1px solid var(--rule, #2a2a2a);
+  color: var(--ink-700);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
 }
+.dv-deny:hover { border-color: var(--ink-900); color: var(--ink-900); }
+.dv-deny:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.dv-deny:active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) { .dv-deny:active { transform: none; } }

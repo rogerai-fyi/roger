@@ -568,3 +568,59 @@
   -webkit-appearance: none; width: 4px; height: 22px; margin-top: -10px; border-radius: 2px; background: var(--live);
 }
 .range-twin::-moz-range-thumb { width: 4px; height: 22px; border: 0; border-radius: 2px; background: var(--live); }
+
+/* ---- component: toc-tuner, long form (added by rest rollout) -------------
+   The tuner above counts 2 to 12 stations. A long document (the manual) has
+   more: these rules count 13 to 20 and point the needle at each. On a desktop
+   the scale simply gets finer. Below 760px a many-station scale would crowd its
+   numerals, so a tuner with 13 or more stations becomes a plain two-column
+   contents list there: every station shows its number AND its name, no needle,
+   no readout. (The !important on the name's opacity outranks the pointed-station
+   rules above, which are written at a much higher specificity.) */
+.toc-tuner:has(li:nth-child(13):last-child) { --tuner-n: 13; }
+.toc-tuner:has(li:nth-child(14):last-child) { --tuner-n: 14; }
+.toc-tuner:has(li:nth-child(15):last-child) { --tuner-n: 15; }
+.toc-tuner:has(li:nth-child(16):last-child) { --tuner-n: 16; }
+.toc-tuner:has(li:nth-child(17):last-child) { --tuner-n: 17; }
+.toc-tuner:has(li:nth-child(18):last-child) { --tuner-n: 18; }
+.toc-tuner:has(li:nth-child(19):last-child) { --tuner-n: 19; }
+.toc-tuner:has(li:nth-child(20):last-child) { --tuner-n: 20; }
+.toc-tuner:has(li:nth-child(13) a:is(:hover, :focus-visible)) { --at: 12; }
+.toc-tuner:has(li:nth-child(14) a:is(:hover, :focus-visible)) { --at: 13; }
+.toc-tuner:has(li:nth-child(15) a:is(:hover, :focus-visible)) { --at: 14; }
+.toc-tuner:has(li:nth-child(16) a:is(:hover, :focus-visible)) { --at: 15; }
+.toc-tuner:has(li:nth-child(17) a:is(:hover, :focus-visible)) { --at: 16; }
+.toc-tuner:has(li:nth-child(18) a:is(:hover, :focus-visible)) { --at: 17; }
+.toc-tuner:has(li:nth-child(19) a:is(:hover, :focus-visible)) { --at: 18; }
+.toc-tuner:has(li:nth-child(20) a:is(:hover, :focus-visible)) { --at: 19; }
+.toc-tuner:has(li:nth-child(13) a:is(:hover, :focus-visible)) li:nth-child(13) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(14) a:is(:hover, :focus-visible)) li:nth-child(14) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(15) a:is(:hover, :focus-visible)) li:nth-child(15) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(16) a:is(:hover, :focus-visible)) li:nth-child(16) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(17) a:is(:hover, :focus-visible)) li:nth-child(17) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(18) a:is(:hover, :focus-visible)) li:nth-child(18) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(19) a:is(:hover, :focus-visible)) li:nth-child(19) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(20) a:is(:hover, :focus-visible)) li:nth-child(20) .toc-tuner__name { opacity: 1; }
+/* a finer scale gets smaller numerals */
+.toc-tuner:has(li:nth-child(13)) b { font-size: clamp(0.8rem, 0.55rem + 0.5vw, 1.1rem); letter-spacing: -0.04em; }
+@media (max-width: 760px) {
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { padding: var(--s-3); margin-inline: var(--panel-inset); width: auto; }
+  .toc-tuner:has(li:nth-child(13)) :is(.toc-tuner__readout, .toc-tuner__needle) { display: none; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; background: none;
+  }
+  .toc-tuner:has(li:nth-child(13)) a { justify-content: flex-start; align-items: baseline; gap: var(--s-2); padding: 8px 10px; }
+  .toc-tuner:has(li:nth-child(13)) b { flex: 0 0 auto; min-width: 3ch; font-size: var(--t-sm); }
+  .toc-tuner:has(li:nth-child(13)) b::before { content: none; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__name {
+    position: static; transform: none; max-width: none; height: auto; overflow: visible;
+    white-space: normal; text-align: left; line-height: 1.35; opacity: 1 !important;
+    color: var(--ink-700); letter-spacing: 0.04em;
+  }
+  .toc-tuner:has(li:nth-child(13)) a:is(:hover, :focus-visible, .is-current) .toc-tuner__name { color: var(--ink-900); }
+  .toc-tuner:has(li:nth-child(13)) a.is-current { box-shadow: inset 2px 0 0 var(--live); }
+}
+@media (max-width: 380px) {
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale { grid-template-columns: minmax(0, 1fr); }
+}
+

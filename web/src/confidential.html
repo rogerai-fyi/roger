@@ -1,17 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="Confidential tier - RogerAI" theme=external css=chrome robots=noindex -->
+  <!-- include: head.html title="Confidential tier - RogerAI" theme=external robots=noindex -->
 </head>
-<body class="auth">
+<body>
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
-  <div class="authwrap">
-  <main class="card">
+  <main id="top" data-lift>
+  <section class="section conf">
+    <div class="wrap">
+    <div class="section__head conf__head" data-reveal>
     <h1>Confidential ◆ tier</h1>
     <p class="sub">Hardware-attested inference for the rare operator who has the silicon for
       it. This is a gated, data-center-only tier - not a self-serve toggle.</p>
+    </div>
+    <div class="conf__grid">
 
-    <section class="panel">
+    <section class="tint-panel conf__panel" data-reveal>
       <h2>What it is</h2>
       <p>A confidential node proves, with <b>hardware attestation</b>, that inference runs
         inside a Trusted Execution Environment whose memory the host cannot read. The broker
@@ -20,7 +24,7 @@
         demand routes <b>only</b> to verified nodes.</p>
     </section>
 
-    <section class="panel">
+    <section class="tint-panel conf__panel" data-reveal>
       <h2>Why it needs data-center hardware</h2>
       <p>Real confidentiality has to protect the data <em>where it is processed</em>. For LLM
         serving that means <b>two</b> TEEs, not one:</p>
@@ -38,7 +42,7 @@
         it.</p>
     </section>
 
-    <section class="panel">
+    <section class="tint-panel conf__panel" data-reveal>
       <h2>Don't have the hardware? You still earn.</h2>
       <p>The <b>standard</b> tier is the path for everyone else, and it pays the same way.
         RogerAI's consumer-grade guarantee is not "the host can't see your data" - it is
@@ -48,20 +52,22 @@
         forged. Just run <code class="inline">roger share</code>.</p>
     </section>
 
-    <section class="panel">
+    <section class="tint-panel conf__panel" data-reveal>
       <h2>Apply</h2>
       <p>If you operate <b>EPYC SEV-SNP hosts with H100-class confidential GPUs</b> and want to
         serve the confidential tier, get in touch with your setup (CPU/GPU model, host OS,
         whether you control the VM firmware):</p>
-      <p><a href="mailto:confidential@rogerai.fm?subject=Confidential%20tier%20application">confidential@rogerai.fm</a></p>
+      <p class="research-actions conf__apply"><a class="research-button research-button--primary" href="mailto:confidential@rogerai.fm?subject=Confidential%20tier%20application">confidential@rogerai.fm</a></p>
       <p class="fine">Operator details once approved: the confidential runbook (reproducible
         CVM image + measurement pinning) ships with the CLI source.</p>
     </section>
 
-    <p class="fine"><a href="/security.html">Security</a> - <a href="/models.html">Models</a> - <a href="/manual.html">Manual</a> - <a href="/account.html">Account</a></p>
+    </div>
+    <p class="fine conf__links"><a href="/security.html">Security</a> - <a href="/models.html">Models</a> - <a href="/manual.html">Manual</a> - <a href="/account.html">Account</a></p>
+    </div>
+  </section>
   </main>
-  </div>
   <!-- include: footer.html anchors=/ -->
-  <!-- include: site-js.html sync=1 -->
+  <!-- include: site-js.html -->
 </body>
 </html>

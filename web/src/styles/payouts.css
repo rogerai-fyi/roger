@@ -333,6 +333,8 @@
   border-color: color-mix(in srgb, var(--live) 45%, transparent);
 }
 .po-tower__state--quarantine {
-  color: var(--warn, #d9a441);
-  border-color: color-mix(in srgb, var(--warn, #d9a441) 45%, transparent);
+  /* caution without an alarm colour (mono + one red): full ink, a dashed ring */
+  color: var(--ink-900);
+  border-style: dashed;
+  border-color: var(--ink-500);
 }

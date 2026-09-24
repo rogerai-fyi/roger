@@ -8,7 +8,8 @@
 /* The lost-signal page: ham-radio-manual aesthetic, Ping in its dropped pose. */
 .lost { padding-block: clamp(72px, 14vh, 160px); }
 .lost__inner {
-  max-width: 60ch; margin: 0 auto; text-align: center;
+  /* a .tint-panel: the dropped signal on its own quiet plate */
+  max-width: 72ch; margin: 0 auto; text-align: center; padding-block: clamp(40px, 7vw, 80px);
   display: flex; flex-direction: column; align-items: center;
 }
 .lost .fig { margin-bottom: var(--s-6); }
@@ -27,11 +28,11 @@
   margin-top: var(--s-8);
   display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;
   padding: 10px 16px; border-radius: var(--r-sm);
-  background: var(--paper-2); border: 1px solid var(--hairline);
+  background: var(--paper); border: 1px solid var(--hairline);
   max-width: 100%;
 }
 .lost__path-label { font-size: var(--t-xs); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--ink-400); }
+  text-transform: uppercase; color: var(--ink-500); }
 .lost__path-code { color: var(--ink-900); font-size: var(--t-sm);
   overflow-wrap: anywhere; word-break: break-all; }
 .lost__actions { margin-top: var(--s-10); display: flex; flex-wrap: wrap;
@@ -44,8 +45,10 @@
   transition: box-shadow var(--d-2), border-color var(--d-2), transform var(--d-2) var(--ease-out-quint);
 }
 .lost__home:hover { box-shadow: var(--e-3); border-color: var(--volt); transform: translateY(-1px); }
+.lost__home:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.lost__home:active { transform: translateY(1px); box-shadow: none; }
 .lost__home .onair { color: var(--live); font-size: var(--t-sm); }
 .lost__alt { color: var(--volt); font-weight: var(--weight-medium); font-size: var(--t-sm); }
 .lost__alt:hover { text-decoration: underline; }
-@media (prefers-reduced-motion: reduce) { .lost__home:hover { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .lost__home:hover, .lost__home:active { transform: none; } }
 

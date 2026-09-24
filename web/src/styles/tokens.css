@@ -234,6 +234,14 @@
   --hairline-2:   #2E2A23;
 }
 
+/* The signed-in plate (account-base.css .card) is read, not glanced at: its labels,
+   readings and fine print use the tertiary ink, which is not AA on the tinted plate.
+   Inside the plate the tertiary ink is the secondary one (AA in both themes;
+   test/rest-rollout.test.mjs checks every text ink on every plate ground). */
+.card {
+  --ink-400:      var(--ink-500);
+}
+
 /* =====================================================================
    THE WAVE SPECTRUM PALETTE - the founder's own chart, light and dark.
    Identity hues for the seven Wave tiers (pico .. exa), never state. The
