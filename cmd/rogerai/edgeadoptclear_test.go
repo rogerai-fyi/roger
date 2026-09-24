@@ -266,3 +266,16 @@ func TestForgetNotInFleetAsksBeforeRevoking(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, reopened.ClaimGranted("n_ask"), "declining the prompt leaves the grant intact")
 }
+
+// A duplicate NAME in the fleet is ambiguous: edgeResolve must refuse and list the ids, not silently
+// pick the first - a forget --yes on the wrong device is destructive (audit 2026-09-24).
+func TestEdgeResolveRefusesADuplicateName(t *testing.T) {
+	nodes := []store.EdgeNode{
+		{ID: "n_aaa", Name: "iPhone"},
+		{ID: "n_bbb", Name: "iPhone"},
+	}
+	_, ok, err := edgeResolve(nodes, "iPhone")
+	require.False(t, ok)
+	require.Error(t, err, "a name shared by two nodes must be refused")
+	require.Contains(t, err.Error(), "more than one")
+}

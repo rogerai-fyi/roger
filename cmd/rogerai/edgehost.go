@@ -500,8 +500,13 @@ func (h *edgeHost) serve(ctx context.Context) {
 // result is written to the cache, and every VERIFIED sighting becomes a heartbeat.
 func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.adoptEnrollment(ctx)
-	if h.reg == nil {
-		h.registerInstance(h.cfg) // an enrollment that happened while running
+	// Snapshot reg/cfg under the lock: registerInstance and deregisterInstance write h.reg while
+	// running (a quit can null it), so reading it bare here is a data race (audit 2026-09-24).
+	h.mu.Lock()
+	reg, cfg := h.reg, h.cfg
+	h.mu.Unlock()
+	if reg == nil {
+		h.registerInstance(cfg) // an enrollment that happened while running
 	}
 	h.beatInstance(loadConfig())
 	rep := h.disc.RunOnce(ctx)

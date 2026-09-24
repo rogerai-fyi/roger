@@ -167,6 +167,23 @@ func (l *Local) Issuer() *Issuer { return l.iss }
 func (l *Local) Issue(r Request) (Response, error) {
 	var resp Response
 	err := l.withLock(func() error {
+		// A node whose earlier certificate stands REVOKED must not enroll a fresh one - the enrol
+		// path is the account-key-authorised sibling of Claim and needs the same tombstone, or a
+		// FORGOTTEN machine (its cert revoked, its account still valid) simply re-enrolls under the
+		// same node id and rejoins (audit 2026-09-24). The list is read from disk, fails CLOSED.
+		revoked, err := l.revokedNow()
+		if err != nil {
+			return fmt.Errorf("could not read the revocation list, so no certificate was issued: %w", err)
+		}
+		serials, err := l.serialsFor(r.NodeID)
+		if err != nil {
+			return fmt.Errorf("could not read the issued-certificate state, so no certificate was issued: %w", err)
+		}
+		for _, srl := range serials {
+			if revoked[srl] {
+				return fmt.Errorf("%w: that node's certificate has been revoked", ErrUnknownMachine)
+			}
+		}
 		// Mint AND record inside one lock (in-process and cross-process), so a concurrent forget or
 		// claim cannot interleave, and record the serial of THIS certificate parsed from its own
 		// bytes - never SerialOf, which returns the latest and under a race could be another call's.

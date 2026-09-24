@@ -93,7 +93,10 @@ func IsPersistent(dir, name string) bool {
 func UnmarkPersistent(dir, name string) (bool, error) {
 	f := filepath.Join(dir, persistFileName(name))
 	if _, err := os.Stat(f); err != nil {
-		return false, nil
+		if os.IsNotExist(err) {
+			return false, nil // nothing to remove
+		}
+		return false, err // an unreadable record is an error, not "already gone"
 	}
 	if err := os.Remove(f); err != nil {
 		return false, err

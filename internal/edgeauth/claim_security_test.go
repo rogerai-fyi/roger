@@ -3,6 +3,7 @@ package edgeauth_test
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"sync"
@@ -213,3 +214,38 @@ func TestHasIssuedFailsClosedOnCorruptState(t *testing.T) {
 	_, err := local.HasIssued(id)
 	require.Error(t, err, "an unreadable issued state is an error, not a bare false")
 }
+
+// A forgotten machine must not RE-ENROLL under the same node id and get a fresh certificate: the
+// enroll path (Issue) checks the revoked history just as the claim path does, or a revoke means
+// nothing once the account key is still valid (audit 2026-09-24).
+func TestEnrollRefusesARevokedNode(t *testing.T) {
+	_, local, _, _, _ := secFixture(t)
+	userPub, userPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	require.NoError(t, local.Allow(hexEncode(userPub)))
+
+	nodePub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	nodeID := edgeauth.NodeID(nodePub)
+
+	// First enroll succeeds and mints a certificate.
+	req := edgeauth.NewRequest(local.Account(), "workshop", "host", nodePub, time.Now())
+	req.Sign(userPriv)
+	resp, err := local.Issue(req)
+	require.NoError(t, err)
+	require.Contains(t, resp.Cert, "BEGIN CERTIFICATE")
+
+	// The machine is forgotten (its certificate revoked).
+	revoked, err := local.Forget(nodeID)
+	require.NoError(t, err)
+	require.NotEmpty(t, revoked)
+
+	// Re-enrolling the SAME node id is refused - the revocation stands even though the account key is
+	// still allowed.
+	again := edgeauth.NewRequest(local.Account(), "workshop", "host", nodePub, time.Now())
+	again.Sign(userPriv)
+	_, err = local.Issue(again)
+	require.Error(t, err, "a revoked node must not re-enroll a fresh certificate")
+}
+
+func hexEncode(b []byte) string { return hex.EncodeToString(b) }

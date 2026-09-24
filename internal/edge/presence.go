@@ -187,6 +187,10 @@ func refusePresence(w http.ResponseWriter, reason string) {
 // nonceCache is a small, self-pruning set of presence nonces already spent, so a captured presence
 // cannot be replayed within its freshness window. Bounded implicitly: only enrolled nodes get this
 // far, and each nonce expires.
+// maxNonces bounds the replay cache, so a flood of fresh nonces within one window cannot exhaust
+// memory. Comfortably above any real fleet's presence rate over the 5-minute window.
+const maxNonces = 100000
+
 type nonceCache struct {
 	mu   sync.Mutex
 	seen map[string]int64 // nonce -> unix expiry
@@ -209,6 +213,12 @@ func (n *nonceCache) admit(nonce string, expiry, nowUnix int64) bool {
 		}
 	}
 	if _, ok := n.seen[nonce]; ok {
+		return false
+	}
+	// Bound the cache: within one freshness window an attacker (or a storm of members) could grow it
+	// without limit. Once full of still-live nonces, refuse rather than admit and grow unbounded -
+	// fail closed on memory (audit 2026-09-24).
+	if len(n.seen) >= maxNonces {
 		return false
 	}
 	n.seen[nonce] = expiry

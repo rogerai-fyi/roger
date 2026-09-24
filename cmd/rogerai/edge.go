@@ -769,10 +769,20 @@ func edgeWriteJSON(w io.Writer, nodes, cands []store.EdgeNode, reach map[string]
 // prefix. An ambiguous prefix is refused with the matches listed - never guessed at,
 // because the next command in the script would act on the wrong machine.
 func edgeResolve(nodes []store.EdgeNode, want string) (store.EdgeNode, bool, error) {
+	// An exact NAME match, but names are not unique - two devices can share "iPhone". More than one
+	// is ambiguous and must be refused, not silently resolved to the first, or a destructive verb
+	// (forget) could hit the wrong device (audit 2026-09-24).
+	var nameHits []store.EdgeNode
 	for _, n := range nodes {
 		if n.Name == want {
-			return n, true, nil
+			nameHits = append(nameHits, n)
 		}
+	}
+	if len(nameHits) == 1 {
+		return nameHits[0], true, nil
+	}
+	if len(nameHits) > 1 {
+		return store.EdgeNode{}, false, edgeAmbiguous(want, nameHits)
 	}
 	var hits []store.EdgeNode
 	for _, n := range nodes {
@@ -786,12 +796,18 @@ func edgeResolve(nodes []store.EdgeNode, want string) (store.EdgeNode, bool, err
 	case 1:
 		return hits[0], true, nil
 	}
+	return store.EdgeNode{}, false, edgeAmbiguous(want, hits)
+}
+
+// edgeAmbiguous is the refusal when a name or id prefix matches more than one node: it lists them so
+// the owner can name one exactly.
+func edgeAmbiguous(want string, hits []store.EdgeNode) error {
 	var lines []string
 	for _, n := range hits {
 		lines = append(lines, fmt.Sprintf("  %s  %s", n.ID, n.Name))
 	}
 	sort.Strings(lines)
-	return store.EdgeNode{}, false, fmt.Errorf("%q matches more than one node on this Edge:\n%s\nname one of them exactly",
+	return fmt.Errorf("%q matches more than one node on this Edge:\n%s\nname one of them exactly",
 		want, strings.Join(lines, "\n"))
 }
 
