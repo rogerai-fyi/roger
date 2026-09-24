@@ -161,13 +161,8 @@
    An ink panel on the paper page: inset from the page edge, rounded, still
    (the homepage cover, §1-§2 and §7-§9). A panel carries the site's ink tokens (tokens.css), so everything
    in it re-themes as it does in dark mode (one step deeper on a dark site). */
-/* a panel's side margin is tied to the page's content box: it sits 64px
-   outside the text column on both sides (so every panel frames the content
-   the same way, whatever the spine), and never closer than --panel-inset to
-   the edge on small screens */
-.tone-zone {
-  --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
-}
+/* the side margin is the --panel-mx token (tokens.css): 64px outside the
+   text column, never closer than --panel-inset to the edge */
 .tone-zone {
   position: relative;
   overflow: clip;
@@ -176,6 +171,9 @@
   color: var(--ink-700);
   background: var(--paper);
 }
+/* dark site: the panel is one step deeper than the page, which alone reads
+   as a hole rather than a room; a hairline ring gives it its edge back */
+:root[data-theme="dark"] .tone-zone { box-shadow: inset 0 0 0 1px var(--hairline-2); }
 
 /* ======================= TOC TUNER ============================= */
 /* The table of contents as a precision tuning scale. In the page, never
@@ -240,6 +238,8 @@
   font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
   line-height: 28px; white-space: nowrap; text-align: center; color: var(--ink-900);
   opacity: 0; pointer-events: none;
+  /* hidden, a name is out of tune (soft, spread); shown, it settles */
+  filter: blur(3px); letter-spacing: 0.4em;
 }
 /* the major tick, above each numeral */
 .toc-tuner b { position: relative; }
@@ -271,9 +271,12 @@
 .toc-tuner:has(li:nth-child(10) a:is(:hover, :focus-visible)) li:nth-child(10) .toc-tuner__name,
 .toc-tuner:has(li:nth-child(11) a:is(:hover, :focus-visible)) li:nth-child(11) .toc-tuner__name,
 .toc-tuner:has(li:nth-child(12) a:is(:hover, :focus-visible)) li:nth-child(12) .toc-tuner__name,
-.toc-tuner a.is-current .toc-tuner__name { opacity: 1; }
-.toc-tuner:has(a:is(:hover, :focus-visible)) a.is-current:not(:hover, :focus-visible) .toc-tuner__name { opacity: 0; }
-.toc-tuner:not(:has(a:is(:hover, :focus-visible, .is-current))) li:first-child .toc-tuner__name { opacity: 1; }
+.toc-tuner a.is-current .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+.toc-tuner:has(a:is(:hover, :focus-visible)) a.is-current:not(:hover, :focus-visible) .toc-tuner__name { opacity: 0; filter: blur(3px); letter-spacing: 0.4em; }
+.toc-tuner:not(:has(a:is(:hover, :focus-visible, .is-current))) li:first-child .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+/* the station you are on keeps a red major tick while you point elsewhere:
+   "you are here" on the scale (under the needle when nothing is pointed at) */
+.toc-tuner a.is-current b::before { background: var(--live); width: 2px; margin-left: -0.5px; }
 .toc-tuner__needle {
   position: absolute; top: 48px; height: 36px; width: 2px; margin-left: -1px;
   left: calc(var(--gutter) + (var(--at) + 0.5) / var(--tuner-n) * (100% - 2 * var(--gutter)));
@@ -283,12 +286,18 @@
 .toc-tuner__needle::before {
   content: ""; position: absolute; top: -3px; left: -3px;
   width: 8px; height: 8px; border-radius: 50%; background: var(--live);
+  box-shadow: 0 0 0 3px var(--live-wash);   /* the FIG. 1 on-air dot's halo */
 }
 @media (max-width: 640px) {
   .toc-tuner__readout, .toc-tuner__name { width: calc(100% - 32px); max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .toc-tuner__needle { transition: none; }
+}
+/* a name comes into tune as it shows: the blur clears and the tracking
+   closes up (opacity itself flips at once, so no half-contrast frame) */
+@media (prefers-reduced-motion: no-preference) {
+  .toc-tuner__name { transition: filter 0.5s var(--ease-out-quint), letter-spacing 0.5s var(--ease-out-quint); }
 }
 
 /* ======================= SCRUBBER ============================== */

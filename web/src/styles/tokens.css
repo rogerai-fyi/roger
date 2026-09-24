@@ -158,6 +158,11 @@
   /* ---- PANELS (the ink panel, tinted panels, the tuner band) ---- */
   --panel-inset: clamp(8px, 1.6vw, 24px); /* a panel's closest approach to the viewport edge */
   --panel-r:     clamp(14px, 1.4vw, 22px); /* panel corner radius */
+  /* a panel's side margin: 64px outside the page's text column on both sides
+     (so every panel frames the content the same way, whatever the spine),
+     never closer than --panel-inset to the edge. 100% is the panel's
+     containing block, resolved where the token is used. */
+  --panel-mx:    max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
 
   /* z layers */
   --z-base:   0;

@@ -9,6 +9,10 @@
    stays fully readable; tuning only marks one, it never fades the others.
    The control's accessible name is the list's aria-label; each position
    reads out the item's <b> text.
+   When a page lays the list out as a sideways gallery (it overflows its own
+   width, e.g. the homepage spectrum on phones), the two stay in step:
+   scrubbing brings the tuned item to the middle, and swiping the gallery
+   tunes the item that comes to rest in the middle.
    Markup contract: web/DESIGN-SYSTEM.md.
    ===================================================================== */
 (function () {
@@ -36,10 +40,39 @@
       range.setAttribute("aria-valuetext", name ? name.textContent : String(k));
     }
 
-    range.addEventListener("input", function () { tune(Number(range.value)); });
+    // the sideways gallery: only when the list overflows its own width
+    function overflows() {
+      return typeof list.scrollTo === "function" && list.scrollWidth > list.clientWidth;
+    }
+    function center(k) {
+      if (!overflows()) return;
+      var li = items[k];
+      var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      list.scrollTo({ left: li.offsetLeft - (list.clientWidth - li.offsetWidth) / 2, behavior: still ? "auto" : "smooth" });
+    }
+    function nearest() {
+      var mid = list.scrollLeft + list.clientWidth / 2, best = 0, gap = Infinity;
+      for (var i = 0; i < items.length; i++) {
+        var d = Math.abs(items[i].offsetLeft + items[i].offsetWidth / 2 - mid);
+        if (d < gap) { gap = d; best = i; }
+      }
+      return best;
+    }
+
+    range.addEventListener("input", function () { tune(Number(range.value)); center(Number(range.value)); });
     Array.prototype.forEach.call(items, function (li, k) {
-      li.addEventListener("pointerenter", function () { tune(k); });
+      li.addEventListener("pointerenter", function () { tune(k); center(k); });
     });
+    // a swipe tunes where it comes to rest (after the scroll settles, so a
+    // smooth scroll the scrubber started never re-tunes on its way past)
+    if (typeof list.addEventListener === "function") {
+      var settle = null;
+      list.addEventListener("scroll", function () {
+        if (!overflows()) return;
+        clearTimeout(settle);
+        settle = setTimeout(function () { tune(nearest()); }, 120);
+      }, { passive: true });
+    }
     list.parentNode.insertBefore(range, list);
     tune(0);
   }

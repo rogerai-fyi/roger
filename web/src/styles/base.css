@@ -595,8 +595,12 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
    inherits the same hover-to-red as its siblings. Hairline, no motion of its own. */
 .footer__discord { display: inline-flex; align-items: center; gap: 7px; }
 .footer__discord-icon { flex: none; color: currentColor; }
-.footer__bar { border-top: 1px solid var(--hairline); padding-block: var(--s-5);
+/* the rule sits on the content box: a border on a .wrap would run through
+   both gutters, wider than every line above it */
+.footer__bar { position: relative; padding-block: var(--s-5);
   display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--s-3); }
+.footer__bar::before { content: ""; position: absolute; top: 0; left: var(--gutter); right: var(--gutter);
+  border-top: 1px solid var(--hairline); }
 .footer__bar small { color: var(--ink-400); font-size: var(--t-xs); }
 .footer__status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--t-xs); color: var(--ink-500); }
 .footer__status .livedot { --dot: var(--live); --dot-size: 7px; }
@@ -667,7 +671,8 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* footer colophon micro-line (homepage foundation layer) */
 .footer__colophon {
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
-  letter-spacing: 0.04em; padding-block: 0 var(--s-4); margin: 0;
+  letter-spacing: 0.04em; padding-block: 0 var(--s-4);
+  margin: 0 auto;   /* a .wrap: margin 0 pulled it off the content box */
   text-align: right;
 }
 
