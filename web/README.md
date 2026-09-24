@@ -68,11 +68,12 @@ The file is build input only and is not shipped.
 then update that tier's label texts. Every label text is classified into a stage in the
 `IMPLIES` table of `test/wave-status.test.mjs`; a new wording must be added there.
 
-**Founder ruling.** A tier whose labels imply different stages carries `"ruling": "pending"`
-and a `conflict` note. The ledger test requires the conflicted tiers to be exactly the
-pending ones. When the founder rules: set `stage`, rewrite the tier's labels so they all imply
-it, delete `ruling` and `conflict`, and remove the tier from the pending list at the bottom
-of the test. The ledger only shrinks when the pages actually agree.
+**Founder ruling.** A tier whose labels imply different stages carries a bare
+`"ruling": "pending"` flag; the ledger test works out which labels disagree from the labels
+themselves and requires the conflicted tiers to be exactly the pending ones. When the founder
+rules: set `stage`, rewrite the tier's labels so they all imply it, delete `ruling`, and remove
+the tier from the pending list at the bottom of the test. The ledger only shrinks when the
+pages actually agree.
 
 ## Deploy
 

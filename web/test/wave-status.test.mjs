@@ -75,10 +75,10 @@ test("wave-status: every tier carries the required fields with the right types",
     assert.equal(t.onAirBand !== null, t.stage === "on-air" || t.stage === "released",
       `${at}: an on-air band exactly when the stage is on air or later`);
     assert.equal(t.publicCheckpoint, t.stage === "released", `${at}: a public checkpoint only when released`);
-    if ("ruling" in t) {
-      assert.equal(t.ruling, "pending", `${at}: the only ruling value is "pending"`);
-      assert.ok(typeof t.conflict === "string" && t.conflict.length > 20, `${at}: a pending ruling says what disagrees`);
-    } else assert.ok(!("conflict" in t), `${at}: a conflict note only rides on a pending ruling`);
+    if ("ruling" in t) assert.equal(t.ruling, "pending", `${at}: the only ruling value is "pending"`);
+    // The file lives in the public repository. What disagrees is computed from the labels
+    // (the ledger below), so no prose note spells it out: the flag is bare.
+    assert.ok(!("conflict" in t), `${at}: no prose conflict note (the ledger computes it from the labels)`);
     assert.ok(Object.keys(t.labels).length > 0, `${at}: at least one label`);
     for (const [id, l] of Object.entries(t.labels)) {
       assert.match(id, /^[a-z-]+\.[a-z-]+$/, `${at}: label id ${id} is page-key.slot`);

@@ -19,7 +19,6 @@
       "publicCheckpoint": false,
       "onAirBand": "wave-pico-293m",
       "ruling": "pending",
-      "conflict": "Broadcast 015 says Pico (293M) is on air as the free band wave-pico-293m; index, research, research-models, research-hardware, the family guide and the Playbox still say a 100M-class waypoint is trained and the 300M retrain is next (gated, not on air).",
       "labels": {
         "index.plate": {
           "page": "index.html",
@@ -123,7 +122,6 @@
       "publicCheckpoint": false,
       "onAirBand": null,
       "ruling": "pending",
-      "conflict": "Broadcast 015's size chart says Nano is training (~690 MB at 1.15B); research, research-models, research-hardware and the family guide say it is the next build, queued behind Pico (planned). 015 also calls Micro, not Nano, the next scratch build.",
       "labels": {
         "research.scope": {
           "page": "research.html",
@@ -172,7 +170,6 @@
       "publicCheckpoint": false,
       "onAirBand": null,
       "ruling": "pending",
-      "conflict": "research.html's scope legend says \"Base selected\" (and highlights the Micro row as live), but Micro is a scratch tier with no base; research-models, research-hardware, the family guide, the Playbox and broadcast 015 all say planned. 015 also calls Micro the next scratch build, where research.html gives that to Nano.",
       "labels": {
         "research.scope": {
           "page": "research.html",
@@ -226,7 +223,6 @@
       "publicCheckpoint": false,
       "onAirBand": null,
       "ruling": "pending",
-      "conflict": "Broadcast 015 says Giga is built (27B, 16.5 GB at Q4_K_M) and has passed its release gate on an Apache-2.0 base, public checkpoint pending; research, research-models, research-hardware and the Playbox still say planned, base selection open.",
       "labels": {
         "research.scope": {
           "page": "research.html",
@@ -374,7 +370,6 @@
       "publicCheckpoint": false,
       "onAirBand": null,
       "ruling": "pending",
-      "conflict": "research-models chips Exa FRONTIER BASE (base named as DeepSeek-V4-Flash class) with the stage line \"The family teacher\", a role rather than a stage; the Playbox and broadcast 015 say planned.",
       "labels": {
         "research-models.chip": {
           "page": "research-models.html",
