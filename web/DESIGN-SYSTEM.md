@@ -120,6 +120,19 @@ panels are placed by the page. (Named `tint-panel`, not `panel`: the account she
 uses `.panel` for its hairline-divided sections.) The tuner band and the homepage cards
 still write the same two declarations by hand and can adopt the class.
 
+### Wave Spectrum scale
+```html
+<ol class="spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
+  <li><i aria-hidden="true"></i><b>Wave Pico</b> what it watches ...</li> ...
+</ol>
+```
+One station per tier, pico to exa; the bar over each is the wave, its stripes tightening
+as the model grows (set by position, up to seven tiers, no inline style). With
+`data-scrub` the scrubber tunes a tier (quiet ground, red wave). Four columns under
+1080px, where the range control steps aside (pointing or tapping a tier still tunes it);
+a stack on phones. No-JS: the complete list. The homepage's `.home-spectrum` (home.css)
+draws the same picture and can adopt this class.
+
 ### TOC tuner
 ```html
 <nav class="toc-tuner" data-tuner aria-label="Sections">

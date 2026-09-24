@@ -377,3 +377,54 @@
 }
 .tint-panel > :first-child { margin-top: 0; }
 .tint-panel > :last-child { margin-bottom: 0; }
+
+/* ---- component: spectrum (added by company rollout) ------------------------
+   <ol class="spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
+     <li><i aria-hidden="true"></i><b>Wave Pico</b> what it watches ...</li> ...
+   </ol>
+   The Wave Spectrum as a tuning scale, one station per tier, pico to exa. The
+   bar over each tier is the wave itself: stripes that TIGHTEN as the model grows
+   (set per position here, so markup alone is enough, up to seven tiers). With
+   [data-scrub] the scrubber (scrub.js) tunes a tier: a quiet ground and a red
+   wave; others never fade. The homepage's .home-spectrum is the same picture in
+   home.css and can adopt this class. Phones: the tiers stack, the bar becomes a
+   short lead, and the range control steps aside (tapping a tier still tunes it).
+   Reduced motion: nothing here moves. */
+.spectrum {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 0; padding: 0; list-style: none;
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.spectrum li {
+  display: block; min-width: 0;
+  padding: var(--s-4) var(--s-3);
+  border-radius: var(--r-xl);
+  transition: background-color var(--d-2);
+}
+.spectrum i {
+  display: block; height: 22px; margin-bottom: var(--s-3);
+  background: repeating-linear-gradient(90deg, currentColor 0 1.5px, transparent 1.5px var(--gap, 8px));
+  color: var(--ink-300);
+  -webkit-mask: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
+          mask: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
+}
+.spectrum li:nth-child(1) { --gap: 14px; }
+.spectrum li:nth-child(2) { --gap: 10px; }
+.spectrum li:nth-child(3) { --gap: 7.5px; }
+.spectrum li:nth-child(4) { --gap: 5.5px; }
+.spectrum li:nth-child(5) { --gap: 4.2px; }
+.spectrum li:nth-child(6) { --gap: 3.2px; }
+.spectrum li:nth-child(7) { --gap: 2.4px; }
+.spectrum b { display: block; color: var(--ink-900); font-weight: var(--weight-semi); }
+.spectrum li.is-tuned { background: var(--paper-2); }
+.spectrum li.is-tuned i { color: var(--live); }
+@media (max-width: 1080px) {
+  .spectrum { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--s-2); }
+  .scrub:has(+ .spectrum) { display: none; }
+}
+@media (max-width: 640px) {
+  .spectrum { grid-template-columns: 1fr; }
+  .spectrum li { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: var(--s-4); padding: var(--s-3); }
+  .spectrum i { grid-row: span 2; height: 18px; margin: 3px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { .spectrum li { transition: none; } }
