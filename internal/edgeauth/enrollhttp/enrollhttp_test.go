@@ -12,6 +12,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -180,4 +182,23 @@ func TestABareIssuerStillIssues(t *testing.T) {
 	rootPEM, err := enrollhttp.Root(context.Background(), srv.URL)
 	require.NoError(t, err)
 	require.Equal(t, edgeauth.EncodeCert(a.Root()), rootPEM)
+}
+
+// The /edge/revocations endpoint fails CLOSED: when the authority's revocation list is unreadable it
+// answers 503, never an empty 200 that would tell a member "nothing is revoked" (audit 2026-09-24).
+func TestRevocationsEndpointFailsClosedOnACorruptList(t *testing.T) {
+	dir := t.TempDir()
+	local, err := edgeauth.Designate(dir, "shed")
+	require.NoError(t, err)
+	srv := httptest.NewServer(enrollhttp.Handler(local))
+	t.Cleanup(srv.Close)
+
+	// Corrupt the persisted revocation list.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, edgeauth.AuthorityDir, "revoked.json"), []byte("{bad"), 0o600))
+
+	resp, err := http.Get(srv.URL + enrollhttp.RevocationsPath)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,
+		"an unreadable revocation list is a 503, never an empty list")
 }

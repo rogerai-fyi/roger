@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -86,4 +89,36 @@ func TestTuiAdoptRefusesANodeAlreadyAMember(t *testing.T) {
 	// And a member re-advertising as a candidate is filtered from what is on offer.
 	require.Empty(t, edgeDropMembers(h.st.candidates, h.st.fleet),
 		"a member is not offered for adoption")
+}
+
+// Forgetting a node when the authority cannot be opened (a corrupt issued.json / revoked.json) must
+// FAIL, not silently skip revocation and report success - the fail-open the audit caught. The node
+// stays in the fleet so the forget can be retried once the state is repaired (audit 2026-09-24).
+func TestForgetFailsWhenTheAuthorityIsCorrupt(t *testing.T) {
+	useTempConfig(t)
+	_, err := edgeauth.Designate(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	// Corrupt the authority's issued-certificate record so OpenLocal cannot read it.
+	require.NoError(t, os.WriteFile(filepath.Join(edgeAuthDir(), edgeauth.AuthorityDir, "issued.json"), []byte("{bad"), 0o600))
+
+	err = edgeRevokeOnForget("n_somebody")
+	require.Error(t, err, "a forget that could not revoke must report the failure")
+}
+
+// A failed revocation refresh must NOT stamp the stored list as freshly refreshed - otherwise the
+// staleness warning is suppressed and a revoked node keeps verifying with no warning (audit 2026-09-24).
+func TestRefreshTrustDoesNotMarkFreshWhenTheFetchFails(t *testing.T) {
+	useTempConfig(t)
+	st := edgeIdentityStore()
+	old := time.Now().Add(-72 * time.Hour)
+	require.NoError(t, st.SaveTrust([]string{"11"}, old))
+
+	// A fetch against an endpoint that cannot answer.
+	err := edgeRefreshTrust(st, "http://127.0.0.1:1/edge", nil, false, time.Now())
+	require.NoError(t, err, "a failed refresh does not fail the caller")
+
+	got, err := st.LoadTrust()
+	require.NoError(t, err)
+	require.Equal(t, old.Unix(), got.RefreshedAt, "a failed refresh leaves the list stale, not freshly stamped")
+	require.Equal(t, []string{"11"}, got.Revoked, "and does not lose the list it had")
 }

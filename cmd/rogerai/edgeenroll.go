@@ -327,12 +327,15 @@ func edgeRefreshTrust(st edgeauth.Store, endpoint string, local *edgeauth.Local,
 		if rev, err := enrollhttp.Revocations(context.Background(), endpoint); err == nil {
 			return st.SaveTrust(rev, now)
 		}
+		// The fetch FAILED (a 503 when the authority's list is unreadable, or the authority is
+		// unreachable). Do NOT re-stamp the stored list as freshly refreshed - a failed refresh that
+		// read as fresh would suppress the staleness warning and hide a revocation made meanwhile.
+		// Leave what is stored exactly as it is, so edgeTrustNote still warns (audit 2026-09-24).
+		return nil
 	}
-	t, err := st.LoadTrust()
-	if err != nil {
-		return err
-	}
-	return st.SaveTrust(t.Revoked, now)
+	// A node with no authority and no endpoint has no source to refresh from, so it likewise must not
+	// claim a fresh list. Leave the stored trust (and its RefreshedAt) untouched.
+	return nil
 }
 
 // edgeRecordSelf puts this machine on its own fleet, or leaves the row it already has
@@ -638,7 +641,11 @@ func edgeRevokeOnForget(nodeID string) error {
 	}
 	// The node being forgotten may be THIS machine, in which case its certificate is
 	// right here and leaving the Edge means giving it up.
-	if held, _, ok, err := st.LoadIdentity(); err == nil && ok && held.NodeID == nodeID {
+	held, _, ok, err := st.LoadIdentity()
+	if err != nil {
+		return fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeShortID(nodeID), err)
+	}
+	if ok && held.NodeID == nodeID {
 		if len(serials) == 0 {
 			serials = append(serials, held.Cert.SerialNumber.String())
 		}
