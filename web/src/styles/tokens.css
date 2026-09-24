@@ -29,7 +29,7 @@
   --ink-900:      #15140F; /* headlines, primary text */
   --ink-700:      #33312B; /* body text */
   --ink-500:      #6B685F; /* secondary text */
-  --ink-400:      #9A968B; /* tertiary / captions / labels */
+  --ink-400:      #726F66; /* tertiary / captions / labels: AA on paper and paper-2 */
   --ink-300:      #C4C0B5; /* disabled / off-bars */
 
   /* ---- THE SIGNAL: one red beacon. -------------------------------
@@ -189,7 +189,7 @@
   --ink-900:      #F3F1EA; /* headlines */
   --ink-700:      #D7D3C8; /* body */
   --ink-500:      #9A968B; /* secondary */
-  --ink-400:      #7A766B; /* tertiary / captions */
+  --ink-400:      #878378; /* tertiary / captions: AA on paper, paper-2 and the raised face */
   --ink-300:      #555148; /* disabled / off bars */
 
   --live:         #FF4438; /* beacon, lifted for AA on ink */
@@ -239,13 +239,6 @@
   --hairline-2:   #2E2A23;
 }
 
-/* The signed-in plate (account-base.css .card) is read, not glanced at: its labels,
-   readings and fine print use the tertiary ink, which is not AA on the tinted plate.
-   Inside the plate the tertiary ink is the secondary one (AA in both themes;
-   test/rest-rollout.test.mjs checks every text ink on every plate ground). */
-.card {
-  --ink-400:      var(--ink-500);
-}
 
 /* =====================================================================
    THE WAVE SPECTRUM PALETTE - the founder's own chart, light and dark.
@@ -264,6 +257,14 @@
   --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
   --tier-exa:  #8a6df0;
 }
+/* The signed-in plate (account-base.css .card) holds command wells on --paper-3, the
+   one ground the site's tertiary ink is not AA on (4.28:1 light). Inside the plate the
+   tertiary ink is the secondary one (test/rest-rollout.test.mjs checks every text ink
+   on every plate ground, test/contrast.test.mjs everything else). */
+.card {
+  --ink-400:      var(--ink-500);
+}
+
 /* Reduced motion: collapse choreography, keep legibility. */
 @media (prefers-reduced-motion: reduce) {
   :root {

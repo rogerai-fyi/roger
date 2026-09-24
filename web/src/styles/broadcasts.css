@@ -315,7 +315,3 @@
   .bc-post .cmd-words > span { white-space: normal; overflow-wrap: anywhere; }
 }
 
-/* ---- AA at rest: the shared eyebrow, section label and log foot use --ink-400,
-   which is 2.85:1 on paper (and less on a tinted ground); on these pages they are read,
-   so they take --ink-500 ---- */
-.bc-post__head .hero__eyebrow time, .bc-hero .hero__eyebrow, .bc-log .sectionno, .bc-log .market__foot { color: var(--ink-500); }

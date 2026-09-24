@@ -688,19 +688,11 @@ main section[id] { scroll-margin-top: 72px; }
 /* inside an inset band the tinted cards step to the raised ground */
 main .band--inset :is(.developer-step, .deployment-grid article, .research-onward > *) { background: var(--paper); }
 
-/* ---- labels that must be read: AA ink on paper ---- */
-.research-kicker, .model-group-head p, .release-evidence dt,
-.capability__cutline, .capability figcaption small, .tier-matrix thead th,
-.scope__head, .scope__mode, .scope__carries { color: var(--ink-500); }
+/* ---- label rules (the tertiary ink is AA on its own now: tokens.css) ---- */
 .tier-matrix thead th { border-bottom-width: 1px; border-bottom-color: var(--hairline-2); }
 .scope__head { border-bottom: 1px solid var(--hairline-2); }
-.purdue__tag { fill: var(--ink-500); }
 .research-tone.band--inset { border-block: 0; }
 
-/* AA at rest: the shared section label and figure label (--ink-400, 2.85:1 on paper,
-   less on a tinted band) are read here, so they take --ink-500; a state chip and the
-   release ticker's name keep their red rule but set their words in ink */
-main .sectionno, main .fig { color: var(--ink-500); }
+/* a state chip and the release ticker's name keep their red rule but set their words in ink */
 .status--none { color: var(--ink-900); }
 .release-ticker b { color: var(--ink-900); }
-.developer-step__no { color: var(--ink-500); }

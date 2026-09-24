@@ -30,7 +30,7 @@
 .co-page .research-distinction { background: none; border: 0; padding-top: var(--s-6); }
 .co-page .research-distinction__grid { padding-block: clamp(20px, 2.4vw, 32px); gap: var(--s-8); line-height: var(--lh-body); }
 .co-page .research-distinction__grid > div { display: block; }
-.co-page .research-distinction__grid .research-kicker { display: block; margin-bottom: var(--s-2); color: var(--ink-500); }
+.co-page .research-distinction__grid .research-kicker { display: block; margin-bottom: var(--s-2); }
 .co-page .research-distinction__grid b { color: var(--ink-900); }
 .co-page .research-distinction__grid p { border-color: var(--hairline); }
 
@@ -41,7 +41,6 @@
 .co-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-5); }
 .co-card { display: flex; flex-direction: column; }
 .co-card header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--s-2); }
-.co-card .research-kicker { color: var(--ink-500); }
 .co-card .status { border-radius: var(--r-pill); }
 .co-card h3 { margin: var(--s-4) 0 0; color: var(--ink-900); font-size: var(--t-h3); line-height: var(--lh-snug); }
 .co-card p { margin: var(--s-3) 0 0; color: var(--ink-500); line-height: var(--lh-body); }

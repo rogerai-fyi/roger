@@ -39,7 +39,6 @@
 
 /* ---- §2 the literal wire payload: a labelled shared code block ---- */
 .gpu-wire { margin: var(--s-6) 0 0; }
-.gpu-wire > .fig { color: var(--ink-500); }
 
 /* ---- §3 flow: model proposes -> text travels -> harness confirms -> action happens ---- */
 .gpu-flow {

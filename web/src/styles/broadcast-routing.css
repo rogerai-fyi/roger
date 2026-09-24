@@ -24,7 +24,7 @@
   font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
 }
 .route-process__steps b { color: var(--live); font-size: 10px; }
-.route-process .fig { margin: 10px 2px 1px; color: var(--ink-500); }
+.route-process .fig { margin: 10px 2px 1px; }
 .route-process--failover { margin-top: var(--s-6); }
 .route-process__carrier {
   position: absolute; left: 43%; top: 67%; width: 7px; height: 7px;

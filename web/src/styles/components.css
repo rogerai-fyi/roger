@@ -137,7 +137,6 @@
   margin: 0 calc(var(--panel-pad) * -1);
   padding: 0 var(--panel-pad) var(--s-3);
   border-bottom: 1px solid var(--hairline);
-  color: var(--ink-500);
 }
 .install[data-frame="panel"] .fig::before {
   content: ""; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
@@ -646,11 +645,11 @@
    --phone centres a portrait screenshot at a readable size; --chart is an inline SVG
    chart: set in heading ink, and on a column narrower than the chart it scrolls in
    its own box (the caption stays put) rather than shrinking its text below reading
-   size. The caption uses --ink-500: the .fig label's --ink-400 is not AA on paper. */
+   size. The caption is the .fig label (its --ink-400 is AA on every ground). */
 .figure { margin: var(--s-8) 0; max-width: 100%; }
 .figure > img, .figure > video, .figure > svg { display: block; max-width: 100%; width: 100%; height: auto; }
 .figure > img, .figure > video { border-radius: var(--r-lg); }
-.figure > figcaption { margin: var(--s-3) 2px 0; color: var(--ink-500); }
+.figure > figcaption { margin: var(--s-3) 2px 0; }
 .figure--plate { padding: var(--s-4); }   /* on the tinted ground (the .tint-panel rule) */
 .figure--phone > img { max-width: 440px; margin-inline: auto; }
 .figure--chart { color: var(--ink-900); overflow-x: auto; }
