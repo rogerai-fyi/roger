@@ -166,9 +166,7 @@ const CSS_COLOR_BUDGET = {
   "app.css": 9,                        // phone/screenshot drop shadows per theme
   "base.css": 2,                       // the OC orange's drop shadow, the nav panel shadow
   "billing.css": 1,                    // modal scrim
-  "broadcast-agent-governance.css": 3, // hard-coded paper + red tints (dark-mode debt)
-  "broadcast-gpu-isolation.css": 2,    // hard-coded paper + red tints (dark-mode debt)
-  "broadcast-routing.css": 10,         // the routing diagram's palette
+  "broadcast-routing.css": 9,          // the routing diagram's palette
   "device.css": 3,                     // fallbacks of an undefined --rule token
   "home.css": 24,                      // the reel's film black, book shadows, the wave mask
   "models.css": 2,                     // modal scrim
@@ -183,16 +181,8 @@ const CSS_COLOR_BUDGET = {
 };
 // inline style="" and <style> colours in page sources (the article figures' drift)
 const HTML_COLOR_BUDGET = {
-  "broadcasts-connect-bots-openai-api.html": 7,
-  "broadcasts-deepseek-mtp-gguf.html": 14,
-  "broadcasts-free-chatgpt-alternative.html": 6,
-  "broadcasts-jev-vs-wave.html": 9,
-  "broadcasts-llm-on-iphone.html": 8,
-  "broadcasts-one-gpu-many-users.html": 2,
-  "broadcasts-run-a-tower.html": 9,
-  "broadcasts-run-local-llm.html": 2,
-  "broadcasts-share-gpu-earn.html": 7,
-  "broadcasts-vram-for-llm.html": 8,
+  // (empty: the articles' inline figure colours were paid down in the research rollout;
+  // their SVG charts colour with var(--live) / var(--paper))
 };
 
 test("colours are tokens: no new colour literal outside tokens.css", () => {

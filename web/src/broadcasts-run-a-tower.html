@@ -66,7 +66,7 @@
         <figcaption class="fig mono">FIG. 1 - THE MAST IN THE MIDDLE</figcaption>
       </figure>
 
-      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> A <b>Tower</b> is a relay you run on your own Linux box. Consumers submit
         <b>sealed</b> work to its hub; providers' nodes poll that hub, serve the work, and seal the
         answer back. The Tower is on that path twice and is handed a key to it neither time.
@@ -78,7 +78,7 @@
         earning either. Install it with
         <code>curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</code>.
       </blockquote>
-      <p class="mono" style="font-size:.85rem;opacity:.75" data-reveal><b>Updated September 2026:</b>
+      <p class="bc-post__note mono" data-reveal><b>Updated September 2026:</b>
         the split above improved to 90/5/5 when the platform fee dropped to 10% across the
         network (it was 70/10/20 when this broadcast first aired). Stations and Towers both
         earn from the same requests as before; the platform simply takes less.</p>
@@ -145,12 +145,13 @@
                  aria-label="Flow diagram of the sealed path: the consumer authorizes at Core and seals the request to the node's key; the Tower queues the sealed bytes without a key to them; the node opens, serves, signs a receipt and seals the answer back through the Tower; Core settles the receipt 90/5/5.">
               <style>
                 .t-box{fill:currentColor;opacity:.04}.t-stroke{stroke:currentColor;fill:none;opacity:.32}
-                .t-arrow{stroke:currentColor;opacity:.5;fill:none}.t-live{fill:#E0231C}
-                .t-seal{stroke:#E0231C;fill:none;opacity:.85;stroke-dasharray:5 4}
-                .t-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.6}
+                .t-arrow{stroke:currentColor;opacity:.5;fill:none}.t-live{fill:var(--live)}
+                .t-seal{stroke:var(--live);fill:none;opacity:.85;stroke-dasharray:5 4}
+                .t-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.7}
                 .t-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;fill:currentColor}
                 .t-b{font-family:"JetBrains Mono",monospace;font-size:12.5px;fill:currentColor;opacity:.8}
-                .t-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .t-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .t-dim{opacity:.7}
               </style>
               <text x="24" y="30" class="t-cap">FIG. 2 - THE SEALED PATH</text>
               <line x1="24" y1="44" x2="796" y2="44" class="t-stroke"/>
@@ -186,7 +187,7 @@
                    otherwise strike through the tail of this label. -->
               <text x="296" y="236" class="t-b">the answer returns the same way - still sealed</text>
 
-              <text x="24" y="286" class="t-b" style="opacity:.6">The dashed run is ciphertext end to end. Your Tower is on it twice and holds a key to it neither time.</text>
+              <text x="24" y="286" class="t-b t-dim">The dashed run is ciphertext end to end. Your Tower is on it twice and holds a key to it neither time.</text>
             </svg>
             <figcaption class="fig mono">FIG. 2 - Sealed at the consumer, opened only at the node. The relay is on the path, never holding the key.</figcaption>
           </figure>
@@ -208,11 +209,14 @@
                  aria-label="Bar showing how one settled request divides: 90 percent to the serving node, 5 percent to the tower operator, 5 percent to the platform, all measured against the node's own listed price.">
               <style>
                 .s-stroke{stroke:currentColor;fill:none;opacity:.32}
-                .s-node{fill:currentColor;opacity:.22}.s-tower{fill:#E0231C}.s-plat{fill:currentColor;opacity:.10}
-                .s-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.6}
+                .s-node{fill:currentColor;opacity:.22}.s-tower{fill:var(--live)}.s-plat{fill:currentColor;opacity:.10}
+                .s-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.7}
                 .s-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;fill:currentColor}
                 .s-b{font-family:"JetBrains Mono",monospace;font-size:12.5px;fill:currentColor;opacity:.8}
-                .s-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .s-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .s-sm{font-size:12px}.s-inv{fill:var(--paper)}
+                .s-hot{fill:var(--live);font-weight:700}
+                .s-dim{opacity:.7}
               </style>
               <text x="24" y="30" class="s-cap">FIG. 3 - ONE SETTLED REQUEST</text>
               <line x1="24" y1="44" x2="796" y2="44" class="s-stroke"/>
@@ -223,13 +227,13 @@
               <rect x="30" y="72" width="761" height="46" class="s-stroke"/>
 
               <text x="46"  y="101" class="s-h">90%  the node that served it</text>
-              <text x="716" y="101" class="s-h" style="fill:#fff;font-size:12px">5%</text>
-              <text x="756" y="101" class="s-h" style="font-size:12px">5%</text>
+              <text x="716" y="101" class="s-h s-sm s-inv">5%</text>
+              <text x="756" y="101" class="s-h s-sm">5%</text>
 
               <text x="46"  y="142" class="s-b">its own listed price, on Core's recount</text>
-              <text x="622" y="142" class="s-b" style="fill:#E0231C;font-weight:700">your Tower &rarr;</text>
+              <text x="622" y="142" class="s-b s-hot">your Tower &rarr;</text>
               <text x="742" y="142" class="s-b">platform</text>
-              <text x="24"  y="172" class="s-b" style="opacity:.6">Measured against the node's price, not a house rate. A request that returns nothing usable settles at zero for everyone.</text>
+              <text x="24"  y="172" class="s-b s-dim">Measured against the node's price, not a house rate. A request that returns nothing usable settles at zero for everyone.</text>
             </svg>
             <figcaption class="fig mono">FIG. 3 - The relay's cut, and what it is a cut of.</figcaption>
           </figure>
@@ -390,11 +394,13 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
-          Put a mast on the network:
-          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>ROGERAI_COMPONENT=tower</span> <span>sh</span></code>
-        </div>
+        <aside class="inset-panel bc-signoff">
+          <span class="inset-panel__tag">roger that</span>
+          <p>Put a mast on the network:</p>
+          <div class="install">
+            <!-- include: install-box.html id=signoffInstall oslock=linux label="Copy the Tower install command to clipboard" cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | <span class="tok">ROGERAI_COMPONENT=tower</span> sh' -->
+          </div>
+        </aside>
 
       </div>
 

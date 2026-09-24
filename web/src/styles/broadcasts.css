@@ -42,7 +42,7 @@
 }
 .bc-tg__label .onair { font-size: var(--t-xs); color: var(--live); }
 .bc-tg__meta {
-  font-size: var(--t-xs); color: var(--ink-400);
+  font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 .bc-tg__body { margin: var(--s-4) 0 0; }
@@ -101,7 +101,7 @@
 
 .bc-row__meta { grid-area: meta; }
 .bc-row__date {
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em;
 }
 
@@ -119,7 +119,7 @@
 
 .bc-row__go {
   grid-area: go; align-self: center; white-space: nowrap;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.08em;
   transition: color var(--d-2), transform var(--d-2) var(--ease-out-quint);
 }
@@ -141,40 +141,57 @@
 }
 
 /* ============================ POST ============================ */
-.bc-post { padding-block: clamp(40px, 6vw, 72px) var(--section-y); }
-.bc-post__wrap { max-width: 760px; }
+/* THE ARTICLE KIT: every broadcast reads the same way. One reading measure
+   (--bc-measure, ~68 characters of the body face), one body size, one lead step,
+   one heading scale, quiet section numbers, calm tinted panels instead of rules and
+   pink boxes. Only a lead figure (the hero plate or video, a direct child of the
+   wrap) may break out of the measure, to the wider --bc-wide. Every colour is a
+   token, so the dark theme is correct by construction. */
+.bc-post {
+  --bc-measure: 42rem; --bc-wide: 60rem;
+  --bc-body: clamp(1.0625rem, 1rem + 0.25vw, 1.125rem);
+  padding-block: clamp(40px, 6vw, 72px) var(--section-y);
+}
+.bc-post__wrap { max-width: calc(var(--bc-wide) + 2 * var(--gutter)); }
+.bc-post__wrap > * { max-width: var(--bc-measure); margin-inline: auto; }
+.bc-post__wrap > :is(.figure, .bc-video) { max-width: var(--bc-wide); }
 
 .bc-post__back {
-  display: inline-block; margin-bottom: var(--s-6);
-  font-size: var(--t-xs); color: var(--ink-400);
+  display: block; width: fit-content; margin-bottom: var(--s-8);
+  font-size: var(--t-xs); color: var(--ink-500);
   transition: color var(--d-2);
 }
-.bc-post__back:hover { color: var(--live); }
+.bc-post__wrap > .bc-post__back { margin-left: max(0px, calc((100% - var(--bc-measure)) / 2)); }
+.bc-post__back:hover, .bc-post__back:focus-visible { color: var(--live); }
 
 /* ---- post header ---- */
-.bc-post__head { padding-bottom: var(--s-6); border-bottom: 1px solid var(--hairline); }
+.bc-post__head { padding-bottom: var(--s-2); }
 .bc-post__title {
-  font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
+  font-size: var(--t-h1); letter-spacing: var(--tracking-h1); line-height: 1.08;
   color: var(--ink-900); margin-top: var(--s-4); text-wrap: balance;
 }
 .bc-post__dek {
-  margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead);
-  line-height: 1.55; max-width: 62ch; text-wrap: pretty;
+  margin-top: var(--s-5); color: var(--ink-500); font-size: var(--t-lead);
+  line-height: 1.55; text-wrap: pretty;
 }
 .bc-post__meta {
   margin-top: var(--s-6); display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-6);
-  font-size: var(--t-xs); color: var(--ink-400);
+  font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 .bc-post__meta b { color: var(--ink-700); font-weight: var(--weight-semi); }
+/* a dated note under the header ("Updated ...") */
+.bc-post__note { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-sm); line-height: 1.6; }
+
+/* ---- the lead figure: the shared .figure, spaced as the article's plate ---- */
+.bc-post__wrap > .figure { margin-block: var(--s-10) 0; }
 
 /* ---- the headline video plate ---- */
 .bc-video { margin: var(--s-10) 0 0; }
 .bc-video .fig { margin-bottom: var(--s-3); }
 .bc-video__frame {
   position: relative; aspect-ratio: 16 / 9; width: 100%;
-  border: 1px solid var(--hairline-2); border-top: 2px solid var(--ink-900);
-  border-radius: var(--r-md); overflow: hidden; background: var(--paper-3);
+  border-radius: var(--panel-r); overflow: hidden; background: var(--paper-3);
 }
 /* the real player fills the plate; contain letterboxes any off-ratio frame
    against the plate background rather than stretching it. The poster is served
@@ -186,57 +203,105 @@
 .bc-video__fallback { color: var(--ink-500); padding: var(--s-5); }
 .bc-video__fallback a { color: var(--live); text-decoration: underline; text-underline-offset: 2px; }
 .bc-video__cap {
-  margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-400);
+  margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-500);
   text-align: center; letter-spacing: 0.02em;
+}
+
+/* ---- the Quick Answer (and every short answer): the prose face at the lead step
+   on a 2px red rule. No fill, no mono paragraph. ---- */
+.bc-answer {
+  margin: var(--s-10) auto 0; padding: 2px 0 2px var(--s-5);
+  border-left: 2px solid var(--live);
+  color: var(--ink-700); font-size: var(--t-lead); line-height: 1.6; text-wrap: pretty;
+}
+.bc-answer b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.bc-answer :not(pre) > code {
+  font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: anywhere;
+  background: var(--paper-2); border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+}
+.bc-answer__tag {
+  display: block; margin-bottom: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-500);
 }
 
 /* ---- the narrative body ---- */
 .bc-post__body { margin-top: var(--s-10); }
 .bc-post__lead {
-  color: var(--ink-700); font-size: var(--t-lead); line-height: 1.6; max-width: 68ch;
+  color: var(--ink-900); font-size: clamp(1.1875rem, 1.1rem + 0.4vw, 1.3125rem);
+  line-height: 1.55; letter-spacing: var(--tracking-tight); text-wrap: pretty;
 }
 .bc-post__lead em { font-style: italic; color: var(--ink-900); }
 
-.bc-sec { padding-block: clamp(24px, 4vw, 40px); border-top: 1px solid var(--hairline); }
-.bc-sec:first-of-type { margin-top: var(--s-8); }
+/* sections: space separates them, not a rule */
+.bc-sec { padding-block: clamp(32px, 5vw, 56px) 0; }
+.bc-sec:first-of-type { margin-top: var(--s-4); }
+/* the section number, quiet: muted mono, only the section mark in red */
 .bc-sec__no {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--live);
-  text-transform: uppercase; letter-spacing: 0.12em; font-weight: var(--weight-semi);
+  display: block; width: fit-content;
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-500);
+  text-transform: uppercase; letter-spacing: var(--tracking-label); font-weight: var(--weight-medium);
 }
-.bc-sec__no::before {
-  content: ""; width: 18px; height: 1px; background: var(--live);
-  display: inline-block; opacity: 0.7;
-}
+.bc-sec__no::first-letter { color: var(--live); }
 .bc-sec h2 {
   font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   margin-top: var(--s-3); font-weight: var(--weight-bold); line-height: var(--lh-snug);
+  text-wrap: balance;
 }
-.bc-sec p {
-  margin-top: var(--s-4); color: var(--ink-700); font-size: var(--t-body);
-  line-height: 1.65; max-width: 70ch; text-wrap: pretty;
+.bc-sec h3 { margin-top: var(--s-8); color: var(--ink-900); font-size: var(--t-h3); letter-spacing: var(--tracking-h3); }
+.bc-sec p, .bc-sec > ul:not([class]), .bc-sec > ol:not([class]) {
+  margin-top: var(--s-4); color: var(--ink-700); font-size: var(--bc-body);
+  line-height: 1.7; text-wrap: pretty;
 }
+.bc-sec :is(ul, ol):not([class]) li + li { margin-top: var(--s-2); }
 .bc-sec p em { font-style: italic; color: var(--ink-900); }
+.bc-sec p b, .bc-sec li b { color: var(--ink-900); }
 .bc-sec :not(pre) > code {
   font-family: var(--font-mono); font-size: 0.88em;
-  background: var(--paper-2); border: 1px solid var(--hairline);
-  border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+  background: var(--paper-2); border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
   overflow-wrap: anywhere;
 }
+/* a numbered step list set in mono (the connect-your-bot recipe) */
+.bc-steps { margin: var(--s-4) 0; padding-left: 1.4rem; color: var(--ink-700); font-size: var(--t-sm); line-height: 1.7; }
+.bc-steps li + li { margin-top: var(--s-2); }
 
-/* the sign-off note's inline command reads as a copy line */
-.bc-post__body .man-note code {
-  font-family: var(--font-mono); font-size: 0.9em;
-  background: var(--paper); border: 1px solid var(--hairline);
-  border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
-  overflow-wrap: anywhere;
+/* ---- a data table in an article (inside a .figure > .scroll-box) ---- */
+.bc-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); color: var(--ink-700); }
+.bc-table th, .bc-table td { padding: 10px 12px; text-align: left; vertical-align: top; border-top: 1px solid var(--hairline); }
+.bc-table thead th { border-top: 0; border-bottom: 1px solid var(--hairline-2); color: var(--ink-900); font-weight: var(--weight-semi); }
+.bc-table tbody th { padding-left: 0; color: var(--ink-500); font-weight: var(--weight-regular); white-space: nowrap; }
+.bc-table thead td { border-top: 0; border-bottom: 1px solid var(--hairline-2); }
+
+/* ---- the FAQ: a calm question/answer list. The markup is a <dl> whose <dt><b>
+   mirrors the page's FAQPage JSON-LD word for word (tested), so it stays a <dl>. ---- */
+.bc-faq { margin: var(--s-6) 0 0; }
+.bc-faq dt {
+  margin: 0; padding-top: var(--s-5); border-top: 1px solid var(--hairline);
+  color: var(--ink-900); font-size: var(--bc-body); line-height: 1.4;
 }
+.bc-faq dt:first-child { padding-top: 0; border-top: 0; }
+.bc-faq dt b { font-weight: var(--weight-semi); }
+.bc-faq dd {
+  margin: var(--s-2) 0 var(--s-5); padding: 0;
+  color: var(--ink-500); font-size: var(--t-body); line-height: 1.65; text-wrap: pretty;
+}
+.bc-faq dd:last-child { margin-bottom: 0; }
+
+/* ---- the sign-off: an inset panel with the shared install pill ---- */
+.bc-signoff { margin-top: var(--s-12); font-size: var(--t-body); line-height: 1.65; }
+.bc-signoff p { margin: 0; color: var(--ink-700); }
+.bc-signoff .install { margin-top: var(--s-4); max-width: none; }
+.bc-signoff :not(pre, .install__box) > code {
+  font-family: var(--font-mono); font-size: 0.88em; overflow-wrap: anywhere;
+  background: var(--paper); border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+}
+.bc-signoff a { color: var(--ink-900); }
 
 /* ------- §0 what's-new list (the dial) - hairlined rows, mono-led ------- */
 .bc-dial { list-style: none; margin: var(--s-4) 0 0; padding: 0; }
 .bc-dial li {
   padding: 14px 0; border-top: 1px solid var(--hairline);
-  color: var(--ink-700); font-size: var(--t-body); line-height: 1.65;
+  color: var(--ink-700); font-size: var(--bc-body); line-height: 1.65;
 }
 .bc-dial li:first-child { border-top: 0; padding-top: 0; }
 .bc-dial li > b { color: var(--ink-900); font-weight: var(--weight-semi); }

@@ -1,18 +1,7 @@
 /* Broadcast 009 - capacity-aware routing plate. Scoped under .route-post. */
-.route-post .bc-post__wrap { max-width: 900px; }
-.route-post .bc-post__head,
-.route-post .bc-post__body { max-width: 760px; margin-inline: auto; }
-
-.route-hero {
-  margin: var(--s-8) 0 0; padding: 14px;
-  background: var(--paper-2); border: 1px solid var(--hairline-2);
-  border-radius: var(--r-md);
-}
-.route-hero img { display: block; width: 100%; height: auto; border-radius: 6px; }
-.route-hero .fig { margin: 10px 2px 0; color: var(--ink-400); }
 
 .route-process {
-  margin: var(--s-7) 0 0; padding: 10px;
+  margin: var(--s-8) 0 0; padding: 10px;
   border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   background: var(--paper-2); overflow: hidden;
 }
@@ -47,7 +36,7 @@
   font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
 }
 .route-process__steps b { color: var(--live); font-size: 10px; }
-.route-process .fig { margin: 10px 2px 1px; color: var(--ink-400); }
+.route-process .fig { margin: 10px 2px 1px; color: var(--ink-500); }
 .route-process--failover { margin-top: var(--s-6); }
 .route-process__carrier {
   position: absolute; left: 43%; top: 67%; width: 7px; height: 7px;
@@ -63,13 +52,6 @@
   86% { left: 81%; top: 47%; opacity: 1; }
   94%, 100% { left: 81%; top: 47%; opacity: 0; }
 }
-.route-answer {
-  max-width: 760px; margin: var(--s-7) auto 0; padding: 1rem 1.25rem;
-  border-left: 3px solid var(--live); background: rgba(224,35,28,.05);
-  border-radius: 0 6px 6px 0; color: var(--ink-700); line-height: 1.65;
-}
-.route-answer b { color: var(--ink-900); }
-
 .route-sim {
   margin-top: var(--s-6); border: 1px solid var(--hairline-2);
   border-top: 2px solid var(--ink-900); border-radius: var(--r-md);
@@ -126,7 +108,7 @@
   border-radius: 8px; background: var(--paper); box-shadow: 0 8px 0 rgba(21,20,15,.06);
 }
 .route-router b { font-size: 12px; letter-spacing: .14em; }
-.route-router span:last-child { font-size: 10px; color: var(--ink-400); }
+.route-router span:last-child { font-size: 10px; color: var(--ink-500); }
 .route-router__eye {
   position: absolute; top: 8px; right: 10px; color: var(--live);
   animation: route-blink 1.2s steps(2,end) infinite;
@@ -145,10 +127,10 @@
 .route-station > span {
   font-family: var(--font-mono); font-weight: 700; color: var(--ink-900);
 }
-.route-station > span::after { content: " sig"; font-size: 8px; color: var(--ink-400); font-weight: 400; }
+.route-station > span::after { content: " sig"; font-size: 8px; color: var(--ink-500); font-weight: 400; }
 .route-station small {
   grid-column: 1 / -1; margin-top: 5px; font-family: var(--font-mono);
-  font-size: 9px; color: var(--ink-400);
+  font-size: 9px; color: var(--ink-500);
 }
 .route-station.is-picked {
   border-color: var(--live); transform: translateY(-3px);
@@ -176,13 +158,13 @@
   border-top: 1px solid var(--hairline); background: var(--white);
 }
 .route-sim__readout > div:first-child { display: flex; align-items: baseline; gap: 10px; }
-.route-sim__readout > div:first-child span { color: var(--ink-400); font-size: 10px; letter-spacing: .1em; }
+.route-sim__readout > div:first-child span { color: var(--ink-500); font-size: 10px; letter-spacing: .1em; }
 .route-sim__readout > div:first-child b { color: var(--live); font: 700 20px var(--font-mono); }
 .route-sim__readout p { margin: 0; color: var(--ink-700); font-size: 13px; }
 .route-legend {
   grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 18px;
   margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--hairline-2);
-  color: var(--ink-400); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-500); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
 }
 .route-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .route-key { width: 16px; height: 2px; display: inline-block; background: var(--ink-400); }

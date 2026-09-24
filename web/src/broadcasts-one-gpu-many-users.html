@@ -33,7 +33,7 @@
         </p>
       </header>
 
-      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         Quick answer: on our bench, one GPU running gpt-oss-120b went from ~160 tokens/sec at a
         single user to ~310 at eight users. That is nearly double the total work from the same
         hardware. Each user's speed dropped from ~171 to ~79. More users means more total tokens,
@@ -146,11 +146,13 @@
         </dl>
       </section>
 
-      <div class="man-note man-note--live">
-        <span class="man-note__tag">roger that</span>
-        Skip the setup or share your local model - install the set and tune in:
-        <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>
-      </div>
+      <aside class="inset-panel bc-signoff">
+        <span class="inset-panel__tag">roger that</span>
+        <p>Skip the setup or share your local model - install the set and tune in:</p>
+        <div class="install">
+          <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+        </div>
+      </aside>
     </div>
     </div>
   </article>

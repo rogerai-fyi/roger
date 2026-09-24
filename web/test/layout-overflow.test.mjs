@@ -174,11 +174,22 @@ function assertCmdWords(where, code) {
 }
 
 test("commands: every multi-word command in a sign-off note breaks only at spaces", () => {
+  // A sign-off is an .inset-panel.bc-signoff (research rollout) or a .man-note. Its
+  // inline commands are .cmd-words; a closing install command is the shared install pill,
+  // whose every hyphenated or slashed word sits in a nowrap .tok.
   let n = 0;
   for (const f of BROADCASTS) {
-    for (const note of page(f).match(/<div class="man-note[^"]*">[\s\S]*?<\/div>/g) || []) {
+    const html = page(f);
+    const notes = [...(html.match(/<div class="man-note[^"]*">[\s\S]*?<\/div>/g) || []),
+      ...(html.match(/<aside class="inset-panel bc-signoff">[\s\S]*?<\/aside>/g) || [])];
+    for (const note of notes) {
       for (const code of note.match(/<code\b[\s\S]*?<\/code>/g) || []) {
         if (words(code).length < 2) continue;
+        if (/^<code class="install__code">/.test(code)) {
+          const bare = code.replace(/<span class="tok">[^<]*<\/span>/g, "TOK").replace(/<[^>]+>/g, "");
+          assert.doesNotMatch(bare, /[-/]/, `${f}: ${code.slice(0, 80)}: every word with a hyphen or slash is a .tok`);
+          n++; continue;
+        }
         assertCmdWords(f, code); n++;
       }
     }

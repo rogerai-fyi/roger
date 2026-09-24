@@ -124,13 +124,13 @@
               <style>
                 .m-hair{stroke:currentColor;opacity:.18}.m-axis{stroke:currentColor;opacity:.45}
                 .m-box{fill:currentColor;opacity:.06;stroke:currentColor;stroke-opacity:.22}
-                .m-wave{fill:#E0231C;fill-opacity:.07;stroke:#E0231C;stroke-opacity:.6}
-                .m-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
-                .m-ax{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:1px;fill:currentColor;opacity:.6}
+                .m-wave{fill:var(--live);fill-opacity:.07;stroke:var(--live);stroke-opacity:.6}
+                .m-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .m-ax{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:1px;fill:currentColor;opacity:.7}
                 .m-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:600;fill:currentColor}
-                .m-hr{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:600;fill:#E0231C}
+                .m-hr{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:600;fill:var(--live)}
                 .m-t{font-family:"JetBrains Mono",monospace;font-size:13px;fill:currentColor;opacity:.8}
-                .m-n{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.55}
+                .m-n{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.7}
               </style>
               <text x="24" y="34" class="m-cap">FIG. 2 - WHAT IT READS &#215; WHAT IT RETURNS</text>
               <line x1="24" y1="48" x2="796" y2="48" class="m-hair"/>
@@ -258,12 +258,12 @@
                  aria-label="Chart: size on disk of each Wave tier, quantized, on a log scale from 100 MB to 1 TB. Wave Pico about 165 MB, built. Wave Nano about 690 MB at 1.15B, training. Wave Micro planned. Wave Giga 16.5 GB at Q4_K_M, built on Qwen3.8-27B. Wave Tera about 60 GB at 100B, base being selected. Wave Peta about 105 GB and Wave Exa about 170 GB, planned. Jev has no bar: hosted only, parameter count undisclosed.">
               <style>
                 .l-hair{stroke:currentColor;opacity:.18}.l-tick{stroke:currentColor;opacity:.30;stroke-dasharray:2 4}
-                .l-bar{fill:currentColor;opacity:.82}.l-plan{fill:currentColor;opacity:.28}.l-built{fill:#E0231C}
+                .l-bar{fill:currentColor;opacity:.82}.l-plan{fill:currentColor;opacity:.28}.l-built{fill:var(--live)}
                 .l-lbl{font-family:"JetBrains Mono",monospace;font-size:15px;fill:currentColor}
                 .l-val{font-family:"JetBrains Mono",monospace;font-size:14px;fill:currentColor}
-                .l-live{font-family:"JetBrains Mono",monospace;font-size:14px;fill:#E0231C}
-                .l-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
-                .l-t{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.55}
+                .l-live{font-family:"JetBrains Mono",monospace;font-size:14px;fill:var(--live)}
+                .l-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .l-t{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.7}
               </style>
               <text x="24" y="34" class="l-cap">FIG. 3 - SIZE ON DISK, QUANTIZED (LOG SCALE)</text>
               <line x1="24" y1="48" x2="796" y2="48" class="l-hair"/>
@@ -341,14 +341,14 @@
               <style>
                 .w-hair{stroke:currentColor;opacity:.18}.w-net{stroke:currentColor;opacity:.35;stroke-dasharray:3 5}
                 .w-box{fill:currentColor;opacity:.06;stroke:currentColor;stroke-opacity:.22}
-                .w-wave{fill:#E0231C;fill-opacity:.07;stroke:#E0231C;stroke-opacity:.6}
+                .w-wave{fill:var(--live);fill-opacity:.07;stroke:var(--live);stroke-opacity:.6}
                 .w-arrow{stroke:currentColor;opacity:.5;fill:none}
-                .w-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .w-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
                 .w-h{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;fill:currentColor}
-                .w-hr{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;fill:#E0231C}
+                .w-hr{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;fill:var(--live)}
                 .w-t{font-family:"JetBrains Mono",monospace;font-size:11px;fill:currentColor;opacity:.8}
-                .w-n{font-family:"JetBrains Mono",monospace;font-size:11px;fill:currentColor;opacity:.55}
-                .w-wire{stroke:#E0231C;stroke-opacity:.7;stroke-width:2}
+                .w-n{font-family:"JetBrains Mono",monospace;font-size:11px;fill:currentColor;opacity:.7}
+                .w-wire{stroke:var(--live);stroke-opacity:.7;stroke-width:2}
               </style>
               <text x="24" y="34" class="w-cap">FIG. 4 - WHERE IT RUNS</text>
               <line x1="24" y1="48" x2="796" y2="48" class="w-hair"/>
@@ -419,24 +419,24 @@
 
           <figure class="figure" data-reveal>
             <div class="scroll-box">
-              <table class="mono" style="width:100%;border-collapse:collapse;font-size:.92em">
+              <table class="bc-table mono">
                 <thead>
-                  <tr style="text-align:left;border-bottom:1px solid currentColor">
-                    <th style="padding:.4em .6em .4em 0"></th>
-                    <th style="padding:.4em .6em">Jev</th>
-                    <th style="padding:.4em .6em">Wave Pico</th>
-                    <th style="padding:.4em .6em">Wave Giga</th>
+                  <tr>
+                    <td></td>
+                    <th scope="col">Jev</th>
+                    <th scope="col">Wave Pico</th>
+                    <th scope="col">Wave Giga</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Reads</td><td style="padding:.4em .6em">text, 64k window</td><td style="padding:.4em .6em">a window of telemetry, a log line</td><td style="padding:.4em .6em">telemetry across channels, plus language</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Returns</td><td style="padding:.4em .6em">probabilities: yes/no, choice, score</td><td style="padding:.4em .6em">fault, which fault, or "unreadable"</td><td style="padding:.4em .6em">asset condition, plus a conversation</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Runs</td><td style="padding:.4em .6em">TypeSafe's cloud, API only</td><td style="padding:.4em .6em">a single-board computer or any GPU, offline</td><td style="padding:.4em .6em">one 32 GB card, offline</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Weights</td><td style="padding:.4em .6em">closed, params undisclosed</td><td style="padding:.4em .6em">ours, from scratch, 293M</td><td style="padding:.4em .6em">Apache-2.0 base, merged, 27B</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Size on disk</td><td style="padding:.4em .6em">none</td><td style="padding:.4em .6em">~165 MB quantized</td><td style="padding:.4em .6em">16.5 GB at Q4_K_M</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Price</td><td style="padding:.4em .6em">$0.042 per M input tokens</td><td style="padding:.4em .6em">free on air now, or your own hardware</td><td style="padding:.4em .6em">your own hardware, or on air via RogerAI</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Cannot</td><td style="padding:.4em .6em">explain, count, do arithmetic, read a sensor</td><td style="padding:.4em .6em">chat, answer trivia, reason across machines</td><td style="padding:.4em .6em">run on a Pi</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">{{wave:pico.jev-vs-wave.table}}</td><td style="padding:.4em .6em">{{wave:giga.jev-vs-wave.table}}</td></tr>
+                  <tr><th scope="row">Reads</th><td>text, 64k window</td><td>a window of telemetry, a log line</td><td>telemetry across channels, plus language</td></tr>
+                  <tr><th scope="row">Returns</th><td>probabilities: yes/no, choice, score</td><td>fault, which fault, or "unreadable"</td><td>asset condition, plus a conversation</td></tr>
+                  <tr><th scope="row">Runs</th><td>TypeSafe's cloud, API only</td><td>a single-board computer or any GPU, offline</td><td>one 32 GB card, offline</td></tr>
+                  <tr><th scope="row">Weights</th><td>closed, params undisclosed</td><td>ours, from scratch, 293M</td><td>Apache-2.0 base, merged, 27B</td></tr>
+                  <tr><th scope="row">Size on disk</th><td>none</td><td>~165 MB quantized</td><td>16.5 GB at Q4_K_M</td></tr>
+                  <tr><th scope="row">Price</th><td>$0.042 per M input tokens</td><td>free on air now, or your own hardware</td><td>your own hardware, or on air via RogerAI</td></tr>
+                  <tr><th scope="row">Cannot</th><td>explain, count, do arithmetic, read a sensor</td><td>chat, answer trivia, reason across machines</td><td>run on a Pi</td></tr>
+                  <tr><th scope="row">Status</th><td>GA since Sept 20</td><td>{{wave:pico.jev-vs-wave.table}}</td><td>{{wave:giga.jev-vs-wave.table}}</td></tr>
                 </tbody>
               </table>
             </div>
@@ -491,11 +491,11 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
+        <aside class="inset-panel bc-signoff">
+          <span class="inset-panel__tag">roger that</span>
           Tune in to Wave Pico now: <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>, then <code class="cmd-words"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code>.
           The full family guide, with the jobs table and the mesh: <a href="/research-wave-family.html">The Wave Spectrum</a>.
-        </div>
+        </aside>
 
       </div>
 

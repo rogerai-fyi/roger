@@ -35,7 +35,7 @@
       </header>
 
       <!-- QUICK ANSWER: 40-60 words, answered directly. AI engines pull this near-verbatim. -->
-      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> To run a local LLM on your own GPU, install a runtime (Ollama,
         llama.cpp, or LM Studio), download an open model like gpt-oss, Qwen, or Llama, and point
         any app at its OpenAI-compatible endpoint. A 12-16&nbsp;GB GPU comfortably runs a strong
@@ -139,11 +139,13 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
-          Skip the setup or share your local model - install the set and tune in:
-          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>
-        </div>
+        <aside class="inset-panel bc-signoff">
+          <span class="inset-panel__tag">roger that</span>
+          <p>Skip the setup or share your local model - install the set and tune in:</p>
+          <div class="install">
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+          </div>
+        </aside>
 
       </div>
 
