@@ -134,7 +134,7 @@
 .hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); font-size: min(var(--t-display), 9.5cqi); }
 @media (min-width: 1100px) {
   /* a tighter top, so FIG. 1 and Ping sit inside a 900px-tall first screen
-     (under the nav, the dial and the panel's inset) */
+     (under the nav and the panel's inset) */
   .hero__inner { padding-top: clamp(14px, 2.2vh, 40px); padding-bottom: var(--s-10); }
   /* equal columns: at .75rem the whole install command fits one line in
      FIG. 1 from 1100px up (464px column at 1280, the tightest case) */
@@ -213,8 +213,6 @@
       animation-range: entry 0% entry 15vh;
     }
 
-    /* the instrument's needle sweeps in from the left of the scale on load */
-    .dial__needle { animation: dial-tune 1.2s var(--ease-out-quint) both; }
     /* the middle's scroll moment: the Wave Spectrum tunes in, pico to exa,
        each wave drawing across and flashing the live red as it locks; only
        Pico (the one trained tier) stays red. The spec plate ticks in. */
@@ -237,9 +235,8 @@
       animation-range: entry 0% entry 20vh;
     }
 
-    /* ---- variants B (default) and C: the section choreography ----------
-       scroll-stage.js sets data-motion only from ?motion=; with no
-       attribute (production, and no-JS) this is on. Every piece is tied to
+    /* ---- the section choreography ----------------------------------------
+       Every piece is tied to
        scroll position, so wherever the reader stops IS a resting state:
        transform only, never a fade (text stays at full contrast at rest).
        - the hero recedes as you leave it: it lags the scroll and shrinks a
@@ -250,39 +247,39 @@
        (Section heads and figures are [data-reveal] blocks and take the
        base rise above; a choreography rule on them would be shadowed.) */
     @media (min-width: 900px) {
-      :root:not([data-motion="a"]) .hero__inner {
+      .hero__inner {
         animation: lift-recede linear both;
         animation-timeline: scroll(root);
         animation-range: 0px 85vh;
         transform-origin: 30% 0;
       }
     }
-    :root:not([data-motion="a"]) main .sectionno { view-timeline: --secno block; }
-    :root:not([data-motion="a"]) main .sectionno::before {
+    main .sectionno { view-timeline: --secno block; }
+    main .sectionno::before {
       transform-origin: left center;
       animation: lift-rule linear both;
       animation-timeline: --secno;
       animation-range: entry 0% entry 26vh;
     }
-    :root:not([data-motion="a"]) main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book) {
+    main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book) {
       animation: lift-card linear both;
       animation-timeline: view();
       animation-range: entry 0% entry 24vh;
     }
-    :root:not([data-motion="a"]) main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(2) { animation-range: entry 0% entry 32vh; }
-    :root:not([data-motion="a"]) main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(3) { animation-range: entry 0% entry 40vh; }
-    :root:not([data-motion="a"]) main .twoway__side {
+    main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(2) { animation-range: entry 0% entry 32vh; }
+    main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(3) { animation-range: entry 0% entry 40vh; }
+    main .twoway__side {
       animation: lift-from-left linear both;
       animation-timeline: view();
       animation-range: entry 0% entry 34vh;
     }
-    :root:not([data-motion="a"]) main .twoway__side:last-child { animation-name: lift-from-right; }
+    main .twoway__side:last-child { animation-name: lift-from-right; }
     /* stacked (one column): the sides rise like any other card */
     @media (max-width: 820px) {
-      :root:not([data-motion="a"]) main .twoway__side,
-      :root:not([data-motion="a"]) main .twoway__side:last-child { animation-name: lift-card; }
+      main .twoway__side,
+      main .twoway__side:last-child { animation-name: lift-card; }
     }
-    :root:not([data-motion="a"]) main .twoway__beam {
+    main .twoway__beam {
       animation: lift-rule linear both;
       animation-timeline: view();
       animation-range: entry 10% entry 38vh;
@@ -300,9 +297,6 @@
       }
     }
   }
-}
-@keyframes dial-tune {
-  from { left: 0; }
 }
 @keyframes spec-wave {
   0%   { transform: scaleX(0.08); color: var(--ink-300); }
@@ -342,18 +336,6 @@
   to   { transform: none; }
 }
 
-/* the ?lab=1 / ?motion= switcher (scroll-stage.js); never in production HTML */
-.motion-lab {
-  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: var(--z-overlay);
-  display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 12px;
-  background: var(--white); border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
-  box-shadow: var(--e-4); font-family: var(--font-mono); font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
-}
-.motion-lab a {
-  min-width: 34px; padding: 5px 8px; border-radius: var(--r-pill); text-align: center; color: var(--ink-700);
-}
-.motion-lab a[aria-current] { background: var(--ink-900); color: var(--paper); }
 
 /* The institutional strip is the hinge between the product promise and the
    operating proof below it. Keep it architectural: three quiet doors, one
@@ -829,9 +811,9 @@
 
 /* ---------- company -------------------------------------------- */
 .company { border-top: 1px solid var(--hairline); }
-/* an #anchor (and the C snap, and the fragment hold in scroll-stage.js)
-   lands the section's top just under the sticky nav + dial, not behind them */
-main section[id] { scroll-margin-top: calc(var(--nav-h) + var(--dial-h) + 8px); }
+/* an #anchor (and the fragment hold in scroll-stage.js)
+   lands the section's top just under the sticky nav, not behind it */
+main section[id] { scroll-margin-top: 72px; }
 /* sideways motion (the two sides of the tune) must never widen the page */
 main > section { overflow-x: clip; }
 /* Bands are a translucent wash of the local ink rather than solid paper-2:
@@ -850,7 +832,7 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
    outside the text column on both sides (so every panel frames the content
    the same way, whatever the spine), and never closer than --panel-inset to
    the edge on small screens */
-.tone-zone, :root[data-stage="pinned"] main section[id] {
+.tone-zone {
   --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
 }
 .tone-zone {
@@ -861,63 +843,7 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
   color: var(--ink-700);
   background: var(--paper);
 }
-.dial + .tone-zone { margin-top: 10px; }   /* the cover sits close under the dial */
 
-/* ---- THE INSTRUMENT (round 8) -----------------------------------------------
-   A tuning dial under the nav for the whole page: a hairline scale of fine
-   ticks, the nine sections as stations, and one red needle. scroll-stage.js
-   sets --needle (0..1) and aria-current on the station being read; without
-   JS it is a plain index of links and the needle rests at the start. */
-:root { --nav-h: 65px; --dial-h: 40px; }
-.dial {
-  position: sticky; top: var(--nav-h); z-index: calc(var(--z-nav) - 1);
-  height: var(--dial-h);
-  background: var(--paper);
-  border-bottom: 1px solid var(--hairline);
-}
-.dial__band {
-  position: relative; height: 100%;
-  margin: 0 auto; padding: 0 var(--gutter); max-width: var(--maxw);
-  /* the scale: a fine tick every 1/45 of the band, a longer one per station */
-  background:
-    repeating-linear-gradient(90deg, var(--ink-300) 0 1px, transparent 1px calc((100% - 2 * var(--gutter)) / 45))
-      var(--gutter) 0 / calc(100% - 2 * var(--gutter)) 6px no-repeat;
-}
-.dial__scale {
-  display: grid; grid-template-columns: repeat(9, minmax(0, 1fr));
-  height: 100%; margin: 0; padding: 0; list-style: none;
-}
-.dial__scale li { display: flex; justify-content: center; }
-.dial__scale a {
-  position: relative;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-  gap: 2px; min-width: 32px; height: 100%; padding-bottom: 7px;
-  font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: var(--tracking-label); color: var(--ink-400);
-  transition: color var(--d-2);
-}
-/* the station's own tick, taller than the scale's */
-.dial__scale a::before {
-  content: ""; position: absolute; top: 0; left: 50%;
-  width: 1px; height: 12px; background: var(--ink-400);
-}
-.dial__scale a:hover, .dial__scale a[aria-current] { color: var(--ink-900); }
-.dial__scale a[aria-current]::before { background: var(--ink-900); }
-.dial__needle {
-  position: absolute; top: 0; bottom: 0;
-  /* --needle is a share of the scale (station k sits at (k + .5) / 9) */
-  left: calc(var(--gutter) + var(--needle, 0) * (100% - 2 * var(--gutter)));
-  width: 1px; background: var(--live); pointer-events: none;
-}
-.dial__needle::before {
-  content: ""; position: absolute; top: 0; left: -3px;
-  border: 3.5px solid transparent; border-top-color: var(--live);
-}
-@media (max-width: 640px) {
-  :root { --dial-h: 36px; }
-  .dial__band { padding: 0 8px; --gutter: 8px; }
-  .dial__scale a { min-width: 0; padding-bottom: 5px; font-size: 0.625rem; letter-spacing: 0.04em; }
-}
 
 /* the market price cell: the "$" tier never splits, and the "good price"
    chip always sits whole on its own line under the price */
@@ -1642,68 +1568,3 @@ html.js .mkt-quiet--nojs { display: none; }
 .pc-ic .pc-red { stroke: var(--live); }
 .pc-ic .pc-fill { fill: var(--live); stroke: none; }
 @media (max-width: 820px) { .pcards { grid-template-columns: 1fr; } }
-
-/* ---- ?stage=pinned (round 9, stage.js): the pinned instrument stage --------
-   A lab variant beside the dial. The stage is pinned under the nav for the
-   whole run; every section becomes its own full-width chapter panel with a
-   gap before it, and the stage shows in the gaps, where stage.js steps the
-   scale to the next station. Dense content stays on its own panel, full
-   width, over the stage. Without data-stage (no JS, reduced motion, under
-   800px, or no ?stage=pinned) none of this applies. */
-.stage { display: none; }
-@media (min-width: 800px) {
-  :root[data-stage="pinned"] .dial { display: none; }
-  :root[data-stage="pinned"] .stage {
-    display: block; position: sticky; top: var(--nav-h); z-index: 0;
-    height: calc(100vh - var(--nav-h)); margin-bottom: calc(var(--nav-h) - 100vh);
-    overflow: clip; background: var(--paper-2);
-  }
-  :root[data-stage="pinned"] [data-run] { display: contents; }
-  :root[data-stage="pinned"] .institution-strip { position: relative; z-index: 1; }
-  :root[data-stage="pinned"] main section[id] {
-    position: relative; z-index: 1;
-    margin: 64vh var(--panel-mx) 0;
-    border-radius: var(--panel-r);
-    background: var(--paper);
-  }
-  :root[data-stage="pinned"] main section#go { margin-bottom: var(--panel-inset); }
-}
-.stage__title {
-  position: absolute; left: 50%; top: 28%; margin: 0;
-  font-family: var(--font-mono); font-size: clamp(20px, 2.2vw, 34px);
-  letter-spacing: var(--tracking-label); color: var(--ink-900); white-space: nowrap;
-  opacity: 0; transform: translate(-50%, 14px);
-  transition: opacity 1.15s cubic-bezier(.16, .84, .28, 1), transform 1.15s cubic-bezier(.16, .84, .28, 1);
-}
-.stage__title.is-in { opacity: 1; transform: translate(-50%, 0); }
-/* the scale: nine stations a step apart, a fine tick every tenth of a step;
-   it pans (--station, set per frame) so the station on air sits under the
-   fixed, centred needle */
-.stage__scale {
-  --step: 24vw;
-  position: absolute; left: 50%; top: 48%;
-  display: grid; grid-template-columns: repeat(9, var(--step));
-  padding-top: 34px;
-  transform: translateX(calc(-1 * (var(--station, -1) + 0.5) * var(--step)));
-  background:
-    linear-gradient(var(--ink-300), var(--ink-300)) 0 22px / 100% 1px no-repeat,
-    repeating-linear-gradient(90deg, var(--ink-300) 0 1px, transparent 1px calc(var(--step) / 10)) 0 8px / 100% 14px no-repeat;
-}
-.stage__scale b {
-  justify-self: center; position: relative;
-  font: 500 clamp(28px, 3.2vw, 52px) / 1 var(--font-mono); letter-spacing: -0.02em;
-  color: var(--ink-300); transition: color 0.6s var(--ease-out-quint);
-}
-.stage__scale b::before {
-  content: ""; position: absolute; left: 50%; bottom: calc(100% + 12px);
-  width: 1px; height: 26px; background: var(--ink-400);
-}
-.stage__scale b.is-on { color: var(--ink-900); }
-.stage__needle {
-  position: absolute; left: 50%; top: calc(48% - 18px);
-  width: 1px; height: 150px; background: var(--live);
-}
-.stage__needle::before {
-  content: ""; position: absolute; top: 0; left: -4px;
-  border: 4.5px solid transparent; border-top-color: var(--live);
-}

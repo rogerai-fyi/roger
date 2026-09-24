@@ -74,7 +74,7 @@ test("zones re-derive their own text colour and ground from the ink tokens", () 
 // inset panels on the paper page. No LED field, no red bloom, no door.
 test("zones are calm inset panels: rounded, inset from the page edge, nothing animated on them", () => {
   const home = read("styles/home.css");
-  const zone = home.match(/\.tone-zone\s*\{([^}]*)\}/)?.[1] || "";
+  const zone = home.match(/\.tone-zone\s*\{([^}]*margin[^}]*)\}/)?.[1] || "";
   assert.match(zone, /margin:[^;]*var\(--panel-inset\)/, "inset from the page edge");
   assert.match(zone, /border-radius:\s*var\(--panel-r\)/, "rounded");
   assert.doesNotMatch(home, /tone-door|tone-bloom|tone-field|bloom-peak|\.tone-zone::before/, "no door, bloom or field");
@@ -197,7 +197,7 @@ test("no choreography rule is shadowed: its targets are not [data-reveal] blocks
   const revealed = new Set([...html.matchAll(/<[^>]*\bdata-reveal\b[^>]*>/g)]
     .flatMap((m) => (m[0].match(/class="([^"]*)"/)?.[1] || "").split(/\s+/)));
   for (const [sel, body] of rules(css)) {
-    if (!/:root:not\(\[data-motion="a"\]\)/.test(sel) || !/animation(-name)?:/.test(body)) continue;
+    if (!/animation(-name)?:/.test(body)) continue;   // every animated rule (round 10: no variant scoping)
     for (const part of sel.split(/,(?![^(]*\))/)) {
       const last = part.trim().split(/\s+/).pop();
       const classes = [...last.matchAll(/\.([\w-]+)/g)].map((m) => m[1]);
@@ -212,8 +212,3 @@ test("no adaptive chrome: on a paper page with inset panels the nav simply stays
   assert.doesNotMatch(readFileSync(path.join(WEB, "src/js/scroll-stage.js"), "utf8"), /data-chrome/);
 });
 
-test("the ?lab switcher label is readable (AA on its white pill)", () => {
-  const home = read("styles/home.css");
-  const lab = home.match(/\.motion-lab\s*\{([^}]*)\}/)?.[1] || "";
-  assert.match(lab, /color:\s*var\(--ink-500\)/);
-});
