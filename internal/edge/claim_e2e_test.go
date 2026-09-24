@@ -48,7 +48,7 @@ func TestAdoptClaimPresentMakesAMemberWithNoTyping(t *testing.T) {
 
 	// The owner ADOPTS the candidate on the authority (what `roger edge adopt <id>` / the [3] adopt
 	// key does): it grants the claim.
-	require.NoError(t, local.GrantClaim(nodeID))
+	require.NoError(t, local.GrantClaim(nodeID, "pixel-8"))
 
 	// The phone CLAIMS and receives its certificate - no address typed, no manual allow.
 	req := edgeauth.NewClaimRequest("pixel-8", "mobile", nodePub, time.Now())
