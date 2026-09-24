@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
 
@@ -59,6 +60,13 @@ type Serving struct {
 	NodeID   string
 	Key      ed25519.PrivateKey // the node key that signs local receipts
 	Now      func() time.Time
+	// Authorize is the callee-side gate for /edge/invoke (features/edge/control.feature): it verifies
+	// the grant's signature under this Edge's root, matches the caller, and AuthorizeInvoke's the
+	// capability on THIS node. Composed at the host; nil means this node accepts no invocations.
+	Authorize func(g store.Grant, callerID string, need Capability) error
+	// Invoke runs an authorized task in this node's OWN harness, tools and permissions, returning the
+	// result. Injected by the host/agent; nil means this node accepts no invocations.
+	Invoke func(callerID string, req InvokeRequest) (InvokeResult, error)
 }
 
 // SetServing arms the infer path. Without it the face answers describe only.

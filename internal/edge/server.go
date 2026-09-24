@@ -36,9 +36,10 @@ const DescribePath = "/edge/describe"
 
 // Server is a node's LAN face: an HTTPS listener whose certificate IS its identity.
 type Server struct {
-	desc Describe
-	cert tls.Certificate
-	fp   string
+	invokeSeen *nonceCache // replay cache for /edge/invoke
+	desc       Describe
+	cert       tls.Certificate
+	fp         string
 	// household, when set, supplies the instances at REQUEST time: a roger starting or
 	// exiting on this node changes the answer without restarting the face.
 	household func() ([]Instance, bool)
@@ -96,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 		_ = json.NewEncoder(w).Encode(s.describe())
 	})
 	mux.HandleFunc(InferPath, s.handleInfer)
+	mux.HandleFunc(InvokePath, s.handleInvoke)
 	return mux
 }
 
