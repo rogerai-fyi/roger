@@ -361,3 +361,15 @@
    after a hyphen or a slash ("vast-/onstart.sh", "--/model"); each word sits in its
    own nowrap span, so the spaces are the only break points left. */
 .cmd-words > span { white-space: nowrap; }
+
+/* ---- component: panel (added by models rollout) ----------------------------
+   <article class="panel"> / <dl class="x panel">: the tinted paper panel the
+   homepage writes per component (its cards, the tuner band), as one class. A
+   ground and a radius, no border and no shadow: space separates, not rules.
+   Inside an ink panel it re-themes with the scoped tokens. */
+.panel {
+  min-width: 0;
+  padding: clamp(20px, 2.6vw, 32px);
+  border-radius: var(--panel-r);
+  background: var(--paper-2);
+}
