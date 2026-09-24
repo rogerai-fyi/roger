@@ -238,6 +238,8 @@
   font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
   line-height: 28px; white-space: nowrap; text-align: center; color: var(--ink-900);
   opacity: 0; pointer-events: none;
+  /* hidden, a name is out of tune (soft, spread); shown, it settles */
+  filter: blur(3px); letter-spacing: 0.4em;
 }
 /* the major tick, above each numeral */
 .toc-tuner b { position: relative; }
@@ -269,9 +271,12 @@
 .toc-tuner:has(li:nth-child(10) a:is(:hover, :focus-visible)) li:nth-child(10) .toc-tuner__name,
 .toc-tuner:has(li:nth-child(11) a:is(:hover, :focus-visible)) li:nth-child(11) .toc-tuner__name,
 .toc-tuner:has(li:nth-child(12) a:is(:hover, :focus-visible)) li:nth-child(12) .toc-tuner__name,
-.toc-tuner a.is-current .toc-tuner__name { opacity: 1; }
-.toc-tuner:has(a:is(:hover, :focus-visible)) a.is-current:not(:hover, :focus-visible) .toc-tuner__name { opacity: 0; }
-.toc-tuner:not(:has(a:is(:hover, :focus-visible, .is-current))) li:first-child .toc-tuner__name { opacity: 1; }
+.toc-tuner a.is-current .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+.toc-tuner:has(a:is(:hover, :focus-visible)) a.is-current:not(:hover, :focus-visible) .toc-tuner__name { opacity: 0; filter: blur(3px); letter-spacing: 0.4em; }
+.toc-tuner:not(:has(a:is(:hover, :focus-visible, .is-current))) li:first-child .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+/* the station you are on keeps a red major tick while you point elsewhere:
+   "you are here" on the scale (under the needle when nothing is pointed at) */
+.toc-tuner a.is-current b::before { background: var(--live); }
 .toc-tuner__needle {
   position: absolute; top: 48px; height: 36px; width: 2px; margin-left: -1px;
   left: calc(var(--gutter) + (var(--at) + 0.5) / var(--tuner-n) * (100% - 2 * var(--gutter)));
@@ -281,12 +286,18 @@
 .toc-tuner__needle::before {
   content: ""; position: absolute; top: -3px; left: -3px;
   width: 8px; height: 8px; border-radius: 50%; background: var(--live);
+  box-shadow: 0 0 0 3px var(--live-wash);   /* the FIG. 1 on-air dot's halo */
 }
 @media (max-width: 640px) {
   .toc-tuner__readout, .toc-tuner__name { width: calc(100% - 32px); max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .toc-tuner__needle { transition: none; }
+}
+/* a name comes into tune as it shows: the blur clears and the tracking
+   closes up (opacity itself flips at once, so no half-contrast frame) */
+@media (prefers-reduced-motion: no-preference) {
+  .toc-tuner__name { transition: filter 0.5s var(--ease-out-quint), letter-spacing 0.5s var(--ease-out-quint); }
 }
 
 /* ======================= SCRUBBER ============================== */
