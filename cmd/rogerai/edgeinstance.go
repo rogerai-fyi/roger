@@ -292,9 +292,12 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			h.mu.Unlock()
 			return fleet.AuthorizeInvoke(g, nodeID, need)
 		},
-		// Invoke (the task RUNNER) is not wired yet: the harness that runs a delegated task in this
-		// node's own tools and permissions is the next piece of Slice 2. Until it is set, the face
-		// authorizes an invoke and then honestly answers "no runner here" (handleInvoke -> 501).
+		// Invoke is the task RUNNER (features/edge/control.feature, the delegate arrow): once the face
+		// has authorized an invoke, this runs the delegated task in THIS roger's own headless harness -
+		// its own tools, its own permissions, no human to open a confirm gate - and returns the result.
+		// Device capabilities (sense/actuate) are refused here by name: this binary runs an agent, not
+		// a board. See cmd/rogerai/edgerunner.go.
+		Invoke: edgeInvokeHandler(edgeLiveTurnDeps()),
 	}, true
 }
 
