@@ -24,10 +24,13 @@
    it) then FIG.2, the Roger Edge story reel. */
 .hero__inner { padding-bottom: var(--s-16); }
 .hero__title {
-  font-size: var(--t-display); line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-display); font-weight: var(--weight-semi);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.028em; font-weight: var(--weight-semi);
   color: var(--ink-900); max-width: 16ch;
 }
+/* one span per line (was <br>): each line is its own block so the lines can
+   stagger in, and the break points are the design's, not the viewport's. */
+.hero__line { display: block; }
 /* the operative phrase: ink + a single red on-air underline, no gradient */
 .hero__op {
   position: relative; color: var(--ink-900); white-space: nowrap;
@@ -38,21 +41,25 @@
 }
 /* the speed beat: a smaller, muted line under the main statement (still part of the H1) */
 .hero__fast {
-  display: inline-block; margin-top: 0.12em;
-  font-size: 0.58em; font-weight: var(--weight-semi);
-  letter-spacing: var(--tracking-display); color: var(--ink-500);
+  margin-top: 0.55em;
+  font-size: max(0.5em, 1.25rem); font-weight: var(--weight-medium);
+  letter-spacing: -0.012em; color: var(--ink-500);
 }
+/* The subhead reads as a lead, then the detail: the opening sentence in full
+   ink (the entry point), the rest in secondary ink, on a shorter measure so
+   the paragraph stops reading as one grey block. */
 .hero__sub {
-  margin-top: var(--s-6); max-width: 56ch;
-  font-size: var(--t-lead); color: var(--ink-500); line-height: 1.5;
+  margin-top: var(--s-8); max-width: 50ch;
+  font-size: var(--t-lead); color: var(--ink-500); line-height: 1.6;
 }
+.hero__sub-lead { color: var(--ink-900); font-weight: var(--weight-medium); }
 .hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
 .hero__proof {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2) var(--s-4);
-  margin-top: var(--s-6);
+  margin-top: var(--s-8);
   padding: 9px 12px;
   border-left: 2px solid var(--live);
   background: var(--paper-2);
@@ -63,38 +70,139 @@
 }
 .hero__proof b { color: var(--ink-900); }
 .hero__proof:hover, .hero__proof:focus-visible { color: var(--live); }
+
+/* FIG. 1 as a framed instrument panel: a raised faceplate inside a paper
+   bezel, the FIG. label as its header strip with the on-air dot. The frame
+   is what makes the download read as THE thing to do on the page, not a
+   caption floating in the margin. Homepage only (models' QSL keeps the
+   plain .install). */
+.install[data-frame="panel"] {
+  --panel-pad: clamp(16px, 2.2vw, 24px);
+  position: relative;
+  max-width: none;
+  gap: var(--s-4);
+  padding: var(--panel-pad);
+  background: var(--white);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-xl);
+  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4);
+  transition: box-shadow var(--d-3) var(--ease-out-quint);
+}
+.install[data-frame="panel"]:hover,
+.install[data-frame="panel"]:focus-within {
+  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4),
+              0 0 48px -8px var(--live-glow);
+}
+.hero__inner .install[data-frame="panel"] .fig {
+  display: flex; align-items: center; gap: var(--s-2);
+  align-self: stretch;
+  margin: 0 calc(var(--panel-pad) * -1);
+  padding: 0 var(--panel-pad) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-500);
+}
+.install[data-frame="panel"] .fig::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--live); box-shadow: 0 0 0 3px var(--live-wash);
+}
+.install[data-frame="panel"] .install__box { background: var(--paper); gap: 10px; padding: 14px 12px 14px 14px; }
+/* in the panel the command WRAPS (at its spaces) rather than truncating: the
+   column is narrower than the line, and " | sh" is the part a reader must see. */
+.install[data-frame="panel"] .install__code { white-space: normal; }
+.install[data-frame="panel"] .install__meta { gap: var(--s-2) var(--s-4); }
+/* the PowerShell one-liner moves to its own line whole, never split mid-URL */
+.install[data-frame="panel"] [data-alt-note] .inline { display: inline-block; white-space: nowrap; }
+/* phones: the URL is one unbreakable token, so the panel gives its width back
+   (tighter padding, a notch smaller mono) rather than ellipsis-cutting it. */
+@media (max-width: 560px) {
+  .install[data-frame="panel"] { --panel-pad: 14px; }
+  .install[data-frame="panel"] .install__box { padding: 12px 8px 12px 12px; }
+  .install[data-frame="panel"] .install__code { font-size: 0.75rem; }
+}
+
 /* Two columns above FIG.2 once there's room: .hero__copy (the narrative -
    eyebrow, headline, subhead, Labs proof) beside .hero__tools (the two
    things a visitor actually does - FIG.1 the install command, then Ping
    stacked under it). Same information, same source order, as the old
    single stacked column; this only changes layout, so FIG.2 sits higher on
    the page once the columns fit side by side. Below the breakpoint it's a
-   single column top to bottom, same as before. */
-.hero__grid { display: grid; grid-template-columns: 1fr; gap: var(--s-8); }
-/* 1400px, not the usual breakpoint scale: below it there isn't enough room
-   for both the headline's nowrap "decentralized Models" at full display
-   size AND a install column wide enough not to truncate the command, and
-   shrinking either one was worse than just keeping the single column until
-   there's genuinely space (the .hero__inner width bump below is sized to
-   this exact breakpoint - narrower and the columns fight for the same
-   pixels the widened wrap was added to give them). */
-@media (min-width: 1400px) {
+   single column top to bottom, same as before.
+   minmax(0, 1fr), not 1fr: a bare 1fr has a min-content floor, and the
+   nowrap "decentralized Models" pushed the whole mobile hero past the
+   viewport (a 417px page on a 390px phone). */
+.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-10); }
+/* the display token, except on phones: there the nowrap operative line must
+   fit the column, so the headline scales with the viewport. */
+.hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); }
+/* 1200px up: side by side. The widened .hero__inner gives both columns room;
+   between 1200 and 1400 the headline scales with the viewport (4.3vw keeps the
+   nowrap line inside the copy column) and the panel column is 420px. The
+   panel drops to the headline's level rather than riding up with the eyebrow. */
+@media (min-width: 1200px) {
   .hero__inner { max-width: 1300px; }
   .hero__grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
     gap: var(--s-10); align-items: start;
   }
+  /* level with the headline, not the eyebrow above it */
+  .hero__tools { margin-top: var(--s-10); }
+  .hero__title { font-size: min(var(--t-display), 4.3vw); }
   .hero__tools .install { margin-top: 0; }
-  /* the 460px column is still narrower than the command's natural width at
-     1rem - install__code already ellipsis-truncates gracefully rather than
-     breaking layout, but the whole point of this figure is a command a
-     visitor can read, so shrink it back to fully legible instead of
-     leaning on that fallback. */
-  .hero__tools .install__code { font-size: 0.85rem; }
+  /* the column is narrower than the command's natural width at 1rem;
+     install__code ellipsis-truncates gracefully, but this figure exists to be
+     read, so shrink it to fully legible instead of leaning on that. */
+  .hero__tools .install__code { font-size: 0.78rem; }
+}
+@media (min-width: 1400px) {
+  .hero__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 460px); }
+  .hero__title { font-size: var(--t-display); }
 }
 @media (min-width: 641px) and (max-height: 800px) {
   .hero__inner { padding-top: 42px; }
   .hero__sub, .hero__proof { margin-top: var(--s-4); }
+}
+
+/* ---- the lift: entrance + scroll motion (2026-09-23) ----------------
+   Opt-in only: every rule lives under no-preference, so reduced motion
+   never sees a starting frame. None of it is gated on html.js: with JS off
+   the same CSS plays, and the text is in the HTML either way.
+   Hero: the lines come into focus the way a station does when you tune
+   in - out of a blur, rising, 90ms apart, on the site's ease-out-quint, one
+   pass on load and then still. They start faint, never at opacity 0, so the
+   headline paints (and counts as painted) on the first frame. Sections: a CSS scroll
+   timeline moves and sharpens each [data-reveal] block as it enters; it
+   never touches opacity, and browsers without scroll timelines keep the
+   existing site.js settle. fill-mode backwards on the hero, so nothing is
+   left holding a transform (and a stacking context) after it lands. */
+@keyframes lift-line {
+  from { opacity: 0.2; transform: translateY(0.4em); filter: blur(8px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+@keyframes lift-panel {
+  from { opacity: 0.2; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes lift-rise {
+  from { transform: translateY(32px); filter: blur(5px); }
+  to   { transform: none; filter: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero__eyebrow, .hero__line, .hero__sub, .hero__proof {
+    animation: lift-line 0.72s var(--ease-out-quint) backwards;
+  }
+  .hero__line:nth-child(1) { animation-delay: 0.1s; }
+  .hero__line:nth-child(2) { animation-delay: 0.19s; }
+  .hero__line:nth-child(3) { animation-delay: 0.28s; }
+  .hero__sub   { animation-delay: 0.4s; }
+  .hero__proof { animation-delay: 0.5s; }
+  .hero__tools { animation: lift-panel 0.9s var(--ease-out-quint) 0.45s backwards; }
+  @supports (animation-timeline: view()) {
+    main [data-reveal]:not(.reel) {
+      animation: lift-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 30vh;
+    }
+  }
 }
 
 /* The institutional strip is the hinge between the product promise and the

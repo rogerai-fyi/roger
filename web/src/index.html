@@ -39,13 +39,20 @@
         American AI research + infrastructure
       </span>
 
+      <!-- Each line is a block span (was <br>) so the lines can stagger in
+           (home.css, lift-line). The newline between spans keeps the word
+           boundary in the accessible name and in copied text. -->
       <h1 class="hero__title">
-        <span class="carrier">Tune in</span> to the world&rsquo;s<br /><span class="hero__op"><span class="carrier">decentralized</span> Models</span>.<br /><span class="hero__fast">In under 30 seconds.</span>
+        <span class="hero__line"><span class="carrier">Tune in</span> to the world&rsquo;s</span>
+        <span class="hero__line"><span class="hero__op"><span class="carrier">decentralized</span> Models</span>.</span>
+        <span class="hero__line hero__fast">In under 30 seconds.</span>
       </h1>
 
+      <!-- The opening sentence carries full ink; the rest steps back to
+           secondary ink, so the paragraph has an entry point. Same words. -->
       <p class="hero__sub">
-        RogerAI provides private inference networks for the edge, that means you and your
-        homelab, that means factories and their fleet. Our labs focus on enabling open models
+        <span class="hero__sub-lead">RogerAI provides private inference networks for the edge, that means you and your
+        homelab, that means factories and their fleet.</span> Our labs focus on enabling open models
         to run on a spectrum of <a href="/research-hardware.html">hardware</a>. Our
         network runs one OpenAI-compatible local endpoint only you have access to, in a
         privatized relay on top of community and private hardware. It handles discovery,
@@ -79,7 +86,7 @@
            edge-story.js drives #pingTag / [data-onair]. -->
       <div class="hero__tools">
       <!-- FIG.1 - THE hero object: the install command (command-as-hero). -->
-      <div class="install">
+      <div class="install" data-frame="panel">
         <span class="fig" aria-hidden="true">FIG. 1 - TUNE IN</span>
         <!-- What the command actually downloads. The page used to hand a stranger
              a curl line with no noun attached to it: "tune in to local models" says
