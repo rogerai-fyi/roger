@@ -1113,8 +1113,10 @@ func edgeDropMembers(cands []store.EdgeNode, fleet *edge.Fleet) []store.EdgeNode
 		return cands
 	}
 	return edgeFilter(cands, func(x store.EdgeNode) bool {
+		// Keep a candidate ONLY when the fleet can be read AND says it is not a member. If the read
+		// fails we cannot confirm it is not already a member, so we do not offer it (fail closed).
 		_, known, err := fleet.Get(x.ID)
-		return err != nil || !known
+		return err == nil && !known
 	})
 }
 

@@ -3,6 +3,8 @@ package edgeauth_test
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -139,4 +141,38 @@ func TestRevokeEndsEveryCertificateANodeHeld(t *testing.T) {
 	require.Contains(t, revoked, serialB)
 	require.True(t, local.Authority().SerialRevoked(serialA))
 	require.True(t, local.Authority().SerialRevoked(serialB))
+}
+
+// A revocation made by ONE handle on the authority must be visible to ANOTHER handle's Revocations()
+// - the distributed path other members refresh from reads the persisted list, not a per-process
+// snapshot (audit 2026-09-24).
+func TestRevocationsSeesAnotherProcessRevoke(t *testing.T) {
+	dir, local, pub, priv, id := secFixture(t)
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	resp, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	leaf, err := edgeauth.DecodeCert(resp.Cert)
+	require.NoError(t, err)
+	serial := leaf.SerialNumber.String()
+
+	// Revoke through a SECOND handle (a CLI forget in its own process).
+	other, ok, err := edgeauth.OpenLocal(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = other.Revoke(id)
+	require.NoError(t, err)
+
+	// The ORIGINAL handle's Revocations() - what a member refreshes from - includes it.
+	revs, err := local.Revocations()
+	require.NoError(t, err)
+	require.Contains(t, revs, serial, "a revoke from another process is in the served list")
+}
+
+// Revocations() fails CLOSED: an unreadable revocation list returns an error, so the endpoint answers
+// 503 rather than serving an empty list that would let a revoked node look fine.
+func TestRevocationsFailsClosedOnACorruptList(t *testing.T) {
+	dir, local, _, _, _ := secFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, edgeauth.AuthorityDir, "revoked.json"), []byte("{not json"), 0o600))
+	_, err := local.Revocations()
+	require.Error(t, err, "an unreadable revocation list is an error, never an empty list")
 }

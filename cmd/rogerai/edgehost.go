@@ -252,7 +252,11 @@ func (h *edgeHost) adopt(id, name string) error {
 	// newest - leaving the old one working. A member can keep advertising as a candidate (the
 	// account field is the device's own claim), so this guard is what stops the double-issue, the
 	// same check the CLI adopt makes (audit 2026-09-23).
-	if n, known, _ := h.st.fleet.Get(c.ID); known {
+	n, known, err := h.st.fleet.Get(c.ID)
+	if err != nil {
+		return fmt.Errorf("could not check whether %s is already a member: %w", edgeShortID(c.ID), err)
+	}
+	if known {
 		name := n.Name
 		if name == "" {
 			name = edgeShortID(c.ID)

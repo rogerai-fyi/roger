@@ -616,7 +616,14 @@ func edgeRevokeOnForget(nodeID string) error {
 	now := time.Now()
 	var serials []string
 
-	if local, ok, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && ok {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		// The authority is here but could not be opened (a corrupt issued.json / revoked.json). We
+		// must NOT go on to forget the node from the fleet and report success while revoking nothing
+		// - that is the fail-open the audit caught. Stop and report (audit 2026-09-24).
+		return fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
+	}
+	if ok {
 		// Revoke EVERY certificate this authority issued to the node, not just the latest, and clear
 		// any standing claim grant - errors here are reported, not swallowed, so a forget that could
 		// not take effect is never reported as done (audit 2026-09-23).
