@@ -42,8 +42,8 @@
         </p>
         <div class="bc-post__meta mono">
           <span>Jev: <b>hosted API, text in, closed weights</b></span>
-          <span>Wave Pico: <b>293M, from scratch, on air now</b></span>
-          <span>Wave Giga: <b>27B, Apache-2.0 base, 16.5 GB on disk</b></span>
+          <span>Wave Pico: <b>{{wave:pico.jev-vs-wave.meta}}</b></span>
+          <span>Wave Giga: <b>{{wave:giga.jev-vs-wave.meta}}</b></span>
         </div>
       </header>
 
@@ -276,11 +276,11 @@
                 <line x1="794" y1="80" x2="794" y2="404" class="l-tick"/><text x="780" y="424" text-anchor="middle" class="l-t">1 TB</text>
               </g>
               <!-- x = 250 + 136*log10(size_MB/100). Pico 165MB -> 279.6; Nano 690MB -> 364.1; Micro 4.5GB (planned band) -> 474.8; Giga 16.5GB -> 551.7; Tera 60GB -> 628.0; Peta 105GB -> 661.0; Exa 170GB -> 689.5 -->
-              <text x="234" y="102" text-anchor="end" class="l-lbl">Pico 293M</text><rect x="250" y="90" width="29.6" height="17" rx="2" class="l-built"/><text x="288" y="103" class="l-live">~165 MB &middot; built</text>
-              <text x="234" y="144" text-anchor="end" class="l-lbl">Nano 0.8-1.5B</text><rect x="250" y="132" width="114.1" height="17" rx="2" class="l-plan"/><text x="372" y="145" class="l-val">~690 MB &middot; training</text>
-              <text x="234" y="186" text-anchor="end" class="l-lbl">Micro</text><rect x="250" y="174" width="224.8" height="17" rx="2" class="l-plan"/><text x="483" y="187" class="l-val">next scratch build</text>
-              <text x="234" y="228" text-anchor="end" class="l-lbl">Giga 27B</text><rect x="250" y="216" width="301.7" height="17" rx="2" class="l-built"/><text x="560" y="229" class="l-live">16.5 GB &middot; built</text>
-              <text x="234" y="270" text-anchor="end" class="l-lbl">Tera 80-120B</text><rect x="250" y="258" width="378" height="17" rx="2" class="l-plan"/><text x="636" y="271" class="l-val">~60 GB &middot; base pick</text>
+              <text x="234" y="102" text-anchor="end" class="l-lbl">Pico 293M</text><rect x="250" y="90" width="29.6" height="17" rx="2" class="l-built"/><text x="288" y="103" class="l-live">{{wave:pico.jev-vs-wave.chart}}</text>
+              <text x="234" y="144" text-anchor="end" class="l-lbl">Nano 0.8-1.5B</text><rect x="250" y="132" width="114.1" height="17" rx="2" class="l-plan"/><text x="372" y="145" class="l-val">{{wave:nano.jev-vs-wave.chart}}</text>
+              <text x="234" y="186" text-anchor="end" class="l-lbl">Micro</text><rect x="250" y="174" width="224.8" height="17" rx="2" class="l-plan"/><text x="483" y="187" class="l-val">{{wave:micro.jev-vs-wave.chart}}</text>
+              <text x="234" y="228" text-anchor="end" class="l-lbl">Giga 27B</text><rect x="250" y="216" width="301.7" height="17" rx="2" class="l-built"/><text x="560" y="229" class="l-live">{{wave:giga.jev-vs-wave.chart}}</text>
+              <text x="234" y="270" text-anchor="end" class="l-lbl">Tera 80-120B</text><rect x="250" y="258" width="378" height="17" rx="2" class="l-plan"/><text x="636" y="271" class="l-val">{{wave:tera.jev-vs-wave.chart}}</text>
               <text x="234" y="312" text-anchor="end" class="l-lbl">Peta 150-200B</text><rect x="250" y="300" width="411" height="17" rx="2" class="l-plan"/><text x="669" y="313" class="l-val">~105 GB</text>
               <text x="234" y="354" text-anchor="end" class="l-lbl">Exa ~284B</text><rect x="250" y="342" width="439.5" height="17" rx="2" class="l-plan"/><text x="697" y="355" class="l-val">~170 GB</text>
               <text x="234" y="396" text-anchor="end" class="l-lbl">Jev</text><text x="250" y="397" class="l-t">no bar. hosted only, parameter count undisclosed, nothing to download.</text>
@@ -436,7 +436,7 @@
                   <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Size on disk</td><td style="padding:.4em .6em">none</td><td style="padding:.4em .6em">~165 MB quantized</td><td style="padding:.4em .6em">16.5 GB at Q4_K_M</td></tr>
                   <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Price</td><td style="padding:.4em .6em">$0.042 per M input tokens</td><td style="padding:.4em .6em">free on air now, or your own hardware</td><td style="padding:.4em .6em">your own hardware, or on air via RogerAI</td></tr>
                   <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Cannot</td><td style="padding:.4em .6em">explain, count, do arithmetic, read a sensor</td><td style="padding:.4em .6em">chat, answer trivia, reason across machines</td><td style="padding:.4em .6em">run on a Pi</td></tr>
-                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">on air as a free band, <code>wave-pico-293m</code>; weights not published yet</td><td style="padding:.4em .6em">built and gated, public checkpoint pending</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">{{wave:pico.jev-vs-wave.table}}</td><td style="padding:.4em .6em">{{wave:giga.jev-vs-wave.table}}</td></tr>
                 </tbody>
               </table>
             </div>
