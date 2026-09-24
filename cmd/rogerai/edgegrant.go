@@ -1,0 +1,240 @@
+package main
+
+// `roger edge grant` (features/edge/control.feature, the @cli scenarios): the owner issues, lists and
+// revokes Edge grants. An Edge grant is store.Grant SIGNED BY THIS EDGE'S AUTHORITY, so any member
+// verifies it with the public root alone - no broker, which is what an airgapped Edge requires. It is
+// therefore issued ONLY on the authority machine (the one holding the root key), and kept in a plain
+// file under the edge dir (edge.GrantStore) so it can be listed, revoked, and carried by
+// `roger edge invoke`.
+//
+// The issue path splits in two: edgeIssueGrant is the pure core (validate, build, sign, store) that
+// tests drive with a real authority and no fleet; cmdEdgeGrant is the glue that resolves the caller
+// and callee ADDRESSES to node ids and opens this machine's authority.
+
+import (
+	"crypto"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
+
+	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v6/internal/store"
+)
+
+// edgeGrantSpec is a validated request to issue one Edge grant. Caller and callee are already
+// resolved to node ids; capability is one of the edge vocabulary.
+type edgeGrantSpec struct {
+	caller     string // node id allowed to invoke; "" = any of the owner's own instances
+	callee     string // node id the grant addresses
+	capability string // operate | sense | actuate | ...
+	expiresAt  int64  // unix; 0 = never (but the CLI always sets one)
+	maxHops    int    // onward-delegation bound (0 = none)
+}
+
+// edgeGrantStore is the owner's issued-grants file, under the edge dir (not the authority dir, which
+// stays Core-free).
+func edgeGrantStore() *edge.GrantStore {
+	return &edge.GrantStore{Path: edgeGrantsPath()}
+}
+
+func edgeGrantsPath() string { return edgeAuthDir() + "/grants.json" }
+
+// edgeNewGrantID mints a random, collision-resistant grant id.
+func edgeNewGrantID() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	return "grant_" + hex.EncodeToString(b)
+}
+
+// edgeIssueGrant is the pure core: validate the capability, build the record, sign it under the
+// authority's root, and store it. It contacts nothing and reaches no fleet - the signature is what a
+// member checks, offline.
+func edgeIssueGrant(st *edge.GrantStore, owner string, key crypto.Signer, spec edgeGrantSpec, now time.Time) (store.Grant, error) {
+	if !edge.Capability(spec.capability).Valid() {
+		return store.Grant{}, fmt.Errorf("%q is not an edge capability (one of: serve classify sense actuate relay operate)", spec.capability)
+	}
+	if strings.TrimSpace(spec.callee) == "" {
+		return store.Grant{}, fmt.Errorf("a grant needs a callee - the node it authorizes acting on")
+	}
+	g := store.Grant{
+		ID:        edgeNewGrantID(),
+		Owner:     owner,
+		Caller:    spec.caller,
+		Nodes:     []string{spec.callee},
+		Caps:      []string{spec.capability},
+		MaxHops:   spec.maxHops,
+		ExpiresAt: spec.expiresAt,
+		CreatedAt: now.Unix(),
+		Self:      spec.caller == "", // an owner-to-own-instances grant is a Self grant: always $0
+	}
+	signed, err := edge.SignGrant(g, key)
+	if err != nil {
+		return store.Grant{}, fmt.Errorf("the authority could not sign that grant: %w", err)
+	}
+	if err := st.Put(signed); err != nil {
+		return store.Grant{}, err
+	}
+	return signed, nil
+}
+
+// cmdEdgeGrant is the group: no args lists; "revoke <id>" revokes; otherwise it issues.
+func cmdEdgeGrant(cfg config, args []string) error {
+	if len(args) == 0 {
+		return cmdEdgeGrantList()
+	}
+	switch args[0] {
+	case "revoke", "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: roger edge grant revoke <id>")
+		}
+		return cmdEdgeGrantRevoke(args[1])
+	case "list", "ls":
+		return cmdEdgeGrantList()
+	}
+	return cmdEdgeGrantIssue(cfg, args)
+}
+
+// cmdEdgeGrantIssue: roger edge grant <caller> <capability> <callee> [--for 7d] [--hops N]
+func cmdEdgeGrantIssue(cfg config, args []string) error {
+	// Pull the flags out of the positionals by hand: caller/cap/callee come first, --for/--hops after.
+	var pos []string
+	forDur, hops := "30d", 0
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--for", "-for":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--for needs a value, e.g. --for 7d")
+			}
+			forDur = args[i+1]
+			i++
+		case "--hops", "-hops":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--hops needs a number")
+			}
+			if _, err := fmt.Sscanf(args[i+1], "%d", &hops); err != nil || hops < 0 {
+				return fmt.Errorf("--hops wants a non-negative number, got %q", args[i+1])
+			}
+			i++
+		default:
+			pos = append(pos, args[i])
+		}
+	}
+	if len(pos) != 3 {
+		return fmt.Errorf("usage: roger edge grant <caller> <capability> <callee> [--for 7d] [--hops N]\n" +
+			"  e.g. roger edge grant laptop/desk operate workstation/agent --for 7d")
+	}
+	callerArg, capArg, calleeArg := pos[0], pos[1], pos[2]
+
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return err
+	}
+	if !hasRoot {
+		return fmt.Errorf("this machine is not the authority of a locally-rooted Edge; grants are issued where the root key lives (run `roger edge authority local <name>` to designate one)")
+	}
+	callerID, err := edgeGrantResolveNode(callerArg, true)
+	if err != nil {
+		return err
+	}
+	calleeID, err := edgeGrantResolveNode(calleeArg, false)
+	if err != nil {
+		return err
+	}
+	expiresAt, err := parseExpires(forDur)
+	if err != nil {
+		return err
+	}
+	g, err := edgeIssueGrant(edgeGrantStore(), local.Account(), local.Authority().RootKey(),
+		edgeGrantSpec{caller: callerID, callee: calleeID, capability: capArg, expiresAt: expiresAt, maxHops: hops}, time.Now())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("issued %s\n", g.ID)
+	fmt.Printf("  %s may %s %s until %s\n", edgeGrantWho(callerID), capArg, calleeArg,
+		time.Unix(g.ExpiresAt, 0).Format("2006-01-02 15:04"))
+	fmt.Printf("  signed by this Edge's authority; any member verifies it with the public root alone\n")
+	return nil
+}
+
+// edgeGrantResolveNode turns a caller/callee ADDRESS into a node id. A caller may be empty-meaning
+// "any of the owner's own instances" only when it is literally "self" or "-"; otherwise the address
+// must name a node on this Edge. The instance part (node/instance) is dropped: a grant scopes to the
+// node.
+func edgeGrantResolveNode(addr string, isCaller bool) (string, error) {
+	addr = strings.TrimSpace(addr)
+	if isCaller && (addr == "self" || addr == "-" || addr == "") {
+		return "", nil // a Self grant: any of the owner's own instances
+	}
+	node := addr
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		node = addr[:i]
+	}
+	st, err := loadEdgeState()
+	if err != nil {
+		return "", err
+	}
+	nodes, err := st.list()
+	if err != nil {
+		return "", err
+	}
+	n, ok, err := edgeResolve(nodes, node)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", errNoSuchNode(node)
+	}
+	return n.ID, nil
+}
+
+// edgeGrantWho renders a caller id for a line: a Self grant reads as the owner's own instances.
+func edgeGrantWho(callerID string) string {
+	if callerID == "" {
+		return "your own instances"
+	}
+	return edgeShortID(callerID)
+}
+
+func cmdEdgeGrantList() error {
+	gs, err := edgeGrantStore().List()
+	if err != nil {
+		return err
+	}
+	if len(gs) == 0 {
+		fmt.Println("no edge grants issued yet - `roger edge grant <caller> <capability> <callee>` issues one")
+		return nil
+	}
+	now := time.Now()
+	for _, g := range gs {
+		callee := ""
+		if len(g.Nodes) > 0 {
+			callee = edgeShortID(g.Nodes[0])
+		}
+		state := "live"
+		switch {
+		case g.Revoked:
+			state = "REVOKED"
+		case g.Expired(now):
+			state = "expired"
+		}
+		fmt.Printf("%s  %-8s  %s may %s %s  (until %s)\n",
+			g.ID, state, edgeGrantWho(g.Caller), strings.Join(g.Caps, ","), callee,
+			time.Unix(g.ExpiresAt, 0).Format("2006-01-02"))
+	}
+	return nil
+}
+
+func cmdEdgeGrantRevoke(id string) error {
+	found, err := edgeGrantStore().Revoke(id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no such grant %q (run `roger edge grant` to list)", id)
+	}
+	fmt.Printf("revoked %s\n", id)
+	return nil
+}

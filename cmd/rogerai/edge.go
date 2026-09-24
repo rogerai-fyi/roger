@@ -89,6 +89,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"model", "<agent> <model> [use|share|use,share]", "bind a model to an agent, to use or share on the Edge", 2, 3},
 	{"job", "<agent> <serve|watch|relay|none> [targets...]", "give an agent a job, or clear it", 2, 16},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
+	{"grant", "[<caller> <cap> <callee> --for 7d | revoke <id>]", "issue, list or revoke an authority-signed grant", 0, 16},
 }
 
 func edgeLeaf(name string) (edgeSubcommand, bool) {
@@ -181,6 +182,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeJob(cfg, rest)
 	case "authority":
 		return cmdEdgeAuthority(cfg, rest)
+	case "grant":
+		return cmdEdgeGrant(cfg, rest)
 	default:
 		return cmdEdgeScan(cfg, rest)
 	}
