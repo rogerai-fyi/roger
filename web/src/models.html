@@ -39,12 +39,12 @@
       <!-- The rest of this section of the site, as buttons. The nav panel is an
            accelerator; a reader who landed here from a search result should not have to
            find a collapsed menu to discover Voices or the Tower. -->
-      <div class="research-actions" data-reveal data-reveal-delay="140">
+      <div class="research-actions research-actions--lead" data-reveal data-reveal-delay="140">
         <a class="research-button research-button--primary" href="/playbox.html">Open the Playbox</a>
-        <a class="research-button" href="/voices.html">Voices</a>
-        <a class="research-button" href="/tower.html">The Tower</a>
-        <a class="research-button" href="/pricing.html">Pricing</a>
-        <a class="research-button" href="/integrations.html">Integrations</a>
+        <a class="research-button research-button--quiet" href="/voices.html">Voices</a>
+        <a class="research-button research-button--quiet" href="/tower.html">The Tower</a>
+        <a class="research-button research-button--quiet" href="/pricing.html">Pricing</a>
+        <a class="research-button research-button--quiet" href="/integrations.html">Integrations</a>
       </div>
 
     </div>
@@ -79,6 +79,8 @@
   </section>
 
   <!-- ============================ DIRECTORY ============================ -->
+  <!-- INK PANEL: the live band, as the homepage shows it (components.css .tone-zone). -->
+  <div class="tone-zone" data-tone="ink">
   <section class="section bands-dir" id="directory">
     <div class="wrap">
       <div class="section__head section__head--left" data-reveal>
@@ -171,6 +173,8 @@
       </div>
     </div>
   </section>
+
+  </div><!-- /tone-zone -->
 
   <!-- ============================ DETAIL · QSL CARD ============================ -->
   <!-- Hash-routed (#band=<model>). Static-host-friendly: a panel revealed in place. -->

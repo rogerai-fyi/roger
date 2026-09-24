@@ -165,3 +165,34 @@ test("system: every new motion is opt-in or switched off under reduced motion", 
   const block = css.slice(css.indexOf(".tint-panel"));
   assert.doesNotMatch(block.replace(/@media \(prefers-reduced-motion: no-preference\)\s*\{[\s\S]*?\n\}/g, ""), /animation:\s*(?!none)[\w-]+\s+[\d.]+m?s/, "animations live under no-preference");
 });
+
+/* ---- MODELS ---------------------------------------------------------------------- */
+
+test("models: the hero offers one primary action and quiet links to the rest of the menu", () => {
+  const html = src("models.html");
+  const row = html.match(/<div class="research-actions research-actions--lead"[^>]*>[\s\S]*?<\/div>/)?.[0] || "";
+  assert.ok(row, "the hero row is a lead row");
+  assert.equal((row.match(/research-button--primary/g) || []).length, 1);
+  assert.equal((row.match(/class="research-button research-button--quiet"/g) || []).length, 4);
+});
+
+test("models: the live directory sits in an ink panel, like the homepage's band", () => {
+  const html = src("models.html");
+  const zone = html.match(/<div class="tone-zone" data-tone="ink">([\s\S]*?)<!-- \/tone-zone -->/)?.[1] || "";
+  assert.match(zone, /<section class="section bands-dir" id="directory">/);
+  const css = stripCss(src("styles/models.css"));
+  assert.doesNotMatch(css, /border-top:\s*2px solid var\(--ink-900\)/, "no 2px ink rules on the dial or the directory");
+});
+
+test("models: a curated-only band's on-air cell shows its curated count, never a bare 0", () => {
+  const js = src("js/bands.js");
+  const stn = js.match(/var stn = [\s\S]*?;\n/)?.[0] || "";
+  assert.match(stn, /b\.curated/, "the on-air cell knows about curated stations");
+  assert.match(stn, /&raquo; /, "and marks them with the curated sign");
+});
+
+test("models: the band the dial locks is marked in the directory with the red needle", () => {
+  const js = src("js/bands.js");
+  assert.match(js, /classList\.toggle\("is-tuned", [^)]*\)/, "bands.js marks the tuned row");
+  assert.match(stripCss(src("styles/models.css")), /\.band-row\.is-tuned\s*\{[^}]*var\(--live\)/, "styled with the one red");
+});
