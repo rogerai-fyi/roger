@@ -69,6 +69,14 @@ func timeString(ts int64) string { return strconv.FormatInt(ts, 10) }
 // writes to, so a pushed member and a dialed member are one kind of thing. `now` is injected for
 // tests. Every refusal is a 403 with a short reason, the same uniform "no" enrollment gives.
 func PresenceHandler(fleet *Fleet, auth *cert.Authority, now func() time.Time) http.Handler {
+	return PresenceHandlerFunc(fleet, func() *cert.Authority { return auth }, now)
+}
+
+// PresenceHandlerFunc is PresenceHandler with the authority read FRESH per request, so a node
+// revoked while this endpoint runs is refused at once rather than only after a restart (audit
+// 2026-09-23). trust returns nil when the authority cannot be loaded, and a nil authority refuses
+// the presence (fail closed).
+func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() time.Time) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -97,7 +105,13 @@ func PresenceHandler(fleet *Fleet, auth *cert.Authority, now func() time.Time) h
 			return
 		}
 		// 2. It must chain to THIS authority's root, be in date, and not be revoked. Authenticate
-		//    is the one check the pull side trusts too (verify.go), so push and pull agree.
+		//    is the one check the pull side trusts too (verify.go), so push and pull agree. The
+		//    authority is read fresh per request so a serial revoked since startup is honoured now.
+		auth := trust()
+		if auth == nil {
+			refusePresence(w, "this node cannot verify presence right now")
+			return
+		}
 		id, err := auth.Authenticate(leaf)
 		if err != nil {
 			refusePresence(w, "that certificate did not come from this authority")

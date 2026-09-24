@@ -92,9 +92,13 @@ func (s *Server) caller(r *http.Request) (string, int, string) {
 	}
 	trust := s.serving.Trust
 	if s.serving.TrustNow != nil {
-		if fresh := s.serving.TrustNow(); fresh != nil {
-			trust = fresh // re-read so revocations made since the face started are seen now
+		// A fresh source is configured: use it, and if it cannot be read REFUSE rather than fall back
+		// to the startup snapshot - falling back would re-open the stale-revocation hole (fail closed).
+		fresh := s.serving.TrustNow()
+		if fresh == nil {
+			return "", http.StatusServiceUnavailable, "this node cannot verify callers right now"
 		}
+		trust = fresh
 	}
 	id, err := trust.Authenticate(r.TLS.PeerCertificates[0])
 	if err != nil {

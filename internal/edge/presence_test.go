@@ -187,3 +187,34 @@ func capNames(caps []store.EdgeCap) []string {
 	}
 	return out
 }
+
+// PresenceHandlerFunc reads the authority FRESH on every request, which is what lets a revocation
+// made after startup take effect without a restart. Here the provider counts calls: one per request.
+func TestPresenceReadsTrustPerRequest(t *testing.T) {
+	f, a, priv, id, certPEM := presenceFixture(t)
+	calls := 0
+	h := PresenceHandlerFunc(f, func() *cert.Authority { calls++; return a }, time.Now)
+
+	for i := 0; i < 3; i++ {
+		p := validPresence(id, certPEM)
+		signPresence(&p, priv)
+		_ = doPresence(h, p)
+	}
+	require.Equal(t, 3, calls, "the authority is re-read once per presence, not captured once at startup")
+}
+
+// If the authority cannot be loaded (a failed reload), presence is REFUSED, never admitted on a
+// stale snapshot - fail closed (audit 2026-09-23).
+func TestPresenceFailsClosedWhenTrustUnavailable(t *testing.T) {
+	f, _, priv, id, certPEM := presenceFixture(t)
+	h := PresenceHandlerFunc(f, func() *cert.Authority { return nil }, time.Now)
+
+	p := validPresence(id, certPEM)
+	signPresence(&p, priv)
+	w := doPresence(h, p)
+	require.NotEqual(t, http.StatusOK, w.Code, "a presence must not be admitted when trust cannot be read")
+
+	_, ok, err := f.Get(id)
+	require.NoError(t, err)
+	require.False(t, ok, "nothing is recorded when trust is unavailable")
+}

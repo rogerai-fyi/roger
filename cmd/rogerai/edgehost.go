@@ -33,6 +33,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
 	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/cert"
 	"rogerai.fm/roger/v6/internal/tui"
 )
 
@@ -249,8 +250,8 @@ func (h *edgeHost) adopt(id, name string) error {
 	// A candidate that advertises NO certificate (Pin empty) - a phone - cannot be dialed and
 	// verified; it joins by CLAIM. Adopting it GRANTS the claim, and it becomes a member when it
 	// claims its certificate and checks in (features/edge/claim.feature). A candidate that DOES
-	// serve a certificate is dialed, verified, and taken into the fleet the original way (and also
-	// granted, in case it too claims).
+	// serve a certificate is dialed, verified, and taken into the fleet the original way - it is NOT
+	// granted a claim (a grant on a member would outlive revoke/forget and let it re-enter).
 	if c.Pin == "" {
 		if err := edgeAdoptByClaim(c.ID, c.Name); err != nil {
 			return err
@@ -386,7 +387,16 @@ func (h *edgeHost) startAuthority() {
 	// that dials out to say it is here, so a phone that cannot serve an inbound face still appears -
 	// features/edge/presence.feature). Presence writes to the same fleet discovery does.
 	authMux := http.NewServeMux()
-	authMux.Handle(edge.PresencePath, edge.PresenceHandler(h.st.fleet, local.Authority(), nil))
+	// Presence reads the authority FRESH per request (a reload picks up revoked.json a CLI forget
+	// wrote beside us), so a forgotten node stops verifying at once, not at the next restart.
+	authDir := edgeAuthDir()
+	authMux.Handle(edge.PresencePath, edge.PresenceHandlerFunc(h.st.fleet, func() *cert.Authority {
+		fresh, ok, err := edgeauth.OpenLocal(authDir)
+		if err != nil || !ok {
+			return nil
+		}
+		return fresh.Authority()
+	}, nil))
 	authMux.Handle("/", enrollhttp.Handler(local))
 	auth := &http.Server{Handler: authMux, ReadHeaderTimeout: 10 * time.Second}
 	h.mu.Lock()
