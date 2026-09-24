@@ -334,3 +334,54 @@ func TestForgetNeverEvictsAProtectedKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, allowed, hexEncode(kPub), "a protected key survives forget")
 }
+
+// Forgetting a node with NO enrolled-by record (a claim-joined device, or one enrolled before the
+// record existed) evicts no key and reports none, so the CLI does not claim an eviction that did not
+// happen (audit 2026-09-24).
+func TestForgetOfAnUnrecordedNodeEvictsNoKey(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+	require.NoError(t, local.GrantClaim(id, "phone"))
+	req := edgeauth.NewClaimRequest("phone", "mobile", pub, time.Now())
+	req.Sign(priv)
+	_, err := local.Claim(req, time.Now()) // claim-joined: no enrolled-by record, no user key
+	require.NoError(t, err)
+
+	_, evicted, err := local.Forget(id)
+	require.NoError(t, err)
+	require.Empty(t, evicted, "a claim-joined node has no enrolling key to evict")
+}
+
+// BackfillProtection protects this machine's OWN key on an older authority, but only if that key is
+// on the allow-list, and never guesses another device's key (audit 2026-09-24).
+func TestBackfillProtectionProtectsOnlyTheOwnAllowedKey(t *testing.T) {
+	dir, local, _, _, _ := secFixture(t)
+	ownPub, ownPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.Allow(hexEncode(ownPub)))
+
+	// Simulate an OLDER authority: no protected-keys file yet.
+	_ = os.Remove(filepath.Join(dir, edgeauth.AuthorityDir, "protected_keys.json"))
+
+	require.NoError(t, local.BackfillProtection(hexEncode(ownPub)))
+
+	// A node enrolled under the own key is now NOT evicted on forget.
+	nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+	req := edgeauth.NewRequest(local.Account(), "self", "host", nodePub, time.Now())
+	req.Sign(ownPriv)
+	_, err := local.Issue(req)
+	require.NoError(t, err)
+	_, evicted, err := local.Forget(edgeauth.NodeID(nodePub))
+	require.NoError(t, err)
+	require.Empty(t, evicted, "the backfilled own key is protected")
+
+	// A DIFFERENT device's key is never protected by the backfill of a different own key.
+	otherPub, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.Allow(hexEncode(otherPub)))
+	onodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+	oreq := edgeauth.NewRequest(local.Account(), "other", "host", onodePub, time.Now())
+	oreq.Sign(otherPriv)
+	_, err = local.Issue(oreq)
+	require.NoError(t, err)
+	_, oevicted, err := local.Forget(edgeauth.NodeID(onodePub))
+	require.NoError(t, err)
+	require.Equal(t, hexEncode(otherPub), oevicted, "another device's key is still evicted")
+}

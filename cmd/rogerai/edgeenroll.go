@@ -643,6 +643,11 @@ func edgeRevokeOnForget(nodeID string) ([]string, string, error) {
 		return nil, "", fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
 	}
 	if ok {
+		// Migrate an authority designated before protection existed: protect THIS machine's own key
+		// (if it is on the allow-list) before any eviction, so a forget can never evict it.
+		if err := local.BackfillProtection(hex.EncodeToString(edgeUserKey().Public().(ed25519.PublicKey))); err != nil {
+			return nil, "", fmt.Errorf("could not protect this machine's Edge key before forgetting %s: %w", edgeShortID(nodeID), err)
+		}
 		// Clear any standing claim grant AND revoke every certificate the node was issued in ONE
 		// locked step, so a claim cannot mint a fresh certificate between the two (audit 2026-09-24).
 		// Errors are reported, not swallowed, so a forget that could not take effect is never

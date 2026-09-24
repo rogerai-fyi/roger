@@ -101,7 +101,6 @@ func open(dir string) (*Local, error) {
 		l.where = string(b)
 	}
 	l.iss = NewIssuer(IssuerConfig{Authority: auth, Accounts: l.registry()})
-	l.backfillProtection()
 	issued, err := l.loadIssued()
 	if err != nil {
 		return nil, err
@@ -669,22 +668,27 @@ func (l *Local) dropEnrolledBy(nodeID string) (string, error) {
 	return key, nil
 }
 
-// backfillProtection protects the designating key for an authority created before protection
-// existed: if this machine holds a root and no protected-keys file is present yet, the FIRST allowed
-// key (the designating machine's own, added at Designate) is protected. A one-time migration so an
-// older local authority cannot evict its own key on a forget (audit 2026-09-24).
-func (l *Local) backfillProtection() {
-	if l.auth == nil || l.auth.Root() == nil {
-		return
-	}
+// BackfillProtection protects this machine's OWN key on an authority designated before protection
+// existed, so it cannot evict its own key on a forget. The caller passes its edgeUserKey; it is
+// protected only if it is actually on the allow-list, and only when no protected set exists yet, so
+// this never guesses another device's key. A one-time migration (audit 2026-09-24).
+func (l *Local) BackfillProtection(ownKeyHex string) error {
 	if _, err := os.Stat(filepath.Join(l.dir, ProtectedKeysFile)); err == nil {
-		return // already have a protected set
+		return nil // already have a protected set
+	}
+	if ownKeyHex == "" {
+		return nil
 	}
 	allowed, err := l.Allowed()
-	if err != nil || len(allowed) == 0 {
-		return
+	if err != nil {
+		return err
 	}
-	_ = l.Protect(allowed[0])
+	for _, k := range allowed {
+		if k == ownKeyHex {
+			return l.Protect(ownKeyHex)
+		}
+	}
+	return nil
 }
 
 // Protect marks a user key as one forget must never evict (the designating machine's own key).
