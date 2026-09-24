@@ -419,3 +419,17 @@
 .code-block__copy.is-copied::after { content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); }
 @media (prefers-reduced-motion: reduce) { .code-block__copy:active { transform: none; } }
 
+/* ---- component: inset panel (added by research rollout) ---------------------------
+   <aside|div class="inset-panel"> <span class="inset-panel__tag">LABEL</span> ... </aside>
+   The tinted panel of the homepage (cards, the tuner band) as a class: --paper-2, the
+   panel radius, no border, no shadow. Calm: space separates it, not a rule. The tag is
+   the small mono label at its top. */
+.inset-panel {
+  padding: clamp(18px, 2.4vw, 28px); border-radius: var(--panel-r);
+  background: var(--paper-2); color: var(--ink-700);
+}
+.inset-panel__tag {
+  display: block; margin-bottom: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+}

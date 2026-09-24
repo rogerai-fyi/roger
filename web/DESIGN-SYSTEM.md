@@ -195,6 +195,14 @@ button using the shared `[data-copy-target]` copy tick) to every block; the copi
 leaves out `aria-hidden` parts, so the `$` prompts never paste. No-JS: the plain,
 selectable `<pre>`, and no dead button.
 
+### Inset panel
+```html
+<aside class="inset-panel"><span class="inset-panel__tag">roger that</span> ... </aside>
+```
+The homepage's tinted panel as a class: `--paper-2`, `--panel-r`, no border, no shadow.
+The quiet container for a sign-off, a telegram, a card. (`.panel` is taken by the
+account pages.)
+
 ## Adding a page
 
 1. `src/<page>.html`: `<!-- include: head.html title=... desc=... theme=external -->`,
