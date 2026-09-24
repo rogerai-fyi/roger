@@ -796,6 +796,11 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
    came out blurred and offset wherever the reader had not scrolled. Colours: the
    print tokens at the end of tokens.css (black on white, both themes, ink panels). */
 @media print {
+  /* keep every ground: a printer drops backgrounds by default, and a block painted in
+     a dark ink (a "live" card, a primary button, a meter) would print its paper-coloured
+     words on blank paper. Inherited, so the root covers every element; the print
+     tokens make the grounds white and the inks black, so this costs a page nothing. */
+  html { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   [data-reveal], [data-lift] [data-reveal], html.js [data-reveal], html.js [data-reveal].is-revealed {
     opacity: 1 !important; transform: none !important; filter: none !important;

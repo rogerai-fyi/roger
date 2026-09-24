@@ -6,7 +6,7 @@
 // and tables unclipped, and an external link's address written after it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -86,4 +86,35 @@ test("print: an external link in prose prints its address, internal links do not
   const link = [...shared.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => /::after/.test(m[1]) && /attr\(href\)/.test(m[2]));
   assert.ok(link, "a rule prints attr(href)");
   assert.match(link[1], /a\[href\^="http"\]/, "only absolute (external) links");
+});
+
+// A block painted in a dark ink (--ink-900/--ink-700: a "live" card, a primary button, a
+// meter bar) prints as nothing unless its background is kept: printers drop backgrounds by
+// default, and the print tokens turn its --paper text white. The broadcast 013/014 "live"
+// cards printed as white words on white paper. So the print section must keep
+// backgrounds for every such rule (print-color-adjust: exact on the root, which every
+// element inherits), and the print tokens must keep the dark ink dark and the paper light.
+test("print: every block painted in a dark ink keeps its ground, so its paper-coloured words stay readable", () => {
+  const dir = path.join(WEB, "src/styles");
+  const dark = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".css"))) {
+    for (const m of css(f).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (/background(-color)?:\s*var\(--ink-(900|700)\)/.test(m[2])) dark.push(`${f} ${m[1].trim()}`);
+    }
+  }
+  assert.ok(dark.some((r) => /gpu-machines__col--live/.test(r)), "the scan sees the article live cards");
+  // covered systemically: exact colour on the root (inherited), or per rule
+  const root = rule(shared, /^\s*(html|:root)\s*$/);
+  const systemic = /(^|;)\s*print-color-adjust:\s*exact/.test(root) && /-webkit-print-color-adjust:\s*exact/.test(root);
+  const covered = (r) => systemic || new RegExp(r.split(" ").slice(1).join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(shared);
+  const bare = dark.filter((r) => !covered(r));
+  assert.deepEqual(bare, [], `these dark-ink blocks would print as blank paper:\n  ${bare.join("\n  ")}`);
+  // and the print colours keep the pair readable: the ink stays dark, the paper stays light
+  const tokens = printBlocks(css("tokens.css"));
+  const hex = (name) => tokens.match(new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})`))?.[1];
+  const lum = (h) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  for (const ink of ["--ink-900", "--ink-700"]) {
+    assert.ok(ratio(hex(ink), hex("--paper")) >= 7, `print ${ink} on print --paper holds 7:1 both ways round`);
+  }
 });
