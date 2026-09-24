@@ -204,6 +204,6 @@ test("no choreography rule is shadowed: its targets are not [data-reveal] blocks
 test("no adaptive chrome: on a paper page with inset panels the nav simply stays paper", () => {
   assert.doesNotMatch(read("styles/tokens.css"), /data-chrome/);
   assert.doesNotMatch(read("styles/home.css"), /data-chrome/);
-  assert.doesNotMatch(readFileSync(path.join(WEB, "src/js/scroll-stage.js"), "utf8"), /data-chrome/);
+  assert.doesNotMatch(readFileSync(path.join(WEB, "src/js/anchor-hold.js"), "utf8"), /data-chrome/);
 });
 

@@ -16,7 +16,7 @@
   <!-- include: nav.html variant=marketing home=#top anchors="" -->
 
   <!-- ============================ HERO ============================ -->
-  <main id="top">
+  <main id="top" data-anchor-hold>
   <!-- INK PANEL: the cover. -->
   <div class="tone-zone" data-tone="ink">
   <section class="hero">
@@ -270,21 +270,21 @@
        to it and its name shows in the readout (CSS); tuner.js adds arrow-key
        roving and rests the needle on the section in view. Plain links
        without CSS or JS. -->
-  <nav class="tuner" aria-label="Sections">
-    <div class="wrap tuner__band">
-    <div class="tuner__readout" aria-hidden="true"></div>
-    <ol class="tuner__scale">
-      <li><a class="tuner__st" href="#demo"><b>§1</b><span class="tuner__name">OPERATING PROCEDURE</span></a></li>
-      <li><a class="tuner__st" href="#market"><b>§2</b><span class="tuner__name">THE BAND</span></a></li>
-      <li><a class="tuner__st" href="#company"><b>§3</b><span class="tuner__name">COMPANY</span></a></li>
-      <li><a class="tuner__st" href="#what"><b>§4</b><span class="tuner__name">THE TUNE</span></a></li>
-      <li><a class="tuner__st" href="#spec"><b>§5</b><span class="tuner__name">SPECIFICATIONS</span></a></li>
-      <li><a class="tuner__st" href="#books"><b>§6</b><span class="tuner__name">THE INDUSTRIAL SERIES</span></a></li>
-      <li><a class="tuner__st" href="#monetize"><b>§7</b><span class="tuner__name">MONETIZE</span></a></li>
-      <li><a class="tuner__st" href="#operator"><b>§8</b><span class="tuner__name">PRIVACY-FIRST AIRWAVES</span></a></li>
-      <li><a class="tuner__st" href="#go"><b>§9</b><span class="tuner__name">GO</span></a></li>
+  <nav class="toc-tuner" data-tuner aria-label="Sections">
+    <div class="wrap toc-tuner__band">
+    <div class="toc-tuner__readout" aria-hidden="true"></div>
+    <ol class="toc-tuner__scale">
+      <li><a class="toc-tuner__st" href="#demo"><b>§1</b><span class="toc-tuner__name">OPERATING PROCEDURE</span></a></li>
+      <li><a class="toc-tuner__st" href="#market"><b>§2</b><span class="toc-tuner__name">THE BAND</span></a></li>
+      <li><a class="toc-tuner__st" href="#company"><b>§3</b><span class="toc-tuner__name">COMPANY</span></a></li>
+      <li><a class="toc-tuner__st" href="#what"><b>§4</b><span class="toc-tuner__name">THE TUNE</span></a></li>
+      <li><a class="toc-tuner__st" href="#spec"><b>§5</b><span class="toc-tuner__name">SPECIFICATIONS</span></a></li>
+      <li><a class="toc-tuner__st" href="#books"><b>§6</b><span class="toc-tuner__name">THE INDUSTRIAL SERIES</span></a></li>
+      <li><a class="toc-tuner__st" href="#monetize"><b>§7</b><span class="toc-tuner__name">MONETIZE</span></a></li>
+      <li><a class="toc-tuner__st" href="#operator"><b>§8</b><span class="toc-tuner__name">PRIVACY-FIRST AIRWAVES</span></a></li>
+      <li><a class="toc-tuner__st" href="#go"><b>§9</b><span class="toc-tuner__name">GO</span></a></li>
     </ol>
-    <span class="tuner__needle" aria-hidden="true"></span>
+    <span class="toc-tuner__needle" aria-hidden="true"></span>
     </div>
   </nav>
 
@@ -510,7 +510,7 @@
            a word is read. It is drawn in CSS and costs nothing to ship - the
            engraved tier plates are richer but weigh ~640KB together, which is
            not a homepage's job. -->
-      <ol class="home-spectrum" aria-label="The Wave Spectrum, pico to exa">
+      <ol class="home-spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
         <li style="--gap:14px"><i aria-hidden="true"></i><span>250–300M · waypoint</span><b>Wave Pico</b><small>one machine&rsquo;s telemetry · Raspberry Pi</small></li>
         <li style="--gap:10px"><i aria-hidden="true"></i><span>0.8–1.5B</span><b>Wave Nano</b><small>fleet rollup + routing · a gateway</small></li>
         <li style="--gap:7.5px"><i aria-hidden="true"></i><span>7–8B</span><b>Wave Micro</b><small>site brain · a facility</small></li>
@@ -813,8 +813,8 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors="" -->
 
-  <script src="js/scroll-stage.js" defer></script>
-  <script src="js/spectrum.js" defer></script>
+  <script src="js/anchor-hold.js" defer></script>
+  <script src="js/scrub.js" defer></script>
   <script src="js/tuner.js" defer></script>
   <script src="js/ping-eye.js" defer></script>
   <script src="js/edge-story.js" defer></script>

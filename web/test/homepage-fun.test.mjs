@@ -26,33 +26,38 @@ const IDS = ["demo", "market", "company", "what", "spec", "books", "monetize", "
 // ---- 1. the tuner ----
 test("the tuner is a plain in-page nav: nine links to the sections, in order, named by their own labels", () => {
   const html = dist("index.html");
-  const tuner = html.match(/<nav class="tuner"[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
+  const tuner = html.match(/<nav class="toc-tuner" data-tuner[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
   assert.match(tuner, /aria-label="Sections"/);
   const hrefs = [...tuner.matchAll(/href="#([\w-]+)"/g)].map((m) => m[1]);
   assert.deepEqual(hrefs, IDS);
   // each station's name is the section's own label, word for word (no new copy)
   const labels = [...html.matchAll(/<span class="sectionno">([^<]*)<\/span>/g)].map((m) => m[1].replace(/^§\d+ \/ /, ""));
-  const names = [...tuner.matchAll(/<span class="tuner__name">([^<]*)<\/span>/g)].map((m) => m[1]);
+  const names = [...tuner.matchAll(/<span class="toc-tuner__name">([^<]*)<\/span>/g)].map((m) => m[1]);
   assert.deepEqual(names, labels);
-  assert.ok(html.indexOf('class="tuner"') > html.indexOf('class="institution-strip"'), "after the institution strip");
-  assert.ok(html.indexOf('class="tuner"') < html.indexOf('id="demo"'), "before §1");
-  assert.match(tuner, /<span class="tuner__needle" aria-hidden="true"><\/span>/);
+  assert.ok(html.indexOf('class="toc-tuner"') > html.indexOf('class="institution-strip"'), "after the institution strip");
+  assert.ok(html.indexOf('class="toc-tuner"') < html.indexOf('id="demo"'), "before §1");
+  assert.match(tuner, /<span class="toc-tuner__needle" aria-hidden="true"><\/span>/);
 });
 
 test("the tuner's needle follows the pointer and keyboard focus with CSS only, and never pins", () => {
-  const css = dist("styles/home.css");
-  for (let k = 1; k <= 9; k++) {
-    assert.match(css, new RegExp(`\\.tuner:has\\(li:nth-child\\(${k}\\) a:is\\(:hover, :focus-visible\\)\\)\\s*\\{[^}]*--at:\\s*${k - 1}`), `station ${k}`);
+  // the tuner is a shared component (components.css) and takes any count of stations up to 12
+  const css = dist("styles/components.css");
+  for (let k = 1; k <= 12; k++) {
+    assert.match(css, new RegExp(`\\.toc-tuner:has\\(li:nth-child\\(${k}\\) a:is\\(:hover, :focus-visible\\)\\)\\s*\\{[^}]*--at:\\s*${k - 1}`), `station ${k}`);
   }
-  assert.match(css, /\.tuner__needle\s*\{[^}]*transition:[^;]*left/);
-  assert.match(css, /\.tuner__needle\s*\{[^}]*background:\s*var\(--live\)/, "red only on the needle");
-  const tunerRules = [...css.matchAll(/\.tuner[^{]*\{([^}]*)\}/g)].map((m) => m[1]).join("\n");
+  assert.match(css, /\.toc-tuner__needle\s*\{[^}]*transition:[^;]*left/);
+  assert.match(css, /\.toc-tuner__needle\s*\{[^}]*background:\s*var\(--live\)/, "red only on the needle");
+  const tunerRules = [...css.matchAll(/\.toc-tuner[^{]*\{([^}]*)\}/g)].map((m) => m[1]).join("\n");
   assert.doesNotMatch(tunerRules, /position:\s*(sticky|fixed)/);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.tuner__needle\s*\{[^}]*transition:\s*none/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.toc-tuner__needle\s*\{[^}]*transition:\s*none/);
+  // the station count is read from the markup (2..12), so no page has to set it
+  for (let k = 2; k <= 12; k++) {
+    assert.match(css, new RegExp(`\\.toc-tuner:has\\(li:nth-child\\(${k}\\):last-child\\)\\s*\\{[^}]*--tuner-n:\\s*${k}`), `${k} stations`);
+  }
 });
 
 // ---- 2. the Wave Spectrum scrubber ----
-const SPEC = readFileSync(path.join(WEB, "src/js/spectrum.js"), "utf8");
+const SPEC = readFileSync(path.join(WEB, "src/js/scrub.js"), "utf8");
 function spectrum() {
   const tiers = ["Wave Pico", "Wave Nano", "Wave Micro", "Wave Giga", "Wave Tera", "Wave Peta", "Wave Exa"];
   const on = (el) => { el.listeners = {}; el.addEventListener = (t, f) => { (el.listeners[t] ||= []).push(f); }; return el; };
@@ -63,8 +68,9 @@ function spectrum() {
   const ol = { getAttribute: (k) => (k === "aria-label" ? "The Wave Spectrum, pico to exa" : null), querySelectorAll: () => lis,
     parentNode: { insertBefore: (el) => { range = el; } } };
   const doc = {
-    querySelector: (s) => (s === ".home-spectrum" ? ol : null),
-    createElement: (tag) => on({ tagName: tag, attrs: {}, value: "", setAttribute(k, v) { this.attrs[k] = String(v); } }),
+    querySelectorAll: (s) => (s === "[data-scrub]" ? [ol] : []),
+    createElement: (tag) => on({ tagName: tag, attrs: {}, value: "", setAttribute(k, v) { this.attrs[k] = String(v); },
+      style: { props: {}, setProperty(k, v) { this.props[k] = v; } } }),
   };
   const win = { document: doc };
   win.window = win;
@@ -83,6 +89,8 @@ test("the scrubber is a real range control over the ladder, labelled, starting o
   assert.equal(r.attrs["aria-label"], "The Wave Spectrum, pico to exa", "labelled by the ladder's own name");
   assert.equal(r.attrs["aria-valuetext"], "Wave Pico");
   assert.deepEqual(s.tuned(), [true, false, false, false, false, false, false]);
+  assert.equal(r.className, "scrub", "the shared scrubber component");
+  assert.equal(r.style.props["--scrub-n"], "7", "the control knows the item count, for its travel");
 });
 
 test("dragging or arrowing the scrubber tunes a tier; pointing at a tier moves the scrubber", () => {
@@ -103,10 +111,10 @@ test("dragging or arrowing the scrubber tunes a tier; pointing at a tier moves t
 
 test("without JS the ladder is the complete static list; with JS every tier stays readable", () => {
   const html = dist("index.html");
-  const ladder = html.match(/<ol class="home-spectrum"[\s\S]*?<\/ol>/)?.[0] || "";
+  const ladder = html.match(/<ol class="home-spectrum" data-scrub[\s\S]*?<\/ol>/)?.[0] || "";
   assert.equal((ladder.match(/<li /g) || []).length, 7);
-  assert.doesNotMatch(html, /type="range"/, "the control is added by spectrum.js, never in the HTML");
-  assert.match(html, /<script src="js\/spectrum\.js(\?v=[0-9a-f]+)?" defer><\/script>/);
+  assert.doesNotMatch(html, /type="range"/, "the control is added by scrub.js, never in the HTML");
+  assert.match(html, /<script src="js\/scrub\.js(\?v=[0-9a-f]+)?" defer><\/script>/);
   const css = dist("styles/home.css");
   assert.doesNotMatch(css, /\.home-spectrum li(:not\(\.is-tuned\))?\s*\{[^}]*opacity/, "untuned tiers are never faded");
   assert.match(css, /\.home-spectrum li\.is-tuned i\s*\{[^}]*color:\s*var\(--live\)/, "the tuned tier's wave is the red indicator");
@@ -117,12 +125,12 @@ test("buttons press like hardware and the copy icon becomes a tick while copied"
   // The press and the copy tick are shared components (components.css, on every
   // page); the homepage's own pressables stay in home.css. Both halves are pinned.
   const shared = dist("styles/components.css");
-  assert.match(shared, /:is\(\.install__box, \.research-button\):active\s*\{[^}]*transform:\s*translateY\(1px\)/);
+  assert.match(shared, /:is\(\.install__box, \.research-button, \.toc-tuner a\):active\s*\{[^}]*transform:\s*translateY\(1px\)/);
   assert.match(shared, /\.install__box\.is-copied \.install__copy svg\s*\{[^}]*opacity:\s*0/);
   assert.match(shared, /\.install__box\.is-copied \.install__copy(:has\(svg\))?::after\s*\{[^}]*content:/);
   assert.match(shared, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*:active\s*\{[^}]*transform:\s*none/);
   const css = dist("styles/home.css");
-  assert.match(css, /:is\(\.company__primary, \.tuner a\):active\s*\{[^}]*transform:\s*translateY\(1px\)/);
+  assert.match(css, /\.company__primary:active\s*\{[^}]*transform:\s*translateY\(1px\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*:active\s*\{[^}]*transform:\s*none/);
 });
 
@@ -144,14 +152,14 @@ test("clean: no box around the company cards or the spectrum; the two sides are 
 // "current section" state as you scroll (not pinned), and arrow-key roving.
 test("tuner: a framed instrument with a one-line readout; names never wrap", () => {
   const html = dist("index.html");
-  const tuner = html.match(/<nav class="tuner"[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
-  assert.match(tuner, /<div class="tuner__readout" aria-hidden="true"><\/div>/);
-  const css = dist("styles/home.css");
-  assert.match(css, /\.tuner__name\s*\{[^}]*position:\s*absolute[^}]*white-space:\s*nowrap/, "every name sits in the readout, one line");
-  assert.match(css, /\.tuner__band\s*\{[^}]*border-radius:\s*var\(--panel-r\)[^}]*background:\s*var\(--paper-2\)/, "framed like the other panels");
+  const tuner = html.match(/<nav class="toc-tuner" data-tuner[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
+  assert.match(tuner, /<div class="toc-tuner__readout" aria-hidden="true"><\/div>/);
+  const css = dist("styles/components.css");
+  assert.match(css, /\.toc-tuner__name\s*\{[^}]*position:\s*absolute[^}]*white-space:\s*nowrap/, "every name sits in the readout, one line");
+  assert.match(css, /\.toc-tuner__band\s*\{[^}]*border-radius:\s*var\(--panel-r\)[^}]*background:\s*var\(--paper-2\)/, "framed like the other panels");
   // without JS (no .is-current anywhere) the readout rests on §1
-  assert.match(css, /\.tuner:not\(:has\(a:is\(:hover, :focus-visible, \.is-current\)\)\) li:first-child \.tuner__name\s*\{[^}]*opacity:\s*1/);
-  assert.match(css, /\.tuner__needle\s*\{[^}]*transition:\s*left[^;]*cubic-bezier\(\.34,\s*1\.4/, "a spring swing");
+  assert.match(css, /\.toc-tuner:not\(:has\(a:is\(:hover, :focus-visible, \.is-current\)\)\) li:first-child \.toc-tuner__name\s*\{[^}]*opacity:\s*1/);
+  assert.match(css, /\.toc-tuner__needle\s*\{[^}]*transition:\s*left[^;]*cubic-bezier\(\.34,\s*1\.4/, "a spring swing");
 });
 
 const TUNER = readFileSync(path.join(WEB, "src/js/tuner.js"), "utf8");
@@ -170,7 +178,7 @@ function tuner() {
     IntersectionObserver: function (cb) { ioCb = cb; this.observe = (el) => observed.push(el); },
   };
   win.window = win;
-  win.document = { querySelector: (q) => (q === ".tuner" ? nav : null), getElementById: (id) => ({ id }) };
+  win.document = { querySelectorAll: (q) => (q === "[data-tuner]" ? [nav] : []), getElementById: (id) => ({ id }) };
   vm.createContext(win);
   vm.runInContext(TUNER, win);
   const key = (a, k) => { let prevented = false; for (const f of a.listeners.keydown || []) f({ key: k, preventDefault: () => { prevented = true; } }); return prevented; };
@@ -264,8 +272,8 @@ test("tuner: back at the top (§1 leaves the band downward) the current station 
 });
 
 test("the spectrum scrubber's focus ring is visible (ink-500, 2px); tiers don't pretend to be clickable", () => {
+  assert.match(dist("styles/components.css"), /\.scrub:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--ink-(500|700|900)\)/);
   const css = dist("styles/home.css");
-  assert.match(css, /\.spectrum-scrub:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--ink-(500|700|900)\)/);
   assert.doesNotMatch(css, /\.home-spectrum li\s*\{[^}]*cursor:\s*pointer/);
 });
 

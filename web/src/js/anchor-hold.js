@@ -1,16 +1,18 @@
 /* =====================================================================
-   RogerAI - homepage: hold a #fragment while late content loads above it.
+   RogerAI - anchor hold: keep a #fragment in place while late content
+   loads above it.
 
-   The market rows and the Roger Edge reel's power-on grow the page ABOVE a
-   target like #monetize after the browser has already scrolled to it, and
-   the target lands far down the screen. Until the reader takes over (or a
-   few seconds pass), re-align the target whenever the page's size changes.
-   (Rounds 3-9 also carried motion variants, a snap, a sticky dial and a
-   pinned stage here; round 10 retired them - nothing on the page is pinned
-   but the site nav.)
+   Opt-in by markup: a page whose content grows after load ABOVE its
+   anchors (the homepage's market rows and reel power-on) marks an element
+   [data-anchor-hold]. The browser scrolls to #target once; this re-aligns
+   the target whenever the page's size changes, until the reader takes
+   over (wheel, key, touch, pointer) or four seconds pass. It never
+   scrolls on its own after that, and it never pins anything.
+   Markup contract: web/DESIGN-SYSTEM.md.
    ===================================================================== */
 (function () {
   "use strict";
+  if (!document.querySelector("[data-anchor-hold]")) return;
   var hashTarget = window.location.hash && document.getElementById(window.location.hash.slice(1));
   if (!hashTarget || !window.ResizeObserver) return;
   var hold = new window.ResizeObserver(function () { hashTarget.scrollIntoView({ block: "start" }); });
