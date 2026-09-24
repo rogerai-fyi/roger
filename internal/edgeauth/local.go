@@ -165,12 +165,22 @@ func (l *Local) Issuer() *Issuer { return l.iss }
 // Issue mints a certificate and remembers its serial, so forgetting the node later can
 // revoke exactly that certificate.
 func (l *Local) Issue(r Request) (Response, error) {
+	// Verify the SIGNATURE (and freshness) BEFORE any disk read or lock, so an unsigned or stale LAN
+	// request is turned away cheaply and cannot use the tombstone as a revocation oracle or make the
+	// authority do disk work (audit 2026-09-24).
+	if err := r.VerifySignature(); err != nil {
+		return Response{}, err
+	}
+	if d := l.iss.cfg.Now().Sub(time.Unix(r.TS, 0)); d > RequestFreshness || d < -RequestFreshness {
+		return Response{}, ErrStaleRequest
+	}
 	var resp Response
 	err := l.withLock(func() error {
 		// A node whose earlier certificate stands REVOKED must not enroll a fresh one - the enrol
 		// path is the account-key-authorised sibling of Claim and needs the same tombstone, or a
 		// FORGOTTEN machine (its cert revoked, its account still valid) simply re-enrolls under the
-		// same node id and rejoins (audit 2026-09-24). The list is read from disk, fails CLOSED.
+		// same node id and rejoins (audit 2026-09-24). The list is read from disk, fails CLOSED. The
+		// refusal is ErrUnknownMachine, the SAME as any other "no" - it does not reveal revocation.
 		revoked, err := l.revokedNow()
 		if err != nil {
 			return fmt.Errorf("could not read the revocation list, so no certificate was issued: %w", err)
@@ -181,7 +191,7 @@ func (l *Local) Issue(r Request) (Response, error) {
 		}
 		for _, srl := range serials {
 			if revoked[srl] {
-				return fmt.Errorf("%w: that node's certificate has been revoked", ErrUnknownMachine)
+				return ErrUnknownMachine
 			}
 		}
 		// Mint AND record inside one lock (in-process and cross-process), so a concurrent forget or
@@ -197,6 +207,13 @@ func (l *Local) Issue(r Request) (Response, error) {
 		}
 		if err := l.recordIssued(r2.NodeID, leaf.SerialNumber.String()); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+		}
+		// Remember WHICH user key enrolled this node, so a later forget can drop that key when no
+		// other node still uses it.
+		if r.UserKey != "" {
+			if err := l.recordEnrolledBy(r2.NodeID, r.UserKey); err != nil {
+				return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+			}
 		}
 		resp = r2
 		return nil
@@ -459,6 +476,12 @@ func (l *Local) Forget(nodeID string) ([]string, error) {
 			}
 			revoked = append(revoked, srl)
 		}
+		// Drop the node's enrolling user key from the allow-list if nothing else uses it, so a
+		// forgotten machine cannot re-enroll under a FRESH node key on the strength of a still-allowed
+		// key (audit 2026-09-24).
+		if err := l.dropEnrolledBy(nodeID); err != nil {
+			return err
+		}
 		return nil
 	})
 	return revoked, err
@@ -554,6 +577,76 @@ func (l *Local) HasIssued(nodeID string) (bool, error) {
 		return false, err
 	}
 	return len(serials) > 0, nil
+}
+
+// loadEnrolledBy reads the node-id -> enrolling-user-key record. Unlocked; callers hold the lock.
+func (l *Local) loadEnrolledBy() (map[string]string, error) {
+	out := map[string]string{}
+	err := l.readJSON(EnrolledByFile, &out)
+	return out, err
+}
+
+// recordEnrolledBy remembers which user key enrolled a node. Unlocked; callers hold the lock.
+func (l *Local) recordEnrolledBy(nodeID, userKey string) error {
+	m, err := l.loadEnrolledBy()
+	if err != nil {
+		return err
+	}
+	if m[nodeID] == userKey {
+		return nil
+	}
+	m[nodeID] = userKey
+	return l.writeJSON(EnrolledByFile, m)
+}
+
+// dropEnrolledBy removes a node from the enrolled-by record and, if the user key that enrolled it is
+// no longer used by ANY remaining node, drops that key from the allow-list too - durably evicting the
+// device without locking out a key the owner's other machines still share. Unlocked; holds the lock.
+func (l *Local) dropEnrolledBy(nodeID string) error {
+	m, err := l.loadEnrolledBy()
+	if err != nil {
+		return err
+	}
+	key, had := m[nodeID]
+	if !had {
+		return nil
+	}
+	delete(m, nodeID)
+	if err := l.writeJSON(EnrolledByFile, m); err != nil {
+		return err
+	}
+	if key == "" {
+		return nil
+	}
+	for _, k := range m {
+		if k == key {
+			return nil // another node still enrolls under this key: keep it allowed
+		}
+	}
+	return l.disallow(key)
+}
+
+// disallow removes a user key from the allow-list. Unlocked; callers hold the lock.
+func (l *Local) disallow(userKeyHex string) error {
+	got, err := l.readJSON2Allowed()
+	if err != nil {
+		return err
+	}
+	kept := got[:0]
+	for _, k := range got {
+		if k != userKeyHex {
+			kept = append(kept, k)
+		}
+	}
+	return l.writeJSON(AllowFile, kept)
+}
+
+// readJSON2Allowed reads the allow-list unlocked (Allowed() takes no lock today, but reading through
+// one helper keeps the RMW inside dropEnrolledBy consistent).
+func (l *Local) readJSON2Allowed() ([]string, error) {
+	var out []string
+	err := l.readJSON(AllowFile, &out)
+	return out, err
 }
 
 // serialsFor is every serial this authority has issued to a node - the history, plus the latest

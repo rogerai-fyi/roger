@@ -59,7 +59,8 @@ func TestForgettingANodeConsumesItsGrant(t *testing.T) {
 	require.NoError(t, local.GrantClaim("n_gone", "gentle-ibex-14"))
 	require.True(t, local.ClaimGranted("n_gone"))
 
-	require.NoError(t, edgeRevokeOnForget("n_gone"))
+	_, err = edgeRevokeOnForget("n_gone")
+	require.NoError(t, err)
 
 	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	require.NoError(t, err)
@@ -104,7 +105,7 @@ func TestForgetFailsWhenTheAuthorityIsCorrupt(t *testing.T) {
 	// Corrupt the authority's issued-certificate record so OpenLocal cannot read it.
 	require.NoError(t, os.WriteFile(filepath.Join(edgeAuthDir(), edgeauth.AuthorityDir, "issued.json"), []byte("{bad"), 0o600))
 
-	err = edgeRevokeOnForget("n_somebody")
+	_, err = edgeRevokeOnForget("n_somebody")
 	require.Error(t, err, "a forget that could not revoke must report the failure")
 }
 
@@ -154,7 +155,7 @@ func TestForgetSurfacesAnUnreadableIdentity(t *testing.T) {
 
 	// Corrupt this machine's node key so LoadIdentity fails.
 	require.NoError(t, os.WriteFile(filepath.Join(edgeAuthDir(), "node.key"), []byte("not-hex"), 0o600))
-	err := edgeRevokeOnForget("n_whatever")
+	_, err := edgeRevokeOnForget("n_whatever")
 	require.Error(t, err, "a forget must report an unreadable identity, not silently do nothing")
 	require.Contains(t, err.Error(), "could not read this machine's identity",
 		"the error names the actual failure, not some other one")

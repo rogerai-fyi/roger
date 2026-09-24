@@ -249,3 +249,48 @@ func TestEnrollRefusesARevokedNode(t *testing.T) {
 }
 
 func hexEncode(b []byte) string { return hex.EncodeToString(b) }
+
+// Forgetting a machine drops its enrolling user key from the allow-list when NO other node uses it,
+// so it cannot re-enroll under a FRESH node key. A key shared by other machines is kept (audit 2026-09-24).
+func TestForgetEvictsAUniqueKeyButKeepsAShared(t *testing.T) {
+	_, local, _, _, _ := secFixture(t)
+
+	// Two user keys: "solo" enrolls one node; "shared" enrolls two.
+	soloPub, soloPriv, _ := ed25519.GenerateKey(rand.Reader)
+	sharedPub, sharedPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.Allow(hexEncode(soloPub)))
+	require.NoError(t, local.Allow(hexEncode(sharedPub)))
+
+	enroll := func(user ed25519.PrivateKey) string {
+		nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+		req := edgeauth.NewRequest(local.Account(), "m", "host", nodePub, time.Now())
+		req.Sign(user)
+		_, err := local.Issue(req)
+		require.NoError(t, err)
+		return edgeauth.NodeID(nodePub)
+	}
+	solo := enroll(soloPriv)
+	sharedA := enroll(sharedPriv)
+	_ = enroll(sharedPriv) // sharedB keeps the shared key in use
+
+	// Forget the solo node: its unique key is dropped from the allow-list.
+	_, err := local.Forget(solo)
+	require.NoError(t, err)
+	allowed, err := local.Allowed()
+	require.NoError(t, err)
+	require.NotContains(t, allowed, hexEncode(soloPub), "a device's unique key is evicted on forget")
+
+	// A re-enroll under the solo key (fresh node key) is now refused.
+	freshPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	req := edgeauth.NewRequest(local.Account(), "m", "host", freshPub, time.Now())
+	req.Sign(soloPriv)
+	_, err = local.Issue(req)
+	require.Error(t, err, "a forgotten machine cannot re-enroll under a fresh key once its key is evicted")
+
+	// Forget one of the shared-key nodes: the key stays, because sharedB still uses it.
+	_, err = local.Forget(sharedA)
+	require.NoError(t, err)
+	allowed, err = local.Allowed()
+	require.NoError(t, err)
+	require.Contains(t, allowed, hexEncode(sharedPub), "a key other machines still use is kept")
+}

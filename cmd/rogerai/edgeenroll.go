@@ -624,7 +624,7 @@ func edgeAllow(userKey string) error {
 // machine is one and it issued that certificate), and this machine records the serial
 // in its own trust store (so its own verification refuses it immediately, rather than
 // at the next refresh).
-func edgeRevokeOnForget(nodeID string) error {
+func edgeRevokeOnForget(nodeID string) ([]string, error) {
 	st := edgeIdentityStore()
 	now := time.Now()
 	var serials []string
@@ -634,7 +634,7 @@ func edgeRevokeOnForget(nodeID string) error {
 		// The authority is here but could not be opened (a corrupt issued.json / revoked.json). We
 		// must NOT go on to forget the node from the fleet and report success while revoking nothing
 		// - that is the fail-open the audit caught. Stop and report (audit 2026-09-24).
-		return fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
+		return nil, fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
 	}
 	if ok {
 		// Clear any standing claim grant AND revoke every certificate the node was issued in ONE
@@ -643,7 +643,7 @@ func edgeRevokeOnForget(nodeID string) error {
 		// reported as done.
 		revoked, err := local.Forget(nodeID)
 		if err != nil {
-			return fmt.Errorf("could not forget %s from the authority: %w", edgeShortID(nodeID), err)
+			return nil, fmt.Errorf("could not forget %s from the authority: %w", edgeShortID(nodeID), err)
 		}
 		serials = revoked
 	}
@@ -651,24 +651,24 @@ func edgeRevokeOnForget(nodeID string) error {
 	// right here and leaving the Edge means giving it up.
 	held, _, ok, err := st.LoadIdentity()
 	if err != nil {
-		return fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeShortID(nodeID), err)
+		return nil, fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeShortID(nodeID), err)
 	}
 	if ok && held.NodeID == nodeID {
 		if len(serials) == 0 {
 			serials = append(serials, held.Cert.SerialNumber.String())
 		}
 		if err := st.ForgetIdentity(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	// Record every revoked serial in THIS machine's own trust store too, so its verification refuses
 	// them at once rather than at the next refresh.
 	for _, s := range serials {
 		if err := st.Revoke(s, now); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return serials, nil
 }
 
 // edgeTrustNote is the line a fleet view prints when this machine's revocation list has

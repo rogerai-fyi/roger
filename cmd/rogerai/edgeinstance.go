@@ -102,6 +102,11 @@ func (h *edgeHost) registerInstance(cfg config) {
 		}
 	}
 	h.mu.Lock()
+	if h.closing {
+		h.mu.Unlock()
+		_ = reg.Deregister() // the host is quitting; do not leave an orphan registration
+		return
+	}
 	h.reg, h.regNode = reg, id.NodeID
 	h.mu.Unlock()
 }

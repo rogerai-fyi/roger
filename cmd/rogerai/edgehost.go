@@ -55,11 +55,12 @@ type edgeHost struct {
 	st    *edgeState
 	beats chan string
 
-	disc   *edge.Discovery
-	every  time.Duration
-	cancel context.CancelFunc
-	done   chan struct{}
-	once   sync.Once
+	disc    *edge.Discovery
+	every   time.Duration
+	cancel  context.CancelFunc
+	closing bool // set under mu when stop() begins, so a late registerInstance does not orphan a record
+	done    chan struct{}
+	once    sync.Once
 
 	// face is this machine's LAN identity: the TLS describe listener a peer dials to
 	// check who we are. It exists only once this machine has enrolled, because before
@@ -580,6 +581,9 @@ func (h *edgeHost) stop() {
 		if h.cancel == nil {
 			return
 		}
+		h.mu.Lock()
+		h.closing = true
+		h.mu.Unlock()
 		h.cancel()
 		select {
 		case <-h.done:

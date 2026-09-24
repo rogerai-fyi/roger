@@ -51,6 +51,10 @@ const (
 	// revoke them all - not only the most recent (a node re-issued while an old cert is still valid
 	// would otherwise keep that old cert working after forget).
 	IssuedHistoryFile = "issued_history.json"
+	// EnrolledByFile maps a node id to the USER key that enrolled it, so forgetting a node can drop
+	// that key from the allow-list when no other node still uses it - durably evicting a device
+	// without locking out an account key shared by the owner's other machines.
+	EnrolledByFile = "enrolled_by.json"
 	// ClaimsFile is the node ids the owner has ADOPTED and that may therefore claim a
 	// certificate (features/edge/claim.feature). A grant is consumed on a successful claim.
 	ClaimsFile = "claims.json"

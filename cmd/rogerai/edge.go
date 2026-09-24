@@ -1027,7 +1027,7 @@ func cmdEdgeForget(cfg config, args []string) error {
 			}
 		}
 		for id := range ids {
-			if err := edgeRevokeOnForget(id); err != nil {
+			if _, err := edgeRevokeOnForget(id); err != nil {
 				return err
 			}
 		}
@@ -1042,10 +1042,11 @@ func cmdEdgeForget(cfg config, args []string) error {
 			return nil
 		}
 	}
-	// The certificate goes too. A node whose pin is merely cleared could come straight
-	// back; a node whose certificate is revoked is refused by every peer that holds the
-	// list, on a LAN with no internet, and after a restart.
-	if err := edgeRevokeOnForget(n.ID); err != nil {
+	// The certificate goes too - when THIS machine is the authority. A node whose pin is merely
+	// cleared could come straight back; a node whose certificate is revoked is refused by every peer
+	// that holds the list, on a LAN with no internet, and after a restart.
+	revoked, err := edgeRevokeOnForget(n.ID)
+	if err != nil {
 		return err
 	}
 	if err := st.fleet.Forget(n.ID); err != nil {
@@ -1054,7 +1055,13 @@ func cmdEdgeForget(cfg config, args []string) error {
 	if err := st.save(); err != nil {
 		return err
 	}
-	fmt.Printf("forgot %s - it is off this Edge, its certificate is revoked and its pin is cleared.\n", n.Name)
+	if len(revoked) > 0 {
+		fmt.Printf("forgot %s - it is off this Edge, its certificate is revoked and its pin is cleared.\n", n.Name)
+	} else {
+		// This machine did not issue that certificate, so it cannot revoke it - only drop its pin.
+		// Say so plainly rather than claim a revocation that did not happen (audit 2026-09-24).
+		fmt.Printf("forgot %s - it is off this Edge and its pin is cleared; the authority that issued its certificate must revoke it.\n", n.Name)
+	}
 	return nil
 }
 
