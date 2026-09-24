@@ -104,7 +104,12 @@ test("the lab switcher exists only when the URL asks for it", () => {
   const lab = run({ search: "?lab=1" }).appended;
   assert.equal(lab.length, 1);
   const links = lab[0].children.filter((c) => c.tagName === "A");
-  assert.deepEqual(links.map((a) => a.href), ["?motion=a&lab=1", "?motion=b&lab=1", "?motion=c&lab=1"]);
+  assert.deepEqual(links.slice(0, 3).map((a) => a.href), ["?motion=a&lab=1", "?motion=b&lab=1", "?motion=c&lab=1"]);
+  // round 9: the second row compares the instrument (the dial is the default)
+  assert.deepEqual(links.slice(3).map((a) => a.href), ["?motion=b&stage=dial&lab=1", "?motion=b&stage=pinned&lab=1"]);
+  const pinned = run({ search: "?motion=c&stage=pinned&lab=1" }).appended[0].children.filter((c) => c.tagName === "A");
+  assert.equal(pinned[2].href, "?motion=c&stage=pinned&lab=1", "switching motion keeps the stage");
+  assert.ok(pinned[4].attrs["aria-current"], "the pinned stage is marked current");
   const cur = run({ search: "?motion=c" }).appended[0].children.find((c) => c.attrs && c.attrs["aria-current"]);
   assert.match(cur.textContent, /^C/, "the current variant is marked");
 });

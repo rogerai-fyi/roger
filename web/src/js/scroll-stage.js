@@ -33,11 +33,23 @@
     lab.className = "motion-lab";
     lab.setAttribute("aria-label", "Motion variants");
     lab.appendChild(document.createTextNode("motion"));
+    var stageAsked = params.get("stage") === "pinned" ? "pinned" : "dial";
+    var keep = params.has("stage") ? "&stage=" + stageAsked : "";
     VARIANTS.forEach(function (v) {
       var a = document.createElement("a");
-      a.href = "?motion=" + v + "&lab=1";
+      a.href = "?motion=" + v + keep + "&lab=1";
       a.textContent = v.toUpperCase() + (v === DEFAULT ? "*" : "");
       if (v === variant) a.setAttribute("aria-current", "true");
+      lab.appendChild(a);
+    });
+    // round 9: a second row compares the instrument - the dial bar (the
+    // default) or the darkbloom-style pinned stage (stage.js)
+    lab.appendChild(document.createTextNode("stage"));
+    ["dial", "pinned"].forEach(function (st) {
+      var a = document.createElement("a");
+      a.href = "?motion=" + variant + "&stage=" + st + "&lab=1";
+      a.textContent = st + (st === "dial" ? "*" : "");
+      if (st === stageAsked) a.setAttribute("aria-current", "true");
       lab.appendChild(a);
     });
     document.body.appendChild(lab);

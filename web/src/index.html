@@ -267,6 +267,14 @@
   </section>
   </div><!-- /tone-zone -->
 
+  <!-- ?stage=pinned only (stage.js): the pinned instrument stage for the
+       §1-§9 run. Decorative; hidden on the normal page. -->
+  <div class="stage" aria-hidden="true">
+    <p class="stage__title"></p>
+    <div class="stage__scale"><b>§1</b><b>§2</b><b>§3</b><b>§4</b><b>§5</b><b>§6</b><b>§7</b><b>§8</b><b>§9</b></div>
+    <span class="stage__needle"></span>
+  </div>
+
   <aside class="institution-strip" aria-label="RogerAI institutions">
     <div class="wrap institution-strip__grid">
       <a class="institution-strip__item" href="/company.html">
@@ -285,7 +293,7 @@
   </aside>
 
   <!-- INK PANEL: the console + the band. -->
-  <div class="tone-zone" data-tone="ink">
+  <div class="tone-zone" data-tone="ink" data-run>
   <!-- ===================== TERMINAL DEMO (multi-demo player) ===================== -->
   <section class="demo" id="demo">
     <div class="wrap">
@@ -635,7 +643,7 @@
   </section>
 
   <!-- INK PANEL: monetize, privacy, go. -->
-  <div class="tone-zone" data-tone="ink">
+  <div class="tone-zone" data-tone="ink" data-run>
   <!-- ===================== MONETIZE ===================== -->
   <section class="section band" id="monetize">
     <div class="wrap monetize">
@@ -810,6 +818,7 @@
   <!-- include: footer.html anchors="" -->
 
   <script src="js/scroll-stage.js" defer></script>
+  <script src="js/stage.js" defer></script>
   <script src="js/edge-story.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/fmt.js" defer></script><!-- canonical $ renderer; before market.js (meter REPLY) -->
