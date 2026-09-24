@@ -224,6 +224,38 @@ test("the colour budgets are tight: a paid-down debt lowers its budget", () => {
   }
 });
 
+// A var() of a property that nothing defines is invalid at computed-value time: the
+// declaration silently falls back to the property's initial value. Each of these is a live
+// bug on its page today; defining the token would change how the page looks, so each is a
+// decision for that page's rollout, not for this guard.
+const UNDEFINED_TOKENS = {
+  "--t-lg": "account-base.css #code-input font-size",
+  "--hover-bg": "base.css nav panel hover, research.css",
+  "--s-7": "research.css, tower.css spacing (the scale has no 7)",
+  "--t-base": "home.css privacy card heading size",
+  "--kept": "research.css bar, never set",
+  "--fill": "research.css bar, never set",
+};
+
+test("every var() names a defined property or carries its own fallback", () => {
+  const sources = [
+    ...SHEETS.map((f) => stripCss(read(`styles/${f}`))),
+    ...readdirSync(path.join(SRC, "js")).map((f) => read(`js/${f}`)),
+    ...PAGES.map(read),
+  ].join("\n");
+  const defined = new Set([...sources.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
+  for (const m of sources.matchAll(/setProperty\(\s*["'](--[\w-]+)["']/g)) defined.add(m[1]);
+  for (const sheet of SHEETS) {
+    for (const m of stripCss(read(`styles/${sheet}`)).matchAll(/var\((--[\w-]+)\)/g)) {
+      if (defined.has(m[1]) || UNDEFINED_TOKENS[m[1]]) continue;
+      assert.fail(`${sheet}: var(${m[1]}) is defined nowhere and has no fallback`);
+    }
+  }
+  for (const name of Object.keys(UNDEFINED_TOKENS)) {
+    assert.ok(!defined.has(name), `${name} is defined now: drop it from UNDEFINED_TOKENS`);
+  }
+});
+
 /* ---- behaviour: one implementation per shared behaviour --------------------------- */
 
 // The copy tick lives in site.js (every .install__box, and [data-copy-target]). These

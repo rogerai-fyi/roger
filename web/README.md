@@ -83,15 +83,17 @@ with `ROGERAI_VERSION=vX.Y.Z` or the dir with `ROGERAI_INSTALL_DIR=…`.
 
 ```
 web/
-├─ index.html          the page
-├─ install.sh          POSIX installer (the hero curl target)
-├─ styles/
-│  ├─ tokens.css        design tokens (source of truth)
-│  └─ site.css          layout & components
-├─ js/
-│  ├─ radiomap.js       Canvas2D blip-map background
-│  ├─ terminal.js       hand-built TUI replay
-│  └─ site.js           nav, reveals, copy-on-click, OS hint
+├─ build.mjs           the build: partial includes, per-page CSS bundles, cache-busting
+├─ src/
+│  ├─ *.html           the pages
+│  ├─ _partials/       shared HTML: head, nav, footer, site-js (the page runtime), ...
+│  ├─ styles/          tokens.css -> base.css -> components.css -> each page's own sheet
+│  └─ js/              site.js (the runtime) + self-initializing component modules
+├─ test/               node --test suites (npm test), incl. the design-system guards
+├─ DESIGN-SYSTEM.md    layers, tokens, components and their markup contracts
 ├─ TECH.md             tech choices + how to deploy
 └─ README.md           this file
 ```
+
+How the look is built (and how to add a page or change the theme):
+**[`DESIGN-SYSTEM.md`](DESIGN-SYSTEM.md)**.
