@@ -231,9 +231,10 @@ test("tower: the signal path and the patch are one ink panel; the tape is a roun
   assert.doesNotMatch(css, /2px solid var\(--ink-900\)/, "no 2px ink rules");
   assert.doesNotMatch(css, /var\(--s-7\)/, "no spacing token that does not exist");
   assert.doesNotMatch(css, /\.signal__note\s*\{[^}]*--ink-300/, "no text in decoration ink");
-  for (const sel of [".tape__id", ".tape__hash", ".tower__head"]) {
-    const rule = css.match(new RegExp(`${sel.replace(".", "\\.")}\\s*\\{([^}]*)\\}`))?.[1] || "";
-    assert.doesNotMatch(rule, /--ink-400/, `${sel} is read on paper: AA ink`);
+  for (const sel of [".tape__id", ".tape__hash", ".tower__head", ".run__k", ".tape li[data-void] .tape__tok"]) {
+    const rule = css.match(new RegExp(`${sel.replace(/[.[\]]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] || "";
+    assert.ok(rule, `${sel} is styled`);
+    assert.doesNotMatch(rule, /--ink-(400|300)/, `${sel} is read on paper: AA ink`);
   }
 });
 
@@ -284,4 +285,9 @@ test("integrations: panels, not 2px rules; AA inks on paper", () => {
   }
   const html = src("integrations.html");
   assert.equal((html.match(/<div class="research-actions research-actions--lead">/g) || []).length, 2);
+});
+
+test("contrast: the pricing cost chips and the dial's meter keys are AA at rest", () => {
+  assert.match(stripCss(src("styles/pricing.css")), /\.paths__cost\s*\{[^}]*background:\s*var\(--paper\)/, "the red chip sits on paper, not the tinted panel");
+  assert.doesNotMatch(stripCss(src("styles/models.css")), /\.dial__chip \.meter__k\s*\{[^}]*--ink-400/);
 });

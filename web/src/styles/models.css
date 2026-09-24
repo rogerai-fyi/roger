@@ -98,7 +98,7 @@
   font-variant-numeric: tabular-nums slashed-zero;
 }
 .dial__chip b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.dial__chip .meter__k { margin-right: 4px; color: var(--ink-400); }
+.dial__chip .meter__k { margin-right: 4px; color: var(--ink-500); }
 .dial__ver { color: var(--ink-900); font-weight: var(--weight-semi); margin-left: 2px; }
 .dial__tee { margin-left: 2px; }
 .dial__cue { font-size: 0.68rem; color: var(--ink-400); letter-spacing: 0; }

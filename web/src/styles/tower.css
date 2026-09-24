@@ -88,7 +88,7 @@ section[id] { scroll-margin-top: 72px; }
 /* The counter-signature is the differentiator, so it is the one red mark on the tape. */
 .tape__sig--broker { color: var(--live); }
 /* A void request still gets a line - the chain having no gaps is the point. */
-.tape li[data-void] .tape__tok { color: var(--ink-400); }
+.tape li[data-void] .tape__tok { color: var(--ink-500); }
 
 .tower__patch figcaption, .tower__tape figcaption {
   padding: var(--s-4) var(--s-5); border-top: 1px solid var(--hairline);
@@ -203,7 +203,7 @@ section[id] { scroll-margin-top: 72px; }
   font-size: var(--t-sm);
   letter-spacing: .04em;
   text-transform: uppercase;
-  color: var(--ink-300);
+  color: var(--ink-500);
 }
 .run__v { flex: 1 1 20ch; font-size: var(--t-sm); color: var(--ink-500); }
 .run__v a { color: var(--ink-900); text-decoration: underline; text-underline-offset: 3px; }
