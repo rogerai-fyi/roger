@@ -110,10 +110,12 @@ Inset from the page edge (64px outside the text column, never closer than
 `--panel-inset`), radius `--panel-r`, still (nothing animates on the panel itself).
 Everything inside re-themes via the scoped tokens.
 
-### Tinted panel (pattern, not yet a class)
-`background: var(--paper-2); border-radius: var(--panel-r);` and no border. Today it is
-written per component (the tuner band, homepage cards). Promote it to a `.panel` class the
-first time a second page needs it.
+### Tinted panel
+`<div class="tint-panel">`: the tinted paper (`--paper-2`), the panel radius, no border, no
+shadow, a fluid inner padding. The quiet way to group a block (a cover plate, a card, a
+contents band). Inside an ink panel it takes that panel's tinted ground. (`.panel` is a
+different, older thing: the account plate's hairline-divided section in `account-base.css`.)
+The homepage still writes the same surface per component (the tuner band, its cards).
 
 ### TOC tuner
 ```html

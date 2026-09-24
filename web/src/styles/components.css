@@ -416,3 +416,16 @@
 @media (max-width: 380px) {
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---- component: tinted panel (added by rest rollout) ---------------------
+   <div class="tint-panel"> ... </div>
+   The homepage's quiet grouping surface (its cards, the tuner band) as a class:
+   the tinted paper, the panel radius, no border, no shadow. Space separates the
+   content inside it, not rules. Inside an ink panel it takes the ink panel's
+   own tinted ground. Still: nothing on it animates. */
+.tint-panel {
+  background: var(--paper-2);
+  border-radius: var(--panel-r);
+  padding: clamp(20px, 3vw, 36px);
+  min-width: 0;
+}
