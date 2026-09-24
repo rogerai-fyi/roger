@@ -82,7 +82,7 @@
 .kf__opt:hover { border-color: var(--ink-500); color: var(--ink-900); }
 .kf__opt.is-active {
   border-color: var(--live);
-  color: var(--live);
+  color: var(--live-text);
   box-shadow: 0 0 0 1px var(--live) inset;
 }
 .kf__opt:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
@@ -164,7 +164,7 @@
 .kf__err {
   margin: var(--s-3) 0 0;
   font-size: var(--t-sm);
-  color: var(--live);
+  color: var(--live-text);
 }
 
 /* ---- the one-time secret reveal: a framed receipt with a red rule. ---- */
@@ -183,7 +183,7 @@
   font-size: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--live);
+  color: var(--live-text);
   margin-right: var(--s-2);
 }
 .kf__reveal-msg { font-size: var(--t-sm); color: var(--ink-700); font-weight: var(--weight-medium); }
@@ -244,7 +244,7 @@
   color: var(--ink-500);
 }
 .kf__status--active { color: var(--ink-900); }
-.kf__status--revoked { color: var(--live); }
+.kf__status--revoked { color: var(--live-text); }
 .kf__status--expired { color: var(--ink-400); }
 
 .kf__act { white-space: nowrap; text-align: right; }
@@ -263,7 +263,7 @@
               border-color var(--d-1) var(--ease-standard);
 }
 .kf__rowbtn:hover { color: var(--ink-900); border-color: var(--ink-500); }
-.kf__rowbtn--danger:hover { color: var(--live); border-color: var(--live); }
+.kf__rowbtn--danger:hover { color: var(--live-text); border-color: var(--live); }
 .kf__rowbtn:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 .kf__guard { margin-top: var(--s-5); }

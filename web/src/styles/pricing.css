@@ -23,7 +23,7 @@ section[id] { scroll-margin-top: 72px; }
 .paths p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
 .paths__cost {
   align-self: flex-start; font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: .08em; text-transform: uppercase; color: var(--live);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--live-text);
   border: 1px solid var(--live); border-radius: var(--r-pill); padding: 3px 9px;
   background: var(--paper);
 }
@@ -47,7 +47,7 @@ section[id] { scroll-margin-top: 72px; }
 .pplate dd b { color: var(--ink-900); }
 /* a link in a plate row gets the site's in-prose treatment (base.css covers p and li only) */
 .pplate dd > a:not([class]) { border-bottom: 1px solid color-mix(in srgb, var(--live) 55%, transparent); }
-.pplate dd > a:not([class]):is(:hover, :focus-visible) { color: var(--live); border-bottom-color: var(--live); }
+.pplate dd > a:not([class]):is(:hover, :focus-visible) { color: var(--live-text); border-bottom-color: var(--live); }
 .pplate .copy-code { background: var(--paper); }
 .pplate .copy-code::after { background: var(--paper); box-shadow: 2px -2px 0 -1px var(--paper), 2px -2px 0 0 var(--ink-500); }
 
@@ -74,7 +74,7 @@ section[id] { scroll-margin-top: 72px; }
 .lifecycle b { display: block; text-align: center; font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-900); }
 .lifecycle span { display: block; margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .lifecycle li.is-tuned::before { width: 2px; margin-left: -.5px; background: var(--live); }
-.lifecycle li.is-tuned b { color: var(--live); }
+.lifecycle li.is-tuned b { color: var(--live-text); }
 
 /* the free list: things that never reach a wallet. Two columns, hairlines on top. */
 .freelist {

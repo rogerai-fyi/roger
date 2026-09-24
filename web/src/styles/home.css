@@ -69,7 +69,7 @@
   letter-spacing: .06em;
 }
 .hero__proof b { color: var(--ink-900); }
-.hero__proof:hover, .hero__proof:focus-visible { color: var(--live); }
+.hero__proof:hover, .hero__proof:focus-visible { color: var(--live-text); }
 
 /* The hero shares the page's content box (the nav's, every section's) on
    both sides, at every width. .hero__head (eyebrow + headline) spans it;
@@ -250,7 +250,7 @@
 }
 @keyframes spec-wave {
   0%   { transform: scaleX(0.08); color: var(--ink-300); }
-  65%  { transform: none; color: var(--live); }
+  65%  { transform: none; color: var(--live-text); }
   100% { transform: none; color: var(--ink-500); }
 }
 @keyframes plate-tick {
@@ -317,7 +317,7 @@
 }
 /* the label answers the pointer too: it is the door's name */
 .institution-strip__label { transition: color var(--d-2); }
-.institution-strip__item:hover .institution-strip__label { color: var(--live); }
+.institution-strip__item:hover .institution-strip__label { color: var(--live-text); }
 .institution-strip__label {
   font-family: var(--font-mono);
   font-size: var(--t-xs);
@@ -485,7 +485,7 @@
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
   text-transform: uppercase; color: var(--ink-300); line-height: 1.4;
 }
-.pingdeck[data-ping-state="transmit"] .pingdeck__deckline { color: var(--live); }
+.pingdeck[data-ping-state="transmit"] .pingdeck__deckline { color: var(--live-text); }
 
 /* the chat log */
 .pingdeck__log {
@@ -495,7 +495,7 @@
 .pingdeck__line { display: flex; flex-direction: column; gap: 2px; }
 .pingdeck__line--you { align-items: flex-end; }
 .pingdeck__who { font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400); }
-.pingdeck__line--you .pingdeck__who { color: var(--live); }
+.pingdeck__line--you .pingdeck__who { color: var(--live-text); }
 .pingdeck__msg {
   font-size: var(--t-sm); line-height: 1.45; color: var(--ink-700);
   max-width: 90%; padding: 7px 10px; border-radius: var(--r-md);
@@ -517,7 +517,7 @@
   background: var(--white); color: var(--ink-900); display: inline-flex; align-items: center; justify-content: center;
   transition: border-color var(--d-2), color var(--d-2);
 }
-.pingdeck__send:hover:not(:disabled) { border-color: var(--live); color: var(--live); }
+.pingdeck__send:hover:not(:disabled) { border-color: var(--live); color: var(--live-text); }
 .pingdeck__send:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .pingdeck__send:disabled { opacity: .5; cursor: default; }
 
@@ -633,7 +633,7 @@
    background: var(--white); cursor: pointer;
    transition: color var(--d-2), border-color var(--d-2);
  }
- .term__btn:hover { color: var(--live); border-color: var(--live); }
+ .term__btn:hover { color: var(--live-text); border-color: var(--live); }
  .term__btn:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
  .term__btn--replay { font-size: 14px; }
 
@@ -644,7 +644,7 @@
     border-color: var(--hairline);
 }
 :root[data-theme="dark"] .term__btn:hover {
-    color: var(--live);
+    color: var(--live-text);
     border-color: var(--live);
     background: var(--paper-2);
 }
@@ -668,14 +668,14 @@
 
 /* terminal token colors (quiet mono, one red glint) */
 .t-dim   { color: var(--ink-400); }
-.t-prompt{ color: var(--live); font-weight: var(--weight-semi); }
+.t-prompt{ color: var(--live-text); font-weight: var(--weight-semi); }
 .t-ok    { color: var(--ink-900); font-weight: var(--weight-semi); }
-.t-live  { color: var(--live); }
+.t-live  { color: var(--live-text); }
 .t-money { color: var(--ink-900); }
 .t-gold  { color: var(--ink-900); }
 .t-head  { color: var(--ink-900); font-weight: var(--weight-semi); }
 .t-sel   { background: var(--live-tint); color: var(--ink-900); }
-.t-cursor{ background: var(--live); color: var(--live); animation: blink 1s steps(1) infinite; }
+.t-cursor{ background: var(--live); color: var(--live-text); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .t-cursor { animation: none; } }
 
@@ -782,7 +782,7 @@ main .tone-zone .cta { border-top: 0; }
 .company__label {
   display: block;
   margin-bottom: var(--s-3);
-  color: var(--live);
+  color: var(--live-text);
   font-family: var(--font-mono);
   font-size: var(--t-micro);
   font-weight: var(--weight-semi);
@@ -814,7 +814,7 @@ main .tone-zone .cta { border-top: 0; }
 .company__card code { overflow-wrap: anywhere; }
 /* inline "details ->" link inside card prose (the licence pointer on the Labs card) */
 .company__card > p a { color: var(--ink-700); border-bottom: 1px solid var(--hairline); }
-.company__card > p a:hover { color: var(--live); border-bottom-color: var(--live); }
+.company__card > p a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 .company__links {
   display: flex;
   flex-wrap: wrap;
@@ -830,7 +830,7 @@ main .tone-zone .cta { border-top: 0; }
   font-size: var(--t-xs);
   border-bottom: 1px solid var(--hairline-2);
 }
-.company__links a:hover { color: var(--live); border-bottom-color: var(--live); }
+.company__links a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 .company__links .company__primary {
   color: var(--paper);
   border: 1px solid var(--ink-900);
@@ -892,7 +892,7 @@ main .tone-zone .cta { border-top: 0; }
   font-family: var(--font-mono); font-size: var(--t-micro);
   color: var(--ink-900); white-space: nowrap;
 }
-.home-spectrum__foot a:hover { color: var(--live); }
+.home-spectrum__foot a:hover { color: var(--live-text); }
 @media (max-width: 1080px) {
   .home-spectrum { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .home-spectrum li { border-bottom: 1px solid var(--hairline); }
@@ -941,7 +941,7 @@ main .tone-zone .cta { border-top: 0; }
 }
 .checks { list-style: none; margin: var(--s-6) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
 .checks li { display: flex; gap: 10px; align-items: flex-start; font-size: var(--t-sm); color: var(--ink-700); }
-.tick { color: var(--live); flex-shrink: 0; font-weight: var(--weight-bold); }
+.tick { color: var(--live-text); flex-shrink: 0; font-weight: var(--weight-bold); }
 
 .earn {
   background: var(--paper); border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
@@ -1053,7 +1053,7 @@ main .tone-zone .cta { border-top: 0; }
 .market__status { display: inline-flex; align-items: center; gap: 9px;
   font-size: var(--t-sm); color: var(--ink-500); font-weight: var(--weight-medium); }
 .market__status .onair { color: var(--ink-300); font-size: var(--t-sm); transition: color var(--d-3); }
-.market__status.is-live .onair { color: var(--live); }
+.market__status.is-live .onair { color: var(--live-text); }
 .market__status.is-stale .onair { color: var(--ink-400); }
 .market__status.is-stale { color: var(--ink-500); }
 .market__status.is-demo .onair { color: var(--ink-400); }
@@ -1105,7 +1105,7 @@ main .tone-zone .cta { border-top: 0; }
 html.js .mkt-quiet--nojs { display: none; }
 .mkt-quiet code { color: var(--ink-900); }
 .mkt-quiet a { color: var(--ink-700); border-bottom: 1px solid transparent; }
-.mkt-quiet a:hover { color: var(--live); border-bottom-color: var(--live); }
+.mkt-quiet a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 .mkt-cell { min-width: 0; }
 .mkt-cell--speed, .mkt-cell--quality, .mkt-cell--price { text-align: right; }
@@ -1115,7 +1115,7 @@ html.js .mkt-quiet--nojs { display: none; }
 /* station cell: ● dot, model name, ◆, provider count */
 .mkt-cell--model { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
 .mkt-dot { font-size: 10px; line-height: 1; }
-.mkt-dot--on { color: var(--live); }
+.mkt-dot--on { color: var(--live-text); }
 .mkt-dot--off { color: var(--ink-300); }
 .mkt-model { font-weight: var(--weight-semi); color: var(--ink-900); letter-spacing: -.01em;
   font-family: var(--font-mono); font-size: .9375rem; overflow: hidden; text-overflow: ellipsis;
@@ -1123,13 +1123,13 @@ html.js .mkt-quiet--nojs { display: none; }
      dot alone on a line above it */
   max-width: calc(100% - 2.5em); overflow-wrap: anywhere; }
 .mkt-model .cs { color: var(--gold); }
-.mkt-prov { flex-basis: 100%; font-size: var(--t-xs); color: var(--live); font-weight: var(--weight-medium); }
+.mkt-prov { flex-basis: 100%; font-size: var(--t-xs); color: var(--live-text); font-weight: var(--weight-medium); }
 .mkt-prov--idle { color: var(--ink-400); }
 
 /* signal tower bars ▁▂▃▄▅▆▇█ */
 .sig { font-family: var(--font-mono); letter-spacing: 1px; white-space: nowrap; line-height: 1; }
 .sigbar { display: inline-block; }
-.sigbar--on  { color: var(--live); }
+.sigbar--on  { color: var(--live-text); }
 .sigbar--off { color: var(--ink-300); opacity: .55; }
 .sigbar--head { will-change: opacity; }
 
@@ -1177,7 +1177,7 @@ html.js .mkt-quiet--nojs { display: none; }
 /* the small homepage entry into /models (single, non-disruptive link) */
 .market__tune { margin-top: var(--s-3); font-size: var(--t-xs); }
 .market__tune a { color: var(--ink-500); border-bottom: 1px solid transparent; }
-.market__tune a:hover { color: var(--live); border-bottom-color: var(--live); }
+.market__tune a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 /* =====================================================================
    FIG.2 (homepage) - the ROGER EDGE STORY REEL. Two brand films playing
@@ -1201,7 +1201,7 @@ html.js .mkt-quiet--nojs { display: none; }
   color: var(--ink-500); letter-spacing: -.01em; line-height: 1.4;
 }
 .reel__bridge a { color: var(--ink-700); border-bottom: 1px solid var(--hairline-2); }
-.reel__bridge a:hover { color: var(--live); border-bottom-color: var(--live); }
+.reel__bridge a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 /* EXPERIMENT: the screen breaks out to the full content width (spine to
    viewport edge). A plain sibling of .wrap - not a 100vw/-50vw bleed, which
@@ -1363,7 +1363,7 @@ html.js .mkt-quiet--nojs { display: none; }
 .reel__mute .reel__icon--sound { display: none; }
 .reel__mute.is-unmuted .reel__icon--muted { display: none; }
 .reel__mute.is-unmuted .reel__icon--sound { display: block; }
-.reel__mute.is-unmuted { color: var(--live); border-color: var(--live); }
+.reel__mute.is-unmuted { color: var(--live-text); border-color: var(--live); }
 
 /* (the market chips - .price-tier, .band-tag and its modifiers - are the shared
    directory component, components.css) */
@@ -1486,7 +1486,7 @@ html.js .mkt-quiet--nojs { display: none; }
   line-height: 1.5; letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 .shelf__no b { color: var(--ink-400); font-weight: var(--weight-medium); }
-.shelf__no em { display: block; margin-top: 3px; font-style: normal; color: var(--live); }
+.shelf__no em { display: block; margin-top: 3px; font-style: normal; color: var(--live-text); }
 
 .shelf__colophon {
   display: flex; align-items: center; gap: var(--s-5);
@@ -1547,7 +1547,7 @@ html.js .mkt-quiet--nojs { display: none; }
    a quiet ground, its wave in the live red; the other tiers never fade */
 .home-spectrum li { transition: background-color var(--d-2); }
 .home-spectrum li.is-tuned { background: var(--paper-2); }
-.home-spectrum li.is-tuned i { color: var(--live) !important; }   /* over the tune-in animation's fill */
+.home-spectrum li.is-tuned i { color: var(--live-text) !important; }   /* over the tune-in animation's fill */
 .home-spectrum li.is-tuned b { color: var(--ink-900); }
 
 /* ---- hardware-button feedback (round 10): the homepage's own pressables

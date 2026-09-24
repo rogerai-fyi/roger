@@ -47,7 +47,7 @@
 .lost__home:hover { box-shadow: var(--e-3); border-color: var(--volt); transform: translateY(-1px); }
 .lost__home:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .lost__home:active { transform: translateY(1px); box-shadow: none; }
-.lost__home .onair { color: var(--live); font-size: var(--t-sm); }
+.lost__home .onair { color: var(--live-text); font-size: var(--t-sm); }
 .lost__alt { color: var(--volt); font-weight: var(--weight-medium); font-size: var(--t-sm); }
 .lost__alt:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { .lost__home:hover, .lost__home:active { transform: none; } }

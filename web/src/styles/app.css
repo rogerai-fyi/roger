@@ -61,7 +61,7 @@
 /* the rubber-stamp certification, cocked over the composition's top corner */
 .app-stamp {
   position: absolute; right: 2%; top: -10px; z-index: 2;
-  color: var(--live); transform: rotate(-5deg); opacity: .9;
+  color: var(--live-text); transform: rotate(-5deg); opacity: .9;
   font-family: var(--font-mono); font-size: 11px; font-weight: var(--weight-semi);
   letter-spacing: .12em;
 }
@@ -125,7 +125,7 @@
 .app-feature__copy p { margin: var(--s-4) 0 0; max-width: 46ch; color: var(--ink-500); line-height: var(--lh-body); }
 .app-feature__copy p b { color: var(--ink-900); font-weight: var(--weight-semi); }
 .app-feature__copy a { color: var(--ink-700); border-bottom: 1px solid var(--hairline); }
-.app-feature__copy a:hover { color: var(--live); border-bottom-color: var(--live); }
+.app-feature__copy a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 .app-feature__list { list-style: none; margin: var(--s-5) 0 0; padding: 0;
   display: flex; flex-direction: column; gap: var(--s-2);

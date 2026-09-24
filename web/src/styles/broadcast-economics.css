@@ -46,7 +46,7 @@
   flex-wrap: wrap; gap: var(--s-3);
   font-size: var(--t-sm); color: var(--ink-900);
 }
-.ec-formula__lhs { color: var(--live); font-weight: var(--weight-semi); }
+.ec-formula__lhs { color: var(--live-text); font-weight: var(--weight-semi); }
 .ec-formula__op { color: var(--ink-500); }
 .ec-formula__frac { display: inline-flex; flex-direction: column; text-align: center; }
 .ec-formula__num { padding-bottom: 5px; }
@@ -86,7 +86,7 @@
 /* a continued row: same card, the other duty cycle. The label is dimmed so the eye
    reads the pair as one machine rather than two. */
 .ec-table .ec-cont { color: var(--ink-500); }
-.ec-win  { color: var(--live); font-weight: var(--weight-semi); }
+.ec-win  { color: var(--live-text); font-weight: var(--weight-semi); }
 /* not "crossed out" - a figure that does not clear its own cost. Muted, not struck. */
 .ec-lose { color: var(--ink-500); }
 .ec-lose::after { content: " \2717"; font-size: .85em; }
@@ -136,7 +136,7 @@
 }
 .ec-levers li::before {
   content: "\2192"; position: absolute; left: 0; top: 0;
-  color: var(--live); font-family: var(--font-mono);
+  color: var(--live-text); font-family: var(--font-mono);
 }
 .ec-levers li:last-child { padding-bottom: 0; }
 .ec-levers b { color: var(--ink-900); }

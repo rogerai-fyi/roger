@@ -52,7 +52,7 @@
 .cn-st { width: 1.4em; text-align: center; padding-left: var(--s-2); padding-right: var(--s-2); }
 .cn-dot { font-size: 0.7em; line-height: 1; }
 .cn-dot--ok   { color: var(--ink-500); }
-.cn-dot--fail { color: var(--live); }
+.cn-dot--fail { color: var(--live-text); }
 
 /* model + node callsign: mono, the model in primary ink. */
 .cn-model {
@@ -137,7 +137,7 @@
   font-size: var(--t-micro);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--live);
+  color: var(--live-text);
   border: 1px solid var(--live);
   border-radius: var(--r-sm);
   padding: 1px 6px;
@@ -223,7 +223,7 @@
   color: var(--ink-500);
   cursor: pointer;
 }
-.md-add:hover { color: var(--live); border-color: var(--live); }
+.md-add:hover { color: var(--live-text); border-color: var(--live); }
 .md-x {
   background: none;
   border: 0;
@@ -233,7 +233,7 @@
   cursor: pointer;
   padding: 0 var(--s-1);
 }
-.md-x:hover { color: var(--live); }
+.md-x:hover { color: var(--live-text); }
 
 /* footer: save (compact, not full-width) + clear + a quiet saved/err state. */
 .md-foot {
@@ -251,7 +251,7 @@
   color: var(--ink-500);
 }
 .md-state--ok  { color: var(--ink-700); }
-.md-state--err { color: var(--live); }
+.md-state--err { color: var(--live-text); }
 
 @media (max-width: 560px) {
   .md-time { width: 6.5em; }

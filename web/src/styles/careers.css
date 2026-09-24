@@ -58,7 +58,7 @@
   color: var(--ink-900);
   border-bottom: 1px solid var(--live);
 }
-.role__apply a:hover, .role__apply a:focus-visible { color: var(--live); }
+.role__apply a:hover, .role__apply a:focus-visible { color: var(--live-text); }
 
 @media (max-width: 820px) {
   .role-list { grid-template-columns: 1fr; }

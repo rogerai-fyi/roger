@@ -40,7 +40,7 @@
   color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
   text-transform: uppercase; letter-spacing: .08em;
 }
-.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live); }
+.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live-text); }
 .research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
 .research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
 
@@ -76,7 +76,7 @@
 }
 .install__box:hover { border-color: var(--live); }
 .install__box:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
-.install__prompt { color: var(--live); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
+.install__prompt { color: var(--live-text); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
 .install__code {
   flex: 1 1 auto;
   font-family: var(--font-mono);
@@ -88,12 +88,12 @@
   color: var(--ink-400);
   transition: color var(--d-2);
 }
-.install__box:hover .install__copy { color: var(--live); }
-.install__box.is-copied .install__copy { color: var(--live); }
+.install__box:hover .install__copy { color: var(--live-text); }
+.install__box.is-copied .install__copy { color: var(--live-text); }
 .install__meta { display: flex; gap: var(--s-4); align-items: center; flex-wrap: wrap; justify-content: flex-start;
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); }
 .install__alt { color: var(--ink-500); font-weight: var(--weight-medium); }
-.install__alt:hover { color: var(--live); }
+.install__alt:hover { color: var(--live-text); }
 
 /* the PowerShell one-liner moves to its own line whole, never split mid-URL */
 [data-alt-note] .inline { display: inline-block; white-space: nowrap; }
@@ -358,7 +358,7 @@
 .install__copy { position: relative; }
 .install__box.is-copied .install__copy svg { opacity: 0; }
 .install__box.is-copied .install__copy:has(svg)::after {
-  content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); color: var(--live);
+  content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); color: var(--live-text);
 }
 @media (prefers-reduced-motion: reduce) {
   :is(.install__box, .research-button, .toc-tuner a):active { transform: none; }
@@ -434,7 +434,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .spectrum .wave-bar { margin-bottom: var(--s-3); }
 .spectrum b { display: block; color: var(--ink-900); font-weight: var(--weight-semi); }
 .spectrum li.is-tuned { background: var(--paper-2); }
-.spectrum li.is-tuned .wave-bar { color: var(--live); }
+.spectrum li.is-tuned .wave-bar { color: var(--live-text); }
 @media (max-width: 1080px) {
   .spectrum { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--s-2); }
   .scrub:has(+ .spectrum) { display: none; }
@@ -501,7 +501,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .page-index > ol:has(> li:nth-child(6)) { columns: 2 20rem; column-gap: var(--s-10); display: block; }
 .page-index > ol > li { break-inside: avoid; padding-block: 3px; }
 .page-index a { color: var(--ink-700); text-decoration: none; }
-.page-index a:hover { color: var(--live); }
+.page-index a:hover { color: var(--live-text); }
 .page-index a:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: 2px; }
 .page-index__group { break-inside: avoid; margin-bottom: var(--s-6); }
 .page-index:has(.page-index__group) { columns: 2 20rem; column-gap: var(--s-10); }
@@ -511,7 +511,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   text-transform: uppercase;
 }
 .page-index a.page-index__head { color: var(--ink-500); }
-.page-index a.page-index__head:hover { color: var(--live); }
+.page-index a.page-index__head:hover { color: var(--live-text); }
 
 /* ---- component: lead action row + quiet button (added by models rollout) --
    <div class="research-actions research-actions--lead">: ONE primary button,
@@ -557,7 +557,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .copy-code:active { transform: translateY(1px); }
 .copy-code.is-copied::after {
   content: "\2713"; width: auto; height: auto; margin: 0; border: 0; box-shadow: none; background: none;
-  font: 600 .8em / 1 var(--font-mono); color: var(--live);
+  font: 600 .8em / 1 var(--font-mono); color: var(--live-text);
 }
 /* --block: a command on a line of its own (an install line in a register). It fills
    its column and wraps at spaces; a long unbroken token may break rather than overflow. */
@@ -690,16 +690,16 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
    long line never slides under the button */
 .code-block:has(.code-block__copy) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
 .code-block__comment { color: var(--ink-500); }
-.code-block__prompt { color: var(--live); user-select: none; }
+.code-block__prompt { color: var(--live-text); user-select: none; }
 .code-block__copy {
   position: relative; margin: 6px 6px 0 0; display: grid; place-items: center;
   width: 36px; height: 36px; border-radius: var(--r-xl);
   background: var(--paper-2); color: var(--ink-500); transition: color var(--d-2);
 }
-.code-block__copy:hover, .code-block__copy:focus-visible { color: var(--live); }
+.code-block__copy:hover, .code-block__copy:focus-visible { color: var(--live-text); }
 .code-block__copy:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .code-block__copy:active { transform: translateY(1px); }
-.code-block__copy.is-copied { color: var(--live); }
+.code-block__copy.is-copied { color: var(--live-text); }
 .code-block__copy.is-copied svg { opacity: 0; }
 .code-block__copy.is-copied::after { content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); }
 @media (prefers-reduced-motion: reduce) { .code-block__copy:active { transform: none; } }
@@ -781,11 +781,11 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
 
 .band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
   white-space: nowrap; padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
-.band-tag--free { color: var(--live); border-color: var(--live); }
+.band-tag--free { color: var(--live-text); border-color: var(--live); }
 /* neutral $-tier read of a band's price vs the going rate for its model (FREE/unknown
    render nothing). Only the cheapest tier is editorialized, via .band-tag--deal. */
 .price-tier { font-family: var(--font-mono); font-weight: 600; color: var(--ink-500); margin-left: 4px; }
-.band-tag--deal { color: var(--live); border-color: var(--live); }
+.band-tag--deal { color: var(--live-text); border-color: var(--live); }
 /* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
 .band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
 .band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }

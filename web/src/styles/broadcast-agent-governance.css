@@ -102,7 +102,7 @@
 .gov-sources { margin-top: var(--s-8); padding-top: var(--s-6); border-top: 1px solid var(--hairline); }
 .gov-sources ol { margin: var(--s-3) 0 0; padding-left: 1.2em; color: var(--ink-500); font-size: var(--t-xs); line-height: 1.8; }
 .gov-sources a { color: var(--ink-500); }
-.gov-sources a:hover, .gov-sources a:focus-visible { color: var(--live); }
+.gov-sources a:hover, .gov-sources a:focus-visible { color: var(--live-text); }
 
 /* ---- the governed side as an ink panel (it was a pink tint): ink and paper swapped,
    red stays an indicator; AA both ways (paper on ink-900, ink-300 labels). ---- */

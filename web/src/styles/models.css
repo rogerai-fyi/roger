@@ -35,7 +35,7 @@
 .dial__locked b { color: var(--ink-900); font-weight: var(--weight-semi); }
 .dial__sig { font-family: var(--font-mono); font-size: 0.74rem; color: var(--ink-500);
   font-variant-numeric: tabular-nums slashed-zero; white-space: nowrap; }
-.dial__sig b { color: var(--live); font-weight: var(--weight-semi); }
+.dial__sig b { color: var(--live-text); font-weight: var(--weight-semi); }
 
 /* the face: the scrolling spectrum + fixed needle + glass + signal meter */
 .dial__face { position: relative; background: var(--paper-2); }
@@ -49,7 +49,7 @@
 .dial__grad { opacity: .8; }
 .dial__tick { transition: stroke .25s ease; }
 .dial__lbl { opacity: .5; transition: opacity .25s ease, fill .2s ease; }
-.dial__lbl--on { opacity: 1; fill: var(--live); font-weight: var(--weight-semi); }
+.dial__lbl--on { opacity: 1; fill: var(--live-text); font-weight: var(--weight-semi); }
 .dial__pip { transition: fill .25s ease; }
 
 /* fixed red needle, dead center, with a soft lock-glow that brightens at a
@@ -149,7 +149,7 @@
   height: 48px; transition: border-color var(--d-2);
 }
 .tuner__search:focus-within { border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
-.tuner__prompt { color: var(--live); font-weight: var(--weight-semi); }
+.tuner__prompt { color: var(--live-text); font-weight: var(--weight-semi); }
 .tuner__input {
   flex: 1; min-width: 0; border: 0; background: none; color: var(--ink-900);
   font-size: var(--t-body); outline: none;
@@ -157,7 +157,7 @@
 .tuner__input::placeholder { color: var(--ink-400); }
 .tuner__clear { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.1em; }
-.tuner__clear:hover { color: var(--live); }
+.tuner__clear:hover { color: var(--live-text); }
 .tuner__filters { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center; }
 .tuner__sel { display: inline-flex; align-items: center; gap: var(--s-2);
   font-family: var(--font-mono); font-size: var(--t-xs); }
@@ -177,8 +177,8 @@
 }
 .tuner__chip .cs { color: var(--ink-700); }
 .tuner__chip:hover { border-color: var(--ink-400); color: var(--ink-900); }
-.tuner__chip.is-on { color: var(--live); border-color: var(--live); background: var(--live-tint); }
-.tuner__chip.is-on .cs { color: var(--live); }
+.tuner__chip.is-on { color: var(--live-text); border-color: var(--live); background: var(--live-tint); }
+.tuner__chip.is-on .cs { color: var(--live-text); }
 
 /* (the page hero, the directory panel and the band chips are the shared directory
    component, components.css; this sheet places them and draws the rows) */
@@ -206,14 +206,14 @@
 
 .band-name-line { display: flex; align-items: baseline; gap: var(--s-2); }
 .band-dot { font-size: 11px; line-height: 1; }
-.band-dot--on { color: var(--live); }
+.band-dot--on { color: var(--live-text); }
 .band-dot--off { color: var(--ink-300); }
 /* overflow-wrap:break-word still wraps a name too long for its row, but unlike
    word-break:break-word it does not shrink the MIN-CONTENT width to one glyph - that
    is what let the grid starve this column to a character a line on a phone. */
 .band-name { flex: 0 1 auto; min-width: 0; font-weight: var(--weight-semi); color: var(--ink-900);
   letter-spacing: -.01em; overflow-wrap: break-word; }
-.band-prov { display: block; font-size: var(--t-xs); color: var(--live); font-weight: var(--weight-medium); margin-top: 2px; }
+.band-prov { display: block; font-size: var(--t-xs); color: var(--live-text); font-weight: var(--weight-medium); margin-top: 2px; }
 .band-prov--idle { color: var(--ink-400); font-weight: var(--weight-regular); }
 .band-ctx { display: inline-block; font-size: var(--t-xs); color: var(--ink-400); margin-top: 2px; }
 /* estimated ctx: dimmer + italic so a guess (~32k) never reads as a detected window */
@@ -233,7 +233,7 @@
 .band-unit--idle { color: var(--ink-300); }
 .band-cell--price b, .band-cell--tps b, .band-cell--stn b { color: var(--ink-900); font-size: .9375rem; }
 .band-stat { font-family: var(--font-mono); font-size: var(--t-xs); }
-.band-stat--on { color: var(--live); }
+.band-stat--on { color: var(--live-text); }
 .band-stat--off { color: var(--ink-400); }
 .band-glyph { color: var(--ink-500); letter-spacing: 1px; }
 
@@ -266,7 +266,7 @@
 .qsl__sub { display: block; margin-top: 2px; font-size: var(--t-sm); color: var(--ink-500); }
 .qsl__meter { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .qsl__sig-glyph { font-family: var(--font-mono); letter-spacing: 1px; line-height: 1; }
-.qsl__sig-glyph .sigbar--on { color: var(--live); }
+.qsl__sig-glyph .sigbar--on { color: var(--live-text); }
 .qsl__sig-glyph .sigbar--off { color: var(--ink-300); }
 .qsl__sig-num { font-size: var(--t-xs); color: var(--ink-500); }
 .qsl__onair { color: var(--ink-500); }
@@ -298,7 +298,7 @@
 .qsl-row--empty { display: block; color: var(--ink-400); text-align: left; }
 .qsl-cs { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .qsl-cs__sign { color: var(--ink-900); font-weight: var(--weight-medium); }
-.qsl-cs__sign .band-dot--on { color: var(--live); }
+.qsl-cs__sign .band-dot--on { color: var(--live-text); }
 .qsl-cs__sign .band-dot--off { color: var(--ink-300); }
 .qsl-cs__reg { font-size: var(--t-xs); color: var(--ink-400); letter-spacing: 0.04em; }
 .qsl-cs__meta { display: inline; margin-left: var(--s-2); font-size: var(--t-xs); color: var(--ink-400); }
@@ -316,7 +316,7 @@
 .qsl__line { margin: 0; font-size: var(--t-xs); color: var(--ink-500); line-height: 1.5; }
 .qsl__line .cs { color: var(--ink-700); }
 .qsl__cmd { width: 100%; }
-.qsl__cmd.is-copied .install__copy { color: var(--live); }
+.qsl__cmd.is-copied .install__copy { color: var(--live-text); }
 .qsl__endpoint { margin: 0; font-size: var(--t-xs); color: var(--ink-900); }
 .qsl__epnote { color: var(--ink-400); }
 
@@ -356,7 +356,7 @@
 .qsl__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
   padding: var(--s-4) var(--s-6); border-top: 1px solid var(--hairline); background: var(--paper-2); }
 .qsl__back { color: var(--ink-700); font-size: var(--t-sm); border-bottom: 1px solid transparent; }
-.qsl__back:hover { color: var(--live); border-bottom-color: var(--live); }
+.qsl__back:hover { color: var(--live-text); border-bottom-color: var(--live); }
 .qsl__stamp { font-size: var(--t-xs); color: var(--ink-400); letter-spacing: 0.06em; }
 
 /* ---------- responsive ----------------------------------------- */
@@ -409,7 +409,7 @@
               border-color var(--d-1) var(--ease-standard);
 }
 .report-btn:hover,
-.report-btn:focus-visible { color: var(--live); border-color: var(--live); }
+.report-btn:focus-visible { color: var(--live-text); border-color: var(--live); }
 .report-btn:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .report-btn--row { opacity: 0; }
 .band-row:hover .report-btn--row,
@@ -457,7 +457,7 @@
   line-height: 1;
   cursor: pointer;
 }
-.reportmodal__x:hover { color: var(--live); }
+.reportmodal__x:hover { color: var(--live-text); }
 .reportmodal__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .reportmodal__title { margin: 0 0 var(--s-1); font-size: var(--t-h3); color: var(--ink-900); }
 .reportmodal__sub { margin: 0 0 var(--s-4); color: var(--ink-500); font-size: var(--t-xs); }
@@ -495,7 +495,7 @@
 }
 .reportform__note { margin: 0 0 var(--s-4); color: var(--ink-400); font-size: var(--t-xs); line-height: 1.5; }
 .reportform__note a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); }
-.reportform__note a:hover { color: var(--live); border-bottom-color: var(--live); }
+.reportform__note a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 .reportform__actions { display: flex; justify-content: flex-end; gap: var(--s-2); }
 .reportform__cancel {
   appearance: none;
@@ -509,7 +509,7 @@
   padding: 9px 16px;
   cursor: pointer;
 }
-.reportform__cancel:hover { color: var(--live); border-color: var(--live); }
+.reportform__cancel:hover { color: var(--live-text); border-color: var(--live); }
 .reportform__cancel:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .reportform__submit {
   appearance: none;
@@ -529,4 +529,4 @@
 .reportform__submit:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .reportform__status { margin: var(--s-3) 0 0; min-height: 1.2em; font-size: var(--t-xs); color: var(--ink-500); }
 .reportform__status.is-ok { color: var(--ink-700); }
-.reportform__status.is-err { color: var(--live); }
+.reportform__status.is-err { color: var(--live-text); }

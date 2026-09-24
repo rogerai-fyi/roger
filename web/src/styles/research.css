@@ -10,7 +10,7 @@
   color: var(--ink-500); font-size: var(--t-xs);
   letter-spacing: .06em; text-transform: uppercase;
 }
-.wf-back:hover, .wf-back:focus-visible { color: var(--live); }
+.wf-back:hover, .wf-back:focus-visible { color: var(--live-text); }
 .research-hero { padding-block: clamp(64px, 9vw, 112px); border-bottom: 1px solid var(--hairline); }
 .research-hero h1 { max-width: 880px; margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-display); line-height: var(--lh-tight); letter-spacing: var(--tracking-display); }
 .research-hero__lead { max-width: 720px; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); }
@@ -31,7 +31,7 @@
   color: var(--ink-700); text-decoration: none; text-align: center;
   transition: background var(--d-2), color var(--d-2);
 }
-.usecase-strip a:hover, .usecase-strip a:focus-visible { background: var(--paper-2); color: var(--live); }
+.usecase-strip a:hover, .usecase-strip a:focus-visible { background: var(--paper-2); color: var(--live-text); }
 .usecase-strip a:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
 .usecase-strip span { font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .01em; }
 .uc-ic {
@@ -64,7 +64,7 @@
   font-size: var(--t-micro);
   letter-spacing: .05em;
 }
-.release-ticker b { color: var(--live); }
+.release-ticker b { color: var(--live-text); }
 /* .research-actions / .research-button moved to base.css - see the note there. */
 
 .research-distinction { background: var(--paper-2); border-bottom: 1px solid var(--hairline); }
@@ -134,8 +134,8 @@
   font-size: var(--t-xs);
   letter-spacing: .04em;
 }
-.model-download::before { content: "↧"; margin-right: 8px; color: var(--live); }
-.model-download:hover, .model-download:focus-visible { border-color: var(--live); color: var(--live); }
+.model-download::before { content: "↧"; margin-right: 8px; color: var(--live-text); }
+.model-download:hover, .model-download:focus-visible { border-color: var(--live); color: var(--live-text); }
 .model-stage {
   display: inline-flex;
   align-items: center;
@@ -149,12 +149,12 @@
   letter-spacing: .04em;
 }
 .model-note { border-color: transparent; padding-inline: 4px; }
-.model-note:hover, .model-note:focus-visible { color: var(--live); }
+.model-note:hover, .model-note:focus-visible { color: var(--live-text); }
 
 .developer-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 2px solid var(--ink-900); }
 .developer-step { min-width: 0; padding: var(--s-6); border-right: 1px solid var(--hairline); }
 .developer-step:last-child { border-right: 0; }
-.developer-step__no { color: var(--live); font-family: var(--font-mono); font-size: var(--t-xs); }
+.developer-step__no { color: var(--live-text); font-family: var(--font-mono); font-size: var(--t-xs); }
 .developer-step h3 { margin: var(--s-4) 0 0; color: var(--ink-900); font-size: var(--t-h3); }
 .developer-step p { color: var(--ink-500); line-height: var(--lh-body); }
 .developer-step code {
@@ -253,7 +253,7 @@
 .section--edge .model-group-head { margin-top: 0; }
 /* The one fact a reader must not miss is that nothing is trained, so this chip is the
    only status on the page that carries the accent. It says the absence, not a stage. */
-.status--none { border-color: var(--live); color: var(--live); }
+.status--none { border-color: var(--live); color: var(--live-text); }
 
 @media (max-width: 820px) {
   .research-hero__layout { grid-template-columns: 1fr; gap: var(--s-7); }
@@ -301,7 +301,7 @@
   color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
-.capability__kept-label { color: var(--live); }
+.capability__kept-label { color: var(--live-text); }
 /* The whole bar is the original model; the solid sliver is what was kept. The deleted
    93.3% stays visible as a ghost rather than being cropped away - the point is how
    much is gone, and you cannot see that if it is not drawn. */
@@ -345,7 +345,7 @@
 }
 /* The empty meter is the point, so the boundary row is marked in red AND by a zero -
    never by colour alone. */
-.capability__scores li[data-outcome="boundary"] .capability__num { color: var(--live); }
+.capability__scores li[data-outcome="boundary"] .capability__num { color: var(--live-text); }
 .capability__scores li[data-outcome="boundary"] .capability__meter { background: var(--live-tint, var(--hairline-2)); }
 
 .capability figcaption {
@@ -399,8 +399,8 @@
   letter-spacing: .06em; text-transform: uppercase;
   border-bottom: 1px solid var(--hairline-2); padding-bottom: var(--s-2); width: fit-content;
 }
-.spectrum-more a::after { content: " \2192"; color: var(--live); }
-.spectrum-more a:hover, .spectrum-more a:focus-visible { color: var(--live); border-bottom-color: var(--live); }
+.spectrum-more a::after { content: " \2192"; color: var(--live-text); }
+.spectrum-more a:hover, .spectrum-more a:focus-visible { color: var(--live-text); border-bottom-color: var(--live); }
 .spectrum-more span { color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); max-width: 62ch; }
 
 /* Onward cards: the hub's three destinations, sitting under the family. Each
@@ -410,7 +410,7 @@
 .research-onward a:last-child { border-right: 0; }
 .research-onward a:hover, .research-onward a:focus-visible { background: var(--paper-2); }
 .research-onward b { color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .07em; text-transform: uppercase; }
-.research-onward b::after { content: " \2192"; color: var(--live); }
+.research-onward b::after { content: " \2192"; color: var(--live-text); }
 .research-onward span { color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 @media (max-width: 820px) {
   .research-onward { grid-template-columns: 1fr; }
@@ -548,8 +548,8 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   letter-spacing: .08em; text-transform: uppercase; color: var(--ink-500);
 }
 /* In progress is marked by the outline AND the word, never by colour alone. */
-.scope__row--live .scope__status { border-color: var(--live); color: var(--live); }
-.scope__row--live .scope__carries { color: var(--live); }
+.scope__row--live .scope__status { border-color: var(--live); color: var(--live-text); }
+.scope__row--live .scope__carries { color: var(--live-text); }
 
 .scope figcaption {
   margin-top: var(--s-5); color: var(--ink-500);
@@ -633,7 +633,7 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   font-weight: var(--weight-semi); letter-spacing: .08em; text-anchor: middle;
 }
 .purdue__sis .purdue__sub { fill: var(--ink-500); font-size: 9px; font-weight: 400; }
-.purdue__never { fill: var(--live) !important; }
+.purdue__never { fill: var(--live-text) !important; }
 
 .purdue figcaption {
   margin-top: var(--s-4); color: var(--ink-500);

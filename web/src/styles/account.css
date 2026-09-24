@@ -131,4 +131,4 @@
   border-color: var(--hairline-2);
   color: var(--ink-700);
 }
-.danger:hover { color: var(--live); border-color: var(--live); }
+.danger:hover { color: var(--live-text); border-color: var(--live); }

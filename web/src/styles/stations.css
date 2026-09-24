@@ -42,7 +42,7 @@
   border-radius: 2px;
   color: var(--ink-700);
 }
-.badge.on { color: var(--live); }
+.badge.on { color: var(--live-text); }
 .badge.off { color: var(--ink-500); border-style: dashed; }
 
 /* Chain state. A break is an AUDIT signal in the detect-and-record stage, so it is

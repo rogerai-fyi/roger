@@ -39,7 +39,7 @@
   font-size: var(--t-xs); font-weight: var(--weight-semi);
   text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-900);
 }
-.bc-tg__label .onair { font-size: var(--t-xs); color: var(--live); }
+.bc-tg__label .onair { font-size: var(--t-xs); color: var(--live-text); }
 .bc-tg__meta {
   font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.08em;
@@ -60,7 +60,7 @@
 }
 .bc-tg__callsign { color: var(--ink-500); letter-spacing: -0.01em; }
 .bc-tg__stop {
-  color: var(--live); text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--live-text); text-transform: uppercase; letter-spacing: 0.16em;
   white-space: nowrap;
 }
 
@@ -91,7 +91,7 @@
   white-space: nowrap;
 }
 .bc-row__lead .ember { font-size: 0.7em; line-height: 1; transition: color var(--d-2); }
-.bc-row__link:is(:hover, :focus-visible) .ember { color: var(--live); }
+.bc-row__link:is(:hover, :focus-visible) .ember { color: var(--live-text); }
 .bc-row__no {
   font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-semi);
   text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-900);
@@ -125,7 +125,7 @@
   text-transform: uppercase; letter-spacing: 0.08em;
   transition: color var(--d-2);
 }
-.bc-row__link:is(:hover, :focus-visible) .bc-row__go { color: var(--live); }
+.bc-row__link:is(:hover, :focus-visible) .bc-row__go { color: var(--live-text); }
 
 /* narrow: collapse to a single stacked column; drop the trailing arrow */
 @media (max-width: 640px) {
@@ -160,7 +160,7 @@
   transition: color var(--d-2);
 }
 .bc-post__wrap > .bc-post__back { margin-left: max(0px, calc((100% - var(--bc-measure)) / 2)); }
-.bc-post__back:hover, .bc-post__back:focus-visible { color: var(--live); }
+.bc-post__back:hover, .bc-post__back:focus-visible { color: var(--live-text); }
 
 /* ---- post header ---- */
 .bc-post__head { padding-bottom: var(--s-2); }
@@ -199,7 +199,7 @@
   object-fit: contain; background: var(--ink-900);
 }
 .bc-video__fallback { color: var(--ink-500); padding: var(--s-5); }
-.bc-video__fallback a { color: var(--live); text-decoration: underline; text-underline-offset: 2px; }
+.bc-video__fallback a { color: var(--live-text); text-decoration: underline; text-underline-offset: 2px; }
 .bc-video__cap {
   margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-500);
   text-align: center; letter-spacing: 0.02em;
@@ -240,7 +240,7 @@
   font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: var(--tracking-label); font-weight: var(--weight-medium);
 }
-.bc-sec__no::first-letter { color: var(--live); }
+.bc-sec__no::first-letter { color: var(--live-text); }
 .bc-sec h2 {
   font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   margin-top: var(--s-3); font-weight: var(--weight-bold); line-height: var(--lh-snug);

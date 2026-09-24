@@ -23,7 +23,7 @@
   background: var(--white); color: var(--ink-500);
   font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
 }
-.route-process__steps b { color: var(--live); font-size: 10px; }
+.route-process__steps b { color: var(--live-text); font-size: 10px; }
 .route-process .fig { margin: 10px 2px 1px; }
 .route-process--failover { margin-top: var(--s-6); }
 .route-process__carrier {
@@ -89,7 +89,7 @@
 .route-router b { font-size: 12px; letter-spacing: .14em; }
 .route-router span:last-child { font-size: 10px; color: var(--ink-500); }
 .route-router__eye {
-  position: absolute; top: 8px; right: 10px; color: var(--live);
+  position: absolute; top: 8px; right: 10px; color: var(--live-text);
   animation: route-blink 1.2s steps(2,end) infinite;
 }
 @keyframes route-blink { 50% { opacity: .25; } }
@@ -138,7 +138,7 @@
 }
 .route-sim__readout > div:first-child { display: flex; align-items: baseline; gap: 10px; }
 .route-sim__readout > div:first-child span { color: var(--ink-500); font-size: 10px; letter-spacing: .1em; }
-.route-sim__readout > div:first-child b { color: var(--live); font: 700 20px var(--font-mono); }
+.route-sim__readout > div:first-child b { color: var(--live-text); font: 700 20px var(--font-mono); }
 .route-sim__readout p { margin: 0; color: var(--ink-700); font-size: 13px; }
 .route-legend {
   grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 18px;
@@ -160,7 +160,7 @@
   padding: 7px 9px; border: 1px solid var(--hairline-2); border-radius: 4px;
   background: var(--white); color: var(--ink-900);
 }
-.route-gates i { color: var(--live); font-style: normal; }
+.route-gates i { color: var(--live-text); font-style: normal; }
 
 .route-formula {
   margin-top: var(--s-5); padding: var(--s-5); border: 1px solid var(--hairline-2);
@@ -168,7 +168,7 @@
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
   background: var(--paper); color: var(--ink-900); font-size: 12px;
 }
-.route-formula b { color: var(--live); }
+.route-formula b { color: var(--live-text); }
 .route-formula__group { padding: 5px 8px; border: 1px solid var(--hairline-2); background: var(--white); }
 
 .route-terms { margin-top: var(--s-4); border-top: 2px solid var(--ink-900); }

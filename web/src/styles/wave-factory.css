@@ -183,7 +183,7 @@
   padding: .2rem .45rem; border: 1px solid var(--hairline-2); border-radius: 6px 6px 6px 0;
   background: var(--paper-2);
 }
-.clf-bubble[data-verdict="bad"] { color: var(--live); border-color: var(--live); }
+.clf-bubble[data-verdict="bad"] { color: var(--live-text); border-color: var(--live); }
 .clf-bubble[data-verdict="warn"] { color: #C99700; border-color: #C99700; }
 
 /* the traveling product - existence is simulation, position is presentation */
@@ -228,7 +228,7 @@
   100% { opacity: 0; translate: 0 -20px; }
 }
 .clf-ship__n { font-family: var(--font-mono); font-size: .6rem; font-variant-numeric: tabular-nums; }
-.clf-ship__spoil { font-family: var(--font-mono); font-size: .56rem; color: var(--live); font-style: normal; }
+.clf-ship__spoil { font-family: var(--font-mono); font-size: .56rem; color: var(--live-text); font-style: normal; }
 
 /* the operator desk, physically at the end of the floor */
 .clf-desk {
@@ -269,7 +269,7 @@
 }
 .cl-lamp[data-state="ok"] { color: #1E7A3C; border-color: #1E7A3C; }
 .cl-lamp[data-state="warn"] { color: #C99700; border-color: #C99700; }
-.cl-lamp[data-state="stopped"] { color: var(--live); border-color: var(--live); }
+.cl-lamp[data-state="stopped"] { color: var(--live-text); border-color: var(--live); }
 
 /* the readout - in phase 0 this dial is the whole game */
 .cl-read { display: flex; align-items: baseline; gap: .35rem; }
@@ -329,7 +329,7 @@
 .cl-say__word { font-family: var(--font-mono); font-size: .74rem; }
 .cl-say[data-verdict="ok"] .cl-say__word { color: #1E7A3C; }
 .cl-say[data-verdict="warn"] .cl-say__word { color: #C99700; }
-.cl-say[data-verdict="bad"] .cl-say__word { color: var(--live); }
+.cl-say[data-verdict="bad"] .cl-say__word { color: var(--live-text); }
 .cl-say__why, .cl-say__fix { font-size: .7rem; color: var(--ink-700); line-height: 1.5; }
 .cl-say__fix { color: var(--ink-900); }
 /* v40: PROVENANCE IS EVIDENCE - "replayed record N" is the sentence that
@@ -373,7 +373,7 @@
 .cl-act:hover:not(:disabled) { border-color: var(--ink-900); }
 .cl-act:disabled { opacity: .4; cursor: not-allowed; }
 .cl-act:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.cl-act--service.is-needed:not(:disabled) { border-color: var(--live); color: var(--live); }
+.cl-act--service.is-needed:not(:disabled) { border-color: var(--live); color: var(--live-text); }
 .cl-act--restart, .cl-act--clean, .cl-act--inspect { border-style: dashed; }
 /* the doctrine's verb lights up once the fault kind is KNOWN (inspected, or
    Nano resolved it) - knowledge visibly becomes the answer. Identity-neutral
@@ -467,7 +467,7 @@
 .cl-maint__note { font-size: .66rem; line-height: 1.55; color: var(--ink-500); font-family: var(--font-mono); margin: .5rem 0 0; }
 
 /* the debt state: red coins, worded ON LOAN by the paint code */
-.cl-stat.is-debt b, .cl-stat.is-debt i { color: var(--live); }
+.cl-stat.is-debt b, .cl-stat.is-debt i { color: var(--live-text); }
 
 /* the gateway attribution on Nano's counsel */
 .cl-say__site { font-style: normal; letter-spacing: .04em; color: var(--ink-400); font-size: .56rem; }
@@ -713,13 +713,13 @@
 /* debt: the COINS label stays; the flag rides beside it */
 .cl-stat__flag {
   font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
-  font-style: normal; color: var(--live); border: 1px solid var(--live);
+  font-style: normal; color: var(--live-text); border: 1px solid var(--live);
   border-radius: 999px; padding: 0 .35rem; margin-left: .3rem;
 }
-.cl-stat.is-burnt b { color: var(--live); }
+.cl-stat.is-burnt b { color: var(--live-text); }
 
 /* reset must be armed before it fires */
-.cl-reset.is-armed { color: var(--live); border-color: var(--live); }
+.cl-reset.is-armed { color: var(--live-text); border-color: var(--live); }
 
 /* THE WIN CARD - the contract fills and the game says so */
 .clf-winover { z-index: 6; }

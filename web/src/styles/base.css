@@ -197,7 +197,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* ---------- ASCII signature accents ----------------------------- */
 /* on-air pulse  ((•))  - the lineage/transmit motif, in mono */
 .onair {
-  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--live);
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--live-text);
   letter-spacing: -.02em; white-space: nowrap; display: inline-flex; align-items: center;
 }
 .onair .onair__dot {
@@ -384,7 +384,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* the GitHub source pill: octocat mark + label, tinting to the signal red on hover */
 .nav__source { gap: 6px; }
 .nav__source__mark { flex: none; transition: color var(--d-2); }
-.nav__source:hover .nav__source__mark { color: var(--live); }
+.nav__source:hover .nav__source__mark { color: var(--live-text); }
 @media (prefers-reduced-motion: reduce) {
   .nav__link:not(.nav__link--ghost)::after { transition: none; }
 }
@@ -516,7 +516,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 
 /* the eyebrow callsign line (shared: home / manual / models) */
 .hero__eyebrow { margin-bottom: var(--s-6); }
-.hero__eyebrow .onair { font-size: var(--t-xs); color: var(--live); margin-right: 1px; }
+.hero__eyebrow .onair { font-size: var(--t-xs); color: var(--live-text); margin-right: 1px; }
 .hero__callsign { color: var(--ink-900); }
 .hero__sep { color: var(--ink-300); }
 
@@ -629,7 +629,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .upgrade__prompt { color: var(--volt); font-family: var(--font-mono); font-weight: var(--weight-semi); }
 .upgrade__copy { margin-left: auto; font-size: var(--t-xs); color: var(--ink-400); font-family: var(--font-mono); }
 .upgrade__cmd.is-copied { border-color: var(--volt); }
-.upgrade__cmd.is-copied .upgrade__copy { color: var(--live); }
+.upgrade__cmd.is-copied .upgrade__copy { color: var(--live-text); }
 @media (prefers-reduced-motion: reduce) {
   .upgrade__caret, .upgrade__cmd { transition: none; }
 }
@@ -733,7 +733,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
    own panel was closed and its true-state rule below produced no visible change
    (founder catch, 2026-09-02). The sub chevron answers to its own
    aria-expanded, nothing else. */
-.nav__group.is-open > .nav__more { color: var(--live); }
+.nav__group.is-open > .nav__more { color: var(--live-text); }
 .nav__group.is-open > .nav__more svg { transform: rotate(180deg); }
 
 .nav__panel {
@@ -788,11 +788,11 @@ li > a:not([class]),
 }
 p > a:not([class]):hover,
 li > a:not([class]):hover,
-.tlink:hover { color: var(--live); border-bottom-color: var(--live); }
+.tlink:hover { color: var(--live-text); border-bottom-color: var(--live); }
 p > a:not([class]):focus-visible,
 li > a:not([class]):focus-visible,
 .tlink:focus-visible {
-  color: var(--live); border-bottom-color: var(--live);
+  color: var(--live-text); border-bottom-color: var(--live);
   outline: 2px solid var(--live); outline-offset: 2px; border-radius: 2px;
 }
 
@@ -980,7 +980,7 @@ li > a:not([class]):focus-visible,
   border: 0; background: none; color: var(--ink-500); font-size: 1.5rem;
   line-height: 1; cursor: pointer; padding: 2px 6px;
 }
-.lt-modal__close:hover, .lt-modal__close:focus-visible { color: var(--live); }
+.lt-modal__close:hover, .lt-modal__close:focus-visible { color: var(--live-text); }
 .lt-modal__lead { margin: var(--s-2) 0 var(--s-4); color: var(--ink-500); font-size: var(--t-sm); }
 .lt-modal__form { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--s-5); }
 .lt-modal__col { display: grid; gap: var(--s-3); align-content: start; }

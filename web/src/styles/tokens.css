@@ -37,6 +37,7 @@
      the on-air dot, focus rings, the on-air underline, a §-marker rule,
      install-box hover, the live-market dot. */
   --live:         #E0231C; /* on air / live / primary action / focus */
+  --live-text:    #C81E17; /* red TEXT: the same red a shade deeper, AA on paper, paper-2 and paper-3 */
   --live-tint:    #FBE7E5; /* the only red fill (behind a dot / on hover) */
   --live-glow:    rgba(224, 35, 28, 0.26);
   --live-wash:    rgba(224, 35, 28, 0.10);
@@ -193,6 +194,7 @@
   --ink-300:      #555148; /* disabled / off bars */
 
   --live:         #FF4438; /* beacon, lifted for AA on ink */
+  --live-text:    #FF4438; /* red text: the beacon itself is AA on the ink grounds */
   --live-tint:    rgba(255, 68, 56, 0.16);
   --live-glow:    rgba(255, 68, 56, 0.32);
   --live-wash:    rgba(255, 68, 56, 0.14);
@@ -289,6 +291,7 @@
     --ink-400:    #726F66;
     --ink-300:    #C4C0B5;
     --live:       #E0231C;
+    --live-text:  #C81E17;
     color-scheme: light;
   }
 }

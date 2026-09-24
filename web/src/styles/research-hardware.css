@@ -41,7 +41,7 @@
   font-size: 14px; font-weight: var(--weight-semi);
 }
 .hw-stop__size {
-  fill: var(--live); font-family: var(--font-mono);
+  fill: var(--live-text); font-family: var(--font-mono);
   font-size: 12px; font-variant-numeric: tabular-nums;
 }
 .hw-stop__box  { fill: var(--ink-700); font-family: var(--font-ui); font-size: 12px; }
@@ -52,7 +52,7 @@
 }
 /* the stop the reader is pointing at, from JS or from the sweep passing it */
 .hw-stop.is-lit .hw-stop__dot { fill: var(--live); stroke: var(--live); }
-.hw-stop.is-lit .hw-stop__tier { fill: var(--live); }
+.hw-stop.is-lit .hw-stop__tier { fill: var(--live-text); }
 
 /* the tuning needle: the site's own dial metaphor, sweeping the band once it is seen */
 .hw-needle { opacity: 0; }
@@ -74,7 +74,7 @@
 .hw-stop.is-linked { cursor: pointer; }
 .hw-stop.is-linked:hover .hw-stop__dot,
 .hw-stop.is-linked:focus-visible .hw-stop__dot { fill: var(--live); stroke: var(--live); }
-.hw-stop.is-linked:hover .hw-stop__tier { fill: var(--live); }
+.hw-stop.is-linked:hover .hw-stop__tier { fill: var(--live-text); }
 .hw-stop.is-linked:focus { outline: none; }
 .hw-stop.is-linked:focus-visible {
   outline: 2px solid var(--live); outline-offset: 3px; border-radius: 3px;
@@ -181,7 +181,7 @@
 .hw-exp__tag {
   display: block; margin-bottom: var(--s-3);
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--live);
+  text-transform: uppercase; color: var(--live-text);
 }
 .hw-exp h3 {
   margin: 0 0 var(--s-3); font-size: var(--t-h3);
@@ -203,7 +203,7 @@
   padding: 6px var(--s-3) 6px 0; border-bottom: 1px solid var(--hairline);
   color: var(--ink-700); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.hw-bench__win { color: var(--live); font-weight: var(--weight-semi); }
+.hw-bench__win { color: var(--live-text); font-weight: var(--weight-semi); }
 @media (max-width: 560px) {
   .hw-bench th, .hw-bench td { white-space: normal; }
 }

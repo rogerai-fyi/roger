@@ -101,7 +101,10 @@ behaviour by markup alone**.
   (`.card`), whose command wells sit on `--paper-3`.
 - Print is black on white in every theme (the print tokens at the end of `tokens.css`).
 - Mono + ONE red (`--live`): red is an indicator (needle, on-air dot, tuned state, focus),
-  never a wash behind text.
+  never a wash behind text. Red WORDS (a hovered link, a kicker, a step number, SVG
+  labels) use `--live-text`, the same red a shade deeper: the beacon red is 4.31:1 on
+  `--paper-2`, the text shade is AA on every ground (`test/contrast.test.mjs` checks it
+  and fails on `color: var(--live)` or a red-filled SVG word).
 
 ## Components
 

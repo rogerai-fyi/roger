@@ -5,7 +5,7 @@
    transcript near-invisible on the light theme. */
 
 /* The one red glint: a live remote session / active band dot. */
-.cn-st.is-live { color: var(--live); }
+.cn-st.is-live { color: var(--live-text); }
 
 /* small inline row buttons (Open / View / Link / Approve / Deny) */
 .rc-btn {
@@ -23,7 +23,7 @@
 /* .primary / .ghost also name the plate's big buttons (account-base.css); in a row they
    stay small, so the big button's width, fill and margin are set back here */
 .rc-btn.primary, .rc-btn.ghost { width: auto; margin-top: 0; padding: 0.15rem 0.6rem; background: transparent; font-size: 0.82rem; }
-.rc-btn.primary { border-color: var(--live); color: var(--live); }
+.rc-btn.primary { border-color: var(--live); color: var(--live-text); }
 .rc-btn.ghost { color: var(--ink-500); }
 .rc-btn:active { transform: translateY(1px); }
 @media (prefers-reduced-motion: reduce) { .rc-btn:active { transform: none; } }
@@ -42,12 +42,12 @@
   line-height: 1.55;
 }
 .rc-line { white-space: pre-wrap; word-break: break-word; margin: 0.1rem 0; }
-.rc-user { color: var(--live); }
+.rc-user { color: var(--live-text); }
 .rc-asst { color: var(--ink-900); }
 .rc-tool, .rc-backfill, .rc-status { color: var(--ink-500); }
 .rc-confirm { color: var(--ink-700); display: flex; align-items: center; gap: 0.35rem; }
 .rc-confirm span { flex: 1; }
-.rc-err { color: var(--live); }
+.rc-err { color: var(--live-text); }
 
 /* the ask input strip */
 .rc-ask { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
@@ -63,6 +63,6 @@
   font-family: var(--font-mono);
   font-size: 1.1rem;
   letter-spacing: 0.06em;
-  color: var(--live);
+  color: var(--live-text);
   margin: 0.4rem 0;
 }

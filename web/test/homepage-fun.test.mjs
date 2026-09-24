@@ -117,7 +117,7 @@ test("without JS the ladder is the complete static list; with JS every tier stay
   assert.match(html, /<script src="js\/scrub\.js(\?v=[0-9a-f]+)?" defer><\/script>/);
   const css = dist("styles/home.css");
   assert.doesNotMatch(css, /\.home-spectrum li(:not\(\.is-tuned\))?\s*\{[^}]*opacity/, "untuned tiers are never faded");
-  assert.match(css, /\.home-spectrum li\.is-tuned i\s*\{[^}]*color:\s*var\(--live\)/, "the tuned tier's wave is the red indicator");
+  assert.match(css, /\.home-spectrum li\.is-tuned i\s*\{[^}]*color:\s*var\(--live-text\)/, "the tuned tier's wave is red (drawn in currentColor, so the red text shade)");
 });
 
 // ---- 3. hardware-button feedback ----

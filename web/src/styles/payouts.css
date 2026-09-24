@@ -145,7 +145,7 @@
   grid-column: 2;
   font-family: var(--font-mono);
   font-size: var(--t-xs);
-  color: var(--live);
+  color: var(--live-text);
   font-variant-numeric: tabular-nums slashed-zero;
 }
 
@@ -316,7 +316,7 @@
    muted. These map to the registry states surfaced by /tower/status. */
 .po-tower__state--joined,
 .po-tower__state--live {
-  color: var(--live);
+  color: var(--live-text);
   border-color: color-mix(in srgb, var(--live) 45%, transparent);
 }
 .po-tower__state--quarantine {

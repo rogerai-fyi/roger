@@ -70,7 +70,7 @@ section[id] { scroll-margin-top: 72px; }
 .guests__tag {
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
-  color: var(--live); border: 1px solid var(--live); border-radius: var(--r-pill); padding: 1px 7px; white-space: nowrap;
+  color: var(--live-text); border: 1px solid var(--live); border-radius: var(--r-pill); padding: 1px 7px; white-space: nowrap;
 }
 .guests__wire { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .guests__meta { margin: 0; color: var(--ink-500); font-size: var(--t-micro); }

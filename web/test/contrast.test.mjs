@@ -74,3 +74,55 @@ test("no page carries its own contrast patch for the shared labels", () => {
     }
   }
 });
+
+// Red TEXT (a link on hover, a kicker, a step number, a price chip) is small and sits on
+// the tinted panels too, where the beacon red is 4.31:1. Text uses --live-text, a deeper
+// shade of the same red (the one-red rule holds: it is the same hue); --live stays the
+// indicator (needles, dots, rules, fills, focus rings).
+test("red text is AA on every ground it sits on, light and dark and in ink panels", () => {
+  for (const [name, t] of Object.entries(CONTEXTS)) {
+    assert.ok(t["--live-text"], `${name}: --live-text is defined`);
+    for (const ground of [...GROUNDS, "--paper-3"]) {
+      const r = ratio(t["--live-text"], t[ground]);
+      assert.ok(r >= 4.5, `${name}: --live-text on ${ground} is ${r.toFixed(2)}:1`);
+    }
+  }
+});
+
+test("text is never set in the indicator red: color uses --live-text, not --live", () => {
+  const dir = path.join(WEB, "src/styles");
+  const bad = [];
+  for (const sheet of readdirSync(dir).filter((f) => f.endsWith(".css"))) {
+    const css = readFileSync(path.join(dir, sheet), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (/(^|[;\s{])color:\s*var\(--live\)/.test(m[2])) bad.push(`${sheet} ${m[1].trim().replace(/\s+/g, " ")}`);
+    }
+  }
+  assert.deepEqual(bad, [], `red text in the indicator shade (use var(--live-text)):\n  ${bad.join("\n  ")}`);
+});
+
+test("SVG text is never filled in the indicator red either (fill: var(--live-text) for words)", () => {
+  // the classes that name <text>/<tspan> elements anywhere on the site
+  const src = path.join(WEB, "src");
+  const pages = readdirSync(src).filter((f) => f.endsWith(".html")).map((f) => readFileSync(path.join(src, f), "utf8"));
+  const textClasses = new Set();
+  for (const html of pages) {
+    for (const m of html.matchAll(/<(?:text|tspan)\b[^>]*\bclass="([^"]+)"/g)) for (const c of m[1].split(/\s+/)) textClasses.add(c);
+  }
+  // rules in the sheets and in the pages' own inline SVG <style>
+  const sheets = readdirSync(path.join(src, "styles")).filter((f) => f.endsWith(".css"))
+    .map((f) => [f, readFileSync(path.join(src, "styles", f), "utf8")]);
+  const inline = readdirSync(src).filter((f) => f.endsWith(".html"))
+    .flatMap((f) => [...readFileSync(path.join(src, f), "utf8").matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => [f, m[1]]));
+  const bad = [];
+  for (const [where, css] of [...sheets, ...inline]) {
+    for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/(^|[;\s{])fill:\s*var\(--live\)/.test(m[2])) continue;
+      for (const part of m[1].split(",")) {
+        const subject = part.trim().split(/[\s>+~]+/).pop();
+        if ([...subject.matchAll(/\.([\w-]+)/g)].some(([, c]) => textClasses.has(c))) bad.push(`${where} ${part.trim()}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, [], `red SVG words in the indicator shade (use var(--live-text)):\n  ${bad.join("\n  ")}`);
+});

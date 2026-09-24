@@ -246,7 +246,7 @@ body.auth {
   transition: color var(--d-1) var(--ease-standard),
                border-color var(--d-1) var(--ease-standard);
 }
-.card a:not(.gh):not(.primary):hover { color: var(--live); border-bottom-color: var(--live); }
+.card a:not(.gh):not(.primary):hover { color: var(--live-text); border-bottom-color: var(--live); }
 .card a:not(.gh):not(.primary):focus-visible {
   outline: 2px solid var(--live);
   outline-offset: 2px;
@@ -256,7 +256,7 @@ body.auth {
    The .card .fine form matches the (0,2,1) specificity of .card a:not(.gh) above,
    so the quiet treatment survives inside cards. */
 .fine a, .card .fine a { color: var(--ink-500); border-bottom: 0; }
-.fine a:hover, .card .fine a:hover { color: var(--live); }
+.fine a:hover, .card .fine a:hover { color: var(--live-text); }
 
 /* ---- Provider sign-in. A light face with an INK label, on founder direction and
    matching the conventional "Continue with ..." control; the hairline keeps it reading
@@ -298,7 +298,7 @@ body.auth {
   transition: color var(--d-1) var(--ease-standard),
               border-color var(--d-1) var(--ease-standard);
 }
-.ghost:hover { color: var(--live); border-color: var(--live); }
+.ghost:hover { color: var(--live-text); border-color: var(--live); }
 .ghost:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 
@@ -400,7 +400,7 @@ body.auth {
 .emailform .gh { cursor: pointer; }
 .emailform .primary { background: var(--ink-900); color: var(--paper); }
 .emailform .primary:hover { background: var(--ink-700); }
-.emailform .err { color: var(--live); }
+.emailform .err { color: var(--live-text); }
 
 /* A labelled rule between the first-party form and the providers. */
 .or {

@@ -35,4 +35,4 @@
 .conf__apply .research-button { text-transform: none; letter-spacing: 0; }
 .conf__links { margin-top: var(--s-8); color: var(--ink-500); font-size: var(--t-sm); }
 .conf__links a { color: var(--ink-700); }
-.conf__links a:hover { color: var(--live); }
+.conf__links a:hover { color: var(--live-text); }

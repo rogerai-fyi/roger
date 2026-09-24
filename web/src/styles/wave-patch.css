@@ -25,7 +25,7 @@
 }
 .wp-lamp[data-state="ok"]      { color: #1E7A3C; }
 .wp-lamp[data-state="check"]   { color: #C99700; }
-.wp-lamp[data-state="failure"] { color: var(--live); }
+.wp-lamp[data-state="failure"] { color: var(--live-text); }
 
 /* ---- Make-style run bubbles: the result sits on its own tile ---------- */
 
@@ -176,7 +176,7 @@
 .pg-mode span { font-size: var(--t-micro, .72rem); color: var(--ink-400); }
 .pg-mode:hover { background: var(--paper-2); }
 .pg-mode[aria-selected="true"] { border-color: var(--hairline-2); background: var(--paper-2); }
-.pg-mode[aria-selected="true"] b { color: var(--live); }
+.pg-mode[aria-selected="true"] b { color: var(--live-text); }
 .pg-mode:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 
@@ -330,7 +330,7 @@
 .wp-read__m { color: var(--ink-400); font-variant-numeric: tabular-nums; }
 .wp-read__mark { margin-left: auto; letter-spacing: .08em; }
 .wp-read__mark--ok { color: #1E7A3C; }
-.wp-read__mark--bad { color: var(--live); }
+.wp-read__mark--bad { color: var(--live-text); }
 .wp-read__mark--dead { color: #C99700; }
 .wp-read--esc .wp-read__cond { color: var(--ink-500); }
 .wp-read--quiet { color: var(--ink-400); }
@@ -1257,7 +1257,7 @@
    false-alarm, red missed) */
 .sn-live--ok  { color: #1E7A3C; }
 .sn-live--esc { color: #C99700; }
-.sn-live--bad { color: var(--live); }
+.sn-live--bad { color: var(--live-text); }
 /* the change flash: fires only when a stage's verdict CONTENT changes */
 .sn-vword.is-flash, .sn-para--warn.is-flash { animation: sn-vflash .6s ease-out 1; }
 @keyframes sn-vflash {
