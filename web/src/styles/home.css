@@ -861,18 +861,8 @@ main .tone-zone .cta { border-top: 0; }
 }
 .home-spectrum li:last-child { border-right: 0; }
 
-/* The wave, drawn: stripes tighten as the tier grows, so the ladder is a
-   picture before it is a list. --gap is set per tier in the markup; the mask
-   fades both ends so the strip reads as a sample of a continuous signal
-   rather than a bounded bar. */
-.home-spectrum i {
-  display: block; height: 22px; margin-bottom: 2px;
-  background: repeating-linear-gradient(90deg,
-    currentColor 0 1.5px, transparent 1.5px var(--gap, 8px));
-  color: var(--ink-300);
-  -webkit-mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
-          mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
-}
+/* The wave, drawn: the shared .wave-bar (components.css), set close to its size line */
+.home-spectrum i { margin-bottom: 2px; }
 .home-spectrum li > span,
 .home-spectrum small {
   color: var(--ink-500);

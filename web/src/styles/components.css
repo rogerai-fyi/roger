@@ -397,8 +397,9 @@
    bar over each tier is the wave itself: stripes that TIGHTEN as the model grows
    (set per position here, so markup alone is enough, up to seven tiers). With
    [data-scrub] the scrubber (scrub.js) tunes a tier: a quiet ground and a red
-   wave; others never fade. The homepage's .home-spectrum is the same picture in
-   home.css and can adopt this class. Phones: the tiers stack, the bar becomes a
+   wave; others never fade. (The homepage's .home-spectrum is a different layout
+   of the same data - ruled cells, three lines per tier, a touch gallery - and
+   shares only the wave bar.) Phones: the tiers stack, the bar becomes a
    short lead, and the range control steps aside (tapping a tier still tunes it).
    Reduced motion: nothing here moves. */
 .spectrum {
@@ -412,23 +413,28 @@
   border-radius: var(--r-xl);
   transition: background-color var(--d-2);
 }
-.spectrum i {
-  display: block; height: 22px; margin-bottom: var(--s-3);
+/* the wave bar: <i class="wave-bar" aria-hidden="true"> in each tier's <li>. Its
+   stripes tighten with the tier's position in the list, pico to exa; the mask fades
+   both ends so it reads as a sample of a continuous signal. Shared by this scale
+   and the homepage ladder (home.css places it). */
+.wave-bar {
+  display: block; height: 22px;
   background: repeating-linear-gradient(90deg, currentColor 0 1.5px, transparent 1.5px var(--gap, 8px));
   color: var(--ink-300);
   -webkit-mask: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
           mask: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
 }
-.spectrum li:nth-child(1) { --gap: 14px; }
-.spectrum li:nth-child(2) { --gap: 10px; }
-.spectrum li:nth-child(3) { --gap: 7.5px; }
-.spectrum li:nth-child(4) { --gap: 5.5px; }
-.spectrum li:nth-child(5) { --gap: 4.2px; }
-.spectrum li:nth-child(6) { --gap: 3.2px; }
-.spectrum li:nth-child(7) { --gap: 2.4px; }
+li:nth-child(1) > .wave-bar { --gap: 14px; }
+li:nth-child(2) > .wave-bar { --gap: 10px; }
+li:nth-child(3) > .wave-bar { --gap: 7.5px; }
+li:nth-child(4) > .wave-bar { --gap: 5.5px; }
+li:nth-child(5) > .wave-bar { --gap: 4.2px; }
+li:nth-child(6) > .wave-bar { --gap: 3.2px; }
+li:nth-child(7) > .wave-bar { --gap: 2.4px; }
+.spectrum .wave-bar { margin-bottom: var(--s-3); }
 .spectrum b { display: block; color: var(--ink-900); font-weight: var(--weight-semi); }
 .spectrum li.is-tuned { background: var(--paper-2); }
-.spectrum li.is-tuned i { color: var(--live); }
+.spectrum li.is-tuned .wave-bar { color: var(--live); }
 @media (max-width: 1080px) {
   .spectrum { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--s-2); }
   .scrub:has(+ .spectrum) { display: none; }
@@ -436,7 +442,7 @@
 @media (max-width: 640px) {
   .spectrum { grid-template-columns: 1fr; }
   .spectrum li { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: var(--s-4); padding: var(--s-3); }
-  .spectrum i { height: 18px; margin: 3px 0 0; }
+  .spectrum .wave-bar { height: 18px; margin: 3px 0 0; }
 }
 @media (prefers-reduced-motion: reduce) { .spectrum li { transition: none; } }
 

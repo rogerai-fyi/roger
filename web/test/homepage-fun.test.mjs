@@ -112,7 +112,7 @@ test("dragging or arrowing the scrubber tunes a tier; pointing at a tier moves t
 test("without JS the ladder is the complete static list; with JS every tier stays readable", () => {
   const html = dist("index.html");
   const ladder = html.match(/<ol class="home-spectrum" data-scrub[\s\S]*?<\/ol>/)?.[0] || "";
-  assert.equal((ladder.match(/<li /g) || []).length, 7);
+  assert.equal((ladder.match(/<li[ >]/g) || []).length, 7);
   assert.doesNotMatch(html, /type="range"/, "the control is added by scrub.js, never in the HTML");
   assert.match(html, /<script src="js\/scrub\.js(\?v=[0-9a-f]+)?" defer><\/script>/);
   const css = dist("styles/home.css");

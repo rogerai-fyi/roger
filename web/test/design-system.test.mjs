@@ -168,7 +168,7 @@ const CSS_COLOR_BUDGET = {
   "base.css": 2,                       // the OC orange's drop shadow, the nav panel shadow
   "billing.css": 1,                    // modal scrim
   "broadcast-routing.css": 5,          // the routing diagram's palette
-  "home.css": 24,                      // the reel's film black, book shadows, the wave mask
+  "home.css": 20,                      // the reel's film black, book shadows
   "models.css": 2,                     // modal scrim
   "playbox.css": 56,                   // Playbox deck palette
   "research.css": 3,                   // photo credit plate over photography
