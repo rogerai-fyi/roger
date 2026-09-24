@@ -12,33 +12,50 @@ import (
 	"rogerai.fm/roger/v6/internal/edgeauth"
 )
 
-// A REVOKED node must not be able to re-claim a fresh, unrevoked certificate. The audit found that a
-// leftover grant plus no revocation check let a forgotten node POST /edge/claim and rejoin. Once a
-// node's certificate is revoked, a claim for that node id is refused even if a grant is present.
-func TestClaimRefusesANodeWhoseCertIsRevoked(t *testing.T) {
-	local, pub, priv, id := claimFixture(t)
+// secFixture returns an authority plus the directory it lives in, so a test can open a SECOND handle
+// on the same authority - the shape that matters for cross-instance behaviour (a running daemon and
+// a `roger edge forget` in another process share the directory, not the object).
+func secFixture(t *testing.T) (dir string, local *edgeauth.Local, pub ed25519.PublicKey, priv ed25519.PrivateKey, id string) {
+	t.Helper()
+	dir = t.TempDir()
+	var err error
+	local, err = edgeauth.Designate(dir, "hub")
+	require.NoError(t, err)
+	pub, priv, err = ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	return dir, local, pub, priv, edgeauth.NodeID(pub)
+}
+
+// A REVOKED node must not re-claim a fresh certificate - AND the check must hold when the revocation
+// was made by a SEPARATE handle on the authority (a CLI forget beside the running daemon), which
+// persists to disk without touching the daemon's in-memory set. The earlier fix read the in-memory
+// set and so was inert in exactly this, the real, setup (audit 2026-09-23).
+func TestClaimRefusesANodeRevokedByAnotherProcess(t *testing.T) {
+	dir, local, pub, priv, id := secFixture(t)
 
 	require.NoError(t, local.GrantClaim(id, "pixel-8"))
 	resp, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.NoError(t, err)
 	require.Contains(t, resp.Cert, "BEGIN CERTIFICATE")
 
-	// The owner revokes the node (it left the Edge, or was compromised).
-	_, err = local.Revoke(id)
+	// A DIFFERENT handle on the same authority revokes and forgets - as `roger edge forget` does in
+	// its own process. It writes revoked.json to disk; the first handle's memory is untouched.
+	other, ok, err := edgeauth.OpenLocal(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = other.Revoke(id)
 	require.NoError(t, err)
 
-	// Even if a grant reappears (a stale serving-path grant, a re-adopt by mistake), the node cannot
-	// claim a new certificate while its serial stands revoked.
+	// A grant reappears (a mistaken re-adopt) and the node claims against the ORIGINAL handle. It must
+	// still be refused, because the revocation is read from disk, not from a stale snapshot.
 	require.NoError(t, local.GrantClaim(id, "pixel-8"))
 	_, err = local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
-	require.Error(t, err, "a revoked node must not re-claim a fresh certificate")
+	require.Error(t, err, "a node revoked by another process must not re-claim a fresh certificate")
 }
 
-// Concurrent claims for the SAME adopted node must issue AT MOST ONE certificate: one adopt, one
-// cert. The audit found the check-then-issue-then-consume was unlocked, so two racing claims both
-// issued and issued.json kept only the last serial (making the other un-revokable).
+// Concurrent claims for the SAME adopted node issue AT MOST ONE certificate.
 func TestClaimConcurrentIssuesAtMostOneCertificate(t *testing.T) {
-	local, pub, priv, id := claimFixture(t)
+	_, local, pub, priv, id := secFixture(t)
 	require.NoError(t, local.GrantClaim(id, "pixel-8"))
 
 	const n = 8
@@ -61,17 +78,33 @@ func TestClaimConcurrentIssuesAtMostOneCertificate(t *testing.T) {
 	require.Equal(t, 1, ok, "exactly one concurrent claim may succeed")
 }
 
-// A grant that is never claimed must not stand open forever: a bounded window limits how long an
-// accidental or coerced adopt remains a live invitation (audit minor: ClaimGrant.At but no expiry).
+// A grant that is never claimed expires; a claim past the window is refused.
 func TestClaimRefusesAnExpiredGrant(t *testing.T) {
-	local, pub, priv, id := claimFixture(t)
+	_, local, pub, priv, id := secFixture(t)
 	require.NoError(t, local.GrantClaim(id, "pixel-8"))
 
-	// The grant was made now; a claim a long time later (and signed then, to pass freshness) is too
-	// old to honour.
 	late := time.Now().Add(edgeauth.GrantValidity + time.Hour)
 	_, err := local.Claim(signedClaim(t, pub, priv, late), late)
 	require.ErrorIs(t, err, edgeauth.ErrNotAdopted, "an expired grant is as good as none")
 }
 
-func init() { _ = ed25519.GenerateKey; _ = rand.Reader }
+// Re-adopting after a grant expired RENEWS it (refreshes the clock), so the owner adopting again is
+// not a silent no-op: the phone's next claim succeeds.
+func TestReAdoptRenewsAnExpiredGrant(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+
+	// The grant has expired; a claim now is refused, AND an expired grant is not shown as adopting.
+	late := time.Now().Add(edgeauth.GrantValidity + time.Hour)
+	_, err := local.Claim(signedClaim(t, pub, priv, late), late)
+	require.Error(t, err)
+	live, err := local.Claims()
+	require.NoError(t, err)
+	require.Empty(t, live, "an expired grant is not listed as a live adoption")
+
+	// The owner adopts again: the grant is renewed and a claim now succeeds.
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	resp, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	require.Contains(t, resp.Cert, "BEGIN CERTIFICATE")
+}

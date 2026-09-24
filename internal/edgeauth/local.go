@@ -117,6 +117,43 @@ func open(dir string) (*Local, error) {
 // exists only on the designated machine.
 func (l *Local) Authority() *cert.Authority { return l.auth }
 
+// lockFile is the advisory lock every mutation of this authority's JSON state takes, so a claim in
+// the daemon and a forget in the CLI cannot interleave their read-modify-write.
+const lockFile = ".authlock"
+
+// withLock runs fn while holding BOTH the in-process mutex and a cross-process file lock on the
+// authority directory, so claims.json / issued.json / revoked.json stay consistent under concurrent
+// writers whether they share this process or not (audit 2026-09-23).
+func (l *Local) withLock(fn func() error) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f, err := os.OpenFile(filepath.Join(l.dir, lockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := flockExclusive(f); err != nil {
+		return err
+	}
+	defer func() { _ = flockUnlock(f) }()
+	return fn()
+}
+
+// revokedNow reads the PERSISTED revocation list from disk, so a serial revoked by a separate
+// process (a CLI forget beside the running authority) is seen at once rather than only after a
+// restart. It fails CLOSED: if the list cannot be read, the caller must treat the node as revoked.
+func (l *Local) revokedNow() (map[string]bool, error) {
+	got, err := (&fileCustody{dir: l.dir}).LoadRevoked()
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(got))
+	for _, sName := range got {
+		set[sName] = true
+	}
+	return set, nil
+}
+
 // Descriptor is what this authority is, for the owner and for the machines it roots.
 func (l *Local) Descriptor() Descriptor {
 	return Descriptor{Kind: KindLocal, Where: l.where, Fingerprint: RootFingerprint(l.auth.Root())}
@@ -133,7 +170,7 @@ func (l *Local) Issue(r Request) (Response, error) {
 		return resp, err
 	}
 	if serial, ok := l.iss.SerialOf(resp.NodeID); ok {
-		if err := l.recordIssued(resp.NodeID, serial); err != nil {
+		if err := l.withLock(func() error { return l.recordIssued(resp.NodeID, serial) }); err != nil {
 			return Response{}, fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
 	}
@@ -206,29 +243,46 @@ func (l *Local) GrantClaim(nodeID, name string) error {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	got, err := l.readClaims()
-	if err != nil {
-		return err
-	}
-	for i, g := range got {
-		if g.NodeID == nodeID {
-			if name != "" && got[i].Name != name {
-				got[i].Name = name
+	return l.withLock(func() error {
+		got, err := l.readClaims()
+		if err != nil {
+			return err
+		}
+		for i := range got {
+			if got[i].NodeID == nodeID {
+				// A re-adopt renews the grant: it refreshes the clock (so an expired grant becomes
+				// live again rather than a silent no-op) and fills in a name it did not have.
+				got[i].At = time.Now().Unix()
+				if name != "" {
+					got[i].Name = name
+				}
 				return l.writeJSON(ClaimsFile, got)
 			}
-			return nil
 		}
-	}
-	return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix()}))
+		return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix()}))
+	})
 }
 
 // Claims lists the nodes the owner has adopted and that may claim a certificate.
 func (l *Local) Claims() ([]ClaimGrant, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.readClaims()
+	got, err := l.readClaims()
+	if err != nil {
+		return nil, err
+	}
+	// An expired grant is no longer a live adoption: it is not shown as ADOPTING and does not keep a
+	// candidate out of the DISCOVERED band. It is pruned from the file lazily, when it is next
+	// claimed (refused) or re-granted.
+	now := time.Now()
+	live := got[:0]
+	for _, g := range got {
+		if g.At > 0 && now.Sub(time.Unix(g.At, 0)) > GrantValidity {
+			continue
+		}
+		live = append(live, g)
+	}
+	return live, nil
 }
 
 // readClaims is the unlocked read the claim/grant/consume path shares while holding l.mu.
@@ -260,9 +314,7 @@ func (l *Local) grantFor(nodeID string) (ClaimGrant, bool) {
 // ConsumeClaim removes one grant, so a claim is one-time: one adopt, one certificate. Removing a
 // grant that is not there is not an error (the desired end state already holds).
 func (l *Local) ConsumeClaim(nodeID string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.consumeClaim(nodeID)
+	return l.withLock(func() error { return l.consumeClaim(nodeID) })
 }
 
 // consumeClaim removes one grant, unlocked. Callers hold l.mu.
@@ -290,71 +342,86 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 	if d := now.Sub(time.Unix(c.TS, 0)); d > RequestFreshness || d < -RequestFreshness {
 		return Response{}, ErrStaleRequest
 	}
-	// The whole take-grant -> issue -> record -> consume runs under l.mu so two racing claims for one
-	// adopt cannot both mint a certificate (only the first finds the grant; the rest see none).
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	grant, ok := l.grantFor(c.NodeID)
-	if !ok {
-		return Response{}, ErrNotAdopted
-	}
-	// A grant that has stood too long is as good as none: it expires on its own, and the stale record
-	// is cleared so it cannot be leaned on again.
-	if grant.At > 0 && now.Sub(time.Unix(grant.At, 0)) > GrantValidity {
-		_ = l.consumeClaim(c.NodeID)
-		return Response{}, ErrNotAdopted
-	}
-	// A node whose certificate stands REVOKED must not mint a fresh one, even if a grant reappears
-	// (a stale serving-path grant, a mistaken re-adopt): revocation is final until a new root
-	// relationship is established. This is the tombstone the audit asked for.
-	if l.nodeHasRevokedSerial(c.NodeID) {
-		return Response{}, ErrNotAdopted
-	}
-	pub, err := c.NodePublicKey()
+	// The whole take-grant -> issue -> record -> consume runs under the authority lock (in-process
+	// AND cross-process) so two racing claims for one adopt cannot both mint a certificate.
+	var resp Response
+	err := l.withLock(func() error {
+		grant, ok := l.grantFor(c.NodeID)
+		if !ok {
+			return ErrNotAdopted
+		}
+		// A grant that has stood too long is as good as none: it expires on its own, and the stale
+		// record is cleared so it cannot be leaned on again.
+		if grant.At > 0 && now.Sub(time.Unix(grant.At, 0)) > GrantValidity {
+			_ = l.consumeClaim(c.NodeID)
+			return ErrNotAdopted
+		}
+		// A node whose certificate stands REVOKED must not mint a fresh one, even if a grant
+		// reappears (a stale serving-path grant, a mistaken re-adopt): revocation is final until a
+		// new root relationship is established. The list is read from DISK so a revocation made by a
+		// separate process (a CLI forget beside the running authority) is honoured at once. It fails
+		// CLOSED: if the list cannot be read, the claim is refused rather than issued blind.
+		revoked, err := l.revokedNow()
+		if err != nil {
+			return fmt.Errorf("could not read the revocation list, so no certificate was issued: %w", err)
+		}
+		if serial, ok := l.issuedSerial(c.NodeID); ok && revoked[serial] {
+			return ErrNotAdopted
+		}
+		pub, err := c.NodePublicKey()
+		if err != nil {
+			return err
+		}
+		leaf, err := l.auth.Issue(c.NodeID, pub)
+		if err != nil {
+			return fmt.Errorf("that certificate could not be issued: %w", err)
+		}
+		if err := l.recordIssued(c.NodeID, leaf.SerialNumber.String()); err != nil {
+			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+		}
+		// Consume the grant only AFTER the certificate is safely recorded, so a write failure does
+		// not spend the owner's adopt for nothing.
+		if err := l.consumeClaim(c.NodeID); err != nil {
+			return err
+		}
+		resp = Response{
+			NodeID:  c.NodeID,
+			Account: l.Account(),
+			Cert:    EncodeCert(leaf),
+			Root:    EncodeCert(l.auth.Root()),
+		}
+		return nil
+	})
 	if err != nil {
 		return Response{}, err
 	}
-	leaf, err := l.auth.Issue(c.NodeID, pub)
-	if err != nil {
-		return Response{}, fmt.Errorf("that certificate could not be issued: %w", err)
-	}
-	if err := l.recordIssued(c.NodeID, leaf.SerialNumber.String()); err != nil {
-		return Response{}, fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
-	}
-	// Consume the grant only AFTER the certificate is safely recorded, so a write failure does not
-	// spend the owner's adopt for nothing.
-	if err := l.consumeClaim(c.NodeID); err != nil {
-		return Response{}, err
-	}
-	return Response{
-		NodeID:  c.NodeID,
-		Account: l.Account(),
-		Cert:    EncodeCert(leaf),
-		Root:    EncodeCert(l.auth.Root()),
-	}, nil
+	return resp, nil
 }
 
 // Revoke ends the certificate this authority issued to a node. It returns the serial it
 // revoked so the caller can put it in its own trust store too.
 func (l *Local) Revoke(nodeID string) (string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	issued, err := l.loadIssued()
-	if err != nil {
-		return "", err
-	}
-	serial, ok := issued[nodeID]
-	if !ok {
-		return "", nil // nothing was ever issued to that node here
-	}
-	n, ok := parseSerial(serial)
-	if !ok {
-		return "", fmt.Errorf("%q is not a certificate serial", serial)
-	}
-	if err := l.auth.Revoke(n); err != nil {
-		return "", err
-	}
-	return serial, nil
+	var serial string
+	err := l.withLock(func() error {
+		issued, err := l.loadIssued()
+		if err != nil {
+			return err
+		}
+		s, ok := issued[nodeID]
+		if !ok {
+			return nil // nothing was ever issued to that node here
+		}
+		n, ok := parseSerial(s)
+		if !ok {
+			return fmt.Errorf("%q is not a certificate serial", s)
+		}
+		if err := l.auth.Revoke(n); err != nil {
+			return err
+		}
+		serial = s
+		return nil
+	})
+	return serial, err
 }
 
 // RootPEM is the PUBLIC root this authority signs under - the only half that travels.
@@ -369,23 +436,15 @@ func (l *Local) loadIssued() (map[string]string, error) {
 	return out, err
 }
 
-// nodeHasRevokedSerial reports whether the certificate this authority last issued to a node stands
-// revoked. Unlocked; callers hold l.mu.
-func (l *Local) nodeHasRevokedSerial(nodeID string) bool {
+// issuedSerial returns the serial of the certificate this authority last issued to a node, unlocked.
+// Callers hold the authority lock.
+func (l *Local) issuedSerial(nodeID string) (string, bool) {
 	issued, err := l.loadIssued()
 	if err != nil {
-		return false
+		return "", false
 	}
 	serial, ok := issued[nodeID]
-	if !ok {
-		return false
-	}
-	for _, r := range l.auth.RevokedSerials() {
-		if r == serial {
-			return true
-		}
-	}
-	return false
+	return serial, ok
 }
 
 func (l *Local) recordIssued(nodeID, serial string) error {
