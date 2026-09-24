@@ -294,3 +294,29 @@ func TestForgetEvictsAUniqueKeyButKeepsAShared(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, allowed, hexEncode(sharedPub), "a key other machines still use is kept")
 }
+
+// Allow and Forget both read-modify-write the allow-list; they must be serialised so a concurrent
+// pair cannot lose an update and resurrect an evicted key (or drop a new one) (audit 2026-09-24).
+func TestAllowAndForgetAreSerialised(t *testing.T) {
+	_, local, _, _, _ := secFixture(t)
+	kPub, kPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.Allow(hexEncode(kPub)))
+	nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+	req := edgeauth.NewRequest(local.Account(), "m", "host", nodePub, time.Now())
+	req.Sign(kPriv)
+	_, err := local.Issue(req)
+	require.NoError(t, err)
+	nodeID := edgeauth.NodeID(nodePub)
+
+	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); _ = local.Allow(hexEncode(otherPub)) }()
+	go func() { defer wg.Done(); _, _ = local.Forget(nodeID) }()
+	wg.Wait()
+
+	// The concurrently-allowed key is present (its add was not lost).
+	allowed, err := local.Allowed()
+	require.NoError(t, err)
+	require.Contains(t, allowed, hexEncode(otherPub))
+}

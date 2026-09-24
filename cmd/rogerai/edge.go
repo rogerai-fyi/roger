@@ -1026,12 +1026,21 @@ func cmdEdgeForget(cfg config, args []string) error {
 				return nil
 			}
 		}
+		anyRevoked := false
 		for id := range ids {
-			if _, err := edgeRevokeOnForget(id); err != nil {
+			revoked, err := edgeRevokeOnForget(id)
+			if err != nil {
 				return err
 			}
+			if len(revoked) > 0 {
+				anyRevoked = true
+			}
 		}
-		fmt.Printf("forgot %s: its claim grant is cleared and any certificate it holds is revoked.\n", who)
+		if anyRevoked {
+			fmt.Printf("forgot %s: its claim grant is cleared and its certificate is revoked.\n", who)
+		} else {
+			fmt.Printf("forgot %s: its claim grant is cleared; the authority that issued its certificate must revoke it.\n", who)
+		}
 		return nil
 	}
 	if !argv.has("yes") {

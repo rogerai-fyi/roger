@@ -176,11 +176,19 @@ func (l *Local) Issue(r Request) (Response, error) {
 	}
 	var resp Response
 	err := l.withLock(func() error {
+		// Check the allow-list FIRST, before any revocation disk work, so the tombstone can never be a
+		// revocation oracle for a stranger and every refusal below is the SAME ErrUnknownMachine. Log
+		// each REFUSED attempt so the owner's request log answers "did that machine even ask" (a
+		// successful enrol is logged by iss.Issue itself) (audit 2026-09-24).
+		if _, ok := l.registry()(r.UserKey); !ok {
+			l.iss.record(r)
+			return ErrUnknownMachine
+		}
 		// A node whose earlier certificate stands REVOKED must not enroll a fresh one - the enrol
 		// path is the account-key-authorised sibling of Claim and needs the same tombstone, or a
 		// FORGOTTEN machine (its cert revoked, its account still valid) simply re-enrolls under the
-		// same node id and rejoins (audit 2026-09-24). The list is read from disk, fails CLOSED. The
-		// refusal is ErrUnknownMachine, the SAME as any other "no" - it does not reveal revocation.
+		// same node id and rejoins. The list is read from disk, fails CLOSED. The refusal is
+		// ErrUnknownMachine, the SAME as any other "no" - it does not reveal revocation.
 		revoked, err := l.revokedNow()
 		if err != nil {
 			return fmt.Errorf("could not read the revocation list, so no certificate was issued: %w", err)
@@ -191,6 +199,7 @@ func (l *Local) Issue(r Request) (Response, error) {
 		}
 		for _, srl := range serials {
 			if revoked[srl] {
+				l.iss.record(r)
 				return ErrUnknownMachine
 			}
 		}
@@ -256,16 +265,21 @@ func (l *Local) Account() string { return LocalAccount }
 
 // Allow adds a machine's user key to the list this authority will issue to.
 func (l *Local) Allow(userKeyHex string) error {
-	got, err := l.Allowed()
-	if err != nil {
-		return err
-	}
-	for _, k := range got {
-		if k == userKeyHex {
-			return nil
+	// Read-modify-write under the authority lock, so a concurrent forget->disallow cannot interleave
+	// and resurrect a just-evicted key (or drop this one) - a lost update on the allow-list is a
+	// fail-open (audit 2026-09-24).
+	return l.withLock(func() error {
+		got, err := l.readJSON2Allowed()
+		if err != nil {
+			return err
 		}
-	}
-	return l.writeJSON(AllowFile, append(got, userKeyHex))
+		for _, k := range got {
+			if k == userKeyHex {
+				return nil
+			}
+		}
+		return l.writeJSON(AllowFile, append(got, userKeyHex))
+	})
 }
 
 // Allowed lists the user keys this authority will issue to.
@@ -609,6 +623,10 @@ func (l *Local) dropEnrolledBy(nodeID string) error {
 	}
 	key, had := m[nodeID]
 	if !had {
+		// No record of which key enrolled this node (it enrolled before this record existed, or it
+		// joined by CLAIM which uses no user key). We cannot know which key to evict, so we leave the
+		// allow-list untouched; the node's certificate is still revoked. The owner can `roger edge
+		// authority` to review allowed keys. A residual, documented rather than guessed (audit 2026-09-24).
 		return nil
 	}
 	delete(m, nodeID)

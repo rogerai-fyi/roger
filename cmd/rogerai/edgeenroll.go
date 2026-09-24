@@ -627,7 +627,7 @@ func edgeAllow(userKey string) error {
 func edgeRevokeOnForget(nodeID string) ([]string, error) {
 	st := edgeIdentityStore()
 	now := time.Now()
-	var serials []string
+	var authorityRevoked []string // what THIS machine, as the authority, actually revoked
 
 	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
@@ -645,7 +645,7 @@ func edgeRevokeOnForget(nodeID string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not forget %s from the authority: %w", edgeShortID(nodeID), err)
 		}
-		serials = revoked
+		authorityRevoked = revoked
 	}
 	// The node being forgotten may be THIS machine, in which case its certificate is
 	// right here and leaving the Edge means giving it up.
@@ -653,9 +653,13 @@ func edgeRevokeOnForget(nodeID string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeShortID(nodeID), err)
 	}
+	toRecord := append([]string{}, authorityRevoked...)
 	if ok && held.NodeID == nodeID {
-		if len(serials) == 0 {
-			serials = append(serials, held.Cert.SerialNumber.String())
+		// Forgetting THIS machine's own identity: give it up, and record its serial in this machine's
+		// own trust store. That is LOCAL bookkeeping, not an authority revocation, so it is not
+		// counted as "revoked" for the caller's message.
+		if len(toRecord) == 0 {
+			toRecord = append(toRecord, held.Cert.SerialNumber.String())
 		}
 		if err := st.ForgetIdentity(); err != nil {
 			return nil, err
@@ -663,12 +667,14 @@ func edgeRevokeOnForget(nodeID string) ([]string, error) {
 	}
 	// Record every revoked serial in THIS machine's own trust store too, so its verification refuses
 	// them at once rather than at the next refresh.
-	for _, s := range serials {
+	for _, s := range toRecord {
 		if err := st.Revoke(s, now); err != nil {
 			return nil, err
 		}
 	}
-	return serials, nil
+	// Return ONLY what the authority actually revoked, so the caller's message does not claim a
+	// revocation this machine could not perform (audit 2026-09-24).
+	return authorityRevoked, nil
 }
 
 // edgeTrustNote is the line a fleet view prints when this machine's revocation list has
