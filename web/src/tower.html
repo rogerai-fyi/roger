@@ -17,7 +17,7 @@
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 towercurrent='aria-current="page"' -->
 
-  <main id="top">
+  <main id="top" data-lift>
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
@@ -25,23 +25,41 @@
           <span class="hero__callsign">THE TOWER</span>
         </span>
         <h1>Every station dials the tower. The tower never dials a station.</h1>
-        <p class="research-hero__lead" style="margin-top:12px"><b>And the tower is a program you can run:</b> keep 5% of everything you carry on the public band, or run one standalone as your own free private network. <a href="/broadcasts-run-a-tower.html">Raise one &rarr;</a> &middot; <a href="/pricing.html#why">Why this network &rarr;</a></p>
+        <p class="research-hero__lead tower__kicker"><b>And the tower is a program you can run:</b> keep 5% of everything you carry on the public band, or run one standalone as your own free private network. <a href="/broadcasts-run-a-tower.html">Raise one &rarr;</a> &middot; <a href="/pricing.html#why">Why this network &rarr;</a></p>
         <p class="research-hero__lead">
           One endpoint in front of machines nobody controls centrally. The tower decides
           which station takes your request, counts what it actually used, and co-signs a
           receipt that neither side can forge alone. In the API, the manual and the source
           it is called the <b>broker</b> - same thing, older name.
         </p>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="#run">Become a Tower <span aria-hidden="true">&darr;</span></a>
-          <a class="research-button" href="/manual.html#sTower">The Tower runbook</a>
+          <a class="research-button research-button--quiet" href="/manual.html#sTower">The Tower runbook</a>
         </div>
       </div>
     </section>
 
+    <!-- The page's contents as the homepage's tuning scale (components.css .toc-tuner).
+         Each station reads its section's own label. Never pinned. -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#path"><b>&sect;1</b><span class="toc-tuner__name">THE SIGNAL PATH</span></a></li>
+        <li><a class="toc-tuner__st" href="#patch"><b>&sect;2</b><span class="toc-tuner__name">THE PATCH</span></a></li>
+        <li><a class="toc-tuner__st" href="#tape"><b>&sect;3</b><span class="toc-tuner__name">THE TAPE</span></a></li>
+        <li><a class="toc-tuner__st" href="#run"><b>&sect;4</b><span class="toc-tuner__name">RUN ONE</span></a></li>
+        <li><a class="toc-tuner__st" href="#back"><b>&sect;5</b><span class="toc-tuner__name">WHAT YOU GET BACK</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <!-- INK PANEL: the page's moment, the two instruments (components.css .tone-zone). -->
+    <div class="tone-zone" data-tone="ink">
     <section class="section" id="path">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;1 / THE SIGNAL PATH</span>
           <h2>Three hops, and only one of them opens a port.</h2>
           <p>Before the routing and the receipts, the shape: where a request goes, what
@@ -105,7 +123,7 @@
 
     <section class="section" id="patch">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;2 / THE PATCH</span>
           <h2>Choosing a station is a score, not a queue.</h2>
           <p>Every station on air is scored for your request, and the score is divided by
@@ -177,9 +195,11 @@
       </div>
     </section>
 
+    </div><!-- /tone-zone -->
+
     <section class="section research-tone" id="tape">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;3 / THE TAPE</span>
           <h2>A station cannot profit from misreporting the bill.</h2>
           <p>Every served request produces a receipt signed by the station that served it
@@ -250,7 +270,7 @@
          printing a number that a deployment can change underneath it. -->
     <section class="section" id="run">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect;4 / RUN ONE</span>
           <h2>The tower is a program. You can run one.</h2>
           <p>A Tower carries work between the people asking and the machines answering. It
@@ -306,9 +326,9 @@
            <a href="/manual.html#sTower">runbook</a> has the commands, and two commented
            example configurations ship in the repository under <code class="inline">packaging/tower/</code>.</p>
 
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="/manual.html#sTower">The Tower runbook</a>
-          <a class="research-button" href="/payouts.html">Payouts</a>
+          <a class="research-button research-button--quiet" href="/payouts.html">Payouts</a>
         </div>
       </div>
     </section>
@@ -319,7 +339,7 @@
          true is that the evidence leaves with the work - the co-signed receipt rides back
          on the response header - so that is what this section claims, and no more. The
          relay caveat stays, because the page must not imply a privacy property it lacks. -->
-    <section class="section research-closing">
+    <section class="section research-closing" id="back">
       <div class="wrap">
         <span class="sectionno">&sect;5 / WHAT YOU GET BACK</span>
         <h2>The receipt leaves with the work.</h2>
@@ -330,10 +350,10 @@
            signatures. The same records show up on your usage page, and the station&rsquo;s
            signature is verified before anything settles - that check runs on every
            request, not at audit time.</p>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="/usage.html">Your usage and receipts</a>
-          <a class="research-button" href="/manual.html#s10">Lineage in the manual</a>
-          <a class="research-button" href="/privacy.html">Privacy policy</a>
+          <a class="research-button research-button--quiet" href="/manual.html#s10">Lineage in the manual</a>
+          <a class="research-button research-button--quiet" href="/privacy.html">Privacy policy</a>
         </div>
       </div>
     </section>

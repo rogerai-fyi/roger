@@ -538,7 +538,10 @@
     }
     var tps = b.live && b.tps ? '<b class="mono">' + Math.round(b.tps) + '</b><span class="band-unit"> t/s</span>'
                               : '<span class="band-unit--idle">-</span>';
-    var stn = b.live ? '<b class="mono">' + b.providers + '</b>' : '<span class="band-unit--idle">0</span>';
+    // a curated-only band has no human station: show its curated count with the curated
+    // sign rather than a bare 0 (the QSL subline already hides the zero)
+    var stn = !b.live ? '<span class="band-unit--idle">0</span>'
+      : (!b.providers && b.curated ? '<b class="mono">&raquo; ' + b.curated + '</b>' : '<b class="mono">' + b.providers + '</b>');
     var stat = b.live
       ? '<span class="band-stat band-stat--on">◉ on air</span>'
       : '<span class="band-stat band-stat--off">○ idle</span>';
@@ -619,6 +622,16 @@
       li.dataset.band = b.model;
       li.style.setProperty("--i", i);
       listEl.appendChild(li);
+    });
+    markTuned();
+  }
+
+  // The band the dial is locked on wears the red needle in the directory too.
+  var tunedModel = "";
+  function markTuned() {
+    if (!listEl) return;
+    Array.prototype.forEach.call(listEl.querySelectorAll(".band-row"), function (li) {
+      li.classList.toggle("is-tuned", !!tunedModel && li.dataset.band === tunedModel);
     });
   }
 
@@ -736,6 +749,8 @@
   }
   function dialReadout(b) {
     if (!hasDial || !b) return;
+    tunedModel = b.model;
+    markTuned();
     if (lockedEl) lockedEl.innerHTML = (b.live ? "LOCKED · " : "OFFLINE · ") + "<b>" + esc(b.model) + "</b>";
     if (sigEl) sigEl.innerHTML = "SIGNAL <b>" + (b.live ? b.signal : "--") + "</b>/100";
     if (chipEl) chipEl.innerHTML =

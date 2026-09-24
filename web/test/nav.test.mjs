@@ -412,7 +412,7 @@ test("each group's page offers every destination in that group's panel", () => {
     // top, the way the research hero already offered its actions. Buried in prose or in an
     // onward row a screen down, a reader does not find them - which is exactly what
     // happened, and is why this asserts the hero action cluster specifically.
-    const hero = html.match(/<div class="research-actions"[^>]*>[\s\S]*?<\/div>/)?.[0];
+    const hero = html.match(/<div class="research-actions(?: research-actions--[\w-]+)?"[^>]*>[\s\S]*?<\/div>/)?.[0];
     assert.ok(hero, `${parent} carries a hero action row`);
     for (const dest of dests) {
       if (dest === parent) continue; // the parent is where we already are

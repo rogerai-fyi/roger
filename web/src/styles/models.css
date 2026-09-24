@@ -18,7 +18,7 @@
 /* the instrument plate, centered in the wide band but allowed to breathe */
 .dial {
   display: block; margin: 0 auto var(--s-6); max-width: 1180px; width: 100%;
-  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  border: 1px solid var(--hairline); border-radius: var(--r-xl); overflow: hidden;
   background: var(--paper);
   outline: none; cursor: ew-resize; touch-action: pan-y;
   position: relative;
@@ -98,7 +98,7 @@
   font-variant-numeric: tabular-nums slashed-zero;
 }
 .dial__chip b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.dial__chip .meter__k { margin-right: 4px; color: var(--ink-400); }
+.dial__chip .meter__k { margin-right: 4px; color: var(--ink-500); }
 .dial__ver { color: var(--ink-900); font-weight: var(--weight-semi); margin-left: 2px; }
 .dial__tee { margin-left: 2px; }
 .dial__cue { font-size: 0.68rem; color: var(--ink-400); letter-spacing: 0; }
@@ -143,13 +143,13 @@
      offset right of the fixed spine, so a 100vw/-50vw bleed overshot the
      right edge by the spine width and made the page scroll sideways. The
      spine covers the left edge either way, so the visible band is unchanged. */
-  width: 100%; max-width: 100%;
-  margin-left: 0; margin-right: 0;
-  margin-top: var(--s-8); margin-bottom: 0;
-  padding-inline: var(--gutter);
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-  background: linear-gradient(var(--paper-2), var(--paper-2)) padding-box;
+  /* an inset tinted panel (the homepage's panel geometry), not a ruled band */
+  width: auto; max-width: none;
+  /* the ink panel's side margin: 64px outside the text column, never under --panel-inset */
+  margin: var(--s-8) max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px)) 0;
+  padding: 1px var(--gutter);
+  border-radius: var(--panel-r);
+  background: var(--paper-2);
 }
 .dialwrap__fig { display: block; max-width: var(--maxw); margin: var(--s-5) auto var(--s-3); }
 .dialwrap .dial { margin: 0 auto var(--s-6); max-width: 1180px; }
@@ -196,7 +196,7 @@
 .tuner__chip.is-on .cs { color: var(--live); }
 
 /* ---------- directory panel + table ---------------------------- */
-.bands-panel { border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900); background: var(--paper); }
+.bands-panel { border: 1px solid var(--hairline); border-radius: var(--panel-r); overflow: hidden; background: var(--paper); }
 .bands-panel__bar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
   padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--paper-2);
@@ -230,6 +230,7 @@
 .band-row { cursor: pointer; transition: background var(--d-1); }
 .band-row:last-child { border-bottom: 0; }
 .band-row:hover { background: var(--paper-2); }
+.band-row.is-tuned { box-shadow: inset 3px 0 0 var(--live); }
 .band-row:focus-visible { outline: none; background: var(--live-tint); box-shadow: inset 2px 0 0 var(--live); }
 .band-row--idle { opacity: .66; }
 .band-cell { min-width: 0; }
