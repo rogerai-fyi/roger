@@ -114,10 +114,15 @@ test("without JS the ladder is the complete static list; with JS every tier stay
 
 // ---- 3. hardware-button feedback ----
 test("buttons press like hardware and the copy icon becomes a tick while copied", () => {
+  // The press and the copy tick are shared components (components.css, on every
+  // page); the homepage's own pressables stay in home.css. Both halves are pinned.
+  const shared = dist("styles/components.css");
+  assert.match(shared, /:is\(\.install__box, \.research-button\):active\s*\{[^}]*transform:\s*translateY\(1px\)/);
+  assert.match(shared, /\.install__box\.is-copied \.install__copy svg\s*\{[^}]*opacity:\s*0/);
+  assert.match(shared, /\.install__box\.is-copied \.install__copy(:has\(svg\))?::after\s*\{[^}]*content:/);
+  assert.match(shared, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*:active\s*\{[^}]*transform:\s*none/);
   const css = dist("styles/home.css");
-  assert.match(css, /:is\(\.install__box, \.company__primary, \.tuner a\):active\s*\{[^}]*transform:\s*translateY\(1px\)/);
-  assert.match(css, /\.install__box\.is-copied \.install__copy svg\s*\{[^}]*opacity:\s*0/);
-  assert.match(css, /\.install__box\.is-copied \.install__copy::after\s*\{[^}]*content:/);
+  assert.match(css, /:is\(\.company__primary, \.tuner a\):active\s*\{[^}]*transform:\s*translateY\(1px\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*:active\s*\{[^}]*transform:\s*none/);
 });
 

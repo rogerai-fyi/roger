@@ -71,52 +71,6 @@
 .hero__proof b { color: var(--ink-900); }
 .hero__proof:hover, .hero__proof:focus-visible { color: var(--live); }
 
-/* FIG. 1 as a framed instrument panel: a raised faceplate inside a paper
-   bezel, the FIG. label as its header strip with the on-air dot. The frame
-   is what makes the download read as THE thing to do on the page, not a
-   caption floating in the margin. Homepage only (models' QSL keeps the
-   plain .install). */
-.install[data-frame="panel"] {
-  --panel-pad: clamp(16px, 2.2vw, 24px);
-  position: relative;
-  max-width: none;
-  gap: var(--s-4);
-  padding: var(--panel-pad);
-  background: var(--white);
-  border: 1px solid var(--hairline-2);
-  border-radius: var(--r-xl);
-  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4);
-  transition: box-shadow var(--d-3) var(--ease-out-quint);
-}
-.install[data-frame="panel"]:hover,
-.install[data-frame="panel"]:focus-within {
-  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4),
-              0 0 48px -8px var(--live-glow);
-}
-.hero__inner .install[data-frame="panel"] .fig {
-  display: flex; align-items: center; gap: var(--s-2);
-  align-self: stretch;
-  margin: 0 calc(var(--panel-pad) * -1);
-  padding: 0 var(--panel-pad) var(--s-3);
-  border-bottom: 1px solid var(--hairline);
-  color: var(--ink-500);
-}
-.install[data-frame="panel"] .fig::before {
-  content: ""; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-  background: var(--live); box-shadow: 0 0 0 3px var(--live-wash);
-}
-.install[data-frame="panel"] .install__box { background: var(--paper); gap: 10px; padding: 14px 12px 14px 14px; }
-/* in the panel the command WRAPS (at its spaces) rather than truncating: the
-   column is narrower than the line, and " | sh" is the part a reader must see. */
-.install[data-frame="panel"] .install__code { white-space: normal; }
-.install[data-frame="panel"] .install__meta { gap: var(--s-2) var(--s-4); }
-/* phones: the URL is one unbreakable token, so the panel gives its width back
-   (tighter padding) rather than ellipsis-cutting it. */
-@media (max-width: 560px) {
-  .install[data-frame="panel"] { --panel-pad: 14px; }
-  .install[data-frame="panel"] .install__box { padding: 12px 8px 12px 12px; }
-}
-
 /* The hero shares the page's content box (the nav's, every section's) on
    both sides, at every width. .hero__head (eyebrow + headline) spans it;
    from 1100px .hero__copy and .hero__tools sit side by side beneath, so
@@ -813,28 +767,6 @@ main > section { overflow-x: clip; }
 /* Bands are a translucent wash of the local ink rather than solid paper-2:
    the same tone on paper, and inside an ink panel the band stays ink. */
 main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
-/* ---- the ink panels (round 8) --------------------------------------------
-   The cover, §1-§2 (the console, the band) and §7-§9 (monetize, privacy, go)
-   sit in ink panels on the paper page: inset from the page edge, rounded,
-   still. A panel carries the site's ink tokens (tokens.css), so everything
-   in it re-themes as it does in dark mode (one step deeper on a dark site). */
-/* a panel's side margin is tied to the page's content box: it sits 64px
-   outside the text column on both sides (so every panel frames the content
-   the same way, whatever the spine), and never closer than --panel-inset to
-   the edge on small screens */
-.tone-zone {
-  --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
-}
-.tone-zone {
-  position: relative;
-  overflow: clip;
-  margin: var(--panel-inset) var(--panel-mx);
-  border-radius: var(--panel-r);
-  color: var(--ink-700);
-  background: var(--paper);
-}
-
-
 /* the market price cell: the "$" tier never splits, and the "good price"
    chip always sits whole on its own line under the price */
 .mkt-cell--price .price-tier { white-space: nowrap; }
@@ -1046,9 +978,6 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
 .cta p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
 /* the install lead names the binary; the one bolded phrase steps up to headline ink. */
 .cta p b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.install__box--lg { margin-top: var(--s-8); padding: 18px 20px; }
-.install__box--lg .install__code { font-size: 1.05rem; }
-@media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }
 
 /* ---------- two surfaces (dial / console) ---------------------- */
 /* The CTA is left-aligned and column-flowed, so these inherit that axis rather than
@@ -1682,17 +1611,12 @@ html.js .mkt-quiet--nojs { display: none; }
 .home-spectrum li.is-tuned i { color: var(--live) !important; }   /* over the tune-in animation's fill */
 .home-spectrum li.is-tuned b { color: var(--ink-900); }
 
-/* ---- hardware-button feedback (round 10): press down; the copy icon turns
-   into a tick while site.js shows "copied" (.is-copied) */
-:is(.install__box, .company__primary, .tuner a):active { transform: translateY(1px); }
-.install__box.is-copied .install__copy svg { opacity: 0; }
-.install__box.is-copied .install__copy::after {
-  content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); color: var(--live);
-}
-.install__copy { position: relative; }
+/* ---- hardware-button feedback (round 10): the homepage's own pressables
+   (the shared ones, and the copy tick, are in components.css) */
+:is(.company__primary, .tuner a):active { transform: translateY(1px); }
 @media (prefers-reduced-motion: reduce) {
   .tuner__needle { transition: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(.install__box, .company__primary, .tuner a):active { transform: none; }
+  :is(.company__primary, .tuner a):active { transform: none; }
 }

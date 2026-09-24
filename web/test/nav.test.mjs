@@ -452,11 +452,11 @@ test("the section action buttons are styled on every page that uses them", () =>
   const pages = readdirSync(SRC).filter((f) => f.endsWith(".html") && src(f).includes("research-actions"));
   assert.ok(pages.length >= 5, `the row is shared, found it on ${pages.length} pages`);
   // Whatever sheet defines it must be one every one of those pages actually loads.
-  const base = src("styles/base.css");
-  assert.match(base, /\.research-button \{/, "the component is in the always-loaded sheet");
+  const shared = src("styles/components.css");
+  assert.match(shared, /\.research-button \{/, "the component is in the always-loaded component sheet");
   for (const p of pages) {
     const built = readDist(p);
-    assert.match(built, /styles\/base\.css|<style/, `${p} loads the shared chrome`);
+    assert.match(built, /styles\/components\.css/, `${p} loads the shared components`);
   }
 });
 

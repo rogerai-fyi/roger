@@ -59,7 +59,8 @@ test("zone text stays AA (4.5:1) on the zone ground, ink-900 to ink-400, light a
 });
 
 test("zones re-derive their own text colour and ground from the ink tokens", () => {
-  const home = read("styles/home.css");
+  // the ink panel is a shared component (components.css, loaded on every page)
+  const home = read("styles/components.css");
   assert.match(home, /\.tone-zone\s*\{[^}]*color:\s*var\(--ink-700\)[^}]*background:\s*var\(--paper\)/s);
 });
 
@@ -67,7 +68,8 @@ test("zones re-derive their own text colour and ground from the ink tokens", () 
 // keep it simple and more subtle and more cool"): the ink zones stay, as calm
 // inset panels on the paper page. No LED field, no red bloom, no door.
 test("zones are calm inset panels: rounded, inset from the page edge, nothing animated on them", () => {
-  const home = read("styles/home.css");
+  // the panel is defined in components.css; neither it nor the homepage may dress it up
+  const home = read("styles/components.css") + read("styles/home.css");
   const zone = home.match(/\.tone-zone\s*\{([^}]*margin[^}]*)\}/)?.[1] || "";
   assert.match(zone, /margin:[^;]*var\(--panel-inset\)/, "inset from the page edge");
   assert.match(zone, /border-radius:\s*var\(--panel-r\)/, "rounded");

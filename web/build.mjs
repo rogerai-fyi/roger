@@ -31,14 +31,15 @@ const MAX_DEPTH = 12;
 
 // Per-page stylesheet manifest. Each page links exactly these CSS modules, in
 // order, so editing one page's styles never touches a file another page needs.
-// tokens.css (design tokens) + base.css (shared chrome) lead EVERY page; account
-// pages then load account-base.css before their own account module. The order
-// matches the original site.css / auth.css source cascade, so the rendered
-// cascade is byte-for-byte unchanged from the old monolithic files. The
-// head.html `<!-- css-bundle -->` marker is expanded into one <link> per entry
-// below (see emitCssBundle). Keep this in sync when adding a page.
-const CSS_MARKETING = ["tokens.css", "base.css"];                   // shared lead, marketing
-const CSS_ACCOUNT = ["tokens.css", "base.css", "account-base.css"]; // shared lead, account
+// The shared lead is the design system's three layers, on EVERY page and in this
+// order: tokens.css (design tokens) -> base.css (reset, typesetting, site chrome) ->
+// components.css (the shared components; see DESIGN-SYSTEM.md). Account pages then
+// load account-base.css before their own account module. The head.html
+// `<!-- css-bundle -->` marker is expanded into one <link> per entry below (see
+// emitCssBundle). Keep this in sync when adding a page.
+const CSS_SHARED = ["tokens.css", "base.css", "components.css"];
+const CSS_MARKETING = CSS_SHARED;                                   // shared lead, marketing
+const CSS_ACCOUNT = [...CSS_SHARED, "account-base.css"];            // shared lead, account
 const CSS_BUNDLES = {
   // marketing pages
   "index.html":     [...CSS_MARKETING, "home.css"],

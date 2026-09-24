@@ -104,8 +104,9 @@ test("(c) hero content and the framed download panel are in the HTML without Jav
     assert.ok(tag, `${marker} is present`);
     assert.doesNotMatch(tag, /\b(data-reveal|hidden)\b/, `${marker} is not hidden before JS`);
   }
+  // the framed panel is a shared component (components.css); the lift motion is home.css
+  assert.match(read("styles/components.css"), /\.install\[data-frame="panel"\]\s*\{[^}]*border:/, "the panel is framed");
   const css = read("styles/home.css");
-  assert.match(css, /\.install\[data-frame="panel"\]\s*\{[^}]*border:/, "the panel is framed");
   const lift = mediaBlocks(css, /prefers-reduced-motion:\s*no-preference/).map((b) => b.body).join("\n");
   assert.doesNotMatch(lift, /html\.js/, "no lift motion depends on the JS class");
 });

@@ -1,0 +1,191 @@
+/* =====================================================================
+   RogerAI - components.css : the shared COMPONENT layer (every page).
+
+   Layer order on every page: tokens.css -> base.css -> components.css ->
+   (account-base.css) -> the page's own sheet. A component here has a
+   markup contract (see web/DESIGN-SYSTEM.md): use the class names and
+   data- hooks as documented and the page gets the look and the behaviour
+   with no page CSS. Page sheets may place a component (margins, grid
+   slots) in their own context, but never redefine it: a bare component
+   selector outside this file fails test/design-system.test.mjs.
+   Every color and size is a token; motion is opt-in under
+   prefers-reduced-motion: no-preference or switched off under reduce.
+   ===================================================================== */
+
+/* ============================ SECTIONS ========================= */
+.section { padding-block: var(--section-y); position: relative; }
+.band { background: var(--paper-2); border-block: 1px solid var(--hairline); }
+.section__head { max-width: 62ch; margin: 0 0 var(--head-gap); text-align: left; }
+/* left-set heads for the document-style sections (spec, notes) */
+.section__head--left { text-align: left; margin-left: 0; margin-right: auto; }
+.section__head h2, .demo__head h2 { margin: 0; }
+.section h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+  font-weight: var(--weight-bold); line-height: var(--lh-snug); }
+.section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
+
+/* ============================ BUTTONS ========================== */
+/* ---------- section action buttons -------------------------------------------
+   The hero action row is how every top-level page offers the rest of its own section,
+   so it is now on eight pages and belongs in the shared sheet. It lived in research.css,
+   which models.html does not load - putting the row on that page rendered four unstyled
+   links. Kept under its original names so no page markup had to change. */
+.research-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-8); }
+.research-button {
+  /* inline-flex drops the whitespace between a text node and a trailing
+     <span>, so a button written `Become a Tower <span>&darr;</span>` rendered
+     as "TOWERv". gap restores it; buttons with a single text node have one
+     flex item and are unaffected. */
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border: 1px solid var(--hairline-2);
+  color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live); }
+.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
+.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
+
+/* ============================ CALLOUT ========================== */
+/* a boxed operating note / caution (shared: manual / keys) */
+/* a boxed operating note / caution (the manual's margin call-outs) */
+.man-note {
+  margin-top: var(--s-5); padding: 14px 16px; border-radius: var(--r-md);
+  border: 1px solid var(--hairline-2); border-left: 3px solid var(--volt);
+  background: var(--volt-tint); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6;
+}
+.man-note--live { border-left-color: var(--live); background: var(--live-tint); }
+.man-note--ember { border-left-color: var(--ember); background: var(--ember-tint); }
+.man-note__tag { display: block; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-500); margin-bottom: 4px; }
+
+/* ======================= INSTALL / COMMAND PILL ================= */
+/* the install command box (shared: home hero / models QSL) */
+/* ---------- THE install command (the hero object) -------------- */
+.install { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); max-width: 640px; width: 100%; }
+.install .fig { margin-bottom: 2px; }
+/* the noun the command downloads, stated before the command. Secondary ink so
+   the box stays the hero object; the one bolded phrase carries the claim. */
+.install__lead { margin: 0; max-width: 58ch; color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body); }
+.install__lead b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.install__box {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px 16px; border-radius: var(--r-xs);
+  background: var(--white); border: 1px solid var(--hairline-2);
+  box-shadow: none; text-align: left;
+  transition: border-color var(--d-2);
+  max-width: 100%;
+}
+.install__box:hover { border-color: var(--live); }
+.install__box:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.install__prompt { color: var(--live); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
+.install__code {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 1rem; color: var(--ink-900); letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.install__copy {
+  display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0;
+  color: var(--ink-400);
+  transition: color var(--d-2);
+}
+.install__box:hover .install__copy { color: var(--live); }
+.install__box.is-copied .install__copy { color: var(--live); }
+.install__meta { display: flex; gap: var(--s-4); align-items: center; flex-wrap: wrap; justify-content: flex-start;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); }
+.install__alt { color: var(--ink-500); font-weight: var(--weight-medium); }
+.install__alt:hover { color: var(--live); }
+
+/* the PowerShell one-liner moves to its own line whole, never split mid-URL */
+[data-alt-note] .inline { display: inline-block; white-space: nowrap; }
+@media (max-width: 560px) {
+  /* .75rem: the unbreakable URL and " | sh" share one line under "curl -fsSL" */
+  .install__code { font-size: .75rem; white-space: normal; }
+  .install__box { gap: 8px; padding: 12px 12px 12px 14px; }
+}
+
+/* size step for a closing call to action (homepage §9, the Tower page) */
+.install__box--lg { margin-top: var(--s-8); padding: 18px 20px; }
+.install__box--lg .install__code { font-size: 1.05rem; }
+@media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }
+
+/* ======================= FRAMED INSTRUMENT PANEL ================ */
+/* FIG. 1 as a framed instrument panel: a raised faceplate inside a paper
+   bezel, the FIG. label as its header strip with the on-air dot. The frame
+   is what makes the download read as THE thing to do on the page, not a
+   caption floating in the margin. Opt-in by data-frame="panel" on .install
+   (the homepage FIG. 1); a plain .install stays unframed. */
+.install[data-frame="panel"] {
+  --panel-pad: clamp(16px, 2.2vw, 24px);
+  position: relative;
+  max-width: none;
+  gap: var(--s-4);
+  padding: var(--panel-pad);
+  background: var(--white);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-xl);
+  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4);
+  transition: box-shadow var(--d-3) var(--ease-out-quint);
+}
+.install[data-frame="panel"]:hover,
+.install[data-frame="panel"]:focus-within {
+  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4),
+              0 0 48px -8px var(--live-glow);
+}
+.install[data-frame="panel"] > .fig {
+  display: flex; align-items: center; gap: var(--s-2);
+  align-self: stretch;
+  margin: 0 calc(var(--panel-pad) * -1);
+  padding: 0 var(--panel-pad) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-500);
+}
+.install[data-frame="panel"] .fig::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--live); box-shadow: 0 0 0 3px var(--live-wash);
+}
+.install[data-frame="panel"] .install__box { background: var(--paper); gap: 10px; padding: 14px 12px 14px 14px; }
+/* in the panel the command WRAPS (at its spaces) rather than truncating: the
+   column is narrower than the line, and " | sh" is the part a reader must see. */
+.install[data-frame="panel"] .install__code { white-space: normal; }
+.install[data-frame="panel"] .install__meta { gap: var(--s-2) var(--s-4); }
+/* phones: the URL is one unbreakable token, so the panel gives its width back
+   (tighter padding) rather than ellipsis-cutting it. */
+@media (max-width: 560px) {
+  .install[data-frame="panel"] { --panel-pad: 14px; }
+  .install[data-frame="panel"] .install__box { padding: 12px 8px 12px 12px; }
+}
+
+/* ============================ INK PANEL ======================== */
+/* ---- the ink panels (round 8) --------------------------------------------
+   <div class="tone-zone" data-tone="ink"> ... <!-- /tone-zone -->
+   An ink panel on the paper page: inset from the page edge, rounded, still
+   (the homepage cover, §1-§2 and §7-§9). A panel carries the site's ink tokens (tokens.css), so everything
+   in it re-themes as it does in dark mode (one step deeper on a dark site). */
+/* a panel's side margin is tied to the page's content box: it sits 64px
+   outside the text column on both sides (so every panel frames the content
+   the same way, whatever the spine), and never closer than --panel-inset to
+   the edge on small screens */
+.tone-zone {
+  --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
+}
+.tone-zone {
+  position: relative;
+  overflow: clip;
+  margin: var(--panel-inset) var(--panel-mx);
+  border-radius: var(--panel-r);
+  color: var(--ink-700);
+  background: var(--paper);
+}
+
+/* ======================= PRESS + COPY TICK ===================== */
+/* hardware-button feedback: a pressable sinks 1px while held; a copy button
+   with an icon swaps the icon for a tick while site.js marks it .is-copied */
+:is(.install__box, .research-button):active { transform: translateY(1px); }
+.install__copy { position: relative; }
+.install__box.is-copied .install__copy svg { opacity: 0; }
+.install__box.is-copied .install__copy:has(svg)::after {
+  content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); color: var(--live);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.install__box, .research-button):active { transform: none; }
+}

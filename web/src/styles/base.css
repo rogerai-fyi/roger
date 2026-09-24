@@ -567,64 +567,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   .ping__wave { opacity: .3; }
 }
 
-/* the install command box (shared: home hero / models QSL) */
-/* ---------- THE install command (the hero object) -------------- */
-.install { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); max-width: 640px; width: 100%; }
-.install .fig { margin-bottom: 2px; }
-/* the noun the command downloads, stated before the command. Secondary ink so
-   the box stays the hero object; the one bolded phrase carries the claim. */
-.install__lead { margin: 0; max-width: 58ch; color: var(--ink-500);
-  font-size: var(--t-sm); line-height: var(--lh-body); }
-.install__lead b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.install__box {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 14px 16px; border-radius: var(--r-xs);
-  background: var(--white); border: 1px solid var(--hairline-2);
-  box-shadow: none; text-align: left;
-  transition: border-color var(--d-2);
-  max-width: 100%;
-}
-.install__box:hover { border-color: var(--live); }
-.install__box:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
-.install__prompt { color: var(--live); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
-.install__code {
-  flex: 1 1 auto;
-  font-family: var(--font-mono);
-  font-size: 1rem; color: var(--ink-900); letter-spacing: -.01em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.install__copy {
-  display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0;
-  color: var(--ink-400);
-  transition: color var(--d-2);
-}
-.install__box:hover .install__copy { color: var(--live); }
-.install__box.is-copied .install__copy { color: var(--live); }
-.install__meta { display: flex; gap: var(--s-4); align-items: center; flex-wrap: wrap; justify-content: flex-start;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); }
-.install__alt { color: var(--ink-500); font-weight: var(--weight-medium); }
-.install__alt:hover { color: var(--live); }
-
-/* the PowerShell one-liner moves to its own line whole, never split mid-URL */
-[data-alt-note] .inline { display: inline-block; white-space: nowrap; }
-@media (max-width: 560px) {
-  /* .75rem: the unbreakable URL and " | sh" share one line under "curl -fsSL" */
-  .install__code { font-size: .75rem; white-space: normal; }
-  .install__box { gap: 8px; padding: 12px 12px 12px 14px; }
-}
-
-/* ===================== generic sections ======================= */
-.section { padding-block: var(--section-y); position: relative; }
-.band { background: var(--paper-2); border-block: 1px solid var(--hairline); }
-.section__head { max-width: 62ch; margin: 0 0 var(--head-gap); text-align: left; }
-/* left-set heads for the document-style sections (spec, notes) */
-.section__head--left { text-align: left; margin-left: 0; margin-right: auto; }
-.section__head h2, .demo__head h2 { margin: 0; }
-.section h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
-  font-weight: var(--weight-bold); line-height: var(--lh-snug); }
-.section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
-
-
 /* the market refresh control + foot (shared: home market / models dial) */
 .market__refresh {
   font-size: var(--t-xs); color: var(--ink-400); font-family: var(--font-mono);
@@ -721,17 +663,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 @keyframes heroDot { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
 @media (prefers-reduced-motion: reduce) { .hero__dot { animation: none; opacity: 1; } }
 
-
-/* a boxed operating note / caution (shared: manual / keys) */
-/* a boxed operating note / caution (the manual's margin call-outs) */
-.man-note {
-  margin-top: var(--s-5); padding: 14px 16px; border-radius: var(--r-md);
-  border: 1px solid var(--hairline-2); border-left: 3px solid var(--volt);
-  background: var(--volt-tint); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6;
-}
-.man-note--live { border-left-color: var(--live); background: var(--live-tint); }
-.man-note--ember { border-left-color: var(--ember); background: var(--ember-tint); }
-.man-note__tag { display: block; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-500); margin-bottom: 4px; }
 
 /* footer colophon micro-line (homepage foundation layer) */
 .footer__colophon {
@@ -1018,26 +949,6 @@ li > a:not([class]):focus-visible,
 .dir-sibling > span:first-child { color: var(--ink-400); }
 .dir-sibling a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); padding-bottom: 1px; }
 .dir-sibling a:hover, .dir-sibling a:focus-visible { color: var(--ink-900); border-bottom-color: var(--live); }
-
-/* ---------- section action buttons -------------------------------------------
-   The hero action row is how every top-level page offers the rest of its own section,
-   so it is now on eight pages and belongs in the shared sheet. It lived in research.css,
-   which models.html does not load - putting the row on that page rendered four unstyled
-   links. Kept under its original names so no page markup had to change. */
-.research-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-8); }
-.research-button {
-  /* inline-flex drops the whitespace between a text node and a trailing
-     <span>, so a button written `Become a Tower <span>&darr;</span>` rendered
-     as "TOWERv". gap restores it; buttons with a single text node have one
-     flex item and are unaffected. */
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border: 1px solid var(--hairline-2);
-  color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
-  text-transform: uppercase; letter-spacing: .08em;
-}
-.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live); }
-.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
-.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
 
 /* ---------- Let's talk: the contact dialog -----------------------------------
    Site-wide (base.css) so no page can bundle it unstyled. Paper card on an ink
