@@ -30,6 +30,20 @@ type Grant struct {
 	ExpiresAt  int64    `json:"expires_at"`  // unix; 0 = never
 	Revoked    bool     `json:"revoked"`
 	CreatedAt  int64    `json:"created_at"`
+
+	// --- Edge grant fields (features/edge/control.feature) --------------------------------------
+	// An Edge grant is the same record, SIGNED BY THE EDGE'S AUTHORITY so any member verifies it with
+	// the public root - no broker, which is what an airgapped Edge requires. These are empty/zero on a
+	// broker grant, which never signs or verifies them.
+	//
+	// Caller is the node id (or node/instance) allowed to INVOKE under this grant; empty = any of this
+	// owner's own instances. Caps are the capabilities it may exercise on the callee. MaxHops bounds
+	// onward delegation (0 = no onward delegation). Sig is the authority's signature over the grant's
+	// canonical bytes; it is NOT part of the canonical form.
+	Caller  string   `json:"caller,omitempty"`
+	Caps    []string `json:"caps,omitempty"`
+	MaxHops int      `json:"max_hops,omitempty"`
+	Sig     string   `json:"sig,omitempty"`
 }
 
 // GrantUsage is a per-grant rollup row used by the daily/monthly cap check and the
