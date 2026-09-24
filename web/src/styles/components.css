@@ -356,3 +356,8 @@
 @media (prefers-reduced-motion: reduce) {
   :is(.install__box, .research-button, .toc-tuner a):active { transform: none; }
 }
+
+/* Command words: a command that wraps only BETWEEN its words. Browsers also break
+   after a hyphen or a slash ("vast-/onstart.sh", "--/model"); each word sits in its
+   own nowrap span, so the spaces are the only break points left. */
+.cmd-words > span { white-space: nowrap; }

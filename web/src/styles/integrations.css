@@ -5,6 +5,8 @@
    guest cards, and the two-endpoint pair.
    ===================================================================== */
 
+/* the table keeps a readable minimum width; on a phone it scrolls inside its own box */
+.scroll { overflow-x: auto; max-width: 100%; }
 .intg { border-collapse: collapse; width: 100%; min-width: 560px; }
 .intg th, .intg td {
   text-align: left; padding: 9px 14px; vertical-align: top;
@@ -88,6 +90,6 @@
 }
 .ways__code code { font-family: var(--font-mono); color: var(--ink-900); }
 
-@media (max-width: 760px) { .ways { grid-template-columns: 1fr; gap: var(--s-6); } }
+@media (max-width: 760px) { .ways { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); } }
 
 .ways__fine { margin-top: var(--s-3); color: var(--ink-400); font-size: var(--t-micro); }

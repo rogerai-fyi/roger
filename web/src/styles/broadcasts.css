@@ -232,6 +232,34 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- article figures: one shared style for every broadcast ----
+   The figure never outgrows the column, whatever the asset's natural size (a 1600px
+   hero used to render at 1600px and push the page sideways). The page-scoped plates
+   (.route-hero, .gov-hero, .gpu-hero) load after this file and refine it. */
+.bc-figure { margin: var(--s-8) 0; max-width: 100%; }
+.bc-figure img,
+.bc-figure video { display: block; max-width: 100%; width: 100%; height: auto; border-radius: 6px; }
+.bc-figure figcaption { margin: 10px 2px 0; }
+/* the framed plate: a theme surface + hairline, so it recedes on the dark theme
+   instead of lighting up as a paper-colored box */
+.bc-figure--plate {
+  padding: 16px; background: var(--paper-2);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+}
+/* a portrait phone screenshot: centered at a readable size, not stretched to the column */
+.bc-figure--phone img { max-width: 440px; margin-inline: auto; }
+/* a table wider than a phone scrolls inside the figure; the caption stays put */
+.bc-scroll { overflow-x: auto; max-width: 100%; }
+
+/* ---- article code blocks: a long line scrolls inside the block, never the page ---- */
+:where(.bc-post__body) pre {
+  margin-top: var(--s-4); padding: 14px 16px; max-width: 100%; overflow-x: auto;
+  background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900); white-space: pre;
+}
+:where(.bc-post__body) pre .c { color: var(--ink-400); } /* a comment */
+:where(.bc-post__body) pre .p { color: var(--volt); }    /* a prompt */
+
 /* ------- §0 what's-new list (the dial) - hairlined rows, mono-led ------- */
 .bc-dial { list-style: none; margin: var(--s-4) 0 0; padding: 0; }
 .bc-dial li {

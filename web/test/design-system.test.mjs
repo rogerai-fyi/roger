@@ -166,9 +166,9 @@ const CSS_COLOR_BUDGET = {
   "app.css": 9,                        // phone/screenshot drop shadows per theme
   "base.css": 2,                       // the OC orange's drop shadow, the nav panel shadow
   "billing.css": 1,                    // modal scrim
-  "broadcast-agent-governance.css": 4, // hard-coded paper + red tints (dark-mode debt)
-  "broadcast-gpu-isolation.css": 3,    // hard-coded paper + red tints (dark-mode debt)
-  "broadcast-routing.css": 13,         // the routing diagram's palette
+  "broadcast-agent-governance.css": 3, // hard-coded paper + red tints (dark-mode debt)
+  "broadcast-gpu-isolation.css": 2,    // hard-coded paper + red tints (dark-mode debt)
+  "broadcast-routing.css": 10,         // the routing diagram's palette
   "device.css": 3,                     // fallbacks of an undefined --rule token
   "home.css": 24,                      // the reel's film black, book shadows, the wave mask
   "models.css": 2,                     // modal scrim

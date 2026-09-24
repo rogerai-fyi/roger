@@ -47,7 +47,7 @@
         </div>
       </header>
 
-      <figure class="bc-figure" data-reveal>
+      <figure class="bc-figure bc-figure--plate" data-reveal>
         <img src="assets/broadcasts/jev-wave-hero.png" width="1600" height="896"
              alt="A vintage technical-manual cutaway illustration: a small sealed instrument box bolted to the side of an industrial pump, thin sensor wires running from the pump's gauges into the box, a single round beacon lamp on the box lit, and a distant plant with a tall tower on the horizon."
              loading="eager" decoding="async" />
@@ -418,26 +418,28 @@
           </figure>
 
           <figure class="bc-figure" data-reveal>
-            <table class="mono" style="width:100%;border-collapse:collapse;font-size:.92em">
-              <thead>
-                <tr style="text-align:left;border-bottom:1px solid currentColor">
-                  <th style="padding:.4em .6em .4em 0"></th>
-                  <th style="padding:.4em .6em">Jev</th>
-                  <th style="padding:.4em .6em">Wave Pico</th>
-                  <th style="padding:.4em .6em">Wave Giga</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Reads</td><td style="padding:.4em .6em">text, 64k window</td><td style="padding:.4em .6em">a window of telemetry, a log line</td><td style="padding:.4em .6em">telemetry across channels, plus language</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Returns</td><td style="padding:.4em .6em">probabilities: yes/no, choice, score</td><td style="padding:.4em .6em">fault, which fault, or "unreadable"</td><td style="padding:.4em .6em">asset condition, plus a conversation</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Runs</td><td style="padding:.4em .6em">TypeSafe's cloud, API only</td><td style="padding:.4em .6em">a single-board computer or any GPU, offline</td><td style="padding:.4em .6em">one 32 GB card, offline</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Weights</td><td style="padding:.4em .6em">closed, params undisclosed</td><td style="padding:.4em .6em">ours, from scratch, 293M</td><td style="padding:.4em .6em">Apache-2.0 base, merged, 27B</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Size on disk</td><td style="padding:.4em .6em">none</td><td style="padding:.4em .6em">~165 MB quantized</td><td style="padding:.4em .6em">16.5 GB at Q4_K_M</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Price</td><td style="padding:.4em .6em">$0.042 per M input tokens</td><td style="padding:.4em .6em">free on air now, or your own hardware</td><td style="padding:.4em .6em">your own hardware, or on air via RogerAI</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Cannot</td><td style="padding:.4em .6em">explain, count, do arithmetic, read a sensor</td><td style="padding:.4em .6em">chat, answer trivia, reason across machines</td><td style="padding:.4em .6em">run on a Pi</td></tr>
-                <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">on air as a free band, <code>wave-pico-293m</code>; weights not published yet</td><td style="padding:.4em .6em">built and gated, public checkpoint pending</td></tr>
-              </tbody>
-            </table>
+            <div class="bc-scroll">
+              <table class="mono" style="width:100%;border-collapse:collapse;font-size:.92em">
+                <thead>
+                  <tr style="text-align:left;border-bottom:1px solid currentColor">
+                    <th style="padding:.4em .6em .4em 0"></th>
+                    <th style="padding:.4em .6em">Jev</th>
+                    <th style="padding:.4em .6em">Wave Pico</th>
+                    <th style="padding:.4em .6em">Wave Giga</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Reads</td><td style="padding:.4em .6em">text, 64k window</td><td style="padding:.4em .6em">a window of telemetry, a log line</td><td style="padding:.4em .6em">telemetry across channels, plus language</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Returns</td><td style="padding:.4em .6em">probabilities: yes/no, choice, score</td><td style="padding:.4em .6em">fault, which fault, or "unreadable"</td><td style="padding:.4em .6em">asset condition, plus a conversation</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Runs</td><td style="padding:.4em .6em">TypeSafe's cloud, API only</td><td style="padding:.4em .6em">a single-board computer or any GPU, offline</td><td style="padding:.4em .6em">one 32 GB card, offline</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Weights</td><td style="padding:.4em .6em">closed, params undisclosed</td><td style="padding:.4em .6em">ours, from scratch, 293M</td><td style="padding:.4em .6em">Apache-2.0 base, merged, 27B</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Size on disk</td><td style="padding:.4em .6em">none</td><td style="padding:.4em .6em">~165 MB quantized</td><td style="padding:.4em .6em">16.5 GB at Q4_K_M</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Price</td><td style="padding:.4em .6em">$0.042 per M input tokens</td><td style="padding:.4em .6em">free on air now, or your own hardware</td><td style="padding:.4em .6em">your own hardware, or on air via RogerAI</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Cannot</td><td style="padding:.4em .6em">explain, count, do arithmetic, read a sensor</td><td style="padding:.4em .6em">chat, answer trivia, reason across machines</td><td style="padding:.4em .6em">run on a Pi</td></tr>
+                  <tr><td style="padding:.4em .6em .4em 0;opacity:.7">Status</td><td style="padding:.4em .6em">GA since Sept 20</td><td style="padding:.4em .6em">on air as a free band, <code>wave-pico-293m</code>; weights not published yet</td><td style="padding:.4em .6em">built and gated, public checkpoint pending</td></tr>
+                </tbody>
+              </table>
+            </div>
             <figcaption class="fig mono">FIG. 5 &middot; SIDE BY SIDE, NO SPIN.</figcaption>
           </figure>
         </section>
@@ -491,7 +493,7 @@
 
         <div class="man-note man-note--live">
           <span class="man-note__tag">roger that</span>
-          Tune in to Wave Pico now: <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>, then <code>roger use wave-pico-293m</code>.
+          Tune in to Wave Pico now: <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>, then <code class="cmd-words"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code>.
           The full family guide, with the jobs table and the mesh: <a href="/research-wave-family.html">The Wave Spectrum</a>.
         </div>
 

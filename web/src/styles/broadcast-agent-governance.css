@@ -10,7 +10,7 @@
 /* ---- hero plate: same framed-plate treatment as broadcast-routing's .route-hero ---- */
 .gov-hero {
   margin: var(--s-8) 0 0; padding: 14px;
-  background: #f3f1ea; border: 1px solid var(--hairline-2);
+  background: var(--paper-2); border: 1px solid var(--hairline-2);
   border-radius: var(--r-md);
 }
 .gov-hero img { display: block; width: 100%; height: auto; border-radius: 6px; }

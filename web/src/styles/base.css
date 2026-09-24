@@ -954,8 +954,10 @@ li > a:not([class]):focus-visible,
    Site-wide (base.css) so no page can bundle it unstyled. Paper card on an ink
    scrim, mono kickers, the one red on the send button hover - the same quiet
    grammar as the billing modal. Contract: features/web/lets_talk.feature */
+/* Layered above the fixed left rail (--z-nav - 1) and the sticky nav (--z-nav): at 70
+   both painted over the scrim, so the rail and nav stayed bright beside a dimmed page. */
 .lt-scrim {
-  position: fixed; inset: 0; z-index: 70;
+  position: fixed; inset: 0; z-index: calc(var(--z-overlay) + 10);
   background: color-mix(in srgb, var(--ink-900) 55%, transparent);
 }
 /* A scrim has to DARKEN whatever is behind it. --ink-900 flips with the theme,
@@ -965,7 +967,7 @@ li > a:not([class]):focus-visible,
 :root[data-theme="dark"] .lt-scrim {
   background: color-mix(in srgb, var(--paper) 66%, transparent);
 }
-.lt-modal { position: fixed; inset: 0; z-index: 71; display: grid; place-items: center; padding: var(--s-4); }
+.lt-modal { position: fixed; inset: 0; z-index: calc(var(--z-overlay) + 11); display: grid; place-items: center; padding: var(--s-4); }
 /* display:grid would override the hidden attribute and leave an invisible dialog
    blanketing the page, eating every click. Explicitly re-assert hidden. */
 .lt-modal[hidden], .lt-scrim[hidden] { display: none; }

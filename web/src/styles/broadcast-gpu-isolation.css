@@ -8,7 +8,7 @@
    and broadcast-agent-governance's .gov-hero ---- */
 .gpu-hero {
   margin: var(--s-8) 0 0; padding: 14px;
-  background: #f3f1ea; border: 1px solid var(--hairline-2);
+  background: var(--paper-2); border: 1px solid var(--hairline-2);
   border-radius: var(--r-md);
 }
 .gpu-hero img { display: block; width: 100%; height: auto; border-radius: 6px; }

@@ -49,21 +49,21 @@
            the still frame so the first paint is the illustration either way. Anyone who asked
            their system for less motion gets the still and the loop is never shown. -->
       <style>
-        .tw-hero__still{display:none}
+        .bc-figure .tw-hero__still{display:none}
         @media (prefers-reduced-motion: reduce){
-          .tw-hero__loop{display:none}
-          .tw-hero__still{display:block}
+          .bc-figure .tw-hero__loop{display:none}
+          .bc-figure .tw-hero__still{display:block}
         }
       </style>
-      <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+      <figure class="bc-figure bc-figure--plate" data-reveal>
         <video class="tw-hero__loop" width="1280" height="560" autoplay muted loop playsinline preload="metadata"
-               poster="assets/broadcasts/tower-hero.png" style="display:block;width:100%;height:auto;border-radius:6px;"
+               poster="assets/broadcasts/tower-hero.png"
                aria-label="A steel lattice relay mast with a red beacon at its top, sending red signal arcs outward in a slow repeating pulse, with a machine on the ground to either side cabled to its base.">
           <source src="assets/broadcasts/tower-loop.mp4" type="video/mp4" />
         </video>
-        <img class="tw-hero__still" src="assets/broadcasts/tower-hero.png" width="1280" height="560" style="width:100%;height:auto;border-radius:6px;"
+        <img class="tw-hero__still" src="assets/broadcasts/tower-hero.png" width="1280" height="560"
              alt="A steel lattice relay mast with a red beacon at its top, red signal arcs radiating outward, with a machine on the ground to either side cabled to its base, drawn in the RogerAI operating-manual style." loading="lazy" />
-        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - THE MAST IN THE MIDDLE</figcaption>
+        <figcaption class="fig mono">FIG. 1 - THE MAST IN THE MIDDLE</figcaption>
       </figure>
 
       <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
@@ -249,7 +249,7 @@
               you control:</p>
             <ol class="bc-dial">
               <li><b>Providers have to be on the relay fabric.</b> They no longer opt in - an
-                ordinary <code>roger share</code> offers a signed-in node to the fabric on its
+                ordinary <code class="cmd-words"><span>roger</span> <span>share</span></code> offers a signed-in node to the fabric on its
                 own, and there is no flag to type. But it is best effort: a node with no
                 signed-in account, or one that cannot reach a relay, simply keeps serving the
                 ordinary way and never reaches you. So your traffic still depends on how much of
@@ -393,7 +393,7 @@
         <div class="man-note man-note--live">
           <span class="man-note__tag">roger that</span>
           Put a mast on the network:
-          <code>curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</code>
+          <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>ROGERAI_COMPONENT=tower</span> <span>sh</span></code>
         </div>
 
       </div>
