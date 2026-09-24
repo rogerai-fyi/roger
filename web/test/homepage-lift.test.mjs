@@ -118,17 +118,24 @@ test("(c) the mobile hero cannot be pushed wider than the viewport by its nowrap
 
 // ---- round 2 (2026-09-23): alignment, the Ping dock, dead CSS ----
 
-test("the hero shares the page's left edge on wide screens and widens only to the right", () => {
+// Round 3: round 2 kept the left edge but let the hero widen to 1300px on the
+// right, so FIG. 1 ran ~220px past the nav at 1920. The hero now lives in the
+// same content box as the nav and every section, on BOTH sides, at every width.
+test("the hero sits in the page's content box on both sides at every width", () => {
   const css = read("styles/home.css");
-  const wide = mediaBlocks(css, /min-width:\s*1200px/).map((b) => b.body).join("\n");
-  assert.match(wide, /\.hero__inner\s*\{[^}]*margin-left:\s*max\(0px,\s*calc\(\(100% - var\(--maxw\)\) \/ 2\)\)/,
-    "the hero's left edge is the .wrap's left edge (nav logo, every section)");
-  assert.match(wide, /\.hero__inner\s*\{[^}]*max-width:\s*1300px/);
+  assert.doesNotMatch(css, /\.hero__inner\s*\{[^}]*max-width/, "no wider-than-.wrap hero box");
+  assert.doesNotMatch(css, /\.hero__inner\s*\{[^}]*margin-left/, "no hand-placed hero edge");
+  const hero = heroSection();
+  assert.match(hero, /<div class="wrap hero__inner">/, "the hero IS a .wrap, the same box as the nav");
+  // head spans the box; copy + tools share the row beneath it
+  assert.match(hero, /<div class="hero__head">[\s\S]*class="hero__title"[\s\S]*<div class="hero__copy">[\s\S]*class="hero__sub"/);
+  const wide = mediaBlocks(css, /min-width:\s*1100px/).map((b) => b.body).join("\n");
+  assert.match(wide, /\.hero__head\s*\{[^}]*grid-column:\s*1 \/ -1/);
 });
 
-test("the headline is sized by its own column, so it can never overflow it", () => {
+test("the headline is sized by its own box, so it can never overflow it", () => {
   const css = read("styles/home.css");
-  assert.match(css, /\.hero__copy\s*\{[^}]*container-type:\s*inline-size/);
+  assert.match(css, /\.hero__head\s*\{[^}]*container-type:\s*inline-size/);
   assert.match(css, /\.hero__title\s*\{[^}]*font-size:\s*min\(var\(--t-display\),\s*9\.5cqi\)/);
 });
 
@@ -149,4 +156,21 @@ test("home.css carries no rules for classes the homepage never uses", () => {
   const classes = [...new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))];
   const dead = classes.filter((c) => !used.includes(c) && !dynamic.some((re) => re.test(c)));
   assert.deepEqual(dead, [], `dead selectors in home.css: ${dead.join(", ")}`);
+});
+
+test("homepage sections let the background network through (a tint, not a solid fill)", () => {
+  // The blip map is a fixed canvas BEHIND the page. Solid section fills (.band's
+  // paper-2, .company's paper) hid it below the fold, so the scroll-driven
+  // network only ever showed in the hero. Tints keep the same tone over paper.
+  const css = read("styles/home.css");
+  assert.match(css, /main \.band\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--ink-900\) [\d.]+%, transparent\)/);
+  assert.doesNotMatch(css, /\.company\s*\{[^}]*background:\s*var\(--paper\)/);
+});
+
+test("sideways choreography can never widen the page", () => {
+  // variant B slides the two sides of the tune in from +-56px; before they
+  // arrive, that offset overhangs the viewport, and a phone widens its layout
+  // viewport to fit it (a 426px page on a 390px phone). Sections clip x.
+  const css = read("styles/home.css");
+  assert.match(css, /main > section\s*\{[^}]*overflow-x:\s*clip/);
 });

@@ -117,51 +117,41 @@
   .install[data-frame="panel"] .install__box { padding: 12px 8px 12px 12px; }
 }
 
-/* Two columns above FIG.2 once there's room: .hero__copy (the narrative -
-   eyebrow, headline, subhead, Labs proof) beside .hero__tools (the two
-   things a visitor actually does - FIG.1 the install command, then Ping
-   stacked under it). Same information, same source order, as the old
-   single stacked column; this only changes layout, so FIG.2 sits higher on
-   the page once the columns fit side by side. Below the breakpoint it's a
-   single column top to bottom, same as before.
+/* The hero shares the page's content box (the nav's, every section's) on
+   both sides, at every width. .hero__head (eyebrow + headline) spans it;
+   from 1100px .hero__copy and .hero__tools sit side by side beneath, so
+   FIG. 1 lines up with the paragraph it follows rather than the eyebrow.
+   Narrow viewports stack head, copy, tools in source order.
    minmax(0, 1fr), not 1fr: a bare 1fr has a min-content floor, and the
    nowrap "decentralized Models" pushed the whole mobile hero past the
    viewport (a 417px page on a 390px phone). */
-.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-10); width: 100%; }
-/* The headline is sized to its own column: the nowrap operative line is
+.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+.hero__tools { margin-top: var(--s-10); }
+/* The headline is sized to its own box: the nowrap operative line is
    ~10.2x the font size wide, so 9.5cqi always fits, capped at the display
-   token. One rule for phones, laptops and wide screens alike; the vw line
-   is the fallback where container units are missing. */
-.hero__copy { container-type: inline-size; }
+   token. The vw line is the fallback where container units are missing. */
+.hero__head { container-type: inline-size; }
 .hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); font-size: min(var(--t-display), 9.5cqi); }
-/* 1200px up: side by side. The hero keeps the page's LEFT edge (the same
-   line as the nav logo and every section below) and widens only to the
-   right, up to 1300px, so both columns have room without the hero jutting
-   out past everything else. The panel drops to the headline's level rather
-   than riding up with the eyebrow. */
-@media (min-width: 1200px) {
-  .hero__inner {
-    width: auto; max-width: 1300px;
-    margin-left: max(0px, calc((100% - var(--maxw)) / 2));
-  }
+@media (min-width: 1100px) {
   .hero__grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
-    gap: var(--s-10); align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 400px);
+    column-gap: var(--s-12); align-items: start;
   }
-  /* level with the headline, not the eyebrow above it */
-  .hero__tools { margin-top: var(--s-10); }
+  .hero__head { grid-column: 1 / -1; }
+  /* level with the paragraph's first line (.hero__sub's top margin) */
+  .hero__tools { margin-top: var(--s-8); }
   .hero__tools .install { margin-top: 0; }
   /* the column is narrower than the command's natural width at 1rem;
      install__code ellipsis-truncates gracefully, but this figure exists to be
      read, so shrink it to fully legible instead of leaning on that. */
   .hero__tools .install__code { font-size: 0.78rem; }
 }
-@media (min-width: 1400px) {
-  .hero__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 460px); }
-}
 @media (min-width: 641px) and (max-height: 800px) {
   .hero__inner { padding-top: 42px; }
   .hero__sub, .hero__proof { margin-top: var(--s-4); }
+}
+@media (min-width: 1100px) and (max-height: 800px) {
+  .hero__tools { margin-top: var(--s-4); }   /* still level with the paragraph */
 }
 
 /* ---- the lift: entrance + scroll motion (2026-09-23) ----------------
@@ -205,8 +195,107 @@
       animation-timeline: view();
       animation-range: entry 0% entry 30vh;
     }
+
+    /* ---- variants B (default) and C: the section choreography ----------
+       scroll-stage.js sets data-motion only from ?motion=; with no
+       attribute (production, and no-JS) this is on. Every piece is tied to
+       scroll position, finishes by the time its block's top is ~70% up the
+       screen, and never starts below 35% opacity.
+       - the hero recedes as you leave it: it lags the scroll, shrinks a
+         touch and dims, so the page below slides up over it
+       - section heads arrive bigger: a longer rise, a slight scale, and the
+         red section rule draws itself in
+       - figures (console, band, plate, operator panel) grow into place
+       - card sets cascade: each card lands a beat after the one before
+       - the two sides of the tune converge on the beam between them */
+    @media (min-width: 900px) {
+      :root:not([data-motion="a"]) .hero__inner {
+        animation: lift-recede linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0px 85vh;
+        transform-origin: 30% 0;
+      }
+    }
+    :root:not([data-motion="a"]) main :is(.demo__head, .market__head, .section__head, .shelf__copy, .monetize__copy, .cta__inner) {
+      animation-name: lift-head;
+    }
+    :root:not([data-motion="a"]) main .sectionno { view-timeline: --secno block; }
+    :root:not([data-motion="a"]) main .sectionno::before {
+      transform-origin: left center;
+      animation: lift-rule linear both;
+      animation-timeline: --secno;
+      animation-range: entry 0% entry 26vh;
+    }
+    :root:not([data-motion="a"]) main :is(.term, .market__panel, .plate, .earn) {
+      animation-name: lift-figure;
+      transform-origin: 50% 0;
+      animation-range: entry 0% entry 40vh;
+    }
+    :root:not([data-motion="a"]) main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book) {
+      animation: lift-card linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 24vh;
+    }
+    :root:not([data-motion="a"]) main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(2) { animation-range: entry 0% entry 32vh; }
+    :root:not([data-motion="a"]) main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(3) { animation-range: entry 0% entry 40vh; }
+    :root:not([data-motion="a"]) main .twoway__side {
+      animation: lift-from-left linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 34vh;
+    }
+    :root:not([data-motion="a"]) main .twoway__side:last-child { animation-name: lift-from-right; }
+    /* stacked (one column): the sides rise like any other card */
+    @media (max-width: 820px) {
+      :root:not([data-motion="a"]) main .twoway__side,
+      :root:not([data-motion="a"]) main .twoway__side:last-child { animation-name: lift-card; }
+    }
+    :root:not([data-motion="a"]) main .twoway__beam {
+      animation: lift-rule linear both;
+      animation-timeline: view();
+      animation-range: entry 10% entry 38vh;
+    }
   }
 }
+@keyframes lift-recede {
+  to { transform: translateY(18vh) scale(0.95); opacity: 0.35; }
+}
+@keyframes lift-head {
+  from { transform: translateY(64px) scale(0.97); filter: blur(6px); opacity: 0.35; }
+  to   { transform: none; filter: none; opacity: 1; }
+}
+@keyframes lift-figure {
+  from { transform: translateY(48px) scale(0.93); opacity: 0.35; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes lift-card {
+  from { transform: translateY(40px); filter: blur(4px); opacity: 0.35; }
+  to   { transform: none; filter: none; opacity: 1; }
+}
+@keyframes lift-rule {
+  from { transform: scaleX(0); }
+  to   { transform: none; }
+}
+@keyframes lift-from-left {
+  from { transform: translateX(-56px); opacity: 0.35; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes lift-from-right {
+  from { transform: translateX(56px); opacity: 0.35; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* the ?lab=1 / ?motion= switcher (scroll-stage.js); never in production HTML */
+.motion-lab {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: var(--z-overlay);
+  display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 12px;
+  background: var(--white); border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
+  box-shadow: var(--e-4); font-family: var(--font-mono); font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
+}
+.motion-lab a {
+  min-width: 34px; padding: 5px 8px; border-radius: var(--r-pill); text-align: center; color: var(--ink-700);
+}
+.motion-lab a[aria-current] { background: var(--ink-900); color: var(--paper); }
 
 /* The institutional strip is the hinge between the product promise and the
    operating proof below it. Keep it architectural: three quiet doors, one
@@ -678,10 +767,13 @@
 .monetize__copy > p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 
 /* ---------- company -------------------------------------------- */
-.company {
-  border-top: 1px solid var(--hairline);
-  background: var(--paper);
-}
+.company { border-top: 1px solid var(--hairline); }
+/* sideways motion (the two sides of the tune) must never widen the page */
+main > section { overflow-x: clip; }
+/* Bands are a translucent ink wash rather than solid paper-2: the same tone
+   over the page's paper, but the background network (a fixed canvas behind
+   the page) shows through instead of stopping at the hero. */
+main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
 .company__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

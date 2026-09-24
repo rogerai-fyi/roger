@@ -22,15 +22,12 @@
   <section class="hero">
     <div class="wrap hero__inner">
 
-      <!-- Two columns above FIG.2, so the reel can sit higher on the page:
-           .hero__copy carries the narrative (who we are, why it matters,
-           the Labs proof), .hero__tools carries the two things a visitor
-           actually DOES (FIG.1 the install command, the Ping concierge).
-           Same information as the old single stacked column, just laid out
-           side by side once there's room (hero-grid.css breakpoint); narrow
-           viewports still get the original top-to-bottom stack. -->
+      <!-- .hero__head (eyebrow + headline) spans the full content width;
+           under it, .hero__copy (the narrative + the Labs proof) sits beside
+           .hero__tools (FIG.1 the install command, then Ping) once there's
+           room (home.css). Narrow viewports stack all three in this order. -->
       <div class="hero__grid">
-      <div class="hero__copy">
+      <div class="hero__head">
       <span class="hero__eyebrow">
         <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
         <span class="hero__callsign">ROGERAI</span>
@@ -46,6 +43,9 @@
         <span class="hero__line"><span class="hero__op"><span class="carrier">decentralized</span> Models</span>.</span>
         <span class="hero__line hero__fast">In under 30 seconds.</span>
       </h1>
+      </div>
+
+      <div class="hero__copy">
 
       <!-- The opening sentence carries full ink; the rest steps back to
            secondary ink, so the paragraph has an entry point. Same words. -->
@@ -782,6 +782,7 @@
   <!-- include: footer.html anchors="" -->
 
   <script src="js/radiomap.js" defer></script>
+  <script src="js/scroll-stage.js" defer></script>
   <script src="js/edge-story.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/fmt.js" defer></script><!-- canonical $ renderer; before market.js (meter REPLY) -->
