@@ -133,6 +133,14 @@ as the model grows (set by position, up to seven tiers, no inline style). With
 a stack on phones. No-JS: the complete list. The homepage's `.home-spectrum` (home.css)
 draws the same picture and can adopt this class.
 
+### Step path
+```html
+<ol class="steps"><li><b>Lead.</b> The step.</li> ...</ol>
+```
+A short numbered path (2 to 6 steps): a mono numeral and a tick per step on one hairline,
+the first tick red. Left to right on wide screens, a vertical rail under 820px. The
+numerals are a CSS counter over the `<ol>`, which already carries the order.
+
 ### TOC tuner
 ```html
 <nav class="toc-tuner" data-tuner aria-label="Sections">

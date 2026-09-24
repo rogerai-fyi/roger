@@ -428,3 +428,41 @@
   .spectrum i { grid-row: span 2; height: 18px; margin: 3px 0 0; }
 }
 @media (prefers-reduced-motion: reduce) { .spectrum li { transition: none; } }
+
+/* ---- component: steps (added by company rollout) ---------------------------
+   <ol class="steps"><li><b>Lead.</b> The step, in words already written.</li> ...</ol>
+   A short numbered path read left to right (a stack on phones): each step gets a
+   mono numeral and a tick on one hairline, like stations on a dial. The numbers
+   are the list's own order (a CSS counter, the <ol> already says it to a screen
+   reader). 2 to 6 steps; the count comes from the markup. */
+.steps {
+  counter-reset: step;
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: var(--s-6); margin: 0; padding: 0; list-style: none;
+}
+.steps > li {
+  counter-increment: step;
+  position: relative; min-width: 0;
+  padding-top: var(--s-10);
+  border-top: 1px solid var(--hairline-2);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.steps > li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute; top: var(--s-4); left: 0;
+  font: 500 var(--t-micro) / 1 var(--font-mono); letter-spacing: var(--tracking-label);
+  color: var(--ink-500);
+}
+.steps > li::after {
+  content: ""; position: absolute; top: -6px; left: 0;
+  width: 1px; height: 11px; background: var(--ink-500);
+}
+.steps > li:first-child::after { background: var(--live); width: 2px; }
+.steps b { display: block; margin-bottom: var(--s-2); color: var(--ink-900); font-weight: var(--weight-semi); }
+@media (max-width: 820px) {
+  .steps { grid-auto-flow: row; gap: 0; }
+  .steps > li { padding: var(--s-4) 0 var(--s-5) var(--s-12); border-top: 0; border-left: 1px solid var(--hairline-2); }
+  .steps > li::before { top: calc(var(--s-4) + 3px); left: var(--s-4); }
+  .steps > li::after { top: var(--s-4); left: -6px; width: 11px; height: 1px; }
+  .steps > li:first-child::after { height: 2px; width: 11px; }
+}
