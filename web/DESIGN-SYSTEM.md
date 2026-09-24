@@ -236,10 +236,13 @@ fails on a bare component selector outside `components.css`.
 ## Pages that do not fit the system yet
 
 - **Account pages** (account, billing, payouts, usage, dashboard, console, keys, private,
-  r, login, legal): their own `account-base.css` surface and blocking scripts; they share
-  the tokens and chrome but none of the new components yet.
-- **device.html, stations.html**: their own minimal runtime (no site.js), and hard-coded
-  fallbacks of tokens that do not exist.
+  r, login, device, stations, legal): on the shared runtime now (deferred, like every page)
+  and on real tokens, but still their own `account-base.css` surface: the plate (`.card`)
+  is a raised `--white` face on an inset tinted panel (`.authwrap`), with its tertiary ink
+  scoped to the secondary one in `tokens.css` so its labels hold AA. Their buttons
+  (`.primary`, `.ghost`, `.gh`) and fields are account-base's own, not `.research-button`:
+  full-width form controls, a different job. Page scripts keep their own affordances
+  (keys, private copy).
 - **Playbox** (playbox, wave-patch, wave-factory sheets): self-contained games with their
   own palettes; 310 of the remaining colour literals.
 - **Articles**: inline figure styles with light-only colours (dark-mode debt, being fixed
