@@ -12,8 +12,6 @@
 
 .co-page section[id], .co-page [id^="q-"], .co-page .legal__sec h2[id] { scroll-margin-top: 72px; }
 
-/* ---- the cover: an ink panel inset on the paper page ---------------- */
-.co-page .tone-zone .research-hero { border-bottom: 0; padding-block: clamp(56px, 8vw, 104px); }
 /* phones: the hero actions wrap as a compact row instead of a full-width stack
    (five buttons stacked were ~330px deep before a reader reached a word) */
 @media (max-width: 560px) {

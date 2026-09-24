@@ -510,12 +510,14 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 
 /* ---- component: lead action row + quiet button (added by models rollout) --
    <div class="research-actions research-actions--lead">: ONE primary button,
-   then quiet text links (.research-button--quiet). The row never stacks
-   full-width outlines on a phone (the research shell's phone rule sets every
-   button to width 100%; the lead row keeps each at its own width and lets the
-   links wrap beside the primary). A quiet button keeps the button's mono label,
+   then quiet text links (.research-button--quiet). On a phone each keeps its
+   own width and the links wrap beside the primary. A quiet button keeps the button's mono label,
    its tap height and its press, but has no box: a hairline underline that goes
    red on hover or focus. */
+/* ONE ROLE, ONE PATTERN: every action row on the site is this lead row
+   (test/consistency.test.mjs). To flip every row back to boxed buttons, delete the
+   .research-button--quiet rules below: the markup stays, and a quiet button falls
+   back to the plain .research-button box. */
 .research-actions--lead { align-items: center; gap: var(--s-2) var(--s-4); }
 .research-actions--lead .research-button { width: auto; }
 .research-button--quiet {
@@ -663,6 +665,20 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
    box, never the page. */
 .scroll-box { overflow-x: auto; max-width: 100%; }
 
+/* ---- component: data table ---------------------------------------------------------
+   <table class="data-table [page class]"> (in a .scroll-box when it can outgrow a phone)
+   One look for every table of data: no box, hairline rows, and the header row set as
+   the site's label (mono, micro, tracked, uppercase, --ink-400) over a --hairline-2 rule.
+   The page class sets only its columns (widths, alignment, a highlighted column). */
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.data-table th, .data-table td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--hairline); }
+.data-table thead th {
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
+  background: none; border-top: 0; border-bottom: 1px solid var(--hairline-2);
+}
+.data-table tbody tr:last-child > * { border-bottom: 0; }
+
 /* ---- component: code block (added by research rollout) ----------------------------
    <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> cmd
    <span class="code-block__comment"># comment</span></pre></div>
@@ -681,6 +697,8 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   color: var(--ink-900); white-space: pre;
 }
 .code-block pre code { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+/* on a tinted panel the block steps up to the paper, so it still reads as a block */
+.tint-panel .code-block { background: var(--paper); }
 /* with its copy control the block is two columns: the <pre> scrolls in its own, so a
    long line never slides under the button */
 .code-block:has(.code-block__copy) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }

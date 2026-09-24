@@ -280,7 +280,6 @@
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
   }
-  .research-button { width: 100%; justify-content: center; }
   .research-hero__layout .research-actions { grid-template-columns: 1fr; }
 }
 
@@ -369,15 +368,6 @@
 .tier-matrix { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
 .tier-matrix caption { color: var(--ink-500); font-size: var(--t-sm); text-align: left; padding-bottom: var(--s-4); }
 .tier-matrix th, .tier-matrix td { padding: var(--s-3) var(--s-4); text-align: left; vertical-align: top; border-bottom: 1px solid var(--hairline); }
-.tier-matrix thead th {
-  border-bottom: 2px solid var(--ink-900);
-  color: var(--ink-400);
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  font-weight: 400;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
 .tier-matrix tbody tr:last-child th, .tier-matrix tbody tr:last-child td { border-bottom: 0; }
 .tier-matrix tbody th { color: var(--ink-900); font-weight: 500; }
 .tier-matrix td { color: var(--ink-500); }
@@ -689,7 +679,6 @@ main section[id] { scroll-margin-top: 72px; }
 main .band--inset :is(.developer-step, .deployment-grid article, .research-onward > *) { background: var(--paper); }
 
 /* ---- label rules (the tertiary ink is AA on its own now: tokens.css) ---- */
-.tier-matrix thead th { border-bottom-width: 1px; border-bottom-color: var(--hairline-2); }
 .scope__head { border-bottom: 1px solid var(--hairline-2); }
 .research-tone.band--inset { border-block: 0; }
 

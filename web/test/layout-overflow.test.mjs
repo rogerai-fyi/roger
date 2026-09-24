@@ -240,8 +240,9 @@ test("manual: every command block sits inside a styled manual section", () => {
 });
 
 test("integrations: the wide table scrolls in its own box", () => {
-  assert.match(page("integrations.html"), /<div class="scroll">\s*<table class="intg">/);
-  assert.equal(decl(css("integrations.css"), ".scroll")["overflow-x"], "auto");
+  // the shared scroll box and data table (components.css)
+  assert.match(page("integrations.html"), /<div class="scroll-box">\s*<table class="data-table intg">/);
+  assert.equal(decl(css("components.css"), ".scroll-box")["overflow-x"], "auto");
 });
 
 test("integrations: the two-ways column on a phone lets its code block scroll", () => {
@@ -249,7 +250,9 @@ test("integrations: the two-ways column on a phone lets its code block scroll", 
   // set the column width and the page scrolled instead of the block
   const ways = decl(css("integrations.css"), ".ways", (m) => maxWidth(m) <= 760);
   assert.equal(ways["grid-template-columns"], "minmax(0, 1fr)");
-  assert.equal(decl(css("integrations.css"), ".ways__code")["overflow-x"], "auto");
+  // the block is the shared .code-block: its <pre> scrolls inside it
+  assert.match(page("integrations.html"), /<div class="code-block ways__code"><pre>/);
+  assert.equal(decl(css("components.css"), ".code-block pre")["overflow-x"], "auto");
 });
 
 test("home: the hero column may shrink below its longest word", () => {

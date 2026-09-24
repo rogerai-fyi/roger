@@ -30,7 +30,7 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 const PAGES = Object.keys(fixture);
 const LEGAL = ["security.html", "privacy.html", "tos.html"];
-const HERO_INK = ["company.html", "careers.html", "faq.html"];
+const LIFTED_HEROES = ["company.html", "careers.html", "faq.html"];
 
 const main = (page) => {
   const h = read(page).replace(/<!--[\s\S]*?-->/g, "");
@@ -125,16 +125,18 @@ test("(b) the legal pages index their own section headings, word for word", () =
 
 /* ---- (b) the system's components, not page-local copies ------------------------ */
 
-test("(b) About, Careers and Questions open on an ink hero panel", () => {
-  for (const page of HERO_INK) {
+test("(b) About, Careers and Questions open on the site's paper page hero", () => {
+  // One role, one pattern (2026-09-24 consistency sweep): a page hero is paper on every
+  // page; the homepage cover is the one ink hero (test/consistency.test.mjs holds it).
+  for (const page of LIFTED_HEROES) {
     const m = main(page);
-    const zone = m.match(/<div class="tone-zone" data-tone="ink">[\s\S]*?<h1/);
-    assert.ok(zone && !/<\/div><!-- \/tone-zone -->/.test(zone[0]), `${page}: the h1 sits in an ink panel`);
+    const before = m.slice(0, m.indexOf("<h1"));
+    assert.equal((before.match(/class="tone-zone"/g) || []).length, (before.match(/<!-- \/tone-zone -->/g) || []).length, `${page}: the h1 is on paper`);
   }
 });
 
 test("(b) no full-bleed grey bands or black-top-rule cards remain on the lifted pages", () => {
-  for (const page of HERO_INK) {
+  for (const page of LIFTED_HEROES) {
     const m = main(page);
     assert.doesNotMatch(m, /class="[^"]*\bresearch-tone\b/, `${page}: research-tone band`);
     assert.doesNotMatch(m, /class="section band"/, `${page}: .band`);

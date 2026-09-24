@@ -12,9 +12,11 @@
 .bc-hero { padding-block: clamp(56px, 8vw, 104px) clamp(28px, 4vw, 48px); }
 /* the hero shares the page's left edge with the telegram and the log; only its
    text keeps a reading measure */
-.bc-hero__inner > :is(.bc-hero__title, .bc-hero__sub) { max-width: 40rem; }
+.bc-hero__inner > .bc-hero__sub { max-width: 40rem; }
+/* a section landing page: the site's page-hero title (display size), like every other hub */
 .bc-hero__title {
-  font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
+  max-width: 880px;
+  font-size: var(--t-display); line-height: var(--lh-tight); letter-spacing: var(--tracking-display);
   color: var(--ink-900); margin-top: var(--s-4);
 }
 .bc-hero__sub {
@@ -266,7 +268,6 @@
 /* ---- a data table in an article (inside a .figure > .scroll-box) ---- */
 .bc-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); color: var(--ink-700); }
 .bc-table th, .bc-table td { padding: 10px 12px; text-align: left; vertical-align: top; border-top: 1px solid var(--hairline); }
-.bc-table thead th { border-top: 0; border-bottom: 1px solid var(--hairline-2); color: var(--ink-900); font-weight: var(--weight-semi); }
 .bc-table tbody th { padding-left: 0; color: var(--ink-500); font-weight: var(--weight-regular); white-space: nowrap; }
 .bc-table thead td { border-top: 0; border-bottom: 1px solid var(--hairline-2); }
 

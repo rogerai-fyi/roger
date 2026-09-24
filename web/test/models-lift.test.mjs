@@ -278,7 +278,8 @@ test("integrations: each guest's install line copies with the shared tick", () =
 test("integrations: panels, not 2px rules; AA inks on paper", () => {
   const css = stripCss(src("styles/integrations.css"));
   assert.doesNotMatch(css, /2px solid var\(--ink-900\)/);
-  for (const sel of [".intg th", ".guests__meta", ".ways__fine"]) {
+  // (the table's header row is the shared .data-table: contrast.test holds every ink AA)
+  for (const sel of [".guests__meta", ".ways__fine"]) {
     const rule = css.match(new RegExp(`${sel.replace(".", "\\.")}\\s*\\{([^}]*)\\}`))?.[1] || "";
     assert.ok(rule, sel);
     assert.doesNotMatch(rule, /--ink-400/, `${sel}: AA ink on paper`);

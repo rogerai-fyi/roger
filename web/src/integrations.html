@@ -89,8 +89,8 @@
              <code>roger share --upstream &lt;url&gt;</code>.</p>
         </div>
 
-        <div class="scroll">
-          <table class="intg">
+        <div class="scroll-box">
+          <table class="data-table intg">
             <thead>
               <tr><th>Local server</th><th>Found on</th><th>Note</th></tr>
             </thead>
@@ -194,8 +194,8 @@
                endpoint on <span class="mono">127.0.0.1</span> and a session key, signs
                every request as you, and can reach <b>any band on the market</b> - free
                stations, paid ones, your own.</p>
-            <pre class="ways__code"><code>OPENAI_BASE_URL=http://127.0.0.1:4141/v1
-OPENAI_API_KEY=&lt;the key it printed&gt;</code></pre>
+            <div class="code-block ways__code"><pre><code>OPENAI_BASE_URL=http://127.0.0.1:4141/v1
+OPENAI_API_KEY=&lt;the key it printed&gt;</code></pre></div>
             <p class="ways__fine">4141 unless it is taken - the CLI prints the port it
                actually picked.</p>
           </article>
@@ -205,8 +205,8 @@ OPENAI_API_KEY=&lt;the key it printed&gt;</code></pre>
                no CLI on that machine. A grant is confined to <b>your own nodes</b> - it
                can never reach another owner's hardware - so this is the shape for "my
                cloud bot uses the GPU on my desk".</p>
-            <pre class="ways__code"><code>OPENAI_API_BASE=https://broker.rogerai.fm/v1
-OPENAI_API_KEY=&lt;grant key&gt;</code></pre>
+            <div class="code-block ways__code"><pre><code>OPENAI_API_BASE=https://broker.rogerai.fm/v1
+OPENAI_API_KEY=&lt;grant key&gt;</code></pre></div>
           </article>
         </div>
         <p class="intg__note">Both spellings of the base-URL variable are read, because

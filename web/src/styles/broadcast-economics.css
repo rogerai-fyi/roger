@@ -58,7 +58,7 @@
 
 /* ---- the ledger tables ------------------------------------------------ */
 
-.ec-tablewrap { margin: var(--s-6) 0 0; overflow-x: auto; }
+.ec-tablewrap { margin: var(--s-6) 0 0; }   /* a .scroll-box */
 
 .ec-table {
   width: 100%; min-width: 560px; border-collapse: collapse;
@@ -69,13 +69,7 @@
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
   text-transform: uppercase; color: var(--ink-500);
 }
-.ec-table th {
-  text-align: left; padding: 0 var(--s-3) var(--s-2) 0;
-  border-bottom: 1px solid var(--ink-900);
-  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; font-weight: var(--weight-semi); color: var(--ink-700);
-  white-space: nowrap;
-}
+.ec-table th { padding: 0 var(--s-3) var(--s-2) 0; white-space: nowrap; }   /* the header row: .data-table */
 .ec-table td {
   padding: 9px var(--s-3) 9px 0;
   border-bottom: 1px solid var(--hairline);

@@ -125,7 +125,6 @@ test("tokens.css declares tokens only: custom properties and color-scheme, nothi
 // only scopes tokens to .tone-zone.
 const PAGE_SHEET_COMPONENT_RULES = {
   "research.css": {
-    ".research-button": "research-shell pages stack their buttons full-width on phones; decide per page in the rollout",
     ".section--edge .device-contract": "a research-models modifier of .section",
     ".section--edge .model-roadmap": "a research-models modifier of .section",
     ".section--edge .model-list": "a research-models modifier of .section",

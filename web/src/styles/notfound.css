@@ -35,20 +35,6 @@
   text-transform: uppercase; color: var(--ink-500); }
 .lost__path-code { color: var(--ink-900); font-size: var(--t-sm);
   overflow-wrap: anywhere; word-break: break-all; }
-.lost__actions { margin-top: var(--s-10); display: flex; flex-wrap: wrap;
-  gap: var(--s-5); align-items: center; justify-content: center; }
-.lost__home {
-  display: inline-flex; align-items: center; gap: 9px;
-  padding: 11px 20px; border-radius: var(--r-pill);
-  background: var(--white); border: 1px solid var(--hairline-2); box-shadow: var(--e-2);
-  color: var(--ink-900); font-weight: var(--weight-semi); font-size: var(--t-sm);
-  transition: box-shadow var(--d-2), border-color var(--d-2), transform var(--d-2) var(--ease-out-quint);
-}
-.lost__home:hover { box-shadow: var(--e-3); border-color: var(--volt); transform: translateY(-1px); }
-.lost__home:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.lost__home:active { transform: translateY(1px); box-shadow: none; }
-.lost__home .onair { color: var(--live-text); font-size: var(--t-sm); }
-.lost__alt { color: var(--volt); font-weight: var(--weight-medium); font-size: var(--t-sm); }
-.lost__alt:hover { text-decoration: underline; }
-@media (prefers-reduced-motion: reduce) { .lost__home:hover, .lost__home:active { transform: none; } }
+/* the page's action row is the shared lead row (components.css), centred here */
+.lost__actions { margin-top: var(--s-10); justify-content: center; }
 

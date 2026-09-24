@@ -195,10 +195,7 @@
   caption-side: top; text-align: left; padding-bottom: var(--s-2);
   font-size: var(--t-micro); letter-spacing: .06em; color: var(--ink-500);
 }
-.hw-bench th {
-  text-align: left; padding: 6px var(--s-3) 6px 0; font-weight: var(--weight-medium);
-  color: var(--ink-500); border-bottom: 1px solid var(--hairline); white-space: nowrap;
-}
+.hw-bench th { padding: 6px var(--s-3) 6px 0; white-space: nowrap; }   /* the header row: .data-table */
 .hw-bench td {
   padding: 6px var(--s-3) 6px 0; border-bottom: 1px solid var(--hairline);
   color: var(--ink-700); font-variant-numeric: tabular-nums; white-space: nowrap;

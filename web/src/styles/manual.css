@@ -42,13 +42,7 @@
 .man-quick__card .install__code { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-size: .8125rem; }
 .man-quick__step, .man-fig { display: inline-block; font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.1em; }
 .man-quick__card p { margin-top: var(--s-3); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
-.man-quick__card pre {
-  margin-top: var(--s-3); padding: 14px 16px; overflow-x: auto; max-width: 100%;
-  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
-  font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
-}
-.man-quick__card pre .c { color: var(--ink-500); }
-.man-quick__card pre .p { color: var(--volt); }
+/* command blocks are the shared .code-block (components.css) */
 .man-quick__card code:not(.install__code) {
   font-family: var(--font-mono); font-size: 0.88em;
   background: var(--paper); border: 1px solid var(--hairline);
@@ -84,14 +78,6 @@
 .man-sec a.man-ref { color: var(--volt); font-weight: var(--weight-medium); }
 .man-sec a.man-ref:hover { text-decoration: underline; }
 
-/* a copy line / command block, mono, manual-grey */
-.man-sec pre {
-  margin-top: var(--s-4); padding: 14px 16px; overflow-x: auto; max-width: 100%;
-  background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
-  font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
-}
-.man-sec pre .c { color: var(--ink-500); } /* a comment inside a pre */
-.man-sec pre .p { color: var(--volt); }    /* a prompt / sigil */
 .man-sec :not(pre) > code {
   font-family: var(--font-mono); font-size: 0.88em;
   background: var(--paper-2); border: 1px solid var(--hairline);
@@ -118,10 +104,10 @@
 .man-plate__row dd, .man-plate__v { margin: 0; font-size: var(--t-sm); color: var(--ink-700); }
 
 /* command reference table */
-.man-table-wrap { margin-top: var(--s-5); overflow-x: auto; border: 1px solid var(--hairline-2); border-radius: var(--r-md); }
+.man-table-wrap { margin-top: var(--s-5); }   /* a .scroll-box */
 table.man-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); min-width: 540px; }
 table.man-table caption { caption-side: top; text-align: left; padding: 12px 16px; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-500); background: var(--paper-2); border-bottom: 1px solid var(--hairline); }
-table.man-table th { text-align: left; padding: 10px 16px; background: var(--paper-2); color: var(--ink-500); font-weight: var(--weight-semi); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--hairline-2); }
+table.man-table th { padding: 10px 16px; }   /* the header row: .data-table */
 table.man-table td { padding: 10px 16px; border-top: 1px solid var(--hairline); color: var(--ink-700); vertical-align: top; }
 table.man-table td:first-child { white-space: nowrap; }
 table.man-table td code { font-family: var(--font-mono); color: var(--ink-900); background: var(--paper-2); border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; font-size: 0.86rem; }

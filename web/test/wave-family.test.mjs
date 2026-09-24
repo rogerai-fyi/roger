@@ -24,7 +24,7 @@ const jobsTable = () => {
   const page = read("research-wave-family.html");
   const section = page.match(/<section[^>]*id="jobs"[\s\S]*?<\/section>/)?.[0];
   assert.ok(section, "the family page has a §4 JOBS section");
-  return section.match(/<table class="tier-matrix"[\s\S]*?<\/table>/)?.[0] || "";
+  return section.match(/<table class="[^"]*\btier-matrix\b[^"]*"[\s\S]*?<\/table>/)?.[0] || "";
 };
 /* AMENDED 2026-08-17: this matched a BARE <tr> only. §4 now carries two row forms -
    the 27 plant jobs stay attribute-free because research-page.test.mjs counts them out
