@@ -5,6 +5,55 @@ lands on every page from one place. Read this before adding a page or a componen
 The guard tests in `test/design-system.test.mjs` enforce the rules below; each rule
 there has a written exception list, and every entry in it is a known debt.
 
+## Component index
+
+Search this table before you build anything. `components.css` unless noted; "JS"
+is the module that wakes on the hook (every page loads it via `site-js.html`).
+
+| Component | Class / hook | JS | Used on |
+|---|---|---|---|
+| Section, section head | `.section`, `.section__head`, `.sectionno` (base) | - | every marketing page |
+| Tinted band / inset band | `.band`, `.band--inset` | - | homepage, research pages |
+| Buttons, lead row | `.research-actions` (`--lead`), `.research-button` (`--primary`, `--quiet`) | press | 14 pages |
+| Callout | `.man-note` (`--live`, `--ember`) | - | manual, keys, hardware, 2 articles |
+| Install pill + copy tick | `install-box.html` partial, `.install`, `.install__box` (`--lg`) | `site.js` | homepage, app, Tower, articles |
+| Inline / block copy command | `.copy-code` (`--block`) | `site.js` `[data-copy-target]` | Pricing, Integrations |
+| Framed instrument panel | `.install[data-frame="panel"]` | - | homepage FIG. 1 |
+| Ink panel | `.tone-zone[data-tone="ink"]` | - | 10 pages |
+| Tinted panel | `.tint-panel`, `.tint-panel__tag` | - | 42 pages (cards, notes, sign-offs, account panel) |
+| Wave Spectrum scale | `.spectrum` + `.wave-bar` | `scrub.js` `[data-scrub]` | Company (homepage: `.home-spectrum` + `.wave-bar`) |
+| Wave bar | `.wave-bar` (in a tier `<li>`) | - | Company, homepage |
+| Step path | `.steps` | - | Careers |
+| Page index | `.page-index` | - | FAQ, legal pages |
+| TOC tuner | `.toc-tuner` | `tuner.js` `[data-tuner]` | 16 pages |
+| Scrubber | `[data-scrub]` -> `.scrub` | `scrub.js` | homepage, Company, Pricing |
+| Range twin | `[data-range-twin]` -> `.range-twin` | `range-twin.js` | Pricing |
+| Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
+| Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
+| Figure | `.figure` (`--plate`, `--phone`, `--chart`) | - | the articles |
+| Scroll box | `.scroll-box` | - | article tables |
+| Code block | `.code-block` | `site.js` (adds the copy button) | 3 articles |
+| Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
+| Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
+| Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
+| Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
+| Print | `@media print` at the end of `components.css` + `tokens.css` | - | every page |
+
+### Before you add a component
+
+1. Search the index above and `components.css` for the look you want, including its
+   declarations: a panel is `--paper-2` on `--panel-r`, a label is the mono micro
+   uppercase set. If it exists, use the class.
+2. If it almost fits, extend it (a modifier, or a page-context placement such as
+   `.page-x .tint-panel { padding: ... }`), do not fork it under a new name. Two
+   classes with the same declarations fail `test/design-system.test.mjs`, and so does
+   any second rule that paints the tinted panel ground.
+3. Only when a second page needs it does a page pattern become a component: move it to
+   `components.css`, add its contract below and a row above, and make the first page
+   use it.
+4. Colours and sizes are tokens; text uses `--ink-400` or stronger (all AA, see
+   **Changing the theme**); motion is opt-in and has a print and reduced-motion state.
+
 ## The layers
 
 Every page is assembled from the same stack. Each layer may use the ones above it,
@@ -17,7 +66,6 @@ never the other way round.
 | Components | `src/styles/components.css` | the shared components below, each with a markup contract. |
 | Account base | `src/styles/account-base.css` | the signed-in surface (account pages only). |
 | Page | `src/styles/<page>.css` | only what is true of one page (or one family: `research.css` is the shell of the research, company, pricing, FAQ and careers pages; `broadcasts.css` of the articles). |
-| Research overlay | `src/styles/research-labs.css` | the research pages' side of the site lift (panels instead of ruled frames, AA labels), loaded after `research.css` on the five research pages only, so the shell's other pages can move separately. Fold it into `research.css` once they have. |
 
 The first three load on every page, in that order: `CSS_SHARED` in `build.mjs`. A
 page's bundle is `CSS_BUNDLES[page]` in the same file, and `head.html`'s
@@ -45,8 +93,13 @@ behaviour by markup alone**.
 - The ink panel (`.tone-zone`) re-scopes the dark token set to a block, one step deeper
   on a dark site. Any component inside it re-themes for free. If you change an ink or
   ground token, `test/tone-zones.test.mjs` re-checks AA for every ink on every ground.
-- `--ink-400` is AA only inside ink panels; on paper use `--ink-500` for anything that
-  must be read. `--ink-300` is decoration only.
+- Every text ink is AA (4.5:1) on `--paper`, `--paper-2` and the raised `--white`, light
+  and dark and inside ink panels (`test/contrast.test.mjs` computes all of them). The
+  tertiary `--ink-400` is the shared labels' ink (section labels, eyebrows, FIG.
+  captions, dates); do not lift a label to `--ink-500` in a page sheet, the test fails
+  on it. `--ink-300` is decoration only. The one scoped exception: the signed-in plate
+  (`.card`), whose command wells sit on `--paper-3`.
+- Print is black on white in every theme (the print tokens at the end of `tokens.css`).
 - Mono + ONE red (`--live`): red is an indicator (needle, on-air dot, tuned state, focus),
   never a wash behind text.
 
@@ -74,6 +127,10 @@ where the page sets `section[id] { scroll-margin-top: 72px }` (home does).
 the one primary. (Historical name, kept so no markup had to change; a rename to a neutral
 name is a one-commit job for the rollout.) Pressable: sinks 1px while held
 (none under reduced motion).
+
+(The homepage's card links, `.company__links` with `.company__primary`, look similar
+but are a different role: sentence-case links set in the card's own type with a drawn red
+rule on hover, not the page's uppercase action row. They stay in home.css.)
 
 A page's lead row is `.research-actions.research-actions--lead`: ONE primary, then quiet
 text links, `.research-button--quiet` (the mono label, tap height and press, no box; a
@@ -132,13 +189,14 @@ one step deeper than the page and carries a `--hairline-2` inset ring, so it kee
 ```
 `--paper-2` ground, radius `--panel-r`, no border, no rule: the calm replacement for a
 hairline card with a heavy black top rule. Inside an ink panel it re-themes. Grids of
-panels are placed by the page. (Named `tint-panel`, not `panel`: the account sheet already
-uses `.panel` for its hairline-divided sections.) The tuner band and the homepage cards
-still write the same two declarations by hand and can adopt the class. A tinted panel
-that is a whole section takes the ink panel's geometry: `margin: var(--panel-inset)
-var(--panel-mx)` (the homepage's `main > .band`). The
-Models-menu pages use it (Pricing's path, guard and plate panels), as do the Company pages, the
-manual, 404, confidential, and the account pages' plate ground.
+panels are placed by the page, and a page may set a panel's padding in its own context
+(`.faq__group`, `.company__card`, `.dialwrap`); the ground itself is declared once, in
+the one shared rule that also paints the tuner band and the figure plate. Note the panel
+zeroes its first child's top margin and its last child's bottom margin: a child that
+bleeds (a photo with negative margins) is placed with a two-class selector. (Named
+`tint-panel`, not `panel`: the account sheet already uses `.panel` for its
+hairline-divided sections.) A tinted panel that is a whole section is the inset band
+(`.band--inset`).
 
 ### Wave Spectrum scale
 ```html
@@ -151,8 +209,12 @@ beside them); the bar over each is the wave, its stripes tightening
 as the model grows (set by position, up to seven tiers, no inline style). With
 `data-scrub` the scrubber tunes a tier (quiet ground, red wave). Four columns under
 1080px, where the range control steps aside (pointing or tapping a tier still tunes it);
-a stack on phones. No-JS: the complete list. The homepage's `.home-spectrum` (home.css)
-draws the same picture and can adopt this class.
+a stack on phones. No-JS: the complete list. Each tier's bar is the shared
+`<i class="wave-bar" aria-hidden="true">`, its stripe gap set by its position. The
+homepage's `.home-spectrum` (home.css) is a different layout of the same data (ruled
+cells, size / name / use on three lines, a touch gallery the scrubber drives) and
+shares only the wave bar; moving it onto `.spectrum` would restyle every one of its
+rules, so it stays its own.
 
 ### Step path
 ```html
@@ -245,6 +307,22 @@ Mark any element `[data-anchor-hold]` on a page whose content grows above its an
 load (live data, media). A `#fragment` stays on its target until the reader scrolls, types
 or touches, or 4s pass.
 
+### Directory
+`.bands-hero` (`__inner`, `__title`, `__sub`), `.bands-panel` (`__bar`, `__status` with
+`is-live`/`is-off`/`is-quiet`, `__quiet`), and the chips `.band-tag` (`--free`, `--deal`,
+`--ver`, `--seen`) and `.price-tier`. The live directories (Models, Voices) share the
+shape, the homepage market its chips, the App page its hero title. Rows and columns are
+each page's own.
+
+### Print
+Every page prints whole: the print section at the end of `components.css` stops all
+motion, sets every reveal at rest (`[data-reveal]`, the lift, the JS settle), leaves off
+the nav, promo strip, rail, tuner, scrubber, range twins, toast, dialog and code copy
+buttons, unclips code and tables, keeps figures and panels whole, prints gradient-cut
+words (`.carrier`) as ink and follows an external prose link with its address. Colours:
+black on white in every theme (the print tokens in `tokens.css`). A new component with a
+screen-only control adds it to the hide list; `test/print.test.mjs` checks the rest.
+
 ### Rail and on-air mark
 `<!-- include: rail.html head="RogerAI · Section" rev="Rev. 2026.09 · ((•))" orange=1 -->`
 (the running head, `orange=1` adds the OC orange) and `<!-- include: onair.html -->` (the
@@ -263,7 +341,7 @@ tinted inset panel (theme tokens: it recedes on the dark theme). `--phone` centr
 portrait screenshot at 440px. `--chart` is an inline SVG chart: heading ink (the chart
 draws in `currentColor`), and on a column narrower than 34rem it scrolls inside the figure
 instead of shrinking its text below reading size; the caption stays put. The caption is
-`--ink-500` (AA on paper). SVG charts colour their red with `var(--live)` and their paper
+the `.fig` label in its own ink (AA). SVG charts colour their red with `var(--live)` and their paper
 with `var(--paper)` in their own `<style>`, never a literal, so they re-theme.
 
 ### Scroll box
@@ -367,6 +445,38 @@ fails on a bare component selector outside `components.css`.
   their own affordance (listed debts). The footer's copy buttons were a hard-coded id list
   (now `data-copy-target`).
 
+## Consolidation (after the section rollouts)
+
+Five rollouts built in parallel on the shared layer and, working apart, re-invented some
+of it. What was found and where it went:
+
+- **The tinted panel, invented four times** (`.tint-panel` x3, `.inset-panel`), merged
+  by hand into `.tint-panel`; then **nine more page rules** that re-painted its ground
+  (homepage company cards, FAQ groups, careers roles, the legal notice, the account
+  pages' panel, the /models dial, the routing simulator, the research onward links,
+  developer steps and deployment cards) take the class now, and the tuner band and figure
+  plate share its one ground rule. The inset geometry literal (`max(--panel-inset, ...)`)
+  had four copies; it is the `--panel-mx` token everywhere.
+- **The directory**: /voices re-declared the /models hero and panel verbatim and the
+  homepage re-declared the chips; one component now (and /voices' FREE chip is finally
+  styled). The App hero title was the same rule under another name.
+- **The homepage bands** re-declared `.band--inset` as `main > .band`; they take the class.
+- **The Wave Spectrum**: one `.wave-bar` for both ladders; the ladders stay two layouts
+  (see **Wave Spectrum scale**).
+- **research-labs.css** folded into `research.css` (every page on the shell is lifted);
+  its dead `.research-card` rules went. Company and careers now get the inset
+  distinction strip and the shell pages lose the hairline under the hero, as the
+  research pages had.
+- **Twin rules**, one grouped rule each: `.sectionno` / `.hero__eyebrow`, the manual's
+  labels, and labels in keys, billing, metrics and payouts; the two photo credits are
+  `.photo-credit`.
+- **Contrast**, fixed once: the tertiary ink is AA; the local lifts (article labels,
+  the research label list, Company kickers, figure captions) are gone.
+- **Kept, with reasons** (listed in the guard): the signed-in chart and form kit
+  (dashboard / metrics / billing / payouts / account: a shared account kit is the next
+  step), two dialogs of one design (billing help, report a station), a step-flow figure
+  in two articles, label type coincidences, and layout coincidences.
+
 ## Pages that do not fit the system yet
 
 - **Account pages** (account, billing, payouts, usage, dashboard, console, keys, private,
@@ -379,7 +489,6 @@ fails on a bare component selector outside `components.css`.
   (keys, private copy).
 - **Playbox** (playbox, wave-patch, wave-factory sheets): self-contained games with their
   own palettes; 310 of the remaining colour literals.
-- **/models and /voices**: the market chips and the directory panel duplicated between
-  `home.css`, `models.css` and `voices.css`; the text-label copy pill written by hand.
+- **/models and /voices**: the text-label copy pill written by hand.
 - **The research shell** (`research.css`) restyles `.research-button` full width on phones
   for its pages only.
