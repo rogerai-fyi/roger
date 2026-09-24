@@ -622,22 +622,8 @@
 .wave-mark { margin: 0; display: grid; justify-items: center; gap: var(--s-4); }
 /* THE SPECTRUM MARK (js/wave-mark-spectrum.js). Tier colours are the
    founder's own Spectrum chart - the same seven the mesh and factory decks
-   wear - so the mark, the decks and the ladder all speak one palette. */
-/* Declared on the ROOT, not on the mark, so the mark, the mesh deck and the
-   factory deck all read one palette rather than three that drift. (§4's slot
-   chips wore these too until 2026-08-17, when the eight chips became one select
-   and the toolbar lost two rows; the tokens stay on the root, where the other
-   decks and any future ladder art still reach them.) */
-:root {
-  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
-  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
-  --tier-exa:  #5b3fbf;
-}
-:root[data-theme="dark"] {
-  --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
-  --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
-  --tier-exa:  #8a6df0;
-}
+   wear - so the mark, the decks and the ladder all speak one palette. The
+   hues are tokens (tokens.css: --tier-pico .. --tier-exa). */
 /* once the spectrum has its first frame the resting curves stand down - the
    markup stays in the DOM, so it is still the mark without JS */
 .wave-mark__svg[data-spectrum] .wave-mark__wave { display: none; }

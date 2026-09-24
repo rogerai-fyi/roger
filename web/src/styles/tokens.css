@@ -155,6 +155,10 @@
   --carrier:    2.2s;
   --carrier-2x: 4.4s;
 
+  /* ---- PANELS (the ink panel, tinted panels, the tuner band) ---- */
+  --panel-inset: clamp(8px, 1.6vw, 24px); /* a panel's closest approach to the viewport edge */
+  --panel-r:     clamp(14px, 1.4vw, 22px); /* panel corner radius */
+
   /* z layers */
   --z-base:   0;
   --z-card:   10;
@@ -230,6 +234,23 @@
   --hairline-2:   #2E2A23;
 }
 
+/* =====================================================================
+   THE WAVE SPECTRUM PALETTE - the founder's own chart, light and dark.
+   Identity hues for the seven Wave tiers (pico .. exa), never state. The
+   wave mark is a brand component that can appear on any page, so these are
+   tokens. The Playbox decks (wave-patch.css, wave-factory.css) re-scope the
+   same values to their own roots on purpose: they are self-contained games.
+   ===================================================================== */
+:root {
+  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
+  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
+  --tier-exa:  #5b3fbf;
+}
+:root[data-theme="dark"] {
+  --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
+  --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
+  --tier-exa:  #8a6df0;
+}
 /* Reduced motion: collapse choreography, keep legibility. */
 @media (prefers-reduced-motion: reduce) {
   :root {

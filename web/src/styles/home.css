@@ -818,10 +818,6 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
    sit in ink panels on the paper page: inset from the page edge, rounded,
    still. A panel carries the site's ink tokens (tokens.css), so everything
    in it re-themes as it does in dark mode (one step deeper on a dark site). */
-:root {
-  --panel-inset: clamp(8px, 1.6vw, 24px);
-  --panel-r: clamp(14px, 1.4vw, 22px);
-}
 /* a panel's side margin is tied to the page's content box: it sits 64px
    outside the text column on both sides (so every panel frames the content
    the same way, whatever the spine), and never closer than --panel-inset to
