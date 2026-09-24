@@ -218,3 +218,25 @@ func TestPresenceFailsClosedWhenTrustUnavailable(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok, "nothing is recorded when trust is unavailable")
 }
+
+// A presence with a near-future timestamp stays FRESH until TS+window, so its nonce must be
+// remembered that long. Expiring the nonce at now+window (the old behaviour) pruned it while the
+// same signed bytes were still acceptable, so a replay slipped through (audit 2026-09-24).
+func TestPresenceNonceOutlivesAFutureDatedRequest(t *testing.T) {
+	f, a, priv, id, certPEM := presenceFixture(t)
+	base := time.Now()
+	clock := base
+	h := PresenceHandlerFunc(f, func() *cert.Authority { return a }, func() time.Time { return clock })
+
+	// A presence dated 4 minutes in the future - within the +/-5m freshness window.
+	p := validPresence(id, certPEM)
+	p.TS = base.Add(4 * time.Minute).Unix()
+	signPresence(&p, priv)
+	require.Equal(t, http.StatusOK, doPresence(h, p).Code, "a near-future presence is accepted")
+
+	// Six minutes later the request is STILL fresh (|6m-4m| = 2m < 5m) but its nonce would have been
+	// pruned under a now+window expiry. Replaying the identical bytes must be refused.
+	clock = base.Add(6 * time.Minute)
+	require.NotEqual(t, http.StatusOK, doPresence(h, p).Code,
+		"the same still-fresh presence must not be replayable after its original nonce window")
+}

@@ -135,8 +135,12 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 			refusePresence(w, "that presence's signature does not check out")
 			return
 		}
-		// 6. Not a replay of one already accepted.
-		if !seen.admit(req.Nonce, now().Add(presenceFreshness).Unix(), now().Unix()) {
+		// 6. Not a replay of one already accepted. The nonce is remembered until this request could
+		//    no longer be FRESH - TS + presenceFreshness - not merely now + presenceFreshness. A
+		//    request with a near-future TS stays acceptable until TS+window; expiring its nonce at
+		//    now+window would prune it while the very same bytes are still fresh, opening a replay
+		//    window (audit 2026-09-24).
+		if !seen.admit(req.Nonce, time.Unix(req.TS, 0).Add(presenceFreshness).Unix(), now().Unix()) {
 			refusePresence(w, "that presence was already seen")
 			return
 		}

@@ -178,10 +178,22 @@ func (s *Server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		s.streamInfer(w, resp, rec)
 		return
 	}
-	out, _ := io.ReadAll(io.LimitReader(resp.Body, inferBodyCap))
+	// Read one byte past the cap so an oversized body is DETECTED, not silently truncated, and check
+	// the read error: a receipt attests a COMPLETE reply, so a truncated or over-long body must be
+	// voided rather than signed as done (audit 2026-09-24).
+	out, rerr := io.ReadAll(io.LimitReader(resp.Body, inferBodyCap+1))
+	oversized := int64(len(out)) > inferBodyCap
+	if oversized {
+		out = out[:inferBodyCap]
+	}
 	rec.PromptTokens, rec.CompletionTokens = usageOf(out)
-	if resp.StatusCode >= 400 {
+	switch {
+	case resp.StatusCode >= 400:
 		rec.VoidReason = "upstream_" + fmt.Sprint(resp.StatusCode)
+	case rerr != nil:
+		rec.VoidReason = "reply_read_error"
+	case oversized:
+		rec.VoidReason = "reply_oversized"
 	}
 	if len(s.serving.Key) == ed25519.PrivateKeySize {
 		rec.SignNode(s.serving.Key)
@@ -200,6 +212,11 @@ func (s *Server) streamInfer(w http.ResponseWriter, resp *http.Response, rec pro
 	flusher, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("X-RogerAI-Provider", rec.NodeID+"/"+rec.Instance)
+	// An upstream that answered with an error status did not complete the turn, even if it framed the
+	// error as SSE: void the receipt so nothing bills a failed turn (audit 2026-09-24).
+	if resp.StatusCode >= 400 {
+		rec.VoidReason = "upstream_" + fmt.Sprint(resp.StatusCode)
+	}
 	w.WriteHeader(resp.StatusCode)
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
