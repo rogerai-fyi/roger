@@ -41,7 +41,7 @@ const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? 
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 const over = (fg, a, bg) => fg.map((c, i) => Math.round(c * a + bg[i] * (1 - a)));
 function block(css, selRe) {
-  const m = css.match(new RegExp(selRe.source + "\\s*\\{([^}]*)\\}"));
+  const m = css.match(new RegExp(selRe.source + "[^{]*\\{([^}]*)\\}"));   // the scope may list more selectors (the chrome)
   assert.ok(m, `found ${selRe}`);
   return Object.fromEntries([...m[1].matchAll(/(--[\w-]+):\s*(#[0-9A-Fa-f]{6})/g)].map((x) => [x[1], hex(x[2])]));
 }
@@ -51,7 +51,7 @@ test("zone text stays AA (4.5:1) on the zone ground AND under the bloom at its p
   const home = read("styles/home.css");
   const lightZone = block(tokens, /:root\[data-theme="dark"\],\s*\.tone-zone/);
   const darkZone = { ...lightZone, ...block(tokens, /:root\[data-theme="dark"\] \.tone-zone/) };
-  const live = hex(tokens.match(/:root\[data-theme="dark"\],\s*\.tone-zone\s*\{[^}]*--live:\s*(#[0-9A-Fa-f]{6})/)[1]);
+  const live = hex(tokens.match(/:root\[data-theme="dark"\],\s*\.tone-zone[^{]*\{[^}]*--live:\s*(#[0-9A-Fa-f]{6})/)[1]);
   const peak = Number(home.match(/--bloom-peak:\s*([\d.]+)/)[1]);
   const darkPeak = Number(home.match(/:root\[data-theme="dark"\] \.tone-zone\s*\{[^}]*--bloom-peak:\s*([\d.]+)/)?.[1] || peak);
   assert.ok(peak > 0.1, "the bloom is actually visible");
@@ -135,9 +135,10 @@ test("the middle gets a scroll moment: the Wave Spectrum tunes in, the spec plat
   assert.match(home, /\.home-spectrum li:first-child i\s*\{[^}]*animation-name:\s*spec-wave-on/);
 });
 
-test("touch / narrow screens: reveals never blur and never rest below 0.9 opacity", () => {
+test("touch, phones and tablets: reveals never blur and never rest below 0.9 opacity", () => {
   const home = read("styles/home.css");
-  const touch = home.match(/@media \(max-width: 760px\), \(pointer: coarse\)\s*\{([\s\S]*?)\n    \}/)?.[1] || "";
+  // phones AND tablets (round 6: an iPad at rest showed blurred cards at 768 / 1024)
+  const touch = home.match(/@media \(max-width: 1024px\), \(pointer: coarse\)\s*\{([\s\S]*?)\n    \}/)?.[1] || "";
   assert.match(touch, /animation-name:\s*lift-touch/, "one plain reveal for every block");
   assert.match(touch, /animation-range:\s*entry 0% entry 15vh/, "finished by 85% of the viewport");
   const kf = home.match(/@keyframes lift-touch\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";

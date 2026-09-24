@@ -167,9 +167,11 @@
    Driven by [data-theme="dark"] on <html>. Same single-accent discipline.
    ===================================================================== */
 /* .tone-zone (the homepage's on-air ink zones) borrows this same ink set, so
-   everything inside a zone re-themes the way the whole site does in dark mode. */
+   everything inside a zone re-themes the way the whole site does in dark mode;
+   so does the chrome (nav, promo, rail) while an ink zone is under the nav. */
 :root[data-theme="dark"],
-.tone-zone {
+.tone-zone,
+:root[data-chrome="ink"] :is(.nav, .promo, .rail) {
   --white:        #1C1A14; /* raised surface */
   --paper:        #0E0D0B; /* warm ink ground */
   --paper-2:      #16140F; /* bands / bars */
@@ -214,7 +216,8 @@
 }
 /* ...and on a dark site the zones go one step deeper, to near-black, so the
    turn into an on-air zone still reads as a deliberate change of room. */
-:root[data-theme="dark"] .tone-zone {
+:root[data-theme="dark"] .tone-zone,
+:root[data-theme="dark"][data-chrome="ink"] :is(.nav, .promo, .rail) {
   --white:        #16100D;
   --paper:        #080504; /* warm red-black: a different room, not just darker */
   --paper-2:      #100A08;

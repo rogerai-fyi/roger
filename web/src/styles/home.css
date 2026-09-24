@@ -299,11 +299,11 @@
       animation-timeline: view();
       animation-range: entry 10% entry 38vh;
     }
-    /* touch and narrow screens: people stop mid-page to read, so nothing
+    /* touch, phones and tablets: people stop mid-page to read, so nothing
        rests blurred or faded - one plain rise, finished by the time a block
        is 85% up the screen (!important: it must beat every staggered range
        above, whatever their specificity) */
-    @media (max-width: 760px), (pointer: coarse) {
+    @media (max-width: 1024px), (pointer: coarse) {
       main [data-reveal],
       main :is(.demo__head, .market__head, .section__head, .shelf__copy, .monetize__copy, .cta__inner),
       main :is(.term, .market__panel, .plate, .earn),
@@ -890,12 +890,10 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
   color: var(--ink-700);
   background: var(--paper);
   view-timeline: --zone block;
-}
-/* the door narrows the zone only to 16px outside the text column, so every
-   word stays on ink at every step (100vw - spine = the zone's width) */
-.tone-zone {
   --door-x: calc(max(0px, (100vw - var(--spine-w, 0px) - var(--maxw)) / 2) + var(--gutter) - 16px);
 }
+/* (--door-x: the door narrows the zone only to 16px outside the text column,
+   so every word stays on ink at every step; 100vw - spine = the zone's width) */
 @media (min-width: 1080px) { .tone-zone { --spine-w: var(--spine); } }
 .tone-zone[data-bloom="low"] { --bloom-at: 50% 88%; }
 .tone-zone[data-onload] { --bloom-at: 76% 46%; }   /* the cover: behind FIG. 1 */
@@ -919,6 +917,23 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
     color-mix(in srgb, var(--live) calc(var(--bloom-peak) * 100%), transparent), transparent 72%);
 }
 .tone-zone > section { position: relative; z-index: 1; }
+
+/* adaptive chrome (scroll-stage.js sets data-chrome): over an ink zone the
+   nav, promo and rail carry the zone's ink tokens (tokens.css), so the bar
+   and the stage read as one surface. They cross-fade on the site's timing
+   (instant under reduced motion, where the --d tokens are 0); the first set
+   on load is instant (data-chrome-instant). */
+:root[data-chrome="ink"] :is(.nav, .promo, .rail) { color: var(--ink-700); }
+:root[data-chrome="ink"] .nav { background: var(--paper); border-bottom-color: var(--hairline); }
+.promo, .rail { transition: background-color var(--d-3) var(--ease-standard), border-color var(--d-3); }
+.rail__head, .rail__rev, .promo__msg { transition: color var(--d-3); }
+:root[data-chrome-instant] :is(.nav, .promo, .rail),
+:root[data-chrome-instant] :is(.nav, .promo, .rail) * { transition: none !important; }
+
+/* the market price cell: the "$" tier never splits, and the "good price"
+   chip always sits whole on its own line under the price */
+.mkt-cell--price .price-tier { white-space: nowrap; }
+.mkt-cell--price .band-tag { display: table; margin: 3px 0 0 auto; white-space: nowrap; }
 
 .company__grid {
   display: grid;

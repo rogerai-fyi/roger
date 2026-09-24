@@ -174,3 +174,18 @@ test("sideways choreography can never widen the page", () => {
   const css = read("styles/home.css");
   assert.match(css, /main > section\s*\{[^}]*overflow-x:\s*clip/);
 });
+
+test("the market price cell never splits its tag: the chip sits whole on its own line", () => {
+  const css = read("styles/home.css");
+  assert.match(css, /\.mkt-cell--price \.band-tag\s*\{[^}]*display:\s*table[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.mkt-cell--price \.price-tier\s*\{[^}]*white-space:\s*nowrap/);
+});
+
+test("lean: every @keyframes in home.css is actually used", () => {
+  const css = readFileSync(path.join(WEB, "src/styles/home.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const js = readdirSync(path.join(WEB, "src/js")).map((f) => readFileSync(path.join(WEB, "src/js", f), "utf8")).join("\n");
+  const names = [...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]);
+  const body = css.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "");
+  const unused = names.filter((n) => !new RegExp(`animation(-name)?:[^;]*\\b${n}\\b`).test(body) && !js.includes(n));
+  assert.deepEqual(unused, [], `unused keyframes: ${unused.join(", ")}`);
+});

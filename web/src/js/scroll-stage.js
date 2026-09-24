@@ -6,6 +6,8 @@
      ?motion=a  scroll-driven background + the plain section reveals
      ?motion=b  A + the section choreography in home.css (DEFAULT)
      ?motion=c  B + a gentle snap between major sections (desktop only)
+   It also runs the adaptive chrome (all variants): the nav, promo and rail
+   turn ink over the ink zones.
    No parameter = the default, with no attribute at all, so production pages
    carry nothing extra. ?lab=1 (or any ?motion=) shows a small switcher.
 
@@ -40,6 +42,34 @@
     });
     document.body.appendChild(lab);
   }
+
+  // ---- adaptive chrome: the nav, promo and rail take the tone under them ----
+  // data-chrome="ink" whenever an ink zone sits under the nav's bottom edge
+  // (tokens.css re-themes .nav/.promo/.rail from it). The first set holds
+  // transitions off (data-chrome-instant) so the cover doesn't fade the nav
+  // in on load; later swaps transition. No JS: the default paper chrome.
+  var zones = document.querySelectorAll(".tone-zone");
+  var navBar = document.querySelector(".nav");
+  var ink = null;
+  function chrome() {
+    if (!navBar || !zones.length) return;
+    var line = navBar.getBoundingClientRect().bottom + 1, over = false;
+    for (var z = 0; z < zones.length; z++) {
+      var zr = zones[z].getBoundingClientRect();
+      if (zr.top <= line && zr.bottom > line) { over = true; break; }
+    }
+    if (over === ink) return;
+    var first = ink === null;
+    ink = over;
+    if (first) {
+      root.setAttribute("data-chrome-instant", "");
+      window.setTimeout(function () { root.removeAttribute("data-chrome-instant"); }, 60);
+    }
+    if (over) root.setAttribute("data-chrome", "ink"); else root.removeAttribute("data-chrome");
+  }
+  chrome();
+  window.addEventListener("scroll", chrome, { passive: true });
+  window.addEventListener("resize", chrome);
 
   // ---- variant C: settle-then-snap ----
   if (variant !== "c") return;

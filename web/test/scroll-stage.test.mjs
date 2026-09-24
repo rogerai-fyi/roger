@@ -17,7 +17,7 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(path.join(WEB, "src/js/scroll-stage.js"), "utf8");
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sections = [0, 900, 1900], navBottom = 65, scrollY = 0, docH = 5000 }) {
+function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sections = [0, 900, 1900], navBottom = 65, scrollY = 0, docH = 5000, zones = [] }) {
   const attrs = {};
   const appended = [];
   const listeners = {};
@@ -37,7 +37,7 @@ function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sec
     onscrollend: null,
   };
   const doc = {
-    documentElement: { setAttribute: (k, v) => { attrs[k] = v; }, scrollHeight: docH },
+    documentElement: { setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; }, scrollHeight: docH },
     body: { appendChild: (c) => appended.push(c) },
     activeElement: { tagName: "BODY" },
     createElement: mk,
@@ -45,8 +45,12 @@ function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sec
     querySelector: (s) => (s === ".nav" ? { getBoundingClientRect: () => ({ bottom: navBottom }) } : null),
     querySelectorAll: (s) => (s === "main > section, .tone-zone > section"
       ? sections.map((top) => ({ getBoundingClientRect: () => ({ top: top - win.scrollY }) }))
-      : []),
+      : s === ".tone-zone"
+        ? zones.map(([top, height]) => ({ getBoundingClientRect: () => ({ top: top - win.scrollY, bottom: top + height - win.scrollY }) }))
+        : []),
   };
+  const later = [];
+  win.setTimeout = (f) => { later.push(f); return later.length; };   // run by flush()
   win.window = win; win.document = doc; win.URLSearchParams = URLSearchParams;
   vm.createContext(win);
   vm.runInContext(SRC, win);
@@ -56,7 +60,9 @@ function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sec
     for (const f of listeners.scroll || []) f();
     for (const f of listeners.scrollend || []) f();
   };
-  return { attrs, appended, scrolls, scrollTo, doc, win };
+  const flush = () => { while (later.length) later.shift()(); };
+  const scrollToFlushed = (y) => { scrollTo(y); flush(); };
+  return { attrs, appended, scrolls, scrollTo: scrollToFlushed, doc, win, flush };
 }
 
 test("?motion=a|b|c sets the variant; anything else (or nothing) leaves the page untouched", () => {
@@ -130,4 +136,38 @@ test("the homepage loads the stage; the choreography CSS is opt-in motion and of
   // homepage-lift.test.mjs parses the blocks properly for every lift- animation)
   const guard = css.indexOf("prefers-reduced-motion: no-preference");
   assert.ok(guard > 0 && css.indexOf(':root:not([data-motion="a"])') > guard);
+});
+
+// ---- adaptive chrome (round 6): the nav, promo and rail take the tone under them ----
+// The sticky nav was a white slab over the ink cover. scroll-stage.js now sets
+// data-chrome="ink" on <html> whenever an ink zone sits under the nav's bottom edge;
+// tokens.css re-themes .nav/.promo/.rail from that. The first set is instant (no fade
+// on load), later swaps transition; no JS = the default paper chrome.
+test("the chrome goes ink over an ink zone and back to paper over paper", () => {
+  const r = run({ zones: [[65, 1000], [2000, 1500]] });   // the cover starts right under the nav
+  r.flush();
+  assert.equal(r.attrs["data-chrome"], "ink", "on load, over the ink cover");
+  r.scrollTo(1100);                                      // paper between the zones
+  assert.equal(r.attrs["data-chrome"], undefined);
+  r.scrollTo(2100);
+  assert.equal(r.attrs["data-chrome"], "ink");
+  r.scrollTo(4000);
+  assert.equal(r.attrs["data-chrome"], undefined);
+});
+
+test("the first chrome swap is instant (no fade-in on load); later ones transition", () => {
+  const r = run({ zones: [[65, 1000]] });
+  assert.equal(r.attrs["data-chrome"], "ink");
+  assert.equal(r.attrs["data-chrome-instant"], "", "transitions held off for the first paint");
+  r.flush();
+  assert.equal(r.attrs["data-chrome-instant"], undefined, "and released right after");
+});
+
+test("tokens and home.css: the chrome re-themes from the attribute, AA by the same ink tokens", () => {
+  const tokens = readFileSync(path.join(WEB, "dist/styles/tokens.css"), "utf8");
+  assert.match(tokens, /:root\[data-theme="dark"\],\s*\.tone-zone,\s*:root\[data-chrome="ink"\] :is\(\.nav, \.promo, \.rail\)\s*\{/);
+  assert.match(tokens, /:root\[data-theme="dark"\] \.tone-zone,\s*:root\[data-theme="dark"\]\[data-chrome="ink"\] :is\(\.nav, \.promo, \.rail\)\s*\{/);
+  const home = readFileSync(path.join(WEB, "dist/styles/home.css"), "utf8");
+  assert.match(home, /:root\[data-chrome="ink"\] \.nav\s*\{[^}]*background:\s*var\(--paper\)/);
+  assert.match(home, /:root\[data-chrome-instant\][^{]*\{[^}]*transition:\s*none/);
 });
