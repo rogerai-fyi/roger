@@ -10,6 +10,8 @@
    - frames only while you scroll, and only for zones on screen; asleep the
      frame after the scroll stops; a hidden tab cancels
    - behind the text column the LEDs burn at a third of their strength
+   - a zone marked data-onload (the hero, the first screen) tunes in on
+     load: its stations come on air over ~1.4s, then it sleeps like the rest
    - reduced motion: every field painted once, still, half on air
    - no JS: the zones are still ink with their bloom (CSS); just no LEDs
    - the unlit grille is the canvas's CSS background; only lit stations
@@ -78,7 +80,8 @@
     var r = f.zone.getBoundingClientRect();
     if (!force && (r.bottom < 0 || r.top > H)) return;   // off screen: free
     var p = REDUCED ? 0.5 : Math.max(0, Math.min(1, (H - r.top) / (r.height + H)));
-    var onAir = 0.02 + 0.2 * p;                          // share of stations on air
+    if (f.onload) p = Math.max(p, 0.55);                  // the cover is on air from the start
+    var onAir = (0.02 + 0.2 * p) * f.tune;                // share of stations on air
     // the field drifts up at a quarter of the scroll, a slow parallax
     var drift = (window.scrollY || 0) * 0.25;
     var row0 = Math.floor(drift / PITCH), dy = -(drift % PITCH);
@@ -126,13 +129,33 @@
     c.className = "tone-field";
     c.setAttribute("aria-hidden", "true");
     zones[z].insertBefore(c, zones[z].firstChild);
-    fields.push({ zone: zones[z], canvas: c, ctx: c.getContext("2d", { alpha: true }) });
+    var onload = !!(zones[z].hasAttribute && zones[z].hasAttribute("data-onload"));
+    fields.push({ zone: zones[z], canvas: c, ctx: c.getContext("2d", { alpha: true }),
+      onload: onload, tune: onload && !REDUCED ? 0 : 1 });
   }
   build();
 
+  // the cover tunes in: stations come on air over TUNE_MS, eased, then sleep
+  var TUNE_MS = 1400, tuneRaf = null, t0 = window.performance.now();
+  function tuneIn(now) {
+    tuneRaf = null;
+    var t = Math.min(1, (now - t0) / TUNE_MS), done = true;
+    for (var i = 0; i < fields.length; i++) {
+      if (!fields[i].onload || fields[i].tune >= 1) continue;
+      fields[i].tune = 1 - Math.pow(1 - t, 3);
+      draw(fields[i], true);
+      if (t < 1) done = false;
+    }
+    if (!done && !document.hidden) tuneRaf = window.requestAnimationFrame(tuneIn);
+  }
+  if (!REDUCED && fields.some(function (f) { return f.onload; })) tuneRaf = window.requestAnimationFrame(tuneIn);
+
   if (!REDUCED) window.addEventListener("scroll", wake, { passive: true });
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && raf) { window.cancelAnimationFrame(raf); raf = null; }
+    if (!document.hidden) return;
+    if (raf) { window.cancelAnimationFrame(raf); raf = null; }
+    if (tuneRaf) { window.cancelAnimationFrame(tuneRaf); tuneRaf = null; }
+    for (var i = 0; i < fields.length; i++) fields[i].tune = 1;   // back to a tuned-in still
   });
   window.addEventListener("themechange", build);
   var rt;

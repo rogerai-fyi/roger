@@ -47,8 +47,9 @@ function run({ w = 1440, h = 900, col = [290, 1258], zones = [[1100, 1700]], red
     clearTimeout: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
     getComputedStyle: (el) => ({ getPropertyValue: (k) => TOKENS[k] || "", paddingLeft: (el && el._pad) || "0px", paddingRight: (el && el._pad) || "0px" }),
   };
-  const zoneEls = zones.map(([top, height]) => ({
+  const zoneEls = zones.map(([top, height, onload]) => ({
     _top: top, _height: height, children: [],
+    hasAttribute: (k) => k === "data-onload" && !!onload,
     getBoundingClientRect() { return { top: this._top - win.scrollY, height: this._height, bottom: this._top + this._height - win.scrollY }; },
     insertBefore(c) { this.children.unshift(c); return c; },
     get firstChild() { return this.children[0] || null; },
@@ -160,5 +161,24 @@ test("reduced motion: each field is painted once, still, and never reacts", () =
   assert.ok(painted > 0 && lit(r.fields()[0].log).length > 0, "a still, lit field");
   r.reset(); r.scrollTo(2000); r.advance(1000);
   assert.equal(r.calls(), 0);
+  assert.equal(r.stats().rafCalls, 0);
+});
+
+test("the hero zone tunes in on load: stations come on over a second or so, then it sleeps", () => {
+  const r = run({ zones: [[100, 900, true], [2000, 1600]] });
+  const hero = r.fields()[0];
+  const oneFrame = () => { r.reset(); r.advance(17); return lit(hero.log).length; };
+  r.advance(100);
+  const early = oneFrame();                           // ~0.1s in
+  r.advance(1250);
+  const settled = oneFrame();                         // ~1.4s in: tuned in
+  assert.ok(settled > early * 2 && settled > 10, `on load: ${early} -> ${settled}`);
+  r.advance(2000);
+  assert.equal(r.stats().pending, 0, "asleep once tuned in");
+});
+
+test("reduced motion: the hero zone is painted tuned in, with no load animation", () => {
+  const r = run({ zones: [[100, 900, true]], reduced: true });
+  assert.ok(lit(r.fields()[0].log).length > 10);
   assert.equal(r.stats().rafCalls, 0);
 });

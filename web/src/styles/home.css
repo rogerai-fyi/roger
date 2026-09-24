@@ -133,18 +133,25 @@
 .hero__head { container-type: inline-size; }
 .hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); font-size: min(var(--t-display), 9.5cqi); }
 @media (min-width: 1100px) {
+  /* a tighter top, so FIG. 1 and Ping sit inside a 900px-tall first screen */
+  .hero__inner { padding-top: clamp(40px, 6vh, 64px); }
+  /* equal columns: at .75rem the whole install command fits one line in
+     FIG. 1 from 1100px up (464px column at 1280, the tightest case) */
   .hero__grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 400px);
-    column-gap: var(--s-12); align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: var(--s-10); align-items: start;
   }
   .hero__head { grid-column: 1 / -1; }
-  /* level with the paragraph's first line (.hero__sub's top margin) */
-  .hero__tools { margin-top: var(--s-8); }
+  /* level with the paragraph's first line (.hero__sub's top margin); both a
+     notch tighter here so FIG. 1 and Ping fit a 1440x900 first screen */
+  .hero__sub, .hero__tools { margin-top: var(--s-6); }
+  .install[data-frame="panel"] { gap: var(--s-3); }
+  .hero__ping { margin-top: var(--s-4); }
   .hero__tools .install { margin-top: 0; }
   /* the column is narrower than the command's natural width at 1rem;
      install__code ellipsis-truncates gracefully, but this figure exists to be
      read, so shrink it to fully legible instead of leaning on that. */
-  .hero__tools .install__code { font-size: 0.78rem; }
+  .hero__tools .install__code { font-size: 0.75rem; }
 }
 /* 1600px up: the page box (nav, hero, every section) widens together, and
    FIG. 1 moves up beside the headline block, wide enough that the install
@@ -210,6 +217,30 @@
     .tone-zone { animation: tone-door linear both; animation-timeline: --zone; }
     .tone-zone::before { animation: tone-bloom linear both; animation-timeline: --zone; }
 
+    /* the cover's bloom swells in on load instead of on scroll */
+    .tone-zone[data-onload]::before { animation: tone-bloom-load 1.6s var(--ease-out-quint) both; }
+    /* the middle's scroll moment: the Wave Spectrum tunes in, pico to exa,
+       each wave drawing across and flashing the live red as it locks; only
+       Pico (the one trained tier) stays red. The spec plate ticks in. */
+    .home-spectrum i {
+      transform-origin: left center;
+      animation: spec-wave linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 14vh;
+    }
+    .home-spectrum li:first-child i { animation-name: spec-wave-on; }
+    .home-spectrum li:nth-child(2) i { animation-range: entry 0% entry 19vh; }
+    .home-spectrum li:nth-child(3) i { animation-range: entry 0% entry 24vh; }
+    .home-spectrum li:nth-child(4) i { animation-range: entry 0% entry 29vh; }
+    .home-spectrum li:nth-child(5) i { animation-range: entry 0% entry 34vh; }
+    .home-spectrum li:nth-child(6) i { animation-range: entry 0% entry 39vh; }
+    .home-spectrum li:nth-child(7) i { animation-range: entry 0% entry 44vh; }
+    .plate__grid > div {
+      animation: plate-tick linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 20vh;
+    }
+
     /* ---- variants B (default) and C: the section choreography ----------
        scroll-stage.js sets data-motion only from ?motion=; with no
        attribute (production, and no-JS) this is on. Every piece is tied to
@@ -268,7 +299,43 @@
       animation-timeline: view();
       animation-range: entry 10% entry 38vh;
     }
+    /* touch and narrow screens: people stop mid-page to read, so nothing
+       rests blurred or faded - one plain rise, finished by the time a block
+       is 85% up the screen (!important: it must beat every staggered range
+       above, whatever their specificity) */
+    @media (max-width: 760px), (pointer: coarse) {
+      main [data-reveal],
+      main :is(.demo__head, .market__head, .section__head, .shelf__copy, .monetize__copy, .cta__inner),
+      main :is(.term, .market__panel, .plate, .earn),
+      main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book, .twoway__side),
+      main .plate__grid > div {
+        animation-name: lift-touch !important;
+        animation-range: entry 0% entry 15vh !important;
+      }
+    }
   }
+}
+@keyframes tone-bloom-load {
+  from { opacity: 0; transform: scale(0.4); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes spec-wave {
+  0%   { transform: scaleX(0.08); color: var(--ink-300); }
+  65%  { transform: none; color: var(--live); }
+  100% { transform: none; color: var(--ink-500); }
+}
+@keyframes spec-wave-on {
+  0%   { transform: scaleX(0.08); color: var(--ink-300); }
+  65%  { transform: none; color: var(--live); }
+  100% { transform: none; color: var(--live); }
+}
+@keyframes plate-tick {
+  from { transform: translateX(-14px); opacity: 0.3; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes lift-touch {
+  from { transform: translateY(20px); }
+  to   { transform: none; }
 }
 @keyframes tone-door {
   entry 0%   { clip-path: inset(0 var(--door-x) round 40px); }
@@ -753,6 +820,9 @@
   font-size: var(--t-sm); color: var(--ink-900); overflow-x: auto;
 }
 .twoway__cmd::before { content: "$ "; color: var(--ink-300); }
+@media (max-width: 560px) {
+  .twoway__cmd { font-size: 0.72rem; }   /* short commands stay on one line */
+}
 .twoway__link { display: grid; place-items: center; width: 80px; }
 .twoway__beam {
   width: 70px; height: 1px;
@@ -828,6 +898,15 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
 }
 @media (min-width: 1080px) { .tone-zone { --spine-w: var(--spine); } }
 .tone-zone[data-bloom="low"] { --bloom-at: 50% 88%; }
+.tone-zone[data-onload] { --bloom-at: 76% 46%; }   /* the cover: behind FIG. 1 */
+/* dark site: near-black zones on a dark page need more to land - a stronger
+   bloom (still AA, see tone-zones.test) and a red-lit edge where each zone
+   begins and ends */
+:root[data-theme="dark"] .tone-zone {
+  --bloom-peak: 0.28;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--live) 60%, transparent),
+              inset 0 -1px 0 color-mix(in srgb, var(--live) 60%, transparent);
+}
 .tone-zone::before,
 .tone-field {
   position: sticky; top: 0; display: block;
@@ -849,7 +928,7 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
 }
 .company__card {
   min-width: 0;
-  padding: var(--s-8);
+  padding: clamp(24px, 3.4vw, 44px);
 }
 .company__card + .company__card { border-left: 1px solid var(--hairline); }
 .company__card--labs { background: var(--paper-2); }
@@ -863,14 +942,27 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
   letter-spacing: var(--tracking-label);
 }
 .company__card h3 {
-  margin: 0 0 var(--s-3);
+  margin: 0 0 var(--s-4);
   color: var(--ink-900);
-  font-size: 1.35rem;
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.75rem);
+  line-height: 1.15;
   letter-spacing: -.02em;
 }
+/* the card's first paragraph is its claim (ink, lead size); what follows is
+   the fine print (secondary, smaller, set apart) - same words, a way in */
 .company__card > p {
   color: var(--ink-500);
+  font-size: var(--t-sm);
   line-height: 1.65;
+}
+.company__card > p:first-of-type {
+  color: var(--ink-700);
+  font-size: var(--t-lead);
+  line-height: 1.55;
+}
+.company__card > p + p:not(.company__links) {
+  margin-top: var(--s-4); padding-top: var(--s-4);
+  border-top: 1px solid var(--hairline);
 }
 .company__card code { overflow-wrap: anywhere; }
 /* inline "details ->" link inside card prose (the licence pointer on the Labs card) */
@@ -943,6 +1035,12 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
    in every cell so the seven names share one baseline. */
 .home-spectrum li > span { min-height: 2.6em; }
 .home-spectrum b { color: var(--ink-900); font-size: var(--t-sm); }
+/* the paper middle (§3 company, §4 the tune, §6 the books): more air and
+   bigger heads, so it reads as chapters rather than one long page */
+#company, #what, #books { padding-block: clamp(72px, 10vw, 144px); }
+:is(#company, #what) .section__head h2, #books .shelf__copy h2 {
+  font-size: clamp(2rem, 1.3rem + 2.2vw, 3rem); line-height: 1.08; letter-spacing: -0.025em;
+}
 .home-spectrum__foot {
   margin: var(--s-3) 0 0;
   display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4);

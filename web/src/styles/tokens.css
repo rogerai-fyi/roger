@@ -215,10 +215,10 @@
 /* ...and on a dark site the zones go one step deeper, to near-black, so the
    turn into an on-air zone still reads as a deliberate change of room. */
 :root[data-theme="dark"] .tone-zone {
-  --white:        #141210;
-  --paper:        #050404;
-  --paper-2:      #0B0A08;
-  --paper-3:      #13110E;
+  --white:        #16100D;
+  --paper:        #080504; /* warm red-black: a different room, not just darker */
+  --paper-2:      #100A08;
+  --paper-3:      #18110D;
   --hairline:     #221F1A;
   --hairline-2:   #2E2A23;
 }
