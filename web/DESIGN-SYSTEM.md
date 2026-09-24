@@ -14,7 +14,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 |---|---|---|---|
 | Section, section head | `.section`, `.section__head`, `.sectionno` (base) | - | every marketing page |
 | Tinted band / inset band | `.band`, `.band--inset` | - | homepage, research pages |
-| Buttons, lead row | `.research-actions` (`--lead`), `.research-button` (`--primary`, `--quiet`) | press | 14 pages |
+| Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (`--primary`, then `--quiet`) | press | 15 pages, every action row |
 | Callout | `.man-note` (`--live`, `--ember`) | - | manual, keys, hardware, 2 articles |
 | Install pill + copy tick | `install-box.html` partial, `.install`, `.install__box` (`--lg`) | `site.js` | homepage, app, Tower, articles |
 | Inline / block copy command | `.copy-code` (`--block`) | `site.js` `[data-copy-target]` | Pricing, Integrations |
@@ -31,13 +31,39 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
 | Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
 | Figure | `.figure` (`--plate`, `--phone`, `--chart`) | - | the articles |
-| Scroll box | `.scroll-box` | - | article tables |
-| Code block | `.code-block` | `site.js` (adds the copy button) | 3 articles |
+| Scroll box | `.scroll-box` | - | every wide table |
+| Data table | `.data-table` | - | articles, manual, Integrations, Hardware, Wave family |
+| Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
 | Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
 | Print | `@media print` at the end of `components.css` + `tokens.css` | - | every page |
+
+### One role, one pattern
+
+Parallel work drew some roles two ways; each role has one pattern now, held by
+`test/consistency.test.mjs` (which reads usage, where `design-system.test.mjs` reads
+definitions).
+
+| Role | The pattern | Was also |
+|---|---|---|
+| Action row (hero, section, closing) | the lead row: `.research-actions.research-actions--lead`, the first action `--primary`, every other `--quiet` | boxed outline buttons (Company, Careers, FAQ, Research, App, Industrial, Wave family, Models and status, why), a row with no primary, the 404's own pill + link |
+| Page hero | paper; the homepage cover is the one ink hero. The ink panel marks a page's moment (its instrument or live data), not its title | ink hero panels (Company, Careers, FAQ) |
+| Hero title | landing page: `--t-display`; document (article, manual, legal, 404, confidential): `--t-h1` | the Broadcasts front door at h1 size |
+| Contents tuner | right after the hero (and the hero's strip or figure) on any page with 4+ numbered sections | after an article's Quick Answer (broadcast 010) |
+| Section head | `.sectionno` then the section's h2 (then the lede) | - |
+| Command block | `.code-block` (copy tick, prompts not copied); the install line is the install-box partial; an inline command `.copy-code` | 45 bare `<pre>` in the manual and two on Integrations, each with its own grey box and no copy |
+| Data table | `.data-table` (no box, hairline rows, a label-type header over a `--hairline-2` rule), in a `.scroll-box` when it can outgrow a phone | six header styles (filled, 2px ink rule, sentence case, three weights) and three scroll wrappers with and without a box |
+
+To flip a pattern later, change the component, not the pages: the lead row's quiet links
+are one rule set (`.research-button--quiet`, see its comment in components.css); a
+landing hero becomes ink by wrapping it in `.tone-zone` and changing the one rule in
+the consistency test.
+
+Known and kept: the signed-in pages keep their own plate, forms and tables
+(account-base.css); the Playbox is a tool, its hero is the deck; the legal pages carry
+no running-head rail (a rail needs its own words, and this pass changes no copy).
 
 ### Before you add a component
 
@@ -135,7 +161,8 @@ name is a one-commit job for the rollout.) Pressable: sinks 1px while held
 but are a different role: sentence-case links set in the card's own type with a drawn red
 rule on hover, not the page's uppercase action row. They stay in home.css.)
 
-A page's lead row is `.research-actions.research-actions--lead`: ONE primary, then quiet
+Every action row on the site is the lead row (see **One role, one pattern**):
+`.research-actions.research-actions--lead`, ONE primary, then quiet
 text links, `.research-button--quiet` (the mono label, tap height and press, no box; a
 hairline underline that turns red on hover or focus). The lead row keeps every button at
 its own width on phones, so it never becomes a stack of full-width outlines.
@@ -493,5 +520,3 @@ of it. What was found and where it went:
 - **Playbox** (playbox, wave-patch, wave-factory sheets): self-contained games with their
   own palettes; 310 of the remaining colour literals.
 - **/models and /voices**: the text-label copy pill written by hand.
-- **The research shell** (`research.css`) restyles `.research-button` full width on phones
-  for its pages only.
