@@ -152,3 +152,45 @@ test("(d) the product sheets name only tokens that exist (no fallback papering o
     }
   }
 });
+
+/* ---- (e) contrast on the signed-in plate --------------------------------------------- */
+
+// The plate (.card) is a raised --white face in a tinted panel now, with command blocks
+// (.cmd) on --paper-3 and wells on --paper/--paper-2. Every
+// ink used for text on it must hold AA (4.5:1) on both grounds, light and dark, including
+// the tertiary --ink-400 its labels and fine print use (2.7:1 on the tint as a bare token).
+function tokenSets() {
+  const css = stripCss(src("styles/tokens.css"));
+  const block = (sel) => {
+    const i = css.indexOf(sel + " {") >= 0 ? css.indexOf(sel + " {") : css.indexOf(sel + "{");
+    if (i < 0) return {};
+    const body = css.slice(css.indexOf("{", i) + 1, css.indexOf("}", i));
+    return Object.fromEntries([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+  };
+  const light = block(":root");
+  const darkCss = css.match(/:root\[data-theme="dark"\],\s*\.tone-zone\s*\{([^}]*)\}/)[1];
+  const dark = { ...light, ...Object.fromEntries([...darkCss.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()])) };
+  const plate = block(".card");
+  return { light, dark, plate };
+}
+const resolve = (set, v) => { for (let i = 0; i < 5 && /^var\(/.test(v); i++) v = set[v.match(/var\((--[\w-]+)\)/)[1]]; return v; };
+const lum = (hex) => {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+test("(e) every text ink on the signed-in plate holds AA on its grounds, light and dark", () => {
+  const { light, dark, plate } = tokenSets();
+  assert.ok(Object.keys(plate).length, "tokens.css scopes the plate's inks (.card { ... })");
+  for (const [theme, base] of [["light", light], ["dark", dark]]) {
+    const set = { ...base, ...plate };
+    for (const ink of ["--ink-400", "--ink-500", "--ink-700", "--ink-900"]) {
+      for (const ground of ["--white", "--paper-2", "--paper-3", "--paper"]) {
+        const fg = resolve(set, set[ink]), bg = resolve(set, set[ground]);
+        const r = ratio(fg, bg);
+        assert.ok(r >= 4.5, `${theme}: ${ink} ${fg} on ${ground} ${bg} is ${r.toFixed(2)}:1`);
+      }
+    }
+  }
+});

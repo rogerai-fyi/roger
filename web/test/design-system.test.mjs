@@ -167,15 +167,11 @@ const CSS_COLOR_BUDGET = {
   "broadcast-agent-governance.css": 3, // hard-coded paper + red tints (dark-mode debt)
   "broadcast-gpu-isolation.css": 2,    // hard-coded paper + red tints (dark-mode debt)
   "broadcast-routing.css": 10,         // the routing diagram's palette
-  "device.css": 3,                     // fallbacks of an undefined --rule token
   "home.css": 24,                      // the reel's film black, book shadows, the wave mask
   "models.css": 2,                     // modal scrim
-  "payouts.css": 2,                    // fallbacks of an undefined --warn token
   "playbox.css": 56,                   // Playbox deck palette
-  "private.css": 15,                   // private-station console palette
   "research-hardware.css": 3,          // photo credit plate over photography
   "research.css": 3,                   // photo credit plate over photography
-  "stations.css": 3,                   // fallbacks of undefined --rule/--beacon/--warn tokens
   "wave-factory.css": 86,              // Playbox factory deck (self-contained game)
   "wave-patch.css": 168,               // Playbox mesh deck (self-contained game)
 };
@@ -227,7 +223,6 @@ test("the colour budgets are tight: a paid-down debt lowers its budget", () => {
 // bug on its page today; defining the token would change how the page looks, so each is a
 // decision for that page's rollout, not for this guard.
 const UNDEFINED_TOKENS = {
-  "--t-lg": "account-base.css #code-input font-size",
   "--hover-bg": "base.css nav panel hover, research.css",
   "--s-7": "research.css, tower.css spacing (the scale has no 7)",
   "--t-base": "home.css privacy card heading size",
