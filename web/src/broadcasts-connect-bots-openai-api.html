@@ -35,7 +35,7 @@
         </p>
       </header>
 
-      <figure class="bc-figure bc-figure--plate" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/connect-hero.png" width="1280" height="720"
              alt="A vintage patch-panel switchboard with many service cables plugging into one central jack lit with a red indicator, in the RogerAI operating-manual style." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 - MANY SERVICES, ONE PATCH INTO THE BAND</figcaption>
@@ -65,7 +65,7 @@
             Change the client's <code>base_url</code> and <code>api_key</code>, keep everything else.
             With the OpenAI Python SDK:
           </p>
-          <pre class="bc-code mono" style="margin:1rem 0;padding:1rem 1.25rem;background:rgba(21,20,15,.05);border:1px solid rgba(21,20,15,.1);border-radius:8px;overflow-x:auto;line-height:1.6;"><code>from openai import OpenAI
+          <div class="code-block"><pre><code>from openai import OpenAI
 
 client = OpenAI(
     base_url="https://broker.rogerai.fm/v1",
@@ -76,7 +76,7 @@ resp = client.chat.completions.create(
     model="gpt-oss-120b",             # a model your key can reach
     messages=[{"role": "user", "content": "roger, radio check"}],
     stream=True,                       # SSE streaming works
-)</code></pre>
+)</code></pre></div>
           <p>
             That's the whole integration. The same two fields work from the JS SDK, LangChain,
             LlamaIndex, a Discord bot, or a plain <code>curl</code> with an
@@ -84,8 +84,8 @@ resp = client.chat.completions.create(
             serves <b>your own</b> GPUs; to reach the wider market from a bot, use the local endpoint
             from <code>roger use</code> - see &sect;3.
           </p>
-          <figure class="bc-figure bc-figure--chart" data-reveal>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img" style="width:100%;height:auto"
+          <figure class="figure figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img"
                  aria-label="Diagram: your bot or service, using the OpenAI SDK, points its base_url at https://broker.rogerai.fm/v1 with a grant key; the RogerAI broker screens and routes the request to a community GPU that serves your model.">
               <style>
                 .g-box{fill:currentColor;opacity:.04}.g-stroke{stroke:currentColor;fill:none;opacity:.32}

@@ -49,13 +49,13 @@
            the still frame so the first paint is the illustration either way. Anyone who asked
            their system for less motion gets the still and the loop is never shown. -->
       <style>
-        .bc-figure .tw-hero__still{display:none}
+        .figure .tw-hero__still{display:none}
         @media (prefers-reduced-motion: reduce){
-          .bc-figure .tw-hero__loop{display:none}
-          .bc-figure .tw-hero__still{display:block}
+          .figure .tw-hero__loop{display:none}
+          .figure .tw-hero__still{display:block}
         }
       </style>
-      <figure class="bc-figure bc-figure--plate" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <video class="tw-hero__loop" width="1280" height="560" autoplay muted loop playsinline preload="metadata"
                poster="assets/broadcasts/tower-hero.png"
                aria-label="A steel lattice relay mast with a red beacon at its top, sending red signal arcs outward in a slow repeating pulse, with a machine on the ground to either side cabled to its base.">
@@ -140,8 +140,8 @@
             your disk, because they were never on it in a form you could keep.
           </p>
 
-          <figure class="bc-figure bc-figure--chart" data-reveal>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" role="img" style="width:100%;height:auto"
+          <figure class="figure figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" role="img"
                  aria-label="Flow diagram of the sealed path: the consumer authorizes at Core and seals the request to the node's key; the Tower queues the sealed bytes without a key to them; the node opens, serves, signs a receipt and seals the answer back through the Tower; Core settles the receipt 90/5/5.">
               <style>
                 .t-box{fill:currentColor;opacity:.04}.t-stroke{stroke:currentColor;fill:none;opacity:.32}
@@ -203,8 +203,8 @@
             the node 90% and leaves the platform 5%.
           </p>
 
-          <figure class="bc-figure bc-figure--chart" data-reveal>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 190" role="img" style="width:100%;height:auto"
+          <figure class="figure figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 190" role="img"
                  aria-label="Bar showing how one settled request divides: 90 percent to the serving node, 5 percent to the tower operator, 5 percent to the platform, all measured against the node's own listed price.">
               <style>
                 .s-stroke{stroke:currentColor;fill:none;opacity:.32}
@@ -294,7 +294,7 @@
             not have on their own, and the whole thing is governed by your trust root rather
             than ours.
           </p>
-          <pre><span class="p">$</span> roger-tower init --dir /var/lib/roger-tower --mode standalone</pre>
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir /var/lib/roger-tower --mode standalone</pre></div>
           <div class="man-note">
             <span class="man-note__tag">the trade</span>
             <b>Standalone earns nothing.</b> Not "not yet" - a private network has no settlement
@@ -315,17 +315,17 @@
             Linux only: macOS and Windows machines run the Station or the client, not a Tower.
             Install it with the same one-liner as the client, with the Tower component selected:
           </p>
-          <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre>
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre></div>
           <p>
             The installer verifies the release checksum before it installs anything, and refuses
             outright on macOS or Windows rather than leaving you a binary that cannot serve. Then
             five commands take you from nothing to on air:
           </p>
-          <pre><span class="p">$</span> roger-tower login                     <span class="c"># same account as the website - GitHub, Apple, or email</span>
-<span class="p">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined   <span class="c"># keys + local state (see &sect;4)</span>
-<span class="p">$</span> roger-tower doctor                    <span class="c"># pre-flight: config, reachability, clock</span>
-<span class="p">$</span> roger-tower register                  <span class="c"># enroll this Tower against the network</span>
-<span class="p">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444</pre>
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower login                     <span class="code-block__comment"># same account as the website - GitHub, Apple, or email</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined   <span class="code-block__comment"># keys + local state (see &sect;4)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower doctor                    <span class="code-block__comment"># pre-flight: config, reachability, clock</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower register                  <span class="code-block__comment"># enroll this Tower against the network</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444</pre></div>
           <p>
             Enrolling is a signed act tied to your account, because putting a relay on the network
             under your name is an account decision - that is what the <code>login</code> step is

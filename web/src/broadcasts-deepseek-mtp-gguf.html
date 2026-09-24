@@ -34,7 +34,7 @@
         </p>
       </header>
 
-      <figure class="bc-figure bc-figure--plate" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/mtp-hero.png" width="1600" height="870"
              alt="A vintage two-way radio transmitting two carrier waves at once, one solid and one dashed slightly ahead of it, in the RogerAI operating-manual style." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 &middot; THE SECOND CARRIER</figcaption>
@@ -77,7 +77,7 @@
             model tied at the ceiling. We switched to an MMLU knowledge sample and an
             adversarial tool-calling gauntlet.
           </p>
-          <figure class="bc-figure bc-figure--plate" data-reveal>
+          <figure class="figure figure--plate" data-reveal>
             <img src="assets/broadcasts/mtp-knowledge-vs-tools.png" width="2200" height="1000"
                  alt="Two bar charts: DeepSeek with Q4 experts leads knowledge at 85 MMLU while a 35B MoE leads adversarial tool use at 87; no model wins both panels." loading="lazy" />
             <figcaption class="fig mono">FIG. 2 &middot; NO MODEL WINS BOTH</figcaption>
@@ -123,7 +123,7 @@
         <section class="bc-sec" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; The build</span>
           <h2>How do you give llama.cpp the missing MTP?</h2>
-          <figure class="bc-figure bc-figure--plate" data-reveal>
+          <figure class="figure figure--plate" data-reveal>
             <img src="assets/broadcasts/mtp-nextn-layer.png" width="2200" height="1240"
                  alt="Architecture diagram of DeepSeek-V4&apos;s NextN block: a draft token and the trunk hidden state meet in a projection, flow through a full V4 transformer layer with attention and a 256-expert MoE, and exit through the shared language-model head." loading="lazy" />
             <figcaption class="fig mono">FIG. 3 &middot; THE SECOND BRAIN IS A WHOLE LAYER</figcaption>
@@ -147,7 +147,7 @@
             and every verified draft costs another round of expert reads through system RAM.
             The classic economics invert.
           </p>
-          <figure class="bc-figure bc-figure--plate" data-reveal>
+          <figure class="figure figure--plate" data-reveal>
             <img src="assets/broadcasts/mtp-nmax-sweep.png" width="1800" height="1040"
                  alt="Line chart of decode speed versus draft length: speed peaks at a draft of one token with 100 percent acceptance and falls at drafts of two and three." loading="lazy" />
             <figcaption class="fig mono">FIG. 4 &middot; DRAFT SHORTER, GO FASTER</figcaption>
@@ -157,7 +157,7 @@
             training objective. Draft more and the verify tax eats the gain: 1.18x at 14
             spilled layers, 1.30x at 10, 2.2x at zero spill.
           </p>
-          <figure class="bc-figure bc-figure--plate" data-reveal>
+          <figure class="figure figure--plate" data-reveal>
             <img src="assets/broadcasts/mtp-spill-vs-speedup.png" width="1800" height="1040"
                  alt="Line chart of MTP speedup versus how many expert layers spill to system RAM: 1.18x at fourteen layers, 1.3x at ten, 2.2x at zero spill." loading="lazy" />
             <figcaption class="fig mono">FIG. 5 &middot; SPECULATION PAYS WHEN THE MODEL LIVES ON THE GPU</figcaption>
@@ -178,7 +178,7 @@
             re-encoding them to Q4_K is lossy and bigger at once. Every community Q4 is that
             sideways re-encode.
           </p>
-          <figure class="bc-figure bc-figure--plate" data-reveal>
+          <figure class="figure figure--plate" data-reveal>
             <img src="assets/broadcasts/mtp-quality-vs-speed.png" width="1800" height="1120"
                  alt="Scatter chart of MMLU versus decode speed for four DeepSeek files: the un-requantized Q8-MTP master sits above every quant at old-production speed, and the Q3 speed build is fastest." loading="lazy" />
             <figcaption class="fig mono">FIG. 6 &middot; OFF THE MENU</figcaption>

@@ -165,12 +165,35 @@ or touches, or 4s pass.
 (the running head, `orange=1` adds the OC orange) and `<!-- include: onair.html -->` (the
 `((•))` mark in eyebrows).
 
-### Figure and code block (next, owned by the article work)
-Article figures (`.bc-figure`) and `<pre>` blocks are being fixed on a separate branch
-(overflow, dark mode, inline styles). When that lands, promote the result from
-`broadcasts.css` to `components.css` under the same class names, so non-article pages can
-use them with no markup change. The copy hook for a code block is `data-copy-target`
-(above).
+### Figure
+```html
+<figure class="figure figure--plate">          <!-- or --phone, --chart, or bare -->
+  <img src="..." width="1280" height="560" alt="..." loading="lazy" />
+  <figcaption class="fig mono">FIG. 1 - ...</figcaption>
+</figure>
+```
+Promoted from the articles. The figure and its direct `img`/`video`/`svg` never outgrow
+the column (a 1600px asset used to push a page sideways). `--plate` sets it on a calm
+tinted inset panel (theme tokens: it recedes on the dark theme). `--phone` centres a
+portrait screenshot at 440px. `--chart` is an inline SVG chart: heading ink (the chart
+draws in `currentColor`), and on a column narrower than 34rem it scrolls inside the figure
+instead of shrinking its text below reading size; the caption stays put. The caption is
+`--ink-500` (AA on paper). SVG charts colour their red with `var(--live)` and their paper
+with `var(--paper)` in their own `<style>`, never a literal, so they re-theme.
+
+### Scroll box
+`<div class="scroll-box"><table>...</table></div>`: anything wider than a phone scrolls
+sideways inside the box, never the page.
+
+### Code block
+```html
+<div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger share
+<span class="code-block__comment"># a comment</span></pre></div>
+```
+A long line scrolls inside the block. `site.js` adds `.code-block__copy` (an icon
+button using the shared `[data-copy-target]` copy tick) to every block; the copied text
+leaves out `aria-hidden` parts, so the `$` prompts never paste. No-JS: the plain,
+selectable `<pre>`, and no dead button.
 
 ## Adding a page
 
@@ -237,8 +260,6 @@ fails on a bare component selector outside `components.css`.
   fallbacks of tokens that do not exist.
 - **Playbox** (playbox, wave-patch, wave-factory sheets): self-contained games with their
   own palettes; 310 of the remaining colour literals.
-- **Articles**: inline figure styles with light-only colours (dark-mode debt, being fixed
-  separately), and the figure/code components still to be promoted.
 - **/models and /voices**: the market chips and the directory panel duplicated between
   `home.css`, `models.css` and `voices.css`; the text-label copy pill written by hand.
 - **The research shell** (`research.css`) restyles `.research-button` full width on phones

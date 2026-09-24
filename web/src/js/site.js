@@ -179,7 +179,36 @@
     var sel = btn.getAttribute("data-copy-target");
     var src = null;
     try { src = sel ? document.querySelector(sel) : btn.querySelector("code"); } catch (err) { src = null; }
-    if (src) copyTick(btn, src.textContent.trim());
+    if (src) copyTick(btn, copyText(src));
+  });
+  // The text a copy control copies: the element's text without its decorative
+  // aria-hidden parts (a code block's "$" prompts), so the result pastes and runs.
+  function copyText(el) {
+    var hidden = el.querySelectorAll("[aria-hidden='true']");
+    if (!hidden.length) return el.textContent.trim();
+    var clone = el.cloneNode(true);
+    Array.prototype.forEach.call(clone.querySelectorAll("[aria-hidden='true']"), function (n) {
+      var next = n.nextSibling; // the space that followed a prompt goes with it
+      if (next && next.nodeType === 3) next.nodeValue = next.nodeValue.replace(/^ /, "");
+      n.remove();
+    });
+    return clone.textContent.trim();
+  }
+  // Code blocks (components.css .code-block): each gets a copy control for its <pre>,
+  // the shared copy tick above. Added here, not in the markup, so a visitor without
+  // scripts sees the plain selectable <pre> and never a button that does nothing.
+  var COPY_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>';
+  Array.prototype.forEach.call(document.querySelectorAll(".code-block"), function (box, i) {
+    var pre = box.querySelector("pre");
+    if (!pre || box.querySelector(".code-block__copy")) return;
+    if (!pre.id) pre.id = "code-block-" + (i + 1);
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "code-block__copy";
+    b.setAttribute("data-copy-target", "#" + pre.id);
+    b.setAttribute("aria-label", "Copy code to clipboard");
+    b.innerHTML = COPY_ICON;
+    box.appendChild(b);
   });
 
   /* ---- "how to upgrade" disclosure (footer) ---------------------- */
