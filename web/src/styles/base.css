@@ -30,7 +30,7 @@ body {
 }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { text-wrap: balance; } /* even, premium line-breaks on headings */
-.section__head p, .demo__head p, .market__head p, .hero__sub { text-wrap: pretty; }
+.demo__head p, .market__head p, .hero__sub { text-wrap: pretty; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
 svg { display: block; }

@@ -18,10 +18,10 @@
 .section__head { max-width: 62ch; margin: 0 0 var(--head-gap); text-align: left; }
 /* left-set heads for the document-style sections (spec, notes) */
 .section__head--left { text-align: left; margin-left: 0; margin-right: auto; }
-.section__head h2, .demo__head h2 { margin: 0; }
+.section__head h2 { margin: 0; }
 .section h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
-.section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
+.section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); text-wrap: pretty; }
 
 /* ============================ BUTTONS ========================== */
 /* ---------- section action buttons -------------------------------------------

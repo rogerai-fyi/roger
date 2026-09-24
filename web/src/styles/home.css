@@ -100,7 +100,7 @@
   /* level with the paragraph's first line (.hero__sub's top margin); both a
      notch tighter here so FIG. 1 and Ping fit a 1440x900 first screen */
   .hero__sub, .hero__tools { margin-top: var(--s-5); }
-  .install[data-frame="panel"] { gap: var(--s-3); }
+  .hero__tools .install[data-frame="panel"] { gap: var(--s-3); }
   .hero__ping { margin-top: var(--s-2); }
   .hero__tools .install { margin-top: 0; }
   /* the column is narrower than the command's natural width at 1rem;
@@ -550,7 +550,7 @@
 /* ===================== TERMINAL DEMO =========================== */
 .demo { padding-top: var(--s-12); padding-bottom: var(--section-y2); }
 .demo__head { text-align: left; max-width: 62ch; margin: 0 0 var(--head-gap); }
-.demo__head h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+.demo__head h2 { margin: 0; font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .demo__head h2 .inline { font-size: .72em; vertical-align: middle; }
 .demo__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
