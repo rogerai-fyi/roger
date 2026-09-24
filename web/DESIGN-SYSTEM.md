@@ -180,8 +180,9 @@ use them with no markup change. The copy hook for a code block is `data-copy-tar
 
 1. `src/<page>.html`: `<!-- include: head.html title=... desc=... theme=external -->`,
    `<!-- include: nav.html variant=marketing ... -->`, content, `<!-- include: footer.html -->`,
-   then `<!-- include: site-js.html -->` (`sync=1` for the account pages' blocking form,
-   `promo=0` to leave out the promo strip script). Page scripts that need site.js to have run
+   then `<!-- include: site-js.html -->` (`promo=0` to leave out the promo strip script).
+   Every script is deferred, so they run in document order: a page script written before
+   the include runs before site.js, one written after it runs after. Page scripts that need site.js to have run
    go after the include.
 2. Register its bundle in `CSS_BUNDLES` (`build.mjs`): `[...CSS_MARKETING, "<page>.css"]`
    or `[...CSS_ACCOUNT, ...]`. The build fails if you forget.

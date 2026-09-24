@@ -42,10 +42,8 @@ const STUBS = {
   "why.html": "pointer stub to /pricing.html, out of the index",
 };
 // Pages with the chrome but their own minimal runtime (no site.js on purpose).
-const OWN_RUNTIME = {
-  "device.html": "CLI sign-in approval: auth.js + device.js only",
-  "stations.html": "operator station roll-up: auth.js + stations.js only",
-};
+// (device.html and stations.html were here; they run the shared runtime now.)
+const OWN_RUNTIME = {};
 
 test("every page is assembled from the head, nav and footer partials", () => {
   for (const page of PAGES) {
