@@ -65,12 +65,8 @@ code, pre { font-family: var(--font-mono); }
 
 /* ---------- manual typesetting layer ---------------------------- */
 /* §-section marker: mono, uppercase, a hairline tab. The document's spine. */
-.sectionno {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
-  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
-  margin-bottom: var(--s-5);
-}
+.sectionno, .hero__eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400); }
+.sectionno { margin-bottom: var(--s-5); }
 .sectionno::before {
   content: ""; width: 22px; height: 2px; background: var(--live); display: inline-block;
 }
@@ -519,13 +515,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 
 /* the eyebrow callsign line (shared: home / manual / models) */
-.hero__eyebrow {
-  display: inline-flex; align-items: center; gap: 8px;
-  margin-bottom: var(--s-6);
-  font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: var(--tracking-label); text-transform: uppercase;
-  color: var(--ink-400); font-weight: var(--weight-medium);
-}
+.hero__eyebrow { margin-bottom: var(--s-6); }
 .hero__eyebrow .onair { font-size: var(--t-xs); color: var(--live); margin-right: 1px; }
 .hero__callsign { color: var(--ink-900); }
 .hero__sep { color: var(--ink-300); }

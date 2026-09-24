@@ -779,7 +779,7 @@ main .tone-zone .cta { border-top: 0; }
   min-width: 0;
   padding: clamp(24px, 3.4vw, 44px);
 }
-.company__card { border-radius: var(--panel-r); background: var(--paper-2); display: flex; flex-direction: column; }
+.company__card { display: flex; flex-direction: column; }   /* a .tint-panel (components.css) */
 .company__label {
   display: block;
   margin-bottom: var(--s-3);

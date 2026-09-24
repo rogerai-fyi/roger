@@ -40,10 +40,9 @@ body.auth {
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
   align-content: start;
-  margin: var(--s-6) max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
+  /* a .tint-panel (components.css) on the ink panel's inset geometry */
+  margin: var(--s-6) var(--panel-mx);
   padding: clamp(20px, 6vw, 72px) clamp(10px, 4vw, 48px);
-  border-radius: var(--panel-r);
-  background: var(--paper-2);
 }
 
 /* The page body is a flat plate: the raised face on the tinted panel, no frame,

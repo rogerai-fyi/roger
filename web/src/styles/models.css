@@ -133,12 +133,10 @@
   /* an inset tinted panel (the homepage's panel geometry), not a ruled band */
   width: auto; max-width: none;
   /* the ink panel's side margin: 64px outside the text column, never under --panel-inset */
-  margin: var(--s-8) max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px)) 0;
-  padding: 1px var(--gutter);
-  border-radius: var(--panel-r);
-  background: var(--paper-2);
+  margin: var(--s-8) var(--panel-mx) 0;
+  padding: 1px var(--gutter);   /* a .tint-panel (components.css) at the dial's padding */
 }
-.dialwrap__fig { display: block; max-width: var(--maxw); margin: var(--s-5) auto var(--s-3); }
+.dialwrap .dialwrap__fig { display: block; max-width: var(--maxw); margin: var(--s-5) auto var(--s-3); }   /* over the tint-panel's first-child reset */
 .dialwrap .dial { margin: 0 auto var(--s-6); max-width: 1180px; }
 @media (max-width: 880px) { .dialwrap .dial { max-width: none; } }
 .dial__lbl--idle { opacity: .4; }

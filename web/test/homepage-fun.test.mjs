@@ -156,7 +156,7 @@ test("tuner: a framed instrument with a one-line readout; names never wrap", () 
   assert.match(tuner, /<div class="toc-tuner__readout" aria-hidden="true"><\/div>/);
   const css = dist("styles/components.css");
   assert.match(css, /\.toc-tuner__name\s*\{[^}]*position:\s*absolute[^}]*white-space:\s*nowrap/, "every name sits in the readout, one line");
-  assert.match(css, /\.toc-tuner__band\s*\{[^}]*border-radius:\s*var\(--panel-r\)[^}]*background:\s*var\(--paper-2\)/, "framed like the other panels");
+  assert.match(css, /\.toc-tuner__band[^{}]*\{[^}]*border-radius:\s*var\(--panel-r\)[^}]*background:\s*var\(--paper-2\)/, "framed like the other panels (the one tinted-ground rule)");
   // without JS (no .is-current anywhere) the readout rests on §1
   assert.match(css, /\.toc-tuner:not\(:has\(a:is\(:hover, :focus-visible, \.is-current\)\)\) li:first-child \.toc-tuner__name\s*\{[^}]*opacity:\s*1/);
   assert.match(css, /\.toc-tuner__needle\s*\{[^}]*transition:\s*left[^;]*cubic-bezier\(\.34,\s*1\.4/, "a spring swing");

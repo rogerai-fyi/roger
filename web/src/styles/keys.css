@@ -14,10 +14,7 @@
  * ===================================================================== */
 
 /* visually-hidden (the actions column header) */
-.vh {
-  position: absolute; width: 1px; height: 1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
-}
+.vh, .kf__toggle-in { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ---- mint form ---- */
 .kf { margin: var(--s-4) 0 0; }
@@ -30,16 +27,8 @@
 }
 .kf__grid .kf__field { margin: 0; }
 
-.kf__k {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  font-weight: var(--weight-medium);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-400);
-  margin: 0 0 6px;
-}
+.kf__k, .kf__paste-k { display: block; font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400); margin: 0 0 6px; }
+.kf__k { font-weight: var(--weight-medium); }
 .kf__hint {
   display: block;
   margin: 6px 0 0;
@@ -105,11 +94,6 @@
   gap: var(--s-2);
   cursor: pointer;
   user-select: none;
-}
-.kf__toggle-in {
-  position: absolute;
-  width: 1px; height: 1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 .kf__toggle-box {
   position: relative;
@@ -240,15 +224,6 @@
 .kf__copy:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 .kf__paste { margin: 0 0 var(--s-2); }
-.kf__paste-k {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  color: var(--ink-400);
-  margin: 0 0 6px;
-}
 .kf__paste .cmd { margin: 0; }
 
 /* ---- the key ledger ---- */

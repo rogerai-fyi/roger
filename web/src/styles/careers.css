@@ -10,13 +10,10 @@
   gap: var(--s-5);
 }
 
-.role {
+.role {   /* a .tint-panel (components.css) */
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
-  padding: clamp(20px, 2.4vw, 32px);
-  background: var(--paper-2);
-  border-radius: var(--panel-r);
 }
 .role h3 {
   margin: 0;

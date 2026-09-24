@@ -18,10 +18,7 @@
 /* tighter top block so the device composition crests a 900px fold */
 .app-hero { padding-block: clamp(48px, 6vw, 80px) calc(var(--section-y) * .8); position: relative; }
 .app-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
-.app-hero__title {
-  margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
-}
+/* the title is the directory hero's (.bands-hero__title, components.css) */
 /* the operative phrase: ink + a single red on-air underline (index's H1 motif) */
 .app-hero__op { position: relative; white-space: nowrap; }
 .app-hero__op::after {

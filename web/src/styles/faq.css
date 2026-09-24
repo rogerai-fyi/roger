@@ -10,7 +10,7 @@
 
 /* each group is a calm tinted panel (2026-09 lift); the questions inside are
    separated by hairlines, the black top rule is gone */
-.faq__group { padding: var(--s-2) clamp(20px, 2.4vw, 32px); border-radius: var(--panel-r); background: var(--paper-2); }
+.faq__group { padding: var(--s-2) clamp(20px, 2.4vw, 32px); }   /* a .tint-panel (components.css) */
 .faq__group + .faq__group { margin-top: var(--s-10); }
 
 .faq__item { padding-block: var(--s-6); }

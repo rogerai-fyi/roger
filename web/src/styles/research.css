@@ -90,17 +90,8 @@
 .model-roadmap b, .model-naming b { color: var(--ink-900); }
 
 .research-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-5); }
-.research-card { border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900); background: var(--paper); padding: var(--s-6); }
-.research-card { display: flex; flex-direction: column; }
-.research-card header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-2); }
-.research-card h3 { margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-h3); }
-.research-card p { color: var(--ink-500); line-height: var(--lh-body); }
 .status { display: inline-flex; border: 1px solid var(--hairline-2); padding: 3px 7px; color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .05em; text-transform: uppercase; }
 .research-parent { font-size: var(--t-sm); }
-.research-card dl { margin: auto 0 0; padding-top: var(--s-5); border-top: 1px solid var(--hairline); }
-.research-card dl div { display: grid; grid-template-columns: 80px 1fr; gap: var(--s-3); padding-block: var(--s-3); border-bottom: 1px solid var(--hairline); }
-.research-card dt { color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro); text-transform: uppercase; }
-.research-card dd { margin: 0; color: var(--ink-700); font-size: var(--t-sm); }
 
 .model-list { border-top: 2px solid var(--ink-900); }
 .model-row {
@@ -214,19 +205,20 @@
    padding, so the image cancels it on three sides), generic industry photography - not
    the NDA'd engagements the section text is careful never to name. Credit rides ON the
    photograph, same convention as the hardware board shots on research-hardware.html. */
-.deployment-grid__shot { margin: calc(var(--s-5) * -1) calc(var(--s-5) * -1) var(--s-4); position: relative; }
+.deployment-grid .deployment-grid__shot { margin: calc(var(--s-5) * -1) calc(var(--s-5) * -1) var(--s-4); position: relative; }
 .deployment-grid__shot img {
   display: block; width: 100%; height: auto; aspect-ratio: 4 / 3;
   object-fit: cover; background: var(--paper-2);
 }
-.deployment-grid__credit {
+/* a photograph's credit, riding on the picture (the Industrial and Hardware cards) */
+.photo-credit {
   position: absolute; right: 0; bottom: 0; padding: 3px 7px;
   background: rgba(21, 20, 15, .62); color: #fff;
   font-family: var(--font-mono); font-size: 9px; letter-spacing: .03em;
   border-top-left-radius: 4px;
 }
-.deployment-grid__credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
-.deployment-grid__credit a:hover { color: var(--paper-3); }
+.photo-credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.photo-credit a:hover { color: var(--paper-3); }
 .device-contract { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s-6); background: var(--paper-2); }
 .device-contract p { margin: 0; padding: var(--s-5); border-right: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract p:last-child { border-right: 0; }
@@ -655,3 +647,60 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   border-top: 1px solid var(--hairline);
   font-size: var(--t-sm); color: var(--ink-500);
 }
+
+/* =====================================================================
+   THE LIFTED SHELL (was research-labs.css, the research pages' overlay; folded in
+   once every page on this shell was lifted). Space separates, not rules: the heavy
+   2px ink frames around the grids become calm tinted panels on the shared radius,
+   set-apart sections are inset bands (components.css .band--inset).
+   ===================================================================== */
+/* anchors (the contents tuner) land under the nav */
+main section[id] { scroll-margin-top: 72px; }
+
+/* ---- the hero: no rule under it; the in-page strip becomes an inset panel ---- */
+.research-hero { border-bottom: 0; }
+.research-distinction {
+  margin-inline: var(--panel-mx);
+  border-bottom: 0; border-radius: var(--panel-r);
+}
+.usecase-strip { border-block: 0; border-radius: var(--panel-r); overflow: hidden; }
+
+/* ---- cards and grids: tinted panels, no ruled frames ---- */
+.research-grid { gap: var(--s-4); }
+.research-prose { border-top: 0; }
+.research-onward { border-block: 0; gap: var(--s-4); }
+.research-onward > * { border: 0; }   /* each a .tint-panel (components.css) */
+
+.developer-steps { border-block: 0; gap: var(--s-4); }
+.developer-step, .developer-step:last-child { border: 0; }   /* each a .tint-panel */
+
+.deployment-grid { border-block: 0; gap: var(--s-4); background: none; }
+.deployment-grid article { overflow: hidden; }   /* each a .tint-panel */
+/* photographs: one treatment across the research pages - the panel's radius, and
+   the stock industry photography set in mono so the ink-and-one-red palette holds
+   (the hardware board shots keep their colour: they identify real products) */
+.deployment-grid__shot img { filter: grayscale(1) contrast(1.04); }
+
+.model-list { border-top: 0; }
+.capability, .tier-scroll { border-block: 0; border: 1px solid var(--hairline); border-radius: var(--panel-r); }
+.model-roadmap, .model-naming { border-radius: 0 var(--r-xl) var(--r-xl) 0; }
+
+/* inside an inset band the tinted cards step to the raised ground */
+main .band--inset :is(.developer-step, .deployment-grid article, .research-onward > *) { background: var(--paper); }
+
+/* ---- labels that must be read: AA ink on paper ---- */
+.research-kicker, .model-group-head p, .release-evidence dt,
+.capability__cutline, .capability figcaption small, .tier-matrix thead th,
+.scope__head, .scope__mode, .scope__carries { color: var(--ink-500); }
+.tier-matrix thead th { border-bottom-width: 1px; border-bottom-color: var(--hairline-2); }
+.scope__head { border-bottom: 1px solid var(--hairline-2); }
+.purdue__tag { fill: var(--ink-500); }
+.research-tone.band--inset { border-block: 0; }
+
+/* AA at rest: the shared section label and figure label (--ink-400, 2.85:1 on paper,
+   less on a tinted band) are read here, so they take --ink-500; a state chip and the
+   release ticker's name keep their red rule but set their words in ink */
+main .sectionno, main .fig { color: var(--ink-500); }
+.status--none { color: var(--ink-900); }
+.release-ticker b { color: var(--ink-900); }
+.developer-step__no { color: var(--ink-500); }

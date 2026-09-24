@@ -83,11 +83,11 @@
              an author who ran the experiment and can defend the number.</p>
         </div>
         <div class="deployment-grid">
-          <article><b>Small enough to own</b><p>A model on hardware you already own is a
+          <article class="tint-panel"><b>Small enough to own</b><p>A model on hardware you already own is a
              model nobody can withdraw, reprice, or deprecate out from under you.</p></article>
-          <article><b>Published as it happens</b><p>Weights, recipes, raw evaluations and
+          <article class="tint-panel"><b>Published as it happens</b><p>Weights, recipes, raw evaluations and
              the failures.</p></article>
-          <article><b>Built in America, open to everyone</b><p>Designed and built in
+          <article class="tint-panel"><b>Built in America, open to everyone</b><p>Designed and built in
              Orange County, California. The formats are standard, the runtimes are
              other people&#39;s, and nothing we publish needs us to keep existing.</p></article>
         </div>
@@ -337,18 +337,18 @@
 
 
         <div class="research-onward">
-          <a href="/research-models.html">
+          <a class="tint-panel" href="/research-models.html">
             <b>Models and status</b>
             <span>Every Wave model and every upstream build we optimize, each with its
               program status, lineage, license, and evidence contract.</span>
           </a>
-          <a href="/research-wave-family.html">
+          <a class="tint-panel" href="/research-wave-family.html">
             <b>Family field guide</b>
             <span>What each slot is for, which plant jobs it can carry, the measurement
               that decides where a job belongs, and Wave Infinite, the prototype model
               program.</span>
           </a>
-          <a href="/broadcasts.html">
+          <a class="tint-panel" href="/broadcasts.html">
             <b>Open Air Waves</b>
             <span>Build stories and measurements written up as they happened,
               negative results included.</span>
@@ -395,18 +395,18 @@
              healthcare that means the equipment and facilities layer, never a patient&rsquo;s care.</p>
         </div>
         <div class="research-onward">
-          <a href="/research-industry.html">
+          <a class="tint-panel" href="/research-industry.html">
             <b>Industrial deployment</b>
             <span>The eight markets, where the box sits in the plant network, and the
               standards an OT reviewer checks for before anything else.</span>
           </a>
-          <a href="/research-industry.html#envelope">
+          <a class="tint-panel" href="/research-industry.html#envelope">
             <b>The physical envelope</b>
             <span>Why the tiers are what certification allows rather than what we
               preferred: surface temperature, the watt ceiling inside a hazardous zone,
               and the solar budget at a remote site.</span>
           </a>
-          <a href="/research-wave-family.html#jobs">
+          <a class="tint-panel" href="/research-wave-family.html#jobs">
             <b>Which slot for which job</b>
             <span>Twenty-seven plant jobs, the smallest slot that can carry each one, and
               why the work stays on site rather than leaving it.</span>
@@ -444,19 +444,19 @@
              the family.</p>
         </div>
         <div class="developer-steps">
-          <article class="developer-step">
+          <article class="developer-step tint-panel">
             <span class="developer-step__no">01</span>
             <h3>Download</h3>
             <p>Pull a released artifact and its model card from Hugging Face.</p>
             <code>huggingface-cli download rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF</code>
           </article>
-          <article class="developer-step">
+          <article class="developer-step tint-panel">
             <span class="developer-step__no">02</span>
             <h3>Run locally</h3>
             <p>Serve GGUF with llama.cpp as an OpenAI-compatible endpoint.</p>
             <code>llama-server -m model.gguf --port 8080</code>
           </article>
-          <article class="developer-step">
+          <article class="developer-step tint-panel">
             <span class="developer-step__no">03</span>
             <h3>Broadcast</h3>
             <p>Optional. Put that endpoint on air so others can tune in.</p>

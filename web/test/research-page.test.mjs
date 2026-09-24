@@ -684,7 +684,7 @@ test("each onward row offers a full set of destinations that resolve", () => {
   const rows = [...page.matchAll(/<div class="research-onward">([\s\S]*?)<\/div>\s*<\/div>/g)];
   assert.ok(rows.length >= 2, `the hub has more than one onward row, found ${rows.length}`);
   for (const [, row] of rows) {
-    const cards = [...row.matchAll(/<a href="([^"]+)">\s*<b>([^<]+)<\/b>\s*<span>([\s\S]*?)<\/span>/g)];
+    const cards = [...row.matchAll(/<a(?: class="[^"]*")? href="([^"]+)">\s*<b>([^<]+)<\/b>\s*<span>([\s\S]*?)<\/span>/g)];
     assert.equal(cards.length, 3, `each row fills the grid, found ${cards.length}`);
     for (const [, href, title, blurb] of cards) {
       assert.ok(title.trim().length > 0, "the card is named");

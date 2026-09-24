@@ -200,8 +200,7 @@
 
 .toc-tuner__band {
   position: relative;
-  padding-top: 58px; padding-bottom: 10px;
-  border-radius: var(--panel-r); background: var(--paper-2);
+  padding-top: 58px; padding-bottom: 10px;   /* its ground: the tinted panel's, below */
 }
 .toc-tuner__readout {
   position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
@@ -377,11 +376,15 @@
    rule (space separates, not lines). It replaces the hairline-boxed card with a
    heavy black top rule. Inside an ink panel it re-themes with the scoped tokens.
    A grid of them is the page's business (placement), the panel is not. */
+/* the tinted ground, declared ONCE for every panel that sits on it (the guard
+   in test/design-system.test.mjs holds it to this one rule) */
+.tint-panel, .toc-tuner__band, .figure--plate {
+  border-radius: var(--panel-r);
+  background: var(--paper-2);
+}
 .tint-panel {
   min-width: 0;
   padding: clamp(20px, 2.4vw, 32px);
-  border-radius: var(--panel-r);
-  background: var(--paper-2);
   color: var(--ink-700);
 }
 .tint-panel > :first-child { margin-top: 0; }
@@ -648,7 +651,7 @@
 .figure > img, .figure > video, .figure > svg { display: block; max-width: 100%; width: 100%; height: auto; }
 .figure > img, .figure > video { border-radius: var(--r-lg); }
 .figure > figcaption { margin: var(--s-3) 2px 0; color: var(--ink-500); }
-.figure--plate { padding: var(--s-4); background: var(--paper-2); border-radius: var(--panel-r); }
+.figure--plate { padding: var(--s-4); }   /* on the tinted ground (the .tint-panel rule) */
 .figure--phone > img { max-width: 440px; margin-inline: auto; }
 .figure--chart { color: var(--ink-900); overflow-x: auto; }
 .figure--chart > svg { min-width: 34rem; }
@@ -724,7 +727,6 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
    text column, never closer than --panel-inset), with no top/bottom rules. The calm
    way to set one section apart. */
 .band--inset {
-  --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
   margin: var(--panel-inset) var(--panel-mx); border-block: 0; border-radius: var(--panel-r);
 }
 

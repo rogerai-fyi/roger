@@ -88,8 +88,8 @@
 .legal .sub { margin: var(--s-5) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); text-wrap: pretty; }
 .legal .sub b { color: var(--ink-700); font-weight: var(--weight-medium); }
 .legal .notice {
-  margin-bottom: var(--s-8); padding: var(--s-5); border-radius: var(--panel-r);
-  background: var(--paper-2); color: var(--ink-700); font-size: var(--t-sm); line-height: var(--lh-body);
+  /* a .tint-panel (components.css) at the notice's own padding */
+  margin-bottom: var(--s-8); padding: var(--s-5); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 .legal .notice b:first-child {
   display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2);

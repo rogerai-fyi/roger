@@ -112,13 +112,7 @@
   line-height: 1;
   color: var(--live);
 }
-.bx-save__cap {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-400);
-}
+.bx-save__cap, .bx-vel__span { font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400); }
 .bx-save__bars { margin: 0 0 var(--s-4); }
 .bx-save__row {
   display: grid;
@@ -356,13 +350,6 @@
   align-items: baseline;
   gap: var(--s-3);
   flex-wrap: wrap;
-}
-.bx-vel__span {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-400);
 }
 .bx-vel__peak {
   font-family: var(--font-mono);

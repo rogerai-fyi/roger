@@ -22,11 +22,7 @@
 
 /* ---- quickstart: the 30-second path, above the full reference ---- */
 .man-quick { padding-block: 0 clamp(16px, 3vw, 32px); }
-.man-quick__eyebrow {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--volt);
-  text-transform: uppercase; letter-spacing: 0.12em; font-weight: var(--weight-semi);
-}
+.man-quick__eyebrow, .man-sec__no { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--t-xs); color: var(--volt); text-transform: uppercase; letter-spacing: 0.12em; font-weight: var(--weight-semi); }
 .man-quick__h { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900); margin-top: var(--s-3); }
 .man-quick__lead { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
 .man-quick__grid {
@@ -44,11 +40,7 @@
 .man-quick__card .install__box { margin-top: var(--s-3); background: var(--paper); }
 /* (the URL is one long token: in a card this narrow it may break inside, never cut off) */
 .man-quick__card .install__code { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-size: .8125rem; }
-.man-quick__step {
-  display: inline-block;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
-  text-transform: uppercase; letter-spacing: 0.1em;
-}
+.man-quick__step, .man-fig { display: inline-block; font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.1em; }
 .man-quick__card p { margin-top: var(--s-3); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
 .man-quick__card pre {
   margin-top: var(--s-3); padding: 14px 16px; overflow-x: auto; max-width: 100%;
@@ -79,11 +71,6 @@
 /* a section of the manual */
 .man-sec { padding-block: clamp(28px, 4vw, 44px); border-top: 1px solid var(--hairline); scroll-margin-top: 88px; }
 .man-sec:first-of-type { border-top: 0; padding-top: 0; }
-.man-sec__no {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--volt);
-  text-transform: uppercase; letter-spacing: 0.12em; font-weight: var(--weight-semi);
-}
 .man-sec__no::before { content: ""; width: 18px; height: 1px; background: var(--volt); display: inline-block; opacity: 0.7; }
 .man-sec h2 {
   font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
@@ -113,11 +100,7 @@
 }
 
 /* a numbered figure caption inside the manual (reuses .fig look) */
-.man-fig {
-  display: inline-block; margin-top: var(--s-6);
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
-  text-transform: uppercase; letter-spacing: 0.1em;
-}
+.man-fig { margin-top: var(--s-6); }
 
 /* glossary: a clean definition list */
 .man-gloss { margin-top: var(--s-6); display: grid; gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; }

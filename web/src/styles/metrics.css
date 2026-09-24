@@ -64,13 +64,7 @@
   margin-bottom: var(--s-3);
   flex-wrap: wrap;
 }
-.mx-chart__title {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-400);
-}
+.mx-chart__title, .mx-ts__title { font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400); }
 .mx-legend {
   font-family: var(--font-mono);
   font-size: var(--t-xs);
@@ -209,13 +203,6 @@
   gap: var(--s-3);
   margin-bottom: var(--s-2);
   flex-wrap: wrap;
-}
-.mx-ts__title {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-400);
 }
 /* the live readout for the focused bucket - pushed to the right, mono numerals. */
 .mx-ts__read {

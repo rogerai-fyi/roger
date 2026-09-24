@@ -108,16 +108,7 @@
   display: block; width: 100%; height: auto; aspect-ratio: 4 / 3;
   object-fit: cover; background: var(--paper-2);
 }
-/* the credit rides ON the photograph: it belongs to the picture, not to the card */
-.hw-credit {
-  position: absolute; right: 0; bottom: 0;
-  padding: 3px 7px;
-  background: rgba(21, 20, 15, .62); color: #fff;
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: .03em;
-  border-top-left-radius: 4px;
-}
-.hw-credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
-.hw-credit a:hover { color: var(--paper-3); }
+/* the credit rides ON the photograph: the shared .photo-credit (research.css) */
 
 .hw-card__body { padding: var(--s-4) var(--s-4) var(--s-5); }
 .hw-card__body h3 {

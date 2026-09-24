@@ -274,13 +274,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.po-lots__meta {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  color: var(--ink-400);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.po-lots__meta, .po-tower__meta { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); overflow: hidden; text-overflow: ellipsis; }
 
 @media (prefers-reduced-motion: reduce) {
   .po-meter__seg { transition: none; }
@@ -303,13 +297,6 @@
 .po-tower__left b {
   color: var(--ink-900);
   font-weight: var(--weight-medium);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.po-tower__meta {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  color: var(--ink-400);
   overflow: hidden;
   text-overflow: ellipsis;
 }

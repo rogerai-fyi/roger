@@ -177,5 +177,5 @@ test("long pages carry the shared contents tuner, one station per numbered secti
     const sections = [...mainOf(html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)/g)].map((m) => "§" + m[1]);
     assert.deepEqual(stations, sections, `${page}: one station per numbered section, in order`);
   }
-  for (const f of ["broadcasts.css", "research-labs.css"]) assert.doesNotMatch(css(f), /position:\s*(sticky|fixed)/, `${f}: nothing pinned`);
+  for (const f of ["broadcasts.css", "research.css"]) assert.doesNotMatch(css(f), /position:\s*(sticky|fixed)/, `${f}: nothing pinned`);
 });

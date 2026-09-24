@@ -41,9 +41,8 @@
   94%, 100% { left: 81%; top: 47%; opacity: 0; }
 }
 /* the simulator: a calm tinted panel (no ruled top, no drop shadow, no grid) */
-.route-sim {
-  margin-top: var(--s-6); border-radius: var(--panel-r);
-  overflow: hidden; background: var(--paper-2);
+.route-sim {   /* a .tint-panel (components.css) with no padding: the stage fills it */
+  margin-top: var(--s-6); padding: 0; overflow: hidden;
 }
 .route-sim__head {
   display: flex; align-items: end; justify-content: space-between; gap: var(--s-4);

@@ -52,17 +52,17 @@ const CSS_BUNDLES = {
   "playbox.html": [...CSS_MARKETING, "playbox.css", "wave-patch.css", "wave-factory.css"], // console + measured mesh + the separate factory game
   "playground.html": CSS_MARKETING, // legacy address: a redirect stub to the Playbox
   "tower.html":     [...CSS_MARKETING, "research.css", "tower.css"], // the broker, publicly
-  "research.html":  [...CSS_MARKETING, "research.css", "research-labs.css"],
-  "research-industry.html": [...CSS_MARKETING, "research.css", "research-labs.css"], // plant placement + standards, split out of the hub
-  "research-hardware.html": [...CSS_MARKETING, "research.css", "research-labs.css", "research-hardware.css"], // the board -> tier map, the only page carrying third-party photography
+  "research.html":  [...CSS_MARKETING, "research.css"],
+  "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
+  "research-hardware.html": [...CSS_MARKETING, "research.css", "research-hardware.css"], // the board -> tier map, the only page carrying third-party photography
   "careers.html":   [...CSS_MARKETING, "research.css", "careers.css", "company.css"], // hiring surface; notebook shell + the Company section sheet
   "company.html":   [...CSS_MARKETING, "research.css", "company.css"], // About; company.css = the Company section sheet
   "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates
   "faq.html":       [...CSS_MARKETING, "research.css", "faq.css", "company.css"], // ditto; faq.css is only the question list
   "why.html":       [...CSS_MARKETING, "research.css"],                // the routing-fee argument; page-scoped styles inline
   "integrations.html": [...CSS_MARKETING, "research.css", "integrations.css"], // ditto; the tables and guest plates
-  "research-models.html": [...CSS_MARKETING, "research.css", "research-labs.css"], // the model catalogue, split out of the hub
-  "research-wave-family.html": [...CSS_MARKETING, "research.css", "research-labs.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
+  "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
+  "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
   "voices.html":    [...CSS_MARKETING, "voices.css"],
   "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
   "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
