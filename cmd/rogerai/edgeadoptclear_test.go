@@ -122,3 +122,34 @@ func TestRefreshTrustDoesNotMarkFreshWhenTheFetchFails(t *testing.T) {
 	require.Equal(t, old.Unix(), got.RefreshedAt, "a failed refresh leaves the list stale, not freshly stamped")
 	require.Equal(t, []string{"11"}, got.Revoked, "and does not lose the list it had")
 }
+
+// An enrolled machine that has NEVER refreshed its revocation list must warn - "never refreshed" is
+// not the same as "fresh". A machine that never enrolled says nothing (audit 2026-09-24).
+func TestTrustNoteWarnsWhenEnrolledButNeverRefreshed(t *testing.T) {
+	offline(t)
+	require.Empty(t, edgeTrustNote(time.Now()), "a machine that never enrolled has nothing to warn about")
+
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code)
+
+	// Force the stored list to the never-refreshed state a failed first refresh would leave.
+	require.NoError(t, edgeIdentityStore().SaveTrust(nil, time.Unix(0, 0)))
+	require.Contains(t, edgeTrustNote(time.Now()), "never been refreshed",
+		"an enrolled machine that never synced its revocation list must warn, not stay silent")
+}
+
+// Forget must surface an unreadable identity rather than claim success having revoked nothing.
+func TestForgetSurfacesAnUnreadableIdentity(t *testing.T) {
+	offline(t)
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code)
+
+	// Corrupt this machine's node key so LoadIdentity fails.
+	require.NoError(t, os.WriteFile(filepath.Join(edgeAuthDir(), "node.key"), []byte("not-hex"), 0o600))
+	err := edgeRevokeOnForget("n_whatever")
+	require.Error(t, err, "a forget must report an unreadable identity, not silently do nothing")
+}

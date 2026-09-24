@@ -330,7 +330,9 @@ func edgeRefreshTrust(st edgeauth.Store, endpoint string, local *edgeauth.Local,
 		// The fetch FAILED (a 503 when the authority's list is unreadable, or the authority is
 		// unreachable). Do NOT re-stamp the stored list as freshly refreshed - a failed refresh that
 		// read as fresh would suppress the staleness warning and hide a revocation made meanwhile.
-		// Leave what is stored exactly as it is, so edgeTrustNote still warns (audit 2026-09-24).
+		// Leave what is stored exactly as it is (so edgeTrustNote still warns) and TELL the operator,
+		// rather than failing silently (audit 2026-09-24).
+		fmt.Fprintf(os.Stderr, "warning: could not refresh the revocation list from %s - this machine's list may be stale\n", endpoint)
 		return nil
 	}
 	// A node with no authority and no endpoint has no source to refresh from, so it likewise must not
@@ -667,8 +669,29 @@ func edgeRevokeOnForget(nodeID string) error {
 // gone stale. It is STATED rather than assumed either way: the risk is not that the
 // list is old, it is that a revoked node looks fine because nobody said so.
 func edgeTrustNote(now time.Time) string {
+	// Only a machine that is ON an Edge has a revocation list that matters. A machine that never
+	// enrolled has nothing to warn about.
+	_, _, enrolled, err := edgeIdentityStore().LoadIdentity()
+	if err != nil {
+		return "(trust information is unreadable: this machine's Edge identity could not be read - " +
+			"it cannot say whether a node has been revoked)"
+	}
+	if !enrolled {
+		return ""
+	}
 	t, err := edgeIdentityStore().LoadTrust()
-	if err != nil || !t.Stale(now, edgeauth.FreshnessWindow) {
+	if err != nil {
+		return "(trust information is unreadable: this machine's revocation list could not be read - " +
+			"a revoked node would still verify here)"
+	}
+	// Never refreshed is NOT the same as fresh: an enrolled machine that has never synced its
+	// revocation list cannot vouch for anyone, so it warns rather than staying silent (audit
+	// 2026-09-24).
+	if t.RefreshedAt == 0 {
+		return "(trust information is unknown: this machine's revocation list has never been refreshed " +
+			"from the authority - a revoked node would still verify here)"
+	}
+	if !t.Stale(now, edgeauth.FreshnessWindow) {
 		return ""
 	}
 	return fmt.Sprintf("(trust information is stale: this machine's revocation list was last refreshed %s - "+

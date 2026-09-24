@@ -372,18 +372,15 @@ func (s Store) Revoke(serial string, at time.Time) error {
 	if err != nil {
 		return err
 	}
-	// Adding a local revocation is NOT a refresh from the authority, so it must not reset the
-	// staleness clock: keep the prior RefreshedAt (falling back to `at` only if none was set).
-	refreshed := time.Unix(t.RefreshedAt, 0)
-	if t.RefreshedAt == 0 {
-		refreshed = at
-	}
+	// Adding a local revocation is NOT a refresh from the authority, so it must not touch the
+	// staleness clock at all - keep the prior RefreshedAt exactly, including 0 (never refreshed), so
+	// a never-synced list is not made to look fresh by a local revoke.
 	for _, got := range t.Revoked {
 		if got == serial {
 			return nil // already revoked here; nothing to change
 		}
 	}
-	return s.SaveTrust(append(t.Revoked, serial), refreshed)
+	return s.SaveTrust(append(t.Revoked, serial), time.Unix(t.RefreshedAt, 0))
 }
 
 // Trust returns the VERIFY-ONLY authority this machine checks its peers with, and what
