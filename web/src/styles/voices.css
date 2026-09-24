@@ -1,48 +1,16 @@
 /* =====================================================================
    RogerAI - voices.css : the live VOICE directory (/voices.html).
    The bands hero (shared with models.css tokens) + the roster table +
-   the "how to speak" command box. Reuses the shared chrome from base.css
-   (.bands-panel, .bands-panel__bar/__status/__quiet, .band-tag--free,
-   .beacon, .market__refresh, .market__foot, .install__box) and models.css
-   (.bands-hero, .section__head). Consumes tokens.css + base.css.
+   the "how to speak" command box. The hero, the panel and the chips are the
+   shared directory component (components.css).
 
    Design language: the WEB voice (monochrome ink + the one live-red
    beacon), RogerAI's radio idiom (on-air / roster / station / @callsign).
    Real data only - no station, no voice.
    ===================================================================== */
 
-/* ---------- bands hero (shared shape with the Models board) ----- */
-.bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
-.bands-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
-.bands-hero__title {
-  margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
-}
-.bands-hero__sub {
-  margin: var(--s-5) 0 0; max-width: 64ch; color: var(--ink-500);
-  font-size: var(--t-lead); line-height: var(--lh-body);
-}
-.bands-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
-
-/* ---------- roster panel + table -------------------------------- */
-.bands-panel { border: 1px solid var(--hairline); border-radius: var(--panel-r); overflow: hidden; background: var(--paper); }
-.bands-panel__bar {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
-  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--paper-2);
-}
-.bands-panel__status { display: inline-flex; align-items: center; gap: var(--s-2);
-  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-500); }
-.bands-panel__status.is-live { color: var(--ink-900); }
-.bands-panel__status.is-off { color: var(--ink-400); }
-.bands-panel__status.is-quiet { color: var(--ink-400); }
-
-/* honest empty state: nothing real on air. No fake voices - just the truth
-   and the one command that fixes it. (Shared shape with the Models board.) */
-.bands-panel__quiet { padding: var(--s-8) var(--s-4); text-align: center; }
-.bands-panel__quiet-head { color: var(--ink-700); font-size: var(--t-sm); }
-.bands-panel__quiet-head .beacon { margin-right: var(--s-2); }
-.bands-panel__quiet-sub { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
-.bands-panel__quiet-sub .inline { color: var(--ink-900); }
+/* (the page hero, the directory panel and its chips are the shared directory
+   component, components.css) */
 
 /* the grid: name · operator | language | latency | price */
 .voice-row, .voice-row--head {
@@ -113,7 +81,6 @@
 
 /* ---------- responsive ------------------------------------------ */
 @media (max-width: 640px) {
-  .bands-hero__inner { max-width: none; }
   /* drop the latency column on narrow screens; keep name · language · price */
   .voice-row, .voice-row--head {
     grid-template-columns: minmax(0, 1.8fr) minmax(80px, 1fr) minmax(84px, 1fr);

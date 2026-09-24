@@ -120,19 +120,6 @@
   .dial { max-width: none; }
 }
 
-/* ---------- bands hero ----------------------------------------- */
-.bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
-.bands-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
-.bands-hero__title {
-  margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
-}
-.bands-hero__sub {
-  margin: var(--s-5) 0 0; max-width: 64ch; color: var(--ink-500);
-  font-size: var(--t-lead); line-height: var(--lh-body);
-}
-.bands-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
-
 /* ---------- the full-bleed interactive dial (Models centerpiece) ----
    The exploration tuner moved off the homepage onto /models.html. Same
    instrument plate as the old homepage FIG.1; full-bleed band between the
@@ -195,26 +182,8 @@
 .tuner__chip.is-on { color: var(--live); border-color: var(--live); background: var(--live-tint); }
 .tuner__chip.is-on .cs { color: var(--live); }
 
-/* ---------- directory panel + table ---------------------------- */
-.bands-panel { border: 1px solid var(--hairline); border-radius: var(--panel-r); overflow: hidden; background: var(--paper); }
-.bands-panel__bar {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
-  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--paper-2);
-}
-.bands-panel__status { display: inline-flex; align-items: center; gap: var(--s-2);
-  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-500); }
-.bands-panel__status.is-live { color: var(--ink-900); }
-.bands-panel__status.is-off { color: var(--ink-400); }
-.bands-panel__empty { padding: var(--s-6) var(--s-4); color: var(--ink-400); }
-.bands-panel__status.is-quiet { color: var(--ink-400); }
-
-/* honest empty state: nothing real on air. No fake bands - just the truth
-   and the one command that fixes it. */
-.bands-panel__quiet { padding: var(--s-8) var(--s-4); text-align: center; }
-.bands-panel__quiet-head { color: var(--ink-700); font-size: var(--t-sm); }
-.bands-panel__quiet-head .beacon { margin-right: var(--s-2); }
-.bands-panel__quiet-sub { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
-.bands-panel__quiet-sub .inline { color: var(--ink-900); }
+/* (the page hero, the directory panel and the band chips are the shared directory
+   component, components.css; this sheet places them and draws the rows) */
 
 .band-row, .band-row--head {
   display: grid;
@@ -256,16 +225,6 @@
 .band-perf { font-size: var(--t-xs); color: var(--ink-500); letter-spacing: 0; }
 .band-hw { font-size: 0.625rem; letter-spacing: 0.06em; color: var(--ink-500);
   border: 1px solid var(--hairline-2); border-radius: var(--r-xs); padding: 0 5px; text-transform: uppercase; }
-.band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
-  white-space: nowrap; padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
-.band-tag--free { color: var(--live); border-color: var(--live); }
-/* neutral $-tier read of a band's price vs the going rate for its model (FREE/unknown
-   render nothing). Only the cheapest tier is editorialized, via .band-tag--deal. */
-.price-tier { font-family: var(--font-mono); font-weight: 600; color: var(--ink-500); margin-left: 4px; }
-.band-tag--deal { color: var(--live); border-color: var(--live); }
-/* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
-.band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
-.band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
 /* previously-seen, now-offline rows: real history, dimmed (never invented) */
 .band-row--seen { opacity: .5; }
 .band-row--seen:hover { opacity: .7; }
@@ -404,7 +363,6 @@
 
 /* ---------- responsive ----------------------------------------- */
 @media (max-width: 860px) {
-  .bands-hero__inner { max-width: none; }
   .qsl__grid { grid-template-columns: 1fr; }
   .qsl__col--log { border-right: 0; border-bottom: 1px solid var(--hairline); }
   /* the directory drops to a compact two-column flow on small screens */

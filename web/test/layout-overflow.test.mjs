@@ -92,7 +92,7 @@ test("models: a model name never collapses to its narrowest possible width", () 
   assert.notEqual(name["word-break"], "break-word", ".band-name must not use word-break:break-word");
   assert.notEqual(name["overflow-wrap"], "anywhere", ".band-name must not use overflow-wrap:anywhere");
   assert.equal(name["min-width"], "0", "the name shrinks beside the dot and wraps inside itself");
-  assert.equal(decl(css("models.css"), ".band-tag")["white-space"], "nowrap",
+  assert.equal(decl(css("components.css"), ".band-tag")["white-space"], "nowrap",   // the shared directory chip
     "a tag like \"✓ verified\" never splits across lines");
 });
 

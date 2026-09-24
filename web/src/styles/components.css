@@ -727,3 +727,58 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
   --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
   margin: var(--panel-inset) var(--panel-mx); border-block: 0; border-radius: var(--panel-r);
 }
+
+/* ======================= DIRECTORY (models, voices, the homepage market) ==
+   The live directories list the same network in two media, so they share a
+   shape: the page hero, the panel with its status bar and honest empty state,
+   and the chips a row carries. Rows and columns are each page's own.
+   <section class="bands-hero"><div class="wrap bands-hero__inner">
+     <h1 class="bands-hero__title">..</h1><p class="bands-hero__sub">..</p></div></section>
+   <div class="bands-panel"><div class="bands-panel__bar">
+     <span class="bands-panel__status is-live|is-off|is-quiet">..</span>..</div>
+     rows ... <div class="bands-panel__quiet"><p class="bands-panel__quiet-head">..</p>
+     <p class="bands-panel__quiet-sub">..</p></div></div>
+   Chips: <span class="band-tag band-tag--free|--deal|--ver|--seen">, and the
+   neutral "$".."$$$$" read <span class="price-tier">. */
+.bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
+.bands-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
+.bands-hero__title {
+  margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+.bands-hero__sub {
+  margin: var(--s-5) 0 0; max-width: 64ch; color: var(--ink-500);
+  font-size: var(--t-lead); line-height: var(--lh-body);
+}
+.bands-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+.bands-panel { border: 1px solid var(--hairline); border-radius: var(--panel-r); overflow: hidden; background: var(--paper); }
+.bands-panel__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--paper-2);
+}
+.bands-panel__status { display: inline-flex; align-items: center; gap: var(--s-2);
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-500); }
+.bands-panel__status.is-live { color: var(--ink-900); }
+.bands-panel__status.is-off { color: var(--ink-400); }
+.bands-panel__empty { padding: var(--s-6) var(--s-4); color: var(--ink-400); }
+.bands-panel__status.is-quiet { color: var(--ink-400); }
+
+/* honest empty state: nothing real on air. No fake bands - just the truth
+   and the one command that fixes it. */
+.bands-panel__quiet { padding: var(--s-8) var(--s-4); text-align: center; }
+.bands-panel__quiet-head { color: var(--ink-700); font-size: var(--t-sm); }
+.bands-panel__quiet-head .beacon { margin-right: var(--s-2); }
+.bands-panel__quiet-sub { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
+.bands-panel__quiet-sub .inline { color: var(--ink-900); }
+
+.band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
+  white-space: nowrap; padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
+.band-tag--free { color: var(--live); border-color: var(--live); }
+/* neutral $-tier read of a band's price vs the going rate for its model (FREE/unknown
+   render nothing). Only the cheapest tier is editorialized, via .band-tag--deal. */
+.price-tier { font-family: var(--font-mono); font-weight: 600; color: var(--ink-500); margin-left: 4px; }
+.band-tag--deal { color: var(--live); border-color: var(--live); }
+/* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
+.band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
+.band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
