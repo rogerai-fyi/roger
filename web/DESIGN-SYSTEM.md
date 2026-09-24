@@ -208,6 +208,12 @@ disclosure written open (no-JS readers and crawlers get all of it) that `site.js
 a phone (<=640px), where it would push the page's main content down. The summary keeps
 its own words and gains a quiet `+`/`-` mark. Used by the broadcasts telegram.
 
+### Inset band
+`<section class="section band band--inset">`: the tinted band as a rounded panel on the
+ink panel's inset geometry (64px outside the text column, never closer than
+`--panel-inset`), no top/bottom rules. Used by the research pages for their set-apart
+sections instead of full-bleed ruled bands.
+
 ## Adding a page
 
 1. `src/<page>.html`: `<!-- include: head.html title=... desc=... theme=external -->`,

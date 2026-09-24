@@ -130,8 +130,10 @@ const PAGE_SHEET_COMPONENT_RULES = {
 test("each shared component is defined in components.css and nowhere else", () => {
   const blocks = new Set(selectors(read("styles/components.css")).map(leadClass).filter(Boolean).map(blockOf));
   for (const b of ["section", "research-button", "man-note", "install", "tone-zone", "toc-tuner", "scrub", "figure", "scroll-box", "code-block", "inset-panel"]) {
+    // (band--inset is a modifier of .section's .band; see the next assertion)
     assert.ok(blocks.has(b), `components.css defines .${b}`);
   }
+  assert.match(read("styles/components.css"), /\.band--inset\s*\{/, "components.css defines .band--inset");
   for (const sheet of SHEETS) {
     if (sheet === "components.css" || sheet === "tokens.css") continue;
     const allowed = PAGE_SHEET_COMPONENT_RULES[sheet] || {};

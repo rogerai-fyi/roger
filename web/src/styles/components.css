@@ -451,3 +451,13 @@ details[data-fold-narrow] > summary::after {
 }
 details[data-fold-narrow][open] > summary::after { content: "\2212"; }
 details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
+
+/* ---- component: inset band (added by research rollout) ----------------------------
+   <section class="section band band--inset"> : the tinted .band as a rounded panel,
+   inset from the page edge on the same geometry as the ink panel (64px outside the
+   text column, never closer than --panel-inset), with no top/bottom rules. The calm
+   way to set one section apart. */
+.band--inset {
+  --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
+  margin: var(--panel-inset) var(--panel-mx); border-block: 0; border-radius: var(--panel-r);
+}
