@@ -159,3 +159,23 @@ test("index: the founder telegram folds on a phone and stays whole without JS", 
   assert.match(html, /<details class="bc-tg inset-panel" data-fold-narrow open/, "a disclosure, open in the HTML");
   assert.match(src("js/site.js"), /querySelectorAll\("details\[data-fold-narrow\]"\)/, "site.js folds it on a narrow screen");
 });
+
+/* ---- contents tuners on the long pages ----------------------------------------------- */
+
+const LONG = ["research.html", "research-wave-family.html", "research-hardware.html",
+  "broadcasts-run-a-tower.html", "broadcasts-what-a-million-tokens-costs.html",
+  "broadcasts-agent-governance-identity.html", "broadcasts-sharing-your-gpu-is-safe.html",
+  "broadcasts-jev-vs-wave.html"];
+
+test("long pages carry the shared contents tuner, one station per numbered section, never pinned", () => {
+  for (const page of LONG) {
+    const html = dist(page);
+    const tuner = html.match(/<nav class="toc-tuner" data-tuner aria-label="[^"]+">[\s\S]*?<\/nav>/)?.[0];
+    assert.ok(tuner, `${page} has a toc-tuner`);
+    assert.match(tuner, /<div class="wrap toc-tuner__band">/, `${page}: the band carries .wrap (the component contract)`);
+    const stations = [...tuner.matchAll(/<a class="toc-tuner__st" href="#([\w-]+)"><b>(§\d+)<\/b>/g)].map((m) => m[2]);
+    const sections = [...mainOf(html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)/g)].map((m) => "§" + m[1]);
+    assert.deepEqual(stations, sections, `${page}: one station per numbered section, in order`);
+  }
+  for (const f of ["broadcasts.css", "research-labs.css"]) assert.doesNotMatch(css(f), /position:\s*(sticky|fixed)/, `${f}: nothing pinned`);
+});

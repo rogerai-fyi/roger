@@ -303,3 +303,8 @@
 }
 .bc-dial li:first-child { border-top: 0; padding-top: 0; }
 .bc-dial li > b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+/* ---- the contents tuner on a long broadcast (the shared toc-tuner, in the measure):
+   its anchors land under the nav ---- */
+.bc-post .toc-tuner { padding-block: var(--s-10) 0; }
+.bc-sec[id] { scroll-margin-top: 72px; }
