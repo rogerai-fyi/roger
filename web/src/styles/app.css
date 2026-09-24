@@ -10,23 +10,13 @@
    mounted plates with a 2px ink top rule and the FIG. caption ABOVE
    (the spec-plate treatment) - not glossy device mockups; the app's
    own UI carries the one red beacon. The scroll is tuning across the
-   band: each numbered section opens with a dial rule whose red needle
-   moves §1 -> §7.
+   band: the shared TOC tuner under the hero rests its needle on the
+   section in view; §2 and §9-§11 sit in ink panels.
    ===================================================================== */
-
-/* faint radio static behind the hero and the closing CTA - scattered ink
-   grain plus two red motes, tiled small so it reads as paper texture. */
-:root {
-  --app-static: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cg fill='%2315140f' fill-opacity='.14'%3E%3Ccircle cx='14' cy='31' r='1'/%3E%3Ccircle cx='73' cy='9' r='1'/%3E%3Ccircle cx='128' cy='47' r='1'/%3E%3Ccircle cx='201' cy='22' r='1'/%3E%3Ccircle cx='44' cy='88' r='1'/%3E%3Ccircle cx='167' cy='101' r='1'/%3E%3Ccircle cx='226' cy='131' r='1'/%3E%3Ccircle cx='90' cy='139' r='1'/%3E%3Ccircle cx='23' cy='166' r='1'/%3E%3Ccircle cx='140' cy='183' r='1'/%3E%3Ccircle cx='197' cy='206' r='1'/%3E%3Ccircle cx='58' cy='219' r='1'/%3E%3C/g%3E%3Cg fill='%23e0231c' fill-opacity='.28'%3E%3Ccircle cx='108' cy='72' r='1.4'/%3E%3Ccircle cx='182' cy='158' r='1.4'/%3E%3C/g%3E%3C/svg%3E");
-}
-[data-theme="dark"] {
-  --app-static: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cg fill='%23f3f1ea' fill-opacity='.10'%3E%3Ccircle cx='14' cy='31' r='1'/%3E%3Ccircle cx='73' cy='9' r='1'/%3E%3Ccircle cx='128' cy='47' r='1'/%3E%3Ccircle cx='201' cy='22' r='1'/%3E%3Ccircle cx='44' cy='88' r='1'/%3E%3Ccircle cx='167' cy='101' r='1'/%3E%3Ccircle cx='226' cy='131' r='1'/%3E%3Ccircle cx='90' cy='139' r='1'/%3E%3Ccircle cx='23' cy='166' r='1'/%3E%3Ccircle cx='140' cy='183' r='1'/%3E%3Ccircle cx='197' cy='206' r='1'/%3E%3Ccircle cx='58' cy='219' r='1'/%3E%3C/g%3E%3Cg fill='%23ff4438' fill-opacity='.22'%3E%3Ccircle cx='108' cy='72' r='1.4'/%3E%3Ccircle cx='182' cy='158' r='1.4'/%3E%3C/g%3E%3C/svg%3E");
-}
 
 /* ---------- hero ------------------------------------------------ */
 /* tighter top block so the device composition crests a 900px fold */
 .app-hero { padding-block: clamp(48px, 6vw, 80px) calc(var(--section-y) * .8); position: relative; }
-.app-hero { background-image: var(--app-static); background-repeat: repeat; }
 .app-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
 .app-hero__title {
   margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
@@ -45,7 +35,7 @@
 .app-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
 
 .app-hero__cta { margin-top: var(--s-6); display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-4) var(--s-5); }
-.app-hero__meta { font-size: var(--t-xs); letter-spacing: var(--tracking-label); color: var(--ink-400); }
+.app-hero__meta { font-size: var(--t-xs); letter-spacing: var(--tracking-label); color: var(--ink-500); }
 
 /* the official badge: keep Apple's artwork verbatim, add only our hover */
 .app-badge { display: inline-flex; line-height: 0; transition: transform var(--d-2, .16s) ease, opacity var(--d-2, .16s) ease; }
@@ -116,25 +106,10 @@
 [data-theme="dark"] .app-shot--mac::before { border-top-color: var(--ink-900); }
 [data-theme="dark"] .app-hero__phone { box-shadow: 0 18px 44px rgba(0, 0, 0, .5); }
 
-/* ---------- the dial rule: the scroll tunes across the band ------ */
-/* a ruler strip with mono ticks; the red needle's position is set per
-   section via --dial-pos (§1 left ... §7 right). */
-.app-dialrule {
-  grid-column: 1 / -1; position: relative; height: 16px; margin-bottom: var(--s-6);
-  border-bottom: 1px solid var(--hairline-2, var(--hairline));
-  background:
-    repeating-linear-gradient(90deg, var(--hairline) 0 1px, transparent 1px 56px) 0 100% / 100% 12px no-repeat,
-    repeating-linear-gradient(90deg, var(--hairline) 0 1px, transparent 1px 14px) 0 100% / 100% 6px no-repeat;
-}
-.app-dialrule::after {
-  content: ""; position: absolute; left: var(--dial-pos, 0%); top: 0; bottom: -1px;
-  width: 2px; background: var(--live);
-}
-
 /* ---------- alternating feature plates -------------------------- */
-/* hairline-bound sections with a tighter seam, so the plates bind into
-   one document instead of floating in voids. */
-.app-feature { padding-block: calc(var(--section-y) * .55); border-top: 1px solid var(--hairline); }
+/* a tighter rhythm than a stand-alone section, so the plates bind into one
+   document; space separates them, not rules. */
+.app-feature { padding-block: calc(var(--section-y) * .55); }
 .app-feature__grid {
   display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   gap: var(--s-8) var(--s-10); align-items: start;
@@ -190,7 +165,7 @@
 .app-spec__row:last-child { border-bottom: 0; }
 .app-spec__row dt {
   font-size: var(--t-micro); text-transform: uppercase; letter-spacing: var(--tracking-label);
-  color: var(--ink-400); padding-top: 2px;
+  color: var(--ink-500); padding-top: 2px;
 }
 .app-spec__row dd { margin: 0; font-size: var(--t-sm); color: var(--ink-700); line-height: var(--lh-body); }
 
@@ -205,7 +180,6 @@
 
 /* ---------- closing CTA ------------------------------------------ */
 /* the conversion moment echoes the hero: static texture + the red underline */
-.app-cta { background-image: var(--app-static); background-repeat: repeat; }
 .app-cta__inner { display: flex; flex-direction: column; align-items: center; text-align: center; }
 /* the brandlocked sign-off plate: a hand raises the handheld, the tower's
    beacon on the horizon. Background-image (not <img>) so ONLY the active
@@ -226,7 +200,7 @@
   letter-spacing: var(--tracking-h2); color: var(--ink-900); font-weight: var(--weight-bold);
 }
 .app-cta__sub { margin: var(--s-3) 0 0; color: var(--ink-500); }
-.app-cta__url { margin: var(--s-3) 0 0; font-size: var(--t-xs); letter-spacing: var(--tracking-label); color: var(--ink-400); }
+.app-cta__url { margin: var(--s-3) 0 0; font-size: var(--t-xs); letter-spacing: var(--tracking-label); color: var(--ink-500); }
 
 /* ---------- responsive ------------------------------------------ */
 @media (max-width: 860px) {

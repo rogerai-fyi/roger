@@ -102,20 +102,23 @@ test("the closing CTA mounts the brandlocked art, theme-swapped via CSS (light +
     assert.ok(existsSync(join(root, f)), `${f} exists`);
 });
 
-test("each numbered section carries a dial-rule divider with its own needle position", () => {
-  const numbered = [...app.matchAll(/class="sectionno">§\d+/g)];
-  const rules = [...app.matchAll(/class="app-dialrule"[^>]*style="--dial-pos:\s*(\d+)%"/g)];
+// The page used to open each numbered section with its own dial rule, a needle moving
+// left to right across the band. The site-wide TOC tuner (components.css) took over that job
+// in the 2026-09 rollout: ONE scale under the hero, one station per numbered section, in
+// order, whose needle rests on the section in view. Same guarantee, pinned the same way:
+// every numbered section is on the band, none is skipped, and the stations run in order.
+test("every numbered section is a station on the page's tuner, in order, ending at the last", () => {
+  const numbered = [...app.matchAll(/<section class="section[^"]*" id="([^"]+)"[\s\S]*?class="sectionno">(§\d+)/g)];
   assert.ok(numbered.length >= 9, `the page keeps its numbered sections (got ${numbered.length})`);
-  // ONE rule per numbered section - exact, not ">= 7": a new numbered section (the §10
-  // install outro) that forgot its needle used to pass silently against the old floor.
-  assert.equal(rules.length, numbered.length,
-    `one dial-rule per numbered section: ${numbered.length} sections, ${rules.length} rules`);
-  // and the needles sweep strictly left-to-right, ending at the edge of the band.
-  const pos = rules.map((m) => parseInt(m[1], 10));
-  for (let i = 1; i < pos.length; i++) {
-    assert.ok(pos[i] > pos[i - 1], `needle ${i} at ${pos[i]}% must sit right of ${pos[i - 1]}%`);
-  }
-  assert.equal(pos[pos.length - 1], 100, "the last needle reaches the end of the band (100%)");
+  const tuner = app.match(/<nav class="toc-tuner" data-tuner[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
+  const st = [...tuner.matchAll(/href="#([^"]+)"><b>(§\d+)<\/b>/g)];
+  // ONE station per numbered section - exact, so a new section that forgot its station fails
+  assert.equal(st.length, numbered.length, `one station per numbered section: ${numbered.length} sections, ${st.length} stations`);
+  st.forEach((m, i) => {
+    assert.equal(m[1], numbered[i][1], `station ${i + 1} tunes to section #${numbered[i][1]}`);
+    assert.equal(m[2], `§${i + 1}`, `the stations run §1 .. §${numbered.length} left to right`);
+  });
+  assert.doesNotMatch(tuner, /position:\s*(sticky|fixed)/, "never pinned");
 });
 
 // §10 INSTALL - the page describes the terminal (§8) and the browser console (§9) but must

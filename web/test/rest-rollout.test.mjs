@@ -12,7 +12,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -143,6 +143,13 @@ test("(c) the page runtime partial has one form: deferred", () => {
 test("(d) the product sheets name only tokens that exist (no fallback papering over a typo)", () => {
   const all = ["tokens.css", "base.css", "components.css", "account-base.css"].map((f) => stripCss(src(`styles/${f}`))).join("\n");
   const defined = new Set([...all.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
+  // a custom property a page sets inline (style="--i:1") or a script sets is a hook, not a token
+  for (const f of readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html"))) {
+    for (const m of src(f).matchAll(/style="[^"]*?(--[\w-]+)\s*:/g)) defined.add(m[1]);
+  }
+  for (const f of readdirSync(path.join(WEB, "src/js"))) {
+    for (const m of src(`js/${f}`).matchAll(/setProperty\(\s*["'](--[\w-]+)/g)) defined.add(m[1]);
+  }
   for (const sheet of ["device.css", "stations.css", "payouts.css", "private.css", "account-base.css", "account.css",
     "billing.css", "keys.css", "console.css", "dashboard.css", "metrics.css", "manual.css", "app.css", "notfound.css"]) {
     const css = stripCss(src(`styles/${sheet}`));
