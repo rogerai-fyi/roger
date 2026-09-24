@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
@@ -260,6 +261,41 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			return u, k, inst, true
 		},
 		NodeID: nodeID, Key: key,
+		// Authorize is the callee-side gate for /edge/invoke (features/edge/control.feature): the grant
+		// must be signed by THIS Edge's authority, name this caller (or be caller-open), ALLOW the
+		// capability, and AuthorizeInvoke it on this node. Composed here from the pieces each already
+		// tested: VerifyGrant + the caller match + the capability gate + Fleet.AuthorizeInvoke.
+		Authorize: func(g store.Grant, callerID string, need edge.Capability) error {
+			fresh, _, err := edgeIdentityStore().Trust(time.Now())
+			if err != nil || fresh == nil {
+				return fmt.Errorf("this node cannot verify grants right now")
+			}
+			if err := edgeauth.VerifyGrant(g, fresh.Root()); err != nil {
+				return err
+			}
+			if g.Caller != "" && g.Caller != callerID {
+				return fmt.Errorf("that grant is for a different caller")
+			}
+			if need != "" {
+				allowed := false
+				for _, c := range g.Caps {
+					if c == string(need) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					return fmt.Errorf("that grant does not allow %s", need)
+				}
+			}
+			h.mu.Lock()
+			fleet := h.st.fleet
+			h.mu.Unlock()
+			return fleet.AuthorizeInvoke(g, nodeID, need)
+		},
+		// Invoke (the task RUNNER) is not wired yet: the harness that runs a delegated task in this
+		// node's own tools and permissions is the next piece of Slice 2. Until it is set, the face
+		// authorizes an invoke and then honestly answers "no runner here" (handleInvoke -> 501).
 	}, true
 }
 
