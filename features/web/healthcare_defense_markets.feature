@@ -10,7 +10,7 @@
 # clinical-decision-support exemption. Defense is SUSTAINMENT ONLY: maintenance,
 # readiness, and supply. No targeting, no weapons release, no ISR exploitation.
 #
-# PROPOSED 2026-09-24, AWAITING FOUNDER APPROVAL (rulings of 2026-09-24): the set grows
+# 2026-09-24 (rulings of 2026-09-24): the set grows
 # to NINE - wildfire mitigation joins, ninth and last, after defense. "Wildfire" on the
 # icon strip, "Wildfire mitigation" on the card, slug market-wildfire.
 #
@@ -28,6 +28,10 @@
 # models) is demonstrated in the film, not deployed. Wave Pico is on air
 # (wave-pico-293m); Wave Nano is in training. Naming FireDefense requires their written
 # agreement before publishing - the founder's to obtain.
+#
+# APPROVED by the founder 2026-09-24, with one ruling folded in: NO valve-health or
+# valve self-test claim anywhere - no such code exists, so the card is about the
+# early-warning watch only.
 #
 # "Wildfire copy" below means the visible text of the wildfire card, the wildfire boundary
 # paragraph, and the wildfire use case (photo credits excluded). The boundary's own
@@ -120,6 +124,8 @@ Feature: Healthcare, defense, and wildfire mitigation join the market set
     And no wildfire copy carries the film's model sizes 287M or 0.8B
     And no wildfire copy describes the FireDefense app or the Safety Box as available,
       shipped, or installed
+    And no wildfire copy claims valve-health checks, a valve self-test, or valve exercising,
+      because none exists
 
   Scenario: FireDefense Systems is named as a separate company, with its film
     Then the use case names FireDefense Systems as a separate company that designs and
