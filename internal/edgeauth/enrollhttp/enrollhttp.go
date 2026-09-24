@@ -15,14 +15,37 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edgeauth"
 )
+
+// writeAuthError answers an enroll/claim failure. A SHAPED domain refusal (bad signature, not
+// adopted, stale, wrong account) is named, because the caller needs to know which "no" it was and
+// the message reveals nothing internal. Any OTHER error is unexpected and may wrap a filesystem path
+// or similar detail no unauthenticated caller should see: it is LOGGED locally and answered
+// generically with a 5xx (audit 2026-09-24).
+func writeAuthError(w http.ResponseWriter, what string, err error) {
+	switch {
+	case errors.Is(err, edgeauth.ErrBadSignature),
+		errors.Is(err, edgeauth.ErrStaleRequest),
+		errors.Is(err, edgeauth.ErrReplayed),
+		errors.Is(err, edgeauth.ErrKeyMismatch),
+		errors.Is(err, edgeauth.ErrUnknownMachine),
+		errors.Is(err, edgeauth.ErrForeignAccount),
+		errors.Is(err, edgeauth.ErrNotAdopted):
+		http.Error(w, err.Error(), http.StatusForbidden)
+	default:
+		log.Printf("edge %s failed: %v", what, err)
+		http.Error(w, "the "+what+" could not be completed", http.StatusInternalServerError)
+	}
+}
 
 // Path is where an authority answers an enrollment request.
 const Path = "/edge/enroll"
@@ -93,7 +116,7 @@ func Handler(iss Issuer) http.Handler {
 		}
 		resp, err := iss.Issue(req)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			writeAuthError(w, "enrollment", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -144,7 +167,7 @@ func Handler(iss Issuer) http.Handler {
 		}
 		resp, err := claimer.Claim(req, time.Now())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			writeAuthError(w, "claim", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

@@ -70,7 +70,7 @@ func SetAgentJob(dir string, j AgentJob, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, persistFileName(j.Name)), b, 0o600)
+	return atomicWrite(filepath.Join(dir, persistFileName(j.Name)), b, 0o600)
 }
 
 // AgentJobs reads every assignment. Non-nil even when empty: an empty set is the fact "no agent

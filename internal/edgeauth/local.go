@@ -61,7 +61,7 @@ func Designate(edgeDir, where string) (*Local, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, whereFile), []byte(where), 0o600); err != nil {
+	if err := atomicWriteFile(filepath.Join(dir, whereFile), []byte(where), 0o600); err != nil {
 		return nil, err
 	}
 	// cert.LoadOrCreate's third rung: nothing configured and nothing stored, so it
@@ -290,8 +290,8 @@ func (l *Local) Claims() ([]ClaimGrant, error) {
 	now := time.Now()
 	live := got[:0]
 	for _, g := range got {
-		if g.At > 0 && now.Sub(time.Unix(g.At, 0)) > GrantValidity {
-			continue
+		if g.At == 0 || now.Sub(time.Unix(g.At, 0)) > GrantValidity {
+			continue // expired, or an un-ageable timestamp-less grant: not a live adoption
 		}
 		live = append(live, g)
 	}
@@ -363,9 +363,10 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		if !ok {
 			return ErrNotAdopted
 		}
-		// A grant that has stood too long is as good as none: it expires on its own, and the stale
-		// record is cleared so it cannot be leaned on again.
-		if grant.At > 0 && now.Sub(time.Unix(grant.At, 0)) > GrantValidity {
+		// A grant that has stood too long - or carries no timestamp at all (a legacy or hand-edited
+		// record we cannot age) - is as good as none: it is refused and the stale record cleared, so
+		// it cannot be leaned on again. Treating At==0 as expired is the fail-closed choice.
+		if grant.At == 0 || now.Sub(time.Unix(grant.At, 0)) > GrantValidity {
 			_ = l.consumeClaim(c.NodeID)
 			return ErrNotAdopted
 		}
@@ -567,7 +568,7 @@ func (l *Local) writeJSON(name string, from any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(l.dir, name), b, 0o600)
+	return atomicWriteFile(filepath.Join(l.dir, name), b, 0o600)
 }
 
 // --- custody: where this machine keeps its root and its revocations ------
@@ -600,10 +601,10 @@ func (f *fileCustody) SaveRoot(keyPEM, certPEM []byte) error {
 	if _, err := os.Stat(filepath.Join(f.dir, RootKeyFile)); err == nil {
 		return ErrRootExists
 	}
-	if err := os.WriteFile(filepath.Join(f.dir, RootKeyFile), keyPEM, 0o600); err != nil {
+	if err := atomicWriteFile(filepath.Join(f.dir, RootKeyFile), keyPEM, 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(f.dir, RootCertFile), certPEM, 0o600)
+	return atomicWriteFile(filepath.Join(f.dir, RootCertFile), certPEM, 0o600)
 }
 
 const revokedFile = "revoked.json"
@@ -637,7 +638,7 @@ func (f *fileCustody) SaveRevoked(serial string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(f.dir, revokedFile), b, 0o600)
+	return atomicWriteFile(filepath.Join(f.dir, revokedFile), b, 0o600)
 }
 
 // parseSerial reads a certificate serial back out of its decimal string form, which is

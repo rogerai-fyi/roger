@@ -76,13 +76,23 @@ func cmdEdgeSetup(cfg config, args []string) error {
 // idempotent across the two steps: a re-run after a designate that already happened skips
 // re-designating and just finishes the enroll (so it recovers rather than hitting ErrRootExists).
 func edgeSetupNew(cfg config, name string) error {
+	// If this machine already has an identity it is already on an Edge - forming a NEW one here would
+	// silently re-root it and abandon that membership. Refuse and point at the deliberate override.
+	if held, _, enrolled, err := edgeIdentityStore().LoadIdentity(); err == nil && enrolled {
+		return usagef("this machine is already on an Edge (as %q). To re-root it deliberately, run "+
+			"`roger edge authority local <name> --force`.", edgeNameOf(held.NodeID, ""))
+	}
 	if _, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir()); err != nil || !isAuthority {
 		if _, err := edgeDesignateCore(edgeAuthDir(), name); err != nil {
 			return err
 		}
 	}
-	if _, err := edgeEnrollCore(cfg, name, "", client.LinkedLogin()); err != nil {
+	res, err := edgeEnrollCore(cfg, name, "", client.LinkedLogin())
+	if err != nil {
 		return err
+	}
+	if res.TrustWarning != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", res.TrustWarning)
 	}
 	fmt.Println()
 	fmt.Printf("Your Edge is live, rooted here as %q - mode LOCAL, formed with no internet.\n", name)
@@ -99,7 +109,7 @@ func edgeSetupJoin(cfg config, name string, ask func(string) string) error {
 	if addr == "" {
 		return usagef("an authority address is needed to join an existing Edge")
 	}
-	_, err := edgeEnrollCore(cfg, name, addr, client.LinkedLogin())
+	res, err := edgeEnrollCore(cfg, name, addr, client.LinkedLogin())
 	if errors.Is(err, edgeauth.ErrUnknownMachine) {
 		fmt.Println()
 		fmt.Println("This machine is not allowed on that Edge yet, so it did not join.")
@@ -113,6 +123,9 @@ func edgeSetupJoin(cfg config, name string, ask func(string) string) error {
 	}
 	fmt.Println()
 	fmt.Printf("Joined: this machine is on the Edge as %q.\n", name)
+	if res.TrustWarning != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", res.TrustWarning)
+	}
 	return nil
 }
 

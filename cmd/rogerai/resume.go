@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/client"
 	"time"
 
 	"github.com/mattn/go-isatty"
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/session"
 	"rogerai.fm/roger/v6/internal/tui"
 )

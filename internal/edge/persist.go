@@ -53,7 +53,7 @@ func MarkPersistent(dir, node, name string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, persistFileName(name)), b, 0o600)
+	return atomicWrite(filepath.Join(dir, persistFileName(name)), b, 0o600)
 }
 
 // PersistentAgents reads every durable record. Non-nil even when empty: an empty set is the fact
