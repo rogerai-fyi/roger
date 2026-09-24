@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
@@ -270,7 +269,7 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			if err != nil || fresh == nil {
 				return fmt.Errorf("this node cannot verify grants right now")
 			}
-			if err := edgeauth.VerifyGrant(g, fresh.Root()); err != nil {
+			if err := edge.VerifyGrant(g, fresh.Root()); err != nil {
 				return err
 			}
 			if g.Caller != "" && g.Caller != callerID {

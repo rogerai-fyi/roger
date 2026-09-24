@@ -1,4 +1,4 @@
-package edgeauth
+package edge
 
 // EDGE GRANTS (features/edge/control.feature). An Edge grant is store.Grant SIGNED BY THE AUTHORITY's
 // root key, so any member verifies it with the public root exactly as it verifies a certificate - no

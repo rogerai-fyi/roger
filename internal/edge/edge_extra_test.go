@@ -149,11 +149,19 @@ func TestLANFaceAnswersOnlyDescribeAndOnlyGET(t *testing.T) {
 	defer post.Body.Close()
 	require.Equal(t, http.StatusMethodNotAllowed, post.StatusCode)
 
-	miss, err := http.Get(srv.URL + "/edge/invoke")
+	// The face serves describe (GET) plus the action endpoints infer and invoke (POST-only). A GET to
+	// invoke is a method error, not a missing route; a path that is none of these is 404.
+	badMethod, err := http.Get(srv.URL + edge.InvokePath)
+	require.NoError(t, err)
+	defer badMethod.Body.Close()
+	require.Equal(t, http.StatusMethodNotAllowed, badMethod.StatusCode,
+		"invoke exists but is POST-only")
+
+	miss, err := http.Get(srv.URL + "/edge/does-not-exist")
 	require.NoError(t, err)
 	defer miss.Body.Close()
 	require.Equal(t, http.StatusNotFound, miss.StatusCode,
-		"discovery exposes describe and nothing else")
+		"the face exposes describe, infer and invoke - nothing else")
 }
 
 func TestDialTLSFailures(t *testing.T) {
