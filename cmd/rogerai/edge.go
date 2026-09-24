@@ -90,6 +90,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"job", "<agent> <serve|watch|relay|none> [targets...]", "give an agent a job, or clear it", 2, 16},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
 	{"grant", "[<caller> <cap> <callee> --for 7d | revoke <id>]", "issue, list or revoke an authority-signed grant", 0, 16},
+	{"invoke", "<callee> <prompt...> [--cap operate] [--model <band>]", "ask another node to act, under a grant", 1, 32},
 }
 
 func edgeLeaf(name string) (edgeSubcommand, bool) {
@@ -184,6 +185,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeAuthority(cfg, rest)
 	case "grant":
 		return cmdEdgeGrant(cfg, rest)
+	case "invoke":
+		return cmdEdgeInvoke(cfg, rest)
 	default:
 		return cmdEdgeScan(cfg, rest)
 	}
