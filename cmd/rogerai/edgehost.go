@@ -466,13 +466,14 @@ func (h *edgeHost) running() bool { return h.disc != nil }
 // start puts discovery on its own goroutine and RETURNS. Everything that can be slow -
 // opening the multicast plane, the first browse - happens over there, so a machine with a
 // hostile network launches exactly as fast as one with none.
-func (h *edgeHost) start(ctx context.Context) {
+func (h *edgeHost) start(ctx context.Context) bool {
 	if !h.arm() {
-		return
+		return false
 	}
 	ctx, h.cancel = context.WithCancel(ctx)
 	h.done = make(chan struct{})
 	go func() { defer close(h.done); h.serve(ctx) }()
+	return true
 }
 
 // serve brings the engine up and paces the passes. A pass that fails is a pass: it is
@@ -611,6 +612,6 @@ func startEdge(hooks *tui.Hooks) func() {
 		return func() {}
 	}
 	h.wire(hooks)
-	h.start(context.Background())
+	_ = h.start(context.Background())
 	return h.stop
 }

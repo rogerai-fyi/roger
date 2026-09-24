@@ -207,11 +207,12 @@ func TestForgetRevokesAClaimedButNotYetPresentDevice(t *testing.T) {
 	serial := leaf.SerialNumber.String()
 	require.False(t, local.ClaimGranted(id), "the grant was consumed by the claim")
 
-	// It is not in the fleet (never presented) and its grant is gone, so it is addressed by its node
-	// id. Forgetting it must revoke its certificate.
-	n, _, err := edgeForgetNotInFleet(id)
+	// It is not in the fleet (never presented) and its grant is gone, yet it can still be forgotten by
+	// the friendly NAME it was adopted under - the name is recorded when the certificate is claimed.
+	n, who, err := edgeForgetNotInFleet("gentle-ibex-14")
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
+	require.Equal(t, "gentle-ibex-14", who)
 
 	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	require.NoError(t, err)
@@ -219,4 +220,10 @@ func TestForgetRevokesAClaimedButNotYetPresentDevice(t *testing.T) {
 	revs, err := reopened.Revocations()
 	require.NoError(t, err)
 	require.Contains(t, revs, serial, "the claimed-but-not-present device's certificate is revoked")
+
+	// A mistyped node id that matches nothing forgets nothing - it is NOT falsely reported as revoked.
+	m, _, err := edgeForgetNotInFleet("n_typodoesnotexist000000000000000000000000000")
+	require.NoError(t, err)
+	require.Equal(t, 0, m, "a node id with no grant and no issued cert is not 'forgotten'")
+	_ = id
 }

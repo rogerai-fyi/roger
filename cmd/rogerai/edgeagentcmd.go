@@ -141,7 +141,12 @@ func runEdgeAgentCtx(ctx context.Context, cfg config) error {
 	}
 	var hooks tui.Hooks
 	h.wire(&hooks)
-	h.start(context.Background())
+	if !h.start(context.Background()) {
+		// arm() was false - discovery is disabled, or the face/authority could not bind. A headless
+		// agent that serves and discovers nothing must not sit idle pretending to run; say so and
+		// exit (audit 2026-09-24).
+		return fmt.Errorf("the Edge agent could not start: discovery is disabled or its network could not be bound")
+	}
 	defer h.stop()
 	<-ctx.Done()
 	return nil

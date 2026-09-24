@@ -1112,24 +1112,36 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 // survives. It returns how many nodes it forgot and a label for them. Only an authority has grants;
 // elsewhere a raw node id can still be revoked (audit 2026-09-24).
 func edgeForgetNotInFleet(want string) (int, string, error) {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		// The authority is here but unreadable - do NOT report "nothing to forget" and exit 0,
+		// leaving a grant or certificate live (audit 2026-09-24).
+		return 0, "", fmt.Errorf("could not open the Edge authority to forget %q: %w", want, err)
+	}
+	if !hasRoot {
+		return 0, "", nil // this machine roots nothing, so it has nothing of the sort to forget
+	}
+	// Resolve node ids to forget - each a REAL relationship with this authority, so a mistyped id is
+	// not reported as a revoked device (audit 2026-09-24):
 	ids := map[string]string{} // node id -> label
-	if local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && hasRoot {
-		grants, err := local.Claims()
-		if err != nil {
-			return 0, "", err
-		}
-		for _, g := range grants {
-			if g.NodeID == want || (g.Name != "" && g.Name == want) {
-				who := g.Name
-				if who == "" {
-					who = edgeShortID(g.NodeID)
-				}
-				ids[g.NodeID] = who
+	grants, err := local.Claims()
+	if err != nil {
+		return 0, "", err
+	}
+	for _, g := range grants { // a standing grant (adopted, not yet claimed)
+		if g.NodeID == want || (g.Name != "" && g.Name == want) {
+			who := g.Name
+			if who == "" {
+				who = edgeShortID(g.NodeID)
 			}
+			ids[g.NodeID] = who
 		}
 	}
-	// A raw node id with no grant may still hold an issued certificate to revoke.
-	if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") {
+	for _, id := range local.NamedNodes(want) { // a device that CLAIMED a cert under this name
+		ids[id] = want
+	}
+	// A raw node id that actually holds an issued certificate (claimed, addressed by id).
+	if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") && local.HasIssued(want) {
 		ids[want] = edgeShortID(want)
 	}
 	label := ""
