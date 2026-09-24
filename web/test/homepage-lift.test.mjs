@@ -175,9 +175,10 @@ test("sideways choreography can never widen the page", () => {
   assert.match(css, /main > section\s*\{[^}]*overflow-x:\s*clip/);
 });
 
-test("the market price cell never splits its tag: the chip sits whole on its own line", () => {
+test("the market price cell never splits its tag: the chip and the $ tier stay whole", () => {
   const css = read("styles/home.css");
-  assert.match(css, /\.mkt-cell--price \.band-tag\s*\{[^}]*display:\s*table[^}]*white-space:\s*nowrap/);
+  // round 11: the chip AND the "$" tier wrap together (homepage-fun.test); each stays whole
+  assert.match(css, /\.mkt-cell--price \.band-tag\s*\{[^}]*white-space:\s*nowrap/);
   assert.match(css, /\.mkt-cell--price \.price-tier\s*\{[^}]*white-space:\s*nowrap/);
 });
 

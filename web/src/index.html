@@ -265,12 +265,14 @@
     </div>
   </aside>
 
-  <!-- THE TUNER (round 10): the page's table of contents as a tuning scale,
-       in the page (nothing pinned). Point at or focus a station and the red
-       needle swings to it (CSS only); a click tunes you in (jumps there).
-       Plain links without CSS or JS. -->
+  <!-- THE TUNER: the page's table of contents as a tuning scale, in the page
+       (nothing pinned). Point at or focus a station and the red needle swings
+       to it and its name shows in the readout (CSS); tuner.js adds arrow-key
+       roving and rests the needle on the section in view. Plain links
+       without CSS or JS. -->
   <nav class="tuner" aria-label="Sections">
     <div class="wrap tuner__band">
+    <div class="tuner__readout" aria-hidden="true"></div>
     <ol class="tuner__scale">
       <li><a class="tuner__st" href="#demo"><b>§1</b><span class="tuner__name">OPERATING PROCEDURE</span></a></li>
       <li><a class="tuner__st" href="#market"><b>§2</b><span class="tuner__name">THE BAND</span></a></li>
@@ -813,6 +815,8 @@
 
   <script src="js/scroll-stage.js" defer></script>
   <script src="js/spectrum.js" defer></script>
+  <script src="js/tuner.js" defer></script>
+  <script src="js/ping-eye.js" defer></script>
   <script src="js/edge-story.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/fmt.js" defer></script><!-- canonical $ renderer; before market.js (meter REPLY) -->

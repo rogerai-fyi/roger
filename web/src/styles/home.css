@@ -842,7 +842,12 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
 /* the market price cell: the "$" tier never splits, and the "good price"
    chip always sits whole on its own line under the price */
 .mkt-cell--price .price-tier { white-space: nowrap; }
-.mkt-cell--price .band-tag { display: table; margin: 3px 0 0 auto; white-space: nowrap; }
+/* a row with the chip: the "$" tier and the chip wrap together onto a line
+   of their own under the price (the ::after is the line break) */
+.mkt-cell--price:has(.band-tag) { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; column-gap: 4px; row-gap: 3px; }
+.mkt-cell--price:has(.band-tag)::after { content: ""; flex-basis: 100%; order: 1; }
+.mkt-cell--price:has(.band-tag) :is(.price-tier, .band-tag) { order: 2; }
+.mkt-cell--price .band-tag { white-space: nowrap; }
 
 .company__grid {
   display: grid;
@@ -1558,39 +1563,73 @@ html.js .mkt-quiet--nojs { display: none; }
 .pc-ic .pc-red { stroke: var(--live); }
 .pc-ic .pc-fill { fill: var(--live); stroke: none; }
 @media (max-width: 820px) { .pcards { grid-template-columns: 1fr; } }
+/* phones: the six cards are a gallery you swipe, snapping card by card */
+@media (max-width: 640px) {
+  .pcards {
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 84%;
+    overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+    scrollbar-width: none; gap: 12px; background: none; border-block: 0;
+  }
+  .pcards article { border-radius: var(--panel-r); background: var(--paper-2); }
+}
+.pcards article { scroll-snap-align: start; }
 
-/* ---- THE TUNER (round 10): the table of contents as a tuning scale ----------
-   In the page, not pinned. A hairline scale with fine ticks, nine stations
-   (the sections, by their own labels) and a red needle that swings to the
-   station you point at or focus - CSS only (:has), so it works without JS.
-   Resting, the needle sits on §1. Phones: a row you swipe, names showing. */
-.tuner { padding-block: clamp(40px, 6vw, 80px) clamp(24px, 3vw, 40px); }
-.tuner { --at: 0; }
-.tuner__band { position: relative; }
+/* ---- THE TUNER: the table of contents as a precision tuning scale --------
+   In the page, never pinned. A framed panel: a readout (one station name at
+   a time, one line), then the scale - a minor tick every fifth of a
+   station, a major tick at each, the numerals below - and a red needle
+   with a spring swing. The needle and the name follow the station you
+   point at or focus (CSS :has, no JS); tuner.js rests them on the section
+   in view (.is-current, --cur) and adds arrow-key roving. Without JS the
+   readout rests on §1. */
+.tuner { padding-block: clamp(40px, 6vw, 80px) clamp(24px, 3vw, 40px); --at: var(--cur, 0); }
+.tuner__band {
+  position: relative;
+  padding-top: 58px; padding-bottom: 10px;
+  border-radius: var(--panel-r); background: var(--paper-2);
+}
+.tuner__readout {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  width: min(360px, 70%); height: 28px; border-radius: 6px;
+  background: var(--paper); box-shadow: inset 0 0 0 1px var(--hairline);
+}
+/* (the scale, its items and links are unpositioned on purpose: each name
+   is positioned against the band, into the readout) */
 .tuner__scale {
   display: grid; grid-template-columns: repeat(9, minmax(0, 1fr));
-  margin: 0; padding: 22px 0 0; list-style: none;
+  margin: 0; padding: 26px 0 0; list-style: none;
+  /* minor ticks: five per station, centred on the stations */
   background:
-    linear-gradient(var(--hairline-2), var(--hairline-2)) 0 12px / 100% 1px no-repeat,
-    repeating-linear-gradient(90deg, var(--ink-300) 0 1px, transparent 1px calc(100% / 45)) 0 4px / 100% 8px no-repeat;
+    repeating-linear-gradient(90deg, transparent 0 calc(100% / 90 - 0.5px), var(--ink-300) calc(100% / 90 - 0.5px) calc(100% / 90 + 0.5px), transparent calc(100% / 90 + 0.5px) calc(100% / 45))
+      0 6px / 100% 7px no-repeat;
 }
+.tuner li { min-width: 0; }
 .tuner a {
-  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 10px 4px 12px; border-radius: var(--r-md); text-align: center;
+  display: flex; justify-content: center;
+  padding: 6px 0 8px; border-radius: 8px;
   color: var(--ink-500); transition: color var(--d-2), background-color var(--d-2);
 }
-.tuner a::before {
-  content: ""; position: absolute; top: -22px; left: 50%;
-  width: 1px; height: 18px; background: var(--ink-400);
+.tuner b {
+  font: 500 clamp(0.95rem, 0.8rem + 0.6vw, 1.35rem) / 1 var(--font-mono);
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
 }
-.tuner b { font: 500 clamp(1.1rem, 0.9rem + 0.8vw, 1.6rem) / 1 var(--font-mono); letter-spacing: -0.02em; color: var(--ink-900); }
+.tuner a:hover, .tuner a:focus-visible, .tuner a.is-current { color: var(--ink-900); }
+.tuner a:hover, .tuner a:focus-visible { background: var(--paper); outline: none; }
+.tuner a:focus-visible { box-shadow: 0 0 0 1px var(--live); }
+/* the name: every one lives in the readout, one line; only one shows */
 .tuner__name {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  max-width: min(340px, 66%); height: 28px; overflow: hidden; text-overflow: ellipsis;
   font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  line-height: 1.35; color: var(--ink-500);
+  line-height: 28px; white-space: nowrap; text-align: center; color: var(--ink-900);
+  opacity: 0; pointer-events: none;
 }
-.tuner a:hover, .tuner a:focus-visible { color: var(--ink-900); background: var(--paper-2); outline: none; }
-.tuner a:hover .tuner__name, .tuner a:focus-visible .tuner__name { color: var(--ink-900); }
-.tuner a:focus-visible { box-shadow: 0 0 0 2px var(--live); }
+/* the major tick, above each numeral */
+.tuner b { position: relative; }
+.tuner b::before {
+  content: ""; position: absolute; top: -32px; left: 50%;
+  width: 1px; height: 16px; background: var(--ink-500);
+}
 .tuner:has(li:nth-child(1) a:is(:hover, :focus-visible)) { --at: 0; }
 .tuner:has(li:nth-child(2) a:is(:hover, :focus-visible)) { --at: 1; }
 .tuner:has(li:nth-child(3) a:is(:hover, :focus-visible)) { --at: 2; }
@@ -1600,21 +1639,30 @@ html.js .mkt-quiet--nojs { display: none; }
 .tuner:has(li:nth-child(7) a:is(:hover, :focus-visible)) { --at: 6; }
 .tuner:has(li:nth-child(8) a:is(:hover, :focus-visible)) { --at: 7; }
 .tuner:has(li:nth-child(9) a:is(:hover, :focus-visible)) { --at: 8; }
+.tuner:has(li:nth-child(1) a:is(:hover, :focus-visible)) li:nth-child(1) .tuner__name,
+.tuner:has(li:nth-child(2) a:is(:hover, :focus-visible)) li:nth-child(2) .tuner__name,
+.tuner:has(li:nth-child(3) a:is(:hover, :focus-visible)) li:nth-child(3) .tuner__name,
+.tuner:has(li:nth-child(4) a:is(:hover, :focus-visible)) li:nth-child(4) .tuner__name,
+.tuner:has(li:nth-child(5) a:is(:hover, :focus-visible)) li:nth-child(5) .tuner__name,
+.tuner:has(li:nth-child(6) a:is(:hover, :focus-visible)) li:nth-child(6) .tuner__name,
+.tuner:has(li:nth-child(7) a:is(:hover, :focus-visible)) li:nth-child(7) .tuner__name,
+.tuner:has(li:nth-child(8) a:is(:hover, :focus-visible)) li:nth-child(8) .tuner__name,
+.tuner:has(li:nth-child(9) a:is(:hover, :focus-visible)) li:nth-child(9) .tuner__name,
+.tuner a.is-current .tuner__name { opacity: 1; }
+.tuner:has(a:is(:hover, :focus-visible)) a.is-current:not(:hover, :focus-visible) .tuner__name { opacity: 0; }
+.tuner:not(:has(a:is(:hover, :focus-visible, .is-current))) li:first-child .tuner__name { opacity: 1; }
 .tuner__needle {
-  position: absolute; top: 0; height: 38px; width: 2px; margin-left: -1px;
+  position: absolute; top: 48px; height: 36px; width: 2px; margin-left: -1px;
   left: calc(var(--gutter) + (var(--at) + 0.5) / 9 * (100% - 2 * var(--gutter)));
-  background: var(--live); pointer-events: none;
-  transition: left 0.45s var(--ease-out-quint);
+  background: var(--live); border-radius: 1px; pointer-events: none;
+  transition: left 0.6s cubic-bezier(.34, 1.4, .64, 1);
 }
 .tuner__needle::before {
-  content: ""; position: absolute; top: -2px; left: -4px;
-  border: 5px solid transparent; border-top-color: var(--live);
+  content: ""; position: absolute; top: -3px; left: -3px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--live);
 }
-@media (max-width: 760px) {
-  .tuner__band { overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
-  .tuner__scale { grid-template-columns: repeat(9, 38%); }
-  .tuner a { scroll-snap-align: start; }
-  .tuner__needle { left: calc(var(--gutter) + (var(--at) + 0.5) * 38%); }
+@media (max-width: 640px) {
+  .tuner__readout, .tuner__name { width: calc(100% - 32px); max-width: none; }
 }
 
 /* ---- the Wave Spectrum scrubber (spectrum.js): a hairline track, a red

@@ -128,3 +128,115 @@ test("clean: no box around the company cards or the spectrum; the two sides are 
   assert.doesNotMatch(rule(".twoway__side"), /border:/);
   assert.match(rule(".twoway__side"), /border-radius/);
 });
+
+// ---- round 11: the tuner as a precision instrument ----
+// Founder: "i do kinda like the tuner table of contents, but it needs more
+// fineness". Numerals on a crisp scale (major tick per station, minor ticks
+// between), ONE readout that shows a single station name at a time (so no
+// ragged 1-3 line labels), a long needle with a spring swing, a resting
+// "current section" state as you scroll (not pinned), and arrow-key roving.
+test("tuner: a framed instrument with a one-line readout; names never wrap", () => {
+  const html = dist("index.html");
+  const tuner = html.match(/<nav class="tuner"[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
+  assert.match(tuner, /<div class="tuner__readout" aria-hidden="true"><\/div>/);
+  const css = dist("styles/home.css");
+  assert.match(css, /\.tuner__name\s*\{[^}]*position:\s*absolute[^}]*white-space:\s*nowrap/, "every name sits in the readout, one line");
+  assert.match(css, /\.tuner__band\s*\{[^}]*border-radius:\s*var\(--panel-r\)[^}]*background:\s*var\(--paper-2\)/, "framed like the other panels");
+  // without JS (no .is-current anywhere) the readout rests on §1
+  assert.match(css, /\.tuner:not\(:has\(a:is\(:hover, :focus-visible, \.is-current\)\)\) li:first-child \.tuner__name\s*\{[^}]*opacity:\s*1/);
+  assert.match(css, /\.tuner__needle\s*\{[^}]*transition:\s*left[^;]*cubic-bezier\(\.34,\s*1\.4/, "a spring swing");
+});
+
+const TUNER = readFileSync(path.join(WEB, "src/js/tuner.js"), "utf8");
+function tuner() {
+  const ids = IDS;
+  let focused = null;
+  const on = (el) => { el.listeners = {}; el.addEventListener = (t, f) => { (el.listeners[t] ||= []).push(f); }; return el; };
+  const links = ids.map((id) => on({ id, attrs: {}, cls: new Set(),
+    getAttribute: (k) => (k === "href" ? "#" + id : null), setAttribute(k, v) { this.attrs[k] = String(v); },
+    focus() { focused = this; } }));
+  links.forEach((a) => { a.classList = { toggle: (c, v) => (v ? a.cls.add(c) : a.cls.delete(c)) }; });
+  const style = {};
+  const nav = { style: { setProperty: (k, v) => { style[k] = v; } }, querySelectorAll: () => links };
+  let observed = [], ioCb = null;
+  const win = {
+    IntersectionObserver: function (cb) { ioCb = cb; this.observe = (el) => observed.push(el); },
+  };
+  win.window = win;
+  win.document = { querySelector: (q) => (q === ".tuner" ? nav : null), getElementById: (id) => ({ id }) };
+  vm.createContext(win);
+  vm.runInContext(TUNER, win);
+  const key = (a, k) => { let prevented = false; for (const f of a.listeners.keydown || []) f({ key: k, preventDefault: () => { prevented = true; } }); return prevented; };
+  const see = (id) => ioCb([{ isIntersecting: true, target: { id } }]);
+  return { links, style, key, see, focused: () => focused, observed };
+}
+
+test("tuner: arrow keys rove between stations (one tab stop), Home/End jump to the ends", () => {
+  const t = tuner();
+  assert.deepEqual(t.links.map((a) => a.attrs.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
+  assert.ok(t.key(t.links[0], "ArrowRight"));
+  assert.equal(t.focused(), t.links[1]);
+  assert.equal(t.links[1].attrs.tabindex, "0");
+  assert.equal(t.links[0].attrs.tabindex, "-1");
+  t.key(t.links[1], "ArrowLeft"); assert.equal(t.focused(), t.links[0]);
+  t.key(t.links[0], "ArrowLeft"); assert.equal(t.focused(), t.links[8], "wraps");
+  t.key(t.links[8], "Home"); assert.equal(t.focused(), t.links[0]);
+  t.key(t.links[0], "End"); assert.equal(t.focused(), t.links[8]);
+  assert.equal(t.key(t.links[3], "Enter"), false, "Enter is the link's own: it jumps");
+});
+
+test("tuner: the needle rests on the section in view (observed, never pinned)", () => {
+  const t = tuner();
+  assert.equal(t.observed.length, 9);
+  t.see("company");
+  assert.equal(t.style["--cur"], "2");
+  assert.ok(t.links[2].cls.has("is-current"));
+  assert.equal(t.links[2].attrs["aria-current"], "location");
+  t.see("go");
+  assert.ok(!t.links[2].cls.has("is-current") && t.links[8].cls.has("is-current"));
+});
+
+test("market: the whole price-tier tag ($ and good price) wraps together onto its own line", () => {
+  const css = dist("styles/home.css");
+  assert.match(css, /\.mkt-cell--price:has\(\.band-tag\)\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/);
+  assert.match(css, /\.mkt-cell--price:has\(\.band-tag\)::after\s*\{[^}]*flex-basis:\s*100%[^}]*order:\s*1/, "a line break before the tag");
+  assert.match(css, /\.mkt-cell--price:has\(\.band-tag\) :is\(\.price-tier, \.band-tag\)\s*\{[^}]*order:\s*2/);
+});
+
+// ---- round 11: small delights ----
+const PING = readFileSync(path.join(WEB, "src/js/ping-eye.js"), "utf8");
+test("Ping's eye follows the pointer a little (at most 1.6 units) and blinks on click; off under reduced motion", () => {
+  const run = (reduced) => {
+    const listeners = {}, marks = [];
+    const mk = () => { const st = {}; return { st, style: { setProperty: (k, v) => { st[k] = v; } },
+      getBoundingClientRect: () => ({ left: 100, top: 100, width: 64, height: 80 }), classList: { add() {}, remove() {} } }; };
+    marks.push(mk());
+    let raf = [];
+    const win = { matchMedia: () => ({ matches: reduced }), addEventListener: (t, f) => { (listeners[t] ||= []).push(f); },
+      requestAnimationFrame: (f) => { raf.push(f); }, setTimeout: (f) => f() };
+    win.window = win;
+    win.document = { querySelectorAll: () => marks };
+    vm.createContext(win); vm.runInContext(PING, win);
+    const move = (x, y) => { for (const f of listeners.pointermove || []) f({ clientX: x, clientY: y }); const d = raf; raf = []; d.forEach((f) => f()); };
+    return { marks, move, listeners };
+  };
+  const r = run(false);
+  r.move(2000, 132);                            // far to the right, level with the eye
+  const x = parseFloat(r.marks[0].st["--eye-x"]);
+  assert.ok(x > 1 && x <= 1.6, `looks right, a little (${x})`);
+  r.move(132, -2000);
+  assert.ok(parseFloat(r.marks[0].st["--eye-y"]) < -1, "looks up");
+  const still = run(true);
+  assert.equal((still.listeners.pointermove || []).length, 0, "reduced motion: the eye stays put");
+  const css = readFileSync(path.join(WEB, "dist/styles/base.css"), "utf8");
+  assert.match(css, /\.ping-mark__eye,\s*\.ping-mark__glow\s*\{[^}]*translate:\s*var\(--eye-x, 0\) var\(--eye-y, 0\)/);
+});
+
+test("phones: the six privacy cards become a swipeable gallery that snaps card by card", () => {
+  const css = dist("styles/home.css");
+  const m = css.match(/@media \(max-width: 640px\)\s*\{\s*\.pcards\s*\{([^}]*)\}/)?.[1] || "";
+  assert.match(m, /grid-auto-flow:\s*column/);
+  assert.match(m, /overflow-x:\s*auto/);
+  assert.match(m, /scroll-snap-type:\s*x mandatory/);
+  assert.match(css, /\.pcards article\s*\{[^}]*scroll-snap-align:\s*start/);
+});
