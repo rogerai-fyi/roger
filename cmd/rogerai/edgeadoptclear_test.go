@@ -43,3 +43,20 @@ func TestDropGrantedFiltersAdoptingCandidates(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, "n_new", got[0].ID, "a granted (adopting) candidate is filtered out")
 }
+
+// Forgetting a node must clear any standing claim grant, so a revoked/forgotten node cannot lean on
+// a leftover grant to POST /edge/claim for a fresh certificate and rejoin (audit 2026-09-23).
+func TestForgettingANodeConsumesItsGrant(t *testing.T) {
+	useTempConfig(t)
+	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	require.NoError(t, local.GrantClaim("n_gone", "gentle-ibex-14"))
+	require.True(t, local.ClaimGranted("n_gone"))
+
+	require.NoError(t, edgeRevokeOnForget("n_gone"))
+
+	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.False(t, reopened.ClaimGranted("n_gone"), "forgetting a node clears its claim grant")
+}

@@ -1081,12 +1081,13 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 		fmt.Printf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
 		return nil
 	}
+	// A serving candidate is verified and enrolled directly; it is NOT granted a claim (a grant that
+	// outlives revoke/forget would let a removed node re-claim a fresh certificate - audit 2026-09-23).
 	n, err = edgeAdoptCandidate(st, c, c.Name, want)
 	if err != nil {
 		return err
 	}
-	edgeGrantClaimIfAuthority(c.ID, c.Name)
-	fmt.Printf("adopted %s (%s) - it can now claim its certificate and become a member.\n", n.Name, edgeShortID(n.ID))
+	fmt.Printf("adopted %s (%s).\n", n.Name, edgeShortID(n.ID))
 	return nil
 }
 
@@ -1101,17 +1102,6 @@ func edgeAdoptByClaim(nodeID, name string) error {
 		return fmt.Errorf("only the machine that roots this Edge can adopt a device that joins by claim")
 	}
 	return local.GrantClaim(nodeID, name)
-}
-
-// edgeGrantClaimIfAuthority grants an adopted node a claim when THIS machine roots the Edge, so the
-// node can fetch its certificate from us (features/edge/claim.feature). Best-effort and silent on a
-// machine that holds no root - it simply cannot grant, and the typed-address path remains.
-func edgeGrantClaimIfAuthority(nodeID, name string) {
-	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
-	if err != nil || !hasRoot {
-		return
-	}
-	_ = local.GrantClaim(nodeID, name)
 }
 
 // edgeDropGranted removes candidates this authority has already granted a claim to: they are

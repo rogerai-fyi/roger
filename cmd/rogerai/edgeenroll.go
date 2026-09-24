@@ -616,6 +616,9 @@ func edgeRevokeOnForget(nodeID string) error {
 		if s, err := local.Revoke(nodeID); err == nil {
 			serial = s
 		}
+		// Clear any standing claim grant too, so a forgotten node cannot lean on a leftover adopt to
+		// POST /edge/claim for a fresh certificate and rejoin (audit 2026-09-23).
+		_ = local.ConsumeClaim(nodeID)
 	}
 	// The node being forgotten may be THIS machine, in which case its certificate is
 	// right here and leaving the Edge means giving it up.

@@ -256,10 +256,12 @@ func (h *edgeHost) adopt(id, name string) error {
 			return err
 		}
 	} else {
+		// A candidate that SERVES a certificate is dialed, verified, and enrolled directly - it does
+		// NOT get a claim grant. A leftover grant on a member is a standing re-entry ticket that
+		// survives revoke/forget, which is exactly the hole the audit found (2026-09-23).
 		if _, err = edgeAdoptCandidate(h.st, c, name, name); err != nil {
 			return err
 		}
-		edgeGrantClaimIfAuthority(c.ID, c.Name)
 	}
 	// AUTO-CLEAR: the instant it is adopted it leaves the DISCOVERED band - it is now adopting (a
 	// claim was granted) or already a member, not something to adopt again. It will not be
