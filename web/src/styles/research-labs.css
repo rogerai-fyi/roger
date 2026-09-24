@@ -58,3 +58,11 @@ main .band--inset :is(.research-card, .developer-step, .deployment-grid article,
 .scope__head { border-bottom: 1px solid var(--hairline-2); }
 .purdue__tag { fill: var(--ink-500); }
 .research-tone.band--inset { border-block: 0; }
+
+/* AA at rest: the shared section label and figure label (--ink-400, 2.85:1 on paper,
+   less on a tinted band) are read here, so they take --ink-500; a state chip and the
+   release ticker's name keep their red rule but set their words in ink */
+main .sectionno, main .fig { color: var(--ink-500); }
+.status--none { color: var(--ink-900); }
+.release-ticker b { color: var(--ink-900); }
+.developer-step__no { color: var(--ink-500); }

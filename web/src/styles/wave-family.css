@@ -411,7 +411,7 @@
 }
 .wf-inf__loop li:last-child { border-right: 0; }
 .wf-inf__step {
-  display: block; color: var(--ink-300);
+  display: block; color: var(--ink-500);
   font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em;
 }
 .wf-inf__loop b { display: block; margin-top: var(--s-2); color: var(--ink-900); font-size: var(--t-h3); }
