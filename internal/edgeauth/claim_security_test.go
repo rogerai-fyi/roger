@@ -108,3 +108,35 @@ func TestReAdoptRenewsAnExpiredGrant(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, resp.Cert, "BEGIN CERTIFICATE")
 }
+
+// Forgetting a node must revoke EVERY certificate it ever held, not only the most recent. A node
+// re-issued while an earlier cert is still in date would otherwise keep that earlier cert working
+// after forget, and rejoin by presenting it (audit 2026-09-24).
+func TestRevokeEndsEveryCertificateANodeHeld(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+
+	// First cert (serial A).
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	respA, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	leafA, err := edgeauth.DecodeCert(respA.Cert)
+	require.NoError(t, err)
+	serialA := leafA.SerialNumber.String()
+
+	// A second cert for the SAME node (serial B) - a re-adopt/re-claim while A is still valid.
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	respB, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	leafB, err := edgeauth.DecodeCert(respB.Cert)
+	require.NoError(t, err)
+	serialB := leafB.SerialNumber.String()
+	require.NotEqual(t, serialA, serialB)
+
+	// Forgetting the node revokes BOTH.
+	revoked, err := local.Revoke(id)
+	require.NoError(t, err)
+	require.Contains(t, revoked, serialA, "the earlier certificate must be revoked too")
+	require.Contains(t, revoked, serialB)
+	require.True(t, local.Authority().SerialRevoked(serialA))
+	require.True(t, local.Authority().SerialRevoked(serialB))
+}

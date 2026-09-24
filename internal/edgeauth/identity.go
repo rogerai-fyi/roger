@@ -47,6 +47,10 @@ const (
 	// IssuedFile maps a node to the serial of the certificate it was issued, which is
 	// what a revocation names.
 	IssuedFile = "issued.json"
+	// IssuedHistoryFile maps a node to EVERY serial it has ever been issued, so forgetting it can
+	// revoke them all - not only the most recent (a node re-issued while an old cert is still valid
+	// would otherwise keep that old cert working after forget).
+	IssuedHistoryFile = "issued_history.json"
 	// ClaimsFile is the node ids the owner has ADOPTED and that may therefore claim a
 	// certificate (features/edge/claim.feature). A grant is consumed on a successful claim.
 	ClaimsFile = "claims.json"

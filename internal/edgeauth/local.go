@@ -365,8 +365,14 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		if err != nil {
 			return fmt.Errorf("could not read the revocation list, so no certificate was issued: %w", err)
 		}
-		if serial, ok := l.issuedSerial(c.NodeID); ok && revoked[serial] {
-			return ErrNotAdopted
+		serials, err := l.serialsFor(c.NodeID)
+		if err != nil {
+			return fmt.Errorf("could not read the issued-certificate state, so no certificate was issued: %w", err)
+		}
+		for _, s := range serials {
+			if revoked[s] {
+				return ErrNotAdopted
+			}
 		}
 		pub, err := c.NodePublicKey()
 		if err != nil {
@@ -400,51 +406,50 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 
 // Revoke ends the certificate this authority issued to a node. It returns the serial it
 // revoked so the caller can put it in its own trust store too.
-func (l *Local) Revoke(nodeID string) (string, error) {
-	var serial string
+func (l *Local) Revoke(nodeID string) ([]string, error) {
+	var revoked []string
 	err := l.withLock(func() error {
-		issued, err := l.loadIssued()
+		serials, err := l.serialsFor(nodeID)
 		if err != nil {
 			return err
 		}
-		s, ok := issued[nodeID]
-		if !ok {
-			return nil // nothing was ever issued to that node here
+		for _, s := range serials {
+			n, ok := parseSerial(s)
+			if !ok {
+				return fmt.Errorf("%q is not a certificate serial", s)
+			}
+			if err := l.auth.Revoke(n); err != nil {
+				return err
+			}
+			revoked = append(revoked, s)
 		}
-		n, ok := parseSerial(s)
-		if !ok {
-			return fmt.Errorf("%q is not a certificate serial", s)
-		}
-		if err := l.auth.Revoke(n); err != nil {
-			return err
-		}
-		serial = s
 		return nil
 	})
-	return serial, err
+	return revoked, err
 }
 
 // RootPEM is the PUBLIC root this authority signs under - the only half that travels.
 func (l *Local) RootPEM() string { return EncodeCert(l.auth.Root()) }
 
-// Revocations is every serial this authority has revoked - what a node refreshes.
-func (l *Local) Revocations() []string { return l.auth.RevokedSerials() }
+// Revocations is every serial this authority has revoked - what a node refreshes. It is read from
+// DISK so a revocation made by a separate process (a CLI forget beside the running authority) is
+// distributed to members at once, not only after a restart.
+func (l *Local) Revocations() ([]string, error) {
+	set, err := l.revokedNow()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(set))
+	for s := range set {
+		out = append(out, s)
+	}
+	return out, nil
+}
 
 func (l *Local) loadIssued() (map[string]string, error) {
 	out := map[string]string{}
 	err := l.readJSON(IssuedFile, &out)
 	return out, err
-}
-
-// issuedSerial returns the serial of the certificate this authority last issued to a node, unlocked.
-// Callers hold the authority lock.
-func (l *Local) issuedSerial(nodeID string) (string, bool) {
-	issued, err := l.loadIssued()
-	if err != nil {
-		return "", false
-	}
-	serial, ok := issued[nodeID]
-	return serial, ok
 }
 
 func (l *Local) recordIssued(nodeID, serial string) error {
@@ -453,7 +458,55 @@ func (l *Local) recordIssued(nodeID, serial string) error {
 		return err
 	}
 	issued[nodeID] = serial
-	return l.writeJSON(IssuedFile, issued)
+	if err := l.writeJSON(IssuedFile, issued); err != nil {
+		return err
+	}
+	// Remember EVERY serial, not just the latest, so a forget revokes them all. A node re-issued
+	// while an earlier cert is still in date would otherwise keep that earlier cert working.
+	hist, err := l.loadHistory()
+	if err != nil {
+		return err
+	}
+	for _, s := range hist[nodeID] {
+		if s == serial {
+			return nil
+		}
+	}
+	hist[nodeID] = append(hist[nodeID], serial)
+	return l.writeJSON(IssuedHistoryFile, hist)
+}
+
+// loadHistory reads the per-node record of every serial issued. Unlocked; callers hold the lock.
+func (l *Local) loadHistory() (map[string][]string, error) {
+	out := map[string][]string{}
+	err := l.readJSON(IssuedHistoryFile, &out)
+	return out, err
+}
+
+// serialsFor is every serial this authority has issued to a node - the history, plus the latest
+// from issued.json for a node issued before history was kept. It returns an error rather than an
+// empty list when the state cannot be read, so callers can fail CLOSED.
+func (l *Local) serialsFor(nodeID string) ([]string, error) {
+	hist, err := l.loadHistory()
+	if err != nil {
+		return nil, err
+	}
+	issued, err := l.loadIssued()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range hist[nodeID] {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	if s, ok := issued[nodeID]; ok && !seen[s] {
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 func (l *Local) readJSON(name string, into any) error {

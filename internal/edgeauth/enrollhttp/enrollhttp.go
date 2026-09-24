@@ -54,8 +54,11 @@ type Issuer interface {
 	Issue(edgeauth.Request) (edgeauth.Response, error)
 }
 
-// Revoker is an authority that can say what it has revoked.
-type Revoker interface{ Revocations() []string }
+// Revoker is an authority that can say what it has revoked. It returns an error so a handler can
+// refuse rather than serve a stale or unreadable list (fail closed).
+type Revoker interface {
+	Revocations() ([]string, error)
+}
 
 // Rooted is an authority that can show the PUBLIC root it signs under.
 type Rooted interface{ RootPEM() string }
@@ -111,8 +114,13 @@ func Handler(iss Issuer) http.Handler {
 			http.Error(w, "this authority publishes no revocation list", http.StatusNotFound)
 			return
 		}
+		list, err := rev.Revocations()
+		if err != nil {
+			http.Error(w, "the revocation list could not be read", http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(rev.Revocations())
+		_ = json.NewEncoder(w).Encode(list)
 	})
 	mux.HandleFunc(ClaimPath, func(w http.ResponseWriter, r *http.Request) {
 		claimer, ok := iss.(Claimer)

@@ -60,3 +60,30 @@ func TestForgettingANodeConsumesItsGrant(t *testing.T) {
 	require.True(t, ok)
 	require.False(t, reopened.ClaimGranted("n_gone"), "forgetting a node clears its claim grant")
 }
+
+// A node already in the fleet must not be re-adopted from the TUI. Re-adopting a member mints a
+// second certificate while the first is still live; a later forget would revoke only the newest and
+// leave the old one working. The CLI adopt already refused a member; the TUI adopt must too, and a
+// member re-advertising as a candidate is dropped from DISCOVERED (audit 2026-09-24).
+func TestTuiAdoptRefusesANodeAlreadyAMember(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	// A member of the fleet that is ALSO showing up as a candidate (its advert still says account="").
+	edgeSeed(t, store.EdgeNode{ID: "n_member", Name: "gentle-ibex-14", Kind: "mobile",
+		Presence: string(edge.PresenceVerified)})
+
+	h, hooks := edgeHostOff(t)
+	h.mu.Lock()
+	h.st.candidates = []store.EdgeNode{{ID: "n_member", Name: "gentle-ibex-14", Kind: "mobile",
+		Presence: string(edge.PresenceCandidate)}}
+	_ = h.st.save()
+	h.mu.Unlock()
+
+	err := hooks.EdgeAdopt("n_member", "gentle-ibex-14")
+	require.Error(t, err, "a node already a member must not be adopted again")
+	require.Contains(t, err.Error(), "already a member")
+
+	// And a member re-advertising as a candidate is filtered from what is on offer.
+	require.Empty(t, edgeDropMembers(h.st.candidates, h.st.fleet),
+		"a member is not offered for adoption")
+}

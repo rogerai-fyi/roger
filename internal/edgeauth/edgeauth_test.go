@@ -627,10 +627,12 @@ func TestALocalAuthorityIssuesOnlyToMachinesTheOwnerAllowed(t *testing.T) {
 	restarted, ok, err := edgeauth.OpenLocal(dir)
 	require.NoError(t, err)
 	require.True(t, ok)
-	serial, err := restarted.Revoke(resp.NodeID)
+	serials, err := restarted.Revoke(resp.NodeID)
 	require.NoError(t, err)
-	require.Equal(t, leaf.SerialNumber.String(), serial)
-	require.Contains(t, restarted.Revocations(), serial)
+	require.Contains(t, serials, leaf.SerialNumber.String())
+	revs, err := restarted.Revocations()
+	require.NoError(t, err)
+	require.Contains(t, revs, leaf.SerialNumber.String())
 
 	none, err := restarted.Revoke("n_never-issued-here")
 	require.NoError(t, err)
@@ -641,8 +643,10 @@ func TestALocalAuthorityIssuesOnlyToMachinesTheOwnerAllowed(t *testing.T) {
 	again, ok, err := edgeauth.OpenLocal(dir)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Contains(t, again.Revocations(), serial)
-	require.True(t, again.Authority().SerialRevoked(serial))
+	againRevs, err := again.Revocations()
+	require.NoError(t, err)
+	require.Contains(t, againRevs, leaf.SerialNumber.String())
+	require.True(t, again.Authority().SerialRevoked(leaf.SerialNumber.String()))
 }
 
 func TestALocalAuthorityRefusesRubbishItFinds(t *testing.T) {
@@ -679,5 +683,7 @@ func TestTheDescriptorAndTheIssuerAreReadableBackFromDisk(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, local.Issuer())
 	require.True(t, local.Issuer().Root().Equal(local.Authority().Root()))
-	require.Empty(t, local.Revocations())
+	emptyRevs, err := local.Revocations()
+	require.NoError(t, err)
+	require.Empty(t, emptyRevs)
 }

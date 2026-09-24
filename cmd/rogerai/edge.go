@@ -1104,6 +1104,20 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	return local.GrantClaim(nodeID, name)
 }
 
+// edgeDropMembers removes candidates that are already members of the fleet. A node's advert carries
+// its own account field, so a phone that has joined can keep showing up with an empty account (a
+// candidate) until its advertiser catches up; adopting it again would mint a second certificate. It
+// is not on offer, so it does not belong in the DISCOVERED band (audit 2026-09-23).
+func edgeDropMembers(cands []store.EdgeNode, fleet *edge.Fleet) []store.EdgeNode {
+	if fleet == nil {
+		return cands
+	}
+	return edgeFilter(cands, func(x store.EdgeNode) bool {
+		_, known, err := fleet.Get(x.ID)
+		return err != nil || !known
+	})
+}
+
 // edgeDropGranted removes candidates this authority has already granted a claim to: they are
 // ADOPTING (the owner acted), not still on offer, so they should not linger in the DISCOVERED band
 // while the device fetches its certificate. Only an authority has grants; elsewhere it is a no-op.

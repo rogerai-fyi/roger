@@ -317,7 +317,11 @@ func edgeAuthorityLabel(endpoint string) string {
 // stale is one that quietly claims a revoked node is fine.
 func edgeRefreshTrust(st edgeauth.Store, endpoint string, local *edgeauth.Local, isAuthority bool, now time.Time) error {
 	if isAuthority && endpoint == "" {
-		return st.SaveTrust(local.Revocations(), now)
+		revs, err := local.Revocations()
+		if err != nil {
+			return err
+		}
+		return st.SaveTrust(revs, now)
 	}
 	if endpoint != "" {
 		if rev, err := enrollhttp.Revocations(context.Background(), endpoint); err == nil {
@@ -610,30 +614,39 @@ func edgeAllow(userKey string) error {
 func edgeRevokeOnForget(nodeID string) error {
 	st := edgeIdentityStore()
 	now := time.Now()
-	var serial string
+	var serials []string
 
 	if local, ok, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && ok {
-		if s, err := local.Revoke(nodeID); err == nil {
-			serial = s
+		// Revoke EVERY certificate this authority issued to the node, not just the latest, and clear
+		// any standing claim grant - errors here are reported, not swallowed, so a forget that could
+		// not take effect is never reported as done (audit 2026-09-23).
+		revoked, err := local.Revoke(nodeID)
+		if err != nil {
+			return fmt.Errorf("could not revoke %s: %w", edgeShortID(nodeID), err)
 		}
-		// Clear any standing claim grant too, so a forgotten node cannot lean on a leftover adopt to
-		// POST /edge/claim for a fresh certificate and rejoin (audit 2026-09-23).
-		_ = local.ConsumeClaim(nodeID)
+		serials = revoked
+		if err := local.ConsumeClaim(nodeID); err != nil {
+			return fmt.Errorf("could not clear the claim grant for %s: %w", edgeShortID(nodeID), err)
+		}
 	}
 	// The node being forgotten may be THIS machine, in which case its certificate is
 	// right here and leaving the Edge means giving it up.
 	if held, _, ok, err := st.LoadIdentity(); err == nil && ok && held.NodeID == nodeID {
-		if serial == "" {
-			serial = held.Cert.SerialNumber.String()
+		if len(serials) == 0 {
+			serials = append(serials, held.Cert.SerialNumber.String())
 		}
 		if err := st.ForgetIdentity(); err != nil {
 			return err
 		}
 	}
-	if serial == "" {
-		return nil // nothing this machine can revoke: the pin going is all it can do
+	// Record every revoked serial in THIS machine's own trust store too, so its verification refuses
+	// them at once rather than at the next refresh.
+	for _, s := range serials {
+		if err := st.Revoke(s, now); err != nil {
+			return err
+		}
 	}
-	return st.Revoke(serial, now)
+	return nil
 }
 
 // edgeTrustNote is the line a fleet view prints when this machine's revocation list has

@@ -67,12 +67,12 @@ func TestOneEndpointShapeCarriesAWholeEnrollment(t *testing.T) {
 	rev, err := enrollhttp.Revocations(ctx, url)
 	require.NoError(t, err)
 	require.Empty(t, rev)
-	serial, err := local.Revoke(resp.NodeID)
+	serials, err := local.Revoke(resp.NodeID)
 	require.NoError(t, err)
-	require.Equal(t, leaf.SerialNumber.String(), serial)
+	require.Equal(t, []string{leaf.SerialNumber.String()}, serials)
 	rev, err = enrollhttp.Revocations(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, []string{serial}, rev)
+	require.Equal(t, []string{leaf.SerialNumber.String()}, rev)
 }
 
 func TestARefusalComesBackAsARefusalAndNothingElse(t *testing.T) {

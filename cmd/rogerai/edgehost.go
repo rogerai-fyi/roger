@@ -247,6 +247,18 @@ func (h *edgeHost) adopt(id, name string) error {
 	if !ok {
 		return fmt.Errorf("no candidate %q was seen on this network", id)
 	}
+	// A node already in the fleet must not be adopted again. Re-adopting a member would mint it a
+	// SECOND certificate while the first is still live, and a later forget would revoke only the
+	// newest - leaving the old one working. A member can keep advertising as a candidate (the
+	// account field is the device's own claim), so this guard is what stops the double-issue, the
+	// same check the CLI adopt makes (audit 2026-09-23).
+	if n, known, _ := h.st.fleet.Get(c.ID); known {
+		name := n.Name
+		if name == "" {
+			name = edgeShortID(c.ID)
+		}
+		return fmt.Errorf("%s is already a member of this Edge - nothing to adopt", name)
+	}
 	// A candidate that advertises NO certificate (Pin empty) - a phone - cannot be dialed and
 	// verified; it joins by CLAIM. Adopting it GRANTS the claim, and it becomes a member when it
 	// claims its certificate and checks in (features/edge/claim.feature). A candidate that DOES
@@ -490,7 +502,8 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
-	h.st.candidates = edgeDropGranted(h.st.candidates) // a candidate we already adopted is adopting, not to-adopt
+	h.st.candidates = edgeDropGranted(h.st.candidates)             // a candidate we already adopted is adopting, not to-adopt
+	h.st.candidates = edgeDropMembers(h.st.candidates, h.st.fleet) // a member re-advertising as a candidate is not to-adopt
 	h.lastPass, h.unavailable = time.Now(), rep.Unavailable()
 	h.lastFound = edge.PassSummary(len(rep.Verified), len(h.st.candidates))
 	err := h.st.save()

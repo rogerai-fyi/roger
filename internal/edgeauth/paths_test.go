@@ -107,9 +107,9 @@ func TestALocalAuthorityIsMintedOnceAndRefusesWhatItCannotWrite(t *testing.T) {
 	require.Error(t, err, "a directory that cannot be made is a refusal, not a root")
 
 	// Revoking a node this authority never issued to is not an error and revokes nothing.
-	serial, err := l.Revoke("n_never")
+	serials, err := l.Revoke("n_never")
 	require.NoError(t, err)
-	require.Equal(t, "", serial)
+	require.Empty(t, serials)
 
 	// Allowing the same key twice keeps one entry.
 	require.NoError(t, l.Allow("ab"))
