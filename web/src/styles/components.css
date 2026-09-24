@@ -789,3 +789,33 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
 /* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
 .band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
 .band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
+
+/* ======================= PRINT ================================== */
+/* A printed page is whole, still and legible. The reveals are scroll-linked (the
+   scroll lift) or settled by site.js, so without this a page printed from the top
+   came out blurred and offset wherever the reader had not scrolled. Colours: the
+   print tokens at the end of tokens.css (black on white, both themes, ink panels). */
+@media print {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  [data-reveal], [data-lift] [data-reveal], html.js [data-reveal], html.js [data-reveal].is-revealed {
+    opacity: 1 !important; transform: none !important; filter: none !important;
+  }
+  /* the site chrome and the controls that only work on a screen */
+  .nav, .promo, .rail, .toc-tuner, .scrub, .range-twin, .toast, .lt-modal, .lt-scrim,
+  .code-block__copy { display: none !important; }
+  body, body[data-onair] { padding-left: 0 !important; background: var(--paper); }
+  /* words painted with a gradient (the carrier sweep) are transparent text on a
+     background, and a printer drops backgrounds: print them as plain ink */
+  .carrier, .wf-inf__shimmer {
+    background: none !important; color: inherit !important; -webkit-text-fill-color: currentColor;
+  }
+  /* long lines and wide tables print whole instead of clipping at a scroll edge */
+  pre, .scroll-box, .code-block { overflow: visible !important; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .figure, .tint-panel, .install, tr { break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+  /* an external link in the running text says where it goes */
+  :is(p, li, dd) > a[href^="http"]:not([class])::after {
+    content: " (" attr(href) ")"; font-size: 0.85em; color: var(--ink-500); overflow-wrap: anywhere;
+  }
+}

@@ -271,3 +271,24 @@
     --d-1: 0ms; --d-2: 0ms; --d-3: 0ms; --d-4: 0ms; --d-5: 0ms;
   }
 }
+
+/* PRINT - black on white, whatever the theme or the panel. A printed page has no
+   ink room: the dark theme and the ink panels print on white paper in the light
+   inks, with the headline ink at black. (components.css ends with the print rules.) */
+@media print {
+  :root, :root[data-theme="dark"], .tone-zone, :root[data-theme="dark"] .tone-zone {
+    --white:      #FFFFFF;
+    --paper:      #FFFFFF;
+    --paper-2:    #F4F4F2;
+    --paper-3:    #EDEDEA;
+    --hairline:   #E6E5E1;
+    --hairline-2: #D8D7D2;
+    --ink-900:    #000000;
+    --ink-700:    #33312B;
+    --ink-500:    #6B685F;
+    --ink-400:    #726F66;
+    --ink-300:    #C4C0B5;
+    --live:       #E0231C;
+    color-scheme: light;
+  }
+}

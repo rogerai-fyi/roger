@@ -63,7 +63,8 @@ test("no page carries its own contrast patch for the shared labels", () => {
       const sel = m[1].trim().replace(/\s+/g, " ");
       if (/--ink-400\s*:/.test(m[2])) {
         // .card: the signed-in plate's command wells sit on --paper-3 (see tokens.css)
-        assert.ok(sheet === "tokens.css" && [":root", ':root[data-theme="dark"], .tone-zone', ".tone-zone", ".card"].includes(sel),
+        assert.ok(sheet === "tokens.css" && [":root", ':root[data-theme="dark"], .tone-zone', ".tone-zone", ".card",
+          ':root, :root[data-theme="dark"], .tone-zone, :root[data-theme="dark"] .tone-zone'].includes(sel),   // the last: print
           `${sheet} "${sel}" re-scopes --ink-400`);
       }
       const label = sel.split(/,(?![^(]*\))/).some((part) => /\.(sectionno|fig|hero__eyebrow|eyebrow|research-kicker)\b[^\s>+~]*$/.test(part.trim()));

@@ -20,10 +20,21 @@ const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html")).sort();
 const SHEETS = readdirSync(path.join(SRC, "styles")).filter((f) => f.endsWith(".css")).sort();
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
+// the print section is a whole-page override of the chrome and the components
+// (test/print.test.mjs), not a definition of any of them: leave it out here
+function noPrint(css) {
+  let out = stripCss(css);
+  for (let i; (i = out.search(/@media print\s*\{/)) >= 0;) {
+    let d = 0, j = out.indexOf("{", i);
+    do { if (out[j] === "{") d++; else if (out[j] === "}") d--; j++; } while (d && j < out.length);
+    out = out.slice(0, i) + out.slice(j);
+  }
+  return out;
+}
 // every selector of a stylesheet (keyframe steps and at-rule preludes skipped)
 function selectors(css) {
   const out = [];
-  for (const m of stripCss(css).matchAll(/([^{}]+)\{/g)) {
+  for (const m of noPrint(css).matchAll(/([^{}]+)\{/g)) {
     const s = m[1].trim();
     if (s.startsWith("@") || /^(from|to|[\d.]+%)(\s*,|$)/.test(s)) continue;
     for (const part of s.split(/,(?![^(]*\))/)) out.push(part.trim());
