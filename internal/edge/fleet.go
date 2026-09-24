@@ -619,6 +619,7 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 		}
 		prev[in.Name] = m
 	}
+	kind := Kind(n.Kind)
 	next := make([]Instance, 0, len(obs.Instances))
 	for i, in := range obs.Instances {
 		if i >= MaxInstances {
@@ -627,10 +628,20 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 		cp := in
 		cp.Caps = nil
 		for _, c := range in.Caps {
-			state := c.State
-			if state == "" {
-				state = string(initialState(Capability(c.Name)))
+			cap := Capability(c.Name)
+			// A node's KIND bounds what it may declare at all. Drop a capability its kind cannot
+			// have (a board that claims to serve, a mobile that claims to relay). Only filter when
+			// the kind is known, so a record with no kind yet is not stripped of everything.
+			if kind.Valid() && !kind.MayDeclare(cap) {
+				continue
 			}
+			// The peer's ASSERTED state is NOT trusted. A capability starts at its initial state and
+			// is only lifted to a higher one that was EARNED here - a passed probe (RecordInstance
+			// Probe) or an owner confirmation - and carried across in prev. Believing c.State let a
+			// member self-declare VERIFIED and route real work on the strength of a lie (audit
+			// 2026-09-24: the whole point of CLAIMED vs VERIFIED is that the node does not get to
+			// promote itself).
+			state := string(initialState(cap))
 			if p, ok := prev[in.Name][c.Name]; ok && rank(p.State) > rank(state) {
 				state = p.State // earned once, kept
 			}
