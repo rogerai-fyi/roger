@@ -395,19 +395,24 @@
    (.code-block__copy, the shared [data-copy-target] copy tick) to every block; the
    copied text leaves out aria-hidden prompts. No-JS: the plain, selectable <pre>, and
    no dead button. */
-.code-block { position: relative; margin-top: var(--s-4); max-width: 100%; }
+.code-block {
+  position: relative; margin-top: var(--s-4); max-width: 100%;
+  background: var(--paper-2); border-radius: var(--r-xl);
+}
 .code-block pre {
   margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
-  background: var(--paper-2); border-radius: var(--r-xl);
+  background: transparent;
   font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.6;
   color: var(--ink-900); white-space: pre;
 }
 .code-block pre code { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
-.code-block:has(.code-block__copy) pre { padding-right: 56px; }
+/* with its copy control the block is two columns: the <pre> scrolls in its own, so a
+   long line never slides under the button */
+.code-block:has(.code-block__copy) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
 .code-block__comment { color: var(--ink-500); }
 .code-block__prompt { color: var(--live); user-select: none; }
 .code-block__copy {
-  position: absolute; top: 6px; right: 6px; display: grid; place-items: center;
+  position: relative; margin: 6px 6px 0 0; display: grid; place-items: center;
   width: 36px; height: 36px; border-radius: var(--r-xl);
   background: var(--paper-2); color: var(--ink-500); transition: color var(--d-2);
 }
