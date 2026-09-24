@@ -393,3 +393,31 @@
   border-color: transparent; text-decoration-color: var(--live);
 }
 .research-button--quiet:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- component: copy-code (added by models rollout) ----------------------
+   <button class="copy-code" type="button" data-copy-target aria-label="Copy CMD"><code>CMD</code></button>
+   An inline command in prose that copies itself: the shared [data-copy-target]
+   control (site.js) dressed as inline code, with a small two-sheet copy glyph
+   drawn in CSS. site.js marks it .is-copied for 1.6s and the glyph becomes the
+   tick. The command never breaks inside itself. No-JS: selectable code text. */
+.copy-code {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+  padding: 1px 6px 1px 6px; margin: 0; vertical-align: baseline;
+  font: inherit; color: var(--ink-900); text-align: left; cursor: copy;
+  background: var(--paper-2); border: 1px solid var(--hairline); border-radius: var(--r-sm);
+  transition: border-color var(--d-2);
+}
+.copy-code code { font-family: var(--font-mono); font-size: .9em; white-space: nowrap; color: inherit; }
+.copy-code::after {
+  content: ""; flex: none; width: 8px; height: 8px; margin: 2px 2px 0 0;
+  border: 1px solid var(--ink-500); border-radius: 2px; background: var(--paper-2);
+  box-shadow: 2px -2px 0 -1px var(--paper-2), 2px -2px 0 0 var(--ink-500);
+}
+.copy-code:hover, .copy-code:focus-visible { border-color: var(--live); }
+.copy-code:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.copy-code:active { transform: translateY(1px); }
+.copy-code.is-copied::after {
+  content: "\2713"; width: auto; height: auto; margin: 0; border: 0; box-shadow: none; background: none;
+  font: 600 .8em / 1 var(--font-mono); color: var(--live);
+}
+@media (prefers-reduced-motion: reduce) { .copy-code { transition: none; } .copy-code:active { transform: none; } }

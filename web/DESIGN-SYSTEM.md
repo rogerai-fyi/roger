@@ -102,6 +102,14 @@ icon (the /models QSL card, /voices) use the same classes by hand.
 element's text. Same tick class, same toast, delegated (works for controls added later).
 The footer's upgrade commands use it; code blocks should.
 
+An inline command inside prose is `copy-code`, the same control dressed as inline code:
+```html
+<button class="copy-code" type="button" data-copy-target aria-label="Copy roger topup 25"><code>roger topup 25</code></button>
+```
+A small two-sheet glyph (CSS, no icon file) sits after the command and becomes the tick
+while `.is-copied`. The command never breaks inside itself. No-JS: selectable code text.
+(Pricing's plates use it.)
+
 ### Framed instrument panel
 `<div class="install" data-frame="panel">`: the one place a bezel and shadow are allowed,
 for THE primary action of a page (homepage FIG. 1). Its `.fig` becomes the header strip
