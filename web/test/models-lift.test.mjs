@@ -213,3 +213,38 @@ test("voices: roster rows never start invisible, and their entrance is opt-in mo
   assert.doesNotMatch(row, /opacity:\s*0/, "a row is readable from its first frame");
   assert.doesNotMatch(css.match(/@keyframes voiceIn\s*\{[^}]*\}\s*\}?/)?.[0] || "", /opacity/, "the entrance moves, it does not fade");
 });
+
+/* ---- TOWER ----------------------------------------------------------------------- */
+
+test("tower: a TOC tuner over its five sections", () => {
+  const st = tunerOf("tower.html");
+  assert.deepEqual(st.map((s) => s.id), ["path", "patch", "tape", "run", "back"]);
+});
+
+test("tower: the signal path and the patch are one ink panel; the tape is a rounded plate", () => {
+  const html = src("tower.html");
+  const zones = [...html.matchAll(/<div class="tone-zone" data-tone="ink">([\s\S]*?)<!-- \/tone-zone -->/g)].map((m) => m[1]);
+  assert.equal(zones.length, 1);
+  assert.match(zones[0], /id="path"[\s\S]*id="patch"/);
+  assert.doesNotMatch(zones[0], /id="tape"/);
+  const css = stripCss(src("styles/tower.css"));
+  assert.doesNotMatch(css, /2px solid var\(--ink-900\)/, "no 2px ink rules");
+  assert.doesNotMatch(css, /var\(--s-7\)/, "no spacing token that does not exist");
+  assert.doesNotMatch(css, /\.signal__note\s*\{[^}]*--ink-300/, "no text in decoration ink");
+  for (const sel of [".tape__id", ".tape__hash", ".tower__head"]) {
+    const rule = css.match(new RegExp(`${sel.replace(".", "\\.")}\\s*\\{([^}]*)\\}`))?.[1] || "";
+    assert.doesNotMatch(rule, /--ink-400/, `${sel} is read on paper: AA ink`);
+  }
+});
+
+test("tower: no inline styles; every action row leads with one primary", () => {
+  const main = mainOf(src("tower.html"));
+  assert.doesNotMatch(main, /style="/);
+  const rows = [...src("tower.html").matchAll(/<div class="research-actions([^"]*)">([\s\S]*?)<\/div>/g)];
+  assert.equal(rows.length, 3);
+  for (const [, mod, row] of rows) {
+    assert.equal(mod, " research-actions--lead");
+    assert.equal((row.match(/research-button--primary/g) || []).length, 1);
+    assert.doesNotMatch(row, /class="research-button"/, "the rest are quiet links");
+  }
+});

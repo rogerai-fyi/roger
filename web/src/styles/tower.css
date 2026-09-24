@@ -2,16 +2,24 @@
    call moves when one drops, and a receipt tape that shows what makes the bill checkable.
    Both are drawn in full in the markup - the animation hands the call over, it does not
    supply any fact that is missing without it. */
+/* anchors land under the nav; the tuner under the hero is its divider */
+section[id] { scroll-margin-top: 72px; }
+.research-hero:has(+ .toc-tuner) { border-bottom: 0; padding-bottom: 0; }
+.tower__kicker { margin-top: var(--s-3); }
+
+/* each instrument is a rounded plate: the patch on the ink panel's raised ground, the
+   tape on paper inside its tinted band */
 .tower__patch, .tower__tape {
-  margin: 0 0 var(--s-7);
-  border-block: 2px solid var(--ink-900);
-  background: var(--paper);
+  margin: 0;
+  border-radius: var(--panel-r); overflow: hidden;
 }
+.tower__patch { background: var(--paper-2); }
+.tower__tape { background: var(--paper); }
 .tower__head {
   display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-3);
   padding: var(--s-3) var(--s-5); border-bottom: 1px solid var(--hairline);
   font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
 }
 .tower__svg { display: block; width: 100%; max-width: 100%; height: auto; padding: var(--s-5); }
 
@@ -73,9 +81,9 @@
 }
 .tape__hash { margin-left: auto; }
 .tape li:last-child { border-bottom: 0; }
-.tape__id { color: var(--ink-400); }
+.tape__id { color: var(--ink-500); }
 .tape__tok { color: var(--ink-900); }
-.tape__hash { color: var(--ink-400); }
+.tape__hash { color: var(--ink-500); }
 .tape__sig { color: var(--ink-700); }
 /* The counter-signature is the differentiator, so it is the one red mark on the tape. */
 .tape__sig--broker { color: var(--live); }
@@ -121,7 +129,7 @@
   fill: var(--ink-400); font-family: var(--font-mono); font-size: 10px;
   letter-spacing: .08em; text-transform: uppercase; text-anchor: middle;
 }
-.signal__labels .signal__note { fill: var(--ink-300); font-size: 9px; }
+.signal__labels .signal__note { fill: var(--ink-400); font-size: 9px; }
 
 /* The two directions are told apart by SHAPE of travel and position, not colour
    alone: the ask runs left-to-right along the top, the return runs right-to-left
