@@ -110,10 +110,9 @@ Inset from the page edge (64px outside the text column, never closer than
 `--panel-inset`), radius `--panel-r`, still (nothing animates on the panel itself).
 Everything inside re-themes via the scoped tokens.
 
-### Tinted panel (pattern, not yet a class)
-`background: var(--paper-2); border-radius: var(--panel-r);` and no border. Today it is
-written per component (the tuner band, homepage cards). Promote it to a `.panel` class the
-first time a second page needs it.
+### Tinted panel
+Now a class: see **Inset panel** below. The tuner band and the homepage cards still write
+the same two declarations by hand.
 
 ### TOC tuner
 ```html
@@ -202,6 +201,12 @@ selectable `<pre>`, and no dead button.
 The homepage's tinted panel as a class: `--paper-2`, `--panel-r`, no border, no shadow.
 The quiet container for a sign-off, a telegram, a card. (`.panel` is taken by the
 account pages.)
+
+### Fold on a phone
+`<details class="..." data-fold-narrow open><summary>...</summary>...</details>`: a
+disclosure written open (no-JS readers and crawlers get all of it) that `site.js` folds on
+a phone (<=640px), where it would push the page's main content down. The summary keeps
+its own words and gains a quiet `+`/`-` mark. Used by the broadcasts telegram.
 
 ## Adding a page
 

@@ -211,6 +211,14 @@
     box.appendChild(b);
   });
 
+  /* ---- fold on a phone: details[data-fold-narrow] -------------------
+     A disclosure written OPEN in the HTML (readers without scripts, and crawlers, get
+     all of it) that starts folded on a phone, where it would push the page's main
+     content a screen or more down. Its <summary> stays a normal toggle everywhere. */
+  if (window.matchMedia && window.matchMedia("(max-width: 640px)").matches) {
+    Array.prototype.forEach.call(document.querySelectorAll("details[data-fold-narrow]"), function (d) { d.open = false; });
+  }
+
   /* ---- "how to upgrade" disclosure (footer) ---------------------- */
   var upToggle = document.getElementById("upgradeToggle");
   var upPanel = document.getElementById("upgradePanel");

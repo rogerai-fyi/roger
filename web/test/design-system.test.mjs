@@ -269,7 +269,7 @@ const OWN_CLIPBOARD = {
 
 test("no page script re-implements a shared behaviour", () => {
   const js = readdirSync(path.join(SRC, "js")).filter((f) => f.endsWith(".js"));
-  const HOOKS = { "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js" };
+  const HOOKS = { "[data-fold-narrow]": "site.js", "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js" };
   for (const f of js) {
     const src = read(`js/${f}`);
     if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {
@@ -286,4 +286,5 @@ test("the component modules initialize from their data- hook, so markup alone op
   assert.match(read("js/scrub.js"), /querySelectorAll\("\[data-scrub\]"\)/);
   assert.match(read("js/anchor-hold.js"), /querySelector\("\[data-anchor-hold\]"\)/);
   assert.match(read("js/site.js"), /closest\("\[data-copy-target\]"\)/);
+  assert.match(read("js/site.js"), /querySelectorAll\("details\[data-fold-narrow\]"\)/);
 });

@@ -433,3 +433,16 @@
   font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-semi);
   letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
 }
+
+/* ---- component: fold on a phone (added by research rollout) -----------------------
+   <details class="..." data-fold-narrow open><summary>...</summary> ... </details>
+   Written open; site.js folds it on a phone (<=640px) so it does not push the page
+   down. The summary keeps its own content and gains a quiet +/- mark at its end. */
+details[data-fold-narrow] > summary { list-style: none; cursor: pointer; position: relative; padding-right: 28px; }
+details[data-fold-narrow] > summary::-webkit-details-marker { display: none; }
+details[data-fold-narrow] > summary::after {
+  content: "+"; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  font: 500 1.1rem / 1 var(--font-mono); color: var(--ink-500);
+}
+details[data-fold-narrow][open] > summary::after { content: "\2212"; }
+details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
