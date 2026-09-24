@@ -55,10 +55,10 @@ const CSS_BUNDLES = {
   "research.html":  [...CSS_MARKETING, "research.css"],
   "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
   "research-hardware.html": [...CSS_MARKETING, "research.css", "research-hardware.css"], // the board -> tier map, the only page carrying third-party photography
-  "careers.html":   [...CSS_MARKETING, "research.css", "careers.css"], // hiring surface; reuses the notebook shell
-  "company.html":   [...CSS_MARKETING, "research.css"],
+  "careers.html":   [...CSS_MARKETING, "research.css", "careers.css", "company.css"], // hiring surface; notebook shell + the Company section sheet
+  "company.html":   [...CSS_MARKETING, "research.css", "company.css"], // About; company.css = the Company section sheet
   "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates
-  "faq.html":       [...CSS_MARKETING, "research.css", "faq.css"],     // ditto; faq.css is only the disclosure list
+  "faq.html":       [...CSS_MARKETING, "research.css", "faq.css", "company.css"], // ditto; faq.css is only the question list
   "why.html":       [...CSS_MARKETING, "research.css"],                // the routing-fee argument; page-scoped styles inline
   "integrations.html": [...CSS_MARKETING, "research.css", "integrations.css"], // ditto; the tables and guest plates
   "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
@@ -97,10 +97,10 @@ const CSS_BUNDLES = {
   // admin.html (founder super-admin ops portal) moved to the PRIVATE rogerai-fyi/roger-admin repo.
   "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
   "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
-  "privacy.html":   [...CSS_ACCOUNT],                    // legal plate: shared chrome only
-  "security.html":  [...CSS_ACCOUNT],                    // legal plate: shared chrome only
+  "privacy.html":   [...CSS_MARKETING, "company.css"],   // legal reading column (Company section sheet)
+  "security.html":  [...CSS_MARKETING, "company.css"],   // ditto
   "confidential.html": [...CSS_ACCOUNT],                 // gated TEE-tier info: shared chrome only
-  "tos.html":       [...CSS_ACCOUNT],                    // legal plate: shared chrome only
+  "tos.html":       [...CSS_MARKETING, "company.css"],   // ditto
 };
 
 const CSS_MARKER_RE = /^([ \t]*)<!--\s*css-bundle\s*-->[ \t]*$/m;

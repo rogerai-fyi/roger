@@ -8,7 +8,11 @@
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 companycurrent='aria-current="page"' -->
 
-  <main id="top">
+  <main id="top" class="co-page" data-lift>
+    <!-- The cover is an ink panel inset on the paper page (the homepage's geometry).
+         Presentation-only lift 2026-09-24: every word and link below is the pre-lift
+         copy, pinned by test/company-lift.test.mjs. -->
+    <div class="tone-zone" data-tone="ink">
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
@@ -35,26 +39,41 @@
         </div>
       </div>
     </section>
+    </div><!-- /tone-zone -->
 
     <aside class="research-distinction">
-      <div class="wrap research-distinction__grid">
+      <div class="wrap research-distinction__grid tint-panel">
         <div><span class="research-kicker">THE PRODUCT</span><b><a href="/models.html">The RogerAI network</a></b> routes work to models running on real hardware - the frontier, decentralized.</div>
         <div><span class="research-kicker">THE LAB</span><b><a href="/research.html">RogerAI Labs</a></b> builds the open edge models and publishes the weights.</div>
         <p>Each half makes the other worth more: a model you own is more useful when there is somewhere to run it and earn from it, and the network is more useful the better small models get. Running a RogerAI model locally never requires the network, and the network is not restricted to RogerAI models.</p>
       </div>
     </aside>
 
+    <!-- the page's table of contents: the shared tuner, the § labels the sections carry -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#work"><b>§1</b><span class="toc-tuner__name">WHAT WE BUILD</span></a></li>
+        <li><a class="toc-tuner__st" href="#focus"><b>§2</b><span class="toc-tuner__name">FOCUS</span></a></li>
+        <li><a class="toc-tuner__st" href="#origin"><b>§3</b><span class="toc-tuner__name">ORIGIN &amp; OPENNESS</span></a></li>
+        <li><a class="toc-tuner__st" href="#contact"><b>§4</b><span class="toc-tuner__name">CONTACT</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
     <section class="section" id="work">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">§1 / WHAT WE BUILD</span>
           <h2>Two lines of work, one engineering discipline.</h2>
           <p>One line is a network that sends real work to machines other people own. The
              other is a family of small models built for the hardware those machines
              actually have.</p>
         </div>
-        <div class="research-grid">
-          <article class="research-card">
+        <div class="co-cards" data-reveal data-reveal-delay="60">
+          <article class="tint-panel co-card">
             <header><span class="research-kicker">PRODUCT</span><span class="status">SHIPPING</span></header>
             <h3>The RogerAI network</h3>
             <p>An OpenAI-compatible endpoint over models running across community and
@@ -67,7 +86,7 @@
               <div><dt>Source</dt><dd><a href="https://github.com/rogerai-fyi/roger">github.com/rogerai-fyi/roger</a></dd></div>
             </dl>
           </article>
-          <article class="research-card">
+          <article class="tint-panel co-card">
             <header><span class="research-kicker">RESEARCH</span><span class="status">ACTIVE</span></header>
             <h3>RogerAI Labs</h3>
             <p>Open model and inference research for edge, embedded, and industrial use:
@@ -80,7 +99,7 @@
               <div><dt>Weights</dt><dd><a href="https://huggingface.co/rogerai-fyi">huggingface.co/rogerai-fyi</a></dd></div>
             </dl>
           </article>
-          <article class="research-card">
+          <article class="tint-panel co-card">
             <header><span class="research-kicker">POSITION</span></header>
             <h3>Frontier capability, local footprint</h3>
             <p>Two directions, one goal: make frontier-capability models reachable on
@@ -94,56 +113,70 @@
       </div>
     </section>
 
-    <section class="section research-tone" id="focus">
-      <div class="wrap research-split">
-        <div>
+    <section class="section" id="focus">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">§2 / FOCUS</span>
           <h2>The smallest model that can do the job.</h2>
           <p>We build for embedded and edge systems where operational-technology networks
              are segmented or air-gapped and data cannot leave.</p>
         </div>
-        <div class="research-prose">
-          <p><b>A right-sized family.</b> The Wave Spectrum runs pico to exa on one SI
-             scale. Every tier is named for where it sits. Wave Pico reads a single
-             machine&rsquo;s telemetry on hardware beside it. Wave Nano concentrates a fleet
-             at the gateway. Wave Micro reasons across a facility, Wave Giga across a
-             plant, and Wave Tera across many plants at once. Wave Peta carries regional
-             scale, carved down from Wave Exa. Exa is the frontier flagship, and the
-             teacher the rest of the family learns from. Every tier ships with Wave Mesh
+        <!-- The family paragraph, set as the shared Wave Spectrum scale: the same
+             sentences in the same order, one tier per station. -->
+        <div class="co-family" data-reveal data-reveal-delay="60">
+          <p class="co-family__lead"><b>A right-sized family.</b> The Wave Spectrum runs pico to exa on one SI
+             scale. Every tier is named for where it sits.</p>
+          <ol class="spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
+            <li><i aria-hidden="true"></i><span><b>Wave Pico</b> reads a single
+             machine&rsquo;s telemetry on hardware beside it.</span></li>
+            <li><i aria-hidden="true"></i><span><b>Wave Nano</b> concentrates a fleet
+             at the gateway.</span></li>
+            <li><i aria-hidden="true"></i><span><b>Wave Micro</b> reasons across a facility,</span></li>
+            <li><i aria-hidden="true"></i><span><b>Wave Giga</b> across a
+             plant,</span></li>
+            <li><i aria-hidden="true"></i><span>and <b>Wave Tera</b> across many plants at once.</span></li>
+            <li><i aria-hidden="true"></i><span><b>Wave Peta</b> carries regional
+             scale, carved down from Wave Exa.</span></li>
+            <li><i aria-hidden="true"></i><span><b>Exa</b> is the frontier flagship, and the
+             teacher the rest of the family learns from.</span></li>
+          </ol>
+          <p class="co-family__foot">Every tier ships with Wave Mesh
              baked in, and understands the output of every tier beneath it.</p>
-          <p><b>Industrial deployment.</b> Our focus spans oil and gas, power generation,
+        </div>
+        <div class="co-pair" data-reveal data-reveal-delay="80">
+          <p class="tint-panel"><b>Industrial deployment.</b> Our focus spans oil and gas, power generation,
              manufacturing, aerospace, mining, water, healthcare, and defense sustainment:
              advisory workloads beside existing control systems, never replacing deterministic
              protection or safety paths. In healthcare that means the equipment and facilities
              layer - never diagnosis, treatment, or a patient&rsquo;s care.</p>
-          <p><b>Evidence before claims.</b> Measurements name the hardware, evaluation
+          <p class="tint-panel"><b>Evidence before claims.</b> Measurements name the hardware, evaluation
              harness, settings, and raw results. Our models use open formats and standard
              runtimes. Local inference sends no telemetry. Negative results remain visible.</p>
-          <p>See the <a href="/research.html#industry">research notebook</a> for programs,
-             industry use cases, constraints, and device evidence.</p>
         </div>
+        <p class="co-see">See the <a href="/research.html#industry">research notebook</a> for programs,
+             industry use cases, constraints, and device evidence.</p>
       </div>
     </section>
 
-    <section class="section band" id="origin">
-      <div class="wrap research-split">
-        <div>
+    <section class="section" id="origin">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">§3 / ORIGIN &amp; OPENNESS</span>
           <h2>Built here. Useful anywhere.</h2>
           <p>RogerAI is built in Orange County, California. “American-made” describes the
              company, product engineering, and RogerAI-authored research, built on upstream
              open models and a global research community.</p>
         </div>
-        <div class="research-prose">
-          <p><b>Open where the component is open.</b> Our open-source model and runtime work,
+        <div class="co-trio" data-reveal data-reveal-delay="60">
+          <p class="tint-panel"><b>Open where the component is open.</b> Our open-source model and runtime work,
              recipes, converters, evaluations, and qualifying weights are published with
              their actual licenses and lineage.</p>
-          <p><b>Source-visible is not the same claim.</b> The RogerAI network and broker are
+          <p class="tint-panel"><b>Source-visible is not the same claim.</b> The RogerAI network and broker are
              licensed under PolyForm Perimeter 1.0.0, and the node-agent protocol and
              usage-receipt SDK are Apache 2.0 so anyone can implement them. We publish the
              source, but do not call the platform open source. Each model carries its
              own license rather than borrowing a broader marketing label.</p>
-          <p><b>Model license.</b> A released Wave model will carry its own license, and
+          <p class="tint-panel"><b>Model license.</b> A released Wave model will carry its own license, and
              may be used locally without the network.
              Optional broker publication, routing, payments, failover, and receipts are
              network services governed by separate network terms. Those terms do not modify
@@ -152,16 +185,16 @@
       </div>
     </section>
 
-    <section class="section research-tone" id="contact">
-      <div class="wrap research-split">
-        <div>
+    <section class="section" id="contact">
+      <div class="wrap co-split">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">§4 / CONTACT</span>
           <h2>Talk to the people building it.</h2>
           <p>RogerAI is operated by <b>RogerAI,&nbsp;Inc., a Delaware corporation</b>,
              from Orange County, California. The <a href="/tos.html">Terms</a> carry the
              contracting details.</p>
         </div>
-        <div class="research-prose">
+        <div class="tint-panel co-rows" data-reveal data-reveal-delay="60">
           <p><b>Pilots, engagements, and press.</b> Model optimization, edge deployment,
              benchmarking and model selection, and scoped on-premises pilots, plus press
              and partnership inquiries. <a href="mailto:labs@rogerai.fm">labs@rogerai.fm</a></p>

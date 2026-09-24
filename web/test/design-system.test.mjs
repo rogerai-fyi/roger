@@ -129,7 +129,8 @@ const PAGE_SHEET_COMPONENT_RULES = {
 
 test("each shared component is defined in components.css and nowhere else", () => {
   const blocks = new Set(selectors(read("styles/components.css")).map(leadClass).filter(Boolean).map(blockOf));
-  for (const b of ["section", "research-button", "man-note", "install", "tone-zone", "toc-tuner", "scrub"]) {
+  for (const b of ["section", "research-button", "man-note", "install", "tone-zone", "toc-tuner", "scrub",
+                   "tint-panel", "spectrum", "steps", "page-index"]) {
     assert.ok(blocks.has(b), `components.css defines .${b}`);
   }
   for (const sheet of SHEETS) {

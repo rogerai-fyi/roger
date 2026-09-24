@@ -1,0 +1,124 @@
+/* =====================================================================
+   RogerAI - company.css : the Company section's page sheet.
+
+   Loaded by About (company.html), Careers, Questions (faq.html) and the legal
+   pages (security, privacy, tos), after research.css where a page also loads
+   that. Everything is scoped under main.co-page, so it can never reach a
+   research page that shares research.css. The look itself comes from the
+   shared components (web/DESIGN-SYSTEM.md): the ink panel (.tone-zone), the
+   TOC tuner, .tint-panel, .spectrum, .steps, .page-index. This sheet only
+   places them and re-sets the research shell's hairline boxes as calm space.
+   ===================================================================== */
+
+.co-page section[id], .co-page [id^="q-"], .co-page .legal__sec h2[id] { scroll-margin-top: 72px; }
+
+/* ---- the cover: an ink panel inset on the paper page ---------------- */
+.co-page .tone-zone .research-hero { border-bottom: 0; padding-block: clamp(56px, 8vw, 104px); }
+/* phones: the hero actions wrap as a compact row instead of a full-width stack
+   (five buttons stacked were ~330px deep before a reader reached a word) */
+@media (max-width: 560px) {
+  .co-page .research-actions { gap: var(--s-2); }
+  .co-page .research-actions .research-button { width: auto; flex: 1 1 auto; }
+}
+
+/* ---- the summary strip ---------------------------------------------- */
+/* The shared research.css strip lays each cell out as a grid, so the kicker, the
+   bold name and its continuation fell onto three rows ("The RogerAI network /
+   routes work to ..."). Here: the kicker on its own line, then ONE flowing
+   sentence. The strip is a tinted panel under the cover, not a full-bleed band;
+   like the tuner band it is the .wrap itself, so the two panels share one edge. */
+.co-page .research-distinction { background: none; border: 0; padding-top: var(--s-6); }
+.co-page .research-distinction__grid { padding-block: clamp(20px, 2.4vw, 32px); gap: var(--s-8); line-height: var(--lh-body); }
+.co-page .research-distinction__grid > div { display: block; }
+.co-page .research-distinction__grid .research-kicker { display: block; margin-bottom: var(--s-2); color: var(--ink-500); }
+.co-page .research-distinction__grid b { color: var(--ink-900); }
+.co-page .research-distinction__grid p { border-color: var(--hairline); }
+
+/* the tuner sits in flow under the strip; a little less air above it here */
+.co-page .toc-tuner { padding-top: clamp(32px, 4vw, 56px); }
+
+/* ---- About: §1 the two lines of work and the position ---------------- */
+.co-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-5); }
+.co-card { display: flex; flex-direction: column; }
+.co-card header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--s-2); }
+.co-card .research-kicker { color: var(--ink-500); }
+.co-card .status { border-radius: var(--r-pill); }
+.co-card h3 { margin: var(--s-4) 0 0; color: var(--ink-900); font-size: var(--t-h3); line-height: var(--lh-snug); }
+.co-card p { margin: var(--s-3) 0 0; color: var(--ink-500); line-height: var(--lh-body); }
+.co-card dl { margin: auto 0 0; padding-top: var(--s-6); }
+.co-card dl div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: var(--s-3); padding-block: var(--s-2); border-top: 1px solid var(--hairline); }
+.co-card dt { color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+.co-card dd { margin: 0; min-width: 0; color: var(--ink-700); font-size: var(--t-sm); overflow-wrap: anywhere; }
+
+/* ---- About: §2 the family on the Wave Spectrum scale ----------------- */
+.co-family { margin-top: var(--s-4); }
+.co-family__lead, .co-family__foot { max-width: 62ch; margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
+.co-family__lead b { color: var(--ink-900); }
+.co-family .spectrum { margin-top: var(--s-4); }
+.co-family__foot { margin-top: var(--s-4); }
+
+/* lead-in paragraphs set as panels: the bold lead becomes the panel's title */
+:is(.co-pair, .co-trio) { display: grid; gap: var(--s-5); margin-top: var(--s-10); }
+.co-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.co-trio { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 0; }
+:is(.co-pair, .co-trio) > p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
+:is(.co-pair, .co-trio, .co-rows) b:first-child { display: block; margin-bottom: var(--s-2); color: var(--ink-900); font-size: var(--t-body); }
+.co-see { margin: var(--s-6) 0 0; color: var(--ink-500); }
+
+/* ---- About: §4 contact, head beside the routes ----------------------- */
+.co-split { display: grid; grid-template-columns: minmax(240px, .8fr) minmax(0, 1.2fr); gap: var(--s-12); align-items: start; }
+.co-split .section__head { margin-bottom: 0; }
+.co-split .section__head p { font-size: var(--t-body); line-height: var(--lh-body); }
+.co-rows p { margin: 0; padding-block: var(--s-4); color: var(--ink-500); line-height: var(--lh-body); }
+.co-rows p + p { border-top: 1px solid var(--hairline); }
+.co-rows p:first-child { padding-top: 0; }
+.co-rows p:last-child { padding-bottom: 0; }
+/* the third row joins three short routes; its later leads stay inline */
+.co-rows b:not(:first-child) { color: var(--ink-900); }
+
+/* ---- Careers --------------------------------------------------------- */
+.co-page #roles, .co-page #engineering { padding-bottom: 0; }
+.co-page #apply .steps { margin-top: var(--s-4); }
+.co-page #apply .steps b { font-size: var(--t-body); }
+
+/* ---- the reading column (Security, Privacy, Terms) -------------------- */
+.legal { padding-block: clamp(48px, 7vw, 96px) var(--section-y); }
+.legal__head { max-width: 68ch; }
+.legal__head h1 { margin: 0; color: var(--ink-900); font-size: var(--t-h1); line-height: var(--lh-tight); letter-spacing: var(--tracking-h1); }
+.legal .sub { margin: var(--s-5) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); text-wrap: pretty; }
+.legal .sub b { color: var(--ink-700); font-weight: var(--weight-medium); }
+.legal .notice {
+  margin-bottom: var(--s-8); padding: var(--s-5); border-radius: var(--panel-r);
+  background: var(--paper-2); color: var(--ink-700); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.legal .notice b:first-child {
+  display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-900);
+}
+.legal .notice b:first-child::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+.legal__index { margin-top: var(--s-10); }
+.legal__body { max-width: 68ch; margin-top: var(--s-6); }
+.legal__sec { padding-top: var(--s-10); }
+.legal__sec h2 {
+  margin: 0 0 var(--s-4); color: var(--ink-900);
+  font-size: var(--t-h3); line-height: var(--lh-snug); letter-spacing: var(--tracking-h3);
+}
+.legal__sec p, .legal .tos-list { margin: 0 0 var(--s-4); color: var(--ink-700); line-height: 1.7; }
+.legal .tos-list { padding-left: var(--s-5); }
+.legal .tos-list li { margin-bottom: var(--s-2); }
+.legal__sec b, .legal .tos-list b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.legal code {
+  font-family: var(--font-mono); font-size: .9em; color: var(--ink-900);
+  background: var(--paper-2); padding: 1px 5px; border-radius: var(--r-sm); overflow-wrap: anywhere;
+}
+.legal .fine { margin: var(--s-10) 0 0; padding-top: var(--s-5); border-top: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); }
+.legal .fine a { color: var(--ink-700); }
+
+@media (max-width: 1000px) {
+  .co-cards, .co-trio { grid-template-columns: 1fr; }
+}
+@media (max-width: 820px) {
+  .co-pair, .co-split { grid-template-columns: 1fr; }
+  .co-split { gap: var(--s-6); }
+}
