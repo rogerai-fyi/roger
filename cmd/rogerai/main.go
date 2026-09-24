@@ -1053,13 +1053,12 @@ func cmdUse(cfg config, args []string) error {
 	// ADDRESSED INFERENCE (features/edge/addressed_inference.feature): if the first argument names a
 	// NODE on this Edge, pin the turn to that node's model instead of letting the band ladder pick a
 	// peer. A plain model falls through unchanged.
-	pinnedPeer, pinned, addrErr := client.EdgePeer{}, false, error(nil)
+	pinnedPeer, pinned := client.EdgePeer{}, false
 	if peer, band, isNode, err := edgeResolveAddressed(args[0], strings.TrimSpace(*onModel)); isNode {
 		if err != nil {
 			return err // a node address that cannot carry a turn - the typed refusal
 		}
 		model, pinnedPeer, pinned = band, peer, true
-		_ = addrErr
 	}
 	if *advanced {
 		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")

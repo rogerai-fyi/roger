@@ -14,7 +14,7 @@ func TestUseAddressPlainModelFallsThrough(t *testing.T) {
 	useTempConfig(t)
 	edgeWriteAuth(t, "owner")
 	edgeSeed(t, store.EdgeNode{ID: "n_jetson", Name: "jetson", Kind: "host",
-		Presence: string(edge.PresenceVerified),
+		Presence:   string(edge.PresenceVerified),
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.9:8443", Fingerprint: "cdcd"}},
 		Instances: []edge.Instance{{Name: "serve", Bands: []string{"qwen3-8b"},
 			Caps: []store.EdgeCap{{Name: string(edge.Serve), State: string(edge.Verified)}}}}})
@@ -29,7 +29,7 @@ func TestUseAddressNodePins(t *testing.T) {
 	useTempConfig(t)
 	edgeWriteAuth(t, "owner")
 	edgeSeed(t, store.EdgeNode{ID: "n_jetson", Name: "jetson", Kind: "host",
-		Presence: string(edge.PresenceVerified),
+		Presence:   string(edge.PresenceVerified),
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.9:8443", Fingerprint: "cdcd"}},
 		Instances: []edge.Instance{{Name: "serve", Bands: []string{"qwen3-8b"},
 			Caps: []store.EdgeCap{{Name: string(edge.Serve), State: string(edge.Verified)}}}}})
@@ -47,9 +47,9 @@ func TestUseAddressNodeServesNothingRefuses(t *testing.T) {
 	useTempConfig(t)
 	edgeWriteAuth(t, "owner")
 	edgeSeed(t, store.EdgeNode{ID: "n_pi", Name: "pi", Kind: "host",
-		Presence: string(edge.PresenceVerified),
+		Presence:   string(edge.PresenceVerified),
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.8:8443", Fingerprint: "abab"}},
-		Instances: []edge.Instance{{Name: "i", Bands: nil, Caps: nil}}})
+		Instances:  []edge.Instance{{Name: "i", Bands: nil, Caps: nil}}})
 
 	_, _, isNode, err := edgeResolveAddressed("pi", "")
 	require.True(t, isNode, "pi is a node on this Edge")

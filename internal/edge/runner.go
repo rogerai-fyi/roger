@@ -85,7 +85,6 @@ func NewRunnerWithGrant(turn GrantedTurn) func(callerID string, req InvokeReques
 	}
 }
 
-
 func mustJSON(s string) json.RawMessage {
 	b, err := json.Marshal(s)
 	if err != nil { // a Go string always marshals; this is belt-and-braces

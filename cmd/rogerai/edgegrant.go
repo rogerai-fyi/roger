@@ -238,3 +238,16 @@ func cmdEdgeGrantRevoke(id string) error {
 	fmt.Printf("revoked %s\n", id)
 	return nil
 }
+
+// edgeTrustedRevocation returns g with its revocation set from a source the callee TRUSTS - this
+// machine's authority grant store - never from the wire value, which is unsigned and so freely forged
+// by a caller holding a revoked grant. A grant this node did not issue has no local standing here
+// (its cross-node revocation rides a distributed grant-CRL, a later slice); such a grant keeps
+// whatever the signed fields say, still bounded by expiry and by node-level cert revocation.
+func edgeTrustedRevocation(st *edge.GrantStore, g store.Grant) store.Grant {
+	g.Revoked = false
+	if rec, ok, err := st.Get(g.ID); err == nil && ok {
+		g.Revoked = rec.Revoked
+	}
+	return g
+}

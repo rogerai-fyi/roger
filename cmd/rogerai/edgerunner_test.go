@@ -85,7 +85,7 @@ func TestEdgeInvokeHandlerSurfacesATurnRefusal(t *testing.T) {
 func TestEdgeInvokeHandlerPassesTheRequestedModel(t *testing.T) {
 	var want string
 	h := edgeInvokeHandler(edgeTurnDeps{
-		band: func(w string) (string, string, string, bool) { want = w; return "u", "k", w, true },
+		band:    func(w string) (string, string, string, bool) { want = w; return "u", "k", w, true },
 		runLoop: func(context.Context, string, string, string, string) (string, error) { return "ok", nil },
 	})
 	_, err := h("n_caller", edge.InvokeRequest{Capability: string(edge.Operate), Grant: store.Grant{ID: "g"}, Task: opTask(t, "hi", "qwen3-coder")})

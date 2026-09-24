@@ -65,6 +65,9 @@ func (s *Server) describe() Describe {
 // NewServer builds the LAN face from the node's own certificate.
 func NewServer(desc Describe, crt tls.Certificate) *Server {
 	s := &Server{desc: desc, cert: crt}
+	// The invoke replay cache is built once here, not lazily in the handler: a lazy init under no
+	// lock let two concurrent invokes each create a fresh cache and lose a nonce, reopening replay.
+	s.invokeSeen = &nonceCache{seen: map[string]int64{}}
 	if len(crt.Certificate) > 0 {
 		s.fp = Fingerprint(crt.Certificate[0])
 	}

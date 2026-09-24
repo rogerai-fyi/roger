@@ -123,8 +123,13 @@ func cmdEdgeInvoke(cfg config, args []string) error {
 	}
 	g, ok := edgeSelectGrant(grants, callerID, calleeID, capability, time.Now())
 	if !ok {
-		return fmt.Errorf("no live grant lets %s %s %s - issue one with `roger edge grant %s %s %s`",
-			edgeGrantWho(callerID), capability, calleeArg, calleeArg, capability, calleeArg)
+		// The hint names the caller in the caller slot; a caller that is this machine reads as "self".
+		callerHint := asCaller
+		if callerHint == "" {
+			callerHint = "self"
+		}
+		return fmt.Errorf("no live grant lets %s %s %s - issue one with `roger edge grant %s %s %s` on the authority",
+			edgeGrantWho(callerID), capability, calleeArg, callerHint, capability, calleeArg)
 	}
 
 	cert := edgeCallerCert()

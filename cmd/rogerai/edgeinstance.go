@@ -272,6 +272,15 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			if err := edge.VerifyGrant(g, fresh.Root()); err != nil {
 				return err
 			}
+			// REVOCATION IS NEVER TRUSTED FROM THE WIRE. Revoked is outside the signed canonical bytes
+			// (internal/edge/grant.go), so a caller holding a revoked grant could simply send
+			// Revoked:false and the signature would still verify. The callee therefore ignores the wire
+			// value entirely and applies the standing from a source it TRUSTS: this machine's authority
+			// grant store. A grant this node did not issue has no local standing here - cross-node
+			// per-grant revocation rides a distributed grant-CRL that is a later slice; until then a
+			// caller is still cut off at the node level by cert revocation (internal/edge/verify.go),
+			// which the mutual-TLS handshake already enforces before this runs.
+			g = edgeTrustedRevocation(edgeGrantStore(), g)
 			if g.Caller != "" && g.Caller != callerID {
 				return fmt.Errorf("that grant is for a different caller")
 			}

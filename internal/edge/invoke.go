@@ -95,10 +95,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusForbidden, "that invocation is stale")
 		return
 	}
-	// 3. Not a replay.
-	if s.invokeSeen == nil {
-		s.invokeSeen = &nonceCache{seen: map[string]int64{}}
-	}
+	// 3. Not a replay. The cache is built in NewServer (never lazily here: that raced).
 	if !s.invokeSeen.admit(req.Nonce, time.Unix(req.TS, 0).Add(invokeFreshness).Unix(), now.Unix()) {
 		refuse(http.StatusForbidden, "that invocation was already seen")
 		return

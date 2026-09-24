@@ -70,7 +70,12 @@ type Serving struct {
 }
 
 // SetServing arms the infer path. Without it the face answers describe only.
-func (s *Server) SetServing(sv Serving) { s.serving = &sv }
+func (s *Server) SetServing(sv Serving) {
+	s.serving = &sv
+	if s.invokeSeen == nil { // any server that can be invoked has a replay cache (NewServer sets it too)
+		s.invokeSeen = &nonceCache{seen: map[string]int64{}}
+	}
+}
 
 // tlsConfigServing is the listener's TLS with client certificates REQUESTED and verified
 // when given: describe stays open to a peer that has not presented one, while infer and

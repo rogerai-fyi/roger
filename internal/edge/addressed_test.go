@@ -75,7 +75,6 @@ func TestServingPeerResolvesAndRefuses(t *testing.T) {
 		require.ErrorIs(t, err, ErrNoSuchNode)
 	})
 
-
 	t.Run("serves nothing -> ErrServesNoModel", func(t *testing.T) {
 		f := seedFleet(t, srvNode("box", "host", "192.168.1.9:8443", PresenceVerified,
 			Instance{Name: "i", Bands: nil, Caps: nil}))
