@@ -141,6 +141,24 @@ A short numbered path (2 to 6 steps): a mono numeral and a tick per step on one 
 the first tick red. Left to right on wide screens, a vertical rail under 820px. The
 numerals are a CSS counter over the `<ol>`, which already carries the order.
 
+### Page index
+```html
+<nav class="page-index" aria-label="Sections">
+  <ol><li><a class="page-index__link" href="#id">Heading, word for word</a></li> ...</ol>
+</nav>
+<!-- grouped: -->
+<nav class="page-index" aria-label="Every question">
+  <div class="page-index__group">
+    <a class="page-index__head" href="#group">Group name</a>
+    <ol><li><a class="page-index__link" href="#q-id">Question</a></li> ...</ol>
+  </div> ...
+</nav>
+```
+An in-flow index of a long page built only from its own headings or questions, in columns
+so all of it fits one screen. Never pinned. Every link carries a class (a classless link
+in an `<li>` gets the prose hairline). Used by the FAQ (every question) and the legal
+pages (every section).
+
 ### TOC tuner
 ```html
 <nav class="toc-tuner" data-tuner aria-label="Sections">

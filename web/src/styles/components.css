@@ -466,3 +466,31 @@
   .steps > li::after { top: var(--s-4); left: -6px; width: 11px; height: 1px; }
   .steps > li:first-child::after { height: 2px; width: 11px; }
 }
+
+/* ---- component: page-index (added by company rollout) ----------------------
+   <nav class="page-index" aria-label="Sections">
+     <ol><li><a class="page-index__link" href="#id">Heading, word for word</a></li> ...</ol>
+   </nav>
+   or grouped:
+     <div class="page-index__group"><a class="page-index__head" href="#g">Group</a>
+       <ol> ... </ol></div>
+   An in-flow index of a long page, built from its own headings or questions (no
+   new words), set in columns so all of it fits one screen. Never pinned. Every
+   link carries a class (a classless link in an <li> gets the prose hairline). The
+   targets carry their own ids; anchors land under the nav (scroll-margin). */
+.page-index { font-size: var(--t-sm); line-height: 1.45; }
+.page-index ol { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s-2); }
+.page-index > ol { columns: 2 20rem; column-gap: var(--s-10); display: block; }
+.page-index > ol > li { break-inside: avoid; padding-block: 3px; }
+.page-index a { color: var(--ink-700); text-decoration: none; }
+.page-index a:hover { color: var(--live); }
+.page-index a:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: 2px; }
+.page-index__group { break-inside: avoid; margin-bottom: var(--s-6); }
+.page-index:has(.page-index__group) { columns: 2 20rem; column-gap: var(--s-10); }
+.page-index__head {
+  display: block; margin-bottom: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.page-index a.page-index__head { color: var(--ink-500); }
+.page-index a.page-index__head:hover { color: var(--live); }
