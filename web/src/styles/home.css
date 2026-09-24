@@ -6,7 +6,7 @@
    the homepage hero-foundation overrides, the Roger Edge story reel (FIG.2)
    and the small /models entry link. The shared eyebrow line, the .ping mascot
    shape + animations, the install command box, .market__refresh, the
-   ((.)) beacon and .hero__dot live in base.css. Consumes tokens.css +
+   ((.)) beacon live in base.css. Consumes tokens.css +
    base.css. Rules MOVED verbatim from site.css, in source order.
    ===================================================================== */
 
@@ -374,7 +374,6 @@
   border: 0;
 }
 .hero__ping-trigger .tube-ping figcaption { display: none; }
-.hero__ping-trigger:hover { filter: drop-shadow(0 0 6px var(--live-glow)); }
 .hero__ping-trigger:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; }
 
 /* ---------- the ALWAYS-ON scrolling LED banner, beside the mascot ----

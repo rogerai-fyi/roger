@@ -394,6 +394,66 @@ test("no component exists twice under two names (identical or near-identical dec
   assert.deepEqual(stale, [], "these pairs are no longer twins: drop them from TWIN_EXCEPTIONS");
 });
 
+/* ---- no red glows ------------------------------------------------------------------ */
+
+// The founder rejected glows: a blurred red halo on a surface (the FIG. 1 panel's hover glow
+// was the last). Red may RING (a 0-blur spread: focus, an on-air dot's halo) and may be a
+// LAMP: a small light source that is itself the indicator. Every blurred red shadow in any
+// sheet must be one of these lamps, listed with its reason; nothing unlisted blurs past 12px.
+const RED = /var\(--live(-glow|-wash|-tint)?\b|224,\s*35,\s*28|255,\s*68,\s*56|#E0231C|#FF4438/i;
+const RED_LAMPS = {
+  "base.css .brand__pulse": "the brand mark's on-air beacon (3px)",
+  "base.css .ping__eye": "Ping's eye lamp (3px)",
+  "home.css .pingband__grille": "the LED banner's 6px grille dot (5px)",
+  'home.css .pingdeck[data-ping-state="onair"] .pingdeck__led, .pingdeck[data-ping-state="transmit"] .pingdeck__led': "the deck's on-air / transmit LED (6px)",
+  "home.css .twoway__beam::after": "the 6px dot travelling the beam (6px)",
+  "models.css .dial__pointer": "the dial pointer lights as it locks onto a station (2 to 9px)",
+  "playbox.css .dk__lamp.is-lit": "Playbox (a self-contained game): the deck's lit lamp",
+  "playbox.css .dk__dial i::before": "Playbox (a self-contained game): the dial's needle lamp",
+  "playbox.css .dk__spine.is-loaded": "Playbox (a self-contained game): the loaded cassette's lift",
+  "wave-patch.css from": "Playbox mesh deck (a self-contained game): a one-shot alarm flash",
+};
+function shadowParts(value) {
+  // split a shadow list on top-level commas; drop-shadow() arguments too
+  const out = [];
+  for (const m of value.matchAll(/drop-shadow\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)) out.push(m[1]);
+  if (!/drop-shadow/.test(value)) {
+    let depth = 0, cur = "";
+    for (const ch of value) { if (ch === "(") depth++; if (ch === ")") depth--; if (ch === "," && !depth) { out.push(cur); cur = ""; } else cur += ch; }
+    out.push(cur);
+  }
+  return out.map((p) => p.trim());
+}
+const blurOf = (part) => {
+  const lens = part.replace(/\binset\b/, "").replace(/(color-mix|rgba?|var)\([^()]*(\([^()]*\))?[^()]*\)/g, "").trim()
+    .split(/\s+(?![^(]*\))/).filter((t) => /^(-?[\d.]+(px|rem|em)?|calc\(.*\))$/.test(t));
+  const b = lens[2];
+  if (!b) return 0;
+  return /^calc/.test(b) ? Infinity : parseFloat(b);
+};
+test("no red glows: red rings and small lamps only, every lamp listed", () => {
+  const glows = [], seen = new Set();
+  for (const sheet of SHEETS) {
+    for (const [sel, d] of rules(read(`styles/${sheet}`))) {
+      for (const prop of ["box-shadow", "filter", "text-shadow"]) {
+        const v = d.get(prop);
+        if (!v || !RED.test(v)) continue;
+        for (const part of shadowParts(v)) {
+          if (!RED.test(part)) continue;
+          const blur = blurOf(part);
+          if (!blur) continue;                                   // a ring
+          const key = `${sheet} ${sel}`;
+          assert.ok(blur <= 12 || RED_LAMPS[key], `${key}: a ${blur}px red blur is a glow`);
+          if (RED_LAMPS[key]) { seen.add(key); continue; }
+          glows.push(`${key} { ${prop}: ${v} }`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(glows, [], `red glows (the founder rejected glows; ring it, or list a lamp):\n  ${glows.join("\n  ")}`);
+  assert.deepEqual(Object.keys(RED_LAMPS).filter((k) => !seen.has(k)), [], "a listed lamp no longer glows: drop it");
+});
+
 /* ---- behaviour: one implementation per shared behaviour --------------------------- */
 
 // The copy tick lives in site.js (every .install__box, and [data-copy-target]). These

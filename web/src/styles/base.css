@@ -7,7 +7,7 @@
    shared across pages: the eyebrow callsign line, the Ping mascot shape +
    animations (home + 404), the install command box (home + models), the
    market refresh + ((.)) beacon (home + models), the generic section
-   wrappers, the colophon, the .hero__dot beacon and the .man-note plate
+   wrappers, the colophon and the .man-note plate
    (manual + keys). Consumes tokens.css. Page-specific instruments live in
    their own modules. Rules are MOVED verbatim from the old site.css, in the
    same relative source order, so the cascade is unchanged.
@@ -532,7 +532,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .ping__glow { transform-box: fill-box; transform-origin: center;
   animation: pingGlow var(--carrier) var(--ease-in-out) infinite; }
 @keyframes pingGlow { 0%,100% { opacity: .22; transform: scale(1); } 50% { opacity: .55; transform: scale(1.16); } }
-/* the faceted eye dims on the carrier too, echoing heroDot/brandPulse */
+/* the faceted eye dims on the carrier too, echoing brandPulse */
 .ping__eye { transform-box: fill-box; transform-origin: center;
   filter: drop-shadow(0 0 3px var(--live-glow));
   animation: pingEye var(--carrier) var(--ease-in-out) infinite; }
@@ -646,16 +646,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .toast::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
 
 
-/* the on-air red beacon dot after "home GPUs" (home / manual) */
-/* the period after "home GPUs" is a live-red on-air beacon, glowing like the logo */
-.hero__dot {
-  display: inline-block; width: 0.16em; height: 0.16em; border-radius: 50%;
-  background: var(--live); vertical-align: -0.13em; margin-left: 0.01em;
-  box-shadow: 0 0 13px 2px var(--live-glow);
-  animation: heroDot var(--carrier) var(--ease-in-out) infinite;
-}
-@keyframes heroDot { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
-@media (prefers-reduced-motion: reduce) { .hero__dot { animation: none; opacity: 1; } }
 
 
 /* footer colophon micro-line (homepage foundation layer) */

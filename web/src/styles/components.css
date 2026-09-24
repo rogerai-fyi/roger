@@ -126,11 +126,6 @@
   box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4);
   transition: box-shadow var(--d-3) var(--ease-out-quint);
 }
-.install[data-frame="panel"]:hover,
-.install[data-frame="panel"]:focus-within {
-  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4),
-              0 0 48px -8px var(--live-glow);
-}
 .install[data-frame="panel"] > .fig {
   display: flex; align-items: center; gap: var(--s-2);
   align-self: stretch;
