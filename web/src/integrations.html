@@ -13,10 +13,7 @@
   <!-- include: head.html title="Integrations - RogerAI" desc="RogerAI speaks the OpenAI API on both sides. It auto-detects a dozen local inference servers to put on the air - Ollama, LM Studio, vLLM, llama.cpp, Jan, LiteLLM and more - and wires agent CLIs like opencode, aider and pi straight onto a band." theme=external og=post ogtype=website ogtitle="RogerAI integrations - what it already works with" ogdesc="A dozen local servers detected by default port, four agent CLIs wired onto the band and three more detected, and a two-line change for anything else that speaks the OpenAI API." ogurl="https://rogerai.fm/integrations.html" ogimage="https://rogerai.fm/og-home.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Integrations</span>
-    <span class="rail__rev">Rev. 2026.08 &middot; ON AIR</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Integrations" rev="Rev. 2026.08 &middot; ON AIR" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 integrationscurrent='aria-current="page"' -->
 
@@ -24,7 +21,7 @@
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">ROGERAI</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           integrations
@@ -221,9 +218,6 @@ OPENAI_API_KEY=&lt;grant key&gt;</code></pre>
   </main>
 
   <!-- include: footer.html anchors=/ -->
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

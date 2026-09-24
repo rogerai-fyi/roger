@@ -6,10 +6,7 @@
 <body>
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Operating Manual</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Operating Manual" rev="Rev. 2026.07 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 manualcurrent='aria-current="page"' -->
@@ -21,7 +18,7 @@
     <div class="wrap">
       <div class="man-cover__plate">
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">ON AIR</span>
           <span class="hero__sep" aria-hidden="true">·</span>
           operating manual
@@ -1780,9 +1777,6 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

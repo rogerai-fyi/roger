@@ -6,10 +6,7 @@
 <body data-onair="live">
 
   <!-- running head: this page is one bound document -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · The Handheld</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · The Handheld" rev="Rev. 2026.07 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 appcurrent='aria-current="page"' -->
@@ -25,7 +22,7 @@
 
       <div class="app-hero__copy">
         <span class="hero__eyebrow" data-reveal>
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">THE HANDHELD</span>
           <span class="hero__sep" aria-hidden="true">·</span>
           now on the App Store
@@ -470,17 +467,7 @@
           already on your machine, puts them on air if you want, and tunes you into everyone
           else&rsquo;s - the terminal (§9) and the browser console (§10) are the same
           <code class="inline">roger</code>.</p>
-        <button class="install__box" id="installCmdApp" type="button"
-                aria-label="Copy install command to clipboard">
-          <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
-          <span class="install__copy" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-            </svg>
-          </span>
-        </button>
+        <!-- include: install-box.html id=installCmdApp cmd='curl -fsSL https://rogerai.fm/install.sh | sh' -->
         <div class="install__meta">
           <span data-alt-note>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
         </div>
@@ -499,7 +486,7 @@
            the active theme's file loads. Decorative - the copy carries the message. -->
       <div class="app-cta__art" role="img"
            aria-label="A hand holds the handheld two-way radio; the transmission tower's red beacon glows on the horizon"></div>
-      <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+      <!-- include: onair.html -->
       <h2 class="app-cta__title">Pick up the <span class="app-hero__op">handheld</span>.</h2>
       <p class="app-cta__sub">Free on the App Store. The band is open.</p>
       <a class="app-badge app-badge--lg" href="https://apps.apple.com/us/app/rogerai-fm/id6785743752"
@@ -522,9 +509,6 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

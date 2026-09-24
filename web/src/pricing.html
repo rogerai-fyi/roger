@@ -17,10 +17,7 @@
   <!-- include: head.html title="Pricing - RogerAI" desc="RogerAI has no price list: operators set their own per-token rates and many stations broadcast free. What is fixed is the rules - no subscription, a wallet debited per token, a 90/10 split in the operator's favor, a $25 minimum payout after a 30-day hold." theme=external og=post ogtype=website ogtitle="RogerAI pricing - the rules, not a price list" ogdesc="Per token, in and out, at a price the operator sets. No subscription, no seat, no minimum. Operators keep 90%. Free stations are normal, not a trial." ogurl="https://rogerai.fm/pricing.html" ogimage="https://rogerai.fm/og-home.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Pricing</span>
-    <span class="rail__rev">Rev. 2026.08 &middot; ON AIR</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Pricing" rev="Rev. 2026.08 &middot; ON AIR" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 pricingcurrent='aria-current="page"' -->
 
@@ -28,7 +25,7 @@
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">ROGERAI</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           pricing
@@ -536,9 +533,6 @@
   <!-- include: footer.html anchors=/ -->
   <script src="js/fmt.js" defer></script>
   <script src="js/calc.js" defer></script>
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

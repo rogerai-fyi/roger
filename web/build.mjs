@@ -11,7 +11,7 @@
 // Include syntax (resolved recursively, depth-guarded):
 //   <!-- include: nav.html -->
 //   <!-- include: nav.html variant=marketing -->     // pass args to the partial
-// Inside a partial, args substitute as {{name}} and gate blocks:
+// Inside a partial, args substitute as {{name}} and gate blocks (which may nest):
 //   {{#if variant=marketing}} ... {{/if}}
 //   {{#unless variant=marketing}} ... {{/unless}}
 // Unknown {{name}} resolve to "" so stray markers never ship literally.
@@ -119,20 +119,20 @@ function parseArgs(s) {
 }
 
 // Apply {{#if}} / {{#unless}} gates and {{var}} substitution for one arg set.
+// Gates may nest: each pass resolves only the INNERMOST blocks (a body that holds
+// no other gate marker), and passes repeat until none is left.
+const GATE_RE = /\{\{#(if|unless)\s+([\w-]+)(?:=([^}]*))?\}\}((?:(?!\{\{[#/](?:if|unless)\b)[\s\S])*?)\{\{\/\1\}\}/g;
 function applyArgs(html, args) {
-  // {{#if key=val}}...{{/if}}  (also bare {{#if key}} = truthy presence)
-  html = html.replace(/\{\{#if\s+([\w-]+)(?:=([^}]*))?\}\}([\s\S]*?)\{\{\/if\}\}/g,
-    (_, key, val, body) => {
+  // {{#if key=val}}...{{/if}}  (also bare {{#if key}} = truthy presence); {{#unless}} inverts
+  for (let prev = null; prev !== html;) {
+    prev = html;
+    html = html.replace(GATE_RE, (_, kind, key, val, body) => {
       const have = args[key];
       const ok = val === undefined ? (have !== undefined && have !== "") : have === val;
-      return ok ? body : "";
+      return ok === (kind === "if") ? body : "";
     });
-  html = html.replace(/\{\{#unless\s+([\w-]+)(?:=([^}]*))?\}\}([\s\S]*?)\{\{\/unless\}\}/g,
-    (_, key, val, body) => {
-      const have = args[key];
-      const ok = val === undefined ? (have !== undefined && have !== "") : have === val;
-      return ok ? "" : body;
-    });
+  }
+  if (/\{\{[#/](if|unless)\b/.test(html)) throw new Error("unbalanced {{#if}}/{{#unless}} in a partial");
   // {{var}} substitution; unknown -> ""
   html = html.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_, key) => args[key] ?? "");
   return html;

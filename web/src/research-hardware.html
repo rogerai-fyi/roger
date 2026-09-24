@@ -17,10 +17,7 @@
   <!-- include: head.html title="Hardware - what runs where, from an ESP32 to a DGX Spark" desc="The Wave family and Roger Edge mapped onto real boards: ESP32, Arduino, Raspberry Pi Pico and Pi 5, Jetson, Mac Studio and DGX Spark. Which tier each board is a target for, what stage that tier is at, and what you can actually run today." theme=external og=post ogtype=website ogtitle="RogerAI hardware - the board you own, and what it is meant to carry" ogdesc="From a sensor microcontroller to a desktop datacenter: the model tier each class of board is a target for, with the honest stage of each one." ogurl="https://rogerai.fm/research-hardware.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Hardware</span>
-    <span class="rail__rev">Rev. 2026.08 &middot; LABS</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Hardware" rev="Rev. 2026.08 &middot; LABS" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -29,7 +26,7 @@
       <div class="wrap">
         <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">HARDWARE</span>
         </span>
         <h1>The board you already have,<br>and what it is meant to carry.</h1>
@@ -489,9 +486,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
+  <!-- include: site-js.html promo=0 -->
   <script src="js/hardware.js" defer></script>
 </body>
 </html>

@@ -46,10 +46,7 @@
 </head>
 <body data-onair="idle">
 
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Field Guide</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.09 &middot; ((&bull;))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Field Guide" rev="Rev. 2026.09 &middot; ((&bull;))" orange=1 -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -61,7 +58,7 @@
 
       <header class="bc-post__head" data-reveal>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">BROADCAST 014 &middot; FIELD GUIDE</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime="2026-09-20">SEPTEMBER 2026</time>
@@ -338,9 +335,6 @@
 
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"If I share my GPU, can someone see my files?","acceptedAnswer":{"@type":"Answer","text":"No. The message format your station receives has no field for a file path or a command, only a chat or voice request matched against a fixed list of four allowed endpoints. There is nothing to see with, because there is nothing that lets a request reach your filesystem in the first place."}},{"@type":"Question","name":"What if someone tricks the model into asking for a file?","acceptedAnswer":{"@type":"Answer","text":"A model can only ever write text describing what it would like to happen. Turning that text into a real action requires a tool-calling harness, and RogerAI's harness runs on the requester's own machine, never on the station serving the model. A tool call a model writes to your station is, to your station, indistinguishable from any other sentence."}},{"@type":"Question","name":"Does sharing open a port on my network?","acceptedAnswer":{"@type":"Answer","text":"No. The connection is outbound-only: your machine polls the broker for work the same way a browser polls a page for updates. Nothing is listening for an inbound connection, so there is nothing to scan or connect to from outside."}},{"@type":"Question","name":"Is the model server itself sandboxed by RogerAI?","acceptedAnswer":{"@type":"Answer","text":"RogerAI does not run your model at all. You already run a local OpenAI-compatible server (Ollama, llama.cpp, LM Studio, vLLM) for yourself; roger share relays requests to it unread, the way it already answers you. Sharing adds a forwarding layer, not a new capability."}},{"@type":"Question","name":"Where does file access actually get sandboxed, then?","acceptedAnswer":{"@type":"Answer","text":"On the requester's own machine, inside RogerAI's harness: file reads and writes are restricted to the working directory they launched in. A read runs on its own; writing a file or running a shell command asks for explicit confirmation, showing the literal command, by default, unless the requester has chosen a fully permissive mode for their own session."}},{"@type":"Question","name":"Is my API key or identity exposed to whoever I'm serving?","acceptedAnswer":{"@type":"Answer","text":"No. Your upstream key is stripped before anything is relayed back, and stations are identified by an anonymous callsign, never a hostname or account."}}]}</script>
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

@@ -11,10 +11,7 @@
 </head>
 <body data-onair="idle">
 
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Field Guide</span>
-    <span class="rail__rev">Rev. 2026.07 &middot; LABS</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Field Guide" rev="Rev. 2026.07 &middot; LABS" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 researchcurrent='aria-current="page"' -->
 
@@ -25,7 +22,7 @@
         <div>
           <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
           <span class="hero__eyebrow">
-            <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+            <!-- include: onair.html -->
             <span class="hero__callsign">WAVE FAMILY &middot; FIELD GUIDE</span>
           </span>
           <!-- FOUNDER 2026-08-17: "remove this from the title: 'one family, pico to
@@ -715,8 +712,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
+  <!-- include: site-js.html -->
   <!-- The spectrum mark is the default; js/wave-mark.js is the previous
        "classic" mark, kept and reachable with ?mark=classic for comparison.
        Both animate the SAME resting markup above, so with JS off - or under
@@ -726,7 +722,5 @@
   <!-- §4's job finder. The section is whole without it: the script only reveals the
        toolbar and bounds the panel. -->
   <script src="js/wave-jobs.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
 </body>
 </html>

@@ -13,10 +13,7 @@
   <!-- include: head.html title="The Tower - RogerAI" desc="How RogerAI picks a station for your request, meters it, and co-signs a receipt neither side can forge. Capacity-aware routing, power-of-two-choices, and settlement bound to a verified receipt." theme=external og=post ogtype=website ogtitle="The Tower - how RogerAI routes, meters and signs" ogdesc="Capacity-aware routing with a health gate, and a receipt signed by the station and counter-signed by the broker, so a station cannot profit from misreporting price or tokens." ogurl="https://rogerai.fm/tower.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; The Tower</span>
-    <span class="rail__rev">Rev. 2026.07 &middot; ON AIR</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; The Tower" rev="Rev. 2026.07 &middot; ON AIR" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 towercurrent='aria-current="page"' -->
 
@@ -24,7 +21,7 @@
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">THE TOWER</span>
         </span>
         <h1>Every station dials the tower. The tower never dials a station.</h1>
@@ -264,18 +261,7 @@
              <a href="/manual.html#sTower">runbook</a> is exact about it.</p>
         </div>
 
-        <button class="install__box install__box--lg" id="installTower" type="button"
-                       data-os-lock="linux"
-                aria-label="Copy the Tower install command to clipboard">
-          <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</code>
-          <span class="install__copy" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-            </svg>
-          </span>
-        </button>
+        <!-- include: install-box.html id=installTower size=lg oslock=linux label="Copy the Tower install command to clipboard" cmd='curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh' -->
         <p class="run__note">Linux only, and on purpose: a Tower is a long-running server
            process. The installer verifies the release checksum before it installs anything,
            and refuses outright on macOS or Windows rather than leaving you a binary that
@@ -355,8 +341,6 @@
   </main>
 
   <!-- include: footer.html anchors=/ -->
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
+  <!-- include: site-js.html promo=0 -->
 </body>
 </html>

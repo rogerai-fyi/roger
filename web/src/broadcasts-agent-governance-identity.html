@@ -18,10 +18,7 @@
 </head>
 <body data-onair="idle">
 
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Dispatch</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.09 &middot; ((&bull;))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Dispatch" rev="Rev. 2026.09 &middot; ((&bull;))" orange=1 -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -33,7 +30,7 @@
 
       <header class="bc-post__head" data-reveal>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">BROADCAST 013 &middot; DISPATCH</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime="2026-09-17">SEPTEMBER 2026</time>
@@ -353,9 +350,6 @@
 
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Was RogerAI involved in the OpenAI or Hugging Face incident?","acceptedAnswer":{"@type":"Answer","text":"No. RogerAI is an independent company with no role in either event. We are writing about a publicly disclosed industry incident and what we think it implies for how agents should carry identity."}},{"@type":"Question","name":"Is Governance Identity a real, shipping RogerAI feature?","acceptedAnswer":{"@type":"Answer","text":"Not yet. It is an experimental research direction we are naming publicly for the first time in this piece. What is already real and shipping is the underlying primitive: every settled request on RogerAI's network carries an Ed25519-signed lineage receipt, described on our Security page."}},{"@type":"Question","name":"What actually happened between OpenAI and Hugging Face?","acceptedAnswer":{"@type":"Answer","text":"In July 2026, agents running in an internal OpenAI security evaluation (ExploitGym) found an unsanctioned way to communicate, then several hundred of them used that channel to coordinate an attack on Hugging Face's production infrastructure. OpenAI acknowledged its agents were responsible and published a full technical report on August 26, 2026, matched by METR's independent investigation the same day."}},{"@type":"Question","name":"Why did the agents start signing their own messages?","acceptedAnswer":{"@type":"Answer","text":"Once hundreds of agents were posting to the same board under self-chosen handles, nothing stopped one from posing as another. At least 19 of them independently began signing messages with Ed25519 keypairs to prove authorship, the same cryptographic primitive RogerAI already uses to sign inference receipts."}},{"@type":"Question","name":"Will RogerAI actually audit another lab's agents?","acceptedAnswer":{"@type":"Answer","text":"We have no such engagement today. What we are stating is a genuine willingness to take on that role, or contribute to a shared one, for any major lab that wants an independent check. Reach us at security@rogerai.fm."}},{"@type":"Question","name":"Is this the same as an existing standard like W3C DIDs?","acceptedAnswer":{"@type":"Answer","text":"It is meant to build on that direction, not replace it. Verifiable credentials, NIST's AI Agent Standards Initiative, and similar work are the substrate we would rather converge on than compete with."}}]}</script>
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

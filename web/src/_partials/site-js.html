@@ -1,0 +1,14 @@
+<!-- site-js: the shared page runtime (web/DESIGN-SYSTEM.md). -->{{#unless sync=1}}
+  <script src="js/lets-talk.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>{{#unless promo=0}}
+  <script src="js/promo.js" defer></script>{{/unless}}
+  <script src="js/tuner.js" defer></script>
+  <script src="js/scrub.js" defer></script>
+  <script src="js/anchor-hold.js" defer></script>{{/unless}}{{#if sync=1}}
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>{{#unless promo=0}}
+  <script src="js/promo.js"></script>{{/unless}}
+  <script src="js/tuner.js"></script>
+  <script src="js/scrub.js"></script>
+  <script src="js/anchor-hold.js"></script>{{/if}}

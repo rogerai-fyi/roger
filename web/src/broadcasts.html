@@ -9,10 +9,7 @@
 <body data-onair="idle">
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Broadcasts</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Broadcasts" rev="Rev. 2026.06 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
@@ -24,7 +21,7 @@
     <div class="wrap bc-hero__inner">
 
       <span class="hero__eyebrow" data-reveal>
-        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <!-- include: onair.html -->
         <span class="hero__callsign">ON AIR</span>
         <span class="hero__sep" aria-hidden="true">·</span>
         the transmission log
@@ -50,7 +47,7 @@
       <aside class="bc-tg" data-reveal aria-label="A word from the founder">
         <div class="bc-tg__head">
           <span class="bc-tg__label mono">
-            <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+            <!-- include: onair.html -->
             TELEGRAM
           </span>
           <span class="bc-tg__meta mono">FROM: THE FOUNDER &middot; <time datetime="2026">2026</time></span>
@@ -391,9 +388,6 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

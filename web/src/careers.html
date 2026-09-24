@@ -10,10 +10,7 @@
   <!-- include: head.html title="Careers - RogerAI" desc="RogerAI Labs is hiring for edge model research, inference engineering, and industrial deployment. Small team, work published in the open, Orange County, California." theme=external og=post ogtype=website ogtitle="Careers at RogerAI" ogdesc="Edge model research, inference engineering, and industrial deployment. Small team, published in the open." ogurl="https://rogerai.fm/careers.html" ogimage="https://rogerai.fm/og-company.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Careers</span>
-    <span class="rail__rev">Rev. 2026.07 &middot; ON AIR</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Careers" rev="Rev. 2026.07 &middot; ON AIR" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -21,7 +18,7 @@
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">JOIN US</span>
         </span>
         <h1>Engineers for engineers. Operators for operators.</h1>
@@ -178,8 +175,6 @@
   </main>
 
   <!-- include: footer.html anchors=/ -->
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
+  <!-- include: site-js.html promo=0 -->
 </body>
 </html>

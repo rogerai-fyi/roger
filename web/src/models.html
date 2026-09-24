@@ -7,10 +7,7 @@
 
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Model Directory</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Model Directory" rev="Rev. 2026.06 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 modelscurrent='aria-current="page"' -->
@@ -22,7 +19,7 @@
     <div class="wrap bands-hero__inner">
 
       <span class="hero__eyebrow" data-reveal>
-        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <!-- include: onair.html -->
         <span class="hero__callsign">THE MODELS</span>
         <span class="hero__sep" aria-hidden="true">·</span>
         a directory of live stations
@@ -303,9 +300,6 @@
 
   <script src="js/bands.js" defer></script>
   <script src="js/report.js" defer></script>
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

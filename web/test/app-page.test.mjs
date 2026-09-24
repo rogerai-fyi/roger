@@ -12,6 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -121,8 +122,12 @@ test("each numbered section carries a dial-rule divider with its own needle posi
 // also tell you how to GET the roger binary, in the copy-button component the rest of the
 // site uses, positioned before the closing App Store CTA (its last image).
 test("app.html ships the roger install command in a copy box, before the closing CTA", () => {
-  // the install__box copy component (site.js wires copy-to-clipboard for every .install__box)
-  const box = app.match(/<button class="install__box"[\s\S]*?<\/button>/);
+  // the install__box copy component (site.js wires copy-to-clipboard for every .install__box).
+  // The page includes it from _partials/install-box.html, so check the BUILT page.
+  execFileSync("node", ["build.mjs"], { cwd: join(root, "..") });
+  const built = readFileSync(join(root, "..", "dist", "app.html"), "utf8");
+  assert.match(app, /<!-- include: install-box\.html /, "the page uses the shared install-box partial");
+  const box = built.match(/<button class="install__box"[\s\S]*?<\/button>/);
   assert.ok(box, "the install command sits in an install__box copy button");
   assert.match(box[0], /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/,
     "the one-line installer is the canonical rogerai.fm/install.sh");

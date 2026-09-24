@@ -7,10 +7,7 @@
 
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Operating Manual</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Operating Manual" rev="Rev. 2026.06 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=#top anchors="" -->
@@ -29,7 +26,7 @@
       <div class="hero__grid">
       <div class="hero__head">
       <span class="hero__eyebrow">
-        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <!-- include: onair.html -->
         <span class="hero__callsign">ROGERAI</span>
         <span class="hero__sep" aria-hidden="true">·</span>
         American AI research + infrastructure
@@ -96,17 +93,7 @@
           models</b>. It finds the models already on your machine and tunes you into
           everyone else&rsquo;s.
         </p>
-        <button class="install__box" id="installCmd" type="button"
-                aria-label="Copy install command to clipboard">
-          <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh</code>
-          <span class="install__copy" id="installCopy" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-            </svg>
-          </span>
-        </button>
+        <!-- include: install-box.html id=installCmd cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
         <div class="install__meta">
           <span id="installNote">macOS · Linux - no account needed to browse</span>
           <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary &rarr;</a>
@@ -771,17 +758,7 @@
       <p>You are installing <code class="inline">roger</code>: one binary, <b>a local
         harness for local models</b>. It finds the models already on your machine, puts
         them on air if you want, and tunes you into everyone else&rsquo;s.</p>
-      <button class="install__box install__box--lg" id="installCmd2" type="button"
-              aria-label="Copy install command to clipboard">
-        <span class="install__prompt" aria-hidden="true">$</span>
-        <code class="install__code">curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh</code>
-        <span class="install__copy" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-            <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-          </svg>
-        </span>
-      </button>
+      <!-- include: install-box.html id=installCmd2 size=lg cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
       <div class="install__meta">
         <span id="installNoteWin2" data-alt-note>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
       </div>
@@ -813,18 +790,12 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors="" -->
 
-  <script src="js/anchor-hold.js" defer></script>
-  <script src="js/scrub.js" defer></script>
-  <script src="js/tuner.js" defer></script>
   <script src="js/ping-eye.js" defer></script>
   <script src="js/edge-story.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/fmt.js" defer></script><!-- canonical $ renderer; before market.js (meter REPLY) -->
   <script src="js/market.js" defer></script>
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
   <script src="js/ping-chat.js" defer></script>
 </body>
 </html>
