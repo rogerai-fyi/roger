@@ -149,6 +149,15 @@
       } catch (e) { reject(e); }
     });
   }
+  // The one copy behaviour (the copy tick): copy, mark the control .is-copied for
+  // 1.6s (components.css turns its icon into a tick), and say so in the toast.
+  function copyTick(btn, text) {
+    copy(text).then(function () {
+      btn.classList.add("is-copied");
+      showToast("Copied to clipboard");
+      setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
+    }).catch(function () { showToast("Press ⌘/Ctrl-C to copy"); });
+  }
   // EVERY install box copies, not a hardcoded list of two ids. The list was a trap: the
   // next page to offer an install command got a button that silently did nothing, which is
   // exactly what happened when the Tower page grew one.
@@ -157,13 +166,20 @@
       // Copy the command currently displayed, not a hardcoded constant, so the
       // Windows PowerShell swap (below) always copies the right one.
       var code = btn.querySelector(".install__code");
-      var text = code ? code.textContent.trim() : INSTALL_CMD;
-      copy(text).then(function () {
-        btn.classList.add("is-copied");
-        showToast("Copied to clipboard");
-        setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
-      }).catch(function () { showToast("Press ⌘/Ctrl-C to copy"); });
+      copyTick(btn, code ? code.textContent.trim() : INSTALL_CMD);
     });
+  });
+  // [data-copy-target]: the shared copy control for anything else (the footer's
+  // upgrade commands, code blocks). It copies the text of the element its value
+  // names ("#id"), or its own <code> when the value is empty. Delegated, so a
+  // control added after load works too.
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest && e.target.closest("[data-copy-target]");
+    if (!btn) return;
+    var sel = btn.getAttribute("data-copy-target");
+    var src = null;
+    try { src = sel ? document.querySelector(sel) : btn.querySelector("code"); } catch (err) { src = null; }
+    if (src) copyTick(btn, src.textContent.trim());
   });
 
   /* ---- "how to upgrade" disclosure (footer) ---------------------- */
@@ -176,20 +192,7 @@
       upPanel.hidden = open;
     });
   }
-  // each upgrade command box copies its own <code> text on click
-  [["upgradeCmd1"], ["upgradeCmd2"]].forEach(function (pair) {
-    var btn = document.getElementById(pair[0]);
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      var code = btn.querySelector("code");
-      var text = code ? code.textContent : "";
-      copy(text).then(function () {
-        btn.classList.add("is-copied");
-        showToast("Copied to clipboard");
-        setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
-      }).catch(function () { showToast("Press ⌘/Ctrl-C to copy"); });
-    });
-  });
+  // (each upgrade command box copies its own <code>: data-copy-target, above)
 
   /* ---- OS detection: upgrade Windows visitors to the PowerShell command --
      Progressive enhancement: the static HTML default is the POSIX curl

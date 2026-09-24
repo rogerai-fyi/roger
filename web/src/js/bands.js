@@ -1103,18 +1103,7 @@
     var row = e.target.closest(".band-row");
     if (row && row.dataset.band) { e.preventDefault(); window.location.hash = "band=" + encodeURIComponent(row.dataset.band); }
   });
-  var qslCmd = document.getElementById("qslCmd");
-  if (qslCmd) qslCmd.addEventListener("click", function () {
-    var code = document.getElementById("qslCmdCode").textContent;
-    var done = function () {
-      qslCmd.classList.add("is-copied");
-      var t = document.getElementById("toast");
-      if (t) { t.textContent = "Copied to clipboard"; t.classList.add("is-shown"); setTimeout(function () { t.classList.remove("is-shown"); }, 1800); }
-      setTimeout(function () { qslCmd.classList.remove("is-copied"); }, 1200);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, function () {});
-    else { try { var ta = document.createElement("textarea"); ta.value = code; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done(); } catch (e) {} }
-  });
+  // #qslCmd is an .install__box: site.js's shared copy tick copies it (no second handler here).
 
   /* ---- status helpers ------------------------------------------- */
   function setStatus(text, mode) {
