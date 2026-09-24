@@ -128,7 +128,9 @@ first time a second page needs it.
   </div>
 </nav>
 ```
-2 to 12 stations; the count is read from the markup. The band must carry `.wrap` (the
+2 to 20 stations; the count is read from the markup. Past 12 (a long document: the
+manual) the scale gets finer on a desktop, and under 760px it becomes a plain two-column
+contents list, number and name on every station, no needle. The band must carry `.wrap` (the
 needle is laid out against its gutter). Keep the `toc-tuner__st` class on each link: a
 classless link in an `<li>` gets the site's in-prose underline. CSS alone moves the needle
 and the readout to the pointed or focused station; `tuner.js` adds roving focus (one tab
