@@ -10,7 +10,9 @@
 
 /* ============================ HERO (index) ==================== */
 .bc-hero { padding-block: clamp(56px, 8vw, 104px) clamp(28px, 4vw, 48px); }
-.bc-hero__inner { max-width: 68ch; }
+/* the hero shares the page's left edge with the telegram and the log; only its
+   text keeps a reading measure */
+.bc-hero__inner > :is(.bc-hero__title, .bc-hero__sub) { max-width: 40rem; }
 .bc-hero__title {
   font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
   color: var(--ink-900); margin-top: var(--s-4);
@@ -21,20 +23,17 @@
 }
 
 /* ==================== FOUNDER'S TELEGRAM (index) ============== */
-/* a small pinned dispatch, styled as a telegram: hairline card, all mono,
-   the one red accent on the ((.)) dot + the STOP flourish. Compact. */
-.bc-telegram-wrap { padding-block: 0 clamp(28px, 4vw, 44px); }
-.bc-tg {
-  max-width: 62ch;
-  border: 1px solid var(--hairline-2); border-left: 3px solid var(--live);
-  border-radius: var(--r-md); background: var(--white);
-  padding: var(--s-5) var(--s-5) var(--s-4);
-}
+/* a dispatch styled as a telegram, on the shared inset panel: all mono, the one red
+   accent on the ((.)) dot + the STOP flourish. Written as an open <details>
+   (data-fold-narrow): on a phone it starts folded to its head line so the log sits in
+   the first screen; everywhere else it reads whole, in two columns on a wide screen. */
+.bc-telegram-wrap { padding-block: 0 clamp(8px, 2vw, 24px); }
+.bc-tg-wrap { display: block; }
 .bc-tg__head {
   display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
-  gap: 4px var(--s-4); padding-bottom: var(--s-3);
-  border-bottom: 1px dashed var(--hairline-2);
+  gap: 4px var(--s-4);
 }
+.bc-tg[open] > .bc-tg__head { padding-bottom: var(--s-3); border-bottom: 1px dashed var(--hairline-2); }
 .bc-tg__label {
   display: inline-flex; align-items: center; gap: 8px;
   font-size: var(--t-xs); font-weight: var(--weight-semi);
@@ -51,6 +50,10 @@
   font-size: var(--t-sm); line-height: 1.7; text-wrap: pretty;
 }
 .bc-tg__body p + p { margin-top: var(--s-3); }
+@media (min-width: 960px) {
+  .bc-tg__body { columns: 2; column-gap: var(--s-10); }
+  .bc-tg__body p { break-inside: avoid; }
+}
 .bc-tg__signoff {
   display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
   gap: 4px var(--s-4); margin-top: var(--s-4); font-size: var(--t-xs);
@@ -62,82 +65,77 @@
 }
 
 /* ============================ THE LOG (index) ================= */
-.bc-log { padding-top: 0; }
+/* the station log: no frame, no heavy rule. Rows are separated by space and one
+   hairline; the title carries the scan; the number, date and kind sit in the margin
+   column. Hover or focus lights the ember dot red and underlines the title. */
+.bc-log { padding-top: clamp(32px, 5vw, 64px); }
 
-/* the transmission list: a stack of hairlined rows, radio-log feel */
-.bc-list {
-  list-style: none; margin: 0; padding: 0;
-  border: 1px solid var(--hairline-2); border-top: 2px solid var(--ink-900);
-  border-radius: var(--r-md); overflow: hidden; background: var(--paper);
-}
-.bc-row { margin: 0; border-top: 1px solid var(--hairline); }
-.bc-row:first-child { border-top: 0; }
+.bc-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hairline); }
+.bc-row { margin: 0; border-bottom: 1px solid var(--hairline); }
 
 /* the whole row is the link: a grid of [lead | body | go], meta stacked
    under the lead. Newest rows read top-down like a station log. */
 .bc-row__link {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr) auto;
+  grid-template-columns: 220px minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
   grid-template-areas: "lead body go" "meta body go";
-  gap: 2px var(--s-6); align-items: baseline;
-  padding: var(--s-5) var(--s-5);
-  background: var(--white);
-  transition: background var(--d-2) var(--ease-standard);
+  gap: 6px var(--s-8); align-items: baseline;
+  padding: clamp(20px, 2.4vw, 28px) 0;
+  color: inherit;
 }
-.bc-row__link:hover { background: var(--paper-2); }
-.bc-row__link:focus-visible {
-  outline: none; box-shadow: inset 0 0 0 2px var(--live-glow);
-}
+.bc-row__link:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
 
 .bc-row__lead {
   grid-area: lead; display: inline-flex; align-items: center; gap: 8px;
   white-space: nowrap;
 }
-.bc-row__lead .ember { font-size: 0.7em; line-height: 1; }
+.bc-row__lead .ember { font-size: 0.7em; line-height: 1; transition: color var(--d-2); }
+.bc-row__link:is(:hover, :focus-visible) .ember { color: var(--live); }
 .bc-row__no {
   font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-semi);
   text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-900);
 }
 
-.bc-row__meta { grid-area: meta; }
+.bc-row__meta { grid-area: meta; align-self: start; }
 .bc-row__date {
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
-  font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums slashed-zero; letter-spacing: 0.02em;
 }
 
 .bc-row__body { grid-area: body; min-width: 0; }
 .bc-row__title {
-  display: block; color: var(--ink-900); font-size: var(--t-lead);
-  font-weight: var(--weight-semi); letter-spacing: var(--tracking-tight);
-  line-height: var(--lh-snug);
+  display: block; color: var(--ink-900);
+  font-size: clamp(1.1875rem, 1.05rem + 0.55vw, 1.5rem);
+  font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3);
+  line-height: 1.22; text-wrap: balance;
+  text-decoration: underline; text-decoration-color: transparent;
+  text-decoration-thickness: 1px; text-underline-offset: 4px;
+  transition: text-decoration-color var(--d-2);
 }
-.bc-row__link:hover .bc-row__title { color: var(--ink-900); }
+.bc-row__link:is(:hover, :focus-visible) .bc-row__title { text-decoration-color: currentColor; }
 .bc-row__dek {
-  display: block; margin-top: 6px; color: var(--ink-500);
-  font-size: var(--t-sm); line-height: 1.6; text-wrap: pretty; max-width: 64ch;
+  display: block; margin-top: var(--s-2); color: var(--ink-500);
+  font-size: var(--t-body); line-height: 1.6; text-wrap: pretty; max-width: 62ch;
 }
 
 .bc-row__go {
   grid-area: go; align-self: center; white-space: nowrap;
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.08em;
-  transition: color var(--d-2), transform var(--d-2) var(--ease-out-quint);
+  transition: color var(--d-2);
 }
-.bc-row__link:hover .bc-row__go { color: var(--live); transform: translateX(2px); }
-@media (prefers-reduced-motion: reduce) {
-  .bc-row__link, .bc-row__go { transition: none; }
-  .bc-row__link:hover .bc-row__go { transform: none; }
-}
+.bc-row__link:is(:hover, :focus-visible) .bc-row__go { color: var(--live); }
 
 /* narrow: collapse to a single stacked column; drop the trailing arrow */
 @media (max-width: 640px) {
   .bc-row__link {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "lead" "meta" "body";
-    gap: 4px; padding: var(--s-4);
+    gap: 2px;
   }
   .bc-row__go { display: none; }
-  .bc-row__meta { margin-bottom: 6px; }
+  .bc-row__meta { margin-bottom: var(--s-2); }
 }
 
 /* ============================ POST ============================ */

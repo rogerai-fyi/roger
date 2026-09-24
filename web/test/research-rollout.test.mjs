@@ -152,3 +152,10 @@ test("(c) every article sign-off is an inset panel; a closing install command is
   assert.ok(pills >= 9, `the install command is the shared pill in ${pills} sign-offs`);
 });
 
+/* ---- the index ---------------------------------------------------------------------- */
+
+test("index: the founder telegram folds on a phone and stays whole without JS", () => {
+  const html = src("broadcasts.html");
+  assert.match(html, /<details class="bc-tg inset-panel" data-fold-narrow open/, "a disclosure, open in the HTML");
+  assert.match(src("js/site.js"), /querySelectorAll\("details\[data-fold-narrow\]"\)/, "site.js folds it on a narrow screen");
+});
