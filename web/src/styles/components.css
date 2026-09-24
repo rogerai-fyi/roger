@@ -361,3 +361,19 @@
    after a hyphen or a slash ("vast-/onstart.sh", "--/model"); each word sits in its
    own nowrap span, so the spaces are the only break points left. */
 .cmd-words > span { white-space: nowrap; }
+
+/* ---- component: tint-panel (added by company rollout) ----------------------
+   <div class="tint-panel"> ... </div>
+   The calm panel: the tinted paper ground, the panel radius, no border and no
+   rule (space separates, not lines). It replaces the hairline-boxed card with a
+   heavy black top rule. Inside an ink panel it re-themes with the scoped tokens.
+   A grid of them is the page's business (placement), the panel is not. */
+.tint-panel {
+  min-width: 0;
+  padding: clamp(20px, 2.4vw, 32px);
+  border-radius: var(--panel-r);
+  background: var(--paper-2);
+  color: var(--ink-700);
+}
+.tint-panel > :first-child { margin-top: 0; }
+.tint-panel > :last-child { margin-bottom: 0; }
