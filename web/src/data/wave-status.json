@@ -1,0 +1,456 @@
+{
+  "_about": "Single source of truth for Wave status labels. Wired labels render from here via {{wave:<tier>.<label>}} (web/scripts/wave-status.mjs); wired:false labels are still hand-typed and test/wave-status.test.mjs holds them to this file. Build input only: not shipped. See the Wave status section of web/README.md.",
+  "stages": {
+    "planned": "Declared on the ladder; no weights exist and no base model is chosen yet.",
+    "base-selected": "A base model is chosen for the tier; specialization has not passed a release gate.",
+    "training": "Weights are being trained, specialized or prototyped; nothing has passed a release gate.",
+    "gated": "A built artifact has passed our own release gate; it is not on air and no checkpoint is public.",
+    "on-air": "A gated artifact is served as a band on the network; its weights are not published.",
+    "released": "A public checkpoint anyone can download."
+  },
+  "tiers": [
+    {
+      "id": "pico",
+      "slot": "wave-pico",
+      "name": "Wave Pico",
+      "kind": "tier",
+      "size": "250–300M",
+      "stage": "on-air",
+      "publicCheckpoint": false,
+      "onAirBand": "wave-pico-293m",
+      "ruling": "pending",
+      "conflict": "Broadcast 015 says Pico (293M) is on air as the free band wave-pico-293m; index, research, research-models, research-hardware, the family guide and the Playbox still say a 100M-class waypoint is trained and the 300M retrain is next (gated, not on air).",
+      "labels": {
+        "index.plate": {
+          "page": "index.html",
+          "text": "EDGE CLASS · WAYPOINT TRAINED",
+          "wired": true
+        },
+        "index.chip": {
+          "page": "index.html",
+          "text": "TRAINED",
+          "wired": true
+        },
+        "index.spectrum": {
+          "page": "index.html",
+          "text": "250–300M · waypoint",
+          "wired": true
+        },
+        "research.ticker": {
+          "page": "research.html",
+          "text": "WAYPOINT",
+          "wired": true
+        },
+        "research.scope": {
+          "page": "research.html",
+          "text": "Waypoint trained",
+          "wired": true
+        },
+        "research.caption": {
+          "page": "research.html",
+          "text": "Wave Pico has a trained waypoint build, certified against our own release gate",
+          "wired": false
+        },
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "WAYPOINT TRAINED",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "Certifying the waypoint &middot; 300M retrain next",
+          "wired": false
+        },
+        "wave-family.recipe": {
+          "page": "research-wave-family.html",
+          "text": "Scratch &middot; waypoint trained",
+          "wired": true
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "Certifying the waypoint &middot; 300M retrain next",
+          "wired": true
+        },
+        "research-hardware.exp": {
+          "page": "research-hardware.html",
+          "text": "Certifying the waypoint &middot; 300M retrain next",
+          "wired": true
+        },
+        "playbox.chip": {
+          "page": "js/playbox.js",
+          "text": "WAYPOINT TRAINED",
+          "wired": false
+        },
+        "jev-vs-wave.meta": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "293M, from scratch, on air now",
+          "wired": true
+        },
+        "jev-vs-wave.chart": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "~165 MB &middot; built",
+          "wired": true
+        },
+        "jev-vs-wave.aria": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Pico about 165 MB, built",
+          "wired": false
+        },
+        "jev-vs-wave.table": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "on air as a free band, <code>wave-pico-293m</code>; weights not published yet",
+          "wired": true
+        },
+        "jev-vs-wave.faq": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Pico (293M) is on air right now as a free band",
+          "wired": false
+        },
+        "jev-vs-wave.jsonld": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Pico (293M) is on air right now as a free band",
+          "wired": false
+        }
+      }
+    },
+    {
+      "id": "nano",
+      "slot": "wave-nano",
+      "name": "Wave Nano",
+      "kind": "tier",
+      "size": "0.8–1.5B",
+      "stage": "training",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "ruling": "pending",
+      "conflict": "Broadcast 015's size chart says Nano is training (~690 MB at 1.15B); research, research-models, research-hardware and the family guide say it is the next build, queued behind Pico (planned). 015 also calls Micro, not Nano, the next scratch build.",
+      "labels": {
+        "research.scope": {
+          "page": "research.html",
+          "text": "Next scratch build",
+          "wired": true
+        },
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "NEXT BUILD",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "Scratch build queued behind Pico",
+          "wired": false
+        },
+        "wave-family.recipe": {
+          "page": "research-wave-family.html",
+          "text": "Scratch &middot; next build",
+          "wired": true
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "Scratch build queued behind Pico",
+          "wired": true
+        },
+        "jev-vs-wave.chart": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "~690 MB &middot; training",
+          "wired": true
+        },
+        "jev-vs-wave.aria": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Nano about 690 MB at 1.15B, training",
+          "wired": false
+        }
+      }
+    },
+    {
+      "id": "micro",
+      "slot": "wave-micro",
+      "name": "Wave Micro",
+      "kind": "tier",
+      "size": "7–8B",
+      "stage": "planned",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "ruling": "pending",
+      "conflict": "research.html's scope legend says \"Base selected\" (and highlights the Micro row as live), but Micro is a scratch tier with no base; research-models, research-hardware, the family guide, the Playbox and broadcast 015 all say planned. 015 also calls Micro the next scratch build, where research.html gives that to Nano.",
+      "labels": {
+        "research.scope": {
+          "page": "research.html",
+          "text": "Base selected",
+          "wired": true
+        },
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "PLANNED",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "Scratch pipeline standing up",
+          "wired": false
+        },
+        "wave-family.recipe": {
+          "page": "research-wave-family.html",
+          "text": "Scratch &middot; planned",
+          "wired": true
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "Scratch pipeline standing up",
+          "wired": true
+        },
+        "playbox.chip": {
+          "page": "js/playbox.js",
+          "text": "PLANNED",
+          "wired": false
+        },
+        "jev-vs-wave.chart": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "next scratch build",
+          "wired": true
+        },
+        "jev-vs-wave.aria": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Micro planned",
+          "wired": false
+        }
+      }
+    },
+    {
+      "id": "giga",
+      "slot": "wave-giga",
+      "name": "Wave Giga",
+      "kind": "tier",
+      "size": "27–35B",
+      "stage": "gated",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "ruling": "pending",
+      "conflict": "Broadcast 015 says Giga is built (27B, 16.5 GB at Q4_K_M) and has passed its release gate on an Apache-2.0 base, public checkpoint pending; research, research-models, research-hardware and the Playbox still say planned, base selection open.",
+      "labels": {
+        "research.scope": {
+          "page": "research.html",
+          "text": "Planned",
+          "wired": true
+        },
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "PLANNED",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "Base selection",
+          "wired": false
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "Base selection",
+          "wired": true
+        },
+        "playbox.chip": {
+          "page": "js/playbox.js",
+          "text": "PLANNED",
+          "wired": false
+        },
+        "jev-vs-wave.meta": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "27B, Apache-2.0 base, 16.5 GB on disk",
+          "wired": true
+        },
+        "jev-vs-wave.chart": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "16.5 GB &middot; built",
+          "wired": true
+        },
+        "jev-vs-wave.aria": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Giga 16.5 GB at Q4_K_M, built",
+          "wired": false
+        },
+        "jev-vs-wave.table": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "built and gated, public checkpoint pending",
+          "wired": true
+        },
+        "jev-vs-wave.faq": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Giga (27B) has passed its release gate on an Apache-2.0 base",
+          "wired": false
+        },
+        "jev-vs-wave.jsonld": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Giga (27B) has passed its release gate on an Apache-2.0 base",
+          "wired": false
+        }
+      }
+    },
+    {
+      "id": "tera",
+      "slot": "wave-tera",
+      "name": "Wave Tera",
+      "kind": "tier",
+      "size": "80–120B",
+      "stage": "planned",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "labels": {
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "PLANNED",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "Architecture and data design",
+          "wired": false
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "Architecture and data design",
+          "wired": true
+        },
+        "playbox.chip": {
+          "page": "js/playbox.js",
+          "text": "PLANNED",
+          "wired": false
+        },
+        "jev-vs-wave.chart": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "~60 GB &middot; base pick",
+          "wired": true
+        },
+        "jev-vs-wave.aria": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Tera about 60 GB at 100B, base being selected",
+          "wired": false
+        }
+      }
+    },
+    {
+      "id": "peta",
+      "slot": "wave-peta",
+      "name": "Wave Peta",
+      "kind": "tier",
+      "size": "150–200B",
+      "stage": "planned",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "labels": {
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "PLANNED",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "Pruning plan",
+          "wired": false
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "Pruning plan",
+          "wired": true
+        },
+        "playbox.chip": {
+          "page": "js/playbox.js",
+          "text": "PLANNED",
+          "wired": false
+        },
+        "jev-vs-wave.aria": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Peta about 105 GB and Wave Exa about 170 GB, planned",
+          "wired": false
+        }
+      }
+    },
+    {
+      "id": "exa",
+      "slot": "wave-exa",
+      "name": "Wave Exa",
+      "kind": "tier",
+      "size": ">280B",
+      "stage": "base-selected",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "ruling": "pending",
+      "conflict": "research-models chips Exa FRONTIER BASE (base named as DeepSeek-V4-Flash class) with the stage line \"The family teacher\", a role rather than a stage; the Playbox and broadcast 015 say planned.",
+      "labels": {
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "FRONTIER BASE",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "The family teacher",
+          "wired": false
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "The family teacher",
+          "wired": true
+        },
+        "playbox.chip": {
+          "page": "js/playbox.js",
+          "text": "PLANNED",
+          "wired": false
+        },
+        "jev-vs-wave.aria": {
+          "page": "broadcasts-jev-vs-wave.html",
+          "text": "Wave Peta about 105 GB and Wave Exa about 170 GB, planned",
+          "wired": false
+        }
+      }
+    },
+    {
+      "id": "edge",
+      "slot": "roger-edge",
+      "name": "Roger Edge",
+      "kind": "line",
+      "size": null,
+      "stage": "training",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "labels": {
+        "research-models.chip": {
+          "page": "research-models.html",
+          "text": "PROTOTYPE",
+          "wired": true
+        },
+        "research-models.stage": {
+          "page": "research-models.html",
+          "text": "Prototype, actively testing",
+          "wired": false
+        },
+        "research-hardware.card": {
+          "page": "research-hardware.html",
+          "text": "Prototype, actively testing",
+          "wired": true
+        }
+      }
+    },
+    {
+      "id": "infinite",
+      "slot": "wave-infinite",
+      "name": "Wave Infinite",
+      "kind": "line",
+      "size": null,
+      "stage": "training",
+      "publicCheckpoint": false,
+      "onAirBand": null,
+      "labels": {
+        "research-models.band": {
+          "page": "research-models.html",
+          "text": "prototype &middot; foundations measured, growth loop in development",
+          "wired": false
+        },
+        "wave-family.badge": {
+          "page": "research-wave-family.html",
+          "text": "Prototype &middot; measured foundations, growth loop in development",
+          "wired": false
+        }
+      }
+    }
+  ]
+}

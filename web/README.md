@@ -49,6 +49,31 @@ source of the brand mark (the `[ ]` brackets + the live-red circle on-air beacon
 it. Keep the matching circle beacon in `favicon.svg`, `logo.svg` and Ping's eye
 (`ping.svg`) so the brand family stays in sync.
 
+## Wave status (one source)
+
+Every status label a page shows for a Wave tier (Pico to Exa, plus Roger Edge and Wave
+Infinite) lives in `src/data/wave-status.json`: the tier's canonical `stage` (one of
+`planned`, `base-selected`, `training`, `gated`, `on-air`, `released`, defined in `stages`),
+`publicCheckpoint`, `onAirBand`, and a `labels` map of the exact text each page shows today.
+The file is build input only and is not shipped.
+
+- **Wired labels** (`"wired": true`) are written in the page as `{{wave:<tier>.<label>}}`,
+  e.g. `{{wave:giga.research-models.chip}}`, and `build.mjs` fills them in
+  (`scripts/wave-status.mjs`). Change the `text` in the data file and every page follows.
+- **Hand-typed labels** (`"wired": false`) are prose, JSON-LD, the Playbox JS, and the
+  research-models stage lines (`test/research-hardware.test.mjs` reads those from source).
+  Edit the page and the data file together; `test/wave-status.test.mjs` fails if they drift.
+
+**Changing a tier's stage.** Set `stage` (and `publicCheckpoint` / `onAirBand` if they move),
+then update that tier's label texts. Every label text is classified into a stage in the
+`IMPLIES` table of `test/wave-status.test.mjs`; a new wording must be added there.
+
+**Founder ruling.** A tier whose labels imply different stages carries `"ruling": "pending"`
+and a `conflict` note. The ledger test requires the conflicted tiers to be exactly the
+pending ones. When the founder rules: set `stage`, rewrite the tier's labels so they all imply
+it, delete `ruling` and `conflict`, and remove the tier from the pending list at the bottom
+of the test. The ledger only shrinks when the pages actually agree.
+
 ## Deploy
 
 Two layers (this is **not** Cloudflare Pages):
