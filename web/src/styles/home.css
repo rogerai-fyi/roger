@@ -754,10 +754,9 @@ main > section { overflow-x: clip; }
 /* Bands are a translucent wash of the local ink rather than solid paper-2:
    the same tone on paper, and inside an ink panel the band stays ink. */
 main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
-/* On paper a band is a tinted panel with the ink panel's geometry (inset,
-   rounded, no rules), so the page reads as one set of rooms: ink, paper,
-   tint. Inside an ink panel, space alone separates the sections. */
-main > .band { margin: var(--panel-inset) var(--panel-mx); border: 0; border-radius: var(--panel-r); }
+/* On paper a band is the shared inset band (.band--inset, components.css: the
+   ink panel's geometry, rounded, no rules), so the page reads as one set of
+   rooms: ink, paper, tint. Inside an ink panel, space alone separates the sections. */
 main .tone-zone .band { background: none; border: 0; }
 main .tone-zone .cta { border-top: 0; }
 /* the market price cell: the "$" tier never splits, and the "good price"

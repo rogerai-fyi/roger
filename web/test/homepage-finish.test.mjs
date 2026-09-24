@@ -63,11 +63,13 @@ test("(b) the panel geometry is a token, so any tinted panel frames the content 
 });
 
 test("(b) the paper-middle bands are inset, rounded tinted panels; inside an ink panel space separates", () => {
+  // the paper-middle bands are the shared inset band (components.css .band--inset)
   const home = css("home.css");
-  const band = rules(home, "main > .band");
+  for (const id of ["what", "books"]) assert.match(dist("index.html"), new RegExp(`<section class="section band band--inset" id="${id}">`));
+  const band = rules(css("components.css"), ".band--inset");
   assert.match(band, /margin:\s*var\(--panel-inset\) var\(--panel-mx\)/, "the ink panel's own margins");
   assert.match(band, /border-radius:\s*var\(--panel-r\)/);
-  assert.match(band, /border:\s*0/);
+  assert.match(band, /border-block:\s*0/);
   assert.match(rules(home, ".tone-zone .band"), /background:\s*none/);
 });
 
