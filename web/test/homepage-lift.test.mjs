@@ -15,7 +15,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -114,4 +114,39 @@ test("(c) the mobile hero cannot be pushed wider than the viewport by its nowrap
   const css = read("styles/home.css");
   assert.match(css, /\.hero__grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/,
     "the single column is minmax(0,1fr), not 1fr (whose min-content floor let the grid blow out)");
+});
+
+// ---- round 2 (2026-09-23): alignment, the Ping dock, dead CSS ----
+
+test("the hero shares the page's left edge on wide screens and widens only to the right", () => {
+  const css = read("styles/home.css");
+  const wide = mediaBlocks(css, /min-width:\s*1200px/).map((b) => b.body).join("\n");
+  assert.match(wide, /\.hero__inner\s*\{[^}]*margin-left:\s*max\(0px,\s*calc\(\(100% - var\(--maxw\)\) \/ 2\)\)/,
+    "the hero's left edge is the .wrap's left edge (nav logo, every section)");
+  assert.match(wide, /\.hero__inner\s*\{[^}]*max-width:\s*1300px/);
+});
+
+test("the headline is sized by its own column, so it can never overflow it", () => {
+  const css = read("styles/home.css");
+  assert.match(css, /\.hero__copy\s*\{[^}]*container-type:\s*inline-size/);
+  assert.match(css, /\.hero__title\s*\{[^}]*font-size:\s*min\(var\(--t-display\),\s*9\.5cqi\)/);
+});
+
+test("the Ping dock spans the panel's column: the LED band fills what the mascot leaves", () => {
+  const css = read("styles/home.css");
+  assert.match(css, /\.pingband\s*\{[^}]*flex:\s*1 1 auto/);
+  assert.doesNotMatch(css, /\.pingband\s*\{[^}]*width:\s*clamp/, "no fixed-width band left floating beside the panel");
+  assert.equal((css.match(/^\.hero__ping\s*\{/gm) || []).length, 1, "one .hero__ping rule, not a rule and a later override");
+});
+
+test("home.css carries no rules for classes the homepage never uses", () => {
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const css = strip(readFileSync(path.join(WEB, "src/styles/home.css"), "utf8"));
+  const dir = (d) => readdirSync(path.join(WEB, d)).map((f) => readFileSync(path.join(WEB, d, f), "utf8")).join("\n");
+  const used = readFileSync(path.join(WEB, "src/index.html"), "utf8") + dir("src/_partials") + dir("src/js");
+  // classes built by string concatenation in JS ("pingdeck__line--" + who)
+  const dynamic = [/^pingdeck__line--/];
+  const classes = [...new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))];
+  const dead = classes.filter((c) => !used.includes(c) && !dynamic.some((re) => re.test(c)));
+  assert.deepEqual(dead, [], `dead selectors in home.css: ${dead.join(", ")}`);
 });

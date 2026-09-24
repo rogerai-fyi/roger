@@ -225,20 +225,10 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 
 /* ===== blip-map background ====================================== */
+/* radiomap.js paints it; under reduced motion it paints one still frame. */
 .blipmap {
   position: fixed; inset: 0; width: 100%; height: 100%;
   z-index: -1; pointer-events: none;
-}
-.blipmap-fallback { display: none; }
-@media (prefers-reduced-motion: reduce) {
-  .blipmap { display: none; }
-  .blipmap-fallback {
-    display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-    background:
-      radial-gradient(circle at 70% 18%, var(--volt-glow), transparent 22%),
-      radial-gradient(circle at 22% 60%, var(--live-wash), transparent 18%);
-    opacity: .5;
-  }
 }
 
 /* ============================ PROMO STRIP ====================== */
@@ -614,8 +604,11 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .install__alt { color: var(--ink-500); font-weight: var(--weight-medium); }
 .install__alt:hover { color: var(--live); }
 
+/* the PowerShell one-liner moves to its own line whole, never split mid-URL */
+[data-alt-note] .inline { display: inline-block; white-space: nowrap; }
 @media (max-width: 560px) {
-  .install__code { font-size: .8125rem; white-space: normal; }
+  /* .75rem: the unbreakable URL and " | sh" share one line under "curl -fsSL" */
+  .install__code { font-size: .75rem; white-space: normal; }
   .install__box { gap: 8px; padding: 12px 12px 12px 14px; }
 }
 
@@ -643,7 +636,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 
 /* ============================ FOOTER ========================== */
 .footer { border-top: 1px solid var(--hairline); background: var(--white); }
-.footer__inner { display: flex; align-items: center; justify-content: space-between; gap: var(--s-6);
+.footer__inner { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-6);
   padding-block: var(--s-10); flex-wrap: wrap; }
 .footer__brand { display: inline-flex; align-items: center; gap: 10px; font-weight: var(--weight-semi); color: var(--ink-900); }
 .footer__brand .brand__logo { width: 24px; height: 24px; color: var(--volt); }

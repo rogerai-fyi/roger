@@ -1,8 +1,8 @@
 /* =====================================================================
    RogerAI - home.css : the homepage (/index.html) body.
    Hero + the Ping concierge deck, the terminal demo, the two-way
-   share/tune plates, the spec sheet, operating notes, the money meter,
-   monetize, the CTA strip, the live signal tower / market, the money row,
+   share/tune plates, the spec sheet, the money meter,
+   monetize, the CTA strip, the live signal tower / market,
    the homepage hero-foundation overrides, the Roger Edge story reel (FIG.2)
    and the small /models entry link. The shared eyebrow line, the .ping mascot
    shape + animations, the install command box, .market__refresh, the
@@ -110,14 +110,11 @@
    column is narrower than the line, and " | sh" is the part a reader must see. */
 .install[data-frame="panel"] .install__code { white-space: normal; }
 .install[data-frame="panel"] .install__meta { gap: var(--s-2) var(--s-4); }
-/* the PowerShell one-liner moves to its own line whole, never split mid-URL */
-.install[data-frame="panel"] [data-alt-note] .inline { display: inline-block; white-space: nowrap; }
 /* phones: the URL is one unbreakable token, so the panel gives its width back
-   (tighter padding, a notch smaller mono) rather than ellipsis-cutting it. */
+   (tighter padding) rather than ellipsis-cutting it. */
 @media (max-width: 560px) {
   .install[data-frame="panel"] { --panel-pad: 14px; }
   .install[data-frame="panel"] .install__box { padding: 12px 8px 12px 12px; }
-  .install[data-frame="panel"] .install__code { font-size: 0.75rem; }
 }
 
 /* Two columns above FIG.2 once there's room: .hero__copy (the narrative -
@@ -130,23 +127,29 @@
    minmax(0, 1fr), not 1fr: a bare 1fr has a min-content floor, and the
    nowrap "decentralized Models" pushed the whole mobile hero past the
    viewport (a 417px page on a 390px phone). */
-.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-10); }
-/* the display token, except on phones: there the nowrap operative line must
-   fit the column, so the headline scales with the viewport. */
-.hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); }
-/* 1200px up: side by side. The widened .hero__inner gives both columns room;
-   between 1200 and 1400 the headline scales with the viewport (4.3vw keeps the
-   nowrap line inside the copy column) and the panel column is 420px. The
-   panel drops to the headline's level rather than riding up with the eyebrow. */
+.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-10); width: 100%; }
+/* The headline is sized to its own column: the nowrap operative line is
+   ~10.2x the font size wide, so 9.5cqi always fits, capped at the display
+   token. One rule for phones, laptops and wide screens alike; the vw line
+   is the fallback where container units are missing. */
+.hero__copy { container-type: inline-size; }
+.hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); font-size: min(var(--t-display), 9.5cqi); }
+/* 1200px up: side by side. The hero keeps the page's LEFT edge (the same
+   line as the nav logo and every section below) and widens only to the
+   right, up to 1300px, so both columns have room without the hero jutting
+   out past everything else. The panel drops to the headline's level rather
+   than riding up with the eyebrow. */
 @media (min-width: 1200px) {
-  .hero__inner { max-width: 1300px; }
+  .hero__inner {
+    width: auto; max-width: 1300px;
+    margin-left: max(0px, calc((100% - var(--maxw)) / 2));
+  }
   .hero__grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
     gap: var(--s-10); align-items: start;
   }
   /* level with the headline, not the eyebrow above it */
   .hero__tools { margin-top: var(--s-10); }
-  .hero__title { font-size: min(var(--t-display), 4.3vw); }
   .hero__tools .install { margin-top: 0; }
   /* the column is narrower than the command's natural width at 1rem;
      install__code ellipsis-truncates gracefully, but this figure exists to be
@@ -155,7 +158,6 @@
 }
 @media (min-width: 1400px) {
   .hero__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 460px); }
-  .hero__title { font-size: var(--t-display); }
 }
 @media (min-width: 641px) and (max-height: 800px) {
   .hero__inner { padding-top: 42px; }
@@ -197,7 +199,8 @@
   .hero__proof { animation-delay: 0.5s; }
   .hero__tools { animation: lift-panel 0.9s var(--ease-out-quint) 0.45s backwards; }
   @supports (animation-timeline: view()) {
-    main [data-reveal]:not(.reel) {
+    /* outermost blocks only: a reveal nested in a reveal would blur twice */
+    main [data-reveal]:not(.reel):not([data-reveal] [data-reveal]) {
       animation: lift-rise linear both;
       animation-timeline: view();
       animation-range: entry 0% entry 30vh;
@@ -276,19 +279,23 @@
    margin whitespace so it never crowds the centered hero; it folds away
    on narrow screens. Body inherits ink via currentColor; only the eye +
    glow are fixed live-red, matching the logo beacon. */
+/* The dock sits under FIG. 1 on the panel's own edges: Ping on the left,
+   the LED band filling the rest of the column, so the pair reads as the
+   panel's status line rather than a separate object. */
 .hero__ping {
+  position: relative;                       /* anchor for the absolutely-placed deck */
   z-index: 1; pointer-events: none;
-  display: flex; flex-direction: row; align-items: center; gap: 12px;
-  margin: clamp(20px, 3.5vh, 34px) auto 0;
-  color: var(--ink-300);
+  display: flex; align-items: center; gap: var(--s-4);
+  margin-top: var(--s-6);
+  color: var(--ink-700);
 }
+.hero__ping-tag { color: var(--ink-500); }
 
 /* ---------- Ping concierge: the record-player / tape-deck chat ----
    Clicking Ping opens a small, collapsible "deck" anchored to the dock.
    It NEVER covers the hero: it starts closed (hidden), opens below Ping,
    and is monochrome + one red. All motion is transform/opacity only and
    has a full reduced-motion fallback. */
-.hero__ping { position: relative; }              /* anchor for the absolutely-placed deck */
 .hero__ping-trigger {
   appearance: none; background: none; border: 0; padding: 0; margin: 0;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -312,13 +319,12 @@
    part of the mascot (not the popup) and clicking it opens the chat. It
    carries NO status words - #pingTag is the single status. */
 .pingband {
-  appearance: none; cursor: pointer; pointer-events: auto; flex-shrink: 1;
-  display: inline-flex; align-items: center; gap: 8px;
-  width: clamp(225px, 33vw, 390px);
-  max-width: clamp(225px, 33vw, 390px);
-  padding: 6px 10px; margin: 0;
+  appearance: none; cursor: pointer; pointer-events: auto;
+  flex: 1 1 auto; min-width: 0;
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin: 0;
   background: var(--paper-2); color: var(--ink-700);
-  border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  border: 1px solid var(--hairline); border-radius: var(--r-xl);
   text-align: left;
   transition: border-color var(--d-2), filter var(--d-2);
 }
@@ -474,19 +480,8 @@
     position: fixed; top: auto; bottom: 16px; left: 50%; transform: translateX(-50%);
     width: min(360px, 92vw);
   }
-  /* keep the always-on banner from crowding the hero on narrow widths */
-  .pingband { width: min(58vw, 360px); max-width: min(58vw, 360px); }
 }
 
-
-/* tune-in group: the live band (dial) and the install command read as ONE
-   move - "here's the band; tune in." A short bridge line connects them. */
-.tunein { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start;
-  gap: var(--s-4); max-width: 640px; width: 100%; }
-.tunein__bridge {
-  margin: 2px 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.4;
-  max-width: 56ch;
-}
 
 /* ===================== TERMINAL DEMO =========================== */
 .demo { padding-top: var(--s-12); padding-bottom: var(--section-y2); }
@@ -610,12 +605,10 @@
 /* terminal token colors (quiet mono, one red glint) */
 .t-dim   { color: var(--ink-400); }
 .t-prompt{ color: var(--live); font-weight: var(--weight-semi); }
-.t-user  { color: var(--ink-900); }
 .t-ok    { color: var(--ink-900); font-weight: var(--weight-semi); }
 .t-live  { color: var(--live); }
 .t-money { color: var(--ink-900); }
 .t-gold  { color: var(--ink-900); }
-.t-volt  { color: var(--ink-900); }
 .t-head  { color: var(--ink-900); font-weight: var(--weight-semi); }
 .t-sel   { background: var(--live-tint); color: var(--ink-900); }
 .t-cursor{ background: var(--live); color: var(--live); animation: blink 1s steps(1) infinite; }
@@ -636,13 +629,6 @@
 }
 .twoway__tag--air  { color: var(--ink-500); }
 .twoway__tag--tune { color: var(--ink-500); }
-.twoway__ico { width: 14px; height: 14px; overflow: visible; }
-.twoway__ico path { opacity: .75; transition: opacity var(--d-3); transform-origin: 8px 8px; }
-.twoway__side:hover .twoway__ico path { animation: icoWave 1.7s var(--ease-in-out) infinite; }
-.twoway__side:hover .twoway__ico path:last-child { animation-delay: .22s; }
-@media (prefers-reduced-motion: reduce) {
-  .twoway__side:hover .twoway__ico path { animation: none; opacity: .9; }
-}
 .twoway__side h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
 .twoway__side p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
 .twoway__cmd {
@@ -672,27 +658,6 @@
   .twoway__beam { width: 1px; height: 36px; background: var(--hairline-2); }
   .twoway__beam::after { animation: none; top: auto; bottom: 0; left: 50%; }
 }
-
-/* ---------- specifications plate ------------------------------- */
-/* ---------- operating notes (numbered list on hairlines) -------- */
-.opnotes { display: block; }
-.opnote {
-  display: grid; grid-template-columns: 56px 1fr; gap: var(--s-4);
-  padding: var(--s-4) 0; border: 0; border-top: 1px solid var(--hairline);
-  background: none; border-radius: 0;
-}
-.opnote:first-child { border-top: 0; }
-.opnote__no {
-  font-family: var(--font-mono); font-size: 1.1rem; font-weight: var(--weight-medium);
-  color: var(--ink-400); font-variant-numeric: tabular-nums; letter-spacing: .02em;
-  position: relative; padding-left: var(--s-3);
-}
-.opnote__no::before {
-  content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; background: var(--live);
-}
-.opnote h3 { margin: 0; font-size: 1.05rem; color: var(--ink-900);
-  font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
-.opnote p { margin-top: 2px; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.45; }
 
 /* ---------- the money meter line (replaces the 3 cards) -------- */
 .meter {
@@ -932,32 +897,6 @@
 .market__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 .market__head p b { color: var(--ink-900); font-weight: var(--weight-semi); }
 
-/* ---------- signal-sweep radar (premium animated asset) -------- */
-.radar { display: block; width: 64px; height: 64px; margin: var(--s-2) auto var(--s-5); }
-.radar__svg { width: 100%; height: 100%; overflow: visible; }
-.radar__ring { stroke: var(--hairline-2); stroke-width: 1; fill: none; }
-.radar__cross { stroke: var(--hairline-2); stroke-width: 1; opacity: .7; }
-/* sweep runs on the carrier octave so the radar shares the page's rhythm.
-   Each blip is phase-locked to the moment the arm passes its bearing, then
-   decays like scope phosphor - so the sweep visibly PAINTS the contacts. */
-.radar__sweep { transform-origin: 32px 32px; animation: radarSpin var(--carrier-2x) linear infinite; }
-@keyframes radarSpin { to { transform: rotate(360deg); } }
-.radar__blip { fill: var(--live); opacity: 0; transform-box: fill-box; transform-origin: center; }
-.radar__blip--1 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: .61s; }
-.radar__blip--3 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 1.78s; }
-.radar__blip--2 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 2.75s; }
-@keyframes radarBlip {
-  0%   { opacity: 0;   transform: scale(.4); }
-  2%   { opacity: 1;   transform: scale(1.25); }  /* the arm hits: hard ping */
-  10%  { opacity: .9;  transform: scale(1); }
-  60%  { opacity: .22; }                          /* phosphor decay */
-  88%,100% { opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .radar__sweep { animation: none; opacity: .5; }
-  .radar__blip { animation: none; opacity: .8; transform: none; }
-}
-
 /* left-bound like everything else on this page (.term above it uses the
    same margin:0 convention) - centering this with margin:0 auto is what
    left it visibly inset from the heading and the terminal box above it. */
@@ -990,11 +929,6 @@
 .mkt-list.is-stale .ember { color: var(--ink-500); }
 .mkt-list.is-stale .sigbar--on { color: var(--ink-400); }
 .market__meta { display: inline-flex; align-items: center; gap: var(--s-5); }
-.market__legend { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-xs);
-  color: var(--ink-400); }
-.market__legbar { width: 16px; height: 12px; border-radius: 2px;
-  background: linear-gradient(90deg, var(--live-tint), var(--live)); display: inline-block; }
-@media (max-width: 620px) { .market__legend { display: none; } }
 
 /* the grid: rows of channels */
 .mkt-row, .mkt-row--head {
@@ -1068,13 +1002,6 @@ html.js .mkt-quiet--nojs { display: none; }
 .qdots { font-size: 10px; letter-spacing: 1px; color: var(--volt); white-space: nowrap; }
 .qdots--idle { color: var(--ink-300); }
 
-/* skeleton shimmer while first fetch resolves */
-.mkt-skel { height: 52px; border-bottom: 1px solid var(--hairline);
-  background: linear-gradient(90deg, var(--paper-2) 25%, var(--paper-3) 37%, var(--paper-2) 63%);
-  background-size: 400% 100%; animation: mktSkel 1.4s ease infinite; }
-.mkt-skel:last-child { border-bottom: 0; }
-@keyframes mktSkel { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
-@media (prefers-reduced-motion: reduce) { .mkt-skel { animation: none; } }
 
 
 @media (max-width: 680px) {
@@ -1086,20 +1013,6 @@ html.js .mkt-quiet--nojs { display: none; }
   .mkt-row--head .mkt-cell--speed, .mkt-row--head .mkt-cell--quality { display: none; }
 }
 
-/* ---------- money row (glanceable economics) ------------------- */
-.money {
-  max-width: 880px; margin: var(--s-8) auto 0;
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4);
-}
-@media (max-width: 680px) { .money { grid-template-columns: 1fr; } }
-.money__card {
-  background: var(--white); border: 1px solid var(--hairline); border-radius: var(--r-md);
-  padding: var(--s-6); box-shadow: var(--e-1); display: flex; flex-direction: column; gap: 6px;
-}
-.money__label { font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--ink-400); font-weight: var(--weight-semi); }
-.money__big { font-size: 1.5rem; color: var(--ink-900); line-height: 1.1; letter-spacing: -.02em; }
-.money__sub { font-size: var(--t-xs); color: var(--ink-500); line-height: 1.45; }
 
 
 /* homepage hero-foundation overrides */
@@ -1107,13 +1020,6 @@ html.js .mkt-quiet--nojs { display: none; }
 @media (min-width: 641px) and (max-height: 800px) {
   .hero__inner .fig { margin-top: var(--s-5); }
 }
-.hero__ping {
-  z-index: 1; pointer-events: none;
-  flex-direction: row; align-items: center; gap: var(--s-3);
-  margin: var(--s-8) 0 0;
-  color: var(--ink-700);
-}
-.hero__ping-tag { color: var(--ink-500); }
 
 /* =====================================================================
    /models - the live model directory: the interactive dial centerpiece

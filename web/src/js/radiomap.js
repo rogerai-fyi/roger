@@ -1,282 +1,170 @@
 /* =====================================================================
-   RogerAI - blip-map background (Canvas2D).
-   A faint dotted grid. Stations sit on it; when one "goes on air" it
-   breathes, blinks and emits a slow ripple, and now and then fires a
-   quiet token-beam to the volt receiver near the hero. Light, very low
-   opacity, slow - premium ambient, never noisy.
+   RogerAI - blip-map background (Canvas2D). index / models / voices.
+   A faint dotted grid with a few quiet stations in the side margins. Every
+   few seconds ONE station keys up: it flashes the live red and sends a
+   single soft ring, then goes back to grey. A live radio network, heard
+   from the next room.
 
-   - requestAnimationFrame, capped DPR
-   - respects prefers-reduced-motion (renders nothing; CSS shows a
-     static gradient fallback instead)
-   - throttled to ~40fps and pauses when the tab/section is offscreen
-     (visibilitychange + IntersectionObserver)
-   - a soft fade-in on first paint so it arrives quietly
+   Calm by construction (2026-09-23, founder: "the red blips going back and
+   forth ... too distracting"):
+   - stations and rings live only in the margins beside the text column
+     (measured from main .wrap / .hero__inner, clipped to those bands), so
+     nothing moves behind words being read; no margin (phones), no stations
+   - at most 10 stations, grey at rest; no comets, no receiver
+   - the grid + stations are painted once to a base layer; the frame loop
+     runs only while a ring is on air and sleeps between pings
+   - hidden tab: every timer and frame is cancelled
+   - reduced motion: the base layer is painted once, still, and that's it
    ===================================================================== */
 (function () {
   "use strict";
 
-  var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var canvas = document.getElementById("blipmap");
-  if (!canvas || REDUCED) return;
+  if (!canvas) return;
+  var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   var ctx = canvas.getContext("2d", { alpha: true });
+  var layer = document.createElement("canvas");   // grid + stations, painted once
+  var lctx = layer.getContext("2d", { alpha: true });
   var DPR = Math.min(window.devicePixelRatio || 1, 2);
   var W = 0, H = 0;
-  var raf = null, running = false;
-  var nodes = [], ripples = [], beams = [], gridDots = [];
-  var recv = { x: 0, y: 0 };
-  var GRID = 52;          // dot grid spacing (css px) - sparser = calmer
-  var last = 0, acc = 0;
-  var FRAME = 1000 / 40;  // throttle the loop to ~40fps; plenty for ambient
-  var fade = 0;           // global opacity ramp on first start
+  var GRID = 52;          // dot grid spacing (css px)
+  var EDGE = 16;          // keep-out between a band and the column / rail
+  var MAX_STATIONS = 10;
+  var RING = 26;          // ring radius (css px)
+  var RING_MS = 1800;     // one ring's life
+  var nodes = [], bands = [], ring = null;
+  var raf = null, timer = null;
 
-  // Palette is pulled from the live CSS variables so light/dark themes
-  // (and any token tweak) drive the canvas with no duplicated hex here.
-  var COL = {
-    grid:  [11, 13, 18],
-    volt:  [91, 91, 255],
-    live:  [0, 199, 129],
-    ember: [255, 138, 61],
-    idle:  [174, 179, 192],
-  };
+  var COL = { grid: [21, 20, 15], idle: [154, 150, 139], live: [224, 35, 28] };
   function rgba(c, a) { return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")"; }
-
-  // parse "#rgb"/"#rrggbb"/"rgb(...)" into [r,g,b]; null if unparseable
   function toRGB(str) {
-    if (!str) return null;
-    str = str.trim();
-    var m;
+    str = (str || "").trim();
     if (str[0] === "#") {
       var h = str.slice(1);
       if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-      if (h.length >= 6) {
-        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-      }
+      if (h.length >= 6) return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
       return null;
     }
-    m = str.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
-    if (m) return [Math.round(+m[1]), Math.round(+m[2]), Math.round(+m[3])];
-    return null;
+    var m = str.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+    return m ? [Math.round(+m[1]), Math.round(+m[2]), Math.round(+m[3])] : null;
   }
-
+  // colours come from the live tokens, so light/dark drive the canvas
   function syncPalette() {
-    var cs = getComputedStyle(document.documentElement);
-    // grid = the page ink (so dots invert sensibly between themes)
-    var grid = toRGB(cs.getPropertyValue("--ink-900"));
-    var volt = toRGB(cs.getPropertyValue("--volt"));
-    var live = toRGB(cs.getPropertyValue("--live"));
-    var ember = toRGB(cs.getPropertyValue("--ember"));
-    var idle = toRGB(cs.getPropertyValue("--ink-300"));
-    if (grid)  COL.grid = grid;
-    if (volt)  COL.volt = volt;
-    if (live)  COL.live = live;
-    if (ember) COL.ember = ember;
-    if (idle)  COL.idle = idle;
+    var cs = window.getComputedStyle(document.documentElement);
+    COL.grid = toRGB(cs.getPropertyValue("--ink-900")) || COL.grid;
+    COL.idle = toRGB(cs.getPropertyValue("--ink-400")) || COL.idle;
+    COL.live = toRGB(cs.getPropertyValue("--live")) || COL.live;
   }
-  syncPalette();
 
-  function resize() {
-    W = window.innerWidth;
-    H = window.innerHeight;
-    canvas.width = Math.round(W * DPR);
-    canvas.height = Math.round(H * DPR);
-    canvas.style.width = W + "px";
-    canvas.style.height = H + "px";
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    // receiver ("you") sits centred under the hero copy
-    recv.x = W * 0.5;
-    recv.y = H * 0.30;
-    build();
+  // the margins: left of the widest text column (right of the fixed rail)
+  // and right of it. Bands narrower than a station's ring are dropped.
+  function measureBands() {
+    var L = W, R = 0;
+    var cols = document.querySelectorAll("main .wrap, .hero__inner");
+    for (var i = 0; i < cols.length; i++) {
+      var r = cols[i].getBoundingClientRect(), cs = window.getComputedStyle(cols[i]);
+      L = Math.min(L, r.left + parseFloat(cs.paddingLeft || 0));
+      R = Math.max(R, r.right - parseFloat(cs.paddingRight || 0));
+    }
+    if (R <= L) return [];                         // nothing measured: no margins
+    var rail = parseFloat(window.getComputedStyle(document.body).paddingLeft || 0) || 0;
+    return [[rail + EDGE, L - EDGE], [R + EDGE, W - EDGE]].filter(function (b) { return b[1] - b[0] >= 24; });
+  }
+
+  function paintLayer() {
+    layer.width = canvas.width; layer.height = canvas.height;
+    lctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    lctx.clearRect(0, 0, W, H);
+    for (var gx = GRID; gx < W; gx += GRID) {
+      for (var gy = GRID; gy < H; gy += GRID) {
+        lctx.fillStyle = rgba(COL.grid, 0.04);
+        lctx.beginPath(); lctx.arc(gx, gy, 0.85, 0, Math.PI * 2); lctx.fill();
+      }
+    }
+    for (var i = 0; i < nodes.length; i++) {
+      lctx.fillStyle = rgba(COL.idle, 0.35);
+      lctx.beginPath(); lctx.arc(nodes[i].x, nodes[i].y, nodes[i].r, 0, Math.PI * 2); lctx.fill();
+    }
   }
 
   function build() {
-    // precompute the static dotted grid once per resize (its radial falloff
-    // never changes between frames, so don't recompute hypot() per dot/frame)
-    gridDots = [];
-    for (var gx = GRID; gx < W; gx += GRID) {
-      for (var gy = GRID; gy < H; gy += GRID) {
-        var dd = Math.hypot(gx - recv.x, gy - recv.y) / (Math.max(W, H) * 0.7);
-        gridDots.push({ x: gx, y: gy, a: 0.045 * (1 - Math.min(dd, 1) * 0.55) });
-      }
-    }
-
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + "px"; canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    bands = measureBands();
     nodes = [];
-    var area = W * H;
-    // sparser than before - fewer, quieter stations read as elegant
-    var count = Math.max(8, Math.min(24, Math.round(area / 74000)));
+    var area = 0;
+    bands.forEach(function (b) { area += (b[1] - b[0]) * H; });
+    var count = bands.length ? Math.min(MAX_STATIONS, Math.max(3, Math.round(area / 70000))) : 0;
     for (var i = 0; i < count; i++) {
-      var x = (0.06 + Math.random() * 0.88) * W;
-      var y = (0.08 + Math.random() * 0.84) * H;
-      // snap loosely to the grid so blips feel like map cells
-      x = Math.round(x / GRID) * GRID;
-      y = Math.round(y / GRID) * GRID;
-      // keep stations a little clear of the receiver halo
-      if (Math.abs(x - recv.x) < GRID && Math.abs(y - recv.y) < GRID) y += GRID * 2;
-      var hot = Math.random() > 0.78;
+      var b = bands[i % bands.length];
       nodes.push({
-        x: x, y: y, r: 1.4 + Math.random() * 1.1,
-        online: Math.random() > 0.28,
-        hot: hot,
-        phase: Math.random() * Math.PI * 2,
-        speed: 0.0008 + Math.random() * 0.0007,   // slow breathing
-        nextFire: performance.now() + 1400 + Math.random() * 7000,
-        blink: 0,
+        x: b[0] + (b[1] - b[0]) * (0.2 + Math.random() * 0.6),
+        y: H * (0.1 + 0.8 * (i + Math.random()) / count),   // spread down the page
+        r: 1.4 + Math.random() * 0.8,
       });
     }
+    ring = null;
+    paintLayer();
+    paint(0);
   }
 
-  function colorOf(n) { return n.online ? (n.hot ? COL.ember : COL.live) : COL.idle; }
-
-  function fire(n, now) {
-    ripples.push({ x: n.x, y: n.y, t: 0, c: colorOf(n), max: 70 + Math.random() * 46 });
-    // ~38% of fires also send a beam to the receiver
-    if (Math.random() < 0.38) {
-      beams.push({ from: n, t: 0, speed: 0.00055 + Math.random() * 0.0006, c: n.hot ? COL.ember : COL.volt });
-    }
-    n.blink = now;
-  }
-
-  // smootherstep for soft, premium easing of rings/beams
-  function smooth(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
-
-  function render(now) {
+  function paint(now) {
     ctx.clearRect(0, 0, W, H);
-    var dt = FRAME;
-
-    // ease the whole field in on first frames
-    if (fade < 1) fade = Math.min(1, fade + 0.012);
-    ctx.globalAlpha = fade;
-
-    // ---- faint dotted grid (precomputed; gentle radial falloff) ----
-    for (var gi = 0; gi < gridDots.length; gi++) {
-      var gd = gridDots[gi];
-      ctx.fillStyle = rgba(COL.grid, gd.a);
-      ctx.beginPath();
-      ctx.arc(gd.x, gd.y, 0.85, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // ---- ripples (on-air rings) ----
-    ripples = ripples.filter(function (r) { return r.t < 1; });
-    ripples.forEach(function (r) {
-      r.t += dt * 0.00042;                // slower expansion
-      var e = smooth(Math.min(r.t, 1));
-      var rad = 4 + e * r.max;
-      ctx.beginPath();
-      ctx.strokeStyle = rgba(r.c, (1 - r.t) * 0.16);
-      ctx.lineWidth = 1;
-      ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
-      ctx.stroke();
-    });
-
-    // ---- beams to receiver (quiet token comets along a gentle bow) ----
-    beams = beams.filter(function (b) { return b.t < 1; });
-    beams.forEach(function (b) {
-      b.t += dt * b.speed;
-      var n = b.from;
-      var mx = (n.x + recv.x) / 2 + (recv.y - n.y) * 0.10;
-      var my = (n.y + recv.y) / 2 + (n.x - recv.x) * 0.10;
-      var tt = smooth(Math.min(b.t, 1)), u = 1 - tt;
-      var x = u * u * n.x + 2 * u * tt * mx + tt * tt * recv.x;
-      var y = u * u * n.y + 2 * u * tt * my + tt * tt * recv.y;
-      // fade in/out at the ends so it never pops
-      var ends = Math.sin(Math.min(b.t, 1) * Math.PI);
-      var halo = ctx.createRadialGradient(x, y, 0, x, y, 6);
-      halo.addColorStop(0, rgba(b.c, 0.38 * ends));
-      halo.addColorStop(1, rgba(b.c, 0));
-      ctx.fillStyle = halo;
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = rgba(b.c, 0.7 * ends);
-      ctx.beginPath(); ctx.arc(x, y, 1.3, 0, Math.PI * 2); ctx.fill();
-    });
-
-    // ---- station blips ----
-    nodes.forEach(function (n) {
-      n.phase += dt * n.speed;
-      if (n.online && now > n.nextFire) {
-        fire(n, now);
-        n.nextFire = now + 4200 + Math.random() * 7000;
-      }
-      var c = colorOf(n);
-      var breathe = 0.5 + 0.5 * Math.sin(n.phase);
-      var blinkBoost = n.blink && now - n.blink < 700 ? (1 - (now - n.blink) / 700) : 0;
-
-      if (n.online) {
-        ctx.beginPath();
-        ctx.fillStyle = rgba(c, 0.035 + breathe * 0.03 + blinkBoost * 0.10);
-        ctx.arc(n.x, n.y, n.r + 4 + breathe * 1.5 + blinkBoost * 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.beginPath();
-      ctx.fillStyle = rgba(c, n.online ? 0.40 + breathe * 0.10 + blinkBoost * 0.4 : 0.22);
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // ---- the receiver ("you") ----
-    // beat on the page carrier (2.2s) so the background heartbeat matches
-    // the on-air dot / brand beacon: ω = 2π / 2200ms ≈ 0.002856
-    var beat = 0.5 + 0.5 * Math.sin(now * 0.002856);
+    ctx.drawImage(layer, 0, 0, W, H);
+    if (!ring) return;
+    var t = Math.min(1, (now - ring.at) / RING_MS);
+    var e = 1 - Math.pow(1 - t, 3);                 // ease-out: the ring slows as it fades
+    ctx.save();
     ctx.beginPath();
-    ctx.strokeStyle = rgba(COL.volt, 0.10 + beat * 0.05);
-    ctx.lineWidth = 1.1;
-    ctx.arc(recv.x, recv.y, 15 + beat * 6, 0, Math.PI * 2);
-    ctx.stroke();
-    var rh = ctx.createRadialGradient(recv.x, recv.y, 0, recv.x, recv.y, 20);
-    rh.addColorStop(0, rgba(COL.volt, 0.14));
-    rh.addColorStop(1, rgba(COL.volt, 0));
-    ctx.fillStyle = rh;
-    ctx.beginPath(); ctx.arc(recv.x, recv.y, 20, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = rgba(COL.volt, 0.6);
-    ctx.beginPath(); ctx.arc(recv.x, recv.y, 3, 0, Math.PI * 2); ctx.fill();
-
-    ctx.globalAlpha = 1;
+    bands.forEach(function (b) { ctx.rect(b[0], 0, b[1] - b[0], H); });
+    ctx.clip();
+    ctx.strokeStyle = rgba(COL.live, 0.12 * (1 - t));
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(ring.n.x, ring.n.y, 3 + e * RING, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = rgba(COL.live, 0.5 * (1 - t));  // the keyed-up station glows red, then greys out
+    ctx.beginPath(); ctx.arc(ring.n.x, ring.n.y, ring.n.r + 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
-  function loop(now) {
-    var delta = now - last; last = now;
-    acc += delta;
-    if (acc >= FRAME) {
-      acc = acc % FRAME;          // catch up without drift; cap implicit via throttle
-      render(now);
-    }
-    raf = requestAnimationFrame(loop);
+  // ~30fps is plenty for one slow ring
+  var lastPaint = 0;
+  function frame(now) {
+    raf = null;
+    if (now - lastPaint >= 32) { paint(now); lastPaint = now; }
+    if (ring && now - ring.at < RING_MS) raf = window.requestAnimationFrame(frame);
+    else { ring = null; paint(now); schedule(); }
   }
 
-  function start() {
-    if (running) return;
-    running = true; last = performance.now(); acc = 0;
-    raf = requestAnimationFrame(loop);
+  function schedule() {
+    if (!nodes.length || document.hidden) return;
+    timer = window.setTimeout(function () {
+      timer = null;
+      ring = { n: nodes[Math.floor(Math.random() * nodes.length)], at: window.performance.now() };
+      raf = window.requestAnimationFrame(frame);
+    }, 3500 + Math.random() * 4500);
   }
+
   function stop() {
-    running = false;
-    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    if (timer) { window.clearTimeout(timer); timer = null; }
+    if (raf) { window.cancelAnimationFrame(raf); raf = null; }
+    ring = null;
   }
+
+  syncPalette();
+  build();
+  if (!REDUCED) schedule();
 
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) stop(); else start();
+    stop();
+    if (!document.hidden && !REDUCED) schedule();
   });
-
-  // re-read theme tokens when the user flips light/dark; repaint once if paused
-  window.addEventListener("themechange", function () {
-    syncPalette();
-    if (!running) render(performance.now());
-  });
-
-  // pause when the canvas is fully scrolled out of view
-  if ("IntersectionObserver" in window) {
-    var io = new IntersectionObserver(function (entries) {
-      if (entries[0].isIntersecting && !document.hidden) start();
-      else stop();
-    }, { threshold: 0 });
-    io.observe(canvas);
-  }
-
+  window.addEventListener("themechange", function () { syncPalette(); paintLayer(); paint(0); });
   var rt;
   window.addEventListener("resize", function () {
-    clearTimeout(rt); rt = setTimeout(resize, 160);
+    window.clearTimeout(rt);
+    rt = window.setTimeout(function () { stop(); build(); if (!REDUCED) schedule(); }, 160);
   });
-
-  resize();
-  start();
 })();
