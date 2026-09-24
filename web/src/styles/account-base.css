@@ -35,7 +35,10 @@ body.auth {
 .authwrap {
   flex: 1 0 auto;
   display: grid;
-  justify-content: center;
+  /* one shrinkable column, the plate centred in it: an auto track grew to a wide
+     table's min-content and pushed the page sideways on a phone */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
   align-content: start;
   margin: var(--s-6) max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
   padding: clamp(20px, 6vw, 72px) clamp(10px, 4vw, 48px);

@@ -50,8 +50,13 @@
 .rc-err { color: var(--live); }
 
 /* the ask input strip */
-.rc-ask { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
-.rc-ask .kf__in { flex: 1; }
+.rc-ask { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.rc-ask .kf__in {
+  /* keys.css (where .kf__in lives) is not on this page, so the field is set here */
+  flex: 1 1 12rem; min-width: 0; padding: 10px 12px; font: inherit; font-size: var(--t-sm);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-sm); background: var(--paper); color: var(--ink-900);
+}
+.rc-ask :is(.primary, .ghost) { width: auto; margin-top: 0; padding: 10px 16px; }
 
 /* the one-time link code */
 .rc-code {

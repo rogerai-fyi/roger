@@ -253,6 +253,8 @@
 
 /* ---- the key ledger ---- */
 .kf__tablewrap {
+  position: relative; /* contains the header's visually-hidden label, which otherwise
+                         escaped the scroller and widened the page on a phone */
   margin: var(--s-4) 0 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
