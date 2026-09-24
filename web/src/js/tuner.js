@@ -45,8 +45,14 @@
     }
   }
   // a section is "in view" when it crosses a band around the upper third
+  // back above the first section (the hero), §1 leaves the band downward:
+  // rest on §1 again rather than on wherever you last were
   var io = new window.IntersectionObserver(function (entries) {
-    entries.forEach(function (e) { if (e.isIntersecting && e.target.id in byId) current(byId[e.target.id]); });
+    entries.forEach(function (e) {
+      if (!(e.target.id in byId)) return;
+      if (e.isIntersecting) current(byId[e.target.id]);
+      else if (byId[e.target.id] === 0 && e.boundingClientRect.top > 0) current(0);
+    });
   }, { rootMargin: "-30% 0px -60% 0px" });
   Object.keys(byId).forEach(function (id) {
     var el = document.getElementById(id);

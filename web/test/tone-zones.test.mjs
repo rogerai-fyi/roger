@@ -1,15 +1,9 @@
-// Round 4 (2026-09-23): the homepage background carries the scroll story in
-// TONE, not in lines. Founder: "i don't like the lines on the background
-// animation, and the background changes are not powerful enough".
-//
-// Two "on air" zones turn the page from paper to ink and back:
-//   zone 1: §1 the console + §2 the band (live traffic)
-//   zone 2: §7 monetize + §8 privacy + §9 go (the transmitter, the finale)
-// Each zone opens like a studio door (an inset card that widens to full bleed
-// as it arrives), carries one red on-air bloom that grows as you enter, and an
-// LED station field (radiomap.js) whose stations light up as you scroll
-// through it. These tests pin the structure, the motion guards, and the thing
-// that must never break: AA text contrast in every state, both site themes.
+// The homepage's ink panels (.tone-zone): the cover, §1-§2 (the console, the
+// band) and §7-§9 (monetize, privacy, go) sit in calm, inset, rounded ink
+// panels on the paper page. (Rounds 4-7 also gave them a door, a red bloom
+// and an LED field; round 8 removed all three.) These tests pin the
+// structure, the motion guards, the layout rules that grew up alongside, and
+// the thing that must never break: AA text contrast, both site themes.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

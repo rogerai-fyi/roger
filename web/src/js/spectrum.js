@@ -4,7 +4,7 @@
    Enhances the static tier ladder (<ol class="home-spectrum">, complete
    without JS) with a range control above it: drag it, or arrow through it,
    and the tier under the needle is tuned in (.is-tuned: its wave turns the
-   live red). Pointing at or focusing a tier moves the scrubber to it. It
+   live red). Pointing at a tier moves the scrubber to it. It
    starts on Pico, the one trained tier. Every tier stays fully readable;
    tuning only marks one, it never fades the others.
    ===================================================================== */
@@ -34,7 +34,6 @@
   range.addEventListener("input", function () { tune(Number(range.value)); });
   Array.prototype.forEach.call(tiers, function (li, k) {
     li.addEventListener("pointerenter", function () { tune(k); });
-    li.addEventListener("focusin", function () { tune(k); });
   });
   ol.parentNode.insertBefore(range, ol);
   tune(0);

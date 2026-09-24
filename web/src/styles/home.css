@@ -1563,8 +1563,10 @@ html.js .mkt-quiet--nojs { display: none; }
 .pc-ic .pc-red { stroke: var(--live); }
 .pc-ic .pc-fill { fill: var(--live); stroke: none; }
 @media (max-width: 820px) { .pcards { grid-template-columns: 1fr; } }
-/* phones: the six cards are a gallery you swipe, snapping card by card */
-@media (max-width: 640px) {
+/* touch phones: the six cards are a gallery you swipe, snapping card by
+   card. Touch only: keyboard and mouse users (a zoomed desktop too) keep the
+   stacked cards, which every one of them can reach. */
+@media (max-width: 640px) and (pointer: coarse) {
   .pcards {
     grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 84%;
     overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
@@ -1678,8 +1680,8 @@ html.js .mkt-quiet--nojs { display: none; }
   -webkit-appearance: none; width: 3px; height: 22px; margin-top: -11px; border-radius: 1px; background: var(--live);
 }
 .spectrum-scrub::-moz-range-thumb { width: 3px; height: 22px; border: 0; border-radius: 1px; background: var(--live); }
-.spectrum-scrub:focus-visible { outline: 1px solid var(--ink-400); outline-offset: 3px; border-radius: 2px; }
-.home-spectrum li { cursor: pointer; transition: background-color var(--d-2); }
+.spectrum-scrub:focus-visible { outline: 2px solid var(--ink-500); outline-offset: 3px; border-radius: 2px; }
+.home-spectrum li { transition: background-color var(--d-2); }
 .home-spectrum li.is-tuned { background: var(--paper-2); }
 .home-spectrum li.is-tuned i { color: var(--live) !important; }   /* over the tune-in animation's fill */
 .home-spectrum li.is-tuned b { color: var(--ink-900); }

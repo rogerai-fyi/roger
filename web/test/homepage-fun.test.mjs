@@ -5,7 +5,7 @@
 //   1. the tuner - an in-page table of contents drawn as a tuning scale. The
 //      red needle follows the station you point at or focus (CSS only).
 //   2. the Wave Spectrum scrubber - a range control over the tier ladder;
-//      dragging, arrow keys, pointing or focusing a tier tunes it in.
+//      dragging, arrow keys, or pointing at a tier tunes it in.
 //   3. hardware-button feedback - buttons press down; the install command's
 //      copy icon turns into a tick while "copied" is showing.
 // And the clean-up: fewer boxes inside boxes (whitespace separates).
@@ -85,7 +85,7 @@ test("the scrubber is a real range control over the ladder, labelled, starting o
   assert.deepEqual(s.tuned(), [true, false, false, false, false, false, false]);
 });
 
-test("dragging or arrowing the scrubber tunes a tier; pointing at or focusing a tier moves the scrubber", () => {
+test("dragging or arrowing the scrubber tunes a tier; pointing at a tier moves the scrubber", () => {
   const s = spectrum();
   const r = s.range();
   r.value = "4"; s.fire(r, "input");
@@ -94,7 +94,9 @@ test("dragging or arrowing the scrubber tunes a tier; pointing at or focusing a 
   s.fire(s.lis[2], "pointerenter");
   assert.equal(r.value, "2");
   assert.equal(s.tuned()[2], true);
-  s.fire(s.lis[6], "focusin");
+  // tiers hold nothing focusable, so no focus listener on them (round 12 review)
+  assert.equal((s.lis[6].listeners.focusin || []).length, 0);
+  s.fire(s.lis[6], "pointerenter");
   assert.equal(r.value, "6");
   assert.equal(r.attrs["aria-valuetext"], "Wave Exa");
 });
@@ -168,7 +170,9 @@ function tuner() {
   vm.runInContext(TUNER, win);
   const key = (a, k) => { let prevented = false; for (const f of a.listeners.keydown || []) f({ key: k, preventDefault: () => { prevented = true; } }); return prevented; };
   const see = (id) => ioCb([{ isIntersecting: true, target: { id } }]);
-  return { links, style, key, see, focused: () => focused, observed };
+  // a section leaving the reading band, below it (scrolling back up) or above it
+  const leave = (id, below) => ioCb([{ isIntersecting: false, target: { id }, boundingClientRect: { top: below ? 500 : -500 } }]);
+  return { links, style, key, see, leave, focused: () => focused, observed };
 }
 
 test("tuner: arrow keys rove between stations (one tab stop), Home/End jump to the ends", () => {
@@ -234,9 +238,55 @@ test("Ping's eye follows the pointer a little (at most 1.6 units) and blinks on 
 
 test("phones: the six privacy cards become a swipeable gallery that snaps card by card", () => {
   const css = dist("styles/home.css");
-  const m = css.match(/@media \(max-width: 640px\)\s*\{\s*\.pcards\s*\{([^}]*)\}/)?.[1] || "";
+  const m = css.match(/@media \(max-width: 640px\) and \(pointer: coarse\)\s*\{\s*\.pcards\s*\{([^}]*)\}/)?.[1] || "";
   assert.match(m, /grid-auto-flow:\s*column/);
   assert.match(m, /overflow-x:\s*auto/);
   assert.match(m, /scroll-snap-type:\s*x mandatory/);
   assert.match(css, /\.pcards article\s*\{[^}]*scroll-snap-align:\s*start/);
+});
+
+// ---- round 12 (second review) ----
+test("tuner: back at the top (§1 leaves the band downward) the current station resets to §1", () => {
+  const t = tuner();
+  t.see("go");
+  assert.ok(t.links[8].cls.has("is-current"));
+  t.leave("demo", true);
+  assert.equal(t.style["--cur"], "0");
+  assert.ok(t.links[0].cls.has("is-current") && !t.links[8].cls.has("is-current"));
+  t.see("company");
+  t.leave("company", false);                   // leaving upward: the next section takes over, no reset
+  assert.equal(t.style["--cur"], "2");
+});
+
+test("the spectrum scrubber's focus ring is visible (ink-500, 2px); tiers don't pretend to be clickable", () => {
+  const css = dist("styles/home.css");
+  assert.match(css, /\.spectrum-scrub:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--ink-(500|700|900)\)/);
+  assert.doesNotMatch(css, /\.home-spectrum li\s*\{[^}]*cursor:\s*pointer/);
+});
+
+test("the privacy gallery is touch-only: keyboard and mouse users (any width) get the stacked cards", () => {
+  const css = dist("styles/home.css");
+  assert.match(css, /@media \(max-width: 640px\) and \(pointer: coarse\)\s*\{\s*\.pcards\s*\{[^}]*scroll-snap-type:\s*x mandatory/);
+  assert.doesNotMatch(css, /@media \(max-width: 640px\)\s*\{\s*\.pcards\s*\{[^}]*grid-auto-flow:\s*column/);
+});
+
+test("clicking Ping blinks the eye, briefly", () => {
+  const listeners = {}, cls = new Set();
+  const mark = { style: { setProperty() {} }, getBoundingClientRect: () => ({ left: 0, top: 0, width: 64, height: 80 }),
+    classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c) } };
+  const ping = { querySelector: (q) => (q === ".tube-ping__mark" ? mark : null) };
+  const timers = [];
+  const win = { matchMedia: () => ({ matches: false }), addEventListener: (t, f) => { (listeners[t] ||= []).push(f); },
+    requestAnimationFrame() {}, setTimeout: (f, ms) => timers.push([f, ms]) };
+  win.window = win;
+  win.document = { querySelectorAll: () => [mark] };
+  vm.createContext(win); vm.runInContext(PING, win);
+  const click = (target) => { for (const f of listeners.click || []) f({ target }); };
+  click({ closest: () => null });
+  assert.ok(!cls.has("is-blink"), "a click elsewhere does nothing");
+  click({ closest: (q) => (q === ".tube-ping" ? ping : null) });
+  assert.ok(cls.has("is-blink"), "a click on Ping blinks");
+  assert.ok(timers.length === 1 && timers[0][1] <= 250, "and opens again quickly");
+  timers[0][0]();
+  assert.ok(!cls.has("is-blink"));
 });
