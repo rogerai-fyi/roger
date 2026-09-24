@@ -114,8 +114,9 @@ func TestRefreshTrustDoesNotMarkFreshWhenTheFetchFails(t *testing.T) {
 	require.NoError(t, st.SaveTrust([]string{"11"}, old))
 
 	// A fetch against an endpoint that cannot answer.
-	err := edgeRefreshTrust(st, "http://127.0.0.1:1/edge", nil, false, time.Now())
+	warn, err := edgeRefreshTrust(st, "http://127.0.0.1:1/edge", nil, false, time.Now())
 	require.NoError(t, err, "a failed refresh does not fail the caller")
+	require.NotEmpty(t, warn, "a failed refresh returns a warning for the caller to surface")
 
 	got, err := st.LoadTrust()
 	require.NoError(t, err)
@@ -152,4 +153,6 @@ func TestForgetSurfacesAnUnreadableIdentity(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(edgeAuthDir(), "node.key"), []byte("not-hex"), 0o600))
 	err := edgeRevokeOnForget("n_whatever")
 	require.Error(t, err, "a forget must report an unreadable identity, not silently do nothing")
+	require.Contains(t, err.Error(), "could not read this machine's identity",
+		"the error names the actual failure, not some other one")
 }

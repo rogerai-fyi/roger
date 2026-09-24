@@ -93,6 +93,9 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	}
 	fmt.Printf("enrolled %q as %s on the Edge rooted at %s.\n", res.Name, edgeShortID(res.NodeID), res.Authority)
 	fmt.Printf("  this machine now advertises itself, so your other machines can see it.\n")
+	if res.TrustWarning != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", res.TrustWarning)
+	}
 	return nil
 }
 
@@ -104,6 +107,10 @@ type edgeEnrollResult struct {
 	Authority       string // the descriptor's human name, for "rooted at ..."
 	AlreadyEnrolled bool
 	NotAfter        time.Time
+	// TrustWarning is a non-fatal note (e.g. the revocation list could not be refreshed at enroll
+	// time), for the caller's own UX. The core does not print it - the CLI prints it, the TUI can
+	// surface it in the wizard.
+	TrustWarning string
 }
 
 // edgeEnrollCore is the whole enrollment orchestration with NO printing, so the CLI and the
@@ -221,9 +228,11 @@ func edgeEnrollCore(cfg config, name, endpoint, account string) (edgeEnrollResul
 	if err := st.SaveIdentity(id, priv, edgeAuthorityDescriptor(endpoint, local, isAuthority)); err != nil {
 		return res, err
 	}
-	if err := edgeRefreshTrust(st, endpoint, local, isAuthority, now); err != nil {
+	warn, err := edgeRefreshTrust(st, endpoint, local, isAuthority, now)
+	if err != nil {
 		return res, err
 	}
+	res.TrustWarning = warn
 	if err := edgeRecordSelf(id, pub, name, now); err != nil {
 		return res, err
 	}
@@ -315,29 +324,28 @@ func edgeAuthorityLabel(endpoint string) string {
 // edgeRefreshTrust brings this machine's revocation list up to date and stamps WHEN. A
 // list with no timestamp cannot be called stale later, and a list that cannot be called
 // stale is one that quietly claims a revoked node is fine.
-func edgeRefreshTrust(st edgeauth.Store, endpoint string, local *edgeauth.Local, isAuthority bool, now time.Time) error {
+func edgeRefreshTrust(st edgeauth.Store, endpoint string, local *edgeauth.Local, isAuthority bool, now time.Time) (string, error) {
 	if isAuthority && endpoint == "" {
 		revs, err := local.Revocations()
 		if err != nil {
-			return err
+			return "", err
 		}
-		return st.SaveTrust(revs, now)
+		return "", st.SaveTrust(revs, now)
 	}
 	if endpoint != "" {
 		if rev, err := enrollhttp.Revocations(context.Background(), endpoint); err == nil {
-			return st.SaveTrust(rev, now)
+			return "", st.SaveTrust(rev, now)
 		}
 		// The fetch FAILED (a 503 when the authority's list is unreadable, or the authority is
 		// unreachable). Do NOT re-stamp the stored list as freshly refreshed - a failed refresh that
 		// read as fresh would suppress the staleness warning and hide a revocation made meanwhile.
-		// Leave what is stored exactly as it is (so edgeTrustNote still warns) and TELL the operator,
-		// rather than failing silently (audit 2026-09-24).
-		fmt.Fprintf(os.Stderr, "warning: could not refresh the revocation list from %s - this machine's list may be stale\n", endpoint)
-		return nil
+		// Leave what is stored exactly as it is (so edgeTrustNote still warns) and RETURN a warning
+		// for the caller to surface, rather than printing into the core (which the TUI shares).
+		return fmt.Sprintf("could not refresh the revocation list from %s - this machine's list may be stale", endpoint), nil
 	}
 	// A node with no authority and no endpoint has no source to refresh from, so it likewise must not
 	// claim a fresh list. Leave the stored trust (and its RefreshedAt) untouched.
-	return nil
+	return "", nil
 }
 
 // edgeRecordSelf puts this machine on its own fleet, or leaves the row it already has

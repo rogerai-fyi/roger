@@ -366,8 +366,10 @@ func (s Store) SaveTrust(revoked []string, at time.Time) error {
 	return os.WriteFile(s.path(TrustFile), b, 0o600)
 }
 
-// Revoke adds one serial to this machine's list and refreshes its timestamp.
-func (s Store) Revoke(serial string, at time.Time) error {
+// Revoke adds one serial to this machine's revocation list. It deliberately does NOT touch the
+// RefreshedAt timestamp: adding a local revocation is not a refresh from the authority, so it must
+// not make a stale or never-synced list look freshly refreshed. The time parameter is unused.
+func (s Store) Revoke(serial string, _ time.Time) error {
 	t, err := s.LoadTrust()
 	if err != nil {
 		return err
