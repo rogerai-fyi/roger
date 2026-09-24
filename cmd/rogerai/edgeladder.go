@@ -12,6 +12,7 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
@@ -76,4 +77,30 @@ func applyEdgeLadder(cfg config, o *client.ProxyOptions) {
 	o.EdgeVerify = func(rec protocol.UsageReceipt, serving *x509.Certificate) bool {
 		return edge.VerifyLocalReceipt(rec, serving)
 	}
+}
+
+// edgeResolveAddressed decides whether the first `roger use` argument names a NODE on this Edge - so
+// the turn is PINNED to that node's model (features/edge/addressed_inference.feature) - rather than a
+// plain model for the band ladder. It returns the pinned peer and the resolved band when it is a node
+// address, isNode=false when the argument is a plain model (fall through to today's behavior), or a
+// typed refusal when it names a node that cannot carry a turn. It reads the fleet only; it never dials.
+func edgeResolveAddressed(addr, model string) (peer client.EdgePeer, band string, isNode bool, err error) {
+	st, e := loadEdgeState()
+	if e != nil {
+		return client.EdgePeer{}, "", false, nil // no fleet to address: treat as a model
+	}
+	loc, b, e := st.fleet.ServingPeer(addr, model)
+	if errors.Is(e, edge.ErrNoSuchNode) {
+		return client.EdgePeer{}, "", false, nil // not a node on this Edge: it is a model
+	}
+	if e != nil {
+		return client.EdgePeer{}, "", true, e // a node address, but a real refusal - surface it
+	}
+	a, pin := "", ""
+	for _, t := range loc.Node.Transports {
+		if t.Kind == "lan" {
+			a, pin = t.Addr, t.Fingerprint
+		}
+	}
+	return client.EdgePeer{Addr: a, Pin: pin, Node: loc.Node.Name, Instance: loc.Instance.Name}, b, true, nil
 }

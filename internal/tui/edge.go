@@ -495,6 +495,8 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 		m.edgeRemoveSelected()
 	case "b":
 		m.edgeStartBind()
+	case "p":
+		m.edgeStartAsk()
 	case "a":
 		if m.edgeMapActive() {
 			m.edgeAdoptSelectedNet()
@@ -503,6 +505,29 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// edgeStartAsk prompts the selected node's model - addressed inference to that specific node
+// (features/edge/addressed_inference.feature). When an EdgeAsk hook is wired it opens the prompt;
+// otherwise it shows the equivalent `roger use <node>` command, which is the working path today.
+func (m *model) edgeStartAsk() {
+	it, _ := m.edgeSelectedNet()
+	model, ok := edgeItemServes(it)
+	if !ok {
+		m.status = stDim.Render("this node serves no model yet - nothing to ask")
+		return
+	}
+	addr := it.name // a member is addressed by its node name; ServingPeer resolves a bare name
+	if !it.member && it.inst != nil {
+		addr = model // a local serving roger: a plain `roger use <model>` runs here
+	}
+	if m.hooks.EdgeAsk != nil {
+		if err := m.hooks.EdgeAsk(addr, model); err != nil {
+			m.status = stEmber.Render(err.Error())
+		}
+		return
+	}
+	m.status = stKey.Render("Ask "+it.name+": ") + stDim.Render("run `roger use "+addr+"` to prompt "+model)
 }
 
 // edgeStartBind opens the inline "Bind Model" prompt for the selected agent - the founder's

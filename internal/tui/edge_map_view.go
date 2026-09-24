@@ -497,6 +497,12 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		if n.LastSeen > 0 {
 			label("LAST SEEN", edgeAge(m.edge.at.Sub(time.Unix(n.LastSeen, 0)))+" ago")
 		}
+		// ASK: whether this node can be prompted, and with which model (addressed_inference.feature).
+		if model, ok := edgeItemServes(it); ok {
+			label("ASK", stKey.Render("p")+stDim.Render(" to prompt ")+stEmber.Render(model)+stDim.Render(" on this node"))
+		} else if it.member {
+			label("ASK", stDim.Render("serves no model yet - nothing to ask"))
+		}
 		line("")
 		line("  " + stDim.Render("esc back to the map · ←→ move to another node"))
 		return

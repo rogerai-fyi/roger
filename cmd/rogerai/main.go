@@ -1048,7 +1048,19 @@ func cmdUse(cfg config, args []string) error {
 	// Default off = fallback ON (an empty-content reasoning reply is surfaced as content).
 	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
 	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
+	onModel := fs.String("model", "", "when the first argument is a NODE on your Edge, the model on it to use (addressed inference)")
 	fs.Parse(args[1:])
+	// ADDRESSED INFERENCE (features/edge/addressed_inference.feature): if the first argument names a
+	// NODE on this Edge, pin the turn to that node's model instead of letting the band ladder pick a
+	// peer. A plain model falls through unchanged.
+	pinnedPeer, pinned, addrErr := client.EdgePeer{}, false, error(nil)
+	if peer, band, isNode, err := edgeResolveAddressed(args[0], strings.TrimSpace(*onModel)); isNode {
+		if err != nil {
+			return err // a node address that cannot carry a turn - the typed refusal
+		}
+		model, pinnedPeer, pinned = band, peer, true
+		_ = addrErr
+	}
 	if *advanced {
 		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")
 	}
@@ -1084,6 +1096,13 @@ func cmdUse(cfg config, args []string) error {
 	// feature). A machine that has not enrolled and set no preference is untouched.
 	var po client.ProxyOptions
 	applyEdgeLadder(cfg, &po)
+	if pinned {
+		// The owner named a specific node: pin the turn to it, and do not fall through to the market -
+		// an addressed node is that node or nothing (features/edge/addressed_inference.feature).
+		peer := pinnedPeer
+		po.EdgePeers = func(string) []client.EdgePeer { return []client.EdgePeer{peer} }
+		po.Prefer = "local-only"
+	}
 	uo.EdgePeers, uo.Prefer, uo.EdgeCert, uo.EdgeVerify = po.EdgePeers, po.Prefer, po.EdgeCert, po.EdgeVerify
 	return client.Use(cfg.Broker, cfg.User, model, uo)
 }

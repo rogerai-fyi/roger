@@ -726,3 +726,45 @@ func TestAdoptingIndicator(t *testing.T) {
 		t.Errorf("ADOPTING line should be absent when nothing is adopting")
 	}
 }
+
+// A member that serves a model offers an Ask action (addressed_inference.feature); one that serves
+// nothing says so, instead of "nothing to do".
+func TestAskActionOnMembers(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		Enrolled: true, Name: "desk", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	serving := store.EdgeNode{ID: "n_jetson", Name: "jetson", Kind: "host", Presence: string(edge.PresenceVerified),
+		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.9:8443", Fingerprint: "cdcd"}},
+		Instances: []edge.Instance{{Name: "serve", Bands: []string{"qwen3-8b"},
+			Caps: []store.EdgeCap{{Name: string(edge.Serve), State: string(edge.Verified)}}}}}
+	quiet := store.EdgeNode{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile", Presence: string(edge.PresenceVerified),
+		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.17:1", Fingerprint: "abab"}}}
+
+	m := networkModel(t, self, serving, quiet)
+
+	sel := func(name string) {
+		for i, it := range m.edgeNetItems() {
+			if it.member && it.name == name {
+				m.edge.netSel, m.edge.netSelSet = i, true
+				return
+			}
+		}
+		t.Fatalf("member %q not found in net items", name)
+	}
+
+	sel("jetson")
+	out := stripANSI(m.edgeView(100))
+	for _, want := range []string{"WHAT YOU CAN DO", "Ask", "qwen3-8b"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a serving member should offer Ask (%q):\n%s", want, out)
+		}
+	}
+
+	sel("gentle-ibex-14")
+	out = stripANSI(m.edgeView(100))
+	if strings.Contains(out, "nothing to do on this node here") {
+		t.Errorf("a non-serving member should not read as 'nothing to do':\n%s", out)
+	}
+	if !strings.Contains(out, "serves no model yet") {
+		t.Errorf("a non-serving member should say it serves no model yet:\n%s", out)
+	}
+}

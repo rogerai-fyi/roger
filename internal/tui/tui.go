@@ -148,6 +148,9 @@ type Hooks struct {
 	// EdgeLadder fills the dispatch-ladder seams on the live proxy options, so the TUI
 	// booth tries a peer on this Edge before the market exactly as `roger use` does.
 	EdgeLadder func(o *client.ProxyOptions)
+	// EdgeAsk opens a prompt PINNED to a node's model (features/edge/addressed_inference.feature).
+	// Optional: when nil, the TUI shows the equivalent `roger use <node>` command instead.
+	EdgeAsk func(addr, model string) error
 	// EdgeSetup is the onboarding backend the [3] wizard drives (features/edge/onboard.
 	// feature): start a new Edge, join one, finish a missed step. Nil = this build cannot
 	// set up an Edge here, and the wizard says so rather than half-doing it. Wired by the

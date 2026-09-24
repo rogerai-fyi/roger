@@ -464,6 +464,30 @@ type edgeAction struct {
 //   - a DARK persistent agent: Resume it, or Remove it from the Edge.
 //   - THIS roger (the one you are looking at): Make/Stop Agent, Rename.
 //   - the machine, or any other node: Add Agent, Add Device, Allow Machine.
+//
+// edgeItemServes reports the first model this node serves with a VERIFIED serve, and whether it can
+// therefore be asked (features/edge/addressed_inference.feature). A CLAIMED-but-unverified serve does
+// not count - nothing routes to it.
+func edgeItemServes(it edgeNetItem) (string, bool) {
+	if it.inst != nil {
+		for _, c := range it.inst.Caps {
+			if c.Name == string(edge.Serve) && c.State == string(edge.Verified) && len(it.inst.Bands) > 0 {
+				return it.inst.Bands[0], true
+			}
+		}
+	}
+	if it.node != nil {
+		for _, in := range it.node.Instances {
+			for _, c := range in.Caps {
+				if c.Name == string(edge.Serve) && c.State == string(edge.Verified) && len(in.Bands) > 0 {
+					return in.Bands[0], true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
 func (m model) edgeActions() []edgeAction {
 	it, _ := m.edgeSelectedNet()
 	var out []edgeAction
@@ -473,7 +497,12 @@ func (m model) edgeActions() []edgeAction {
 			out = append(out, edgeAction{"a", "Adopt", "bring it onto your Edge", true})
 		}
 	case it.member:
-		// A member machine: nothing to do in place yet beyond opening its detail (⏎).
+		// A member that serves a model can be ASKED - prompt its model in place
+		// (features/edge/addressed_inference.feature). One that serves nothing has nothing to ask,
+		// and the action bar says so rather than "nothing to do".
+		if model, ok := edgeItemServes(it); ok {
+			out = append(out, edgeAction{"p", "Ask", "prompt " + model + " on this node", true})
+		}
 	case it.dark:
 		if m.hooks.EdgeResumeAgent != nil {
 			out = append(out, edgeAction{"u", "Resume", "relaunch this agent", true})
@@ -496,9 +525,12 @@ func (m model) edgeActions() []edgeAction {
 			out = append(out, edgeAction{"n", "Rename", "rename this roger", false})
 		}
 	case it.inst != nil:
-		// Another running roger on this machine: bind a model to it in place.
+		// Another running roger on this machine: bind a model to it in place, and ask it if it serves.
 		if m.hooks.EdgeSetAgentJob != nil {
 			out = append(out, edgeAction{"b", "Bind Model", "put a model on air for it", false})
+		}
+		if model, ok := edgeItemServes(it); ok {
+			out = append(out, edgeAction{"p", "Ask", "prompt " + model + " on it", false})
 		}
 	default:
 		if m.hooks.EdgeAddAgent != nil {
@@ -588,7 +620,13 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 	line("  " + stKey.Render("WHAT YOU CAN DO") + stDim.Render("  on  ") + gs.Render(glyph) + " " + stEmber.Render(who) + tail)
 	acts := m.edgeActions()
 	if len(acts) == 0 {
-		line("  " + stDim.Render("nothing to do on this node here - ←→ to select another"))
+		if it.member {
+			// A member with no in-place action is one that serves no model yet: say what would make it
+			// askable, not a bare "nothing to do" (features/edge/addressed_inference.feature).
+			line("  " + stDim.Render("this device serves no model yet, so there is nothing to ask it - a served, verified model makes it askable"))
+		} else {
+			line("  " + stDim.Render("nothing to do on this node here - ←→ to select another"))
+		}
 		return
 	}
 	// Clamp a stale focus index so the highlight lands on a real button.
