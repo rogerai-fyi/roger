@@ -471,9 +471,12 @@ func (h *edgeHost) start(ctx context.Context) bool {
 	if !h.arm() {
 		return false
 	}
-	ctx, h.cancel = context.WithCancel(ctx)
-	h.done = make(chan struct{})
-	go func() { defer close(h.done); h.serve(ctx) }()
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	h.mu.Lock()
+	h.cancel, h.done = cancel, done
+	h.mu.Unlock()
+	go func() { defer close(done); h.serve(ctx) }()
 	return true
 }
 
@@ -578,17 +581,19 @@ func (h *edgeHost) beat(id string) {
 // on a socket is worse than a pass that never finished.
 func (h *edgeHost) stop() {
 	h.once.Do(func() {
-		if h.cancel == nil {
+		// Read cancel/done under the lock (start sets them under it) and mark closing in the same
+		// critical section, so a registerInstance in the serve goroutine sees it (audit 2026-09-24).
+		h.mu.Lock()
+		cancel, done := h.cancel, h.done
+		if cancel == nil {
+			h.mu.Unlock()
 			return // nothing was ever armed, so no serve goroutine can be registering
 		}
-		// Mark closing before cancelling, so a registerInstance running in the serve goroutine sees
-		// it and deregisters rather than leaving an orphan record (audit 2026-09-24).
-		h.mu.Lock()
 		h.closing = true
 		h.mu.Unlock()
-		h.cancel()
+		cancel()
 		select {
-		case <-h.done:
+		case <-done:
 			close(h.beats) // no sender is left, so the screen's drain ends cleanly
 		case <-time.After(edgeStopGrace):
 		}

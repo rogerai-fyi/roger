@@ -516,13 +516,12 @@ func edgeDesignateCore(dir, where string) (*edgeauth.Local, error) {
 		return nil, err
 	}
 	// The machine that designated is the first machine allowed to enroll against it.
+	// The machine that designated is the first machine allowed to enroll against it, and its own key
+	// is PROTECTED (a later forget must never evict it, or the authority could lock itself out of
+	// renewing its own certificate) - both in one locked step so a crash cannot leave it
+	// allowed-but-unprotected (audit 2026-09-24).
 	pub := edgeUserKey().Public().(ed25519.PublicKey)
-	if err := local.Allow(hex.EncodeToString(pub)); err != nil {
-		return nil, err
-	}
-	// The designating machine's own key is PROTECTED: a later forget must never evict it, or the
-	// authority could lock itself out of renewing its own certificate (audit 2026-09-24).
-	if err := local.Protect(hex.EncodeToString(pub)); err != nil {
+	if err := local.AllowProtected(hex.EncodeToString(pub)); err != nil {
 		return nil, err
 	}
 	if err := edgeIdentityStore().SaveDescriptor(local.Descriptor()); err != nil {

@@ -385,3 +385,40 @@ func TestBackfillProtectionProtectsOnlyTheOwnAllowedKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, hexEncode(otherPub), oevicted, "another device's key is still evicted")
 }
+
+// An unreadable protected-keys list makes forget FAIL LOUDLY, rather than silently protect
+// everything (which would let a forgotten machine re-enroll under a fresh node id) (audit 2026-09-24).
+func TestForgetErrorsOnACorruptProtectedList(t *testing.T) {
+	dir, local, _, _, _ := secFixture(t)
+	kPub, kPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.AllowProtected(hexEncode(kPub))) // creates protected_keys.json
+	nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+	req := edgeauth.NewRequest(local.Account(), "m", "host", nodePub, time.Now())
+	req.Sign(kPriv)
+	_, err := local.Issue(req)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, edgeauth.AuthorityDir, "protected_keys.json"), []byte("{bad"), 0o600))
+	_, _, err = local.Forget(edgeauth.NodeID(nodePub))
+	require.Error(t, err, "a corrupt protected-keys list must fail the forget, not silently protect all")
+}
+
+// AllowProtected adds the key to the allow-list AND protects it atomically.
+func TestAllowProtectedAllowsAndProtects(t *testing.T) {
+	_, local, _, _, _ := secFixture(t)
+	kPub, kPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.AllowProtected(hexEncode(kPub)))
+	allowed, err := local.Allowed()
+	require.NoError(t, err)
+	require.Contains(t, allowed, hexEncode(kPub))
+
+	// A node enrolled under it is not evicted on forget (it is protected).
+	nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+	req := edgeauth.NewRequest(local.Account(), "m", "host", nodePub, time.Now())
+	req.Sign(kPriv)
+	_, err = local.Issue(req)
+	require.NoError(t, err)
+	_, evicted, err := local.Forget(edgeauth.NodeID(nodePub))
+	require.NoError(t, err)
+	require.Empty(t, evicted, "an AllowProtected key is protected from eviction")
+}

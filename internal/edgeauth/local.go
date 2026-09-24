@@ -644,7 +644,15 @@ func (l *Local) dropEnrolledBy(nodeID string) (string, error) {
 	// A PROTECTED key (the authority's own designation key) is never evicted, and its records are
 	// left intact: forgetting an orphan self node id must not lock the authority out of renewing its
 	// own certificate, nor erase its current enrolled-by record.
-	if key == "" || l.isProtected(key) {
+	protected := false
+	if key != "" {
+		p, err := l.isProtected(key)
+		if err != nil {
+			return "", err
+		}
+		protected = p
+	}
+	if key == "" || protected {
 		return "", l.writeJSON(EnrolledByFile, m)
 	}
 	// Drop stale enrolled-by records that named this (unprotected) key so the record does not grow
@@ -666,6 +674,39 @@ func (l *Local) dropEnrolledBy(nodeID string) (string, error) {
 		return "", err
 	}
 	return key, nil
+}
+
+// AllowProtected adds a user key to the allow-list AND marks it protected, in ONE locked step, so a
+// crash cannot leave the designation key allowed-but-unprotected (audit 2026-09-24).
+func (l *Local) AllowProtected(userKeyHex string) error {
+	return l.withLock(func() error {
+		allowed, err := l.readJSON2Allowed()
+		if err != nil {
+			return err
+		}
+		if !containsString(allowed, userKeyHex) {
+			if err := l.writeJSON(AllowFile, append(allowed, userKeyHex)); err != nil {
+				return err
+			}
+		}
+		var prot []string
+		if err := l.readJSON(ProtectedKeysFile, &prot); err != nil {
+			return err
+		}
+		if containsString(prot, userKeyHex) {
+			return nil
+		}
+		return l.writeJSON(ProtectedKeysFile, append(prot, userKeyHex))
+	})
+}
+
+func containsString(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }
 
 // BackfillProtection protects this machine's OWN key on an authority designated before protection
@@ -708,17 +749,20 @@ func (l *Local) Protect(userKeyHex string) error {
 }
 
 // isProtected reports whether a key must never be evicted. Unlocked; callers hold the lock.
-func (l *Local) isProtected(userKeyHex string) bool {
+func (l *Local) isProtected(userKeyHex string) (bool, error) {
 	var got []string
 	if err := l.readJSON(ProtectedKeysFile, &got); err != nil {
-		return true // fail SAFE: if we cannot tell, do not evict
+		// An unreadable protected set must be an ERROR, not a silent "everything is protected": that
+		// would make forget never evict any key, so a forgotten machine could re-enroll under a fresh
+		// node id, with nobody told (audit 2026-09-24).
+		return false, fmt.Errorf("the protected-keys list could not be read: %w", err)
 	}
 	for _, k := range got {
 		if k == userKeyHex {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // disallow removes a user key from the allow-list. Unlocked; callers hold the lock.
