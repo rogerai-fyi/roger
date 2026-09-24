@@ -123,10 +123,11 @@ still write the same two declarations by hand and can adopt the class.
 ### Wave Spectrum scale
 ```html
 <ol class="spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
-  <li><i aria-hidden="true"></i><b>Wave Pico</b> what it watches ...</li> ...
+  <li><i aria-hidden="true"></i><span><b>Wave Pico</b> what it watches ...</span></li> ...
 </ol>
 ```
-One station per tier, pico to exa; the bar over each is the wave, its stripes tightening
+One station per tier, pico to exa (the words in one `<span>`, so a phone can set the bar
+beside them); the bar over each is the wave, its stripes tightening
 as the model grows (set by position, up to seven tiers, no inline style). With
 `data-scrub` the scrubber tunes a tier (quiet ground, red wave). Four columns under
 1080px, where the range control steps aside (pointing or tapping a tier still tunes it);

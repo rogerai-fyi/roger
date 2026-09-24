@@ -380,7 +380,7 @@
 
 /* ---- component: spectrum (added by company rollout) ------------------------
    <ol class="spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
-     <li><i aria-hidden="true"></i><b>Wave Pico</b> what it watches ...</li> ...
+     <li><i aria-hidden="true"></i><span><b>Wave Pico</b> what it watches ...</span></li> ...
    </ol>
    The Wave Spectrum as a tuning scale, one station per tier, pico to exa. The
    bar over each tier is the wave itself: stripes that TIGHTEN as the model grows
@@ -425,7 +425,7 @@
 @media (max-width: 640px) {
   .spectrum { grid-template-columns: 1fr; }
   .spectrum li { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: var(--s-4); padding: var(--s-3); }
-  .spectrum i { grid-row: span 2; height: 18px; margin: 3px 0 0; }
+  .spectrum i { height: 18px; margin: 3px 0 0; }
 }
 @media (prefers-reduced-motion: reduce) { .spectrum li { transition: none; } }
 
@@ -480,7 +480,8 @@
    targets carry their own ids; anchors land under the nav (scroll-margin). */
 .page-index { font-size: var(--t-sm); line-height: 1.45; }
 .page-index ol { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s-2); }
-.page-index > ol { columns: 2 20rem; column-gap: var(--s-10); display: block; }
+/* a long index (6+ entries) sets in columns; a short one stays one quiet list */
+.page-index > ol:has(> li:nth-child(6)) { columns: 2 20rem; column-gap: var(--s-10); display: block; }
 .page-index > ol > li { break-inside: avoid; padding-block: 3px; }
 .page-index a { color: var(--ink-700); text-decoration: none; }
 .page-index a:hover { color: var(--live); }
