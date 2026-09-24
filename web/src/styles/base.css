@@ -224,12 +224,9 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   .onair .onair__dot::after { animation: none; opacity: 0; }
 }
 
-/* ===== blip-map background ====================================== */
-/* radiomap.js paints it; under reduced motion it paints one still frame. */
-.blipmap {
-  position: fixed; inset: 0; width: 100%; height: 100%;
-  z-index: -1; pointer-events: none;
-}
+/* a command token that contains a hyphen (a flag, a model id) never breaks
+   inside itself; the command wraps only at its spaces */
+.tok { white-space: nowrap; }
 
 /* ============================ PROMO STRIP ====================== */
 /* thin dismissible launch band above the nav: the $1 starter seed for the

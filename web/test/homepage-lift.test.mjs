@@ -98,7 +98,7 @@ test("(c) hero content and the framed download panel are in the HTML without Jav
   // The hook is an attribute, not a modifier class: class="install" is a
   // locator other homepage tests rely on, and it stays exactly as it was.
   assert.match(hero, /<div class="install" data-frame="panel"/, "the download panel carries the framed hook");
-  assert.match(hero, /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/);
+  assert.match(visibleText(hero), /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/);
   for (const marker of ["hero__eyebrow", "hero__title", "hero__sub", "hero__proof", 'data-frame="panel"']) {
     const tag = hero.match(new RegExp(`<[^>]*${marker.startsWith("data-") ? marker : `class="[^"]*${marker}[^"]*"`}[^>]*>`))?.[0] || "";
     assert.ok(tag, `${marker} is present`);

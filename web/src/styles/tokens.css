@@ -166,7 +166,10 @@
    DARK THEME - "the ink room" (warm ink, not blue-black).
    Driven by [data-theme="dark"] on <html>. Same single-accent discipline.
    ===================================================================== */
-:root[data-theme="dark"] {
+/* .tone-zone (the homepage's on-air ink zones) borrows this same ink set, so
+   everything inside a zone re-themes the way the whole site does in dark mode. */
+:root[data-theme="dark"],
+.tone-zone {
   --white:        #1C1A14; /* raised surface */
   --paper:        #0E0D0B; /* warm ink ground */
   --paper-2:      #16140F; /* bands / bars */
@@ -208,6 +211,16 @@
   --glass-soft:   rgba(14, 13, 11, 0.55);
 
   color-scheme: dark;
+}
+/* ...and on a dark site the zones go one step deeper, to near-black, so the
+   turn into an on-air zone still reads as a deliberate change of room. */
+:root[data-theme="dark"] .tone-zone {
+  --white:        #141210;
+  --paper:        #050404;
+  --paper-2:      #0B0A08;
+  --paper-3:      #13110E;
+  --hairline:     #221F1A;
+  --hairline-2:   #2E2A23;
 }
 
 /* Reduced motion: collapse choreography, keep legibility. */

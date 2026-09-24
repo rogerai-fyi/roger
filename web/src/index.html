@@ -6,7 +6,6 @@
 <body data-onair="idle">
 
   <!-- ===== blip-map background: stations on air across a faint grid ===== -->
-  <canvas id="blipmap" class="blipmap" aria-hidden="true"></canvas>
 
   <!-- ===== running head: this page is one bound document ===== -->
   <div class="rail" aria-hidden="true">
@@ -99,7 +98,7 @@
         <button class="install__box" id="installCmd" type="button"
                 aria-label="Copy install command to clipboard">
           <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
+          <code class="install__code">curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh</code>
           <span class="install__copy" id="installCopy" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="9" width="11" height="11" rx="2"></rect>
@@ -262,6 +261,10 @@
     </div>
   </aside>
 
+  <!-- ON-AIR ZONE 1 (ink): the console + the band. The page turns from paper to
+       ink here - a studio door opening (home.css tone-door), one red on-air bloom
+       (tone-bloom) and the LED station field (radiomap.js) behind the content. -->
+  <div class="tone-zone" data-tone="ink">
   <!-- ===================== TERMINAL DEMO (multi-demo player) ===================== -->
   <section class="demo" id="demo">
     <div class="wrap">
@@ -420,6 +423,7 @@
       </div>
     </div>
   </section>
+  </div><!-- /tone-zone -->
 
   <!-- ===================== COMPANY ===================== -->
   <section class="section company" id="company">
@@ -512,7 +516,7 @@
           <h3>Share a model</h3>
           <p>Point RogerAI at your local backend (vLLM, llama.cpp, Ollama, LM Studio, Osaurus). Set a call-sign,
             a rate, and your hours. Flip the switch. You are on air.</p>
-          <code class="twoway__cmd">roger share qwen3.8-27b --rate 0.30</code>
+          <code class="twoway__cmd">roger share <span class="tok">qwen3.8-27b</span> <span class="tok">--rate</span> 0.30</code>
         </article>
 
         <div class="twoway__link" aria-hidden="true">
@@ -524,7 +528,7 @@
           <h3>Use a model</h3>
           <p>Pick a band, set your margins (max price, min speed). RogerAI locks the strongest
             station and hands you a local OpenAI endpoint + key. When one fades, it re-tunes.</p>
-          <code class="twoway__cmd">roger use qwen3.8-27b --max-price 0.30 --min-tps 40</code>
+          <code class="twoway__cmd">roger use <span class="tok">qwen3.8-27b</span> <span class="tok">--max-price</span> 0.30 <span class="tok">--min-tps</span> 40</code>
         </article>
       </div>
     </div>
@@ -609,6 +613,9 @@
     </div>
   </section>
 
+  <!-- ON-AIR ZONE 2 (ink): monetize, privacy, go - the transmitter and the finale.
+       Its bloom sits low and centred, under the closing install command. -->
+  <div class="tone-zone" data-tone="ink" data-bloom="low">
   <!-- ===================== MONETIZE ===================== -->
   <section class="section band" id="monetize">
     <div class="wrap monetize">
@@ -743,7 +750,7 @@
       <button class="install__box install__box--lg" id="installCmd2" type="button"
               aria-label="Copy install command to clipboard">
         <span class="install__prompt" aria-hidden="true">$</span>
-        <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
+        <code class="install__code">curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh</code>
         <span class="install__copy" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="11" height="11" rx="2"></rect>
@@ -776,6 +783,7 @@
       </div>
     </div>
   </section>
+  </div><!-- /tone-zone -->
   </main>
 
   <!-- ============================ FOOTER ============================ -->

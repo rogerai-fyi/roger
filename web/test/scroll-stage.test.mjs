@@ -43,7 +43,7 @@ function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sec
     createElement: mk,
     createTextNode: (t) => ({ text: t }),
     querySelector: (s) => (s === ".nav" ? { getBoundingClientRect: () => ({ bottom: navBottom }) } : null),
-    querySelectorAll: (s) => (s === "main > section"
+    querySelectorAll: (s) => (s === "main > section, .tone-zone > section"
       ? sections.map((top) => ({ getBoundingClientRect: () => ({ top: top - win.scrollY }) }))
       : []),
   };

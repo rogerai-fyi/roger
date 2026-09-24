@@ -1,18 +1,14 @@
-// The background blip map (radiomap.js, on index / models / voices) is driven
-// by the reader's SCROLL, not a timer.
+// radiomap.js, round 4: the LED station field inside the homepage's ink zones.
 //
-// History: the original field ran 8-24 stations that fired rings on timers and
-// sent comets to a receiver behind the headline, ~40 redraws a second forever
-// (founder: "too distracting"). Round 2 calmed it to a few margin stations and
-// rare timed pings (founder: "dialed in a bit too much ... maybe it works as you
-// scroll so it's more intentional"). Round 3: a network of stations and links
-// across the page that drifts with the scroll (parallax), draws its links in as
-// they arrive, and lights the stations crossing a carrier line while you scroll.
-// Still at rest. Faint behind the text column. Asleep when nothing moves.
+// History: a page-wide canvas of timed pings (round 0, "too distracting"), a
+// calmed version (round 2, "dialed in too much"), a scroll-driven network of
+// stations and LINKS (round 3, "i don't like the lines"). Now: no lines. Each
+// ink zone gets a sticky canvas behind its content: a dot-matrix of station
+// LEDs (the pattern of the Ping band's grille), and the stations come on air,
+// red, as you scroll through the zone - a few at its door, most by its end.
+// Still at rest, asleep between scrolls, faint behind the text column.
 //
-// These run the REAL shipped script against a dependency-free mini-DOM (same
-// approach as wave-mark-mobile-spacing / session / fmt tests) with a virtual
-// clock, and assert what it DRAWS and when it WAKES.
+// Runs the REAL script against a mini-DOM with a virtual clock.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -22,65 +18,55 @@ import vm from "node:vm";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(path.join(WEB, "src/js/radiomap.js"), "utf8");
-const css = (p) => readFileSync(path.join(WEB, "src/styles", p), "utf8");
-const page = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
-
-const TOKENS = { "--ink-900": "#15140F", "--ink-400": "#9A968B", "--live": "#E0231C" };
-const LIVE = /^rgba\(224,35,28,/;
+const TOKENS = { "--ink-900": "#F3F1EA", "--live": "#FF4438" };
+const LIVE = /^rgba\(255,68,56,/;
 
 function makeCtx(log) {
-  const ctx = { _fill: "", _stroke: "", globalAlpha: 1, lineWidth: 1 };
-  Object.defineProperty(ctx, "fillStyle", { get() { return this._fill; }, set(v) { this._fill = v; log.fills.push(v); } });
-  Object.defineProperty(ctx, "strokeStyle", { get() { return this._stroke; }, set(v) { this._stroke = v; log.strokes.push(v); } });
-  for (const fn of ["clearRect", "beginPath", "fill", "stroke", "save", "restore", "rect", "clip", "setTransform", "translate", "drawImage", "fillRect", "moveTo", "closePath"]) {
+  const ctx = { _fill: "", globalAlpha: 1 };
+  Object.defineProperty(ctx, "fillStyle", { get() { return this._fill; }, set(v) { this._fill = v; } });
+  for (const fn of ["clearRect", "beginPath", "fill", "stroke", "save", "restore", "rect", "setTransform", "translate", "fillRect", "moveTo", "closePath"]) {
     ctx[fn] = () => { log.calls++; };
   }
   ctx.lineTo = () => { log.calls++; log.lines++; };
   ctx.arc = (x, y, r) => { log.calls++; log.arcs.push({ x, y, r, fill: ctx._fill }); };
-  ctx.createRadialGradient = () => { log.calls++; return { addColorStop() {} }; };
   ctx.createPattern = () => { log.calls++; return "pattern"; };
   return ctx;
 }
-function makeCanvas(log) {
-  const ctx = makeCtx(log);
-  return { width: 0, height: 0, style: {}, getContext: () => ctx };
-}
-const newLog = () => ({ calls: 0, lines: 0, arcs: [], fills: [], strokes: [] });
-const reset = (log) => { log.calls = 0; log.lines = 0; log.arcs = []; log.fills = []; log.strokes = []; };
+const newLog = () => ({ calls: 0, lines: 0, arcs: [] });
 
-function run({ w, h, col, spine = 0, docH = 8000, reduced = false }) {
-  let now = 0;
-  const timers = [];
-  let rafs = [], rafCalls = 0, nextId = 1;
-  const listeners = {};
-  const main = newLog();
-  const canvas = makeCanvas(main);
-  const colEl = { getBoundingClientRect: () => ({ left: col[0] - 20, right: col[1] + 20, top: 0, bottom: 400 }), _pad: "20px" };
-  const doc = {
-    hidden: false,
-    getElementById: (id) => (id === "blipmap" ? canvas : null),
-    querySelectorAll: () => [colEl],
-    createElement: () => makeCanvas(newLog()),
-    addEventListener: (t, f) => { (listeners[t] ||= []).push(f); },
-    documentElement: { scrollHeight: docH },
-    body: { _pad: `${spine}px` },
-  };
+function run({ w = 1440, h = 900, col = [290, 1258], zones = [[1100, 1700]], reduced = false }) {
+  let now = 0, rafs = [], rafCalls = 0, nextId = 1;
+  const timers = [], listeners = {}, canvases = [];
   const win = {
     innerWidth: w, innerHeight: h, devicePixelRatio: 1, scrollY: 0,
-    matchMedia: (q) => ({ matches: reduced && /reduce/.test(q), addEventListener() {}, addListener() {} }),
+    matchMedia: (q) => ({ matches: reduced && /reduce/.test(q) }),
     addEventListener: (t, f) => { (listeners["w:" + t] ||= []).push(f); },
     requestAnimationFrame: (f) => { rafCalls++; const id = nextId++; rafs.push({ id, f }); return id; },
     cancelAnimationFrame: (id) => { rafs = rafs.filter((r) => r.id !== id); },
     setTimeout: (f, ms) => { const id = nextId++; timers.push({ id, f, at: now + (ms || 0) }); return id; },
     clearTimeout: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
-    getComputedStyle: (el) => ({
-      getPropertyValue: (k) => TOKENS[k] || "",
-      paddingLeft: (el && el._pad) || "0px", paddingRight: (el && el._pad) || "0px",
-    }),
+    getComputedStyle: (el) => ({ getPropertyValue: (k) => TOKENS[k] || "", paddingLeft: (el && el._pad) || "0px", paddingRight: (el && el._pad) || "0px" }),
   };
-  win.window = win; win.document = doc;
-  win.performance = { now: () => now };
-  win.Math = Math; win.parseFloat = parseFloat;
+  const zoneEls = zones.map(([top, height]) => ({
+    _top: top, _height: height, children: [],
+    getBoundingClientRect() { return { top: this._top - win.scrollY, height: this._height, bottom: this._top + this._height - win.scrollY }; },
+    insertBefore(c) { this.children.unshift(c); return c; },
+    get firstChild() { return this.children[0] || null; },
+  }));
+  const colEl = { getBoundingClientRect: () => ({ left: col[0] - 20, right: col[1] + 20 }), _pad: "20px" };
+  const doc = {
+    hidden: false,
+    querySelectorAll: (s) => (s === ".tone-zone" ? zoneEls : [colEl]),
+    createElement: () => {
+      const log = newLog();
+      const c = { width: 0, height: 0, style: {}, className: "", attrs: {}, log, setAttribute(k, v) { this.attrs[k] = v; }, getContext: () => makeCtx(log) };
+      canvases.push(c);
+      return c;
+    },
+    addEventListener: (t, f) => { (listeners[t] ||= []).push(f); },
+    documentElement: {},
+  };
+  win.window = win; win.document = doc; win.performance = { now: () => now }; win.Math = Math; win.parseFloat = parseFloat;
   vm.createContext(win);
   vm.runInContext(SRC, win);
   const tick = () => {
@@ -90,118 +76,89 @@ function run({ w, h, col, spine = 0, docH = 8000, reduced = false }) {
     for (const r of due) r.f(now);
   };
   const advance = (ms) => { const end = now + ms; while (now < end) tick(); };
-  // a steady scroll: `px` per frame for `frames` frames, a scroll event each frame
-  const scroll = (px, frames) => {
-    for (let i = 0; i < frames; i++) {
-      win.scrollY = Math.max(0, Math.min(docH - h, win.scrollY + px));
+  const scrollTo = (y, frames = 20) => {
+    const from = win.scrollY;
+    for (let i = 1; i <= frames; i++) {
+      win.scrollY = from + ((y - from) * i) / frames;
       for (const f of listeners["w:scroll"] || []) f();
       tick();
     }
   };
   const fire = (t, hidden) => { doc.hidden = hidden; for (const f of listeners[t] || []) f(); };
-  return { main, advance, scroll, fire, win, stats: () => ({ rafCalls, pending: rafs.length + timers.length }) };
+  const fields = () => canvases.filter((c) => c.className === "tone-field");
+  const reset = () => { for (const c of canvases) Object.assign(c.log, newLog()); };
+  const calls = () => canvases.reduce((n, c) => n + c.log.calls, 0);
+  return { advance, scrollTo, fire, fields, reset, calls, win, stats: () => ({ rafCalls, pending: rafs.length + timers.length }) };
 }
-
 const alphaOf = (s) => { const m = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(String(s)); return m ? Number(m[1]) : null; };
-const DESKTOP = { w: 1440, h: 900, col: [290, 1258], spine: 108 };
-const PHONE = { w: 390, h: 844, col: [20, 370], spine: 0 };
+const lit = (log) => log.arcs.filter((a) => LIVE.test(a.fill) && alphaOf(a.fill) > 0.05);
 
-test("at rest it is still: after load settles, nothing is scheduled and nothing is red", () => {
-  const r = run(DESKTOP);
-  r.advance(3000);
-  assert.equal(r.stats().pending, 0, "no frame or timer queued while nobody scrolls");
-  const before = r.stats().rafCalls;
-  reset(r.main);
-  r.advance(30000);
-  assert.equal(r.stats().rafCalls, before, "30s of reading: zero frames");
-  assert.equal(r.main.calls, 0, "and zero canvas calls");
+test("one decorative LED canvas per ink zone, and not a single line drawn", () => {
+  const r = run({ zones: [[1100, 1700], [5500, 2200]] });
+  assert.equal(r.fields().length, 2);
+  for (const c of r.fields()) assert.equal(c.attrs["aria-hidden"], "true");
+  r.scrollTo(1400); r.scrollTo(6000); r.advance(2000);
+  assert.equal(r.fields().reduce((n, c) => n + c.log.lines, 0), 0);
 });
 
-test("scrolling wakes it, the carrier lights stations red, and it falls asleep soon after", () => {
-  const r = run(DESKTOP);
-  r.advance(1000);
-  reset(r.main);
-  r.scroll(12, 60); // one second of brisk scrolling
-  assert.ok(r.main.calls > 0, "it draws while you scroll");
-  assert.ok(r.main.fills.some((f) => LIVE.test(f) && alphaOf(f) > 0.05), "stations on the carrier light up red");
+test("stations come on air as you scroll through a zone", () => {
+  const r = run({});
+  r.scrollTo(700); r.advance(1500);          // the zone's door is just in view
+  const early = lit(r.fields()[0].log).length;
+  r.reset(); r.scrollTo(2200); r.advance(1500); // deep into the zone
+  const deep = lit(r.fields()[0].log).length;
+  assert.ok(deep > early * 2 && deep > 10, `on air: ${early} at the door -> ${deep} deep in`);
+});
+
+test("at rest it is still, it only works while you scroll, and it sleeps after", () => {
+  const r = run({});
+  r.advance(3000);
+  assert.equal(r.stats().pending, 0, "nothing queued at load");
+  r.scrollTo(1300);
   r.advance(1500);
   assert.equal(r.stats().pending, 0, "asleep within 1.5s of the last scroll");
-  reset(r.main);
-  r.advance(100);
-  assert.equal(r.main.calls, 0);
+  r.reset(); r.advance(30000);
+  assert.equal(r.calls(), 0, "30s of reading: zero canvas calls");
 });
 
-test("the network is drawn from scroll position: links arrive as you go down", () => {
-  const r = run(DESKTOP);
-  r.advance(1000);
-  // the settled frame at the top vs a settled frame part-way down
-  reset(r.main); r.scroll(0, 1); r.advance(1500);
-  const topLinks = r.main.lines;
-  reset(r.main); r.scroll(20, 150); r.advance(1500);
-  const midLinks = r.main.lines;
-  assert.ok(topLinks > 0, "some of the network is on air at the top");
-  assert.ok(midLinks > topLinks, `more of it is drawn once you have scrolled (${topLinks} -> ${midLinks})`);
+test("a zone that is off screen costs nothing", () => {
+  const r = run({ zones: [[6000, 1500]] });
+  r.reset(); r.scrollTo(900); r.advance(1500);
+  assert.equal(r.calls(), 0);
 });
 
-test("faint behind the text column, present in the margins", () => {
-  const r = run(DESKTOP);
-  r.advance(500);
-  r.scroll(10, 90);
-  const inCol = (a) => a.x > DESKTOP.col[0] && a.x < DESKTOP.col[1];
-  const inside = r.main.arcs.filter(inCol).map((a) => alphaOf(a.fill)).filter((a) => a !== null);
-  const outside = r.main.arcs.filter((a) => !inCol(a)).map((a) => alphaOf(a.fill)).filter((a) => a !== null);
-  assert.ok(inside.length && outside.length, "stations on both sides of the column edge");
-  assert.ok(Math.max(...inside) <= 0.2, `behind text peaks at ${Math.max(...inside)}`);
-  assert.ok(Math.max(...outside) <= 0.7, `margins peak at ${Math.max(...outside)}`);
-  assert.ok(Math.max(...outside) > Math.max(...inside), "the margins carry the colour, not the text column");
+test("faint behind the text column, bright in the margins", () => {
+  const r = run({});
+  r.scrollTo(2200); r.advance(1500);
+  const arcs = lit(r.fields()[0].log);
+  const inCol = (a) => a.x > 290 && a.x < 1258;
+  const inside = arcs.filter(inCol).map((a) => alphaOf(a.fill));
+  const outside = arcs.filter((a) => !inCol(a)).map((a) => alphaOf(a.fill));
+  assert.ok(inside.length && outside.length);
+  assert.ok(Math.max(...inside) <= 0.35, `behind text peaks at ${Math.max(...inside)}`);
+  assert.ok(Math.max(...outside) > Math.max(...inside));
 });
 
-test("cheap: a scroll frame is a few hundred canvas calls, not thousands", () => {
-  const r = run({ ...DESKTOP, w: 1920, h: 1080, col: [530, 1498] });
-  r.advance(500);
-  reset(r.main);
-  r.scroll(15, 60);
-  assert.ok(r.main.calls / 60 < 700, `${Math.round(r.main.calls / 60)} calls per scroll frame`);
-});
-
-test("phones get the network too, and the same rest/scroll behaviour", () => {
-  const r = run(PHONE);
-  r.advance(3000);
-  assert.equal(r.stats().pending, 0);
-  reset(r.main);
-  r.scroll(10, 40);
-  assert.ok(r.main.arcs.length > 0, "stations are drawn on a phone");
+test("cheap: a scroll frame stays around a thousand plain canvas calls, even at 1920", () => {
+  const r = run({ w: 1920, h: 1080, col: [530, 1498] });
+  r.scrollTo(1200); r.reset();
+  r.scrollTo(2000, 60);
+  // two batched fills; each lit station is a moveTo + arc into one path
+  assert.ok(r.calls() / 60 < 1200, `${Math.round(r.calls() / 60)} calls per frame`);
 });
 
 test("a hidden tab cancels any frame in flight", () => {
-  const r = run(DESKTOP);
-  r.advance(500);
-  r.scroll(12, 10);
+  const r = run({});
+  r.scrollTo(1300, 5);
   r.fire("visibilitychange", true);
-  assert.equal(r.stats().pending, 0, "nothing queued once hidden");
-  reset(r.main);
-  r.advance(5000);
-  assert.equal(r.main.calls, 0);
+  assert.equal(r.stats().pending, 0);
 });
 
-test("reduced motion: one still frame, deaf to scroll, never red", () => {
-  const r = run({ ...DESKTOP, reduced: true });
-  r.advance(500);
-  assert.ok(r.main.arcs.length > 0 && r.main.lines > 0, "the still network is painted");
-  assert.ok(!r.main.fills.some((f) => LIVE.test(f)), "no red");
-  reset(r.main);
-  r.scroll(15, 60);
-  r.advance(1000);
-  assert.equal(r.main.calls, 0, "scrolling does not animate it");
-  assert.equal(r.stats().rafCalls, 0, "no frame loop");
-});
-
-test("the still frame IS the reduced-motion state: no hidden canvas, no gradient stand-in", () => {
-  const base = css("base.css");
-  assert.doesNotMatch(base, /\.blipmap\s*\{\s*display:\s*none/, "the canvas is not hidden under reduced motion");
-  assert.doesNotMatch(base, /blipmap-fallback/, "the red-wash fallback is gone");
-  for (const p of ["index.html", "models.html", "voices.html"]) {
-    assert.match(page(p), /<canvas id="blipmap"/, `${p} keeps the map`);
-    assert.doesNotMatch(page(p), /blipmap-fallback/, `${p} drops the fallback div`);
-  }
+test("reduced motion: each field is painted once, still, and never reacts", () => {
+  const r = run({ reduced: true });
+  const painted = r.fields()[0].log.calls;
+  assert.ok(painted > 0 && lit(r.fields()[0].log).length > 0, "a still, lit field");
+  r.reset(); r.scrollTo(2000); r.advance(1000);
+  assert.equal(r.calls(), 0);
+  assert.equal(r.stats().rafCalls, 0);
 });

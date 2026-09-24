@@ -64,7 +64,7 @@
     var H = window.innerHeight;
     var max = (document.documentElement.scrollHeight || 0) - H;
     var best = null;
-    var sections = document.querySelectorAll("main > section");
+    var sections = document.querySelectorAll("main > section, .tone-zone > section");
     for (var i = 0; i < sections.length; i++) {
       var d = sections[i].getBoundingClientRect().top - line;
       var ahead = dir >= 0 ? d : -d;                  // positive = where you were heading
