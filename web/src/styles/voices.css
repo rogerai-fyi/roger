@@ -25,7 +25,7 @@
 .bands-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
 
 /* ---------- roster panel + table -------------------------------- */
-.bands-panel { border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900); background: var(--paper); }
+.bands-panel { border: 1px solid var(--hairline); border-radius: var(--panel-r); overflow: hidden; background: var(--paper); }
 .bands-panel__bar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
   padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--paper-2);
@@ -56,14 +56,15 @@
   letter-spacing: var(--tracking-label); color: var(--ink-400); background: var(--paper-2);
 }
 .voice-list { list-style: none; margin: 0; padding: 0; }
-.voice-row {
-  font-size: var(--t-sm);
-  opacity: 0; transform: translateY(8px);
-  animation: voiceIn var(--d-4) var(--ease-out-quint) forwards;
-  animation-delay: calc(var(--i, 0) * 55ms);
+.voice-row { font-size: var(--t-sm); }
+/* the entrance: a short rise, never a fade (a row is readable from its first frame) */
+@media (prefers-reduced-motion: no-preference) {
+  .voice-row {
+    animation: voiceIn var(--d-4) var(--ease-out-quint) backwards;
+    animation-delay: calc(var(--i, 0) * 55ms);
+  }
 }
-@keyframes voiceIn { to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .voice-row { animation: none; opacity: 1; transform: none; } }
+@keyframes voiceIn { from { transform: translateY(8px); } }
 .voice-row:last-child { border-bottom: 0; }
 .voice-row:hover { background: var(--paper-2); }
 

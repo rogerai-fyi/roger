@@ -196,3 +196,20 @@ test("models: the band the dial locks is marked in the directory with the red ne
   assert.match(js, /classList\.toggle\("is-tuned", [^)]*\)/, "bands.js marks the tuned row");
   assert.match(stripCss(src("styles/models.css")), /\.band-row\.is-tuned\s*\{[^}]*var\(--live\)/, "styled with the one red");
 });
+
+/* ---- VOICES ---------------------------------------------------------------------- */
+
+test("voices: the roster and how to speak are one ink panel", () => {
+  const zone = src("voices.html").match(/<div class="tone-zone" data-tone="ink">([\s\S]*?)<!-- \/tone-zone -->/)?.[1] || "";
+  assert.match(zone, /<section class="section bands-dir" id="directory">/);
+  assert.match(zone, /class="voice-tune"/, "the command sits in the same panel");
+  const css = stripCss(src("styles/voices.css"));
+  assert.doesNotMatch(css, /border-top:\s*2px solid var\(--ink-900\)/, "no 2px ink rule on the roster");
+});
+
+test("voices: roster rows never start invisible, and their entrance is opt-in motion", () => {
+  const css = stripCss(src("styles/voices.css"));
+  const row = css.match(/\.voice-row\s*\{([^}]*)\}/)?.[1] || "";
+  assert.doesNotMatch(row, /opacity:\s*0/, "a row is readable from its first frame");
+  assert.doesNotMatch(css.match(/@keyframes voiceIn\s*\{[^}]*\}\s*\}?/)?.[0] || "", /opacity/, "the entrance moves, it does not fade");
+});
