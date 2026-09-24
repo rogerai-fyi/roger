@@ -35,7 +35,7 @@ func TestClaimNeedsAdoptThenIssuesAndConsumes(t *testing.T) {
 	require.ErrorIs(t, err, edgeauth.ErrNotAdopted)
 
 	// The owner adopts (grants), then the phone claims and gets a certificate.
-	require.NoError(t, local.GrantClaim(id))
+	require.NoError(t, local.GrantClaim(id, ""))
 	resp, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.NoError(t, err)
 	require.Equal(t, id, resp.NodeID)
@@ -56,7 +56,7 @@ func TestClaimNeedsAdoptThenIssuesAndConsumes(t *testing.T) {
 
 func TestClaimRefusesIdentityMismatch(t *testing.T) {
 	local, pub, priv, id := claimFixture(t)
-	require.NoError(t, local.GrantClaim(id))
+	require.NoError(t, local.GrantClaim(id, ""))
 	c := signedClaim(t, pub, priv, time.Now())
 	c.NodeID = "n_someothernode00000000000000000000000000000000" // claim one id, prove another
 	_, err := local.Claim(c, time.Now())
@@ -65,7 +65,7 @@ func TestClaimRefusesIdentityMismatch(t *testing.T) {
 
 func TestClaimRefusesBadSignature(t *testing.T) {
 	local, pub, priv, id := claimFixture(t)
-	require.NoError(t, local.GrantClaim(id))
+	require.NoError(t, local.GrantClaim(id, ""))
 	c := signedClaim(t, pub, priv, time.Now())
 	c.Sig = "00"
 	_, err := local.Claim(c, time.Now())
@@ -74,7 +74,7 @@ func TestClaimRefusesBadSignature(t *testing.T) {
 
 func TestClaimRefusesWrongKeyForNode(t *testing.T) {
 	local, _, _, id := claimFixture(t)
-	require.NoError(t, local.GrantClaim(id))
+	require.NoError(t, local.GrantClaim(id, ""))
 	// A different keypair signs a claim naming id N - but N is not the id THIS key derives, so it
 	// cannot even name N consistently; sign with the impostor and set N.
 	_, impostor, _ := ed25519.GenerateKey(rand.Reader)
@@ -88,7 +88,7 @@ func TestClaimRefusesWrongKeyForNode(t *testing.T) {
 
 func TestClaimRefusesStale(t *testing.T) {
 	local, pub, priv, id := claimFixture(t)
-	require.NoError(t, local.GrantClaim(id))
+	require.NoError(t, local.GrantClaim(id, ""))
 	c := signedClaim(t, pub, priv, time.Now().Add(-30*time.Minute))
 	_, err := local.Claim(c, time.Now())
 	require.ErrorIs(t, err, edgeauth.ErrStaleRequest)
@@ -96,8 +96,8 @@ func TestClaimRefusesStale(t *testing.T) {
 
 func TestGrantClaimIdempotentAndConsume(t *testing.T) {
 	local, _, _, id := claimFixture(t)
-	require.NoError(t, local.GrantClaim(id))
-	require.NoError(t, local.GrantClaim(id)) // idempotent
+	require.NoError(t, local.GrantClaim(id, ""))
+	require.NoError(t, local.GrantClaim(id, "gentle")) // idempotent (name fill-in)
 	got, err := local.Claims()
 	require.NoError(t, err)
 	require.Len(t, got, 1)

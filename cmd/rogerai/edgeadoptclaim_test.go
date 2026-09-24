@@ -15,14 +15,14 @@ func TestAdoptByClaimGrantsWithoutDial(t *testing.T) {
 	useTempConfig(t)
 
 	// With no authority here, a claim-adopt is refused with a helpful reason (not a dial error).
-	err := edgeAdoptByClaim("n_phone000000000000000000000000000000000000000")
+	err := edgeAdoptByClaim("n_phone000000000000000000000000000000000000000", "gentle-ibex-14")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "roots this Edge")
 
 	// Designate this machine as a local authority, then claim-adopt grants without any dial.
 	_, err = edgeauth.Designate(edgeAuthDir(), "hub")
 	require.NoError(t, err)
-	require.NoError(t, edgeAdoptByClaim("n_phone000000000000000000000000000000000000000"))
+	require.NoError(t, edgeAdoptByClaim("n_phone000000000000000000000000000000000000000", "gentle-ibex-14"))
 
 	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	require.NoError(t, err)

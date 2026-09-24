@@ -700,3 +700,29 @@ func TestMapListView(t *testing.T) {
 		t.Errorf("v did not toggle back to the map")
 	}
 }
+
+// TestAdoptingIndicator: a device the owner adopted but that has not yet claimed shows as ADOPTING
+// (by name), so it does not vanish between adopt and membership (founder 2026-09-23).
+func TestAdoptingIndicator(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "hub", AuthorityLocal: true, AuthorityHere: true,
+		AuthorityAddr: "http://192.168.1.9:8791", Enrolled: true, Name: "hub", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	m := networkModel(t, self)
+	m.hooks.EdgeHousehold = func() []edge.Instance { return []edge.Instance{{Name: "hub", Agent: true}} }
+	m.hooks.EdgeSelfInstance = func() string { return "hub" }
+	m.hooks.EdgeAdopting = func() []store.EdgeNode {
+		return []store.EdgeNode{{ID: "n_phone", Name: "gentle-ibex-14"}}
+	}
+	m.enterEdge()
+	out := stripANSI(m.edgeView(92))
+	for _, want := range []string{"ADOPTING", "gentle-ibex-14", "will appear as a member"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("adopting indicator missing %q:\n%s", want, out)
+		}
+	}
+
+	// With nothing adopting, the line is absent (no wasted space).
+	m.hooks.EdgeAdopting = func() []store.EdgeNode { return nil }
+	if strings.Contains(stripANSI(m.edgeView(92)), "ADOPTING") {
+		t.Errorf("ADOPTING line should be absent when nothing is adopting")
+	}
+}

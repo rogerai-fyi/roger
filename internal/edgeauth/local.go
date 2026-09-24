@@ -182,9 +182,18 @@ func (l *Local) Allowed() ([]string, error) {
 	return out, err
 }
 
-// GrantClaim records that the owner has ADOPTED a node id, so it may claim a certificate
-// (features/edge/claim.feature). Idempotent - adopting twice grants once.
-func (l *Local) GrantClaim(nodeID string) error {
+// ClaimGrant is one adopted node awaiting its certificate: the owner said yes (a grant), and the
+// node's friendly name is kept so it can be shown as ADOPTING until it claims and checks in.
+type ClaimGrant struct {
+	NodeID string `json:"node_id"`
+	Name   string `json:"name,omitempty"`
+	At     int64  `json:"at,omitempty"`
+}
+
+// GrantClaim records that the owner has ADOPTED a node, so it may claim a certificate
+// (features/edge/claim.feature). Idempotent - adopting twice grants once; a later grant fills in a
+// name it did not have.
+func (l *Local) GrantClaim(nodeID, name string) error {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil
 	}
@@ -192,26 +201,30 @@ func (l *Local) GrantClaim(nodeID string) error {
 	if err != nil {
 		return err
 	}
-	for _, id := range got {
-		if id == nodeID {
+	for i, g := range got {
+		if g.NodeID == nodeID {
+			if name != "" && got[i].Name != name {
+				got[i].Name = name
+				return l.writeJSON(ClaimsFile, got)
+			}
 			return nil
 		}
 	}
-	return l.writeJSON(ClaimsFile, append(got, nodeID))
+	return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix()}))
 }
 
-// Claims lists the node ids the owner has adopted and that may claim a certificate.
-func (l *Local) Claims() ([]string, error) {
-	var out []string
+// Claims lists the nodes the owner has adopted and that may claim a certificate.
+func (l *Local) Claims() ([]ClaimGrant, error) {
+	var out []ClaimGrant
 	err := l.readJSON(ClaimsFile, &out)
 	return out, err
 }
 
-// ClaimGranted reports whether a node id has been adopted.
+// ClaimGranted reports whether a node has been adopted.
 func (l *Local) ClaimGranted(nodeID string) bool {
 	got, _ := l.Claims()
-	for _, id := range got {
-		if id == nodeID {
+	for _, g := range got {
+		if g.NodeID == nodeID {
 			return true
 		}
 	}
@@ -226,9 +239,9 @@ func (l *Local) ConsumeClaim(nodeID string) error {
 		return err
 	}
 	kept := got[:0]
-	for _, id := range got {
-		if id != nodeID {
-			kept = append(kept, id)
+	for _, g := range got {
+		if g.NodeID != nodeID {
+			kept = append(kept, g)
 		}
 	}
 	return l.writeJSON(ClaimsFile, kept)

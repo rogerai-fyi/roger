@@ -37,7 +37,7 @@ func TestDropGrantedFiltersAdoptingCandidates(t *testing.T) {
 	useTempConfig(t)
 	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
 	require.NoError(t, err)
-	require.NoError(t, local.GrantClaim("n_adopting"))
+	require.NoError(t, local.GrantClaim("n_adopting", "gentle-ibex-14"))
 
 	got := edgeDropGranted([]store.EdgeNode{{ID: "n_adopting"}, {ID: "n_new"}})
 	require.Len(t, got, 1)

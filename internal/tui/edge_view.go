@@ -399,6 +399,10 @@ func (m model) edgeNetworkMap(w, cw int, line func(string)) {
 	line("  " + edgeSetupCenter(stDim.Render("↑↓←→ move · ⏎ open · ")+stKey.Render("↓/Tab")+stDim.Render(" for buttons · ")+stKey.Render("v")+stDim.Render(" map/list"), cw))
 	line("")
 
+	// ADOPTING: devices the owner adopted that are fetching their certificate - shown so a
+	// just-adopted phone is visible between adopt and membership (features/edge/claim.feature).
+	m.edgeAdoptingHint(cw, line)
+
 	// FINDING DEVICES: when devices are discovered they already show in the topology; this only
 	// speaks up when nothing is found, to explain where a device appears.
 	m.edgeFindDevicesHint(cw, line)
@@ -506,6 +510,32 @@ func (m model) edgeActions() []edgeAction {
 		}
 	}
 	return out
+}
+
+// edgeAdoptingHint names the devices the owner has adopted that have not yet claimed and checked
+// in, so a just-adopted phone reads as ADOPTING rather than vanishing until it becomes a member.
+func (m model) edgeAdoptingHint(cw int, line func(string)) {
+	if m.hooks.EdgeAdopting == nil {
+		return
+	}
+	ad := m.hooks.EdgeAdopting()
+	if len(ad) == 0 {
+		return
+	}
+	names := make([]string, 0, len(ad))
+	for _, n := range ad {
+		nm := n.Name
+		if nm == "" {
+			nm = n.ID
+		}
+		if strings.HasPrefix(nm, "n_") && len(nm) > 12 {
+			nm = nm[:12] + "…"
+		}
+		names = append(names, nm)
+	}
+	line("  " + edgeSetupCenter(lampStyle(roleLive).Render("◍ ADOPTING  ")+stKey.Render(strings.Join(names, ", "))+
+		stDim.Render("  · claiming its certificate, will appear as a member"), cw))
+	line("")
 }
 
 // edgeFindDevicesHint tells the owner what is discoverable, or - when nothing is - how a device

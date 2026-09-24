@@ -143,6 +143,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeRenameSelf = h.renameSelfLive
 	hooks.EdgeResumeAgent = h.resumeAgentLive
 	hooks.EdgeRemoveAgent = h.removeAgentLive
+	hooks.EdgeAdopting = h.adopting
 	hooks.EdgeAgentJobs = func() []edge.AgentJob { return edge.AgentJobs(edgeJobsDir()) }
 	hooks.EdgeSetAgentJob = h.setAgentJobLive
 	hooks.EdgeClearAgentJob = h.clearAgentJobLive
@@ -200,6 +201,38 @@ func (h *edgeHost) candidates() []store.EdgeNode {
 	return append([]store.EdgeNode(nil), h.st.candidates...)
 }
 
+// adopting is the nodes the owner has adopted (a claim was granted) that have not yet claimed and
+// checked in - shown as ADOPTING so a just-adopted phone is visible between adopt and membership
+// (features/edge/claim.feature). Once a node claims and presents it is in the fleet, and drops off
+// this list. Only an authority has grants.
+func (h *edgeHost) adopting() []store.EdgeNode {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !ok {
+		return nil
+	}
+	grants, err := local.Claims()
+	if err != nil || len(grants) == 0 {
+		return nil
+	}
+	h.mu.Lock()
+	fleet := h.st.fleet
+	h.mu.Unlock()
+	var out []store.EdgeNode
+	for _, g := range grants {
+		if fleet != nil {
+			if _, known, _ := fleet.Get(g.NodeID); known {
+				continue // it claimed and presented - a member now, not adopting
+			}
+		}
+		name := g.Name
+		if name == "" {
+			name = g.NodeID
+		}
+		out = append(out, store.EdgeNode{ID: g.NodeID, Name: name})
+	}
+	return out
+}
+
 // adopt is the owner's explicit `a` on the Edge screen. It takes the SAME path as
 // `roger edge adopt`: the certificate is checked before anything is enrolled, and the
 // cache is written so the CLI prints what the screen just did.
@@ -219,14 +252,14 @@ func (h *edgeHost) adopt(id, name string) error {
 	// serve a certificate is dialed, verified, and taken into the fleet the original way (and also
 	// granted, in case it too claims).
 	if c.Pin == "" {
-		if err := edgeAdoptByClaim(c.ID); err != nil {
+		if err := edgeAdoptByClaim(c.ID, c.Name); err != nil {
 			return err
 		}
 	} else {
 		if _, err = edgeAdoptCandidate(h.st, c, name, name); err != nil {
 			return err
 		}
-		edgeGrantClaimIfAuthority(c.ID)
+		edgeGrantClaimIfAuthority(c.ID, c.Name)
 	}
 	// AUTO-CLEAR: the instant it is adopted it leaves the DISCOVERED band - it is now adopting (a
 	// claim was granted) or already a member, not something to adopt again. It will not be

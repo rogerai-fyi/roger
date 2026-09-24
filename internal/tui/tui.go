@@ -136,6 +136,10 @@ type Hooks struct {
 	// agent's bound model, its use/share posture, and its job. [3] reads it to show what each
 	// agent is DOING - the model it serves or uses, its job - instead of a bare "agent". nil when
 	// the build wired none; the detail then says "not assigned yet" honestly.
+	// EdgeAdopting is the nodes the owner has adopted (granted a claim) that have not yet claimed
+	// their certificate and checked in - shown as ADOPTING so a just-adopted phone does not vanish
+	// between adopt and membership. Each carries the friendly name from the grant. nil when none.
+	EdgeAdopting  func() []store.EdgeNode
 	EdgeAgentJobs func() []edge.AgentJob
 	// EdgeSetAgentJob and EdgeClearAgentJob set/clear an agent's assignment in place, so the owner
 	// binds a model or a job from [3] without leaving the screen.

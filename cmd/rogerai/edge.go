@@ -1072,7 +1072,7 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	}
 	// A candidate that advertises no certificate (a phone) joins by CLAIM, not by being dialed.
 	if c.Pin == "" {
-		if err := edgeAdoptByClaim(c.ID); err != nil {
+		if err := edgeAdoptByClaim(c.ID, c.Name); err != nil {
 			return err
 		}
 		// Auto-clear: it leaves DISCOVERED at once (it is adopting now, not to-adopt).
@@ -1085,14 +1085,14 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	edgeGrantClaimIfAuthority(c.ID)
+	edgeGrantClaimIfAuthority(c.ID, c.Name)
 	fmt.Printf("adopted %s (%s) - it can now claim its certificate and become a member.\n", n.Name, edgeShortID(n.ID))
 	return nil
 }
 
 // edgeAdoptByClaim adopts a non-serving candidate (a phone) by GRANTING it a claim, so it can fetch
 // its certificate from this authority. Only the machine that roots the Edge can do it.
-func edgeAdoptByClaim(nodeID string) error {
+func edgeAdoptByClaim(nodeID, name string) error {
 	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
 		return err
@@ -1100,18 +1100,18 @@ func edgeAdoptByClaim(nodeID string) error {
 	if !hasRoot {
 		return fmt.Errorf("only the machine that roots this Edge can adopt a device that joins by claim")
 	}
-	return local.GrantClaim(nodeID)
+	return local.GrantClaim(nodeID, name)
 }
 
 // edgeGrantClaimIfAuthority grants an adopted node a claim when THIS machine roots the Edge, so the
 // node can fetch its certificate from us (features/edge/claim.feature). Best-effort and silent on a
 // machine that holds no root - it simply cannot grant, and the typed-address path remains.
-func edgeGrantClaimIfAuthority(nodeID string) {
+func edgeGrantClaimIfAuthority(nodeID, name string) {
 	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil || !hasRoot {
 		return
 	}
-	_ = local.GrantClaim(nodeID)
+	_ = local.GrantClaim(nodeID, name)
 }
 
 // edgeDropGranted removes candidates this authority has already granted a claim to: they are
@@ -1127,8 +1127,8 @@ func edgeDropGranted(cands []store.EdgeNode) []store.EdgeNode {
 		return cands
 	}
 	set := make(map[string]bool, len(granted))
-	for _, id := range granted {
-		set[id] = true
+	for _, g := range granted {
+		set[g.NodeID] = true
 	}
 	return edgeFilter(cands, func(c store.EdgeNode) bool { return !set[c.ID] })
 }
