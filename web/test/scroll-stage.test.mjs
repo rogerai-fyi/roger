@@ -17,7 +17,7 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(path.join(WEB, "src/js/scroll-stage.js"), "utf8");
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sections = [0, 900, 1900], navBottom = 65, scrollY = 0, docH = 5000, zones = [] }) {
+function run({ search = "", hash = "", w = 1440, h = 900, fine = true, reduced = false, sections = [0, 900, 1900], navBottom = 65, scrollY = 0, docH = 5000, zones = [] }) {
   const attrs = {};
   const appended = [];
   const listeners = {};
@@ -27,7 +27,7 @@ function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sec
     setAttribute(k, v) { this.attrs[k] = String(v); }, appendChild(c) { this.children.push(c); return c; },
   });
   const win = {
-    location: { search },
+    location: { search, hash },
     innerHeight: h, innerWidth: w, scrollY,
     matchMedia: (q) => ({ matches: /reduce/.test(q) ? reduced : /pointer: fine/.test(q) ? fine && w >= 1024 : false }),
     addEventListener: (t, f) => { (listeners[t] ||= []).push(f); },
@@ -50,19 +50,25 @@ function run({ search = "", w = 1440, h = 900, fine = true, reduced = false, sec
         : []),
   };
   const later = [];
+  // the hash target (round 7, 8a) and a ResizeObserver the test can fire by hand
+  const aligned = [];
+  const target = { scrollIntoView: (o) => aligned.push(o) };
+  doc.getElementById = (id) => (hash === "#" + id ? target : null);
+  const observers = [];
+  win.ResizeObserver = function (cb) { this.cb = cb; this.observe = () => {}; this.disconnect = () => { this.cb = null; }; observers.push(this); };
+  const grow = () => { for (const o of observers) if (o.cb) o.cb([]); };
   win.setTimeout = (f) => { later.push(f); return later.length; };   // run by flush()
   win.window = win; win.document = doc; win.URLSearchParams = URLSearchParams;
   vm.createContext(win);
   vm.runInContext(SRC, win);
+  const fire = (t) => { for (const f of listeners[t] || []) f({ type: t }); };
   // move the page to `y` (a scroll event), then let it come to rest
-  const scrollTo = (y) => {
-    win.scrollY = y;
-    for (const f of listeners.scroll || []) f();
-    for (const f of listeners.scrollend || []) f();
-  };
+  const land = (y) => { win.scrollY = y; fire("scroll"); fire("scrollend"); };
+  const scrollTo = (y) => { fire("wheel"); land(y); };          // a wheel / trackpad scroll
+  const keyTo = (y) => { fire("keydown"); land(y); };           // PageDown, Space, arrows
   const flush = () => { while (later.length) later.shift()(); };
   const scrollToFlushed = (y) => { scrollTo(y); flush(); };
-  return { attrs, appended, scrolls, scrollTo: scrollToFlushed, doc, win, flush };
+  return { attrs, appended, scrolls, scrollTo: scrollToFlushed, land: (y) => { land(y); flush(); }, keyTo: (y) => { keyTo(y); flush(); }, fire, grow, aligned, doc, win, flush };
 }
 
 test("?motion=a|b|c sets the variant; anything else (or nothing) leaves the page untouched", () => {
@@ -103,7 +109,7 @@ test("C leaves you alone when no section is near, or it would pull against your 
 test("C does not snap its own landing, and never snaps past the end of the page", () => {
   const r = run({ search: "?motion=c" });
   r.scrollTo(780);
-  r.scrollTo(835); // the smooth scroll lands: that rest is ours, not the reader's
+  r.land(835); // the smooth scroll lands (no wheel): that rest is ours, not the reader's
   assert.equal(r.scrolls.length, 1);
   const end = run({ search: "?motion=c", sections: [0, 4200], docH: 5000 });
   end.scrollTo(4100); // 35px short, but lining it up would need 4135 and the page ends at 4100
@@ -170,4 +176,39 @@ test("tokens and home.css: the chrome re-themes from the attribute, AA by the sa
   const home = readFileSync(path.join(WEB, "dist/styles/home.css"), "utf8");
   assert.match(home, /:root\[data-chrome="ink"\] \.nav\s*\{[^}]*background:\s*var\(--paper\)/);
   assert.match(home, /:root\[data-chrome-instant\][^{]*\{[^}]*transition:\s*none/);
+});
+
+// ---- round 7 ----
+test("C snaps only after a wheel/trackpad scroll: never after PageDown, Space or arrows", () => {
+  const key = run({ search: "?motion=c" });
+  key.keyTo(780);                         // same resting place as the snapping case above
+  assert.equal(key.scrolls.length, 0, "a keyboard scroll lands exactly where the reader sent it");
+  const mixed = run({ search: "?motion=c" });
+  mixed.fire("wheel"); mixed.fire("keydown"); mixed.land(780);
+  assert.equal(mixed.scrolls.length, 0, "a key after the wheel hands control back to the reader");
+});
+
+test("every chrome swap is instant, not only the first: no half-faded, unreadable nav", () => {
+  const r = run({ zones: [[65, 1000], [2000, 1500]] });
+  r.flush();
+  r.scrollTo(1100);                        // flushes: check the attribute was set on the swap
+  const seen = [];
+  const orig = r.doc.documentElement.setAttribute;
+  r.doc.documentElement.setAttribute = (k, v) => { seen.push(k); orig(k, v); };
+  r.scrollTo(2100);
+  assert.ok(seen.includes("data-chrome-instant"), "the paper -> ink swap holds transitions off");
+  assert.equal(r.attrs["data-chrome-instant"], undefined, "and releases them right after");
+});
+
+test("a page opened on #anchor stays on its target while late content above it loads", () => {
+  const r = run({ hash: "#monetize" });
+  r.grow();                                // the market rows / the reel grow the page above
+  assert.equal(r.aligned.length, 1, "re-aligned after the page grew");
+  assert.equal(r.aligned[0].block, "start");
+  r.fire("wheel");                         // the reader takes over
+  r.grow();
+  assert.equal(r.aligned.length, 1, "never after the reader scrolls");
+  const none = run({});
+  none.grow();
+  assert.equal(none.aligned.length, 0, "no hash, nothing to hold");
 });

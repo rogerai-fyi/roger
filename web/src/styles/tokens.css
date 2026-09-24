@@ -214,6 +214,15 @@
 
   color-scheme: dark;
 }
+/* Text inks inside the zones (and the ink chrome), a step lighter than the
+   site's dark set: secondary and tertiary text must hold AA on the zone ground
+   AND under the red bloom at its peak (tone-zones.test). Zone-only; the
+   site-wide dark theme keeps its own values. */
+:root[data-chrome="ink"] :is(.nav, .promo, .rail),
+.tone-zone {
+  --ink-500:      #ADA99E;
+  --ink-400:      #A29E93;
+}
 /* ...and on a dark site the zones go one step deeper, to near-black, so the
    turn into an on-air zone still reads as a deliberate change of room. */
 :root[data-theme="dark"] .tone-zone,

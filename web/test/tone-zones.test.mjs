@@ -49,8 +49,10 @@ function block(css, selRe) {
 test("zone text stays AA (4.5:1) on the zone ground AND under the bloom at its peak, light and dark site", () => {
   const tokens = read("styles/tokens.css");
   const home = read("styles/home.css");
-  const lightZone = block(tokens, /:root\[data-theme="dark"\],\s*\.tone-zone/);
-  const darkZone = { ...lightZone, ...block(tokens, /:root\[data-theme="dark"\] \.tone-zone/) };
+  // the zone's text inks (round 7: a zone-only lift of ink-400/-500) sit on top of the shared ink set
+  const zoneText = block(tokens, /:root\[data-chrome="ink"\] :is\(\.nav, \.promo, \.rail\),\s*\.tone-zone\s*(?=\{)/);
+  const lightZone = { ...block(tokens, /:root\[data-theme="dark"\],\s*\.tone-zone/), ...zoneText };
+  const darkZone = { ...lightZone, ...block(tokens, /:root\[data-theme="dark"\] \.tone-zone/), ...zoneText };
   const live = hex(tokens.match(/:root\[data-theme="dark"\],\s*\.tone-zone[^{]*\{[^}]*--live:\s*(#[0-9A-Fa-f]{6})/)[1]);
   const peak = Number(home.match(/--bloom-peak:\s*([\d.]+)/)[1]);
   const darkPeak = Number(home.match(/:root\[data-theme="dark"\] \.tone-zone\s*\{[^}]*--bloom-peak:\s*([\d.]+)/)?.[1] || peak);
@@ -58,7 +60,8 @@ test("zone text stays AA (4.5:1) on the zone ground AND under the bloom at its p
   for (const [name, z, pk] of [["light site", lightZone, peak], ["dark site", darkZone, darkPeak]]) {
     for (const ground of [z["--paper"], z["--paper-2"]]) {
       const bloomed = over(live, pk, ground);
-      for (const ink of ["--ink-900", "--ink-700", "--ink-500"]) {
+      // ink-400 too: .sectionno, the eyebrow, FIG. labels, .demo__fine, .market__foot
+      for (const ink of ["--ink-900", "--ink-700", "--ink-500", "--ink-400"]) {
         for (const [where, bg] of [["ground", ground], ["peak bloom", bloomed]]) {
           const r = ratio(z[ink], bg);
           assert.ok(r >= 4.5, `${name}: ${ink} on ${where} is ${r.toFixed(2)}:1`);
@@ -150,4 +153,81 @@ test("touch, phones and tablets: reveals never blur and never rest below 0.9 opa
 test("phones: short commands get a smaller mono so they fit on one line", () => {
   const home = read("styles/home.css");
   assert.match(home, /@media \(max-width: 560px\)\s*\{[^}]*\.twoway__cmd\s*\{[^}]*font-size:\s*0\.72rem/);
+});
+
+// ---- round 7: motion that a reader can stop in the middle of ----
+// Scroll-linked animation has no "mid-transition": wherever the reader stops IS
+// the resting state. So nothing scroll-linked may ever sit below 0.9 opacity,
+// and any blur must be over before a block is 85% of the way up the screen.
+function rules(css) {
+  // flat list of [selector, body] for every non-keyframe rule, however nested
+  const out = [];
+  const walk = (src) => {
+    let i = 0;
+    while (i < src.length) {
+      const open = src.indexOf("{", i);
+      if (open < 0) break;
+      const pre = src.slice(i, open).trim();
+      let depth = 1, j = open + 1;
+      for (; j < src.length && depth; j++) { if (src[j] === "{") depth++; else if (src[j] === "}") depth--; }
+      const body = src.slice(open + 1, j - 1);
+      const sel = pre.slice(pre.lastIndexOf("}") + 1).trim();
+      if (/^@keyframes/.test(sel)) { /* skip */ } else if (/^@/.test(sel)) walk(body); else out.push([sel, body]);
+      i = j;
+    }
+  };
+  walk(css.replace(/\/\*[\s\S]*?\*\//g, ""));
+  return out;
+}
+const keyframes = (css) => Object.fromEntries([...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/@keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^}]*\})*)[^}]*\}/g)].map((m) => [m[1], m[2]]));
+
+test("nothing scroll-linked rests below 0.9 opacity, and blur is over by 85% of the viewport", () => {
+  const css = read("styles/home.css");
+  const kf = keyframes(css);
+  // scroll-linked = the rule binds a scroll/view timeline or sets a scroll range
+  // (the touch override swaps names on timeline-bound blocks); time-based
+  // entrances (the hero on load, the market rows) are not resting states
+  const scrollLinked = rules(css).filter(([sel, body]) => /animation-timeline:\s*(view\(|scroll\(|--)|animation-range:/.test(body))
+    .filter(([sel]) => !/::(before|after)/.test(sel));       // decorative layers (the bloom) carry no text
+  const names = new Set();
+  for (const [, body] of scrollLinked) {
+    for (const m of body.matchAll(/animation(?:-name)?:\s*([\w-]+)/g)) if (kf[m[1]]) names.add(m[1]);
+  }
+  assert.ok(names.size >= 5, `found the scroll-linked keyframes (${[...names].join(", ")})`);
+  for (const n of names) {
+    for (const o of kf[n].matchAll(/opacity:\s*([\d.]+)/g)) assert.ok(Number(o[1]) >= 0.9, `${n} rests at opacity ${o[1]}`);
+    if (/blur\(/.test(kf[n])) {
+      for (const [sel, body] of scrollLinked.filter(([, b]) => new RegExp(`\\b${n}\\b`).test(b))) {
+        const end = body.match(/animation-range:\s*entry 0% entry (\d+)vh/);
+        assert.ok(end && Number(end[1]) <= 15, `${sel}: ${n} blurs until entry ${end && end[1]}vh (must be <= 15vh)`);
+      }
+    }
+  }
+});
+
+test("no choreography rule is shadowed: its targets are not [data-reveal] blocks (whose rule wins)", () => {
+  const css = read("styles/home.css");
+  const html = read("index.html");
+  const revealed = new Set([...html.matchAll(/<[^>]*\bdata-reveal\b[^>]*>/g)]
+    .flatMap((m) => (m[0].match(/class="([^"]*)"/)?.[1] || "").split(/\s+/)));
+  for (const [sel, body] of rules(css)) {
+    if (!/:root:not\(\[data-motion="a"\]\)/.test(sel) || !/animation(-name)?:/.test(body)) continue;
+    for (const part of sel.split(/,(?![^(]*\))/)) {
+      const last = part.trim().split(/\s+/).pop();
+      const classes = [...last.matchAll(/\.([\w-]+)/g)].map((m) => m[1]);
+      for (const c of classes) assert.ok(!revealed.has(c) || /data-reveal/.test(part), `${part.trim()} is shadowed by the [data-reveal] rule on .${c}`);
+    }
+  }
+});
+
+test("chrome colours never cross-fade (a half-way nav is unreadable): no transitions on the chrome's colours", () => {
+  const home = read("styles/home.css");
+  assert.doesNotMatch(home, /\.promo, \.rail \{ transition/);
+  assert.doesNotMatch(home, /\.rail__head, \.rail__rev, \.promo__msg \{ transition/);
+});
+
+test("the ?lab switcher label is readable (AA on its white pill)", () => {
+  const home = read("styles/home.css");
+  const lab = home.match(/\.motion-lab\s*\{([^}]*)\}/)?.[1] || "";
+  assert.match(lab, /color:\s*var\(--ink-500\)/);
 });

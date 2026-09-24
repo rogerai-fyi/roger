@@ -45,9 +45,10 @@
 
   // ---- adaptive chrome: the nav, promo and rail take the tone under them ----
   // data-chrome="ink" whenever an ink zone sits under the nav's bottom edge
-  // (tokens.css re-themes .nav/.promo/.rail from it). The first set holds
-  // transitions off (data-chrome-instant) so the cover doesn't fade the nav
-  // in on load; later swaps transition. No JS: the default paper chrome.
+  // (tokens.css re-themes .nav/.promo/.rail from it). EVERY swap is instant
+  // (data-chrome-instant holds transitions off for a moment): a cross-fade
+  // moves background and text in opposite directions and passes through an
+  // unreadable half-way state. No JS: the default paper chrome.
   var zones = document.querySelectorAll(".tone-zone");
   var navBar = document.querySelector(".nav");
   var ink = null;
@@ -59,17 +60,30 @@
       if (zr.top <= line && zr.bottom > line) { over = true; break; }
     }
     if (over === ink) return;
-    var first = ink === null;
     ink = over;
-    if (first) {
-      root.setAttribute("data-chrome-instant", "");
-      window.setTimeout(function () { root.removeAttribute("data-chrome-instant"); }, 60);
-    }
+    root.setAttribute("data-chrome-instant", "");
+    window.setTimeout(function () { root.removeAttribute("data-chrome-instant"); }, 60);
     if (over) root.setAttribute("data-chrome", "ink"); else root.removeAttribute("data-chrome");
   }
   chrome();
   window.addEventListener("scroll", chrome, { passive: true });
   window.addEventListener("resize", chrome);
+
+  // ---- hold a #fragment while late content loads above it ----
+  // The market rows and the reel's power-on grow the page ABOVE a target like
+  // #monetize after the browser has already scrolled to it, and the target
+  // lands far down the screen. Until the reader takes over (or a few seconds
+  // pass), re-align the target whenever the page's size changes.
+  var hashTarget = window.location.hash && document.getElementById(window.location.hash.slice(1));
+  if (hashTarget && window.ResizeObserver) {
+    var hold = new window.ResizeObserver(function () { hashTarget.scrollIntoView({ block: "start" }); });
+    var release = function () { hold.disconnect(); };
+    hold.observe(document.body);
+    ["wheel", "keydown", "touchstart", "pointerdown"].forEach(function (t) {
+      window.addEventListener(t, release, { passive: true, once: true });
+    });
+    window.setTimeout(release, 4000);
+  }
 
   // ---- variant C: settle-then-snap ----
   if (variant !== "c") return;
@@ -78,6 +92,9 @@
   var REACH = 0.18;   // how close (share of the viewport) a section top must be
   var BACK = 0.08;    // how far against your direction it may pull
   var lastY = window.scrollY, dir = 0, snapping = false, timer = null;
+  // only a wheel / trackpad scroll may be finished by a snap: a keyboard
+  // scroll (PageDown, Space, arrows, find) lands exactly where it was sent
+  var wheeled = false;
 
   function busy() {
     var el = document.activeElement;
@@ -88,9 +105,10 @@
 
   function settle() {
     if (snapping) { snapping = false; return; }     // this rest is our own snap landing
-    if (!fine.matches || reduced.matches || busy()) return;
-    var nav = document.querySelector(".nav");
-    var line = nav ? nav.getBoundingClientRect().bottom : 0;
+    var byWheel = wheeled;
+    wheeled = false;
+    if (!byWheel || !fine.matches || reduced.matches || busy()) return;
+    var line = navBar ? navBar.getBoundingClientRect().bottom : 0;
     var H = window.innerHeight;
     var max = (document.documentElement.scrollHeight || 0) - H;
     var best = null;
@@ -117,8 +135,9 @@
     }
   }, { passive: true });
   window.addEventListener("scrollend", settle);
-  // a key or wheel from the reader cancels the idea that the next rest is ours
-  ["wheel", "keydown", "touchstart", "pointerdown"].forEach(function (t) {
-    window.addEventListener(t, function () { snapping = false; }, { passive: true });
+  // any input from the reader means the next rest is theirs, not our landing;
+  // only the wheel makes it snappable
+  ["wheel", "keydown", "touchstart", "pointerdown", "hashchange"].forEach(function (t) {
+    window.addEventListener(t, function () { snapping = false; wheeled = t === "wheel"; }, { passive: true });
   });
 })();

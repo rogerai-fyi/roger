@@ -23,7 +23,7 @@
   var zones = document.querySelectorAll(".tone-zone");
   if (!zones.length) return;
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var DPR = 1;            // re-read in build(): zoom and monitor moves change it
   var DIM = 0.3;          // strength behind the text column
   var W = 0, H = 0, PITCH = 32, colL = 0, colR = 0;
   var fields = [], raf = null, lastY = -1;
@@ -68,7 +68,13 @@
     var cs = window.getComputedStyle(f.zone);   // the zone's own (ink) tokens
     COL.dot = toRGB(cs.getPropertyValue("--ink-900")) || COL.dot;
     COL.live = toRGB(cs.getPropertyValue("--live")) || COL.live;
-    f.canvas.width = Math.round(W * DPR); f.canvas.height = Math.round(H * DPR);
+    // the bitmap is the canvas's OWN box, not the viewport: at >=1080px the
+    // zones start at the spine, so the box is narrower and offset (a
+    // viewport-wide bitmap would be stretched into it and the dimmed band
+    // would miss the text column)
+    f.w = f.canvas.clientWidth || W; f.h = f.canvas.clientHeight || H;
+    f.left = f.canvas.getBoundingClientRect ? f.canvas.getBoundingClientRect().left : 0;
+    f.canvas.width = Math.round(f.w * DPR); f.canvas.height = Math.round(f.h * DPR);
     f.ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     // the unlit grille is a CSS background on the canvas (static, free);
     // the canvas itself only ever draws the stations on air
@@ -86,15 +92,15 @@
     var drift = (window.scrollY || 0) * 0.25;
     var row0 = Math.floor(drift / PITCH), dy = -(drift % PITCH);
     var ctx = f.ctx;
-    ctx.clearRect(0, 0, W, H);
+    ctx.clearRect(0, 0, f.w, f.h);
     f.canvas.style.backgroundPosition = "0 " + dy.toFixed(1) + "px";
     [1, DIM].forEach(function (k) {
       ctx.fillStyle = rgba(COL.live, 0.9 * k);
       ctx.beginPath();
-      for (var j = 0; j * PITCH < H + PITCH; j++) {
-        for (var i = 0; i * PITCH < W; i++) {
-          var x = i * PITCH + PITCH / 2;
-          if ((x > colL && x < colR ? DIM : 1) !== k) continue;
+      for (var j = 0; j * PITCH < f.h + PITCH; j++) {
+        for (var i = 0; i * PITCH < f.w; i++) {
+          var x = i * PITCH + PITCH / 2, px = x + f.left;   // canvas x, page x
+          if ((px > colL && px < colR ? DIM : 1) !== k) continue;
           if (callAt(i, j + row0) > onAir) continue;
           var y = j * PITCH + PITCH / 2 + dy;
           ctx.moveTo(x + 2.4, y);
@@ -118,6 +124,7 @@
   function wake() { if (!raf && !document.hidden) raf = window.requestAnimationFrame(frame); }
 
   function build() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
     measure();
     for (var i = 0; i < fields.length; i++) setup(fields[i]);
     lastY = window.scrollY;
@@ -152,10 +159,10 @@
 
   if (!REDUCED) window.addEventListener("scroll", wake, { passive: true });
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) return;
+    if (!document.hidden) { drawAll(true); return; }             // back: repaint, tuned in
     if (raf) { window.cancelAnimationFrame(raf); raf = null; }
     if (tuneRaf) { window.cancelAnimationFrame(tuneRaf); tuneRaf = null; }
-    for (var i = 0; i < fields.length; i++) fields[i].tune = 1;   // back to a tuned-in still
+    for (var i = 0; i < fields.length; i++) fields[i].tune = 1;   // a tuned-in still
   });
   window.addEventListener("themechange", build);
   var rt;

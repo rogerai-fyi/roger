@@ -209,7 +209,7 @@
     main [data-reveal]:not(.reel):not([data-reveal] [data-reveal]) {
       animation: lift-rise linear both;
       animation-timeline: view();
-      animation-range: entry 0% entry 30vh;
+      animation-range: entry 0% entry 15vh;
     }
 
     /* the zones (every variant): the door opens as a zone arrives and
@@ -244,15 +244,15 @@
     /* ---- variants B (default) and C: the section choreography ----------
        scroll-stage.js sets data-motion only from ?motion=; with no
        attribute (production, and no-JS) this is on. Every piece is tied to
-       scroll position, finishes by the time its block's top is ~70% up the
-       screen, and never starts below 35% opacity.
-       - the hero recedes as you leave it: it lags the scroll, shrinks a
-         touch and dims, so the page below slides up over it
-       - section heads arrive bigger: a longer rise, a slight scale, and the
-         red section rule draws itself in
-       - figures (console, band, plate, operator panel) grow into place
+       scroll position, so wherever the reader stops IS a resting state:
+       transform only, never a fade (text stays at full contrast at rest).
+       - the hero recedes as you leave it: it lags the scroll and shrinks a
+         touch, so the page below slides up over it
+       - each section's red rule draws itself in
        - card sets cascade: each card lands a beat after the one before
-       - the two sides of the tune converge on the beam between them */
+       - the two sides of the tune converge on the beam between them
+       (Section heads and figures are [data-reveal] blocks and take the
+       base rise above; a choreography rule on them would be shadowed.) */
     @media (min-width: 900px) {
       :root:not([data-motion="a"]) .hero__inner {
         animation: lift-recede linear both;
@@ -261,20 +261,12 @@
         transform-origin: 30% 0;
       }
     }
-    :root:not([data-motion="a"]) main :is(.demo__head, .market__head, .section__head, .shelf__copy, .monetize__copy, .cta__inner) {
-      animation-name: lift-head;
-    }
     :root:not([data-motion="a"]) main .sectionno { view-timeline: --secno block; }
     :root:not([data-motion="a"]) main .sectionno::before {
       transform-origin: left center;
       animation: lift-rule linear both;
       animation-timeline: --secno;
       animation-range: entry 0% entry 26vh;
-    }
-    :root:not([data-motion="a"]) main :is(.term, .market__panel, .plate, .earn) {
-      animation-name: lift-figure;
-      transform-origin: 50% 0;
-      animation-range: entry 0% entry 40vh;
     }
     :root:not([data-motion="a"]) main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book) {
       animation: lift-card linear both;
@@ -305,8 +297,6 @@
        above, whatever their specificity) */
     @media (max-width: 1024px), (pointer: coarse) {
       main [data-reveal],
-      main :is(.demo__head, .market__head, .section__head, .shelf__copy, .monetize__copy, .cta__inner),
-      main :is(.term, .market__panel, .plate, .earn),
       main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book, .twoway__side),
       main .plate__grid > div {
         animation-name: lift-touch !important;
@@ -330,8 +320,8 @@
   100% { transform: none; color: var(--live); }
 }
 @keyframes plate-tick {
-  from { transform: translateX(-14px); opacity: 0.3; }
-  to   { transform: none; opacity: 1; }
+  from { transform: translateX(-14px); }
+  to   { transform: none; }
 }
 @keyframes lift-touch {
   from { transform: translateY(20px); }
@@ -350,31 +340,23 @@
   exit 100%  { opacity: 0.2; transform: scale(1.2); }
 }
 @keyframes lift-recede {
-  to { transform: translateY(18vh) scale(0.95); opacity: 0.35; }
-}
-@keyframes lift-head {
-  from { transform: translateY(64px) scale(0.97); filter: blur(6px); opacity: 0.35; }
-  to   { transform: none; filter: none; opacity: 1; }
-}
-@keyframes lift-figure {
-  from { transform: translateY(48px) scale(0.93); opacity: 0.35; }
-  to   { transform: none; opacity: 1; }
+  to { transform: translateY(18vh) scale(0.95); }
 }
 @keyframes lift-card {
-  from { transform: translateY(40px); filter: blur(4px); opacity: 0.35; }
-  to   { transform: none; filter: none; opacity: 1; }
+  from { transform: translateY(40px); }
+  to   { transform: none; }
 }
 @keyframes lift-rule {
   from { transform: scaleX(0); }
   to   { transform: none; }
 }
 @keyframes lift-from-left {
-  from { transform: translateX(-56px); opacity: 0.35; }
-  to   { transform: none; opacity: 1; }
+  from { transform: translateX(-56px); }
+  to   { transform: none; }
 }
 @keyframes lift-from-right {
-  from { transform: translateX(56px); opacity: 0.35; }
-  to   { transform: none; opacity: 1; }
+  from { transform: translateX(56px); }
+  to   { transform: none; }
 }
 
 /* the ?lab=1 / ?motion= switcher (scroll-stage.js); never in production HTML */
@@ -383,7 +365,7 @@
   display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 12px;
   background: var(--white); border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
   box-shadow: var(--e-4); font-family: var(--font-mono); font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
 }
 .motion-lab a {
   min-width: 34px; padding: 5px 8px; border-radius: var(--r-pill); text-align: center; color: var(--ink-700);
@@ -864,6 +846,9 @@
 
 /* ---------- company -------------------------------------------- */
 .company { border-top: 1px solid var(--hairline); }
+/* an #anchor (and the C snap, and the fragment hold in scroll-stage.js)
+   lands the section's top just under the sticky nav, not behind it */
+main section[id] { scroll-margin-top: 72px; }
 /* sideways motion (the two sides of the tune) must never widen the page */
 main > section { overflow-x: clip; }
 /* Bands are a translucent wash of the local ink rather than solid paper-2:
@@ -925,8 +910,6 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
    on load is instant (data-chrome-instant). */
 :root[data-chrome="ink"] :is(.nav, .promo, .rail) { color: var(--ink-700); }
 :root[data-chrome="ink"] .nav { background: var(--paper); border-bottom-color: var(--hairline); }
-.promo, .rail { transition: background-color var(--d-3) var(--ease-standard), border-color var(--d-3); }
-.rail__head, .rail__rev, .promo__msg { transition: color var(--d-3); }
 :root[data-chrome-instant] :is(.nav, .promo, .rail),
 :root[data-chrome-instant] :is(.nav, .promo, .rail) * { transition: none !important; }
 

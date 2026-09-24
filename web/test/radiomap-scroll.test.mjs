@@ -34,11 +34,15 @@ function makeCtx(log) {
 }
 const newLog = () => ({ calls: 0, lines: 0, arcs: [] });
 
-function run({ w = 1440, h = 900, col = [290, 1258], zones = [[1100, 1700]], reduced = false }) {
+// `box`: the canvas's own CSS box [left, width]. On the homepage at >=1080px the
+// zones start at the spine, so the box is NARROWER than the viewport and offset
+// (1440 viewport: box 1332 wide from x=108). Round 7 caught the bitmap being
+// sized to innerWidth and stretched into that box.
+function run({ w = 1440, h = 900, col = [290, 1258], zones = [[1100, 1700]], reduced = false, box = [0, w], dpr = 1 }) {
   let now = 0, rafs = [], rafCalls = 0, nextId = 1;
   const timers = [], listeners = {}, canvases = [];
   const win = {
-    innerWidth: w, innerHeight: h, devicePixelRatio: 1, scrollY: 0,
+    innerWidth: w, innerHeight: h, devicePixelRatio: dpr, scrollY: 0,
     matchMedia: (q) => ({ matches: reduced && /reduce/.test(q) }),
     addEventListener: (t, f) => { (listeners["w:" + t] ||= []).push(f); },
     requestAnimationFrame: (f) => { rafCalls++; const id = nextId++; rafs.push({ id, f }); return id; },
@@ -60,7 +64,8 @@ function run({ w = 1440, h = 900, col = [290, 1258], zones = [[1100, 1700]], red
     querySelectorAll: (s) => (s === ".tone-zone" ? zoneEls : [colEl]),
     createElement: () => {
       const log = newLog();
-      const c = { width: 0, height: 0, style: {}, className: "", attrs: {}, log, setAttribute(k, v) { this.attrs[k] = v; }, getContext: () => makeCtx(log) };
+      const c = { width: 0, height: 0, style: {}, className: "", attrs: {}, log, setAttribute(k, v) { this.attrs[k] = v; }, getContext: () => makeCtx(log),
+        clientWidth: box[1], clientHeight: h, getBoundingClientRect: () => ({ left: box[0], top: 0, width: box[1], height: h }) };
       canvases.push(c);
       return c;
     },
@@ -89,7 +94,7 @@ function run({ w = 1440, h = 900, col = [290, 1258], zones = [[1100, 1700]], red
   const fields = () => canvases.filter((c) => c.className === "tone-field");
   const reset = () => { for (const c of canvases) Object.assign(c.log, newLog()); };
   const calls = () => canvases.reduce((n, c) => n + c.log.calls, 0);
-  return { advance, scrollTo, fire, fields, reset, calls, win, stats: () => ({ rafCalls, pending: rafs.length + timers.length }) };
+  return { advance, scrollTo, fire, fields, reset, calls, win, listeners, stats: () => ({ rafCalls, pending: rafs.length + timers.length }) };
 }
 const alphaOf = (s) => { const m = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(String(s)); return m ? Number(m[1]) : null; };
 const lit = (log) => log.arcs.filter((a) => LIVE.test(a.fill) && alphaOf(a.fill) > 0.05);
@@ -181,4 +186,38 @@ test("reduced motion: the hero zone is painted tuned in, with no load animation"
   const r = run({ zones: [[100, 900, true]], reduced: true });
   assert.ok(lit(r.fields()[0].log).length > 10);
   assert.equal(r.stats().rafCalls, 0);
+});
+
+// ---- round 7 ----
+test("the bitmap matches its own box (not the viewport), and the dimmed band sits on the text column", () => {
+  const r = run({ box: [108, 1332] });                    // 1440 viewport, zone from the spine
+  const c = r.fields()[0];
+  assert.equal(c.width, 1332, "bitmap as wide as the canvas box, so dots are not stretched");
+  r.scrollTo(2200); r.advance(1500);
+  const arcs = lit(c.log);
+  // canvas x -> page x is +108; the text column is 290..1258 in page x
+  const inCol = (a) => a.x + 108 > 290 && a.x + 108 < 1258;
+  const inside = arcs.filter(inCol).map((a) => alphaOf(a.fill));
+  const outside = arcs.filter((a) => !inCol(a)).map((a) => alphaOf(a.fill));
+  assert.ok(inside.length && outside.length);
+  assert.ok(Math.max(...inside) <= 0.35, `every LED behind the text column is dimmed (peak ${Math.max(...inside)})`);
+  assert.ok(Math.min(...outside) > 0.35, "and every LED in the margins is at full strength");
+});
+
+test("a tab that comes back after a hidden tune-in is redrawn tuned in", () => {
+  const r = run({ zones: [[100, 900, true]] });
+  r.advance(100);
+  r.fire("visibilitychange", true);
+  r.reset();
+  r.fire("visibilitychange", false);
+  assert.ok(lit(r.fields()[0].log).length > 10, "a full, tuned-in field on return");
+});
+
+test("device pixel ratio is re-read on resize (zoom, a move to another monitor)", () => {
+  const r = run({ box: [0, 1440] });
+  assert.equal(r.fields()[0].width, 1440);
+  r.win.devicePixelRatio = 2;
+  for (const f of r.listeners["w:resize"] || []) f();
+  r.advance(300);
+  assert.equal(r.fields()[0].width, 2880);
 });

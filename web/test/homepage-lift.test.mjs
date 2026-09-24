@@ -159,9 +159,9 @@ test("home.css carries no rules for classes the homepage never uses", () => {
 });
 
 test("homepage sections let the background network through (a tint, not a solid fill)", () => {
-  // The blip map is a fixed canvas BEHIND the page. Solid section fills (.band's
-  // paper-2, .company's paper) hid it below the fold, so the scroll-driven
-  // network only ever showed in the hero. Tints keep the same tone over paper.
+  // Inside an ink zone the bloom and the LED field sit behind the sections, so a
+  // solid band fill would cut them off at the band's edge. A tint of the local
+  // ink keeps the same tone on paper and lets the zone show through.
   const css = read("styles/home.css");
   assert.match(css, /main \.band\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--ink-900\) [\d.]+%, transparent\)/);
   assert.doesNotMatch(css, /\.company\s*\{[^}]*background:\s*var\(--paper\)/);
