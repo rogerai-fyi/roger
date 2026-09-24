@@ -520,6 +520,11 @@ func edgeDesignateCore(dir, where string) (*edgeauth.Local, error) {
 	if err := local.Allow(hex.EncodeToString(pub)); err != nil {
 		return nil, err
 	}
+	// The designating machine's own key is PROTECTED: a later forget must never evict it, or the
+	// authority could lock itself out of renewing its own certificate (audit 2026-09-24).
+	if err := local.Protect(hex.EncodeToString(pub)); err != nil {
+		return nil, err
+	}
 	if err := edgeIdentityStore().SaveDescriptor(local.Descriptor()); err != nil {
 		return nil, err
 	}

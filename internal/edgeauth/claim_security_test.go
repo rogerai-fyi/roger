@@ -313,3 +313,24 @@ func TestAllowAndForgetAreSerialised(t *testing.T) {
 		require.NotContains(t, allowed, hexEncode(kPub), "the forgotten node's key must be evicted")
 	}
 }
+
+// The authority's PROTECTED key (the designating machine's own) is never evicted by forget, so
+// forgetting an orphan self node id cannot lock the authority out of renewing its certificate (audit 2026-09-24).
+func TestForgetNeverEvictsAProtectedKey(t *testing.T) {
+	_, local, _, _, _ := secFixture(t)
+	kPub, kPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.Allow(hexEncode(kPub)))
+	require.NoError(t, local.Protect(hexEncode(kPub)))
+
+	nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+	req := edgeauth.NewRequest(local.Account(), "self", "host", nodePub, time.Now())
+	req.Sign(kPriv)
+	_, err := local.Issue(req)
+	require.NoError(t, err)
+
+	_, err = local.Forget(edgeauth.NodeID(nodePub))
+	require.NoError(t, err)
+	allowed, err := local.Allowed()
+	require.NoError(t, err)
+	require.Contains(t, allowed, hexEncode(kPub), "a protected key survives forget")
+}

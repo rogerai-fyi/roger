@@ -192,6 +192,7 @@ func (l *Local) Issue(r Request) (Response, error) {
 			return err
 		}
 		if NodeID(pub) != r.NodeID {
+			l.iss.record(r)
 			return ErrKeyMismatch
 		}
 		// A node whose earlier certificate stands REVOKED must not enroll a fresh one - the enrol
@@ -227,8 +228,8 @@ func (l *Local) Issue(r Request) (Response, error) {
 		if err := l.recordIssued(r2.NodeID, leaf.SerialNumber.String()); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
-		// Remember WHICH user key enrolled this node, so a later forget can drop that key when no
-		// other node still uses it.
+		// Remember WHICH user key enrolled this node, so a later forget can drop that (unprotected)
+		// key from the allow-list, de-authorising exactly the forgotten machine.
 		if r.UserKey != "" {
 			if err := l.recordEnrolledBy(r2.NodeID, r.UserKey); err != nil {
 				return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
@@ -623,9 +624,10 @@ func (l *Local) recordEnrolledBy(nodeID, userKey string) error {
 	return l.writeJSON(EnrolledByFile, m)
 }
 
-// dropEnrolledBy removes a node from the enrolled-by record and, if the user key that enrolled it is
-// no longer used by ANY remaining node, drops that key from the allow-list too - durably evicting the
-// device without locking out a key the owner's other machines still share. Unlocked; holds the lock.
+// dropEnrolledBy removes a node from the enrolled-by record and drops its (unprotected) enrolling
+// user key from the allow-list, so the forgotten machine cannot re-enrol under a fresh node key.
+// Keys are per-device, so this de-authorises exactly that machine; the authority's own protected key
+// is never evicted. Unlocked; callers hold the lock.
 func (l *Local) dropEnrolledBy(nodeID string) error {
 	m, err := l.loadEnrolledBy()
 	if err != nil {
@@ -646,13 +648,7 @@ func (l *Local) dropEnrolledBy(nodeID string) error {
 	if key == "" {
 		return nil
 	}
-	// ALWAYS drop the enrolling key from the allow-list on forget. Keeping it "while another node
-	// still uses it" cannot be done safely: a re-enrolment leaves an orphan record for the machine's
-	// prior node id under the SAME key, so the forgotten machine would re-enrol under yet another
-	// fresh node id (audit 2026-09-24). Evicting unconditionally is the clean rule; existing members'
-	// certificates keep working, and to admit a machine under this key again the owner re-runs
-	// `roger edge authority allow <key>`. Also drop any other stale records that named this key, so
-	// the record does not grow without bound.
+	// Drop stale enrolled-by records that named this key so the record does not grow without bound.
 	for other, k := range m {
 		if k == key {
 			delete(m, other)
@@ -661,7 +657,47 @@ func (l *Local) dropEnrolledBy(nodeID string) error {
 	if err := l.writeJSON(EnrolledByFile, m); err != nil {
 		return err
 	}
+	// A PROTECTED key (the authority's own designation key) is never evicted: forgetting an orphan
+	// self node id must not lock the authority out of renewing its own certificate.
+	if l.isProtected(key) {
+		return nil
+	}
+	// Otherwise drop the enrolling key from the allow-list. Keys are per-device (each machine's own
+	// login), so this de-authorises exactly the forgotten machine; an orphan record for its prior
+	// node id under the same key cannot keep it alive. Existing members keep their certificates until
+	// renewal; to admit a machine under this key again the owner re-runs `roger edge authority allow
+	// <key>` (audit 2026-09-24).
 	return l.disallow(key)
+}
+
+// Protect marks a user key as one forget must never evict (the designating machine's own key).
+func (l *Local) Protect(userKeyHex string) error {
+	return l.withLock(func() error {
+		var got []string
+		if err := l.readJSON(ProtectedKeysFile, &got); err != nil {
+			return err
+		}
+		for _, k := range got {
+			if k == userKeyHex {
+				return nil
+			}
+		}
+		return l.writeJSON(ProtectedKeysFile, append(got, userKeyHex))
+	})
+}
+
+// isProtected reports whether a key must never be evicted. Unlocked; callers hold the lock.
+func (l *Local) isProtected(userKeyHex string) bool {
+	var got []string
+	if err := l.readJSON(ProtectedKeysFile, &got); err != nil {
+		return true // fail SAFE: if we cannot tell, do not evict
+	}
+	for _, k := range got {
+		if k == userKeyHex {
+			return true
+		}
+	}
+	return false
 }
 
 // disallow removes a user key from the allow-list. Unlocked; callers hold the lock.

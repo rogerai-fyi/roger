@@ -1068,6 +1068,7 @@ func cmdEdgeForget(cfg config, args []string) error {
 	}
 	if len(revoked) > 0 {
 		fmt.Printf("forgot %s - it is off this Edge, its certificate is revoked and its pin is cleared.\n", n.Name)
+		fmt.Println("  its enrollment key was removed from the allow-list; run `roger edge authority allow <key>` to re-admit a machine under it.")
 	} else {
 		// This machine did not issue that certificate, so it cannot revoke it - only drop its pin.
 		// Say so plainly rather than claim a revocation that did not happen (audit 2026-09-24).

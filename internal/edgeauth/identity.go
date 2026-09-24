@@ -55,6 +55,10 @@ const (
 	// that key from the allow-list when no other node still uses it - durably evicting a device
 	// without locking out an account key shared by the owner's other machines.
 	EnrolledByFile = "enrolled_by.json"
+	// ProtectedKeysFile lists user keys that forget must NEVER evict from the allow-list - above all
+	// the designating machine's own key, so forgetting an orphan self node id cannot lock the
+	// authority out of renewing its own certificate.
+	ProtectedKeysFile = "protected_keys.json"
 	// ClaimsFile is the node ids the owner has ADOPTED and that may therefore claim a
 	// certificate (features/edge/claim.feature). A grant is consumed on a successful claim.
 	ClaimsFile = "claims.json"
