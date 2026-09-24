@@ -161,13 +161,8 @@
    An ink panel on the paper page: inset from the page edge, rounded, still
    (the homepage cover, §1-§2 and §7-§9). A panel carries the site's ink tokens (tokens.css), so everything
    in it re-themes as it does in dark mode (one step deeper on a dark site). */
-/* a panel's side margin is tied to the page's content box: it sits 64px
-   outside the text column on both sides (so every panel frames the content
-   the same way, whatever the spine), and never closer than --panel-inset to
-   the edge on small screens */
-.tone-zone {
-  --panel-mx: max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
-}
+/* the side margin is the --panel-mx token (tokens.css): 64px outside the
+   text column, never closer than --panel-inset to the edge */
 .tone-zone {
   position: relative;
   overflow: clip;
@@ -176,6 +171,9 @@
   color: var(--ink-700);
   background: var(--paper);
 }
+/* dark site: the panel is one step deeper than the page, which alone reads
+   as a hole rather than a room; a hairline ring gives it its edge back */
+:root[data-theme="dark"] .tone-zone { box-shadow: inset 0 0 0 1px var(--hairline-2); }
 
 /* ======================= TOC TUNER ============================= */
 /* The table of contents as a precision tuning scale. In the page, never
