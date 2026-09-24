@@ -156,3 +156,29 @@ func TestForgetSurfacesAnUnreadableIdentity(t *testing.T) {
 	require.Contains(t, err.Error(), "could not read this machine's identity",
 		"the error names the actual failure, not some other one")
 }
+
+// Forgetting a device that was ADOPTED but has not claimed yet (so it is not in the fleet) must
+// cancel its pending claim grant - otherwise it could still claim a certificate later (audit 2026-09-24).
+func TestForgetCancelsAPendingAdoption(t *testing.T) {
+	useTempConfig(t)
+	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	require.NoError(t, local.GrantClaim("n_pending", "gentle-ibex-14"))
+	require.True(t, local.ClaimGranted("n_pending"))
+
+	// Forget by the friendly name it was adopted under.
+	canceled, who, err := edgeCancelPendingAdoption("gentle-ibex-14")
+	require.NoError(t, err)
+	require.True(t, canceled)
+	require.Equal(t, "gentle-ibex-14", who)
+
+	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.False(t, reopened.ClaimGranted("n_pending"), "the pending grant is gone")
+
+	// Forgetting again finds nothing to cancel.
+	canceled, _, err = edgeCancelPendingAdoption("gentle-ibex-14")
+	require.NoError(t, err)
+	require.False(t, canceled)
+}

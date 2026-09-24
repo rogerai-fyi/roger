@@ -176,3 +176,31 @@ func TestRevocationsFailsClosedOnACorruptList(t *testing.T) {
 	_, err := local.Revocations()
 	require.Error(t, err, "an unreadable revocation list is an error, never an empty list")
 }
+
+// Forget clears the grant AND revokes every issued certificate in one step, so a node that was
+// forgotten cannot re-claim (grant gone) nor present an old cert (all serials revoked) (audit 2026-09-24).
+func TestForgetClearsGrantAndRevokesEveryCert(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	respA, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	leafA, err := edgeauth.DecodeCert(respA.Cert)
+	require.NoError(t, err)
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	respB, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	leafB, err := edgeauth.DecodeCert(respB.Cert)
+	require.NoError(t, err)
+
+	// A grant is standing again (a mistaken re-adopt) when forget runs.
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	revoked, err := local.Forget(id)
+	require.NoError(t, err)
+	require.Contains(t, revoked, leafA.SerialNumber.String())
+	require.Contains(t, revoked, leafB.SerialNumber.String())
+	require.False(t, local.ClaimGranted(id), "forget cleared the standing grant")
+
+	// A claim after forget is refused: the grant is gone.
+	_, err = local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.ErrorIs(t, err, edgeauth.ErrNotAdopted)
+}

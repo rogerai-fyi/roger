@@ -165,14 +165,27 @@ func (l *Local) Issuer() *Issuer { return l.iss }
 // Issue mints a certificate and remembers its serial, so forgetting the node later can
 // revoke exactly that certificate.
 func (l *Local) Issue(r Request) (Response, error) {
-	resp, err := l.iss.Issue(r)
-	if err != nil {
-		return resp, err
-	}
-	if serial, ok := l.iss.SerialOf(resp.NodeID); ok {
-		if err := l.withLock(func() error { return l.recordIssued(resp.NodeID, serial) }); err != nil {
-			return Response{}, fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+	var resp Response
+	err := l.withLock(func() error {
+		// Mint AND record inside one lock (in-process and cross-process), so a concurrent forget or
+		// claim cannot interleave, and record the serial of THIS certificate parsed from its own
+		// bytes - never SerialOf, which returns the latest and under a race could be another call's.
+		r2, err := l.iss.Issue(r)
+		if err != nil {
+			return err
 		}
+		leaf, err := DecodeCert(r2.Cert)
+		if err != nil {
+			return fmt.Errorf("that certificate could not be read back, so it has NOT been issued: %w", err)
+		}
+		if err := l.recordIssued(r2.NodeID, leaf.SerialNumber.String()); err != nil {
+			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+		}
+		resp = r2
+		return nil
+	})
+	if err != nil {
+		return Response{}, err
 	}
 	return resp, nil
 }
@@ -402,6 +415,35 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		return Response{}, err
 	}
 	return resp, nil
+}
+
+// Forget removes a node from this authority in one locked step: it clears any standing claim grant
+// FIRST, then revokes every certificate the node was issued, returning the revoked serials. Doing
+// both under a single lock closes the window the audit found, where a claim could mint a fresh
+// certificate between a separate Revoke and ConsumeClaim (audit 2026-09-24).
+func (l *Local) Forget(nodeID string) ([]string, error) {
+	var revoked []string
+	err := l.withLock(func() error {
+		if err := l.consumeClaim(nodeID); err != nil {
+			return err
+		}
+		serials, err := l.serialsFor(nodeID)
+		if err != nil {
+			return err
+		}
+		for _, srl := range serials {
+			n, ok := parseSerial(srl)
+			if !ok {
+				return fmt.Errorf("%q is not a certificate serial", srl)
+			}
+			if err := l.auth.Revoke(n); err != nil {
+				return err
+			}
+			revoked = append(revoked, srl)
+		}
+		return nil
+	})
+	return revoked, err
 }
 
 // Revoke ends the certificate this authority issued to a node. It returns the serial it

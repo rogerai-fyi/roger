@@ -987,6 +987,15 @@ func cmdEdgeForget(cfg config, args []string) error {
 		return err
 	}
 	if !ok {
+		// It may be a device that was ADOPTED but has not claimed yet: it is not in the fleet, but a
+		// live claim grant is still standing for it. Forgetting must cancel that pending adoption,
+		// or the device could still claim a certificate later (audit 2026-09-24).
+		if canceled, who, err := edgeCancelPendingAdoption(argv.pos[0]); err != nil {
+			return err
+		} else if canceled {
+			fmt.Printf("canceled the pending adoption of %s; it can no longer claim a certificate.\n", who)
+			return nil
+		}
 		// Forgetting something that is not there is what the owner wanted anyway.
 		fmt.Printf("nothing to forget: %q is not on this Edge.\n", argv.pos[0])
 		return nil
@@ -1089,6 +1098,37 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	}
 	fmt.Printf("adopted %s (%s).\n", n.Name, edgeShortID(n.ID))
 	return nil
+}
+
+// edgeCancelPendingAdoption clears a standing claim grant for a device that was adopted but has not
+// yet claimed (so it is not in the fleet). want may be the node id or the friendly name the grant
+// carries. It reports whether a grant was canceled and the name to show. Only an authority has
+// grants; elsewhere it is a no-op (audit 2026-09-24).
+func edgeCancelPendingAdoption(want string) (bool, string, error) {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return false, "", err
+	}
+	if !hasRoot {
+		return false, "", nil
+	}
+	grants, err := local.Claims()
+	if err != nil {
+		return false, "", err
+	}
+	for _, g := range grants {
+		if g.NodeID == want || (g.Name != "" && g.Name == want) {
+			if err := local.ConsumeClaim(g.NodeID); err != nil {
+				return false, "", err
+			}
+			who := g.Name
+			if who == "" {
+				who = edgeShortID(g.NodeID)
+			}
+			return true, who, nil
+		}
+	}
+	return false, "", nil
 }
 
 // edgeAdoptByClaim adopts a non-serving candidate (a phone) by GRANTING it a claim, so it can fetch

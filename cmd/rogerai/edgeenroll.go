@@ -637,17 +637,15 @@ func edgeRevokeOnForget(nodeID string) error {
 		return fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
 	}
 	if ok {
-		// Revoke EVERY certificate this authority issued to the node, not just the latest, and clear
-		// any standing claim grant - errors here are reported, not swallowed, so a forget that could
-		// not take effect is never reported as done (audit 2026-09-23).
-		revoked, err := local.Revoke(nodeID)
+		// Clear any standing claim grant AND revoke every certificate the node was issued in ONE
+		// locked step, so a claim cannot mint a fresh certificate between the two (audit 2026-09-24).
+		// Errors are reported, not swallowed, so a forget that could not take effect is never
+		// reported as done.
+		revoked, err := local.Forget(nodeID)
 		if err != nil {
-			return fmt.Errorf("could not revoke %s: %w", edgeShortID(nodeID), err)
+			return fmt.Errorf("could not forget %s from the authority: %w", edgeShortID(nodeID), err)
 		}
 		serials = revoked
-		if err := local.ConsumeClaim(nodeID); err != nil {
-			return fmt.Errorf("could not clear the claim grant for %s: %w", edgeShortID(nodeID), err)
-		}
 	}
 	// The node being forgotten may be THIS machine, in which case its certificate is
 	// right here and leaving the Edge means giving it up.
