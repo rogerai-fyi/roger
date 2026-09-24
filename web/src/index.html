@@ -265,6 +265,27 @@
     </div>
   </aside>
 
+  <!-- THE TUNER (round 10): the page's table of contents as a tuning scale,
+       in the page (nothing pinned). Point at or focus a station and the red
+       needle swings to it (CSS only); a click tunes you in (jumps there).
+       Plain links without CSS or JS. -->
+  <nav class="tuner" aria-label="Sections">
+    <div class="wrap tuner__band">
+    <ol class="tuner__scale">
+      <li><a class="tuner__st" href="#demo"><b>§1</b><span class="tuner__name">OPERATING PROCEDURE</span></a></li>
+      <li><a class="tuner__st" href="#market"><b>§2</b><span class="tuner__name">THE BAND</span></a></li>
+      <li><a class="tuner__st" href="#company"><b>§3</b><span class="tuner__name">COMPANY</span></a></li>
+      <li><a class="tuner__st" href="#what"><b>§4</b><span class="tuner__name">THE TUNE</span></a></li>
+      <li><a class="tuner__st" href="#spec"><b>§5</b><span class="tuner__name">SPECIFICATIONS</span></a></li>
+      <li><a class="tuner__st" href="#books"><b>§6</b><span class="tuner__name">THE INDUSTRIAL SERIES</span></a></li>
+      <li><a class="tuner__st" href="#monetize"><b>§7</b><span class="tuner__name">MONETIZE</span></a></li>
+      <li><a class="tuner__st" href="#operator"><b>§8</b><span class="tuner__name">PRIVACY-FIRST AIRWAVES</span></a></li>
+      <li><a class="tuner__st" href="#go"><b>§9</b><span class="tuner__name">GO</span></a></li>
+    </ol>
+    <span class="tuner__needle" aria-hidden="true"></span>
+    </div>
+  </nav>
+
   <!-- INK PANEL: the console + the band. -->
   <div class="tone-zone" data-tone="ink">
   <!-- ===================== TERMINAL DEMO (multi-demo player) ===================== -->
@@ -791,6 +812,7 @@
   <!-- include: footer.html anchors="" -->
 
   <script src="js/scroll-stage.js" defer></script>
+  <script src="js/spectrum.js" defer></script>
   <script src="js/edge-story.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/fmt.js" defer></script><!-- canonical $ renderer; before market.js (meter REPLY) -->

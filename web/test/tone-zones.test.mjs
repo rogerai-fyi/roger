@@ -120,8 +120,7 @@ test("the middle gets a scroll moment: the Wave Spectrum tunes in, the spec plat
     assert.ok(home.search(new RegExp(`animation[^;]*\\b${name}\\b`)) > noPref, `${name} is used, opt-in`);
     assert.match(home, new RegExp(`@keyframes ${name}`));
   }
-  // one red only for the tier that is actually trained (Pico); the rest settle to ink
-  assert.match(home, /\.home-spectrum li:first-child i\s*\{[^}]*animation-name:\s*spec-wave-on/);
+  // (round 10: the scrubber marks the tuned tier in red; the tune-in settles every wave to ink)
 });
 
 test("touch, phones and tablets: reveals never blur and never rest below 0.9 opacity", () => {

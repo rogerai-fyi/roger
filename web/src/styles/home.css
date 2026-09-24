@@ -214,15 +214,14 @@
     }
 
     /* the middle's scroll moment: the Wave Spectrum tunes in, pico to exa,
-       each wave drawing across and flashing the live red as it locks; only
-       Pico (the one trained tier) stays red. The spec plate ticks in. */
+       each wave drawing across and flashing the live red as it locks (the
+       scrubber, spectrum.js, then marks the tuned tier). The plate ticks in. */
     .home-spectrum i {
       transform-origin: left center;
       animation: spec-wave linear both;
       animation-timeline: view();
       animation-range: entry 0% entry 14vh;
     }
-    .home-spectrum li:first-child i { animation-name: spec-wave-on; }
     .home-spectrum li:nth-child(2) i { animation-range: entry 0% entry 19vh; }
     .home-spectrum li:nth-child(3) i { animation-range: entry 0% entry 24vh; }
     .home-spectrum li:nth-child(4) i { animation-range: entry 0% entry 29vh; }
@@ -302,11 +301,6 @@
   0%   { transform: scaleX(0.08); color: var(--ink-300); }
   65%  { transform: none; color: var(--live); }
   100% { transform: none; color: var(--ink-500); }
-}
-@keyframes spec-wave-on {
-  0%   { transform: scaleX(0.08); color: var(--ink-300); }
-  65%  { transform: none; color: var(--live); }
-  100% { transform: none; color: var(--live); }
 }
 @keyframes plate-tick {
   from { transform: translateX(-14px); }
@@ -747,8 +741,8 @@
 /* ---------- two-way (share / tune): flat hairline plates -------- */
 .twoway { display: grid; grid-template-columns: 1fr auto 1fr; gap: var(--s-6); align-items: stretch; }
 .twoway__side {
-  background: var(--paper); border: 1px solid var(--hairline);
-  padding: var(--s-6); box-shadow: none;
+  background: var(--paper-2); border-radius: var(--panel-r);
+  padding: var(--s-8); box-shadow: none;
 }
 .twoway__tag {
   display: inline-flex; align-items: center; gap: 6px;
@@ -853,15 +847,13 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
 .company__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid var(--hairline);
-  border-top: 2px solid var(--ink-900);
+  gap: var(--s-6);
 }
 .company__card {
   min-width: 0;
   padding: clamp(24px, 3.4vw, 44px);
 }
-.company__card + .company__card { border-left: 1px solid var(--hairline); }
-.company__card--labs { background: var(--paper-2); }
+.company__card { border-radius: var(--panel-r); background: var(--paper-2); }
 .company__label {
   display: block;
   margin-bottom: var(--s-3);
@@ -926,11 +918,9 @@ main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
 .home-spectrum {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  margin: var(--s-6) 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--hairline);
-  border-top: 2px solid var(--ink-900);
 }
 .home-spectrum li {
   display: grid;
@@ -1568,3 +1558,95 @@ html.js .mkt-quiet--nojs { display: none; }
 .pc-ic .pc-red { stroke: var(--live); }
 .pc-ic .pc-fill { fill: var(--live); stroke: none; }
 @media (max-width: 820px) { .pcards { grid-template-columns: 1fr; } }
+
+/* ---- THE TUNER (round 10): the table of contents as a tuning scale ----------
+   In the page, not pinned. A hairline scale with fine ticks, nine stations
+   (the sections, by their own labels) and a red needle that swings to the
+   station you point at or focus - CSS only (:has), so it works without JS.
+   Resting, the needle sits on §1. Phones: a row you swipe, names showing. */
+.tuner { padding-block: clamp(40px, 6vw, 80px) clamp(24px, 3vw, 40px); }
+.tuner { --at: 0; }
+.tuner__band { position: relative; }
+.tuner__scale {
+  display: grid; grid-template-columns: repeat(9, minmax(0, 1fr));
+  margin: 0; padding: 22px 0 0; list-style: none;
+  background:
+    linear-gradient(var(--hairline-2), var(--hairline-2)) 0 12px / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--ink-300) 0 1px, transparent 1px calc(100% / 45)) 0 4px / 100% 8px no-repeat;
+}
+.tuner a {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 4px 12px; border-radius: var(--r-md); text-align: center;
+  color: var(--ink-500); transition: color var(--d-2), background-color var(--d-2);
+}
+.tuner a::before {
+  content: ""; position: absolute; top: -22px; left: 50%;
+  width: 1px; height: 18px; background: var(--ink-400);
+}
+.tuner b { font: 500 clamp(1.1rem, 0.9rem + 0.8vw, 1.6rem) / 1 var(--font-mono); letter-spacing: -0.02em; color: var(--ink-900); }
+.tuner__name {
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  line-height: 1.35; color: var(--ink-500);
+}
+.tuner a:hover, .tuner a:focus-visible { color: var(--ink-900); background: var(--paper-2); outline: none; }
+.tuner a:hover .tuner__name, .tuner a:focus-visible .tuner__name { color: var(--ink-900); }
+.tuner a:focus-visible { box-shadow: 0 0 0 2px var(--live); }
+.tuner:has(li:nth-child(1) a:is(:hover, :focus-visible)) { --at: 0; }
+.tuner:has(li:nth-child(2) a:is(:hover, :focus-visible)) { --at: 1; }
+.tuner:has(li:nth-child(3) a:is(:hover, :focus-visible)) { --at: 2; }
+.tuner:has(li:nth-child(4) a:is(:hover, :focus-visible)) { --at: 3; }
+.tuner:has(li:nth-child(5) a:is(:hover, :focus-visible)) { --at: 4; }
+.tuner:has(li:nth-child(6) a:is(:hover, :focus-visible)) { --at: 5; }
+.tuner:has(li:nth-child(7) a:is(:hover, :focus-visible)) { --at: 6; }
+.tuner:has(li:nth-child(8) a:is(:hover, :focus-visible)) { --at: 7; }
+.tuner:has(li:nth-child(9) a:is(:hover, :focus-visible)) { --at: 8; }
+.tuner__needle {
+  position: absolute; top: 0; height: 38px; width: 2px; margin-left: -1px;
+  left: calc(var(--gutter) + (var(--at) + 0.5) / 9 * (100% - 2 * var(--gutter)));
+  background: var(--live); pointer-events: none;
+  transition: left 0.45s var(--ease-out-quint);
+}
+.tuner__needle::before {
+  content: ""; position: absolute; top: -2px; left: -4px;
+  border: 5px solid transparent; border-top-color: var(--live);
+}
+@media (max-width: 760px) {
+  .tuner__band { overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+  .tuner__scale { grid-template-columns: repeat(9, 38%); }
+  .tuner a { scroll-snap-align: start; }
+  .tuner__needle { left: calc(var(--gutter) + (var(--at) + 0.5) * 38%); }
+}
+
+/* ---- the Wave Spectrum scrubber (spectrum.js): a hairline track, a red
+   needle for a thumb; the tuned tier's wave turns red. Tiers never fade. */
+.spectrum-scrub {
+  /* the thumb's travel spans the first to the last tier's centre */
+  display: block; width: calc(100% - 100% / 7); margin: var(--s-6) calc(100% / 14) var(--s-2); height: 24px;
+  appearance: none; -webkit-appearance: none; background: transparent; cursor: ew-resize;
+}
+.spectrum-scrub::-webkit-slider-runnable-track { height: 1px; background: var(--hairline-2); }
+.spectrum-scrub::-moz-range-track { height: 1px; background: var(--hairline-2); }
+.spectrum-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 3px; height: 22px; margin-top: -11px; border-radius: 1px; background: var(--live);
+}
+.spectrum-scrub::-moz-range-thumb { width: 3px; height: 22px; border: 0; border-radius: 1px; background: var(--live); }
+.spectrum-scrub:focus-visible { outline: 1px solid var(--ink-400); outline-offset: 3px; border-radius: 2px; }
+.home-spectrum li { cursor: pointer; transition: background-color var(--d-2); }
+.home-spectrum li.is-tuned { background: var(--paper-2); }
+.home-spectrum li.is-tuned i { color: var(--live) !important; }   /* over the tune-in animation's fill */
+.home-spectrum li.is-tuned b { color: var(--ink-900); }
+
+/* ---- hardware-button feedback (round 10): press down; the copy icon turns
+   into a tick while site.js shows "copied" (.is-copied) */
+:is(.install__box, .company__primary, .tuner a):active { transform: translateY(1px); }
+.install__box.is-copied .install__copy svg { opacity: 0; }
+.install__box.is-copied .install__copy::after {
+  content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); color: var(--live);
+}
+.install__copy { position: relative; }
+@media (prefers-reduced-motion: reduce) {
+  .tuner__needle { transition: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.install__box, .company__primary, .tuner a):active { transform: none; }
+}
