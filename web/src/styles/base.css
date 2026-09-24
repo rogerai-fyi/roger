@@ -971,10 +971,13 @@ li > a:not([class]):focus-visible,
 /* display:grid would override the hidden attribute and leave an invisible dialog
    blanketing the page, eating every click. Explicitly re-assert hidden. */
 .lt-modal[hidden], .lt-scrim[hidden] { display: none; }
+/* a soft panel in the system's geometry (the panel radius, a hairline and the
+   raised shadow), not the old hard 2px square frame */
 .lt-modal__dialog {
-  background: var(--paper); border: 2px solid var(--ink-900);
+  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--panel-r);
+  box-shadow: var(--e-4);
   width: min(760px, 100%); max-height: 92vh; overflow: auto;
-  padding: var(--s-5) var(--s-6) var(--s-5);
+  padding: var(--s-6) clamp(var(--s-5), 3vw, var(--s-8)) var(--s-6);
 }
 .lt-modal__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4); }
 .lt-modal__title { margin: 0; font-size: var(--t-h3, 1.4rem); }
@@ -987,11 +990,11 @@ li > a:not([class]):focus-visible,
 .lt-modal__form { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--s-5); }
 .lt-modal__col { display: grid; gap: var(--s-3); align-content: start; }
 .lt-modal__kicker {
-  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-500);
   letter-spacing: var(--tracking-label);
 }
 .lt-field { display: grid; gap: 4px; font-size: var(--t-sm); color: var(--ink-700); }
-.lt-field i { color: var(--ink-400); font-style: normal; }
+.lt-field i { color: var(--ink-500); font-style: normal; }
 .lt-field input, .lt-field select, .lt-field textarea {
   font: inherit; color: var(--ink-900); background: var(--paper);
   border: 1px solid var(--hairline-2); border-radius: var(--r-sm); padding: 8px 10px;
