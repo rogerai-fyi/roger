@@ -2251,18 +2251,20 @@ func dialEdgePeer(ctx context.Context, p EdgePeer, body []byte, opts ProxyOption
 	if opts.EdgeCert != nil {
 		tlsCfg.Certificates = []tls.Certificate{*opts.EdgeCert}
 	}
+	// Bound the TCP dial and the TLS handshake, so a dead or black-holed peer fails fast instead of
+	// stalling the whole provider ladder. The earlier code built a timeout context and then dropped
+	// it (the request used the parent ctx), so no dial timeout was ever applied (audit 2026-09-24).
 	tr := &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true,
-		ResponseHeaderTimeout: proxyResponseHeaderTimeout}
+		ResponseHeaderTimeout: proxyResponseHeaderTimeout,
+		DialContext:           (&net.Dialer{Timeout: proxyDialTimeout}).DialContext,
+		TLSHandshakeTimeout:   proxyDialTimeout}
 	defer tr.CloseIdleConnections()
-	dctx, cancel := context.WithTimeout(ctx, proxyDialTimeout)
-	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+p.Addr+"/edge/infer", bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Roger-Request", newRequestID())
-	_ = dctx
 	resp, err := (&http.Client{Transport: tr}).Do(req)
 	if err != nil {
 		return nil, nil, err

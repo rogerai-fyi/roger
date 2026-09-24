@@ -819,6 +819,10 @@ func run(argv []string, cfg config) error {
 	}
 	applyPermsDefault(permsFlag, cfg.AgentPerms)
 	applyAgentTimeoutDefault(cfg.AgentTimeoutSeconds)
+	// A spawned Edge agent runs HEADLESS (no TUI), before any of the interactive setup below.
+	if len(rest) == 1 && rest[0] == edgeAgentRunArg {
+		return runEdgeAgent(cfg)
+	}
 	if len(rest) == 0 {
 		// Tube warm-up boot (design overhaul §5.6): the ROGER·AI set glows up ONCE per
 		// version - the first-ever run and after an upgrade, never an ordinary re-launch.

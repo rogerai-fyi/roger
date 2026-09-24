@@ -7,13 +7,17 @@ package main
 // with the agent role and the agent's own name, detached, and iterates from there.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // edgePersistDir is where the durable persistent-agent records live, beside the ephemeral
@@ -100,13 +104,40 @@ var edgeSpawnRoger = func(env map[string]string) error {
 	if err != nil {
 		return err
 	}
-	c := exec.Command(exe)
+	c := exec.Command(exe, edgeAgentRunArg)
 	c.Env = os.Environ()
 	for k, v := range env {
 		c.Env = append(c.Env, k+"="+v)
 	}
 	c.Stdin, c.Stdout, c.Stderr = nil, nil, nil
 	return edgeDetach(c) // start in its own session so it outlives this shell
+}
+
+// edgeAgentRunArg is the hidden argument a spawned agent is launched with. It runs the HEADLESS
+// agent loop (below) instead of the interactive TUI, which a detached process with no terminal
+// cannot run.
+const edgeAgentRunArg = "__edge-agent"
+
+// runEdgeAgent is the headless agent runtime: no TUI. It stands up this machine's Edge - registering
+// this instance, serving its face, running discovery on the background host - and stays alive so the
+// agent is genuinely present and operable, until it is signaled to stop. A plain no-arg `roger` ran
+// the full-screen TUI, which exits immediately with no terminal while the launcher reported success
+// (audit 2026-09-24).
+func runEdgeAgent(cfg config) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runEdgeAgentCtx(ctx, cfg)
+}
+
+// runEdgeAgentCtx is runEdgeAgent with the lifetime injected, so a test can start and stop it
+// without sending a real signal to the test process.
+func runEdgeAgentCtx(ctx context.Context, cfg config) error {
+	var hooks tui.Hooks
+	hooks.Station = loadOrCreateStation()
+	stopEdge := startEdge(&hooks)
+	defer stopEdge()
+	<-ctx.Done()
+	return nil
 }
 
 // edgeAgentResume relaunches a dark persistent agent as a plain roger with its role and name.
