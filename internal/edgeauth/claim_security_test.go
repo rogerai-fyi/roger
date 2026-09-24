@@ -204,3 +204,12 @@ func TestForgetClearsGrantAndRevokesEveryCert(t *testing.T) {
 	_, err = local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.ErrorIs(t, err, edgeauth.ErrNotAdopted)
 }
+
+// HasIssued fails CLOSED: an unreadable issued-certificate state is an error, so a caller (forget)
+// never mistakes it for "this node has no certificate" and leaves a live cert unrevoked (audit 2026-09-24).
+func TestHasIssuedFailsClosedOnCorruptState(t *testing.T) {
+	dir, local, _, _, id := secFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, edgeauth.AuthorityDir, "issued_history.json"), []byte("{bad"), 0o600))
+	_, err := local.HasIssued(id)
+	require.Error(t, err, "an unreadable issued state is an error, not a bare false")
+}

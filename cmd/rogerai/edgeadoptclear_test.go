@@ -225,3 +225,17 @@ func TestForgetRevokesAClaimedButNotYetPresentDevice(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, m, "a node id with no grant and no issued cert is not 'forgotten'")
 }
+
+// Forgetting by a NAME that more than one pending adoption shares is ambiguous - it refuses and
+// lists the node ids rather than silently forgetting them all (audit 2026-09-24).
+func TestForgetRefusesAnAmbiguousName(t *testing.T) {
+	useTempConfig(t)
+	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	require.NoError(t, local.GrantClaim("n_one", "iPhone"))
+	require.NoError(t, local.GrantClaim("n_two", "iPhone"))
+
+	_, _, err = edgeForgetNotInFleet("iPhone")
+	require.Error(t, err, "an ambiguous name must be refused, not applied to every match")
+	require.Contains(t, err.Error(), "node id")
+}

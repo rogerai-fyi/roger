@@ -1128,14 +1128,25 @@ func edgeForgetNotInFleet(want string) (int, string, error) {
 		if err != nil {
 			return 0, "", err
 		}
+		var byName []string // grants matched by NAME (not the exact node id), for ambiguity check
 		for _, g := range grants {
-			if g.NodeID == want || (g.Name != "" && g.Name == want) {
+			byID := g.NodeID == want
+			if byID || (g.Name != "" && g.Name == want) {
 				who := g.Name
 				if who == "" {
 					who = edgeShortID(g.NodeID)
 				}
 				ids[g.NodeID] = who
+				if !byID {
+					byName = append(byName, g.NodeID)
+				}
 			}
+		}
+		// A name that matches more than one pending adoption is ambiguous - refuse and list the node
+		// ids, the same way edgeResolve does for the fleet, rather than silently forgetting them all.
+		if !strings.HasPrefix(want, "n_") && len(byName) > 1 {
+			return 0, "", fmt.Errorf("%q names %d adopted devices - forget one by its node id: %s",
+				want, len(byName), strings.Join(byName, ", "))
 		}
 		// A raw node id that actually holds an issued CERTIFICATE (claimed, addressed by id). The
 		// HasIssued read fails CLOSED: an unreadable issued state is an error, not "nothing here".
@@ -1153,7 +1164,12 @@ func edgeForgetNotInFleet(want string) (int, string, error) {
 	// forgetting it gives that identity up. edgeRevokeOnForget handles the self-forget and is a no-op
 	// when the id is neither issued here nor held here.
 	if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") {
-		if held, _, ok, _ := edgeIdentityStore().LoadIdentity(); ok && held.NodeID == want {
+		held, _, ok, err := edgeIdentityStore().LoadIdentity()
+		if err != nil {
+			// An unreadable identity must not be reported as "nothing to forget" (fail closed).
+			return 0, "", fmt.Errorf("could not read this machine's Edge identity to forget %q: %w", want, err)
+		}
+		if ok && held.NodeID == want {
 			ids[want] = edgeShortID(want)
 		}
 	}
