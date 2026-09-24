@@ -106,14 +106,17 @@ with the on-air dot.
 ```html
 <div class="tone-zone" data-tone="ink"> ...sections... </div><!-- /tone-zone -->
 ```
-Inset from the page edge (64px outside the text column, never closer than
-`--panel-inset`), radius `--panel-r`, still (nothing animates on the panel itself).
-Everything inside re-themes via the scoped tokens.
+Inset from the page edge (the `--panel-mx` token: 64px outside the text column, never
+closer than `--panel-inset`), radius `--panel-r`, still (nothing animates on the panel
+itself). Everything inside re-themes via the scoped tokens. On a dark site the panel is
+one step deeper than the page and carries a `--hairline-2` inset ring, so it keeps an edge.
 
 ### Tinted panel (pattern, not yet a class)
 `background: var(--paper-2); border-radius: var(--panel-r);` and no border. Today it is
-written per component (the tuner band, homepage cards). Promote it to a `.panel` class the
-first time a second page needs it.
+written per component (the tuner band, homepage cards). A tinted panel that is a whole
+section takes the ink panel's geometry: `margin: var(--panel-inset) var(--panel-mx)` (the
+homepage's `main > .band`). Promote it to a `.panel` class the first time a second page
+needs it.
 
 ### TOC tuner
 ```html
@@ -133,8 +136,11 @@ needle is laid out against its gutter). Keep the `toc-tuner__st` class on each l
 classless link in an `<li>` gets the site's in-prose underline. CSS alone moves the needle
 and the readout to the pointed or focused station; `tuner.js` adds roving focus (one tab
 stop, arrows, Home/End) and rests the needle on the section in view
-(`aria-current="location"`). Never pinned. No-JS: plain anchor links, readout on the first
-station. Reduced motion: the needle jumps instead of swinging. (`.tuner` is the /models
+(`aria-current="location"`). The resting station keeps a red major tick while you point
+elsewhere ("you are here"); a name comes into tune as it shows (its blur clears and its
+tracking closes up; opacity flips at once). Never pinned. No-JS: plain anchor links,
+readout on the first station. Reduced motion: the needle jumps instead of swinging and
+names appear already sharp. (`.tuner` is the /models
 search bar, a different thing.)
 
 ### Scrubber
@@ -146,7 +152,10 @@ search bar, a different thing.)
 `scrub.js` inserts `<input type="range" class="scrub">` above the list, labelled by the
 list's `aria-label`, reading out each item's `<b>`. Dragging, arrowing or pointing tunes an
 item: it gets `.is-tuned`, which the page styles (homepage: a quiet ground and a red wave).
-Items never fade. No-JS: the complete static list, no control.
+Items never fade. If the page lays the list out as a sideways gallery (it overflows its own
+width, e.g. a phone snap gallery), scrubbing centres the tuned item and a swipe tunes the
+item that comes to rest in the middle; the list must be `position: relative` (the items'
+offsetParent). No-JS: the complete static list, no control.
 
 ### Scroll lift and reveal
 `[data-reveal]` on a block (base.css + site.js): visible without JS, settled by site.js;

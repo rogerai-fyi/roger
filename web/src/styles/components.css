@@ -276,7 +276,7 @@
 .toc-tuner:not(:has(a:is(:hover, :focus-visible, .is-current))) li:first-child .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
 /* the station you are on keeps a red major tick while you point elsewhere:
    "you are here" on the scale (under the needle when nothing is pointed at) */
-.toc-tuner a.is-current b::before { background: var(--live); }
+.toc-tuner a.is-current b::before { background: var(--live); width: 2px; margin-left: -0.5px; }
 .toc-tuner__needle {
   position: absolute; top: 48px; height: 36px; width: 2px; margin-left: -1px;
   left: calc(var(--gutter) + (var(--at) + 0.5) / var(--tuner-n) * (100% - 2 * var(--gutter)));
