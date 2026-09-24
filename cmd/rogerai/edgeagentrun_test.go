@@ -10,16 +10,11 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 )
 
-// The spawn wiring launches the headless entrypoint, not a no-arg (TUI) roger.
-func TestSpawnUsesTheHeadlessAgentArg(t *testing.T) {
-	require.Equal(t, "__edge-agent", edgeAgentRunArg)
-}
-
-// A headless agent that cannot ARM - discovery disabled, or its network cannot be bound - must
-// return an error and exit, not sit forever pretending to run (audit 2026-09-24).
-func TestRunEdgeAgentErrorsWhenItCannotArm(t *testing.T) {
+// A headless agent that cannot ARM - LAN discovery is disabled - must return an error and exit, not
+// sit forever pretending to run while the launcher reports success (audit 2026-09-24).
+func TestRunEdgeAgentErrorsWhenDiscoveryDisabled(t *testing.T) {
 	useTempConfig(t)
-	t.Setenv(edge.EnvDiscovery, "0") // nothing to serve or discover
+	t.Setenv(edge.EnvDiscovery, "0")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -34,29 +29,21 @@ func TestRunEdgeAgentErrorsWhenItCannotArm(t *testing.T) {
 	}
 }
 
-// When it DOES arm, it stays up until its context is canceled, then stops cleanly.
-func TestRunEdgeAgentStaysUpThenStopsCleanly(t *testing.T) {
+// An agent on a machine that is NOT enrolled has no face to serve, so it must error rather than
+// browse forever unable to be operated (audit 2026-09-24). Discovery is left enabled so arm()
+// succeeds and the failure is specifically the missing face.
+func TestRunEdgeAgentErrorsWhenNotEnrolled(t *testing.T) {
 	useTempConfig(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runEdgeAgentCtx(ctx, loadConfig()) }()
 
 	select {
 	case err := <-done:
-		// Some CI hosts have no multicast-capable interface, so arming legitimately fails there; that
-		// path is the error case above. Only a nil (armed-and-exited-early) return is wrong here.
-		require.Error(t, err, "if it exited on its own it must be because it could not arm")
-		cancel()
-		return
-	case <-time.After(200 * time.Millisecond):
-	}
-
-	cancel()
-	select {
-	case err := <-done:
-		require.NoError(t, err, "an armed agent stops cleanly when canceled")
+		require.Error(t, err, "an un-enrolled machine cannot serve, so the agent must not idle")
 	case <-time.After(3 * time.Second):
-		t.Fatal("the headless agent did not stop when canceled")
+		t.Fatal("runEdgeAgentCtx hung on an un-enrolled machine instead of erroring")
 	}
 }

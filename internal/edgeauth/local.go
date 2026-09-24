@@ -399,11 +399,6 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		if err := l.recordIssued(c.NodeID, leaf.SerialNumber.String()); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
-		if grant.Name != "" {
-			if err := l.recordName(c.NodeID, grant.Name); err != nil {
-				return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
-			}
-		}
 		// Consume the grant only AFTER the certificate is safely recorded, so a write failure does
 		// not spend the owner's adopt for nothing.
 		if err := l.consumeClaim(c.NodeID); err != nil {
@@ -431,9 +426,6 @@ func (l *Local) Forget(nodeID string) ([]string, error) {
 	var revoked []string
 	err := l.withLock(func() error {
 		if err := l.consumeClaim(nodeID); err != nil {
-			return err
-		}
-		if err := l.clearName(nodeID); err != nil {
 			return err
 		}
 		serials, err := l.serialsFor(nodeID)
@@ -534,63 +526,17 @@ func (l *Local) loadHistory() (map[string][]string, error) {
 	return out, err
 }
 
-// loadNames reads the node-id -> adopted-name record. Unlocked; callers hold the lock.
-func (l *Local) loadNames() (map[string]string, error) {
-	out := map[string]string{}
-	err := l.readJSON(ClaimedNamesFile, &out)
-	return out, err
-}
-
-// recordName remembers the friendly name a node claimed under. Unlocked; callers hold the lock.
-func (l *Local) recordName(nodeID, name string) error {
-	names, err := l.loadNames()
-	if err != nil {
-		return err
-	}
-	if names[nodeID] == name {
-		return nil
-	}
-	names[nodeID] = name
-	return l.writeJSON(ClaimedNamesFile, names)
-}
-
-// NamedNodes returns the node ids of devices that CLAIMED a certificate under the given friendly
-// name (and so are not in the fleet or the grants yet). Used to forget such a device by name.
-func (l *Local) NamedNodes(name string) []string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	names, err := l.loadNames()
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for id, n := range names {
-		if n == name {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
-// HasIssued reports whether this authority has issued at least one certificate to a node id.
-func (l *Local) HasIssued(nodeID string) bool {
+// HasIssued reports whether this authority has issued at least one certificate to a node id. It
+// returns an error rather than a bare false when the issued state cannot be read, so a caller
+// (forget) can fail closed instead of silently reporting "nothing to forget" while a cert is live.
+func (l *Local) HasIssued(nodeID string) (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	serials, err := l.serialsFor(nodeID)
-	return err == nil && len(serials) > 0
-}
-
-// clearName drops a node's adopted-name record. Unlocked; callers hold the lock.
-func (l *Local) clearName(nodeID string) error {
-	names, err := l.loadNames()
 	if err != nil {
-		return err
+		return false, err
 	}
-	if _, ok := names[nodeID]; !ok {
-		return nil
-	}
-	delete(names, nodeID)
-	return l.writeJSON(ClaimedNamesFile, names)
+	return len(serials) > 0, nil
 }
 
 // serialsFor is every serial this authority has issued to a node - the history, plus the latest

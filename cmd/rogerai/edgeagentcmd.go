@@ -142,12 +142,17 @@ func runEdgeAgentCtx(ctx context.Context, cfg config) error {
 	var hooks tui.Hooks
 	h.wire(&hooks)
 	if !h.start(context.Background()) {
-		// arm() was false - discovery is disabled, or the face/authority could not bind. A headless
-		// agent that serves and discovers nothing must not sit idle pretending to run; say so and
-		// exit (audit 2026-09-24).
-		return fmt.Errorf("the Edge agent could not start: discovery is disabled or its network could not be bound")
+		// arm() was false - discovery is disabled. A headless agent that discovers nothing must not
+		// sit idle pretending to run; say so and exit (audit 2026-09-24).
+		return fmt.Errorf("the Edge agent could not start: LAN discovery is disabled (ROGERAI_EDGE_DISCOVERY=0)")
 	}
 	defer h.stop()
+	// An agent must actually SERVE a face - present its certificate so peers can reach it and it can
+	// be operated. If the face did not come up (this machine is not enrolled, or its face port could
+	// not bind) the process would otherwise just browse forever, so refuse rather than idle.
+	if !h.serving() {
+		return fmt.Errorf("the Edge agent could not start: this machine is not enrolled on an Edge, or its face could not bind")
+	}
 	<-ctx.Done()
 	return nil
 }

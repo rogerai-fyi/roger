@@ -1000,8 +1000,11 @@ func cmdEdgeForget(cfg config, args []string) error {
 			fmt.Printf("forgot %s: its claim grant is cleared and any certificate it holds is revoked.\n", who)
 			return nil
 		}
-		// Forgetting something that is not there is what the owner wanted anyway.
+		// Forgetting something that is not there is what the owner wanted anyway. A device that
+		// claimed a certificate but has not checked in yet is not visible by name; it is forgotten by
+		// its node id.
 		fmt.Printf("nothing to forget: %q is not on this Edge.\n", argv.pos[0])
+		fmt.Println("  (a device that claimed but has not checked in is forgotten by its node id.)")
 		return nil
 	}
 	if !argv.has("yes") {
@@ -1112,37 +1115,47 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 // survives. It returns how many nodes it forgot and a label for them. Only an authority has grants;
 // elsewhere a raw node id can still be revoked (audit 2026-09-24).
 func edgeForgetNotInFleet(want string) (int, string, error) {
+	ids := map[string]string{} // node id -> label
 	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
 		// The authority is here but unreadable - do NOT report "nothing to forget" and exit 0,
 		// leaving a grant or certificate live (audit 2026-09-24).
 		return 0, "", fmt.Errorf("could not open the Edge authority to forget %q: %w", want, err)
 	}
-	if !hasRoot {
-		return 0, "", nil // this machine roots nothing, so it has nothing of the sort to forget
-	}
-	// Resolve node ids to forget - each a REAL relationship with this authority, so a mistyped id is
-	// not reported as a revoked device (audit 2026-09-24):
-	ids := map[string]string{} // node id -> label
-	grants, err := local.Claims()
-	if err != nil {
-		return 0, "", err
-	}
-	for _, g := range grants { // a standing grant (adopted, not yet claimed)
-		if g.NodeID == want || (g.Name != "" && g.Name == want) {
-			who := g.Name
-			if who == "" {
-				who = edgeShortID(g.NodeID)
+	if hasRoot {
+		// A standing GRANT (adopted, not yet claimed): resolvable by node id or the name it carries.
+		grants, err := local.Claims()
+		if err != nil {
+			return 0, "", err
+		}
+		for _, g := range grants {
+			if g.NodeID == want || (g.Name != "" && g.Name == want) {
+				who := g.Name
+				if who == "" {
+					who = edgeShortID(g.NodeID)
+				}
+				ids[g.NodeID] = who
 			}
-			ids[g.NodeID] = who
+		}
+		// A raw node id that actually holds an issued CERTIFICATE (claimed, addressed by id). The
+		// HasIssued read fails CLOSED: an unreadable issued state is an error, not "nothing here".
+		if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") {
+			issued, err := local.HasIssued(want)
+			if err != nil {
+				return 0, "", fmt.Errorf("could not read this Edge's issued certificates: %w", err)
+			}
+			if issued {
+				ids[want] = edgeShortID(want)
+			}
 		}
 	}
-	for _, id := range local.NamedNodes(want) { // a device that CLAIMED a cert under this name
-		ids[id] = want
-	}
-	// A raw node id that actually holds an issued certificate (claimed, addressed by id).
-	if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") && local.HasIssued(want) {
-		ids[want] = edgeShortID(want)
+	// Even on a machine that roots NOTHING, a raw node id may be THIS machine's own held identity -
+	// forgetting it gives that identity up. edgeRevokeOnForget handles the self-forget and is a no-op
+	// when the id is neither issued here nor held here.
+	if _, seen := ids[want]; !seen && strings.HasPrefix(want, "n_") {
+		if held, _, ok, _ := edgeIdentityStore().LoadIdentity(); ok && held.NodeID == want {
+			ids[want] = edgeShortID(want)
+		}
 	}
 	label := ""
 	for id, who := range ids {

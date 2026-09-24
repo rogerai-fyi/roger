@@ -51,10 +51,6 @@ const (
 	// revoke them all - not only the most recent (a node re-issued while an old cert is still valid
 	// would otherwise keep that old cert working after forget).
 	IssuedHistoryFile = "issued_history.json"
-	// ClaimedNamesFile maps a node id to the friendly name it was adopted under, kept when a claim
-	// issues a certificate so a device that has claimed but not yet checked in can still be forgotten
-	// by that name (it is in neither the fleet nor the grants at that point).
-	ClaimedNamesFile = "claimed_names.json"
 	// ClaimsFile is the node ids the owner has ADOPTED and that may therefore claim a
 	// certificate (features/edge/claim.feature). A grant is consumed on a successful claim.
 	ClaimsFile = "claims.json"
