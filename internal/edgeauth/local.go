@@ -184,6 +184,16 @@ func (l *Local) Issue(r Request) (Response, error) {
 			l.iss.record(r)
 			return ErrUnknownMachine
 		}
+		// Bind the node id to the key it presents BEFORE reading the revocation list, so an
+		// allowed-key holder cannot probe an arbitrary node id's revocation status (a mismatch is
+		// refused here, the same as iss.Issue would, before the tombstone is consulted) (audit 2026-09-24).
+		pub, err := r.NodePublicKey()
+		if err != nil {
+			return err
+		}
+		if NodeID(pub) != r.NodeID {
+			return ErrKeyMismatch
+		}
 		// A node whose earlier certificate stands REVOKED must not enroll a fresh one - the enrol
 		// path is the account-key-authorised sibling of Claim and needs the same tombstone, or a
 		// FORGOTTEN machine (its cert revoked, its account still valid) simply re-enrolls under the
@@ -636,10 +646,20 @@ func (l *Local) dropEnrolledBy(nodeID string) error {
 	if key == "" {
 		return nil
 	}
-	for _, k := range m {
+	// ALWAYS drop the enrolling key from the allow-list on forget. Keeping it "while another node
+	// still uses it" cannot be done safely: a re-enrolment leaves an orphan record for the machine's
+	// prior node id under the SAME key, so the forgotten machine would re-enrol under yet another
+	// fresh node id (audit 2026-09-24). Evicting unconditionally is the clean rule; existing members'
+	// certificates keep working, and to admit a machine under this key again the owner re-runs
+	// `roger edge authority allow <key>`. Also drop any other stale records that named this key, so
+	// the record does not grow without bound.
+	for other, k := range m {
 		if k == key {
-			return nil // another node still enrolls under this key: keep it allowed
+			delete(m, other)
 		}
+	}
+	if err := l.writeJSON(EnrolledByFile, m); err != nil {
+		return err
 	}
 	return l.disallow(key)
 }

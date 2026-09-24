@@ -578,14 +578,14 @@ func (h *edgeHost) beat(id string) {
 // on a socket is worse than a pass that never finished.
 func (h *edgeHost) stop() {
 	h.once.Do(func() {
-		// Mark closing FIRST, even if there is nothing to cancel yet, so a registerInstance still in
-		// flight sees it and does not leave an orphan record (audit 2026-09-24).
+		if h.cancel == nil {
+			return // nothing was ever armed, so no serve goroutine can be registering
+		}
+		// Mark closing before cancelling, so a registerInstance running in the serve goroutine sees
+		// it and deregisters rather than leaving an orphan record (audit 2026-09-24).
 		h.mu.Lock()
 		h.closing = true
 		h.mu.Unlock()
-		if h.cancel == nil {
-			return
-		}
 		h.cancel()
 		select {
 		case <-h.done:

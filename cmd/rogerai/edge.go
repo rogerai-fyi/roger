@@ -1039,7 +1039,9 @@ func cmdEdgeForget(cfg config, args []string) error {
 		if anyRevoked {
 			fmt.Printf("forgot %s: its claim grant is cleared and its certificate is revoked.\n", who)
 		} else {
-			fmt.Printf("forgot %s: its claim grant is cleared; the authority that issued its certificate must revoke it.\n", who)
+			// It had a standing grant but no certificate yet (or nothing this authority issued): the
+			// grant is gone, and there is no certificate to revoke.
+			fmt.Printf("forgot %s: its claim grant is cleared.\n", who)
 		}
 		return nil
 	}

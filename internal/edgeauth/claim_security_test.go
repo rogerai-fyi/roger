@@ -250,73 +250,66 @@ func TestEnrollRefusesARevokedNode(t *testing.T) {
 
 func hexEncode(b []byte) string { return hex.EncodeToString(b) }
 
-// Forgetting a machine drops its enrolling user key from the allow-list when NO other node uses it,
-// so it cannot re-enroll under a FRESH node key. A key shared by other machines is kept (audit 2026-09-24).
-func TestForgetEvictsAUniqueKeyButKeepsAShared(t *testing.T) {
+// Forgetting a machine ALWAYS drops its enrolling user key from the allow-list, so it cannot
+// re-enroll under a fresh node key - not even via an orphaned record left by an earlier re-enrol
+// under the same key. To admit a machine under that key again the owner re-allows it (audit 2026-09-24).
+func TestForgetEvictsTheEnrollingKeyIncludingStaleRecords(t *testing.T) {
 	_, local, _, _, _ := secFixture(t)
+	kPub, kPriv, _ := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, local.Allow(hexEncode(kPub)))
 
-	// Two user keys: "solo" enrolls one node; "shared" enrolls two.
-	soloPub, soloPriv, _ := ed25519.GenerateKey(rand.Reader)
-	sharedPub, sharedPriv, _ := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, local.Allow(hexEncode(soloPub)))
-	require.NoError(t, local.Allow(hexEncode(sharedPub)))
-
-	enroll := func(user ed25519.PrivateKey) string {
+	enroll := func() string {
 		nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
 		req := edgeauth.NewRequest(local.Account(), "m", "host", nodePub, time.Now())
-		req.Sign(user)
+		req.Sign(kPriv)
 		_, err := local.Issue(req)
 		require.NoError(t, err)
 		return edgeauth.NodeID(nodePub)
 	}
-	solo := enroll(soloPriv)
-	sharedA := enroll(sharedPriv)
-	_ = enroll(sharedPriv) // sharedB keeps the shared key in use
 
-	// Forget the solo node: its unique key is dropped from the allow-list.
-	_, err := local.Forget(solo)
+	// The machine enrolls as N1, then re-enrolls as N2 (an orphan record for N1 stays under key K).
+	_ = enroll() // N1, left behind
+	n2 := enroll()
+
+	// Forgetting N2 evicts K despite the orphan N1 record.
+	_, err := local.Forget(n2)
 	require.NoError(t, err)
 	allowed, err := local.Allowed()
 	require.NoError(t, err)
-	require.NotContains(t, allowed, hexEncode(soloPub), "a device's unique key is evicted on forget")
+	require.NotContains(t, allowed, hexEncode(kPub), "the enrolling key is evicted, orphan records notwithstanding")
 
-	// A re-enroll under the solo key (fresh node key) is now refused.
+	// A re-enroll under K (fresh node key) is now refused.
 	freshPub, _, _ := ed25519.GenerateKey(rand.Reader)
 	req := edgeauth.NewRequest(local.Account(), "m", "host", freshPub, time.Now())
-	req.Sign(soloPriv)
+	req.Sign(kPriv)
 	_, err = local.Issue(req)
-	require.Error(t, err, "a forgotten machine cannot re-enroll under a fresh key once its key is evicted")
-
-	// Forget one of the shared-key nodes: the key stays, because sharedB still uses it.
-	_, err = local.Forget(sharedA)
-	require.NoError(t, err)
-	allowed, err = local.Allowed()
-	require.NoError(t, err)
-	require.Contains(t, allowed, hexEncode(sharedPub), "a key other machines still use is kept")
+	require.Error(t, err, "a forgotten machine cannot re-enroll once its key is evicted")
 }
 
 // Allow and Forget both read-modify-write the allow-list; they must be serialised so a concurrent
-// pair cannot lose an update and resurrect an evicted key (or drop a new one) (audit 2026-09-24).
+// pair cannot lose an update (resurrect an evicted key or drop a new one) (audit 2026-09-24).
 func TestAllowAndForgetAreSerialised(t *testing.T) {
-	_, local, _, _, _ := secFixture(t)
-	kPub, kPriv, _ := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, local.Allow(hexEncode(kPub)))
-	nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
-	req := edgeauth.NewRequest(local.Account(), "m", "host", nodePub, time.Now())
-	req.Sign(kPriv)
-	_, err := local.Issue(req)
-	require.NoError(t, err)
-	nodeID := edgeauth.NodeID(nodePub)
+	for i := 0; i < 25; i++ {
+		_, local, _, _, _ := secFixture(t)
+		kPub, kPriv, _ := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, local.Allow(hexEncode(kPub)))
+		nodePub, _, _ := ed25519.GenerateKey(rand.Reader)
+		req := edgeauth.NewRequest(local.Account(), "m", "host", nodePub, time.Now())
+		req.Sign(kPriv)
+		_, err := local.Issue(req)
+		require.NoError(t, err)
+		nodeID := edgeauth.NodeID(nodePub)
 
-	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); _ = local.Allow(hexEncode(otherPub)) }()
-	go func() { defer wg.Done(); _, _ = local.Forget(nodeID) }()
-	wg.Wait()
+		otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = local.Allow(hexEncode(otherPub)) }()
+		go func() { defer wg.Done(); _, _ = local.Forget(nodeID) }()
+		wg.Wait()
 
-	// The concurrently-allowed key is present (its add was not lost).
-	allowed, err := local.Allowed()
-	require.NoError(t, err)
-	require.Contains(t, allowed, hexEncode(otherPub))
+		allowed, err := local.Allowed()
+		require.NoError(t, err)
+		require.Contains(t, allowed, hexEncode(otherPub), "the concurrently-allowed key must survive")
+		require.NotContains(t, allowed, hexEncode(kPub), "the forgotten node's key must be evicted")
+	}
 }
