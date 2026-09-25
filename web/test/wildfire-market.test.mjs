@@ -76,11 +76,14 @@ test("wildfire: nine markets lay out without a lone orphan", () => {
     "the eight-card four-across rule would close nine as 4+4+1");
   assert.match(c, /\.deployment-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,/);
   // at the two-column breakpoint the ninth card takes the whole row
-  const two = c.match(/@media \(max-width: 820px\) \{[\s\S]*?\n\}/)?.[0] || "";
+  // a sheet may open the same breakpoint more than once; read every block of it
+  const at = (bp) => [...c.matchAll(new RegExp(`@media \\(max-width: ${bp}px\\) \\{[\\s\\S]*?\\n\\}`, "g"))]
+    .map((m) => m[0]).join("\n");
+  const two = at(820);
   assert.match(two, /\.deployment-grid\s*[,{][^}]*grid-template-columns:\s*1fr 1fr/, "two columns at 820px");
   assert.match(two, /\.deployment-grid > article:nth-child\(9\):last-child\s*\{[^}]*grid-column:\s*1 \/ -1/,
     "the ninth card spans the row at two columns");
-  const one = c.match(/@media \(max-width: 560px\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const one = at(560);
   assert.match(one, /\.deployment-grid\s*[,{][^}]*grid-template-columns:\s*1fr[;\s}]/, "one column stacks");
 });
 

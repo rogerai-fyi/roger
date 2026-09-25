@@ -5,7 +5,7 @@
      Registered in build.mjs CSS_BUNDLES. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="Industrial deployment - RogerAI" desc="Local inference for oil and gas, power generation, manufacturing, aerospace, mining, water, healthcare, and defense sustainment: where the box sits in the plant network, the standards it speaks, and what it never touches." theme=external og=post ogtype=website ogtitle="RogerAI - local inference where the network stops" ogdesc="Where a local model sits in a plant network, the standards it speaks, and the protection paths it never touches." ogurl="https://rogerai.fm/research-industry.html" ogimage="https://rogerai.fm/og-research.png" -->
+  <!-- include: head.html title="Industrial deployment - RogerAI" desc="Local inference for oil and gas, power generation, manufacturing, aerospace, mining, water, healthcare, defense sustainment, and wildfire mitigation: where the box sits in the plant network, the standards it speaks, and what it never touches." theme=external og=post ogtype=website ogtitle="RogerAI - local inference where the network stops" ogdesc="Where a local model sits in a plant network, the standards it speaks, and the protection paths it never touches." ogurl="https://rogerai.fm/research-industry.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
   <!-- include: rail.html head="RogerAI &middot; Industrial" rev="Rev. 2026.07 &middot; LABS" -->
@@ -26,7 +26,7 @@
           A local model fits that design, and the placement follows from it.
         </p>
 
-        <!-- The eight markets, at a glance, above the fold - a visitor should not
+        <!-- The nine markets, at a glance, above the fold - a visitor should not
              have to scroll to §1 to see whether their own industry is on the list.
              Each icon jumps straight to its own card in the deployment-grid below
              (id="market-<slug>", matching the asset filename slugs already used for
@@ -56,6 +56,9 @@
           <a href="#market-defense"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
               <path d="M24 6 38 12v12c0 10-6 16-14 19-8-3-14-9-14-19V12Z"/>
               <path class="uc-red" d="M18 24l4 4 8-10"/></svg><span>Defense</span></a>
+          <a href="#market-wildfire"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M24 6c2 8 12 12 12 23a12 12 0 0 1-24 0c0-6 3-10 6-13 1 4 3 6 6 6 0-6-2-10 0-16Z"/>
+              <path class="uc-red" d="M24 40a4 4 0 0 1-4-4c0-3 4-7 4-7s4 4 4 7a4 4 0 0 1-4 4Z"/></svg><span>Wildfire</span></a>
         </nav>
       </div>
     </section>
@@ -64,11 +67,12 @@
 <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">§1 / MARKETS</span>
-          <h2>Eight industries whose data cannot leave the site.</h2>
+          <h2>Nine industries whose data cannot leave the site.</h2>
           <p>A cloud model is ruled out here. Three things rule it out: segmented
              networks, hazardous areas, and links too thin to stream sensor data. That is
-             the constraint we build for. The
-             engagements are under NDA and not named here. In every
+             the constraint we build for. The industrial
+             engagements are under NDA and not named here. The one company this page
+             names, FireDefense Systems, is named with its agreement. In every
              deployment the model advises a person and stays outside the control loop:
              it never actuates equipment, and it is never part of a protection or
              safety path.</p>
@@ -139,12 +143,23 @@
             </figure>
             <b>Defense sustainment</b><p>Maintenance, readiness, and supply on denied,
              degraded, and intermittent links, where there is no reachback to a cloud.</p></article>
+          <!-- Wildfire (founder-approved 2026-09-24): the picture is our own film's title
+               card, not stock photography - no fire is ever shown on a home. -->
+          <article id="market-wildfire" class="tint-panel">
+            <figure class="deployment-grid__shot">
+              <img src="assets/edge/poster-fd.webp" width="1280" height="533" loading="lazy" decoding="async"
+                   alt="Title card of the RogerAI edge watch film: a red beacon on a dark ground.">
+              <figcaption class="photo-credit">Film still &middot; RogerAI</figcaption>
+            </figure>
+            <b>Wildfire mitigation</b><p>An early-warning watch on the property itself: smoke
+             chemistry read against a baseline and a camera to confirm, for homes in the
+             wildland-urban interface - still working when the towers and the power go first.</p></article>
         </div>
 
-        <!-- The two boundaries a reader must not have to infer. Both are the SAME
+        <!-- The three boundaries a reader must not have to infer. All are the SAME
              no-actuation contract the control-loop paragraph above states; they are
-             restated here because healthcare and defense are where a reader will
-             (correctly) ask what we are claiming. -->
+             restated here because healthcare, defense and wildfire are where a reader
+             will (correctly) ask what we are claiming. -->
         <div class="device-contract">
             <p><b>Healthcare: equipment and facilities, not patients.</b> What these models
               read is the hospital&rsquo;s equipment and the paperwork around it &ndash;
@@ -163,6 +178,43 @@
               employment, and no intelligence exploitation. The same models, the same
               constraint as every other industry here &ndash; they read and they explain, and
               nothing they say moves a machine or a decision on its own.</p>
+            <p><b>Wildfire: warning and mitigation, not fire protection.</b> On a home in the
+              wildland-urban interface these models watch and explain: gas and fine
+              particulate tracked against a rolling baseline, a camera that confirms what the
+              traces suggest, and wind and slope read together. The model raises the alert
+              and makes the threat call, with a confidence. It is not a listed fire alarm or
+              sprinkler system, it is never in the control path of one, and it does not
+              replace code-required detection or suppression, an evacuation order, or the
+              fire service. A valve opens only on the owner&rsquo;s command, or under a rule
+              the owner armed in advance, which the controller &ndash; not the model &ndash;
+              executes with its own abort window. The model never opens a valve by itself;
+              under an armed rule, its call is one input the owner chose to let the
+              controller read.</p>
+        </div>
+
+        <!-- The wildfire use case, built with FireDefense Systems (named with their
+             agreement). What runs today is stated as it is: the mast is shown in the
+             film, Pico is on air, Nano is in training (web/src/data/wave-status.json). -->
+        <div class="device-contract">
+          <p><b>Use case: an edge fire watch.</b> Built with FireDefense Systems, a separate
+            company that designs and installs exterior wildfire sprinkler systems for homes
+            in Southern California. The watch shown in the FireDefense film is a sealed
+            sensor head on a mast above the roofline: a wide camera, a gas head for volatile
+            organics, carbon monoxide and fine particulate, and the models on board. A
+            wildfire announces itself chemically before it does optically, so the watch
+            smells first and looks second: one trace leaving baseline is weather, three
+            leaving together is combustion.</p>
+          <p><b>Where it runs.</b> The design puts the models on the mast, on its own
+            battery, with no network required. Wave Pico, on air today as wave-pico-293m,
+            keeps the always-on watch. The threat call, which fuses gas, image, wind and
+            slope, is Wave Nano work, and Nano is in training. In a wildfire the towers and
+            the power tend to go before the fire arrives, so a model that has to reach a
+            datacenter to think has already lost.</p>
+          <p><b>What it never does.</b> It alerts the owner first, and a message that cannot
+            leave the property is the case it is built for. It never opens a valve by itself
+            and never overrides the sprinkler controller or any alarm. What people should do
+            in a fire is for the fire service and official alerts to say, never the watch.
+            <a href="/assets/edge/hero-fd.mp4">Watch the FireDefense film &rarr;</a></p>
         </div>
 
         <!-- Where the box sits - the first question asked in OT, and one prose cannot

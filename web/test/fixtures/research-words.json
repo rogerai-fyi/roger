@@ -197,8 +197,8 @@
   ]
  },
  "research-industry.html": {
-  "sha": "54f5138ede2a5b05aba4846cd9b19c82b637a71c2785602edc7231e33158f819",
-  "length": 6004,
+  "sha": "395e9a71b497e9f2d7a0fb38b2fb7cee571db25f1876ffb87a96d081bf73deea",
+  "length": 8111,
   "hrefs": [
    "/research.html",
    "#market-oilgas",
@@ -209,6 +209,7 @@
    "#market-water",
    "#market-healthcare",
    "#market-defense",
+   "#market-wildfire",
    "https://unsplash.com/photos/u13zBF4r56A",
    "https://unsplash.com/photos/VuR4oHZ3ucc",
    "https://unsplash.com/photos/8gr6bObQLOI",
@@ -217,6 +218,7 @@
    "https://unsplash.com/photos/6wSevhW1Dzc",
    "https://unsplash.com/photos/QTP8UKW_PgI",
    "https://unsplash.com/photos/8QZGzUbatJU",
+   "/assets/edge/hero-fd.mp4",
    "/research-models.html#roger-edge",
    "mailto:labs@rogerai.fm?subject=Industrial%20pilot",
    "/research.html",
@@ -251,8 +253,8 @@
   ]
  },
  "research.html": {
-  "sha": "a2b282f13e622230f11b9452474f0c0ef4b9e686ba562ed192b908a96c3f4974",
-  "length": 5352,
+  "sha": "9336603bab34fa992d5c3f008a10c7d4efb5b3ce2e50f227d1508a2ff1cd1149",
+  "length": 5480,
   "hrefs": [
    "/research-models.html",
    "/research-wave-family.html",

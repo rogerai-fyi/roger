@@ -15,13 +15,13 @@
 .research-hero h1 { max-width: 880px; margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-display); line-height: var(--lh-tight); letter-spacing: var(--tracking-display); }
 .research-hero__lead { max-width: 720px; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); }
 
-/* the eight markets, above the fold: a compact icon strip jumping straight to
+/* the nine markets, above the fold: a compact icon strip jumping straight to
    each one's card in the deployment-grid further down (#market-<slug>). Mono
    stroke + one red accent, this page's own copy of home.css's .pc-ic language
    (that file is not loaded here - see CSS_BUNDLES in build.mjs) so the icon
    style still reads as the same system. */
 .usecase-strip {
-  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900);
   margin-top: var(--s-8);
 }
@@ -42,8 +42,9 @@
 .usecase-strip a:hover .uc-ic, .usecase-strip a:focus-visible .uc-ic { stroke: var(--live); }
 .uc-ic .uc-red { stroke: var(--live); }
 .uc-ic .uc-fill { fill: var(--live); stroke: none; }
-@media (max-width: 880px) { .usecase-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .usecase-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* nine icons close 3x3 below full width; four or two across would leave one alone */
+@media (max-width: 880px) { .usecase-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .usecase-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .research-hero__layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: var(--s-12); align-items: center; }
 .research-hero__mascot { min-width: 0; }
 /* The hub hero's four section buttons: a 2x2 block. As a flex row inside the narrower
@@ -193,17 +194,16 @@
 /* usecase-strip (:23) jumps here by fragment; without this the sticky 64px .nav
    (base.css) covers the card's bleed photo. Same convention as manual.css/wave-factory.css. */
 .deployment-grid article[id] { scroll-margin-top: 88px; }
-/* Eight markets (research-industry): four across so the grid closes 4+4. At three across
-   the eighth card left an empty cell, and with the gap-as-divider technique that empty
-   cell painted hairline grey and read as a missing card. Keyed on the count itself so
-   the three-card hub grid keeps three across; browsers without :has() fall back to it. */
-.deployment-grid:has(> article:nth-child(8)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 1000px) { .deployment-grid:has(> article:nth-child(8)) { grid-template-columns: 1fr 1fr; } } /* 4x2 -> 2x4, never a cramped four */
+/* Nine markets (research-industry) close 3x3 on the base three across. At two across
+   (the 820px breakpoint below) the ninth card takes the whole row rather than sit
+   beside an empty cell, and its picture goes wide so the full-row card is not a tall
+   poster. Keyed on the count, so the three-card hub grid is untouched. */
 .deployment-grid b { color: var(--ink-900); }
 .deployment-grid p { margin-bottom: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 /* the representative shot: bleeds to the card's outer edge (the article still owns the
    padding, so the image cancels it on three sides), generic industry photography - not
-   the NDA'd engagements the section text is careful never to name. Credit rides ON the
+   the NDA'd engagements the section text is careful never to name. The one exception is
+   the wildfire card, which carries our own film's title card. Credit rides ON the
    photograph, same convention as the hardware board shots on research-hardware.html. */
 .deployment-grid .deployment-grid__shot { margin: calc(var(--s-5) * -1) calc(var(--s-5) * -1) var(--s-4); position: relative; }
 .deployment-grid__shot img {
@@ -222,8 +222,8 @@
 .device-contract { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s-6); background: var(--paper-2); }
 .device-contract p { margin: 0; padding: var(--s-5); border-right: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract p:last-child { border-right: 0; }
-/* A two-card contract (the healthcare/defense boundaries on research-industry): two equal
-   cells, no empty third. Keyed on the count, like the grid above. */
+/* A two-card contract: two equal cells, no empty third. Keyed on the count, like the
+   grid above. (The research-industry boundaries are three now, on the base layout.) */
 .device-contract:has(> p:nth-child(2):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* Four cards read as 2x2 rather than four narrow columns, and the middle rule
    has to stop at the row break. Count-keyed like the rule above. */
@@ -259,7 +259,9 @@
   .research-hero__layout { grid-template-columns: 1fr; gap: var(--s-7); }
   .research-grid { grid-template-columns: 1fr; }
   .model-row { grid-template-columns: 1fr; gap: var(--s-4); }
-  .deployment-grid, .deployment-grid:has(> article:nth-child(8)), .device-contract { grid-template-columns: 1fr 1fr; }
+  .deployment-grid, .device-contract { grid-template-columns: 1fr 1fr; }
+  .deployment-grid > article:nth-child(9):last-child { grid-column: 1 / -1; }
+  .deployment-grid > article:nth-child(9):last-child .deployment-grid__shot img { aspect-ratio: 12 / 5; }
   .device-contract p:nth-child(2) { border-right: 0; }
   .device-contract p:last-child { grid-column: 1 / -1; border-top: 1px solid var(--hairline); }
   .device-contract:has(> p:nth-child(2):last-child) p:last-child { grid-column: auto; border-top: 0; }
@@ -273,8 +275,9 @@
   .research-hero { padding-block: 46px 54px; }
   .research-hero__lead { margin-top: var(--s-4); }
   .research-hero__mascot .tube-ping { margin-bottom: var(--s-3); }
-  .deployment-grid, .deployment-grid:has(> article:nth-child(8)), .device-contract,
+  .deployment-grid, .device-contract,
   .device-contract:has(> p:nth-child(2):last-child) { grid-template-columns: 1fr; }
+  .deployment-grid > article:nth-child(9):last-child .deployment-grid__shot img { aspect-ratio: 4 / 3; }
   .device-contract p, .device-contract p:nth-child(2), .device-contract p:last-child {
     grid-column: auto;
     border-right: 0;
