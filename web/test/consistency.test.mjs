@@ -58,7 +58,11 @@ test("the action row's buttons: one solid primary, boxed secondaries, never a qu
   assert.match(c, /@media \(pointer: coarse\) \{[^@]*\.research-button \{[^}]*min-height: 44px/, "a 44px tap target on touch");
   assert.match(c, /\.research-actions--lead \.research-button \{[^}]*width: auto[^}]*flex: 0 0 auto/, "each button keeps its own width");
   assert.doesNotMatch(sheet("company.css"), /\.research-button \{[^}]*flex: 1/, "no page stretches its buttons to fill a row");
-  assert.doesNotMatch(sheet("research.css"), /\.research-actions \{ grid-template-columns: 1fr; \}/, "the research hero does not stack full width on a phone");
+  // no phone block stacks an action row full width, however the rule is spelled
+  const phoneBlocks = [...sheet("research.css").matchAll(/@media \(max-width: \d+px\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
+  assert.doesNotMatch(phoneBlocks, /\.research-actions[^{]*\{[^}]*grid-template-columns:\s*1fr/, "the research hero does not stack full width on a phone");
+  // the hub hero's row is the plain lead row (a 2x2 grid in the copy column wrapped 5 boxes to 3 rows at 1440)
+  assert.doesNotMatch(sheet("research.css"), /\.research-hero__layout \.research-actions \{[^}]*display: grid/, "the hub hero row is not a grid");
   assert.doesNotMatch(c, /\.research-button[^{}]*\{[^}]*box-shadow/, "no glow on the buttons");
 });
 
