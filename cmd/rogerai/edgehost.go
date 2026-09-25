@@ -26,6 +26,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -517,8 +520,18 @@ func (h *edgeHost) startAuthority() {
 	}
 	ln, err := net.Listen("tcp", edgeAuthorityBind())
 	if err != nil {
-		log.Println("edge: could not open the Edge authority's LAN service:", err)
-		return
+		// The remembered (or env-pinned) port is taken - by a stale process, or something else. Rather
+		// than leave the authority down (and every phone offline), fall back to an ephemeral port and
+		// remember THAT, so at least this run serves and the next restart is stable again.
+		log.Printf("edge: authority port %s unavailable (%v); falling back to an ephemeral port", edgeAuthorityBind(), err)
+		ln, err = net.Listen("tcp", ":0")
+		if err != nil {
+			log.Println("edge: could not open the Edge authority's LAN service:", err)
+			return
+		}
+	}
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+		edgeSaveAuthorityPort(tcp.Port) // remember it, so a restart binds the same port a phone enrolled against
 	}
 	// The authority server answers BOTH enrollment (issue a certificate) and PRESENCE (a member
 	// that dials out to say it is here, so a phone that cannot serve an inbound face still appears -
@@ -561,7 +574,38 @@ func edgeAuthorityBind() string {
 	if v := os.Getenv(envAuthorityBind); v != "" {
 		return v
 	}
+	// A device presents to the authority at the URL it cached when it enrolled, and it does not
+	// re-resolve that URL. So the authority's port MUST be stable across restarts, or every restart
+	// silently cuts off every enrolled phone. Reuse the port this Edge last bound; only fall back to an
+	// ephemeral one on the very first run (or if that port is taken), and persist whatever we get.
+	if p := edgeSavedAuthorityPort(); p > 0 {
+		return ":" + strconv.Itoa(p)
+	}
 	return ":0"
+}
+
+// edgeAuthorityPortFile is where this machine's authority port is remembered, beside its root, so a
+// restart binds the same port a device enrolled against.
+func edgeAuthorityPortFile() string { return filepath.Join(edgeAuthDir(), "authority-port") }
+
+// edgeSavedAuthorityPort reads the remembered authority port, or 0 if none/unreadable.
+func edgeSavedAuthorityPort() int {
+	b, err := os.ReadFile(edgeAuthorityPortFile())
+	if err != nil {
+		return 0
+	}
+	p, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || p <= 0 || p > 65535 {
+		return 0
+	}
+	return p
+}
+
+// edgeSaveAuthorityPort remembers the authority port so the next restart reuses it. Best-effort: a
+// write failure only means the port may change on the next restart, which the fallback already handles.
+func edgeSaveAuthorityPort(port int) {
+	_ = os.MkdirAll(edgeAuthDir(), 0o755)
+	_ = os.WriteFile(edgeAuthorityPortFile(), []byte(strconv.Itoa(port)), 0o644)
 }
 
 // authorityAddr is where this machine's Edge authority answers, or "" if it is not one.
