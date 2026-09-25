@@ -79,9 +79,16 @@ type edgeState struct {
 	// sub-state of this screen (features/edge/onboard.feature), never a separate mode, so
 	// the fleet keeps drawing behind it and esc returns here.
 	setup *edgeSetup
-	// renaming + renameBuf drive the inline "Rename" prompt for this roger.
-	renaming  bool
-	renameBuf string
+	// renaming + renameBuf drive the inline "Rename" prompt. renameNodeID is empty when renaming THIS
+	// roger (EdgeRenameSelf) and a node id when renaming a MEMBER device (EdgeName).
+	renaming     bool
+	renameBuf    string
+	renameNodeID string
+	// forgetID + forgetName arm the "Forget" confirmation for a member device: while forgetID is set,
+	// the screen shows "forget <name>? [y/N]" and owns the y/n/esc keys. Forget revokes the device's
+	// certificate, so it is never a single keypress.
+	forgetID   string
+	forgetName string
 	// binding + bindBuf + bindTarget drive the inline "Bind Model" prompt (jobs.feature): the
 	// owner types a model to put on air for the selected agent. bindTarget is that agent's name.
 	binding    bool
@@ -292,6 +299,11 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.onEdgeRenameKey(k)
 		return m, nil
 	}
+	// The Forget confirmation owns every key while it is armed.
+	if m.edge.forgetID != "" {
+		m.onEdgeForgetKey(k)
+		return m, nil
+	}
 	if m.edge.binding {
 		m.onEdgeBindKey(k)
 		return m, nil
@@ -493,6 +505,8 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 		m.edgeResumeSelected()
 	case "x":
 		m.edgeRemoveSelected()
+	case "f":
+		m.edgeForgetSelected()
 	case "b":
 		m.edgeStartBind()
 	case "p":
@@ -673,17 +687,68 @@ func (m *model) edgeShowAddDevice() {
 		stDim.Render("  (or roger edge setup to join interactively)")
 }
 
-// edgeStartRename opens the inline rename prompt, seeded with this roger's current name.
+// edgeStartRename opens the inline rename prompt for the SELECTED node - a member device (EdgeName)
+// or this roger itself (EdgeRenameSelf), seeded with its current name.
 func (m *model) edgeStartRename() {
+	it, _ := m.edgeSelectedNet()
+	if it.member && it.node != nil {
+		if m.hooks.EdgeName == nil {
+			m.status = stEmber.Render("this build cannot rename a device here - run `roger edge name " + it.name + " <name>`")
+			return
+		}
+		m.edge.renaming = true
+		m.edge.renameNodeID = it.node.ID
+		m.edge.renameBuf = it.name
+		return
+	}
 	if m.hooks.EdgeRenameSelf == nil {
 		m.status = stEmber.Render("this build cannot rename this roger here")
 		return
 	}
 	m.edge.renaming = true
+	m.edge.renameNodeID = ""
 	m.edge.renameBuf = ""
 	if m.hooks.EdgeSelfInstance != nil {
 		m.edge.renameBuf = m.hooks.EdgeSelfInstance()
 	}
+}
+
+// edgeForgetSelected arms the Forget confirmation for the selected member device - the way off the
+// Edge that was missing from this screen. It does not forget yet; onEdgeForgetKey does, on y.
+func (m *model) edgeForgetSelected() {
+	it, _ := m.edgeSelectedNet()
+	if !it.member || it.node == nil {
+		m.status = stDim.Render("Forget removes a member device - select one first")
+		return
+	}
+	if m.hooks.EdgeForget == nil {
+		m.status = stEmber.Render("this build cannot forget a device here - run `roger edge forget " + it.name + "`")
+		return
+	}
+	m.edge.forgetID = it.node.ID
+	m.edge.forgetName = it.name
+	m.status = stKey.Render("forget "+it.name+"? ") + stDim.Render("it leaves your Edge and its certificate is revoked ") + stKey.Render("[y/N]")
+}
+
+// onEdgeForgetKey answers the Forget confirmation: y forgets through the host, anything else cancels.
+func (m *model) onEdgeForgetKey(k tea.KeyMsg) {
+	yes := k.Type == tea.KeyRunes && (string(k.Runes) == "y" || string(k.Runes) == "Y")
+	if !yes {
+		m.edge.forgetID, m.edge.forgetName = "", ""
+		m.status = stDim.Render("left alone")
+		return
+	}
+	id, name := m.edge.forgetID, m.edge.forgetName
+	m.edge.forgetID, m.edge.forgetName = "", ""
+	if err := m.hooks.EdgeForget(id); err != nil {
+		m.status = stEmber.Render("could not forget " + name + ": " + err.Error())
+		return
+	}
+	if m.edge.netSel > 0 {
+		m.edge.netSel--
+	}
+	m.status = stLive.Render("forgot " + name + " - it is off your Edge and its certificate is revoked")
+	m.refreshEdge()
 }
 
 // onEdgeRenameKey drives the inline rename prompt: type, enter to apply, esc to cancel.
@@ -693,8 +758,19 @@ func (m *model) onEdgeRenameKey(k tea.KeyMsg) {
 		m.edge.renaming = false
 	case tea.KeyEnter:
 		name := strings.TrimSpace(m.edge.renameBuf)
+		nodeID := m.edge.renameNodeID
 		m.edge.renaming = false
+		m.edge.renameNodeID = ""
 		if name == "" {
+			return
+		}
+		if nodeID != "" { // renaming a MEMBER device, through EdgeName
+			if err := m.hooks.EdgeName(nodeID, name); err != nil {
+				m.status = stEmber.Render("rename: " + err.Error())
+				return
+			}
+			m.status = stLive.Render("renamed to " + name)
+			m.refreshEdge()
 			return
 		}
 		if err := m.hooks.EdgeRenameSelf(name); err != nil {

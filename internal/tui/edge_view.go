@@ -498,10 +498,17 @@ func (m model) edgeActions() []edgeAction {
 		}
 	case it.member:
 		// A member that serves a model can be ASKED - prompt its model in place
-		// (features/edge/addressed_inference.feature). One that serves nothing has nothing to ask,
-		// and the action bar says so rather than "nothing to do".
+		// (features/edge/addressed_inference.feature). Whether or not it serves, a member can be
+		// RENAMED or FORGOTTEN in place - the way off the Edge that was missing here (the founder's
+		// offline phone with nothing to do). Forget revokes its certificate and is confirmed first.
 		if model, ok := edgeItemServes(it); ok {
 			out = append(out, edgeAction{"p", "Ask", "prompt " + model + " on this node", true})
+		}
+		if m.hooks.EdgeName != nil {
+			out = append(out, edgeAction{"n", "Rename", "rename this device", false})
+		}
+		if m.hooks.EdgeForget != nil {
+			out = append(out, edgeAction{"f", "Forget", "remove it from your Edge", false})
 		}
 	case it.dark:
 		if m.hooks.EdgeResumeAgent != nil {
@@ -606,12 +613,17 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 		who = it.name + " · this machine"
 	case it.self:
 		who = it.name + " · this roger"
-	case it.dark:
-		who = it.name + " · offline agent"
 	case it.cand:
 		who = it.name + " · discovered, not adopted"
 	case it.member:
-		who = it.name + " · member machine"
+		// A member is checked BEFORE dark: a dark MEMBER is an offline device, not a "persistent agent"
+		// (the founder saw a phone mislabeled "offline agent"). Only a dark persistent agent is that.
+		who = it.name + " · member"
+		if it.dark {
+			who += " · offline"
+		}
+	case it.dark:
+		who = it.name + " · offline agent"
 	}
 	tail := stDim.Render("  · press the letter, or ↓/Tab then ←→")
 	if m.edge.actionFocused {

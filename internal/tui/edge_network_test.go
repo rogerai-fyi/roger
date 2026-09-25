@@ -768,3 +768,69 @@ func TestAskActionOnMembers(t *testing.T) {
 		t.Errorf("a non-serving member should say it serves no model yet:\n%s", out)
 	}
 }
+
+// A member device - even an offline one that serves nothing - can be RENAMED or FORGOTTEN from the
+// [3] panel. This is the gap the founder hit: a phone stuck on the Edge with no way off it.
+func TestMemberForgetAndRenameActions(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		Enrolled: true, Name: "desk", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	phone := store.EdgeNode{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile", Presence: string(edge.PresenceDark),
+		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.17:1", Fingerprint: "abab"}}}
+
+	fl := edge.NewFleet(store.NewMem(), "acct-1")
+	now := time.Unix(100000, 0)
+	fl.SetClock(func() time.Time { return now })
+	if _, err := fl.Enroll(phone); err != nil {
+		t.Fatal(err)
+	}
+	var forgot []string
+	var renamed [][2]string
+	h := Hooks{Station: "gm-93", EdgeFleet: fl, EdgeSelf: self.Name,
+		EdgeCandidates: func() []store.EdgeNode { return nil },
+		EdgeStatus:     func() edge.SelfStatus { return self },
+		EdgeForget:     func(id string) error { forgot = append(forgot, id); return nil },
+		EdgeName:       func(id, name string) error { renamed = append(renamed, [2]string{id, name}); return nil }}
+	var tm tea.Model = NewWithHooks("http://b", "t", nil, h)
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 104, Height: 44})
+	m := tm.(model)
+	m.edgeClock = func() time.Time { return now }
+	m.enterEdge()
+
+	// Select the phone.
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "gentle-ibex-14" {
+			m.edge.netSel, m.edge.netSelSet = i, true
+		}
+	}
+
+	// The panel offers Forget and Rename (and does not read as an offline agent).
+	out := stripANSI(m.edgeView(100))
+	for _, want := range []string{"Forget", "Rename", "member · offline"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("member panel should show %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "offline agent") {
+		t.Errorf("a dark member device must not be labeled an offline agent:\n%s", out)
+	}
+
+	// Pressing f arms the confirm; it does NOT forget yet.
+	m.edgeDispatchAction("f")
+	if m.edge.forgetID != "n_ibex" {
+		t.Fatalf("forget not armed: forgetID=%q", m.edge.forgetID)
+	}
+	if len(forgot) != 0 {
+		t.Fatalf("forget must be confirmed, not fired on the first key: %v", forgot)
+	}
+	// n cancels.
+	m.onEdgeForgetKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if m.edge.forgetID != "" || len(forgot) != 0 {
+		t.Fatalf("n should cancel the forget")
+	}
+	// f then y forgets, through the host, by node id.
+	m.edgeDispatchAction("f")
+	m.onEdgeForgetKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if len(forgot) != 1 || forgot[0] != "n_ibex" {
+		t.Fatalf("y should forget n_ibex through the host: %v", forgot)
+	}
+}
