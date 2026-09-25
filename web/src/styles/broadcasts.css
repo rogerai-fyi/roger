@@ -290,6 +290,9 @@
 .bc-signoff { margin-top: var(--s-12); font-size: var(--t-body); line-height: 1.65; }
 .bc-signoff p { margin: 0; color: var(--ink-700); }
 .bc-signoff .install { margin-top: var(--s-4); max-width: none; }
+/* the column is narrower than a long command (the Tower line was cut to "ROGERAI_CO..."):
+   it wraps at its spaces, as the framed panel does, and never hides the part you need */
+.bc-signoff .install__code { white-space: normal; }
 .bc-signoff code:not(.install__code) {
   font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: anywhere;
   background: var(--paper); border-radius: 6px; padding: 1px 6px; color: var(--ink-900);

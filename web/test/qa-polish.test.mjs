@@ -89,3 +89,13 @@ test("phone fixes on App and the Playbox: the handheld clears its caption, tier 
   assert.match(phone(css("app.css")), /\.app-hero__devices \{ padding-top: var\(--s-12\); \}/);
   assert.match(phone(css("playbox.css")), /\.dk__shelfrow \{ grid-template-columns: 1fr;/);
 });
+
+test("an article sign-off's install command wraps at its spaces instead of cutting the command", () => {
+  assert.match(css("broadcasts.css"), /\.bc-signoff \.install__code \{ white-space: normal; \}/);
+});
+
+test("paragraphs set with text-wrap: pretty (no lone last word), headings balance", () => {
+  const base = css("base.css");
+  assert.match(base, /h1, h2, h3 \{ text-wrap: balance; \}/);
+  assert.match(base, /\np \{ text-wrap: pretty; \}/);
+});

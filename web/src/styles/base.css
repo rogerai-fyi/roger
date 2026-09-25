@@ -30,6 +30,7 @@ body {
 }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { text-wrap: balance; } /* even, premium line-breaks on headings */
+p { text-wrap: pretty; }             /* no lone last word at the end of a paragraph */
 .demo__head p, .market__head p, .hero__sub { text-wrap: pretty; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
