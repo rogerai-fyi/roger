@@ -1899,6 +1899,81 @@
 
   // edgeRenderSelfControls draws THIS machine's own management - the agent role, add-agent, and where
   // a turn goes first - the console's mirror of the TUI [3] panel. Shown only when the host wired them.
+  // edgeInstanceJobControls draws the Bind Model / Clear actions for one of this machine's agents.
+  function edgeInstanceJobControls(card, d, name) {
+    var row = el("div", "card-actions edge-job-actions");
+    var bind = el("button", "btn small ghost", "bind model / job");
+    bind.setAttribute("type", "button");
+    bind.addEventListener("click", function () { edgeJobForm(card, d, name); });
+    row.appendChild(bind);
+    if (edgeJobFor(d, name)) {
+      var clear = el("button", "btn small ghost", "clear job");
+      clear.setAttribute("type", "button");
+      clear.addEventListener("click", function () { edgeClearJob(name); });
+      row.appendChild(clear);
+    }
+    card.appendChild(row);
+  }
+
+  // edgeJobForm is the inline assignment form: a model, whether to use and/or share it, and an
+  // optional job (serve/watch/relay) with targets. It writes through the host on Save (jobs.feature).
+  function edgeJobForm(card, d, name) {
+    var cur = {};
+    (d.agent_jobs || []).forEach(function (j) { if (j.name === name) cur = j; });
+    var box = el("div", "edge-job-form");
+    var model = el("input", "edge-job-model"); model.type = "text"; model.placeholder = "model, e.g. qwen3-8b"; model.value = cur.model || "";
+    box.appendChild(edgeField("model", model));
+    var use = edgeCheck("use", !!cur.use), share = edgeCheck("share", !!cur.share);
+    box.appendChild(use.wrap); box.appendChild(share.wrap);
+    var job = el("select", "edge-job-sel");
+    ["", "serve", "watch", "relay"].forEach(function (o) {
+      var opt = el("option", null, o || "no job"); opt.value = o; if ((cur.job || "") === o) opt.selected = true; job.appendChild(opt);
+    });
+    box.appendChild(edgeField("job", job));
+    var targets = el("input", "edge-job-targets"); targets.type = "text"; targets.placeholder = "targets (comma-separated node names)";
+    targets.value = (cur.targets || []).join(",");
+    box.appendChild(edgeField("targets", targets));
+    var save = el("button", "btn small", "save"); save.setAttribute("type", "button");
+    var cancel = el("button", "btn small ghost", "cancel"); cancel.setAttribute("type", "button");
+    var acts = el("div", "card-actions"); acts.appendChild(save); acts.appendChild(cancel); box.appendChild(acts);
+    card.appendChild(box);
+    save.addEventListener("click", function () {
+      edgeSetJob({
+        name: name, model: model.value.trim(),
+        use: use.input.checked, share: share.input.checked,
+        job: job.value,
+        targets: targets.value.split(",").map(function (t) { return t.trim(); }).filter(Boolean)
+      });
+    });
+    cancel.addEventListener("click", function () { edgeTick(); });
+  }
+
+  function edgeField(label, control) {
+    var w = el("label", "edge-job-field");
+    w.appendChild(el("span", "mono muted small", label));
+    w.appendChild(control);
+    return w;
+  }
+  function edgeCheck(label, checked) {
+    var w = el("label", "edge-job-check");
+    var input = el("input"); input.type = "checkbox"; input.checked = checked;
+    w.appendChild(input); w.appendChild(el("span", "mono small", label));
+    return { wrap: w, input: input };
+  }
+
+  function edgeSetJob(body) {
+    apiPost("/api/edge/job", body).then(function (d) {
+      toast("assignment saved for " + body.name);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+  function edgeClearJob(name) {
+    apiPost("/api/edge/job/clear", { name: name }).then(function (d) {
+      toast("assignment cleared for " + name);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
   // edgeJobFor renders an agent instance's durable assignment - its bound model and job - from the
   // snapshot's agent_jobs, so the console shows what each agent is DOING, like the TUI (jobs.feature).
   function edgeJobFor(d, name) {
@@ -1996,6 +2071,8 @@
       var job = edgeJobFor(d, i.name);
       if (job) line += "  \u00b7 " + job;
       edgeKV(card, idx === 0 ? "instances" : "", line);
+      // On THIS machine's own instances the console can assign a model/job, like the TUI's Bind Model.
+      if (d.jobs_manage && n.child) edgeInstanceJobControls(card, d, i.name);
     });
     if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));

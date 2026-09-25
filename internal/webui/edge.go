@@ -47,7 +47,11 @@ type EdgeHooks struct {
 	AddAgent    func() error
 	AgentActive func() bool
 	SetPrefer   func(want string) error
-	Sessions    *edge.Sessions
+	// SetAgentJob binds a model and/or a job to an agent and ClearAgentJob drops the assignment - the
+	// TUI's Bind Model / job actions (features/edge/jobs.feature). Nil leaves them disabled.
+	SetAgentJob   func(j edge.AgentJob) error
+	ClearAgentJob func(name string) error
+	Sessions      *edge.Sessions
 	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
 	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
 	Status func() edge.SelfStatus
@@ -161,6 +165,7 @@ type edgeSnap struct {
 	// (agent on/off, add agent, prefer) are wired, so the console shows them exactly when they work.
 	AgentActive bool `json:"agent_active"`
 	SelfManage  bool `json:"self_manage"`
+	JobsManage  bool `json:"jobs_manage"`
 	// The rest of the fleet state the TUI shows, so the console shows the same: nodes adopted but not
 	// yet checked in, the durable agents, and each agent's assignment (bound model + job).
 	Adopting         []edgeNodeJSON         `json:"adopting"`
@@ -227,6 +232,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	snap.Configured, snap.Self, snap.Account, snap.At = true, h.Self, h.Fleet.Account(), now.Unix()
 	snap.Manage = h.Name != nil && h.Forget != nil
 	snap.SelfManage = h.SetAgent != nil && h.AddAgent != nil && h.SetPrefer != nil
+	snap.JobsManage = h.SetAgentJob != nil && h.ClearAgentJob != nil
 	if h.AgentActive != nil {
 		snap.AgentActive = h.AgentActive()
 	}
@@ -435,6 +441,59 @@ func (s *Server) handleEdgePrefer(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.SetPrefer(req.Prefer); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeJob binds a model and/or a job to an agent through the host - the console's Bind Model /
+// job action (features/edge/jobs.feature). POST-only and token-gated. The node defaults to this
+// machine host-side, so the browser sends only the agent name and the assignment.
+func (s *Server) handleEdgeJob(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.SetAgentJob == nil {
+		http.Error(w, "this build cannot assign a job from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Name    string   `json:"name"`
+		Node    string   `json:"node"`
+		Model   string   `json:"model"`
+		Use     bool     `json:"use"`
+		Share   bool     `json:"share"`
+		Job     string   `json:"job"`
+		Targets []string `json:"targets"`
+	}
+	if !decode(r, &req) || req.Name == "" {
+		http.Error(w, "agent name required", http.StatusBadRequest)
+		return
+	}
+	if err := h.SetAgentJob(edge.AgentJob{
+		Name: req.Name, Node: req.Node, Model: req.Model,
+		Use: req.Use, Share: req.Share, Job: req.Job, Targets: req.Targets,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeJobClear drops an agent's assignment through the host. POST-only and token-gated.
+func (s *Server) handleEdgeJobClear(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.ClearAgentJob == nil {
+		http.Error(w, "this build cannot clear a job from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !decode(r, &req) || req.Name == "" {
+		http.Error(w, "agent name required", http.StatusBadRequest)
+		return
+	}
+	if err := h.ClearAgentJob(req.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	s.writeEdge(w)

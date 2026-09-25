@@ -271,3 +271,63 @@ func TestConsoleSnapshotCarriesAgentsAndJobs(t *testing.T) {
 		t.Fatalf("agent jobs = %v", snap.AgentJobs)
 	}
 }
+
+func TestConsoleJobBindAndClearThroughHost(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	var setJobs []edge.AgentJob
+	var cleared []string
+	s := New(testCtrl(), Options{Edge: EdgeHooks{
+		Self:          "workshop",
+		Fleet:         fleet,
+		SetAgentJob:   func(j edge.AgentJob) error { setJobs = append(setJobs, j); return nil },
+		ClearAgentJob: func(name string) error { cleared = append(cleared, name); return nil },
+	}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+
+	resp := postJSONTok(t, srv, s, "/api/edge/job",
+		`{"name":"watcher","model":"qwen3-8b","share":true,"job":"serve","targets":["pi","attic"]}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("job = %d, want 200", resp.StatusCode)
+	}
+	if len(setJobs) != 1 {
+		t.Fatalf("SetAgentJob calls = %d, want 1", len(setJobs))
+	}
+	j := setJobs[0]
+	if j.Name != "watcher" || j.Model != "qwen3-8b" || !j.Share || j.Job != "serve" || len(j.Targets) != 2 {
+		t.Fatalf("job not carried through: %+v", j)
+	}
+
+	resp2 := postJSONTok(t, srv, s, "/api/edge/job/clear", `{"name":"watcher"}`)
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("job clear = %d, want 200", resp2.StatusCode)
+	}
+	if len(cleared) != 1 || cleared[0] != "watcher" {
+		t.Fatalf("ClearAgentJob calls = %v", cleared)
+	}
+}
+
+func TestConsoleJobNeedsTokenAndName(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	s := New(testCtrl(), Options{Edge: EdgeHooks{
+		Fleet:         fleet,
+		SetAgentJob:   func(edge.AgentJob) error { return nil },
+		ClearAgentJob: func(string) error { return nil },
+	}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	// no token
+	resp, _ := http.Post(srv.URL+"/api/edge/job", "application/json", strings.NewReader(`{"name":"x"}`))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("job no token = %d, want 403", resp.StatusCode)
+	}
+	// missing name
+	r2 := postJSONTok(t, srv, s, "/api/edge/job", `{"model":"m"}`)
+	r2.Body.Close()
+	if r2.StatusCode != http.StatusBadRequest {
+		t.Fatalf("job no name = %d, want 400", r2.StatusCode)
+	}
+}

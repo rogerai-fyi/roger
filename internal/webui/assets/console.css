@@ -1389,3 +1389,12 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   border-radius: 999px;
   color: var(--muted, #999);
 }
+
+/* Edge: the inline agent job-assignment form. */
+.edge-job-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.4rem 0; }
+.edge-job-field { display: inline-flex; align-items: center; gap: 0.3rem; }
+.edge-job-check { display: inline-flex; align-items: center; gap: 0.25rem; }
+.edge-job-form input[type="text"], .edge-job-sel {
+  font: inherit; color: var(--fg, #ddd); background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--line, #333); border-radius: 4px; padding: 0.15rem 0.35rem;
+}
