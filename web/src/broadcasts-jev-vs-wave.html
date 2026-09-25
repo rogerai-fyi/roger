@@ -135,6 +135,7 @@
           </p>
 
           <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 520" role="img"
                  aria-label="Diagram: a two-by-two map of model types. Horizontal axis: what the model reads, from human text on the left to machine signals on the right. Vertical axis: what it returns, from a conversation at the top to a decision at the bottom. Top left: chat models such as Qwen3.8-27B, Gemma 4 and gpt-oss. Bottom left: decision models such as Jev, Laya, GLiClass and guard models. Top right: Wave Giga and Wave Tera, which read telemetry and also converse. Bottom right: Wave Pico and Wave Nano beside time-series forecasters such as TimesFM and Chronos-2. Wave is the only family present in both right-hand corners.">
               <style>
@@ -199,6 +200,7 @@
 
               <text x="24" y="500" class="m-n">Red = the Wave family. It is the only family that lives in both right-hand corners, on one wire.</text>
             </svg>
+            </div>
             <figcaption class="fig mono">FIG. 2 &middot; Four corners. Jev owns the lower left. Wave is built for the right-hand side.</figcaption>
           </figure>
 
@@ -270,6 +272,7 @@
           </p>
 
           <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" role="img"
                  aria-label="Chart: size on disk of each Wave tier, quantized, on a log scale from 100 MB to 1 TB. Wave Pico about 165 MB, built. Wave Nano about 690 MB at 1.15B, training. Wave Micro planned. Wave Giga 16.5 GB at Q4_K_M, built on Qwen3.8-27B. Wave Tera about 60 GB at 100B, base being selected. Wave Peta about 105 GB and Wave Exa about 170 GB, planned. Jev has no bar: hosted only, parameter count undisclosed.">
               <style>
@@ -303,6 +306,7 @@
               <line x1="24" y1="404" x2="796" y2="404" class="l-hair"/>
               <text x="24" y="458" class="l-t">Sizes above Giga are targets from the public family guide. Pico and Giga are measured artifacts.</text>
             </svg>
+            </div>
             <figcaption class="fig mono">FIG. 3 &middot; The artifact you would download, per tier. Two are real today.</figcaption>
           </figure>
 
@@ -352,6 +356,7 @@
           </p>
 
           <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 430" role="img"
                  aria-label="Diagram: where each model runs. Along the plant floor, left to right: a sensor node (ESP32 or Arduino, reads vibration, temperature and current, no model), Wave Pico on a single-board computer beside the machine, Wave Nano on a gateway rolling up a zone, Wave Giga on a plant server with one 32 GB card, Wave Tera in the company's own cloud. They share one wire, Wave Mesh, and a small model that is unsure passes its read upward. Above a dashed internet line sits Jev in TypeSafe's cloud, reachable from the office network as a text API, not from the floor.">
               <style>
@@ -430,6 +435,7 @@
               <text x="488" y="388" text-anchor="middle" class="w-n">an unsure tier sends its read up instead of guessing; the tier above reads it directly</text>
               <text x="24" y="416" class="w-n">Right of the internet line, every box is a model you host. Local or remote is a deployment choice.</text>
             </svg>
+            </div>
             <figcaption class="fig mono">FIG. 4 &middot; The floor is one wire. Jev is on the other side of the internet.</figcaption>
           </figure>
 

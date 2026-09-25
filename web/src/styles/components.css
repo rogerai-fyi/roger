@@ -654,18 +654,21 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
    the column, whatever the asset's natural size. --plate sets it on a calm tinted
    inset panel (theme tokens, so it recedes on the dark theme instead of lighting up);
    --phone centres a portrait screenshot at a readable size; --chart is an inline SVG
-   chart: set in heading ink, and on a column narrower than the chart it scrolls in
-   its own box (the caption stays put) rather than shrinking its text below reading
-   size. The caption is the .fig label (its --ink-400 is AA on every ground). */
+   chart: set in heading ink, its drawing in the diagram scroll box with a phone floor,
+   so it scrolls in that box (the caption stays put) rather than shrinking its text
+   below reading size. The caption is the .fig label (its --ink-400 is AA on every ground). */
 .figure { margin: var(--s-8) 0; max-width: 100%; }
 .figure > img, .figure > video, .figure > svg { display: block; max-width: 100%; width: 100%; height: auto; }
 .figure > img, .figure > video { border-radius: var(--r-lg); }
 .figure > figcaption { margin: var(--s-3) 2px 0; }
 .figure--plate { padding: var(--s-4); }   /* on the tinted ground (the .tint-panel rule) */
 .figure--phone > img { max-width: 440px; margin-inline: auto; }
-.figure--chart { color: var(--ink-900); overflow-x: auto; }
-.figure--chart > svg { min-width: 34rem; }
-.figure--chart > figcaption { position: sticky; left: 0; }
+/* a chart's drawing sits in .scroll-box--diagram (the caption outside it): on a phone it
+   keeps 820px, where every article chart's smallest label reads at 11px or more (11 x 820 /
+   11), and scrolls; a desktop article column (640px) holds it whole, its labels at
+   8.6 to 9.8px there (640/820 of their 11-12.5 units), accepted */
+.figure--chart { color: var(--ink-900); }
+@media (max-width: 640px) { .figure--chart { --diagram-min: 820px; } }
 
 /* ---- component: scroll box (added by research rollout) ----------------------------
    <div class="scroll-box"><table>...</table></div>

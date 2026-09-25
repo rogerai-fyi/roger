@@ -406,8 +406,10 @@ Promoted from the articles. The figure and its direct `img`/`video`/`svg` never 
 the column (a 1600px asset used to push a page sideways). `--plate` sets it on a calm
 tinted inset panel (theme tokens: it recedes on the dark theme). `--phone` centres a
 portrait screenshot at 440px. `--chart` is an inline SVG chart: heading ink (the chart
-draws in `currentColor`), and on a column narrower than 34rem it scrolls inside the figure
-instead of shrinking its text below reading size; the caption stays put. The caption is
+draws in `currentColor`), its drawing in `.scroll-box--diagram`; on a phone it keeps 820px,
+where every article chart's smallest label reads at 11px or more, and scrolls inside that
+box instead of shrinking its words (on a desktop the 640px article column holds it whole,
+labels at 8.6-9.8px, accepted); the caption stays put. The caption is
 the `.fig` label in its own ink (AA). SVG charts colour their red with `var(--live)` and their paper
 with `var(--paper)` in their own `<style>`, never a literal, so they re-theme.
 

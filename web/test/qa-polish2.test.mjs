@@ -38,8 +38,6 @@ const DIAGRAMS = [
   { page: "pricing.html", sheet: "pricing.css", svg: "rwire__svg", vbw: 958, smallest: 16, desktop: 922 },
   { page: "research-industry.html", sheet: "research.css", svg: "purdue__svg", vbw: 720, smallest: 9, desktop: 888 },
   { page: "research-wave-family.html", sheet: "wave-family.css", svg: "wf-orbit__svg", vbw: 900, smallest: 16, desktop: 882 },
-  // an article chart: its floor is a phone one (the article column is 640px on a desktop)
-  { page: "broadcasts-share-gpu-earn.html", sheet: "broadcasts.css", svg: "share-flow__svg", vbw: 820, smallest: 12.5, desktop: 640 },
 ];
 
 test("the diagram scroll box is one shared component: a floor width and the edge shade", () => {
@@ -61,7 +59,7 @@ for (const d of DIAGRAMS) {
     assert.ok(Math.max(...floors) >= need, `${d.svg}: floor ${Math.max(...floors)}px < ${need}px`);
     // and a floor set outside a phone query is never wider than a desktop column: past it,
     // a drawing that fits would scroll
-    const flat = css(d.sheet).replace(/@media \(max-width:[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, "");
+    const flat = css(d.sheet).replace(/@media \(max-width: (\d+)px\)[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, (m, px) => (Number(px) <= 640 ? "" : m));
     for (const m of flat.matchAll(new RegExp(`\\.${hook}[^{}]*\\{[^}]*--diagram-min: (\\d+)px`, "g"))) {
       assert.ok(Number(m[1]) <= d.desktop, `${d.svg}: floor ${m[1]}px > the ${d.desktop}px desktop column`);
     }
@@ -222,4 +220,46 @@ test("articles: a lead image's width and height say its real size (share-hero sa
 
 test("a diagram box on the figure plate ends its edge shade on the plate's ground (a paper strip showed at its right end)", () => {
   assert.match(css("components.css"), /\.figure--plate \.scroll-box--diagram \{ --edge-ground: var\(--paper-2\); \}/);
+});
+
+// Every article chart (an inline SVG with words, in a broadcast) is a .figure--chart whose
+// drawing sits in the diagram scroll box; the component's one phone floor keeps each chart's
+// smallest label at 11px or more at 390 (on a desktop the 640px article column holds them
+// whole, at ~9-10px, accepted). Smallest label per chart, in SVG units, measured.
+const CHARTS = {
+  "broadcasts-connect-bots-openai-api.html": [{ vbw: 820, smallest: 12 }],
+  "broadcasts-jev-vs-wave.html": [{ vbw: 820, smallest: 12 }, { vbw: 820, smallest: 12 }, { vbw: 820, smallest: 11 }],
+  "broadcasts-run-a-tower.html": [{ vbw: 820, smallest: 12.5 }, { vbw: 820, smallest: 12 }],
+  "broadcasts-share-gpu-earn.html": [{ vbw: 820, smallest: 12.5 }],
+  "broadcasts-vram-for-llm.html": [{ vbw: 820, smallest: 12 }],
+  "broadcasts-what-a-million-tokens-costs.html": [{ vbw: 720, smallest: 10 }],
+};
+test("article charts: every one is a .figure--chart in the diagram box", () => {
+  for (const f of ARTICLES) {
+    const html = read(path.join("src", f));
+    const figs = [...html.matchAll(/<figure\b[^>]*>[\s\S]*?<\/figure>/g)].map((m) => m[0]).filter((fig) => /<svg\b[\s\S]*?<text\b/.test(fig));
+    assert.equal(figs.length, (CHARTS[f] || []).length, `${f}: the chart table lists every chart`);
+    for (const fig of figs) {
+      assert.match(fig, /^<figure class="[^"]*\bfigure--chart\b/, `${f}: a chart is a .figure--chart`);
+      assert.match(fig, /<div class="scroll-box scroll-box--diagram">\s*<svg\b/, `${f}: its drawing is in the diagram box`);
+    }
+  }
+});
+test("article charts: the component's phone floor keeps every chart's smallest label >= 11px at 390", () => {
+  const c = css("components.css");
+  const floor = Number(c.match(/@media \(max-width: 640px\) \{ \.figure--chart \{ --diagram-min: (\d+)px; \} \}/)?.[1]);
+  assert.ok(floor, "one phone floor for article charts, in the component");
+  for (const [f, list] of Object.entries(CHARTS)) for (const d of list) {
+    const need = Math.ceil((LABEL_FLOOR * d.vbw) / d.smallest);
+    assert.ok(floor >= need, `${f}: floor ${floor}px < ${need}px`);
+  }
+  assert.doesNotMatch(c, /\.figure--chart > svg \{[^}]*min-width: 34rem/, "the old 34rem floor (labels ~8px) is gone");
+});
+
+test("no page comment still describes a primary-then-outline action row", () => {
+  for (const f of readdirSync(path.join(WEB, "src")).filter((n) => n.endsWith(".html"))) {
+    for (const [c] of read(path.join("src", f)).matchAll(/<!--[\s\S]*?-->/g)) {
+      assert.doesNotMatch(c, /(filled|solid) primary|outline buttons/i, `${f}: ${c.slice(0, 90)}`);
+    }
+  }
 });

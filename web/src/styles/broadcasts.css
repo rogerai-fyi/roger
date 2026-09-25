@@ -191,11 +191,6 @@
    its markup used to say 560). A portrait phone lead keeps its own shape. */
 .bc-post__wrap > .figure--plate:not(.figure--phone) > :is(img, video) { aspect-ratio: 16 / 9; object-fit: cover; }
 
-/* ---- broadcast 004's flow chart: in the diagram scroll box, so on a phone it keeps a
-   width where its 12.5-unit body lines read at 11px (11 x 820 / 12.5 = 722) and scrolls,
-   instead of shrinking them to ~8px; a desktop column (640px) holds it whole. ---- */
-@media (max-width: 640px) { .share-flow { --diagram-min: 730px; } }
-
 /* ---- the headline video plate ---- */
 /* on the plate like every figure; its FIG. label moves under the frame, where every
    other figure's caption sits (the markup keeps the label first) */
