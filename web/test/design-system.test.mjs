@@ -225,9 +225,6 @@ test("the colour budgets are tight: a paid-down debt lowers its budget", () => {
 // bug on its page today; defining the token would change how the page looks, so each is a
 // decision for that page's rollout, not for this guard.
 const UNDEFINED_TOKENS = {
-  "--hover-bg": "base.css nav panel hover, research.css",
-  "--s-7": "research.css, tower.css spacing (the scale has no 7)",
-  "--t-base": "home.css privacy card heading size",
   "--kept": "research.css bar, never set",
   "--fill": "research.css bar, never set",
 };

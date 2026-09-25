@@ -1520,7 +1520,7 @@ html.js .mkt-quiet--nojs { display: none; }
   display: flex; flex-direction: column; gap: var(--s-3);
   padding: var(--s-6); background: var(--paper);
 }
-.pcards h3 { margin: 0; color: var(--ink-900); font-size: var(--t-base); }
+.pcards h3 { margin: 0; color: var(--ink-900); font-size: var(--t-body); }
 .pcards p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .pc-ic {
   width: 44px; height: 44px; fill: none; stroke: var(--ink-900);

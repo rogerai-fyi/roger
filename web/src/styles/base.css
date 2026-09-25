@@ -716,7 +716,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   width: 20px; height: 20px; padding: 0; border-radius: var(--r-xs);
   color: var(--ink-400); cursor: pointer;
 }
-.nav__more:hover, .nav__more:focus-visible { color: var(--ink-900); background: var(--hover-bg); }
+.nav__more:hover, .nav__more:focus-visible { color: var(--ink-900); background: var(--paper-2); }
 .nav__more svg { transition: transform var(--d-2, .18s) var(--ease-standard, ease); }
 /* DIRECT CHILD ONLY: the descendant form also matched .nav__more--sub inside
    the open panel, so the Playbox decks chevron sat pre-rotated ("^") while its
@@ -748,7 +748,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   display: grid; gap: 1px; padding: var(--s-3);
   border-radius: var(--r-xs); color: var(--ink-500);
 }
-.nav__panel a:hover, .nav__panel a:focus-visible { background: var(--hover-bg); }
+.nav__panel a:hover, .nav__panel a:focus-visible { background: var(--paper-2); }
 .nav__panel b { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
 .nav__panel span { font-size: var(--t-xs); line-height: var(--lh-body); }
 

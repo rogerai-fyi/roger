@@ -468,7 +468,9 @@ fails on a bare component selector outside `components.css`.
   spacing scale has no 7; research, Tower), `--t-lg`, `--t-base`, `--hover-bg`, and two bar
   properties nothing sets (`--kept`, `--fill`). Stations, device and payouts reference
   `--rule`, `--beacon` and `--warn` with hard-coded fallbacks. Listed in the guard; each
-  fix changes that page, so it is the rollout's call.
+  fix changes that page, so it is the rollout's call. (QA pass: `--s-7` is now a real
+  step, 28px; the nav panel and scope-picker hovers use `--paper-2`, so they show; the
+  privacy card heading uses `--t-body`. `--kept` and `--fill` remain, on dead rules.)
 - **Behaviour copies.** Six scripts wrote to the clipboard. On /models and /voices the
   command was copied twice (site.js already binds every install pill, and the page script
   did it again). Those two copies are gone; keys, the private console and the Playbox keep

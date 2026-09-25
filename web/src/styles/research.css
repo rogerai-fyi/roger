@@ -523,7 +523,7 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   grid-template-columns: 1fr max-content; gap: 2px var(--s-4); align-items: baseline;
   border-radius: var(--r-xs);
 }
-.scope__pick:hover { background: var(--hover-bg); }
+.scope__pick:hover { background: var(--paper-2); }
 .scope__pick:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
 .scope__legend b { grid-area: name; color: var(--ink-900); font-size: var(--t-h3); }
 .scope__legend code { grid-area: range; color: var(--ink-700); font-size: var(--t-sm); }
