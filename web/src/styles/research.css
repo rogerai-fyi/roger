@@ -44,7 +44,6 @@
 .uc-ic .uc-fill { fill: var(--live); stroke: none; }
 /* nine icons close 3x3 below full width; four or two across would leave one alone */
 @media (max-width: 880px) { .usecase-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .usecase-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .research-hero__layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: var(--s-12); align-items: center; }
 .research-hero__mascot { min-width: 0; }
 /* The hub hero's four section buttons: a 2x2 block. As a flex row inside the narrower
@@ -181,9 +180,9 @@
 .research-closing p { max-width: 700px; margin-inline: auto; }
 .research-closing .research-actions { justify-content: center; }
 
-/* Six markets, three across. The dividers are the grid GAP showing through, not borders
-   on the cells: nth-child arithmetic has to be re-derived at every breakpoint and gets it
-   wrong the moment the column count or the market count changes - which it just did, and
+/* Three across: the hub's three cards, and the industrial page's nine close 3x3. The
+   dividers are the grid GAP showing through, not borders on the cells: nth-child
+   arithmetic has to be re-derived at every breakpoint and gets it wrong the moment the column count or the market count changes - which it just did, and
    the single-column layout silently lost three dividers. This is correct at any count. */
 .deployment-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -203,7 +202,7 @@
 /* the representative shot: bleeds to the card's outer edge (the article still owns the
    padding, so the image cancels it on three sides), generic industry photography - not
    the NDA'd engagements the section text is careful never to name. The one exception is
-   the wildfire card, which carries our own film's title card. Credit rides ON the
+   the wildfire card, a text-free frame from our own film. Credit rides ON the
    photograph, same convention as the hardware board shots on research-hardware.html. */
 .deployment-grid .deployment-grid__shot { margin: calc(var(--s-5) * -1) calc(var(--s-5) * -1) var(--s-4); position: relative; }
 .deployment-grid__shot img {
