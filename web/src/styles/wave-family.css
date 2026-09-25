@@ -477,6 +477,7 @@
   border: 1px solid var(--hairline-2);
 }
 .wf-orbit__svg { width: 100%; height: auto; display: block; }
+.wf-orbit .scroll-box--diagram { --edge-ground: var(--orbit-ground); }
 .wf-orbit__path { fill: none; stroke: var(--orbit-line); stroke-opacity: .22; stroke-width: 2; }
 .wf-orbit__feed { fill: none; stroke: var(--orbit-line); stroke-opacity: .16; stroke-width: 1.5; }
 .wf-orbit__node { fill: var(--orbit-line); fill-opacity: .7; }
@@ -520,6 +521,12 @@
   color: var(--orbit-line); opacity: .65; font-family: var(--font-mono);
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
   text-transform: uppercase;
+}
+/* phone: the loop keeps the diagram scroll box's floor, with its labels raised a step, so
+   they read at 11px or more instead of ~4px */
+@media (max-width: 640px) {
+  .wf-orbit { --diagram-min: 630px; }
+  .wf-orbit__label, .wf-orbit__feedlabel { font-size: 16px; }
 }
 
 /* Training-is-using: three flat steps, the same top-rule grid the family tables use. */

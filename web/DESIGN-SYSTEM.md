@@ -31,7 +31,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
 | Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
 | Figure | `.figure` (`--plate`, `--phone`, `--chart`) | - | the articles |
-| Scroll box | `.scroll-box` | - | every wide table |
+| Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial and Wave family diagrams |
 | Data table | `.data-table` | - | articles, manual, Integrations, Hardware, Wave family |
 | Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
@@ -384,6 +384,15 @@ with `var(--paper)` in their own `<style>`, never a literal, so they re-theme.
 ### Scroll box
 `<div class="scroll-box"><table>...</table></div>`: anything wider than a phone scrolls
 sideways inside the box, never the page.
+
+`scroll-box--diagram` holds an inline SVG diagram (the svg its direct child, the caption
+outside it): the drawing keeps at least `--diagram-min` of width and scrolls on a narrower
+column instead of shrinking its labels, with the code block's edge shade while there is
+more to scroll (the same grouped rule; `--edge-ground` is the ground the shade ends on,
+paper by default). The page sets `--diagram-min` in its own context so the figure's
+smallest label renders at 11px or more: 11 x viewBox width / smallest label size
+(`test/qa-polish2.test.mjs` checks the Tower, Pricing, Industrial and Wave family
+figures). It prints at the page width.
 
 ### Code block
 ```html

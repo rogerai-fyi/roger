@@ -579,6 +579,8 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
    the conventional way, process at the bottom, enterprise at the top. */
 .purdue { margin: var(--s-6) 0 0; }
 .purdue__svg { display: block; width: 100%; height: auto; }
+/* in the diagram scroll box: never narrower than the width where its 9px labels read at 11px */
+.purdue { --diagram-min: 890px; }
 
 .purdue__levels rect { fill: var(--paper-2); stroke: var(--hairline-2); stroke-width: 1; }
 .purdue__levels text {

@@ -661,6 +661,15 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
    Anything wider than a phone (a data table, a diagram) scrolls sideways inside this
    box, never the page. */
 .scroll-box { overflow-x: auto; max-width: 100%; }
+/* <div class="scroll-box scroll-box--diagram"><svg ...></svg></div> inside the figure
+   (the caption stays outside, put). An inline SVG diagram keeps at least --diagram-min
+   of width (the page sets it in its own context, so the figure's smallest label reads at
+   11px or more) and scrolls sideways in the box on a narrower column instead of
+   shrinking its words; the code block's edge shade shows while there is more to scroll.
+   The box's ground for the shade's end cover is --edge-ground (paper by default; a figure
+   on another ground sets it). */
+.scroll-box--diagram { --edge-ground: var(--paper); }
+.scroll-box--diagram > svg { display: block; width: 100%; height: auto; min-width: var(--diagram-min, 34rem); }
 
 /* ---- component: data table ---------------------------------------------------------
    <table class="data-table [page class]"> (in a .scroll-box when it can outgrow a phone)
@@ -688,14 +697,17 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   position: relative; margin-top: var(--s-4); max-width: 100%;
   background: var(--cb-ground); border-radius: var(--r-xl);
 }
-/* a line that runs past the edge shows it: a soft shade at the right edge while
-   there is more to scroll, covered by the block's own ground once you reach the end
-   (the two layers scroll differently; no script) */
-.code-block pre {
-  margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
+/* a line (or a diagram) that runs past the edge shows it: a soft shade at the right
+   edge while there is more to scroll, covered by the box's own ground (--edge-ground)
+   once you reach the end (the two layers scroll differently; no script) */
+.scroll-box--diagram, .code-block pre {
   background:
-    linear-gradient(to left, var(--cb-ground) 16px, transparent) right / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--edge-ground) 16px, transparent) right / 28px 100% no-repeat local,
     linear-gradient(to left, color-mix(in srgb, var(--ink-900) 7%, transparent), transparent) right / 20px 100% no-repeat scroll;
+}
+.code-block pre {
+  --edge-ground: var(--cb-ground);
+  margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
   font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.6;
   color: var(--ink-900); white-space: pre;
 }
@@ -835,6 +847,8 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
   /* long lines and wide tables print whole instead of clipping at a scroll edge */
   pre, .scroll-box, .code-block { overflow: visible !important; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .scroll-box--diagram { background: none; }
+  .scroll-box--diagram > svg { min-width: 0; }   /* a diagram prints at the page width */
   .figure, .tint-panel, .install, tr { break-inside: avoid; }
   h2, h3 { break-after: avoid; }
   /* an external link in the running text says where it goes */

@@ -71,6 +71,7 @@
              The labels are load-bearing claims, not decoration: the station opens no
              inbound port, and the return leg carries a signed receipt. -->
         <figure class="signal" aria-labelledby="signal-caption">
+          <div class="scroll-box scroll-box--diagram">
           <svg class="signal__svg" viewBox="0 0 720 235" role="img" aria-labelledby="signal-caption">
             <g class="signal__wire" aria-hidden="true">
               <path d="M175 118 H285"/>
@@ -111,6 +112,7 @@
               <text class="signal__note" x="620" y="76">dials out &#183; no inbound port</text>
             </g>
           </svg>
+          </div>
           <figcaption id="signal-caption">A request leaves your machine for the broker, which
             picks a station with capacity and forwards it. Tokens come back the same way with a
             signed receipt, so what you were charged and what the operator earned are the same
@@ -138,6 +140,7 @@
              in the markup, so the still frame carries the same information as the motion. -->
         <figure class="tower__patch" aria-labelledby="patch-title" aria-describedby="patch-cap">
           <div class="tower__head"><span id="patch-title">ROUTING</span><span>score &divide; load, then power-of-two-choices</span></div>
+          <div class="scroll-box scroll-box--diagram">
           <svg class="tower__svg" viewBox="0 0 640 250" role="img" aria-labelledby="patch-title" aria-describedby="patch-cap">
             <g class="tower__frame" aria-hidden="true">
               <rect x="14" y="96" width="96" height="46" rx="2"/>
@@ -181,6 +184,7 @@
             </g>
             <text class="tower__note" x="626" y="232">B drops &rarr; the call moves &middot; you are not charged for the failed attempt</text>
           </svg>
+          </div>
           <figcaption id="patch-cap">Each station on air is scored on price, reliability
             and speed-fit for this request. That score is then divided by how much the
             station is already carrying. Load is counted across broker instances, not per
