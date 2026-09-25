@@ -1,8 +1,11 @@
 // The TOC tuner is drag-to-tune (founder: tapping small stations on a phone is hard).
-// A finger (or a mouse) drags along the scale: the needle follows it and the readout names
-// the station under it; letting go on a station goes there, as its link would. A tap is
-// still the link's own click; a mostly vertical move is the page scrolling, not tuning; a
-// cancelled gesture puts the needle back. Semantics do not change: the links and their
+// The scale strip (ticks, needle, numerals) is the drag zone: a touch that starts there
+// always tunes, whatever its angle (touch-action: none; the founder's phone showed a
+// pan-y band handing every slightly vertical thumb drag to the page as a scroll). The
+// needle jumps to the finger on press and follows it; the readout names the station under
+// it; letting go on another station goes there, as its link would. A tap is still the
+// link's own click; a drag back to the start station, or a cancelled gesture, changes
+// nothing. The rest of the band (the readout) scrolls the page as usual. Semantics do not change: the links and their
 // aria-current stay the whole accessible story. The long-document list form (13+ stations
 // under 760px, no needle) is not dragged: it is a list of full-width 44px rows.
 // This drives the real tuner.js in a small fake DOM.
@@ -35,8 +38,9 @@ function rig({ reduced = false, listForm = false } = {}) {
   links.forEach((a) => { a.classList = { toggle: (c, v) => (v ? a.cls.add(c) : a.cls.delete(c)), add: (c) => a.cls.add(c), remove: (c) => a.cls.delete(c) }; });
   const captured = [];
   const band = on({ setPointerCapture: (id) => captured.push(id), releasePointerCapture: () => {}, hasPointerCapture: () => captured.length > 0 });
-  band.contains = (t) => t === band || links.includes(t);
-  const scale = { getBoundingClientRect: () => ({ left: 100, width: 500, right: 600 }) };
+  const scale = on({ getBoundingClientRect: () => ({ left: 100, width: 500, right: 600 }) });
+  band.contains = (t) => t === band || t === scale || links.includes(t);
+  scale.setPointerCapture = band.setPointerCapture;
   const needle = { listForm };
   nav.querySelectorAll = (q) => (q === "a" ? links : []);
   nav.querySelector = (q) => ({ ".toc-tuner__band": band, ".toc-tuner__scale": scale, ".toc-tuner__needle": needle }[q] || null);
@@ -54,24 +58,28 @@ function rig({ reduced = false, listForm = false } = {}) {
   vm.runInContext(TUNER, win);
   const ev = (x, y, extra = {}) => ({ clientX: x, clientY: y, pointerId: 7, pointerType: "touch", isPrimary: true, button: 0,
     target: extra.target || links[Math.max(0, Math.min(4, Math.floor((x - 100) / 100)))], preventDefault() { this.prevented = true; }, ...extra });
-  const down = (x, y = 50, o) => fire(band, "pointerdown", ev(x, y, o));
-  const move = (x, y = 50, o) => fire(band, "pointermove", ev(x, y, o));
-  const up = (x, y = 50, o) => fire(band, "pointerup", ev(x, y, o));
-  const cancel = () => fire(band, "pointercancel", ev(0, 0));
+  const down = (x, y = 50, o) => fire(scale, "pointerdown", ev(x, y, o));
+  const move = (x, y = 50, o) => fire(scale, "pointermove", ev(x, y, o));
+  const up = (x, y = 50, o) => fire(scale, "pointerup", ev(x, y, o));
+  const cancel = () => fire(scale, "pointercancel", ev(0, 0));
+  // a gesture on the band outside the scale (the readout): the page's
+  const outside = (x, y) => { const e = ev(x, y, { target: band }); fire(band, "pointerdown", e); fire(band, "pointermove", ev(x, y + 80, { target: band })); };
   // the browser's own click after a pointerup on a link (a tap): passes the nav's capture listeners
   const nativeClick = (k) => { const e = { target: typeof k === "number" ? links[k] : k, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
     fire(nav, "click", e); return !e.defaultPrevented; };
-  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, nativeClick };
+  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, outside, nativeClick };
 }
 
 const at = (t) => Number(t.style["--at"]);
 
 test("drag: the needle follows the finger continuously and the readout names the station under it", () => {
   const t = rig();
-  t.down(150);                       // on station 1
-  t.move(170);                       // horizontal: a drag starts
+  t.down(150);                       // on station 1: the needle jumps to the finger at once
   assert.ok(t.nav.cls.has("is-dragging"));
-  assert.deepEqual(t.captured, [7], "the band captures the pointer");
+  assert.equal(at(t), 0);
+  assert.ok(t.links[0].cls.has("is-tuning"));
+  t.move(170);                       // past the slop: a drag
+  assert.deepEqual(t.captured, [7], "the scale captures the pointer");
   assert.ok(Math.abs(at(t) - 0.2) < 1e-9, `needle at ${at(t)}`);   // (170-100)/100 - 0.5
   assert.ok(t.links[0].cls.has("is-tuning"));
   t.move(365);                       // over station 3
@@ -119,19 +127,28 @@ test("cancel (the browser took the gesture) restores the needle", () => {
   assert.ok(t.links.every((a) => !a.cls.has("is-tuning")));
 });
 
-test("a mostly vertical move is the page scrolling: it never tunes", () => {
+test("inside the scale there is no direction rule: a steep thumb drag still tunes and lands", () => {
   const t = rig();
-  t.down(150, 50); t.move(158, 90); t.move(170, 160); t.up(170, 160);
+  t.down(150, 50); t.move(158, 70); t.move(210, 110); t.move(265, 160);   // ~45 degrees and more
+  assert.ok(t.nav.cls.has("is-dragging"));
+  assert.deepEqual(t.captured, [7]);
+  assert.ok(t.links[1].cls.has("is-tuning"));
+  t.up(265, 160);
+  assert.deepEqual(t.clicks, ["s2"]);
+});
+
+test("a gesture that starts outside the scale (the readout) is the page's: it never tunes", () => {
+  const t = rig();
+  t.outside(150, 10);
   assert.ok(!t.nav.cls.has("is-dragging"));
   assert.equal(t.style["--at"], undefined);
   assert.deepEqual(t.captured, []);
-  assert.deepEqual(t.clicks, []);
 });
 
 test("touch ticks once per station passed; never with reduced motion, never for a mouse", () => {
   const t = rig();
   t.down(150); t.move(170); t.move(260); t.move(290); t.move(360);
-  assert.deepEqual(t.vibes, [8, 8], "a tick entering station 2 and station 3");
+  assert.deepEqual(t.vibes, [8, 8], "a tick entering station 2 and station 3 (not on the press itself)");
   const m = rig();
   m.down(150, 50, { pointerType: "mouse" }); m.move(170, 50, { pointerType: "mouse" }); m.move(360, 50, { pointerType: "mouse" });
   assert.deepEqual(m.vibes, []);
@@ -139,6 +156,7 @@ test("touch ticks once per station passed; never with reduced motion, never for 
   const r = rig({ reduced: true });
   r.down(150); r.move(170); r.move(360);
   assert.deepEqual(r.vibes, []);
+  r.move(365);
   assert.equal(at(r), 2, "reduced motion: the needle jumps station to station");
 });
 
@@ -158,9 +176,14 @@ test("a secondary mouse button or a second finger does not tune", () => {
   assert.ok(!u.nav.cls.has("is-dragging"));
 });
 
-test("the band is the touch target: vertical page scroll stays the browser's; the drag shows its station", () => {
-  assert.match(css, /\.toc-tuner__band \{[^}]*touch-action: pan-y/);
+test("the scale is the drag zone: touch-action none there, finger-sized on touch, with a grip; the readout still scrolls", () => {
+  assert.match(css, /\.toc-tuner__scale \{[^}]*touch-action: none/);
+  assert.match(css, /\.toc-tuner__band \{[^}]*touch-action: pan-y/, "outside the scale the page scrolls");
   assert.match(css, /\.toc-tuner__band \{[^}]*user-select: none/);
+  const coarse = [...css.matchAll(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
+  assert.match(coarse, /\.toc-tuner__scale \{[^}]*min-height: 56px/, "a finger-sized strip, the full tuner width");
+  assert.match(coarse, /\.toc-tuner__needle::before \{[^}]*width: 12px;[^}]*height: 12px/, "a heavier needle head says it can be grabbed");
+  assert.doesNotMatch(coarse, /\.toc-tuner__needle[^{]*\{[^}]*box-shadow:[^}]*(blur|\d+px \d+px \d+px)/, "no glow");
   assert.match(css, /\.toc-tuner\.is-dragging \.toc-tuner__needle \{[^}]*transition: none/, "the needle follows the finger, no spring lag");
   assert.match(css, /\.toc-tuner a\.is-tuning \.toc-tuner__name[^{]*\{[^}]*opacity: 1/);
   assert.match(css, /\.toc-tuner\.is-dragging a:not\(\.is-tuning\) \.toc-tuner__name \{[^}]*opacity: 0/);
@@ -181,4 +204,5 @@ test("after a drag, only a click inside the band is swallowed; a click elsewhere
 test("the long-document list form is not a drag surface: its names select and long-press gives the link menu", () => {
   const list = css.match(/@media \(max-width: 760px\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.match(list, /\.toc-tuner:has\(li:nth-child\(13\)\) \.toc-tuner__band \{[^}]*touch-action: auto;[^}]*user-select: text;[^}]*-webkit-user-select: text;[^}]*-webkit-touch-callout: default/);
+  assert.match(list, /\.toc-tuner:has\(li:nth-child\(13\)\) \.toc-tuner__scale \{[^}]*touch-action: auto/, "and its rows scroll the page like any list");
 });

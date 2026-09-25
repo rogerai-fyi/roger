@@ -207,9 +207,18 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
 .toc-tuner__band {
   position: relative;
   padding-top: 58px; padding-bottom: 10px;   /* its ground: the tinted panel's, below */
-  /* drag to tune (tuner.js): the whole band is the target; a vertical pan stays the
-     page's scroll, a horizontal drag tunes; no text selection or link ghost while dragging */
+  /* drag to tune (tuner.js): outside the scale strip the band scrolls the page; no text
+     selection or link ghost while dragging */
   touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+/* the scale strip is the drag zone: a touch that starts there always tunes, whatever its
+   angle (a pan-y band handed every slightly vertical thumb drag to the page as a scroll) */
+.toc-tuner__scale { touch-action: none; }
+/* on touch: a finger-sized strip across the whole tuner, and a heavier needle head that
+   reads as a grip (the same red dot, larger; no glow) */
+@media (pointer: coarse) {
+  .toc-tuner__scale { min-height: 56px; }
+  .toc-tuner__needle::before { width: 12px; height: 12px; top: -5px; left: -5px; }
 }
 /* while dragging the needle follows the finger (no spring lag) and the readout names the
    station under it instead of the current one */
@@ -629,6 +638,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { padding: var(--s-3); margin-inline: var(--panel-inset); width: auto; }
   /* the list form is tapped, never dragged: its names select and a long press gives the link menu */
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { touch-action: auto; user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale { touch-action: auto; }
   .toc-tuner:has(li:nth-child(13)) :is(.toc-tuner__readout, .toc-tuner__needle) { display: none; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale {
     grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; background: none;

@@ -302,13 +302,16 @@ and the readout to the pointed or focused station; `tuner.js` adds roving focus 
 stop, arrows, Home/End) and rests the needle on the section in view
 (`aria-current="location"`). The resting station keeps a red major tick while you point
 elsewhere ("you are here"); a name comes into tune as it shows (its blur clears and its
-tracking closes up; opacity flips at once). Never pinned. Drag to tune (`tuner.js`): a finger
-or a mouse dragged along the band moves the needle with it (`.is-dragging`, the needle's
+tracking closes up; opacity flips at once). Never pinned. Drag to tune (`tuner.js`): the scale strip (ticks, needle, numerals) is
+the drag zone, `touch-action: none`, at least 56px tall on touch with a heavier needle head
+as its grip. A finger or a mouse pressed there moves the needle to it at once and drags it,
+whatever the angle (a thumb drag is never level; a `pan-y` band handed it to the page as a
+scroll), moving the needle with it (`.is-dragging`, the needle's
 spring off) and the readout names the station under it (`.is-tuning`, a light 8ms vibration
 per station on touch, none under reduced motion); letting go on a station follows its link
-and marks it current. A tap is still the link's own click, a mostly vertical move is the
-page's scroll (`touch-action: pan-y` on the band, the whole band is the target), and a
-cancelled drag, or one that ends on the station it began on, changes nothing. The long
+and marks it current. A tap is still the link's own click, a gesture that starts on the rest
+of the band (the readout) scrolls the page (`touch-action: pan-y` there), and a cancelled
+drag, or one that ends on the station it began on, changes nothing. The long
 document list form (13+ stations under 760px) is not dragged: its rows are full-width 44px
 targets, and a drag along a two-column list has no single axis to follow. The drag adds no
 semantics; screen readers still get the links and `aria-current`. No-JS: plain anchor links,

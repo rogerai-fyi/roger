@@ -9,12 +9,13 @@
    - the resting station: the section in view marks its station current
      (--cur on the tuner, aria-current="location"), so the needle rests on
      where you are when nothing is pointed at. Observed, never pinned.
-   - drag to tune: a finger (or a mouse) dragged along the band moves the
-     needle with it and names the station under it in the readout; letting go
-     on a station follows that station's link. A tap is still the link's own
-     click; a mostly vertical move is the page scrolling (touch-action: pan-y);
-     a cancelled gesture, or one that ends on the station it began on, changes
-     nothing. The long-document list form (no needle) is tapped, not dragged.
+   - drag to tune: the scale strip is the drag zone (touch-action: none). A
+     finger (or a mouse) pressed there moves the needle to it at once and drags
+     it, whatever the angle, naming the station under it in the readout; letting
+     go on another station follows that station's link. A tap is still the
+     link's own click; a cancelled gesture, or one that ends on the station it
+     began on, changes nothing; a gesture that starts on the rest of the band
+     (the readout) scrolls the page. The long-document list form (no needle) is tapped, not dragged.
      The drag adds no semantics: the links and aria-current are the whole story.
    Markup contract: web/DESIGN-SYSTEM.md.
    ===================================================================== */
@@ -88,7 +89,7 @@
     var band = nav.querySelector && nav.querySelector(".toc-tuner__band");
     var scale = nav.querySelector && nav.querySelector(".toc-tuner__scale");
     var needle = nav.querySelector && nav.querySelector(".toc-tuner__needle");
-    if (!band || !scale || !needle || !band.addEventListener) return;
+    if (!band || !scale || !needle || !scale.addEventListener) return;
     var n = links.length;
     var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     var g = null;        // the gesture in progress: { id, x0, y0, from, k, dragging, touch }
@@ -112,30 +113,35 @@
       return window.getComputedStyle && window.getComputedStyle(needle).display === "none";
     }
 
-    band.addEventListener("pointerdown", function (e) {
+    // the scale strip is the drag zone (touch-action: none in the stylesheet): a touch that
+    // starts there always tunes, whatever its angle; the rest of the band scrolls the page.
+    // The needle jumps to the finger on press; past the slop the press is a drag.
+    function show(x) {
+      var s = stationAt(x);
+      nav.style.setProperty("--at", String(reduced ? s.k : s.at));
+      tune(s.k);
+      return s.k;
+    }
+    scale.addEventListener("pointerdown", function (e) {
       swallow = false;
-      if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0) || listForm()) return;
-      var s = stationAt(e.clientX);
-      g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, from: s.k, k: s.k, dragging: false, touch: e.pointerType !== "mouse" };
+      if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0) || e.ctrlKey || e.metaKey || e.shiftKey || listForm()) return;
+      nav.classList.add("is-dragging");
+      var k = show(e.clientX);
+      g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, from: k, k: k, dragging: false, touch: e.pointerType !== "mouse" };
     });
-    band.addEventListener("pointermove", function (e) {
+    scale.addEventListener("pointermove", function (e) {
       if (!g || e.pointerId !== g.id) return;
-      var dx = e.clientX - g.x0, dy = e.clientY - g.y0;
       if (!g.dragging) {
-        if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
-        if (Math.abs(dy) >= Math.abs(dx)) { g = null; return; } // the page is scrolling
-        g.dragging = true;
-        nav.classList.add("is-dragging");
-        if (band.setPointerCapture) band.setPointerCapture(e.pointerId);
+        if (Math.abs(e.clientX - g.x0) < SLOP && Math.abs(e.clientY - g.y0) < SLOP) return;
+        g.dragging = true;               // any direction: inside the scale there is no page scroll to yield to
+        if (scale.setPointerCapture) scale.setPointerCapture(e.pointerId);
       }
       if (e.preventDefault) e.preventDefault();
-      var s = stationAt(e.clientX);
-      nav.style.setProperty("--at", String(reduced ? s.k : s.at));
-      if (s.k !== g.k && g.touch && !reduced && window.navigator && window.navigator.vibrate) window.navigator.vibrate(8);
-      g.k = s.k;
-      tune(s.k);
+      var k = show(e.clientX);
+      if (k !== g.k && g.touch && !reduced && window.navigator && window.navigator.vibrate) window.navigator.vibrate(8);
+      g.k = k;
     });
-    band.addEventListener("pointerup", function (e) {
+    scale.addEventListener("pointerup", function (e) {
       if (!g || e.pointerId !== g.id) return;
       var was = g;
       end();
@@ -150,7 +156,7 @@
       }
       window.setTimeout(function () { swallow = false; }, 400); // no trailing click came
     });
-    band.addEventListener("pointercancel", function () { if (g) end(); });
+    scale.addEventListener("pointercancel", function () { if (g) end(); });
     nav.addEventListener("click", function (e) {
       if (!swallow || !(band.contains && band.contains(e.target))) return; // only the drag's own click
       e.preventDefault();
