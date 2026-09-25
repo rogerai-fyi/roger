@@ -68,3 +68,11 @@
 .gpu-machines__col--live :is(h3, p), .gpu-flow__step--live :is(h3, p) { color: var(--paper); }
 .gpu-machines__col--live .gpu-machines__label, .gpu-flow__step--live .gpu-flow__no { color: var(--ink-300); }
 .gpu-flow__step--live p code { background: transparent; border-color: var(--ink-500); color: var(--paper); }
+/* on the dark site ink-900 is the light ink, so the swap would turn the requester's
+   side into a bright slab: it stays a room there instead, the raised face with a ring */
+:root[data-theme="dark"] :is(.gpu-machines__col--live, .gpu-flow__step--live) {
+  background: var(--white); border-color: var(--hairline-2);
+}
+:root[data-theme="dark"] :is(.gpu-machines__col--live :is(h3, p), .gpu-flow__step--live :is(h3, p)) { color: var(--ink-900); }
+:root[data-theme="dark"] :is(.gpu-machines__col--live .gpu-machines__label, .gpu-flow__step--live .gpu-flow__no) { color: var(--ink-400); }
+:root[data-theme="dark"] .gpu-flow__step--live p code { border-color: var(--hairline-2); color: var(--ink-900); }

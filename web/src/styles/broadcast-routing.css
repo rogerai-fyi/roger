@@ -183,9 +183,9 @@
 .route-terms dd { margin: 0; color: var(--ink-700); font-size: 14px; line-height: 1.55; }
 
 @media (max-width: 700px) {
-  .route-process {
-    margin-inline: calc(var(--s-2) * -1); padding: 6px;
-  }
+  /* on the column, like every other figure (a bleed here only shifted it left: the
+     figure never outgrows the column) */
+  .route-process { padding: 6px; }
   .route-process__steps { grid-template-columns: 1fr; }
   .route-process__steps span { padding: 7px 9px; }
   .route-sim__head { align-items: start; padding: var(--s-4); }
@@ -200,10 +200,16 @@
   .route-station:nth-child(7) { left: 20%; top: 45%; }
   .route-station:nth-child(8) { right: 20%; top: 45%; }
   .route-station:nth-child(9) { right: 1%; top: 39%; }
-  .route-station:nth-child(10) { left: calc(50% - 32px); top: 55%; }
+  .route-station:nth-child(10) { left: calc(50% - 32px); top: 58%; }
   .route-sim__readout { grid-template-columns: 1fr; padding: var(--s-4); }
   .route-sim__readout p, .route-legend { grid-column: 1; }
   .route-terms > div { grid-template-columns: 1fr; gap: 5px; }
+}
+
+/* a phone: five cards a row only fit side by side a size smaller */
+@media (max-width: 420px) {
+  .route-station { width: 56px; min-height: 52px; padding: 6px; }
+  .route-station:nth-child(3), .route-station:nth-child(10) { left: calc(50% - 28px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

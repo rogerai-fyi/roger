@@ -37,3 +37,28 @@ test("research on a phone: the four-card contract is one column and the group he
 test("two inset bands in a row keep a gap between them", () => {
   assert.match(css("components.css"), /\.band--inset \+ \.band--inset \{[^}]*margin-top: var\(--s-/);
 });
+
+test("the live callout carries its red as the rule, not as a wash behind the words", () => {
+  assert.match(css("components.css"), /\.man-note--live \{[^}]*border-left-color: var\(--live\)[^}]*background: var\(--paper-2\)/);
+});
+
+test("the running-head rail paints no ground (it notched the footer and full-bleed bands)", () => {
+  assert.match(css("base.css"), /\.rail \{[^}]*background: transparent/);
+});
+
+test("footer: the colophon sets on the column on a phone; links are 44px targets on touch", () => {
+  const base = css("base.css");
+  assert.match(base, /@media \(max-width: 640px\) \{ \.footer__colophon \{ text-align: left; \} \}/);
+  assert.match(base, /@media \(pointer: coarse\) \{[^@]*\.footer__links a \{ padding-block: 11px; line-height: 22px; \}/);
+});
+
+test("article figures that swap ink and paper stay a dark room on the dark site", () => {
+  assert.match(css("broadcast-agent-governance.css"), /:root\[data-theme="dark"\] :is\(\.gov-compare__col--live, \.gov-flow__step--live\) \{[^}]*background: var\(--white\)/);
+  assert.match(css("broadcast-gpu-isolation.css"), /:root\[data-theme="dark"\] :is\(\.gpu-machines__col--live, \.gpu-flow__step--live\) \{[^}]*background: var\(--white\)/);
+});
+
+test("the governance timeline has one column per stop (a fixed five left a hole for four)", () => {
+  const g = css("broadcast-agent-governance.css");
+  assert.doesNotMatch(g, /\.gov-timeline \{[^}]*repeat\(5/);
+  assert.match(g, /\.gov-timeline \{[^}]*grid-auto-flow: column/);
+});

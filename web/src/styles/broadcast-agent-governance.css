@@ -9,7 +9,7 @@
    spine + a dot per stop), a left-rail vertical list under 860px. */
 .gov-timeline {
   list-style: none; margin: var(--s-8) 0 0; padding: 0; position: relative;
-  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-4);
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--s-4); /* one column per stop, whatever the count */
 }
 .gov-timeline::before {
   content: ""; position: absolute; top: 7px; left: 0; right: 0; height: 2px;
@@ -29,7 +29,7 @@
 .gov-timeline b { display: block; color: var(--ink-900); font-size: var(--t-sm); margin-bottom: 4px; }
 .gov-timeline p { margin: 0; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-500); }
 @media (max-width: 860px) {
-  .gov-timeline { grid-template-columns: 1fr; gap: var(--s-6); }
+  .gov-timeline { grid-auto-flow: row; grid-template-columns: 1fr; gap: var(--s-6); }
   .gov-timeline::before { top: 0; bottom: 0; left: 7px; right: auto; width: 2px; height: auto; }
   .gov-timeline li { padding-top: 0; padding-left: var(--s-6); }
   .gov-timeline li::before { top: 2px; }
@@ -100,6 +100,8 @@
 
 /* ---- sources list ---- */
 .gov-sources { margin-top: var(--s-8); padding-top: var(--s-6); border-top: 1px solid var(--hairline); }
+/* its label is a word, not a section mark: no red first letter */
+.gov-sources .bc-sec__no::first-letter { color: inherit; }
 .gov-sources ol { margin: var(--s-3) 0 0; padding-left: 1.2em; color: var(--ink-500); font-size: var(--t-xs); line-height: 1.8; }
 .gov-sources a { color: var(--ink-500); }
 .gov-sources a:hover, .gov-sources a:focus-visible { color: var(--live-text); }
@@ -109,3 +111,10 @@
 .gov-compare__col--live, .gov-flow__step--live { background: var(--ink-900); border-color: var(--ink-900); }
 .gov-compare__col--live :is(h3, ul), .gov-flow__step--live :is(h3, p) { color: var(--paper); }
 .gov-flow__step--live .gov-flow__no { color: var(--ink-300); }
+/* on the dark site ink-900 is the light ink, so the swap would turn the governed side
+   into a bright slab: it stays a room there instead, the raised face with a ring */
+:root[data-theme="dark"] :is(.gov-compare__col--live, .gov-flow__step--live) {
+  background: var(--white); border-color: var(--hairline-2);
+}
+:root[data-theme="dark"] :is(.gov-compare__col--live :is(h3, ul), .gov-flow__step--live :is(h3, p)) { color: var(--ink-900); }
+:root[data-theme="dark"] .gov-flow__step--live .gov-flow__no { color: var(--ink-400); }

@@ -52,7 +52,8 @@
   border: 1px solid var(--hairline-2); border-left: 3px solid var(--volt);
   background: var(--volt-tint); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6;
 }
-.man-note--live { border-left-color: var(--live); background: var(--live-tint); }
+/* the red is the rule, never a wash behind the words (the one-red rule) */
+.man-note--live { border-left-color: var(--live); background: var(--paper-2); }
 .man-note--ember { border-left-color: var(--ember); background: var(--ember-tint); }
 .man-note__tag { display: block; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-500); margin-bottom: 4px; }
 

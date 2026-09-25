@@ -85,7 +85,9 @@ code, pre { font-family: var(--font-mono); }
 .rail {
   position: fixed; left: 0; top: 0; bottom: 0; width: var(--spine);
   display: none; z-index: calc(var(--z-nav) - 1); pointer-events: none;
-  background: var(--paper);
+  /* no ground of its own: a painted rail notched every full-bleed band and the
+     footer, which seemed to start a spine's width in */
+  background: transparent;
   border-right: 1px solid var(--hairline);
 }
 .rail__head, .rail__rev {
@@ -661,6 +663,13 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   letter-spacing: 0.04em; padding-block: 0 var(--s-4);
   margin: 0 auto;   /* a .wrap: margin 0 pulled it off the content box */
   text-align: right;
+}
+/* a phone: right-set mono wraps into a ragged left edge; set it on the column */
+@media (max-width: 640px) { .footer__colophon { text-align: left; } }
+/* touch: every footer link is a full 44px target (the rows only look looser) */
+@media (pointer: coarse) {
+  .footer__group { gap: 0; }
+  .footer__links a { padding-block: 11px; line-height: 22px; }
 }
 
 /* The OC orange: a custom 3D fruit mark replacing the orange emoji in the colophon. Sphere depth
