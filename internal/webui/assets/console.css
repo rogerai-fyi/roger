@@ -1450,3 +1450,14 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 
 /* Grants table: revoke stays a quiet ghost; a REVOKED row reads muted. */
 .edge-grants-wrap { margin-top: var(--s-6); }
+
+/* Edge: a resource level bar in a node's detail - ink fill on a hairline track, one figure beside it. */
+.edge-res { display: flex; align-items: center; gap: var(--s-2); justify-content: flex-end; width: 100%; }
+.edge-res-bar {
+  flex: 1 1 auto; max-width: 8rem; height: 6px;
+  background: var(--paper-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.edge-res-fill { height: 100%; background: var(--ink-700); border-radius: var(--r-pill); }
+.edge-res-fig { font-size: var(--t-xs); color: var(--ink-500); white-space: nowrap; }

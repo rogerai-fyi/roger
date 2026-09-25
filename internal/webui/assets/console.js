@@ -1989,6 +1989,43 @@
     }).catch(function (e) { toast(e.message, "err"); });
   }
 
+  // edgeInstanceResources draws an instance's live resources - RAM as a used/total bar, the GPU as a
+  // name + a memory-used bar - from what the node could actually read (manage_web.feature: a resource
+  // with a real total draws as a bar, one without draws as a figure). Absent readings draw nothing.
+  function edgeInstanceResources(card, i) {
+    var r = i.resources;
+    if (!r) return;
+    if (r.ram_total_gb > 0) {
+      edgeKVBar(card, "RAM", (r.ram_used_gb || 0) / r.ram_total_gb,
+        (r.ram_used_gb || 0).toFixed(1) + " / " + r.ram_total_gb.toFixed(0) + " GB");
+    } else if (r.ram_used_gb > 0) {
+      edgeKV(card, "RAM", r.ram_used_gb.toFixed(1) + " GB", "muted"); // a figure, no denominator
+    }
+    if (r.gpu) {
+      if (r.gpu_mem_used > 0) {
+        edgeKVBar(card, "GPU", r.gpu_mem_used, r.gpu + "  " + Math.round(r.gpu_mem_used * 100) + "%");
+      } else {
+        edgeKV(card, "GPU", r.gpu, "muted");
+      }
+    }
+  }
+
+  // edgeKVBar is a KV row whose value is a small level bar plus its figure - the console's only bar,
+  // filled in ink, its track a hairline, so a resource reads at a glance without adding a colour.
+  function edgeKVBar(card, k, frac, text) {
+    var row = el("div", "kv");
+    row.appendChild(el("span", null, k));
+    var wrap = el("div", "edge-res");
+    var bar = el("div", "edge-res-bar");
+    var fill = el("div", "edge-res-fill");
+    fill.style.width = Math.max(0, Math.min(1, frac || 0)) * 100 + "%";
+    bar.appendChild(fill);
+    wrap.appendChild(bar);
+    wrap.appendChild(el("span", "mono edge-res-fig", text));
+    row.appendChild(wrap);
+    card.appendChild(row);
+  }
+
   // edgeInstanceJobControls draws the Bind Model / Clear actions for one of this machine's agents.
   function edgeInstanceJobControls(card, d, name) {
     var row = el("div", "card-actions edge-job-actions");
@@ -2161,6 +2198,7 @@
       var job = edgeJobFor(d, i.name);
       if (job) line += "  \u00b7 " + job;
       edgeKV(card, idx === 0 ? "instances" : "", line);
+      edgeInstanceResources(card, i);
       // On THIS machine's own instances the console can assign a model/job, like the TUI's Bind Model.
       if (d.jobs_manage && n.child) edgeInstanceJobControls(card, d, i.name);
     });
