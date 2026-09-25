@@ -30,12 +30,14 @@ test("the OS lock is documented for both of its jobs: a one-platform command and
 // more than one floor (a desktop one and a phone one), the widest is the one a phone gets.
 const LABEL_FLOOR = 11;
 const DIAGRAMS = [
-  // page, sheet, the svg's class hook, viewBox width, smallest label (SVG units)
-  { page: "tower.html", sheet: "tower.css", svg: "signal__svg", vbw: 720, smallest: 9 },
-  { page: "tower.html", sheet: "tower.css", svg: "tower__svg", vbw: 640, smallest: 8.5 },
-  { page: "pricing.html", sheet: "pricing.css", svg: "rwire__svg", vbw: 958, smallest: 16 },
-  { page: "research-industry.html", sheet: "research.css", svg: "purdue__svg", vbw: 720, smallest: 9 },
-  { page: "research-wave-family.html", sheet: "wave-family.css", svg: "wf-orbit__svg", vbw: 900, smallest: 16 },
+  // page, sheet, the svg's class hook, viewBox width, smallest label (SVG units), and the
+  // narrowest desktop column it sits in (measured, 1024-1920; Industrial from 1280, as its
+  // 1024 column is 842px and a legible floor must scroll there)
+  { page: "tower.html", sheet: "tower.css", svg: "signal__svg", vbw: 720, smallest: 9, desktop: 889 },
+  { page: "tower.html", sheet: "tower.css", svg: "tower__svg", vbw: 640, smallest: 8.5, desktop: 889 },
+  { page: "pricing.html", sheet: "pricing.css", svg: "rwire__svg", vbw: 958, smallest: 16, desktop: 922 },
+  { page: "research-industry.html", sheet: "research.css", svg: "purdue__svg", vbw: 720, smallest: 9, desktop: 888 },
+  { page: "research-wave-family.html", sheet: "wave-family.css", svg: "wf-orbit__svg", vbw: 900, smallest: 16, desktop: 882 },
 ];
 
 test("the diagram scroll box is one shared component: a floor width and the edge shade", () => {
@@ -55,6 +57,8 @@ for (const d of DIAGRAMS) {
     assert.ok(floors.length, `${d.sheet} sets --diagram-min in the .${hook} context`);
     const need = Math.ceil((LABEL_FLOOR * d.vbw) / d.smallest);
     assert.ok(Math.max(...floors) >= need, `${d.svg}: floor ${Math.max(...floors)}px < ${need}px`);
+    // and never wider than a desktop column: a floor past it scrolls a drawing that fits
+    assert.ok(Math.max(...floors) <= d.desktop, `${d.svg}: floor ${Math.max(...floors)}px > the ${d.desktop}px desktop column`);
   });
 }
 
@@ -184,4 +188,13 @@ test("articles: a landscape lead is one 16:9 crop; the video's FIG. label sits u
   assert.match(b, /\.bc-video > \.fig \{[^}]*order: 1/);
   assert.match(b, /\.bc-video__cap \{[^}]*order: 2;[^}]*text-align: left/);
   assert.match(b, /\.bc-video__frame \{[^}]*border-radius: var\(--r-lg\)/, "the video frame takes the images' radius");
+});
+
+test("share-GPU chart: the longest body line fits inside its node box with room (it crossed the border)", () => {
+  const html = read("src/broadcasts-share-gpu-earn.html");
+  const fs = Number(html.match(/\.d-b\{[^}]*font-size:([\d.]+)px/)[1]);
+  // "on the band (free by default)" starts at x=48 in a box ending at x=250; the mono face
+  // as rendered advances 0.615em a glyph (measured: 223 units at 12.5px for its 29 glyphs)
+  const right = 48 + 29 * 0.615 * fs;
+  assert.ok(right <= 250 - 6, `the line ends at x=${right.toFixed(1)}, the box border is x=250`);
 });

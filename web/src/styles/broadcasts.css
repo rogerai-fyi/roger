@@ -186,8 +186,8 @@
 /* ---- the lead figure: the shared .figure, spaced as the article's plate ---- */
 .bc-post__wrap > .figure { margin-block: var(--s-10) 0; }
 /* one hero shape: every landscape lead still or loop is cropped to 16:9 (most of the
-   art is drawn 16:9; the two wider banners lose a sliver of each side). A portrait phone
-   lead keeps its own shape. */
+   art is drawn 16:9; the two wider 1280x560 banners, Tower and VRAM, lose about 22% of
+   their width, a tenth or so off each side). A portrait phone lead keeps its own shape. */
 .bc-post__wrap > .figure--plate:not(.figure--phone) > :is(img, video) { aspect-ratio: 16 / 9; object-fit: cover; }
 
 /* ---- the headline video plate ---- */
