@@ -14,7 +14,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 |---|---|---|---|
 | Section, section head | `.section`, `.section__head`, `.sectionno` (base) | - | every marketing page |
 | Tinted band / inset band | `.band`, `.band--inset` | - | homepage, research pages |
-| Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (`--primary` first, then plain boxed secondaries) | press | 15 pages, every action row |
+| Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (every one solid, no variants) | press | 15 pages, every action row |
 | Callout | `.man-note` (`--live`, `--ember`) | - | manual, keys, hardware, 2 articles |
 | Install pill + copy tick | `install-box.html` partial, `.install`, `.install__box` (`--lg`) | `site.js` | homepage, app, Tower, articles |
 | Inline / block copy command | `.copy-code` (`--block`) | `site.js` `[data-copy-target]` | Pricing, Integrations |
@@ -49,7 +49,7 @@ definitions).
 
 | Role | The pattern | Was also |
 |---|---|---|
-| Action row (hero, section, closing) | the lead row: `.research-actions.research-actions--lead`, ONE solid primary (`--primary`, the first action), then boxed secondaries (the plain `.research-button` outline) | underlined quiet text links (`--quiet`, reversed by the founder: every row now reads like the old Company row), a row with no primary, the 404's own pill + link |
+| Action row (hero, section, closing) | the lead row: `.research-actions.research-actions--lead`, every action the same solid `.research-button` (no primary/secondary: a single highlighted first button read as "the current view", founder ruling) | underlined quiet text links (`--quiet`), a solid primary then outlined secondaries (`--primary`), the 404's own pill + link |
 | Page hero | paper; the homepage cover is the one ink hero. The ink panel marks a page's moment (its instrument or live data), not its title | ink hero panels (Company, Careers, FAQ) |
 | Hero title | landing page: `--t-display`; document (article, manual, legal, 404, confidential): `--t-h1` | the Broadcasts front door at h1 size |
 | Contents tuner | right after the hero (and the hero's strip or figure) on any page with 4+ numbered sections | after an article's Quick Answer (broadcast 010) |
@@ -153,24 +153,24 @@ without scripts or with `prefers-reduced-motion: reduce`.
 where the page sets `section[id] { scroll-margin-top: 72px }` (home does).
 
 ### Buttons
-`.research-actions` is the row; `.research-button` the button, `.research-button--primary`
-the one primary. (Historical name, kept so no markup had to change; a rename to a neutral
-name is a one-commit job for the rollout.) Pressable: sinks 1px while held
-(none under reduced motion).
+`.research-actions` is the row; `.research-button` the button, every one alike. (Historical
+name, kept so no markup had to change; a rename to a neutral name is a one-commit job for
+the rollout.) Pressable: sinks 1px while held (none under reduced motion).
 
 (The homepage's card links, `.company__links` with `.company__primary`, look similar
 but are a different role: sentence-case links set in the card's own type with a drawn red
 rule on hover, not the page's uppercase action row. They stay in home.css.)
 
 Every action row on the site is the lead row (see **One role, one pattern**):
-`.research-actions.research-actions--lead`, ONE solid primary (`.research-button--primary`,
-the first action), then boxed secondaries: the plain `.research-button`, a hairline outline
-with the mono label in `--ink-700` (AA on paper and, through the tokens, in an ink panel).
-Hover and focus turn the outline and label red, keyboard focus adds a 2px `--live` ring,
-a pressed secondary takes the `--paper-2` ground and sinks 1px; no glow. On touch every
-button is at least 44px tall. The lead row keeps every button at its own width on phones
-and wraps onto new lines with a 12px gap, so it never becomes a stack of full-width
-outlines. There is no quiet link variant.
+`.research-actions.research-actions--lead`, and every action in it is the same solid
+`.research-button`: an `--ink-900` fill with a `--paper` mono label (17:1), which the tokens
+turn into a paper fill with an ink label on the dark site and in an ink panel. There is no
+primary: a single highlighted first button read as "the current view" (founder ruling).
+Hover and focus fill `--live-text` under the paper label (5.5:1 light, 5.7:1 dark),
+keyboard focus adds a 2px `--live` ring, a press takes the `--ink-700` fill (12.6:1) and
+sinks 1px; no glow. On touch every button is at least 44px tall. The lead row keeps every
+button at its own width on phones and wraps onto new lines with a 12px gap, so it never
+becomes a full-width stack. There is no outline or quiet link variant.
 
 ### Callout
 `<div class="man-note">` with an optional `<span class="man-note__tag">`; `--live` and
@@ -571,7 +571,7 @@ of it. What was found and where it went:
   account-base.css), the look of every signed-out and empty state: the shared tinted
   ground placed in the plate, the card's mono section label (its `h2`), the page's own
   words, an optional command well, and the page's existing action as the lead row's
-  primary (keys and usage signed out; no stations; no dashboard traffic; Base Station
+  solid button (keys and usage signed out; no stations; no dashboard traffic; Base Station
   signed out, whose Log in stays a link in its sentence). Dashboard, console and payouts
   send a signed-out visitor to /login, and /r writes its message from script, so they
   have no signed-out panel; /stations shows its error line when signed out (a logic

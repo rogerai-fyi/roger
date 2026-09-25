@@ -36,16 +36,19 @@
      as "TOWERv". gap restores it; buttons with a single text node have one
      flex item and are unaffected. */
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border: 1px solid var(--hairline-2);
-  color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
+  padding: 10px 16px; border: 1px solid var(--ink-900); background: var(--ink-900);
+  color: var(--paper); font-family: var(--font-mono); font-size: var(--t-xs);
   text-transform: uppercase; letter-spacing: .08em;
 }
-.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live-text); }
+/* every button is the same solid button (founder ruling: one highlighted first button read
+   as "the current view"). Ink fill, paper label; the tokens flip it to a paper fill with an
+   ink label on the dark site and in an ink panel. Hover and focus fill red (the text red,
+   AA under a paper label in both themes), keyboard focus adds a ring, a press darkens the
+   fill and sinks 1px. No glow. */
+.research-button:hover, .research-button:focus-visible { border-color: var(--live-text); background: var(--live-text); color: var(--paper); }
 .research-button:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.research-button:not(.research-button--primary):active { background: var(--paper-2); }
+.research-button:active { background: var(--ink-700); border-color: var(--ink-700); }
 @media (pointer: coarse) { .research-button { min-height: 44px; } }
-.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
-.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
 
 /* ============================ CALLOUT ========================== */
 /* a boxed operating note / caution (shared: manual / keys) */
@@ -518,10 +521,9 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .page-index a.page-index__head:hover { color: var(--live-text); }
 
 /* ---- component: lead action row (added by models rollout) -----------------
-   <div class="research-actions research-actions--lead">: ONE primary button
-   (.research-button--primary, solid ink), then boxed secondaries (the plain
-   .research-button: a hairline outline, mono label). On a phone each button keeps
-   its own width and the row wraps onto new lines; it never becomes a full-width stack. */
+   <div class="research-actions research-actions--lead">: equal solid buttons
+   (.research-button, no variants). On a phone each button keeps its own width and
+   the row wraps onto new lines; it never becomes a full-width stack. */
 /* ONE ROLE, ONE PATTERN: every action row on the site is this lead row
    (test/consistency.test.mjs). The boxes re-theme in an ink panel through the tokens. */
 .research-actions--lead { align-items: center; gap: var(--s-3); }

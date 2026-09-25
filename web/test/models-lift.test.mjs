@@ -78,12 +78,12 @@ test("pricing: a TOC tuner under the hero, one station per numbered section", ()
   assert.ok(html.indexOf('class="toc-tuner"') > html.indexOf("</section>"), "after the hero, never above it");
 });
 
-test("pricing: the hero offers one primary action and boxed secondaries, never a full-width stack", () => {
+test("pricing: the hero offers its actions as equal solid buttons, never a full-width stack", () => {
   const hero = src("pricing.html").match(/<section class="research-hero">[\s\S]*?<\/section>/)[0];
   const row = hero.match(/<div class="research-actions research-actions--lead">[\s\S]*?<\/div>/)?.[0] || "";
   assert.ok(row, "the hero row is a lead row");
-  assert.equal((row.match(/research-button--primary/g) || []).length, 1);
-  assert.equal((row.match(/class="research-button"/g) || []).length, 2);
+  assert.equal((row.match(/research-button--/g) || []).length, 0);
+  assert.equal((row.match(/class="research-button"/g) || []).length, 3);
   const close = sectionOf(src("pricing.html"), "ask");
   assert.match(close, /<div class="research-actions research-actions--lead">/, "the closing row too");
 });
@@ -168,12 +168,12 @@ test("system: every new motion is opt-in or switched off under reduced motion", 
 
 /* ---- MODELS ---------------------------------------------------------------------- */
 
-test("models: the hero offers one primary action and boxed links to the rest of the menu", () => {
+test("models: the hero offers the rest of the menu as equal solid buttons", () => {
   const html = src("models.html");
   const row = html.match(/<div class="research-actions research-actions--lead"[^>]*>[\s\S]*?<\/div>/)?.[0] || "";
   assert.ok(row, "the hero row is a lead row");
-  assert.equal((row.match(/research-button--primary/g) || []).length, 1);
-  assert.equal((row.match(/class="research-button"/g) || []).length, 4);
+  assert.equal((row.match(/research-button--/g) || []).length, 0);
+  assert.equal((row.match(/class="research-button"/g) || []).length, 5);
 });
 
 test("models: the live directory sits in an ink panel, like the homepage's band", () => {
@@ -238,15 +238,15 @@ test("tower: the signal path and the patch are one ink panel; the tape is a roun
   }
 });
 
-test("tower: no inline styles; every action row leads with one primary", () => {
+test("tower: no inline styles; every action row is equal solid buttons", () => {
   const main = mainOf(src("tower.html"));
   assert.doesNotMatch(main, /style="/);
   const rows = [...src("tower.html").matchAll(/<div class="research-actions([^"]*)">([\s\S]*?)<\/div>/g)];
   assert.equal(rows.length, 3);
   for (const [, mod, row] of rows) {
     assert.equal(mod, " research-actions--lead");
-    assert.equal((row.match(/research-button--primary/g) || []).length, 1);
-    assert.doesNotMatch(row, /research-button--quiet/, "the rest are boxed secondaries, not quiet links");
+    assert.ok((row.match(/class="research-button"/g) || []).length >= 1);
+    assert.doesNotMatch(row, /research-button--/, "no primary, outline or quiet variant");
   }
 });
 

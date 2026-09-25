@@ -118,7 +118,7 @@ body.auth {
      <h2>Label</h2>                       the card's mono section label
      <p>The page's own words.</p>         [<pre class="cmd">...</pre>] [<p class="fine">...</p>]
      <p class="research-actions research-actions--lead">
-       <a class="research-button research-button--primary" href="...">Its action</a></p>
+       <a class="research-button" href="...">Its action</a></p>
    </section>
    The ground is the shared .tint-panel rule; this places it in the plate. */
 .acct-state { margin-top: var(--s-6); padding: var(--s-5) var(--s-6); }
