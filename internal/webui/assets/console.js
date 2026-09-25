@@ -1677,6 +1677,7 @@
     edgeRenderCandidates(d);
     edgeRenderSessions(d);
     edgeCanManage = !!d.manage;
+    edgeRenderSelfControls(d);
     edgeRenderDetail(d);
   }
 
@@ -1878,6 +1879,65 @@
     row.appendChild(el("span", null, k));
     row.appendChild(el("b", "mono" + (cls ? " " + cls : ""), v));
     card.appendChild(row);
+  }
+
+  // edgeRenderSelfControls draws THIS machine's own management - the agent role, add-agent, and where
+  // a turn goes first - the console's mirror of the TUI [3] panel. Shown only when the host wired them.
+  function edgeRenderSelfControls(d) {
+    var bar = $("edge-self-controls");
+    if (!bar) return;
+    if (!d.self_manage) { bar.innerHTML = ""; show(bar, false); return; }
+    bar.innerHTML = "";
+    var label = el("span", "mono muted small", (d.self || "this machine") + " \u00b7");
+    bar.appendChild(label);
+
+    // Agent role: one toggle button (Stop/Make Agent).
+    var agentBtn = el("button", "btn small" + (d.agent_active ? "" : " ghost"), d.agent_active ? "stop agent" : "make agent");
+    agentBtn.setAttribute("type", "button");
+    agentBtn.addEventListener("click", function () { edgeSetAgent(!d.agent_active); });
+    bar.appendChild(agentBtn);
+
+    // Add a new agent roger on this machine.
+    var addBtn = el("button", "btn small ghost", "add agent");
+    addBtn.setAttribute("type", "button");
+    addBtn.addEventListener("click", function () { edgeAddAgent(); });
+    bar.appendChild(addBtn);
+
+    // Prefer: where a turn goes first.
+    var prefWrap = el("span", "edge-prefer");
+    prefWrap.appendChild(el("span", "mono muted small", "prefer"));
+    var sel = el("select", "edge-prefer-sel");
+    ["local", "market", "local-only"].forEach(function (opt) {
+      var o = el("option", null, opt);
+      o.value = opt;
+      if ((d.facts && (d.facts.prefer || "").toLowerCase()) === opt) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () { edgeSetPrefer(sel.value); });
+    prefWrap.appendChild(sel);
+    bar.appendChild(prefWrap);
+    show(bar, true);
+  }
+
+  function edgeSetAgent(on) {
+    apiPost("/api/edge/agent", { on: on }).then(function (d) {
+      toast(on ? "this roger is now an agent" : "agent role stopped");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function edgeAddAgent() {
+    apiPost("/api/edge/agent/add", {}).then(function (d) {
+      toast("a new agent roger is starting on this machine");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function edgeSetPrefer(want) {
+    apiPost("/api/edge/prefer", { prefer: want }).then(function (d) {
+      toast("turns now prefer " + want);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
   }
 
   function edgeRenderDetail(d) {

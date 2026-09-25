@@ -132,3 +132,105 @@ func TestConsoleNameForgetDisabledWhenUnwired(t *testing.T) {
 		}
 	}
 }
+
+// The console's self-controls - agent on/off, add agent, prefer - go through the same host operations
+// the TUI [3] panel does (features/edge/agents.feature, mode.feature).
+
+func selfRig(t *testing.T) (*Server, *httptest.Server, *[]string) {
+	t.Helper()
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	calls := []string{}
+	agentOn := false
+	s := New(testCtrl(), Options{Edge: EdgeHooks{
+		Self:        "workshop",
+		Fleet:       fleet,
+		SetAgent:    func(on bool) error { agentOn = on; calls = append(calls, "agent="+boolStr(on)); return nil },
+		AddAgent:    func() error { calls = append(calls, "add"); return nil },
+		AgentActive: func() bool { return agentOn },
+		SetPrefer:   func(want string) error { calls = append(calls, "prefer="+want); return nil },
+	}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	return s, srv, &calls
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
+func TestConsoleAgentToggleThroughHost(t *testing.T) {
+	s, srv, calls := selfRig(t)
+	resp := postJSONTok(t, srv, s, "/api/edge/agent", `{"on":true}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("agent on = %d, want 200", resp.StatusCode)
+	}
+	// The snapshot now reports the role active.
+	resp2 := postJSONTok(t, srv, s, "/api/edge/agent", `{"on":false}`)
+	var snap edgeSnap
+	json.NewDecoder(resp2.Body).Decode(&snap)
+	resp2.Body.Close()
+	if len(*calls) != 2 || (*calls)[0] != "agent=on" || (*calls)[1] != "agent=off" {
+		t.Fatalf("SetAgent calls = %v", *calls)
+	}
+}
+
+func TestConsoleAddAgentThroughHost(t *testing.T) {
+	s, srv, calls := selfRig(t)
+	resp := postJSONTok(t, srv, s, "/api/edge/agent/add", `{}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add agent = %d, want 200", resp.StatusCode)
+	}
+	if len(*calls) != 1 || (*calls)[0] != "add" {
+		t.Fatalf("AddAgent calls = %v", *calls)
+	}
+}
+
+func TestConsolePreferThroughHost(t *testing.T) {
+	s, srv, calls := selfRig(t)
+	resp := postJSONTok(t, srv, s, "/api/edge/prefer", `{"prefer":"local-only"}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("prefer = %d, want 200", resp.StatusCode)
+	}
+	if len(*calls) != 1 || (*calls)[0] != "prefer=local-only" {
+		t.Fatalf("SetPrefer calls = %v", *calls)
+	}
+}
+
+func TestConsoleSelfControlsNeedTokenAndPost(t *testing.T) {
+	s, srv, _ := selfRig(t)
+	for _, path := range []string{"/api/edge/agent", "/api/edge/agent/add", "/api/edge/prefer"} {
+		// no token
+		resp, _ := http.Post(srv.URL+path, "application/json", strings.NewReader(`{}`))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s no token = %d, want 403", path, resp.StatusCode)
+		}
+		// GET with token
+		g, _ := http.Get(srv.URL + path + "?t=" + s.Token())
+		g.Body.Close()
+		if g.StatusCode == http.StatusOK {
+			t.Fatalf("GET %s = 200, want a refusal", path)
+		}
+	}
+}
+
+func TestConsoleSelfControlsDisabledWhenUnwired(t *testing.T) {
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Fleet: edge.NewFleet(store.NewMem(), "acct-1")}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	for _, tc := range []struct{ path, body string }{
+		{"/api/edge/agent", `{"on":true}`}, {"/api/edge/agent/add", `{}`}, {"/api/edge/prefer", `{"prefer":"local"}`},
+	} {
+		resp := postJSONTok(t, srv, s, tc.path, tc.body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotImplemented {
+			t.Fatalf("%s unwired = %d, want 501", tc.path, resp.StatusCode)
+		}
+	}
+}

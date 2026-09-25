@@ -135,6 +135,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeHousehold = func() []edge.Instance { return edge.Household(edgeInstancesDir(), time.Now()) }
 	hooks.EdgeName = h.nameNode
 	hooks.EdgeForget = h.forgetNode
+	hooks.EdgeSetPrefer = h.setPrefer
 	// The agents the owner marked persistent - a durable record, so one that has stopped still
 	// draws (dark) with resume/remove (features/edge/agents.feature).
 	hooks.EdgePersistentAgents = func() []edge.PersistentAgent { return edge.PersistentAgents(edgePersistDir()) }
@@ -289,6 +290,24 @@ func (h *edgeHost) adopt(id, name string) error {
 	// already removed a serving candidate; this also covers the claim path, idempotently.)
 	h.st.candidates = edgeFilter(h.st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
 	_ = h.st.save()
+	return nil
+}
+
+// setPrefer chooses where a turn goes first on this machine - local, market, or local-only
+// (features/edge/mode.feature) - the host-side of `roger edge prefer` and the console's Prefer control.
+// It validates, persists, and updates the live config so the next turn honors it at once.
+func (h *edgeHost) setPrefer(want string) error {
+	if !edge.ValidPrefer(want) {
+		return fmt.Errorf("prefer takes local, market or local-only; %q is none of them", want)
+	}
+	cfg := loadConfig()
+	cfg.EdgePrefer = want
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	h.cfg = cfg
+	h.mu.Unlock()
 	return nil
 }
 

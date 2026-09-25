@@ -102,6 +102,9 @@ type Hooks struct {
 	// console's Name/Forget actions. Nil when the build cannot manage the fleet.
 	EdgeName   func(id, name string) error
 	EdgeForget func(id string) error
+	// EdgeSetPrefer chooses where a turn goes first (local | market | local-only), the host-side of
+	// `roger edge prefer` and the console's Prefer control (features/edge/mode.feature).
+	EdgeSetPrefer func(want string) error
 	// EdgeSessions is the account's live session ledger: the traffic this Edge really
 	// carried, derived by the relay path from its OWN receipts. The screen only READS
 	// it. There is no hook here that could open a session, because looking at the Edge

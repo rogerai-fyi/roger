@@ -149,6 +149,8 @@ func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
 	return webui.EdgeHooks{
 		Self: h.EdgeSelf, Fleet: h.EdgeFleet, Candidates: h.EdgeCandidates,
 		Adopt: h.EdgeAdopt, Name: h.EdgeName, Forget: h.EdgeForget,
+		SetAgent: h.EdgeSetAgent, AddAgent: h.EdgeAddAgent,
+		AgentActive: h.EdgeAgentActive, SetPrefer: h.EdgeSetPrefer,
 		Sessions: h.EdgeSessions, Status: h.EdgeStatus,
 	}
 }

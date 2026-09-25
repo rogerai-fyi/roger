@@ -38,9 +38,16 @@ type EdgeHooks struct {
 	// Name renames a node and Forget removes it - the same host operations the TUI and CLI perform,
 	// so the console manages the fleet, it does not just watch it (features/edge/manage_web.feature).
 	// Nil leaves that action honestly disabled in the console.
-	Name     func(id, name string) error
-	Forget   func(id string) error
-	Sessions *edge.Sessions
+	Name   func(id, name string) error
+	Forget func(id string) error
+	// SetAgent turns THIS roger's agent role on or off, AddAgent launches a new agent roger on this
+	// machine, and SetPrefer chooses where a turn goes first - the same self-management the TUI's [3]
+	// panel does (features/edge/agents.feature, mode.feature). AgentActive reports the current role.
+	SetAgent    func(on bool) error
+	AddAgent    func() error
+	AgentActive func() bool
+	SetPrefer   func(want string) error
+	Sessions    *edge.Sessions
 	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
 	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
 	Status func() edge.SelfStatus
@@ -143,6 +150,10 @@ type edgeSnap struct {
 	// Manage is true when this build wired the fleet-management hooks (Name + Forget), so the console
 	// shows those actions on a member exactly when they would work, and never when they would 501.
 	Manage bool `json:"manage"`
+	// AgentActive is whether THIS roger is running as an agent, and SelfManage whether the self-controls
+	// (agent on/off, add agent, prefer) are wired, so the console shows them exactly when they work.
+	AgentActive bool `json:"agent_active"`
+	SelfManage  bool `json:"self_manage"`
 }
 
 func (s *Server) edgeNow() time.Time {
@@ -203,6 +214,10 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	}
 	snap.Configured, snap.Self, snap.Account, snap.At = true, h.Self, h.Fleet.Account(), now.Unix()
 	snap.Manage = h.Name != nil && h.Forget != nil
+	snap.SelfManage = h.SetAgent != nil && h.AddAgent != nil && h.SetPrefer != nil
+	if h.AgentActive != nil {
+		snap.AgentActive = h.AgentActive()
+	}
 	snap.SelfInstances = []edge.Instance{}
 	if h.Household != nil {
 		snap.SelfInstances = append(snap.SelfInstances, h.Household()...)
@@ -335,6 +350,65 @@ func (s *Server) handleEdgeForget(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Forget(req.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeAgent turns THIS roger's agent role on or off through the host - POST-only, token-gated -
+// the console's mirror of the TUI's Stop/Start Agent (features/edge/agents.feature).
+func (s *Server) handleEdgeAgent(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.SetAgent == nil {
+		http.Error(w, "this build cannot change the agent role from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		On bool `json:"on"`
+	}
+	if !decode(r, &req) {
+		http.Error(w, "on (bool) required", http.StatusBadRequest)
+		return
+	}
+	if err := h.SetAgent(req.On); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeAddAgent launches a new agent roger on this machine through the host - the console's Add
+// Agent (features/edge/agents.feature). POST-only and token-gated.
+func (s *Server) handleEdgeAddAgent(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.AddAgent == nil {
+		http.Error(w, "this build cannot add an agent from the console", http.StatusNotImplemented)
+		return
+	}
+	if err := h.AddAgent(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgePrefer chooses where a turn goes first (local | market | local-only) through the host -
+// the console's mirror of `roger edge prefer` (features/edge/mode.feature). POST-only and token-gated.
+func (s *Server) handleEdgePrefer(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.SetPrefer == nil {
+		http.Error(w, "this build cannot set the routing preference from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Prefer string `json:"prefer"`
+	}
+	if !decode(r, &req) || req.Prefer == "" {
+		http.Error(w, "prefer (local|market|local-only) required", http.StatusBadRequest)
+		return
+	}
+	if err := h.SetPrefer(req.Prefer); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	s.writeEdge(w)
