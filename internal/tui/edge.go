@@ -527,7 +527,13 @@ func (m *model) edgeStartAsk() {
 		}
 		return
 	}
-	m.status = stKey.Render("Ask "+it.name+": ") + stDim.Render("run `roger use "+addr+"` to prompt "+model)
+	// Name the model explicitly for a NODE address: a node serving more than one band needs --model,
+	// or `roger use <node>` refuses with ErrMultipleModels. A local serving roger (addr==model) needs none.
+	hint := "run `roger use " + addr + "` to prompt " + model
+	if addr != model {
+		hint = "run `roger use " + addr + " --model " + model + "` to prompt " + model
+	}
+	m.status = stKey.Render("Ask "+it.name+": ") + stDim.Render(hint)
 }
 
 // edgeStartBind opens the inline "Bind Model" prompt for the selected agent - the founder's

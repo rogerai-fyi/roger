@@ -59,6 +59,9 @@ func edgeIssueGrant(st *edge.GrantStore, owner string, key crypto.Signer, spec e
 	if strings.TrimSpace(spec.callee) == "" {
 		return store.Grant{}, fmt.Errorf("a grant needs a callee - the node it authorizes acting on")
 	}
+	if spec.expiresAt != 0 && spec.expiresAt <= now.Unix() {
+		return store.Grant{}, fmt.Errorf("that grant would already be expired - give --for a future duration like 7d")
+	}
 	g := store.Grant{
 		ID:        edgeNewGrantID(),
 		Owner:     owner,
@@ -145,7 +148,9 @@ func cmdEdgeGrantIssue(cfg config, args []string) error {
 	}
 	expiresAt, err := parseExpires(forDur)
 	if err != nil {
-		return err
+		// parseExpires is shared with `roger grant` and words its error for --expires; this command's
+		// flag is --for, so re-word it here rather than send the user chasing a flag that does not exist.
+		return fmt.Errorf("bad --for %q, want e.g. 7d or 2026-12-31", forDur)
 	}
 	g, err := edgeIssueGrant(edgeGrantStore(), local.Account(), local.Authority().RootKey(),
 		edgeGrantSpec{caller: callerID, callee: calleeID, capability: capArg, expiresAt: expiresAt, maxHops: hops}, time.Now())
@@ -236,6 +241,11 @@ func cmdEdgeGrantRevoke(id string) error {
 		return fmt.Errorf("no such grant %q (run `roger edge grant` to list)", id)
 	}
 	fmt.Printf("revoked %s\n", id)
+	// Be honest about reach: today only the issuing authority's own CLI and its own node honor this at
+	// invoke time (the caller here skips revoked grants, and a same-node callee reads this store). A
+	// callee on ANOTHER machine will keep honoring a held copy until the grant expires, until the
+	// distributed grant-CRL slice lands.
+	fmt.Println("  (enforced by this authority and its own node now; other machines honor it at the grant's expiry until the grant-CRL ships)")
 	return nil
 }
 

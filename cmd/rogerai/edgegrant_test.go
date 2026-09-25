@@ -127,3 +127,15 @@ func TestEdgeTrustedRevocationUnknownGrantHasNoLocalStanding(t *testing.T) {
 	got := edgeTrustedRevocation(st, store.Grant{ID: "g_foreign", Revoked: true})
 	require.False(t, got.Revoked)
 }
+
+func TestEdgeIssueGrantRefusesAnAlreadyExpiredGrant(t *testing.T) {
+	st, local := grantIssueFixture(t)
+	now := time.Now()
+	_, err := edgeIssueGrant(st, local.Account(), local.Authority().RootKey(),
+		edgeGrantSpec{caller: "n_a", callee: "n_b", capability: "operate", expiresAt: now.Add(-time.Hour).Unix()}, now)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already be expired")
+
+	got, _ := st.List()
+	require.Empty(t, got, "an already-expired grant is never stored")
+}

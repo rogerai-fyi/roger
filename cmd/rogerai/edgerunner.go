@@ -100,7 +100,10 @@ func edgeLiveTurnDeps() edgeTurnDeps {
 func edgeRunDelegatedTurn(ctx context.Context, chatURL, key, model, prompt string) (string, error) {
 	completer := harness.LocalCompleter(chatURL, key, model)
 	persona := harness.LoadPersona(harness.PersonaPath())
-	root := edgeDelegateRoot()
+	root, err := edgeDelegateRoot()
+	if err != nil {
+		return "", err
+	}
 	confirmer := func(string, map[string]any) bool { return false } // headless: no human to confirm
 	loop := harness.NewLoop(root, persona, completer, confirmer)
 	defer loop.Close()
@@ -110,11 +113,12 @@ func edgeRunDelegatedTurn(ctx context.Context, chatURL, key, model, prompt strin
 // edgeDelegateRoot is the sandbox a delegated turn runs in: a dedicated directory under the config
 // dir, never the daemon's arbitrary cwd. Mutating tools are denied headless anyway, so this mostly
 // bounds what a delegated turn can READ; keeping it its own dir means a delegated task never sees
-// the operator's working tree by accident. Falls back to "." only if the dir cannot be created.
-func edgeDelegateRoot() string {
+// the operator's working tree by accident. If the dir cannot be created it returns an error and the
+// turn is refused - it never falls back to the daemon's cwd, which would defeat the sandbox.
+func edgeDelegateRoot() (string, error) {
 	dir := filepath.Join(filepath.Dir(configPath()), "edge-delegate")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "."
+		return "", fmt.Errorf("could not prepare the delegate sandbox %s: %w", dir, err)
 	}
-	return dir
+	return dir, nil
 }

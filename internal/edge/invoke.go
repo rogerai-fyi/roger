@@ -107,7 +107,11 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// 5. Hop limit: onward delegation is bounded by the grant (0 = no onward delegation).
+	// 5. Hop limit: onward delegation is bounded by the grant (0 = no onward delegation). Origin is
+	//    caller-supplied and NOT signed, so today - with no onward delegation yet emitting it - this
+	//    and the loop check above are best-effort against an honest delegation path; when the runner
+	//    gains onward invoke (Slice 3), it will APPEND this node to Origin so the chain is built by the
+	//    fabric, not the caller, and a signed envelope will bind it.
 	if len(req.Origin) > req.Grant.MaxHops {
 		refuse(http.StatusForbidden, "that task has been delegated more times than the grant allows")
 		return
