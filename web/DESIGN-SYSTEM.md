@@ -175,12 +175,15 @@ its own width on phones, so it never becomes a stack of full-width outlines.
 ```html
 <!-- include: install-box.html id=installX cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
 <!-- args: size=lg (closing CTA size), oslock=linux (never swapped to PowerShell),
+     oslock=any (a cross-platform command that is not the installer: never swapped),
      label="..." (defaults to "Copy install command to clipboard") -->
 ```
 Wrap it in `<div class="install">` with an optional `<span class="fig">`,
 `<p class="install__lead">` and `<div class="install__meta">`. site.js copies the
 displayed `.install__code` of **every** `.install__box` (Windows visitors get the
-PowerShell line unless `data-os-lock`), marks it `.is-copied` for 1.6s (the icon becomes a
+PowerShell line unless `data-os-lock`: `linux` for a one-platform command such as the
+Tower installer, `any` for a cross-platform command that is not the installer, such as
+`roger use` on /models or `roger say` on /voices), marks it `.is-copied` for 1.6s (the icon becomes a
 tick) and shows the toast. A hyphenated token wrapped in `<span class="tok">` never breaks.
 No-JS: the command is plain selectable text. Pages with a text "copy" label instead of the
 icon (the /models QSL card, /voices) use the same classes by hand.

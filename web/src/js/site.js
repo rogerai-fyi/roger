@@ -261,11 +261,15 @@
     // Swap the CLIENT install commands to PowerShell. The copy handler reads
     // .install__code at click time, so the copy target follows.
     //
-    // [data-os-lock] boxes are skipped: their command only runs on one platform, and
-    // rewriting one would hand a Windows reader a command for the wrong program. The Tower
-    // box is the case - roger-tower is a Linux server process, and the installer refuses
-    // anything else - so offering it a Windows client one-liner would be a lie the page
-    // told itself.
+    // [data-os-lock] boxes are skipped. The lock marks any box whose command is not the
+    // client installer, for one of two reasons:
+    //  - data-os-lock="linux" (or another platform): the command only runs there. The Tower
+    //    box is the case - roger-tower is a Linux server process, and the installer refuses
+    //    anything else - so offering it a Windows client one-liner would be a lie the page
+    //    told itself.
+    //  - data-os-lock="any": the command already runs everywhere and is not an installer
+    //    (the /models QSL card's `roger use ...`, the /voices `roger say ...`), so swapping
+    //    it for the installer would replace the command the reader came to copy.
     Array.prototype.forEach.call(
       document.querySelectorAll(".install__box:not([data-os-lock])"), function (btn) {
         var code = btn.querySelector(".install__code");
