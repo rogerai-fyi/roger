@@ -144,3 +144,31 @@ test("account states: the card's link treatment leaves the lead row's buttons al
   const a = css("account-base.css");
   for (const m of a.matchAll(/\.card a:not\(\.gh\)[^{]*\{/g)) assert.match(m[0], /:not\(\.research-button\)/, m[0]);
 });
+
+// Item 5: one frame for every article figure. Each <figure> in a broadcast is the shared
+// plate (.figure.figure--plate): the tinted ground, one radius, one inset, the FIG. caption
+// inside it under the media, left-set. A landscape lead (hero) image or loop is cropped to
+// one 16:9 shape; a portrait phone lead keeps its shape (.figure--phone).
+const ARTICLES = readdirSync(path.join(WEB, "src")).filter((f) => /^broadcasts-.+\.html$/.test(f));
+test("articles: every figure is the shared plate", () => {
+  const bad = [];
+  for (const f of ARTICLES) {
+    for (const [tag] of read(path.join("src", f)).matchAll(/<figure\b[^>]*>/g)) {
+      const cls = (tag.match(/class="([^"]*)"/)?.[1] || "").split(/\s+/);
+      if (!cls.includes("figure") || !cls.includes("figure--plate")) bad.push(`${f}: ${tag}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+test("articles: the frames the pages drew themselves are gone (the plate is the frame)", () => {
+  assert.doesNotMatch(css("broadcast-routing.css"), /\.route-process \{[^}]*(border|background|border-radius):/);
+  assert.doesNotMatch(css("broadcast-economics.css"), /\.ec-(chart|formula) \{[^}]*(border|background):/);
+});
+test("articles: a landscape lead is one 16:9 crop; the video's FIG. label sits under it like every caption", () => {
+  const b = css("broadcasts.css");
+  assert.match(b, /\.bc-post__wrap > \.figure--plate:not\(\.figure--phone\) > :is\(img, video\) \{[^}]*aspect-ratio: 16 \/ 9;[^}]*object-fit: cover/);
+  assert.match(b, /\.bc-video \{[^}]*display: flex;[^}]*flex-direction: column/);
+  assert.match(b, /\.bc-video > \.fig \{[^}]*order: 1/);
+  assert.match(b, /\.bc-video__cap \{[^}]*order: 2;[^}]*text-align: left/);
+  assert.match(b, /\.bc-video__frame \{[^}]*border-radius: var\(--r-lg\)/, "the video frame takes the images' radius");
+});

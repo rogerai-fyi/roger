@@ -1,13 +1,9 @@
 /* Broadcast 009 - capacity-aware routing plate. Scoped under .route-post. */
 
-.route-process {
-  margin: var(--s-8) 0 0; padding: 10px;
-  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
-  background: var(--paper-2); overflow: hidden;
-}
+/* the frame is the shared plate (.figure--plate); this sets only its content */
+.route-process { margin: var(--s-8) 0 0; overflow: hidden; }
 .route-process__image {
-  position: relative; overflow: hidden; border-radius: 5px;
-  background: var(--paper-2);
+  position: relative; overflow: hidden; border-radius: var(--r-lg);
 }
 .route-process__image img {
   display: block; width: 100%; height: auto;
@@ -185,7 +181,6 @@
 @media (max-width: 700px) {
   /* on the column, like every other figure (a bleed here only shifted it left: the
      figure never outgrows the column) */
-  .route-process { padding: 6px; }
   .route-process__steps { grid-template-columns: 1fr; }
   .route-process__steps span { padding: 7px 9px; }
   .route-sim__head { align-items: start; padding: var(--s-4); }

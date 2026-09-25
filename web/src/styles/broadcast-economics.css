@@ -36,11 +36,8 @@
 
 /* ---- the formula ------------------------------------------------------ */
 
-.ec-formula {
-  margin: var(--s-6) 0 0; padding: var(--s-5) var(--s-4) var(--s-4);
-  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
-  background: var(--white);
-}
+/* the frame is the shared plate (.figure--plate) */
+.ec-formula { margin: var(--s-6) 0 0; padding: var(--s-5) var(--s-4) var(--s-4); }
 .ec-formula__eq {
   display: flex; align-items: center; justify-content: center;
   flex-wrap: wrap; gap: var(--s-3);
@@ -94,12 +91,7 @@
 /* ---- the chart -------------------------------------------------------- */
 
 .ec-figure { margin: var(--s-8) 0 0; }
-.ec-chart {
-  display: block; width: 100%; height: auto;
-  background: var(--white);
-  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
-  padding: var(--s-2) 0;
-}
+.ec-chart { display: block; width: 100%; height: auto; padding: var(--s-2) 0; }   /* on the figure's plate */
 .ec-chart__grid line { stroke: var(--hairline); stroke-width: 1; }
 .ec-chart__lbl {
   fill: var(--ink-700); font-family: var(--font-ui);

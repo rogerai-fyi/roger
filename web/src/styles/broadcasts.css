@@ -185,13 +185,19 @@
 
 /* ---- the lead figure: the shared .figure, spaced as the article's plate ---- */
 .bc-post__wrap > .figure { margin-block: var(--s-10) 0; }
+/* one hero shape: every landscape lead still or loop is cropped to 16:9 (most of the
+   art is drawn 16:9; the two wider banners lose a sliver of each side). A portrait phone
+   lead keeps its own shape. */
+.bc-post__wrap > .figure--plate:not(.figure--phone) > :is(img, video) { aspect-ratio: 16 / 9; object-fit: cover; }
 
 /* ---- the headline video plate ---- */
-.bc-video { margin: var(--s-10) 0 0; }
-.bc-video .fig { margin-bottom: var(--s-3); }
+/* on the plate like every figure; its FIG. label moves under the frame, where every
+   other figure's caption sits (the markup keeps the label first) */
+.bc-video { margin: var(--s-10) 0 0; display: flex; flex-direction: column; }
+.bc-video > .fig { order: 1; margin: var(--s-3) 2px 0; }
 .bc-video__frame {
   position: relative; aspect-ratio: 16 / 9; width: 100%;
-  border-radius: var(--panel-r); overflow: hidden; background: var(--paper-3);
+  border-radius: var(--r-lg); overflow: hidden; background: var(--paper-3);
 }
 /* the real player fills the plate; contain letterboxes any off-ratio frame
    against the plate background rather than stretching it. The poster is served
@@ -203,8 +209,8 @@
 .bc-video__fallback { color: var(--ink-500); padding: var(--s-5); }
 .bc-video__fallback a { color: var(--live-text); text-decoration: underline; text-underline-offset: 2px; }
 .bc-video__cap {
-  margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-500);
-  text-align: center; letter-spacing: 0.02em;
+  order: 2; margin: var(--s-2) 2px 0; font-size: var(--t-xs); color: var(--ink-500);
+  text-align: left; letter-spacing: 0.02em;
 }
 
 /* ---- the Quick Answer (and every short answer): the prose face at the lead step

@@ -397,6 +397,16 @@ instead of shrinking its text below reading size; the caption stays put. The cap
 the `.fig` label in its own ink (AA). SVG charts colour their red with `var(--live)` and their paper
 with `var(--paper)` in their own `<style>`, never a literal, so they re-theme.
 
+In the articles every figure is the plate (`figure figure--plate`, with `--chart`, `--phone`
+or the page's own class for its content): one ground, one radius, one inset, the FIG.
+caption inside under the media. A landscape lead (hero) still or loop is cropped to 16:9
+(`broadcasts.css`); a portrait phone lead keeps its shape; the headline video sits on the
+plate with its label under the frame. No page draws its own frame round a figure (the
+routing process figure and the economics chart and formula used to). Known and left: some
+chart SVGs carry their own "FIG. n" title inside the drawing (an SVG edit), the economics
+chart's caption is set in the prose face (its caption is a paragraph), and three articles
+have no hero art (new art, not CSS).
+
 ### Scroll box
 `<div class="scroll-box"><table>...</table></div>`: anything wider than a phone scrolls
 sideways inside the box, never the page.
