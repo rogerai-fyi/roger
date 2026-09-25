@@ -157,7 +157,7 @@ test("each shared component is defined in components.css and nowhere else", () =
 test("components.css styles only components: no page class rides on the shared layer", () => {
   // components.css must not carry page-specific selectors: every class in it is a component's
   // (or a state/hook it documents), so no page's markup is styled from the shared layer by accident
-  const STATES = new Set(["is-copied", "is-current", "is-tuned", "is-live", "is-off", "is-quiet", "inline", "fig", "tok", "beacon"]);
+  const STATES = new Set(["is-copied", "is-current", "is-tuned", "is-dragging", "is-tuning", "is-live", "is-off", "is-quiet", "inline", "fig", "tok", "beacon"]);
   const blocks = new Set(selectors(read("styles/components.css")).map(leadClass).filter(Boolean).map(blockOf));
   for (const sel of selectors(read("styles/components.css"))) {
     for (const [, cls] of sel.matchAll(/\.([\w-]+)/g)) {
