@@ -669,6 +669,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
    The box's ground for the shade's end cover is --edge-ground (paper by default; a figure
    on another ground sets it). */
 .scroll-box--diagram { --edge-ground: var(--paper); }
+.figure--plate .scroll-box--diagram { --edge-ground: var(--paper-2); }   /* on the figure plate's ground */
 .scroll-box--diagram > svg { display: block; width: 100%; height: auto; min-width: var(--diagram-min, 34rem); }
 
 /* ---- component: data table ---------------------------------------------------------

@@ -38,6 +38,8 @@ const DIAGRAMS = [
   { page: "pricing.html", sheet: "pricing.css", svg: "rwire__svg", vbw: 958, smallest: 16, desktop: 922 },
   { page: "research-industry.html", sheet: "research.css", svg: "purdue__svg", vbw: 720, smallest: 9, desktop: 888 },
   { page: "research-wave-family.html", sheet: "wave-family.css", svg: "wf-orbit__svg", vbw: 900, smallest: 16, desktop: 882 },
+  // an article chart: its floor is a phone one (the article column is 640px on a desktop)
+  { page: "broadcasts-share-gpu-earn.html", sheet: "broadcasts.css", svg: "share-flow__svg", vbw: 820, smallest: 12.5, desktop: 640 },
 ];
 
 test("the diagram scroll box is one shared component: a floor width and the edge shade", () => {
@@ -57,8 +59,12 @@ for (const d of DIAGRAMS) {
     assert.ok(floors.length, `${d.sheet} sets --diagram-min in the .${hook} context`);
     const need = Math.ceil((LABEL_FLOOR * d.vbw) / d.smallest);
     assert.ok(Math.max(...floors) >= need, `${d.svg}: floor ${Math.max(...floors)}px < ${need}px`);
-    // and never wider than a desktop column: a floor past it scrolls a drawing that fits
-    assert.ok(Math.max(...floors) <= d.desktop, `${d.svg}: floor ${Math.max(...floors)}px > the ${d.desktop}px desktop column`);
+    // and a floor set outside a phone query is never wider than a desktop column: past it,
+    // a drawing that fits would scroll
+    const flat = css(d.sheet).replace(/@media \(max-width:[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, "");
+    for (const m of flat.matchAll(new RegExp(`\\.${hook}[^{}]*\\{[^}]*--diagram-min: (\\d+)px`, "g"))) {
+      assert.ok(Number(m[1]) <= d.desktop, `${d.svg}: floor ${m[1]}px > the ${d.desktop}px desktop column`);
+    }
   });
 }
 
@@ -190,11 +196,30 @@ test("articles: a landscape lead is one 16:9 crop; the video's FIG. label sits u
   assert.match(b, /\.bc-video__frame \{[^}]*border-radius: var\(--r-lg\)/, "the video frame takes the images' radius");
 });
 
-test("share-GPU chart: the longest body line fits inside its node box with room (it crossed the border)", () => {
+test("share-GPU chart: every body line fits inside its node box with room, at the chart's own 12.5 size", () => {
   const html = read("src/broadcasts-share-gpu-earn.html");
   const fs = Number(html.match(/\.d-b\{[^}]*font-size:([\d.]+)px/)[1]);
-  // "on the band (free by default)" starts at x=48 in a box ending at x=250; the mono face
-  // as rendered advances 0.615em a glyph (measured: 223 units at 12.5px for its 29 glyphs)
-  const right = 48 + 29 * 0.615 * fs;
-  assert.ok(right <= 250 - 6, `the line ends at x=${right.toFixed(1)}, the box border is x=250`);
+  assert.equal(fs, 12.5, "the body size is not shrunk to fit (it fell under the phone floor)");
+  // the mono face as rendered advances 0.615em a glyph (measured: 223 units at 12.5px for 29
+  // glyphs); each box is 220 wide with its words set 18 units in
+  for (const [, x, words] of html.matchAll(/<text x="(\d+)" y="\d+" class="d-b">([^<]*)<\/text>/g)) {
+    const box = [30, 295, 560].find((b) => Number(x) >= b && Number(x) < b + 220);
+    if (box === undefined) continue;
+    const right = Number(x) + words.replace(/&[^;]+;/g, "x").length * 0.615 * fs;
+    assert.ok(right <= box + 220 - 6, `"${words}" ends at x=${right.toFixed(1)}, its box border is x=${box + 220}`);
+  }
+});
+
+test("articles: a lead image's width and height say its real size (share-hero said 1280x560; it is 1280x720)", () => {
+  for (const f of ARTICLES) {
+    const html = read(path.join("src", f));
+    for (const [, src, w, h] of html.matchAll(/<img\s+(?:class="[^"]*"\s+)?src="(assets\/broadcasts\/[^"]+\.png)" width="(\d+)" height="(\d+)"/g)) {
+      const png = readFileSync(path.join(WEB, "src", src));
+      assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [Number(w), Number(h)], `${f}: ${src}`);
+    }
+  }
+});
+
+test("a diagram box on the figure plate ends its edge shade on the plate's ground (a paper strip showed at its right end)", () => {
+  assert.match(css("components.css"), /\.figure--plate \.scroll-box--diagram \{ --edge-ground: var\(--paper-2\); \}/);
 });

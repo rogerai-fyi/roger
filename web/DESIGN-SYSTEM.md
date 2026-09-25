@@ -405,7 +405,8 @@ with `var(--paper)` in their own `<style>`, never a literal, so they re-theme.
 In the articles every figure is the plate (`figure figure--plate`, with `--chart`, `--phone`
 or the page's own class for its content): one ground, one radius, one inset, the FIG.
 caption inside under the media. A landscape lead (hero) still or loop is cropped to 16:9
-(`broadcasts.css`; the two 1280x560 banners, Tower and VRAM, lose about a tenth of each side); a portrait phone lead keeps its shape; the headline video sits on the
+(`broadcasts.css`; the two 1280x560 banners, Tower and VRAM, lose about a tenth of each side;
+every other landscape lead, share-hero.png included, is drawn 16:9 or within 3% of it); a portrait phone lead keeps its shape; the headline video sits on the
 plate with its label under the frame. No page draws its own frame round a figure (the
 routing process figure and the economics chart and formula used to). Known and left: some
 chart SVGs carry their own "FIG. n" title inside the drawing (an SVG edit), the economics
