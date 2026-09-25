@@ -41,6 +41,9 @@
   text-transform: uppercase; letter-spacing: .08em;
 }
 .research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live-text); }
+.research-button:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.research-button:not(.research-button--primary):active { background: var(--paper-2); }
+@media (pointer: coarse) { .research-button { min-height: 44px; } }
 .research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
 .research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
 
@@ -514,27 +517,15 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .page-index a.page-index__head { color: var(--ink-500); }
 .page-index a.page-index__head:hover { color: var(--live-text); }
 
-/* ---- component: lead action row + quiet button (added by models rollout) --
-   <div class="research-actions research-actions--lead">: ONE primary button,
-   then quiet text links (.research-button--quiet). On a phone each keeps its
-   own width and the links wrap beside the primary. A quiet button keeps the button's mono label,
-   its tap height and its press, but has no box: a hairline underline that goes
-   red on hover or focus. */
+/* ---- component: lead action row (added by models rollout) -----------------
+   <div class="research-actions research-actions--lead">: ONE primary button
+   (.research-button--primary, solid ink), then boxed secondaries (the plain
+   .research-button: a hairline outline, mono label). On a phone each button keeps
+   its own width and the row wraps onto new lines; it never becomes a full-width stack. */
 /* ONE ROLE, ONE PATTERN: every action row on the site is this lead row
-   (test/consistency.test.mjs). To flip every row back to boxed buttons, delete the
-   .research-button--quiet rules below: the markup stays, and a quiet button falls
-   back to the plain .research-button box. */
-.research-actions--lead { align-items: center; gap: var(--s-2) var(--s-4); }
-.research-actions--lead .research-button { width: auto; }
-.research-button--quiet {
-  padding-inline: 2px; border-color: transparent;
-  text-decoration: underline; text-decoration-color: var(--hairline-2);
-  text-decoration-thickness: 1px; text-underline-offset: 6px;
-}
-.research-button--quiet:hover, .research-button--quiet:focus-visible {
-  border-color: transparent; text-decoration-color: var(--live);
-}
-.research-button--quiet:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+   (test/consistency.test.mjs). The boxes re-theme in an ink panel through the tokens. */
+.research-actions--lead { align-items: center; gap: var(--s-3); }
+.research-actions--lead .research-button { width: auto; flex: 0 0 auto; }
 
 /* ---- component: copy-code (added by models rollout) ----------------------
    <button class="copy-code" type="button" data-copy-target aria-label="Copy CMD"><code>CMD</code></button>
