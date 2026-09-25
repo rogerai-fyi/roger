@@ -108,3 +108,39 @@ test("touch: lists of text links get 44px rows, and form fields are 44px tall", 
   assert.match(c, /\.toc-tuner__st \{ min-height: var\(--hit\); \}/);
 });
 
+// Item 4: the product pages' signed-out and empty states are one pattern, the account state:
+// a tinted panel (the shared .tint-panel ground) in the plate, the card's mono section label
+// (its h2), the page's own words, and its existing action (a Log in link) as the lead row's
+// primary. Words, ids and scripts are unchanged; the rest-rollout text fixture holds the words.
+const ACCOUNT_STATES = [
+  { page: "keys.html", id: null, within: /<main class="card" id="gate" hidden>[\s\S]*?<\/main>/, action: true },
+  { page: "usage.html", id: null, within: /<main class="card" id="gate" hidden>[\s\S]*?<\/main>/, action: true },
+  { page: "stations.html", id: "stEmpty" },
+  { page: "dashboard.html", id: "dashEmpty" },
+  { page: "private.html", id: "gate" },
+];
+test("account states: one component in the account sheet, on the shared tinted ground", () => {
+  const a = css("account-base.css");
+  assert.match(a, /\.acct-state \{[^}]*padding:/, "the account state is placed in the plate");
+  assert.doesNotMatch(a, /\.acct-state[^{]*\{[^}]*background/, "its ground is the shared .tint-panel rule, not a repaint");
+  assert.match(a, /\.acct-state \.research-actions \{[^}]*margin-top:/);
+});
+for (const s of ACCOUNT_STATES) {
+  test(`account states: ${s.page}${s.id ? " #" + s.id : " signed out"} uses the account state`, () => {
+    const html = read(path.join("src", s.page));
+    const scope = s.within ? html.match(s.within)?.[0] || "" : html;
+    const open = s.id
+      ? new RegExp(`<(section|div) class="acct-state tint-panel" id="${s.id}" hidden>`)
+      : /<section class="acct-state tint-panel">/;
+    assert.match(scope, open);
+    if (s.action) {
+      assert.match(scope, /<p class="research-actions research-actions--lead"><a class="research-button research-button--primary" href="\/login\.html">Log in<\/a><\/p>/);
+      assert.doesNotMatch(scope, /style="/, "no inline style");
+    }
+  });
+}
+
+test("account states: the card's link treatment leaves the lead row's buttons alone (it out-specifies them)", () => {
+  const a = css("account-base.css");
+  for (const m of a.matchAll(/\.card a:not\(\.gh\)[^{]*\{/g)) assert.match(m[0], /:not\(\.research-button\)/, m[0]);
+});

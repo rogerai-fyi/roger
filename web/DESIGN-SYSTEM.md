@@ -551,6 +551,15 @@ of it. What was found and where it went:
   (`.primary`, `.ghost`, `.gh`) and fields are account-base's own, not `.research-button`:
   full-width form controls, a different job. Page scripts keep their own affordances
   (keys, private copy).
+  One pattern is shared across them: the **account state** (`.acct-state.tint-panel`,
+  account-base.css), the look of every signed-out and empty state: the shared tinted
+  ground placed in the plate, the card's mono section label (its `h2`), the page's own
+  words, an optional command well, and the page's existing action as the lead row's
+  primary (keys and usage signed out; no stations; no dashboard traffic; Base Station
+  signed out, whose Log in stays a link in its sentence). Dashboard, console and payouts
+  send a signed-out visitor to /login, and /r writes its message from script, so they
+  have no signed-out panel; /stations shows its error line when signed out (a logic
+  change, not this pass).
 - **Playbox** (playbox, wave-patch, wave-factory sheets): self-contained games with their
   own palettes; 310 of the remaining colour literals.
 - **/models and /voices**: the text-label copy pill written by hand.
