@@ -133,6 +133,8 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	// The rogers running on THIS machine, read live from the local instance registry - so [3]
 	// shows the owner's own instances and agents (mDNS cannot see them over loopback).
 	hooks.EdgeHousehold = func() []edge.Instance { return edge.Household(edgeInstancesDir(), time.Now()) }
+	hooks.EdgeName = h.nameNode
+	hooks.EdgeForget = h.forgetNode
 	// The agents the owner marked persistent - a durable record, so one that has stopped still
 	// draws (dark) with resume/remove (features/edge/agents.feature).
 	hooks.EdgePersistentAgents = func() []edge.PersistentAgent { return edge.PersistentAgents(edgePersistDir()) }
@@ -288,6 +290,56 @@ func (h *edgeHost) adopt(id, name string) error {
 	h.st.candidates = edgeFilter(h.st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
 	_ = h.st.save()
 	return nil
+}
+
+// nameNode renames a node on this Edge, the host-side of the console's Name action and the CLI's
+// `roger edge name` (features/edge/manage_web.feature). It enforces the same per-account name
+// uniqueness the CLI does - a name that already belongs to another node is refused, so a rename never
+// silently collides - and persists through h.st, so the live fleet the TUI and console read updates
+// at once.
+func (h *edgeHost) nameNode(id, name string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok, err := h.st.fleet.Get(id); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("no such node on this Edge")
+	}
+	nodes, err := h.st.list()
+	if err != nil {
+		return err
+	}
+	for _, other := range nodes {
+		if other.Name == name && other.ID != id {
+			return fmt.Errorf("the name %q is already taken on this Edge", name)
+		}
+	}
+	if err := h.st.fleet.Rename(id, name); err != nil {
+		return err
+	}
+	return h.st.save()
+}
+
+// forgetNode removes a node from this Edge, the host-side of the console's Forget action and the
+// CLI's `roger edge forget` (features/edge/manage_web.feature: "never a silent delete"). It takes the
+// SAME destructive path as the CLI: when this machine is the authority it revokes the node's
+// certificate (so a LAN peer with the list refuses it, offline, after a restart) and evicts its
+// enrollment key, then drops it from the fleet. Money (receipts, ledger) is never touched.
+func (h *edgeHost) forgetNode(id string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok, err := h.st.fleet.Get(id); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("no such node on this Edge")
+	}
+	if _, _, err := edgeRevokeOnForget(id); err != nil {
+		return err
+	}
+	if err := h.st.fleet.Forget(id); err != nil {
+		return err
+	}
+	return h.st.save()
 }
 
 // enrolledName is what this machine is called on its own Edge, or "" if it has not

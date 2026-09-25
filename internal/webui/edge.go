@@ -35,7 +35,12 @@ type EdgeHooks struct {
 	Fleet      *edge.Fleet
 	Candidates func() []store.EdgeNode
 	Adopt      func(id, name string) error
-	Sessions   *edge.Sessions
+	// Name renames a node and Forget removes it - the same host operations the TUI and CLI perform,
+	// so the console manages the fleet, it does not just watch it (features/edge/manage_web.feature).
+	// Nil leaves that action honestly disabled in the console.
+	Name     func(id, name string) error
+	Forget   func(id string) error
+	Sessions *edge.Sessions
 	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
 	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
 	Status func() edge.SelfStatus
@@ -135,6 +140,9 @@ type edgeSnap struct {
 	Sessions      []edgeSessJSON   `json:"sessions"`
 	TooMany       bool             `json:"too_many"`
 	GraphMax      int              `json:"graph_max"`
+	// Manage is true when this build wired the fleet-management hooks (Name + Forget), so the console
+	// shows those actions on a member exactly when they would work, and never when they would 501.
+	Manage bool `json:"manage"`
 }
 
 func (s *Server) edgeNow() time.Time {
@@ -194,6 +202,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		return snap, err
 	}
 	snap.Configured, snap.Self, snap.Account, snap.At = true, h.Self, h.Fleet.Account(), now.Unix()
+	snap.Manage = h.Name != nil && h.Forget != nil
 	snap.SelfInstances = []edge.Instance{}
 	if h.Household != nil {
 		snap.SelfInstances = append(snap.SelfInstances, h.Household()...)
@@ -279,6 +288,53 @@ func (s *Server) handleEdgeAdopt(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Adopt(cand.ID, cand.Name); err != nil {
 		http.Error(w, "adopt "+cand.Name+": "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeName renames a node through the host, POST-only and token-gated - the console's Name
+// action. It is not a browser-only label: the new name goes through the same Rename the TUI and CLI
+// use, with the same per-account uniqueness, and the fresh snapshot returns so the tab shows it.
+func (s *Server) handleEdgeName(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.Fleet == nil || h.Name == nil {
+		http.Error(w, "this build cannot rename - no fleet is wired to the Edge tab", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if !decode(r, &req) || req.ID == "" || req.Name == "" {
+		http.Error(w, "node id and name required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Name(req.ID, req.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeForget removes a node through the host, POST-only and token-gated - the console's Forget
+// action. It is the SAME destructive path as the CLI (revoke the certificate, evict the key, drop the
+// node), never a silent delete; the browser confirms before it calls this (manage_web.feature).
+func (s *Server) handleEdgeForget(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.Fleet == nil || h.Forget == nil {
+		http.Error(w, "this build cannot forget - no fleet is wired to the Edge tab", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if !decode(r, &req) || req.ID == "" {
+		http.Error(w, "node id required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Forget(req.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	s.writeEdge(w)

@@ -97,6 +97,11 @@ type Hooks struct {
 	EdgeFleet      *edge.Fleet
 	EdgeCandidates func() []store.EdgeNode
 	EdgeAdopt      func(id, name string) error
+	// EdgeName renames a node and EdgeForget removes it (revoking its certificate when this machine is
+	// the authority) - the host operations behind the CLI's `roger edge name`/`forget` and the
+	// console's Name/Forget actions. Nil when the build cannot manage the fleet.
+	EdgeName   func(id, name string) error
+	EdgeForget func(id string) error
 	// EdgeSessions is the account's live session ledger: the traffic this Edge really
 	// carried, derived by the relay path from its OWN receipts. The screen only READS
 	// it. There is no hook here that could open a session, because looking at the Edge

@@ -1676,6 +1676,7 @@
     }
     edgeRenderCandidates(d);
     edgeRenderSessions(d);
+    edgeCanManage = !!d.manage;
     edgeRenderDetail(d);
   }
 
@@ -1919,8 +1920,72 @@
       btn.addEventListener("click", function () { edgeAdopt(n.id, n.name); });
       acts.appendChild(btn);
       card.appendChild(acts);
+    } else if (edgeCanManage) {
+      // A MEMBER of your Edge: the same management the terminal and CLI do - rename it, or forget it.
+      // Every write is one deliberate click, POST-only and token-gated on the server (manage_web.feature).
+      var macts = el("div", "card-actions");
+      var nameBtn = el("button", "btn small", "rename");
+      nameBtn.setAttribute("type", "button");
+      nameBtn.addEventListener("click", function () { edgeRenamePrompt(card, n); });
+      macts.appendChild(nameBtn);
+      var forgetBtn = el("button", "btn small ghost edge-forget", "forget");
+      forgetBtn.setAttribute("type", "button");
+      forgetBtn.addEventListener("click", function () { edgeForget(n.id, n.name); });
+      macts.appendChild(forgetBtn);
+      card.appendChild(macts);
     }
     show(card, true);
+  }
+
+  // edgeCanManage is set from the snapshot: true when the server wired the Name/Forget hooks, so the
+  // buttons appear exactly when they would work and never when they would 501.
+  var edgeCanManage = false;
+
+  // edgeRenamePrompt swaps the actions for an inline input, so a rename is a deliberate edit, not a
+  // blocking browser dialog. Enter or Save renames through the host; Esc or Cancel puts it back.
+  function edgeRenamePrompt(card, n) {
+    var row = el("div", "card-actions");
+    var input = el("input", "edge-rename-input");
+    input.type = "text"; input.value = n.name || ""; input.setAttribute("aria-label", "new name");
+    var save = el("button", "btn small", "save");
+    save.setAttribute("type", "button");
+    var cancel = el("button", "btn small ghost", "cancel");
+    cancel.setAttribute("type", "button");
+    row.appendChild(input); row.appendChild(save); row.appendChild(cancel);
+    card.appendChild(row);
+    input.focus(); input.select();
+    function commit() {
+      var name = (input.value || "").trim();
+      if (!name || name === n.name) { edgeTick(); return; }
+      edgeName(n.id, name);
+    }
+    save.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { edgeTick(); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); edgeTick(); }
+    });
+  }
+
+  // edgeName renames a member through the host - the SAME Rename the TUI and CLI use, with the same
+  // per-account uniqueness enforced server-side. It answers with the fresh snapshot.
+  function edgeName(id, name) {
+    apiPost("/api/edge/name", { id: id, name: name }).then(function (d) {
+      toast("renamed to " + name);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeForget removes a member through the host after a deliberate confirm - never a silent delete.
+  // When this machine is the authority the server also revokes the node's certificate.
+  function edgeForget(id, name) {
+    if (!window.confirm("Forget " + name + "?\n\nIt leaves your Edge and its pinned certificate is cleared. If this machine is the authority, its certificate is revoked so no peer accepts it. This cannot be undone from here.")) return;
+    apiPost("/api/edge/forget", { id: id }).then(function (d) {
+      toast(name + " forgotten");
+      edgeSel = null;
+      edgePrev = null;
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
   }
 
   // edgeAdopt takes the SAME path as the terminal's `a` and `roger edge adopt`: the server

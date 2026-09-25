@@ -1349,3 +1349,16 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edge-mode--only { color: var(--ink-900); text-decoration: underline; }
 .route--local { color: var(--ink-900); }
 .route--market { color: var(--ink-500); }
+
+/* Edge Manage: the inline rename input on a member node's detail card. */
+.edge-rename-input {
+  flex: 1 1 auto;
+  min-width: 6rem;
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  color: var(--fg, #ddd);
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--line, #333);
+  border-radius: 4px;
+}
+.edge-forget { color: var(--ember, #d66); }

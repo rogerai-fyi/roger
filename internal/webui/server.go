@@ -127,6 +127,8 @@ func (s *Server) routes() {
 	// EDGE: the fleet snapshot (read, GET only) and the owner's adopt (POST only).
 	s.mux.HandleFunc("/api/edge", s.auth(s.handleEdge))
 	s.mux.HandleFunc("/api/edge/adopt", s.action(s.handleEdgeAdopt))
+	s.mux.HandleFunc("/api/edge/name", s.action(s.handleEdgeName))
+	s.mux.HandleFunc("/api/edge/forget", s.action(s.handleEdgeForget))
 	// Browse (the open-market discover feed).
 	s.mux.HandleFunc("/api/browse", s.auth(s.handleBrowse))
 }

@@ -148,6 +148,7 @@ func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
 	}
 	return webui.EdgeHooks{
 		Self: h.EdgeSelf, Fleet: h.EdgeFleet, Candidates: h.EdgeCandidates,
-		Adopt: h.EdgeAdopt, Sessions: h.EdgeSessions, Status: h.EdgeStatus,
+		Adopt: h.EdgeAdopt, Name: h.EdgeName, Forget: h.EdgeForget,
+		Sessions: h.EdgeSessions, Status: h.EdgeStatus,
 	}
 }
