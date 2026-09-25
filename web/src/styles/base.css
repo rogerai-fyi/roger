@@ -515,7 +515,14 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 
 /* the eyebrow callsign line (shared: home / manual / models) */
-.hero__eyebrow { margin-bottom: var(--s-6); }
+/* it wraps whole parts onto a new line, never squeezes them into side-by-side
+   columns; on a phone the separator becomes the line break, so the callsign
+   and the date (or kicker) each get a clean line */
+.hero__eyebrow { margin-bottom: var(--s-6); flex-wrap: wrap; row-gap: 4px; }
+@media (max-width: 560px) {
+  .hero__eyebrow .hero__sep { flex-basis: 100%; height: 0; overflow: hidden; }
+  .hero__eyebrow { row-gap: 2px; }
+}
 .hero__eyebrow .onair { font-size: var(--t-xs); color: var(--live-text); margin-right: 1px; }
 .hero__callsign { color: var(--ink-900); }
 .hero__sep { color: var(--ink-300); }

@@ -176,16 +176,20 @@ function tuner() {
   let observed = [], ioCb = null;
   const win = {
     IntersectionObserver: function (cb) { ioCb = cb; this.observe = (el) => observed.push(el); },
+    innerHeight: 1000,
   };
+  // each section's top edge in the viewport (default: all below the reading band)
+  const tops = {};
   win.window = win;
-  win.document = { querySelectorAll: (q) => (q === "[data-tuner]" ? [nav] : []), getElementById: (id) => ({ id }) };
+  win.document = { querySelectorAll: (q) => (q === "[data-tuner]" ? [nav] : []),
+    getElementById: (id) => ({ id, getBoundingClientRect: () => ({ top: tops[id] ?? 500 }) }) };
   vm.createContext(win);
   vm.runInContext(TUNER, win);
   const key = (a, k) => { let prevented = false; for (const f of a.listeners.keydown || []) f({ key: k, preventDefault: () => { prevented = true; } }); return prevented; };
   const see = (id) => ioCb([{ isIntersecting: true, target: { id } }]);
   // a section leaving the reading band, below it (scrolling back up) or above it
   const leave = (id, below) => ioCb([{ isIntersecting: false, target: { id }, boundingClientRect: { top: below ? 500 : -500 } }]);
-  return { links, style, key, see, leave, focused: () => focused, observed };
+  return { links, style, key, see, leave, tops, focused: () => focused, observed };
 }
 
 test("tuner: arrow keys rove between stations (one tab stop), Home/End jump to the ends", () => {
@@ -269,6 +273,24 @@ test("tuner: back at the top (§1 leaves the band downward) the current station 
   t.see("company");
   t.leave("company", false);                   // leaving upward: the next section takes over, no reset
   assert.equal(t.style["--cur"], "2");
+});
+
+test("tuner: a jump back to the top (Home, a back-to-top link) rests on §1 even though §1 never re-entered the band", () => {
+  const t = tuner();
+  t.see("go");
+  // one jump from the last section to the top: only the current section reports (it left
+  // the band downward); §1 was out of the band before and after, so it never fires
+  t.leave("go", true);
+  assert.equal(t.style["--cur"], "0");
+  assert.ok(t.links[0].cls.has("is-current") && !t.links[8].cls.has("is-current"));
+});
+
+test("tuner: a jump up to the middle rests on the section whose top is above the band", () => {
+  const t = tuner();
+  t.see("go");
+  Object.assign(t.tops, { demo: -2400, market: -1600, company: -700, what: 120 });
+  t.leave("go", true);
+  assert.equal(t.style["--cur"], "3");
 });
 
 test("the spectrum scrubber's focus ring is visible (ink-500, 2px); tiers don't pretend to be clickable", () => {

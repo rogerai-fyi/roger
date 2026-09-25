@@ -48,18 +48,27 @@
       }
     }
     // a section is "in view" when it crosses a band around the upper third
-    // back above the first section (the hero), §1 leaves the band downward:
-    // rest on §1 again rather than on wherever you last were
+    // (30% to 40% down the viewport). A section that leaves it DOWNWARD means the
+    // reader went back up. A jump (Home, a back-to-top link) can skip every section
+    // in between without any of them reporting, so read where the sections are: rest
+    // on the last one whose top is above the band's lower edge, or on §1 when none is
+    // (back above the first section, in the hero).
+    var sections = [];
+    function resting() {
+      var line = window.innerHeight * 0.4, k = 0; // the band's lower edge
+      sections.forEach(function (s) { if (s.el.getBoundingClientRect().top <= line) k = s.k; });
+      return k;
+    }
     var io = new window.IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (!(e.target.id in byId)) return;
         if (e.isIntersecting) current(byId[e.target.id]);
-        else if (byId[e.target.id] === 0 && e.boundingClientRect.top > 0) current(0);
+        else if (e.boundingClientRect.top > 0) current(resting());
       });
     }, { rootMargin: "-30% 0px -60% 0px" });
     Object.keys(byId).forEach(function (id) {
       var el = document.getElementById(id);
-      if (el) io.observe(el);
+      if (el) { io.observe(el); sections.push({ el: el, k: byId[id] }); }
     });
   }
 })();
