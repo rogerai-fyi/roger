@@ -948,6 +948,5 @@
 /* touch: this sheet's small controls keep their look and grow a --hit tap area
    (the pattern: the touch hit area block in components.css) */
 @media (pointer: coarse) {
-  :where(.dk__spine, .pg-mode) { position: relative; }
-  :is(.dk__spine, .pg-mode, .dk__pos)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+  :is(.dk__pos)::before { content: ""; position: absolute; inset: var(--hit-inset); }
 }

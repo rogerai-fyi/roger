@@ -1046,6 +1046,6 @@ li > a:not([class]):focus-visible,
 /* touch: this sheet's small controls keep their look and grow a --hit tap area
    (the pattern: the touch hit area block in components.css) */
 @media (pointer: coarse) {
-  :where(.brand, .promo__close, .promo__cta, .upgrade__toggle, .nav__burger, .theme-toggle, .tlink, .dir-sibling > a, .market__refresh) { position: relative; }
-  :is(.brand, .promo__close, .promo__cta, .upgrade__toggle, .nav__burger, .theme-toggle, .tlink, .dir-sibling > a, .market__refresh)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+  :where(.promo__close, .promo__cta, .upgrade__toggle, .nav__burger, .theme-toggle, .tlink, .dir-sibling > a, .market__refresh) { position: relative; }
+  :is(.promo__close, .promo__cta, .upgrade__toggle, .nav__burger, .theme-toggle, .tlink, .dir-sibling > a, .market__refresh)::before { content: ""; position: absolute; inset: var(--hit-inset); }
 }

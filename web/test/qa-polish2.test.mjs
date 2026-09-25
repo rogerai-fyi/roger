@@ -75,13 +75,25 @@ const coarseBlocks = (sheet) => {
   return out.join("\n");
 };
 const HIT_GROW = [ // keep their drawn size; an invisible ::before grows the tap area
-  ".brand", ".promo__close", ".promo__cta", ".upgrade__toggle", ".nav__burger", ".theme-toggle",
-  ".install__alt", ".bc-post__back", ".wf-back", ".dir-sibling > a", ".company__links a",
-  ".home-spectrum__foot a", ".tlink", ".faq__more", ".term__preset", ".market__refresh",
-  ".tuner__chip", ".company__primary", ".route-sim__next", ".scope__mode", ".wj__chip",
-  ".model-note", ".copy-code", ".dk__spine", ".code-block__copy", ".reel__mute", ".dk__pos",
-  ".bc-tg__head", ".pg-mode",
+  ".promo__close", ".promo__cta", ".upgrade__toggle", ".nav__burger", ".theme-toggle",
+  ".install__alt", ".bc-post__back", ".wf-back", ".dir-sibling > a", ".tlink", ".faq__more",
+  ".market__refresh", ".tuner__chip", ".company__primary", ".route-sim__next", ".scope__mode",
+  ".model-note", ".copy-code", ".bc-tg__head",
 ];
+// Controls packed too close for a grown area: it would cover a neighbour's drawn box, so a
+// tap aimed at the neighbour opens this one (measured by scripts/touch-overlap.py at 390
+// and 320). Each is 26px tall or more, inside the 24px target-size minimum with spacing.
+const NO_GROW = {
+  ".brand": "the lean nav sets its links on a row just under the mark",
+  ".term__preset": "the homepage demo's preset chips wrap with an 8px gap",
+  ".home-spectrum__foot a": "two links stacked 5px apart at 320",
+  ".company__links a": "the card links wrap onto tight rows",
+  ".wj__chip": "the Wave jobs filter chips wrap with a small gap, over the slot select",
+  ".dk__spine": "the Playbox tape spines stack edge to edge",
+  ".pg-mode": "the Playbox deck switch stacks its modes",
+  ".reel__mute": "sits on the reel screen, itself a control",
+  ".code-block__copy": "beside the code line; a grown area would cover the code text",
+};
 test("touch: small controls keep their look and grow an invisible 44px hit area", () => {
   assert.match(css("tokens.css"), /--hit: 44px;/);
   assert.match(css("tokens.css"), /--hit-inset: min\(0px, calc\(\(100% - var\(--hit\)\) \/ 2\)\);/);
@@ -92,6 +104,7 @@ test("touch: small controls keep their look and grow an invisible 44px hit area"
     return m ? (m[1] || m[2]).split(",").map((x) => x.trim()) : [];
   }));
   for (const sel of HIT_GROW) assert.ok(grown.includes(sel), `${sel} grows a hit area`);
+  for (const [sel, why] of Object.entries(NO_GROW)) assert.ok(!grown.includes(sel), `${sel} must not grow a hit area: ${why}`);
   // a static control becomes the pseudo-element's containing block at zero specificity,
   // so a control a page positions (absolute, fixed) keeps its own position
   for (const f of sheets) for (const m of coarseBlocks(css(f)).matchAll(/([^{}]*)\{ position: relative; \}/g)) {

@@ -363,9 +363,14 @@ components (where the pattern is documented), `base.css` for the chrome, each pa
 for its own controls. The page index gets 44px rows, the contents tuner's stations grow
 downward to 44px, and a form field is 44px tall (all in `components.css`).
 `test/qa-polish2.test.mjs` holds the list of controls. Links inside running text (a sentence, a
-callout, a spec plate) are exempt, as the target-size rule exempts them. Known short of
-44: a dial of 10+ contents stations on a phone (32px pitch; the 24px spacing rule holds)
-and the scrubber's range track.
+callout, a spec plate) are exempt, as the target-size rule exempts them. A grown area must
+never cover another control's drawn box (a tap aimed at the neighbour would open this
+one), so controls packed close together do not grow: the homepage preset chips, card and
+spectrum links, the Wave jobs chips, the Playbox spines and deck modes, the reel's mute,
+the lean nav's mark and the code block's copy button (all 26px or more, inside the 24px
+target-size minimum with spacing). `scripts/touch-overlap.py` (after a build) checks every
+page at 390 and 320 with touch emulation. Also short of 44: a dial of 10+ contents
+stations on a phone (32px pitch) and the scrubber's range track.
 
 ### Print
 Every page prints whole: the print section at the end of `components.css` stops all

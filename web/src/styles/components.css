@@ -768,10 +768,14 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
      containing block: the dial's readout is laid out against the band);
    - a form field is 44px tall.
    Links inside running text (a sentence, a callout, a spec plate) are not listed: the
-   target-size rule exempts them, and a grown area there would cover the next line. */
+   target-size rule exempts them, and a grown area there would cover the next line.
+   Nor is a control packed close to another (chips that wrap tight, stacked spines, a
+   copy button beside its code line): a grown area must never cover another control's
+   drawn box, or a tap aimed at the neighbour opens this one. scripts/touch-overlap.py
+   measures it; test/qa-polish2.test.mjs lists who may and may not grow. */
 @media (pointer: coarse) {
   :where(.install__alt, .copy-code) { position: relative; }
-  :is(.install__alt, .copy-code, .code-block__copy)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+  :is(.install__alt, .copy-code)::before { content: ""; position: absolute; inset: var(--hit-inset); }
   :is(.page-index__link, .page-index__head) { display: block; padding-block: calc((var(--hit) - 1lh) / 2); }
   .page-index ol { gap: 0; }
   .page-index > ol > li { padding-block: 0; }

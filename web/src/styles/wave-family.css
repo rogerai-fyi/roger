@@ -698,10 +698,3 @@
   .wave-mark__node, .wave-mark__ripple { animation: none; }
   .wave-mark__ripple, .wave-mark__spectrum, .wave-mark__ring, .wave-mark__tag { display: none; }
 }
-
-/* touch: this sheet's small controls keep their look and grow a --hit tap area
-   (the pattern: the touch hit area block in components.css) */
-@media (pointer: coarse) {
-  :where(.wj__chip) { position: relative; }
-  :is(.wj__chip)::before { content: ""; position: absolute; inset: var(--hit-inset); }
-}
