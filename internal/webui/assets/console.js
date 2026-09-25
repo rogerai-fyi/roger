@@ -1675,6 +1675,7 @@
       }
     }
     edgeRenderCandidates(d);
+    edgeRenderAdopting(d);
     edgeRenderSessions(d);
     edgeCanManage = !!d.manage;
     edgeRenderSelfControls(d);
@@ -1860,6 +1861,21 @@
     });
   }
 
+  // edgeRenderAdopting lists nodes the owner adopted that have not yet claimed a certificate and
+  // checked in - so a just-adopted phone does not vanish between adopt and membership (claim.feature).
+  function edgeRenderAdopting(d) {
+    var box = $("edge-adopting");
+    if (!box) return;
+    var list = d.adopting || [];
+    if (!list.length) { box.innerHTML = ""; show(box, false); return; }
+    box.innerHTML = "";
+    box.appendChild(el("span", "mono muted small", "adopting \u00b7 waiting to check in:"));
+    list.forEach(function (a) {
+      box.appendChild(el("span", "edge-adopting-pill mono small", a.name + " (" + (a.kind || "?") + ")"));
+    });
+    show(box, true);
+  }
+
   // edgeSelect picks a node or candidate BY ID. The selection is sticky across reads: a
   // node arriving, going dark or being forgotten never moves it onto a different machine.
   function edgeSelect(id) {
@@ -1883,6 +1899,20 @@
 
   // edgeRenderSelfControls draws THIS machine's own management - the agent role, add-agent, and where
   // a turn goes first - the console's mirror of the TUI [3] panel. Shown only when the host wired them.
+  // edgeJobFor renders an agent instance's durable assignment - its bound model and job - from the
+  // snapshot's agent_jobs, so the console shows what each agent is DOING, like the TUI (jobs.feature).
+  function edgeJobFor(d, name) {
+    var jobs = d.agent_jobs || [];
+    for (var k = 0; k < jobs.length; k++) {
+      if (jobs[k].name !== name) continue;
+      var j = jobs[k], bits = [];
+      if (j.model) bits.push((j.share ? "shares " : j.use ? "uses " : "bound ") + j.model);
+      if (j.job) bits.push(j.job + ((j.targets && j.targets.length) ? " " + j.targets.join(",") : ""));
+      return bits.join(" \u00b7 ");
+    }
+    return "";
+  }
+
   function edgeRenderSelfControls(d) {
     var bar = $("edge-self-controls");
     if (!bar) return;
@@ -1962,7 +1992,10 @@
     });
     if (n.via) edgeKV(card, "reached through", n.via);
     (n.instances || []).forEach(function (i, idx) {
-      edgeKV(card, idx === 0 ? "instances" : "", "/" + i.name + "  " + edgeMarks(i) + ((i.bands || []).length ? "  serves " + i.bands.join(", ") : ""));
+      var line = "/" + i.name + "  " + edgeMarks(i) + ((i.bands || []).length ? "  serves " + i.bands.join(", ") : "");
+      var job = edgeJobFor(d, i.name);
+      if (job) line += "  \u00b7 " + job;
+      edgeKV(card, idx === 0 ? "instances" : "", line);
     });
     if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));

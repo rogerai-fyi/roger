@@ -1380,3 +1380,12 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   border-radius: 4px;
   padding: 0.15rem 0.3rem;
 }
+
+/* Edge: nodes adopted but not yet checked in. */
+.edge-adopting { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.35rem 0; }
+.edge-adopting-pill {
+  padding: 0.1rem 0.45rem;
+  border: 1px dashed var(--line, #444);
+  border-radius: 999px;
+  color: var(--muted, #999);
+}

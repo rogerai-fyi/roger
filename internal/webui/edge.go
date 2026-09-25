@@ -53,6 +53,13 @@ type EdgeHooks struct {
 	Status func() edge.SelfStatus
 	// Household is this machine's running instances (nil = unknown).
 	Household func() []edge.Instance
+	// Adopting is the nodes the owner has adopted that have not yet claimed a certificate and checked
+	// in (shown so a just-adopted phone does not vanish between adopt and membership). PersistentAgents
+	// are the agents marked durable (one not in the live household is drawn offline), and AgentJobs are
+	// the durable assignments - each agent's bound model and its job. All read-only; nil = unknown.
+	Adopting         func() []store.EdgeNode
+	PersistentAgents func() []edge.PersistentAgent
+	AgentJobs        func() []edge.AgentJob
 	// Now is the snapshot clock. Injectable so a test can assert on an age without
 	// racing the wall clock; nil means time.Now.
 	Now func() time.Time
@@ -154,6 +161,11 @@ type edgeSnap struct {
 	// (agent on/off, add agent, prefer) are wired, so the console shows them exactly when they work.
 	AgentActive bool `json:"agent_active"`
 	SelfManage  bool `json:"self_manage"`
+	// The rest of the fleet state the TUI shows, so the console shows the same: nodes adopted but not
+	// yet checked in, the durable agents, and each agent's assignment (bound model + job).
+	Adopting         []edgeNodeJSON         `json:"adopting"`
+	PersistentAgents []edge.PersistentAgent `json:"persistent_agents"`
+	AgentJobs        []edge.AgentJob        `json:"agent_jobs"`
 }
 
 func (s *Server) edgeNow() time.Time {
@@ -243,6 +255,20 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		for _, c := range h.Candidates() {
 			snap.Candidates = append(snap.Candidates, edgeNodeOf(c, now))
 		}
+	}
+	snap.Adopting = []edgeNodeJSON{}
+	if h.Adopting != nil {
+		for _, a := range h.Adopting() {
+			snap.Adopting = append(snap.Adopting, edgeNodeOf(a, now))
+		}
+	}
+	snap.PersistentAgents = []edge.PersistentAgent{}
+	if h.PersistentAgents != nil {
+		snap.PersistentAgents = append(snap.PersistentAgents, h.PersistentAgents()...)
+	}
+	snap.AgentJobs = []edge.AgentJob{}
+	if h.AgentJobs != nil {
+		snap.AgentJobs = append(snap.AgentJobs, h.AgentJobs()...)
 	}
 	if h.Sessions != nil {
 		for _, g := range edge.GroupSessions(h.Sessions.Live()) {

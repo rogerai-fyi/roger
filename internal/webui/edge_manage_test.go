@@ -234,3 +234,40 @@ func TestConsoleSelfControlsDisabledWhenUnwired(t *testing.T) {
 		}
 	}
 }
+
+// The console snapshot carries the same fleet state the TUI shows: adopting nodes, durable agents,
+// and each agent's assignment (features/edge/agents.feature, jobs.feature) - so the two surfaces show
+// one fleet, not two.
+func TestConsoleSnapshotCarriesAgentsAndJobs(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	adopting := store.EdgeNode{ID: "n_phone", Name: "gentle-ibex", Kind: "mobile", Presence: string(edge.PresenceVerified)}
+	s := New(testCtrl(), Options{Edge: EdgeHooks{
+		Self:             "workshop",
+		Fleet:            fleet,
+		Adopting:         func() []store.EdgeNode { return []store.EdgeNode{adopting} },
+		PersistentAgents: func() []edge.PersistentAgent { return []edge.PersistentAgent{{Name: "watcher", Node: "n_self"}} },
+		AgentJobs: func() []edge.AgentJob {
+			return []edge.AgentJob{{Name: "watcher", Node: "n_self", Model: "qwen3-8b", Share: true, Job: "serve"}}
+		},
+	}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/api/edge?t=" + s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var snap edgeSnap
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Adopting) != 1 || snap.Adopting[0].Name != "gentle-ibex" {
+		t.Fatalf("adopting = %v, want the phone", snap.Adopting)
+	}
+	if len(snap.PersistentAgents) != 1 || snap.PersistentAgents[0].Name != "watcher" {
+		t.Fatalf("persistent agents = %v", snap.PersistentAgents)
+	}
+	if len(snap.AgentJobs) != 1 || snap.AgentJobs[0].Model != "qwen3-8b" || snap.AgentJobs[0].Job != "serve" {
+		t.Fatalf("agent jobs = %v", snap.AgentJobs)
+	}
+}
