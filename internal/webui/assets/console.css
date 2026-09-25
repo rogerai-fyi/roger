@@ -1350,58 +1350,103 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .route--local { color: var(--ink-900); }
 .route--market { color: var(--ink-500); }
 
-/* Edge Manage: the inline rename input on a member node's detail card. */
-.edge-rename-input {
-  flex: 1 1 auto;
-  min-width: 6rem;
-  padding: 0.25rem 0.4rem;
-  font: inherit;
-  color: var(--fg, #ddd);
-  background: var(--bg-2, #1a1a1a);
-  border: 1px solid var(--line, #333);
-  border-radius: 4px;
-}
-.edge-forget { color: var(--ember, #d66); }
 
-/* Edge Manage: this machine's own controls (agent role, add agent, prefer). */
+/* =====================================================================
+   EDGE MANAGE - the console's fleet-management controls. One warm-paper
+   system, one red signal: inputs and pills sit on --paper-2 with a
+   --hairline rule; the only fill is an --ink-900 primary action; machine
+   truth (ids, models, ports) stays in mono. Kept quiet so the fleet, not
+   the chrome, is what reads.
+   ===================================================================== */
+
+/* Shared: inline management inputs + selects match the console's fields. */
+.edge-rename-input,
+.edge-prefer-sel,
+.edge-job-form input[type="text"],
+.edge-job-sel,
+.edge-grant-form select,
+.edge-grant-form input[type="text"] {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-900);
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 5px 9px;
+  min-width: 0;
+}
+.edge-rename-input:focus,
+.edge-prefer-sel:focus,
+.edge-job-form input[type="text"]:focus,
+.edge-job-sel:focus,
+.edge-grant-form select:focus,
+.edge-grant-form input[type="text"]:focus {
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+  border-color: var(--live);
+}
+.edge-rename-input { flex: 1 1 8rem; }
+
+/* This machine's controls: a quiet banded strip under the header. */
 .edge-self-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  margin: var(--s-2) 0 var(--s-3);
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
 }
-.edge-prefer { display: inline-flex; align-items: center; gap: 0.35rem; }
-.edge-prefer-sel {
-  font: inherit;
-  color: var(--fg, #ddd);
-  background: var(--bg-2, #1a1a1a);
-  border: 1px solid var(--line, #333);
-  border-radius: 4px;
-  padding: 0.15rem 0.3rem;
-}
+.edge-self-controls > .muted { margin-right: var(--s-1); }
+.edge-prefer { display: inline-flex; align-items: center; gap: var(--s-2); }
 
-/* Edge: nodes adopted but not yet checked in. */
-.edge-adopting { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.35rem 0; }
+/* Adopting: dashed pills - a device on its way in, not yet a member. */
+.edge-adopting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+}
 .edge-adopting-pill {
-  padding: 0.1rem 0.45rem;
-  border: 1px dashed var(--line, #444);
-  border-radius: 999px;
-  color: var(--muted, #999);
+  padding: 2px var(--s-3);
+  border: 1px dashed var(--hairline-2);
+  border-radius: var(--r-pill);
+  color: var(--ink-500);
+  background: var(--paper-2);
 }
 
-/* Edge: the inline agent job-assignment form. */
-.edge-job-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.4rem 0; }
-.edge-job-field { display: inline-flex; align-items: center; gap: 0.3rem; }
-.edge-job-check { display: inline-flex; align-items: center; gap: 0.25rem; }
-.edge-job-form input[type="text"], .edge-job-sel {
-  font: inherit; color: var(--fg, #ddd); background: var(--bg-2, #1a1a1a);
-  border: 1px solid var(--line, #333); border-radius: 4px; padding: 0.15rem 0.35rem;
+/* Job + grant forms: a bordered panel, fields wrapping to one row on wide,
+   stacking on narrow. Labels are quiet mono captions. */
+.edge-job-form,
+.edge-grant-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  margin: var(--s-2) 0;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
 }
+.edge-job-field,
+.edge-job-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.edge-job-field > .muted,
+.edge-grant-form .muted {
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  font-size: var(--t-micro);
+  color: var(--ink-400);
+}
+.edge-job-check input { accent-color: var(--live); }
+.edge-job-actions { margin-top: 0; }
 
-/* Edge: the grants issue form. */
-.edge-grant-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.4rem 0; }
-.edge-grant-form select, .edge-grant-form input[type="text"] {
-  font: inherit; color: var(--fg, #ddd); background: var(--bg-2, #1a1a1a);
-  border: 1px solid var(--line, #333); border-radius: 4px; padding: 0.15rem 0.35rem;
-}
+/* Grants table: revoke stays a quiet ghost; a REVOKED row reads muted. */
+.edge-grants-wrap { margin-top: var(--s-6); }
