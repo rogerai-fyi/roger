@@ -62,12 +62,25 @@ test("wildfire: the card exists with its name and slug", () => {
   const alt = card("wildfire").match(/<img[^>]*\balt="([^"]*)"/)?.[1];
   assert.ok(alt, "the card photo has alt text");
   assert.doesNotMatch(alt, /fire|flame|smoke|burning|blaze/i, "the photo shows no fire on a home");
+  // The picture must be a text-free frame: the film's title card has the company name
+  // burned in, which would put FireDefense on the card. Only reviewed assets may be used.
+  const src = card("wildfire").match(/<img[^>]*\bsrc="([^"?]*)/)?.[1]; // the build appends ?v=hash
+  const TEXT_FREE = ["assets/industry/wildfire.webp"];
+  assert.ok(TEXT_FREE.includes(src), `the wildfire card image is a reviewed text-free frame, got ${src}`);
+  assert.doesNotMatch(src, /poster-/, "never a film poster or title card");
+  // the shared photo treatment renders every card in grayscale, so the alt cannot promise colour
+  if (/\.deployment-grid__shot img\s*\{[^}]*grayscale/.test(css())) {
+    assert.doesNotMatch(alt, /\b(red|orange|yellow|green|blue|golden|colou?r(ed|ful)?)\b/i,
+      "the alt describes what renders: the picture is shown in grayscale");
+  }
 });
 
 test("wildfire: nine markets lay out without a lone orphan", () => {
   const c = css();
   assert.match(c, /\.usecase-strip\s*\{[^}]*grid-template-columns:\s*repeat\(9,/, "nine across at full width");
-  for (const bp of [880, 480]) {
+  // one rule covers every width below 880px; a second, identical 480px rule was dead code
+  assert.doesNotMatch(c, /@media \(max-width: 480px\) \{ \.usecase-strip/, "no duplicate 480px strip rule");
+  for (const bp of [880]) {
     const m = c.match(new RegExp(`@media \\(max-width: ${bp}px\\) \\{ \\.usecase-strip \\{ grid-template-columns: repeat\\((\\d+),`));
     assert.equal(m?.[1], "3", `the strip is three across at ${bp}px, so nine close 3x3`);
   }
@@ -165,6 +178,14 @@ test("wildfire: the use case is honest about what runs today", () => {
     "the app and the Safety Box are in development, never available");
   assert.doesNotMatch(wildfireCopy(), /valve[- ]health|self-test|exercis/i,
     "no valve-health claim: no such code exists (founder ruling 2026-09-24)");
+  // The mast is film-only, so what it does is design tense ("built to", "would"), never
+  // a present-tense account of a watch in operation.
+  assert.doesNotMatch(wildfireCopy(), /\b(still working|keeps working|keeps (the )?(always-on )?watch|alerts the owner)\b/i,
+    "no present-tense operating claim for a mast that is shown in the film");
+  // the smell-first rule is the watch's heuristic, not a law of fire
+  assert.match(uc, /the watch treats one trace leaving baseline as weather, three leaving together as combustion/);
+  // no location detail about a private company beyond what the use case needs
+  assert.doesNotMatch(wildfireCopy(), /Southern California/);
 });
 
 test("wildfire: FireDefense Systems is named as a separate company, with its film", () => {
