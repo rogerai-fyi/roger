@@ -514,6 +514,23 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
     background: var(--white); color: var(--ink-900);
   }
   .nav__utils .nav__link--ghost { flex: 1; justify-content: center; }
+  /* the lean bar (account pages) has no burger to open that drawer: its few links
+     and the theme switch stay in the bar, a quiet row, instead of vanishing */
+  .nav:not(:has(.nav__burger)) .nav__menu {
+    position: static; flex-direction: row; align-items: center;
+    padding: 0; background: none; border: 0; box-shadow: none;
+    transform: none; opacity: 1; pointer-events: auto; visibility: visible;
+  }
+  .nav:not(:has(.nav__burger)) .nav__utils { padding-top: 0; gap: var(--s-4); }
+  .nav:not(:has(.nav__burger)) .nav__utils .nav__link {
+    flex: none; border: 0; background: none; color: var(--ink-500);
+  }
+}
+@media (max-width: 480px) {
+  /* a phone: the lean bar's links take their own row under the brand */
+  .nav:not(:has(.nav__burger)) .nav__inner { flex-wrap: wrap; height: auto; padding-block: var(--s-2); }
+  .nav:not(:has(.nav__burger)) .nav__menu { flex-basis: 100%; }
+  .nav:not(:has(.nav__burger)) .nav__utils { flex: 1; justify-content: space-between; gap: var(--s-2); }
 }
 
 /* the eyebrow callsign line (shared: home / manual / models) */

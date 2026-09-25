@@ -62,3 +62,30 @@ test("the governance timeline has one column per stop (a fixed five left a hole 
   assert.doesNotMatch(g, /\.gov-timeline \{[^}]*repeat\(5/);
   assert.match(g, /\.gov-timeline \{[^}]*grid-auto-flow: column/);
 });
+
+test("a scrolling code line shows its edge (a shade while there is more), on the block's own ground", () => {
+  const c = css("components.css");
+  assert.match(c, /\.code-block \{[^}]*--cb-ground: var\(--paper-2\)/);
+  assert.match(c, /\.code-block pre \{[^}]*no-repeat local,[^}]*no-repeat scroll/);
+  assert.match(c, /\.tint-panel \.code-block \{ --cb-ground: var\(--paper\); \}/);
+});
+
+test("a page that ends on a panel leaves the footer room", () => {
+  assert.match(css("components.css"), /main > :is\(\.tone-zone, \.band--inset\):not\(:has\(~ :not\(\[hidden\], script\)\)\) \{ margin-bottom: var\(--s-16\); \}/);
+});
+
+test("the lean bar (account pages, no burger) keeps its links and theme switch on a phone", () => {
+  const base = css("base.css");
+  assert.match(base, /\.nav:not\(:has\(\.nav__burger\)\) \.nav__menu \{[^}]*position: static[^}]*visibility: visible/);
+});
+
+test("the models dial needle is a hairline: no glow, no red wash behind it", () => {
+  const m = css("models.css");
+  assert.doesNotMatch(m, /\.dial__pointer \{[^}]*box-shadow: (?!none)/);
+  assert.doesNotMatch(m, /\.dial__glass \{[^}]*--live-wash/);
+});
+
+test("phone fixes on App and the Playbox: the handheld clears its caption, tier rows get the width", () => {
+  assert.match(phone(css("app.css")), /\.app-hero__devices \{ padding-top: var\(--s-12\); \}/);
+  assert.match(phone(css("playbox.css")), /\.dk__shelfrow \{ grid-template-columns: 1fr;/);
+});

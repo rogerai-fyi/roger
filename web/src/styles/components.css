@@ -169,6 +169,8 @@
 /* dark site: the panel is one step deeper than the page, which alone reads
    as a hole rather than a room; a hairline ring gives it its edge back */
 :root[data-theme="dark"] .tone-zone { box-shadow: inset 0 0 0 1px var(--hairline-2); }
+/* a page that ends on a panel leaves the footer room, not a crease */
+main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margin-bottom: var(--s-16); }
 
 /* ======================= TOC TUNER ============================= */
 /* The table of contents as a precision tuning scale. In the page, never
@@ -182,6 +184,9 @@
    counted from the markup below, so a page never sets it. */
 .toc-tuner { padding-block: clamp(40px, 6vw, 80px) clamp(24px, 3vw, 40px); --tuner-n: 9; --at: var(--cur, 0); }
 .toc-tuner:has(li:nth-child(2):last-child) { --tuner-n: 2; }
+/* ten to twelve stations on a phone: two-digit numerals a size smaller, so §10 and
+   §11 keep air between them */
+@media (max-width: 480px) { .toc-tuner:has(li:nth-child(10)) b { font-size: 0.8rem; letter-spacing: -0.05em; } }
 .toc-tuner:has(li:nth-child(3):last-child) { --tuner-n: 3; }
 .toc-tuner:has(li:nth-child(4):last-child) { --tuner-n: 4; }
 .toc-tuner:has(li:nth-child(5):last-child) { --tuner-n: 5; }
@@ -688,18 +693,24 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
    copied text leaves out aria-hidden prompts. No-JS: the plain, selectable <pre>, and
    no dead button. */
 .code-block {
+  --cb-ground: var(--paper-2);
   position: relative; margin-top: var(--s-4); max-width: 100%;
-  background: var(--paper-2); border-radius: var(--r-xl);
+  background: var(--cb-ground); border-radius: var(--r-xl);
 }
+/* a line that runs past the edge shows it: a soft shade at the right edge while
+   there is more to scroll, covered by the block's own ground once you reach the end
+   (the two layers scroll differently; no script) */
 .code-block pre {
   margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
-  background: transparent;
+  background:
+    linear-gradient(to left, var(--cb-ground) 16px, transparent) right / 28px 100% no-repeat local,
+    linear-gradient(to left, color-mix(in srgb, var(--ink-900) 7%, transparent), transparent) right / 20px 100% no-repeat scroll;
   font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.6;
   color: var(--ink-900); white-space: pre;
 }
 .code-block pre code { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
 /* on a tinted panel the block steps up to the paper, so it still reads as a block */
-.tint-panel .code-block { background: var(--paper); }
+.tint-panel .code-block { --cb-ground: var(--paper); }
 /* with its copy control the block is two columns: the <pre> scrolls in its own, so a
    long line never slides under the button */
 .code-block:has(.code-block__copy) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }

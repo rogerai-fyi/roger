@@ -52,13 +52,12 @@
 .dial__lbl--on { opacity: 1; fill: var(--live-text); font-weight: var(--weight-semi); }
 .dial__pip { transition: fill .25s ease; }
 
-/* fixed red needle, dead center, with a soft lock-glow that brightens at a
-   detent (--lock -> 1). transform/opacity only. */
+/* fixed red needle, dead center; its end diamonds brighten at a detent
+   (--lock -> 1). transform/opacity only. */
 .dial__pointer {
   position: absolute; left: 50%; top: var(--s-5); bottom: calc(var(--s-4) + 30px);
   width: 2px; margin-left: -1px; background: var(--live);
-  box-shadow: 0 0 calc(2px + var(--lock) * 7px) var(--live-glow);
-  pointer-events: none;
+  pointer-events: none;   /* a hairline needle: no glow (the brand keeps red an indicator) */
 }
 .dial__pointer::before, .dial__pointer::after {
   content: ""; position: absolute; left: 50%; width: 9px; height: 9px;
@@ -68,11 +67,9 @@
 .dial__pointer::before { top: -4px; }
 .dial__pointer::after  { bottom: -4px; }
 
-/* glass: faint scanlines + a center detent column + edge vignette */
+/* glass: faint scanlines + edge vignette (the red detent wash went: no glows) */
 .dial__glass { position: absolute; inset: 0; pointer-events: none;
   background:
-    /* center detent: a hairline-wide brighter slot under the needle */
-    linear-gradient(90deg, transparent calc(50% - 22px), var(--live-wash) 50%, transparent calc(50% + 22px)),
     /* scanlines */
     repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,.018) 3px),
     /* side vignette so the spectrum fades into the rails */

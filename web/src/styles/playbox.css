@@ -518,6 +518,12 @@
 }
 .dk__shelfstrip--ladder .dk__spine b { font-size: 9px; }
 .dk__shelfstrip--ladder .dk__spinechip { margin-top: 0; text-align: right; }
+/* a phone: the row label goes above its tapes, so a tier's reach gets the width
+   instead of breaking mid-word ("enterpri se") in a 40px column */
+@media (max-width: 560px) {
+  .dk__shelfrow { grid-template-columns: 1fr; gap: 4px; }
+  .dk__shelfgroup { justify-content: flex-start; text-align: left; border-right: 0; padding-right: 0; }
+}
 /* the tier's Spectrum colour on the top edge (light + dark values match the
    founder's chart, same tokens as the mesh and factory decks) */
 .dk__spine[data-tier="pico"]  { border-top-color: #b23a2a; }

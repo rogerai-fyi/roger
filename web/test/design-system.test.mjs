@@ -403,7 +403,6 @@ const RED_LAMPS = {
   "home.css .pingband__grille": "the LED banner's 6px grille dot (5px)",
   'home.css .pingdeck[data-ping-state="onair"] .pingdeck__led, .pingdeck[data-ping-state="transmit"] .pingdeck__led': "the deck's on-air / transmit LED (6px)",
   "home.css .twoway__beam::after": "the 6px dot travelling the beam (6px)",
-  "models.css .dial__pointer": "the dial pointer lights as it locks onto a station (2 to 9px)",
   "playbox.css .dk__lamp.is-lit": "Playbox (a self-contained game): the deck's lit lamp",
   "playbox.css .dk__dial i::before": "Playbox (a self-contained game): the dial's needle lamp",
   "playbox.css .dk__spine.is-loaded": "Playbox (a self-contained game): the loaded cassette's lift",
