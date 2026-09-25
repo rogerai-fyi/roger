@@ -1,6 +1,7 @@
 // One role, one pattern (web/DESIGN-SYSTEM.md). The DRY guards catch a component defined
 // twice; these catch a role drawn two ways across pages - parallel rollouts made different
-// choices (the founder spotted /models' lead row next to /company's row of boxed buttons).
+// choices (the founder spotted /models' lead row next to /company's row of boxed buttons,
+// and ruled for the boxes: every row is one solid primary, then outlined boxed buttons).
 // Each rule reads the page sources; a page that needs to differ is listed with its reason.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,12 +19,13 @@ const classesOf = (tag) => (tag.match(/\bclass="([^"]*)"/)?.[1] || "").split(/\s
 
 /* ---- action rows ------------------------------------------------------------------ */
 
-// Every action row is the lead row: ONE primary (the first action), then quiet links.
+// Every action row is the lead row: ONE primary (the first action), then boxed secondaries
+// (the plain .research-button outline). There is no quiet, underlined-link variant.
 function actionRows(html) {
   return [...html.matchAll(/<(div|p)\b[^>]*\bclass="[^"]*\bresearch-actions\b[^"]*"[^>]*>([\s\S]*?)<\/\1>/g)]
     .map((m) => ({ open: m[0].slice(0, m[0].indexOf(">") + 1), body: m[2] }));
 }
-test("every action row is a lead row: the first action primary, the rest quiet", () => {
+test("every action row is a lead row: the first action primary, the rest boxed secondaries", () => {
   const bad = [];
   for (const page of PAGES) {
     for (const row of actionRows(strip(read(page)))) {
@@ -34,12 +36,30 @@ test("every action row is a lead row: the first action primary, the rest quiet",
       buttons.forEach((c, i) => {
         if (!c.includes("research-button")) bad.push(`${where}: action ${i + 1} is not a .research-button`);
         else if (i === 0 && !c.includes("research-button--primary")) bad.push(`${where}: the first action is not the primary`);
-        else if (i > 0 && !c.includes("research-button--quiet")) bad.push(`${where}: action ${i + 1} is a boxed button, not a quiet link`);
+        else if (i > 0 && c.some((x) => x.startsWith("research-button--") && x !== "research-button--primary")) bad.push(`${where}: action ${i + 1} carries a variant (${c.join(" ")}); a secondary is the plain boxed .research-button`);
         if (i > 0 && c.includes("research-button--primary")) bad.push(`${where}: a second primary`);
       });
     }
   }
   assert.deepEqual(bad, [], `action rows off the pattern:\n  ${bad.join("\n  ")}`);
+});
+
+// The boxed secondary is drawn once, in components.css: an outline that reads on paper and
+// in an ink panel (theme tokens), a visible hover, focus and press, a 44px tap target on
+// touch, and on a phone every button keeps its own width (no full-width stack).
+const sheet = (f) => readFileSync(path.join(SRC, "styles", f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+test("the action row's buttons: one solid primary, boxed secondaries, never a quiet link or a full-width stack", () => {
+  const all = readdirSync(path.join(SRC, "styles")).filter((f) => f.endsWith(".css"));
+  for (const f of all) assert.doesNotMatch(sheet(f), /research-button--quiet/, `${f} still draws the quiet link`);
+  const c = sheet("components.css");
+  assert.match(c, /\.research-button \{[^}]*border: 1px solid var\(--hairline-2\)[^}]*color: var\(--ink-700\)/, "the secondary is a hairline box with an AA ink label");
+  assert.match(c, /\.research-button:focus-visible \{[^}]*outline: 2px solid var\(--live\)/, "keyboard focus shows");
+  assert.match(c, /\.research-button:not\(\.research-button--primary\):active \{[^}]*background: var\(--paper-2\)/, "a pressed secondary shows");
+  assert.match(c, /@media \(pointer: coarse\) \{[^@]*\.research-button \{[^}]*min-height: 44px/, "a 44px tap target on touch");
+  assert.match(c, /\.research-actions--lead \.research-button \{[^}]*width: auto[^}]*flex: 0 0 auto/, "each button keeps its own width");
+  assert.doesNotMatch(sheet("company.css"), /\.research-button \{[^}]*flex: 1/, "no page stretches its buttons to fill a row");
+  assert.doesNotMatch(sheet("research.css"), /\.research-actions \{ grid-template-columns: 1fr; \}/, "the research hero does not stack full width on a phone");
+  assert.doesNotMatch(c, /\.research-button[^{}]*\{[^}]*box-shadow/, "no glow on the buttons");
 });
 
 // A .research-button lives in an action row; a page does not draw its own row of actions.

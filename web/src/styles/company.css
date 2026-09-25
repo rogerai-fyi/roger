@@ -12,13 +12,6 @@
 
 .co-page section[id], .co-page [id^="q-"], .co-page .legal__sec h2[id] { scroll-margin-top: 72px; }
 
-/* phones: the hero actions wrap as a compact row instead of a full-width stack
-   (five buttons stacked were ~330px deep before a reader reached a word) */
-@media (max-width: 560px) {
-  .co-page .research-actions { gap: var(--s-2); }
-  .co-page .research-actions .research-button { width: auto; flex: 1 1 auto; }
-}
-
 /* ---- the summary strip ---------------------------------------------- */
 /* The shared research.css strip lays each cell out as a grid, so the kicker, the
    bold name and its continuation fell onto three rows ("The RogerAI network /

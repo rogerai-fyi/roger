@@ -78,12 +78,12 @@ test("pricing: a TOC tuner under the hero, one station per numbered section", ()
   assert.ok(html.indexOf('class="toc-tuner"') > html.indexOf("</section>"), "after the hero, never above it");
 });
 
-test("pricing: the hero offers one primary action and quiet links, never a stack of outlines", () => {
+test("pricing: the hero offers one primary action and boxed secondaries, never a full-width stack", () => {
   const hero = src("pricing.html").match(/<section class="research-hero">[\s\S]*?<\/section>/)[0];
   const row = hero.match(/<div class="research-actions research-actions--lead">[\s\S]*?<\/div>/)?.[0] || "";
   assert.ok(row, "the hero row is a lead row");
   assert.equal((row.match(/research-button--primary/g) || []).length, 1);
-  assert.equal((row.match(/class="research-button research-button--quiet"/g) || []).length, 2);
+  assert.equal((row.match(/class="research-button"/g) || []).length, 2);
   const close = sectionOf(src("pricing.html"), "ask");
   assert.match(close, /<div class="research-actions research-actions--lead">/, "the closing row too");
 });
@@ -147,7 +147,7 @@ test("pricing: sections land under the nav and reveal through the shared lift", 
 
 test("system: the new components are defined once, in components.css, with a behaviour module", () => {
   const css = stripCss(src("styles/components.css"));
-  for (const sel of [".tint-panel", ".research-actions--lead", ".research-button--quiet", ".copy-code", ".range-twin"]) {
+  for (const sel of [".tint-panel", ".research-actions--lead", ".copy-code", ".range-twin"]) {
     assert.ok(css.includes(sel), `components.css defines ${sel}`);
   }
   const js = src("js/range-twin.js");
@@ -168,12 +168,12 @@ test("system: every new motion is opt-in or switched off under reduced motion", 
 
 /* ---- MODELS ---------------------------------------------------------------------- */
 
-test("models: the hero offers one primary action and quiet links to the rest of the menu", () => {
+test("models: the hero offers one primary action and boxed links to the rest of the menu", () => {
   const html = src("models.html");
   const row = html.match(/<div class="research-actions research-actions--lead"[^>]*>[\s\S]*?<\/div>/)?.[0] || "";
   assert.ok(row, "the hero row is a lead row");
   assert.equal((row.match(/research-button--primary/g) || []).length, 1);
-  assert.equal((row.match(/class="research-button research-button--quiet"/g) || []).length, 4);
+  assert.equal((row.match(/class="research-button"/g) || []).length, 4);
 });
 
 test("models: the live directory sits in an ink panel, like the homepage's band", () => {
@@ -246,7 +246,7 @@ test("tower: no inline styles; every action row leads with one primary", () => {
   for (const [, mod, row] of rows) {
     assert.equal(mod, " research-actions--lead");
     assert.equal((row.match(/research-button--primary/g) || []).length, 1);
-    assert.doesNotMatch(row, /class="research-button"/, "the rest are quiet links");
+    assert.doesNotMatch(row, /research-button--quiet/, "the rest are boxed secondaries, not quiet links");
   }
 });
 
