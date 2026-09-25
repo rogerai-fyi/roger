@@ -152,6 +152,7 @@ func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
 		SetAgent: h.EdgeSetAgent, AddAgent: h.EdgeAddAgent,
 		AgentActive: h.EdgeAgentActive, SetPrefer: h.EdgeSetPrefer,
 		SetAgentJob: h.EdgeSetAgentJob, ClearAgentJob: h.EdgeClearAgentJob,
+		Grants: h.EdgeGrants, IssueGrant: h.EdgeIssueGrant, RevokeGrant: h.EdgeRevokeGrant,
 		Adopting: h.EdgeAdopting, PersistentAgents: h.EdgePersistentAgents, AgentJobs: h.EdgeAgentJobs,
 		Household: h.EdgeHousehold,
 		Sessions:  h.EdgeSessions, Status: h.EdgeStatus,

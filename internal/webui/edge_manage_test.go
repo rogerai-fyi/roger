@@ -331,3 +331,70 @@ func TestConsoleJobNeedsTokenAndName(t *testing.T) {
 		t.Fatalf("job no name = %d, want 400", r2.StatusCode)
 	}
 }
+
+// The console's Grants surface issues, lists and revokes authority-signed grants through the host -
+// the invoke fabric's grant surface (features/edge/control.feature).
+func TestConsoleGrantIssueListRevoke(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	var issued [][4]string
+	revoked := []string{}
+	live := []store.Grant{}
+	s := New(testCtrl(), Options{Edge: EdgeHooks{
+		Self:   "workshop",
+		Fleet:  fleet,
+		Grants: func() ([]store.Grant, error) { return live, nil },
+		IssueGrant: func(caller, capability, callee, forDur string) (store.Grant, error) {
+			issued = append(issued, [4]string{caller, capability, callee, forDur})
+			g := store.Grant{ID: "grant_x", Caller: caller, Nodes: []string{callee}, Caps: []string{capability}}
+			live = append(live, g)
+			return g, nil
+		},
+		RevokeGrant: func(id string) error { revoked = append(revoked, id); return nil },
+	}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+
+	resp := postJSONTok(t, srv, s, "/api/edge/grant",
+		`{"caller":"self","capability":"operate","callee":"n_ws","for":"7d"}`)
+	var snap edgeSnap
+	json.NewDecoder(resp.Body).Decode(&snap)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("issue = %d, want 200", resp.StatusCode)
+	}
+	if len(issued) != 1 || issued[0] != [4]string{"self", "operate", "n_ws", "7d"} {
+		t.Fatalf("IssueGrant call = %v", issued)
+	}
+	if len(snap.Grants) != 1 || snap.Grants[0].Caps != "operate" || snap.Grants[0].Callee != "n_ws" {
+		t.Fatalf("snapshot grants = %+v", snap.Grants)
+	}
+
+	resp2 := postJSONTok(t, srv, s, "/api/edge/grant/revoke", `{"id":"grant_x"}`)
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK || len(revoked) != 1 || revoked[0] != "grant_x" {
+		t.Fatalf("revoke: status=%d revoked=%v", resp2.StatusCode, revoked)
+	}
+}
+
+func TestConsoleGrantIssueNeedsFields(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	s := New(testCtrl(), Options{Edge: EdgeHooks{
+		Fleet:       fleet,
+		IssueGrant:  func(string, string, string, string) (store.Grant, error) { return store.Grant{}, nil },
+		RevokeGrant: func(string) error { return nil },
+	}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	// missing callee
+	r := postJSONTok(t, srv, s, "/api/edge/grant", `{"capability":"operate"}`)
+	r.Body.Close()
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("issue missing callee = %d, want 400", r.StatusCode)
+	}
+	// no token
+	r2, _ := http.Post(srv.URL+"/api/edge/grant", "application/json", strings.NewReader(`{"capability":"operate","callee":"n"}`))
+	r2.Body.Close()
+	if r2.StatusCode != http.StatusForbidden {
+		t.Fatalf("issue no token = %d, want 403", r2.StatusCode)
+	}
+}

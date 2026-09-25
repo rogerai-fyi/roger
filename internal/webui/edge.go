@@ -18,6 +18,7 @@ package webui
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
@@ -51,7 +52,12 @@ type EdgeHooks struct {
 	// TUI's Bind Model / job actions (features/edge/jobs.feature). Nil leaves them disabled.
 	SetAgentJob   func(j edge.AgentJob) error
 	ClearAgentJob func(name string) error
-	Sessions      *edge.Sessions
+	// Grants is the authority-signed grants this owner issued, IssueGrant mints one, RevokeGrant revokes
+	// by id - the invoke fabric's grant surface (features/edge/control.feature). Nil = disabled.
+	Grants      func() ([]store.Grant, error)
+	IssueGrant  func(caller, capability, callee, forDur string) (store.Grant, error)
+	RevokeGrant func(id string) error
+	Sessions    *edge.Sessions
 	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
 	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
 	Status func() edge.SelfStatus
@@ -109,6 +115,15 @@ type edgeNodeJSON struct {
 type edgeContractJSON struct {
 	Class  string   `json:"class,omitempty"`
 	Labels []string `json:"labels,omitempty"`
+}
+
+type edgeGrantJSON struct {
+	ID        string `json:"id"`
+	Caller    string `json:"caller"` // node id, or "" for a Self grant (any of the owner's instances)
+	Callee    string `json:"callee"` // the node id the grant addresses
+	Caps      string `json:"caps"`   // comma-joined capabilities
+	ExpiresAt int64  `json:"expires_at"`
+	State     string `json:"state"` // live | expired | REVOKED
 }
 
 type edgeSessJSON struct {
@@ -171,6 +186,8 @@ type edgeSnap struct {
 	Adopting         []edgeNodeJSON         `json:"adopting"`
 	PersistentAgents []edge.PersistentAgent `json:"persistent_agents"`
 	AgentJobs        []edge.AgentJob        `json:"agent_jobs"`
+	Grants           []edgeGrantJSON        `json:"grants"`
+	GrantsManage     bool                   `json:"grants_manage"`
 }
 
 func (s *Server) edgeNow() time.Time {
@@ -214,6 +231,26 @@ func edgeSessOf(g edge.SessionGroup, now time.Time) edgeSessJSON {
 		Route:    x.Where,
 		Contract: edgeContractJSON{Class: x.Contract.Class, Labels: x.Contract.Labels},
 		Count:    g.Count, At: x.At, Age: edge.Age(now.Sub(time.Unix(x.At, 0))),
+	}
+}
+
+// edgeGrantOf renders a stored grant for the console - its authorizing facts and current standing,
+// never the signature or any secret.
+func edgeGrantOf(g store.Grant, now time.Time) edgeGrantJSON {
+	callee := ""
+	if len(g.Nodes) > 0 {
+		callee = g.Nodes[0]
+	}
+	state := "live"
+	switch {
+	case g.Revoked:
+		state = "REVOKED"
+	case g.Expired(now):
+		state = "expired"
+	}
+	return edgeGrantJSON{
+		ID: g.ID, Caller: g.Caller, Callee: callee,
+		Caps: strings.Join(g.Caps, ","), ExpiresAt: g.ExpiresAt, State: state,
 	}
 }
 
@@ -275,6 +312,17 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	snap.AgentJobs = []edge.AgentJob{}
 	if h.AgentJobs != nil {
 		snap.AgentJobs = append(snap.AgentJobs, h.AgentJobs()...)
+	}
+	snap.Grants = []edgeGrantJSON{}
+	snap.GrantsManage = h.IssueGrant != nil && h.RevokeGrant != nil
+	if h.Grants != nil {
+		gs, gerr := h.Grants()
+		if gerr != nil {
+			return snap, gerr
+		}
+		for _, g := range gs {
+			snap.Grants = append(snap.Grants, edgeGrantOf(g, now))
+		}
 	}
 	if h.Sessions != nil {
 		for _, g := range edge.GroupSessions(h.Sessions.Live()) {
@@ -493,6 +541,52 @@ func (s *Server) handleEdgeJobClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.ClearAgentJob(req.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeGrantIssue mints an authority-signed grant from the console - POST-only, token-gated - the
+// invoke fabric's grant surface (features/edge/control.feature). caller may be "self".
+func (s *Server) handleEdgeGrantIssue(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.IssueGrant == nil {
+		http.Error(w, "this build cannot issue grants from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Caller     string `json:"caller"`
+		Capability string `json:"capability"`
+		Callee     string `json:"callee"`
+		For        string `json:"for"`
+	}
+	if !decode(r, &req) || req.Capability == "" || req.Callee == "" {
+		http.Error(w, "capability and callee required", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.IssueGrant(req.Caller, req.Capability, req.Callee, req.For); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeGrantRevoke revokes a grant by id from the console. POST-only and token-gated.
+func (s *Server) handleEdgeGrantRevoke(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.RevokeGrant == nil {
+		http.Error(w, "this build cannot revoke grants from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if !decode(r, &req) || req.ID == "" {
+		http.Error(w, "grant id required", http.StatusBadRequest)
+		return
+	}
+	if err := h.RevokeGrant(req.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}

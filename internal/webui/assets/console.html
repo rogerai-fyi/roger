@@ -320,6 +320,22 @@
             </tbody>
           </table>
         </div>
+
+        <div class="edge-grants-wrap" id="edge-grants-wrap" hidden>
+          <h3 class="sub-head">Grants</h3>
+          <p class="muted small">Authority-signed permissions: who may act on which node, and for how long. A member verifies a grant with your Edge's public root alone - no broker.</p>
+          <div id="edge-grant-form" class="edge-grant-form"></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>ID</th><th>CALLER</th><th>CAP</th><th>CALLEE</th><th>UNTIL</th><th>STATE</th><th></th></tr>
+              </thead>
+              <tbody id="edge-grants">
+                <tr class="empty-row"><td colspan="7">No grants issued yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ===================== SETTINGS =====================

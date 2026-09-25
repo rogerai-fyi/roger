@@ -134,6 +134,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/edge/prefer", s.action(s.handleEdgePrefer))
 	s.mux.HandleFunc("/api/edge/job", s.action(s.handleEdgeJob))
 	s.mux.HandleFunc("/api/edge/job/clear", s.action(s.handleEdgeJobClear))
+	s.mux.HandleFunc("/api/edge/grant", s.action(s.handleEdgeGrantIssue))
+	s.mux.HandleFunc("/api/edge/grant/revoke", s.action(s.handleEdgeGrantRevoke))
 	// Browse (the open-market discover feed).
 	s.mux.HandleFunc("/api/browse", s.auth(s.handleBrowse))
 }

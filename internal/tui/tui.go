@@ -105,6 +105,12 @@ type Hooks struct {
 	// EdgeSetPrefer chooses where a turn goes first (local | market | local-only), the host-side of
 	// `roger edge prefer` and the console's Prefer control (features/edge/mode.feature).
 	EdgeSetPrefer func(want string) error
+	// EdgeGrants lists the authority-signed grants this owner issued; EdgeIssueGrant mints one (caller,
+	// capability, callee node id, duration like 7d); EdgeRevokeGrant revokes by id. The invoke fabric's
+	// grant surface (features/edge/control.feature), the host-side of `roger edge grant`.
+	EdgeGrants      func() ([]store.Grant, error)
+	EdgeIssueGrant  func(caller, capability, callee, forDur string) (store.Grant, error)
+	EdgeRevokeGrant func(id string) error
 	// EdgeSessions is the account's live session ledger: the traffic this Edge really
 	// carried, derived by the relay path from its OWN receipts. The screen only READS
 	// it. There is no hook here that could open a session, because looking at the Edge

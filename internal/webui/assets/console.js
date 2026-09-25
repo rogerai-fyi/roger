@@ -1677,6 +1677,7 @@
     edgeRenderCandidates(d);
     edgeRenderAdopting(d);
     edgeRenderSessions(d);
+    edgeRenderGrants(d);
     edgeCanManage = !!d.manage;
     edgeRenderSelfControls(d);
     edgeRenderDetail(d);
@@ -1899,6 +1900,95 @@
 
   // edgeRenderSelfControls draws THIS machine's own management - the agent role, add-agent, and where
   // a turn goes first - the console's mirror of the TUI [3] panel. Shown only when the host wired them.
+  // edgeRenderGrants draws the authority's issued grants and the issue form. Shown only when this
+  // machine is the authority (the host wired IssueGrant/RevokeGrant) - a member has nothing to issue.
+  function edgeRenderGrants(d) {
+    var wrap = $("edge-grants-wrap");
+    if (!wrap) return;
+    if (!d.grants_manage) { show(wrap, false); return; }
+    show(wrap, true);
+    edgeRenderGrantForm(d);
+    var body = $("edge-grants");
+    if (!body) return;
+    body.innerHTML = "";
+    var grants = d.grants || [];
+    if (!grants.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "No grants issued yet."); ec.colSpan = 7;
+      er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    grants.forEach(function (g) {
+      var tr = el("tr", g.state === "REVOKED" ? "muted" : null);
+      tr.appendChild(el("td", "mono small", g.id));
+      tr.appendChild(el("td", "mono small", g.caller ? edgeNodeName(d, g.caller) : "self"));
+      tr.appendChild(el("td", "mono small", g.caps));
+      tr.appendChild(el("td", "mono small", edgeNodeName(d, g.callee)));
+      tr.appendChild(el("td", "mono small", g.expires_at ? edgeWhen(g.expires_at) : "never"));
+      tr.appendChild(el("td", "mono small", g.state));
+      var td = el("td");
+      if (g.state === "live") {
+        var rb = el("button", "btn small ghost", "revoke"); rb.type = "button";
+        rb.addEventListener("click", function () { edgeRevokeGrant(g.id); });
+        td.appendChild(rb);
+      }
+      tr.appendChild(td);
+      body.appendChild(tr);
+    });
+  }
+
+  // edgeNodeName maps a node id to its friendly name from the current snapshot, for readable grant rows.
+  function edgeNodeName(d, id) {
+    var all = (d.nodes || []).concat(d.adopting || []);
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i].name || id;
+    return id;
+  }
+  function edgeWhen(ts) {
+    try { return new Date(ts * 1000).toISOString().slice(0, 10); } catch (e) { return String(ts); }
+  }
+
+  // edgeRenderGrantForm draws the issue form: caller (self or a node), capability, callee, duration.
+  function edgeRenderGrantForm(d) {
+    var box = $("edge-grant-form");
+    if (!box || box.dataset.built === "1") return; // build once; polling must not wipe a half-filled form
+    box.dataset.built = "1";
+    var nodes = d.nodes || [];
+    var caller = el("select", "edge-grant-caller");
+    var selfOpt = el("option", null, "self (your instances)"); selfOpt.value = "self"; caller.appendChild(selfOpt);
+    nodes.forEach(function (n) { var o = el("option", null, n.name); o.value = n.id; caller.appendChild(o); });
+    var cap = el("select", "edge-grant-cap");
+    ["operate", "sense", "actuate", "classify", "serve", "relay"].forEach(function (c) { var o = el("option", null, c); o.value = c; cap.appendChild(o); });
+    var callee = el("select", "edge-grant-callee");
+    nodes.forEach(function (n) { var o = el("option", null, n.name); o.value = n.id; callee.appendChild(o); });
+    var dur = el("input", "edge-grant-for"); dur.type = "text"; dur.value = "7d"; dur.size = 5;
+    var issue = el("button", "btn small", "issue grant"); issue.type = "button";
+    box.innerHTML = "";
+    box.appendChild(edgeField("caller", caller));
+    box.appendChild(edgeField("may", cap));
+    box.appendChild(edgeField("on", callee));
+    box.appendChild(edgeField("for", dur));
+    box.appendChild(issue);
+    issue.addEventListener("click", function () {
+      if (!callee.value) { toast("pick a callee node", "err"); return; }
+      edgeIssueGrant({ caller: caller.value, capability: cap.value, callee: callee.value, "for": dur.value.trim() || "7d" });
+    });
+  }
+
+  function edgeIssueGrant(body) {
+    apiPost("/api/edge/grant", body).then(function (d) {
+      toast("grant issued");
+      var f = $("edge-grant-form"); if (f) f.dataset.built = ""; // rebuild against the fresh fleet
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+  function edgeRevokeGrant(id) {
+    if (!window.confirm("Revoke grant " + id + "?\n\nThe next invoke under it is refused by this authority and its own node. Other machines honor it until it expires, until the grant-CRL ships.")) return;
+    apiPost("/api/edge/grant/revoke", { id: id }).then(function (d) {
+      toast("grant revoked");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
   // edgeInstanceJobControls draws the Bind Model / Clear actions for one of this machine's agents.
   function edgeInstanceJobControls(card, d, name) {
     var row = el("div", "card-actions edge-job-actions");

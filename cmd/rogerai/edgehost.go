@@ -136,6 +136,9 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeName = h.nameNode
 	hooks.EdgeForget = h.forgetNode
 	hooks.EdgeSetPrefer = h.setPrefer
+	hooks.EdgeGrants = h.grants
+	hooks.EdgeIssueGrant = h.issueGrant
+	hooks.EdgeRevokeGrant = h.revokeGrant
 	// The agents the owner marked persistent - a durable record, so one that has stopped still
 	// draws (dark) with resume/remove (features/edge/agents.feature).
 	hooks.EdgePersistentAgents = func() []edge.PersistentAgent { return edge.PersistentAgents(edgePersistDir()) }
@@ -308,6 +311,52 @@ func (h *edgeHost) setPrefer(want string) error {
 	h.mu.Lock()
 	h.cfg = cfg
 	h.mu.Unlock()
+	return nil
+}
+
+// grants lists the Edge grants this owner has issued - the console/TUI Grants view.
+func (h *edgeHost) grants() ([]store.Grant, error) { return edgeGrantStore().List() }
+
+// issueGrant mints an authority-signed grant from the console/TUI (features/edge/control.feature). It
+// is issued only where the root key lives; caller "" or "self" is a Self grant. callee is a node id.
+func (h *edgeHost) issueGrant(caller, capability, callee, forDur string) (store.Grant, error) {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return store.Grant{}, err
+	}
+	if !ok {
+		return store.Grant{}, fmt.Errorf("this machine is not the authority of a locally-rooted Edge; grants are issued where the root key lives")
+	}
+	callerID := caller
+	if caller == "self" || caller == "-" {
+		callerID = ""
+	}
+	if forDur == "" {
+		forDur = "30d"
+	}
+	exp, err := parseExpires(forDur)
+	if err != nil {
+		return store.Grant{}, err
+	}
+	// A callee must be a node on this Edge, so a typo cannot mint a grant for a node that does not exist.
+	if _, ok, err := h.st.fleet.Get(callee); err != nil {
+		return store.Grant{}, err
+	} else if !ok {
+		return store.Grant{}, fmt.Errorf("no such node on this Edge to grant against")
+	}
+	return edgeIssueGrant(edgeGrantStore(), local.Account(), local.Authority().RootKey(),
+		edgeGrantSpec{caller: callerID, callee: callee, capability: capability, expiresAt: exp}, time.Now())
+}
+
+// revokeGrant marks a grant revoked in this authority's store.
+func (h *edgeHost) revokeGrant(id string) error {
+	found, err := edgeGrantStore().Revoke(id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no such grant %q", id)
+	}
 	return nil
 }
 
