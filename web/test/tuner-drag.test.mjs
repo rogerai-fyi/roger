@@ -35,6 +35,7 @@ function rig({ reduced = false, listForm = false } = {}) {
   links.forEach((a) => { a.classList = { toggle: (c, v) => (v ? a.cls.add(c) : a.cls.delete(c)), add: (c) => a.cls.add(c), remove: (c) => a.cls.delete(c) }; });
   const captured = [];
   const band = on({ setPointerCapture: (id) => captured.push(id), releasePointerCapture: () => {}, hasPointerCapture: () => captured.length > 0 });
+  band.contains = (t) => t === band || links.includes(t);
   const scale = { getBoundingClientRect: () => ({ left: 100, width: 500, right: 600 }) };
   const needle = { listForm };
   nav.querySelectorAll = (q) => (q === "a" ? links : []);
@@ -58,7 +59,7 @@ function rig({ reduced = false, listForm = false } = {}) {
   const up = (x, y = 50, o) => fire(band, "pointerup", ev(x, y, o));
   const cancel = () => fire(band, "pointercancel", ev(0, 0));
   // the browser's own click after a pointerup on a link (a tap): passes the nav's capture listeners
-  const nativeClick = (k) => { const e = { target: links[k], defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+  const nativeClick = (k) => { const e = { target: typeof k === "number" ? links[k] : k, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
     fire(nav, "click", e); return !e.defaultPrevented; };
   return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, nativeClick };
 }
@@ -164,4 +165,20 @@ test("the band is the touch target: vertical page scroll stays the browser's; th
   assert.match(css, /\.toc-tuner a\.is-tuning \.toc-tuner__name[^{]*\{[^}]*opacity: 1/);
   assert.match(css, /\.toc-tuner\.is-dragging a:not\(\.is-tuning\) \.toc-tuner__name \{[^}]*opacity: 0/);
   assert.doesNotMatch(TUNER, /aria-(live|label|describedby)|role=|setAttribute\("role/, "no new semantics");
+});
+
+test("after a drag, only a click inside the band is swallowed; a click elsewhere goes through", () => {
+  const t = rig();
+  t.down(150); t.move(200); t.move(450); t.up(450);   // a captured drag, no trailing click yet
+  assert.equal(t.nativeClick({ id: "elsewhere" }), true, "an unrelated click (outside the band) is not eaten");
+  assert.equal(t.nativeClick(3), false, "the drag's own trailing click on the band still is");
+  const u = rig();
+  u.down(150); u.move(200); u.move(450); u.up(450);
+  u.down(250); u.up(250);                              // the next press clears it
+  assert.equal(u.nativeClick(1), true);
+});
+
+test("the long-document list form is not a drag surface: its names select and long-press gives the link menu", () => {
+  const list = css.match(/@media \(max-width: 760px\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(list, /\.toc-tuner:has\(li:nth-child\(13\)\) \.toc-tuner__band \{[^}]*touch-action: auto;[^}]*user-select: text;[^}]*-webkit-user-select: text;[^}]*-webkit-touch-callout: default/);
 });

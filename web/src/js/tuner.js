@@ -152,7 +152,7 @@
     });
     band.addEventListener("pointercancel", function () { if (g) end(); });
     nav.addEventListener("click", function (e) {
-      if (!swallow) return;
+      if (!swallow || !(band.contains && band.contains(e.target))) return; // only the drag's own click
       e.preventDefault();
       if (e.stopPropagation) e.stopPropagation();
       swallow = false;

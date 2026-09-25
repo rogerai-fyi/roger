@@ -627,6 +627,8 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .toc-tuner:has(li:nth-child(13)) b { font-size: clamp(0.8rem, 0.55rem + 0.5vw, 1.1rem); letter-spacing: -0.04em; }
 @media (max-width: 760px) {
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { padding: var(--s-3); margin-inline: var(--panel-inset); width: auto; }
+  /* the list form is tapped, never dragged: its names select and a long press gives the link menu */
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { touch-action: auto; user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
   .toc-tuner:has(li:nth-child(13)) :is(.toc-tuner__readout, .toc-tuner__needle) { display: none; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale {
     grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; background: none;
