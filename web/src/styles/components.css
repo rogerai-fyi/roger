@@ -754,6 +754,31 @@ details[data-fold-narrow] > summary::after {
 details[data-fold-narrow][open] > summary::after { content: "\2212"; }
 details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
 
+/* ---- touch hit area (pointer: coarse) -----------------------------------------------
+   Every standalone control is at least a --hit (44px) target on a touch screen, whatever
+   it looks like. Three ways, one per kind of control:
+   - a control whose drawn look matters (a chip, a pill, an icon button, a lone text link)
+     keeps its size: an invisible ::before at inset var(--hit-inset) grows its hit area,
+     centred. The sheet that owns the control lists it in its own touch block (this one
+     for the components, base.css for the chrome, each page sheet for its own), with the
+     control made the pseudo-element's containing block at zero specificity (:where), so
+     one a page positions keeps its own position;
+   - a list of text links (the page index) gets the room itself: 44px rows, and the
+     contents tuner's stations grow downward to 44px (a station must not become a
+     containing block: the dial's readout is laid out against the band);
+   - a form field is 44px tall.
+   Links inside running text (a sentence, a callout, a spec plate) are not listed: the
+   target-size rule exempts them, and a grown area there would cover the next line. */
+@media (pointer: coarse) {
+  :where(.install__alt, .copy-code) { position: relative; }
+  :is(.install__alt, .copy-code, .code-block__copy)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+  :is(.page-index__link, .page-index__head) { display: block; padding-block: calc((var(--hit) - 1lh) / 2); }
+  .page-index ol { gap: 0; }
+  .page-index > ol > li { padding-block: 0; }
+  .toc-tuner__st { min-height: var(--hit); }
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"]), select, textarea) { min-height: var(--hit); }
+}
+
 /* ---- component: inset band (added by research rollout) ----------------------------
    <section class="section band band--inset"> : the tinted .band as a rounded panel,
    inset from the page edge on the same geometry as the ink panel (64px outside the

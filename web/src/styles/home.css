@@ -1574,3 +1574,10 @@ html.js .mkt-quiet--nojs { display: none; }
     transition: background-size var(--d-3) var(--ease-out-quint);
   }
 }
+
+/* touch: this sheet's small controls keep their look and grow a --hit tap area
+   (the pattern: the touch hit area block in components.css) */
+@media (pointer: coarse) {
+  :where(.company__links a, .home-spectrum__foot a, .term__preset, .company__primary) { position: relative; }
+  :is(.company__links a, .home-spectrum__foot a, .term__preset, .company__primary, .reel__mute)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+}

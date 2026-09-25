@@ -38,3 +38,10 @@
 
 /* the index at the top of the page is the shared .page-index (components.css):
    every question, grouped, built from the questions themselves */
+
+/* touch: this sheet's small controls keep their look and grow a --hit tap area
+   (the pattern: the touch hit area block in components.css) */
+@media (pointer: coarse) {
+  :where(.faq__more) { position: relative; }
+  :is(.faq__more)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+}

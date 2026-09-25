@@ -3,7 +3,7 @@
 // live in scripts/overflow-sweep.py's companions and were run at 390 by hand.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,3 +57,54 @@ for (const d of DIAGRAMS) {
     assert.ok(Math.max(...floors) >= need, `${d.svg}: floor ${Math.max(...floors)}px < ${need}px`);
   });
 }
+
+// Item 3: every standalone control is a 44px target on a touch screen. The sweep (Playwright
+// at 390, touch emulation) listed each control under 44x44; each is held by one of three
+// rules: the pattern is documented in components.css's touch block, the math is the
+// --hit-inset token, and each sheet lists the small controls it owns. Links inside running text (a
+// sentence, a callout, a spec plate) are exempt, as WCAG's target-size rule exempts them.
+// the bodies of a sheet's @media (pointer: coarse) blocks, braces balanced
+const coarseBlocks = (sheet) => {
+  const out = [];
+  for (const m of sheet.matchAll(/@media \(pointer: coarse\) \{/g)) {
+    let i = m.index + m[0].length, depth = 1;
+    const start = i;
+    while (depth && i < sheet.length) { if (sheet[i] === "{") depth++; else if (sheet[i] === "}") depth--; i++; }
+    out.push(sheet.slice(start, i - 1));
+  }
+  return out.join("\n");
+};
+const HIT_GROW = [ // keep their drawn size; an invisible ::before grows the tap area
+  ".brand", ".promo__close", ".promo__cta", ".upgrade__toggle", ".nav__burger", ".theme-toggle",
+  ".install__alt", ".bc-post__back", ".wf-back", ".dir-sibling > a", ".company__links a",
+  ".home-spectrum__foot a", ".tlink", ".faq__more", ".term__preset", ".market__refresh",
+  ".tuner__chip", ".company__primary", ".route-sim__next", ".scope__mode", ".wj__chip",
+  ".model-note", ".copy-code", ".dk__spine", ".code-block__copy", ".reel__mute", ".dk__pos",
+  ".bc-tg__head", ".pg-mode",
+];
+test("touch: small controls keep their look and grow an invisible 44px hit area", () => {
+  assert.match(css("tokens.css"), /--hit: 44px;/);
+  assert.match(css("tokens.css"), /--hit-inset: min\(0px, calc\(\(100% - var\(--hit\)\) \/ 2\)\);/);
+  const sheets = readdirSync(path.join(WEB, "src/styles")).filter((f) => f.endsWith(".css"));
+  const rules = sheets.flatMap((f) => [...coarseBlocks(css(f)).matchAll(/([^{}]+)\{[^}]*content: "";[^}]*position: absolute;[^}]*inset: var\(--hit-inset\)/g)].map((m) => m[1]));
+  const grown = rules.flatMap((sel) => sel.split(/,(?![^(]*\))/).flatMap((part) => {
+    const m = part.trim().match(/^(?::is\((.*)\)|(.*?))::(before|after)$/);
+    return m ? (m[1] || m[2]).split(",").map((x) => x.trim()) : [];
+  }));
+  for (const sel of HIT_GROW) assert.ok(grown.includes(sel), `${sel} grows a hit area`);
+  // a static control becomes the pseudo-element's containing block at zero specificity,
+  // so a control a page positions (absolute, fixed) keeps its own position
+  for (const f of sheets) for (const m of coarseBlocks(css(f)).matchAll(/([^{}]*)\{ position: relative; \}/g)) {
+    assert.match(m[1].trim(), /^:where\(/, `${f}: the containing-block rule is zero-specificity`);
+  }
+});
+
+test("touch: lists of text links get 44px rows, and form fields are 44px tall", () => {
+  const c = coarseBlocks(css("components.css"));
+  assert.match(c, /:is\(\.page-index__link, \.page-index__head\) \{[^}]*display: block;[^}]*padding-block: calc\(\(var\(--hit\) - 1lh\) \/ 2\)/);
+  assert.match(c, /:where\(input:not\(\[type="checkbox"\], \[type="radio"\], \[type="range"\], \[type="hidden"\]\), select, textarea\) \{ min-height: var\(--hit\); \}/);
+  // the contents tuner's stations grow downward only (the dial's ticks and readout are laid
+  // out against the band, so a station must not become a containing block or move its numeral)
+  assert.match(c, /\.toc-tuner__st \{ min-height: var\(--hit\); \}/);
+});
+

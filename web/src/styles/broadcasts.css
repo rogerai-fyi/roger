@@ -319,3 +319,9 @@
   .bc-post .cmd-words > span { white-space: normal; overflow-wrap: anywhere; }
 }
 
+/* touch: this sheet's small controls keep their look and grow a --hit tap area
+   (the pattern: the touch hit area block in components.css) */
+@media (pointer: coarse) {
+  :where(.bc-post__back) { position: relative; }
+  :is(.bc-post__back, .bc-tg__head)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+}

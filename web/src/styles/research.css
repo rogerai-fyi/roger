@@ -693,3 +693,10 @@ main .band--inset :is(.developer-step, .deployment-grid article, .research-onwar
 /* a state chip and the release ticker's name keep their red rule but set their words in ink */
 .status--none { color: var(--ink-900); }
 .release-ticker b { color: var(--ink-900); }
+
+/* touch: this sheet's small controls keep their look and grow a --hit tap area
+   (the pattern: the touch hit area block in components.css) */
+@media (pointer: coarse) {
+  :where(.wf-back, .scope__mode, .model-note, .model-download) { position: relative; }
+  :is(.wf-back, .scope__mode, .model-note)::before, .model-download::after { content: ""; position: absolute; inset: var(--hit-inset); }
+}

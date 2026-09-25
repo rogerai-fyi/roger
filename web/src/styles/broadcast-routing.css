@@ -218,3 +218,10 @@
   .route-process__carrier { display: none; }
   .route-station, .route-sim__next { transition: none; }
 }
+
+/* touch: this sheet's small controls keep their look and grow a --hit tap area
+   (the pattern: the touch hit area block in components.css) */
+@media (pointer: coarse) {
+  :where(.route-sim__next) { position: relative; }
+  :is(.route-sim__next)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+}

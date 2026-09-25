@@ -38,6 +38,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
+| Touch hit area | `--hit`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
 | Print | `@media print` at the end of `components.css` + `tokens.css` | - | every page |
 
 ### One role, one pattern
@@ -350,6 +351,21 @@ or touches, or 4s pass.
 `--ver`, `--seen`) and `.price-tier`. The live directories (Models, Voices) share the
 shape, the homepage market its chips, the App page its hero title. Rows and columns are
 each page's own.
+
+### Touch hit area
+On a touch screen (`pointer: coarse`) every standalone control is at least a `--hit`
+(44px) target. A control whose look matters (a chip, a pill, an icon button, a lone text
+link) keeps its drawn size: an invisible `::before` at `inset: var(--hit-inset)` (the token
+does the math) grows its hit area, centred, and a `:where()` rule makes a static control
+its containing block without overriding a page's own positioning. The sheet that owns the
+control lists it in its own `@media (pointer: coarse)` block: `components.css` for the
+components (where the pattern is documented), `base.css` for the chrome, each page sheet
+for its own controls. The page index gets 44px rows, the contents tuner's stations grow
+downward to 44px, and a form field is 44px tall (all in `components.css`).
+`test/qa-polish2.test.mjs` holds the list of controls. Links inside running text (a sentence, a
+callout, a spec plate) are exempt, as the target-size rule exempts them. Known short of
+44: a dial of 10+ contents stations on a phone (32px pitch; the 24px spacing rule holds)
+and the scrubber's range track.
 
 ### Print
 Every page prints whole: the print section at the end of `components.css` stops all

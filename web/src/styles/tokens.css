@@ -110,6 +110,12 @@
   --s-24: 96px;
   --s-32: 128px;
   --s-40: 160px;
+  /* touch target: a control's hit area on a touch screen is at least --hit square.
+     --hit-inset, used as the inset of an invisible absolutely placed pseudo-element on a
+     positioned control, grows a smaller control's hit area to --hit, centred, while the
+     control keeps its drawn size (it resolves against the control's own box). */
+  --hit: 44px;
+  --hit-inset: min(0px, calc((100% - var(--hit)) / 2));
 
   --gutter: clamp(20px, 5vw, 56px);
   --maxw:   1080px;          /* document feel (down from 1200) */
