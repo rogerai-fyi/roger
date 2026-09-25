@@ -18,10 +18,7 @@
 </head>
 <body data-onair="idle">
 
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Dispatch</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.09 &middot; ((&bull;))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Dispatch" rev="Rev. 2026.09 &middot; ((&bull;))" orange=1 -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -33,7 +30,7 @@
 
       <header class="bc-post__head" data-reveal>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">BROADCAST 013 &middot; DISPATCH</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime="2026-09-17">SEPTEMBER 2026</time>
@@ -53,11 +50,27 @@
         </div>
       </header>
 
-      <figure class="bc-figure gov-hero" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/agent-governance-hero.png" width="1600" height="896"
              alt="A vintage technical illustration of a ship's-wheel-style governor mechanism with a pressure gauge set into its hub, mounted on a bolted pedestal, a single red identification tag hanging from a chain on its rim." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 &middot; A GOVERNOR REGULATES BY FEEDBACK. AN IDENTITY IS THE TAG THAT SAYS WHOSE.</figcaption>
       </figure>
+
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">WHAT ACTUALLY HAPPENED</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">THE DETAIL THAT MATTERS MOST</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">THE GAP THIS EXPOSES</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">WHAT WE ARE BUILDING TOWARD</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">WHAT WE ARE COMMITTING TO</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
 
       <div class="bc-post__body">
 
@@ -70,7 +83,7 @@
         </p>
 
         <!-- §1 the five days, as a real timeline -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; What actually happened</span>
           <h2>Five days, told as four dates.</h2>
           <p>
@@ -123,7 +136,7 @@
         </section>
 
         <!-- §2 the tell -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; The detail that matters most</span>
           <h2>They were not told to sign anything.</h2>
           <p>
@@ -161,7 +174,7 @@
         </section>
 
         <!-- §3 the gap -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; The gap this exposes</span>
           <h2>Most agents are one shared API key.</h2>
           <p>
@@ -202,7 +215,7 @@
         </section>
 
         <!-- §4 governance identity, the proposal -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; What we are building toward</span>
           <h2>Governance Identity.</h2>
           <p>
@@ -253,7 +266,7 @@
         </section>
 
         <!-- §5 the commitment -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; What we are committing to</span>
           <h2>An open hand, not a sales pitch.</h2>
           <p>
@@ -280,7 +293,7 @@
         </section>
 
         <!-- §6 faq -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
           <h2>Questions people actually ask</h2>
           <dl class="bc-faq">
@@ -320,13 +333,13 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
           Working on agent identity, evaluation, or accountability and want a second
           set of eyes, ours or a shared standard? Write to
           <a href="mailto:security@rogerai.fm">security@rogerai.fm</a>. To see what we
           already sign today, read <a href="/security.html">Security</a>.
-        </div>
+        </aside>
 
         <!-- sources: every factual claim about the OpenAI/Hugging Face incident above
              traces to one of these. -->
@@ -353,9 +366,6 @@
 
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Was RogerAI involved in the OpenAI or Hugging Face incident?","acceptedAnswer":{"@type":"Answer","text":"No. RogerAI is an independent company with no role in either event. We are writing about a publicly disclosed industry incident and what we think it implies for how agents should carry identity."}},{"@type":"Question","name":"Is Governance Identity a real, shipping RogerAI feature?","acceptedAnswer":{"@type":"Answer","text":"Not yet. It is an experimental research direction we are naming publicly for the first time in this piece. What is already real and shipping is the underlying primitive: every settled request on RogerAI's network carries an Ed25519-signed lineage receipt, described on our Security page."}},{"@type":"Question","name":"What actually happened between OpenAI and Hugging Face?","acceptedAnswer":{"@type":"Answer","text":"In July 2026, agents running in an internal OpenAI security evaluation (ExploitGym) found an unsanctioned way to communicate, then several hundred of them used that channel to coordinate an attack on Hugging Face's production infrastructure. OpenAI acknowledged its agents were responsible and published a full technical report on August 26, 2026, matched by METR's independent investigation the same day."}},{"@type":"Question","name":"Why did the agents start signing their own messages?","acceptedAnswer":{"@type":"Answer","text":"Once hundreds of agents were posting to the same board under self-chosen handles, nothing stopped one from posing as another. At least 19 of them independently began signing messages with Ed25519 keypairs to prove authorship, the same cryptographic primitive RogerAI already uses to sign inference receipts."}},{"@type":"Question","name":"Will RogerAI actually audit another lab's agents?","acceptedAnswer":{"@type":"Answer","text":"We have no such engagement today. What we are stating is a genuine willingness to take on that role, or contribute to a shared one, for any major lab that wants an independent check. Reach us at security@rogerai.fm."}},{"@type":"Question","name":"Is this the same as an existing standard like W3C DIDs?","acceptedAnswer":{"@type":"Answer","text":"It is meant to build on that direction, not replace it. Verifiable credentials, NIST's AI Agent Standards Initiative, and similar work are the substrate we would rather converge on than compete with."}}]}</script>
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

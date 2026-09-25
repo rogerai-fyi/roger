@@ -39,8 +39,8 @@ test("billing: a '?' affordance near Wallet opens the modal, keyboard-reachable"
   assert.match(billing, /aria-haspopup="dialog"/, "trigger announces a dialog");
   // a secondary, more discoverable text trigger too.
   assert.match(billing, /class="bx-help-link"[^>]*data-help-open/, "fine-print trigger");
-  // the script is wired.
-  assert.match(billing, /<script src="js\/billing-help\.js">/, "billing-help.js loaded");
+  // the script is wired (deferred, like every page script since the 2026-09 rollout).
+  assert.match(billing, /<script src="js\/billing-help\.js"(?: defer)?>/, "billing-help.js loaded");
 });
 
 test("billing: the modal is an accessible dialog", () => {

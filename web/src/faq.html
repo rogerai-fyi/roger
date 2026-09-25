@@ -212,18 +212,18 @@
   </script>
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; FAQ</span>
-    <span class="rail__rev">Rev. 2026.08 &middot; ON AIR</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; FAQ" rev="Rev. 2026.08 &middot; ON AIR" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 faqcurrent='aria-current="page"' -->
 
-  <main id="top">
+  <main id="top" class="co-page" data-lift>
+    <!-- Presentation-only lift 2026-09-24: every question, answer and link is the
+         pre-lift copy (test/company-lift.test.mjs); the contents list became the
+         tuner plus an index of every question, built from the questions themselves. -->
     <section class="research-hero">
       <div class="wrap">
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">ROGERAI</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           questions
@@ -235,25 +235,77 @@
           under each one pointing at the place that says it in full. Where the honest answer
           is uncomfortable, it is the uncomfortable one.
         </p>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="/manual.html#quickstart">The manual <span aria-hidden="true">&rarr;</span></a>
-          <a class="research-button" href="/pricing.html">Pricing</a>
+          <a class="research-button research-button--quiet" href="/pricing.html">Pricing</a>
         </div>
       </div>
     </section>
 
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#start"><b>&sect;1</b><span class="toc-tuner__name">GETTING STARTED</span></a></li>
+        <li><a class="toc-tuner__st" href="#cost"><b>&sect;2</b><span class="toc-tuner__name">WHAT IT COSTS</span></a></li>
+        <li><a class="toc-tuner__st" href="#share"><b>&sect;3</b><span class="toc-tuner__name">SHARING YOUR GPU</span></a></li>
+        <li><a class="toc-tuner__st" href="#privacy"><b>&sect;4</b><span class="toc-tuner__name">PRIVACY AND SAFETY</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
     <section class="section" id="index">
       <div class="wrap">
-        <div class="section__head section__head--left">
+        <div class="section__head section__head--left" data-reveal>
           <span class="sectionno">&sect; / CONTENTS</span>
           <h2>All of it, on one screen.</h2>
         </div>
-        <ul class="faq__index">
-          <li><a href="#start">Getting started</a></li>
-          <li><a href="#cost">What it costs</a></li>
-          <li><a href="#share">Sharing your GPU</a></li>
-          <li><a href="#privacy">Privacy and safety</a></li>
-        </ul>
+        <nav class="page-index" aria-label="Every question" data-reveal data-reveal-delay="60">
+          <div class="page-index__group">
+            <a class="page-index__head" href="#start">Getting started</a>
+            <ol>
+              <li><a class="page-index__link" href="#q-need-account-rogerai">Do I need an account to use RogerAI?</a></li>
+              <li><a class="page-index__link" href="#q-install">What do I install, and on what?</a></li>
+              <li><a class="page-index__link" href="#q-will-work-tools-already">Will it work with the tools I already use?</a></li>
+              <li><a class="page-index__link" href="#q-which-models">Which models can I use?</a></li>
+              <li><a class="page-index__link" href="#q-happens-station-using-goes">What happens if the station I am using goes off air?</a></li>
+            </ol>
+          </div>
+          <div class="page-index__group">
+            <a class="page-index__head" href="#cost">What it costs</a>
+            <ol>
+              <li><a class="page-index__link" href="#q-cost-model">What does it cost to use a model?</a></li>
+              <li><a class="page-index__link" href="#q-subscription-minimum">Is there a subscription or a minimum?</a></li>
+              <li><a class="page-index__link" href="#q-station-charge-more-than">Can a station charge me more than I agreed to?</a></li>
+              <li><a class="page-index__link" href="#q-answer-comes-back-empty">What if the answer comes back empty or unusable?</a></li>
+              <li><a class="page-index__link" href="#q-station-over-report-many">Can a station over-report how many tokens it served?</a></li>
+              <li><a class="page-index__link" href="#q-add-money-holds-card">How do I add money, and who holds my card?</a></li>
+            </ol>
+          </div>
+          <div class="page-index__group">
+            <a class="page-index__head" href="#share">Sharing your GPU</a>
+            <ol>
+              <li><a class="page-index__link" href="#q-much-keep-earn">How much do I keep of what I earn?</a></li>
+              <li><a class="page-index__link" href="#q-when-actually-get-paid">When do I actually get paid?</a></li>
+              <li><a class="page-index__link" href="#q-have-open-port-set">Do I have to open a port or set up a static IP?</a></li>
+              <li><a class="page-index__link" href="#q-person-using-gpu-reach">What can the person using my GPU reach on my machine?</a></li>
+              <li><a class="page-index__link" href="#q-serve-free-money">Can I serve for free, or only for money?</a></li>
+              <li><a class="page-index__link" href="#q-why-did-earnings-stop">Why did my earnings stop?</a></li>
+              <li><a class="page-index__link" href="#q-resell-provider-contract-station">Can I resell my provider contract as a station?</a></li>
+            </ol>
+          </div>
+          <div class="page-index__group">
+            <a class="page-index__head" href="#privacy">Privacy and safety</a>
+            <ol>
+              <li><a class="page-index__link" href="#q-operator-read-prompts">Can the operator read my prompts?</a></li>
+              <li><a class="page-index__link" href="#q-model-provider-know">Does a model provider know who I am?</a></li>
+              <li><a class="page-index__link" href="#q-you-keep-prompts">Do you keep my prompts?</a></li>
+              <li><a class="page-index__link" href="#q-confidential-tier">What is the confidential tier?</a></li>
+              <li><a class="page-index__link" href="#q-station-misbehaves">What if a station misbehaves?</a></li>
+            </ol>
+          </div>
+        </nav>
       </div>
     </section>
 
@@ -264,9 +316,9 @@
           <h2>Before you install anything.</h2>
         </div>
 
-        <div class="faq__group">
+        <div class="faq__group tint-panel">
           <div class="faq__item">
-            <h3 class="faq__q">Do I need an account to use RogerAI?</h3>
+            <h3 class="faq__q" id="q-need-account-rogerai">Do I need an account to use RogerAI?</h3>
             <div class="faq__a">
               <p>Not to browse, and not to use a free station. You can install the CLI, read the
                  live directory of models, and open an endpoint against a station broadcasting at
@@ -277,7 +329,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">What do I install, and on what?</h3>
+            <h3 class="faq__q" id="q-install">What do I install, and on what?</h3>
             <div class="faq__a">
               <p>One binary called <code>roger</code>, on macOS, Linux or Windows. It is the same
                  program for both sides of the network: the client that tunes in to somebody
@@ -288,7 +340,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Will it work with the tools I already use?</h3>
+            <h3 class="faq__q" id="q-will-work-tools-already">Will it work with the tools I already use?</h3>
             <div class="faq__a">
               <p>Yes, if they speak the OpenAI API, which nearly everything does. Tuning in hands
                  you a local OpenAI-compatible endpoint and key on <code>127.0.0.1</code>, so you
@@ -299,7 +351,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Which models can I use?</h3>
+            <h3 class="faq__q" id="q-which-models">Which models can I use?</h3>
             <div class="faq__a">
               <p>Whatever people have on the air at the moment you look, which is why the
                  directory is live rather than a published list. Each model is a band and each
@@ -310,7 +362,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">What happens if the station I am using goes off air?</h3>
+            <h3 class="faq__q" id="q-happens-station-using-goes">What happens if the station I am using goes off air?</h3>
             <div class="faq__a">
               <p>You get re-tuned to another station on the same band that still fits the limits
                  you set, and your endpoint address does not change. Home machines get shut,
@@ -330,9 +382,9 @@
           <h2>Money, and the guards around it.</h2>
         </div>
 
-        <div class="faq__group">
+        <div class="faq__group tint-panel">
           <div class="faq__item">
-            <h3 class="faq__q">What does it cost to use a model?</h3>
+            <h3 class="faq__q" id="q-cost-model">What does it cost to use a model?</h3>
             <div class="faq__a">
               <p>Whatever the operator set, per token, priced separately for input and output in
                  dollars per million. Many stations charge nothing. We do not set, subsidize or
@@ -343,7 +395,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Is there a subscription or a minimum?</h3>
+            <h3 class="faq__q" id="q-subscription-minimum">Is there a subscription or a minimum?</h3>
             <div class="faq__a">
               <p>No. No plan, no seat, no monthly minimum, no annual commitment and nothing to
                  cancel. You top up a wallet in whatever amount you want and it is debited per
@@ -353,7 +405,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Can a station charge me more than I agreed to?</h3>
+            <h3 class="faq__q" id="q-station-charge-more-than">Can a station charge me more than I agreed to?</h3>
             <div class="faq__a">
               <p>No. Your maximum price rides every single request rather than being checked once
                  when you connect, so a station cannot raise its rate under you mid-session. If
@@ -365,7 +417,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">What if the answer comes back empty or unusable?</h3>
+            <h3 class="faq__q" id="q-answer-comes-back-empty">What if the answer comes back empty or unusable?</h3>
             <div class="faq__a">
               <p>It costs you nothing. A request that returns nothing usable is voided: the
                  pre-authorized hold is released, you pay zero, the operator earns zero and takes
@@ -376,7 +428,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Can a station over-report how many tokens it served?</h3>
+            <h3 class="faq__q" id="q-station-over-report-many">Can a station over-report how many tokens it served?</h3>
             <div class="faq__a">
               <p>Not profitably. The broker counts the tokens independently rather than trusting
                  the station's claim, and settles on the smaller of the two figures. Both sides
@@ -387,7 +439,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">How do I add money, and who holds my card?</h3>
+            <h3 class="faq__q" id="q-add-money-holds-card">How do I add money, and who holds my card?</h3>
             <div class="faq__a">
               <p>Top-ups run through Stripe Checkout from the CLI or the billing page. Stripe is
                  the payments provider and the regulated business that moves the funds, and it
@@ -407,9 +459,9 @@
           <h2>Putting a machine of yours on the air.</h2>
         </div>
 
-        <div class="faq__group">
+        <div class="faq__group tint-panel">
           <div class="faq__item">
-            <h3 class="faq__q">How much do I keep of what I earn?</h3>
+            <h3 class="faq__q" id="q-much-keep-earn">How much do I keep of what I earn?</h3>
             <div class="faq__a">
               <p>Ninety percent of every token you serve, at a price you set yourself. The ten
                  percent platform fee covers routing, metering, settlement, chargeback and fraud
@@ -421,7 +473,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">When do I actually get paid?</h3>
+            <h3 class="faq__q" id="q-when-actually-get-paid">When do I actually get paid?</h3>
             <div class="faq__a">
               <p>Earnings accrue immediately; the principal (90%) is held 30 days and a 10%
                  reserve slice stays back until day 90 to cover the
@@ -433,7 +485,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Do I have to open a port or set up a static IP?</h3>
+            <h3 class="faq__q" id="q-have-open-port-set">Do I have to open a port or set up a static IP?</h3>
             <div class="faq__a">
               <p>No, and this is the point of the design. Your machine opens an outbound
                  connection to the tower and pulls work down it; nothing is ever pushed in at you.
@@ -444,7 +496,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">What can the person using my GPU reach on my machine?</h3>
+            <h3 class="faq__q" id="q-person-using-gpu-reach">What can the person using my GPU reach on my machine?</h3>
             <div class="faq__a">
               <p>The model endpoint, and nothing else. RogerAI bridges the port your inference
                  server is already listening on. It does not offer a shell, a filesystem, your
@@ -455,7 +507,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Can I serve for free, or only for money?</h3>
+            <h3 class="faq__q" id="q-serve-free-money">Can I serve for free, or only for money?</h3>
             <div class="faq__a">
               <p>Free is the default and a lot of the band runs that way. A station with a rate of
                  zero is a normal station: it is listed, routed to and scored exactly like a paid
@@ -466,7 +518,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Why did my earnings stop?</h3>
+            <h3 class="faq__q" id="q-why-did-earnings-stop">Why did my earnings stop?</h3>
             <div class="faq__a">
               <p>Usually a hold rather than a ban, and usually a bug rather than bad faith: the
                  broker caught your node's own signed numbers contradicting each other, which a
@@ -477,7 +529,7 @@
             </div>
           </div>
           <div class="faq__item">
-            <h3 class="faq__q">Can I resell my provider contract as a station?</h3>
+            <h3 class="faq__q" id="q-resell-provider-contract-station">Can I resell my provider contract as a station?</h3>
             <div class="faq__a">
               <p>Yes. Put the contract on the air as a curated station - one flag,
                  <code>roger share --curated</code>, plus the list price you already pay.
@@ -500,9 +552,9 @@
           <h2>The part worth reading before you send anything real.</h2>
         </div>
 
-        <div class="faq__group">
+        <div class="faq__group tint-panel">
           <div class="faq__item">
-            <h3 class="faq__q">Can the operator read my prompts?</h3>
+            <h3 class="faq__q" id="q-operator-read-prompts">Can the operator read my prompts?</h3>
             <div class="faq__a">
               <p>On an ordinary station, treat the answer as yes. The operator's machine runs the
                  model, which means the text is in that machine's memory while it is being
@@ -515,7 +567,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">Does a model provider know who I am?</h3>
+            <h3 class="faq__q" id="q-model-provider-know">Does a model provider know who I am?</h3>
             <div class="faq__a">
               <p>No. Whoever serves your request sees a station making calls - not your
                  account, your card, or your IP, because stations dial out and nothing
@@ -527,7 +579,7 @@
         </div>
 
         <div class="faq__item">
-            <h3 class="faq__q">Do you keep my prompts?</h3>
+            <h3 class="faq__q" id="q-you-keep-prompts">Do you keep my prompts?</h3>
             <div class="faq__a">
               <p>No. For a settled request we persist token counts, cost and hashes in the signed
                  receipt, not your text, and we never train on it. There is one transient
@@ -539,7 +591,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">What is the confidential tier?</h3>
+            <h3 class="faq__q" id="q-confidential-tier">What is the confidential tier?</h3>
             <div class="faq__a">
               <p>A subset of the network that only accepts nodes proving, through real hardware
                  attestation, that they are running inside a trusted execution environment. On
@@ -551,7 +603,7 @@
           </div>
 
           <div class="faq__item">
-            <h3 class="faq__q">What if a station misbehaves?</h3>
+            <h3 class="faq__q" id="q-station-misbehaves">What if a station misbehaves?</h3>
             <div class="faq__a">
               <p>Report it from the control on that station in the model directory, or by mail to
                  abuse. Strikes accumulate against a station's record and follow it, and a ban
@@ -573,11 +625,11 @@
           <p>The manual is the long form and the source is the longest form of all. If neither
              settles it, a few lines to a real mailbox will.</p>
         </div>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" data-lets-talk aria-expanded="false"
              href="mailto:labs@rogerai.fm?subject=A%20question%20about%20RogerAI">Let&rsquo;s talk</a>
-          <a class="research-button" href="/manual.html#s9">Every command</a>
-          <a class="research-button" href="https://github.com/rogerai-fyi/roger">Source</a>
+          <a class="research-button research-button--quiet" href="/manual.html#s9">Every command</a>
+          <a class="research-button research-button--quiet" href="https://github.com/rogerai-fyi/roger">Source</a>
         </div>
       </div>
     </section>
@@ -585,9 +637,6 @@
   </main>
 
   <!-- include: footer.html anchors=/ -->
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

@@ -7,7 +7,7 @@
    shared across pages: the eyebrow callsign line, the Ping mascot shape +
    animations (home + 404), the install command box (home + models), the
    market refresh + ((.)) beacon (home + models), the generic section
-   wrappers, the colophon, the .hero__dot beacon and the .man-note plate
+   wrappers, the colophon and the .man-note plate
    (manual + keys). Consumes tokens.css. Page-specific instruments live in
    their own modules. Rules are MOVED verbatim from the old site.css, in the
    same relative source order, so the cascade is unchanged.
@@ -30,7 +30,8 @@ body {
 }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { text-wrap: balance; } /* even, premium line-breaks on headings */
-.section__head p, .demo__head p, .market__head p, .hero__sub { text-wrap: pretty; }
+p { text-wrap: pretty; }             /* no lone last word at the end of a paragraph */
+.demo__head p, .market__head p, .hero__sub { text-wrap: pretty; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
 svg { display: block; }
@@ -65,12 +66,8 @@ code, pre { font-family: var(--font-mono); }
 
 /* ---------- manual typesetting layer ---------------------------- */
 /* §-section marker: mono, uppercase, a hairline tab. The document's spine. */
-.sectionno {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
-  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
-  margin-bottom: var(--s-5);
-}
+.sectionno, .hero__eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400); }
+.sectionno { margin-bottom: var(--s-5); }
 .sectionno::before {
   content: ""; width: 22px; height: 2px; background: var(--live); display: inline-block;
 }
@@ -89,7 +86,9 @@ code, pre { font-family: var(--font-mono); }
 .rail {
   position: fixed; left: 0; top: 0; bottom: 0; width: var(--spine);
   display: none; z-index: calc(var(--z-nav) - 1); pointer-events: none;
-  background: var(--paper);
+  /* no ground of its own: a painted rail notched every full-bleed band and the
+     footer, which seemed to start a spine's width in */
+  background: transparent;
   border-right: 1px solid var(--hairline);
 }
 .rail__head, .rail__rev {
@@ -156,6 +155,10 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .ping-mark__glow { animation: ping-pulse 2s ease-in-out infinite; transform-origin: 32px 17px; }
 @keyframes ping-pulse { 0%, 100% { opacity: .25; transform: scale(1); } 50% { opacity: .6; transform: scale(1.18); } }
 .ping-mark__eye { animation: ping-blink 5s steps(1, end) infinite; transform-origin: 32px 17px; }
+/* ping-eye.js turns the eye toward the pointer (the `translate` property,
+   separate from the blink and pulse transforms); a click blinks it */
+.ping-mark__eye, .ping-mark__glow { translate: var(--eye-x, 0) var(--eye-y, 0); transition: translate 0.2s var(--ease-out-quint); }
+.tube-ping__mark.is-blink .ping-mark__eye { scale: 1 0.15; }
 @keyframes ping-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } 98% { transform: scaleY(1); } }
 .ping-mark__wave { transform-origin: 32px 6px; animation: ping-wave 2.4s ease-out infinite; }
 .ping-mark__wave--b { animation-delay: 1.2s; }
@@ -197,7 +200,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* ---------- ASCII signature accents ----------------------------- */
 /* on-air pulse  ((•))  - the lineage/transmit motif, in mono */
 .onair {
-  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--live);
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--live-text);
   letter-spacing: -.02em; white-space: nowrap; display: inline-flex; align-items: center;
 }
 .onair .onair__dot {
@@ -224,22 +227,9 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   .onair .onair__dot::after { animation: none; opacity: 0; }
 }
 
-/* ===== blip-map background ====================================== */
-.blipmap {
-  position: fixed; inset: 0; width: 100%; height: 100%;
-  z-index: -1; pointer-events: none;
-}
-.blipmap-fallback { display: none; }
-@media (prefers-reduced-motion: reduce) {
-  .blipmap { display: none; }
-  .blipmap-fallback {
-    display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-    background:
-      radial-gradient(circle at 70% 18%, var(--volt-glow), transparent 22%),
-      radial-gradient(circle at 22% 60%, var(--live-wash), transparent 18%);
-    opacity: .5;
-  }
-}
+/* a command token that contains a hyphen (a flag, a model id) never breaks
+   inside itself; the command wraps only at its spaces */
+.tok { white-space: nowrap; }
 
 /* ============================ PROMO STRIP ====================== */
 /* thin dismissible launch band above the nav: the $1 starter seed for the
@@ -397,7 +387,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* the GitHub source pill: octocat mark + label, tinting to the signal red on hover */
 .nav__source { gap: 6px; }
 .nav__source__mark { flex: none; transition: color var(--d-2); }
-.nav__source:hover .nav__source__mark { color: var(--live); }
+.nav__source:hover .nav__source__mark { color: var(--live-text); }
 @media (prefers-reduced-motion: reduce) {
   .nav__link:not(.nav__link--ghost)::after { transition: none; }
 }
@@ -525,17 +515,35 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
     background: var(--white); color: var(--ink-900);
   }
   .nav__utils .nav__link--ghost { flex: 1; justify-content: center; }
+  /* the lean bar (account pages) has no burger to open that drawer: its few links
+     and the theme switch stay in the bar, a quiet row, instead of vanishing */
+  .nav:not(:has(.nav__burger)) .nav__menu {
+    position: static; flex-direction: row; align-items: center;
+    padding: 0; background: none; border: 0; box-shadow: none;
+    transform: none; opacity: 1; pointer-events: auto; visibility: visible;
+  }
+  .nav:not(:has(.nav__burger)) .nav__utils { padding-top: 0; gap: var(--s-4); }
+  .nav:not(:has(.nav__burger)) .nav__utils .nav__link {
+    flex: none; border: 0; background: none; color: var(--ink-500);
+  }
+}
+@media (max-width: 480px) {
+  /* a phone: the lean bar's links take their own row under the brand */
+  .nav:not(:has(.nav__burger)) .nav__inner { flex-wrap: wrap; height: auto; padding-block: var(--s-2); }
+  .nav:not(:has(.nav__burger)) .nav__menu { flex-basis: 100%; }
+  .nav:not(:has(.nav__burger)) .nav__utils { flex: 1; justify-content: space-between; gap: var(--s-2); }
 }
 
 /* the eyebrow callsign line (shared: home / manual / models) */
-.hero__eyebrow {
-  display: inline-flex; align-items: center; gap: 8px;
-  margin-bottom: var(--s-6);
-  font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: var(--tracking-label); text-transform: uppercase;
-  color: var(--ink-400); font-weight: var(--weight-medium);
+/* it wraps whole parts onto a new line, never squeezes them into side-by-side
+   columns; on a phone the separator becomes the line break, so the callsign
+   and the date (or kicker) each get a clean line */
+.hero__eyebrow { margin-bottom: var(--s-6); flex-wrap: wrap; row-gap: 4px; }
+@media (max-width: 560px) {
+  .hero__eyebrow .hero__sep { flex-basis: 100%; height: 0; overflow: hidden; }
+  .hero__eyebrow { row-gap: 2px; }
 }
-.hero__eyebrow .onair { font-size: var(--t-xs); color: var(--live); margin-right: 1px; }
+.hero__eyebrow .onair { font-size: var(--t-xs); color: var(--live-text); margin-right: 1px; }
 .hero__callsign { color: var(--ink-900); }
 .hero__sep { color: var(--ink-300); }
 
@@ -551,7 +559,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .ping__glow { transform-box: fill-box; transform-origin: center;
   animation: pingGlow var(--carrier) var(--ease-in-out) infinite; }
 @keyframes pingGlow { 0%,100% { opacity: .22; transform: scale(1); } 50% { opacity: .55; transform: scale(1.16); } }
-/* the faceted eye dims on the carrier too, echoing heroDot/brandPulse */
+/* the faceted eye dims on the carrier too, echoing brandPulse */
 .ping__eye { transform-box: fill-box; transform-origin: center;
   filter: drop-shadow(0 0 3px var(--live-glow));
   animation: pingEye var(--carrier) var(--ease-in-out) infinite; }
@@ -576,61 +584,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   .ping__wave { opacity: .3; }
 }
 
-/* the install command box (shared: home hero / models QSL) */
-/* ---------- THE install command (the hero object) -------------- */
-.install { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); max-width: 640px; width: 100%; }
-.install .fig { margin-bottom: 2px; }
-/* the noun the command downloads, stated before the command. Secondary ink so
-   the box stays the hero object; the one bolded phrase carries the claim. */
-.install__lead { margin: 0; max-width: 58ch; color: var(--ink-500);
-  font-size: var(--t-sm); line-height: var(--lh-body); }
-.install__lead b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.install__box {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 14px 16px; border-radius: var(--r-xs);
-  background: var(--white); border: 1px solid var(--hairline-2);
-  box-shadow: none; text-align: left;
-  transition: border-color var(--d-2);
-  max-width: 100%;
-}
-.install__box:hover { border-color: var(--live); }
-.install__box:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
-.install__prompt { color: var(--live); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
-.install__code {
-  flex: 1 1 auto;
-  font-family: var(--font-mono);
-  font-size: 1rem; color: var(--ink-900); letter-spacing: -.01em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.install__copy {
-  display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0;
-  color: var(--ink-400);
-  transition: color var(--d-2);
-}
-.install__box:hover .install__copy { color: var(--live); }
-.install__box.is-copied .install__copy { color: var(--live); }
-.install__meta { display: flex; gap: var(--s-4); align-items: center; flex-wrap: wrap; justify-content: flex-start;
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); }
-.install__alt { color: var(--ink-500); font-weight: var(--weight-medium); }
-.install__alt:hover { color: var(--live); }
-
-@media (max-width: 560px) {
-  .install__code { font-size: .8125rem; white-space: normal; }
-  .install__box { gap: 8px; padding: 12px 12px 12px 14px; }
-}
-
-/* ===================== generic sections ======================= */
-.section { padding-block: var(--section-y); position: relative; }
-.band { background: var(--paper-2); border-block: 1px solid var(--hairline); }
-.section__head { max-width: 62ch; margin: 0 0 var(--head-gap); text-align: left; }
-/* left-set heads for the document-style sections (spec, notes) */
-.section__head--left { text-align: left; margin-left: 0; margin-right: auto; }
-.section__head h2, .demo__head h2 { margin: 0; }
-.section h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
-  font-weight: var(--weight-bold); line-height: var(--lh-snug); }
-.section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
-
-
 /* the market refresh control + foot (shared: home market / models dial) */
 .market__refresh {
   font-size: var(--t-xs); color: var(--ink-400); font-family: var(--font-mono);
@@ -643,7 +596,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 
 /* ============================ FOOTER ========================== */
 .footer { border-top: 1px solid var(--hairline); background: var(--white); }
-.footer__inner { display: flex; align-items: center; justify-content: space-between; gap: var(--s-6);
+.footer__inner { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-6);
   padding-block: var(--s-10); flex-wrap: wrap; }
 .footer__brand { display: inline-flex; align-items: center; gap: 10px; font-weight: var(--weight-semi); color: var(--ink-900); }
 .footer__brand .brand__logo { width: 24px; height: 24px; color: var(--volt); }
@@ -659,8 +612,12 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
    inherits the same hover-to-red as its siblings. Hairline, no motion of its own. */
 .footer__discord { display: inline-flex; align-items: center; gap: 7px; }
 .footer__discord-icon { flex: none; color: currentColor; }
-.footer__bar { border-top: 1px solid var(--hairline); padding-block: var(--s-5);
+/* the rule sits on the content box: a border on a .wrap would run through
+   both gutters, wider than every line above it */
+.footer__bar { position: relative; padding-block: var(--s-5);
   display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--s-3); }
+.footer__bar::before { content: ""; position: absolute; top: 0; left: var(--gutter); right: var(--gutter);
+  border-top: 1px solid var(--hairline); }
 .footer__bar small { color: var(--ink-400); font-size: var(--t-xs); }
 .footer__status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--t-xs); color: var(--ink-500); }
 .footer__status .livedot { --dot: var(--live); --dot-size: 7px; }
@@ -699,7 +656,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .upgrade__prompt { color: var(--volt); font-family: var(--font-mono); font-weight: var(--weight-semi); }
 .upgrade__copy { margin-left: auto; font-size: var(--t-xs); color: var(--ink-400); font-family: var(--font-mono); }
 .upgrade__cmd.is-copied { border-color: var(--volt); }
-.upgrade__cmd.is-copied .upgrade__copy { color: var(--live); }
+.upgrade__cmd.is-copied .upgrade__copy { color: var(--live-text); }
 @media (prefers-reduced-motion: reduce) {
   .upgrade__caret, .upgrade__cmd { transition: none; }
 }
@@ -716,34 +673,21 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .toast::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
 
 
-/* the on-air red beacon dot after "home GPUs" (home / manual) */
-/* the period after "home GPUs" is a live-red on-air beacon, glowing like the logo */
-.hero__dot {
-  display: inline-block; width: 0.16em; height: 0.16em; border-radius: 50%;
-  background: var(--live); vertical-align: -0.13em; margin-left: 0.01em;
-  box-shadow: 0 0 13px 2px var(--live-glow);
-  animation: heroDot var(--carrier) var(--ease-in-out) infinite;
-}
-@keyframes heroDot { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
-@media (prefers-reduced-motion: reduce) { .hero__dot { animation: none; opacity: 1; } }
 
-
-/* a boxed operating note / caution (shared: manual / keys) */
-/* a boxed operating note / caution (the manual's margin call-outs) */
-.man-note {
-  margin-top: var(--s-5); padding: 14px 16px; border-radius: var(--r-md);
-  border: 1px solid var(--hairline-2); border-left: 3px solid var(--volt);
-  background: var(--volt-tint); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6;
-}
-.man-note--live { border-left-color: var(--live); background: var(--live-tint); }
-.man-note--ember { border-left-color: var(--ember); background: var(--ember-tint); }
-.man-note__tag { display: block; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-500); margin-bottom: 4px; }
 
 /* footer colophon micro-line (homepage foundation layer) */
 .footer__colophon {
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
-  letter-spacing: 0.04em; padding-block: 0 var(--s-4); margin: 0;
+  letter-spacing: 0.04em; padding-block: 0 var(--s-4);
+  margin: 0 auto;   /* a .wrap: margin 0 pulled it off the content box */
   text-align: right;
+}
+/* a phone: right-set mono wraps into a ragged left edge; set it on the column */
+@media (max-width: 640px) { .footer__colophon { text-align: left; } }
+/* touch: every footer link is a full 44px target (the rows only look looser) */
+@media (pointer: coarse) {
+  .footer__group { gap: 0; }
+  .footer__links a { padding-block: 11px; line-height: 22px; }
 }
 
 /* The OC orange: a custom 3D fruit mark replacing the orange emoji in the colophon. Sphere depth
@@ -806,14 +750,14 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   width: 20px; height: 20px; padding: 0; border-radius: var(--r-xs);
   color: var(--ink-400); cursor: pointer;
 }
-.nav__more:hover, .nav__more:focus-visible { color: var(--ink-900); background: var(--hover-bg); }
+.nav__more:hover, .nav__more:focus-visible { color: var(--ink-900); background: var(--paper-2); }
 .nav__more svg { transition: transform var(--d-2, .18s) var(--ease-standard, ease); }
 /* DIRECT CHILD ONLY: the descendant form also matched .nav__more--sub inside
    the open panel, so the Playbox decks chevron sat pre-rotated ("^") while its
    own panel was closed and its true-state rule below produced no visible change
    (founder catch, 2026-09-02). The sub chevron answers to its own
    aria-expanded, nothing else. */
-.nav__group.is-open > .nav__more { color: var(--live); }
+.nav__group.is-open > .nav__more { color: var(--live-text); }
 .nav__group.is-open > .nav__more svg { transform: rotate(180deg); }
 
 .nav__panel {
@@ -838,7 +782,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   display: grid; gap: 1px; padding: var(--s-3);
   border-radius: var(--r-xs); color: var(--ink-500);
 }
-.nav__panel a:hover, .nav__panel a:focus-visible { background: var(--hover-bg); }
+.nav__panel a:hover, .nav__panel a:focus-visible { background: var(--paper-2); }
 .nav__panel b { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
 .nav__panel span { font-size: var(--t-xs); line-height: var(--lh-body); }
 
@@ -868,11 +812,11 @@ li > a:not([class]),
 }
 p > a:not([class]):hover,
 li > a:not([class]):hover,
-.tlink:hover { color: var(--live); border-bottom-color: var(--live); }
+.tlink:hover { color: var(--live-text); border-bottom-color: var(--live); }
 p > a:not([class]):focus-visible,
 li > a:not([class]):focus-visible,
 .tlink:focus-visible {
-  color: var(--live); border-bottom-color: var(--live);
+  color: var(--live-text); border-bottom-color: var(--live);
   outline: 2px solid var(--live); outline-offset: 2px; border-radius: 2px;
 }
 
@@ -960,20 +904,6 @@ li > a:not([class]):focus-visible,
   }
 }
 
-/* THE WAVE SPECTRUM PALETTE, site-wide. The founder's own chart, light and
-   dark. It lived in three stylesheets that each redeclared it; the wave mark
-   is a brand component that can appear on any page, so the tokens belong
-   here. The per-deck copies still win where they are loaded - same values. */
-:root {
-  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
-  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
-  --tier-exa:  #5b3fbf;
-}
-:root[data-theme="dark"] {
-  --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
-  --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
-  --tier-exa:  #8a6df0;
-}
 /* the SLIM mark: the same animation, graphics only - no callsign, no tier
    nameplate. For places that want the motion as a mark rather than as an
    explainer. */
@@ -982,6 +912,13 @@ li > a:not([class]):focus-visible,
   width: 100%; max-width: 260px; height: auto; overflow: visible; display: block;
 }
 .wave-mark--slim .wave-mark__wave { fill: none; stroke-linecap: round; }
+/* the resting frame's strokes (no JS, reduced motion): a page that loads only the
+   slim mark (Research) drew its beacon alone without these */
+.wave-mark--slim .wave-mark__wave--wide { stroke: var(--hairline-2); stroke-width: 9; }
+.wave-mark--slim .wave-mark__wave--live { stroke: var(--live); stroke-width: 6; }
+.wave-mark--slim .wave-mark__wave--h2 { stroke: var(--hairline-2); stroke-width: 4; opacity: .55; }
+.wave-mark--slim .wave-mark__wave--h3 { stroke: var(--hairline-2); stroke-width: 3; opacity: .38; }
+.wave-mark--slim .wave-mark__wave--h4 { stroke: var(--hairline-2); stroke-width: 2; opacity: .26; }
 .wave-mark--slim .wave-mark__node { fill: var(--mark-lead, var(--live)); }
 .wave-mark--slim .wave-mark__tier { fill: none; stroke-linecap: round; }
 .wave-mark--slim .wave-mark__ring { fill: none; stroke: var(--mark-lead, var(--live)); stroke-width: 2; opacity: 0; }
@@ -1039,32 +976,14 @@ li > a:not([class]):focus-visible,
 .dir-sibling a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); padding-bottom: 1px; }
 .dir-sibling a:hover, .dir-sibling a:focus-visible { color: var(--ink-900); border-bottom-color: var(--live); }
 
-/* ---------- section action buttons -------------------------------------------
-   The hero action row is how every top-level page offers the rest of its own section,
-   so it is now on eight pages and belongs in the shared sheet. It lived in research.css,
-   which models.html does not load - putting the row on that page rendered four unstyled
-   links. Kept under its original names so no page markup had to change. */
-.research-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-8); }
-.research-button {
-  /* inline-flex drops the whitespace between a text node and a trailing
-     <span>, so a button written `Become a Tower <span>&darr;</span>` rendered
-     as "TOWERv". gap restores it; buttons with a single text node have one
-     flex item and are unaffected. */
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border: 1px solid var(--hairline-2);
-  color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
-  text-transform: uppercase; letter-spacing: .08em;
-}
-.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live); }
-.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
-.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
-
 /* ---------- Let's talk: the contact dialog -----------------------------------
    Site-wide (base.css) so no page can bundle it unstyled. Paper card on an ink
    scrim, mono kickers, the one red on the send button hover - the same quiet
    grammar as the billing modal. Contract: features/web/lets_talk.feature */
+/* Layered above the fixed left rail (--z-nav - 1) and the sticky nav (--z-nav): at 70
+   both painted over the scrim, so the rail and nav stayed bright beside a dimmed page. */
 .lt-scrim {
-  position: fixed; inset: 0; z-index: 70;
+  position: fixed; inset: 0; z-index: calc(var(--z-overlay) + 10);
   background: color-mix(in srgb, var(--ink-900) 55%, transparent);
 }
 /* A scrim has to DARKEN whatever is behind it. --ink-900 flips with the theme,
@@ -1074,14 +993,17 @@ li > a:not([class]):focus-visible,
 :root[data-theme="dark"] .lt-scrim {
   background: color-mix(in srgb, var(--paper) 66%, transparent);
 }
-.lt-modal { position: fixed; inset: 0; z-index: 71; display: grid; place-items: center; padding: var(--s-4); }
+.lt-modal { position: fixed; inset: 0; z-index: calc(var(--z-overlay) + 11); display: grid; place-items: center; padding: var(--s-4); }
 /* display:grid would override the hidden attribute and leave an invisible dialog
    blanketing the page, eating every click. Explicitly re-assert hidden. */
 .lt-modal[hidden], .lt-scrim[hidden] { display: none; }
+/* a soft panel in the system's geometry (the panel radius, a hairline and the
+   raised shadow), not the old hard 2px square frame */
 .lt-modal__dialog {
-  background: var(--paper); border: 2px solid var(--ink-900);
+  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--panel-r);
+  box-shadow: var(--e-4);
   width: min(760px, 100%); max-height: 92vh; overflow: auto;
-  padding: var(--s-5) var(--s-6) var(--s-5);
+  padding: var(--s-6) clamp(var(--s-5), 3vw, var(--s-8)) var(--s-6);
 }
 .lt-modal__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4); }
 .lt-modal__title { margin: 0; font-size: var(--t-h3, 1.4rem); }
@@ -1089,16 +1011,16 @@ li > a:not([class]):focus-visible,
   border: 0; background: none; color: var(--ink-500); font-size: 1.5rem;
   line-height: 1; cursor: pointer; padding: 2px 6px;
 }
-.lt-modal__close:hover, .lt-modal__close:focus-visible { color: var(--live); }
+.lt-modal__close:hover, .lt-modal__close:focus-visible { color: var(--live-text); }
 .lt-modal__lead { margin: var(--s-2) 0 var(--s-4); color: var(--ink-500); font-size: var(--t-sm); }
 .lt-modal__form { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--s-5); }
 .lt-modal__col { display: grid; gap: var(--s-3); align-content: start; }
 .lt-modal__kicker {
-  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-500);
   letter-spacing: var(--tracking-label);
 }
 .lt-field { display: grid; gap: 4px; font-size: var(--t-sm); color: var(--ink-700); }
-.lt-field i { color: var(--ink-400); font-style: normal; }
+.lt-field i { color: var(--ink-500); font-style: normal; }
 .lt-field input, .lt-field select, .lt-field textarea {
   font: inherit; color: var(--ink-900); background: var(--paper);
   border: 1px solid var(--hairline-2); border-radius: var(--r-sm); padding: 8px 10px;

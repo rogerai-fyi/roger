@@ -1,9 +1,10 @@
 /* Stations page - the operator's roll-up of every station on their account.
    Reuses the account chrome (.panel, .stats, .fine, .cmd); this file only adds the
-   per-station row and the small status vocabulary. */
+   per-station row and the small status vocabulary. Tokens only, and every state is
+   told by ink and weight at full opacity (a faded state fails AA). */
 
 .st-row {
-  border-top: 1px solid var(--rule, #2a2a2a);
+  border-top: 1px solid var(--hairline-2);
   padding: 0.9rem 0;
 }
 .st-row:first-child { border-top: 0; }
@@ -39,17 +40,14 @@
   padding: 0.1rem 0.4rem;
   border: 1px solid currentColor;
   border-radius: 2px;
-  opacity: 0.75;
+  color: var(--ink-700);
 }
-.badge.on {
-  color: var(--beacon, #e5484d);
-  opacity: 1;
-}
-.badge.off { opacity: 0.5; }
+.badge.on { color: var(--live-text); }
+.badge.off { color: var(--ink-500); border-style: dashed; }
 
 /* Chain state. A break is an AUDIT signal in the detect-and-record stage, so it is
    deliberately NOT styled as an error - warn reads as "look at this", not "you are
-   in trouble". */
-.st-row .ok    { opacity: 0.75; }
-.st-row .warn  { color: var(--warn, #d9a441); }
-.st-row .muted { opacity: 0.5; }
+   in trouble": full ink and weight, no alarm colour. */
+.st-row .ok    { color: var(--ink-700); }
+.st-row .warn  { color: var(--ink-900); font-weight: var(--weight-semi); }
+.st-row .muted { color: var(--ink-500); }

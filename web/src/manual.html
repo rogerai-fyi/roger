@@ -6,10 +6,7 @@
 <body>
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Operating Manual</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Operating Manual" rev="Rev. 2026.07 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 manualcurrent='aria-current="page"' -->
@@ -19,9 +16,9 @@
   <!-- ============================ COVER ============================ -->
   <section class="man-cover">
     <div class="wrap">
-      <div class="man-cover__plate">
+      <div class="man-cover__plate tint-panel">
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">ON AIR</span>
           <span class="hero__sep" aria-hidden="true">·</span>
           operating manual
@@ -56,27 +53,27 @@
         only sign in to spend from a wallet or to earn as a provider.</p>
 
       <div class="man-quick__grid">
-        <div class="man-quick__card">
+        <div class="man-quick__card tint-panel">
           <span class="man-quick__step">1 · Install</span>
           <p>macOS or Linux, one line (Windows: <code>install.ps1</code> in PowerShell).</p>
-          <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | sh</pre>
+          <!-- include: install-box.html id=installCmdManual cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
         </div>
 
-        <div class="man-quick__card">
+        <div class="man-quick__card tint-panel">
           <span class="man-quick__step">2 · Use a model</span>
           <p>Open a local OpenAI-compatible endpoint for your bots, or just run
             <code>roger</code> to browse the band.</p>
-          <pre><span class="p">$</span> roger use qwen3-coder-30b
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger use qwen3-coder-30b
   BASE URL  http://127.0.0.1:4141/v1
   API KEY   roger-local
-  MODEL     qwen3-coder-30b</pre>
+  MODEL     qwen3-coder-30b</pre></div>
         </div>
 
-        <div class="man-quick__card">
+        <div class="man-quick__card tint-panel">
           <span class="man-quick__step">3 · Share your model</span>
           <p>Free, no login: the radio detects your local model and puts it on air.</p>
-          <pre><span class="p">$</span> roger onboard --free   <span class="c"># set up to share, no login</span>
-<span class="p">$</span> roger share             <span class="c"># go on air with the detected model</span></pre>
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger onboard --free   <span class="code-block__comment"># set up to share, no login</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger share             <span class="code-block__comment"># go on air with the detected model</span></pre></div>
         </div>
       </div>
 
@@ -88,36 +85,43 @@
     </div>
   </section>
 
+  <!-- ============================ CONTENTS ============================ -->
+  <!-- The contents as the site's tuning scale (components.css .toc-tuner): in the page,
+       never pinned; the needle rests on the section in view while the scale is on screen.
+       Under 760px its 19 stations become a two-column contents list. -->
+  <nav class="toc-tuner man-contents" data-tuner aria-label="Manual contents">
+    <div class="wrap man-contents__head"><span class="sectionno">Contents</span></div>
+    <div class="wrap toc-tuner__band">
+    <div class="toc-tuner__readout" aria-hidden="true"></div>
+    <ol class="toc-tuner__scale">
+      <li><a class="toc-tuner__st" href="#s0"><b>§0</b><span class="toc-tuner__name">Front matter</span></a></li>
+      <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">Installation</span></a></li>
+      <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">First contact</span></a></li>
+      <li><a class="toc-tuner__st" href="#sAG"><b>§A</b><span class="toc-tuner__name">The [0] agent</span></a></li>
+      <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">Tune in</span></a></li>
+      <li><a class="toc-tuner__st" href="#sPlay"><b>§P</b><span class="toc-tuner__name">Playbox</span></a></li>
+      <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">Go on air</span></a></li>
+      <li><a class="toc-tuner__st" href="#sTower"><b>§T</b><span class="toc-tuner__name">Run a Tower</span></a></li>
+      <li><a class="toc-tuner__st" href="#sV"><b>§V</b><span class="toc-tuner__name">Voices</span></a></li>
+      <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">Private channels</span></a></li>
+      <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">Wallet &amp; billing</span></a></li>
+      <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">Earnings &amp; payouts</span></a></li>
+      <li><a class="toc-tuner__st" href="#s8"><b>§8</b><span class="toc-tuner__name">Configuration</span></a></li>
+      <li><a class="toc-tuner__st" href="#s9"><b>§9</b><span class="toc-tuner__name">Command reference</span></a></li>
+      <li><a class="toc-tuner__st" href="#s10"><b>§10</b><span class="toc-tuner__name">Verification</span></a></li>
+      <li><a class="toc-tuner__st" href="#s11"><b>§11</b><span class="toc-tuner__name">Troubleshooting</span></a></li>
+      <li><a class="toc-tuner__st" href="#sAPI"><b>B</b><span class="toc-tuner__name">The API</span></a></li>
+      <li><a class="toc-tuner__st" href="#sTOOLS"><b>B2</b><span class="toc-tuner__name">In your editors</span></a></li>
+      <li><a class="toc-tuner__st" href="#schangelog"><b>C</b><span class="toc-tuner__name">Changelog</span></a></li>
+    </ol>
+    <span class="toc-tuner__needle" aria-hidden="true"></span>
+    </div>
+  </nav>
+
   <!-- ============================ DOC BODY ============================ -->
   <section class="man-doc">
     <div class="wrap">
       <div class="man-doc__grid">
-
-        <!-- ---- contents rail ---- -->
-        <nav class="man-toc" aria-label="Manual contents">
-          <div class="man-toc__head">Contents</div>
-          <ol>
-            <li><a href="#s0"><span class="man-toc__no">§0</span>Front matter</a></li>
-            <li><a href="#s1"><span class="man-toc__no">§1</span>Installation</a></li>
-            <li><a href="#s2"><span class="man-toc__no">§2</span>First contact</a></li>
-            <li><a href="#sAG"><span class="man-toc__no">§A</span>The [0] agent</a></li>
-            <li><a href="#s3"><span class="man-toc__no">§3</span>Tune in</a></li>
-            <li><a href="#sPlay"><span class="man-toc__no">§P</span>Playbox</a></li>
-            <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
-            <li><a href="#sTower"><span class="man-toc__no">§T</span>Run a Tower</a></li>
-            <li><a href="#sV"><span class="man-toc__no">§V</span>Voices</a></li>
-            <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
-            <li><a href="#s6"><span class="man-toc__no">§6</span>Wallet &amp; billing</a></li>
-            <li><a href="#s7"><span class="man-toc__no">§7</span>Earnings &amp; payouts</a></li>
-            <li><a href="#s8"><span class="man-toc__no">§8</span>Configuration</a></li>
-            <li><a href="#s9"><span class="man-toc__no">§9</span>Command reference</a></li>
-            <li><a href="#s10"><span class="man-toc__no">§10</span>Verification</a></li>
-            <li><a href="#s11"><span class="man-toc__no">§11</span>Troubleshooting</a></li>
-            <li><a href="#sAPI"><span class="man-toc__no">B</span>The API</a></li>
-            <li><a href="#sTOOLS"><span class="man-toc__no">B2</span>In your editors</a></li>
-            <li><a href="#schangelog"><span class="man-toc__no">C</span>Changelog</a></li>
-          </ol>
-        </nav>
 
         <!-- ---- the sections ---- -->
         <div class="man-doc__body">
@@ -164,10 +168,10 @@
             <p>One command on macOS or Linux. It downloads the right binary for your
               OS/arch from GitHub Releases, verifies its SHA256 against the published
               checksums, and installs it to <code>~/.local/bin</code>.</p>
-            <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | sh</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl -fsSL https://rogerai.fm/install.sh | sh</pre></div>
 
             <p>On Windows, in PowerShell:</p>
-            <pre><span class="p">PS&gt;</span> irm https://rogerai.fm/install.ps1 | iex</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">PS&gt;</span> irm https://rogerai.fm/install.ps1 | iex</pre></div>
 
             <span class="man-fig">FIG. 1 - PLATFORMS</span>
             <div class="man-plate">
@@ -179,17 +183,17 @@
             <h3>Upgrade in place</h3>
             <p>The binary self-updates. It downloads the latest release, verifies the
               checksum, and atomically swaps the running file.</p>
-            <pre><span class="p">$</span> roger upgrade
-<span class="p">$</span> roger upgrade --check   <span class="c"># just report whether a newer version exists</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger upgrade
+<span class="code-block__prompt" aria-hidden="true">$</span> roger upgrade --check   <span class="code-block__comment"># just report whether a newer version exists</span></pre></div>
             <p>A subtle, cached update banner appears at startup when a newer release is
               out. Disable it with <code>ROGERAI_NO_UPDATE_CHECK=1</code>. Re-running the
               installer also upgrades in place.</p>
 
             <h3>Build from source</h3>
             <p>The whole client is one Go binary in the public repo. With a Go toolchain:</p>
-            <pre><span class="p">$</span> git clone https://github.com/rogerai-fyi/roger
-<span class="p">$</span> cd roger
-<span class="p">$</span> go build -o roger ./cmd/rogerai</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> git clone https://github.com/rogerai-fyi/roger
+<span class="code-block__prompt" aria-hidden="true">$</span> cd roger
+<span class="code-block__prompt" aria-hidden="true">$</span> go build -o roger ./cmd/rogerai</pre></div>
           </section>
 
           <!-- ============== §2 FIRST CONTACT ============== -->
@@ -202,26 +206,26 @@
               Everything else (the model, the context length, a free local port) is
               auto-detected. The wizard runs once; re-run it any time with
               <code>roger onboard</code>.</p>
-            <pre><span class="p">$</span> roger
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger
   Welcome to RogerAI - a two-way radio for Local Models.
   Are you here to use models, or to share your GPU?
-   <span class="p">&gt;</span> Just use models (open the app)
+   <span class="code-block__prompt" aria-hidden="true">&gt;</span> Just use models (open the app)
      Share my GPU - QuickStart, FREE, no login
-     Share my GPU - earn (set prices + log in)</pre>
+     Share my GPU - earn (set prices + log in)</pre></div>
 
             <h3>Share for free in 30 seconds</h3>
             <p>Pick the FREE share path (or run it straight): no login, no account. The
               radio detects your local model and puts it on air.</p>
-            <pre><span class="p">$</span> roger onboard --free   <span class="c"># non-interactive: set up to share, no login</span>
-<span class="p">$</span> roger share             <span class="c"># go on air with the detected model</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger onboard --free   <span class="code-block__comment"># non-interactive: set up to share, no login</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger share             <span class="code-block__comment"># go on air with the detected model</span></pre></div>
 
             <h3>Use a model in 30 seconds</h3>
             <p>Choose to use models and you land in the app: browse the band, tune in,
               chat. Or skip the app and go straight to an endpoint for your bots:</p>
-            <pre><span class="p">$</span> roger use qwen3-coder-30b
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger use qwen3-coder-30b
   BASE URL  http://127.0.0.1:4141/v1
   API KEY   roger-local
-  MODEL     qwen3-coder-30b</pre>
+  MODEL     qwen3-coder-30b</pre></div>
             <div class="man-note">
               <span class="man-note__tag">note</span>
               Browsing the band and opening a free endpoint need no account. You only log
@@ -231,7 +235,7 @@
             <h3>The app at a glance: the preset bank</h3>
             <p>The interactive app is a radio. A row of station presets sits across the
               bottom of every screen - press the key, jump to that screen:</p>
-            <pre><span class="p">[0] AGENT</span>   <span class="p">[1] TUNE IN</span>   <span class="p">[2] SHARE</span>   <span class="p">[3] CONFIG</span>   <span class="p">[L] LOGIN</span>   <span class="p">[?] HELP</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">[0] AGENT</span>   <span class="code-block__prompt" aria-hidden="true">[1] TUNE IN</span>   <span class="code-block__prompt" aria-hidden="true">[2] SHARE</span>   <span class="code-block__prompt" aria-hidden="true">[3] CONFIG</span>   <span class="code-block__prompt" aria-hidden="true">[L] LOGIN</span>   <span class="code-block__prompt" aria-hidden="true">[?] HELP</span></pre></div>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">[0] AGENT</span><span class="man-plate__v">the embedded tool-using agent - it can read/list/search on its own and (with your y/N) fetch/write/run, on a model you tune in (§A)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[1] TUNE IN</span><span class="man-plate__v">browse the live band, filter/sort, and tune in to a station to chat (§3)</span></div>
@@ -293,8 +297,8 @@
               <code>/persona</code> prints its path so you can open and tune it.</p>
 
             <h3>Keys &amp; commands in AGENT</h3>
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption>[0] AGENT</caption>
                 <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
                 <tbody>
@@ -337,8 +341,8 @@
               glides across the band as you move the cursor - and each row's SIGNAL is an
               <b>S-meter</b> on a <code>1 3 5 7 9 +20</code> scale (a genuinely strong station
               lights the <code>+20</code> over-scale in green).</p>
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption>[1] TUNE IN - the band browser</caption>
                 <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
                 <tbody>
@@ -365,8 +369,8 @@
                 </tbody>
               </table>
             </div>
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption>The channel (chat with a tuned-in model)</caption>
                 <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
                 <tbody>
@@ -389,16 +393,16 @@
             <p>The terminal app is not the only front end. One command serves the
               <b>local console</b> and opens it - the same station, the same wallet, the
               same settings, in a browser tab:</p>
-            <pre><span class="p">$</span> roger webui              <span class="c"># serve the console and open it</span>
-<span class="p">$</span> roger webui --no-open    <span class="c"># headless: just print the URL</span>
-<span class="p">$</span> roger webui --port 7777  <span class="c"># pin the port</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger webui              <span class="code-block__comment"># serve the console and open it</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger webui --no-open    <span class="code-block__comment"># headless: just print the URL</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger webui --port 7777  <span class="code-block__comment"># pin the port</span></pre></div>
             <p>It is not a viewer or a cut-down demo. It is <b>one store, two windows</b>:
               a spend cap set in the browser is the cap the terminal enforces, a band put on
               air in either is on air in both, and a price edited in one is the price the
               other shows. Neither is the "real" one - use whichever suits the moment, or
               both at once.</p>
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption><code>roger webui</code> - the local console, tab by tab</caption>
                 <thead><tr><th>Tab</th><th>What it does</th></tr></thead>
                 <tbody>
@@ -472,8 +476,8 @@
             <p>This is the drop-in for Hermes, your bots, or any tool that speaks OpenAI.
               Pick a band, set margins, and the broker locks the strongest station and
               hands you a local endpoint + key. When a station fades, it re-tunes.</p>
-            <pre><span class="p">$</span> roger use qwen3-coder-30b --max-out 0.30
-<span class="p">$</span> roger use qwen3-coder-30b --max-out 0.40 --advanced --min-tps 40 --port 4141</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger use qwen3-coder-30b --max-out 0.30
+<span class="code-block__prompt" aria-hidden="true">$</span> roger use qwen3-coder-30b --max-out 0.40 --advanced --min-tps 40 --port 4141</pre></div>
             <span class="man-fig">FIG. 2 - ROUTING &amp; PORTS</span>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">Endpoint</span><span class="man-plate__v"><code>http://127.0.0.1:&lt;port&gt;/v1</code> - local, key-scoped</span></div>
@@ -499,7 +503,6 @@
               station's claim - so what you watch tick is exactly what you pay. The wallet
               view collects your balance, this session's spend, and a monthly-budget bar
               (spend ÷ your cap, turning red only at the hard limit).</p>
-          </section>
 
             <h3>Resilient by design: transparent re-routing</h3>
             <p>You tune to a <b>band</b> (a model), not to one station. The broker hands
@@ -526,11 +529,11 @@
             <p><b>(a) Run a second set on its own port.</b> Each instance binds its own local
               endpoint, so two models live side by side. Pin the port with <code>--port</code>
               so the URLs are stable for your tools:</p>
-            <pre><span class="c"># terminal 1 - a coder on 4141</span>
-<span class="p">$</span> roger use qwen3-coder-30b --port 4141   <span class="c"># http://127.0.0.1:4141/v1</span>
+            <div class="code-block"><pre><span class="code-block__comment"># terminal 1 - a coder on 4141</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger use qwen3-coder-30b --port 4141   <span class="code-block__comment"># http://127.0.0.1:4141/v1</span>
 
-<span class="c"># terminal 2 - a general model on 4142, at the same time</span>
-<span class="p">$</span> roger use gpt-oss-120b --port 4142      <span class="c"># http://127.0.0.1:4142/v1</span></pre>
+<span class="code-block__comment"># terminal 2 - a general model on 4142, at the same time</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger use gpt-oss-120b --port 4142      <span class="code-block__comment"># http://127.0.0.1:4142/v1</span></pre></div>
             <p>Point one tool at <code>:4141</code> and another at <code>:4142</code> and
               both bands run concurrently, each with its own spend caps. This is the simplest
               path when you want a couple of fixed endpoints. (Each set is one blocking
@@ -542,16 +545,16 @@
               models by setting the <code>model</code> field per request. No local proxy, no
               per-model process, no ports to juggle - the broker routes each request to a
               station for whatever model you named.</p>
-            <pre><span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fm/v1
-<span class="p">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b   <span class="c"># a grant key - see §5</span>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> export OPENAI_API_BASE=https://broker.rogerai.fm/v1
+<span class="code-block__prompt" aria-hidden="true">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b   <span class="code-block__comment"># a grant key - see §5</span>
 
-<span class="c"># same endpoint, same key, different model per call - all at once</span>
-<span class="p">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
+<span class="code-block__comment"># same endpoint, same key, different model per call - all at once</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"hi"}]}'
-<span class="p">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
+<span class="code-block__prompt" aria-hidden="true">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -d '{"model":"gpt-oss-120b","messages":[{"role":"user","content":"hi"}]}'</pre>
+    -d '{"model":"gpt-oss-120b","messages":[{"role":"user","content":"hi"}]}'</pre></div>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">(a) second set</span><span class="man-plate__v">one extra <code>roger use --port</code> per model; fixed local URLs; per-model spend caps; no login or grant needed for free bands</span></div>
               <div class="man-plate__row"><span class="man-plate__k">(b) broker direct</span><span class="man-plate__v">one endpoint serves every model; set <code>model</code> per request; needs a grant key (§5) but no local proxy at all - the right call for a fleet of bots</span></div>
@@ -562,6 +565,7 @@
               public market across many models from one endpoint, use a funded wallet via the
               local proxy (path a). See §5 for minting a grant and §6 for the wallet.
             </div>
+          </section>
 
 
           <!-- ============== §P PLAYBOX ============== -->
@@ -575,8 +579,8 @@
               reach some of the network directly, and the page says so where it matters.</p>
 
             <h3>Three surfaces</h3>
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption>The console, tab by tab</caption>
                 <thead><tr><th>Surface</th><th>What it does</th></tr></thead>
                 <tbody>
@@ -609,9 +613,9 @@
               serves <code>/v1/models</code> - including a model on a custom port. Then it
               bridges <b>only that model port</b> over an outbound long-poll: no inbound
               ports, no shell, no files, no context.</p>
-            <pre><span class="p">$</span> roger share                 <span class="c"># FREE by default, no login - auto-detects your model</span>
-<span class="p">$</span> roger share --model qwen3-coder-30b --price-out 0.30
-<span class="p">$</span> roger share --upstream http://127.0.0.1:8081/v1 --model my-model</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger share                 <span class="code-block__comment"># FREE by default, no login - auto-detects your model</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger share --model qwen3-coder-30b --price-out 0.30
+<span class="code-block__prompt" aria-hidden="true">$</span> roger share --upstream http://127.0.0.1:8081/v1 --model my-model</pre></div>
 
             <h3>Free by default, no login</h3>
             <p>A bare <code>roger share</code> goes on air at price 0/0 with no account.
@@ -627,14 +631,14 @@
             <h3>What the band sees you as: <code>roger detect</code></h3>
             <p>Before you go on air, see exactly what will be published about your models -
               without publishing anything:</p>
-            <pre><span class="p">$</span> roger detect             <span class="c"># every local server, and what was read off each model</span>
-<span class="p">$</span> roger detect -v          <span class="c"># also modality, capabilities, and context window</span></pre>
-            <pre><span class="c">cpu-bots  http://127.0.0.1:8060/v1</span>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger detect             <span class="code-block__comment"># every local server, and what was read off each model</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger detect -v          <span class="code-block__comment"># also modality, capabilities, and context window</span></pre></div>
+            <div class="code-block"><pre><span class="code-block__comment">cpu-bots  http://127.0.0.1:8060/v1</span>
   gpt-oss-20b   MXFP4
-<span class="c">port:8081  http://127.0.0.1:8081/v1</span>
+<span class="code-block__comment">port:8081  http://127.0.0.1:8081/v1</span>
   qwen3-vl-8b   IQ4_XS &middot; by Unsloth &middot; Instruct
-<span class="c">port:8095  http://127.0.0.1:8095/v1</span>
-  voice         -</pre>
+<span class="code-block__comment">port:8095  http://127.0.0.1:8095/v1</span>
+  voice         -</pre></div>
             <p>An em dash means the runtime and the file said nothing about that model -
               common, and not a failure. It shares as the plain model id, which is exactly
               what earlier versions did for everything. The same three fields appear on the
@@ -651,8 +655,8 @@
               share. The CLI never talks to a provider itself - it prints a code, you
               approve it on rogerai.fm, and you pick GitHub, Apple or an emailed code
               there.</p>
-            <pre><span class="p">$</span> roger login                 <span class="c"># approve on rogerai.fm - any provider - only to earn</span>
-<span class="p">$</span> roger share --price-in 0.18 --price-out 0.30</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger login                 <span class="code-block__comment"># approve on rogerai.fm - any provider - only to earn</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger share --price-in 0.18 --price-out 0.30</pre></div>
             <p>Two price guards keep you honest by accident: if your out-price is more than
               <b>3&times;</b> the live market median for that model, <code>share</code> prints
               a non-blocking "double-check it's not a typo" heads-up before going on air; and
@@ -670,7 +674,7 @@
               <b>ONSTART</b> box on a vLLM image and it installs <code>roger</code>, brings
               the model up on a loopback port, waits for the weights to actually load, and
               hands that endpoint to <code>share</code>.</p>
-            <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</pre></div>
             <p>Every knob is an environment variable, so the same paste covers every case:
               <code>ROGER_MODEL</code> (default <code>Qwen/Qwen3-8B</code>),
               <code>ROGER_PORT</code>, <code>ROGER_PRICE_IN</code> /
@@ -686,8 +690,8 @@
               see. A HuggingFace token, if you set one, is passed to the server and never
               printed: the output of this script is a console on a machine somebody else
               administers.</p>
-            <pre><span class="p">$</span> ROGER_MODEL=Qwen/Qwen3-8B ROGER_PRICE_OUT=0.30 \
-    curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> ROGER_MODEL=Qwen/Qwen3-8B ROGER_PRICE_OUT=0.30 \
+    curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</pre></div>
             <p><b>It is free by default, on purpose.</b> A free share needs no account, which
               means no secret of yours has to sit on a machine you do not own. To earn, run
               <code>roger login</code> once in the instance shell first: it prints a code you
@@ -773,7 +777,7 @@
             <p>One line, same installer as the client with the Tower component selected. It
               verifies the release checksum and installs <code>roger-tower</code> to
               <code>~/.local/bin</code>.</p>
-            <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre></div>
 
             <h3>Download a binary (advanced / air-gapped)</h3>
             <p>Prefer to fetch and place the binary yourself? Pull it straight from the latest
@@ -789,13 +793,13 @@
             <p>Initialize state, run the pre-flight, then enroll against the network. Enrolling
               is a signed act tied to your account (<code>roger-tower login</code> first), because
               putting a relay on the network under your name is an account decision.</p>
-            <pre><span class="p">$</span> roger-tower login --dir /var/lib/roger-tower                 <span class="c"># sign in - same account as the website</span>
-<span class="p">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined    <span class="c"># create keys + local state</span>
-<span class="p">$</span> roger-tower doctor --config /etc/roger-tower/tower.yaml      <span class="c"># pre-flight: config, reachability, clock</span>
-<span class="p">$</span> roger-tower ready  --config /etc/roger-tower/tower.yaml      <span class="c"># durability preflight - exits non-zero if it cannot keep state</span>
-<span class="p">$</span> roger-tower register --dir /var/lib/roger-tower              <span class="c"># enroll this Tower against the broker</span>
-<span class="p">$</span> roger-tower status --dir /var/lib/roger-tower                <span class="c"># admission state, lease, attached nodes</span>
-<span class="p">$</span> roger-tower serve --dir /var/lib/roger-tower --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls   <span class="c"># hold the link + host the data plane, encrypted</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower login --dir /var/lib/roger-tower                 <span class="code-block__comment"># sign in - same account as the website</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined    <span class="code-block__comment"># create keys + local state</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower doctor --config /etc/roger-tower/tower.yaml      <span class="code-block__comment"># pre-flight: config, reachability, clock</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower ready  --config /etc/roger-tower/tower.yaml      <span class="code-block__comment"># durability preflight - exits non-zero if it cannot keep state</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower register --dir /var/lib/roger-tower              <span class="code-block__comment"># enroll this Tower against the broker</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower status --dir /var/lib/roger-tower                <span class="code-block__comment"># admission state, lease, attached nodes</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower serve --dir /var/lib/roger-tower --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls   <span class="code-block__comment"># hold the link + host the data plane, encrypted</span></pre></div>
             <div class="man-note">
               <span class="man-note__tag">--mode is not optional</span>
               A data directory is initialized as <b>one mode for life</b>. To change mode you
@@ -819,8 +823,8 @@
               typed. Two commented, ready-to-edit configurations ship in
               <code>packaging/tower/</code> - <code>tower.standalone.example.yaml</code> and
               <code>tower.joined.example.yaml</code>. Check one before you trust it:</p>
-            <pre><span class="p">$</span> roger-tower config validate --config /etc/roger-tower/tower.yaml
-<span class="p">$</span> roger-tower config print    --config /etc/roger-tower/tower.yaml   <span class="c"># every effective value, secrets shown as PATHS only</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower config validate --config /etc/roger-tower/tower.yaml
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower config print    --config /etc/roger-tower/tower.yaml   <span class="code-block__comment"># every effective value, secrets shown as PATHS only</span></pre></div>
             <div class="man-note">
               <span class="man-note__tag">unknown fields are errors</span>
               A misspelled setting <b>fails the config</b> rather than being silently ignored,
@@ -836,12 +840,12 @@
               its own local network and trust root, and routes between your own machines. This
               is how you build a private relay for local models - a household, a lab, an
               air-gapped site - with nothing leaving your machines and nobody to sign up with.</p>
-            <pre><span class="p">$</span> roger-tower init --dir ~/tower --mode standalone
-<span class="p">$</span> roger-tower invite --dir ~/tower --client $KEYHASH        <span class="c"># prints a code ONCE; 15m, 5 attempts</span>
-<span class="p">$</span> roger-tower admit  --dir ~/tower --client $KEYHASH --id ID --code CODE
-<span class="p">$</span> roger-tower attach --dir ~/tower --station st-1 --key $STATION_KEYHASH --models llama-3,qwen-2.5
-<span class="p">$</span> roger-tower stations --dir ~/tower                        <span class="c"># what is attached</span>
-<span class="p">$</span> roger-tower route --dir ~/tower --client $KEYHASH --model llama-3</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir ~/tower --mode standalone
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower invite --dir ~/tower --client $KEYHASH        <span class="code-block__comment"># prints a code ONCE; 15m, 5 attempts</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower admit  --dir ~/tower --client $KEYHASH --id ID --code CODE
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower attach --dir ~/tower --station st-1 --key $STATION_KEYHASH --models llama-3,qwen-2.5
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower stations --dir ~/tower                        <span class="code-block__comment"># what is attached</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower route --dir ~/tower --client $KEYHASH --model llama-3</pre></div>
             <div class="man-note">
               <span class="man-note__tag">free, and it says so</span>
               Standalone routing is <b>free and locally accounted</b>: every receipt names your
@@ -933,7 +937,7 @@
               <kbd>space</kbd>) <b>spins</b> a sample so you can hear it first. A FREE voice
               plays the sample straight away; a priced one shows the tiny sample cost and
               waits for an explicit keypress - a preview never spends by surprise.</p>
-            <pre><span class="p">$</span> roger say --voice af_heart "roger that"     <span class="c"># speak a line through a cued DJ</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger say --voice af_heart "roger that"     <span class="code-block__comment"># speak a line through a cued DJ</span></pre></div>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k"><kbd>v</kbd></span><span class="man-plate__v">from TUNE IN, open the DJ BOOTH (only shown when a voice is on air)</span></div>
               <div class="man-plate__row"><span class="man-plate__k"><kbd>Enter</kbd> · cue</span><span class="man-plate__v">point your app/CLI at that DJ's voice endpoint (you cue a voice, you don't chat it)</span></div>
@@ -956,8 +960,8 @@
               line through <i>your own</i> <code>/v1/audio/speech</code>, so it never touches
               the broker and never bills. A live "right now you'd broadcast as ..." line
               mirrors the on-air identity as you tune it.</p>
-            <pre><span class="p">$</span> roger share                                   <span class="c"># auto-detects Kokoro / Whisper, tags the row</span>
-<span class="p">$</span> roger share --voice af_heart:0.5+af_aoede:0.5 --voice-speed 1.1   <span class="c"># or set the default headless</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger share                                   <span class="code-block__comment"># auto-detects Kokoro / Whisper, tags the row</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger share --voice af_heart:0.5+af_aoede:0.5 --voice-speed 1.1   <span class="code-block__comment"># or set the default headless</span></pre></div>
             <p>Your voice is <b>namespaced</b> to your <b>station</b>: it lists as
               <code>@&lt;your-station&gt;/&lt;name&gt;</code> and is shown "by @&lt;your-station&gt;",
               so a voice is always attributable to its operator and can never impersonate a
@@ -984,9 +988,9 @@
               with no login, no account, no wallet. The broker resolves the grant to you,
               routes only to your nodes, applies the grant's price (free or a rate you
               sponsor), and enforces its caps.</p>
-            <pre><span class="p">$</span> roger grant create --name my-bots                   <span class="c"># a FREE key for your bots/family</span>
-<span class="p">$</span> roger grant create --name jane --price-out 0.30     <span class="c"># a priced key you sponsor</span>
-<span class="p">$</span> roger grant create --self --name hermes-box         <span class="c"># a $0 key for YOUR own remote box</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger grant create --name my-bots                   <span class="code-block__comment"># a FREE key for your bots/family</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger grant create --name jane --price-out 0.30     <span class="code-block__comment"># a priced key you sponsor</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger grant create --self --name hermes-box         <span class="code-block__comment"># a $0 key for YOUR own remote box</span></pre></div>
             <div class="man-note">
               <span class="man-note__tag">the secret is shown once</span>
               The grant secret prints exactly once at create time - copy it then. The
@@ -1005,30 +1009,30 @@
               resolves the key to you, routes only to your nodes, and bills per the grant
               (free, $0 self, or your sponsored price). The two lines printed at create are
               all a bot needs:</p>
-            <pre><span class="c"># printed once by `grant create` (and on the web keys page)</span>
+            <div class="code-block"><pre><span class="code-block__comment"># printed once by `grant create` (and on the web keys page)</span>
 OPENAI_API_BASE=https://broker.rogerai.fm/v1
-OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
+OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
             <p>That is the whole mechanism: set those two env vars (or the equivalent
               <code>base_url</code> + <code>api_key</code> in your SDK) and every
               <code>POST /v1/chat/completions</code> the bot makes is authenticated by the
               key alone. No <code>roger login</code>, no wallet, no signed identity on the
               bot box. A worked example - a Petlings or Minecraft chat bot calling your home
               GPU from a cheap VPS:</p>
-            <pre><span class="c"># 1) you, once, on your logged-in machine: mint a capped key</span>
-<span class="p">$</span> roger grant create --name petlings-bot --self --monthly-cap 20000000
+            <div class="code-block"><pre><span class="code-block__comment"># 1) you, once, on your logged-in machine: mint a capped key</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger grant create --name petlings-bot --self --monthly-cap 20000000
   created grant "petlings-bot"  (self ($0 on your own boxes))
   <b>rog-grant_3f9a...c10b</b>
   save it now - it is shown only once.
 
-<span class="c"># 2) on the bot box (anywhere): set the two lines and run your bot</span>
-<span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fm/v1
-<span class="p">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b
-<span class="p">$</span> python petlings_bot.py        <span class="c"># any OpenAI client - openai-python, curl, llama-index...</span></pre>
-            <pre><span class="c"># the raw call your bot makes - just a bearer token</span>
-<span class="p">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
+<span class="code-block__comment"># 2) on the bot box (anywhere): set the two lines and run your bot</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> export OPENAI_API_BASE=https://broker.rogerai.fm/v1
+<span class="code-block__prompt" aria-hidden="true">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b
+<span class="code-block__prompt" aria-hidden="true">$</span> python petlings_bot.py        <span class="code-block__comment"># any OpenAI client - openai-python, curl, llama-index...</span></pre></div>
+            <div class="code-block"><pre><span class="code-block__comment"># the raw call your bot makes - just a bearer token</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"hi"}]}'</pre>
+    -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"hi"}]}'</pre></div>
             <p>Use <code>--self</code> (above) when the bot calls <i>your own</i> GPU - it is
               metering-only, $0. Drop <code>--self</code> for a plain free key you hand a
               friend, or set <code>--price-out</code> to sponsor a paid key billed to your
@@ -1080,9 +1084,9 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <div class="man-plate__row"><span class="man-plate__k">--expires</span><span class="man-plate__v">lifetime, e.g. <code>30d</code> or <code>2026-12-31</code> (default: never)</span></div>
             </div>
             <p>Manage them from the CLI or the dashboard:</p>
-            <pre><span class="p">$</span> roger grant list              <span class="c"># your keys + usage per label</span>
-<span class="p">$</span> roger grant show my-bots       <span class="c"># one key's scope, caps, usage</span>
-<span class="p">$</span> roger grant revoke my-bots     <span class="c"># kill it (effective next request)</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger grant list              <span class="code-block__comment"># your keys + usage per label</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger grant show my-bots       <span class="code-block__comment"># one key's scope, caps, usage</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger grant revoke my-bots     <span class="code-block__comment"># kill it (effective next request)</span></pre></div>
             <div class="man-note">
               <span class="man-note__tag">second guardrail</span>
               Per-key caps bound one key. Your <b>account-wide monthly spend cap</b> (§6, on
@@ -1098,13 +1102,13 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <b>frequency code</b> instead of a public listing: a fake MHz frequency plus
               a short pairing code. The band never appears on the open market; only a box
               that tunes to that exact frequency can reach it.</p>
-            <pre><span class="c"># on your inference box (the home GPU)</span>
-<span class="p">$</span> roger share qwen3-coder-30b --private
+            <div class="code-block"><pre><span class="code-block__comment"># on your inference box (the home GPU)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger share qwen3-coder-30b --private
   private band on air. frequency code (shown ONCE):
 
       <b>147.520 MHz · 8F3K-9M2Q</b>
 
-  hand this to a box or a friend to tune in.</pre>
+  hand this to a box or a friend to tune in.</pre></div>
             <div class="man-note">
               <span class="man-note__tag">the code is shown once</span>
               The frequency code prints exactly once, at share time. Copy it then - the
@@ -1116,20 +1120,20 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             </div>
             <p>On the box that should use it, tune to the frequency instead of the open
               band:</p>
-            <pre><span class="c"># on your agent box (anywhere)</span>
-<span class="p">$</span> roger use qwen3-coder-30b --freq 147.520MHz-8F3K-9M2Q</pre>
+            <div class="code-block"><pre><span class="code-block__comment"># on your agent box (anywhere)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger use qwen3-coder-30b --freq 147.520MHz-8F3K-9M2Q</pre></div>
             <p>The same box manages the band it minted, which matters most on a headless
               one - the machine whose code is likeliest to end up somewhere it should
               not have:</p>
-            <pre><span class="c"># on the inference box</span>
-<span class="p">$</span> roger bands list                    <span class="c"># what you hold, and which model each is on</span>
-<span class="p">$</span> roger bands new-code &lt;band-id&gt;      <span class="c"># fresh key, same band (old code dies now)</span>
-<span class="p">$</span> roger bands move &lt;band-id&gt; &lt;model&gt;  <span class="c"># different model, same code</span>
-<span class="p">$</span> roger bands revoke &lt;band-id&gt;        <span class="c"># burn it, free the slot</span></pre>
+            <div class="code-block"><pre><span class="code-block__comment"># on the inference box</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger bands list                    <span class="code-block__comment"># what you hold, and which model each is on</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger bands new-code &lt;band-id&gt;      <span class="code-block__comment"># fresh key, same band (old code dies now)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger bands move &lt;band-id&gt; &lt;model&gt;  <span class="code-block__comment"># different model, same code</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger bands revoke &lt;band-id&gt;        <span class="code-block__comment"># burn it, free the slot</span></pre></div>
             <p>Or run the browser console on its own - no terminal app, and the
               surface with room for tables:</p>
-            <pre><span class="p">$</span> roger webui              <span class="c"># serve the console and open it</span>
-<span class="p">$</span> roger webui --no-open    <span class="c"># headless: just print the URL</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger webui              <span class="code-block__comment"># serve the console and open it</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger webui --no-open    <span class="code-block__comment"># headless: just print the URL</span></pre></div>
             <p>Its <b>SETTINGS</b> tab carries the same private bands and the same per-band
               spend limits the terminal edits - one store, two windows - so a
               cap set in the browser is the cap the terminal enforces.</p>
@@ -1189,8 +1193,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <p>The card owns no editor of its own. Every row hands off to the screen that
               already owns that setting and comes back, so there is one implementation of
               each edit rather than two that can drift.</p>
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption>Managing a band - the card (<kbd>b</kbd>), the PRIVATE tab, or BASE STATION <kbd>p</kbd></caption>
                 <thead><tr><th>Key</th><th>What it does</th></tr></thead>
                 <tbody>
@@ -1222,9 +1226,9 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               funded wallet to spend on paid stations. Top-ups run through Stripe Checkout;
               Stripe is the payments provider and the licensed money transmitter - RogerAI
               never takes custody of your funds outside Stripe.</p>
-            <pre><span class="p">$</span> roger balance                 <span class="c"># your wallet balance in $</span>
-<span class="p">$</span> roger topup 25                <span class="c"># add $25 (opens Stripe Checkout)</span>
-<span class="p">$</span> roger topup                   <span class="c"># bare topup defaults to $10 (minimum $1)</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger balance                 <span class="code-block__comment"># your wallet balance in $</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger topup 25                <span class="code-block__comment"># add $25 (opens Stripe Checkout)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger topup                   <span class="code-block__comment"># bare topup defaults to $10 (minimum $1)</span></pre></div>
             <p>Spend is debited live, per token, against the wallet balance. A conditional
               debit on the broker side means a wallet can never go negative. The web
               dashboard mirrors the same numbers.</p>
@@ -1290,13 +1294,13 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <b>payable</b>, and you take it out through Stripe Connect.</p>
 
             <span class="man-fig">FIG. 3 - EARNINGS LIFECYCLE</span>
-            <pre>serve request  &rarr;  credits your 90% share
+            <div class="code-block"><pre>serve request  &rarr;  credits your 90% share
       &darr;
    [HELD]      principal held 30 days; a 10% reserve slice rides to day 90
       &darr;
   [PAYABLE]    hold cleared, no open dispute, Stripe KYC complete
       &darr;
-   [PAID]      you request a payout &rarr; Stripe Transfer &rarr; payout to your bank</pre>
+   [PAID]      you request a payout &rarr; Stripe Transfer &rarr; payout to your bank</pre></div>
 
             <h3>The policy</h3>
             <div class="man-plate">
@@ -1327,8 +1331,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                 a bug rather than fraud: a node that frames prompts one way and bills them
                 another trips it on every request. Either way the first thing to do is ask,
                 because nothing about it is meant to be a mystery.</p>
-              <pre><span class="p">$</span> roger drphil        <span class="c"># why am I not earning? config, reachability, upstream, and any hold or ban with its reason</span>
-<span class="p">$</span> roger appeal --reason "..."   <span class="c"># contest it; `roger appeal status` tracks it</span></pre>
+              <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger drphil        <span class="code-block__comment"># why am I not earning? config, reachability, upstream, and any hold or ban with its reason</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger appeal --reason "..."   <span class="code-block__comment"># contest it; `roger appeal status` tracks it</span></pre></div>
               <p>A hold is <b>not</b> a ban and does not need an appeal to end: it lifts by
                 itself after <b>7 days</b>, and the strike behind it stops counting toward a ban
                 after <b>30</b>. A ban needs several strikes (<b>5</b> in that window, with a
@@ -1343,11 +1347,11 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <p>The whole payout flow is also headless. You must be logged in
               (<code>roger login</code>); Stripe KYC and a proven identity - a GitHub link, an
               Apple link, or a verified email address - gate every payout.</p>
-            <pre><span class="p">$</span> roger payout                  <span class="c"># same as `payout status`</span>
-<span class="p">$</span> roger payout status           <span class="c"># Connect/KYC state, payable vs held, next-payable date, policy</span>
-<span class="p">$</span> roger payout onboard           <span class="c"># complete Stripe Connect KYC (opens the browser)</span>
-<span class="p">$</span> roger payout request           <span class="c"># request a payout of your payable balance</span>
-<span class="p">$</span> roger payout history           <span class="c"># past payouts and their states</span></pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger payout                  <span class="code-block__comment"># same as `payout status`</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger payout status           <span class="code-block__comment"># Connect/KYC state, payable vs held, next-payable date, policy</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger payout onboard           <span class="code-block__comment"># complete Stripe Connect KYC (opens the browser)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger payout request           <span class="code-block__comment"># request a payout of your payable balance</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger payout history           <span class="code-block__comment"># past payouts and their states</span></pre></div>
             <p>Aliases: <code>payouts</code> / <code>cashout</code> for the command;
               <code>withdraw</code> for <code>request</code>.</p>
           </section>
@@ -1360,18 +1364,18 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               user-config dir). It holds the broker URL, your user handle, saved spend
               limits, the onboarding state, and the saved share config. Inspect and set it
               with <code>roger config</code>.</p>
-            <pre><span class="p">$</span> roger config                       <span class="c"># print broker, user, webui-open, palette, limits, path</span>
-<span class="p">$</span> roger config set broker https://broker.rogerai.fm
-<span class="p">$</span> roger config set palette mono      <span class="c"># mono+red escape hatch (full = the lamp board, default)</span>
-<span class="p">$</span> roger config get broker</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger config                       <span class="code-block__comment"># print broker, user, webui-open, palette, limits, path</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config set broker https://broker.rogerai.fm
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config set palette mono      <span class="code-block__comment"># mono+red escape hatch (full = the lamp board, default)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config get broker</pre></div>
 
             <h3>Spend limits</h3>
             <p>Set per-model spend ceilings once and they apply to every connect. A
               <code>default</code> limit covers any band you have not pinned.</p>
-            <pre><span class="p">$</span> roger config set-limit qwen3-coder-30b --max-out 0.30 --min-tps 40
-<span class="p">$</span> roger config set-limit default --max-out 0.40
-<span class="p">$</span> roger config limits                <span class="c"># show them</span>
-<span class="p">$</span> roger config clear-limit qwen3-coder-30b</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger config set-limit qwen3-coder-30b --max-out 0.30 --min-tps 40
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config set-limit default --max-out 0.40
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config limits                <span class="code-block__comment"># show them</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config clear-limit qwen3-coder-30b</pre></div>
 
             <h3>Environment variables</h3>
             <div class="man-plate">
@@ -1406,8 +1410,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             </div>
 
             <h3>CLI commands</h3>
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption>roger &lt;command&gt; [flags]</caption>
                 <thead><tr><th>Command</th><th>Description &amp; key flags</th></tr></thead>
                 <tbody>
@@ -1463,8 +1467,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <kbd>Enter</kbd> save &amp; re-check, <kbd>w</kbd> wait &amp; notify,
               <kbd>esc</kbd> deny).</p>
 
-            <div class="man-table-wrap">
-              <table class="man-table">
+            <div class="scroll-box man-table-wrap">
+              <table class="data-table man-table">
                 <caption>SHARE (the provider table)</caption>
                 <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
                 <tbody>
@@ -1611,20 +1615,20 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <div class="man-plate__row"><span class="man-plate__k">model</span><span class="man-plate__v">the band id you connected, e.g. <code>qwen3-coder-30b</code></span></div>
             </div>
             <span class="man-fig">FIG. 4 - EXAMPLE REQUEST</span>
-            <pre><span class="p">$</span> curl http://127.0.0.1:4141/v1/chat/completions \
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl http://127.0.0.1:4141/v1/chat/completions \
     -H "Authorization: Bearer roger-local" \
     -H "Content-Type: application/json" \
     -d '{
       "model": "qwen3-coder-30b",
       "messages": [{"role": "user", "content": "Say roger."}]
-    }'</pre>
+    }'</pre></div>
             <p>In Python with the OpenAI SDK:</p>
-            <pre><span class="p">&gt;&gt;&gt;</span> from openai import OpenAI
-<span class="p">&gt;&gt;&gt;</span> client = OpenAI(base_url="http://127.0.0.1:4141/v1", api_key="roger-local")
-<span class="p">&gt;&gt;&gt;</span> client.chat.completions.create(
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">&gt;&gt;&gt;</span> from openai import OpenAI
+<span class="code-block__prompt" aria-hidden="true">&gt;&gt;&gt;</span> client = OpenAI(base_url="http://127.0.0.1:4141/v1", api_key="roger-local")
+<span class="code-block__prompt" aria-hidden="true">&gt;&gt;&gt;</span> client.chat.completions.create(
 ...     model="qwen3-coder-30b",
 ...     messages=[{"role": "user", "content": "Say roger."}],
-... )</pre>
+... )</pre></div>
             <p class="man-lead" style="margin-top:32px">Roger that. The band is open.</p>
           </section>
 
@@ -1642,9 +1646,9 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <p>Three steps: pin the port so the URL is stable, tell opencode about the
               provider, then pick the model.</p>
             <p><b>1.</b> Tune in and pin the port:</p>
-            <pre><span class="p">$</span> roger use Qwen3-Coder-Next --port 4141</pre>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger use Qwen3-Coder-Next --port 4141</pre></div>
             <p><b>2.</b> Add this to <code>~/.config/opencode/opencode.json</code>:</p>
-            <pre>{
+            <div class="code-block"><pre>{
   "$schema": "https://opencode.ai/config.json",
   "provider": {
     "roger": {
@@ -1662,7 +1666,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
       }
     }
   }
-}</pre>
+}</pre></div>
             <p><b>3.</b> In opencode, pick the <code>roger/Qwen3-Coder-Next</code> model.
               Requests now flow through RogerAI to the station you tuned in to.</p>
 
@@ -1780,9 +1784,6 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

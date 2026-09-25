@@ -11,10 +11,7 @@
 </head>
 <body data-onair="idle">
 
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Field Guide</span>
-    <span class="rail__rev">Rev. 2026.07 &middot; LABS</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Field Guide" rev="Rev. 2026.07 &middot; LABS" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 researchcurrent='aria-current="page"' -->
 
@@ -25,7 +22,7 @@
         <div>
           <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
           <span class="hero__eyebrow">
-            <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+            <!-- include: onair.html -->
             <span class="hero__callsign">WAVE FAMILY &middot; FIELD GUIDE</span>
           </span>
           <!-- FOUNDER 2026-08-17: "remove this from the title: 'one family, pico to
@@ -62,6 +59,21 @@
     </section>
 
     <!-- §1 SCALE -->
+    <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#scale"><b>§1</b><span class="toc-tuner__name">SCALE</span></a></li>
+        <li><a class="toc-tuner__st" href="#slots"><b>§2</b><span class="toc-tuner__name">SLOTS</span></a></li>
+        <li><a class="toc-tuner__st" href="#jobs"><b>§3</b><span class="toc-tuner__name">JOBS</span></a></li>
+        <li><a class="toc-tuner__st" href="#variations"><b>§4</b><span class="toc-tuner__name">VARIATIONS</span></a></li>
+        <li><a class="toc-tuner__st" href="#infinite"><b>§5</b><span class="toc-tuner__name">WAVE INFINITE</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
     <section class="section" id="scale">
       <div class="wrap">
         <div class="section__head section__head--left">
@@ -216,7 +228,7 @@
     </section>
 
     <!-- §2 SLOTS -->
-    <section class="section research-tone" id="slots">
+    <section class="section research-tone band band--inset" id="slots">
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;2 / SLOTS</span>
@@ -225,7 +237,7 @@
         </div>
 
         <div class="tier-scroll">
-          <table class="tier-matrix">
+          <table class="data-table tier-matrix">
             <thead>
               <tr>
                 <th scope="col">Slot</th><th scope="col">Class</th><th scope="col">Job</th>
@@ -236,17 +248,17 @@
               <tr>
                 <th scope="row">Wave Pico</th><td class="tier-cell">250&ndash;300M</td>
                 <td>The edge child: reads one machine&rsquo;s telemetry and asserts, with margins</td>
-                <td>Raspberry Pi &middot; no GPU &middot; ~50 ms target</td><td class="tier-cell">Scratch &middot; waypoint trained</td>
+                <td>Raspberry Pi &middot; no GPU &middot; ~50 ms target</td><td class="tier-cell">{{wave:pico.wave-family.recipe}}</td>
               </tr>
               <tr>
                 <th scope="row">Wave Nano</th><td class="tier-cell">0.8&ndash;1.5B</td>
                 <td>The fleet gateway: rolls up many children, resolves conflicts, routes by discovery</td>
-                <td>Gateway, concentrator</td><td class="tier-cell">Scratch &middot; next build</td>
+                <td>Gateway, concentrator</td><td class="tier-cell">{{wave:nano.wave-family.recipe}}</td>
               </tr>
               <tr>
                 <th scope="row">Wave Micro</th><td class="tier-cell">7&ndash;8B</td>
                 <td>The site brain: multi-fleet reasoning across a facility, general-capable and industrial</td>
-                <td>On-site server</td><td class="tier-cell">Scratch &middot; planned</td>
+                <td>On-site server</td><td class="tier-cell">{{wave:micro.wave-family.recipe}}</td>
               </tr>
               <tr>
                 <th scope="row">Wave Giga</th><td class="tier-cell">27&ndash;35B</td>
@@ -402,7 +414,7 @@
           </div>
 
           <div class="wj__scroll" data-wj-scroll>
-            <table class="tier-matrix">
+            <table class="data-table tier-matrix">
               <thead>
                 <tr>
                   <th scope="col">Job</th><th scope="col">Smallest slot</th>
@@ -500,7 +512,7 @@
     </section>
 
     <!-- §4 VARIATIONS -->
-    <section class="section research-tone" id="variations">
+    <section class="section research-tone band band--inset" id="variations">
       <div class="wrap">
         <!-- FOUNDER 2026-08-17: the head was "Six variations, and the gate each one has
              to pass", over "a tier is a size, a variation is what that size was tuned to
@@ -531,7 +543,7 @@
         </div>
 
         <div class="tier-scroll">
-          <table class="tier-matrix">
+          <table class="data-table tier-matrix">
             <thead>
               <tr><th scope="col">Variation</th><th scope="col">What it does</th><th scope="col">Planned for</th><th scope="col">Gate</th></tr>
             </thead>
@@ -558,9 +570,9 @@
              than arriving late.</p>
         </div>
 
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="/research.html#models">See model status</a>
-          <a class="research-button" href="/broadcasts.html">Read the evidence</a>
+          <a class="research-button research-button--quiet" href="/broadcasts.html">Read the evidence</a>
         </div>
       </div>
     </section>
@@ -715,8 +727,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
+  <!-- include: site-js.html -->
   <!-- The spectrum mark is the default; js/wave-mark.js is the previous
        "classic" mark, kept and reachable with ?mark=classic for comparison.
        Both animate the SAME resting markup above, so with JS off - or under
@@ -726,7 +737,5 @@
   <!-- §4's job finder. The section is whole without it: the script only reveals the
        toolbar and bounds the panel. -->
   <script src="js/wave-jobs.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
 </body>
 </html>

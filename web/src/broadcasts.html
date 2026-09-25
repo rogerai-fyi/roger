@@ -9,10 +9,7 @@
 <body data-onair="idle">
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Broadcasts</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Broadcasts" rev="Rev. 2026.06 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
@@ -24,7 +21,7 @@
     <div class="wrap bc-hero__inner">
 
       <span class="hero__eyebrow" data-reveal>
-        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <!-- include: onair.html -->
         <span class="hero__callsign">ON AIR</span>
         <span class="hero__sep" aria-hidden="true">·</span>
         the transmission log
@@ -47,14 +44,17 @@
   <!-- ===================== FOUNDER'S TELEGRAM (pinned) ============ -->
   <section class="bc-telegram-wrap">
     <div class="wrap">
-      <aside class="bc-tg" data-reveal aria-label="A word from the founder">
-        <div class="bc-tg__head">
+      <!-- the telegram: an inset panel, written open; on a phone site.js folds it to its
+           head line (data-fold-narrow) so the log is not pushed a screen down -->
+      <aside class="bc-tg-wrap" data-reveal aria-label="A word from the founder">
+      <details class="bc-tg tint-panel" data-fold-narrow open>
+        <summary class="bc-tg__head">
           <span class="bc-tg__label mono">
-            <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+            <!-- include: onair.html -->
             TELEGRAM
           </span>
           <span class="bc-tg__meta mono">FROM: THE FOUNDER &middot; <time datetime="2026">2026</time></span>
-        </div>
+        </summary>
         <blockquote class="bc-tg__body">
           <p>When I was growing up, I heard we would all have compute in our pockets.
             That came true. Now we have learned to turn that compute into intelligence,
@@ -79,6 +79,7 @@
           <span class="bc-tg__callsign">- @founder</span>
           <span class="bc-tg__stop" aria-hidden="true">&middot; &middot; &middot; STOP &middot; &middot; &middot;</span>
         </p>
+      </details>
       </aside>
     </div>
   </section>
@@ -391,9 +392,6 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

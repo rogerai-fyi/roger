@@ -10,8 +10,9 @@
      Stylesheets are wired PER PAGE: build.mjs expands the css-bundle marker
      below into one <link> per CSS module for this page, from the
      CSS_BUNDLES manifest in build.mjs (keyed by page filename). Every page gets
-     tokens.css + base.css first (tokens + shared chrome); account pages also get
-     account-base.css; then each page's own modules. The old monolithic site.css
+     tokens.css + base.css + components.css first (tokens, shared chrome, shared
+     components - web/DESIGN-SYSTEM.md); account pages also get account-base.css;
+     then each page's own modules. The old monolithic site.css
      and auth.css were split into per-page modules so editing one page's styles
      never touches a file another page needs. -->
   <meta charset="UTF-8" />

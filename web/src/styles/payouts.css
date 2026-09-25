@@ -145,7 +145,7 @@
   grid-column: 2;
   font-family: var(--font-mono);
   font-size: var(--t-xs);
-  color: var(--live);
+  color: var(--live-text);
   font-variant-numeric: tabular-nums slashed-zero;
 }
 
@@ -274,13 +274,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.po-lots__meta {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  color: var(--ink-400);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.po-lots__meta, .po-tower__meta { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); overflow: hidden; text-overflow: ellipsis; }
 
 @media (prefers-reduced-motion: reduce) {
   .po-meter__seg { transition: none; }
@@ -306,13 +300,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.po-tower__meta {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  color: var(--ink-400);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .po-tower__state {
   flex: none;
   align-self: center;
@@ -329,10 +316,12 @@
    muted. These map to the registry states surfaced by /tower/status. */
 .po-tower__state--joined,
 .po-tower__state--live {
-  color: var(--live);
+  color: var(--live-text);
   border-color: color-mix(in srgb, var(--live) 45%, transparent);
 }
 .po-tower__state--quarantine {
-  color: var(--warn, #d9a441);
-  border-color: color-mix(in srgb, var(--warn, #d9a441) 45%, transparent);
+  /* caution without an alarm colour (mono + one red): full ink, a dashed ring */
+  color: var(--ink-900);
+  border-style: dashed;
+  border-color: var(--ink-500);
 }

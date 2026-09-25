@@ -29,21 +29,30 @@ body.auth {
 
 /* The station log sits as one bound document between the shared nav and
    footer - left-bound on the measure, not a centered brochure card. */
+/* The rollout (2026-09) sets the plate the way the homepage sets its instruments: a
+   tinted panel inset from the page edge (the ink panel's geometry: 64px outside the text
+   column, never closer than --panel-inset), with the plate itself a raised face on it. */
 .authwrap {
   flex: 1 0 auto;
   display: grid;
-  justify-content: center;
-  padding: var(--s-12) var(--gutter);
+  /* one shrinkable column, the plate centred in it: an auto track grew to a wide
+     table's min-content and pushed the page sideways on a phone */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-content: start;
+  /* a .tint-panel (components.css) on the ink panel's inset geometry */
+  margin: var(--s-6) var(--panel-mx);
+  padding: clamp(20px, 6vw, 72px) clamp(10px, 4vw, 48px);
 }
 
-/* The page body is a flat plate: a single hairline frame, square corners,
-   no shadow. Depth is communicated by rules + spacing, like a printout. */
+/* The page body is a flat plate: the raised face on the tinted panel, no frame,
+   no shadow. Depth inside is communicated by rules + spacing, like a printout. */
 .card {
   width: 100%;
   max-width: 560px;
-  border: 1px solid var(--hairline-2);
-  border-radius: var(--r-sm);
-  background: var(--paper);
+  border: 0;
+  border-radius: calc(var(--panel-r) * 0.6);
+  background: var(--white);
   padding: var(--s-10) clamp(var(--s-6), 4vw, var(--s-10));
 }
 
@@ -237,7 +246,7 @@ body.auth {
   transition: color var(--d-1) var(--ease-standard),
                border-color var(--d-1) var(--ease-standard);
 }
-.card a:not(.gh):not(.primary):hover { color: var(--live); border-bottom-color: var(--live); }
+.card a:not(.gh):not(.primary):hover { color: var(--live-text); border-bottom-color: var(--live); }
 .card a:not(.gh):not(.primary):focus-visible {
   outline: 2px solid var(--live);
   outline-offset: 2px;
@@ -247,7 +256,7 @@ body.auth {
    The .card .fine form matches the (0,2,1) specificity of .card a:not(.gh) above,
    so the quiet treatment survives inside cards. */
 .fine a, .card .fine a { color: var(--ink-500); border-bottom: 0; }
-.fine a:hover, .card .fine a:hover { color: var(--live); }
+.fine a:hover, .card .fine a:hover { color: var(--live-text); }
 
 /* ---- Provider sign-in. A light face with an INK label, on founder direction and
    matching the conventional "Continue with ..." control; the hairline keeps it reading
@@ -289,7 +298,7 @@ body.auth {
   transition: color var(--d-1) var(--ease-standard),
               border-color var(--d-1) var(--ease-standard);
 }
-.ghost:hover { color: var(--live); border-color: var(--live); }
+.ghost:hover { color: var(--live-text); border-color: var(--live); }
 .ghost:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 
@@ -384,14 +393,14 @@ body.auth {
 /* The code is read off a phone and typed back, so it gets room to breathe. */
 #code-input {
   font-family: var(--font-mono, monospace);
-  font-size: var(--t-lg);
+  font-size: var(--t-h3);
   letter-spacing: 0.35em;
   text-align: center;
 }
 .emailform .gh { cursor: pointer; }
 .emailform .primary { background: var(--ink-900); color: var(--paper); }
 .emailform .primary:hover { background: var(--ink-700); }
-.emailform .err { color: var(--live); }
+.emailform .err { color: var(--live-text); }
 
 /* A labelled rule between the first-party form and the providers. */
 .or {
@@ -410,4 +419,11 @@ body.auth {
   flex: 1;
   height: 1px;
   background: var(--hairline-2);
+}
+
+/* ---- press: the account controls sink 1px while held, like every pressable on the
+   site (components.css); none under reduced motion. ---- */
+:is(.primary, .ghost, .gh):active:not(:disabled) { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  :is(.primary, .ghost, .gh):active:not(:disabled) { transform: none; }
 }

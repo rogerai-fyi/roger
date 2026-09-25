@@ -11,15 +11,19 @@
 // Include syntax (resolved recursively, depth-guarded):
 //   <!-- include: nav.html -->
 //   <!-- include: nav.html variant=marketing -->     // pass args to the partial
-// Inside a partial, args substitute as {{name}} and gate blocks:
+// Inside a partial, args substitute as {{name}} and gate blocks (which may nest):
 //   {{#if variant=marketing}} ... {{/if}}
 //   {{#unless variant=marketing}} ... {{/unless}}
 // Unknown {{name}} resolve to "" so stray markers never ship literally.
+//
+// Wave status labels in a page render from src/data/wave-status.json:
+//   {{wave:<tier>.<label>}}      (scripts/wave-status.mjs; an unknown token fails the build)
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync, renameSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { loadWaveStatus, resolveWaveTokens } from "./scripts/wave-status.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));   // web/
 const SRC = join(ROOT, "src");
@@ -31,14 +35,15 @@ const MAX_DEPTH = 12;
 
 // Per-page stylesheet manifest. Each page links exactly these CSS modules, in
 // order, so editing one page's styles never touches a file another page needs.
-// tokens.css (design tokens) + base.css (shared chrome) lead EVERY page; account
-// pages then load account-base.css before their own account module. The order
-// matches the original site.css / auth.css source cascade, so the rendered
-// cascade is byte-for-byte unchanged from the old monolithic files. The
-// head.html `<!-- css-bundle -->` marker is expanded into one <link> per entry
-// below (see emitCssBundle). Keep this in sync when adding a page.
-const CSS_MARKETING = ["tokens.css", "base.css"];                   // shared lead, marketing
-const CSS_ACCOUNT = ["tokens.css", "base.css", "account-base.css"]; // shared lead, account
+// The shared lead is the design system's three layers, on EVERY page and in this
+// order: tokens.css (design tokens) -> base.css (reset, typesetting, site chrome) ->
+// components.css (the shared components; see DESIGN-SYSTEM.md). Account pages then
+// load account-base.css before their own account module. The head.html
+// `<!-- css-bundle -->` marker is expanded into one <link> per entry below (see
+// emitCssBundle). Keep this in sync when adding a page.
+const CSS_SHARED = ["tokens.css", "base.css", "components.css"];
+const CSS_MARKETING = CSS_SHARED;                                   // shared lead, marketing
+const CSS_ACCOUNT = [...CSS_SHARED, "account-base.css"];            // shared lead, account
 const CSS_BUNDLES = {
   // marketing pages
   "index.html":     [...CSS_MARKETING, "home.css"],
@@ -50,10 +55,10 @@ const CSS_BUNDLES = {
   "research.html":  [...CSS_MARKETING, "research.css"],
   "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
   "research-hardware.html": [...CSS_MARKETING, "research.css", "research-hardware.css"], // the board -> tier map, the only page carrying third-party photography
-  "careers.html":   [...CSS_MARKETING, "research.css", "careers.css"], // hiring surface; reuses the notebook shell
-  "company.html":   [...CSS_MARKETING, "research.css"],
+  "careers.html":   [...CSS_MARKETING, "research.css", "careers.css", "company.css"], // hiring surface; notebook shell + the Company section sheet
+  "company.html":   [...CSS_MARKETING, "research.css", "company.css"], // About; company.css = the Company section sheet
   "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates
-  "faq.html":       [...CSS_MARKETING, "research.css", "faq.css"],     // ditto; faq.css is only the disclosure list
+  "faq.html":       [...CSS_MARKETING, "research.css", "faq.css", "company.css"], // ditto; faq.css is only the question list
   "why.html":       [...CSS_MARKETING, "research.css"],                // the routing-fee argument; page-scoped styles inline
   "integrations.html": [...CSS_MARKETING, "research.css", "integrations.css"], // ditto; the tables and guest plates
   "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
@@ -92,10 +97,10 @@ const CSS_BUNDLES = {
   // admin.html (founder super-admin ops portal) moved to the PRIVATE rogerai-fyi/roger-admin repo.
   "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
   "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
-  "privacy.html":   [...CSS_ACCOUNT],                    // legal plate: shared chrome only
-  "security.html":  [...CSS_ACCOUNT],                    // legal plate: shared chrome only
-  "confidential.html": [...CSS_ACCOUNT],                 // gated TEE-tier info: shared chrome only
-  "tos.html":       [...CSS_ACCOUNT],                    // legal plate: shared chrome only
+  "privacy.html":   [...CSS_MARKETING, "company.css"],   // legal reading column (Company section sheet)
+  "security.html":  [...CSS_MARKETING, "company.css"],   // ditto
+  "confidential.html": [...CSS_MARKETING, "confidential.css"], // gated TEE-tier info: section head + tinted panels
+  "tos.html":       [...CSS_MARKETING, "company.css"],   // ditto
 };
 
 const CSS_MARKER_RE = /^([ \t]*)<!--\s*css-bundle\s*-->[ \t]*$/m;
@@ -118,20 +123,20 @@ function parseArgs(s) {
 }
 
 // Apply {{#if}} / {{#unless}} gates and {{var}} substitution for one arg set.
+// Gates may nest: each pass resolves only the INNERMOST blocks (a body that holds
+// no other gate marker), and passes repeat until none is left.
+const GATE_RE = /\{\{#(if|unless)\s+([\w-]+)(?:=([^}]*))?\}\}((?:(?!\{\{[#/](?:if|unless)\b)[\s\S])*?)\{\{\/\1\}\}/g;
 function applyArgs(html, args) {
-  // {{#if key=val}}...{{/if}}  (also bare {{#if key}} = truthy presence)
-  html = html.replace(/\{\{#if\s+([\w-]+)(?:=([^}]*))?\}\}([\s\S]*?)\{\{\/if\}\}/g,
-    (_, key, val, body) => {
+  // {{#if key=val}}...{{/if}}  (also bare {{#if key}} = truthy presence); {{#unless}} inverts
+  for (let prev = null; prev !== html;) {
+    prev = html;
+    html = html.replace(GATE_RE, (_, kind, key, val, body) => {
       const have = args[key];
       const ok = val === undefined ? (have !== undefined && have !== "") : have === val;
-      return ok ? body : "";
+      return ok === (kind === "if") ? body : "";
     });
-  html = html.replace(/\{\{#unless\s+([\w-]+)(?:=([^}]*))?\}\}([\s\S]*?)\{\{\/unless\}\}/g,
-    (_, key, val, body) => {
-      const have = args[key];
-      const ok = val === undefined ? (have !== undefined && have !== "") : have === val;
-      return ok ? "" : body;
-    });
+  }
+  if (/\{\{[#/](if|unless)\b/.test(html)) throw new Error("unbalanced {{#if}}/{{#unless}} in a partial");
   // {{var}} substitution; unknown -> ""
   html = html.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_, key) => args[key] ?? "");
   return html;
@@ -165,6 +170,7 @@ function copyAssets(dir) {
     }
     const rel = relative(SRC, abs);
     if (rel.startsWith("_partials")) continue;
+    if (rel === join("data", "wave-status.json")) continue;   // build input, rendered into pages
     // top-level *.html in src/ are pages, built separately below
     if (!rel.includes("/") && ent.name.endsWith(".html")) continue;
     const dest = join(DIST, rel);
@@ -382,9 +388,11 @@ function build() {
   const pages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
   const indexable = [];
   const htmlByPage = new Map();
+  const wave = loadWaveStatus();
   for (const page of pages) {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
+    out = resolveWaveTokens(out, page, wave);   // wave status labels from the one data file
     out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
     out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
     out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale

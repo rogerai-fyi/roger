@@ -13,10 +13,7 @@
 </head>
 <body data-onair="idle">
 
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Field Guide</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.08 &middot; ((&bull;))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Field Guide" rev="Rev. 2026.08 &middot; ((&bull;))" orange=1 -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -28,7 +25,7 @@
 
       <header class="bc-post__head" data-reveal>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">BROADCAST 011 &middot; FIELD GUIDE</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime="2026-08-31">AUGUST 2026</time>
@@ -40,6 +37,22 @@
           the whole business.
         </p>
       </header>
+
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE SPREAD</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">THE LEVER</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">WHICH BANDS PAY</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">OR SKIP THE RENT</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">RUNNING ONE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">QUESTIONS</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
 
       <div class="bc-post__body">
 
@@ -61,7 +74,7 @@
         </section>
 
         <!-- ---------- 1 THE SPREAD ---------- -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no mono">&sect;1 &middot; THE SPREAD</span>
           <h2>Rent by the hour. Sell by the token.</h2>
           <p>A rented card costs the same whether or not a request is in flight, and it
@@ -87,8 +100,8 @@
              below are Vast.ai's interruptible board on
              <time datetime="2026-08-31">31 August 2026</time>.</p>
 
-          <div class="ec-tablewrap">
-            <table class="ec-table ec-table--spread" data-share="0.90">
+          <div class="scroll-box ec-tablewrap">
+            <table class="data-table ec-table ec-table--spread" data-share="0.90">
               <caption class="mono">The whole trade &middot; cover = what you charge over what you must charge</caption>
               <thead>
                 <tr><th>Card and band</th><th>Rent/hr</th><th>tok/s</th><th>Duty</th>
@@ -192,7 +205,7 @@
         </section>
 
         <!-- ---------- 2 THE LEVER ---------- -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no mono">&sect;2 &middot; THE LEVER</span>
           <h2>Throughput is the margin. There is no second lever.</h2>
           <p>Every number here divides by tokens per second, so anything that makes the card
@@ -221,15 +234,15 @@
         </section>
 
         <!-- ---------- 3 WHICH BANDS PAY ---------- -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no mono">&sect;3 &middot; WHICH BANDS PAY</span>
           <h2>Dense and vision models pay. Sparse mixtures do not.</h2>
           <p>You are pricing against what the aggregators charge for the same open weights.
              From OpenRouter's public model API, output tokens,
              <time datetime="2026-08-31">31 August 2026</time>:</p>
 
-          <div class="ec-tablewrap">
-            <table class="ec-table ec-table--market">
+          <div class="scroll-box ec-tablewrap">
+            <table class="data-table ec-table ec-table--market">
               <caption class="mono">What the market charges, $ per 1M output tokens</caption>
               <thead><tr><th>Model</th><th>Class</th><th>Output</th><th>Worth serving?</th></tr></thead>
               <tbody>
@@ -260,15 +273,15 @@
         </section>
 
         <!-- ---------- 4 OWNING IT ---------- -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no mono">&sect;4 &middot; OR SKIP THE RENT</span>
           <h2>If the card is already yours, the rent is zero.</h2>
           <p>Everything above pays a landlord. If you own the card, the purchase is a sunk
              decision and the only cost is the extra watts it pulls while generating. At
              $0.15/kWh that is not a small edge, it is a different order of magnitude:</p>
 
-          <div class="ec-tablewrap">
-            <table class="ec-table ec-table--owned" data-share="0.90">
+          <div class="scroll-box ec-tablewrap">
+            <table class="data-table ec-table ec-table--owned" data-share="0.90">
               <caption class="mono">Owned hardware &middot; the break-even is electricity</caption>
               <thead><tr><th>Card</th><th>Draw</th><th>tok/s</th><th>Duty</th><th>Break-even</th><th>Cover at $0.35</th></tr></thead>
               <tbody>
@@ -295,7 +308,7 @@
         </section>
 
         <!-- ---------- 5 RUNNING ONE ---------- -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no mono">&sect;5 &middot; RUNNING ONE</span>
           <h2>Four steps, whoever owns the card.</h2>
           <ol class="ec-steps">
@@ -314,7 +327,7 @@
 
           </ol>
           <p>On a rented box those four steps are one paste into the instance&rsquo;s ONSTART
-             box - <code>curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</code> - which
+             box - <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/vast-onstart.sh</span> <span>|</span> <span>bash</span></code> - which
              installs the client, brings the model up, waits for the weights to load and goes
              on air. It is free by default, so no secret of yours sits on a machine you do not
              own, and it refuses to price a share on a box you have not signed into rather
@@ -327,7 +340,7 @@
         </section>
 
         <!-- ---------- FAQ ---------- -->
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no mono">&sect;6 &middot; QUESTIONS</span>
           <h2>The ones people ask first.</h2>
           <dl class="bc-faq">
@@ -346,13 +359,13 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag mono">ON AIR</span>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">ON AIR</span>
           <p>The cheapest million tokens on this page is the one you serve yourself.
-             <code>roger share</code> finds the server you are already running and puts it on
+             <code class="cmd-words"><span>roger</span> <span>share</span></code> finds the server you are already running and puts it on
              the band - free by default, no account needed, and a schedule if you only want
              to lend the card while you sleep.</p>
-        </div>
+        </aside>
 
       </div>
     </div>
@@ -363,9 +376,6 @@
 
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much can you make renting a GPU and serving models?","acceptedAnswer":{"@type":"Answer","text":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.08 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 4.4 times cover. Doubling throughput halves the break-even."}},{"@type":"Question","name":"Is renting a GPU to serve on RogerAI actually allowed?","acceptedAnswer":{"@type":"Answer","text":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, and you keep the same 90% of every request."}},{"@type":"Question","name":"Why is the platform's 10% inside the break-even?","acceptedAnswer":{"@type":"Answer","text":"Because an operator keeps 90% of what a request is charged, so covering a $0.07 hour needs $0.08 of charges, not $0.07. Leaving the fee out puts every break-even 11% too low."}},{"@type":"Question","name":"Is 150 tokens a second realistic for a 27B model?","acceptedAnswer":{"@type":"Answer","text":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45 tokens a second. A station serves several people at once, and it is the aggregate that pays the rent."}},{"@type":"Question","name":"Does an interrupted spot instance break anything?","acceptedAnswer":{"@type":"Answer","text":"No. A station that disappears stops being routed to, and requests go to another station serving the same model. The network already assumes machines come and go, which is why interruptible rental is a reasonable thing to build on."}},{"@type":"Question","name":"What if nobody sends me work?","acceptedAnswer":{"@type":"Answer","text":"Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it."}}]}</script>
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

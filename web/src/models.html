@@ -5,15 +5,9 @@
 </head>
 <body data-onair="idle">
 
-  <!-- ===== blip-map background: stations on air across a faint grid ===== -->
-  <canvas id="blipmap" class="blipmap" aria-hidden="true"></canvas>
-  <div class="blipmap-fallback" aria-hidden="true"></div>
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Model Directory</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Model Directory" rev="Rev. 2026.06 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 modelscurrent='aria-current="page"' -->
@@ -25,7 +19,7 @@
     <div class="wrap bands-hero__inner">
 
       <span class="hero__eyebrow" data-reveal>
-        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <!-- include: onair.html -->
         <span class="hero__callsign">THE MODELS</span>
         <span class="hero__sep" aria-hidden="true">·</span>
         a directory of live stations
@@ -45,12 +39,12 @@
       <!-- The rest of this section of the site, as buttons. The nav panel is an
            accelerator; a reader who landed here from a search result should not have to
            find a collapsed menu to discover Voices or the Tower. -->
-      <div class="research-actions" data-reveal data-reveal-delay="140">
+      <div class="research-actions research-actions--lead" data-reveal data-reveal-delay="140">
         <a class="research-button research-button--primary" href="/playbox.html">Open the Playbox</a>
-        <a class="research-button" href="/voices.html">Voices</a>
-        <a class="research-button" href="/tower.html">The Tower</a>
-        <a class="research-button" href="/pricing.html">Pricing</a>
-        <a class="research-button" href="/integrations.html">Integrations</a>
+        <a class="research-button research-button--quiet" href="/voices.html">Voices</a>
+        <a class="research-button research-button--quiet" href="/tower.html">The Tower</a>
+        <a class="research-button research-button--quiet" href="/pricing.html">Pricing</a>
+        <a class="research-button research-button--quiet" href="/integrations.html">Integrations</a>
       </div>
 
     </div>
@@ -59,7 +53,7 @@
          radio; it locks the strongest model. role=slider, keyboard + pointer +
          touch. Driven by REAL /market + /discover data (see bands.js); offline
          models from your local history scroll past, dimmed. -->
-    <div class="dialwrap" data-reveal data-reveal-delay="160">
+    <div class="dialwrap tint-panel" data-reveal data-reveal-delay="160">
       <span class="fig dialwrap__fig" aria-hidden="true">FIG. 1 - THE DIAL · LIVE BAND</span>
       <figure class="dial" id="dial" tabindex="0" role="slider"
               aria-label="Tuning dial. Sweep across the band; arrow keys tune model to model, Enter opens the locked model card."
@@ -85,6 +79,8 @@
   </section>
 
   <!-- ============================ DIRECTORY ============================ -->
+  <!-- INK PANEL: the live band, as the homepage shows it (components.css .tone-zone). -->
+  <div class="tone-zone" data-tone="ink">
   <section class="section bands-dir" id="directory">
     <div class="wrap">
       <div class="section__head section__head--left" data-reveal>
@@ -178,6 +174,8 @@
     </div>
   </section>
 
+  </div><!-- /tone-zone -->
+
   <!-- ============================ DETAIL · QSL CARD ============================ -->
   <!-- Hash-routed (#band=<model>). Static-host-friendly: a panel revealed in place. -->
   <section class="section qsl-section" id="detail" hidden aria-label="Model detail card">
@@ -235,7 +233,7 @@
             </div>
             <div class="qsl__block">
               <span class="qsl__bk mono">HOW TO TUNE IN</span>
-              <button class="install__box qsl__cmd" id="qslCmd" type="button"
+              <button class="install__box qsl__cmd" id="qslCmd" type="button" data-os-lock="any"
                       aria-label="Copy the use command to clipboard">
                 <span class="install__prompt" aria-hidden="true">$</span>
                 <code class="install__code" id="qslCmdCode">roger use &lt;model&gt;</code>
@@ -304,12 +302,8 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/radiomap.js" defer></script>
   <script src="js/bands.js" defer></script>
   <script src="js/report.js" defer></script>
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

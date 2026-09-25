@@ -149,6 +149,15 @@
       } catch (e) { reject(e); }
     });
   }
+  // The one copy behaviour (the copy tick): copy, mark the control .is-copied for
+  // 1.6s (components.css turns its icon into a tick), and say so in the toast.
+  function copyTick(btn, text) {
+    copy(text).then(function () {
+      btn.classList.add("is-copied");
+      showToast("Copied to clipboard");
+      setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
+    }).catch(function () { showToast("Press ⌘/Ctrl-C to copy"); });
+  }
   // EVERY install box copies, not a hardcoded list of two ids. The list was a trap: the
   // next page to offer an install command got a button that silently did nothing, which is
   // exactly what happened when the Tower page grew one.
@@ -157,14 +166,58 @@
       // Copy the command currently displayed, not a hardcoded constant, so the
       // Windows PowerShell swap (below) always copies the right one.
       var code = btn.querySelector(".install__code");
-      var text = code ? code.textContent.trim() : INSTALL_CMD;
-      copy(text).then(function () {
-        btn.classList.add("is-copied");
-        showToast("Copied to clipboard");
-        setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
-      }).catch(function () { showToast("Press ⌘/Ctrl-C to copy"); });
+      copyTick(btn, code ? code.textContent.trim() : INSTALL_CMD);
     });
   });
+  // [data-copy-target]: the shared copy control for anything else (the footer's
+  // upgrade commands, code blocks). It copies the text of the element its value
+  // names ("#id"), or its own <code> when the value is empty. Delegated, so a
+  // control added after load works too.
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest && e.target.closest("[data-copy-target]");
+    if (!btn) return;
+    var sel = btn.getAttribute("data-copy-target");
+    var src = null;
+    try { src = sel ? document.querySelector(sel) : btn.querySelector("code"); } catch (err) { src = null; }
+    if (src) copyTick(btn, copyText(src));
+  });
+  // The text a copy control copies: the element's text without its decorative
+  // aria-hidden parts (a code block's "$" prompts), so the result pastes and runs.
+  function copyText(el) {
+    var hidden = el.querySelectorAll("[aria-hidden='true']");
+    if (!hidden.length) return el.textContent.trim();
+    var clone = el.cloneNode(true);
+    Array.prototype.forEach.call(clone.querySelectorAll("[aria-hidden='true']"), function (n) {
+      var next = n.nextSibling; // the space that followed a prompt goes with it
+      if (next && next.nodeType === 3) next.nodeValue = next.nodeValue.replace(/^ /, "");
+      n.remove();
+    });
+    return clone.textContent.trim();
+  }
+  // Code blocks (components.css .code-block): each gets a copy control for its <pre>,
+  // the shared copy tick above. Added here, not in the markup, so a visitor without
+  // scripts sees the plain selectable <pre> and never a button that does nothing.
+  var COPY_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>';
+  Array.prototype.forEach.call(document.querySelectorAll(".code-block"), function (box, i) {
+    var pre = box.querySelector("pre");
+    if (!pre || box.querySelector(".code-block__copy")) return;
+    if (!pre.id) pre.id = "code-block-" + (i + 1);
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "code-block__copy";
+    b.setAttribute("data-copy-target", "#" + pre.id);
+    b.setAttribute("aria-label", "Copy code to clipboard");
+    b.innerHTML = COPY_ICON;
+    box.appendChild(b);
+  });
+
+  /* ---- fold on a phone: details[data-fold-narrow] -------------------
+     A disclosure written OPEN in the HTML (readers without scripts, and crawlers, get
+     all of it) that starts folded on a phone, where it would push the page's main
+     content a screen or more down. Its <summary> stays a normal toggle everywhere. */
+  if (window.matchMedia && window.matchMedia("(max-width: 640px)").matches) {
+    Array.prototype.forEach.call(document.querySelectorAll("details[data-fold-narrow]"), function (d) { d.open = false; });
+  }
 
   /* ---- "how to upgrade" disclosure (footer) ---------------------- */
   var upToggle = document.getElementById("upgradeToggle");
@@ -176,20 +229,7 @@
       upPanel.hidden = open;
     });
   }
-  // each upgrade command box copies its own <code> text on click
-  [["upgradeCmd1"], ["upgradeCmd2"]].forEach(function (pair) {
-    var btn = document.getElementById(pair[0]);
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      var code = btn.querySelector("code");
-      var text = code ? code.textContent : "";
-      copy(text).then(function () {
-        btn.classList.add("is-copied");
-        showToast("Copied to clipboard");
-        setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
-      }).catch(function () { showToast("Press ⌘/Ctrl-C to copy"); });
-    });
-  });
+  // (each upgrade command box copies its own <code>: data-copy-target, above)
 
   /* ---- OS detection: upgrade Windows visitors to the PowerShell command --
      Progressive enhancement: the static HTML default is the POSIX curl

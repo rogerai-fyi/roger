@@ -412,7 +412,7 @@ test("each group's page offers every destination in that group's panel", () => {
     // top, the way the research hero already offered its actions. Buried in prose or in an
     // onward row a screen down, a reader does not find them - which is exactly what
     // happened, and is why this asserts the hero action cluster specifically.
-    const hero = html.match(/<div class="research-actions"[^>]*>[\s\S]*?<\/div>/)?.[0];
+    const hero = html.match(/<div class="research-actions(?: research-actions--[\w-]+)?"[^>]*>[\s\S]*?<\/div>/)?.[0];
     assert.ok(hero, `${parent} carries a hero action row`);
     for (const dest of dests) {
       if (dest === parent) continue; // the parent is where we already are
@@ -452,11 +452,11 @@ test("the section action buttons are styled on every page that uses them", () =>
   const pages = readdirSync(SRC).filter((f) => f.endsWith(".html") && src(f).includes("research-actions"));
   assert.ok(pages.length >= 5, `the row is shared, found it on ${pages.length} pages`);
   // Whatever sheet defines it must be one every one of those pages actually loads.
-  const base = src("styles/base.css");
-  assert.match(base, /\.research-button \{/, "the component is in the always-loaded sheet");
+  const shared = src("styles/components.css");
+  assert.match(shared, /\.research-button \{/, "the component is in the always-loaded component sheet");
   for (const p of pages) {
     const built = readDist(p);
-    assert.match(built, /styles\/base\.css|<style/, `${p} loads the shared chrome`);
+    assert.match(built, /styles\/components\.css/, `${p} loads the shared components`);
   }
 });
 

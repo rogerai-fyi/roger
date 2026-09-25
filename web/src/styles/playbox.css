@@ -117,7 +117,7 @@
 .pg-bench__type { color: var(--ink-400); font-size: var(--t-micro); }
 .pg-bench__serial { color: var(--ink-400); font-size: var(--t-micro); }
 /* the operator's own callsign on the plate - present only when signed in */
-.pg-bench__op { color: var(--live); font-size: var(--t-micro); letter-spacing: var(--tracking-label); }
+.pg-bench__op { color: var(--live-text); font-size: var(--t-micro); letter-spacing: var(--tracking-label); }
 .pg-bench__op[hidden] { display: none; }
 @media (max-width: 900px) { .pg-bench__op { display: none; } }
 .pg-bench__status {
@@ -125,7 +125,7 @@
   font-size: var(--t-micro); color: var(--ink-400);
 }
 .pg-bench__status .livedot { --dot-size: 8px; }
-.pg-bench__status[data-state="live"] { color: var(--live); }
+.pg-bench__status[data-state="live"] { color: var(--live-text); }
 .pg-bench__status[data-state="live"] .livedot { --dot: var(--live); }
 .pg-bench__status[data-state="quiet"] { color: var(--ink-400); }
 .pg-bench__status[data-state="off"] { color: var(--ink-400); }
@@ -225,7 +225,7 @@
 .dk__pos[data-kind="embed"] { bottom: 40px; left: 0; }
 .dk__pos[data-kind="guard"] { top: 40px; left: 0; }
 .dk__pos:hover { color: var(--ink-900); }
-.dk__pos[aria-checked="true"] { color: var(--live); border-color: var(--live); background: var(--paper); box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 8%, transparent); }
+.dk__pos[aria-checked="true"] { color: var(--live-text); border-color: var(--live); background: var(--paper); box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 8%, transparent); }
 .dk__pos[aria-checked="true"] i { background: currentColor; box-shadow: 0 0 7px currentColor; }
 .dk__pos.is-dim { opacity: 0.35; }
 .dk__pos:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
@@ -268,9 +268,9 @@
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
   color: var(--ink-400); text-transform: uppercase;
 }
-.dk__card[aria-pressed="true"] .dk__cardchip { color: var(--live); }
+.dk__card[aria-pressed="true"] .dk__cardchip { color: var(--live-text); }
 /* voice cards lead with the waveform glyph */
-.dk__card--voice b { font-family: var(--font-mono); letter-spacing: 0.3em; color: var(--live); }
+.dk__card--voice b { font-family: var(--font-mono); letter-spacing: 0.3em; color: var(--live-text); }
 /* scene + device cards carry a small drawn scene on the left */
 .dk__cards--scene .dk__card, .dk__cards--device .dk__card { padding-left: 58px; min-height: 56px; }
 .dk__card--scene::before, .dk__card--device::before {
@@ -305,7 +305,7 @@
   position: absolute; inset: 11px 14px auto; display: flex; justify-content: space-between;
   color: var(--ink-400); font: 500 9px/1 var(--font-mono); letter-spacing: 0.18em;
 }
-.dk__baylegend em { color: var(--live); font-style: normal; }
+.dk__baylegend em { color: var(--live-text); font-style: normal; }
 /* the slot the tape drops into */
 .dk__bayslot {
   position: absolute; inset: auto 7% 13px; height: 12px; border-radius: 6px;
@@ -369,7 +369,7 @@
   color: var(--ink-400); border: 1px solid var(--hairline-2); border-radius: 3px;
   padding: 2px 7px; opacity: 0.5;
 }
-.dk__cap.is-on { color: var(--live); border-color: var(--live); opacity: 1; }
+.dk__cap.is-on { color: var(--live-text); border-color: var(--live); opacity: 1; }
 
 /* the J-card: the paper insert that comes with the tape. Machine truth in mono,
    two columns, hairline-ruled - it reads as a spec sheet, not decoration. */
@@ -434,7 +434,7 @@
   background: var(--paper); opacity: 0.45;
   transition: color var(--d-2) var(--ease-standard), border-color var(--d-2) var(--ease-standard);
 }
-.dk__lamp.is-lit { opacity: 1; color: var(--live); border-color: var(--live);
+.dk__lamp.is-lit { opacity: 1; color: var(--live-text); border-color: var(--live);
   box-shadow: 0 0 8px color-mix(in srgb, var(--live) 28%, transparent); }
 .dk__lamp[data-lamp="rec"].is-lit { color: var(--ink-900); border-color: var(--ink-400);
   box-shadow: none; }
@@ -485,7 +485,7 @@
 .dk__spine:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .dk__spinechip {
   font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.18em;
-  color: var(--live); margin-top: 2px;
+  color: var(--live-text); margin-top: 2px;
 }
 .dk__spinechip--rec { color: var(--ink-400); }
 /* two ROWS: the live network keeps its own row, the Wave family keeps its own,
@@ -518,6 +518,12 @@
 }
 .dk__shelfstrip--ladder .dk__spine b { font-size: 9px; }
 .dk__shelfstrip--ladder .dk__spinechip { margin-top: 0; text-align: right; }
+/* a phone: the row label goes above its tapes, so a tier's reach gets the width
+   instead of breaking mid-word ("enterpri se") in a 40px column */
+@media (max-width: 560px) {
+  .dk__shelfrow { grid-template-columns: 1fr; gap: 4px; }
+  .dk__shelfgroup { justify-content: flex-start; text-align: left; border-right: 0; padding-right: 0; }
+}
 /* the tier's Spectrum colour on the top edge (light + dark values match the
    founder's chart, same tokens as the mesh and factory decks) */
 .dk__spine[data-tier="pico"]  { border-top-color: #b23a2a; }
@@ -545,7 +551,7 @@
 .dk__mode {
   margin-left: auto; font-family: var(--font-mono); font-size: 10px;
   letter-spacing: 0.2em; padding: 3px 9px; border-radius: 3px;
-  border: 1px solid var(--live); color: var(--live);
+  border: 1px solid var(--live); color: var(--live-text);
 }
 .dk__mode[data-mode="recorded"] { border-style: dashed; color: var(--ink-500); border-color: var(--ink-400); }
 .dk__mode[data-mode="ready"], .dk__mode[data-mode="draft"] {
@@ -594,7 +600,7 @@
   text-transform: uppercase; color: var(--ink-400); padding-top: 3px;
 }
 .pg-line--you .pg-line__who { color: var(--ink-500); }
-.pg-line--ping .pg-line__who { color: var(--live); }
+.pg-line--ping .pg-line__who { color: var(--live-text); }
 .pg-line--deck .pg-line__who { color: var(--ink-400); }
 .pg-line__msg { grid-column: 1 / -1; color: var(--ink-700); font-size: var(--t-sm); line-height: var(--lh-body); overflow-wrap: anywhere; }
 .pg-line--you .pg-line__msg { color: var(--ink-900); }
@@ -619,7 +625,7 @@
 }
 .dk__standbyicon {
   width: 38px; height: 38px; display: grid; place-items: center;
-  border: 1px solid var(--hairline-2); border-radius: 50%; color: var(--live);
+  border: 1px solid var(--hairline-2); border-radius: 50%; color: var(--live-text);
 }
 .dk__standby b { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em; color: var(--ink-700); }
 .dk__standby p { margin: 0; color: var(--ink-400); font-size: var(--t-xs); line-height: var(--lh-body); }
@@ -661,7 +667,7 @@
 .pg-copy:hover { color: var(--ink-900); border-color: var(--ink-400); }
 .pg-cli__body { padding: var(--s-3); font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-900);
   white-space: pre-wrap; word-break: break-word; }
-.pg-cli__body .pg-prompt { color: var(--live); user-select: none; }
+.pg-cli__body .pg-prompt { color: var(--live-text); user-select: none; }
 
 /* paid tape, signed out: play yields to this invitation (playbox.feature) */
 .pg-invite {
@@ -740,7 +746,7 @@
 .dk__service b { color: var(--ink-500); font-weight: var(--weight-medium); text-align: right; }
 .dk__service small { grid-column: 1 / -1; color: var(--ink-400); font: 400 9px/1.45 var(--font-mono); text-transform: none; }
 .dk__service[data-state="live"] { border-left-color: var(--live); }
-.dk__service[data-state="live"] b { color: var(--live); }
+.dk__service[data-state="live"] b { color: var(--live-text); }
 .dk__service[data-state="off"] { border-style: dashed; }
 
 .dk__own {
@@ -755,7 +761,7 @@
   text-transform: uppercase; padding: 7px 11px;
   display: inline-flex; align-items: center; gap: 7px;
 }
-.dk__ownbtn:hover { border-color: var(--live); color: var(--live); }
+.dk__ownbtn:hover { border-color: var(--live); color: var(--live-text); }
 .dk__ownbtn[disabled] { opacity: 0.42; cursor: not-allowed; border-color: var(--hairline-2); color: var(--ink-400); }
 .dk__file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .dk__ownstate {
@@ -763,7 +769,7 @@
   letter-spacing: 0.08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 .dk__micdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-400); display: block; }
-.dk__ownbtn.is-recording { border-color: var(--live); color: var(--live); border-style: solid; }
+.dk__ownbtn.is-recording { border-color: var(--live); color: var(--live-text); border-style: solid; }
 .dk__ownbtn.is-recording .dk__micdot { background: var(--live); animation: dk-rec 1.1s ease-in-out infinite; }
 @keyframes dk-rec { 50% { opacity: 0.25; } }
 
@@ -772,7 +778,7 @@
   position: absolute; right: 10px; bottom: 8px; cursor: pointer;
   width: 22px; height: 22px; border-radius: 50%;
   border: 1px solid var(--hairline-2); background: var(--paper);
-  color: var(--live); font-size: 11px; line-height: 20px; text-align: center;
+  color: var(--live-text); font-size: 11px; line-height: 20px; text-align: center;
 }
 .dk__hear:hover { border-color: var(--live); }
 .dk__hear.is-busy { animation: dk-rec 0.8s ease-in-out infinite; }
@@ -784,7 +790,7 @@
   cursor: pointer; color: var(--ink-700); font: 500 10px/1.4 var(--font-mono);
   letter-spacing: 0.12em; text-transform: uppercase; list-style-position: outside;
 }
-.dk__builder[open] summary { color: var(--live); margin-bottom: var(--s-3); }
+.dk__builder[open] summary { color: var(--live-text); margin-bottom: var(--s-3); }
 .dk__builderbody { display: grid; gap: var(--s-3); }
 .dk__field { display: grid; gap: 5px; color: var(--ink-500); font: 500 9px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
 .dk__field input, .dk__field textarea, .dk__field select {
@@ -816,7 +822,7 @@
 .pg-note__k {
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
-  color: var(--live); align-self: start; padding-top: 2px; white-space: nowrap;
+  color: var(--live-text); align-self: start; padding-top: 2px; white-space: nowrap;
 }
 .pg-note p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .pg-note p + p { margin-top: var(--s-2); }

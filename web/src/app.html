@@ -6,15 +6,12 @@
 <body data-onair="live">
 
   <!-- running head: this page is one bound document -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · The Handheld</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · The Handheld" rev="Rev. 2026.07 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 appcurrent='aria-current="page"' -->
 
-  <main id="top">
+  <main id="top" data-lift>
 
   <!-- ============================ HERO ============================ -->
   <!-- The old standing-by plate lived here until 2026-07: the transmitter is
@@ -25,13 +22,13 @@
 
       <div class="app-hero__copy">
         <span class="hero__eyebrow" data-reveal>
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">THE HANDHELD</span>
           <span class="hero__sep" aria-hidden="true">·</span>
           now on the App Store
         </span>
 
-        <h1 class="app-hero__title" data-reveal data-reveal-delay="60">
+        <h1 class="bands-hero__title" data-reveal data-reveal-delay="60">
           The band, <span class="app-hero__op">in&nbsp;your&nbsp;pocket</span>.
         </h1>
 
@@ -58,10 +55,10 @@
              tower.html, company.html, models.html); nothing new invented here.
              Three destinations, because the station now has three sets: the
              handheld this page is about, the terminal app, and the browser console. -->
-        <div class="research-actions research-actions--jump" data-reveal data-reveal-delay="210">
+        <div class="research-actions research-actions--lead research-actions--jump" data-reveal data-reveal-delay="210">
           <a class="research-button research-button--primary" href="#tunein">The app <span aria-hidden="true">&darr;</span></a>
-          <a class="research-button" href="#cli">The TUI <span aria-hidden="true">&darr;</span></a>
-          <a class="research-button" href="#webui">The WebUI <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button research-button--quiet" href="#cli">The TUI <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button research-button--quiet" href="#webui">The WebUI <span aria-hidden="true">&darr;</span></a>
         </div>
       </div>
 
@@ -91,10 +88,34 @@
     </div>
   </section>
 
+  <!-- ============================ CONTENTS ============================
+       The page's sections on the site's tuning scale (components.css .toc-tuner),
+       named from their own labels. It replaced a page-local dial rule on every
+       section: the needle now rests on the section in view. Never pinned. -->
+  <nav class="toc-tuner" data-tuner aria-label="Sections">
+    <div class="wrap toc-tuner__band">
+    <div class="toc-tuner__readout" aria-hidden="true"></div>
+    <ol class="toc-tuner__scale">
+      <li><a class="toc-tuner__st" href="#tunein"><b>§1</b><span class="toc-tuner__name">TUNE IN</span></a></li>
+      <li><a class="toc-tuner__st" href="#onair"><b>§2</b><span class="toc-tuner__name">ON AIR</span></a></li>
+      <li><a class="toc-tuner__st" href="#band"><b>§3</b><span class="toc-tuner__name">THE BAND</span></a></li>
+      <li><a class="toc-tuner__st" href="#routing"><b>§4</b><span class="toc-tuner__name">ROUTING</span></a></li>
+      <li><a class="toc-tuner__st" href="#operator"><b>§5</b><span class="toc-tuner__name">THE OPERATOR</span></a></li>
+      <li><a class="toc-tuner__st" href="#connect"><b>§6</b><span class="toc-tuner__name">CONNECT</span></a></li>
+      <li><a class="toc-tuner__st" href="#mac"><b>§7</b><span class="toc-tuner__name">THE DESK SET</span></a></li>
+      <li><a class="toc-tuner__st" href="#spec-sheet"><b>§8</b><span class="toc-tuner__name">THE SPEC SHEET</span></a></li>
+      <li><a class="toc-tuner__st" href="#cli"><b>§9</b><span class="toc-tuner__name">THE TERMINAL APP</span></a></li>
+      <li><a class="toc-tuner__st" href="#webui"><b>§10</b><span class="toc-tuner__name">THE BROWSER CONSOLE</span></a></li>
+      <li><a class="toc-tuner__st" href="#install"><b>§11</b><span class="toc-tuner__name">INSTALL</span></a></li>
+    </ol>
+    <span class="toc-tuner__needle" aria-hidden="true"></span>
+    </div>
+  </nav>
+
+
   <!-- ============================ §1 TUNE IN ============================ -->
   <section class="section app-feature" id="tunein">
     <div class="wrap app-feature__grid">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:8%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§1 / TUNE IN · LIVE</span>
         <h2>Talk to real machines.</h2>
@@ -133,9 +154,9 @@
        with the listing when the app ships a new version. Plate style (no
        screenshot yet; add a FIG when a real capture of the On Air screen lands
        in assets/app/). -->
+  <div class="tone-zone" data-tone="ink">
   <section class="section app-spec" id="onair">
     <div class="wrap">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:14%"></div>
       <div class="section__head section__head--left" data-reveal>
         <span class="sectionno">§2 / ON AIR · NEW IN 1.2</span>
         <h2>Your device is a transmitter now.</h2>
@@ -155,11 +176,11 @@
       </dl>
     </div>
   </section>
+  </div><!-- /tone-zone -->
 
   <!-- ============================ §3 THE BAND ============================ -->
   <section class="section app-feature app-feature--flip" id="band">
     <div class="wrap app-feature__grid">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:19%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§3 / THE BAND · THE MARKET</span>
         <h2>Pick your station by the numbers.</h2>
@@ -191,7 +212,6 @@
   <!-- ============================ §4 TUNE THE DIAL ============================ -->
   <section class="section app-feature" id="routing">
     <div class="wrap app-feature__grid">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:29%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§4 / ROUTING · YOUR MARGINS</span>
         <h2>Tune the dial. Roger obeys.</h2>
@@ -226,7 +246,6 @@
   <!-- ============================ §5 THE OPERATOR ============================ -->
   <section class="section app-feature app-feature--flip" id="operator">
     <div class="wrap app-feature__grid">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:40%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§5 / THE OPERATOR · AGENT TOOLS</span>
         <h2>An agent, when you want one.</h2>
@@ -266,7 +285,6 @@
   <!-- ============================ §6 CONNECT ============================ -->
   <section class="section app-feature" id="connect">
     <div class="wrap app-feature__grid">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:50%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§6 / CONNECT · USE IT ANYWHERE</span>
         <h2>Your endpoint works everywhere.</h2>
@@ -297,7 +315,6 @@
   <!-- ============================ §7 THE DESK SET ============================ -->
   <section class="section app-desk" id="mac">
     <div class="wrap">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:60%"></div>
       <div class="section__head section__head--left" data-reveal>
         <span class="sectionno">§7 / THE DESK SET · MACOS</span>
         <h2>Native on the Mac.</h2>
@@ -321,7 +338,6 @@
   <!-- ============================ §8 SPEC SHEET ============================ -->
   <section class="section app-spec" id="spec-sheet">
     <div class="wrap">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:71%"></div>
       <div class="section__head section__head--left" data-reveal>
         <span class="sectionno">§8 / THE SPEC SHEET</span>
         <h2>Read the plate.</h2>
@@ -337,6 +353,7 @@
     </div>
   </section>
 
+  <div class="tone-zone" data-tone="ink">
   <!-- ==================== §9 THE TERMINAL APP (roger) ====================
        The desktop pair, deliberately SMALLER than the handheld's six plates:
        one section each, one rotating figure each. They are an honourable
@@ -348,7 +365,6 @@
        reads as the header it is. -->
   <section class="section app-feature" id="cli">
     <div class="wrap app-feature__grid">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:81%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§9 / THE TERMINAL APP · roger</span>
         <h2>The whole band, in a terminal.</h2>
@@ -402,7 +418,6 @@
   <!-- ==================== §10 THE BROWSER CONSOLE (roger webui) ==================== -->
   <section class="section app-feature app-feature--flip" id="webui">
     <div class="wrap app-feature__grid">
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:92%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§10 / THE BROWSER CONSOLE · roger webui</span>
         <h2>Same station, wider window.</h2>
@@ -459,10 +474,8 @@
        copy-button the homepage uses - the component is styled site-wide in
        base.css and site.js wires copy-to-clipboard for every .install__box, so
        no page-specific JS is needed. -->
-  <section class="section app-install">
+  <section class="section app-install" id="install">
     <div class="wrap">
-      <!-- the dial reaches the end of the band: §1 at 8% ... §10 at 92% ... §11 at the edge. -->
-      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:100%"></div>
       <div class="app-install__inner" data-reveal>
         <span class="sectionno">§11 / INSTALL · roger</span>
         <h2>Get <code class="inline">roger</code> on your machine.</h2>
@@ -470,17 +483,7 @@
           already on your machine, puts them on air if you want, and tunes you into everyone
           else&rsquo;s - the terminal (§9) and the browser console (§10) are the same
           <code class="inline">roger</code>.</p>
-        <button class="install__box" id="installCmdApp" type="button"
-                aria-label="Copy install command to clipboard">
-          <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
-          <span class="install__copy" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-            </svg>
-          </span>
-        </button>
+        <!-- include: install-box.html id=installCmdApp cmd='curl -fsSL https://rogerai.fm/install.sh | sh' -->
         <div class="install__meta">
           <span data-alt-note>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
         </div>
@@ -490,6 +493,7 @@
       </div>
     </div>
   </section>
+  </div><!-- /tone-zone -->
 
   <!-- ============================ CLOSING CTA ============================ -->
   <section class="section app-cta">
@@ -499,7 +503,7 @@
            the active theme's file loads. Decorative - the copy carries the message. -->
       <div class="app-cta__art" role="img"
            aria-label="A hand holds the handheld two-way radio; the transmission tower's red beacon glows on the horizon"></div>
-      <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+      <!-- include: onair.html -->
       <h2 class="app-cta__title">Pick up the <span class="app-hero__op">handheld</span>.</h2>
       <p class="app-cta__sub">Free on the App Store. The band is open.</p>
       <a class="app-badge app-badge--lg" href="https://apps.apple.com/us/app/rogerai-fm/id6785743752"
@@ -522,9 +526,6 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

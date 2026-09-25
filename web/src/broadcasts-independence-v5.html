@@ -19,10 +19,7 @@
 <body data-onair="idle">
 
   <!-- ===== running head: this page is one bound document ===== -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Broadcast 001</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Broadcast 001" rev="Rev. 2026.06 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
@@ -39,7 +36,7 @@
       <!-- ---- header ---- -->
       <header class="bc-post__head" data-reveal>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">BROADCAST 001</span>
           <span class="hero__sep" aria-hidden="true">·</span>
           <time datetime="2026-07-04">JULY 4</time>
@@ -183,11 +180,13 @@
         </section>
 
         <!-- a boxed dispatch note (reuses the shared .man-note plate) -->
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
-          Ready to go independent? Install the set and put your GPU on air:
-          <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>
-        </div>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
+          <p>Ready to go independent? Install the set and put your GPU on air:</p>
+          <div class="install">
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+          </div>
+        </aside>
 
       </div>
 
@@ -199,9 +198,6 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

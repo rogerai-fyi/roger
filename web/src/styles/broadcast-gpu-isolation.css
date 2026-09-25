@@ -1,18 +1,5 @@
 /* Broadcast 014 - the model/harness isolation field guide. Scoped under .gpu-post. */
 
-.gpu-post .bc-post__wrap { max-width: 900px; }
-.gpu-post .bc-post__head,
-.gpu-post .bc-post__body { max-width: 760px; margin-inline: auto; }
-
-/* ---- hero plate: same framed-plate treatment as broadcast-routing's .route-hero
-   and broadcast-agent-governance's .gov-hero ---- */
-.gpu-hero {
-  margin: var(--s-8) 0 0; padding: 14px;
-  background: #f3f1ea; border: 1px solid var(--hairline-2);
-  border-radius: var(--r-md);
-}
-.gpu-hero img { display: block; width: 100%; height: auto; border-radius: 6px; }
-.gpu-hero .fig { margin: 10px 2px 0; color: var(--ink-400); }
 
 /* ---- §1 two-machine comparison, with a wall between them ---- */
 .gpu-machines {
@@ -23,9 +10,8 @@
   padding: var(--s-6); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   background: var(--paper-2);
 }
-.gpu-machines__col--live { background: var(--live-tint); border-color: rgba(224,35,28,.25); }
 .gpu-machines__label {
-  display: block; font-size: var(--t-xs); letter-spacing: .06em; color: var(--ink-400);
+  display: block; font-size: var(--t-xs); letter-spacing: .06em; color: var(--ink-500);
   margin-bottom: var(--s-3);
 }
 .gpu-machines__col h3 { margin: 0 0 var(--s-2); color: var(--ink-900); font-size: var(--t-h3); font-weight: var(--weight-semi); }
@@ -39,7 +25,7 @@
 }
 .gpu-machines__wall-label {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(90deg);
-  white-space: nowrap; font-size: var(--t-xs); letter-spacing: .1em; color: var(--ink-400);
+  white-space: nowrap; font-size: var(--t-xs); letter-spacing: .1em; color: var(--ink-500);
   background: var(--paper); padding: 4px 8px;
 }
 @media (max-width: 700px) {
@@ -51,21 +37,8 @@
   .gpu-machines__wall-label { transform: translate(-50%, -50%); }
 }
 
-/* ---- §2 the literal wire payload, shown as real code ---- */
-.gpu-wire {
-  display: flex; flex-direction: column; margin: var(--s-6) 0 0; padding: var(--s-5);
-  background: var(--ink-900); border-radius: var(--r-md);
-}
-.gpu-wire__code {
-  /* .gpu-wire's background is --ink-900, which FLIPS to near-white in dark mode
-     (tokens.css:177) - a hardcoded light hex here would go near-invisible on that
-     flipped background. --white inverts the other way (white bg / dark-mode raised
-     surface, tokens.css:21,170), so it stays legible against --ink-900 in both themes,
-     same pairing as .route-sim__next in broadcast-routing.css. */
-  margin: 0; padding: 0; background: transparent; color: var(--white);
-  font-size: var(--t-sm); line-height: 1.6; overflow-x: auto; white-space: pre;
-}
-.gpu-wire__code code { color: inherit; }
+/* ---- §2 the literal wire payload: a labelled shared code block ---- */
+.gpu-wire { margin: var(--s-6) 0 0; }
 
 /* ---- §3 flow: model proposes -> text travels -> harness confirms -> action happens ---- */
 .gpu-flow {
@@ -76,9 +49,8 @@
   padding: var(--s-5) var(--s-4); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   background: var(--paper-2);
 }
-.gpu-flow__step--live { background: var(--live-tint); border-color: rgba(224,35,28,.25); }
 .gpu-flow__no {
-  display: block; font-size: var(--t-xs); letter-spacing: .08em; color: var(--ink-400);
+  display: block; font-size: var(--t-xs); letter-spacing: .08em; color: var(--ink-500);
   margin-bottom: var(--s-2);
 }
 .gpu-flow__step h3 { margin: 0 0 4px; color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
@@ -89,12 +61,18 @@
   .gpu-flow__arrow { transform: rotate(90deg); padding-block: 2px; }
 }
 
-/* ---- FAQ: styled locally, same reasoning as broadcast-agent-governance.css - .bc-faq
-   ships with no CSS anywhere in the repo, so pages that use it style their own copy. ---- */
-.gpu-post .bc-faq { margin: var(--s-6) 0 0; }
-.gpu-post .bc-faq dt {
-  margin: var(--s-5) 0 var(--s-2); padding-top: var(--s-5); border-top: 1px solid var(--hairline);
-  color: var(--ink-900); font-size: var(--t-sm);
+/* ---- the requester's side as an ink panel (it was a pink tint): the page's own ink and
+   paper swapped, so red stays an indicator. Holds AA both ways: paper on ink-900, and
+   ink-300 labels (10:1 on the light site, 6.9:1 on the dark one). ---- */
+.gpu-machines__col--live, .gpu-flow__step--live { background: var(--ink-900); border-color: var(--ink-900); }
+.gpu-machines__col--live :is(h3, p), .gpu-flow__step--live :is(h3, p) { color: var(--paper); }
+.gpu-machines__col--live .gpu-machines__label, .gpu-flow__step--live .gpu-flow__no { color: var(--ink-300); }
+.gpu-flow__step--live p code { background: transparent; border-color: var(--ink-500); color: var(--paper); }
+/* on the dark site ink-900 is the light ink, so the swap would turn the requester's
+   side into a bright slab: it stays a room there instead, the raised face with a ring */
+:root[data-theme="dark"] :is(.gpu-machines__col--live, .gpu-flow__step--live) {
+  background: var(--white); border-color: var(--hairline-2);
 }
-.gpu-post .bc-faq dt:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-.gpu-post .bc-faq dd { margin: 0; padding: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.6; }
+:root[data-theme="dark"] :is(.gpu-machines__col--live :is(h3, p), .gpu-flow__step--live :is(h3, p)) { color: var(--ink-900); }
+:root[data-theme="dark"] :is(.gpu-machines__col--live .gpu-machines__label, .gpu-flow__step--live .gpu-flow__no) { color: var(--ink-400); }
+:root[data-theme="dark"] .gpu-flow__step--live p code { border-color: var(--hairline-2); color: var(--ink-900); }

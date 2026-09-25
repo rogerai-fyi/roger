@@ -24,7 +24,7 @@ const jobsTable = () => {
   const page = read("research-wave-family.html");
   const section = page.match(/<section[^>]*id="jobs"[\s\S]*?<\/section>/)?.[0];
   assert.ok(section, "the family page has a §4 JOBS section");
-  return section.match(/<table class="tier-matrix"[\s\S]*?<\/table>/)?.[0] || "";
+  return section.match(/<table class="[^"]*\btier-matrix\b[^"]*"[\s\S]*?<\/table>/)?.[0] || "";
 };
 /* AMENDED 2026-08-17: this matched a BARE <tr> only. §4 now carries two row forms -
    the 27 plant jobs stay attribute-free because research-page.test.mjs counts them out
@@ -245,7 +245,8 @@ test("the promo strip offers the credit without advertising a remaining count", 
 });
 
 // The market set grew four -> six -> eight (healthcare and defense sustainment, founder-
-// approved 2026-08-01). Both pages that name it have to agree, and the count has to be
+// approved 2026-08-01) -> nine (wildfire mitigation, founder-approved 2026-09-24; its own
+// boundary tests are in wildfire-market.test.mjs). Both pages that name it have to agree, and the count has to be
 // stated correctly - "Four industries" with eight articles under it is the kind of drift a
 // reader notices before we do.
 // Founder-approved 2026-08-01 (features/web/healthcare_defense_markets.feature). These
@@ -283,18 +284,39 @@ test("no job in the table describes clinical work", () => {
 });
 
 test("the industrial market set is consistent wherever it is named", () => {
+  // In order, wildfire last. The card-title checks are anchored on the full scoped names
+  // so a "Wildfire" card can never satisfy the defense check, or the reverse.
   const MARKETS = [/oil and gas/i, /power generation/i, /manufacturing/i,
-                   /aerospace/i, /mining/i, /water/i, /healthcare/i, /defense/i];
+                   /aerospace/i, /mining/i, /water/i, /healthcare/i,
+                   /defense sustainment/i, /wildfire mitigation/i];
+  const TITLES = [/^Oil and gas$/, /^Power generation$/, /^Manufacturing$/, /^Aerospace$/,
+                  /^Mining and metals$/, /^Water and wastewater$/, /^Healthcare$/,
+                  /^Defense sustainment$/, /^Wildfire mitigation$/];
   const industry = read("research-industry.html");
   const grid = industry.match(/<div class="deployment-grid">[\s\S]*?<\/div>/)[0];
   // one <b> title per <article>, whatever else (an id, a representative
   // photo) leads it.
-  const cards = [...grid.matchAll(/<article[^>]*>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1]);
+  const cards = [...grid.matchAll(/<article[^>]*>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1].trim());
   assert.equal(cards.length, MARKETS.length, `one card per market, found ${cards.length}`);
-  for (const m of MARKETS) {
-    assert.ok(cards.some((c) => m.test(c)), `the grid names ${m}`);
-    assert.match(visible(read("research.html")), m, `the hub names ${m} too`);
-  }
+  TITLES.forEach((t, i) => assert.match(cards[i], t, `card ${i + 1} is ${t}`));
+  // every place that names the set names all nine, in the same order
+  const inOrder = (where, text) => {
+    let at = -1;
+    for (const m of MARKETS) {
+      const i = text.search(m);
+      assert.ok(i >= 0, `${where} names ${m}`);
+      assert.ok(i > at, `${where} names ${m} in order`);
+      at = i;
+    }
+  };
+  const hubLine = read("research.html").match(/<section[^>]*id="industry"[\s\S]*?<\/p>/)[0];
+  inOrder("the hub", visible(hubLine));
+  const companyLine = read("company.html").match(/<p[^>]*><b>Industrial deployment\.<\/b>[\s\S]*?<\/p>/)[0];
+  inOrder("the company line", visible(companyLine));
+  inOrder("the meta description", industry.match(/<meta name="description" content="([^"]*)"/)[1]);
+  // the stated counts, word for word
+  assert.match(visible(industry), /Nine industries whose data cannot leave the site\./);
+  assert.match(visible(read("research.html")), /The nine markets, where the box sits/);
   // Every card must say what the work IS, not just name the sector.
   for (const card of grid.matchAll(/<article[^>]*>[\s\S]*?<b>[^<]+<\/b><p>([\s\S]*?)<\/p>/g)) {
     assert.ok(visible(card[1]).length > 40, "each market names a concrete workload");
@@ -325,7 +347,9 @@ test("the use-case strip's deep links land clear of the sticky nav", () => {
   const industry = read("research-industry.html");
   const strip = industry.match(/<nav class="usecase-strip"[\s\S]*?<\/nav>/)[0];
   const hrefs = [...strip.matchAll(/href="#(market-[a-z]+)"/g)].map((m) => m[1]);
-  assert.equal(hrefs.length, 8, "one deep link per market");
+  assert.equal(hrefs.length, 9, "one deep link per market");
+  assert.deepEqual(hrefs, ["oilgas", "power", "manufacturing", "aerospace", "mining", "water",
+    "healthcare", "defense", "wildfire"].map((s) => `market-${s}`), "the strip runs in the set's order");
   const ids = [...industry.matchAll(/<article id="(market-[a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual([...hrefs].sort(), [...new Set(ids)].sort(),
     "every strip link resolves to exactly one article id on the same page");

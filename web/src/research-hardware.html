@@ -17,10 +17,7 @@
   <!-- include: head.html title="Hardware - what runs where, from an ESP32 to a DGX Spark" desc="The Wave family and Roger Edge mapped onto real boards: ESP32, Arduino, Raspberry Pi Pico and Pi 5, Jetson, Mac Studio and DGX Spark. Which tier each board is a target for, what stage that tier is at, and what you can actually run today." theme=external og=post ogtype=website ogtitle="RogerAI hardware - the board you own, and what it is meant to carry" ogdesc="From a sensor microcontroller to a desktop datacenter: the model tier each class of board is a target for, with the honest stage of each one." ogurl="https://rogerai.fm/research-hardware.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Hardware</span>
-    <span class="rail__rev">Rev. 2026.08 &middot; LABS</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Hardware" rev="Rev. 2026.08 &middot; LABS" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -29,7 +26,7 @@
       <div class="wrap">
         <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">HARDWARE</span>
         </span>
         <h1>The board you already have,<br>and what it is meant to carry.</h1>
@@ -43,6 +40,19 @@
     </section>
 
     <!-- ---------- §1 THE SPECTRUM ---------- -->
+    <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#ladder"><b>§1</b><span class="toc-tuner__name">THE SPECTRUM</span></a></li>
+        <li><a class="toc-tuner__st" href="#boards"><b>§2</b><span class="toc-tuner__name">THE BOARDS</span></a></li>
+        <li><a class="toc-tuner__st" href="#experiments"><b>§3</b><span class="toc-tuner__name">EXPERIMENTS</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
     <section class="section" id="ladder">
       <div class="wrap">
         <div class="section__head section__head--left">
@@ -157,7 +167,7 @@
     </section>
 
     <!-- ---------- §2 THE BOARDS ---------- -->
-    <section class="section band" id="boards">
+    <section class="section band band--inset" id="boards">
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;2 / THE BOARDS</span>
@@ -172,11 +182,11 @@
         <div class="hw-grid">
 
           <article class="hw-card" data-board="esp32" data-tier="Roger Edge"
-                   data-stage="Prototype, actively testing" data-today="sensor" data-stop="edge">
+                   data-stage="{{wave:edge.research-hardware.card}}" data-today="sensor" data-stop="edge">
             <figure class="hw-card__shot">
               <img src="assets/hardware/esp32.webp" srcset="assets/hardware/esp32-500.webp 500w, assets/hardware/esp32.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Close macro of an ESP32-DOWD module soldered to a dark circuit board, surrounded by passive components.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:ESP32_on_Lolin32_Lite_clone_board_cropped.jpg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a> &middot; CC0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:ESP32_on_Lolin32_Lite_clone_board_cropped.jpg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a> &middot; CC0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>ESP32</h3>
@@ -187,18 +197,18 @@
                  around it, down where the signal is.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Roger Edge</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Prototype, actively testing</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:edge.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>No - too small to serve an API</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="arduino" data-tier="Roger Edge"
-                   data-stage="Prototype, actively testing" data-today="sensor" data-stop="edge">
+                   data-stage="{{wave:edge.research-hardware.card}}" data-today="sensor" data-stop="edge">
             <figure class="hw-card__shot">
               <img src="assets/hardware/arduino.webp" srcset="assets/hardware/arduino-500.webp 500w, assets/hardware/arduino.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="An Arduino Uno board seen from above, its blue PCB carrying the USB-B socket, barrel jack and header strips.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Arduino_Uno_board.jpg" target="_blank" rel="noopener noreferrer">JrawX</a> &middot; CC0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Arduino_Uno_board.jpg" target="_blank" rel="noopener noreferrer">JrawX</a> &middot; CC0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>Arduino Uno</h3>
@@ -208,18 +218,18 @@
                  lives. It matters here because it is what the gateway above it talks to.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Roger Edge <span class="hw-note">(host side only)</span></dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Prototype, actively testing</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:edge.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>No - sensor and actuator side</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="pico" data-tier="Roger Edge"
-                   data-stage="Prototype, actively testing" data-today="sensor" data-stop="edge">
+                   data-stage="{{wave:edge.research-hardware.card}}" data-today="sensor" data-stop="edge">
             <figure class="hw-card__shot">
               <img src="assets/hardware/pico.webp" srcset="assets/hardware/pico-500.webp 500w, assets/hardware/pico.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A Raspberry Pi Pico board at an oblique angle, its green PCB showing the RP2040 chip and castellated edge pads.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_Pico_oblique.jpg" target="_blank" rel="noopener noreferrer">Phiarc</a> &middot; CC BY-SA 4.0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_Pico_oblique.jpg" target="_blank" rel="noopener noreferrer">Phiarc</a> &middot; CC BY-SA 4.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>Raspberry Pi Pico</h3>
@@ -229,18 +239,18 @@
                  Pi 5. Two cores, no operating system, and the same fixed-label job.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Roger Edge</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Prototype, actively testing</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:edge.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>No - no OS, no server</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="pi5" data-tier="Wave Pico"
-                   data-stage="Certifying the waypoint &middot; 300M retrain next" data-today="station" data-stop="pico">
+                   data-stage="{{wave:pico.research-hardware.card}}" data-today="station" data-stop="pico">
             <figure class="hw-card__shot">
               <img src="assets/hardware/pi5.webp" srcset="assets/hardware/pi5-500.webp 500w, assets/hardware/pi5.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A Raspberry Pi 5 board from above, showing its dual HDMI sockets, USB ports and the Raspberry Pi logo silkscreen.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5.jpg" target="_blank" rel="noopener noreferrer">SimonWaldherr</a> &middot; CC BY 4.0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5.jpg" target="_blank" rel="noopener noreferrer">SimonWaldherr</a> &middot; CC BY 4.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>Raspberry Pi 5</h3>
@@ -251,18 +261,18 @@
                  conversation rather than a label.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Wave Pico</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Certifying the waypoint &middot; 300M retrain next</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:pico.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>Yes - small models today</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="jetson" data-tier="Wave Nano"
-                   data-stage="Scratch build queued behind Pico" data-today="station" data-stop="nano">
+                   data-stage="{{wave:nano.research-hardware.card}}" data-today="station" data-stop="nano">
             <figure class="hw-card__shot">
               <img src="assets/hardware/jetson.webp" srcset="assets/hardware/jetson-500.webp 500w, assets/hardware/jetson.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="An NVIDIA Jetson development kit carrier board with a large black finned heatsink over the module and USB ports along one edge.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Nvidia_Jetson_Nano_2_Development_Kit.jpeg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a> &middot; CC0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Nvidia_Jetson_Nano_2_Development_Kit.jpeg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a> &middot; CC0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>NVIDIA Jetson</h3>
@@ -273,18 +283,18 @@
                  discovery.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Wave Nano</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Scratch build queued behind Pico</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:nano.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>Yes - a good one</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="macstudio" data-tier="Wave Micro"
-                   data-stage="Scratch pipeline standing up" data-today="station" data-stop="micro">
+                   data-stage="{{wave:micro.research-hardware.card}}" data-today="station" data-stop="micro">
             <figure class="hw-card__shot">
               <img src="assets/hardware/macstudio.webp" srcset="assets/hardware/macstudio-500.webp 500w, assets/hardware/macstudio.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="An Apple Mac Studio photographed from the front, a compact square aluminium box with a slot vent along its base.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg" target="_blank" rel="noopener noreferrer">Yasu</a> &middot; CC BY-SA 3.0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg" target="_blank" rel="noopener noreferrer">Yasu</a> &middot; CC BY-SA 3.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>Mac Studio</h3>
@@ -294,18 +304,18 @@
                  ignore. Wave Micro is specified against this class of on-site server.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Wave Micro</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Scratch pipeline standing up</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:micro.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>Yes - see <a href="/broadcasts-what-a-million-tokens-costs.html">the arithmetic</a></dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="dgxspark" data-tier="Wave Giga"
-                   data-stage="Base selection" data-today="station" data-stop="giga">
+                   data-stage="{{wave:giga.research-hardware.card}}" data-today="station" data-stop="giga">
             <figure class="hw-card__shot">
               <img src="assets/hardware/dgxspark.webp" srcset="assets/hardware/dgxspark-500.webp 500w, assets/hardware/dgxspark.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="An NVIDIA DGX Spark on a desk, a small gold-coloured box with a dense metal-foam lattice across its front panel.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg" target="_blank" rel="noopener noreferrer">Daniel Lu</a> &middot; CC BY-SA 4.0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg" target="_blank" rel="noopener noreferrer">Daniel Lu</a> &middot; CC BY-SA 4.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>NVIDIA DGX Spark</h3>
@@ -316,18 +326,18 @@
                  fence.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Wave Giga</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Base selection</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:giga.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>Yes - the largest here</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="rtx6000" data-tier="Wave Tera"
-                   data-stage="Architecture and data design" data-today="station" data-stop="tera">
+                   data-stage="{{wave:tera.research-hardware.card}}" data-today="station" data-stop="tera">
             <figure class="hw-card__shot">
               <img src="assets/hardware/rtx6000.webp" srcset="assets/hardware/rtx6000-500.webp 500w, assets/hardware/rtx6000.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A professional NVIDIA workstation graphics card in side profile, its black shroud and gold-ringed blower fan lit against a dark background.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_02.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_02.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>RTX PRO 6000 Blackwell</h3>
@@ -338,18 +348,18 @@
                  across many plants, on a single machine an enterprise already racks.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Wave Tera</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Architecture and data design</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:tera.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>Yes - a large one</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card" data-board="rtx6000x4" data-tier="Wave Peta"
-                   data-stage="Pruning plan" data-today="station" data-stop="peta">
+                   data-stage="{{wave:peta.research-hardware.card}}" data-today="station" data-stop="peta">
             <figure class="hw-card__shot">
               <img src="assets/hardware/rtx6000x4.webp" srcset="assets/hardware/rtx6000x4-500.webp 500w, assets/hardware/rtx6000x4.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1010px) 45vw, 311px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Four professional NVIDIA workstation graphics cards installed side by side in a chassis, with liquid-cooling tubing looping over the CPU block beside them.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_01.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_01.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>Four of them, in one chassis</h3>
@@ -360,18 +370,18 @@
                  rather than trained from nothing.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Wave Peta</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">Pruning plan</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:peta.research-hardware.card}}</dd></div>
                 <div><dt>A station?</dt><dd>Yes - one node, four cards</dd></div>
               </dl>
             </div>
           </article>
 
           <article class="hw-card hw-card--wide" data-board="datacenter" data-tier="Wave Exa"
-                   data-stage="The family teacher" data-today="station" data-stop="exa">
+                   data-stage="{{wave:exa.research-hardware.card}}" data-today="station" data-stop="exa">
             <figure class="hw-card__shot">
               <img src="assets/hardware/datacenter.webp" srcset="assets/hardware/datacenter-500.webp 500w, assets/hardware/datacenter.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 899px) 45vw, (max-width: 1119px) 38vw, 407px" width="1000" height="750" loading="lazy" decoding="async"
                    alt="An aisle between two rows of white perforated server cabinets in a data centre, lit from a run of ceiling strip lights down the centre.">
-              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Racks_Amravati_Data_Center.jpg" target="_blank" rel="noopener noreferrer">PiDatacenters</a> &middot; CC BY-SA 4.0</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Racks_Amravati_Data_Center.jpg" target="_blank" rel="noopener noreferrer">PiDatacenters</a> &middot; CC BY-SA 4.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>A rack, and more than one node</h3>
@@ -383,7 +393,7 @@
                  than wait for.</p>
               <dl class="hw-card__meta">
                 <div><dt>Target tier</dt><dd>Wave Exa</dd></div>
-                <div><dt>Stage</dt><dd class="hw-stage">The family teacher</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">{{wave:exa.research-hardware.card}}</dd></div>
                 <div><dt>Download</dt><dd><a href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF" target="_blank" rel="noopener noreferrer">the GGUF build &rarr;</a></dd></div>
               </dl>
             </div>
@@ -395,7 +405,7 @@
           <p>Every machine above can be rented by the hour instead. An interruptible
              instance and one paste into its ONSTART box installs the client, brings the
              model up and goes on air:
-             <code>curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</code> - free by
+             <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/vast-onstart.sh</span> <span>|</span> <span>bash</span></code> - free by
              default, so nothing of yours has to sit on hardware you do not own. The
              <a href="/manual.html#rented">manual has the knobs</a>, and
              <a href="/broadcasts-what-a-million-tokens-costs.html">the arithmetic</a> says
@@ -410,7 +420,7 @@
     </section>
 
     <!-- ---------- §3 EXPERIMENTS ---------- -->
-    <section class="section band" id="experiments">
+    <section class="section band band--inset" id="experiments">
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;3 / EXPERIMENTS</span>
@@ -451,7 +461,7 @@
                a time, so throughput is measured in aggregate under load rather than
                single-stream. This is the one machine on this page we measure on rather than
                specify against - our own bench:</p>
-            <table class="hw-bench">
+            <table class="data-table hw-bench">
               <caption class="mono">4&times; RTX PRO 4500 &middot; gpt-oss-120b &middot; users swept 1 &rarr; 8</caption>
               <tbody>
                 <tr><th>Aggregate</th><td class="mono">~160 tok/s</td><td class="mono">&rarr;</td><td class="mono hw-bench__win">~310 tok/s</td></tr>
@@ -463,14 +473,14 @@
             <p class="hw-exp__stage mono">Published &middot; <a href="/broadcasts-one-gpu-many-users.html">the sweep</a> and <a href="/broadcasts-what-a-million-tokens-costs.html">what it costs to serve</a></p>
           </article>
 
-          <article class="hw-exp" data-exp="pico" data-stage="Certifying the waypoint &middot; 300M retrain next">
+          <article class="hw-exp" data-exp="pico" data-stage="{{wave:pico.research-hardware.exp}}">
             <span class="hw-exp__tag mono">FROM THE BOTTOM</span>
             <h3>How small can a model get and still be worth asking?</h3>
             <p>The other direction. Wave Pico targets 250&ndash;300M on a Raspberry Pi with
                no accelerator and a response near 50 ms - small enough to sit where the
                network stops, large enough to answer rather than classify. The waypoint is
                trained; the retrain at full size is the next gate.</p>
-            <p class="hw-exp__stage mono">Certifying the waypoint &middot; 300M retrain next</p>
+            <p class="hw-exp__stage mono">{{wave:pico.research-hardware.exp}}</p>
           </article>
         </div>
 
@@ -489,9 +499,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
+  <!-- include: site-js.html promo=0 -->
   <script src="js/hardware.js" defer></script>
 </body>
 </html>

@@ -7,10 +7,7 @@
 </head>
 <body data-onair="idle">
 
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Field Guide</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 &middot; ((&bull;))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Field Guide" rev="Rev. 2026.07 &middot; ((&bull;))" orange=1 -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -22,7 +19,7 @@
 
       <header class="bc-post__head" data-reveal>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">BROADCAST 009 &middot; FIELD GUIDE</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime="2026-07-28">JULY 2026</time>
@@ -35,13 +32,13 @@
         </p>
       </header>
 
-      <figure class="bc-figure route-hero" data-reveal>
+      <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/router-airwaves-hero.png" width="1700" height="925"
              alt="A mid-century technical illustration of ten independent radio stations connected to one central tuning console, with two selected routes shown in red." />
         <figcaption class="fig mono">FIG. 1 &middot; MANY OPERATORS, ONE OPEN FREQUENCY</figcaption>
       </figure>
 
-      <blockquote class="route-answer mono" data-reveal>
+      <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> RogerAI first removes stations that cannot satisfy the request.
         It then scores the healthy remainder by reliability, request-aware speed, price,
         live load, and measured capacity. From the reliable top band it compares two
@@ -65,7 +62,7 @@
             latency, trust, and congestion. Press “next request” to walk the load across the band.
           </p>
 
-          <div class="route-sim" id="routeSim" data-step="0">
+          <div class="route-sim tint-panel" id="routeSim" data-step="0">
             <div class="route-sim__head">
               <div>
                 <span class="route-sim__kicker mono">SIMULATION &middot; DEEPSEEK-V4-FLASH</span>
@@ -123,11 +120,10 @@
             </div>
           </div>
 
-          <figure class="bc-figure route-process" data-reveal>
+          <figure class="figure route-process" data-reveal>
             <div class="route-process__image">
               <img src="assets/broadcasts/router-three-stage.png" width="1820" height="864"
                    alt="Three technical illustrations show ten stations entering consideration, one healthy station receiving the first request, and a second station receiving concurrent work when the first station is occupied." />
-              <i class="route-process__sweep" aria-hidden="true"></i>
             </div>
             <div class="route-process__steps mono" aria-hidden="true">
               <span><b>01</b> discover + filter</span>
@@ -212,7 +208,7 @@
             the current load, the measured serving evidence, and the price lock. The next station
             is compatible by construction.
           </p>
-          <figure class="bc-figure route-process route-process--failover" data-reveal>
+          <figure class="figure route-process route-process--failover" data-reveal>
             <div class="route-process__image">
               <img src="assets/broadcasts/router-exact-failover.png" width="1870" height="841"
                    alt="A radio routing console encounters an interrupted station and reroutes the same waveform to a healthy replacement without changing frequency." />
@@ -260,11 +256,11 @@
           </dl>
         </section>
 
-        <div class="man-note man-note--live">
-          <span class="man-note__tag">roger that</span>
+        <aside class="tint-panel bc-signoff">
+          <span class="tint-panel__tag">roger that</span>
           Put another station on the band, or tune your app into the network:
-          <code>roger share &lt;model&gt;</code> &middot; <code>roger use &lt;model&gt;</code>
-        </div>
+          <code class="cmd-words"><span>roger</span> <span>share</span> <span>&lt;model&gt;</span></code> &middot; <code class="cmd-words"><span>roger</span> <span>use</span> <span>&lt;model&gt;</span></code>
+        </aside>
       </div>
     </div>
   </article>
@@ -273,10 +269,7 @@
   <!-- include: footer.html anchors=/ -->
 
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does RogerAI always choose the station with the highest signal?","acceptedAnswer":{"@type":"Answer","text":"No. Signal is a public summary. The router first applies hard request constraints, scores healthy candidates with request-aware speed, reliability, price, capacity, and load, then uses power-of-two choices inside a reliable top band."}},{"@type":"Question","name":"What happens when the strongest station is full?","acceptedAnswer":{"@type":"Answer","text":"Its capacity-normalized load rises and its routing score falls. A concurrent request is directed to another healthy station that still satisfies the same model, price, speed, privacy, and access constraints."}},{"@type":"Question","name":"Can a small home GPU ever receive traffic?","acceptedAnswer":{"@type":"Answer","text":"Yes. Capacity normalization prevents a laptop from being judged like a four-GPU rig, while canary-gated exploration gives newly verified stations a chance to build real serving evidence."}},{"@type":"Question","name":"Can a cheaper station beat a more reliable one?","acceptedAnswer":{"@type":"Answer","text":"Price is only a bounded modifier inside the user's allowed range. Reliability is multiplicative, so repeated failure cannot be erased by being free or unusually cheap."}},{"@type":"Question","name":"Does failover silently change my model?","acceptedAnswer":{"@type":"Answer","text":"No. Failover re-selects an alternative that satisfies the original routing constraints and exact requested model. It never silently crosses confidentiality, price, or minimum-speed boundaries."}}]}</script>
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
   <script src="js/routing-demo.js" defer></script>
 </body>
 </html>

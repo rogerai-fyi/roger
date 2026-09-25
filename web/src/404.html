@@ -6,10 +6,7 @@
 <body data-onair="idle">
 
   <!-- running head: this page is one bound document -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Operating Manual</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Operating Manual" rev="Rev. 2026.06 · ((•))" orange=1 -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
@@ -17,7 +14,8 @@
   <!-- ============================ LOST SIGNAL ============================ -->
   <main id="top">
   <section class="lost">
-    <div class="wrap lost__inner">
+    <div class="wrap">
+    <div class="lost__inner tint-panel">
       <span class="fig" aria-hidden="true">FIG. 404 - NO CARRIER</span>
 
       <!-- Ping in its dropped / "...static" pose: arms sag, the on-air eye goes
@@ -50,13 +48,14 @@
         <span class="lost__path-code" id="lostPath">/</span>
       </p>
 
-      <div class="lost__actions">
-        <a class="lost__home" href="/">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+      <div class="research-actions research-actions--lead lost__actions">
+        <a class="research-button research-button--primary" href="/">
+          <!-- include: onair.html -->
           tune back in
         </a>
-        <a class="lost__alt" href="/#market">read the band →</a>
+        <a class="research-button research-button--quiet" href="/#market">read the band →</a>
       </div>
+    </div>
     </div>
   </section>
   </main>
@@ -65,9 +64,6 @@
   <!-- include: footer.html anchors=/ -->
 
   <script src="js/notfound.js" defer></script>
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

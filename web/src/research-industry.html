@@ -5,13 +5,10 @@
      Registered in build.mjs CSS_BUNDLES. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="Industrial deployment - RogerAI" desc="Local inference for oil and gas, power generation, manufacturing, aerospace, mining, water, healthcare, and defense sustainment: where the box sits in the plant network, the standards it speaks, and what it never touches." theme=external og=post ogtype=website ogtitle="RogerAI - local inference where the network stops" ogdesc="Where a local model sits in a plant network, the standards it speaks, and the protection paths it never touches." ogurl="https://rogerai.fm/research-industry.html" ogimage="https://rogerai.fm/og-research.png" -->
+  <!-- include: head.html title="Industrial deployment - RogerAI" desc="Local inference for oil and gas, power generation, manufacturing, aerospace, mining, water, healthcare, defense sustainment, and wildfire mitigation: where the box sits in the plant network, the standards it speaks, and what it never touches." theme=external og=post ogtype=website ogtitle="RogerAI - local inference where the network stops" ogdesc="Where a local model sits in a plant network, the standards it speaks, and the protection paths it never touches." ogurl="https://rogerai.fm/research-industry.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; Industrial</span>
-    <span class="rail__rev">Rev. 2026.07 &middot; LABS</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; Industrial" rev="Rev. 2026.07 &middot; LABS" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
 
@@ -20,7 +17,7 @@
       <div class="wrap">
         <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">INDUSTRIAL DEPLOYMENT</span>
         </span>
         <h1>Local inference where the network stops.</h1>
@@ -29,7 +26,7 @@
           A local model fits that design, and the placement follows from it.
         </p>
 
-        <!-- The eight markets, at a glance, above the fold - a visitor should not
+        <!-- The nine markets, at a glance, above the fold - a visitor should not
              have to scroll to §1 to see whether their own industry is on the list.
              Each icon jumps straight to its own card in the deployment-grid below
              (id="market-<slug>", matching the asset filename slugs already used for
@@ -59,6 +56,9 @@
           <a href="#market-defense"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
               <path d="M24 6 38 12v12c0 10-6 16-14 19-8-3-14-9-14-19V12Z"/>
               <path class="uc-red" d="M18 24l4 4 8-10"/></svg><span>Defense</span></a>
+          <a href="#market-wildfire"><svg class="uc-ic" viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M24 6c2 8 12 12 12 23a12 12 0 0 1-24 0c0-6 3-10 6-13 1 4 3 6 6 6 0-6-2-10 0-16Z"/>
+              <path class="uc-red" d="M24 40a4 4 0 0 1-4-4c0-3 4-7 4-7s4 4 4 7a4 4 0 0 1-4 4Z"/></svg><span>Wildfire</span></a>
         </nav>
       </div>
     </section>
@@ -67,87 +67,99 @@
 <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">§1 / MARKETS</span>
-          <h2>Eight industries whose data cannot leave the site.</h2>
+          <h2>Nine industries whose data cannot leave the site.</h2>
           <p>A cloud model is ruled out here. Three things rule it out: segmented
              networks, hazardous areas, and links too thin to stream sensor data. That is
-             the constraint we build for. The
-             engagements are under NDA and not named here. In every
+             the constraint we build for. The industrial
+             engagements are under NDA and not named here. The one company this page
+             names, FireDefense Systems, is named with its agreement. In every
              deployment the model advises a person and stays outside the control loop:
              it never actuates equipment, and it is never part of a protection or
              safety path.</p>
         </div>
         <div class="deployment-grid">
-          <article id="market-oilgas">
+          <article id="market-oilgas" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/oilgas.webp" srcset="assets/industry/oilgas-500.webp 500w, assets/industry/oilgas.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A refinery's stacks and towers lit up at dusk.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/u13zBF4r56A" target="_blank" rel="noopener noreferrer">Maksym Kaharlytskyi</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/u13zBF4r56A" target="_blank" rel="noopener noreferrer">Maksym Kaharlytskyi</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Oil and gas</b><p>Rotating-equipment anomaly explanation and operator copilots
              grounded in the OEM manuals and P&amp;IDs already on site.</p></article>
-          <article id="market-power">
+          <article id="market-power" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/power.webp" srcset="assets/industry/power-500.webp 500w, assets/industry/power.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A transformer and switchgear inside a power substation.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/VuR4oHZ3ucc" target="_blank" rel="noopener noreferrer">American Public Power Assoc.</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/VuR4oHZ3ucc" target="_blank" rel="noopener noreferrer">American Public Power Assoc.</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Power generation</b><p>Historian questions in plain language, alarm-flood triage,
              and work-order drafting for turbines and substation assets.</p></article>
-          <article id="market-manufacturing">
+          <article id="market-manufacturing" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/manufacturing.webp" srcset="assets/industry/manufacturing-500.webp 500w, assets/industry/manufacturing.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Robotic arms working a factory assembly line.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/8gr6bObQLOI" target="_blank" rel="noopener noreferrer">Simon Kadula</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/8gr6bObQLOI" target="_blank" rel="noopener noreferrer">Simon Kadula</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Manufacturing</b><p>Prompt-defined inspection over the existing classifier, and
              shift notes, maintenance logs, and fault codes read together.</p></article>
-          <article id="market-aerospace">
+          <article id="market-aerospace" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/aerospace.webp" srcset="assets/industry/aerospace-500.webp 500w, assets/industry/aerospace.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A jet aircraft parked inside a maintenance hangar.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/vWUOx-3r7SY" target="_blank" rel="noopener noreferrer">Hermeus</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/vWUOx-3r7SY" target="_blank" rel="noopener noreferrer">Hermeus</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Aerospace</b><p>Document intelligence and assistant workloads on
              disconnected networks, where deployment is the security model.</p></article>
-          <article id="market-mining">
+          <article id="market-mining" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/mining.webp" srcset="assets/industry/mining-500.webp 500w, assets/industry/mining.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Excavators and haul trucks working an open-pit mine.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/Mk2ls9UBO2E" target="_blank" rel="noopener noreferrer">Dominik Vanyi</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/Mk2ls9UBO2E" target="_blank" rel="noopener noreferrer">Dominik Vanyi</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Mining and metals</b><p>Fixed-plant and haul-fleet condition explanation, with
              shift and geology logs read together at sites a link barely reaches.</p></article>
-          <article id="market-water">
+          <article id="market-water" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/water.webp" srcset="assets/industry/water-500.webp 500w, assets/industry/water.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="Circular treatment tanks at a water treatment plant, seen from above.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/6wSevhW1Dzc" target="_blank" rel="noopener noreferrer">Ivan Bandura</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/6wSevhW1Dzc" target="_blank" rel="noopener noreferrer">Ivan Bandura</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Water and wastewater</b><p>Treatment-process questions against the local
              historian, and permit and compliance drafting on a network that does not route out.</p></article>
-          <article id="market-healthcare">
+          <article id="market-healthcare" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/healthcare.webp" srcset="assets/industry/healthcare-500.webp 500w, assets/industry/healthcare.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="An empty hospital imaging suite with a CT scanner.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/QTP8UKW_PgI" target="_blank" rel="noopener noreferrer">Accuray</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/QTP8UKW_PgI" target="_blank" rel="noopener noreferrer">Accuray</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Healthcare</b><p>The equipment layer of a hospital: imaging-fleet service logs,
              biomedical work orders, alarm-configuration review, and cold-chain records - on the
              segmented networks that data cannot leave.</p></article>
-          <article id="market-defense">
+          <article id="market-defense" class="tint-panel">
             <figure class="deployment-grid__shot">
               <img src="assets/industry/defense.webp" srcset="assets/industry/defense-500.webp 500w, assets/industry/defense.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
                    alt="A military aircraft undergoing maintenance inside a hangar.">
-              <figcaption class="deployment-grid__credit">Photo <a href="https://unsplash.com/photos/8QZGzUbatJU" target="_blank" rel="noopener noreferrer">Grant Sams</a> &middot; Unsplash</figcaption>
+              <figcaption class="photo-credit">Photo <a href="https://unsplash.com/photos/8QZGzUbatJU" target="_blank" rel="noopener noreferrer">Grant Sams</a> &middot; Unsplash</figcaption>
             </figure>
             <b>Defense sustainment</b><p>Maintenance, readiness, and supply on denied,
              degraded, and intermittent links, where there is no reachback to a cloud.</p></article>
+          <!-- Wildfire (founder-approved 2026-09-24): the picture is a text-free frame from
+               our own FireDefense film (no title card, no caption, no company name burned
+               in), not stock photography - and no fire is ever shown on a home. -->
+          <article id="market-wildfire" class="tint-panel">
+            <figure class="deployment-grid__shot">
+              <img src="assets/industry/wildfire.webp" srcset="assets/industry/wildfire-500.webp 500w, assets/industry/wildfire.webp 1000w" sizes="(max-width: 666px) 90vw, (max-width: 1000px) 45vw, 22vw" width="1000" height="750" loading="lazy" decoding="async"
+                   alt="A single-story house on a hillside of dense chaparral, a long concrete driveway leading up to it.">
+              <figcaption class="photo-credit">Film still &middot; RogerAI</figcaption>
+            </figure>
+            <b>Wildfire mitigation</b><p>An early-warning watch on the home itself: smoke chemistry
+             against a baseline and a camera to confirm, built to run when the grid goes first.</p></article>
         </div>
 
-        <!-- The two boundaries a reader must not have to infer. Both are the SAME
+        <!-- The three boundaries a reader must not have to infer. All are the SAME
              no-actuation contract the control-loop paragraph above states; they are
-             restated here because healthcare and defense are where a reader will
-             (correctly) ask what we are claiming. -->
+             restated here because healthcare, defense and wildfire are where a reader
+             will (correctly) ask what we are claiming. -->
         <div class="device-contract">
             <p><b>Healthcare: equipment and facilities, not patients.</b> What these models
               read is the hospital&rsquo;s equipment and the paperwork around it &ndash;
@@ -166,6 +178,43 @@
               employment, and no intelligence exploitation. The same models, the same
               constraint as every other industry here &ndash; they read and they explain, and
               nothing they say moves a machine or a decision on its own.</p>
+            <p><b>Wildfire: warning and mitigation, not fire protection.</b> On a home in the
+              wildland-urban interface these models watch and explain: gas and fine
+              particulate tracked against a rolling baseline, a camera that confirms what the
+              traces suggest, and wind and slope read together. The model raises the alert
+              and makes the threat call, with a confidence. It is not a listed fire alarm or
+              sprinkler system, it is never in the control path of one, and it does not
+              replace code-required detection or suppression, an evacuation order, or the
+              fire service. A valve opens only on the owner&rsquo;s command, or under a rule
+              the owner armed in advance, which the controller &ndash; not the model &ndash;
+              executes with its own abort window. The model never opens a valve by itself;
+              under an armed rule, its call is one input the owner chose to let the
+              controller read.</p>
+        </div>
+
+        <!-- The wildfire use case, built with FireDefense Systems (named with their
+             agreement). What runs today is stated as it is: the mast is shown in the
+             film, Pico is on air, Nano is in training (web/src/data/wave-status.json). -->
+        <div class="device-contract">
+          <p><b>Use case: an edge fire watch.</b> Built with FireDefense Systems, a separate
+            company that designs and installs exterior wildfire sprinkler systems for homes.
+            The watch shown in the FireDefense film is a sealed
+            sensor head on a mast above the roofline: a wide camera, a gas head for volatile
+            organics, carbon monoxide and fine particulate, and the models on board. A
+            wildfire announces itself chemically before it does optically, so the watch
+            smells first and looks second: the watch treats one trace leaving baseline as
+            weather, three leaving together as combustion.</p>
+          <p><b>Where it runs.</b> The design puts the models on the mast, on its own
+            battery, with no network required. Wave Pico, on air today as wave-pico-293m,
+            is the tier meant to keep the always-on watch. The threat call, which fuses
+            gas, image, wind and slope, is Wave Nano work, and Nano is in training. In a
+            wildfire the towers and the power tend to go before the fire arrives, so a model
+            that has to reach a datacenter to think has already lost.</p>
+          <p><b>What it never does.</b> It would alert the owner first, and a message that cannot
+            leave the property is the case it is built for. It never opens a valve by itself
+            and never overrides the sprinkler controller or any alarm. What people should do
+            in a fire is for the fire service and official alerts to say, never the watch.
+            <a href="/assets/edge/hero-fd.mp4">Watch the FireDefense film &rarr;</a></p>
         </div>
 
         <!-- Where the box sits - the first question asked in OT, and one prose cannot
@@ -301,19 +350,17 @@
            build rather than the engagements behind them. When a piece of work can be
            published, it lands in the notebook with its numbers. If one of these shapes
            looks like your plant, write to us.</p>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" data-lets-talk aria-expanded="false"
              href="mailto:labs@rogerai.fm?subject=Industrial%20pilot">Contact RogerAI Labs</a>
-          <a class="research-button" href="/research.html">Back to Labs</a>
-          <a class="research-button" href="/broadcasts.html">Open Air Waves</a>
+          <a class="research-button research-button--quiet" href="/research.html">Back to Labs</a>
+          <a class="research-button research-button--quiet" href="/broadcasts.html">Open Air Waves</a>
         </div>
       </div>
     </section>
   </main>
 
   <!-- include: footer.html anchors=/ -->
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
+  <!-- include: site-js.html promo=0 -->
 </body>
 </html>

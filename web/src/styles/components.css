@@ -1,0 +1,853 @@
+/* =====================================================================
+   RogerAI - components.css : the shared COMPONENT layer (every page).
+
+   Layer order on every page: tokens.css -> base.css -> components.css ->
+   (account-base.css) -> the page's own sheet. A component here has a
+   markup contract (see web/DESIGN-SYSTEM.md): use the class names and
+   data- hooks as documented and the page gets the look and the behaviour
+   with no page CSS. Page sheets may place a component (margins, grid
+   slots) in their own context, but never redefine it: a bare component
+   selector outside this file fails test/design-system.test.mjs.
+   Every color and size is a token; motion is opt-in under
+   prefers-reduced-motion: no-preference or switched off under reduce.
+   ===================================================================== */
+
+/* ============================ SECTIONS ========================= */
+.section { padding-block: var(--section-y); position: relative; }
+.band { background: var(--paper-2); border-block: 1px solid var(--hairline); }
+.section__head { max-width: 62ch; margin: 0 0 var(--head-gap); text-align: left; }
+/* left-set heads for the document-style sections (spec, notes) */
+.section__head--left { text-align: left; margin-left: 0; margin-right: auto; }
+.section__head h2 { margin: 0; }
+.section h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+  font-weight: var(--weight-bold); line-height: var(--lh-snug); }
+.section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); text-wrap: pretty; }
+
+/* ============================ BUTTONS ========================== */
+/* ---------- section action buttons -------------------------------------------
+   The hero action row is how every top-level page offers the rest of its own section,
+   so it is now on eight pages and belongs in the shared sheet. It lived in research.css,
+   which models.html does not load - putting the row on that page rendered four unstyled
+   links. Kept under its original names so no page markup had to change. */
+.research-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-8); }
+.research-button {
+  /* inline-flex drops the whitespace between a text node and a trailing
+     <span>, so a button written `Become a Tower <span>&darr;</span>` rendered
+     as "TOWERv". gap restores it; buttons with a single text node have one
+     flex item and are unaffected. */
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border: 1px solid var(--hairline-2);
+  color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live-text); }
+.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
+.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
+
+/* ============================ CALLOUT ========================== */
+/* a boxed operating note / caution (shared: manual / keys) */
+/* a boxed operating note / caution (the manual's margin call-outs) */
+.man-note {
+  margin-top: var(--s-5); padding: 14px 16px; border-radius: var(--r-md);
+  border: 1px solid var(--hairline-2); border-left: 3px solid var(--volt);
+  background: var(--volt-tint); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6;
+}
+/* the red is the rule, never a wash behind the words (the one-red rule) */
+.man-note--live { border-left-color: var(--live); background: var(--paper-2); }
+.man-note--ember { border-left-color: var(--ember); background: var(--ember-tint); }
+.man-note__tag { display: block; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-500); margin-bottom: 4px; }
+
+/* ======================= INSTALL / COMMAND PILL ================= */
+/* the install command box (shared: home hero / models QSL) */
+/* ---------- THE install command (the hero object) -------------- */
+.install { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); max-width: 640px; width: 100%; }
+.install .fig { margin-bottom: 2px; }
+/* the noun the command downloads, stated before the command. Secondary ink so
+   the box stays the hero object; the one bolded phrase carries the claim. */
+.install__lead { margin: 0; max-width: 58ch; color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body); }
+.install__lead b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.install__box {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px 16px; border-radius: var(--r-xs);
+  background: var(--white); border: 1px solid var(--hairline-2);
+  box-shadow: none; text-align: left;
+  transition: border-color var(--d-2);
+  max-width: 100%;
+}
+.install__box:hover { border-color: var(--live); }
+.install__box:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.install__prompt { color: var(--live-text); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
+.install__code {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 1rem; color: var(--ink-900); letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.install__copy {
+  display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0;
+  color: var(--ink-400);
+  transition: color var(--d-2);
+}
+.install__box:hover .install__copy { color: var(--live-text); }
+.install__box.is-copied .install__copy { color: var(--live-text); }
+.install__meta { display: flex; gap: var(--s-4); align-items: center; flex-wrap: wrap; justify-content: flex-start;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); }
+.install__alt { color: var(--ink-500); font-weight: var(--weight-medium); }
+.install__alt:hover { color: var(--live-text); }
+
+/* the PowerShell one-liner moves to its own line whole, never split mid-URL */
+[data-alt-note] .inline { display: inline-block; white-space: nowrap; }
+@media (max-width: 560px) {
+  /* .75rem: the unbreakable URL and " | sh" share one line under "curl -fsSL" */
+  .install__code { font-size: .75rem; white-space: normal; }
+  .install__box { gap: 8px; padding: 12px 12px 12px 14px; }
+}
+
+/* size step for a closing call to action (homepage §9, the Tower page) */
+.install__box--lg { margin-top: var(--s-8); padding: 18px 20px; }
+.install__box--lg .install__code { font-size: 1.05rem; }
+@media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }
+
+/* ======================= FRAMED INSTRUMENT PANEL ================ */
+/* FIG. 1 as a framed instrument panel: a raised faceplate inside a paper
+   bezel, the FIG. label as its header strip with the on-air dot. The frame
+   is what makes the download read as THE thing to do on the page, not a
+   caption floating in the margin. Opt-in by data-frame="panel" on .install
+   (the homepage FIG. 1); a plain .install stays unframed. */
+.install[data-frame="panel"] {
+  --panel-pad: clamp(16px, 2.2vw, 24px);
+  position: relative;
+  max-width: none;
+  gap: var(--s-4);
+  padding: var(--panel-pad);
+  background: var(--white);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-xl);
+  box-shadow: 0 0 0 6px var(--paper-2), 0 0 0 7px var(--hairline), var(--e-4);
+  transition: box-shadow var(--d-3) var(--ease-out-quint);
+}
+.install[data-frame="panel"] > .fig {
+  display: flex; align-items: center; gap: var(--s-2);
+  align-self: stretch;
+  margin: 0 calc(var(--panel-pad) * -1);
+  padding: 0 var(--panel-pad) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.install[data-frame="panel"] .fig::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--live); box-shadow: 0 0 0 3px var(--live-wash);
+}
+.install[data-frame="panel"] .install__box { background: var(--paper); gap: 10px; padding: 14px 12px 14px 14px; }
+/* in the panel the command WRAPS (at its spaces) rather than truncating: the
+   column is narrower than the line, and " | sh" is the part a reader must see. */
+.install[data-frame="panel"] .install__code { white-space: normal; }
+.install[data-frame="panel"] .install__meta { gap: var(--s-2) var(--s-4); }
+/* phones: the URL is one unbreakable token, so the panel gives its width back
+   (tighter padding) rather than ellipsis-cutting it. */
+@media (max-width: 560px) {
+  .install[data-frame="panel"] { --panel-pad: 14px; }
+  .install[data-frame="panel"] .install__box { padding: 12px 8px 12px 12px; }
+}
+
+/* ============================ INK PANEL ======================== */
+/* ---- the ink panels (round 8) --------------------------------------------
+   <div class="tone-zone" data-tone="ink"> ... <!-- /tone-zone -->
+   An ink panel on the paper page: inset from the page edge, rounded, still
+   (the homepage cover, §1-§2 and §7-§9). A panel carries the site's ink tokens (tokens.css), so everything
+   in it re-themes as it does in dark mode (one step deeper on a dark site). */
+/* the side margin is the --panel-mx token (tokens.css): 64px outside the
+   text column, never closer than --panel-inset to the edge */
+.tone-zone {
+  position: relative;
+  overflow: clip;
+  margin: var(--panel-inset) var(--panel-mx);
+  border-radius: var(--panel-r);
+  color: var(--ink-700);
+  background: var(--paper);
+}
+/* dark site: the panel is one step deeper than the page, which alone reads
+   as a hole rather than a room; a hairline ring gives it its edge back */
+:root[data-theme="dark"] .tone-zone { box-shadow: inset 0 0 0 1px var(--hairline-2); }
+/* a page that ends on a panel leaves the footer room, not a crease */
+main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margin-bottom: var(--s-16); }
+
+/* ======================= TOC TUNER ============================= */
+/* The table of contents as a precision tuning scale. In the page, never
+   pinned. A framed panel: a readout (one station name at a time, one line),
+   then the scale - a minor tick every fifth of a station, a major tick at
+   each, the numerals below - and a red needle with a spring swing. The
+   needle and the name follow the station you point at or focus (CSS :has,
+   no JS); tuner.js ([data-tuner]) rests them on the section in view
+   (.is-current, --cur) and adds arrow-key roving. Without JS the readout
+   rests on the first station. Any count of stations from 2 to 12: --tuner-n is
+   counted from the markup below, so a page never sets it. */
+.toc-tuner { padding-block: clamp(40px, 6vw, 80px) clamp(24px, 3vw, 40px); --tuner-n: 9; --at: var(--cur, 0); }
+.toc-tuner:has(li:nth-child(2):last-child) { --tuner-n: 2; }
+/* ten to twelve stations on a phone: two-digit numerals a size smaller, so §10 and
+   §11 keep air between them */
+@media (max-width: 480px) { .toc-tuner:has(li:nth-child(10)) b { font-size: 0.8rem; letter-spacing: -0.05em; } }
+.toc-tuner:has(li:nth-child(3):last-child) { --tuner-n: 3; }
+.toc-tuner:has(li:nth-child(4):last-child) { --tuner-n: 4; }
+.toc-tuner:has(li:nth-child(5):last-child) { --tuner-n: 5; }
+.toc-tuner:has(li:nth-child(6):last-child) { --tuner-n: 6; }
+.toc-tuner:has(li:nth-child(7):last-child) { --tuner-n: 7; }
+.toc-tuner:has(li:nth-child(8):last-child) { --tuner-n: 8; }
+.toc-tuner:has(li:nth-child(9):last-child) { --tuner-n: 9; }
+.toc-tuner:has(li:nth-child(10):last-child) { --tuner-n: 10; }
+.toc-tuner:has(li:nth-child(11):last-child) { --tuner-n: 11; }
+.toc-tuner:has(li:nth-child(12):last-child) { --tuner-n: 12; }
+
+.toc-tuner__band {
+  position: relative;
+  padding-top: 58px; padding-bottom: 10px;   /* its ground: the tinted panel's, below */
+}
+.toc-tuner__readout {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  width: min(360px, 70%); height: 28px; border-radius: 6px;
+  background: var(--paper); box-shadow: inset 0 0 0 1px var(--hairline);
+}
+/* (the scale, its items and links are unpositioned on purpose: each name
+   is positioned against the band, into the readout) */
+.toc-tuner__scale {
+  display: grid; grid-template-columns: repeat(var(--tuner-n), minmax(0, 1fr));
+  margin: 0; padding: 26px 0 0; list-style: none;
+  /* minor ticks: five per station, centred on the stations */
+  background:
+    repeating-linear-gradient(90deg, transparent 0 calc(100% / (var(--tuner-n) * 10) - 0.5px), var(--ink-300) calc(100% / (var(--tuner-n) * 10) - 0.5px) calc(100% / (var(--tuner-n) * 10) + 0.5px), transparent calc(100% / (var(--tuner-n) * 10) + 0.5px) calc(100% / (var(--tuner-n) * 5)))
+      0 6px / 100% 7px no-repeat;
+}
+.toc-tuner li { min-width: 0; }
+.toc-tuner a {
+  display: flex; justify-content: center;
+  padding: 6px 0 8px; border-radius: 8px;
+  color: var(--ink-500); transition: color var(--d-2), background-color var(--d-2);
+}
+.toc-tuner b {
+  font: 500 clamp(0.95rem, 0.8rem + 0.6vw, 1.35rem) / 1 var(--font-mono);
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
+.toc-tuner a:hover, .toc-tuner a:focus-visible, .toc-tuner a.is-current { color: var(--ink-900); }
+.toc-tuner a:hover, .toc-tuner a:focus-visible { background: var(--paper); outline: none; }
+.toc-tuner a:focus-visible { box-shadow: 0 0 0 1px var(--live); }
+/* the name: every one lives in the readout, one line; only one shows */
+.toc-tuner__name {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  max-width: min(340px, 66%); height: 28px; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  line-height: 28px; white-space: nowrap; text-align: center; color: var(--ink-900);
+  opacity: 0; pointer-events: none;
+  /* hidden, a name is out of tune (soft, spread); shown, it settles */
+  filter: blur(3px); letter-spacing: 0.4em;
+}
+/* the major tick, above each numeral */
+.toc-tuner b { position: relative; }
+.toc-tuner b::before {
+  content: ""; position: absolute; top: -32px; left: 50%;
+  width: 1px; height: 16px; background: var(--ink-500);
+}
+.toc-tuner:has(li:nth-child(1) a:is(:hover, :focus-visible)) { --at: 0; }
+.toc-tuner:has(li:nth-child(2) a:is(:hover, :focus-visible)) { --at: 1; }
+.toc-tuner:has(li:nth-child(3) a:is(:hover, :focus-visible)) { --at: 2; }
+.toc-tuner:has(li:nth-child(4) a:is(:hover, :focus-visible)) { --at: 3; }
+.toc-tuner:has(li:nth-child(5) a:is(:hover, :focus-visible)) { --at: 4; }
+.toc-tuner:has(li:nth-child(6) a:is(:hover, :focus-visible)) { --at: 5; }
+.toc-tuner:has(li:nth-child(7) a:is(:hover, :focus-visible)) { --at: 6; }
+.toc-tuner:has(li:nth-child(8) a:is(:hover, :focus-visible)) { --at: 7; }
+.toc-tuner:has(li:nth-child(9) a:is(:hover, :focus-visible)) { --at: 8; }
+.toc-tuner:has(li:nth-child(10) a:is(:hover, :focus-visible)) { --at: 9; }
+.toc-tuner:has(li:nth-child(11) a:is(:hover, :focus-visible)) { --at: 10; }
+.toc-tuner:has(li:nth-child(12) a:is(:hover, :focus-visible)) { --at: 11; }
+.toc-tuner:has(li:nth-child(1) a:is(:hover, :focus-visible)) li:nth-child(1) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(2) a:is(:hover, :focus-visible)) li:nth-child(2) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(3) a:is(:hover, :focus-visible)) li:nth-child(3) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(4) a:is(:hover, :focus-visible)) li:nth-child(4) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(5) a:is(:hover, :focus-visible)) li:nth-child(5) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(6) a:is(:hover, :focus-visible)) li:nth-child(6) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(7) a:is(:hover, :focus-visible)) li:nth-child(7) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(8) a:is(:hover, :focus-visible)) li:nth-child(8) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(9) a:is(:hover, :focus-visible)) li:nth-child(9) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(10) a:is(:hover, :focus-visible)) li:nth-child(10) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(11) a:is(:hover, :focus-visible)) li:nth-child(11) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(12) a:is(:hover, :focus-visible)) li:nth-child(12) .toc-tuner__name,
+.toc-tuner a.is-current .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+.toc-tuner:has(a:is(:hover, :focus-visible)) a.is-current:not(:hover, :focus-visible) .toc-tuner__name { opacity: 0; filter: blur(3px); letter-spacing: 0.4em; }
+.toc-tuner:not(:has(a:is(:hover, :focus-visible, .is-current))) li:first-child .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+/* the station you are on keeps a red major tick while you point elsewhere:
+   "you are here" on the scale (under the needle when nothing is pointed at) */
+.toc-tuner a.is-current b::before { background: var(--live); width: 2px; margin-left: -0.5px; }
+.toc-tuner__needle {
+  position: absolute; top: 48px; height: 36px; width: 2px; margin-left: -1px;
+  left: calc(var(--gutter) + (var(--at) + 0.5) / var(--tuner-n) * (100% - 2 * var(--gutter)));
+  background: var(--live); border-radius: 1px; pointer-events: none;
+  transition: left 0.6s cubic-bezier(.34, 1.4, .64, 1);
+}
+.toc-tuner__needle::before {
+  content: ""; position: absolute; top: -3px; left: -3px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--live);
+  box-shadow: 0 0 0 3px var(--live-wash);   /* the FIG. 1 on-air dot's halo */
+}
+@media (max-width: 640px) {
+  .toc-tuner__readout, .toc-tuner__name { width: calc(100% - 32px); max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toc-tuner__needle { transition: none; }
+}
+/* a name comes into tune as it shows: the blur clears and the tracking
+   closes up (opacity itself flips at once, so no half-contrast frame) */
+@media (prefers-reduced-motion: no-preference) {
+  .toc-tuner__name { transition: filter 0.5s var(--ease-out-quint), letter-spacing 0.5s var(--ease-out-quint); }
+}
+
+/* ======================= SCRUBBER ============================== */
+/* A native range control that scrub.js inserts above any list marked
+   [data-scrub]: a hairline track, a red needle for a thumb. The item under
+   the needle is tuned (.is-tuned; the page styles what "tuned" looks like).
+   Items never fade. scrub.js sets --scrub-n (the item count) on the control. */
+.scrub {
+  /* the thumb's travel spans the first to the last item's centre */
+  display: block; width: calc(100% - 100% / var(--scrub-n)); margin: var(--s-6) calc(100% / (2 * var(--scrub-n))) var(--s-2); height: 24px;
+  appearance: none; -webkit-appearance: none; background: transparent; cursor: ew-resize;
+}
+.scrub::-webkit-slider-runnable-track { height: 1px; background: var(--hairline-2); }
+.scrub::-moz-range-track { height: 1px; background: var(--hairline-2); }
+.scrub::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 3px; height: 22px; margin-top: -11px; border-radius: 1px; background: var(--live);
+}
+.scrub::-moz-range-thumb { width: 3px; height: 22px; border: 0; border-radius: 1px; background: var(--live); }
+.scrub:focus-visible { outline: 2px solid var(--ink-500); outline-offset: 3px; border-radius: 2px; }
+
+/* ============================ SCROLL LIFT ====================== */
+/* [data-reveal] (base.css + site.js) is the site-wide reveal primitive:
+   visible without JS, settled by site.js. A page opts in to the scroll lift
+   by marking a container [data-lift] (the homepage's <main>): each
+   outermost [data-reveal] block in it rises and sharpens as it enters, on a
+   CSS scroll timeline where supported. Transform and blur only, never
+   opacity, so wherever the reader stops is a resting state. Touch, phones
+   and tablets get one plain rise, finished by 85% of the viewport. A block
+   that must not lift carries data-lift-skip. Reduced motion: nothing. */
+@keyframes lift-rise {
+  from { transform: translateY(32px); filter: blur(5px); }
+  to   { transform: none; filter: none; }
+}
+@keyframes lift-touch {
+  from { transform: translateY(20px); }
+  to   { transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    /* outermost blocks only: a reveal nested in a reveal would blur twice */
+    [data-lift] [data-reveal]:not([data-lift-skip]):not([data-reveal] [data-reveal]) {
+      animation: lift-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 15vh;
+    }
+    /* (!important: it must beat any page's staggered ranges, whatever their specificity) */
+    @media (max-width: 1024px), (pointer: coarse) {
+      [data-lift] [data-reveal] {
+        animation-name: lift-touch !important;
+        animation-range: entry 0% entry 15vh !important;
+      }
+    }
+  }
+}
+
+/* ======================= PRESS + COPY TICK ===================== */
+/* hardware-button feedback: a pressable sinks 1px while held; a copy button
+   with an icon swaps the icon for a tick while site.js marks it .is-copied */
+:is(.install__box, .research-button, .toc-tuner a):active { transform: translateY(1px); }
+.install__copy { position: relative; }
+.install__box.is-copied .install__copy svg { opacity: 0; }
+.install__box.is-copied .install__copy:has(svg)::after {
+  content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); color: var(--live-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.install__box, .research-button, .toc-tuner a):active { transform: none; }
+}
+
+/* Command words: a command that wraps only BETWEEN its words. Browsers also break
+   after a hyphen or a slash ("vast-/onstart.sh", "--/model"); each word sits in its
+   own nowrap span, so the spaces are the only break points left. */
+.cmd-words > span { white-space: nowrap; }
+
+/* ---- component: tint-panel (added by company rollout) ----------------------
+   <div class="tint-panel"> ... </div>
+   The calm panel: the tinted paper ground, the panel radius, no border and no
+   rule (space separates, not lines). It replaces the hairline-boxed card with a
+   heavy black top rule. Inside an ink panel it re-themes with the scoped tokens.
+   A grid of them is the page's business (placement), the panel is not. */
+/* the tinted ground, declared ONCE for every panel that sits on it (the guard
+   in test/design-system.test.mjs holds it to this one rule) */
+.tint-panel, .toc-tuner__band, .figure--plate {
+  border-radius: var(--panel-r);
+  background: var(--paper-2);
+}
+.tint-panel {
+  min-width: 0;
+  padding: clamp(20px, 2.4vw, 32px);
+  color: var(--ink-700);
+}
+.tint-panel > :first-child { margin-top: 0; }
+.tint-panel > :last-child { margin-bottom: 0; }
+
+/* ---- component: spectrum (added by company rollout) ------------------------
+   <ol class="spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
+     <li><i aria-hidden="true"></i><span><b>Wave Pico</b> what it watches ...</span></li> ...
+   </ol>
+   The Wave Spectrum as a tuning scale, one station per tier, pico to exa. The
+   bar over each tier is the wave itself: stripes that TIGHTEN as the model grows
+   (set per position here, so markup alone is enough, up to seven tiers). With
+   [data-scrub] the scrubber (scrub.js) tunes a tier: a quiet ground and a red
+   wave; others never fade. (The homepage's .home-spectrum is a different layout
+   of the same data - ruled cells, three lines per tier, a touch gallery - and
+   shares only the wave bar.) Phones: the tiers stack, the bar becomes a
+   short lead, and the range control steps aside (tapping a tier still tunes it).
+   Reduced motion: nothing here moves. */
+.spectrum {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 0; padding: 0; list-style: none;
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.spectrum li {
+  display: block; min-width: 0;
+  padding: var(--s-4) var(--s-3);
+  border-radius: var(--r-xl);
+  transition: background-color var(--d-2);
+}
+/* the wave bar: <i class="wave-bar" aria-hidden="true"> in each tier's <li>. Its
+   stripes tighten with the tier's position in the list, pico to exa; the mask fades
+   both ends so it reads as a sample of a continuous signal. Shared by this scale
+   and the homepage ladder (home.css places it). */
+.wave-bar {
+  display: block; height: 22px;
+  background: repeating-linear-gradient(90deg, currentColor 0 1.5px, transparent 1.5px var(--gap, 8px));
+  color: var(--ink-300);
+  -webkit-mask: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
+          mask: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
+}
+li:nth-child(1) > .wave-bar { --gap: 14px; }
+li:nth-child(2) > .wave-bar { --gap: 10px; }
+li:nth-child(3) > .wave-bar { --gap: 7.5px; }
+li:nth-child(4) > .wave-bar { --gap: 5.5px; }
+li:nth-child(5) > .wave-bar { --gap: 4.2px; }
+li:nth-child(6) > .wave-bar { --gap: 3.2px; }
+li:nth-child(7) > .wave-bar { --gap: 2.4px; }
+.spectrum .wave-bar { margin-bottom: var(--s-3); }
+.spectrum b { display: block; color: var(--ink-900); font-weight: var(--weight-semi); }
+.spectrum li.is-tuned { background: var(--paper-2); }
+.spectrum li.is-tuned .wave-bar { color: var(--live-text); }
+@media (max-width: 1080px) {
+  .spectrum { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--s-2); }
+  .scrub:has(+ .spectrum) { display: none; }
+}
+@media (max-width: 640px) {
+  .spectrum { grid-template-columns: 1fr; }
+  .spectrum li { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: var(--s-4); padding: var(--s-3); }
+  .spectrum .wave-bar { height: 18px; margin: 3px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { .spectrum li { transition: none; } }
+
+/* ---- component: steps (added by company rollout) ---------------------------
+   <ol class="steps"><li><b>Lead.</b> The step, in words already written.</li> ...</ol>
+   A short numbered path read left to right (a stack on phones): each step gets a
+   mono numeral and a tick on one hairline, like stations on a dial. The numbers
+   are the list's own order (a CSS counter, the <ol> already says it to a screen
+   reader). 2 to 6 steps; the count comes from the markup. */
+.steps {
+  counter-reset: step;
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: var(--s-6); margin: 0; padding: 0; list-style: none;
+}
+.steps > li {
+  counter-increment: step;
+  position: relative; min-width: 0;
+  padding-top: var(--s-10);
+  border-top: 1px solid var(--hairline-2);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.steps > li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute; top: var(--s-4); left: 0;
+  font: 500 var(--t-micro) / 1 var(--font-mono); letter-spacing: var(--tracking-label);
+  color: var(--ink-500);
+}
+.steps > li::after {
+  content: ""; position: absolute; top: -6px; left: 0;
+  width: 1px; height: 11px; background: var(--ink-500);
+}
+.steps > li:first-child::after { background: var(--live); width: 2px; }
+.steps b { display: block; margin-bottom: var(--s-2); color: var(--ink-900); font-weight: var(--weight-semi); }
+@media (max-width: 820px) {
+  .steps { grid-auto-flow: row; gap: 0; }
+  .steps > li { padding: var(--s-4) 0 var(--s-5) var(--s-12); border-top: 0; border-left: 1px solid var(--hairline-2); }
+  .steps > li::before { top: calc(var(--s-4) + 3px); left: var(--s-4); }
+  .steps > li::after { top: var(--s-4); left: -6px; width: 11px; height: 1px; }
+  .steps > li:first-child::after { height: 2px; width: 11px; }
+}
+
+/* ---- component: page-index (added by company rollout) ----------------------
+   <nav class="page-index" aria-label="Sections">
+     <ol><li><a class="page-index__link" href="#id">Heading, word for word</a></li> ...</ol>
+   </nav>
+   or grouped:
+     <div class="page-index__group"><a class="page-index__head" href="#g">Group</a>
+       <ol> ... </ol></div>
+   An in-flow index of a long page, built from its own headings or questions (no
+   new words), set in columns so all of it fits one screen. Never pinned. Every
+   link carries a class (a classless link in an <li> gets the prose hairline). The
+   targets carry their own ids; anchors land under the nav (scroll-margin). */
+.page-index { font-size: var(--t-sm); line-height: 1.45; }
+.page-index ol { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s-2); }
+/* a long index (6+ entries) sets in columns; a short one stays one quiet list */
+.page-index > ol:has(> li:nth-child(6)) { columns: 2 20rem; column-gap: var(--s-10); display: block; }
+.page-index > ol > li { break-inside: avoid; padding-block: 3px; }
+.page-index a { color: var(--ink-700); text-decoration: none; }
+.page-index a:hover { color: var(--live-text); }
+.page-index a:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: 2px; }
+.page-index__group { break-inside: avoid; margin-bottom: var(--s-6); }
+.page-index:has(.page-index__group) { columns: 2 20rem; column-gap: var(--s-10); }
+.page-index__head {
+  display: block; margin-bottom: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.page-index a.page-index__head { color: var(--ink-500); }
+.page-index a.page-index__head:hover { color: var(--live-text); }
+
+/* ---- component: lead action row + quiet button (added by models rollout) --
+   <div class="research-actions research-actions--lead">: ONE primary button,
+   then quiet text links (.research-button--quiet). On a phone each keeps its
+   own width and the links wrap beside the primary. A quiet button keeps the button's mono label,
+   its tap height and its press, but has no box: a hairline underline that goes
+   red on hover or focus. */
+/* ONE ROLE, ONE PATTERN: every action row on the site is this lead row
+   (test/consistency.test.mjs). To flip every row back to boxed buttons, delete the
+   .research-button--quiet rules below: the markup stays, and a quiet button falls
+   back to the plain .research-button box. */
+.research-actions--lead { align-items: center; gap: var(--s-2) var(--s-4); }
+.research-actions--lead .research-button { width: auto; }
+.research-button--quiet {
+  padding-inline: 2px; border-color: transparent;
+  text-decoration: underline; text-decoration-color: var(--hairline-2);
+  text-decoration-thickness: 1px; text-underline-offset: 6px;
+}
+.research-button--quiet:hover, .research-button--quiet:focus-visible {
+  border-color: transparent; text-decoration-color: var(--live);
+}
+.research-button--quiet:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- component: copy-code (added by models rollout) ----------------------
+   <button class="copy-code" type="button" data-copy-target aria-label="Copy CMD"><code>CMD</code></button>
+   An inline command in prose that copies itself: the shared [data-copy-target]
+   control (site.js) dressed as inline code, with a small two-sheet copy glyph
+   drawn in CSS. site.js marks it .is-copied for 1.6s and the glyph becomes the
+   tick. The command never breaks inside itself. No-JS: selectable code text. */
+.copy-code {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+  padding: 1px 6px 1px 6px; margin: 0; vertical-align: baseline;
+  font: inherit; color: var(--ink-900); text-align: left; cursor: copy;
+  background: var(--paper-2); border: 1px solid var(--hairline); border-radius: var(--r-sm);
+  transition: border-color var(--d-2);
+}
+.copy-code code { font-family: var(--font-mono); font-size: .9em; white-space: nowrap; color: inherit; }
+.copy-code::after {
+  content: ""; flex: none; width: 8px; height: 8px; margin: 2px 2px 0 0;
+  border: 1px solid var(--ink-500); border-radius: 2px; background: var(--paper-2);
+  box-shadow: 2px -2px 0 -1px var(--paper-2), 2px -2px 0 0 var(--ink-500);
+}
+.copy-code:hover, .copy-code:focus-visible { border-color: var(--live); }
+.copy-code:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.copy-code:active { transform: translateY(1px); }
+.copy-code.is-copied::after {
+  content: "\2713"; width: auto; height: auto; margin: 0; border: 0; box-shadow: none; background: none;
+  font: 600 .8em / 1 var(--font-mono); color: var(--live-text);
+}
+/* --block: a command on a line of its own (an install line in a register). It fills
+   its column and wraps at spaces; a long unbroken token may break rather than overflow. */
+.copy-code--block { display: flex; width: 100%; justify-content: space-between; padding: 7px 10px; }
+.copy-code--block code { white-space: normal; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .copy-code { transition: none; } .copy-code:active { transform: none; } }
+
+/* ---- component: range twin (added by models rollout) ----------------------
+   range-twin.js inserts <input type="range" class="range-twin"> after any
+   <input type="number" data-range-twin>, synced both ways. A hairline track
+   filled in ink up to the value (--twin-at, set by the script), and the red
+   needle for a thumb, like the scrubber. It spans its grid row. */
+.range-twin {
+  grid-column: 1 / -1; display: block; width: 100%; height: 28px; margin: 0;
+  appearance: none; -webkit-appearance: none; background: transparent; cursor: ew-resize;
+  touch-action: pan-y;
+}
+.range-twin::-webkit-slider-runnable-track {
+  height: 2px; border-radius: 1px;
+  background: linear-gradient(90deg, var(--ink-500) var(--twin-at, 0%), var(--hairline-2) var(--twin-at, 0%));
+}
+.range-twin::-moz-range-track { height: 2px; border-radius: 1px; background: var(--hairline-2); }
+.range-twin::-moz-range-progress { height: 2px; border-radius: 1px; background: var(--ink-500); }
+.range-twin::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 4px; height: 22px; margin-top: -10px; border-radius: 2px; background: var(--live);
+}
+.range-twin::-moz-range-thumb { width: 4px; height: 22px; border: 0; border-radius: 2px; background: var(--live); }
+
+/* ---- component: toc-tuner, long form (added by rest rollout) -------------
+   The tuner above counts 2 to 12 stations. A long document (the manual) has
+   more: these rules count 13 to 20 and point the needle at each. On a desktop
+   the scale simply gets finer. Below 760px a many-station scale would crowd its
+   numerals, so a tuner with 13 or more stations becomes a plain two-column
+   contents list there: every station shows its number AND its name, no needle,
+   no readout. (The !important on the name's opacity outranks the pointed-station
+   rules above, which are written at a much higher specificity.) */
+.toc-tuner:has(li:nth-child(13):last-child) { --tuner-n: 13; }
+.toc-tuner:has(li:nth-child(14):last-child) { --tuner-n: 14; }
+.toc-tuner:has(li:nth-child(15):last-child) { --tuner-n: 15; }
+.toc-tuner:has(li:nth-child(16):last-child) { --tuner-n: 16; }
+.toc-tuner:has(li:nth-child(17):last-child) { --tuner-n: 17; }
+.toc-tuner:has(li:nth-child(18):last-child) { --tuner-n: 18; }
+.toc-tuner:has(li:nth-child(19):last-child) { --tuner-n: 19; }
+.toc-tuner:has(li:nth-child(20):last-child) { --tuner-n: 20; }
+.toc-tuner:has(li:nth-child(13) a:is(:hover, :focus-visible)) { --at: 12; }
+.toc-tuner:has(li:nth-child(14) a:is(:hover, :focus-visible)) { --at: 13; }
+.toc-tuner:has(li:nth-child(15) a:is(:hover, :focus-visible)) { --at: 14; }
+.toc-tuner:has(li:nth-child(16) a:is(:hover, :focus-visible)) { --at: 15; }
+.toc-tuner:has(li:nth-child(17) a:is(:hover, :focus-visible)) { --at: 16; }
+.toc-tuner:has(li:nth-child(18) a:is(:hover, :focus-visible)) { --at: 17; }
+.toc-tuner:has(li:nth-child(19) a:is(:hover, :focus-visible)) { --at: 18; }
+.toc-tuner:has(li:nth-child(20) a:is(:hover, :focus-visible)) { --at: 19; }
+.toc-tuner:has(li:nth-child(13) a:is(:hover, :focus-visible)) li:nth-child(13) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(14) a:is(:hover, :focus-visible)) li:nth-child(14) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(15) a:is(:hover, :focus-visible)) li:nth-child(15) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(16) a:is(:hover, :focus-visible)) li:nth-child(16) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(17) a:is(:hover, :focus-visible)) li:nth-child(17) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(18) a:is(:hover, :focus-visible)) li:nth-child(18) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(19) a:is(:hover, :focus-visible)) li:nth-child(19) .toc-tuner__name,
+.toc-tuner:has(li:nth-child(20) a:is(:hover, :focus-visible)) li:nth-child(20) .toc-tuner__name { opacity: 1; }
+/* a finer scale gets smaller numerals */
+.toc-tuner:has(li:nth-child(13)) b { font-size: clamp(0.8rem, 0.55rem + 0.5vw, 1.1rem); letter-spacing: -0.04em; }
+@media (max-width: 760px) {
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { padding: var(--s-3); margin-inline: var(--panel-inset); width: auto; }
+  .toc-tuner:has(li:nth-child(13)) :is(.toc-tuner__readout, .toc-tuner__needle) { display: none; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; background: none;
+  }
+  .toc-tuner:has(li:nth-child(13)) a { justify-content: flex-start; align-items: baseline; gap: var(--s-2); padding: 8px 10px; }
+  .toc-tuner:has(li:nth-child(13)) b { flex: 0 0 auto; min-width: 3ch; font-size: var(--t-sm); }
+  .toc-tuner:has(li:nth-child(13)) b::before { content: none; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__name {
+    position: static; transform: none; max-width: none; height: auto; overflow: visible;
+    white-space: normal; text-align: left; line-height: 1.35; opacity: 1 !important;
+    color: var(--ink-700); letter-spacing: 0.04em;
+  }
+  .toc-tuner:has(li:nth-child(13)) a:is(:hover, :focus-visible, .is-current) .toc-tuner__name { color: var(--ink-900); }
+  .toc-tuner:has(li:nth-child(13)) a.is-current { box-shadow: inset 2px 0 0 var(--live); }
+}
+@media (max-width: 380px) {
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale { grid-template-columns: minmax(0, 1fr); }
+}
+
+
+/* ---- component: figure (added by research rollout) --------------------------------
+   <figure class="figure [figure--plate|figure--phone|figure--chart]">
+     <img|video|svg ...> <figcaption class="fig">FIG. n - ...</figcaption></figure>
+   Promoted from the articles (broadcasts.css). The figure and its media never outgrow
+   the column, whatever the asset's natural size. --plate sets it on a calm tinted
+   inset panel (theme tokens, so it recedes on the dark theme instead of lighting up);
+   --phone centres a portrait screenshot at a readable size; --chart is an inline SVG
+   chart: set in heading ink, and on a column narrower than the chart it scrolls in
+   its own box (the caption stays put) rather than shrinking its text below reading
+   size. The caption is the .fig label (its --ink-400 is AA on every ground). */
+.figure { margin: var(--s-8) 0; max-width: 100%; }
+.figure > img, .figure > video, .figure > svg { display: block; max-width: 100%; width: 100%; height: auto; }
+.figure > img, .figure > video { border-radius: var(--r-lg); }
+.figure > figcaption { margin: var(--s-3) 2px 0; }
+.figure--plate { padding: var(--s-4); }   /* on the tinted ground (the .tint-panel rule) */
+.figure--phone > img { max-width: 440px; margin-inline: auto; }
+.figure--chart { color: var(--ink-900); overflow-x: auto; }
+.figure--chart > svg { min-width: 34rem; }
+.figure--chart > figcaption { position: sticky; left: 0; }
+
+/* ---- component: scroll box (added by research rollout) ----------------------------
+   <div class="scroll-box"><table>...</table></div>
+   Anything wider than a phone (a data table, a diagram) scrolls sideways inside this
+   box, never the page. */
+.scroll-box { overflow-x: auto; max-width: 100%; }
+
+/* ---- component: data table ---------------------------------------------------------
+   <table class="data-table [page class]"> (in a .scroll-box when it can outgrow a phone)
+   One look for every table of data: no box, hairline rows, and the header row set as
+   the site's label (mono, micro, tracked, uppercase, --ink-400) over a --hairline-2 rule.
+   The page class sets only its columns (widths, alignment, a highlighted column). */
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.data-table th, .data-table td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--hairline); }
+.data-table thead th {
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
+  background: none; border-top: 0; border-bottom: 1px solid var(--hairline-2);
+}
+.data-table tbody tr:last-child > * { border-bottom: 0; }
+
+/* ---- component: code block (added by research rollout) ----------------------------
+   <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> cmd
+   <span class="code-block__comment"># comment</span></pre></div>
+   A long line scrolls inside the block, never the page. site.js adds the copy control
+   (.code-block__copy, the shared [data-copy-target] copy tick) to every block; the
+   copied text leaves out aria-hidden prompts. No-JS: the plain, selectable <pre>, and
+   no dead button. */
+.code-block {
+  --cb-ground: var(--paper-2);
+  position: relative; margin-top: var(--s-4); max-width: 100%;
+  background: var(--cb-ground); border-radius: var(--r-xl);
+}
+/* a line that runs past the edge shows it: a soft shade at the right edge while
+   there is more to scroll, covered by the block's own ground once you reach the end
+   (the two layers scroll differently; no script) */
+.code-block pre {
+  margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
+  background:
+    linear-gradient(to left, var(--cb-ground) 16px, transparent) right / 28px 100% no-repeat local,
+    linear-gradient(to left, color-mix(in srgb, var(--ink-900) 7%, transparent), transparent) right / 20px 100% no-repeat scroll;
+  font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.6;
+  color: var(--ink-900); white-space: pre;
+}
+.code-block pre code { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+/* on a tinted panel the block steps up to the paper, so it still reads as a block */
+.tint-panel .code-block { --cb-ground: var(--paper); }
+/* with its copy control the block is two columns: the <pre> scrolls in its own, so a
+   long line never slides under the button */
+.code-block:has(.code-block__copy) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.code-block__comment { color: var(--ink-500); }
+.code-block__prompt { color: var(--live-text); user-select: none; }
+.code-block__copy {
+  position: relative; margin: 6px 6px 0 0; display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: var(--r-xl);
+  background: var(--paper-2); color: var(--ink-500); transition: color var(--d-2);
+}
+.code-block__copy:hover, .code-block__copy:focus-visible { color: var(--live-text); }
+.code-block__copy:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.code-block__copy:active { transform: translateY(1px); }
+.code-block__copy.is-copied { color: var(--live-text); }
+.code-block__copy.is-copied svg { opacity: 0; }
+.code-block__copy.is-copied::after { content: "\2713"; position: absolute; font: 600 15px / 1 var(--font-mono); }
+@media (prefers-reduced-motion: reduce) { .code-block__copy:active { transform: none; } }
+
+/* ---- component: tint-panel tag (added by research rollout) -----------------------
+   <aside|div class="tint-panel"> <span class="tint-panel__tag">LABEL</span> ... </aside>
+   The small mono label at the top of a .tint-panel (the panel itself is defined above). */
+.tint-panel__tag {
+  display: block; margin-bottom: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+}
+
+/* ---- component: fold on a phone (added by research rollout) -----------------------
+   <details class="..." data-fold-narrow open><summary>...</summary> ... </details>
+   Written open; site.js folds it on a phone (<=640px) so it does not push the page
+   down. The summary keeps its own content and gains a quiet +/- mark at its end. */
+details[data-fold-narrow] > summary { list-style: none; cursor: pointer; position: relative; padding-right: 28px; }
+details[data-fold-narrow] > summary::-webkit-details-marker { display: none; }
+details[data-fold-narrow] > summary::after {
+  content: "+"; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  font: 500 1.1rem / 1 var(--font-mono); color: var(--ink-500);
+}
+details[data-fold-narrow][open] > summary::after { content: "\2212"; }
+details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
+
+/* ---- component: inset band (added by research rollout) ----------------------------
+   <section class="section band band--inset"> : the tinted .band as a rounded panel,
+   inset from the page edge on the same geometry as the ink panel (64px outside the
+   text column, never closer than --panel-inset), with no top/bottom rules. The calm
+   way to set one section apart. */
+.band--inset {
+  margin: var(--panel-inset) var(--panel-mx); border-block: 0; border-radius: var(--panel-r);
+}
+/* two inset bands in a row read as two panels, not one panel with a crease */
+.band--inset + .band--inset { margin-top: var(--s-12); }
+
+/* ======================= DIRECTORY (models, voices, the homepage market) ==
+   The live directories list the same network in two media, so they share a
+   shape: the page hero, the panel with its status bar and honest empty state,
+   and the chips a row carries. Rows and columns are each page's own.
+   <section class="bands-hero"><div class="wrap bands-hero__inner">
+     <h1 class="bands-hero__title">..</h1><p class="bands-hero__sub">..</p></div></section>
+   <div class="bands-panel"><div class="bands-panel__bar">
+     <span class="bands-panel__status is-live|is-off|is-quiet">..</span>..</div>
+     rows ... <div class="bands-panel__quiet"><p class="bands-panel__quiet-head">..</p>
+     <p class="bands-panel__quiet-sub">..</p></div></div>
+   Chips: <span class="band-tag band-tag--free|--deal|--ver|--seen">, and the
+   neutral "$".."$$$$" read <span class="price-tier">. */
+.bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
+.bands-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
+.bands-hero__title {
+  margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+.bands-hero__sub {
+  margin: var(--s-5) 0 0; max-width: 64ch; color: var(--ink-500);
+  font-size: var(--t-lead); line-height: var(--lh-body);
+}
+.bands-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+.bands-panel { border: 1px solid var(--hairline); border-radius: var(--panel-r); overflow: hidden; background: var(--paper); }
+.bands-panel__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--paper-2);
+}
+.bands-panel__status { display: inline-flex; align-items: center; gap: var(--s-2);
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-500); }
+.bands-panel__status.is-live { color: var(--ink-900); }
+.bands-panel__status.is-off { color: var(--ink-400); }
+.bands-panel__empty { padding: var(--s-6) var(--s-4); color: var(--ink-400); }
+.bands-panel__status.is-quiet { color: var(--ink-400); }
+
+/* honest empty state: nothing real on air. No fake bands - just the truth
+   and the one command that fixes it. */
+.bands-panel__quiet { padding: var(--s-8) var(--s-4); text-align: center; }
+.bands-panel__quiet-head { color: var(--ink-700); font-size: var(--t-sm); }
+.bands-panel__quiet-head .beacon { margin-right: var(--s-2); }
+.bands-panel__quiet-sub { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
+.bands-panel__quiet-sub .inline { color: var(--ink-900); }
+
+.band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
+  white-space: nowrap; padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
+.band-tag--free { color: var(--live-text); border-color: var(--live); }
+/* neutral $-tier read of a band's price vs the going rate for its model (FREE/unknown
+   render nothing). Only the cheapest tier is editorialized, via .band-tag--deal. */
+.price-tier { font-family: var(--font-mono); font-weight: 600; color: var(--ink-500); margin-left: 4px; }
+.band-tag--deal { color: var(--live-text); border-color: var(--live); }
+/* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
+.band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
+.band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
+
+/* ======================= PRINT ================================== */
+/* A printed page is whole, still and legible. The reveals are scroll-linked (the
+   scroll lift) or settled by site.js, so without this a page printed from the top
+   came out blurred and offset wherever the reader had not scrolled. Colours: the
+   print tokens at the end of tokens.css (black on white, both themes, ink panels). */
+@media print {
+  /* keep every ground: a printer drops backgrounds by default, and a block painted in
+     a dark ink (a "live" card, a primary button, a meter) would print its paper-coloured
+     words on blank paper. Inherited, so the root covers every element; the print
+     tokens make the grounds white and the inks black, so this costs a page nothing. */
+  html { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  [data-reveal], [data-lift] [data-reveal], html.js [data-reveal], html.js [data-reveal].is-revealed {
+    opacity: 1 !important; transform: none !important; filter: none !important;
+  }
+  /* the site chrome and the controls that only work on a screen */
+  .nav, .promo, .rail, .toc-tuner, .scrub, .range-twin, .toast, .lt-modal, .lt-scrim,
+  .code-block__copy { display: none !important; }
+  body, body[data-onair] { padding-left: 0 !important; background: var(--paper); }
+  /* words painted with a gradient (the carrier sweep) are transparent text on a
+     background, and a printer drops backgrounds: print them as plain ink */
+  .carrier, .wf-inf__shimmer {
+    background: none !important; color: inherit !important; -webkit-text-fill-color: currentColor;
+  }
+  /* long lines and wide tables print whole instead of clipping at a scroll edge */
+  pre, .scroll-box, .code-block { overflow: visible !important; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .figure, .tint-panel, .install, tr { break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+  /* an external link in the running text says where it goes */
+  :is(p, li, dd) > a[href^="http"]:not([class])::after {
+    content: " (" attr(href) ")"; font-size: 0.85em; color: var(--ink-500); overflow-wrap: anywhere;
+  }
+}

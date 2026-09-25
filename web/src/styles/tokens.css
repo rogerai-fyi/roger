@@ -29,7 +29,7 @@
   --ink-900:      #15140F; /* headlines, primary text */
   --ink-700:      #33312B; /* body text */
   --ink-500:      #6B685F; /* secondary text */
-  --ink-400:      #9A968B; /* tertiary / captions / labels */
+  --ink-400:      #726F66; /* tertiary / captions / labels: AA on paper and paper-2 */
   --ink-300:      #C4C0B5; /* disabled / off-bars */
 
   /* ---- THE SIGNAL: one red beacon. -------------------------------
@@ -37,6 +37,7 @@
      the on-air dot, focus rings, the on-air underline, a §-marker rule,
      install-box hover, the live-market dot. */
   --live:         #E0231C; /* on air / live / primary action / focus */
+  --live-text:    #C81E17; /* red TEXT: the same red a shade deeper, AA on paper, paper-2 and paper-3 */
   --live-tint:    #FBE7E5; /* the only red fill (behind a dot / on hover) */
   --live-glow:    rgba(224, 35, 28, 0.26);
   --live-wash:    rgba(224, 35, 28, 0.10);
@@ -100,6 +101,7 @@
   --s-4:  16px;
   --s-5:  20px;
   --s-6:  24px;
+  --s-7:  28px;
   --s-8:  32px;
   --s-10: 40px;
   --s-12: 48px;
@@ -155,6 +157,15 @@
   --carrier:    2.2s;
   --carrier-2x: 4.4s;
 
+  /* ---- PANELS (the ink panel, tinted panels, the tuner band) ---- */
+  --panel-inset: clamp(8px, 1.6vw, 24px); /* a panel's closest approach to the viewport edge */
+  --panel-r:     clamp(14px, 1.4vw, 22px); /* panel corner radius */
+  /* a panel's side margin: 64px outside the page's text column on both sides
+     (so every panel frames the content the same way, whatever the spine),
+     never closer than --panel-inset to the edge. 100% is the panel's
+     containing block, resolved where the token is used. */
+  --panel-mx:    max(var(--panel-inset), calc((100% - var(--maxw)) / 2 + var(--gutter) - 64px));
+
   /* z layers */
   --z-base:   0;
   --z-card:   10;
@@ -166,7 +177,10 @@
    DARK THEME - "the ink room" (warm ink, not blue-black).
    Driven by [data-theme="dark"] on <html>. Same single-accent discipline.
    ===================================================================== */
-:root[data-theme="dark"] {
+/* .tone-zone (the homepage's on-air ink zones) borrows this same ink set, so
+   everything inside a zone re-themes the way the whole site does in dark mode. */
+:root[data-theme="dark"],
+.tone-zone {
   --white:        #1C1A14; /* raised surface */
   --paper:        #0E0D0B; /* warm ink ground */
   --paper-2:      #16140F; /* bands / bars */
@@ -177,10 +191,11 @@
   --ink-900:      #F3F1EA; /* headlines */
   --ink-700:      #D7D3C8; /* body */
   --ink-500:      #9A968B; /* secondary */
-  --ink-400:      #7A766B; /* tertiary / captions */
+  --ink-400:      #878378; /* tertiary / captions: AA on paper, paper-2 and the raised face */
   --ink-300:      #555148; /* disabled / off bars */
 
   --live:         #FF4438; /* beacon, lifted for AA on ink */
+  --live-text:    #FF4438; /* red text: the beacon itself is AA on the ink grounds */
   --live-tint:    rgba(255, 68, 56, 0.16);
   --live-glow:    rgba(255, 68, 56, 0.32);
   --live-wash:    rgba(255, 68, 56, 0.14);
@@ -209,10 +224,75 @@
 
   color-scheme: dark;
 }
+/* Text inks inside the zones, a step lighter than the site's dark set, so
+   secondary and tertiary text hold AA on the zone ground (tone-zones.test).
+   Zone-only; the site-wide dark theme keeps its own values. */
+.tone-zone {
+  --ink-500:      #ADA99E;
+  --ink-400:      #A29E93;
+}
+/* ...and on a dark site the zones go one step deeper, to near-black, so the
+   turn into an on-air zone still reads as a deliberate change of room. */
+:root[data-theme="dark"] .tone-zone {
+  --white:        #16100D;
+  --paper:        #080504; /* warm red-black: a different room, not just darker */
+  --paper-2:      #100A08;
+  --paper-3:      #18110D;
+  --hairline:     #221F1A;
+  --hairline-2:   #2E2A23;
+}
+
+
+/* =====================================================================
+   THE WAVE SPECTRUM PALETTE - the founder's own chart, light and dark.
+   Identity hues for the seven Wave tiers (pico .. exa), never state. The
+   wave mark is a brand component that can appear on any page, so these are
+   tokens. The Playbox decks (wave-patch.css, wave-factory.css) re-scope the
+   same values to their own roots on purpose: they are self-contained games.
+   ===================================================================== */
+:root {
+  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
+  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
+  --tier-exa:  #5b3fbf;
+}
+:root[data-theme="dark"] {
+  --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
+  --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
+  --tier-exa:  #8a6df0;
+}
+/* The signed-in plate (account-base.css .card) holds command wells on --paper-3, the
+   one ground the site's tertiary ink is not AA on (4.28:1 light). Inside the plate the
+   tertiary ink is the secondary one (test/rest-rollout.test.mjs checks every text ink
+   on every plate ground, test/contrast.test.mjs everything else). */
+.card {
+  --ink-400:      var(--ink-500);
+}
 
 /* Reduced motion: collapse choreography, keep legibility. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --d-1: 0ms; --d-2: 0ms; --d-3: 0ms; --d-4: 0ms; --d-5: 0ms;
+  }
+}
+
+/* PRINT - black on white, whatever the theme or the panel. A printed page has no
+   ink room: the dark theme and the ink panels print on white paper in the light
+   inks, with the headline ink at black. (components.css ends with the print rules.) */
+@media print {
+  :root, :root[data-theme="dark"], .tone-zone, :root[data-theme="dark"] .tone-zone {
+    --white:      #FFFFFF;
+    --paper:      #FFFFFF;
+    --paper-2:    #F4F4F2;
+    --paper-3:    #EDEDEA;
+    --hairline:   #E6E5E1;
+    --hairline-2: #D8D7D2;
+    --ink-900:    #000000;
+    --ink-700:    #33312B;
+    --ink-500:    #6B685F;
+    --ink-400:    #726F66;
+    --ink-300:    #C4C0B5;
+    --live:       #E0231C;
+    --live-text:  #C81E17;
+    color-scheme: light;
   }
 }

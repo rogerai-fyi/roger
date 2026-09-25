@@ -8,10 +8,13 @@
    other fails the build.
    ===================================================================== */
 
-.faq__group { border-top: 2px solid var(--ink-900); }
+/* each group is a calm tinted panel (2026-09 lift); the questions inside are
+   separated by hairlines, the black top rule is gone */
+.faq__group { padding: var(--s-2) clamp(20px, 2.4vw, 32px); }   /* a .tint-panel (components.css) */
 .faq__group + .faq__group { margin-top: var(--s-10); }
 
-.faq__item { padding-block: var(--s-6); border-bottom: 1px solid var(--hairline); }
+.faq__item { padding-block: var(--s-6); }
+.faq__item + .faq__item { border-top: 1px solid var(--hairline); }
 .faq__q {
   margin: 0 0 var(--s-3); color: var(--ink-900);
   font-size: var(--t-h3); line-height: 1.25; text-wrap: balance;
@@ -22,19 +25,16 @@
 .faq__a b { color: var(--ink-700); }
 .faq__a code {
   font-family: var(--font-mono); font-size: .9em; color: var(--ink-900);
-  background: var(--paper-2); border: 1px solid var(--hairline); padding: 1px 5px;
+  background: var(--paper); border: 1px solid var(--hairline); border-radius: var(--r-sm); padding: 1px 5px;
 }
 
-/* the read-on line under an answer: where the manual says it in full */
+/* the read-on line under an answer: where the manual says it in full. Quiet ink at
+   rest (23 of them at this density read heavy in red); the live red on hover. */
 .faq__more {
-  display: block; margin-top: var(--s-3);
+  display: block; width: fit-content; margin-top: var(--s-3); color: var(--ink-700);
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .06em; text-transform: uppercase;
 }
 
-/* the index at the top of the page: every question, one screen */
-.faq__index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3) var(--s-8); margin: 0; padding: 0; list-style: none; }
-.faq__index a { color: var(--ink-700); font-size: var(--t-sm); }
-.faq__index a:hover { color: var(--live); }
-
-@media (max-width: 720px) { .faq__index { grid-template-columns: 1fr; } }
+/* the index at the top of the page is the shared .page-index (components.css):
+   every question, grouped, built from the questions themselves */

@@ -25,7 +25,7 @@
 /* the chosen preset is the one red glint in the control */
 .amount.is-active {
   border-color: var(--live);
-  color: var(--live);
+  color: var(--live-text);
   box-shadow: 0 0 0 1px var(--live) inset;
 }
 .amount:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
@@ -110,15 +110,9 @@
   font-weight: var(--weight-semi);
   letter-spacing: -0.02em;
   line-height: 1;
-  color: var(--live);
+  color: var(--live-text);
 }
-.bx-save__cap {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-400);
-}
+.bx-save__cap, .bx-vel__span { font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400); }
 .bx-save__bars { margin: 0 0 var(--s-4); }
 .bx-save__row {
   display: grid;
@@ -204,7 +198,7 @@
   margin-right: var(--s-2);
 }
 .bx-limit__lede a { color: var(--ink-500); }
-.bx-limit__lede a:hover { color: var(--live); }
+.bx-limit__lede a:hover { color: var(--live-text); }
 
 /* the reading line above the meter: $used  of  $cap/mo            NN% */
 .bx-limit__read {
@@ -237,7 +231,7 @@
   font-weight: var(--weight-medium);
   color: var(--ink-500);
 }
-.bx-limit__pct.is-over { color: var(--live); }
+.bx-limit__pct.is-over { color: var(--live-text); }
 
 /* the meter rail - the payouts hairline pill. The used portion carries the
    one red accent (money already spent against the cap). */
@@ -357,13 +351,6 @@
   gap: var(--s-3);
   flex-wrap: wrap;
 }
-.bx-vel__span {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-400);
-}
 .bx-vel__peak {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums slashed-zero;
@@ -413,7 +400,7 @@
               border-color var(--d-1) var(--ease-standard);
 }
 .bx-help-btn:hover,
-.bx-help-btn:focus-visible { color: var(--live); border-color: var(--live); }
+.bx-help-btn:focus-visible { color: var(--live-text); border-color: var(--live); }
 .bx-help-btn:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 /* the secondary text trigger in the fine print - an inline link-button. */
@@ -427,7 +414,7 @@
   border-bottom: 1px solid var(--hairline-2);
   cursor: pointer;
 }
-.bx-help-link:hover { color: var(--live); border-bottom-color: var(--live); }
+.bx-help-link:hover { color: var(--live-text); border-bottom-color: var(--live); }
 .bx-help-link:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: var(--r-xs); }
 
 /* ---- modal overlay (top-level fixed; mirrors the report modal) -------- */
@@ -472,7 +459,7 @@
   line-height: 1;
   cursor: pointer;
 }
-.bx-help__x:hover { color: var(--live); }
+.bx-help__x:hover { color: var(--live-text); }
 .bx-help__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .bx-help__title {
   margin: 0 0 var(--s-2);

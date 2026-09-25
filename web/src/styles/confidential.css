@@ -1,0 +1,38 @@
+/* =====================================================================
+   RogerAI - confidential.css : the gated confidential-tier page.
+   Built from components (a section head, tinted panels, the button row);
+   this sheet only lays them out: the lead, a two-column grid of panels,
+   and the type inside a panel. Tokens only.
+   ===================================================================== */
+.conf { padding-block: clamp(48px, 7vw, 96px); }
+.conf__head h1 {
+  margin: 0; font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
+  line-height: var(--lh-snug); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+.conf__head .sub { margin: var(--s-4) 0 0; color: var(--ink-500); font-size: var(--t-lead); max-width: 56ch; }
+
+.conf__grid {
+  display: grid; gap: var(--s-4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 820px) { .conf__grid { grid-template-columns: minmax(0, 1fr); } }
+
+.conf__panel h2 {
+  margin: 0 0 var(--s-3); font-size: var(--t-h3); letter-spacing: var(--tracking-h3);
+  line-height: var(--lh-snug); color: var(--ink-900); font-weight: var(--weight-semi);
+}
+.conf__panel p, .conf__panel ul { margin: var(--s-3) 0 0; color: var(--ink-700); font-size: var(--t-sm); line-height: 1.65; }
+.conf__panel h2 + p { margin-top: 0; }
+.conf__panel ul { padding-left: var(--s-5); }
+.conf__panel li + li { margin-top: var(--s-2); }
+.conf__panel b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.conf__panel code {
+  font-family: var(--font-mono); font-size: .88em; padding: 1px 6px;
+  background: var(--paper); border: 1px solid var(--hairline); border-radius: var(--r-sm); color: var(--ink-900);
+}
+.conf__panel .fine { color: var(--ink-500); font-size: var(--t-xs); }
+.conf__apply { margin-top: var(--s-4); }
+.conf__apply .research-button { text-transform: none; letter-spacing: 0; }
+.conf__links { margin-top: var(--s-8); color: var(--ink-500); font-size: var(--t-sm); }
+.conf__links a { color: var(--ink-700); }
+.conf__links a:hover { color: var(--live-text); }

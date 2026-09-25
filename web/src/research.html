@@ -4,10 +4,7 @@
   <!-- include: head.html title="RogerAI Research - models for local hardware" desc="RogerAI Labs builds and optimizes models for practical inference on local hardware, from workstations to embedded devices." theme=external og=post ogtype=website ogtitle="RogerAI Labs - models built for local constraints" ogdesc="Right-sized model research for local hardware, with evidence and limitations published alongside every result." ogurl="https://rogerai.fm/research.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Research</span>
-    <span class="rail__rev">Rev. 2026.07 · LABS</span>
-  </div>
+  <!-- include: rail.html head="RogerAI · Research" rev="Rev. 2026.07 · LABS" -->
 
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 researchcurrent='aria-current="page"' -->
 
@@ -16,7 +13,7 @@
       <div class="wrap research-hero__layout">
         <div>
         <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">ROGERAI LABS</span>
         </span>
         <h1>Models built for local constraints.</h1>
@@ -29,17 +26,17 @@
              external host, and left three of this section's own pages reachable only from
              a collapsed nav panel or an onward row a screen down. Weights and source keep
              their own cluster further down the page, so nothing is lost. -->
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="/research-models.html">Models and status</a>
-          <a class="research-button" href="/research-wave-family.html">The Wave family</a>
-          <a class="research-button" href="/research-hardware.html">Hardware</a>
-          <a class="research-button" href="/research-industry.html">Industrial deployment</a>
-          <a class="research-button" href="/broadcasts.html">Open Air Waves</a>
+          <a class="research-button research-button--quiet" href="/research-wave-family.html">The Wave family</a>
+          <a class="research-button research-button--quiet" href="/research-hardware.html">Hardware</a>
+          <a class="research-button research-button--quiet" href="/research-industry.html">Industrial deployment</a>
+          <a class="research-button research-button--quiet" href="/broadcasts.html">Open Air Waves</a>
         </div>
         </div>
         <div class="research-hero__mascot">
           <!-- include: tube-ping.html -->
-          <p class="release-ticker"><b>WAYPOINT</b><span>Wave Pico</span><span>certified 100M-class build &middot; 250&ndash;300M target</span><span>no public checkpoint yet</span></p>
+          <p class="release-ticker"><b>{{wave:pico.research.ticker}}</b><span>Wave Pico</span><span>certified 100M-class build &middot; 250&ndash;300M target</span><span>no public checkpoint yet</span></p>
 
           <!-- The Wave mark, slim: the same spectrum animation as the family
                field guide, graphics only - no callsign, no tier nameplate -
@@ -60,6 +57,23 @@
 
     <!-- Why the lab exists, before what it has built. Three statements, each of
          which is a commitment somebody could hold us to rather than a mood. -->
+    <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#why"><b>§0</b><span class="toc-tuner__name">WHY</span></a></li>
+        <li><a class="toc-tuner__st" href="#models"><b>§1</b><span class="toc-tuner__name">MODELS</span></a></li>
+        <li><a class="toc-tuner__st" href="#principles"><b>§2</b><span class="toc-tuner__name">PROOF</span></a></li>
+        <li><a class="toc-tuner__st" href="#industry"><b>§3</b><span class="toc-tuner__name">DEPLOYMENT</span></a></li>
+        <li><a class="toc-tuner__st" href="#services"><b>§4</b><span class="toc-tuner__name">ENGAGEMENTS</span></a></li>
+        <li><a class="toc-tuner__st" href="#developers"><b>§5</b><span class="toc-tuner__name">DEVELOPERS</span></a></li>
+        <li><a class="toc-tuner__st" href="#follow"><b>§6</b><span class="toc-tuner__name">FOLLOW THE WORK</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
     <section class="section" id="why">
       <div class="wrap">
         <div class="section__head section__head--left">
@@ -69,11 +83,11 @@
              an author who ran the experiment and can defend the number.</p>
         </div>
         <div class="deployment-grid">
-          <article><b>Small enough to own</b><p>A model on hardware you already own is a
+          <article class="tint-panel"><b>Small enough to own</b><p>A model on hardware you already own is a
              model nobody can withdraw, reprice, or deprecate out from under you.</p></article>
-          <article><b>Published as it happens</b><p>Weights, recipes, raw evaluations and
+          <article class="tint-panel"><b>Published as it happens</b><p>Weights, recipes, raw evaluations and
              the failures.</p></article>
-          <article><b>Built in America, open to everyone</b><p>Designed and built in
+          <article class="tint-panel"><b>Built in America, open to everyone</b><p>Designed and built in
              Orange County, California. The formats are standard, the runtimes are
              other people&#39;s, and nothing we publish needs us to keep existing.</p></article>
         </div>
@@ -277,7 +291,7 @@
                 <small>Raspberry Pi &middot; one machine&rsquo;s telemetry</small>
                 <span class="scope__carries" data-axis="variations">carries Guard, Audio</span>
                 <span class="scope__carries" data-axis="jobs">takes part in 3 of 27 plant jobs</span>
-                <span class="scope__status">Waypoint trained</span>
+                <span class="scope__status">{{wave:pico.research.scope}}</span>
               </button>
             </li>
             <li class="scope__row" data-slot="wave-nano">
@@ -287,7 +301,7 @@
                 <small>gateway, concentrator &middot; fleet rollup</small>
                 <span class="scope__carries" data-axis="variations">carries Tool, Embed, Guard, Audio</span>
                 <span class="scope__carries" data-axis="jobs">takes part in 12 of 27 plant jobs</span>
-                <span class="scope__status">Next scratch build</span>
+                <span class="scope__status">{{wave:nano.research.scope}}</span>
               </button>
             </li>
             <li class="scope__row scope__row--live" data-slot="wave-micro">
@@ -297,7 +311,7 @@
                 <small>on-site server &middot; general + industrial</small>
                 <span class="scope__carries" data-axis="variations">carries all six</span>
                 <span class="scope__carries" data-axis="jobs">takes part in 21 of 27 plant jobs</span>
-                <span class="scope__status">Base selected</span>
+                <span class="scope__status">{{wave:micro.research.scope}}</span>
               </button>
             </li>
             <li class="scope__row" data-slot="wave-giga">
@@ -307,7 +321,7 @@
                 <small>plant datacenter &middot; full-plant reasoning</small>
                 <span class="scope__carries" data-axis="variations">carries Tool, Text, Guard, Vision, Audio</span>
                 <span class="scope__carries" data-axis="jobs">takes part in 12 of 27 plant jobs</span>
-                <span class="scope__status">Planned</span>
+                <span class="scope__status">{{wave:giga.research.scope}}</span>
               </button>
             </li>
         </ol>
@@ -323,18 +337,18 @@
 
 
         <div class="research-onward">
-          <a href="/research-models.html">
+          <a class="tint-panel" href="/research-models.html">
             <b>Models and status</b>
             <span>Every Wave model and every upstream build we optimize, each with its
               program status, lineage, license, and evidence contract.</span>
           </a>
-          <a href="/research-wave-family.html">
+          <a class="tint-panel" href="/research-wave-family.html">
             <b>Family field guide</b>
             <span>What each slot is for, which plant jobs it can carry, the measurement
               that decides where a job belongs, and Wave Infinite, the prototype model
               program.</span>
           </a>
-          <a href="/broadcasts.html">
+          <a class="tint-panel" href="/broadcasts.html">
             <b>Open Air Waves</b>
             <span>Build stories and measurements written up as they happened,
               negative results included.</span>
@@ -343,7 +357,7 @@
       </div>
     </section>
 
-    <section class="section research-tone" id="principles">
+    <section class="section research-tone band band--inset" id="principles">
       <div class="wrap research-split">
         <div>
           <span class="sectionno">§2 / PROOF</span>
@@ -375,24 +389,27 @@
           <span class="sectionno">&sect;3 / DEPLOYMENT</span>
           <h2>Local inference where the network stops.</h2>
           <p>Oil and gas, power generation, manufacturing, aerospace, mining, water
-             utilities, healthcare, and defense sustainment: plants, hospitals, and field
-             sites run segmented or air-gapped networks, and that constraint is the whole
-             opportunity. Models stay advisory and out of real-time closed-loop control - in
-             healthcare that means the equipment and facilities layer, never a patient&rsquo;s care.</p>
+             utilities, healthcare, defense sustainment, and wildfire mitigation: plants,
+             hospitals, field sites and homes at the wildland edge run segmented, air-gapped
+             or simply lost networks, and that constraint is the whole opportunity. Models
+             stay advisory and out of real-time closed-loop control - in healthcare that
+             means the equipment and facilities layer, never a patient&rsquo;s care, and in
+             wildfire it means a warning beside the sprinklers, never the fire protection
+             itself.</p>
         </div>
         <div class="research-onward">
-          <a href="/research-industry.html">
+          <a class="tint-panel" href="/research-industry.html">
             <b>Industrial deployment</b>
-            <span>The eight markets, where the box sits in the plant network, and the
+            <span>The nine markets, where the box sits in the plant network, and the
               standards an OT reviewer checks for before anything else.</span>
           </a>
-          <a href="/research-industry.html#envelope">
+          <a class="tint-panel" href="/research-industry.html#envelope">
             <b>The physical envelope</b>
             <span>Why the tiers are what certification allows rather than what we
               preferred: surface temperature, the watt ceiling inside a hazardous zone,
               and the solar budget at a remote site.</span>
           </a>
-          <a href="/research-wave-family.html#jobs">
+          <a class="tint-panel" href="/research-wave-family.html#jobs">
             <b>Which slot for which job</b>
             <span>Twenty-seven plant jobs, the smallest slot that can carry each one, and
               why the work stays on site rather than leaving it.</span>
@@ -401,7 +418,7 @@
       </div>
     </section>
 
-    <section class="section research-tone" id="services">
+    <section class="section research-tone band band--inset" id="services">
       <div class="wrap research-split">
         <div>
           <span class="sectionno">§4 / ENGAGEMENTS</span>
@@ -413,8 +430,8 @@
           <p><b>Edge deployment.</b> Reproducible packaging for local hardware.</p>
           <p><b>Benchmarking.</b> Hardware evaluation with raw results and limitations.</p>
           <p><b>Industrial pilots.</b> Advisory workloads beside existing safety systems.</p>
-          <div class="research-actions">
-            <a class="research-button" data-lets-talk aria-expanded="false"
+          <div class="research-actions research-actions--lead">
+            <a class="research-button research-button--primary" data-lets-talk aria-expanded="false"
              href="mailto:labs@rogerai.fm">Contact RogerAI Labs</a>
           </div>
         </div>
@@ -430,19 +447,19 @@
              the family.</p>
         </div>
         <div class="developer-steps">
-          <article class="developer-step">
+          <article class="developer-step tint-panel">
             <span class="developer-step__no">01</span>
             <h3>Download</h3>
             <p>Pull a released artifact and its model card from Hugging Face.</p>
             <code>huggingface-cli download rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF</code>
           </article>
-          <article class="developer-step">
+          <article class="developer-step tint-panel">
             <span class="developer-step__no">02</span>
             <h3>Run locally</h3>
             <p>Serve GGUF with llama.cpp as an OpenAI-compatible endpoint.</p>
             <code>llama-server -m model.gguf --port 8080</code>
           </article>
-          <article class="developer-step">
+          <article class="developer-step tint-panel">
             <span class="developer-step__no">03</span>
             <h3>Broadcast</h3>
             <p>Optional. Put that endpoint on air so others can tune in.</p>
@@ -452,17 +469,17 @@
       </div>
     </section>
 
-    <section class="section research-closing">
+    <section class="section research-closing" id="follow">
       <div class="wrap">
         <span class="sectionno">§6 / FOLLOW THE WORK</span>
         <h2>Weights, source, and field notes.</h2>
         <p>Release detail lives with the artifact; decisions and measurements live in
            Open Air Waves.</p>
-        <div class="research-actions">
+        <div class="research-actions research-actions--lead">
           <a class="research-button research-button--primary" href="https://huggingface.co/rogerai-fyi">Weights</a>
-          <a class="research-button" href="https://github.com/rogerai-fyi/roger">Source</a>
-          <a class="research-button" href="/broadcasts.html">Open Air Waves</a>
-          <a class="research-button" href="mailto:labs@rogerai.fm">Contact Labs</a>
+          <a class="research-button research-button--quiet" href="https://github.com/rogerai-fyi/roger">Source</a>
+          <a class="research-button research-button--quiet" href="/broadcasts.html">Open Air Waves</a>
+          <a class="research-button research-button--quiet" href="mailto:labs@rogerai.fm">Contact Labs</a>
         </div>
       </div>
     </section>
@@ -470,10 +487,7 @@
 
   <!-- include: footer.html anchors=/ -->
   <script src="js/scope.js" defer></script>
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
+  <!-- include: site-js.html -->
   <script src="js/wave-mark-spectrum.js" defer></script>
-  <script src="js/session.js" defer></script>
-  <script src="js/promo.js" defer></script>
 </body>
 </html>

@@ -516,7 +516,7 @@
      The swap is RELATIVE to each cell's own base glyph, so a weak band
      never jumps to a full bar. Cheap: one sine + an optional glyph swap -
      but the glyph swap is a textContent write, and that reflows, so this
-     runs throttled (~20fps, same technique as radiomap's canvas loop) and
+     runs throttled (~20fps) and
      caches the node list instead of querying it every single frame; both
      were previously reflowing on every full 60fps tick with a fresh
      querySelectorAll, which read as a faint but steady stutter site-wide

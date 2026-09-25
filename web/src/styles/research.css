@@ -10,18 +10,18 @@
   color: var(--ink-500); font-size: var(--t-xs);
   letter-spacing: .06em; text-transform: uppercase;
 }
-.wf-back:hover, .wf-back:focus-visible { color: var(--live); }
+.wf-back:hover, .wf-back:focus-visible { color: var(--live-text); }
 .research-hero { padding-block: clamp(64px, 9vw, 112px); border-bottom: 1px solid var(--hairline); }
 .research-hero h1 { max-width: 880px; margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-display); line-height: var(--lh-tight); letter-spacing: var(--tracking-display); }
 .research-hero__lead { max-width: 720px; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); }
 
-/* the eight markets, above the fold: a compact icon strip jumping straight to
+/* the nine markets, above the fold: a compact icon strip jumping straight to
    each one's card in the deployment-grid further down (#market-<slug>). Mono
    stroke + one red accent, this page's own copy of home.css's .pc-ic language
    (that file is not loaded here - see CSS_BUNDLES in build.mjs) so the icon
    style still reads as the same system. */
 .usecase-strip {
-  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900);
   margin-top: var(--s-8);
 }
@@ -31,7 +31,7 @@
   color: var(--ink-700); text-decoration: none; text-align: center;
   transition: background var(--d-2), color var(--d-2);
 }
-.usecase-strip a:hover, .usecase-strip a:focus-visible { background: var(--paper-2); color: var(--live); }
+.usecase-strip a:hover, .usecase-strip a:focus-visible { background: var(--paper-2); color: var(--live-text); }
 .usecase-strip a:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
 .usecase-strip span { font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .01em; }
 .uc-ic {
@@ -42,14 +42,14 @@
 .usecase-strip a:hover .uc-ic, .usecase-strip a:focus-visible .uc-ic { stroke: var(--live); }
 .uc-ic .uc-red { stroke: var(--live); }
 .uc-ic .uc-fill { fill: var(--live); stroke: none; }
-@media (max-width: 880px) { .usecase-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .usecase-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* nine icons close 3x3 below full width; four or two across would leave one alone */
+@media (max-width: 880px) { .usecase-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .research-hero__layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: var(--s-12); align-items: center; }
 .research-hero__mascot { min-width: 0; }
 /* The hub hero's four section buttons: a 2x2 block. As a flex row inside the narrower
    copy column they wrapped 3+1 and orphaned the last button on its own line. */
 .research-hero__layout .research-actions { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); }
-.research-hero__layout .research-actions .research-button { justify-content: center; }
+.research-hero__layout .research-actions .research-button { justify-content: flex-start; }
 .research-hero__mascot .tube-ping { grid-template-columns: 1fr; align-items: start; }
 .release-ticker {
   display: flex;
@@ -64,7 +64,7 @@
   font-size: var(--t-micro);
   letter-spacing: .05em;
 }
-.release-ticker b { color: var(--live); }
+.release-ticker b { color: var(--live-text); }
 /* .research-actions / .research-button moved to base.css - see the note there. */
 
 .research-distinction { background: var(--paper-2); border-bottom: 1px solid var(--hairline); }
@@ -90,17 +90,8 @@
 .model-roadmap b, .model-naming b { color: var(--ink-900); }
 
 .research-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-5); }
-.research-card { border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900); background: var(--paper); padding: var(--s-6); }
-.research-card { display: flex; flex-direction: column; }
-.research-card header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-2); }
-.research-card h3 { margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-h3); }
-.research-card p { color: var(--ink-500); line-height: var(--lh-body); }
 .status { display: inline-flex; border: 1px solid var(--hairline-2); padding: 3px 7px; color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .05em; text-transform: uppercase; }
 .research-parent { font-size: var(--t-sm); }
-.research-card dl { margin: auto 0 0; padding-top: var(--s-5); border-top: 1px solid var(--hairline); }
-.research-card dl div { display: grid; grid-template-columns: 80px 1fr; gap: var(--s-3); padding-block: var(--s-3); border-bottom: 1px solid var(--hairline); }
-.research-card dt { color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro); text-transform: uppercase; }
-.research-card dd { margin: 0; color: var(--ink-700); font-size: var(--t-sm); }
 
 .model-list { border-top: 2px solid var(--ink-900); }
 .model-row {
@@ -143,8 +134,8 @@
   font-size: var(--t-xs);
   letter-spacing: .04em;
 }
-.model-download::before { content: "↧"; margin-right: 8px; color: var(--live); }
-.model-download:hover, .model-download:focus-visible { border-color: var(--live); color: var(--live); }
+.model-download::before { content: "↧"; margin-right: 8px; color: var(--live-text); }
+.model-download:hover, .model-download:focus-visible { border-color: var(--live); color: var(--live-text); }
 .model-stage {
   display: inline-flex;
   align-items: center;
@@ -158,12 +149,12 @@
   letter-spacing: .04em;
 }
 .model-note { border-color: transparent; padding-inline: 4px; }
-.model-note:hover, .model-note:focus-visible { color: var(--live); }
+.model-note:hover, .model-note:focus-visible { color: var(--live-text); }
 
 .developer-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 2px solid var(--ink-900); }
 .developer-step { min-width: 0; padding: var(--s-6); border-right: 1px solid var(--hairline); }
 .developer-step:last-child { border-right: 0; }
-.developer-step__no { color: var(--live); font-family: var(--font-mono); font-size: var(--t-xs); }
+.developer-step__no { color: var(--live-text); font-family: var(--font-mono); font-size: var(--t-xs); }
 .developer-step h3 { margin: var(--s-4) 0 0; color: var(--ink-900); font-size: var(--t-h3); }
 .developer-step p { color: var(--ink-500); line-height: var(--lh-body); }
 .developer-step code {
@@ -189,49 +180,49 @@
 .research-closing p { max-width: 700px; margin-inline: auto; }
 .research-closing .research-actions { justify-content: center; }
 
-/* Six markets, three across. The dividers are the grid GAP showing through, not borders
-   on the cells: nth-child arithmetic has to be re-derived at every breakpoint and gets it
-   wrong the moment the column count or the market count changes - which it just did, and
+/* Three across: the hub's three cards, and the industrial page's nine close 3x3. The
+   dividers are the grid GAP showing through, not borders on the cells: nth-child
+   arithmetic has to be re-derived at every breakpoint and gets it wrong the moment the column count or the market count changes - which it just did, and
    the single-column layout silently lost three dividers. This is correct at any count. */
 .deployment-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px; background: var(--hairline);
   border-block: 2px solid var(--ink-900);
 }
-.deployment-grid article { padding: var(--s-5); background: var(--paper); }
+.deployment-grid article { padding: var(--s-5); }   /* its ground is the .tint-panel's */
 /* usecase-strip (:23) jumps here by fragment; without this the sticky 64px .nav
    (base.css) covers the card's bleed photo. Same convention as manual.css/wave-factory.css. */
 .deployment-grid article[id] { scroll-margin-top: 88px; }
-/* Eight markets (research-industry): four across so the grid closes 4+4. At three across
-   the eighth card left an empty cell, and with the gap-as-divider technique that empty
-   cell painted hairline grey and read as a missing card. Keyed on the count itself so
-   the three-card hub grid keeps three across; browsers without :has() fall back to it. */
-.deployment-grid:has(> article:nth-child(8)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 1000px) { .deployment-grid:has(> article:nth-child(8)) { grid-template-columns: 1fr 1fr; } } /* 4x2 -> 2x4, never a cramped four */
+/* Nine markets (research-industry) close 3x3 on the base three across. At two across
+   (the 820px breakpoint below) the ninth card takes the whole row rather than sit
+   beside an empty cell, and its picture goes wide so the full-row card is not a tall
+   poster. Keyed on the count, so the three-card hub grid is untouched. */
 .deployment-grid b { color: var(--ink-900); }
 .deployment-grid p { margin-bottom: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 /* the representative shot: bleeds to the card's outer edge (the article still owns the
    padding, so the image cancels it on three sides), generic industry photography - not
-   the NDA'd engagements the section text is careful never to name. Credit rides ON the
+   the NDA'd engagements the section text is careful never to name. The one exception is
+   the wildfire card, a text-free frame from our own film. Credit rides ON the
    photograph, same convention as the hardware board shots on research-hardware.html. */
-.deployment-grid__shot { margin: calc(var(--s-5) * -1) calc(var(--s-5) * -1) var(--s-4); position: relative; }
+.deployment-grid .deployment-grid__shot { margin: calc(var(--s-5) * -1) calc(var(--s-5) * -1) var(--s-4); position: relative; }
 .deployment-grid__shot img {
   display: block; width: 100%; height: auto; aspect-ratio: 4 / 3;
   object-fit: cover; background: var(--paper-2);
 }
-.deployment-grid__credit {
+/* a photograph's credit, riding on the picture (the Industrial and Hardware cards) */
+.photo-credit {
   position: absolute; right: 0; bottom: 0; padding: 3px 7px;
   background: rgba(21, 20, 15, .62); color: #fff;
   font-family: var(--font-mono); font-size: 9px; letter-spacing: .03em;
   border-top-left-radius: 4px;
 }
-.deployment-grid__credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
-.deployment-grid__credit a:hover { color: var(--paper-3); }
+.photo-credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.photo-credit a:hover { color: var(--paper-3); }
 .device-contract { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s-6); background: var(--paper-2); }
 .device-contract p { margin: 0; padding: var(--s-5); border-right: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract p:last-child { border-right: 0; }
-/* A two-card contract (the healthcare/defense boundaries on research-industry): two equal
-   cells, no empty third. Keyed on the count, like the grid above. */
+/* A two-card contract: two equal cells, no empty third. Keyed on the count, like the
+   grid above. (The research-industry boundaries are three now, on the base layout.) */
 .device-contract:has(> p:nth-child(2):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* Four cards read as 2x2 rather than four narrow columns, and the middle rule
    has to stop at the row break. Count-keyed like the rule above. */
@@ -261,13 +252,15 @@
 .section--edge .model-group-head { margin-top: 0; }
 /* The one fact a reader must not miss is that nothing is trained, so this chip is the
    only status on the page that carries the accent. It says the absence, not a stage. */
-.status--none { border-color: var(--live); color: var(--live); }
+.status--none { border-color: var(--live); color: var(--live-text); }
 
 @media (max-width: 820px) {
   .research-hero__layout { grid-template-columns: 1fr; gap: var(--s-7); }
   .research-grid { grid-template-columns: 1fr; }
   .model-row { grid-template-columns: 1fr; gap: var(--s-4); }
-  .deployment-grid, .deployment-grid:has(> article:nth-child(8)), .device-contract { grid-template-columns: 1fr 1fr; }
+  .deployment-grid, .device-contract { grid-template-columns: 1fr 1fr; }
+  .deployment-grid > article:nth-child(9):last-child { grid-column: 1 / -1; }
+  .deployment-grid > article:nth-child(9):last-child .deployment-grid__shot img { aspect-ratio: 12 / 5; }
   .device-contract p:nth-child(2) { border-right: 0; }
   .device-contract p:last-child { grid-column: 1 / -1; border-top: 1px solid var(--hairline); }
   .device-contract:has(> p:nth-child(2):last-child) p:last-child { grid-column: auto; border-top: 0; }
@@ -281,14 +274,17 @@
   .research-hero { padding-block: 46px 54px; }
   .research-hero__lead { margin-top: var(--s-4); }
   .research-hero__mascot .tube-ping { margin-bottom: var(--s-3); }
-  .deployment-grid, .deployment-grid:has(> article:nth-child(8)), .device-contract,
-  .device-contract:has(> p:nth-child(2):last-child) { grid-template-columns: 1fr; }
+  .deployment-grid, .device-contract,
+  .device-contract:has(> p:nth-child(2):last-child),
+  .device-contract:has(> p:nth-child(4):last-child) { grid-template-columns: 1fr; }
+  /* the group head's kicker and caption stack under the title, not beside it */
+  .model-group-head { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+  .deployment-grid > article:nth-child(9):last-child .deployment-grid__shot img { aspect-ratio: 4 / 3; }
   .device-contract p, .device-contract p:nth-child(2), .device-contract p:last-child {
     grid-column: auto;
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
   }
-  .research-button { width: 100%; justify-content: center; }
   .research-hero__layout .research-actions { grid-template-columns: 1fr; }
 }
 
@@ -309,7 +305,7 @@
   color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
-.capability__kept-label { color: var(--live); }
+.capability__kept-label { color: var(--live-text); }
 /* The whole bar is the original model; the solid sliver is what was kept. The deleted
    93.3% stays visible as a ghost rather than being cropped away - the point is how
    much is gone, and you cannot see that if it is not drawn. */
@@ -353,7 +349,7 @@
 }
 /* The empty meter is the point, so the boundary row is marked in red AND by a zero -
    never by colour alone. */
-.capability__scores li[data-outcome="boundary"] .capability__num { color: var(--live); }
+.capability__scores li[data-outcome="boundary"] .capability__num { color: var(--live-text); }
 .capability__scores li[data-outcome="boundary"] .capability__meter { background: var(--live-tint, var(--hairline-2)); }
 
 .capability figcaption {
@@ -377,15 +373,6 @@
 .tier-matrix { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
 .tier-matrix caption { color: var(--ink-500); font-size: var(--t-sm); text-align: left; padding-bottom: var(--s-4); }
 .tier-matrix th, .tier-matrix td { padding: var(--s-3) var(--s-4); text-align: left; vertical-align: top; border-bottom: 1px solid var(--hairline); }
-.tier-matrix thead th {
-  border-bottom: 2px solid var(--ink-900);
-  color: var(--ink-400);
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  font-weight: 400;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
 .tier-matrix tbody tr:last-child th, .tier-matrix tbody tr:last-child td { border-bottom: 0; }
 .tier-matrix tbody th { color: var(--ink-900); font-weight: 500; }
 .tier-matrix td { color: var(--ink-500); }
@@ -407,8 +394,8 @@
   letter-spacing: .06em; text-transform: uppercase;
   border-bottom: 1px solid var(--hairline-2); padding-bottom: var(--s-2); width: fit-content;
 }
-.spectrum-more a::after { content: " \2192"; color: var(--live); }
-.spectrum-more a:hover, .spectrum-more a:focus-visible { color: var(--live); border-bottom-color: var(--live); }
+.spectrum-more a::after { content: " \2192"; color: var(--live-text); }
+.spectrum-more a:hover, .spectrum-more a:focus-visible { color: var(--live-text); border-bottom-color: var(--live); }
 .spectrum-more span { color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); max-width: 62ch; }
 
 /* Onward cards: the hub's three destinations, sitting under the family. Each
@@ -418,7 +405,7 @@
 .research-onward a:last-child { border-right: 0; }
 .research-onward a:hover, .research-onward a:focus-visible { background: var(--paper-2); }
 .research-onward b { color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .07em; text-transform: uppercase; }
-.research-onward b::after { content: " \2192"; color: var(--live); }
+.research-onward b::after { content: " \2192"; color: var(--live-text); }
 .research-onward span { color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 @media (max-width: 820px) {
   .research-onward { grid-template-columns: 1fr; }
@@ -539,7 +526,7 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   grid-template-columns: 1fr max-content; gap: 2px var(--s-4); align-items: baseline;
   border-radius: var(--r-xs);
 }
-.scope__pick:hover { background: var(--hover-bg); }
+.scope__pick:hover { background: var(--paper-2); }
 .scope__pick:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
 .scope__legend b { grid-area: name; color: var(--ink-900); font-size: var(--t-h3); }
 .scope__legend code { grid-area: range; color: var(--ink-700); font-size: var(--t-sm); }
@@ -556,8 +543,8 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   letter-spacing: .08em; text-transform: uppercase; color: var(--ink-500);
 }
 /* In progress is marked by the outline AND the word, never by colour alone. */
-.scope__row--live .scope__status { border-color: var(--live); color: var(--live); }
-.scope__row--live .scope__carries { color: var(--live); }
+.scope__row--live .scope__status { border-color: var(--live); color: var(--live-text); }
+.scope__row--live .scope__carries { color: var(--live-text); }
 
 .scope figcaption {
   margin-top: var(--s-5); color: var(--ink-500);
@@ -641,7 +628,7 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   font-weight: var(--weight-semi); letter-spacing: .08em; text-anchor: middle;
 }
 .purdue__sis .purdue__sub { fill: var(--ink-500); font-size: 9px; font-weight: 400; }
-.purdue__never { fill: var(--live) !important; }
+.purdue__never { fill: var(--live-text) !important; }
 
 .purdue figcaption {
   margin-top: var(--s-4); color: var(--ink-500);
@@ -655,3 +642,51 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   border-top: 1px solid var(--hairline);
   font-size: var(--t-sm); color: var(--ink-500);
 }
+
+/* =====================================================================
+   THE LIFTED SHELL (was research-labs.css, the research pages' overlay; folded in
+   once every page on this shell was lifted). Space separates, not rules: the heavy
+   2px ink frames around the grids become calm tinted panels on the shared radius,
+   set-apart sections are inset bands (components.css .band--inset).
+   ===================================================================== */
+/* anchors (the contents tuner) land under the nav */
+main section[id] { scroll-margin-top: 72px; }
+
+/* ---- the hero: no rule under it; the in-page strip becomes an inset panel ---- */
+.research-hero { border-bottom: 0; }
+.research-distinction {
+  margin-inline: var(--panel-mx);
+  border-bottom: 0; border-radius: var(--panel-r);
+}
+.usecase-strip { border-block: 0; border-radius: var(--panel-r); overflow: hidden; }
+
+/* ---- cards and grids: tinted panels, no ruled frames ---- */
+.research-grid { gap: var(--s-4); }
+.research-prose { border-top: 0; }
+.research-onward { border-block: 0; gap: var(--s-4); }
+.research-onward > * { border: 0; }   /* each a .tint-panel (components.css) */
+
+.developer-steps { border-block: 0; gap: var(--s-4); }
+.developer-step, .developer-step:last-child { border: 0; }   /* each a .tint-panel */
+
+.deployment-grid { border-block: 0; gap: var(--s-4); background: none; }
+.deployment-grid article { overflow: hidden; }   /* each a .tint-panel */
+/* photographs: one treatment across the research pages - the panel's radius, and
+   the stock industry photography set in mono so the ink-and-one-red palette holds
+   (the hardware board shots keep their colour: they identify real products) */
+.deployment-grid__shot img { filter: grayscale(1) contrast(1.04); }
+
+.model-list { border-top: 0; }
+.capability, .tier-scroll { border-block: 0; border: 1px solid var(--hairline); border-radius: var(--panel-r); }
+.model-roadmap, .model-naming { border-radius: 0 var(--r-xl) var(--r-xl) 0; }
+
+/* inside an inset band the tinted cards step to the raised ground */
+main .band--inset :is(.developer-step, .deployment-grid article, .research-onward > *) { background: var(--paper); }
+
+/* ---- label rules (the tertiary ink is AA on its own now: tokens.css) ---- */
+.scope__head { border-bottom: 1px solid var(--hairline-2); }
+.research-tone.band--inset { border-block: 0; }
+
+/* a state chip and the release ticker's name keep their red rule but set their words in ink */
+.status--none { color: var(--ink-900); }
+.release-ticker b { color: var(--ink-900); }

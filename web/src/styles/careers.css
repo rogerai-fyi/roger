@@ -1,22 +1,19 @@
-/* Careers: role cards on the shared notebook shell (research.css). Only the role
-   list needs its own rules - everything else reuses the existing plates so the
-   hiring page reads as the same document as Research and Company. */
+/* Careers: role cards on the shared notebook shell (research.css) and the Company
+   section sheet (company.css). Only the role list needs its own rules. Since the
+   2026-09 lift a role is a calm tinted panel (the tint-panel look: paper-2, the
+   panel radius, no border, no black top rule); the page's structure lives in
+   company.css and the shared components. */
 
 .role-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s-5);
-  margin-bottom: var(--s-8);
 }
 
-.role {
+.role {   /* a .tint-panel (components.css) */
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
-  padding: var(--s-6);
-  background: var(--paper);
-  border: 1px solid var(--hairline);
-  border-top: 2px solid var(--ink-900);
 }
 .role h3 {
   margin: 0;
@@ -35,7 +32,7 @@
   font-size: var(--t-micro);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--ink-400);
+  color: var(--ink-500);
 }
 .role__meta span + span { padding-left: var(--s-3); border-left: 1px solid var(--hairline-2); }
 
@@ -45,6 +42,11 @@
   font-size: var(--t-sm);
 }
 .role__stack b { color: var(--ink-700); }
+
+/* An industrial role stands alone in its group: it takes the full row rather than
+   sitting as an orphan half-width card. */
+.role-list > .role:only-child { grid-column: 1 / -1; }
+.role-list > .role:only-child > p:not(.role__meta):not(.role__apply) { max-width: 72ch; }
 
 /* Push the apply link to the card floor so a short and a long role still line up. */
 .role__apply { margin-top: auto; padding-top: var(--s-4); }
@@ -56,10 +58,7 @@
   color: var(--ink-900);
   border-bottom: 1px solid var(--live);
 }
-.role__apply a:hover, .role__apply a:focus-visible { color: var(--live); }
-
-/* Group heads after the first need air above them; the first inherits section padding. */
-.role-group-head { margin-top: var(--s-10); }
+.role__apply a:hover, .role__apply a:focus-visible { color: var(--live-text); }
 
 @media (max-width: 820px) {
   .role-list { grid-template-columns: 1fr; }

@@ -1,12 +1,12 @@
 /* =====================================================================
    RogerAI - home.css : the homepage (/index.html) body.
    Hero + the Ping concierge deck, the terminal demo, the two-way
-   share/tune plates, the spec sheet, operating notes, the money meter,
-   monetize, the CTA strip, the live signal tower / market, the money row,
+   share/tune plates, the spec sheet, the money meter,
+   monetize, the CTA strip, the live signal tower / market,
    the homepage hero-foundation overrides, the Roger Edge story reel (FIG.2)
    and the small /models entry link. The shared eyebrow line, the .ping mascot
    shape + animations, the install command box, .market__refresh, the
-   ((.)) beacon and .hero__dot live in base.css. Consumes tokens.css +
+   ((.)) beacon live in base.css. Consumes tokens.css +
    base.css. Rules MOVED verbatim from site.css, in source order.
    ===================================================================== */
 
@@ -17,17 +17,20 @@
 .hero__inner {
   position: relative;
   display: flex; flex-direction: column; align-items: flex-start; text-align: left;
-  padding-top: clamp(56px, 11vh, 104px); padding-bottom: var(--s-16);
+  padding-top: clamp(36px, 7vh, 88px); padding-bottom: var(--s-16);
 }
 /* the hero is a left-bound document: .hero__grid (eyebrow/title/subhead/Labs
    proof beside FIG.1 install + Ping once there's room, single column below
    it) then FIG.2, the Roger Edge story reel. */
 .hero__inner { padding-bottom: var(--s-16); }
 .hero__title {
-  font-size: var(--t-display); line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-display); font-weight: var(--weight-semi);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.028em; font-weight: var(--weight-semi);
   color: var(--ink-900); max-width: 16ch;
 }
+/* one span per line (was <br>): each line is its own block so the lines can
+   stagger in, and the break points are the design's, not the viewport's. */
+.hero__line { display: block; }
 /* the operative phrase: ink + a single red on-air underline, no gradient */
 .hero__op {
   position: relative; color: var(--ink-900); white-space: nowrap;
@@ -38,21 +41,25 @@
 }
 /* the speed beat: a smaller, muted line under the main statement (still part of the H1) */
 .hero__fast {
-  display: inline-block; margin-top: 0.12em;
-  font-size: 0.58em; font-weight: var(--weight-semi);
-  letter-spacing: var(--tracking-display); color: var(--ink-500);
+  margin-top: 0.55em;
+  font-size: max(0.5em, 1.25rem); font-weight: var(--weight-medium);
+  letter-spacing: -0.012em; color: var(--ink-500);
 }
+/* The subhead reads as a lead, then the detail: the opening sentence in full
+   ink (the entry point), the rest in secondary ink, on a shorter measure so
+   the paragraph stops reading as one grey block. */
 .hero__sub {
-  margin-top: var(--s-6); max-width: 56ch;
-  font-size: var(--t-lead); color: var(--ink-500); line-height: 1.5;
+  margin-top: var(--s-8); max-width: 50ch;
+  font-size: var(--t-lead); color: var(--ink-500); line-height: 1.6;
 }
+.hero__sub-lead { color: var(--ink-900); font-weight: var(--weight-medium); }
 .hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
 .hero__proof {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2) var(--s-4);
-  margin-top: var(--s-6);
+  margin-top: var(--s-8);
   padding: 9px 12px;
   border-left: 2px solid var(--live);
   background: var(--paper-2);
@@ -62,64 +69,235 @@
   letter-spacing: .06em;
 }
 .hero__proof b { color: var(--ink-900); }
-.hero__proof:hover, .hero__proof:focus-visible { color: var(--live); }
-/* Two columns above FIG.2 once there's room: .hero__copy (the narrative -
-   eyebrow, headline, subhead, Labs proof) beside .hero__tools (the two
-   things a visitor actually does - FIG.1 the install command, then Ping
-   stacked under it). Same information, same source order, as the old
-   single stacked column; this only changes layout, so FIG.2 sits higher on
-   the page once the columns fit side by side. Below the breakpoint it's a
-   single column top to bottom, same as before. */
-.hero__grid { display: grid; grid-template-columns: 1fr; gap: var(--s-8); }
-/* 1400px, not the usual breakpoint scale: below it there isn't enough room
-   for both the headline's nowrap "decentralized Models" at full display
-   size AND a install column wide enough not to truncate the command, and
-   shrinking either one was worse than just keeping the single column until
-   there's genuinely space (the .hero__inner width bump below is sized to
-   this exact breakpoint - narrower and the columns fight for the same
-   pixels the widened wrap was added to give them). */
-@media (min-width: 1400px) {
-  .hero__inner { max-width: 1300px; }
+.hero__proof:hover, .hero__proof:focus-visible { color: var(--live-text); }
+
+/* The hero shares the page's content box (the nav's, every section's) on
+   both sides, at every width. .hero__head (eyebrow + headline) spans it;
+   from 1100px .hero__copy and .hero__tools sit side by side beneath, so
+   FIG. 1 lines up with the paragraph it follows rather than the eyebrow.
+   Narrow viewports stack head, copy, tools in source order.
+   minmax(0, 1fr), not 1fr: a bare 1fr has a min-content floor, and the
+   nowrap "decentralized Models" pushed the whole mobile hero past the
+   viewport (a 417px page on a 390px phone). */
+.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+.hero__tools { margin-top: var(--s-10); }
+/* The headline is sized to its own box: the nowrap operative line is
+   ~10.2x the font size wide, so 9.5cqi always fits, capped at the display
+   token. The vw line is the fallback where container units are missing. */
+.hero__head { container-type: inline-size; }
+.hero__title { font-size: min(var(--t-display), calc(9.6vw - 4px)); font-size: min(var(--t-display), 9.5cqi); }
+@media (min-width: 1100px) {
+  /* a tighter top, so FIG. 1 and Ping sit inside a 900px-tall first screen
+     (under the nav and the panel's inset) */
+  .hero__inner { padding-top: clamp(14px, 2.2vh, 40px); padding-bottom: var(--s-10); }
+  /* equal columns: at .75rem the whole install command fits one line in
+     FIG. 1 from 1100px up (464px column at 1280, the tightest case) */
   .hero__grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
-    gap: var(--s-10); align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: var(--s-10); align-items: start;
   }
+  .hero__head { grid-column: 1 / -1; }
+  /* level with the paragraph's first line (.hero__sub's top margin); both a
+     notch tighter here so FIG. 1 and Ping fit a 1440x900 first screen */
+  .hero__sub, .hero__tools { margin-top: var(--s-5); }
+  .hero__tools .install[data-frame="panel"] { gap: var(--s-3); }
+  .hero__ping { margin-top: var(--s-2); }
   .hero__tools .install { margin-top: 0; }
-  /* the 460px column is still narrower than the command's natural width at
-     1rem - install__code already ellipsis-truncates gracefully rather than
-     breaking layout, but the whole point of this figure is a command a
-     visitor can read, so shrink it back to fully legible instead of
-     leaning on that fallback. */
-  .hero__tools .install__code { font-size: 0.85rem; }
+  /* the column is narrower than the command's natural width at 1rem;
+     install__code ellipsis-truncates gracefully, but this figure exists to be
+     read, so shrink it to fully legible instead of leaning on that. */
+  .hero__tools .install__code { font-size: 0.75rem; }
+  /* the headline fills the content box it spans (finish pass): a step past
+     the display token, set tighter, the speed beat tucked up under it */
+  .hero__title { font-size: min(5.125rem, 9.5cqi); letter-spacing: -0.034em; line-height: 1; }
+  .hero__fast { margin-top: 0.5em; font-size: max(0.4em, 1.25rem); }
+}
+/* 1600px up: the page box (nav, hero, every section) widens together, and
+   FIG. 1 moves up beside the headline block, wide enough that the install
+   command reads on one line. */
+@media (min-width: 1600px) {
+  :root { --maxw: 1320px; }
+  .hero__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 500px); }
+  .hero__head { grid-column: 1; }
+  .hero__tools { grid-column: 2; grid-row: 1 / span 2; margin-top: var(--s-10); }
 }
 @media (min-width: 641px) and (max-height: 800px) {
   .hero__inner { padding-top: 42px; }
   .hero__sub, .hero__proof { margin-top: var(--s-4); }
 }
+@media (min-width: 1100px) and (max-height: 800px) {
+  .hero__tools { margin-top: var(--s-4); }   /* still level with the paragraph */
+  /* a short laptop screen: the headline gives back the height FIG. 1 needs */
+  .hero__title { font-size: min(4.25rem, 9.5cqi); }
+}
+
+/* ---- the lift: entrance + scroll motion (2026-09-23) ----------------
+   Opt-in only: every rule lives under no-preference, so reduced motion
+   never sees a starting frame. None of it is gated on html.js: with JS off
+   the same CSS plays, and the text is in the HTML either way.
+   Hero: the lines come into focus the way a station does when you tune
+   in - out of a blur, rising, 90ms apart, on the site's ease-out-quint, one
+   pass on load and then still. They start faint, never at opacity 0, so the
+   headline paints (and counts as painted) on the first frame. Sections: the
+   shared scroll lift (components.css, main[data-lift]) moves and sharpens
+   each [data-reveal] block as it enters; it never touches opacity, and
+   browsers without scroll timelines keep the existing site.js settle. fill-mode backwards on the hero, so nothing is
+   left holding a transform (and a stacking context) after it lands. */
+@keyframes lift-line {
+  from { opacity: 0.2; transform: translateY(0.4em); filter: blur(8px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+@keyframes lift-panel {
+  from { opacity: 0.2; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero__eyebrow, .hero__line, .hero__sub, .hero__proof {
+    animation: lift-line 0.72s var(--ease-out-quint) backwards;
+  }
+  .hero__line:nth-child(1) { animation-delay: 0.1s; }
+  .hero__line:nth-child(2) { animation-delay: 0.19s; }
+  .hero__line:nth-child(3) { animation-delay: 0.28s; }
+  .hero__sub   { animation-delay: 0.4s; }
+  .hero__proof { animation-delay: 0.5s; }
+  .hero__tools { animation: lift-panel 0.9s var(--ease-out-quint) 0.45s backwards; }
+  @supports (animation-timeline: view()) {
+    /* (the section blocks' rise is the shared scroll lift: main[data-lift],
+       components.css; the reel opts out with data-lift-skip) */
+
+    /* the middle's scroll moment: the Wave Spectrum tunes in, pico to exa,
+       each wave drawing across and flashing the live red as it locks (the
+       scrubber, spectrum.js, then marks the tuned tier). The plate ticks in. */
+    .home-spectrum i {
+      transform-origin: left center;
+      animation: spec-wave linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 14vh;
+    }
+    .home-spectrum li:nth-child(2) i { animation-range: entry 0% entry 19vh; }
+    .home-spectrum li:nth-child(3) i { animation-range: entry 0% entry 24vh; }
+    .home-spectrum li:nth-child(4) i { animation-range: entry 0% entry 29vh; }
+    .home-spectrum li:nth-child(5) i { animation-range: entry 0% entry 34vh; }
+    .home-spectrum li:nth-child(6) i { animation-range: entry 0% entry 39vh; }
+    .home-spectrum li:nth-child(7) i { animation-range: entry 0% entry 44vh; }
+    .plate__grid > div {
+      animation: plate-tick linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 20vh;
+    }
+
+    /* ---- the section choreography ----------------------------------------
+       Every piece is tied to
+       scroll position, so wherever the reader stops IS a resting state:
+       transform only, never a fade (text stays at full contrast at rest).
+       - the hero recedes as you leave it: it lags the scroll and shrinks a
+         touch, so the page below slides up over it
+       - each section's red rule draws itself in
+       - card sets cascade: each card lands a beat after the one before
+       - the two sides of the tune converge on the beam between them
+       (Section heads and figures are [data-reveal] blocks and take the
+       base rise above; a choreography rule on them would be shadowed.) */
+    @media (min-width: 900px) {
+      .hero__inner {
+        animation: lift-recede linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0px 85vh;
+        transform-origin: 30% 0;
+      }
+    }
+    main .sectionno { view-timeline: --secno block; }
+    main .sectionno::before {
+      transform-origin: left center;
+      animation: lift-rule linear both;
+      animation-timeline: --secno;
+      animation-range: entry 0% entry 26vh;
+    }
+    main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book) {
+      animation: lift-card linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 24vh;
+    }
+    main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(2) { animation-range: entry 0% entry 32vh; }
+    main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book):nth-child(3) { animation-range: entry 0% entry 40vh; }
+    main .twoway__side {
+      animation: lift-from-left linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 34vh;
+    }
+    main .twoway__side:last-child { animation-name: lift-from-right; }
+    /* stacked (one column): the sides rise like any other card */
+    @media (max-width: 820px) {
+      main .twoway__side,
+      main .twoway__side:last-child { animation-name: lift-card; }
+    }
+    main .twoway__beam {
+      animation: lift-rule linear both;
+      animation-timeline: view();
+      animation-range: entry 10% entry 38vh;
+    }
+    /* touch, phones and tablets: people stop mid-page to read, so nothing
+       rests blurred or faded - one plain rise, finished by the time a block
+       is 85% up the screen (!important: it must beat every staggered range
+       above, whatever their specificity) */
+    @media (max-width: 1024px), (pointer: coarse) {
+      main :is(.pcards > article, .company__card, .surfaces__card, .shelf__book, .twoway__side),
+      main .plate__grid > div {
+        animation-name: lift-touch !important;
+        animation-range: entry 0% entry 15vh !important;
+      }
+    }
+  }
+}
+@keyframes spec-wave {
+  0%   { transform: scaleX(0.08); color: var(--ink-300); }
+  65%  { transform: none; color: var(--live-text); }
+  100% { transform: none; color: var(--ink-500); }
+}
+@keyframes plate-tick {
+  from { transform: translateX(-14px); }
+  to   { transform: none; }
+}
+@keyframes lift-recede {
+  to { transform: translateY(18vh) scale(0.95); }
+}
+@keyframes lift-card {
+  from { transform: translateY(40px); }
+  to   { transform: none; }
+}
+@keyframes lift-rule {
+  from { transform: scaleX(0); }
+  to   { transform: none; }
+}
+@keyframes lift-from-left {
+  from { transform: translateX(-56px); }
+  to   { transform: none; }
+}
+@keyframes lift-from-right {
+  from { transform: translateX(56px); }
+  to   { transform: none; }
+}
+
 
 /* The institutional strip is the hinge between the product promise and the
-   operating proof below it. Keep it architectural: three quiet doors, one
-   restrained live-color response, and no card chrome. */
-.institution-strip {
-  border-block: 1px solid var(--hairline);
-  background: var(--paper-2);
-}
+   operating proof below it. Three quiet doors on the content box, each a
+   ruled index entry: a hairline above, the red rule drawing across it on
+   hover. No band, no card chrome (it used to be a full-bleed band whose
+   cells sat on the gutter, off every other left edge on the page). */
 .institution-strip__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding-inline: 0;
+  column-gap: var(--s-8);
+  padding-top: var(--s-10);
 }
 .institution-strip__item {
   position: relative;
   display: grid;
   align-content: start;
   gap: var(--s-2);
-  min-height: 108px;
-  padding: var(--s-6);
+  padding: var(--s-4) 0 var(--s-2);
   color: inherit;
-  border-left: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline-2);
 }
-.institution-strip__item:last-child { border-right: 1px solid var(--hairline); }
 .institution-strip__item::before {
   content: "";
   position: absolute;
@@ -134,8 +312,12 @@
 .institution-strip__item:focus-visible::before { transform: scaleX(1); }
 .institution-strip__item:focus-visible {
   outline: 2px solid var(--live);
-  outline-offset: -2px;
+  outline-offset: 4px;
+  border-radius: 2px;
 }
+/* the label answers the pointer too: it is the door's name */
+.institution-strip__label { transition: color var(--d-2); }
+.institution-strip__item:hover .institution-strip__label { color: var(--live-text); }
 .institution-strip__label {
   font-family: var(--font-mono);
   font-size: var(--t-xs);
@@ -151,14 +333,7 @@
   color: var(--ink-500);
 }
 @media (max-width: 720px) {
-  .institution-strip__grid { grid-template-columns: 1fr; }
-  .institution-strip__item {
-    min-height: 0;
-    padding: var(--s-5) var(--s-6);
-    border-right: 1px solid var(--hairline);
-    border-bottom: 1px solid var(--hairline);
-  }
-  .institution-strip__item:last-child { border-bottom: 0; }
+  .institution-strip__grid { grid-template-columns: 1fr; row-gap: var(--s-3); padding-top: var(--s-8); }
 }
 
 /* ---------- Ping: the on-air receiver, standing by the dial -----
@@ -168,19 +343,23 @@
    margin whitespace so it never crowds the centered hero; it folds away
    on narrow screens. Body inherits ink via currentColor; only the eye +
    glow are fixed live-red, matching the logo beacon. */
+/* The dock sits under FIG. 1 on the panel's own edges: Ping on the left,
+   the LED band filling the rest of the column, so the pair reads as the
+   panel's status line rather than a separate object. */
 .hero__ping {
+  position: relative;                       /* anchor for the absolutely-placed deck */
   z-index: 1; pointer-events: none;
-  display: flex; flex-direction: row; align-items: center; gap: 12px;
-  margin: clamp(20px, 3.5vh, 34px) auto 0;
-  color: var(--ink-300);
+  display: flex; align-items: center; gap: var(--s-4);
+  margin-top: var(--s-6);
+  color: var(--ink-700);
 }
+.hero__ping-tag { color: var(--ink-500); }
 
 /* ---------- Ping concierge: the record-player / tape-deck chat ----
    Clicking Ping opens a small, collapsible "deck" anchored to the dock.
    It NEVER covers the hero: it starts closed (hidden), opens below Ping,
    and is monochrome + one red. All motion is transform/opacity only and
    has a full reduced-motion fallback. */
-.hero__ping { position: relative; }              /* anchor for the absolutely-placed deck */
 .hero__ping-trigger {
   appearance: none; background: none; border: 0; padding: 0; margin: 0;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -195,7 +374,6 @@
   border: 0;
 }
 .hero__ping-trigger .tube-ping figcaption { display: none; }
-.hero__ping-trigger:hover { filter: drop-shadow(0 0 6px var(--live-glow)); }
 .hero__ping-trigger:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; }
 
 /* ---------- the ALWAYS-ON scrolling LED banner, beside the mascot ----
@@ -204,13 +382,12 @@
    part of the mascot (not the popup) and clicking it opens the chat. It
    carries NO status words - #pingTag is the single status. */
 .pingband {
-  appearance: none; cursor: pointer; pointer-events: auto; flex-shrink: 1;
-  display: inline-flex; align-items: center; gap: 8px;
-  width: clamp(225px, 33vw, 390px);
-  max-width: clamp(225px, 33vw, 390px);
-  padding: 6px 10px; margin: 0;
+  appearance: none; cursor: pointer; pointer-events: auto;
+  flex: 1 1 auto; min-width: 0;
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin: 0;
   background: var(--paper-2); color: var(--ink-700);
-  border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  border: 1px solid var(--hairline); border-radius: var(--r-xl);
   text-align: left;
   transition: border-color var(--d-2), filter var(--d-2);
 }
@@ -307,7 +484,7 @@
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
   text-transform: uppercase; color: var(--ink-300); line-height: 1.4;
 }
-.pingdeck[data-ping-state="transmit"] .pingdeck__deckline { color: var(--live); }
+.pingdeck[data-ping-state="transmit"] .pingdeck__deckline { color: var(--live-text); }
 
 /* the chat log */
 .pingdeck__log {
@@ -317,7 +494,7 @@
 .pingdeck__line { display: flex; flex-direction: column; gap: 2px; }
 .pingdeck__line--you { align-items: flex-end; }
 .pingdeck__who { font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400); }
-.pingdeck__line--you .pingdeck__who { color: var(--live); }
+.pingdeck__line--you .pingdeck__who { color: var(--live-text); }
 .pingdeck__msg {
   font-size: var(--t-sm); line-height: 1.45; color: var(--ink-700);
   max-width: 90%; padding: 7px 10px; border-radius: var(--r-md);
@@ -339,7 +516,7 @@
   background: var(--white); color: var(--ink-900); display: inline-flex; align-items: center; justify-content: center;
   transition: border-color var(--d-2), color var(--d-2);
 }
-.pingdeck__send:hover:not(:disabled) { border-color: var(--live); color: var(--live); }
+.pingdeck__send:hover:not(:disabled) { border-color: var(--live); color: var(--live-text); }
 .pingdeck__send:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .pingdeck__send:disabled { opacity: .5; cursor: default; }
 
@@ -366,24 +543,13 @@
     position: fixed; top: auto; bottom: 16px; left: 50%; transform: translateX(-50%);
     width: min(360px, 92vw);
   }
-  /* keep the always-on banner from crowding the hero on narrow widths */
-  .pingband { width: min(58vw, 360px); max-width: min(58vw, 360px); }
 }
 
-
-/* tune-in group: the live band (dial) and the install command read as ONE
-   move - "here's the band; tune in." A short bridge line connects them. */
-.tunein { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start;
-  gap: var(--s-4); max-width: 640px; width: 100%; }
-.tunein__bridge {
-  margin: 2px 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.4;
-  max-width: 56ch;
-}
 
 /* ===================== TERMINAL DEMO =========================== */
-.demo { padding-top: var(--s-12); padding-bottom: var(--section-y2); }
+.demo { padding-top: var(--section-y); padding-bottom: var(--section-y2); }
 .demo__head { text-align: left; max-width: 62ch; margin: 0 0 var(--head-gap); }
-.demo__head h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+.demo__head h2 { margin: 0; font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .demo__head h2 .inline { font-size: .72em; vertical-align: middle; }
 .demo__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
@@ -391,7 +557,7 @@
 .demo__head p.demo__fine { margin-top: var(--s-3); color: var(--ink-400); font-size: var(--t-sm); }
 
 .term {
-  max-width: 820px; margin: 0; background: var(--white);
+  margin: 0; background: var(--white);
   border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   box-shadow: var(--e-3); overflow: hidden;   /* the ONE allowed soft shadow */
 }
@@ -466,7 +632,7 @@
    background: var(--white); cursor: pointer;
    transition: color var(--d-2), border-color var(--d-2);
  }
- .term__btn:hover { color: var(--live); border-color: var(--live); }
+ .term__btn:hover { color: var(--live-text); border-color: var(--live); }
  .term__btn:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
  .term__btn--replay { font-size: 14px; }
 
@@ -477,7 +643,7 @@
     border-color: var(--hairline);
 }
 :root[data-theme="dark"] .term__btn:hover {
-    color: var(--live);
+    color: var(--live-text);
     border-color: var(--live);
     background: var(--paper-2);
 }
@@ -501,24 +667,23 @@
 
 /* terminal token colors (quiet mono, one red glint) */
 .t-dim   { color: var(--ink-400); }
-.t-prompt{ color: var(--live); font-weight: var(--weight-semi); }
-.t-user  { color: var(--ink-900); }
+.t-prompt{ color: var(--live-text); font-weight: var(--weight-semi); }
 .t-ok    { color: var(--ink-900); font-weight: var(--weight-semi); }
-.t-live  { color: var(--live); }
+.t-live  { color: var(--live-text); }
 .t-money { color: var(--ink-900); }
 .t-gold  { color: var(--ink-900); }
-.t-volt  { color: var(--ink-900); }
 .t-head  { color: var(--ink-900); font-weight: var(--weight-semi); }
 .t-sel   { background: var(--live-tint); color: var(--ink-900); }
-.t-cursor{ background: var(--live); color: var(--live); animation: blink 1s steps(1) infinite; }
+.t-cursor{ background: var(--live); color: var(--live-text); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .t-cursor { animation: none; } }
 
 /* ---------- two-way (share / tune): flat hairline plates -------- */
 .twoway { display: grid; grid-template-columns: 1fr auto 1fr; gap: var(--s-6); align-items: stretch; }
+/* the band behind them is the tint, so the two plates are raised paper */
 .twoway__side {
-  background: var(--paper); border: 1px solid var(--hairline);
-  padding: var(--s-6); box-shadow: none;
+  background: var(--paper); border-radius: var(--panel-r);
+  padding: var(--s-8); box-shadow: none;
 }
 .twoway__tag {
   display: inline-flex; align-items: center; gap: 6px;
@@ -528,13 +693,6 @@
 }
 .twoway__tag--air  { color: var(--ink-500); }
 .twoway__tag--tune { color: var(--ink-500); }
-.twoway__ico { width: 14px; height: 14px; overflow: visible; }
-.twoway__ico path { opacity: .75; transition: opacity var(--d-3); transform-origin: 8px 8px; }
-.twoway__side:hover .twoway__ico path { animation: icoWave 1.7s var(--ease-in-out) infinite; }
-.twoway__side:hover .twoway__ico path:last-child { animation-delay: .22s; }
-@media (prefers-reduced-motion: reduce) {
-  .twoway__side:hover .twoway__ico path { animation: none; opacity: .9; }
-}
 .twoway__side h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
 .twoway__side p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
 .twoway__cmd {
@@ -544,6 +702,9 @@
   font-size: var(--t-sm); color: var(--ink-900); overflow-x: auto;
 }
 .twoway__cmd::before { content: "$ "; color: var(--ink-300); }
+@media (max-width: 560px) {
+  .twoway__cmd { font-size: 0.72rem; }   /* short commands stay on one line */
+}
 .twoway__link { display: grid; place-items: center; width: 80px; }
 .twoway__beam {
   width: 70px; height: 1px;
@@ -565,30 +726,9 @@
   .twoway__beam::after { animation: none; top: auto; bottom: 0; left: 50%; }
 }
 
-/* ---------- specifications plate ------------------------------- */
-/* ---------- operating notes (numbered list on hairlines) -------- */
-.opnotes { display: block; }
-.opnote {
-  display: grid; grid-template-columns: 56px 1fr; gap: var(--s-4);
-  padding: var(--s-4) 0; border: 0; border-top: 1px solid var(--hairline);
-  background: none; border-radius: 0;
-}
-.opnote:first-child { border-top: 0; }
-.opnote__no {
-  font-family: var(--font-mono); font-size: 1.1rem; font-weight: var(--weight-medium);
-  color: var(--ink-400); font-variant-numeric: tabular-nums; letter-spacing: .02em;
-  position: relative; padding-left: var(--s-3);
-}
-.opnote__no::before {
-  content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; background: var(--live);
-}
-.opnote h3 { margin: 0; font-size: 1.05rem; color: var(--ink-900);
-  font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
-.opnote p { margin-top: 2px; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.45; }
-
 /* ---------- the money meter line (replaces the 3 cards) -------- */
 .meter {
-  max-width: 880px; margin: var(--s-6) 0 0;
+  margin: var(--s-6) 0 0;
   display: flex; flex-wrap: wrap; gap: var(--s-6) var(--s-8);
   padding-top: var(--s-4); border-top: 1px solid var(--hairline);
   font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-500);
@@ -605,50 +745,83 @@
 .monetize__copy > p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 
 /* ---------- company -------------------------------------------- */
-.company {
-  border-top: 1px solid var(--hairline);
-  background: var(--paper);
-}
+/* an #anchor (and the fragment hold in anchor-hold.js)
+   lands the section's top just under the sticky nav, not behind it */
+main section[id] { scroll-margin-top: 72px; }
+/* sideways motion (the two sides of the tune) must never widen the page */
+main > section { overflow-x: clip; }
+/* Bands are a translucent wash of the local ink rather than solid paper-2:
+   the same tone on paper, and inside an ink panel the band stays ink. */
+main .band { background: color-mix(in srgb, var(--ink-900) 3.5%, transparent); }
+/* On paper a band is the shared inset band (.band--inset, components.css: the
+   ink panel's geometry, rounded, no rules), so the page reads as one set of
+   rooms: ink, paper, tint. Inside an ink panel, space alone separates the sections. */
+main .tone-zone .band { background: none; border: 0; }
+main .tone-zone .cta { border-top: 0; }
+/* the market price cell: the "$" tier never splits, and the "good price"
+   chip always sits whole on its own line under the price */
+.mkt-cell--price .price-tier { white-space: nowrap; }
+/* a row with the chip: the "$" tier and the chip wrap together onto a line
+   of their own under the price (the ::after is the line break) */
+.mkt-cell--price:has(.band-tag) { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; column-gap: 4px; row-gap: 3px; }
+.mkt-cell--price:has(.band-tag)::after { content: ""; flex-basis: 100%; order: 1; }
+.mkt-cell--price:has(.band-tag) :is(.price-tier, .band-tag) { order: 2; }
+.mkt-cell--price .band-tag { white-space: nowrap; }
+
 .company__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid var(--hairline);
-  border-top: 2px solid var(--ink-900);
+  gap: var(--s-6);
 }
 .company__card {
   min-width: 0;
-  padding: var(--s-8);
+  padding: clamp(24px, 3.4vw, 44px);
 }
-.company__card + .company__card { border-left: 1px solid var(--hairline); }
-.company__card--labs { background: var(--paper-2); }
+.company__card { display: flex; flex-direction: column; }   /* a .tint-panel (components.css) */
 .company__label {
   display: block;
   margin-bottom: var(--s-3);
-  color: var(--live);
+  color: var(--live-text);
   font-family: var(--font-mono);
   font-size: var(--t-micro);
   font-weight: var(--weight-semi);
   letter-spacing: var(--tracking-label);
 }
 .company__card h3 {
-  margin: 0 0 var(--s-3);
+  margin: 0 0 var(--s-4);
   color: var(--ink-900);
-  font-size: 1.35rem;
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.75rem);
+  line-height: 1.15;
   letter-spacing: -.02em;
 }
+/* the card's first paragraph is its claim (ink, lead size); what follows is
+   the fine print (secondary, smaller, set apart) - same words, a way in */
 .company__card > p {
   color: var(--ink-500);
+  font-size: var(--t-sm);
   line-height: 1.65;
+}
+.company__card > p:first-of-type {
+  color: var(--ink-700);
+  font-size: var(--t-lead);
+  line-height: 1.55;
+}
+.company__card > p + p:not(.company__links) {
+  margin-top: var(--s-4); padding-top: var(--s-4);
+  border-top: 1px solid var(--hairline);
 }
 .company__card code { overflow-wrap: anywhere; }
 /* inline "details ->" link inside card prose (the licence pointer on the Labs card) */
 .company__card > p a { color: var(--ink-700); border-bottom: 1px solid var(--hairline); }
-.company__card > p a:hover { color: var(--live); border-bottom-color: var(--live); }
+.company__card > p a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 .company__links {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--s-3) var(--s-5);
-  margin-top: var(--s-5);
+  /* auto: the row stands on the card's floor, level across both cards */
+  margin-top: auto;
+  padding-top: var(--s-6);
 }
 .company__links a {
   color: var(--ink-900);
@@ -656,7 +829,7 @@
   font-size: var(--t-xs);
   border-bottom: 1px solid var(--hairline-2);
 }
-.company__links a:hover { color: var(--live); border-bottom-color: var(--live); }
+.company__links a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 .company__links .company__primary {
   color: var(--paper);
   border: 1px solid var(--ink-900);
@@ -672,11 +845,9 @@
 .home-spectrum {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  margin: var(--s-6) 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--hairline);
-  border-top: 2px solid var(--ink-900);
 }
 .home-spectrum li {
   display: grid;
@@ -688,18 +859,8 @@
 }
 .home-spectrum li:last-child { border-right: 0; }
 
-/* The wave, drawn: stripes tighten as the tier grows, so the ladder is a
-   picture before it is a list. --gap is set per tier in the markup; the mask
-   fades both ends so the strip reads as a sample of a continuous signal
-   rather than a bounded bar. */
-.home-spectrum i {
-  display: block; height: 22px; margin-bottom: 2px;
-  background: repeating-linear-gradient(90deg,
-    currentColor 0 1.5px, transparent 1.5px var(--gap, 8px));
-  color: var(--ink-300);
-  -webkit-mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
-          mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
-}
+/* The wave, drawn: the shared .wave-bar (components.css), set close to its size line */
+.home-spectrum i { margin-bottom: 2px; }
 .home-spectrum li > span,
 .home-spectrum small {
   color: var(--ink-500);
@@ -711,6 +872,15 @@
    in every cell so the seven names share one baseline. */
 .home-spectrum li > span { min-height: 2.6em; }
 .home-spectrum b { color: var(--ink-900); font-size: var(--t-sm); }
+/* the paper middle (§3 company, §4 the tune, §6 the books): more air and
+   bigger heads, so it reads as chapters rather than one long page */
+#company { padding-block: clamp(72px, 10vw, 144px); }
+/* the tinted panels hold their chapters with a little less air: the panel
+   edge already does part of the separating */
+#what, #books { padding-block: clamp(56px, 8vw, 112px); }
+:is(#company, #what) .section__head h2, #books .shelf__copy h2 {
+  font-size: clamp(2rem, 1.3rem + 2.2vw, 3rem); line-height: 1.08; letter-spacing: -0.025em;
+}
 .home-spectrum__foot {
   margin: var(--s-3) 0 0;
   display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4);
@@ -721,13 +891,15 @@
   font-family: var(--font-mono); font-size: var(--t-micro);
   color: var(--ink-900); white-space: nowrap;
 }
-.home-spectrum__foot a:hover { color: var(--live); }
+.home-spectrum__foot a:hover { color: var(--live-text); }
 @media (max-width: 1080px) {
   .home-spectrum { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .home-spectrum li { border-bottom: 1px solid var(--hairline); }
   .home-spectrum li:nth-child(4n) { border-right: 0; }
   .home-spectrum li:nth-last-child(-n+3):nth-child(n+5) { border-bottom: 0; }
 }
+/* the ladder is its own beat after the cards, not their footnote */
+#company .scrub { margin-top: var(--s-12); }
 @media (max-width: 720px) {
   .company__grid { grid-template-columns: 1fr; }
   .company__card { padding: var(--s-6); }
@@ -746,9 +918,29 @@
   .home-spectrum li { border-right: 0 !important; }
   .home-spectrum i { height: 18px; }
 }
+/* touch phones: the seven tiers are a gallery you swipe, pico to exa, each
+   snapping to the middle; the scrubber above drives it and follows it
+   (scrub.js). Touch only, like the privacy cards: a mouse or keyboard on a
+   narrow window keeps the grid, which every one of them can reach. */
+@media (max-width: 720px) and (pointer: coarse) {
+  .home-spectrum {
+    position: relative;   /* the tiers' offsetParent, for scrub.js */
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 196px;
+    overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+    scrollbar-width: none; padding-inline: calc(50% - 98px);
+  }
+  .home-spectrum::-webkit-scrollbar { display: none; }
+  .home-spectrum li,
+  .home-spectrum li:nth-child(even),
+  .home-spectrum li:nth-child(4n),
+  .home-spectrum li:last-child {
+    scroll-snap-align: center; border-bottom: 0; border-right: 1px solid var(--hairline) !important;
+  }
+  .home-spectrum i { height: 22px; }
+}
 .checks { list-style: none; margin: var(--s-6) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
 .checks li { display: flex; gap: 10px; align-items: flex-start; font-size: var(--t-sm); color: var(--ink-700); }
-.tick { color: var(--live); flex-shrink: 0; font-weight: var(--weight-bold); }
+.tick { color: var(--live-text); flex-shrink: 0; font-weight: var(--weight-bold); }
 
 .earn {
   background: var(--paper); border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
@@ -790,14 +982,32 @@
 
 /* ---------- CTA strip ------------------------------------------ */
 .cta { padding-block: var(--section-y); border-top: 1px solid var(--hairline); }
-.cta__inner { text-align: left; display: flex; flex-direction: column; align-items: flex-start; }
+.cta__inner { text-align: left; display: flex; flex-direction: column; align-items: flex-start; container-type: inline-size; }
 .cta h2 { font-size: var(--t-h1); letter-spacing: var(--tracking-h1); color: var(--ink-900); font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .cta p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
 /* the install lead names the binary; the one bolded phrase steps up to headline ink. */
 .cta p b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.install__box--lg { margin-top: var(--s-8); padding: 18px 20px; }
-.install__box--lg .install__code { font-size: 1.05rem; }
-@media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }
+
+/* §9, the finale: the page ends where it began. The closing line comes back
+   at the hero's scale, and the command is the last big object - set large,
+   a waiting cursor after it - with the most air of any section beneath. */
+#go { padding-bottom: calc(var(--section-y) * 1.5); }
+#go h2 {
+  margin-top: var(--s-2);
+  font-size: min(var(--t-display), 11cqi); line-height: var(--lh-tight);
+  letter-spacing: -0.028em; font-weight: var(--weight-semi);
+}
+#go .install__box--lg { padding: clamp(16px, 2.2vw, 26px) clamp(16px, 2.6vw, 30px); border-radius: var(--r-md); }
+#go .install__box--lg :is(.install__code, .install__prompt) { font-size: clamp(0.8125rem, 0.5rem + 1.15vw, 1.45rem); }
+#go .install__box--lg .install__code::after {
+  content: ""; display: inline-block; width: 0.55em; height: 1.05em; margin-left: 0.3em;
+  vertical-align: -0.18em; background: var(--live);
+}
+#go .install__meta { margin-top: var(--s-3); }
+@keyframes cursor-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  #go .install__box--lg .install__code::after { animation: cursor-blink 1.1s steps(1) infinite; }
+}
 
 /* ---------- two surfaces (dial / console) ---------------------- */
 /* The CTA is left-aligned and column-flowed, so these inherit that axis rather than
@@ -807,8 +1017,7 @@
 .surfaces__lead { color: var(--ink-500); font-size: var(--t-sm); max-width: 62ch; }
 .surfaces__grid { margin-top: var(--s-5); display: grid; gap: var(--s-4);
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-.surfaces__card { border: 1px solid var(--hairline); border-radius: var(--r-sm);
-  padding: var(--s-5); background: var(--surface, transparent); }
+.surfaces__card { border-radius: var(--r-xl); padding: var(--s-6); background: var(--paper-2); }
 .surfaces__h { font-size: var(--t-sm); letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--ink-500); font-weight: var(--weight-bold); }
 .surfaces__cmd { display: inline-block; margin-top: var(--s-2); font-family: var(--font-mono);
@@ -824,38 +1033,13 @@
 .market__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 .market__head p b { color: var(--ink-900); font-weight: var(--weight-semi); }
 
-/* ---------- signal-sweep radar (premium animated asset) -------- */
-.radar { display: block; width: 64px; height: 64px; margin: var(--s-2) auto var(--s-5); }
-.radar__svg { width: 100%; height: 100%; overflow: visible; }
-.radar__ring { stroke: var(--hairline-2); stroke-width: 1; fill: none; }
-.radar__cross { stroke: var(--hairline-2); stroke-width: 1; opacity: .7; }
-/* sweep runs on the carrier octave so the radar shares the page's rhythm.
-   Each blip is phase-locked to the moment the arm passes its bearing, then
-   decays like scope phosphor - so the sweep visibly PAINTS the contacts. */
-.radar__sweep { transform-origin: 32px 32px; animation: radarSpin var(--carrier-2x) linear infinite; }
-@keyframes radarSpin { to { transform: rotate(360deg); } }
-.radar__blip { fill: var(--live); opacity: 0; transform-box: fill-box; transform-origin: center; }
-.radar__blip--1 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: .61s; }
-.radar__blip--3 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 1.78s; }
-.radar__blip--2 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 2.75s; }
-@keyframes radarBlip {
-  0%   { opacity: 0;   transform: scale(.4); }
-  2%   { opacity: 1;   transform: scale(1.25); }  /* the arm hits: hard ping */
-  10%  { opacity: .9;  transform: scale(1); }
-  60%  { opacity: .22; }                          /* phosphor decay */
-  88%,100% { opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .radar__sweep { animation: none; opacity: .5; }
-  .radar__blip { animation: none; opacity: .8; transform: none; }
-}
-
 /* left-bound like everything else on this page (.term above it uses the
    same margin:0 convention) - centering this with margin:0 auto is what
    left it visibly inset from the heading and the terminal box above it. */
 .market__panel {
-  max-width: 880px; margin: 0; background: var(--paper);
+  margin: 0; background: var(--paper);
   border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  border-radius: var(--r-md);
   box-shadow: none; overflow: hidden;
 }
 
@@ -868,7 +1052,7 @@
 .market__status { display: inline-flex; align-items: center; gap: 9px;
   font-size: var(--t-sm); color: var(--ink-500); font-weight: var(--weight-medium); }
 .market__status .onair { color: var(--ink-300); font-size: var(--t-sm); transition: color var(--d-3); }
-.market__status.is-live .onair { color: var(--live); }
+.market__status.is-live .onair { color: var(--live-text); }
 .market__status.is-stale .onair { color: var(--ink-400); }
 .market__status.is-stale { color: var(--ink-500); }
 .market__status.is-demo .onair { color: var(--ink-400); }
@@ -882,11 +1066,6 @@
 .mkt-list.is-stale .ember { color: var(--ink-500); }
 .mkt-list.is-stale .sigbar--on { color: var(--ink-400); }
 .market__meta { display: inline-flex; align-items: center; gap: var(--s-5); }
-.market__legend { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-xs);
-  color: var(--ink-400); }
-.market__legbar { width: 16px; height: 12px; border-radius: 2px;
-  background: linear-gradient(90deg, var(--live-tint), var(--live)); display: inline-block; }
-@media (max-width: 620px) { .market__legend { display: none; } }
 
 /* the grid: rows of channels */
 .mkt-row, .mkt-row--head {
@@ -925,7 +1104,7 @@
 html.js .mkt-quiet--nojs { display: none; }
 .mkt-quiet code { color: var(--ink-900); }
 .mkt-quiet a { color: var(--ink-700); border-bottom: 1px solid transparent; }
-.mkt-quiet a:hover { color: var(--live); border-bottom-color: var(--live); }
+.mkt-quiet a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 .mkt-cell { min-width: 0; }
 .mkt-cell--speed, .mkt-cell--quality, .mkt-cell--price { text-align: right; }
@@ -935,18 +1114,21 @@ html.js .mkt-quiet--nojs { display: none; }
 /* station cell: ● dot, model name, ◆, provider count */
 .mkt-cell--model { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
 .mkt-dot { font-size: 10px; line-height: 1; }
-.mkt-dot--on { color: var(--live); }
+.mkt-dot--on { color: var(--live-text); }
 .mkt-dot--off { color: var(--ink-300); }
 .mkt-model { font-weight: var(--weight-semi); color: var(--ink-900); letter-spacing: -.01em;
-  font-family: var(--font-mono); font-size: .9375rem; overflow: hidden; text-overflow: ellipsis; }
+  font-family: var(--font-mono); font-size: .9375rem; overflow: hidden; text-overflow: ellipsis;
+  /* a long id wraps inside its own box, beside its dot, never leaving the
+     dot alone on a line above it */
+  max-width: calc(100% - 2.5em); overflow-wrap: anywhere; }
 .mkt-model .cs { color: var(--gold); }
-.mkt-prov { flex-basis: 100%; font-size: var(--t-xs); color: var(--live); font-weight: var(--weight-medium); }
+.mkt-prov { flex-basis: 100%; font-size: var(--t-xs); color: var(--live-text); font-weight: var(--weight-medium); }
 .mkt-prov--idle { color: var(--ink-400); }
 
 /* signal tower bars ▁▂▃▄▅▆▇█ */
 .sig { font-family: var(--font-mono); letter-spacing: 1px; white-space: nowrap; line-height: 1; }
 .sigbar { display: inline-block; }
-.sigbar--on  { color: var(--live); }
+.sigbar--on  { color: var(--live-text); }
 .sigbar--off { color: var(--ink-300); opacity: .55; }
 .sigbar--head { will-change: opacity; }
 
@@ -960,38 +1142,22 @@ html.js .mkt-quiet--nojs { display: none; }
 .qdots { font-size: 10px; letter-spacing: 1px; color: var(--volt); white-space: nowrap; }
 .qdots--idle { color: var(--ink-300); }
 
-/* skeleton shimmer while first fetch resolves */
-.mkt-skel { height: 52px; border-bottom: 1px solid var(--hairline);
-  background: linear-gradient(90deg, var(--paper-2) 25%, var(--paper-3) 37%, var(--paper-2) 63%);
-  background-size: 400% 100%; animation: mktSkel 1.4s ease infinite; }
-.mkt-skel:last-child { border-bottom: 0; }
-@keyframes mktSkel { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
-@media (prefers-reduced-motion: reduce) { .mkt-skel { animation: none; } }
 
 
 @media (max-width: 680px) {
+  /* the model name takes the whole first line (a long id no longer breaks
+     into three), the signal and the price share the line under it */
   .mkt-row, .mkt-row--head {
-    grid-template-columns: minmax(0,1.6fr) 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--s-2);
   }
+  .mkt-cell--model { grid-column: 1 / -1; }   /* the head row mirrors it: two lines */
+  /* the station count rides on the name's line */
+  .mkt-prov { flex-basis: auto; }
   .mkt-cell--quality { display: none; }
   .mkt-cell--speed { display: none; }
   .mkt-row--head .mkt-cell--speed, .mkt-row--head .mkt-cell--quality { display: none; }
 }
 
-/* ---------- money row (glanceable economics) ------------------- */
-.money {
-  max-width: 880px; margin: var(--s-8) auto 0;
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4);
-}
-@media (max-width: 680px) { .money { grid-template-columns: 1fr; } }
-.money__card {
-  background: var(--white); border: 1px solid var(--hairline); border-radius: var(--r-md);
-  padding: var(--s-6); box-shadow: var(--e-1); display: flex; flex-direction: column; gap: 6px;
-}
-.money__label { font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--ink-400); font-weight: var(--weight-semi); }
-.money__big { font-size: 1.5rem; color: var(--ink-900); line-height: 1.1; letter-spacing: -.02em; }
-.money__sub { font-size: var(--t-xs); color: var(--ink-500); line-height: 1.45; }
 
 
 /* homepage hero-foundation overrides */
@@ -999,13 +1165,6 @@ html.js .mkt-quiet--nojs { display: none; }
 @media (min-width: 641px) and (max-height: 800px) {
   .hero__inner .fig { margin-top: var(--s-5); }
 }
-.hero__ping {
-  z-index: 1; pointer-events: none;
-  flex-direction: row; align-items: center; gap: var(--s-3);
-  margin: var(--s-8) 0 0;
-  color: var(--ink-700);
-}
-.hero__ping-tag { color: var(--ink-500); }
 
 /* =====================================================================
    /models - the live model directory: the interactive dial centerpiece
@@ -1017,7 +1176,7 @@ html.js .mkt-quiet--nojs { display: none; }
 /* the small homepage entry into /models (single, non-disruptive link) */
 .market__tune { margin-top: var(--s-3); font-size: var(--t-xs); }
 .market__tune a { color: var(--ink-500); border-bottom: 1px solid transparent; }
-.market__tune a:hover { color: var(--live); border-bottom-color: var(--live); }
+.market__tune a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 /* =====================================================================
    FIG.2 (homepage) - the ROGER EDGE STORY REEL. Two brand films playing
@@ -1029,13 +1188,19 @@ html.js .mkt-quiet--nojs { display: none; }
    just a plain looping film, never a set stuck "off". Flat hairline plate,
    same left edge + max-width as FIG.1 (640px).
    ===================================================================== */
-.reel { display: block; max-width: 640px; width: 100%; margin: var(--s-8) 0 0; }
+/* the caption is one line over the screen: the FIG. label on the content
+   box's left edge, the way on to the Edge line on its right */
+.reel {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: var(--s-2) var(--s-6); width: 100%; margin: var(--s-8) 0 0;
+}
+.hero__inner .reel .fig { margin: 0; }
 .reel__bridge {
-  margin: 0 0 var(--s-2); font-family: var(--font-mono); font-size: var(--t-xs);
+  margin: 0; font-family: var(--font-mono); font-size: var(--t-xs);
   color: var(--ink-500); letter-spacing: -.01em; line-height: 1.4;
 }
 .reel__bridge a { color: var(--ink-700); border-bottom: 1px solid var(--hairline-2); }
-.reel__bridge a:hover { color: var(--live); border-bottom-color: var(--live); }
+.reel__bridge a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 /* EXPERIMENT: the screen breaks out to the full content width (spine to
    viewport edge). A plain sibling of .wrap - not a 100vw/-50vw bleed, which
@@ -1044,11 +1209,13 @@ html.js .mkt-quiet--nojs { display: none; }
    same fix). position:relative so the mute button can overlay the screen's
    corner despite being its DOM sibling, not its child (see the button's own
    comment in index.html for why it isn't nested inside .reel__screen). */
-.reel-band { position: relative; width: 100%; margin-top: var(--s-6); }
+.reel-band { position: relative; width: 100%; margin-top: var(--s-4); }
 .reel__screen {
   position: relative; overflow: hidden; background: #050505; cursor: pointer;
   aspect-ratio: 1280 / 544;
-  border-top: 2px solid var(--ink-900); border-bottom: 2px solid var(--ink-900);
+  /* one hairline where the picture meets the cover; the panel's own
+     rounded floor is its bottom edge */
+  border-top: 1px solid var(--hairline-2);
 }
 .reel__screen:focus-visible {
   outline: none; box-shadow: inset 0 0 0 3px var(--live-glow);
@@ -1195,16 +1362,10 @@ html.js .mkt-quiet--nojs { display: none; }
 .reel__mute .reel__icon--sound { display: none; }
 .reel__mute.is-unmuted .reel__icon--muted { display: none; }
 .reel__mute.is-unmuted .reel__icon--sound { display: block; }
-.reel__mute.is-unmuted { color: var(--live); border-color: var(--live); }
+.reel__mute.is-unmuted { color: var(--live-text); border-color: var(--live); }
 
-/* Per-model $-tier on the market teaser price cell: a NEUTRAL "$".."$$$$" read of the
-   model's BEST price vs the going rate, + a "good price" chip on the cheapest tier ONLY.
-   Mirrors the Models page (.price-tier / .band-tag--deal) so every surface reads alike;
-   the homepage doesn't load models.css, so the essentials live here too. Never negative. */
-.price-tier { font-family: var(--font-mono); font-weight: 600; color: var(--ink-500); margin-left: 4px; }
-.band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
-  padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
-.band-tag--deal { color: var(--live); border-color: var(--live); }
+/* (the market chips - .price-tier, .band-tag and its modifiers - are the shared
+   directory component, components.css) */
 
 /* =====================================================================
    §5 THE DATA PLATE
@@ -1215,10 +1376,10 @@ html.js .mkt-quiet--nojs { display: none; }
    Same eleven facts (test/homepage-plate-and-books.test.mjs counts them),
    about a fifth of the height.
    ===================================================================== */
-.section--plate { padding-block: var(--s-8); }
+.section--plate { padding-block: var(--s-16); }
 
 .plate {
-  border: 1px solid var(--ink-900);
+  border: 1px solid var(--ink-900); border-radius: var(--r-xl);
   padding: var(--s-4) var(--s-5) var(--s-4);
   /* the four rivets are the background, not four extra elements */
   background:
@@ -1247,6 +1408,7 @@ html.js .mkt-quiet--nojs { display: none; }
 .plate__grid {
   margin: 0; display: flex; flex-wrap: wrap;
   background: var(--paper); border: 1px solid var(--hairline);
+  border-radius: var(--r-md); overflow: hidden;
 }
 .plate__grid > div {
   /* grow so each wrapped line justifies to the plate edge - a ragged right on a
@@ -1323,7 +1485,7 @@ html.js .mkt-quiet--nojs { display: none; }
   line-height: 1.5; letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 .shelf__no b { color: var(--ink-400); font-weight: var(--weight-medium); }
-.shelf__no em { display: block; margin-top: 3px; font-style: normal; color: var(--live); }
+.shelf__no em { display: block; margin-top: 3px; font-style: normal; color: var(--live-text); }
 
 .shelf__colophon {
   display: flex; align-items: center; gap: var(--s-5);
@@ -1358,7 +1520,7 @@ html.js .mkt-quiet--nojs { display: none; }
   display: flex; flex-direction: column; gap: var(--s-3);
   padding: var(--s-6); background: var(--paper);
 }
-.pcards h3 { margin: 0; color: var(--ink-900); font-size: var(--t-base); }
+.pcards h3 { margin: 0; color: var(--ink-900); font-size: var(--t-body); }
 .pcards p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .pc-ic {
   width: 44px; height: 44px; fill: none; stroke: var(--ink-900);
@@ -1367,3 +1529,48 @@ html.js .mkt-quiet--nojs { display: none; }
 .pc-ic .pc-red { stroke: var(--live); }
 .pc-ic .pc-fill { fill: var(--live); stroke: none; }
 @media (max-width: 820px) { .pcards { grid-template-columns: 1fr; } }
+/* touch phones: the six cards are a gallery you swipe, snapping card by
+   card. Touch only: keyboard and mouse users (a zoomed desktop too) keep the
+   stacked cards, which every one of them can reach. */
+@media (max-width: 640px) and (pointer: coarse) {
+  .pcards {
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 84%;
+    overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+    scrollbar-width: none; gap: 12px; background: none; border-block: 0;
+  }
+  .pcards article { border-radius: var(--panel-r); background: var(--paper-2); }
+}
+.pcards article { scroll-snap-align: start; }
+
+/* the tuned tier of the Wave Spectrum (the scrubber itself is .scrub, components.css):
+   a quiet ground, its wave in the live red; the other tiers never fade */
+.home-spectrum li { transition: background-color var(--d-2); }
+.home-spectrum li.is-tuned { background: var(--paper-2); }
+.home-spectrum li.is-tuned i { color: var(--live-text) !important; }   /* over the tune-in animation's fill */
+.home-spectrum li.is-tuned b { color: var(--ink-900); }
+
+/* ---- hardware-button feedback (round 10): the homepage's own pressables
+   (the shared ones, and the copy tick, are in components.css). Every
+   control on the page answers the same way: it sinks 1px while held. */
+.company__primary:active { transform: translateY(1px); }
+:is(.term__preset, .term__btn, .market__refresh, .pingband, .hero__proof):active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  .company__primary:active { transform: none; }
+  :is(.term__preset, .term__btn, .market__refresh, .pingband, .hero__proof):active { transform: none; }
+}
+
+/* ---- the page's small mono links share one hover: the hairline under the
+   words gives way to the red rule, drawn left to right (finish pass). The
+   colour changes at once; only the rule moves, and not under reduced motion. */
+:is(.company__links a:not(.company__primary), .home-spectrum__foot a, .reel__bridge a, .market__tune a) {
+  background: linear-gradient(var(--live), var(--live)) left bottom / 0 1px no-repeat;
+  background-origin: border-box;
+}
+:is(.company__links a:not(.company__primary), .home-spectrum__foot a, .reel__bridge a, .market__tune a):is(:hover, :focus-visible) {
+  background-size: 100% 1px; border-bottom-color: transparent;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :is(.company__links a:not(.company__primary), .home-spectrum__foot a, .reel__bridge a, .market__tune a) {
+    transition: background-size var(--d-3) var(--ease-out-quint);
+  }
+}

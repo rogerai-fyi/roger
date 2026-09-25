@@ -3,24 +3,9 @@
    The piece is a ledger: mono figures, tabular numerals, hairline rules, and exactly
    one red - spent on the row that wins the comparison. */
 
-.ec-post .bc-post__wrap { max-width: 900px; }
-.ec-post .bc-post__head,
-.ec-post .bc-post__body { max-width: 760px; margin-inline: auto; }
 
 /* ---- the quick answer ------------------------------------------------- */
 
-.bc-answer {
-  margin: var(--s-8) 0 0;
-  padding: var(--s-5) var(--s-6) var(--s-4);
-  background: var(--paper-2);
-  border: 1px solid var(--hairline-2);
-  border-radius: var(--r-md);
-}
-.bc-answer__tag {
-  display: inline-block; margin-bottom: var(--s-3);
-  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--live);
-}
 .bc-answer__lede {
   margin: 0; font-size: var(--t-lead); line-height: 1.5; color: var(--ink-900);
 }
@@ -35,7 +20,7 @@
 .ec-answer-grid > div { padding: var(--s-3) var(--s-4); background: var(--white); }
 .ec-answer-grid dt {
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--ink-400);
+  text-transform: uppercase; color: var(--ink-500);
 }
 .ec-answer-grid dd {
   margin: 6px 0 0; font-family: var(--font-mono);
@@ -43,10 +28,10 @@
   font-size: var(--t-h3); color: var(--ink-900);
 }
 /* the unit label wraps as one piece, never leaving "out" stranded on its own line */
-.ec-answer-grid dd span { font-size: var(--t-xs); color: var(--ink-400); white-space: nowrap; }
+.ec-answer-grid dd span { font-size: var(--t-xs); color: var(--ink-500); white-space: nowrap; }
 .ec-answer-foot {
   margin: var(--s-3) 0 0; font-size: var(--t-micro);
-  letter-spacing: .04em; color: var(--ink-400);
+  letter-spacing: .04em; color: var(--ink-500);
 }
 
 /* ---- the formula ------------------------------------------------------ */
@@ -61,8 +46,8 @@
   flex-wrap: wrap; gap: var(--s-3);
   font-size: var(--t-sm); color: var(--ink-900);
 }
-.ec-formula__lhs { color: var(--live); font-weight: var(--weight-semi); }
-.ec-formula__op { color: var(--ink-400); }
+.ec-formula__lhs { color: var(--live-text); font-weight: var(--weight-semi); }
+.ec-formula__op { color: var(--ink-500); }
 .ec-formula__frac { display: inline-flex; flex-direction: column; text-align: center; }
 .ec-formula__num { padding-bottom: 5px; }
 .ec-formula__den { padding-top: 5px; border-top: 1px solid var(--ink-900); }
@@ -73,7 +58,7 @@
 
 /* ---- the ledger tables ------------------------------------------------ */
 
-.ec-tablewrap { margin: var(--s-6) 0 0; overflow-x: auto; }
+.ec-tablewrap { margin: var(--s-6) 0 0; }   /* a .scroll-box */
 
 .ec-table {
   width: 100%; min-width: 560px; border-collapse: collapse;
@@ -82,15 +67,9 @@
 .ec-table caption {
   caption-side: top; text-align: left; padding-bottom: var(--s-3);
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--ink-400);
+  text-transform: uppercase; color: var(--ink-500);
 }
-.ec-table th {
-  text-align: left; padding: 0 var(--s-3) var(--s-2) 0;
-  border-bottom: 1px solid var(--ink-900);
-  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; font-weight: var(--weight-semi); color: var(--ink-700);
-  white-space: nowrap;
-}
+.ec-table th { padding: 0 var(--s-3) var(--s-2) 0; white-space: nowrap; }   /* the header row: .data-table */
 .ec-table td {
   padding: 9px var(--s-3) 9px 0;
   border-bottom: 1px solid var(--hairline);
@@ -100,10 +79,10 @@
 .ec-table tbody tr:hover td { background: var(--paper-2); }
 /* a continued row: same card, the other duty cycle. The label is dimmed so the eye
    reads the pair as one machine rather than two. */
-.ec-table .ec-cont { color: var(--ink-400); }
-.ec-win  { color: var(--live); font-weight: var(--weight-semi); }
+.ec-table .ec-cont { color: var(--ink-500); }
+.ec-win  { color: var(--live-text); font-weight: var(--weight-semi); }
 /* not "crossed out" - a figure that does not clear its own cost. Muted, not struck. */
-.ec-lose { color: var(--ink-400); }
+.ec-lose { color: var(--ink-500); }
 .ec-lose::after { content: " \2717"; font-size: .85em; }
 
 .ec-table--market td:first-child,
@@ -131,7 +110,7 @@
   font-size: 12px; font-variant-numeric: tabular-nums;
 }
 .ec-chart__axis {
-  fill: var(--ink-400); font-family: var(--font-mono);
+  fill: var(--ink-500); font-family: var(--font-mono);
   font-size: 10px; text-anchor: middle;
 }
 .ec-chart__bar { rx: 2; }
@@ -139,7 +118,7 @@
 .ec-chart__bar--cost   { fill: var(--ink-900); rx: 1; }
 .ec-figure figcaption {
   margin: var(--s-3) 2px 0; font-size: var(--t-xs);
-  line-height: 1.5; color: var(--ink-400);
+  line-height: 1.5; color: var(--ink-500);
 }
 
 /* ---- the levers ------------------------------------------------------- */
@@ -151,7 +130,7 @@
 }
 .ec-levers li::before {
   content: "\2192"; position: absolute; left: 0; top: 0;
-  color: var(--live); font-family: var(--font-mono);
+  color: var(--live-text); font-family: var(--font-mono);
 }
 .ec-levers li:last-child { padding-bottom: 0; }
 .ec-levers b { color: var(--ink-900); }
