@@ -285,7 +285,8 @@
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
   }
-  .research-hero__layout .research-actions { grid-template-columns: 1fr; }
+  /* a phone: the 2x2 block becomes the lead row's wrap, each button at its own width */
+  .research-hero__layout .research-actions { display: flex; }
 }
 
 /* =====================================================================

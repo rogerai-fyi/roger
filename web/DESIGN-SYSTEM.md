@@ -14,7 +14,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 |---|---|---|---|
 | Section, section head | `.section`, `.section__head`, `.sectionno` (base) | - | every marketing page |
 | Tinted band / inset band | `.band`, `.band--inset` | - | homepage, research pages |
-| Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (`--primary`, then `--quiet`) | press | 15 pages, every action row |
+| Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (`--primary` first, then plain boxed secondaries) | press | 15 pages, every action row |
 | Callout | `.man-note` (`--live`, `--ember`) | - | manual, keys, hardware, 2 articles |
 | Install pill + copy tick | `install-box.html` partial, `.install`, `.install__box` (`--lg`) | `site.js` | homepage, app, Tower, articles |
 | Inline / block copy command | `.copy-code` (`--block`) | `site.js` `[data-copy-target]` | Pricing, Integrations |
@@ -48,7 +48,7 @@ definitions).
 
 | Role | The pattern | Was also |
 |---|---|---|
-| Action row (hero, section, closing) | the lead row: `.research-actions.research-actions--lead`, the first action `--primary`, every other `--quiet` | boxed outline buttons (Company, Careers, FAQ, Research, App, Industrial, Wave family, Models and status, why), a row with no primary, the 404's own pill + link |
+| Action row (hero, section, closing) | the lead row: `.research-actions.research-actions--lead`, ONE solid primary (`--primary`, the first action), then boxed secondaries (the plain `.research-button` outline) | underlined quiet text links (`--quiet`, reversed by the founder: every row now reads like the old Company row), a row with no primary, the 404's own pill + link |
 | Page hero | paper; the homepage cover is the one ink hero. The ink panel marks a page's moment (its instrument or live data), not its title | ink hero panels (Company, Careers, FAQ) |
 | Hero title | landing page: `--t-display`; document (article, manual, legal, 404, confidential): `--t-h1` | the Broadcasts front door at h1 size |
 | Contents tuner | right after the hero (and the hero's strip or figure) on any page with 4+ numbered sections | after an article's Quick Answer (broadcast 010) |
@@ -56,8 +56,8 @@ definitions).
 | Command block | `.code-block` (copy tick, prompts not copied); the install line is the install-box partial; an inline command `.copy-code` | 45 bare `<pre>` in the manual and two on Integrations, each with its own grey box and no copy |
 | Data table | `.data-table` (no box, hairline rows, a label-type header over a `--hairline-2` rule), in a `.scroll-box` when it can outgrow a phone | six header styles (filled, 2px ink rule, sentence case, three weights) and three scroll wrappers with and without a box |
 
-To flip a pattern later, change the component, not the pages: the lead row's quiet links
-are one rule set (`.research-button--quiet`, see its comment in components.css); a
+To flip a pattern later, change the component, not the pages: the lead row's secondaries
+are the one `.research-button` rule set (see its comment in components.css); a
 landing hero becomes ink by wrapping it in `.tone-zone` and changing the one rule in
 the consistency test.
 
@@ -162,10 +162,14 @@ but are a different role: sentence-case links set in the card's own type with a 
 rule on hover, not the page's uppercase action row. They stay in home.css.)
 
 Every action row on the site is the lead row (see **One role, one pattern**):
-`.research-actions.research-actions--lead`, ONE primary, then quiet
-text links, `.research-button--quiet` (the mono label, tap height and press, no box; a
-hairline underline that turns red on hover or focus). The lead row keeps every button at
-its own width on phones, so it never becomes a stack of full-width outlines.
+`.research-actions.research-actions--lead`, ONE solid primary (`.research-button--primary`,
+the first action), then boxed secondaries: the plain `.research-button`, a hairline outline
+with the mono label in `--ink-700` (AA on paper and, through the tokens, in an ink panel).
+Hover and focus turn the outline and label red, keyboard focus adds a 2px `--live` ring,
+a pressed secondary takes the `--paper-2` ground and sinks 1px; no glow. On touch every
+button is at least 44px tall. The lead row keeps every button at its own width on phones
+and wraps onto new lines with a 12px gap, so it never becomes a stack of full-width
+outlines. There is no quiet link variant.
 
 ### Callout
 `<div class="man-note">` with an optional `<span class="man-note__tag">`; `--live` and
@@ -175,12 +179,15 @@ its own width on phones, so it never becomes a stack of full-width outlines.
 ```html
 <!-- include: install-box.html id=installX cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
 <!-- args: size=lg (closing CTA size), oslock=linux (never swapped to PowerShell),
+     oslock=any (a cross-platform command that is not the installer: never swapped),
      label="..." (defaults to "Copy install command to clipboard") -->
 ```
 Wrap it in `<div class="install">` with an optional `<span class="fig">`,
 `<p class="install__lead">` and `<div class="install__meta">`. site.js copies the
 displayed `.install__code` of **every** `.install__box` (Windows visitors get the
-PowerShell line unless `data-os-lock`), marks it `.is-copied` for 1.6s (the icon becomes a
+PowerShell line unless `data-os-lock`: `linux` for a one-platform command such as the
+Tower installer, `any` for a cross-platform command that is not the installer, such as
+`roger use` on /models or `roger say` on /voices), marks it `.is-copied` for 1.6s (the icon becomes a
 tick) and shows the toast. A hyphenated token wrapped in `<span class="tok">` never breaks.
 No-JS: the command is plain selectable text. Pages with a text "copy" label instead of the
 icon (the /models QSL card, /voices) use the same classes by hand.
