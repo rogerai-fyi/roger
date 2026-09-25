@@ -885,6 +885,13 @@ li > a:not([class]):focus-visible,
   width: 100%; max-width: 260px; height: auto; overflow: visible; display: block;
 }
 .wave-mark--slim .wave-mark__wave { fill: none; stroke-linecap: round; }
+/* the resting frame's strokes (no JS, reduced motion): a page that loads only the
+   slim mark (Research) drew its beacon alone without these */
+.wave-mark--slim .wave-mark__wave--wide { stroke: var(--hairline-2); stroke-width: 9; }
+.wave-mark--slim .wave-mark__wave--live { stroke: var(--live); stroke-width: 6; }
+.wave-mark--slim .wave-mark__wave--h2 { stroke: var(--hairline-2); stroke-width: 4; opacity: .55; }
+.wave-mark--slim .wave-mark__wave--h3 { stroke: var(--hairline-2); stroke-width: 3; opacity: .38; }
+.wave-mark--slim .wave-mark__wave--h4 { stroke: var(--hairline-2); stroke-width: 2; opacity: .26; }
 .wave-mark--slim .wave-mark__node { fill: var(--mark-lead, var(--live)); }
 .wave-mark--slim .wave-mark__tier { fill: none; stroke-linecap: round; }
 .wave-mark--slim .wave-mark__ring { fill: none; stroke: var(--mark-lead, var(--live)); stroke-width: 2; opacity: 0; }

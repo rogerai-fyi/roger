@@ -747,6 +747,8 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
 .band--inset {
   margin: var(--panel-inset) var(--panel-mx); border-block: 0; border-radius: var(--panel-r);
 }
+/* two inset bands in a row read as two panels, not one panel with a crease */
+.band--inset + .band--inset { margin-top: var(--s-12); }
 
 /* ======================= DIRECTORY (models, voices, the homepage market) ==
    The live directories list the same network in two media, so they share a
