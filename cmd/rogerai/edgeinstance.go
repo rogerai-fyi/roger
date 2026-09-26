@@ -219,6 +219,20 @@ func edgeAttachUpstream(fn func(band string) (chatURL, key string, ok bool)) { e
 // feature): the verify-only trust to authenticate them, membership in THIS fleet to admit
 // them, the upstream that has the band, and the node key to receipt with. Absent when this
 // machine holds no trust (not enrolled) - the face then answers describe only.
+// edgeSelfDeclares reports whether THIS process declares the capability an invoke needs, from its
+// LIVE capabilities (operate always - it runs an agent - plus serve when a band is on air), not the
+// self node's fleet record, which is never probed and carries no caps. A declaration-gated capability
+// (operate) needs only to be declared; a probe-verified one would need VERIFIED - which the self
+// record cannot show, but the runner only ever runs operate anyway (device caps are refused there).
+func edgeSelfDeclares(need edge.Capability) bool {
+	for _, c := range edgeInstanceCaps(edgeBandsOnAir()) {
+		if c.Name == string(need) {
+			return edge.DeclarationGated(need) || c.State == string(edge.Verified)
+		}
+	}
+	return false
+}
+
 func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serving, bool) {
 	auth, _, err := edgeIdentityStore().Trust(time.Now())
 	if err != nil || auth == nil {
@@ -302,7 +316,18 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			h.mu.Lock()
 			fleet := h.st.fleet
 			h.mu.Unlock()
-			return fleet.AuthorizeInvoke(g, nodeID, need)
+			// The grant/scope checks (owner, revoked, expiry, node scope) run against the fleet record.
+			// The CAPABILITY check does NOT: the callee is THIS process, and its own fleet record is not
+			// probed and carries no caps (edgeRecordSelf enrols a bare node; discovery skips self). So
+			// authorize the capability against what THIS process actually declares LIVE - which is what
+			// will run the task - not the stale self record.
+			if err := fleet.AuthorizeInvoke(g, nodeID, ""); err != nil {
+				return err
+			}
+			if need != "" && !edgeSelfDeclares(need) {
+				return fmt.Errorf("%w: %s", edge.ErrNotVerified, need)
+			}
+			return nil
 		},
 		// Invoke is the task RUNNER (features/edge/control.feature, the delegate arrow): once the face
 		// has authorized an invoke, this runs the delegated task in THIS roger's own headless harness -

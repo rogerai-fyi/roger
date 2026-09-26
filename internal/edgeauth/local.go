@@ -354,26 +354,69 @@ func (l *Local) ReAdmit(nodeID, name string) ([]string, error) {
 	}
 	var revoked []string
 	err := l.withLock(func() error {
+		var e error
+		revoked, e = l.reAdmitLocked(nodeID, name)
+		return e
+	})
+	return revoked, err
+}
+
+// ErrRevokedNeedsReadmit is returned by ReAdmitRoutine when the node's certificate stands REVOKED:
+// a routine adopt must not silently lift a deliberate revocation, so the caller is sent to the
+// explicit readmit path instead.
+var ErrRevokedNeedsReadmit = errors.New("device was revoked; needs an explicit re-admit")
+
+// ReAdmitRoutine re-admits a device ONLY if its certificate is not currently revoked - the routine
+// rejoin of a device that merely LEFT. The revoked-check and the re-admit run under ONE lock, so a
+// revoke/forget landing between them cannot be silently lifted (it returns ErrRevokedNeedsReadmit).
+func (l *Local) ReAdmitRoutine(nodeID, name string) ([]string, error) {
+	if strings.TrimSpace(nodeID) == "" {
+		return nil, nil
+	}
+	var revoked []string
+	err := l.withLock(func() error {
 		serials, err := l.serialsFor(nodeID)
 		if err != nil {
 			return err
 		}
-		for _, srl := range serials {
-			n, ok := parseSerial(srl)
-			if !ok {
-				return fmt.Errorf("%q is not a certificate serial", srl)
-			}
-			if err := l.auth.Revoke(n); err != nil {
-				return err
-			}
-			revoked = append(revoked, srl)
-		}
-		if err := l.clearIssued(nodeID); err != nil {
+		rev, err := l.revokedNow()
+		if err != nil {
 			return err
 		}
-		return l.grantClaimLocked(nodeID, name)
+		for _, srl := range serials {
+			if rev[srl] {
+				return ErrRevokedNeedsReadmit
+			}
+		}
+		revoked, err = l.reAdmitLocked(nodeID, name)
+		return err
 	})
 	return revoked, err
+}
+
+// reAdmitLocked is the shared re-admit body: revoke every certificate the node holds, clear its
+// issued history so those revoked serials do not block a fresh claim, and grant a new claim. The
+// caller holds the authority lock.
+func (l *Local) reAdmitLocked(nodeID, name string) ([]string, error) {
+	serials, err := l.serialsFor(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	var revoked []string
+	for _, srl := range serials {
+		n, ok := parseSerial(srl)
+		if !ok {
+			return revoked, fmt.Errorf("%q is not a certificate serial", srl)
+		}
+		if err := l.auth.Revoke(n); err != nil {
+			return revoked, err
+		}
+		revoked = append(revoked, srl)
+	}
+	if err := l.clearIssued(nodeID); err != nil {
+		return revoked, err
+	}
+	return revoked, l.grantClaimLocked(nodeID, name)
 }
 
 // clearIssued drops a node's issued-serial records (issued.json + issued_history.json). The serials
@@ -656,34 +699,6 @@ func (l *Local) loadHistory() (map[string][]string, error) {
 	out := map[string][]string{}
 	err := l.readJSON(IssuedHistoryFile, &out)
 	return out, err
-}
-
-// NodeRevoked reports whether ANY certificate this authority issued to a node stands revoked. It
-// tells a re-adopt apart from a routine rejoin: a device that merely LEFT has an issued history but
-// no revoked serial, while a device the owner FORGOT or REVOKED has revoked serials - and lifting
-// that is a deliberate act, not a one-click adopt. Fails CLOSED: an unreadable list is an error.
-func (l *Local) NodeRevoked(nodeID string) (bool, error) {
-	var yes bool
-	// Read under the SAME in-process mutex AND cross-process flock the writers hold, so a concurrent
-	// forget/revoke in another process cannot be observed mid-update (a half-written revoked.json).
-	err := l.withLock(func() error {
-		serials, err := l.serialsFor(nodeID)
-		if err != nil {
-			return err
-		}
-		revoked, err := l.revokedNow()
-		if err != nil {
-			return err
-		}
-		for _, srl := range serials {
-			if revoked[srl] {
-				yes = true
-				return nil
-			}
-		}
-		return nil
-	})
-	return yes, err
 }
 
 // HasIssued reports whether this authority has issued at least one certificate to a node id. It

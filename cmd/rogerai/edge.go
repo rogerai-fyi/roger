@@ -1340,27 +1340,26 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	if !issued {
 		return local.GrantClaim(nodeID, name) // a brand-new device
 	}
-	// A device previously issued a cert is rejoining. If its certificate was REVOKED (the owner forgot
-	// or revoked it), re-admitting LIFTS a deliberate revocation - a stolen key must not rejoin on one
-	// routine adopt click. Refuse here and require the explicit, confirmed `roger edge readmit`. A
-	// device that merely LEFT (no revoked serial) is a routine rejoin and re-admits in place.
-	wasRevoked, err := local.NodeRevoked(nodeID)
-	if err != nil {
-		return err
-	}
-	if wasRevoked {
+	// A device previously issued a cert is rejoining. A ROUTINE adopt re-admits it ONLY if its cert is
+	// not currently revoked (a device that merely LEFT); if it was REVOKED (the owner forgot or revoked
+	// it), re-admitting would lift a deliberate revocation - a stolen key must not rejoin on one routine
+	// click - so it is refused and sent to the explicit, confirmed `roger edge readmit`. The check and
+	// the re-admit are ONE atomic lock in the authority, so a revoke landing mid-adopt cannot be lifted.
+	revoked, err := local.ReAdmitRoutine(nodeID, name)
+	if errors.Is(err, edgeauth.ErrRevokedNeedsReadmit) {
 		return fmt.Errorf("%s was removed and its certificate revoked; re-admitting lifts that revocation - run `roger edge readmit %s` to do it deliberately", name, edgeShortID(nodeID))
 	}
-	return edgeReAdmitRecord(local, nodeID, name)
+	if err != nil {
+		return edgeRecordRevoked(revoked, err)
+	}
+	return edgeRecordRevoked(revoked, nil)
 }
 
-// edgeReAdmitRecord re-admits a device (revoke its old cert, clear its issued history, grant a fresh
-// claim) and mirrors the revoked serials into THIS machine's own trust store so its verification
+// edgeRecordRevoked mirrors revoked serials into THIS machine's own trust store so its verification
 // refuses the old cert at once, not at the next refresh (like edgeRevokeOnForget). The serials are
-// recorded even if ReAdmit returns an error partway, since whatever it revoked is already final on
-// the authority and its local mirror must not lag.
-func edgeReAdmitRecord(local *edgeauth.Local, nodeID, name string) error {
-	revoked, readmitErr := local.ReAdmit(nodeID, name)
+// recorded even when the re-admit returned an error partway, since whatever it revoked is already
+// final on the authority and the local mirror must not lag; that error is then returned.
+func edgeRecordRevoked(revoked []string, readmitErr error) error {
 	st := edgeIdentityStore()
 	now := time.Now()
 	for _, srl := range revoked {
@@ -1382,7 +1381,8 @@ func edgeReAdmitDeliberate(nodeID, name string) error {
 	if !hasRoot {
 		return fmt.Errorf("only the machine that roots this Edge can re-admit a device")
 	}
-	return edgeReAdmitRecord(local, nodeID, name)
+	revoked, err := local.ReAdmit(nodeID, name)
+	return edgeRecordRevoked(revoked, err)
 }
 
 // edgeDropMembers removes candidates that are already members of the fleet. A node's advert carries

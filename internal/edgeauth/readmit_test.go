@@ -92,21 +92,31 @@ func TestReAdmitRevokesAStillHeldCertBeforeReissuing(t *testing.T) {
 	require.NotContains(t, revs, newCert.SerialNumber.String(), "the fresh cert is not revoked")
 }
 
-func TestNodeRevokedTellsLeftFromForgotten(t *testing.T) {
+// ReAdmitRoutine re-admits ONLY a device that is not currently revoked - the routine rejoin - and
+// refuses (ErrRevokedNeedsReadmit) a device the owner revoked, so a routine adopt never silently
+// lifts a deliberate revocation. The check and the re-admit are one atomic lock.
+func TestReAdmitRoutineGatesRevokedDevices(t *testing.T) {
 	_, local, pub, priv, id := secFixture(t)
 	require.NoError(t, local.GrantClaim(id, "pixel-8"))
 	_, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.NoError(t, err)
 
-	// A device that merely LEFT (issued a cert, never revoked) is NOT revoked.
-	was, err := local.NodeRevoked(id)
+	// A device that merely LEFT (not revoked): ReAdmitRoutine re-admits it.
+	revoked, err := local.ReAdmitRoutine(id, "pixel-8")
 	require.NoError(t, err)
-	require.False(t, was, "a device that left but was not forgotten is not revoked")
+	require.NotEmpty(t, revoked, "the abandoned cert is revoked on a routine re-admit")
+	_, err = local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err, "a routine re-admit lets it claim afresh")
 
-	// After forget, it IS revoked - so a plain adopt must gate it to the explicit readmit.
-	_, _, err = local.Forget(id)
+	// Now REVOKE it (a deliberate security action). ReAdmitRoutine refuses, pointing to explicit readmit.
+	_, err = local.Revoke(id)
 	require.NoError(t, err)
-	was, err = local.NodeRevoked(id)
+	_, err = local.ReAdmitRoutine(id, "pixel-8")
+	require.ErrorIs(t, err, edgeauth.ErrRevokedNeedsReadmit)
+
+	// The deliberate ReAdmit still lifts it.
+	_, err = local.ReAdmit(id, "pixel-8")
 	require.NoError(t, err)
-	require.True(t, was, "a forgotten device is revoked")
+	_, err = local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err, "the explicit readmit lifts the revocation")
 }
