@@ -59,6 +59,31 @@ func TestEdgeReadResourcesReadsRealFactsAndOmitsWhatIsAbsent(t *testing.T) {
 	r2 := edgeReadResourcesFrom(root, now)
 	require.NotNil(t, r2)
 	require.Nil(t, r2.CPUTempC, "no sensor -> no field, never 0 degrees")
+
+	// Many boxes have NO thermal zone and expose the CPU only via hwmon (AMD k10temp): read it.
+	w("sys/class/hwmon/hwmon1/name", "nvme\n")
+	w("sys/class/hwmon/hwmon1/temp1_input", "63850\n")
+	w("sys/class/hwmon/hwmon5/name", "k10temp\n")
+	w("sys/class/hwmon/hwmon5/temp1_input", "95250\n")
+	r3 := edgeReadResourcesFrom(root, now)
+	require.NotNil(t, r3.CPUTempC, "hwmon k10temp is the CPU when there is no thermal zone")
+	require.InDelta(t, 95.25, *r3.CPUTempC, 0.001, "...and it is the CPU sensor, not the nvme one")
+
+	// btrfs subvolumes are ONE filesystem mounted several times - one disk, not three.
+	w("proc/mounts", "/dev/nvme0n1p2 / btrfs rw,subvol=/@ 0 0\n/dev/nvme0n1p2 /home btrfs rw,subvol=/@home 0 0\n/dev/nvme0n1p2 /.snapshots btrfs rw 0 0\n/dev/sda1 /mnt/train ext4 rw 0 0\n")
+	edgeStatfs = func(path string) (used, total float64, ok bool) {
+		switch path {
+		case "/":
+			return 1167, 1830, true
+		case "/mnt/train":
+			return 886, 960, true
+		}
+		return 0, 0, false
+	}
+	r4 := edgeReadResourcesFrom(root, now)
+	require.Len(t, r4.Disks, 2, "one entry per device: the btrfs volume once, plus the ext4 disk")
+	require.Equal(t, "/", r4.Disks[0].Mount)
+	require.Equal(t, "/mnt/train", r4.Disks[1].Mount)
 }
 
 // features/edge/health.feature @cli: `roger edge health` lists each node with temperature, memory,

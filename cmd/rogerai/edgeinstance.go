@@ -231,16 +231,39 @@ func edgeReadResourcesFrom(root string, now time.Time) *store.EdgeResources {
 			}
 		}
 	}
+	// Many machines expose the CPU sensor only through hwmon (AMD k10temp/zenpower, Intel coretemp,
+	// Pi cpu_thermal), with no thermal zone at all - so fall back to it before giving up.
+	if r.CPUTempC == nil {
+		if mons, err := filepath.Glob(filepath.Join(root, "sys/class/hwmon/hwmon*")); err == nil {
+			for _, m := range mons {
+				nameB, _ := os.ReadFile(filepath.Join(m, "name"))
+				name := strings.ToLower(strings.TrimSpace(string(nameB)))
+				if !(name == "k10temp" || name == "coretemp" || name == "zenpower" || name == "cpu_thermal" || strings.Contains(name, "cpu")) {
+					continue
+				}
+				raw, err := os.ReadFile(filepath.Join(m, "temp1_input"))
+				if err != nil {
+					continue
+				}
+				if milli, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64); err == nil {
+					c := milli / 1000
+					r.CPUTempC = &c
+					break
+				}
+			}
+		}
+	}
 	// Disks: every mounted REAL filesystem (a /dev device on a real fs type), never proc/tmpfs
-	// pseudo-mounts. Used/total via statfs, which a test can fake.
+	// pseudo-mounts, and each DEVICE once - btrfs subvolumes (/, /home, /.snapshots) are one
+	// filesystem mounted several times, not three disks. Used/total via statfs, which a test can fake.
 	if body, ok := readFile("proc/mounts"); ok {
 		seen := map[string]bool{}
 		for _, line := range strings.Split(body, "\n") {
 			fs := strings.Fields(line)
-			if len(fs) < 3 || !strings.HasPrefix(fs[0], "/dev/") || !edgeRealFS(fs[2]) || seen[fs[1]] {
+			if len(fs) < 3 || !strings.HasPrefix(fs[0], "/dev/") || !edgeRealFS(fs[2]) || seen[fs[0]] {
 				continue
 			}
-			seen[fs[1]] = true
+			seen[fs[0]] = true
 			if used, total, ok := edgeStatfs(fs[1]); ok && total > 0 {
 				r.Disks = append(r.Disks, store.EdgeDisk{Mount: fs[1], UsedGB: used, TotalGB: total})
 			}
