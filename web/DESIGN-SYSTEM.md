@@ -443,6 +443,10 @@ smallest label renders at 11px or more: 11 x viewBox width / smallest label size
 (`test/qa-polish2.test.mjs` checks the Tower, Pricing, Industrial and Wave family
 figures). It prints at the page width.
 
+Keyboard: `site.js` gives any `.scroll-box`, `<pre>` or Wave family rail that overflows
+right now a tab stop (`data-kbd-scroll`, ringed in `--live`), so a keyboard can scroll it
+too, and takes it away again when a wider screen fits it.
+
 ### Code block
 ```html
 <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger share
@@ -487,7 +491,8 @@ style and no colour literal in an article (guarded).
 
 1. `src/<page>.html`: `<!-- include: head.html title=... desc=... theme=external -->`,
    `<!-- include: nav.html variant=marketing ... -->`, content, `<!-- include: footer.html -->`,
-   then `<!-- include: site-js.html -->` (`promo=0` to leave out the promo strip script).
+   then `<!-- include: site-js.html -->` (`promo=0` to leave out the promo strip script; pass
+   `promo=0` to `nav.html` too, which leaves out the strip itself, or it shows un-closable).
    Every script is deferred, so they run in document order: a page script written before
    the include runs before site.js, one written after it runs after. Page scripts that need site.js to have run
    go after the include.
@@ -495,7 +500,44 @@ style and no colour literal in an article (guarded).
    or `[...CSS_ACCOUNT, ...]`. The build fails if you forget.
 3. Build it from components first. Page CSS only for what no other page will need, with
    tokens for every value. If a second page needs it, it becomes a component.
-4. `npm test`: the guards check the partials, the layers, the colours and the behaviours.
+4. `npm test`: the guards check the partials, the layers, the colours and the behaviours,
+   and the page's first-load weight against its budget (below).
+
+## Performance and accessibility rules
+
+Held by `test/perf-guards.test.mjs` and `test/a11y-guards.test.mjs`; the browser checks
+behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1440 and
+390) and the overflow and touch sweeps.
+
+- **Images.** Every `<img>` has `width` + `height` (its box is reserved before it loads) and
+  an `alt`. The page's opening screen (before `<main>`'s first `<h2>`) is never
+  `loading="lazy"`: that image is usually the LCP; an article's lead image also takes
+  `fetchpriority="high"`. Everything after that is `loading="lazy"`. A film's still
+  stand-in (an `<img>` right after its `<video>`, shown under reduced motion) stays lazy.
+- **Weight.** No image a page shows weighs more than 300 KB. Draw big art as a PNG master,
+  then show WebP: add the master to `MASTERS` in `scripts/derive-webp.mjs`, run it, and use
+  `src="<name>.webp" srcset="<name>-800.webp 800w, <name>.webp <W>w" sizes="(max-width:
+  1000px) 100vw, 960px"`; a master wider than 1600 also gets `<name>-1920.webp` at
+  min(master, 1920)w in the srcset, so a chart stays sharp in the 960px column at 2x. The master stays the social card (scrapers want PNG).
+- **Fonts** are self-hosted (`assets/fonts`, `scripts/vendor-fonts.mjs`), `font-display:
+  swap`; `head.html` preloads the text face's latin file (it was most of the phone layout
+  shift), not the mono face (preloading both cost first paint more than it saved). No page links a third-party
+  stylesheet.
+- **Scripts** are deferred. The only parser-blocking one is the tiny theme setter in
+  `<head>` (under 1 KB), which also marks a visitor who has not dismissed the promo strip so
+  the strip is laid out in the first frame (it used to push every page down on reveal).
+- **Video** never preloads a film: `preload="none"`, or `metadata` on a muted autoplay
+  loop. A multi-MB poster gif is `data-poster`, promoted by script when it can be seen.
+- **Budgets.** Each page has a first-load weight budget (raw bytes: page, CSS, scripts,
+  preloads, eager images, posters) in `test/fixtures/page-weight-budget.json`, 10% over
+  the weight at the 2026-09 pass. `node scripts/page-weight.mjs` prints the weights;
+  `--budget` rewrites the file, which is a deliberate act in the commit that adds weight.
+- **Text and links.** Text never uses `--ink-300`. A link in running text needs more than
+  its colour: a classless `<a>` in a `<p>` or `<li>` gets the hairline from base.css; one
+  set straight in other text takes `class="tlink"`.
+- **Roles.** A widget with controls inside is a named `role="group"`, never `role="img"`
+  (that hides its buttons), and never sits under `aria-hidden`. Headings go down one level
+  at a time inside `<main>`.
 
 ## Adding or changing a component
 

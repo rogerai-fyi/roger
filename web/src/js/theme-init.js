@@ -9,5 +9,9 @@
     var dark = saved ? saved === "dark"
       : window.matchMedia("(prefers-color-scheme: dark)").matches;
     if (dark) document.documentElement.setAttribute("data-theme", "dark");
+    // lay the promo strip out from the first frame unless it was dismissed (promo.js
+    // reveals it later; revealing it after paint shifted the whole page down)
+    if (localStorage.getItem("roger-promo-dismissed-v1") !== "1")
+      document.documentElement.classList.add("promo-early");
   } catch (e) {}
 })();

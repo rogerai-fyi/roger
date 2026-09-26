@@ -19,6 +19,11 @@
   var bar = document.getElementById("promoBar");
   if (!bar) return;
 
+  function hide() {
+    bar.hidden = true;
+    document.documentElement.classList.remove("promo-early");   // set by theme-init.js
+  }
+
   var dismissed = false;
   try { dismissed = localStorage.getItem(STORE_KEY) === "1"; } catch (e) {}
 
@@ -29,7 +34,7 @@
     try {
       fetch(BROKER + "/promo", { mode: "cors" })
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (d) { if (d && d.active === false) bar.hidden = true; })
+        .then(function (d) { if (d && d.active === false) hide(); })
         .catch(function () {});
     } catch (e) {}
   }
@@ -37,7 +42,7 @@
   var close = document.getElementById("promoClose");
   if (close) {
     close.addEventListener("click", function () {
-      bar.hidden = true;
+      hide();
       try { localStorage.setItem(STORE_KEY, "1"); } catch (e) {}
     });
   }

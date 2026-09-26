@@ -55,7 +55,10 @@ test("gov-identity: the FAQPage JSON-LD parses and mirrors the visible FAQ", () 
 
 test("gov-identity: the hero and OG images are real shipped assets", () => {
   const html = read(PAGE);
-  assert.match(html, /assets\/broadcasts\/agent-governance-hero\.png/);
+  // the page shows the WebP copies derived from the PNG master (scripts/derive-webp.mjs)
+  assert.match(html, /src="assets\/broadcasts\/agent-governance-hero\.webp(\?v=[0-9a-f]+)?"/);
+  readFileSync(path.join(WEB, "dist", "assets", "broadcasts", "agent-governance-hero.webp"));
+  readFileSync(path.join(WEB, "dist", "assets", "broadcasts", "agent-governance-hero-800.webp"));
   readFileSync(path.join(WEB, "dist", "assets", "broadcasts", "agent-governance-hero.png"));
   assert.match(html, /property="og:image" content="https:\/\/rogerai\.fm\/assets\/broadcasts\/agent-governance-og\.png"/);
   readFileSync(path.join(WEB, "dist", "assets", "broadcasts", "agent-governance-og.png"));

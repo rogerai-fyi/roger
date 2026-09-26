@@ -49,9 +49,9 @@ web/
 └─ README.md            Overview + run/deploy.
 ```
 
-No dependencies are bundled. The only external request is Google Fonts
-(Inter + Geist Mono), which **degrades gracefully** to system UI/mono stacks
-offline. Every icon and animation is hand-built (CSS/SVG/Canvas) - no emoji,
+No dependencies are bundled. The fonts (Space Grotesk + JetBrains Mono, SIL OFL)
+are self-hosted in `src/assets/fonts` (`scripts/vendor-fonts.mjs`), so a page makes
+no third-party request before first paint; they fall back to system UI/mono stacks. Every icon and animation is hand-built (CSS/SVG/Canvas) - no emoji,
 no icon fonts, no JS libs.
 
 ## Performance & accessibility

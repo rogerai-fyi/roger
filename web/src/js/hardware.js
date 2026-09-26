@@ -78,6 +78,9 @@
     var label = (g.querySelector(".hw-stop__tier") || {}).textContent || name;
     g.setAttribute("role", "button");
     g.setAttribute("tabindex", "0");
+    // an svg with role="img" hides every child from assistive tech; once it holds buttons
+    // it is a group (named by the same title + desc), so the stops can be reached
+    ladder.setAttribute("role", "group");
 
     g.setAttribute("aria-label", "Jump to the hardware for " + label.trim());
     g.classList.add("is-linked");
