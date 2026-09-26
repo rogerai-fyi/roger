@@ -315,24 +315,89 @@ func (l *Local) GrantClaim(nodeID, name string) error {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil
 	}
+	return l.withLock(func() error { return l.grantClaimLocked(nodeID, name) })
+}
+
+// grantClaimLocked adds or renews a claim grant; the caller holds the authority lock. Shared by
+// GrantClaim and ReAdmit so a re-admit grants under the same lock as its revoke + clear.
+func (l *Local) grantClaimLocked(nodeID, name string) error {
+	got, err := l.readClaims()
+	if err != nil {
+		return err
+	}
+	for i := range got {
+		if got[i].NodeID == nodeID {
+			// A re-adopt renews the grant: it refreshes the clock (so an expired grant becomes
+			// live again rather than a silent no-op) and fills in a name it did not have.
+			got[i].At = time.Now().Unix()
+			if name != "" {
+				got[i].Name = name
+			}
+			return l.writeJSON(ClaimsFile, got)
+		}
+	}
+	return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix()}))
+}
+
+// ReAdmit deliberately re-admits a node the owner had removed, or that left the Edge and wants back.
+// It revokes any certificate the node still holds (so an abandoned or copied old cert is refused by
+// every peer, offline, even after a restart), then CLEARS the node's issued-serial history so those
+// revoked serials no longer block a fresh claim - the "new root relationship" the claim path
+// documents as the one thing that lifts revocation's finality. Finally it grants a fresh claim.
+//
+// This is the OWNER's explicit action. A stale or reappearing grant ALONE can never do it: the claim
+// path still refuses a node whose issued history carries a revoked serial (Revoke leaves that history
+// intact), so `Revoke` stays final. Only ReAdmit clears it, and only the owner calls ReAdmit.
+func (l *Local) ReAdmit(nodeID, name string) error {
+	if strings.TrimSpace(nodeID) == "" {
+		return nil
+	}
 	return l.withLock(func() error {
-		got, err := l.readClaims()
+		serials, err := l.serialsFor(nodeID)
 		if err != nil {
 			return err
 		}
-		for i := range got {
-			if got[i].NodeID == nodeID {
-				// A re-adopt renews the grant: it refreshes the clock (so an expired grant becomes
-				// live again rather than a silent no-op) and fills in a name it did not have.
-				got[i].At = time.Now().Unix()
-				if name != "" {
-					got[i].Name = name
-				}
-				return l.writeJSON(ClaimsFile, got)
+		for _, srl := range serials {
+			n, ok := parseSerial(srl)
+			if !ok {
+				return fmt.Errorf("%q is not a certificate serial", srl)
+			}
+			if err := l.auth.Revoke(n); err != nil {
+				return err
 			}
 		}
-		return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix()}))
+		if err := l.clearIssued(nodeID); err != nil {
+			return err
+		}
+		return l.grantClaimLocked(nodeID, name)
 	})
+}
+
+// clearIssued drops a node's issued-serial records (issued.json + issued_history.json). The serials
+// stay in revoked.json when they were revoked, so old certs remain refused; clearing here only stops
+// them blocking a fresh claim after the owner re-admits. Unlocked; the caller holds the lock.
+func (l *Local) clearIssued(nodeID string) error {
+	issued, err := l.loadIssued()
+	if err != nil {
+		return err
+	}
+	if _, ok := issued[nodeID]; ok {
+		delete(issued, nodeID)
+		if err := l.writeJSON(IssuedFile, issued); err != nil {
+			return err
+		}
+	}
+	hist, err := l.loadHistory()
+	if err != nil {
+		return err
+	}
+	if _, ok := hist[nodeID]; ok {
+		delete(hist, nodeID)
+		if err := l.writeJSON(IssuedHistoryFile, hist); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Claims lists the nodes the owner has adopted and that may claim a certificate.

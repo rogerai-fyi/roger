@@ -1137,6 +1137,20 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 		return err
 	}
 	if ok {
+		// A member that is OFFLINE and is re-advertising as a candidate (a phone that left and wants
+		// back) is RE-ADMITTED, not refused: revoke its old certificate and grant a fresh claim so it
+		// rejoins cleanly (features/edge/claim.feature). A live member is left alone.
+		if edge.Presence(n.Presence) == edge.PresenceDark {
+			if c, cok, _ := edgeResolve(st.candidates, want); cok && c.Pin == "" {
+				if err := edgeReAdmitByClaim(n.ID, n.Name); err != nil {
+					return err
+				}
+				st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
+				_ = st.save()
+				fmt.Printf("re-admitted %s (%s) - its old certificate is revoked; it can claim a fresh one and rejoin.\n", n.Name, edgeShortID(n.ID))
+				return nil
+			}
+		}
 		fmt.Printf("%s is already a member of this Edge - nothing to do.\n", n.Name)
 		return nil
 	}
@@ -1259,6 +1273,22 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	return local.GrantClaim(nodeID, name)
 }
 
+// edgeReAdmitByClaim re-admits a device that LEFT the Edge (or that the owner forgot) and is asking
+// back: it revokes the device's old certificate (so a stolen or abandoned copy stays refused), clears
+// its issued history so the fresh claim is not blocked as a revoked node, and grants a new claim. It
+// becomes a verified member again when it re-claims and presents (features/edge/claim.feature). Only
+// the machine that roots this Edge can do it.
+func edgeReAdmitByClaim(nodeID, name string) error {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return err
+	}
+	if !hasRoot {
+		return fmt.Errorf("only the machine that roots this Edge can re-admit a device that joins by claim")
+	}
+	return local.ReAdmit(nodeID, name)
+}
+
 // edgeDropMembers removes candidates that are already members of the fleet. A node's advert carries
 // its own account field, so a phone that has joined can keep showing up with an empty account (a
 // candidate) until its advertiser catches up; adopting it again would mint a second certificate. It
@@ -1268,10 +1298,21 @@ func edgeDropMembers(cands []store.EdgeNode, fleet *edge.Fleet) []store.EdgeNode
 		return cands
 	}
 	return edgeFilter(cands, func(x store.EdgeNode) bool {
-		// Keep a candidate ONLY when the fleet can be read AND says it is not a member. If the read
-		// fails we cannot confirm it is not already a member, so we do not offer it (fail closed).
-		_, known, err := fleet.Get(x.ID)
-		return err == nil && !known
+		// A node advertising as a CANDIDATE (account empty) is signalling it is not currently a member -
+		// a phone that left the Edge does exactly this. Keep it when the fleet says it is NOT a member,
+		// AND keep it when the fleet's record for it is DARK (offline): that stale record is a device
+		// that left, and it must be offered so the owner can RE-ADMIT it (h.adopt re-admits a known,
+		// dark, claim-only member). A LIVE member re-advertising is dropped, to avoid cluttering the
+		// DISCOVERED band with a machine that is already on the Edge. If the read fails we cannot
+		// confirm anything, so we do not offer it (fail closed).
+		n, known, err := fleet.Get(x.ID)
+		if err != nil {
+			return false
+		}
+		if !known {
+			return true
+		}
+		return edge.Presence(n.Presence) == edge.PresenceDark
 	})
 }
 

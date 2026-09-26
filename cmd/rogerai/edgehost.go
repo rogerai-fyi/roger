@@ -266,12 +266,28 @@ func (h *edgeHost) adopt(id, name string) error {
 	if err != nil {
 		return fmt.Errorf("could not check whether %s is already a member: %w", edgeShortID(c.ID), err)
 	}
+	// A device that LEFT the Edge (a phone: "Leave this Edge") does NOT tell the authority, so it is
+	// still a member here. When it re-pings as a candidate and the owner adopts it again, that is a
+	// RE-ADMIT, not a double-issue: re-admit revokes its old certificate (a stolen copy stays refused)
+	// and grants a fresh claim, so it rejoins cleanly with a new cert. Only the claim path (a phone
+	// with no servable face) re-admits this way.
+	if known && c.Pin == "" && edge.Presence(n.Presence) == edge.PresenceDark {
+		if err := edgeReAdmitByClaim(c.ID, c.Name); err != nil {
+			return err
+		}
+		h.st.candidates = edgeFilter(h.st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
+		_ = h.st.save()
+		return nil
+	}
 	if known {
+		// A SERVING node that is already a member: adopting again would mint a second live certificate
+		// while the first still verifies (there is no leave signal to know it is gone). Refuse; the
+		// owner forgets it first if they mean to replace it.
 		name := n.Name
 		if name == "" {
 			name = edgeShortID(c.ID)
 		}
-		return fmt.Errorf("%s is already a member of this Edge - nothing to adopt", name)
+		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", name)
 	}
 	// A candidate that advertises NO certificate (Pin empty) - a phone - cannot be dialed and
 	// verified; it joins by CLAIM. Adopting it GRANTS the claim, and it becomes a member when it

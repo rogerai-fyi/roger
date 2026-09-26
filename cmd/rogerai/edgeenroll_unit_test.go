@@ -179,6 +179,7 @@ func TestADefaultNameIsThisMachinesOwn(t *testing.T) {
 }
 
 func TestTheBindAddressesAreThisMachinesToPin(t *testing.T) {
+	useTempConfig(t) // isolate: a persisted authority-port from a real run must not leak into the default
 	require.Equal(t, ":0", edgeFaceBind())
 	require.Equal(t, ":0", edgeAuthorityBind())
 	t.Setenv(envFaceBind, "127.0.0.1:19443")

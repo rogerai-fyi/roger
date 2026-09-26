@@ -280,3 +280,40 @@ func TestEdgeResolveRefusesADuplicateName(t *testing.T) {
 	require.Error(t, err, "a name shared by two nodes must be refused")
 	require.Contains(t, err.Error(), "more than one")
 }
+
+// A device that LEFT the Edge (a phone) still lingers as an OFFLINE member here, because leaving does
+// not tell the authority. It must be OFFERED for re-admit (not silently dropped), and adopting it
+// again RE-ADMITS it - a fresh claim - rather than refusing "already a member". This is the re-join
+// gap the founder hit.
+func TestOfflineMemberIsOfferedAndReAdmitted(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	require.NoError(t, local.GrantClaim("n_phone", "gentle-ibex-14"))
+
+	// The phone is an OFFLINE (dark) member of the fleet.
+	edgeSeed(t, store.EdgeNode{ID: "n_phone", Name: "gentle-ibex-14", Kind: "mobile",
+		Presence: string(edge.PresenceDark)})
+
+	h, hooks := edgeHostOff(t)
+	// It re-pings as a candidate (account empty).
+	h.mu.Lock()
+	h.st.candidates = []store.EdgeNode{{ID: "n_phone", Name: "gentle-ibex-14", Kind: "mobile",
+		Presence: string(edge.PresenceCandidate)}}
+	_ = h.st.save()
+	h.mu.Unlock()
+
+	// An OFFLINE member re-advertising is OFFERED for re-admit (unlike a live member, which is dropped).
+	require.NotEmpty(t, edgeDropMembers(h.st.candidates, h.st.fleet),
+		"an offline member re-advertising is offered so the owner can re-admit it")
+
+	// Adopting it re-admits it - no "already a member" refusal - and a fresh claim now stands.
+	require.NoError(t, hooks.EdgeAdopt("n_phone", "gentle-ibex-14"),
+		"re-adopting an offline device re-admits it instead of refusing")
+	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.True(t, reopened.ClaimGranted("n_phone"),
+		"re-admit leaves a fresh claim so the device rejoins when it claims again")
+}
