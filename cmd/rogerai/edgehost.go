@@ -521,6 +521,15 @@ func (h *edgeHost) serving() bool {
 	return h.face != nil
 }
 
+// edgeAuthAccessLog logs each authority request (method, path, remote) - a diagnostic for a device
+// that cannot join. Enabled by ROGERAI_EDGE_AUTHLOG=1.
+func edgeAuthAccessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("edge-auth: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+	})
+}
+
 // startAuthority serves enrollment for the ONE machine the owner designated. It is not
 // started anywhere else: a machine that holds no root has nothing to issue with.
 func (h *edgeHost) startAuthority() {
@@ -570,7 +579,15 @@ func (h *edgeHost) startAuthority() {
 		return fresh.Authority()
 	}, nil))
 	authMux.Handle("/", enrollhttp.Handler(local))
-	auth := &http.Server{Handler: authMux, ReadHeaderTimeout: 10 * time.Second}
+	// Access log for the authority (claim/enroll/present), gated on ROGERAI_EDGE_AUTHLOG=1. It records
+	// each request's method, path and remote address so a device that cannot join can be diagnosed:
+	// a claim that never arrives (a reachability problem) looks different from one that arrives and is
+	// refused. Off by default - it is a diagnostic, not steady-state noise.
+	var handler http.Handler = authMux
+	if os.Getenv("ROGERAI_EDGE_AUTHLOG") == "1" {
+		handler = edgeAuthAccessLog(authMux)
+	}
+	auth := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	h.mu.Lock()
 	h.authLn, h.issuer, h.auth = ln, local.Issuer(), auth
 	h.mu.Unlock()
