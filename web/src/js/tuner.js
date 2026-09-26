@@ -21,6 +21,9 @@
    ===================================================================== */
 (function () {
   "use strict";
+  var SLOP = 8;          // px a pointer travels before a press becomes a drag (a tap stays a tap)
+  var FORGET = 6000;     // ms an untouched selection lasts
+  var HINT = "Tap again to tune in";
   Array.prototype.forEach.call(document.querySelectorAll("[data-tuner]"), init);
 
   function init(nav) {
@@ -83,17 +86,36 @@
     });
   }
 
-  // ---- drag to tune -------------------------------------------------------
-  var SLOP = 8; // px a pointer travels before a press becomes a drag (a tap stays a tap)
+  // ---- drag and tap to tune -------------------------------------------------
+  // The scale strip is the drag zone (touch-action: none in the stylesheet): a touch that
+  // starts there always tunes, whatever its angle; the rest of the band scrolls the page.
+  // TOUCH is two steps: the first tap or drag only selects (the needle lands, the readout
+  // names the station, a hint fades in, the page stays put); a second tap on that station,
+  // on the readout or on the hint tunes in. Scrolling, a tap outside the tuner or 6s of
+  // nothing clears the selection. A mouse, a pen, the keyboard and assistive tech are one
+  // step, as before: only pointerType "touch" selects first.
   function drag(nav, links, current) {
     var band = nav.querySelector && nav.querySelector(".toc-tuner__band");
     var scale = nav.querySelector && nav.querySelector(".toc-tuner__scale");
     var needle = nav.querySelector && nav.querySelector(".toc-tuner__needle");
+    var readout = nav.querySelector && nav.querySelector(".toc-tuner__readout");
     if (!band || !scale || !needle || !scale.addEventListener) return;
     var n = links.length;
-    var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    var mq = function (q) { return !!(window.matchMedia && window.matchMedia(q).matches); };
+    var reduced = mq("(prefers-reduced-motion: reduce)");
     var g = null;        // the gesture in progress: { id, x0, y0, from, k, dragging, touch }
-    var swallow = false; // the browser's own click at the end of a drag is not a tap
+    var sel = -1;        // the touch selection waiting for its second tap
+    var selY = 0;        // where the page was when it was made
+    var timer = 0;
+    var swallow = false; // the browser's own click at the end of a gesture is not a second tap
+    var hint = null;
+    if (mq("(pointer: coarse)") && document.createElement && band.appendChild) {
+      hint = document.createElement("span");
+      hint.className = "toc-tuner__hint";
+      hint.setAttribute("aria-hidden", "true");
+      hint.textContent = HINT;
+      band.appendChild(hint);
+    }
     Array.prototype.forEach.call(links, function (a) { if (a.setAttribute) a.setAttribute("draggable", "false"); });
 
     function stationAt(x) {
@@ -103,31 +125,54 @@
     function tune(k) {
       for (var i = 0; i < n; i++) links[i].classList.toggle("is-tuning", i === k);
     }
-    function end() {
-      nav.classList.remove("is-dragging");
-      nav.style.removeProperty("--at");
-      tune(-1);
-      g = null;
-    }
-    function listForm() {
-      return window.getComputedStyle && window.getComputedStyle(needle).display === "none";
-    }
-
-    // the scale strip is the drag zone (touch-action: none in the stylesheet): a touch that
-    // starts there always tunes, whatever its angle; the rest of the band scrolls the page.
-    // The needle jumps to the finger on press; past the slop the press is a drag.
     function show(x) {
       var s = stationAt(x);
       nav.style.setProperty("--at", String(reduced ? s.k : s.at));
       tune(s.k);
       return s.k;
     }
+    function listForm() {
+      return window.getComputedStyle && window.getComputedStyle(needle).display === "none";
+    }
+    function stopTimer() { if (timer && window.clearTimeout) window.clearTimeout(timer); timer = 0; }
+    function clear() {           // back to the section in view
+      stopTimer();
+      sel = -1;
+      nav.classList.remove("is-dragging");
+      nav.classList.remove("is-selected");
+      nav.style.removeProperty("--at");
+      tune(-1);
+    }
+    function select(k) {
+      sel = k;
+      selY = window.pageYOffset || 0;
+      nav.classList.remove("is-dragging");
+      nav.classList.add("is-selected");
+      nav.style.setProperty("--at", String(k));
+      tune(k);
+      stopTimer();
+      timer = window.setTimeout(function () { if (sel >= 0) clear(); }, FORGET);
+    }
+    function go(k) {             // follow the station's link, as a click on it would
+      clear();
+      var held = swallow;
+      swallow = false;                   // let this click through...
+      links[k].click();
+      swallow = held;                    // ...but not the gesture's own trailing one
+      current(k);
+    }
+    function hold() {            // the gesture's own trailing click is not a second tap
+      swallow = true;
+      window.setTimeout(function () { swallow = false; }, 400);
+    }
+
     scale.addEventListener("pointerdown", function (e) {
       swallow = false;
       if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0) || e.ctrlKey || e.metaKey || e.shiftKey || listForm()) return;
+      stopTimer();
       nav.classList.add("is-dragging");
       var k = show(e.clientX);
-      g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, from: k, k: k, dragging: false, touch: e.pointerType !== "mouse" };
+      g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, from: k, k: k, dragging: false, touch: e.pointerType === "touch" };
     });
     scale.addEventListener("pointermove", function (e) {
       if (!g || e.pointerId !== g.id) return;
@@ -143,25 +188,38 @@
     });
     scale.addEventListener("pointerup", function (e) {
       if (!g || e.pointerId !== g.id) return;
-      var was = g;
-      end();
-      if (!was.dragging) return;          // a tap: the link's own click follows
-      swallow = true;                     // the click the browser sends after this drag
-      var k = stationAt(e.clientX).k;
-      if (k !== was.from) {
-        swallow = false;
-        links[k].click();                 // follow it as its link would
-        swallow = true;
-        current(k);
+      var was = g, k = stationAt(e.clientX).k;
+      g = null;
+      if (was.touch) {                   // two steps: select, then a second tap tunes in
+        hold();
+        if (!was.dragging && k === sel) go(k); else select(k);
+        return;
       }
-      window.setTimeout(function () { swallow = false; }, 400); // no trailing click came
+      clear();                           // a mouse or a pen: one step, as before
+      if (!was.dragging) return;         // a click: the link's own navigation follows
+      hold();
+      if (k !== was.from) go(k);
     });
-    scale.addEventListener("pointercancel", function () { if (g) end(); });
+    scale.addEventListener("pointercancel", function () { if (g) { g = null; if (sel >= 0) select(sel); else clear(); } });
     nav.addEventListener("click", function (e) {
-      if (!swallow || !(band.contains && band.contains(e.target))) return; // only the drag's own click
+      var t = e.target;
+      if (sel >= 0 && ((readout && readout.contains && readout.contains(t)) || (hint && (t === hint)))) {
+        e.preventDefault();
+        go(sel);
+        return;
+      }
+      if (!swallow || !(band.contains && band.contains(t))) return; // only the gesture's own click
       e.preventDefault();
       if (e.stopPropagation) e.stopPropagation();
       swallow = false;
+    }, true);
+    // ignoring the selection clears it: the page scrolls, or a tap lands outside the tuner
+    // (a reader's scroll, not a few pixels of layout settling above the tuner)
+    if (window.addEventListener) window.addEventListener("scroll", function () {
+      if (sel >= 0 && !g && Math.abs((window.pageYOffset || 0) - selY) > 24) clear();
+    }, { passive: true });
+    if (document.addEventListener) document.addEventListener("pointerdown", function (e) {
+      if (sel >= 0 && !(nav.contains && nav.contains(e.target))) clear();
     }, true);
   }
 })();

@@ -223,7 +223,18 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
 /* while dragging the needle follows the finger (no spring lag) and the readout names the
    station under it instead of the current one */
 .toc-tuner.is-dragging .toc-tuner__needle { transition: none; }
-.toc-tuner.is-dragging a:not(.is-tuning) .toc-tuner__name { opacity: 0 !important; }   /* over a touch screen's sticky :hover */
+.toc-tuner:is(.is-dragging, .is-selected) a:not(.is-tuning) .toc-tuner__name { opacity: 0 !important; }   /* over a touch screen's sticky :hover */
+/* touch is two steps (tuner.js): a first tap or drag selects, and this hint, added by the
+   script on a coarse pointer only, fades in under the scale; a second tap tunes in. The
+   red needle is the accent; the hint is a quiet mono label (decoration: aria-hidden). */
+.toc-tuner__band:has(.toc-tuner__hint) { padding-bottom: 36px; }
+.toc-tuner__hint {
+  position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; pointer-events: none;
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: 0.04em;
+  color: var(--ink-500); opacity: 0; transform: translateY(4px);
+  transition: opacity 250ms var(--ease-out-quint), transform 250ms var(--ease-out-quint);
+}
+.toc-tuner.is-selected .toc-tuner__hint { opacity: 1; transform: none; pointer-events: auto; }
 .toc-tuner a.is-tuning .toc-tuner__name { opacity: 1 !important; filter: none; letter-spacing: var(--tracking-label); }
 .toc-tuner a.is-tuning { color: var(--ink-900); }
 .toc-tuner__readout {
@@ -316,6 +327,7 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
 }
 @media (prefers-reduced-motion: reduce) {
   .toc-tuner__needle { transition: none; }
+  .toc-tuner__hint { transition: none; }
 }
 /* a name comes into tune as it shows: the blur clears and the tracking
    closes up (opacity itself flips at once, so no half-contrast frame) */
@@ -639,6 +651,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   /* the list form is tapped, never dragged: its names select and a long press gives the link menu */
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { touch-action: auto; user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale { touch-action: auto; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__hint { display: none; }
   .toc-tuner:has(li:nth-child(13)) :is(.toc-tuner__readout, .toc-tuner__needle) { display: none; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale {
     grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; background: none;

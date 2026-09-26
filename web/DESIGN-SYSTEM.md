@@ -302,19 +302,22 @@ and the readout to the pointed or focused station; `tuner.js` adds roving focus 
 stop, arrows, Home/End) and rests the needle on the section in view
 (`aria-current="location"`). The resting station keeps a red major tick while you point
 elsewhere ("you are here"); a name comes into tune as it shows (its blur clears and its
-tracking closes up; opacity flips at once). Never pinned. Drag to tune (`tuner.js`): the scale strip (ticks, needle, numerals) is
-the drag zone, `touch-action: none`, at least 56px tall on touch with a heavier needle head
-as its grip. A finger or a mouse pressed there moves the needle to it at once and drags it,
-whatever the angle (a thumb drag is never level; a `pan-y` band handed it to the page as a
-scroll), moving the needle with it (`.is-dragging`, the needle's
-spring off) and the readout names the station under it (`.is-tuning`, a light 8ms vibration
-per station on touch, none under reduced motion); letting go on a station follows its link
-and marks it current. A tap is still the link's own click, a gesture that starts on the rest
-of the band (the readout) scrolls the page (`touch-action: pan-y` there), and a cancelled
-drag, or one that ends on the station it began on, changes nothing. The long
-document list form (13+ stations under 760px) is not dragged: its rows are full-width 44px
-targets, and a drag along a two-column list has no single axis to follow. The drag adds no
-semantics; screen readers still get the links and `aria-current`. No-JS: plain anchor links,
+tracking closes up; opacity flips at once). Never pinned. Drag and tap to tune (`tuner.js`): the scale strip (ticks, needle, numerals)
+is the drag zone, `touch-action: none`, at least 56px tall on touch with a heavier needle
+head as its grip; a press there moves the needle to it at once and a drag carries it,
+whatever the angle, the readout naming the station under it. On TOUCH it is two steps
+(founder: the page should not jump on its own): the first tap or drag only selects
+(`.is-selected`: the needle rests on the station, the readout names it, and the hint "Tap
+again to tune in" fades in under the scale, 250ms, instant under reduced motion; added by
+the script on a coarse pointer only, `aria-hidden`); a second tap on that station, on the
+readout or on the hint goes there. A tap or drag to another station moves the selection;
+a reader's scroll, a tap outside the tuner or 6s of nothing clears it and the needle
+returns to the section in view. A mouse click, a mouse drag's release, the keyboard and
+assistive tech are one step, as before (only `pointerType` "touch" selects first). A
+gesture that starts on the rest of the band scrolls the page (`touch-action: pan-y`). The
+long-document list form (13+ stations under 760px) is plain tappable rows: full-width 44px
+targets, no drag, no selection, no hint. The drag and the hint add no semantics; screen
+readers still get the links and `aria-current`. No-JS: plain anchor links,
 readout on the first station. Reduced motion: the needle jumps instead of swinging and
 names appear already sharp. (`.tuner` is the /models
 search bar, a different thing.)
