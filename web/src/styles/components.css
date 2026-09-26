@@ -219,8 +219,9 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
    station under it instead of the current one */
 .toc-tuner.is-dragging .toc-tuner__needle { transition: none; }
 .toc-tuner:is(.is-dragging, .is-selected) a:not(.is-tuning) .toc-tuner__name { opacity: 0 !important; }   /* over a touch screen's sticky :hover */
-/* touch is two steps (tuner.js): a first tap or drag selects, and this hint, added by the
-   script on a coarse pointer only, fades in under the scale; a second tap tunes in. The
+/* touch is two steps (tuner.js): a first tap or drag selects, and this hint (added by the
+   script on any device; shown only by a touch selection) fades in under the scale; a
+   second tap tunes in. The
    red needle is the accent; the hint is a quiet mono label (decoration: aria-hidden). */
 .toc-tuner__hint {
   position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; pointer-events: none;
@@ -334,8 +335,16 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
    (keyboard focus still does). Outranks the pointed-station rules above. */
 @media (hover: none) {
   .toc-tuner.toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)) { --at: var(--cur, 0); }
+}
+/* the names, on the scale form only: under 760px a 13+ station tuner is the list form,
+   whose rows keep their own name style */
+@media (hover: none) and (min-width: 761px) {
   .toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)) a:not(.is-current):not(.is-tuning) .toc-tuner__name { opacity: 0; filter: blur(3px); letter-spacing: 0.4em; }
   .toc-tuner.toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)) a.is-current .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+}
+@media (hover: none) and (max-width: 760px) {
+  .toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)):not(:has(li:nth-child(13))) a:not(.is-current):not(.is-tuning) .toc-tuner__name { opacity: 0; filter: blur(3px); letter-spacing: 0.4em; }
+  .toc-tuner.toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)):not(:has(li:nth-child(13))) a.is-current .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
 }
 @media (prefers-reduced-motion: reduce) {
   .toc-tuner__needle { transition: none; }

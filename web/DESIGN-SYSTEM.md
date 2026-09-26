@@ -309,7 +309,7 @@ whatever the angle, the readout naming the station under it. On TOUCH it is two 
 (founder: the page should not jump on its own): the first tap or drag only selects
 (`.is-selected`: the needle rests on the station, the readout names it, and the hint "Tap
 again to tune in" fades in under the scale, 250ms, instant under reduced motion; added by
-the script on a coarse pointer only, `aria-hidden`); a second tap on that station, on the
+the script on any device; shown only by a touch selection; `aria-hidden`); a second tap on that station, on the
 readout or on the hint goes there. A tap or drag to another station moves the selection;
 a reader's scroll, a tap outside the tuner or 6s of nothing clears it and the needle
 returns to the section in view. A mouse click, a mouse drag's release, the keyboard and

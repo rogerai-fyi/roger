@@ -352,8 +352,31 @@ test("hybrid devices: the hint exists without a coarse primary pointer; the tall
 });
 
 test("a touch screen's sticky :hover never steers the needle or the readout once JS rests it", () => {
-  const none = css.match(/@media \(hover: none\) \{([\s\S]*?)\n\}/)?.[1] || "";
-  assert.match(none, /\.toc-tuner\.toc-tuner\.toc-tuner:has\(a\.is-current\):not\(:has\(a:focus-visible\)\) \{ --at: var\(--cur, 0\); \}/, "the needle rests on the section in view");
-  assert.match(none, /:has\(a\.is-current\):not\(:has\(a:focus-visible\)\) a:not\(\.is-current\):not\(\.is-tuning\) \.toc-tuner__name \{[^}]*opacity: 0/, "a stuck-hovered name hides");
-  assert.match(none, /:has\(a\.is-current\):not\(:has\(a:focus-visible\)\) a\.is-current \.toc-tuner__name \{[^}]*opacity: 1/, "the current name shows");
+  const block = (q) => css.match(new RegExp(`@media \\(hover: none\\)${q} \\{([\\s\\S]*?)\\n\\}`))?.[1] || "";
+  assert.match(block(""), /\.toc-tuner\.toc-tuner\.toc-tuner:has\(a\.is-current\):not\(:has\(a:focus-visible\)\) \{ --at: var\(--cur, 0\); \}/, "the needle rests on the section in view");
+  for (const q of [" and \\(min-width: 761px\\)", " and \\(max-width: 760px\\)"]) {
+    const b = block(q);
+    assert.match(b, /a:not\(\.is-current\):not\(\.is-tuning\) \.toc-tuner__name \{[^}]*opacity: 0/, "a stuck-hovered name hides");
+    assert.match(b, /a\.is-current \.toc-tuner__name \{[^}]*opacity: 1/, "the current name shows");
+  }
+});
+
+test("the sticky-hover fix never reaches the long-document list form (its rows keep their own name style)", () => {
+  // every hover:none rule that styles a station name, where the list form exists (under
+  // 760px), excludes it; above 760px there is no list form
+  const narrow = css.match(/@media \(hover: none\) and \(max-width: 760px\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  const rules = [...narrow.matchAll(/([^{}]+)\{[^}]*\}/g)].map((m) => m[1].trim()).filter((sel) => /toc-tuner__name/.test(sel));
+  assert.ok(rules.length >= 2);
+  for (const sel of rules) assert.match(sel, /:not\(:has\(li:nth-child\(13\)\)\)/, sel);
+  const plain = css.match(/@media \(hover: none\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.doesNotMatch(plain, /toc-tuner__name/, "no unscoped hover:none rule styles a name");
+});
+
+test("the hint is described as it is: added on any device, shown only by a touch selection", () => {
+  const ds = readFileSync(path.join(WEB, "DESIGN-SYSTEM.md"), "utf8");
+  const raw = readFileSync(path.join(WEB, "src/styles/components.css"), "utf8");
+  for (const [name, text] of [["DESIGN-SYSTEM.md", ds], ["components.css", raw]]) {
+    assert.doesNotMatch(text.replace(/\s+/g, " "), /coarse pointer only/, name);
+    assert.match(text.replace(/\s+/g, " "), /added by the script on any device; shown only by a touch selection/, name);
+  }
 });
