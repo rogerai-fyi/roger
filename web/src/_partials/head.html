@@ -121,10 +121,12 @@
   <meta name="theme-color" content="#E0231C" />
 
   <!-- Space Grotesk (display + prose) + JetBrains Mono (machine truth: all
-       numbers, labels, callsigns, commands); degrades to system stacks offline. -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+       numbers, labels, callsigns, commands), self-hosted: the @font-face block is at
+       the top of base.css. Preload the two latin files every page paints first, so the
+       text does not wait for the stylesheet to be parsed before its font is requested.
+       crossorigin is required on a font preload, or the browser fetches it twice. -->
+  <link rel="preload" href="assets/fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin />
 
   <!-- footer easter egg: 5 fast clicks on the orange -> Ping walks across the bottom edge.
        build.mjs auto-appends ?v=<content-hash> to every js/css url, so the Cloudflare edge
