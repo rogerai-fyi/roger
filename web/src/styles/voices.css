@@ -61,7 +61,7 @@
 }
 .voice-quiet__txt { display: inline-block; max-width: 52ch; }
 .voice-quiet code { color: var(--ink-900); }
-.voice-quiet a { color: var(--ink-700); border-bottom: 1px solid transparent; }
+.voice-quiet a { color: var(--ink-700); border-bottom: 1px solid color-mix(in srgb, var(--live) 55%, transparent); }
 .voice-quiet a:hover { color: var(--live-text); border-bottom-color: var(--live); }
 
 /* skeleton shimmer while the first fetch resolves */

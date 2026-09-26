@@ -211,6 +211,36 @@
     box.appendChild(b);
   });
 
+  /* ---- keyboard scrolling: a box that scrolls sideways takes focus ----
+     A wide table, diagram or command scrolls inside its own box (.scroll-box, the code
+     blocks' <pre>, the Wave family rail). A mouse or a finger can scroll it; a keyboard
+     only once the box can take focus. So a box that overflows right now joins the tab
+     order (marked data-kbd-scroll, ringed in components.css), and leaves it again when
+     a wider screen fits it. Never inside something hidden from assistive tech. */
+  var SCROLLERS = ".scroll-box, pre, .wf-rail__scroll";
+  function keyScroll() {
+    Array.prototype.forEach.call(document.querySelectorAll(SCROLLERS), function (el) {
+      if (el.closest("[aria-hidden='true']")) return;
+      var ox = window.getComputedStyle(el).overflowX;
+      var scrolls = (ox === "auto" || ox === "scroll") && el.scrollWidth > el.clientWidth + 1;
+      var mine = el.hasAttribute("data-kbd-scroll");
+      if (scrolls && !mine && !el.hasAttribute("tabindex")) {
+        el.setAttribute("tabindex", "0");
+        el.setAttribute("data-kbd-scroll", "");
+      } else if (!scrolls && mine) {
+        el.removeAttribute("tabindex");
+        el.removeAttribute("data-kbd-scroll");
+      }
+    });
+  }
+  keyScroll();
+  window.addEventListener("load", keyScroll);
+  var keyScrollTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(keyScrollTimer);
+    keyScrollTimer = setTimeout(keyScroll, 200);
+  });
+
   /* ---- fold on a phone: details[data-fold-narrow] -------------------
      A disclosure written OPEN in the HTML (readers without scripts, and crawlers, get
      all of it) that starts folded on a phone, where it would push the page's main

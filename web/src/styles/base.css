@@ -133,7 +133,7 @@ code, pre { font-family: var(--font-mono); }
 }
 /* centered across the wider band; head runs top->down, foot bottom->up */
 .rail__head { top: clamp(92px, 12vh, 144px); transform: translateX(-50%); }
-.rail__rev  { bottom: clamp(26px, 4vh, 40px); transform: translateX(-50%) rotate(180deg); color: var(--ink-300); }
+.rail__rev  { bottom: clamp(26px, 4vh, 40px); transform: translateX(-50%) rotate(180deg); }   /* --ink-400 from the shared rule: text is AA */
 /* the rev rail is flipped 180deg (reads bottom->up), so un-flip the OC orange to sit upright;
    and .rail is pointer-events:none (decorative) - re-enable clicks on the orange for the Ping egg.
    The orange is FIRST in source ("orange, then ' Rev. 2026.06 ...'"), so its inline-END margin

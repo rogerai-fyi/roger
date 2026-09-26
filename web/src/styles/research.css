@@ -80,7 +80,11 @@
   margin-top: var(--s-10);
   padding-bottom: var(--s-4);
 }
-.model-group-head h3 { margin: var(--s-2) 0 0; color: var(--ink-900); font-size: var(--t-h3); }
+/* the group title is an h2 (the page outline runs h1, group, model) set in the h3 face it
+   always had: .section h2's size, tracking and leading are put back. (Wave Infinite's
+   head is a section-level h2 and keeps the section size.) */
+.model-group-head h2.model-group-head__title { margin: var(--s-2) 0 0; color: var(--ink-900); font-size: var(--t-h3);
+  letter-spacing: inherit; font-weight: bold; line-height: inherit; }
 .model-group-head p { margin: 0; color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-xs); }
 .model-group-head--upstream { margin-top: var(--s-12); }
 .model-id { display: block; width: fit-content; max-width: 100%; margin-top: var(--s-3); overflow-wrap: anywhere; color: var(--ink-500); font-size: var(--t-xs); }
