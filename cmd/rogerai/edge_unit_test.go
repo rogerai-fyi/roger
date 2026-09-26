@@ -224,7 +224,7 @@ func TestEdgeGroupHelpAndUnknownCommand(t *testing.T) {
 
 	out, code = edgeRun(t, "edge", "frobnicate")
 	require.Equal(t, 2, code)
-	require.Contains(t, out, "list | describe | name | forget | adopt | scan")
+	require.Contains(t, out, "list | describe | name | forget | adopt | readmit | scan")
 
 	out, code = edgeRun(t, "edge", "list", "--frobnicate")
 	require.Equal(t, 2, code)
