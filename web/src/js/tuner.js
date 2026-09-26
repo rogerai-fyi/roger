@@ -209,8 +209,15 @@
     // a mouse or pen press that leaves the scale before it drags (no capture yet) and is let
     // go elsewhere never reaches the scale's pointerup: the window hears it, and it ends
     if (window.addEventListener) window.addEventListener("pointerup", function (e) { if (g && e.pointerId === g.id) abandon(); });
-    // a resize or rotation can swap the scale for the list form: nothing pending survives it
-    function reset() { if (g || sel >= 0) { g = null; clear(); } }
+    // a width change or rotation can swap the scale for the list form: nothing pending
+    // survives it. A height-only resize (iOS Safari's toolbar coming back after a tap near
+    // the bottom edge) cannot, and must not wipe the station the reader just picked.
+    var lastW = window.innerWidth;
+    function reset() {
+      if (window.innerWidth === lastW) return;
+      lastW = window.innerWidth;
+      if (g || sel >= 0) { g = null; clear(); }
+    }
     if (window.addEventListener) {
       window.addEventListener("resize", reset);
       window.addEventListener("orientationchange", reset);

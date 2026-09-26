@@ -51,7 +51,7 @@ function rig({ reduced = false, listForm = false, coarse = true } = {}) {
   nav.contains = inNav;
   const vibes = [];
   const win = {
-    innerHeight: 1000,
+    innerHeight: 1000, innerWidth: 390,
     matchMedia: (q) => ({ matches: /reduce/.test(q) ? reduced : /coarse/.test(q) ? coarse : false }),
     getComputedStyle: (el) => ({ display: el === needle && listForm ? "none" : "block" }),
     navigator: { vibrate: (ms) => { vibes.push(ms); return true; } },
@@ -86,9 +86,10 @@ function rig({ reduced = false, listForm = false, coarse = true } = {}) {
   const scroll = (dy = 200) => { win.pageYOffset = (win.pageYOffset || 0) + dy; fire(win, "scroll", {}); };
   const tapElsewhere = () => fire(doc, "pointerdown", { target: { id: "page" } });
   const releaseOutside = (o) => fire(win, "pointerup", ev(50, 400, { target: { id: "page" }, ...o }));
-  const resize = () => fire(win, "resize", {});
+  const resize = (w = (win.innerWidth || 390) + 300) => { win.innerWidth = w; fire(win, "resize", {}); };
   const key = (k) => fire(nav, "keydown", { key: k, target: links[0] });
-  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, outside, nativeClick, readout, hint, clickOn, wait, scroll, tapElsewhere, releaseOutside, resize, key };
+  const width = () => win.innerWidth;
+  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, outside, nativeClick, readout, hint, clickOn, wait, scroll, tapElsewhere, releaseOutside, resize, key, width };
 }
 
 const at = (t) => Number(t.style["--at"]);
@@ -406,6 +407,14 @@ test("a resize or rotation (the list form may now show) clears a pending selecti
   assert.ok(!d.nav.cls.has("is-dragging"));
   d.up(300);
   assert.ok(!selected(d), "and the finger's release after it selects nothing");
+});
+
+test("a height-only resize (iOS Safari's toolbar returning) keeps a pending selection", () => {
+  const t = rig();
+  t.down(350); t.up(350);
+  assert.ok(selected(t));
+  t.resize(t.width());
+  assert.ok(selected(t), "only a width change can swap the scale for the list form");
 });
 
 test("a pen is one step, like a mouse: a tap is the link's own click, a drag jumps on release", () => {
