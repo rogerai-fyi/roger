@@ -28,8 +28,10 @@ RUN = """async (tags) => (await axe.run(document, {runOnly: {type: 'tag', values
 # one Tab: where focus landed, and whether it can be seen
 TAB = """() => { const e = document.activeElement; if (!e || e === document.body) return null;
   const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
-  const ring = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) || cs.boxShadow !== 'none'
-    || cs.textDecorationLine.includes('underline') || cs.borderBottomStyle !== 'none';
+  // a ring on the control itself, or on a wrapper that rings on :focus-within / :has()
+  const rung = (s) => (s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0) || s.boxShadow !== 'none';
+  const ring = rung(cs) || cs.textDecorationLine.includes('underline') || cs.borderBottomStyle !== 'none'
+    || [e.parentElement, e.parentElement && e.parentElement.parentElement].some((p) => p && rung(getComputedStyle(p)));
   const name = e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/)[0] : '');
   return {name, visible: r.width > 0 && r.height > 0 && cs.visibility !== 'hidden',
           onscreen: r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth, ring}; }"""

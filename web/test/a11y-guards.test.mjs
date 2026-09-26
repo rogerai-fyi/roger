@@ -132,3 +132,11 @@ test("the governance article's source list spaces its links at least 24px apart"
   const c = css("broadcast-agent-governance.css");
   assert.match(c, /\.gov-sources li \+ li\s*{\s*margin-top:\s*var\(--s-2\);?\s*}/);
 });
+
+/* ---- 7. focus you can see ------------------------------------------------------------- */
+test("the broadcast video frame rings when its player has focus", () => {
+  // the player fills a clipped frame (overflow: hidden), so its own focus outline is cut
+  // off; the Tab sweep found a focused player with nothing to show for it. focus-within,
+  // because focus inside the native controls sits in the player's shadow tree
+  assert.match(css("broadcasts.css"), /\.bc-video__frame:focus-within\s*{[^}]*outline:\s*2px solid var\(--live\)/);
+});
