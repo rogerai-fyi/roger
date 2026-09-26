@@ -213,6 +213,15 @@ func Routable(n store.EdgeNode, c Capability) bool {
 	return false
 }
 
+// DeclarationGated reports whether a capability is authorized by DECLARATION plus a grant, needing
+// neither a probe nor an owner confirmation. Only OPERATE qualifies: its VerificationMethod is
+// "declared, and gated by grant at use time", so it never reaches VERIFIED and routing work of that
+// kind must accept a DECLARED node rather than require Routable. ACTUATE is deliberately NOT here -
+// it is "declared only, owner-confirmed": it stays PENDING CONFIRMATION until the owner confirms it
+// (which is what sets it VERIFIED), so it correctly still requires Routable. The probe-verified caps
+// (serve/classify/sense/relay) require VERIFIED too.
+func DeclarationGated(c Capability) bool { return c == Operate }
+
 // Declares reports whether the node declares c at all, at any state.
 func Declares(n store.EdgeNode, c Capability) bool {
 	for _, d := range n.Caps {

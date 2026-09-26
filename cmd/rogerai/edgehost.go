@@ -345,13 +345,23 @@ func (h *edgeHost) issueGrant(caller, capability, callee, forDur string) (store.
 	}
 	exp, err := parseExpires(forDur)
 	if err != nil {
-		return store.Grant{}, err
+		// parseExpires is shared with `roger grant` and words its error for --expires; the console's
+		// field is "for", so re-word it rather than name a flag the console has no field for.
+		return store.Grant{}, fmt.Errorf("bad grant duration %q, want e.g. 7d or 2026-12-31", forDur)
 	}
-	// A callee must be a node on this Edge, so a typo cannot mint a grant for a node that does not exist.
+	// A callee must be a node on this Edge, so a typo cannot mint a grant for a node that does not
+	// exist; a named caller must be too (a Self grant, callerID=="", is any of the owner's instances).
 	if _, ok, err := h.st.fleet.Get(callee); err != nil {
 		return store.Grant{}, err
 	} else if !ok {
 		return store.Grant{}, fmt.Errorf("no such node on this Edge to grant against")
+	}
+	if callerID != "" {
+		if _, ok, err := h.st.fleet.Get(callerID); err != nil {
+			return store.Grant{}, err
+		} else if !ok {
+			return store.Grant{}, fmt.Errorf("the caller is not a node on this Edge")
+		}
 	}
 	return edgeIssueGrant(edgeGrantStore(), local.Account(), local.Authority().RootKey(),
 		edgeGrantSpec{caller: callerID, callee: callee, capability: capability, expiresAt: exp}, time.Now())
@@ -525,19 +535,25 @@ func (h *edgeHost) startAuthority() {
 		return
 	}
 	ln, err := net.Listen("tcp", edgeAuthorityBind())
+	fellBack := false
 	if err != nil {
-		// The remembered (or env-pinned) port is taken - by a stale process, or something else. Rather
-		// than leave the authority down (and every phone offline), fall back to an ephemeral port and
-		// remember THAT, so at least this run serves and the next restart is stable again.
-		log.Printf("edge: authority port %s unavailable (%v); falling back to an ephemeral port", edgeAuthorityBind(), err)
+		// The remembered (or env-pinned) port is momentarily taken - typically the process we just
+		// replaced still releasing it. Fall back to an ephemeral port so this run still serves, but do
+		// NOT persist it: overwriting the saved port with a transient one would orphan every enrolled
+		// device. The next restart tries the saved port again, so the port converges back to stable.
+		log.Printf("edge: authority port %s unavailable (%v); using an ephemeral port for this run only", edgeAuthorityBind(), err)
 		ln, err = net.Listen("tcp", ":0")
 		if err != nil {
 			log.Println("edge: could not open the Edge authority's LAN service:", err)
 			return
 		}
+		fellBack = true
 	}
-	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
-		edgeSaveAuthorityPort(tcp.Port) // remember it, so a restart binds the same port a phone enrolled against
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok && !fellBack {
+		// Persist ONLY the port we actually preferred (the saved/env one, or the first-ever ephemeral
+		// when nothing was saved), so a restart binds the same port a device enrolled against. A
+		// fallback port is never persisted (see above).
+		edgeSaveAuthorityPort(tcp.Port)
 	}
 	// The authority server answers BOTH enrollment (issue a certificate) and PRESENCE (a member
 	// that dials out to say it is here, so a phone that cannot serve an inbound face still appears -

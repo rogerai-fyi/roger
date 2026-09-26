@@ -466,6 +466,17 @@ func (f *Fleet) AuthorizeInvoke(g store.Grant, nodeID string, need Capability) e
 	if need == "" {
 		return nil
 	}
+	// Operate and actuate are DECLARATION-gated: they are never probed, so they never reach VERIFIED,
+	// and the grant (plus, for actuate, the owner's standing confirmation on the device, checked by the
+	// runner) is what authorizes them. Requiring Routable here would refuse EVERY invoke, since no
+	// probe ever verifies operate. So a declaration-gated capability need only be DECLARED; a
+	// probe-verified capability (serve/classify/sense/relay) still requires VERIFIED.
+	if DeclarationGated(need) {
+		if !Declares(n, need) {
+			return fmt.Errorf("%w: %s", ErrNotVerified, need)
+		}
+		return nil
+	}
 	if !Routable(n, need) {
 		return fmt.Errorf("%w: %s", ErrNotVerified, need)
 	}

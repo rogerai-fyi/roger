@@ -192,3 +192,28 @@ func TestEnrollErrorSaysNothingAboutTheOtherAccount(t *testing.T) {
 	require.Equal(t, "acct-1", ee.Existing)
 	require.NotContains(t, ee.Error(), "acct-1")
 }
+
+// Operate is DECLARATION-gated, never probed, so it never reaches VERIFIED. Authorize must accept a
+// node that merely DECLARES it - the grant is the authorization - or the invoke fabric would refuse
+// every delegate (the callee's operate is only ever CLAIMED). (Actuate, by contrast, still requires
+// the owner's confirmation and is covered by the node_identity feature.)
+func TestAuthorizeInvokeAcceptsDeclaredOperate(t *testing.T) {
+	f, _, pub := fleetFixture(t)
+	n, err := f.Enroll(edge.NewNode(pub, "agent-box", edge.Host, edge.Operate))
+	require.NoError(t, err)
+	// Operate is CLAIMED (never probed), yet an invoke under a valid grant is authorized.
+	g := store.Grant{ID: "g", Owner: "acct-1", Nodes: []string{n.ID}}
+	require.NoError(t, f.AuthorizeInvoke(g, n.ID, edge.Operate),
+		"a declared operate capability is invokable under a grant, without a probe")
+
+	// A node that does NOT declare operate is still refused.
+	n2, err := f.Enroll(edge.NewNode(mustPub2(), "serve-box", edge.Host, edge.Sense))
+	require.NoError(t, err)
+	require.ErrorIs(t, f.AuthorizeInvoke(store.Grant{ID: "g", Owner: "acct-1", Nodes: []string{n2.ID}}, n2.ID, edge.Operate),
+		edge.ErrNotVerified)
+}
+
+func mustPub2() ed25519.PublicKey {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	return pub
+}

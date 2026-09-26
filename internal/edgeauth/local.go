@@ -663,22 +663,27 @@ func (l *Local) loadHistory() (map[string][]string, error) {
 // no revoked serial, while a device the owner FORGOT or REVOKED has revoked serials - and lifting
 // that is a deliberate act, not a one-click adopt. Fails CLOSED: an unreadable list is an error.
 func (l *Local) NodeRevoked(nodeID string) (bool, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	serials, err := l.serialsFor(nodeID)
-	if err != nil {
-		return false, err
-	}
-	revoked, err := l.revokedNow()
-	if err != nil {
-		return false, err
-	}
-	for _, srl := range serials {
-		if revoked[srl] {
-			return true, nil
+	var yes bool
+	// Read under the SAME in-process mutex AND cross-process flock the writers hold, so a concurrent
+	// forget/revoke in another process cannot be observed mid-update (a half-written revoked.json).
+	err := l.withLock(func() error {
+		serials, err := l.serialsFor(nodeID)
+		if err != nil {
+			return err
 		}
-	}
-	return false, nil
+		revoked, err := l.revokedNow()
+		if err != nil {
+			return err
+		}
+		for _, srl := range serials {
+			if revoked[srl] {
+				yes = true
+				return nil
+			}
+		}
+		return nil
+	})
+	return yes, err
 }
 
 // HasIssued reports whether this authority has issued at least one certificate to a node id. It
