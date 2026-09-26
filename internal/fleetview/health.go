@@ -1,9 +1,9 @@
-// Package fleetview holds the Edge fleet-management screens built on Limoni (immediate mode,
-// per-cell diff, a semantic tree the tests address by name). It is an experiment beside the
-// Bubble Tea TUI: the first screen is Health (features/edge/health.feature §2, §5, §6), a new
-// surface with no existing tests to migrate, so the comparison is clean. The package knows the
-// fleet's health types and nothing about how they are read: a HealthSource is handed in.
 package fleetview
+
+// The HEALTH screen (features/edge/health.feature §2, §5, §6) on the rack: a strip of units,
+// each with its temperature, memory, disk and carrier as meters; below it the selected unit's
+// instrument stack with wide meters and the history of its readings; then the rules in force
+// as sentences. A metric a unit does not report is a dim rail, never a zero.
 
 import (
 	"context"
@@ -12,13 +12,12 @@ import (
 	"time"
 
 	lm "github.com/thebanri/limoni"
-	"github.com/thebanri/limoni/widgets"
 
 	"rogerai.fm/roger/v6/internal/edge"
 )
 
 // HealthSnapshot is one read of everything the screen draws, taken together so one frame is
-// internally consistent (a node's row, its readout and its alerts come from the same moment).
+// internally consistent (a unit's row, its stack and its alerts come from the same moment).
 type HealthSnapshot struct {
 	Nodes  []edge.NodeHealth
 	Firing map[string][]string // node id -> the rule wordings firing for it
@@ -33,13 +32,10 @@ type RuleLine struct{ ID, When, Scope, Kind, State string }
 // HealthSource reads a snapshot. It is called on the first frame and again every Every.
 type HealthSource func() (HealthSnapshot, error)
 
-// The palette: paper ink on the terminal's own ground, red as the ONE signal color.
-var (
-	live  = lm.RGB(224, 35, 28)
-	ink   = lm.RGB(224, 222, 214)
-	muted = lm.RGB(150, 146, 138)
-	dim   = lm.RGB(105, 101, 93)
-)
+const historyLen = 60
+
+// history is the last readings of one unit, kept in this process, for the sparklines.
+type history struct{ temp, load []float64 }
 
 // Health is the screen's state: the last snapshot, when it was read, the selection.
 type Health struct {
@@ -52,17 +48,19 @@ type Health struct {
 	err    error
 	readAt time.Time
 	sel    int
-	table  *lm.TableState
+	frame  int
+	hist   map[string]*history
+	lastAt map[string]int64 // the ReadAt last folded into hist, per unit
 }
 
 // NewHealth makes the screen over src, re-reading every 2s.
 func NewHealth(src HealthSource) *Health {
-	return &Health{Source: src, Every: 2 * time.Second, table: lm.NewTableState()}
+	return &Health{Source: src, Every: 2 * time.Second, hist: map[string]*history{}, lastAt: map[string]int64{}}
 }
 
 // Run opens the screen full-screen until q/esc or ctx ends.
 func (h *Health) Run(ctx context.Context) error {
-	return lm.RunWithContext(ctx, h.Draw, lm.WithTitle("roger edge health"), lm.WithFPS(4))
+	return lm.RunWithContext(ctx, h.Draw, lm.WithTitle("roger edge health"), lm.WithFPS(6))
 }
 
 // Draw is one frame: handle the event, refresh if due, lay the screen out. It is the function
@@ -74,7 +72,7 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 	if !h.onKey(ev) {
 		return false
 	}
-
+	h.frame++
 	h.refresh()
 	if h.sel >= len(h.snap.Nodes) {
 		h.sel = len(h.snap.Nodes) - 1
@@ -82,23 +80,35 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 	if h.sel < 0 {
 		h.sel = 0
 	}
-
-	rows := lm.SplitVertical(f.Area(), lm.Fixed(1), lm.Fill(), lm.Fixed(9), lm.Fixed(1))
-	f.RenderWidget(lm.NewParagraph(h.header()).WithStyle(lm.Fg(muted)), rows[0])
-	if h.err != nil {
-		f.RenderWidget(lm.NewBlock().Rounded().WithTitle(" could not read the fleet ").WithBorderStyle(lm.Fg(live)).
-			WithChild(lm.NewParagraph(h.err.Error()).WithStyle(lm.Fg(ink))).WithPadding(0, 1, 0, 1), rows[1])
-	} else {
-		cols := lm.SplitHorizontal(rows[1], lm.Percentage(62), lm.Percentage(38))
-		h.drawTable(f, cols[0])
-		h.drawReadout(f, cols[1])
+	rows := lm.SplitVertical(f.Area(), lm.Fixed(2), lm.Fill(), lm.Fixed(1))
+	firing := 0
+	for _, a := range h.snap.Firing {
+		firing += len(a)
 	}
-	h.drawRules(f, rows[2])
-	bar := " ↑↓ node · r re-read · q back"
+	right := clock(h.snap.At) + " · " + unitsWord(len(h.snap.Nodes))
+	if firing > 0 {
+		right += fmt.Sprintf(" · ▲ %d", firing)
+	}
+	tabs, tab := []string{"health"}, 0
 	if h.BackHint != "" {
-		bar = " ↑↓ node · r re-read · " + h.BackHint + " · q quit"
+		tabs, tab = []string{"fleet", "health"}, 1
 	}
-	f.RenderWidget(lm.NewParagraph(bar).WithStyle(lm.Fg(dim)), rows[3])
+	brandBand(f, rows[0], tabs, tab, right, h.frame)
+	if h.err != nil {
+		f.RenderWidget(lm.NewText(
+			lm.NewLine(),
+			lm.NewLine(span("  ", dim), bold("could not read the fleet", live)),
+			lm.NewLine(span("  ", dim), span(h.err.Error(), ink)),
+		).WithWrap(false), rows[1])
+	} else {
+		h.drawBody(f, rows[1])
+	}
+	acts := []action{{"↑↓", "unit", ""}, {"r", "re-read", ""}}
+	if h.BackHint != "" {
+		acts = append(acts, action{"1", "fleet", ""})
+	}
+	acts = append(acts, action{"q", "quit", ""})
+	actionBar(f, rows[2], acts, "", false, time.Time{})
 	return true
 }
 
@@ -112,9 +122,9 @@ func (h *Health) onKey(ev *lm.Event) bool {
 		return false
 	case ev.Key.Ch == 'r':
 		h.readAt = time.Time{} // re-read now
-	case ev.Key.Type == lm.KeyDown:
+	case ev.Key.Type == lm.KeyDown || ev.Key.Ch == 'j':
 		h.sel++
-	case ev.Key.Type == lm.KeyUp:
+	case ev.Key.Type == lm.KeyUp || ev.Key.Ch == 'k':
 		h.sel--
 	}
 	return true
@@ -127,198 +137,252 @@ func (h *Health) refresh() {
 	snap, err := h.Source()
 	h.readAt = time.Now()
 	h.err = err
-	if err == nil {
-		h.snap = snap
-	}
-}
-
-func (h *Health) header() string {
-	n := len(h.snap.Nodes)
-	firing := 0
-	for _, a := range h.snap.Firing {
-		firing += len(a)
-	}
-	s := fmt.Sprintf(" EDGE HEALTH · %d nodes", n)
-	if firing > 0 {
-		s += fmt.Sprintf(" · %d alert%s firing", firing, plural(firing))
-	}
-	if !h.snap.At.IsZero() {
-		s += " · read " + h.snap.At.Format("15:04:05")
-	}
-	return s
-}
-
-func (h *Health) drawTable(f *lm.Frame, area lm.Rect) {
-	h.table.Selected = h.sel
-	fixed := func(w int) lm.TableConstraint { return lm.TableConstraint{Type: widgets.ConstraintFixed, Value: w} }
-	t := lm.NewTable().WithID("fleet-health").
-		WithHeaders("NODE", "TEMP", "MEMORY", "DISK", "UPTIME", "PRESENCE", "ALERTS").
-		WithConstraints(lm.TableConstraint{Type: widgets.ConstraintFill}, fixed(7), fixed(12), fixed(5), fixed(7), fixed(12), fixed(6)).
-		WithState(h.table).WithSelectedStyle(lm.Fg(live).Bold())
-	for _, n := range h.snap.Nodes {
-		t = t.WithRow(n.Name, temp(n), mem(n), disk(n), uptime(n), presence(n), alertCount(h.snap.Firing[n.ID]))
-	}
-	f.RenderWidget(lm.NewBlock().Rounded().WithTitle(" THE FLEET ").WithBorderStyle(lm.Fg(muted)).
-		WithChild(t).WithPadding(0, 1, 0, 1), area)
-}
-
-// drawReadout is the selected node in full: every reading it reports with its age, its gauges,
-// and the rules firing for it. What it does not report is not drawn - never a zero.
-func (h *Health) drawReadout(f *lm.Frame, area lm.Rect) {
-	if len(h.snap.Nodes) == 0 {
-		f.RenderWidget(lm.NewBlock().Rounded().WithTitle(" no nodes ").WithBorderStyle(lm.Fg(dim)).
-			WithChild(lm.NewParagraph("nothing on this Edge reports yet").WithStyle(lm.Fg(dim))).WithPadding(0, 1, 0, 1), area)
+	if err != nil {
 		return
 	}
-	n := h.snap.Nodes[h.sel]
-	parts := lm.SplitVertical(area, lm.Fill(), lm.Fixed(4))
-	var b strings.Builder
-	line := func(k, v string) { fmt.Fprintf(&b, "%-11s %s\n", k, v) }
-	line("presence", presence(n))
-	if !n.LastHeard.IsZero() {
-		line("last heard", edge.Age(time.Since(n.LastHeard))+" ago")
-	}
-	r := n.Readings
-	title := " " + n.Name + " · " + n.Kind + " "
-	if r == nil {
-		b.WriteString("\nthis node reports no health readings\n")
-	} else {
-		line("readings", edge.Age(n.ReadAge)+" ago")
-		age := ""
+	h.snap = snap
+	// Fold each NEW reading into the unit's history (a re-read of the same reading is not a
+	// new point).
+	for _, n := range snap.Nodes {
+		r := n.Readings
+		if r == nil || r.ReadAt == 0 || h.lastAt[n.ID] == r.ReadAt {
+			continue
+		}
+		h.lastAt[n.ID] = r.ReadAt
+		hs := h.hist[n.ID]
+		if hs == nil {
+			hs = &history{}
+			h.hist[n.ID] = hs
+		}
 		if r.CPUTempC != nil {
-			line("cpu temp", fmt.Sprintf("%.1f°C%s", *r.CPUTempC, age))
+			hs.temp = appendCap(hs.temp, *r.CPUTempC)
 		}
 		if r.CPULoad1 != nil {
-			line("cpu load", fmt.Sprintf("%.2f%s", *r.CPULoad1, age))
+			hs.load = appendCap(hs.load, *r.CPULoad1)
 		}
-		if r.RAMTotalGB > 0 {
-			line("memory", fmt.Sprintf("%.1f / %.0f GB (%.0f%%)%s", r.RAMUsedGB, r.RAMTotalGB, 100*r.RAMUsedGB/r.RAMTotalGB, age))
-		} else if r.RAMUsedGB > 0 {
-			line("memory", fmt.Sprintf("%.1f GB used (no total reported)%s", r.RAMUsedGB, age))
-		}
-		for _, d := range r.Disks {
-			line("disk", fmt.Sprintf("%s %.0f / %.0f GB (%.0f%%)%s", d.Mount, d.UsedGB, d.TotalGB, 100*d.UsedGB/d.TotalGB, age))
-		}
-		if r.UptimeS > 0 {
-			line("uptime", edge.Age(time.Duration(r.UptimeS)*time.Second)+age)
-		}
-		if r.GPU != "" {
-			line("gpu", fmt.Sprintf("%s %.0f%% memory%s", r.GPU, 100*r.GPUMemUsed, age))
-		}
-		if r.SDWearPct != nil {
-			line("sd card", fmt.Sprintf("%.0f%% worn%s", *r.SDWearPct, age))
-		}
-	}
-	if firing := h.snap.Firing[n.ID]; len(firing) > 0 {
-		b.WriteString("\n")
-		for _, a := range firing {
-			line("ALERT", "firing · "+a)
-		}
-	} else {
-		b.WriteString("\n")
-		line("alerts", "none firing")
-	}
-	f.RenderWidget(lm.NewBlock().Rounded().WithTitle(title).WithBorderStyle(lm.Fg(live)).
-		WithChild(lm.NewParagraph(b.String()).WithWrap(false).WithStyle(lm.Fg(ink))).WithPadding(0, 1, 0, 1), parts[0])
-
-	// Gauges: memory and the fullest disk, only as levels of a REAL total.
-	g := lm.NewBlock().WithTitle(" levels ").WithBorderStyle(lm.Fg(dim))
-	f.RenderWidget(g, parts[1])
-	inner := lm.SplitVertical(parts[1], lm.Fixed(1), lm.Fixed(1), lm.Fixed(1), lm.Fill())
-	if l, ok := n.MemoryLevel(); ok {
-		f.RenderWidget(gauge("memory", l), inset(inner[1]))
-	} else {
-		f.RenderWidget(lm.NewParagraph("  memory: no total reported").WithStyle(lm.Fg(dim)), inner[1])
-	}
-	if l, ok := n.DiskLevel(); ok {
-		f.RenderWidget(gauge("disk", l), inset(inner[2]))
-	} else {
-		f.RenderWidget(lm.NewParagraph("  disk: nothing mounted reports a total").WithStyle(lm.Fg(dim)), inner[2])
 	}
 }
 
-func (h *Health) drawRules(f *lm.Frame, area lm.Rect) {
-	fixed := func(w int) lm.TableConstraint { return lm.TableConstraint{Type: widgets.ConstraintFixed, Value: w} }
-	t := lm.NewTable().WithID("alert-rules").WithHeaders("RULE", "WHEN", "SCOPE", "KIND", "STATE").
-		WithConstraints(fixed(14), fixed(20), fixed(16), fixed(9), lm.TableConstraint{Type: widgets.ConstraintFill})
-	for _, r := range h.snap.Rules {
-		t = t.WithRow(r.ID, r.When, r.Scope, r.Kind, r.State)
+func appendCap(xs []float64, v float64) []float64 {
+	xs = append(xs, v)
+	if len(xs) > historyLen {
+		xs = xs[len(xs)-historyLen:]
 	}
+	return xs
+}
+
+func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
+	var lines []lm.Line
+	now := h.snap.At
+	// The strip: one row per unit.
+	lines = append(lines, lm.NewLine(), lm.NewLine(span("   ", dim), eyebrow(pad("unit", 28), muted), eyebrow(pad("temp", 18), muted),
+		eyebrow(pad("memory", 18), muted), eyebrow(pad("disk", 18), muted), eyebrow("carrier", muted)))
+	for i, n := range h.snap.Nodes {
+		firing := h.snap.Firing[n.ID]
+		railC := kindColor(n.Kind)
+		if n.Dark {
+			railC = ash
+		}
+		rail := span("▌", railC)
+		nc := ink
+		if i == h.sel {
+			rail, nc = bold("▌", live), paper
+		}
+		if n.Dark && i != h.sel {
+			nc = ash
+		}
+		g := "▣"
+		if i == 0 && n.Kind == "host" {
+			g = "◉"
+		}
+		l := lm.NewLine(span(" ", dim), rail, span(" ", dim), bold(g+" ", kindColor(n.Kind)), bold(pad(n.Name, 18), nc), span(pad(kindLabel(n.Kind), 7), muted))
+		l.Spans = append(l.Spans, cellTemp(n, firing)...)
+		l.Spans = append(l.Spans, cellMem(n)...)
+		l.Spans = append(l.Spans, cellDisk(n, firing)...)
+		lv := carrierLevel(n.LastHeard, n.Dark, now)
+		l.Spans = append(l.Spans, meter(lv, !n.LastHeard.IsZero(), -1, h.frame, !n.Dark)...)
+		if n.Dark {
+			l.Spans = append(l.Spans, span(" offline "+edge.Age(n.DarkFor), ash))
+		} else if n.Readings != nil && n.Readings.UptimeS > 0 {
+			l.Spans = append(l.Spans, span(" "+edge.Age(time.Duration(n.Readings.UptimeS)*time.Second)+" up", mint))
+		} else {
+			l.Spans = append(l.Spans, span(" online", mint))
+		}
+		l.Spans = append(l.Spans, alertChip(len(firing))...)
+		lines = append(lines, l)
+	}
+	if len(h.snap.Nodes) == 0 {
+		lines = append(lines, lm.NewLine(span("   nothing on this Edge reports yet", muted)))
+	}
+	// The selected unit's instrument stack.
+	if len(h.snap.Nodes) > 0 {
+		n := h.snap.Nodes[h.sel]
+		firing := h.snap.Firing[n.ID]
+		lines = append(lines, lm.NewLine())
+		headline := lm.NewLine(span("  ", dim), bold(n.Name, paper), span("   "+kindLabel(n.Kind)+" · ", muted))
+		if n.Dark {
+			headline.Spans = append(headline.Spans, span("offline "+edge.Age(n.DarkFor), ash))
+		} else {
+			headline.Spans = append(headline.Spans, span("online", mint))
+		}
+		if !n.LastHeard.IsZero() {
+			headline.Spans = append(headline.Spans, span(" · last heard "+edge.Age(now.Sub(n.LastHeard))+" ago", muted))
+		}
+		if n.Readings != nil {
+			headline.Spans = append(headline.Spans, span(" · readings "+edge.Age(n.ReadAge)+" ago", muted))
+		}
+		lines = append(lines, headline)
+		wide := int(area.Width) - 40
+		if wide < 20 {
+			wide = 20
+		}
+		if wide > 60 {
+			wide = 60
+		}
+		row := func(k string, v ...lm.Span) {
+			l := lm.NewLine(span("  ", dim), eyebrow(pad(k, 8), muted))
+			l.Spans = append(l.Spans, v...)
+			lines = append(lines, l)
+		}
+		r := n.Readings
+		hs := h.hist[n.ID]
+		switch {
+		case r == nil:
+			lines = append(lines, lm.NewLine(span("  this node reports no health readings", muted)))
+		default:
+			if r.CPUTempC != nil {
+				th, hasTh := thresholdIn(firing, "cpu_temp")
+				v := []lm.Span{bold(fmt.Sprintf("%.1f°C  ", *r.CPUTempC), ink)}
+				if hs != nil && len(hs.temp) > 1 {
+					v = append(v, sparkline(hs.temp, th, hasTh)...)
+					v = append(v, span(fmt.Sprintf("  last %d reads", len(hs.temp)), dim))
+				}
+				v = append(v, alarm(firing, "cpu_temp")...)
+				row("temp", v...)
+			}
+			if r.CPULoad1 != nil {
+				v := []lm.Span{bold(fmt.Sprintf("%.2f   ", *r.CPULoad1), ink)}
+				if hs != nil && len(hs.load) > 1 {
+					v = append(v, sparkline(hs.load, 0, false)...)
+				}
+				row("load", v...)
+			}
+			if l, ok := n.MemoryLevel(); ok {
+				row("memory", append([]lm.Span{span(pad(fmt.Sprintf("%.1f of %s GB", r.RAMUsedGB, fmtGB(r.RAMTotalGB)), 18), ink)},
+					append(meterN(l, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%%", 100*l), ink))...)...)
+			} else if r.RAMUsedGB > 0 {
+				row("memory", span(fmt.Sprintf("%.1f GB used · no total reported", r.RAMUsedGB), ink))
+			}
+			th, hasTh := thresholdIn(firing, "disk")
+			for i, d := range r.Disks {
+				k := ""
+				if i == 0 {
+					k = "disk"
+				}
+				l := d.UsedGB / d.TotalGB
+				from := -1.0
+				if hasTh {
+					from = th / 100
+				}
+				v := []lm.Span{span(pad(d.Mount, 18), ink)}
+				v = append(v, meterN(l, from, 0, false, wide)...)
+				v = append(v, span(fmt.Sprintf(" %.0f%%", 100*l), ink))
+				if hasTh && 100*l > th {
+					v = append(v, span("   ", dim), bold(fmt.Sprintf("▲ over %s", fmtGB(th)), live))
+				}
+				row(k, v...)
+			}
+			if r.GPU != "" {
+				row("gpu", append([]lm.Span{span(pad(r.GPU, 18), ink)}, append(meterN(r.GPUMemUsed, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%% memory", 100*r.GPUMemUsed), ink))...)...)
+			}
+			if r.SDWearPct != nil {
+				row("sd card", append(meterN(*r.SDWearPct/100, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%% worn", *r.SDWearPct), ink))...)
+			}
+		}
+		for _, a := range firing {
+			if strings.HasPrefix(a, "cpu_temp ") || (strings.HasPrefix(a, "disk ") && r != nil) {
+				continue
+			}
+			row("alarm", bold("▲ "+a, live))
+		}
+	}
+	// The rules in force, as sentences.
+	lines = append(lines, lm.NewLine())
 	sinks := h.snap.Sinks
 	if sinks == "" {
-		sinks = "none configured - alerts stay on this machine"
+		sinks = "sinks: none configured · alerts stay on this machine"
 	}
-	f.RenderWidget(lm.NewBlock().Rounded().WithTitle(" ALERT RULES · sinks: "+sinks+" ").WithBorderStyle(lm.Fg(muted)).
-		WithChild(t).WithPadding(0, 1, 0, 1), area)
-}
-
-func gauge(label string, v float64) lm.Widget {
-	col := muted
-	if v > 0.9 {
-		col = live
+	lines = append(lines, lm.NewLine(span("  ", dim), eyebrow(pad("rules", 8), muted), span(sinks, muted)))
+	for _, rl := range h.snap.Rules {
+		dot, dc := "○", dim
+		if strings.HasPrefix(rl.State, "firing") {
+			dot, dc = "●", live
+		}
+		state := rl.State
+		if state == "quiet" {
+			state = ""
+		}
+		lines = append(lines, lm.NewLine(span("          ", dim), bold(dot+" ", dc), span(pad(rl.When, 18), ink),
+			span(pad(rl.Scope, 12), muted), span(pad(rl.Kind, 9), muted), span(strings.Replace(state, "firing:", "firing on", 1), dc)))
 	}
-	return widgets.Gauge{ID: "gauge-" + label, Ratio: v, Label: fmt.Sprintf("%s %.0f%%", label, 100*v),
-		GaugeStyle: lm.Fg(col), Style: lm.Fg(ink)}
+	f.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 }
 
-func inset(r lm.Rect) lm.Rect {
-	c := lm.SplitHorizontal(r, lm.Fixed(2), lm.Fill(), lm.Fixed(2))
-	return c[1]
+// sparkline draws a history as ▁..█ scaled to its own range, red where it is over the threshold.
+func sparkline(xs []float64, th float64, hasTh bool) []lm.Span {
+	lo, hi := xs[0], xs[0]
+	for _, x := range xs {
+		if x < lo {
+			lo = x
+		}
+		if x > hi {
+			hi = x
+		}
+	}
+	var out []lm.Span
+	for _, x := range xs {
+		i := 0
+		if hi > lo {
+			i = int((x - lo) / (hi - lo) * float64(len(ramp)-1))
+		}
+		c := teal
+		if hasTh && x > th {
+			c = live
+		}
+		out = append(out, span(string(ramp[i]), c))
+	}
+	return out
 }
 
-// --- the cells, with the CLI's honesty rules -------------------------------------------------
+// --- the strip's cells, with the CLI's honesty rules -------------------------------------------
 
-func temp(n edge.NodeHealth) string {
+func cellTemp(n edge.NodeHealth, firing []string) []lm.Span {
 	if n.Readings == nil || n.Readings.CPUTempC == nil {
-		return "-"
+		return append(meter(0, false, -1, 0, false), span(pad("", 9), dim))
 	}
-	return fmt.Sprintf("%.1f°C", *n.Readings.CPUTempC)
+	from := -1.0
+	if th, ok := thresholdIn(firing, "cpu_temp"); ok {
+		from = th / 110
+	}
+	return append(meterN(*n.Readings.CPUTempC/110, from, 0, false, meterCells), span(pad(fmt.Sprintf(" %.1f°", *n.Readings.CPUTempC), 9), ink))
 }
 
-func mem(n edge.NodeHealth) string {
-	if n.Readings == nil || n.Readings.RAMUsedGB <= 0 {
-		return "-"
+func cellMem(n edge.NodeHealth) []lm.Span {
+	l, ok := n.MemoryLevel()
+	if !ok {
+		return append(meter(0, false, -1, 0, false), span(pad("", 9), dim))
 	}
-	if n.Readings.RAMTotalGB > 0 {
-		return fmt.Sprintf("%.1f/%.0f GB", n.Readings.RAMUsedGB, n.Readings.RAMTotalGB)
-	}
-	return fmt.Sprintf("%.1f GB", n.Readings.RAMUsedGB)
+	return append(meterN(l, -1, 0, false, meterCells), span(pad(fmt.Sprintf(" %.0f%%", 100*l), 9), ink))
 }
 
-func disk(n edge.NodeHealth) string {
-	if l, ok := n.DiskLevel(); ok {
-		return fmt.Sprintf("%.0f%%", 100*l)
+func cellDisk(n edge.NodeHealth, firing []string) []lm.Span {
+	l, ok := n.DiskLevel()
+	if !ok {
+		return append(meter(0, false, -1, 0, false), span(pad("", 9), dim))
 	}
-	return "-"
-}
-
-func uptime(n edge.NodeHealth) string {
-	if n.Readings == nil || n.Readings.UptimeS <= 0 {
-		return "-"
+	from := -1.0
+	if th, ok := thresholdIn(firing, "disk"); ok {
+		from = th / 100
 	}
-	return edge.Age(time.Duration(n.Readings.UptimeS) * time.Second)
-}
-
-func presence(n edge.NodeHealth) string {
-	if n.Dark {
-		return "offline " + edge.Age(n.DarkFor)
-	}
-	if n.Readings != nil && n.ReadAge > time.Minute {
-		return "online (reading " + edge.Age(n.ReadAge) + " old)"
-	}
-	return "online"
-}
-
-func alertCount(a []string) string {
-	if len(a) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", len(a))
-}
-
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
+	return append(meterN(l, from, 0, false, meterCells), span(pad(fmt.Sprintf(" %.0f%%", 100*l), 9), ink))
 }

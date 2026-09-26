@@ -6,6 +6,10 @@ import lm "github.com/thebanri/limoni"
 // so a glance tells a machine from a board from a phone, a verified capability from a claimed one,
 // online from dark. Chosen on a dark ground; every color is also legible on the terminal default.
 var (
+	live   = lm.RGB(255, 68, 56)   // THE red: selection, on air, alarm (the site's --live on ink)
+	ink    = lm.RGB(215, 211, 200) // body (--ink-700 on ink)
+	muted  = lm.RGB(154, 150, 139) // eyebrows, verbs (--ink-500)
+	dim    = lm.RGB(85, 81, 72)    // rails, off cells (--ink-300)
 	ember  = lm.RGB(255, 138, 61)  // this machine's own rogers
 	gold   = lm.RGB(242, 193, 78)  // agents, and a discovered device asking to be adopted
 	teal   = lm.RGB(63, 184, 175)  // phones, and models on air

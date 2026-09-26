@@ -12,7 +12,6 @@ import (
 	"time"
 
 	lm "github.com/thebanri/limoni"
-	"github.com/thebanri/limoni/widgets"
 
 	"rogerai.fm/roger/v6/internal/edge"
 )
@@ -123,20 +122,7 @@ func (f *Fleet) Draw(fr *lm.Frame, ev *lm.Event) bool {
 	f.refresh()
 	f.clamp()
 
-	rows := lm.SplitVertical(fr.Area(), lm.Fixed(3), lm.Fill(), lm.Fixed(1))
-	f.drawHeader(fr, rows[0])
-	if f.err != nil {
-		fr.RenderWidget(lm.NewBlock().Rounded().WithTitle(" could not read the Edge ").WithBorderStyle(lm.Fg(live)).
-			WithChild(lm.NewParagraph(f.err.Error()).WithStyle(lm.Fg(ink))).WithPadding(0, 1, 0, 1), rows[1])
-	} else {
-		cols := lm.SplitHorizontal(rows[1], lm.Percentage(56), lm.Percentage(44))
-		f.drawMap(fr, cols[0])
-		f.drawReadout(fr, cols[1])
-	}
-	fr.RenderWidget(f.actionBar(), rows[2])
-	if f.confirm {
-		f.drawConfirm(fr)
-	}
+	f.drawFrame(fr)
 	return true
 }
 
@@ -280,74 +266,49 @@ func (f *Fleet) selected() FleetItem {
 	return f.snap.Items[f.sel]
 }
 
-// --- drawing ---------------------------------------------------------------------------------
+// --- drawing: the rack ---------------------------------------------------------------------
 
 func span(s string, c lm.Color) lm.Span { return lm.NewSpan(s, lm.Fg(c)) }
 func bold(s string, c lm.Color) lm.Span { return lm.NewSpan(s, lm.Fg(c).Bold()) }
 
-func (f *Fleet) drawHeader(fr *lm.Frame, area lm.Rect) {
-	rows := lm.SplitVertical(area, lm.Fixed(1), lm.Fixed(1), lm.Fixed(1))
-	title := lm.NewLine(span(" ▟•▙ ", live), bold(" R O G E R", paper), span(" · ", live), bold("E D G E ", paper),
-		span("  ◉ ON AIR", live))
+func (f *Fleet) drawFrame(fr *lm.Frame) {
+	rows := lm.SplitVertical(fr.Area(), lm.Fixed(2), lm.Fill(), lm.Fixed(1))
+	units, alerts := 0, 0
+	for _, it := range f.snap.Items {
+		if it.Kind == ItemHub || it.Kind == ItemMember {
+			units++
+		}
+		alerts += len(it.Alerts)
+	}
+	right := clock(f.snap.At) + " · " + unitsWord(units)
+	if alerts > 0 {
+		right += fmt.Sprintf(" · ▲ %d", alerts)
+	}
+	tabs := []string{"fleet"}
 	if f.health != nil {
-		tabs := []lm.Span{span("     ", dim)}
-		for i, t := range []string{"1 FLEET", "2 HEALTH"} {
-			if i == f.tab {
-				tabs = append(tabs, bold(" "+t+" ", live))
-			} else {
-				tabs = append(tabs, span("  "+t+"  ", dim))
-			}
-		}
-		title.Spans = append(title.Spans, tabs...)
+		tabs = append(tabs, "health")
 	}
-	fr.RenderWidget(lm.NewText(title).WithWrap(false), rows[0])
-
-	facts := lm.NewLine(span(" EDGE · ", muted), bold(f.snap.Self.Root, gold), span(" · ", muted), span(f.snap.Self.Prefer, teal))
-	if n := len(f.snap.Items); n > 0 {
-		members, cands, alerts := 0, 0, 0
-		for _, it := range f.snap.Items {
-			switch it.Kind {
-			case ItemMember:
-				members++
-			case ItemCandidate:
-				cands++
-			}
-			alerts += len(it.Alerts)
-		}
-		facts.Spans = append(facts.Spans, span(fmt.Sprintf(" · %d member%s", members, plural(members)), muted))
-		if cands > 0 {
-			facts.Spans = append(facts.Spans, span(fmt.Sprintf(" · %d to adopt", cands), gold))
-		}
-		if alerts > 0 {
-			facts.Spans = append(facts.Spans, bold(fmt.Sprintf(" · ⚠ %d alert%s", alerts, plural(alerts)), live))
-		}
+	brandBand(fr, rows[0], tabs, 0, right, f.frame)
+	if f.err != nil {
+		fr.RenderWidget(lm.NewText(
+			lm.NewLine(),
+			lm.NewLine(span("  ", dim), bold("could not read the Edge", live)),
+			lm.NewLine(span("  ", dim), span(f.err.Error(), ink)),
+		).WithWrap(false), rows[1])
+	} else {
+		cols := lm.SplitHorizontal(rows[1], lm.Percentage(54), lm.Fixed(1), lm.Fill())
+		f.drawRack(fr, cols[0])
+		hairline(fr, cols[1])
+		f.drawReadout(fr, cols[2])
 	}
-	fr.RenderWidget(lm.NewText(facts).WithWrap(false), rows[1])
-
-	// A warm rule under the head: red fading to gold to the dark - or, while an action's
-	// outcome is fresh, that outcome, where the eye already is.
-	if f.toast != "" && time.Since(f.toastAt) < 8*time.Second {
-		c := mint
-		if f.toastErr {
-			c = live
-		}
-		fr.RenderWidget(lm.NewText(lm.NewLine(span(" ▸ ", c), bold(f.toast, c))).WithWrap(false), rows[2])
-		return
+	actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
+	if f.confirm {
+		it := f.selected()
+		confirmBox(fr, "forget "+it.Name+"?", "it leaves this Edge and its certificate is revoked", "y forget", "n keep it")
 	}
-	w := int(area.Width)
-	rule := lm.NewLine()
-	for _, seg := range []struct {
-		n int
-		c lm.Color
-	}{{w / 6, live}, {w / 6, ember}, {w / 6, gold}, {w / 2, dim}} {
-		if seg.n > 0 {
-			rule.Spans = append(rule.Spans, span(strings.Repeat("─", seg.n), seg.c))
-		}
-	}
-	fr.RenderWidget(lm.NewText(rule).WithWrap(false), rows[2])
 }
 
-// glyph is an item's mark and its color.
+// glyph is a unit's mark and its kind color.
 func (it FleetItem) glyph(frame int) (string, lm.Color) {
 	switch it.Kind {
 	case ItemHub:
@@ -361,57 +322,37 @@ func (it FleetItem) glyph(frame int) (string, lm.Color) {
 		return "◆", gold
 	case ItemMember:
 		if it.Dark {
-			return "▯", ash
+			return "▣", ash
 		}
 		return "▣", kindColor(it.NodeKind)
 	default:
-		if frame/3%2 == 0 { // a discovered device asks: it blinks, softly
+		if (frame/3)%2 == 0 { // a discovered device asks: it blinks, softly
 			return "◈", gold
 		}
 		return "◇", gold
 	}
 }
 
-// sub is the item's one-line description under its name on the map.
-func (it FleetItem) sub(self SelfFacts) string {
-	tag := alertTag(it.Alerts)
-	switch it.Kind {
-	case ItemHub:
-		s := self.Authority
-		if tag != "" {
-			s += " · " + tag
-		}
-		return s
-	case ItemInstance:
-		if it.Self {
-			return "‹ this one"
-		}
-		if len(it.Bands) > 0 {
-			return "serves " + fewBands(it.Bands)
-		}
-		return "roger"
-	case ItemAgent:
-		switch {
-		case it.Dark:
-			return "agent · offline"
-		case it.Job != "":
-			return it.Job
-		case len(it.Bands) > 0:
-			return "agent · serves " + fewBands(it.Bands)
-		}
+// rogerWords is what a roger on this machine is doing, in a few words.
+func (it FleetItem) rogerWords() string {
+	switch {
+	case it.Dark:
+		return "agent · offline"
+	case it.Job != "":
+		return "agent · " + it.Job
+	case it.Kind == ItemAgent && len(it.Bands) > 0:
+		return "agent · " + fewBands(it.Bands)
+	case it.Kind == ItemAgent:
 		return "agent · idle"
-	case ItemMember:
-		s := "member · " + it.Presence
-		if tag != "" {
-			s += " · " + tag
-		}
-		return s
-	default:
-		return "adopt with a"
+	case it.Self:
+		return "this one"
+	case len(it.Bands) > 0:
+		return "serves " + fewBands(it.Bands)
 	}
+	return "roger"
 }
 
-// fewBands names the first two models and counts the rest, so a card line stays a line.
+// fewBands names the first two models and counts the rest, so a line stays a line.
 func fewBands(b []string) string {
 	if len(b) <= 2 {
 		return strings.Join(b, " ")
@@ -419,78 +360,247 @@ func fewBands(b []string) string {
 	return strings.Join(b[:2], " ") + fmt.Sprintf(" +%d", len(b)-2)
 }
 
-func alertTag(a []string) string {
-	switch len(a) {
-	case 0:
-		return ""
-	case 1:
-		return "1 alert"
+func alertChip(n int) []lm.Span {
+	if n == 0 {
+		return nil
 	}
-	return fmt.Sprintf("%d alerts", len(a))
+	return []lm.Span{span("  ", dim), bold(fmt.Sprintf("▲ %d", n), live)}
 }
 
-func (f *Fleet) drawMap(fr *lm.Frame, area lm.Rect) {
+// drawRack is the left column: the hub as the transmitter, its rogers under it, the units
+// patched in, the bench.
+func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) {
 	var lines []lm.Line
-	band := func(title string, c lm.Color) {
-		lines = append(lines, lm.NewLine(), lm.NewLine(span("  ", dim), bold(title, c), span("  "+strings.Repeat("┈", 40), dim)))
-	}
-	seen := map[ItemKind]bool{}
-	for i, it := range f.snap.Items {
-		switch {
-		case it.Kind == ItemMember && !seen[ItemMember]:
-			band("ON THE EDGE", sky)
-			lines = append(lines, lm.NewLine(span("  other machines you have adopted", dim)))
-		case it.Kind == ItemCandidate && !seen[ItemCandidate]:
-			band("DISCOVERED", gold)
-			lines = append(lines, lm.NewLine(span("  on this network, not yet on your Edge", dim)))
-		}
-		seen[it.Kind] = true
-		g, c := it.glyph(f.frame)
-		cursor, nameC := "  ", ink
+	now := f.snap.At
+	rail := func(i int, c lm.Color) lm.Span {
 		if i == f.sel {
-			cursor, nameC = "▶ ", paper
+			return bold("▌", live)
 		}
-		indent := ""
+		return span("▌", c)
+	}
+	nameC := func(i int, dark bool) lm.Color {
+		switch {
+		case i == f.sel:
+			return paper
+		case dark:
+			return ash
+		}
+		return ink
+	}
+	members, cands := 0, 0
+	for _, it := range f.snap.Items {
 		switch it.Kind {
+		case ItemMember:
+			members++
+		case ItemCandidate:
+			cands++
+		}
+	}
+	seenMember, seenCand := false, false
+	for i, it := range f.snap.Items {
+		g, gc := it.glyph(f.frame)
+		switch it.Kind {
+		case ItemHub:
+			lines = append(lines, lm.NewLine())
+			lines = append(lines, lm.NewLine(span(" ", dim), rail(i, sky), span(" ", dim), bold(g+" ", gc), bold(it.Name, nameC(i, false)),
+				span("   ", dim), span("this machine", muted)))
+			lines = append(lines, lm.NewLine(span(" ", dim), rail(i, sky), span("   ", dim),
+				span(strings.ToLower(f.snap.Self.Authority)+" · "+f.snap.Self.Prefer, muted)))
+			l := lm.NewLine(span(" ", dim), rail(i, sky), span("   ", dim))
+			lv := carrierLevel(now, false, now)
+			l.Spans = append(l.Spans, meter(lv, true, -1, f.frame, true)...)
+			l.Spans = append(l.Spans, span(" "+sUnit(lv)+"  ", muted), span("online", mint))
+			if it.Health != nil && it.Health.Readings != nil && it.Health.Readings.UptimeS > 0 {
+				l.Spans = append(l.Spans, span(" "+edge.Age(time.Duration(it.Health.Readings.UptimeS)*time.Second), muted))
+			}
+			l.Spans = append(l.Spans, alertChip(len(it.Alerts))...)
+			lines = append(lines, l)
 		case ItemInstance, ItemAgent:
-			indent = "   ├─ "
+			branch := "├"
 			if i+1 >= len(f.snap.Items) || (f.snap.Items[i+1].Kind != ItemInstance && f.snap.Items[i+1].Kind != ItemAgent) {
-				indent = "   ╰─ "
+				branch = "╰"
 			}
-		case ItemMember, ItemCandidate:
-			indent = "   "
-		}
-		name := it.Name
-		if it.Dark {
-			nameC = ash
-		}
-		l := lm.NewLine(span(cursor, live), span(indent, dim), bold(g+" ", c), bold(pad(name, 22), nameC))
-		// The description: presence in its color, a live pulse for what is online.
-		subC := muted
-		if it.Kind == ItemMember && !it.Dark || it.Kind == ItemHub {
-			subC = mint
-			if f.frame/4%2 == 0 {
-				subC = teal
+			nc := nameC(i, it.Dark)
+			if i == f.sel {
+				gc = live
 			}
+			lines = append(lines, lm.NewLine(span(" ", dim), rail(i, sky), span("      "+branch+" ", dim), bold(g+" ", gc),
+				bold(pad(it.Name, 20), nc), span(it.rogerWords(), muted)))
+		case ItemMember:
+			if !seenMember {
+				seenMember = true
+				lines = append(lines, lm.NewLine(), lm.NewLine(span("   ", dim), eyebrow("on the rack", sky),
+					span(fmt.Sprintf("  %d patched in", members), muted)), lm.NewLine())
+			}
+			l := lm.NewLine(span(" ", dim), rail(i, kindColor(it.NodeKind)), span(" ", dim), bold(g+" ", gc),
+				bold(pad(it.Name, 20), nameC(i, it.Dark)), span(pad(kindLabel(it.NodeKind), 8), muted))
+			l.Spans = append(l.Spans, meter(carrierLevel(it.LastSeen, it.Dark, now), true, -1, f.frame, !it.Dark)...)
+			pc := mint
+			if it.Dark {
+				pc = ash
+			}
+			l.Spans = append(l.Spans, span(" ", dim), span(it.Presence, pc))
+			l.Spans = append(l.Spans, alertChip(len(it.Alerts))...)
+			lines = append(lines, l)
+		case ItemCandidate:
+			if !seenCand {
+				seenCand = true
+				lines = append(lines, lm.NewLine(), lm.NewLine(span("   ", dim), eyebrow("on the bench", gold),
+					span(fmt.Sprintf("  %d asking to be adopted", cands), muted)), lm.NewLine())
+			}
+			l := lm.NewLine(span(" ", dim), rail(i, gold), span(" ", dim), bold(g+" ", gc),
+				bold(pad(it.Name, 20), nameC(i, false)), span(pad(kindLabel(it.NodeKind), 8), muted))
+			l.Spans = append(l.Spans, meter(0, false, -1, 0, false)...)
+			l.Spans = append(l.Spans, span(" found · a adopt", gold))
+			lines = append(lines, l)
 		}
-		if it.Kind == ItemCandidate {
-			subC = gold
+	}
+	if !seenMember {
+		lines = append(lines, lm.NewLine(), lm.NewLine(span("   ", dim), eyebrow("on the rack", sky), span("  nothing patched in yet", muted)))
+		if f.snap.Self.Join != "" {
+			lines = append(lines, lm.NewLine(span("   on another machine:  ", dim), span(f.snap.Self.Join, ink)))
 		}
-		l.Spans = append(l.Spans, span(it.sub(f.snap.Self), subC))
-		if len(it.Alerts) > 0 {
-			l.Spans = append(l.Spans, bold("  ⚠", live))
-		}
+		lines = append(lines, lm.NewLine(span("   or scan the LAN:  ", dim), span("roger edge scan", ink)))
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
+}
+
+// drawReadout is the selected unit in full: a headline, its meters, what it does, its facts.
+func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) {
+	it := f.selected()
+	now := f.snap.At
+	width := int(area.Width) - 13
+	if width < 20 {
+		width = 20
+	}
+	var lines []lm.Line
+	row := func(k string, v ...lm.Span) {
+		l := lm.NewLine(span("  ", dim), eyebrow(pad(k, 10), muted))
+		l.Spans = append(l.Spans, v...)
 		lines = append(lines, l)
-		if it.Kind == ItemHub {
-			lines = append(lines, lm.NewLine(span("     │", dim)))
+	}
+	text := func(k, v string, c lm.Color) {
+		for i, part := range wrapWords(v, width) {
+			if i > 0 {
+				k = ""
+			}
+			row(k, span(part, c))
 		}
 	}
-	if len(f.snap.Items) <= 1 {
-		lines = append(lines, lm.NewLine(), lm.NewLine(span("   ┈┈ no rogers running here yet ┈┈", dim)))
+	head := func(name, role string, c lm.Color) {
+		lines = append(lines, lm.NewLine(), lm.NewLine(span("  ", dim), bold(name, paper), span("   "+role, c)))
 	}
-	title := " YOUR EDGE NETWORK "
-	fr.RenderWidget(lm.NewBlock().Rounded().WithTitle(title).WithBorderStyle(lm.Fg(muted)).
-		WithChild(lm.NewText(lines...).WithWrap(false)).WithPadding(0, 1, 0, 1), area)
+	prose := func(s string) {
+		for _, part := range wrapWords(s, width+10) {
+			lines = append(lines, lm.NewLine(span("  ", dim), span(part, ink)))
+		}
+		lines = append(lines, lm.NewLine())
+	}
+	switch it.Kind {
+	case ItemHub:
+		root, _, _ := strings.Cut(f.snap.Self.Root, " · ") // the badge names the machine too; the headline already did
+		head(it.Name, "this machine · "+strings.ToLower(root), muted)
+		prose("the transmitter of this Edge: it holds the root key and signs every member's certificate")
+		lv := carrierLevel(now, false, now)
+		row("carrier", append(meter(lv, true, -1, f.frame, true), span(" "+sUnit(lv)+"   ", muted), span("turns go "+f.snap.Self.PreferValue+" first", teal))...)
+	case ItemInstance, ItemAgent:
+		role := "roger on this machine"
+		if it.Kind == ItemAgent {
+			role = "agent on this machine"
+		}
+		head(it.Name, role, muted)
+		switch {
+		case it.Dark:
+			prose("offline: its process is not running. resume it from the TUI's [3], or forget it there")
+		case it.Kind == ItemAgent:
+			prose("an agent: it can act on other nodes of the Edge under a grant, and serve what it has on air")
+		case len(it.Bands) > 0:
+			prose("serves a model to the Edge")
+		default:
+			prose("on the Edge, not an agent, not serving")
+		}
+		if it.Job != "" {
+			row("job", bold(it.Job, gold))
+		}
+	case ItemMember:
+		head(it.Name, kindLabel(it.NodeKind)+" · patched in", muted)
+		if it.Dark {
+			prose("dark: the authority has not heard from it past the liveness window. it re-admits itself when it pings again")
+		} else {
+			prose("a member of this Edge, verified by the certificate this authority issued it")
+		}
+		lv := carrierLevel(it.LastSeen, it.Dark, now)
+		cs := append(meter(lv, true, -1, f.frame, !it.Dark), span("   ", dim))
+		if it.Dark {
+			cs = append(cs, span(it.Presence, ash))
+		} else {
+			cs = append(cs, span(sUnit(lv), muted), span("   heard "+edge.Age(now.Sub(it.LastSeen))+" ago", ink))
+		}
+		row("carrier", cs...)
+		if it.Via != "" {
+			row("reached", span("through "+it.Via, ink))
+		}
+	case ItemCandidate:
+		head(it.Name, kindLabel(it.NodeKind)+" · on the bench", gold)
+		prose("seen on this network, not on your Edge. adopting it grants a claim; it fetches its certificate and patches in")
+		row("status", bold("not on your Edge", gold), span(" · press a to adopt it", muted))
+	}
+	// Health meters, where the unit reports them.
+	if h := it.Health; h != nil && h.Readings != nil {
+		r := h.Readings
+		if r.CPUTempC != nil {
+			from := -1.0
+			if th, ok := thresholdIn(it.Alerts, "cpu_temp"); ok {
+				from = th / 110
+			}
+			row("temp", append(append(meterN(*r.CPUTempC/110, from, 0, false, meterCells), span(fmt.Sprintf(" %.1f°C", *r.CPUTempC), ink)), alarm(it.Alerts, "cpu_temp")...)...)
+		}
+		if l, ok := h.MemoryLevel(); ok {
+			row("memory", append(meterN(l, -1, 0, false, meterCells), span(fmt.Sprintf(" %s of %s GB", fmtGB(r.RAMUsedGB), fmtGB(r.RAMTotalGB)), ink))...)
+		}
+		if l, ok := h.DiskLevel(); ok {
+			from := -1.0
+			if th, ok := thresholdIn(it.Alerts, "disk"); ok {
+				from = th / 100
+			}
+			row("disk", append(append(meterN(l, from, 0, false, meterCells), span(fmt.Sprintf(" %.0f%%", 100*l), ink)), alarm(it.Alerts, "disk")...)...)
+		}
+	}
+	if len(it.Bands) > 0 {
+		row("on air", span(strings.Join(it.Bands, "  "), teal))
+	}
+	if len(it.Caps) > 0 {
+		row("can do", chips(it.Caps)...)
+	}
+	// Alerts not already told on a meter row.
+	for _, a := range it.Alerts {
+		if strings.HasPrefix(a, "cpu_temp ") || strings.HasPrefix(a, "disk ") {
+			continue
+		}
+		row("alarm", bold("▲ "+a, live))
+	}
+	if it.Kind == ItemHub {
+		lines = append(lines, lm.NewLine())
+		for i, ln := range f.snap.Self.AuthorityLines {
+			k := ""
+			if i == 0 {
+				k = "authority"
+			}
+			text(k, ln, ink)
+		}
+		if f.snap.Self.Discovery != "" {
+			text("discovery", f.snap.Self.Discovery, ink)
+		}
+		if f.snap.Self.Join != "" {
+			text("join", f.snap.Self.Join, ink)
+		}
+	}
+	if f.rename {
+		lines = append(lines, lm.NewLine())
+		lines = append(lines, lm.NewLine(span("  ", dim), span("new name  ", paper), bold(string(f.input)+"▏", paper),
+			span("  (was "+it.Name+") · enter to rename · esc to cancel", muted)))
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 }
 
 // wrapWords breaks s on spaces into lines no wider than w (a single word wider than w stands alone).
@@ -521,204 +631,31 @@ func pad(s string, n int) string {
 	return s + strings.Repeat(" ", n-len([]rune(s)))
 }
 
-// drawReadout is the selected item in full, with what can be done to it.
-func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) {
-	it := f.selected()
-	var lines []lm.Line
-	kv := func(k string, v ...lm.Span) {
-		l := lm.NewLine(span(pad(k, 11), muted))
-		l.Spans = append(l.Spans, v...)
-		lines = append(lines, l)
-	}
-	width := int(area.Width) - 4 - 11 // inside the border and padding, after the label
-	if width < 20 {
-		width = 20
-	}
-	// kvText is kv for one plain value, wrapped on words so nothing is cut at the pane edge.
-	kvText := func(k, v string, c lm.Color) {
-		for i, part := range wrapWords(v, width) {
-			if i > 0 {
-				k = ""
-			}
-			kv(k, span(part, c))
-		}
-	}
-	title, tc := it.Name, ink
-	switch it.Kind {
-	case ItemHub:
-		title, tc = it.Name+" · this machine", live
-		kvText("ROLE", "the authority hub · "+f.snap.Self.Root, gold)
-		if f.snap.Self.Machine != "" {
-			kvText("MACHINE", f.snap.Self.Machine, ink)
-		}
-		if len(f.snap.Self.AuthorityLines) == 0 {
-			kvText("AUTHORITY", f.snap.Self.Authority, ink)
-		}
-		for i, ln := range f.snap.Self.AuthorityLines {
-			k := ""
-			if i == 0 {
-				k = "AUTHORITY"
-			}
-			kvText(k, ln, ink)
-		}
-		kv("TURNS", span(f.snap.Self.Prefer, teal), span("  (p to change)", dim))
-		if f.snap.Self.Discovery != "" {
-			kvText("DISCOVERY", f.snap.Self.Discovery, ink)
-		}
-		if f.snap.Self.Join != "" {
-			kvText("JOIN", "another machine runs  "+f.snap.Self.Join, ink)
-		}
-	case ItemInstance, ItemAgent:
-		title, tc = it.Name+" · roger", ember
-		if it.Kind == ItemAgent {
-			title, tc = it.Name+" · agent", gold
-		}
-		switch {
-		case it.Dark:
-			kv("DOES", span("offline - its process is not running", ash))
-		case it.Kind == ItemAgent:
-			kv("DOES", span("agent · can act on other nodes on the Edge", ink))
-		case len(it.Bands) > 0:
-			kv("DOES", span("serves a model to the Edge", ink))
-		default:
-			kv("DOES", span("on the Edge · not an agent, not serving", ink))
-		}
-		if it.Job != "" {
-			kv("JOB", bold(it.Job, gold))
-		}
-		if it.Self {
-			kv("YOU", span("this is the roger you are looking at", ink))
-		}
-	case ItemMember:
-		title, tc = it.Name+" · "+kindLabel(it.NodeKind), kindColor(it.NodeKind)
-		pc := mint
-		if it.Dark {
-			pc = ash
-		}
-		kv("PRESENCE", bold(it.Presence, pc))
-		if !it.LastSeen.IsZero() {
-			kv("LAST SEEN", span(edge.Age(time.Since(it.LastSeen))+" ago", ink))
-		}
-		if it.Via != "" {
-			kv("REACHED", span("through "+it.Via, ink))
-		}
-	case ItemCandidate:
-		title, tc = it.Name+" · "+kindLabel(it.NodeKind), gold
-		kv("STATUS", bold("not on your Edge", gold), span(" · press a to adopt it", dim))
-	}
-	if len(it.Bands) > 0 {
-		kv("ON AIR", span(strings.Join(it.Bands, "  "), teal))
-	}
-	if len(it.Caps) > 0 {
-		chips := []lm.Span{}
-		for _, c := range it.Caps {
-			if c.State == "VERIFIED" {
-				chips = append(chips, bold(" "+strings.ToUpper(c.Name)+" ", capColor(c.Name)), span(" ", dim))
-			} else {
-				chips = append(chips, span(" "+c.Name+" ", capColor(c.Name)), span("· ", dim))
-			}
-		}
-		kv("CAN DO", chips...)
-	}
-	if it.Health != nil && it.Health.Readings != nil {
-		r := it.Health.Readings
-		var hs []lm.Span
-		if r.CPUTempC != nil {
-			c := mint
-			if *r.CPUTempC > 85 {
-				c = live
-			}
-			hs = append(hs, bold(fmt.Sprintf("%.1f°C", *r.CPUTempC), c), span("  ", dim))
-		}
-		if r.RAMTotalGB > 0 {
-			hs = append(hs, span(fmt.Sprintf("mem %.0f/%.0f GB", r.RAMUsedGB, r.RAMTotalGB), ink), span("  ", dim))
-		}
-		if l, ok := it.Health.DiskLevel(); ok {
-			c := ink
-			if l > 0.9 {
-				c = live
-			}
-			hs = append(hs, span(fmt.Sprintf("disk %.0f%%", 100*l), c))
-		}
-		if len(hs) > 0 {
-			kv("HEALTH", hs...)
-		}
-	}
-	for i, a := range it.Alerts {
-		k := ""
-		if i == 0 {
-			k = "ALERT"
-		}
-		kv(k, bold("⚠ firing · "+a, live))
-	}
-	if f.rename {
-		lines = append(lines, lm.NewLine())
-		kv("new name", bold(string(f.input)+"▏", paper), span("  (was "+f.selected().Name+") · enter to rename · esc to cancel", dim))
-	}
-	lines = append(lines, lm.NewLine())
-	for _, a := range f.actions() {
-		kv("", bold(" "+a.key+" ", live), span(a.label, ink), span("  "+a.hint, dim))
-	}
-	fr.RenderWidget(lm.NewBlock().Rounded().WithTitle(" "+title+" ").WithBorderStyle(lm.Fg(tc)).
-		WithChild(lm.NewText(lines...).WithWrap(false)).WithPadding(0, 1, 0, 1), area)
-}
-
 type action struct{ key, label, hint string }
 
-// actions is what the selected item offers, in order.
+// actions is what the selected unit offers, in order.
 func (f *Fleet) actions() []action {
 	it := f.selected()
-	var out []action
+	out := []action{{"↑↓", "select", ""}}
 	switch it.Kind {
 	case ItemCandidate:
 		if f.Actions.Adopt != nil {
-			out = append(out, action{"a", "adopt", "bring it onto your Edge"})
+			out = append(out, action{"a", "adopt", ""})
 		}
 	case ItemMember:
 		if f.Actions.Rename != nil {
-			out = append(out, action{"n", "rename", "give it a name you choose"})
+			out = append(out, action{"n", "rename", ""})
 		}
 		if f.Actions.Forget != nil {
-			out = append(out, action{"f", "forget", "off the Edge · cert revoked"})
+			out = append(out, action{"f", "forget", ""})
 		}
 	case ItemHub:
 		if f.Actions.SetPrefer != nil {
-			out = append(out, action{"p", "prefer", "cycle where a turn goes first"})
+			out = append(out, action{"p", "prefer", ""})
 		}
 	}
 	if f.health != nil {
-		out = append(out, action{"2", "health", "temperatures, disks, alerts"})
+		out = append(out, action{"2", "health", ""})
 	}
-	return out
-}
-
-func (f *Fleet) actionBar() lm.Widget {
-	l := lm.NewLine(span(" ", dim))
-	add := func(k, v string) {
-		l.Spans = append(l.Spans, bold(" "+k+" ", live), span(v+"   ", muted))
-	}
-	add("↑↓", "move")
-	for _, a := range f.actions() {
-		add(a.key, a.label)
-	}
-	add("r", "re-read")
-	add("q", "quit")
-	return lm.NewText(l).WithWrap(false)
-}
-
-// drawConfirm is the forget question, centered over the map.
-func (f *Fleet) drawConfirm(fr *lm.Frame) {
-	it := f.selected()
-	a := fr.Area()
-	w, h := uint16(64), uint16(7)
-	if a.Width < w+2 {
-		w = a.Width - 2
-	}
-	box := lm.Rect{X: a.X + (a.Width-w)/2, Y: a.Y + (a.Height-h)/2, Width: w, Height: h}
-	d := widgets.Dialog{ID: "forget", Title: " forget " + it.Name + "? ",
-		Message:    "it leaves this Edge and its certificate is revoked",
-		SubMessage: "y forget · n keep it",
-		Buttons:    []widgets.DialogButton{{Text: "y forget", Style: lm.Fg(live)}, {Text: "n keep", Style: lm.Fg(ink)}},
-		Style:      lm.Fg(ink), HeaderStyle: lm.Fg(live).Bold(), BorderStyle: lm.Fg(live), Shadow: true}
-	fr.RenderWidget(d, box)
+	return append(out, action{"r", "re-read", ""}, action{"q", "quit", ""})
 }

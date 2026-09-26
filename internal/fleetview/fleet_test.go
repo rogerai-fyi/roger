@@ -68,14 +68,14 @@ func newFleet(t *testing.T, rec *recorder) (*fleetview.Fleet, *uitest.Page) {
 func TestFleetScreenDrawsTheWholeEdgeWithItsFacts(t *testing.T) {
 	_, page := newFleet(t, &recorder{})
 	s := page.Screen()
-	must(t, s, "R O G E R", "E D G E", "LOCAL ROOT", "RogGentooEdged", "prefers local")
+	must(t, s, "ROGER", "EDGE", "ON AIR", "RogGentooEdged", "prefers local")
 	must(t, s, "roggentooedged", "this one", "roggentooedged-2", "qwen3.8-27b", "watcher", "offline")
-	must(t, s, "ON THE EDGE", "nas", "gentle-ibex-14", "offline 1d", "DISCOVERED", "blue-fox-3", "adopt")
-	must(t, s, "1 alert", "scanning this network")
-	// The hub is selected first: its readout names its role, its alert and its health.
-	must(t, s, "this machine", "cpu_temp > 85", "95.5")
+	must(t, s, "ON THE RACK", "nas", "gentle-ibex-14", "offline 1d", "ON THE BENCH", "blue-fox-3", "adopt")
+	must(t, s, "▲ 1", "▲ 2", "scanning this network")
+	// The hub is selected first: its readout names its role, its alert on the temperature meter, its health.
+	must(t, s, "this machine", "▲ cpu_temp > 85", "95.5")
 	// A long fact wraps in the readout; it is never cut at the pane edge.
-	must(t, s, "scan to look now")
+	must(t, s, "look now")
 }
 
 func TestFleetScreenActionsGoThroughTheHandedInFunctions(t *testing.T) {
@@ -85,7 +85,7 @@ func TestFleetScreenActionsGoThroughTheHandedInFunctions(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		page.Press("Down")
 	}
-	must(t, page.Screen(), "blue-fox-3 · phone", "a adopt")
+	must(t, page.Screen(), "blue-fox-3", "on the bench", "a adopt")
 	page.Press("a")
 	if len(rec.adopted) != 1 || rec.adopted[0] != "n_fox" {
 		t.Fatalf("adopted = %v", rec.adopted)
@@ -94,7 +94,7 @@ func TestFleetScreenActionsGoThroughTheHandedInFunctions(t *testing.T) {
 
 	// Up to the dark phone: forget asks first; n cancels, y forgets.
 	page.Press("Up")
-	must(t, page.Screen(), "gentle-ibex-14 · phone", "f forget")
+	must(t, page.Screen(), "gentle-ibex-14", "patched in", "f forget")
 	page.Press("f")
 	must(t, page.Screen(), "forget gentle-ibex-14?")
 	page.Press("n")
@@ -143,9 +143,9 @@ func TestFleetScreenHasAHealthTabAndComesBack(t *testing.T) {
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, h, (&recorder{}).actions())
 	page := uitest.Run(t, 130, 44, f.Draw)
 	page.Press("2")
-	must(t, page.Screen(), "THE FLEET", "TEMP", "quiet-pi")
+	must(t, page.Screen(), "UNIT", "TEMP", "CARRIER", "quiet-pi")
 	page.Press("1")
-	must(t, page.Screen(), "ON THE EDGE", "DISCOVERED")
+	must(t, page.Screen(), "ON THE RACK", "ON THE BENCH")
 	page.Press("q")
 	page.ExpectExit()
 }
@@ -156,7 +156,7 @@ func TestFleetScreenShowsASourceError(t *testing.T) {
 	}, nil, fleetview.FleetActions{})
 	page := uitest.Run(t, 100, 30, f.Draw)
 	must(t, page.Screen(), "could not read the Edge", "edge.json is unreadable")
-	if strings.Contains(page.Screen(), "DISCOVERED") {
+	if strings.Contains(page.Screen(), "ON THE BENCH") {
 		t.Fatal("no fleet is drawn over an error")
 	}
 }

@@ -50,14 +50,14 @@ func TestHealthScreenShowsTheFleetHonestlyAndFollowsTheSelection(t *testing.T) {
 		t.Fatalf("a node that reports no temperature must never show zero degrees:\n%s", screen)
 	}
 	// The first node is selected: its readout names every reading with its age, and its alerts.
-	must(t, screen, "/mnt/train", "886", "960", "18s ago", "cpu_temp > 85", "disk > 90", "RTX PRO 4500")
+	must(t, screen, "/mnt/train", "18s ago", "▲ cpu_temp > 85", "▲ over 90", "RTX PRO 4500")
 	// The rules pane names the rules in force and where alerts go (nowhere, by default).
 	must(t, screen, "cpu_temp > 85", "default", "none configured")
 
 	// Down walks to the quiet board: it reports nothing, and the readout says so - no zeros.
 	page.Press("Down")
 	screen = page.Screen()
-	must(t, screen, "quiet-pi · board", "no health readings")
+	must(t, screen, "quiet-pi   board", "no health readings")
 	if strings.Contains(screen, "0 / 0 GB") || strings.Contains(screen, "0%") {
 		t.Fatalf("no readings must not be drawn as zeros:\n%s", screen)
 	}
@@ -65,12 +65,12 @@ func TestHealthScreenShowsTheFleetHonestlyAndFollowsTheSelection(t *testing.T) {
 	// Down to the dark phone: offline for how long, when last heard, and its offline alert.
 	page.Press("Down")
 	screen = page.Screen()
-	must(t, screen, "gentle-ibex-14 · mobile", "offline 1d", "last heard", "offline > 5")
+	must(t, screen, "gentle-ibex-14   phone", "offline 1d", "last heard", "▲ offline > 5")
 
 	// Down at the end stays put; Up walks back; q quits.
 	page.Press("Down")
 	page.Press("Up")
-	must(t, page.Screen(), "quiet-pi · board")
+	must(t, page.Screen(), "quiet-pi   board")
 	page.Press("q")
 	page.ExpectExit()
 }
