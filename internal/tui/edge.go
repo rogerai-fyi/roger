@@ -368,7 +368,7 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.edgeSetupState().Enrolled {
 			m.openEdgeSetup()
 		}
-	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h":
+	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h", "o":
 		// The lettered actions - each also reachable by focusing its button (Tab / down) and
 		// pressing enter. One dispatch, so a key press and a button press do the same thing.
 		return m.edgeDispatchAction(key)
@@ -516,7 +516,9 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 	case "f":
 		m.edgeForgetSelected()
 	case "h":
-		return m, m.edgeOpenHealth()
+		return m, m.edgeOpenLive("health", "--live")
+	case "o":
+		return m, m.edgeOpenLive("fleet")
 	case "b":
 		m.edgeStartBind()
 	case "p":
@@ -1025,10 +1027,10 @@ var edgeCapMark = map[edge.Capability]string{
 	edge.Operate:  "op",
 }
 
-// edgeOpenHealth runs `roger edge health --live` (the Limoni health screen) as a child process
-// over this terminal, through the same seam the guest-operator handoff uses; the fleet screen
-// redraws when it returns.
-func (m *model) edgeOpenHealth() tea.Cmd {
+// edgeOpenLive runs one of the live Edge screens (`roger edge fleet`, `roger edge health --live`)
+// as a child process over this terminal, through the same seam the guest-operator handoff
+// uses; the fleet screen redraws when it returns.
+func (m *model) edgeOpenLive(args ...string) tea.Cmd {
 	if !m.hooks.EdgeHealthLive {
 		return nil
 	}
@@ -1037,7 +1039,7 @@ func (m *model) edgeOpenHealth() tea.Cmd {
 		m.edge.err = "could not find this roger's binary: " + err.Error()
 		return nil
 	}
-	c := exec.Command(exe, "edge", "health", "--live")
+	c := exec.Command(exe, append([]string{"edge"}, args...)...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return operatorExec(c, func(err error) tea.Msg { return edgeHealthDoneMsg{err: err} })
 }

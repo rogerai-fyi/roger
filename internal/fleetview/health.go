@@ -45,6 +45,8 @@ var (
 type Health struct {
 	Source HealthSource
 	Every  time.Duration // how often the source is re-read; 0 = every frame
+	// BackHint names the way back when this screen is a tab of another ("1 fleet").
+	BackHint string
 
 	snap   HealthSnapshot
 	err    error
@@ -66,18 +68,13 @@ func (h *Health) Run(ctx context.Context) error {
 // Draw is one frame: handle the event, refresh if due, lay the screen out. It is the function
 // uitest drives, so what the test sees is exactly what the terminal gets.
 func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
-	if ev != nil && ev.Type == lm.EventKey {
-		switch {
-		case ev.Key.Ch == 'q' || ev.Key.Ch == 'Q' || ev.Key.Type == lm.KeyEsc:
-			return false
-		case ev.Key.Ch == 'r':
-			h.readAt = time.Time{} // re-read now
-		case ev.Key.Type == lm.KeyDown:
-			h.sel++
-		case ev.Key.Type == lm.KeyUp:
-			h.sel--
-		}
+	if f == nil { // keys only (a parent tab forwards them without a frame)
+		return h.onKey(ev)
 	}
+	if !h.onKey(ev) {
+		return false
+	}
+
 	h.refresh()
 	if h.sel >= len(h.snap.Nodes) {
 		h.sel = len(h.snap.Nodes) - 1
@@ -97,7 +94,29 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 		h.drawReadout(f, cols[1])
 	}
 	h.drawRules(f, rows[2])
-	f.RenderWidget(lm.NewParagraph(" ↑↓ node · r re-read · q back").WithStyle(lm.Fg(dim)), rows[3])
+	bar := " ↑↓ node · r re-read · q back"
+	if h.BackHint != "" {
+		bar = " ↑↓ node · r re-read · " + h.BackHint + " · q quit"
+	}
+	f.RenderWidget(lm.NewParagraph(bar).WithStyle(lm.Fg(dim)), rows[3])
+	return true
+}
+
+// onKey handles one key; false ends the screen.
+func (h *Health) onKey(ev *lm.Event) bool {
+	if ev == nil || ev.Type != lm.EventKey {
+		return true
+	}
+	switch {
+	case ev.Key.Ch == 'q' || ev.Key.Ch == 'Q' || ev.Key.Type == lm.KeyEsc:
+		return false
+	case ev.Key.Ch == 'r':
+		h.readAt = time.Time{} // re-read now
+	case ev.Key.Type == lm.KeyDown:
+		h.sel++
+	case ev.Key.Type == lm.KeyUp:
+		h.sel--
+	}
 	return true
 }
 

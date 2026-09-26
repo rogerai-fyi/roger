@@ -492,6 +492,7 @@ func (m model) edgeActions() []edgeAction {
 	it, _ := m.edgeSelectedNet()
 	var out []edgeAction
 	if m.hooks.EdgeHealthLive && (it.machine || it.member) {
+		out = append(out, edgeAction{"o", "Live map", "open this Edge in the live view, with health", false})
 		out = append(out, edgeAction{"h", "Health", "the fleet's health and alerts, live", false})
 	}
 	switch {

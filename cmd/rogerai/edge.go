@@ -85,6 +85,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
 	{"bands", "", "show the models this Edge can serve locally, and who serves each", 0, 0},
 	{"health", "[<node>]", "show the fleet's health at a glance, or one node in full", 0, 1},
+	{"fleet", "", "open the live fleet screen: the map, the readouts, the actions", 0, 0},
 	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
@@ -178,6 +179,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeBands(cfg, rest)
 	case "health":
 		return cmdEdgeHealth(cfg, rest)
+	case "fleet":
+		return cmdEdgeFleet(cfg, rest)
 	case "alert":
 		return cmdEdgeAlert(cfg, rest)
 	case "enroll":
@@ -291,6 +294,9 @@ type edgeState struct {
 	// sessions fade rather than accumulate, so a session that outlived the process it
 	// happened in would be a lie about what is happening now.
 	sessions *edge.Sessions
+	// savedAt is the file's mtime after this state's last save; a newer mtime is another
+	// process's edit (the fleet screen, a CLI forget), which the host adopts before it writes.
+	savedAt time.Time
 }
 
 // edgeAccount is the owner this machine's Edge belongs to. Anonymous is a real state and
@@ -346,7 +352,13 @@ func (s *edgeState) save() error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteConfig(edgeStatePath(), b)
+	if err := atomicWriteConfig(edgeStatePath(), b); err != nil {
+		return err
+	}
+	if fi, err := os.Stat(edgeStatePath()); err == nil {
+		s.savedAt = fi.ModTime()
+	}
+	return nil
 }
 
 // list is the fleet as this machine last knew it.
@@ -1074,30 +1086,11 @@ func cmdEdgeForget(cfg config, args []string) error {
 			return nil
 		}
 	}
-	// The certificate goes too - when THIS machine is the authority. A node whose pin is merely
-	// cleared could come straight back; a node whose certificate is revoked is refused by every peer
-	// that holds the list, on a LAN with no internet, and after a restart.
-	revoked, evictedKey, err := edgeRevokeOnForget(n.ID)
+	msg, err := edgeForgetMember(st, n)
 	if err != nil {
 		return err
 	}
-	if err := st.fleet.Forget(n.ID); err != nil {
-		return err
-	}
-	if err := st.save(); err != nil {
-		return err
-	}
-	if len(revoked) > 0 {
-		fmt.Printf("forgot %s - it is off this Edge, its certificate is revoked and its pin is cleared.\n", n.Name)
-	} else {
-		// This machine did not issue that certificate, so it cannot revoke it - only drop its pin.
-		// Say so plainly rather than claim a revocation that did not happen (audit 2026-09-24).
-		fmt.Printf("forgot %s - it is off this Edge and its pin is cleared; the authority that issued its certificate must revoke it.\n", n.Name)
-	}
-	// Only claim a key was removed when one actually was (protected/claim-joined/unrecorded keep it).
-	if evictedKey != "" {
-		fmt.Println("  its enrollment key was removed from the allow-list; run `roger edge authority allow <key>` to re-admit a machine under it.")
-	}
+	fmt.Println(msg)
 	return nil
 }
 
@@ -1140,10 +1133,20 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	want := argv.pos[0]
-	st, n, ok, err := edgeLookup(want)
+	msg, err := edgeAdoptWant(argv.pos[0])
 	if err != nil {
 		return err
+	}
+	fmt.Println(msg)
+	return nil
+}
+
+// edgeAdoptWant adopts the candidate the owner named and returns the line that says what
+// happened - shared by the CLI and the fleet screen, so both do exactly the same thing.
+func edgeAdoptWant(want string) (string, error) {
+	st, n, ok, err := edgeLookup(want)
+	if err != nil {
+		return "", err
 	}
 	if ok {
 		// A member re-joining by CLAIM (no servable cert, its node KEY proves identity) is RE-ADMITTED
@@ -1155,43 +1158,67 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 		reAdmitByClaim := cok && c.Pin == "" && edge.Presence(n.Presence) != edge.PresenceVerified
 		if !reAdmitByClaim {
 			if edge.Presence(n.Presence) != edge.PresenceVerified {
-				fmt.Printf("%s is on this Edge but offline and not on the network right now - it re-admits when it re-pings, or run `roger edge readmit %s`.\n", n.Name, want)
-			} else {
-				fmt.Printf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).\n", n.Name)
+				return fmt.Sprintf("%s is on this Edge but offline and not on the network right now - it re-admits when it re-pings, or run `roger edge readmit %s`.", n.Name, want), nil
 			}
-			return nil
+			return fmt.Sprintf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).", n.Name), nil
 		}
 	}
 	c, found, err := edgeResolve(st.candidates, want)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !found {
-		return fmt.Errorf("no candidate %q was seen on this network (run `roger edge scan`)", want)
+		return "", fmt.Errorf("no candidate %q was seen on this network (run `roger edge scan`)", want)
 	}
 	// A candidate that advertises no certificate (a phone) joins by CLAIM, not by being dialed.
 	if c.Pin == "" {
 		if err := edgeAdoptByClaim(c.ID, c.Name); err != nil {
-			return err
+			return "", err
 		}
 		// Auto-clear: it leaves DISCOVERED at once (it is adopting now, not to-adopt).
 		st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
 		_ = st.save()
 		if ok { // it was already on this Edge (offline) - this is a RE-ADMIT, which revokes its old cert
-			fmt.Printf("re-admitted %s (%s) - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
-		} else {
-			fmt.Printf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
+			return fmt.Sprintf("re-admitted %s (%s) - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.", c.Name, edgeShortID(c.ID)), nil
 		}
-		return nil
+		return fmt.Sprintf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.", c.Name, edgeShortID(c.ID)), nil
 	}
 	// A serving candidate is verified and enrolled directly; it is NOT granted a claim (a grant that
 	// outlives revoke/forget would let a removed node re-claim a fresh certificate - audit 2026-09-23).
 	n, err = edgeAdoptCandidate(st, c, c.Name, want)
 	if err != nil {
-		return err
+		return "", err
 	}
-	fmt.Printf("adopted %s (%s).\n", n.Name, edgeShortID(n.ID))
-	return nil
+	return fmt.Sprintf("adopted %s (%s).", n.Name, edgeShortID(n.ID)), nil
+}
+
+// edgeForgetMember takes a member off the Edge and returns the line that says what happened -
+// shared by the CLI and the fleet screen. The certificate goes too, when THIS machine is the
+// authority: a node whose pin is merely cleared could come straight back; a node whose
+// certificate is revoked is refused by every peer that holds the list, on a LAN with no
+// internet, and after a restart.
+func edgeForgetMember(st *edgeState, n store.EdgeNode) (string, error) {
+	revoked, evictedKey, err := edgeRevokeOnForget(n.ID)
+	if err != nil {
+		return "", err
+	}
+	if err := st.fleet.Forget(n.ID); err != nil {
+		return "", err
+	}
+	if err := st.save(); err != nil {
+		return "", err
+	}
+	msg := fmt.Sprintf("forgot %s - it is off this Edge, its certificate is revoked and its pin is cleared.", n.Name)
+	if len(revoked) == 0 {
+		// This machine did not issue that certificate, so it cannot revoke it - only drop its pin.
+		// Say so plainly rather than claim a revocation that did not happen (audit 2026-09-24).
+		msg = fmt.Sprintf("forgot %s - it is off this Edge and its pin is cleared; the authority that issued its certificate must revoke it.", n.Name)
+	}
+	// Only claim a key was removed when one actually was (protected/claim-joined/unrecorded keep it).
+	if evictedKey != "" {
+		msg += "\n  its enrollment key was removed from the allow-list; run `roger edge authority allow <key>` to re-admit a machine under it."
+	}
+	return msg, nil
 }
 
 // cmdEdgeReadmit is the DELIBERATE re-admission of a device the owner forgot or revoked - the one
