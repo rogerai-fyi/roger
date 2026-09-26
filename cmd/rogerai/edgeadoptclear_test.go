@@ -290,16 +290,26 @@ func TestOfflineMemberIsOfferedAndReAdmitted(t *testing.T) {
 	edgeWriteAuth(t, "owner")
 	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
 	require.NoError(t, err)
-	require.NoError(t, local.GrantClaim("n_phone", "gentle-ibex-14"))
+	// The phone adopted and CLAIMED a real certificate once (so it has issued history to revoke), then
+	// left - it is now an OFFLINE (dark) member that was never revoked. This is the routine rejoin.
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	pid := edgeauth.NodeID(pub)
+	require.NoError(t, local.GrantClaim(pid, "gentle-ibex-14"))
+	cl := edgeauth.NewClaimRequest("gentle-ibex-14", "mobile", pub, time.Now())
+	cl.Sign(priv)
+	respA, err := local.Claim(cl, time.Now())
+	require.NoError(t, err)
+	oldCert, err := edgeauth.DecodeCert(respA.Cert)
+	require.NoError(t, err)
 
-	// The phone is an OFFLINE (dark) member of the fleet.
-	edgeSeed(t, store.EdgeNode{ID: "n_phone", Name: "gentle-ibex-14", Kind: "mobile",
+	edgeSeed(t, store.EdgeNode{ID: pid, Name: "gentle-ibex-14", Kind: "mobile",
 		Presence: string(edge.PresenceDark)})
 
 	h, hooks := edgeHostOff(t)
 	// It re-pings as a candidate (account empty).
 	h.mu.Lock()
-	h.st.candidates = []store.EdgeNode{{ID: "n_phone", Name: "gentle-ibex-14", Kind: "mobile",
+	h.st.candidates = []store.EdgeNode{{ID: pid, Name: "gentle-ibex-14", Kind: "mobile",
 		Presence: string(edge.PresenceCandidate)}}
 	_ = h.st.save()
 	h.mu.Unlock()
@@ -308,14 +318,26 @@ func TestOfflineMemberIsOfferedAndReAdmitted(t *testing.T) {
 	require.NotEmpty(t, edgeDropMembers(h.st.candidates, h.st.fleet),
 		"an offline member re-advertising is offered so the owner can re-admit it")
 
-	// Adopting it re-admits it - no "already a member" refusal - and a fresh claim now stands.
-	require.NoError(t, hooks.EdgeAdopt("n_phone", "gentle-ibex-14"),
+	// Adopting it RE-ADMITS it (it has issued history and was not revoked): a fresh claim now stands,
+	// and its old certificate is revoked.
+	require.NoError(t, hooks.EdgeAdopt(pid, "gentle-ibex-14"),
 		"re-adopting an offline device re-admits it instead of refusing")
 	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.True(t, reopened.ClaimGranted("n_phone"),
+	require.True(t, reopened.ClaimGranted(pid),
 		"re-admit leaves a fresh claim so the device rejoins when it claims again")
+	revs, err := reopened.Revocations()
+	require.NoError(t, err)
+	require.Contains(t, revs, oldCert.SerialNumber.String(), "re-admit revokes the device's old certificate")
+	// The fresh claim now succeeds with a NEW serial (the revoked old serial no longer blocks it).
+	cl2 := edgeauth.NewClaimRequest("gentle-ibex-14", "mobile", pub, time.Now())
+	cl2.Sign(priv)
+	respB, err := reopened.Claim(cl2, time.Now())
+	require.NoError(t, err, "after re-admit the device claims a fresh certificate")
+	newCert, err := edgeauth.DecodeCert(respB.Cert)
+	require.NoError(t, err)
+	require.NotEqual(t, oldCert.SerialNumber.String(), newCert.SerialNumber.String())
 }
 
 // A REVOKED device (the owner forgot or revoked it) must NOT rejoin on a routine adopt click - that

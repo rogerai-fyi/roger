@@ -35,12 +35,14 @@ type edgeGrantSpec struct {
 	maxHops    int    // onward-delegation bound (0 = none)
 }
 
-// edgeGrantStore is the owner's issued-grants file, under the edge dir (not the authority dir, which
-// stays Core-free).
-// edgeGrantStore returns the ONE GrantStore for the current edge dir, so its mutex actually
-// serialises concurrent read-modify-write on grants.json across the webui, TUI and CLI in this
-// process. A fresh store per call would each carry its own mutex and a concurrent Put could lose an
-// update. Re-created when the path changes (a test's temp config), keyed by that path.
+// edgeGrantStore returns the ONE GrantStore for the current edge dir (the owner's issued-grants file,
+// under the edge dir - not the authority dir, which stays Core-free). It is a per-path singleton so
+// its mutex actually serialises concurrent read-modify-write on grants.json across the webui, TUI and
+// CLI in THIS process. A fresh store per call would each carry its own mutex and a concurrent Put
+// could lose an update. Re-created when the path changes (a test's temp config), keyed by that path.
+// NOTE: this serialises in-process only; a separate CLI process writing grants.json concurrently
+// with the daemon is not yet flock-guarded (grants are low-frequency owner actions; the atomic
+// temp+rename prevents corruption, only a lost update). The grant-CRL slice will add the flock.
 var (
 	edgeGrantStoreMu   sync.Mutex
 	edgeGrantStoreInst *edge.GrantStore

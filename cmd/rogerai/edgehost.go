@@ -267,11 +267,12 @@ func (h *edgeHost) adopt(id, name string) error {
 	if err != nil {
 		return fmt.Errorf("could not check whether %s is already a member: %w", edgeShortID(c.ID), err)
 	}
-	if known && edge.Presence(n.Presence) == edge.PresenceVerified {
-		// A LIVE member: adopting again would disrupt a connected device (or mint a second serving
-		// cert while the first still verifies). Refuse; the owner forgets it first to replace it. A
-		// member that is NOT live (dark, re-enrolling) has effectively left, and falls through to be
-		// re-admitted below.
+	if known && (c.Pin != "" || edge.Presence(n.Presence) == edge.PresenceVerified) {
+		// Refuse re-adopting a known member on the SERVING path (Pin != "") on ANY presence: re-pinning
+		// a member from an unauthenticated LAN advert could point it at an attacker's certificate and
+		// take over that node's identity in the fleet. Refuse a LIVE member on any path too. Only a
+		// NON-live member rejoining by CLAIM (Pin == "", where the device's node KEY proves its
+		// identity and an advert cannot forge it) is re-admitted below.
 		name := n.Name
 		if name == "" {
 			name = edgeShortID(c.ID)

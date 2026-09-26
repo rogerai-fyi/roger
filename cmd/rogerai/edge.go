@@ -1139,11 +1139,22 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	if ok && edge.Presence(n.Presence) == edge.PresenceVerified {
-		// A LIVE member: nothing to do (forget it first to replace it). A member that is NOT live has
-		// effectively left; it falls through to be RE-ADMITTED via the claim path below.
-		fmt.Printf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).\n", n.Name)
-		return nil
+	if ok {
+		// A member re-joining by CLAIM (no servable cert, its node KEY proves identity) is RE-ADMITTED
+		// below when it is not live. But a LIVE member, or a re-adopt via the SERVING path (which would
+		// re-pin from an unauthenticated advert - an identity-takeover risk), is refused here. Whether
+		// this is a claim re-admit is known only once the candidate is resolved, so gate precisely: if
+		// there is a matching non-serving candidate and the member is not live, fall through; else stop.
+		c, cok, _ := edgeResolve(st.candidates, want)
+		reAdmitByClaim := cok && c.Pin == "" && edge.Presence(n.Presence) != edge.PresenceVerified
+		if !reAdmitByClaim {
+			if edge.Presence(n.Presence) != edge.PresenceVerified {
+				fmt.Printf("%s is on this Edge but offline and not on the network right now - it re-admits when it re-pings, or run `roger edge readmit %s`.\n", n.Name, want)
+			} else {
+				fmt.Printf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).\n", n.Name)
+			}
+			return nil
+		}
 	}
 	c, found, err := edgeResolve(st.candidates, want)
 	if err != nil {
@@ -1193,12 +1204,21 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		return err
 	}
 	// Resolve the node id the owner means: a re-pinging candidate first, then a fleet member, then a
-	// raw node id (a device that was forgotten and is not on the network right now).
+	// raw node id (a device that was forgotten and is not on the network right now). An AMBIGUOUS name
+	// is surfaced, never guessed at - re-admitting the wrong device revokes its certificate.
 	id, name := "", ""
-	if c, ok, _ := edgeResolve(st.candidates, want); ok {
+	c, cok, cerr := edgeResolve(st.candidates, want)
+	if cerr != nil {
+		return cerr
+	}
+	if cok {
 		id, name = c.ID, c.Name
 	} else if nodes, lerr := st.list(); lerr == nil {
-		if n, ok, _ := edgeResolve(nodes, want); ok {
+		n, nok, nerr := edgeResolve(nodes, want)
+		if nerr != nil {
+			return nerr
+		}
+		if nok {
 			id, name = n.ID, n.Name
 		}
 	}
