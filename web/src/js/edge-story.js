@@ -1,7 +1,7 @@
 /* =====================================================================
    RogerAI - homepage FIG.2, the Roger Edge story reel. Four films (Story
-   A, Story B, the FireDefense use case and The Band, the Network film)
-   muted, played back to back forever in random order - edge-story.js swaps
+   A, Story B, the FireDefense use case and The Network, the narrated
+   Network film) muted, played back to back forever in random order - edge-story.js swaps
    <source> on `ended`, never repeating the film that just played, and
    picks which one opens at random per page load.
 
@@ -42,14 +42,15 @@
   var muteLabel = document.getElementById("edgeMuteLabel");
 
   // Four films: the two original brand films, the FireDefense use case and
-  // The Band (the Network film). The order is random but never repeats the
+  // The Network (the narrated 170 s cut, which replaced the 126 s silent-script
+  // cut of the same film in Sep 2026 - one Network film on the reel, not two). The order is random but never repeats the
   // one that just played, so a visitor who stays sees a different film each
   // time, and a repeat visit does not always open on the same one.
   var STORIES = {
     a:  { webm: "assets/edge/story-a.webm", mp4: "assets/edge/story-a.mp4", poster: "assets/edge/poster-a.webp", tag: "STORY A" },
     b:  { webm: "assets/edge/story-b.webm", mp4: "assets/edge/story-b.mp4", poster: "assets/edge/poster-b.webp", tag: "STORY B" },
     fd: { webm: "assets/edge/hero-fd.webm", mp4: "assets/edge/hero-fd.mp4", poster: "assets/edge/poster-fd.webp", tag: "FIREDEFENSE" },
-    n:  { webm: "assets/edge/hero-n.webm",  mp4: "assets/edge/hero-n.mp4",  poster: "assets/edge/poster-n.webp",  tag: "THE BAND" }
+    n:  { webm: "assets/edge/hero-n.webm",  mp4: "assets/edge/hero-n.mp4",  poster: "assets/edge/poster-n.webp",  tag: "THE NETWORK" }
   };
   var KEYS = Object.keys(STORIES);
   function pick(except) {
