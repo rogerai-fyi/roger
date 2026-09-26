@@ -1,0 +1,133 @@
+package main
+
+// `roger edge health [node]` (features/edge/health.feature @cli): the fleet's health at a glance -
+// each node's temperature, memory, disk, uptime and presence, a dash for a metric it does not report
+// (never a zero), an offline node marked offline with how long - and one node in full, every metric
+// with how old the reading is.
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"rogerai.fm/roger/v6/internal/edge"
+)
+
+func cmdEdgeHealth(cfg config, args []string) error {
+	leaf, _ := edgeLeaf("health")
+	argv, err := parseEdgeArgv(leaf, args)
+	if err != nil {
+		return err
+	}
+	st, err := loadEdgeState()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	hs, err := edge.FleetHealth(st.fleet, now)
+	if err != nil {
+		return err
+	}
+	if len(argv.pos) == 1 {
+		return edgeHealthOne(hs, argv.pos[0], now)
+	}
+	if len(hs) == 0 {
+		fmt.Println("no nodes on this Edge yet - nothing to report on")
+		return nil
+	}
+	fmt.Printf("%-18s %-7s %-12s %-6s %-9s %s\n", "NODE", "TEMP", "MEMORY", "DISK", "UPTIME", "PRESENCE")
+	for _, h := range hs {
+		fmt.Printf("%-18s %-7s %-12s %-6s %-9s %s\n", h.Name, healthTemp(h), healthMem(h), healthDisk(h), healthUptime(h), healthPresence(h))
+	}
+	return nil
+}
+
+// edgeHealthOne shows one node in full, each reading with its age.
+func edgeHealthOne(hs []edge.NodeHealth, want string, now time.Time) error {
+	for _, h := range hs {
+		if h.Name != want && !strings.HasPrefix(h.ID, want) {
+			continue
+		}
+		age := func() string { return "" }
+		if h.Readings != nil {
+			age = func() string { return "  " + edge.Age(h.ReadAge) + " ago" }
+		}
+		fmt.Printf("%s · %s\n", h.Name, h.Kind)
+		fmt.Printf("  %-10s %s\n", "presence", healthPresence(h))
+		if !h.LastHeard.IsZero() {
+			fmt.Printf("  %-10s %s ago\n", "last heard", edge.Age(now.Sub(h.LastHeard)))
+		}
+		r := h.Readings
+		if r == nil {
+			fmt.Println("  this node reports no health readings")
+			return nil
+		}
+		if r.CPUTempC != nil {
+			fmt.Printf("  %-10s %.1f°C%s\n", "cpu temp", *r.CPUTempC, age())
+		}
+		if r.CPULoad1 != nil {
+			fmt.Printf("  %-10s %.2f%s\n", "cpu load", *r.CPULoad1, age())
+		}
+		if r.RAMTotalGB > 0 {
+			fmt.Printf("  %-10s %.1f / %.0f GB (%.0f%%)%s\n", "memory", r.RAMUsedGB, r.RAMTotalGB, 100*r.RAMUsedGB/r.RAMTotalGB, age())
+		} else if r.RAMUsedGB > 0 {
+			fmt.Printf("  %-10s %.1f GB used (no total reported)%s\n", "memory", r.RAMUsedGB, age())
+		}
+		for _, d := range r.Disks {
+			fmt.Printf("  %-10s %s %.0f / %.0f GB (%.0f%%)%s\n", "disk", d.Mount, d.UsedGB, d.TotalGB, 100*d.UsedGB/d.TotalGB, age())
+		}
+		if r.UptimeS > 0 {
+			fmt.Printf("  %-10s %s%s\n", "uptime", edge.Age(time.Duration(r.UptimeS)*time.Second), age())
+		}
+		if r.GPU != "" {
+			fmt.Printf("  %-10s %s %.0f%% memory%s\n", "gpu", r.GPU, 100*r.GPUMemUsed, age())
+		}
+		if r.SDWearPct != nil {
+			fmt.Printf("  %-10s %.0f%% worn%s\n", "sd card", *r.SDWearPct, age())
+		}
+		fmt.Printf("  %-10s no rules configured\n", "alerts")
+		return nil
+	}
+	return errNoSuchNode(want)
+}
+
+func healthTemp(h edge.NodeHealth) string {
+	if h.Readings == nil || h.Readings.CPUTempC == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f°C", *h.Readings.CPUTempC)
+}
+
+func healthMem(h edge.NodeHealth) string {
+	if h.Readings == nil || h.Readings.RAMUsedGB <= 0 {
+		return "-"
+	}
+	if h.Readings.RAMTotalGB > 0 {
+		return fmt.Sprintf("%.1f/%.0f GB", h.Readings.RAMUsedGB, h.Readings.RAMTotalGB)
+	}
+	return fmt.Sprintf("%.1f GB", h.Readings.RAMUsedGB) // a figure, not a level
+}
+
+func healthDisk(h edge.NodeHealth) string {
+	if l, ok := h.DiskLevel(); ok {
+		return fmt.Sprintf("%.0f%%", 100*l)
+	}
+	return "-"
+}
+
+func healthUptime(h edge.NodeHealth) string {
+	if h.Readings == nil || h.Readings.UptimeS <= 0 {
+		return "-"
+	}
+	return edge.Age(time.Duration(h.Readings.UptimeS) * time.Second)
+}
+
+func healthPresence(h edge.NodeHealth) string {
+	if h.Dark {
+		return "offline " + edge.Age(h.DarkFor)
+	}
+	if h.Readings != nil && h.ReadAge > time.Minute {
+		return "online (reading " + edge.Age(h.ReadAge) + " old)"
+	}
+	return "online"
+}

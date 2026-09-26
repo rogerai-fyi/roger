@@ -10,7 +10,6 @@ package main
 // it is per process.
 
 import (
-	"bufio"
 	"context"
 	"crypto/ed25519"
 	"fmt"
@@ -163,13 +162,26 @@ func edgeBandsOnAir() []string {
 // edgeReadResources reads what it can and invents nothing: RAM from the kernel on Linux, a
 // GPU from nvidia-smi when the tool is present and answers within a second. Anything that
 // could not be read is absent from the record, never zero.
-func edgeReadResources(now time.Time) *store.EdgeResources {
+func edgeReadResources(now time.Time) *store.EdgeResources { return edgeReadResourcesFrom("/", now) }
+
+// edgeReadResourcesFrom reads the health facts under root (features/edge/health.feature §1): memory
+// used/total, 1-minute load, uptime, CPU temperature, every mounted real filesystem's used/total,
+// and a GPU when nvidia-smi answers. Every value is a REAL reading stamped with the moment it was
+// taken; a metric the platform does not expose is left absent - never zero. Rooted so a test can
+// stand up a fake /proc and /sys.
+func edgeReadResourcesFrom(root string, now time.Time) *store.EdgeResources {
 	r := &store.EdgeResources{}
-	if f, err := os.Open("/proc/meminfo"); err == nil {
+	readFile := func(rel string) (string, bool) {
+		b, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			return "", false
+		}
+		return string(b), true
+	}
+	if body, ok := readFile("proc/meminfo"); ok {
 		var total, avail float64
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			fs := strings.Fields(sc.Text())
+		for _, line := range strings.Split(body, "\n") {
+			fs := strings.Fields(line)
 			if len(fs) < 2 {
 				continue
 			}
@@ -181,9 +193,57 @@ func edgeReadResources(now time.Time) *store.EdgeResources {
 				avail = kb / 1024 / 1024
 			}
 		}
-		f.Close()
 		if total > 0 {
 			r.RAMTotalGB, r.RAMUsedGB = total, total-avail
+		}
+	}
+	if body, ok := readFile("proc/loadavg"); ok {
+		if fs := strings.Fields(body); len(fs) > 0 {
+			if v, err := strconv.ParseFloat(fs[0], 64); err == nil {
+				r.CPULoad1 = &v
+			}
+		}
+	}
+	if body, ok := readFile("proc/uptime"); ok {
+		if fs := strings.Fields(body); len(fs) > 0 {
+			if v, err := strconv.ParseFloat(fs[0], 64); err == nil && v > 0 {
+				r.UptimeS = int64(v)
+			}
+		}
+	}
+	// CPU temperature: the first thermal zone that names the CPU/package/SoC, in millidegrees. A
+	// board with no such sensor gets NO field.
+	if zones, err := filepath.Glob(filepath.Join(root, "sys/class/thermal/thermal_zone*")); err == nil {
+		for _, z := range zones {
+			typ, _ := os.ReadFile(filepath.Join(z, "type"))
+			t := strings.ToLower(strings.TrimSpace(string(typ)))
+			if !(strings.Contains(t, "cpu") || strings.Contains(t, "pkg") || strings.Contains(t, "soc") || strings.Contains(t, "acpitz") || strings.Contains(t, "core")) {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(z, "temp"))
+			if err != nil {
+				continue
+			}
+			if milli, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64); err == nil {
+				c := milli / 1000
+				r.CPUTempC = &c
+				break
+			}
+		}
+	}
+	// Disks: every mounted REAL filesystem (a /dev device on a real fs type), never proc/tmpfs
+	// pseudo-mounts. Used/total via statfs, which a test can fake.
+	if body, ok := readFile("proc/mounts"); ok {
+		seen := map[string]bool{}
+		for _, line := range strings.Split(body, "\n") {
+			fs := strings.Fields(line)
+			if len(fs) < 3 || !strings.HasPrefix(fs[0], "/dev/") || !edgeRealFS(fs[2]) || seen[fs[1]] {
+				continue
+			}
+			seen[fs[1]] = true
+			if used, total, ok := edgeStatfs(fs[1]); ok && total > 0 {
+				r.Disks = append(r.Disks, store.EdgeDisk{Mount: fs[1], UsedGB: used, TotalGB: total})
+			}
 		}
 	}
 	if path, err := exec.LookPath("nvidia-smi"); err == nil {
@@ -200,11 +260,21 @@ func edgeReadResources(now time.Time) *store.EdgeResources {
 			}
 		}
 	}
-	if r.RAMTotalGB == 0 && r.GPU == "" {
+	if r.RAMTotalGB == 0 && r.GPU == "" && r.CPULoad1 == nil && r.UptimeS == 0 && r.CPUTempC == nil && len(r.Disks) == 0 {
 		return nil // nothing could be read: no record, rather than a record of zeros
 	}
 	r.ReadAt = now.Unix()
 	return r
+}
+
+// edgeRealFS reports whether a mount's filesystem type holds real data (a disk), as opposed to a
+// kernel pseudo-filesystem whose "space" means nothing to an owner.
+func edgeRealFS(t string) bool {
+	switch t {
+	case "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "zfs", "vfat", "exfat", "ntfs", "ntfs3", "apfs", "hfsplus", "jfs", "reiserfs":
+		return true
+	}
+	return false
 }
 
 // edgeSelfDeclares reports whether THIS process will accept an invoke for the given capability, from

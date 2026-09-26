@@ -55,7 +55,21 @@ type EdgeResources struct {
 	GPUMemUsed float64 `json:"gpu_mem_used,omitempty"` // fraction 0..1
 	RAMUsedGB  float64 `json:"ram_used_gb,omitempty"`
 	RAMTotalGB float64 `json:"ram_total_gb,omitempty"`
-	ReadAt     int64   `json:"read_at,omitempty"`
+	// The health facts (features/edge/health.feature). Pointers where zero is a real reading
+	// (a temperature, a load), so "not exposed" is nil - absent, never 0.
+	CPUTempC  *float64   `json:"cpu_temp_c,omitempty"`
+	CPULoad1  *float64   `json:"cpu_load1,omitempty"` // 1-minute load average
+	UptimeS   int64      `json:"uptime_s,omitempty"`
+	Disks     []EdgeDisk `json:"disks,omitempty"` // every mounted real filesystem
+	SDWearPct *float64   `json:"sd_wear_pct,omitempty"`
+	ReadAt    int64      `json:"read_at,omitempty"`
+}
+
+// EdgeDisk is one mounted filesystem's used and total, in GB.
+type EdgeDisk struct {
+	Mount   string  `json:"mount"`
+	UsedGB  float64 `json:"used_gb"`
+	TotalGB float64 `json:"total_gb"`
 }
 
 // EdgeTransport is one way a node can be reached. Kind is "lan" or "relay"; a LAN entry

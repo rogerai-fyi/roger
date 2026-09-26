@@ -2008,6 +2008,29 @@
         edgeKV(card, "GPU", r.gpu, "muted");
       }
     }
+    // The health facts (health.feature): a metric the node does not expose is absent (null), and
+    // absent draws NOTHING - never a zero. Disks with a real total draw as bars; the rest are figures.
+    if (r.cpu_temp_c != null) edgeKV(card, "CPU temp", r.cpu_temp_c.toFixed(1) + " \u00b0C" + (r.cpu_temp_c >= 80 ? "  hot" : ""), r.cpu_temp_c >= 80 ? "" : "muted");
+    if (r.cpu_load1 != null) edgeKV(card, "load", r.cpu_load1.toFixed(2), "muted");
+    (r.disks || []).forEach(function (d) {
+      if (d.total_gb > 0) {
+        edgeKVBar(card, "disk " + d.mount, d.used_gb / d.total_gb, d.used_gb.toFixed(0) + " / " + d.total_gb.toFixed(0) + " GB");
+      }
+    });
+    if (r.uptime_s > 0) edgeKV(card, "uptime", edgeUptime(r.uptime_s), "muted");
+    if (r.sd_wear_pct != null) edgeKV(card, "SD wear", Math.round(r.sd_wear_pct) + "%", r.sd_wear_pct >= 80 ? "" : "muted");
+    if (r.read_at) {
+      var ageS = Math.max(0, Math.round(Date.now() / 1000 - r.read_at));
+      if (ageS > 60) edgeKV(card, "", "readings are " + edgeUptime(ageS) + " old", "muted");
+    }
+  }
+
+  // edgeUptime renders seconds as the largest two units ("3d 4h", "12m").
+  function edgeUptime(s) {
+    var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + "d " + h + "h";
+    if (h > 0) return h + "h " + m + "m";
+    return m + "m";
   }
 
   // edgeKVBar is a KV row whose value is a small level bar plus its figure - the console's only bar,

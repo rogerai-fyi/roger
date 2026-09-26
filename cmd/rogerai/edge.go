@@ -84,6 +84,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"sessions", "", "show the live sessions on this machine's Edge", 0, 0},
 	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
 	{"bands", "", "show the models this Edge can serve locally, and who serves each", 0, 0},
+	{"health", "[<node>]", "show the fleet's health at a glance, or one node in full", 0, 1},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
@@ -174,6 +175,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgePrefer(cfg, rest)
 	case "bands":
 		return cmdEdgeBands(cfg, rest)
+	case "health":
+		return cmdEdgeHealth(cfg, rest)
 	case "enroll":
 		return cmdEdgeEnroll(cfg, rest)
 	case "setup":
