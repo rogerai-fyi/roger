@@ -376,3 +376,20 @@ func TestRevokedDeviceNeedsExplicitReadmit(t *testing.T) {
 	_, err = reopened.Claim(c2, time.Now())
 	require.NoError(t, err, "after an explicit readmit, the device claims a fresh certificate")
 }
+
+// A roger accepts a delegated OPERATE invoke only when the owner has made it an agent - not every
+// roger runs other nodes' tasks. edgeSelfDeclares gates the callee's authorize on the agent role.
+func TestEdgeSelfDeclaresOperateNeedsAgentRole(t *testing.T) {
+	useTempConfig(t)
+
+	t.Setenv("ROGER_EDGE_AGENT", "off")
+	require.False(t, edgeSelfDeclares(edge.Operate),
+		"a roger that is not an agent must not accept delegated operate invokes")
+
+	t.Setenv("ROGER_EDGE_AGENT", "on")
+	require.True(t, edgeSelfDeclares(edge.Operate),
+		"once the owner makes it an agent, it accepts delegated operate")
+
+	// A capability this roger does not have (it declares no sense) is refused regardless of role.
+	require.False(t, edgeSelfDeclares(edge.Sense))
+}

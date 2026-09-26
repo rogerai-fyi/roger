@@ -207,6 +207,24 @@ func edgeReadResources(now time.Time) *store.EdgeResources {
 	return r
 }
 
+// edgeSelfDeclares reports whether THIS process will accept an invoke for the given capability, from
+// what it actually IS right now - not the self node's fleet record, which is never probed and carries
+// no caps. OPERATE (the delegate arrow) is accepted only when the owner has made this roger an AGENT
+// (roger edge agent on / the EdgeAgent role): every roger CAN operate, but only one the owner opted
+// in should run other nodes' tasks. Other capabilities check the live instance caps, requiring
+// VERIFIED for the probe-verified ones; the runner refuses non-operate device caps anyway.
+func edgeSelfDeclares(need edge.Capability) bool {
+	if need == edge.Operate {
+		return edgeIsAgentRole(loadConfig())
+	}
+	for _, c := range edgeInstanceCaps(edgeBandsOnAir()) {
+		if c.Name == string(need) {
+			return edge.DeclarationGated(need) || c.State == string(edge.Verified)
+		}
+	}
+	return false
+}
+
 // edgeUpstreamOf resolves a band to the local server that has it on air in THIS process.
 // Set once the node controller exists (edgeAttachUpstream); nil for a roger that shares
 // nothing, in which case the face serves describe only.
@@ -219,20 +237,6 @@ func edgeAttachUpstream(fn func(band string) (chatURL, key string, ok bool)) { e
 // feature): the verify-only trust to authenticate them, membership in THIS fleet to admit
 // them, the upstream that has the band, and the node key to receipt with. Absent when this
 // machine holds no trust (not enrolled) - the face then answers describe only.
-// edgeSelfDeclares reports whether THIS process declares the capability an invoke needs, from its
-// LIVE capabilities (operate always - it runs an agent - plus serve when a band is on air), not the
-// self node's fleet record, which is never probed and carries no caps. A declaration-gated capability
-// (operate) needs only to be declared; a probe-verified one would need VERIFIED - which the self
-// record cannot show, but the runner only ever runs operate anyway (device caps are refused there).
-func edgeSelfDeclares(need edge.Capability) bool {
-	for _, c := range edgeInstanceCaps(edgeBandsOnAir()) {
-		if c.Name == string(need) {
-			return edge.DeclarationGated(need) || c.State == string(edge.Verified)
-		}
-	}
-	return false
-}
-
 func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serving, bool) {
 	auth, _, err := edgeIdentityStore().Trust(time.Now())
 	if err != nil || auth == nil {
