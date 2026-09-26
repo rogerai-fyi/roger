@@ -100,3 +100,56 @@ func TestEdgeHealthCLI(t *testing.T) {
 	require.Contains(t, full, "/ ", "each mounted disk")
 	require.Contains(t, full, "uptime")
 }
+
+// The machine's OWN fleet row must be kept alive and carry its live household - otherwise the
+// authority itself reads "offline 5d" with no health, because discovery skips self. observeSelf
+// takes the same Observe path every other node takes (no self-granted VERIFIED capabilities).
+func TestSelfNodeHeartbeatsIntoItsOwnFleet(t *testing.T) {
+	offline(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code)
+
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+	_, ok := h.startFace()
+	require.True(t, ok, "the face must be up so the recorded address/fingerprint are real")
+	h.registerInstance(h.cfg) // the household now holds this roger, with its live resources
+
+	// Before: the enrolled row is bare (no instances) - the state the founder saw.
+	id, _, ok, err := edgeIdentityStore().LoadIdentity()
+	require.NoError(t, err)
+	require.True(t, ok)
+	before, known, err := h.st.fleet.Get(id.NodeID)
+	require.NoError(t, err)
+	require.True(t, known)
+	require.Empty(t, before.Instances)
+
+	now := time.Now()
+	h.observeSelf(now)
+
+	after, _, err := h.st.fleet.Get(id.NodeID)
+	require.NoError(t, err)
+	require.Equal(t, string(edge.PresenceVerified), after.Presence, "the machine that is running is not offline")
+	require.Equal(t, now.Unix(), after.LastSeen, "last-seen is refreshed every pass")
+	require.NotEmpty(t, after.Instances, "its own household is on its row")
+	require.NotNil(t, after.Instances[0].Resources, "...with live resources, so health has something to show")
+	for _, c := range after.Caps {
+		require.NotEqual(t, string(edge.Verified), c.State, "self must not grant itself a VERIFIED capability")
+	}
+	// And the health view now has the machine's readings, not dashes and "offline".
+	hs, err := edge.FleetHealth(h.st.fleet, now)
+	require.NoError(t, err)
+	var mine *edge.NodeHealth
+	for i := range hs {
+		if hs[i].ID == id.NodeID {
+			mine = &hs[i]
+		}
+	}
+	require.NotNil(t, mine)
+	require.False(t, mine.Dark)
+	require.NotNil(t, mine.Readings)
+}

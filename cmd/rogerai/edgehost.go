@@ -379,6 +379,39 @@ func (h *edgeHost) revokeGrant(id string) error {
 	return nil
 }
 
+// observeSelf records THIS machine into its OWN fleet record every pass - the household running here
+// (each instance's caps, bands and live resources) and a fresh last-seen. Discovery deliberately
+// skips self and edgeRecordSelf enrols a bare row once, so without this the authority's own row
+// went DARK ("offline 5d") and carried no health, and the console/TUI drew the one machine that is
+// certainly up as the deadest node on the Edge. It goes through the same Observe every other node
+// goes through: capability states are NOT trusted from the report - they start at their initial
+// state and only a probe or the owner's confirmation moves them - so self cannot grant itself
+// VERIFIED (the audit's earlier finding stays closed). Requires the face to be up, so the address
+// and fingerprint recorded are the ones a peer really dials.
+func (h *edgeHost) observeSelf(now time.Time) {
+	id, _, ok, err := edgeIdentityStore().LoadIdentity()
+	if err != nil || !ok {
+		return
+	}
+	h.mu.Lock()
+	ln, srv := h.faceLn, h.srv
+	h.mu.Unlock()
+	if ln == nil || srv == nil {
+		return
+	}
+	obs := edge.Observation{
+		Name: h.enrolledName(), Kind: string(edge.Host),
+		Addr: ln.Addr().String(), Fingerprint: srv.Fingerprint(),
+		Instances: edge.Household(edgeInstancesDir(), now),
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, err := h.st.fleet.Observe(id.NodeID, obs); err != nil {
+		return
+	}
+	_ = h.st.save()
+}
+
 // nameNode renames a node on this Edge, the host-side of the console's Name action and the CLI's
 // `roger edge name` (features/edge/manage_web.feature). It enforces the same per-account name
 // uniqueness the CLI does - a name that already belongs to another node is refused, so a rename never
@@ -728,6 +761,7 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 		h.registerInstance(cfg) // an enrollment that happened while running
 	}
 	h.beatInstance(loadConfig())
+	h.observeSelf(time.Now()) // this machine's own row: live household, fresh last-seen
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
