@@ -9,14 +9,17 @@
    - the resting station: the section in view marks its station current
      (--cur on the tuner, aria-current="location"), so the needle rests on
      where you are when nothing is pointed at. Observed, never pinned.
-   - drag to tune: the scale strip is the drag zone (touch-action: none). A
-     finger (or a mouse) pressed there moves the needle to it at once and drags
-     it, whatever the angle, naming the station under it in the readout; letting
-     go on another station follows that station's link. A tap is still the
-     link's own click; a cancelled gesture, or one that ends on the station it
-     began on, changes nothing; a gesture that starts on the rest of the band
-     (the readout) scrolls the page. The long-document list form (no needle) is tapped, not dragged.
-     The drag adds no semantics: the links and aria-current are the whole story.
+   - drag and tap to tune: the scale strip is the drag zone (touch-action:
+     none). A press there moves the needle to it at once and a drag carries it,
+     whatever the angle, naming the station under it in the readout. On touch
+     the first tap or drag only selects (the needle rests there, the hint "Tap
+     again to tune in" fades in, the page stays put); a second tap on that
+     station, on the readout or on the hint follows its link. A mouse click,
+     a mouse drag's release, the keyboard and assistive tech go there in one
+     step. A cancelled gesture changes nothing; a gesture that starts on the
+     rest of the band scrolls the page. The long-document list form (no
+     needle) is plain tappable rows. No new semantics: the links and
+     aria-current are the whole story.
    Markup contract: web/DESIGN-SYSTEM.md.
    ===================================================================== */
 (function () {
@@ -208,7 +211,14 @@
         go(sel);
         return;
       }
-      if (!swallow || !(band.contains && band.contains(t))) return; // only the gesture's own click
+      if (!swallow || !(band.contains && band.contains(t))) {
+        // a link click that goes through (the keyboard, assistive tech, a late click) while a
+        // touch selection waits: it is going somewhere, so the selection and hint go
+        if (sel >= 0) for (var i = 0; i < n; i++) {
+          if (links[i] === t || (links[i].contains && links[i].contains(t))) { clear(); current(i); break; }
+        }
+        return;
+      }
       e.preventDefault();
       if (e.stopPropagation) e.stopPropagation();
       swallow = false;

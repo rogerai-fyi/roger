@@ -295,3 +295,36 @@ test("the long-document list form is not a drag surface: its names select and lo
   assert.match(list, /\.toc-tuner:has\(li:nth-child\(13\)\) \.toc-tuner__band \{[^}]*touch-action: auto;[^}]*user-select: text;[^}]*-webkit-user-select: text;[^}]*-webkit-touch-callout: default/);
   assert.match(list, /\.toc-tuner:has\(li:nth-child\(13\)\) \.toc-tuner__scale \{[^}]*touch-action: auto/, "and its rows scroll the page like any list");
 });
+
+test("touch: the needle head (the grip) sits inside the scale's hit area, so pressing it drags", () => {
+  const coarse = [...css.matchAll(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
+  const band = Number(css.match(/\.toc-tuner__band \{[^}]*padding-top: (\d+)px/)[1]);             // the scale starts here
+  const needleTop = Number(css.match(/\.toc-tuner__needle \{[^}]*top: (\d+)px/)[1]);
+  const head = coarse.match(/\.toc-tuner__needle::before \{[^}]*height: (\d+)px;[^}]*top: (-?\d+)px/);
+  const headTop = needleTop + Number(head[2]);
+  const scale = coarse.match(/\.toc-tuner__scale \{[^}]*margin-top: -(\d+)px;[^}]*padding-top: calc\(26px \+ (\d+)px\);[^}]*background-position: 0 (\d+)px/);
+  assert.ok(scale, "on touch the scale reaches up (margin-top) and keeps its content in place (padding-top, ticks)");
+  const [, up, pad, ticks] = scale.map(Number);
+  assert.equal(pad, up, "the numerals do not move");
+  assert.equal(ticks, 6 + up, "the ticks do not move");
+  assert.ok(band - up <= headTop - 3, `the drag zone starts at ${band - up}px, the needle head at ${headTop}px`);
+  assert.match(coarse, /\.toc-tuner__scale \{[^}]*min-height: 56px/);
+});
+
+test("touch: a keyboard or other click on a link after a selection clears it and marks the station current", () => {
+  const t = rig();
+  t.down(350); t.up(350); t.wait(500);              // selected; the gesture's own click window has passed
+  assert.ok(selected(t));
+  assert.equal(t.nativeClick(3), true, "the click navigates");
+  assert.ok(!selected(t), "the selection and hint do not linger");
+  assert.equal(t.style["--at"], undefined);
+  assert.equal(t.style["--cur"], "3");
+  assert.equal(t.links[3].attrs["aria-current"], "location");
+});
+
+test("the header comment describes the touch flow (select, then tap again)", () => {
+  const head = TUNER.slice(0, TUNER.indexOf("(function"));
+  assert.doesNotMatch(head, /letting\s+go on another station follows/);
+  assert.match(head, /first tap or drag only selects/);
+  assert.match(head, /second tap/);
+});

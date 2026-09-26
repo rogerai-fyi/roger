@@ -214,12 +214,7 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
 /* the scale strip is the drag zone: a touch that starts there always tunes, whatever its
    angle (a pan-y band handed every slightly vertical thumb drag to the page as a scroll) */
 .toc-tuner__scale { touch-action: none; }
-/* on touch: a finger-sized strip across the whole tuner, and a heavier needle head that
-   reads as a grip (the same red dot, larger; no glow) */
-@media (pointer: coarse) {
-  .toc-tuner__scale { min-height: 56px; }
-  .toc-tuner__needle::before { width: 12px; height: 12px; top: -5px; left: -5px; }
-}
+
 /* while dragging the needle follows the finger (no spring lag) and the readout names the
    station under it instead of the current one */
 .toc-tuner.is-dragging .toc-tuner__needle { transition: none; }
@@ -324,6 +319,15 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
 }
 @media (max-width: 640px) {
   .toc-tuner__readout, .toc-tuner__name { width: calc(100% - 32px); max-width: none; }
+}
+/* on touch: a finger-sized strip across the whole tuner, and a heavier needle head that
+   reads as a grip (the same red dot, larger; no glow). The strip reaches up 22px so the
+   head, drawn above the ticks, is inside it (pressing the grip drags); the padding and the
+   ticks' offset grow by the same 22px, so nothing drawn moves. (After the needle's own
+   rules, so the larger head wins.) */
+@media (pointer: coarse) {
+  .toc-tuner__scale { min-height: 56px; margin-top: -22px; padding-top: calc(26px + 22px); background-position: 0 28px; }
+  .toc-tuner__needle::before { width: 12px; height: 12px; top: -5px; left: -5px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .toc-tuner__needle { transition: none; }
@@ -654,7 +658,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__hint { display: none; }
   .toc-tuner:has(li:nth-child(13)) :is(.toc-tuner__readout, .toc-tuner__needle) { display: none; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale {
-    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; background: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; margin-top: 0; background: none;
   }
   .toc-tuner:has(li:nth-child(13)) a { justify-content: flex-start; align-items: baseline; gap: var(--s-2); padding: 8px 10px; }
   .toc-tuner:has(li:nth-child(13)) b { flex: 0 0 auto; min-width: 3ch; font-size: var(--t-sm); }
