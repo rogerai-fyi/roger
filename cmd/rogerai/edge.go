@@ -85,6 +85,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
 	{"bands", "", "show the models this Edge can serve locally, and who serves each", 0, 0},
 	{"health", "[<node>]", "show the fleet's health at a glance, or one node in full", 0, 1},
+	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
@@ -177,6 +178,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeBands(cfg, rest)
 	case "health":
 		return cmdEdgeHealth(cfg, rest)
+	case "alert":
+		return cmdEdgeAlert(cfg, rest)
 	case "enroll":
 		return cmdEdgeEnroll(cfg, rest)
 	case "setup":
@@ -213,7 +216,7 @@ func edgeWantsHelp(args []string) bool {
 var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false,
 	"force":      false,
-	"capability": true, "authority": true, "account": true,
+	"capability": true, "authority": true, "account": true, "scope": true,
 }
 
 type edgeArgv struct {

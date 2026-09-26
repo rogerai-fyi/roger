@@ -71,6 +71,8 @@ type edgeState struct {
 	// status is this machine's own place on the Edge (enrolled? rooted where? scanning?),
 	// read once per frame like everything else; nil when no hook is wired.
 	status *edge.SelfStatus
+	// alerts is the frame's firing rules by node id (nil when the build has no alerting).
+	alerts map[string][]string
 	detail bool
 	pulses []edgePulse
 	ret    mode // where esc goes back to
@@ -168,6 +170,10 @@ func (m *model) refreshEdge() {
 	if m.hooks.EdgeStatus != nil {
 		st := m.hooks.EdgeStatus()
 		m.edge.status = &st
+	}
+	m.edge.alerts = nil
+	if m.hooks.EdgeAlerts != nil {
+		m.edge.alerts = m.hooks.EdgeAlerts()
 	}
 	var list []store.EdgeNode
 	if m.hooks.EdgeFleet != nil {

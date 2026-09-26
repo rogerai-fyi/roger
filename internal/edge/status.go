@@ -94,6 +94,7 @@ const (
 type SelfStatus struct {
 	Enrolled bool   `json:"enrolled"`
 	Name     string `json:"name,omitempty"` // this machine's name on its Edge
+	NodeID   string `json:"node_id,omitempty"`
 	LoggedIn bool   `json:"logged_in"`
 	// Authority is "Core" or the designated machine's name.
 	Authority      string `json:"authority"`

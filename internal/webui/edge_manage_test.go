@@ -398,3 +398,28 @@ func TestConsoleGrantIssueNeedsFields(t *testing.T) {
 		t.Fatalf("issue no token = %d, want 403", r2.StatusCode)
 	}
 }
+
+// health.feature §5: a firing rule shows on the console's fleet surface too - the snapshot carries
+// each node's firing alerts by rule, and nothing else (no thresholds invented in the browser).
+func TestConsoleSnapshotCarriesFiringAlerts(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	if _, err := fleet.Enroll(store.EdgeNode{ID: "n_nas", Name: "nas", Kind: "host", Presence: string(edge.PresenceVerified)}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Self: "workshop", Fleet: fleet,
+		Alerts: func() map[string][]string { return map[string][]string{"n_nas": {"disk > 75"}} }}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/api/edge?t=" + s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var snap edgeSnap
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Nodes) != 1 || len(snap.Nodes[0].Alerts) != 1 || snap.Nodes[0].Alerts[0] != "disk > 75" {
+		t.Fatalf("nodes = %+v, want nas carrying its firing rule", snap.Nodes)
+	}
+}

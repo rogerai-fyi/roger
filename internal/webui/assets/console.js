@@ -1784,7 +1784,8 @@
     d.nodes.forEach(function (n) {
       var p = edgePos[n.id];
       if (!p) return;
-      var cls = "edge-node" + (n.dark ? " edge-node--dark" : "") + (n.id === edgeSel ? " edge-node--sel" : "");
+      var alerts = n.alerts || [];
+      var cls = "edge-node" + (n.dark ? " edge-node--dark" : "") + (alerts.length ? " edge-node--alert" : "") + (n.id === edgeSel ? " edge-node--sel" : "");
       var g = svgEl("g", { "class": cls, "data-id": n.id, tabindex: "0", role: "button" });
       var title = svgEl("title");
       title.textContent = n.name + (n.via ? " (through " + n.via + ")" : "");
@@ -1794,7 +1795,7 @@
       label.textContent = edgeClip(n.name, 14);
       g.appendChild(label);
       var marks = svgEl("text", { x: p[0], y: p[1] + 20, "text-anchor": "middle", "class": "edge-marks" });
-      marks.textContent = edgeMarks(n) + (n.dark ? " DARK " + (n.age || "") : "");
+      marks.textContent = edgeMarks(n) + (n.dark ? " DARK " + (n.age || "") : "") + (alerts.length ? " \u26a0 " + alerts.length : "");
       g.appendChild(marks);
       // the household: the rogers running on this node, under its name
       var insts = n.instances || [];
@@ -2227,6 +2228,7 @@
     });
     if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
+    (n.alerts || []).forEach(function (a, i) { edgeKV(card, i === 0 ? "alerts" : "", "\u26a0 firing \u00b7 " + a, "edge-alert"); });
     if (n.pin) edgeKV(card, "pin", edgeClip(n.pin, 24));
     if (n.contract && n.contract.class) edgeKV(card, "contract", n.contract.class + "  [" + (n.contract.labels || []).join(", ") + "]");
     var hist = n.history || [];

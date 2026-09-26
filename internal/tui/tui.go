@@ -108,7 +108,10 @@ type Hooks struct {
 	// EdgeGrants lists the authority-signed grants this owner issued; EdgeIssueGrant mints one (caller,
 	// capability, callee node id, duration like 7d); EdgeRevokeGrant revokes by id. The invoke fabric's
 	// grant surface (features/edge/control.feature), the host-side of `roger edge grant`.
-	EdgeGrants      func() ([]store.Grant, error)
+	EdgeGrants func() ([]store.Grant, error)
+	// EdgeAlerts is the alert rules firing right now, by node id, each as its rule wording
+	// ("cpu_temp > 85") - the fleet surface of health.feature §5. Nil = no alerting on this build.
+	EdgeAlerts      func() map[string][]string
 	EdgeIssueGrant  func(caller, capability, callee, forDur string) (store.Grant, error)
 	EdgeRevokeGrant func(id string) error
 	// EdgeSessions is the account's live session ledger: the traffic this Edge really

@@ -57,7 +57,10 @@ type EdgeHooks struct {
 	Grants      func() ([]store.Grant, error)
 	IssueGrant  func(caller, capability, callee, forDur string) (store.Grant, error)
 	RevokeGrant func(id string) error
-	Sessions    *edge.Sessions
+	// Alerts is the rules firing right now by node id, each as its wording ("disk > 90") - the
+	// console's share of health.feature §5 (alerts show on the fleet surfaces). Nil = unknown.
+	Alerts   func() map[string][]string
+	Sessions *edge.Sessions
 	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
 	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
 	Status func() edge.SelfStatus
@@ -110,6 +113,8 @@ type edgeNodeJSON struct {
 	// Instances are the rogers running on the node as its face last reported them.
 	Instances          []edge.Instance `json:"instances"`
 	InstancesTruncated bool            `json:"instances_truncated,omitempty"`
+	// Alerts are the rules firing for this node right now, by wording; decided by the host.
+	Alerts []string `json:"alerts"`
 }
 
 type edgeContractJSON struct {
@@ -208,6 +213,7 @@ func edgeNodeOf(n store.EdgeNode, now time.Time) edgeNodeJSON {
 		Dark:               n.Presence == string(edge.PresenceDark),
 		Instances:          append([]edge.Instance{}, n.Instances...),
 		InstancesTruncated: n.InstancesTruncated,
+		Alerts:             []string{},
 	}
 	if n.LastSeen > 0 {
 		out.Age = edge.Age(now.Sub(time.Unix(n.LastSeen, 0)))
@@ -277,9 +283,14 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	if h.Household != nil {
 		snap.SelfInstances = append(snap.SelfInstances, h.Household()...)
 	}
+	var alerts map[string][]string
+	if h.Alerts != nil {
+		alerts = h.Alerts()
+	}
 	for _, r := range edge.Arrange(list) {
 		n := edgeNodeOf(r.Node, now)
 		n.Via, n.Relay, n.Child = r.Via, r.Relay, r.Child
+		n.Alerts = append(n.Alerts, alerts[n.ID]...)
 		snap.Nodes = append(snap.Nodes, n)
 	}
 	snap.TooMany = len(snap.Nodes) > edgeGraphMax

@@ -53,7 +53,7 @@ func edgeSelfStatus(fleet *edge.Fleet, disc edgeDiscoveryFacts) edge.SelfStatus 
 		return edge.SelfStatus{Err: err.Error()}
 	}
 	if enrolled {
-		st.Enrolled, st.Name = true, id.NodeID
+		st.Enrolled, st.Name, st.NodeID = true, id.NodeID, id.NodeID
 		if fleet != nil {
 			if n, found, err := fleet.Get(id.NodeID); err == nil && found && n.Name != "" {
 				st.Name = n.Name

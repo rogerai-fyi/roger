@@ -6,7 +6,9 @@ package main
 // with how old the reading is.
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -19,17 +21,16 @@ func cmdEdgeHealth(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := loadEdgeState()
+	now := time.Now()
+	hs, firing, err := edgeReadHealth(now) // every health read evaluates the rules
 	if err != nil {
 		return err
 	}
-	now := time.Now()
-	hs, err := edge.FleetHealth(st.fleet, now)
-	if err != nil {
-		return err
+	if argv.has("json") {
+		return edgeHealthJSON(hs, firing)
 	}
 	if len(argv.pos) == 1 {
-		return edgeHealthOne(hs, argv.pos[0], now)
+		return edgeHealthOne(hs, firing, argv.pos[0], now)
 	}
 	if len(hs) == 0 {
 		fmt.Println("no nodes on this Edge yet - nothing to report on")
@@ -43,7 +44,7 @@ func cmdEdgeHealth(cfg config, args []string) error {
 }
 
 // edgeHealthOne shows one node in full, each reading with its age.
-func edgeHealthOne(hs []edge.NodeHealth, want string, now time.Time) error {
+func edgeHealthOne(hs []edge.NodeHealth, firing edge.AlertState, want string, now time.Time) error {
 	for _, h := range hs {
 		if h.Name != want && !strings.HasPrefix(h.ID, want) {
 			continue
@@ -85,10 +86,71 @@ func edgeHealthOne(hs []edge.NodeHealth, want string, now time.Time) error {
 		if r.SDWearPct != nil {
 			fmt.Printf("  %-10s %.0f%% worn%s\n", "sd card", *r.SDWearPct, age())
 		}
-		fmt.Printf("  %-10s no rules configured\n", "alerts")
-		return nil
+		return edgeHealthAlerts(h, firing)
 	}
 	return errNoSuchNode(want)
+}
+
+// edgeHealthAlerts prints the rules firing for one node, each with the value it is judged on.
+func edgeHealthAlerts(h edge.NodeHealth, firing edge.AlertState) error {
+	ids := firing.FiringFor(h.ID)
+	if len(ids) == 0 {
+		fmt.Printf("  %-10s none firing\n", "alerts")
+		return nil
+	}
+	rules, err := edgeAlertLog().Rules()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		for _, r := range rules {
+			if r.ID != id {
+				continue
+			}
+			line := r.Key()
+			if v, ok := h.Reading(r.Metric); ok {
+				line += fmt.Sprintf("  (now %.1f)", v)
+			}
+			fmt.Printf("  %-10s %s\n", "alerts", line)
+		}
+	}
+	return nil
+}
+
+// edgeHealthJSON is the fleet's health for scripts: an absent metric is absent (the readings
+// struct omits what was not read), a node reporting nothing has null readings.
+func edgeHealthJSON(hs []edge.NodeHealth, firing edge.AlertState) error {
+	type row struct {
+		ID        string   `json:"id"`
+		Name      string   `json:"name"`
+		Kind      string   `json:"kind"`
+		Presence  string   `json:"presence"`
+		LastHeard int64    `json:"last_heard,omitempty"`
+		DarkForS  int64    `json:"dark_for_s,omitempty"`
+		Readings  any      `json:"readings"`
+		ReadAgeS  int64    `json:"read_age_s,omitempty"`
+		Alerts    []string `json:"alerts"`
+	}
+	out := make([]row, 0, len(hs))
+	for _, h := range hs {
+		r := row{ID: h.ID, Name: h.Name, Kind: h.Kind, Presence: h.Presence, Alerts: firing.FiringFor(h.ID)}
+		if r.Alerts == nil {
+			r.Alerts = []string{}
+		}
+		if !h.LastHeard.IsZero() {
+			r.LastHeard = h.LastHeard.Unix()
+		}
+		if h.Dark {
+			r.DarkForS = int64(h.DarkFor.Seconds())
+		}
+		if h.Readings != nil {
+			r.Readings, r.ReadAgeS = h.Readings, int64(h.ReadAge.Seconds())
+		}
+		out = append(out, r)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 func healthTemp(h edge.NodeHealth) string {

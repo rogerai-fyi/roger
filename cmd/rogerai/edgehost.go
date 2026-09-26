@@ -140,6 +140,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeForget = h.forgetNode
 	hooks.EdgeSetPrefer = h.setPrefer
 	hooks.EdgeGrants = h.grants
+	hooks.EdgeAlerts = edgeFiringAlerts
 	hooks.EdgeIssueGrant = h.issueGrant
 	hooks.EdgeRevokeGrant = h.revokeGrant
 	// The agents the owner marked persistent - a durable record, so one that has stopped still
@@ -762,6 +763,7 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	}
 	h.beatInstance(loadConfig())
 	h.observeSelf(time.Now()) // this machine's own row: live household, fresh last-seen
+	h.judgeHealth(time.Now()) // the authority judges the rules, so a dead node still reports
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
@@ -879,4 +881,29 @@ func startEdge(hooks *tui.Hooks) func() {
 	h.wire(hooks)
 	_ = h.start(context.Background())
 	return h.stop
+}
+
+// judgeHealth evaluates the alert rules against the fleet each pass and records the outcome.
+// Only the AUTHORITY judges (health.feature §4): an offline alert is fired from the MISSING
+// heartbeat here, never by the node that stopped sending - and not by every member either, or
+// one crossing would be N alerts the moment a sink is configured.
+func (h *edgeHost) judgeHealth(now time.Time) {
+	h.mu.Lock()
+	authority := h.authLn != nil
+	var hs []edge.NodeHealth
+	var err error
+	if authority {
+		hs, err = edge.FleetHealth(h.st.fleet, now)
+	}
+	h.mu.Unlock()
+	if !authority || err != nil {
+		return
+	}
+	if _, alerts, err := edgeEvaluateAlerts(hs, now); err != nil {
+		log.Println("edge: could not record the fleet's alerts:", err)
+	} else {
+		for _, a := range alerts {
+			log.Println("edge alert:", a)
+		}
+	}
 }

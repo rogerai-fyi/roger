@@ -1323,6 +1323,9 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edge-node text { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-900); }
 .edge-node .edge-marks { fill: var(--ink-400); font-size: 10px; }
 .edge-node--dark { opacity: 0.45; }
+.edge-node--alert circle { stroke: var(--live); stroke-width: 2; }
+.edge-node--alert .edge-marks { fill: var(--live); }
+.edge-alert { color: var(--live); }
 .edge-node--dark circle { stroke-dasharray: 2 3; }
 .edge-node--sel circle { stroke: var(--live); stroke-width: 2.5; }
 .edge-self circle { fill: var(--ink-900); stroke: var(--ink-900); }

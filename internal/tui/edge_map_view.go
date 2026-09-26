@@ -34,6 +34,19 @@ type edgeNetItem struct {
 	node    *store.EdgeNode  // the fleet/candidate node record, for member and candidate items
 	id      string           // the node id, for adopt/detail of a member or candidate
 	kind    string           // host | board | mobile, for a member/candidate emblem
+	alerts  []string         // the alert rules firing for this node right now, by wording
+}
+
+// alertTag is the short count a card wears when rules are firing: "1 alert", "2 alerts".
+func (it edgeNetItem) alertTag() string {
+	switch n := len(it.alerts); {
+	case n == 0:
+		return ""
+	case n == 1:
+		return "1 alert"
+	default:
+		return strconv.Itoa(n) + " alerts"
+	}
 }
 
 // icon returns the node's glyph and its style.
@@ -58,8 +71,16 @@ func (it edgeNetItem) icon() (string, lipgloss.Style) {
 	}
 }
 
-// sub returns the one-line description under a node's name.
+// sub returns the one-line description under a node's name, with the alert count when rules fire.
 func (it edgeNetItem) sub() string {
+	s := it.subBase()
+	if tag := it.alertTag(); tag != "" && (it.machine || it.member) {
+		s += " · " + tag
+	}
+	return s
+}
+
+func (it edgeNetItem) subBase() string {
 	switch {
 	case it.machine:
 		return it.role
@@ -99,6 +120,9 @@ func (m model) edgeNetItems() []edgeNetItem {
 		}
 	}
 	items := []edgeNetItem{{machine: true, name: m.edgeSelfName(), role: role, status: m.edge.status}}
+	if m.edge.status != nil {
+		items[0].alerts = m.edge.alerts[m.edge.status.NodeID]
+	}
 	self := ""
 	if m.hooks.EdgeSelfInstance != nil {
 		self = m.hooks.EdgeSelfInstance()
@@ -126,7 +150,8 @@ func (m model) edgeNetItems() []edgeNetItem {
 	// The OTHER machines already on this Edge - members, drawn as their own cards in a fleet band.
 	for i := range m.edge.rows {
 		n := m.edge.rows[i].n
-		items = append(items, edgeNetItem{name: n.Name, member: true, node: &m.edge.rows[i].n, id: n.ID, kind: n.Kind, dark: edge.Presence(n.Presence) == edge.PresenceDark})
+		items = append(items, edgeNetItem{name: n.Name, member: true, node: &m.edge.rows[i].n, id: n.ID, kind: n.Kind,
+			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID]})
 	}
 	// The DISCOVERED machines not yet on this Edge - candidates, adopt with a.
 	for i := range m.edge.cands {
@@ -453,6 +478,7 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 			wrap("JOIN", "another machine runs  "+st.EnrollAgainstLine())
 		}
 		wrap("DISCOVERY", st.DiscoveryLine(m.edge.at))
+		edgeAlertLabels(it, label)
 		line("")
 		line("  " + stDim.Render("esc back to the map · ←→ move to another node"))
 		return
@@ -497,6 +523,7 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		if n.LastSeen > 0 {
 			label("LAST SEEN", edgeAge(m.edge.at.Sub(time.Unix(n.LastSeen, 0)))+" ago")
 		}
+		edgeAlertLabels(it, label)
 		// ASK: whether this node can be prompted, and with which model (addressed_inference.feature).
 		if model, ok := edgeItemServes(it); ok {
 			label("ASK", stKey.Render("p")+stDim.Render(" to prompt ")+stEmber.Render(model)+stDim.Render(" on this node"))
@@ -686,5 +713,18 @@ func (m model) edgeMapList(cw int, line func(string)) {
 		row := marker + gs.Render(glyph) + " " + stKey.Render(pad(name, nameW)) +
 			stDim.Render(pad(it.kindLabel(), kindW)+state)
 		line("  " + truncVisible(row, cw))
+	}
+}
+
+// edgeAlertLabels writes the rules firing for a node into its readout, one line each, in the live
+// color: an alert is a signal. Nothing is written when nothing fires - "no alerts" is the default
+// state and would only dilute the cards that do carry one.
+func edgeAlertLabels(it edgeNetItem, label func(k, v string)) {
+	for i, a := range it.alerts {
+		k := ""
+		if i == 0 {
+			k = "ALERT"
+		}
+		label(k, lampStyle(roleLive).Render("firing · "+a))
 	}
 }
