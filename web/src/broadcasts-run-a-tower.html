@@ -158,7 +158,8 @@
             your disk, because they were never on it in a form you could keep.
           </p>
 
-          <figure class="figure figure--chart" data-reveal>
+          <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" role="img"
                  aria-label="Flow diagram of the sealed path: the consumer authorizes at Core and seals the request to the node's key; the Tower queues the sealed bytes without a key to them; the node opens, serves, signs a receipt and seals the answer back through the Tower; Core settles the receipt 90/5/5.">
               <style>
@@ -207,6 +208,7 @@
 
               <text x="24" y="286" class="t-b t-dim">The dashed run is ciphertext end to end. Your Tower is on it twice and holds a key to it neither time.</text>
             </svg>
+            </div>
             <figcaption class="fig mono">FIG. 2 - Sealed at the consumer, opened only at the node. The relay is on the path, never holding the key.</figcaption>
           </figure>
         </section>
@@ -222,7 +224,8 @@
             the node 90% and leaves the platform 5%.
           </p>
 
-          <figure class="figure figure--chart" data-reveal>
+          <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 190" role="img"
                  aria-label="Bar showing how one settled request divides: 90 percent to the serving node, 5 percent to the tower operator, 5 percent to the platform, all measured against the node's own listed price.">
               <style>
@@ -253,6 +256,7 @@
               <text x="742" y="142" class="s-b">platform</text>
               <text x="24"  y="172" class="s-b s-dim">Measured against the node's price, not a house rate. A request that returns nothing usable settles at zero for everyone.</text>
             </svg>
+            </div>
             <figcaption class="fig mono">FIG. 3 - The relay's cut, and what it is a cut of.</figcaption>
           </figure>
 

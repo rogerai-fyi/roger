@@ -22,6 +22,11 @@ section[id] { scroll-margin-top: 72px; }
   letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
 }
 .tower__svg { display: block; width: 100%; max-width: 100%; height: auto; padding: var(--s-5); }
+/* both drawings sit in the diagram scroll box: on a narrow column they keep a width where
+   the 8.5-9px labels read at 11px, and scroll (the patch's floor adds its 2 x 20px padding) */
+.tower__patch { --diagram-min: 880px; }
+.tower__patch .scroll-box--diagram { --edge-ground: var(--paper-2); }
+.signal { --diagram-min: 880px; }
 
 .tower__frame rect { fill: none; stroke: var(--hairline-2); stroke-width: 1; }
 .tower__label {

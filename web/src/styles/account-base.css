@@ -104,13 +104,26 @@ body.auth {
   padding-top: var(--s-6);
   margin-top: var(--s-6);
 }
-.panel > p {
+.panel > p, .acct-state > p {
   margin: 0 0 var(--s-3);
   color: var(--ink-700);
   font-size: var(--t-sm);
   line-height: 1.6;
   max-width: 64ch;
 }
+
+/* The account state: one look for every signed-out and empty state on the product pages
+   (keys and usage signed out; no stations, no traffic; Base Station signed out).
+   <section class="acct-state tint-panel" [id hidden]>
+     <h2>Label</h2>                       the card's mono section label
+     <p>The page's own words.</p>         [<pre class="cmd">...</pre>] [<p class="fine">...</p>]
+     <p class="research-actions research-actions--lead">
+       <a class="research-button" href="...">Its action</a></p>
+   </section>
+   The ground is the shared .tint-panel rule; this places it in the plate. */
+.acct-state { margin-top: var(--s-6); padding: var(--s-5) var(--s-6); }
+.acct-state .research-actions { margin-top: var(--s-4); }
+@media (max-width: 560px) { .acct-state { padding: var(--s-4); } }
 
 /* Acceptable-use list (tos.html): hairline-marked items, document tone. */
 .tos-list {
@@ -239,15 +252,16 @@ body.auth {
 
    The lesson the earlier fix already wrote down: a control that happens to be an <a> must
    be excluded by name here, because the link treatment out-specifies every button rule.
-   If a third button class appears, it belongs in this list too. ---- */
-.card a:not(.gh):not(.primary) {
+   If a third button class appears, it belongs in this list too (the shared
+   .research-button is the third: the account state's lead row). ---- */
+.card a:not(.gh):not(.primary):not(.research-button) {
   color: var(--ink-900);
   border-bottom: 1px solid var(--hairline-2);
   transition: color var(--d-1) var(--ease-standard),
                border-color var(--d-1) var(--ease-standard);
 }
-.card a:not(.gh):not(.primary):hover { color: var(--live-text); border-bottom-color: var(--live); }
-.card a:not(.gh):not(.primary):focus-visible {
+.card a:not(.gh):not(.primary):not(.research-button):hover { color: var(--live-text); border-bottom-color: var(--live); }
+.card a:not(.gh):not(.primary):not(.research-button):focus-visible {
   outline: 2px solid var(--live);
   outline-offset: 2px;
   border-radius: var(--r-xs);

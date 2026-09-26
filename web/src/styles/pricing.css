@@ -162,8 +162,8 @@ section[id] { scroll-margin-top: 72px; }
    Two payloads leave YOU: the job (the one red) and the identity chips (grey).
    The chips drop at the relay; the job goes the distance. 7s loop, tokens only.
    Reduced motion shows the honest end-state: chips gone, job delivered. */
-.rwire { margin: var(--s-8) 0 var(--s-4); overflow-x: auto; }
-.rwire svg { display: block; width: 100%; min-width: 620px; height: auto; overflow: visible; }
+.rwire { margin: var(--s-8) 0 var(--s-4); --diagram-min: 620px; }
+.rwire svg { overflow: visible; }
 .rwire__line { stroke: var(--hairline-2); stroke-width: 1.5; }
 .rwire__ring { fill: var(--paper); stroke: var(--ink-900); stroke-width: 1.5; }
 .rwire__tower { stroke: var(--ink-900); stroke-width: 1.5; fill: none; stroke-linecap: round; }
@@ -224,12 +224,14 @@ section[id] { scroll-margin-top: 72px; }
 }
 @media (max-width: 640px) { .whyrows { grid-template-columns: 1fr; } }
 
-/* phone: the wire must read WHOLE - a scroll hid the STATION punchline. Scale
-   the picture to the viewport and compensate text + strokes for the ~0.4x. */
+/* phone: scaled whole to the viewport the wire's words fell to ~5px. It keeps the
+   diagram scroll box's floor instead (its smallest words, raised to 16, read at 11px),
+   with the edge shade saying the STATION end is there to scroll to. */
 @media (max-width: 640px) {
-  .rwire svg { min-width: 0; }
+  .rwire { --diagram-min: 670px; }
+  .rwire .scroll-box--diagram { padding-inline-end: var(--s-2); }   /* the STATION words overhang the drawing's edge */
   .rwire__nodelabel { font-size: 20px; }
-  .rwire__micro { font-size: 13px; }
-  .rwire__chiptext { font-size: 15px; }
+  .rwire__micro { font-size: 16px; }
+  .rwire__chiptext { font-size: 16px; }
   .rwire__line, .rwire__ring, .rwire__tower { stroke-width: 3; }
 }

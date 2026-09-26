@@ -84,7 +84,8 @@ resp = client.chat.completions.create(
             serves <b>your own</b> GPUs; to reach the wider market from a bot, use the local endpoint
             from <code>roger use</code> - see &sect;3.
           </p>
-          <figure class="figure figure--chart" data-reveal>
+          <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img"
                  aria-label="Diagram: your bot or service, using the OpenAI SDK, points its base_url at https://broker.rogerai.fm/v1 with a grant key; the RogerAI broker screens and routes the request to a community GPU that serves your model.">
               <style>
@@ -117,6 +118,7 @@ resp = client.chat.completions.create(
               <text x="578" y="181" class="g-b">back token by token</text>
               <text x="24" y="234" class="g-b g-dim">base_url = https://broker.rogerai.fm/v1  ·  Authorization: Bearer rog-grant_...  ·  model = an id from /discover</text>
             </svg>
+            </div>
             <figcaption class="fig mono">FIG. 2 - The same OpenAI call, repatched to the band.</figcaption>
           </figure>
         </section>

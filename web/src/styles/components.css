@@ -36,16 +36,19 @@
      as "TOWERv". gap restores it; buttons with a single text node have one
      flex item and are unaffected. */
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border: 1px solid var(--hairline-2);
-  color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
+  padding: 10px 16px; border: 1px solid var(--ink-900); background: var(--ink-900);
+  color: var(--paper); font-family: var(--font-mono); font-size: var(--t-xs);
   text-transform: uppercase; letter-spacing: .08em;
 }
-.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live-text); }
+/* every button is the same solid button (founder ruling: one highlighted first button read
+   as "the current view"). Ink fill, paper label; the tokens flip it to a paper fill with an
+   ink label on the dark site and in an ink panel. Hover and focus fill red (the text red,
+   AA under a paper label in both themes), keyboard focus adds a ring, a press darkens the
+   fill and sinks 1px. No glow. */
+.research-button:hover, .research-button:focus-visible { border-color: var(--live-text); background: var(--live-text); color: var(--paper); }
 .research-button:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.research-button:not(.research-button--primary):active { background: var(--paper-2); }
+.research-button:active { background: var(--ink-700); border-color: var(--ink-700); }
 @media (pointer: coarse) { .research-button { min-height: 44px; } }
-.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
-.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
 
 /* ============================ CALLOUT ========================== */
 /* a boxed operating note / caution (shared: manual / keys) */
@@ -204,7 +207,31 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
 .toc-tuner__band {
   position: relative;
   padding-top: 58px; padding-bottom: 10px;   /* its ground: the tinted panel's, below */
+  /* drag to tune (tuner.js): outside the scale strip the band scrolls the page; no text
+     selection or link ghost while dragging */
+  touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
+/* the scale strip is the drag zone: a touch that starts there always tunes, whatever its
+   angle (a pan-y band handed every slightly vertical thumb drag to the page as a scroll) */
+.toc-tuner__band:has(.toc-tuner__hint) .toc-tuner__scale { touch-action: none; }   /* only with the script (the hint is its mark): without it the strip scrolls and zooms */
+
+/* while dragging the needle follows the finger (no spring lag) and the readout names the
+   station under it instead of the current one */
+.toc-tuner.is-dragging .toc-tuner__needle { transition: none; }
+.toc-tuner:is(.is-dragging, .is-selected) a:not(.is-tuning) .toc-tuner__name { opacity: 0 !important; }   /* over a touch screen's sticky :hover */
+/* touch is two steps (tuner.js): a first tap or drag selects, and this hint (added by the
+   script on any device; shown only by a touch selection) fades in under the scale; a
+   second tap tunes in. The
+   red needle is the accent; the hint is a quiet mono label (decoration: aria-hidden). */
+.toc-tuner__hint {
+  position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; pointer-events: none;
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: 0.04em;
+  color: var(--ink-500); opacity: 0; transform: translateY(4px);
+  transition: opacity 250ms var(--ease-out-quint), transform 250ms var(--ease-out-quint);
+}
+.toc-tuner.is-selected .toc-tuner__hint { opacity: 1; transform: none; pointer-events: auto; }
+.toc-tuner a.is-tuning .toc-tuner__name { opacity: 1 !important; filter: none; letter-spacing: var(--tracking-label); }
+.toc-tuner a.is-tuning { color: var(--ink-900); }
 .toc-tuner__readout {
   position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
   width: min(360px, 70%); height: 28px; border-radius: 6px;
@@ -293,8 +320,35 @@ main > :is(.tone-zone, .band--inset):not(:has(~ :not([hidden], script))) { margi
 @media (max-width: 640px) {
   .toc-tuner__readout, .toc-tuner__name { width: calc(100% - 32px); max-width: none; }
 }
+/* on touch: a finger-sized strip across the whole tuner, and a heavier needle head that
+   reads as a grip (the same red dot, larger; no glow). The strip reaches up 22px so the
+   head, drawn above the ticks, is inside it (pressing the grip drags); the padding and the
+   ticks' offset grow by the same 22px, so nothing drawn moves. (After the needle's own
+   rules, so the larger head wins.) */
+@media (any-pointer: coarse) {
+  .toc-tuner__scale { min-height: 56px; margin-top: -22px; padding-top: calc(26px + 22px); background-position: 0 28px; }
+  .toc-tuner__needle::before { width: 12px; height: 12px; top: -5px; left: -5px; }
+  .toc-tuner__band:has(.toc-tuner__hint) { padding-bottom: 36px; }   /* room for the touch hint */
+}
+/* a touch screen's :hover sticks to the last link tapped: once the script rests the tuner
+   (an .is-current station), that stale hover must not steer the needle or the readout
+   (keyboard focus still does). Outranks the pointed-station rules above. */
+@media (hover: none) {
+  .toc-tuner.toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)) { --at: var(--cur, 0); }
+}
+/* the names, on the scale form only: under 760px a 13+ station tuner is the list form,
+   whose rows keep their own name style */
+@media (hover: none) and (min-width: 761px) {
+  .toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)) a:not(.is-current):not(.is-tuning) .toc-tuner__name { opacity: 0; filter: blur(3px); letter-spacing: 0.4em; }
+  .toc-tuner.toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)) a.is-current .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+}
+@media (hover: none) and (max-width: 760px) {
+  .toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)):not(:has(li:nth-child(13))) a:not(.is-current):not(.is-tuning) .toc-tuner__name { opacity: 0; filter: blur(3px); letter-spacing: 0.4em; }
+  .toc-tuner.toc-tuner.toc-tuner:has(a.is-current):not(:has(a:focus-visible)):not(:has(li:nth-child(13))) a.is-current .toc-tuner__name { opacity: 1; filter: none; letter-spacing: var(--tracking-label); }
+}
 @media (prefers-reduced-motion: reduce) {
   .toc-tuner__needle { transition: none; }
+  .toc-tuner__hint { transition: none; }
 }
 /* a name comes into tune as it shows: the blur clears and the tracking
    closes up (opacity itself flips at once, so no half-contrast frame) */
@@ -518,10 +572,9 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .page-index a.page-index__head:hover { color: var(--live-text); }
 
 /* ---- component: lead action row (added by models rollout) -----------------
-   <div class="research-actions research-actions--lead">: ONE primary button
-   (.research-button--primary, solid ink), then boxed secondaries (the plain
-   .research-button: a hairline outline, mono label). On a phone each button keeps
-   its own width and the row wraps onto new lines; it never becomes a full-width stack. */
+   <div class="research-actions research-actions--lead">: equal solid buttons
+   (.research-button, no variants). On a phone each button keeps its own width and
+   the row wraps onto new lines; it never becomes a full-width stack. */
 /* ONE ROLE, ONE PATTERN: every action row on the site is this lead row
    (test/consistency.test.mjs). The boxes re-theme in an ink panel through the tokens. */
 .research-actions--lead { align-items: center; gap: var(--s-3); }
@@ -616,17 +669,25 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .toc-tuner:has(li:nth-child(13)) b { font-size: clamp(0.8rem, 0.55rem + 0.5vw, 1.1rem); letter-spacing: -0.04em; }
 @media (max-width: 760px) {
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { padding: var(--s-3); margin-inline: var(--panel-inset); width: auto; }
+  /* the list form is tapped, never dragged: its names select and a long press gives the link menu */
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__band { touch-action: auto; user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale { touch-action: auto; }
+  .toc-tuner:has(li:nth-child(13)) .toc-tuner__hint { display: none; }
   .toc-tuner:has(li:nth-child(13)) :is(.toc-tuner__readout, .toc-tuner__needle) { display: none; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__scale {
-    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; background: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s-2); padding: 0; margin-top: 0; background: none;
   }
   .toc-tuner:has(li:nth-child(13)) a { justify-content: flex-start; align-items: baseline; gap: var(--s-2); padding: 8px 10px; }
   .toc-tuner:has(li:nth-child(13)) b { flex: 0 0 auto; min-width: 3ch; font-size: var(--t-sm); }
   .toc-tuner:has(li:nth-child(13)) b::before { content: none; }
-  .toc-tuner:has(li:nth-child(13)) .toc-tuner__name {
+  /* (0,4,2): outranks the tuner-state rules (a tablet rotated mid-selection) */
+  .toc-tuner.toc-tuner:has(li:nth-child(13)) a .toc-tuner__name {
     position: static; transform: none; max-width: none; height: auto; overflow: visible;
     white-space: normal; text-align: left; line-height: 1.35; opacity: 1 !important;
-    color: var(--ink-700); letter-spacing: 0.04em;
+    color: var(--ink-700);
+    /* a list row is always readable: none of the scale form's out-of-tune blur or wide
+       tracking, whatever is hovered, focused or current */
+    filter: none !important; letter-spacing: 0.04em !important;
   }
   .toc-tuner:has(li:nth-child(13)) a:is(:hover, :focus-visible, .is-current) .toc-tuner__name { color: var(--ink-900); }
   .toc-tuner:has(li:nth-child(13)) a.is-current { box-shadow: inset 2px 0 0 var(--live); }
@@ -643,24 +704,37 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
    the column, whatever the asset's natural size. --plate sets it on a calm tinted
    inset panel (theme tokens, so it recedes on the dark theme instead of lighting up);
    --phone centres a portrait screenshot at a readable size; --chart is an inline SVG
-   chart: set in heading ink, and on a column narrower than the chart it scrolls in
-   its own box (the caption stays put) rather than shrinking its text below reading
-   size. The caption is the .fig label (its --ink-400 is AA on every ground). */
+   chart: set in heading ink, its drawing in the diagram scroll box with a phone floor,
+   so it scrolls in that box (the caption stays put) rather than shrinking its text
+   below reading size. The caption is the .fig label (its --ink-400 is AA on every ground). */
 .figure { margin: var(--s-8) 0; max-width: 100%; }
 .figure > img, .figure > video, .figure > svg { display: block; max-width: 100%; width: 100%; height: auto; }
 .figure > img, .figure > video { border-radius: var(--r-lg); }
 .figure > figcaption { margin: var(--s-3) 2px 0; }
 .figure--plate { padding: var(--s-4); }   /* on the tinted ground (the .tint-panel rule) */
 .figure--phone > img { max-width: 440px; margin-inline: auto; }
-.figure--chart { color: var(--ink-900); overflow-x: auto; }
-.figure--chart > svg { min-width: 34rem; }
-.figure--chart > figcaption { position: sticky; left: 0; }
+/* a chart's drawing sits in .scroll-box--diagram (the caption outside it): on a phone it
+   keeps 820px, where every article chart's smallest label reads at 11px or more (11 x 820 /
+   11), and scrolls; a desktop article column (640px) holds it whole, its labels at
+   8.6 to 9.8px there (640/820 of their 11-12.5 units), accepted */
+.figure--chart { color: var(--ink-900); }
+@media (max-width: 640px) { .figure--chart { --diagram-min: 820px; } }
 
 /* ---- component: scroll box (added by research rollout) ----------------------------
    <div class="scroll-box"><table>...</table></div>
    Anything wider than a phone (a data table, a diagram) scrolls sideways inside this
    box, never the page. */
 .scroll-box { overflow-x: auto; max-width: 100%; }
+/* <div class="scroll-box scroll-box--diagram"><svg ...></svg></div> inside the figure
+   (the caption stays outside, put). An inline SVG diagram keeps at least --diagram-min
+   of width (the page sets it in its own context, so the figure's smallest label reads at
+   11px or more) and scrolls sideways in the box on a narrower column instead of
+   shrinking its words; the code block's edge shade shows while there is more to scroll.
+   The box's ground for the shade's end cover is --edge-ground (paper by default; a figure
+   on another ground sets it). */
+.scroll-box--diagram { --edge-ground: var(--paper); }
+.figure--plate .scroll-box--diagram { --edge-ground: var(--paper-2); }   /* on the figure plate's ground */
+.scroll-box--diagram > svg { display: block; width: 100%; height: auto; min-width: var(--diagram-min, 34rem); }
 
 /* ---- component: data table ---------------------------------------------------------
    <table class="data-table [page class]"> (in a .scroll-box when it can outgrow a phone)
@@ -688,14 +762,17 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   position: relative; margin-top: var(--s-4); max-width: 100%;
   background: var(--cb-ground); border-radius: var(--r-xl);
 }
-/* a line that runs past the edge shows it: a soft shade at the right edge while
-   there is more to scroll, covered by the block's own ground once you reach the end
-   (the two layers scroll differently; no script) */
-.code-block pre {
-  margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
+/* a line (or a diagram) that runs past the edge shows it: a soft shade at the right
+   edge while there is more to scroll, covered by the box's own ground (--edge-ground)
+   once you reach the end (the two layers scroll differently; no script) */
+.scroll-box--diagram, .code-block pre {
   background:
-    linear-gradient(to left, var(--cb-ground) 16px, transparent) right / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--edge-ground) 16px, transparent) right / 28px 100% no-repeat local,
     linear-gradient(to left, color-mix(in srgb, var(--ink-900) 7%, transparent), transparent) right / 20px 100% no-repeat scroll;
+}
+.code-block pre {
+  --edge-ground: var(--cb-ground);
+  margin: 0; padding: 14px 16px; max-width: 100%; overflow-x: auto;
   font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.6;
   color: var(--ink-900); white-space: pre;
 }
@@ -741,6 +818,35 @@ details[data-fold-narrow] > summary::after {
 }
 details[data-fold-narrow][open] > summary::after { content: "\2212"; }
 details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
+
+/* ---- touch hit area (pointer: coarse) -----------------------------------------------
+   Every standalone control is at least a --hit (44px) target on a touch screen, whatever
+   it looks like. Three ways, one per kind of control:
+   - a control whose drawn look matters (a chip, a pill, an icon button, a lone text link)
+     keeps its size: an invisible ::before at inset var(--hit-inset) grows its hit area,
+     centred. The sheet that owns the control lists it in its own touch block (this one
+     for the components, base.css for the chrome, each page sheet for its own), with the
+     control made the pseudo-element's containing block at zero specificity (:where), so
+     one a page positions keeps its own position;
+   - a list of text links (the page index) gets the room itself: 44px rows, and the
+     contents tuner's stations grow downward to 44px (a station must not become a
+     containing block: the dial's readout is laid out against the band);
+   - a form field is 44px tall.
+   Links inside running text (a sentence, a callout, a spec plate) are not listed: the
+   target-size rule exempts them, and a grown area there would cover the next line.
+   Nor is a control packed close to another (chips that wrap tight, stacked spines, a
+   copy button beside its code line): a grown area must never cover another control's
+   drawn box, or a tap aimed at the neighbour opens this one. scripts/touch-overlap.py
+   measures it; test/qa-polish2.test.mjs lists who may and may not grow. */
+@media (pointer: coarse) {
+  :where(.install__alt, .copy-code) { position: relative; }
+  :is(.install__alt, .copy-code)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+  :is(.page-index__link, .page-index__head) { display: block; padding-block: calc((var(--hit) - 1lh) / 2); }
+  .page-index ol { gap: 0; }
+  .page-index > ol > li { padding-block: 0; }
+  .toc-tuner__st { min-height: var(--hit); }
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"]), select, textarea) { min-height: var(--hit); }
+}
 
 /* ---- component: inset band (added by research rollout) ----------------------------
    <section class="section band band--inset"> : the tinted .band as a rounded panel,
@@ -835,6 +941,8 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
   /* long lines and wide tables print whole instead of clipping at a scroll edge */
   pre, .scroll-box, .code-block { overflow: visible !important; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .scroll-box--diagram { background: none; }
+  .scroll-box--diagram > svg { min-width: 0; }   /* a diagram prints at the page width */
   .figure, .tint-panel, .install, tr { break-inside: avoid; }
   h2, h3 { break-after: avoid; }
   /* an external link in the running text says where it goes */

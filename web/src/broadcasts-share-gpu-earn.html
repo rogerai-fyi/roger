@@ -35,7 +35,7 @@
       </header>
 
       <figure class="figure figure--plate" data-reveal>
-        <img src="assets/broadcasts/share-hero.png" width="1280" height="560"
+        <img src="assets/broadcasts/share-hero.png" width="1280" height="720"
              alt="A graphics card mounted on a radio broadcast transmitter tower with a red beacon, broadcasting signal, in the RogerAI operating-manual style." loading="lazy" />
         <figcaption class="fig mono">FIG. 1 - PUT YOUR STATION ON THE AIR</figcaption>
       </figure>
@@ -81,7 +81,8 @@
             opens an inbound port. The broker screens each prompt, matches it to a listener, and
             hands it to your model; you answer locally and return a signed receipt.
           </p>
-          <figure class="figure figure--chart" data-reveal>
+          <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img"
                  aria-label="Flow diagram: 1) roger share puts your local model on the band; 2) the broker screens every prompt and routes it to your node; 3) you serve it, sign the receipt, and keep 90 percent, cashed out via Stripe.">
               <style>
@@ -99,27 +100,29 @@
               <!-- box 1 -->
               <rect x="30" y="78" width="220" height="120" rx="10" class="d-box"/><rect x="30" y="78" width="220" height="120" rx="10" class="d-stroke"/>
               <circle cx="52" cy="104" r="5" class="d-live"/><text x="66" y="109" class="d-no">1 &#183; GO ON AIR</text>
-              <text x="48" y="140" class="d-h">roger share</text>
-              <text x="48" y="162" class="d-b">puts your local model</text>
-              <text x="48" y="180" class="d-b">on the band (free by default)</text>
+              <text x="48" y="134" class="d-h">roger share</text>
+              <text x="48" y="154" class="d-b">puts your local model</text>
+              <text x="48" y="170" class="d-b">on the band</text>
+              <text x="48" y="186" class="d-b">(free by default)</text>
               <!-- arrow 1->2 -->
               <path d="M250 138 H288" class="d-arrow"/><path d="M282 132 L290 138 L282 144" class="d-arrow"/>
               <!-- box 2 -->
               <rect x="295" y="78" width="220" height="120" rx="10" class="d-box"/><rect x="295" y="78" width="220" height="120" rx="10" class="d-stroke"/>
               <text x="313" y="109" class="d-no">2 &#183; THE BAND ROUTES</text>
-              <text x="313" y="140" class="d-h">broker</text>
-              <text x="313" y="162" class="d-b">screens every prompt,</text>
-              <text x="313" y="180" class="d-b">routes a listener to you</text>
+              <text x="313" y="134" class="d-h">broker</text>
+              <text x="313" y="154" class="d-b">screens every prompt,</text>
+              <text x="313" y="170" class="d-b">routes a listener to you</text>
               <!-- arrow 2->3 -->
               <path d="M515 138 H553" class="d-arrow"/><path d="M547 132 L555 138 L547 144" class="d-arrow"/>
               <!-- box 3 -->
               <rect x="560" y="78" width="220" height="120" rx="10" class="d-box"/><rect x="560" y="78" width="220" height="120" rx="10" class="d-stroke"/>
               <text x="578" y="109" class="d-no">3 &#183; YOU EARN</text>
-              <text x="578" y="140" class="d-h">serve + sign</text>
-              <text x="578" y="162" class="d-b">the receipt, keep</text>
-              <text x="578" y="180" class="d-b"><tspan class="d-live d-strong">90%</tspan> - Stripe payout</text>
+              <text x="578" y="134" class="d-h">serve + sign</text>
+              <text x="578" y="154" class="d-b">the receipt, keep</text>
+              <text x="578" y="170" class="d-b"><tspan class="d-live d-strong">90%</tspan> - Stripe payout</text>
               <text x="24" y="234" class="d-b d-dim">Outbound only: no inbound ports, no shell, no files. The bridge exposes just your model's port.</text>
             </svg>
+            </div>
             <figcaption class="fig mono">FIG. 2 - One command on air, screened by the band, paid on a signed receipt.</figcaption>
           </figure>
         </section>

@@ -14,7 +14,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 |---|---|---|---|
 | Section, section head | `.section`, `.section__head`, `.sectionno` (base) | - | every marketing page |
 | Tinted band / inset band | `.band`, `.band--inset` | - | homepage, research pages |
-| Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (`--primary` first, then plain boxed secondaries) | press | 15 pages, every action row |
+| Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (every one solid, no variants) | press | 15 pages, every action row |
 | Callout | `.man-note` (`--live`, `--ember`) | - | manual, keys, hardware, 2 articles |
 | Install pill + copy tick | `install-box.html` partial, `.install`, `.install__box` (`--lg`) | `site.js` | homepage, app, Tower, articles |
 | Inline / block copy command | `.copy-code` (`--block`) | `site.js` `[data-copy-target]` | Pricing, Integrations |
@@ -31,13 +31,14 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
 | Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
 | Figure | `.figure` (`--plate`, `--phone`, `--chart`) | - | the articles |
-| Scroll box | `.scroll-box` | - | every wide table |
+| Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial and Wave family diagrams |
 | Data table | `.data-table` | - | articles, manual, Integrations, Hardware, Wave family |
 | Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
 | Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
+| Touch hit area | `--hit`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
 | Print | `@media print` at the end of `components.css` + `tokens.css` | - | every page |
 
 ### One role, one pattern
@@ -48,7 +49,7 @@ definitions).
 
 | Role | The pattern | Was also |
 |---|---|---|
-| Action row (hero, section, closing) | the lead row: `.research-actions.research-actions--lead`, ONE solid primary (`--primary`, the first action), then boxed secondaries (the plain `.research-button` outline) | underlined quiet text links (`--quiet`, reversed by the founder: every row now reads like the old Company row), a row with no primary, the 404's own pill + link |
+| Action row (hero, section, closing) | the lead row: `.research-actions.research-actions--lead`, every action the same solid `.research-button` (no primary/secondary: a single highlighted first button read as "the current view", founder ruling) | underlined quiet text links (`--quiet`), a solid primary then outlined secondaries (`--primary`), the 404's own pill + link |
 | Page hero | paper; the homepage cover is the one ink hero. The ink panel marks a page's moment (its instrument or live data), not its title | ink hero panels (Company, Careers, FAQ) |
 | Hero title | landing page: `--t-display`; document (article, manual, legal, 404, confidential): `--t-h1` | the Broadcasts front door at h1 size |
 | Contents tuner | right after the hero (and the hero's strip or figure) on any page with 4+ numbered sections | after an article's Quick Answer (broadcast 010) |
@@ -152,24 +153,24 @@ without scripts or with `prefers-reduced-motion: reduce`.
 where the page sets `section[id] { scroll-margin-top: 72px }` (home does).
 
 ### Buttons
-`.research-actions` is the row; `.research-button` the button, `.research-button--primary`
-the one primary. (Historical name, kept so no markup had to change; a rename to a neutral
-name is a one-commit job for the rollout.) Pressable: sinks 1px while held
-(none under reduced motion).
+`.research-actions` is the row; `.research-button` the button, every one alike. (Historical
+name, kept so no markup had to change; a rename to a neutral name is a one-commit job for
+the rollout.) Pressable: sinks 1px while held (none under reduced motion).
 
 (The homepage's card links, `.company__links` with `.company__primary`, look similar
 but are a different role: sentence-case links set in the card's own type with a drawn red
 rule on hover, not the page's uppercase action row. They stay in home.css.)
 
 Every action row on the site is the lead row (see **One role, one pattern**):
-`.research-actions.research-actions--lead`, ONE solid primary (`.research-button--primary`,
-the first action), then boxed secondaries: the plain `.research-button`, a hairline outline
-with the mono label in `--ink-700` (AA on paper and, through the tokens, in an ink panel).
-Hover and focus turn the outline and label red, keyboard focus adds a 2px `--live` ring,
-a pressed secondary takes the `--paper-2` ground and sinks 1px; no glow. On touch every
-button is at least 44px tall. The lead row keeps every button at its own width on phones
-and wraps onto new lines with a 12px gap, so it never becomes a stack of full-width
-outlines. There is no quiet link variant.
+`.research-actions.research-actions--lead`, and every action in it is the same solid
+`.research-button`: an `--ink-900` fill with a `--paper` mono label (17:1), which the tokens
+turn into a paper fill with an ink label on the dark site and in an ink panel. There is no
+primary: a single highlighted first button read as "the current view" (founder ruling).
+Hover and focus fill `--live-text` under the paper label (5.5:1 light, 5.7:1 dark),
+keyboard focus adds a 2px `--live` ring, a press takes the `--ink-700` fill (12.6:1) and
+sinks 1px; no glow. On touch every button is at least 44px tall. The lead row keeps every
+button at its own width on phones and wraps onto new lines with a 12px gap, so it never
+becomes a full-width stack. There is no outline or quiet link variant.
 
 ### Callout
 `<div class="man-note">` with an optional `<span class="man-note__tag">`; `--live` and
@@ -301,7 +302,22 @@ and the readout to the pointed or focused station; `tuner.js` adds roving focus 
 stop, arrows, Home/End) and rests the needle on the section in view
 (`aria-current="location"`). The resting station keeps a red major tick while you point
 elsewhere ("you are here"); a name comes into tune as it shows (its blur clears and its
-tracking closes up; opacity flips at once). Never pinned. No-JS: plain anchor links,
+tracking closes up; opacity flips at once). Never pinned. Drag and tap to tune (`tuner.js`): the scale strip (ticks, needle, numerals)
+is the drag zone, `touch-action: none`, at least 56px tall on touch with a heavier needle
+head as its grip; a press there moves the needle to it at once and a drag carries it,
+whatever the angle, the readout naming the station under it. On TOUCH it is two steps
+(founder: the page should not jump on its own): the first tap or drag only selects
+(`.is-selected`: the needle rests on the station, the readout names it, and the hint "Tap
+again to tune in" fades in under the scale, 250ms, instant under reduced motion; added by
+the script on any device; shown only by a touch selection; `aria-hidden`); a second tap on that station, on the
+readout or on the hint goes there. A tap or drag to another station moves the selection;
+a reader's scroll, a tap outside the tuner or 6s of nothing clears it and the needle
+returns to the section in view. A mouse click, a mouse drag's release, the keyboard and
+assistive tech are one step, as before (only `pointerType` "touch" selects first). A
+gesture that starts on the rest of the band scrolls the page (`touch-action: pan-y`). The
+long-document list form (13+ stations under 760px) is plain tappable rows: full-width 44px
+targets, no drag, no selection, no hint. The drag and the hint add no semantics; screen
+readers still get the links and `aria-current`. No-JS: plain anchor links,
 readout on the first station. Reduced motion: the needle jumps instead of swinging and
 names appear already sharp. (`.tuner` is the /models
 search bar, a different thing.)
@@ -351,6 +367,26 @@ or touches, or 4s pass.
 shape, the homepage market its chips, the App page its hero title. Rows and columns are
 each page's own.
 
+### Touch hit area
+On a touch screen (`pointer: coarse`) every standalone control is at least a `--hit`
+(44px) target. A control whose look matters (a chip, a pill, an icon button, a lone text
+link) keeps its drawn size: an invisible `::before` at `inset: var(--hit-inset)` (the token
+does the math) grows its hit area, centred, and a `:where()` rule makes a static control
+its containing block without overriding a page's own positioning. The sheet that owns the
+control lists it in its own `@media (pointer: coarse)` block: `components.css` for the
+components (where the pattern is documented), `base.css` for the chrome, each page sheet
+for its own controls. The page index gets 44px rows, the contents tuner's stations grow
+downward to 44px, and a form field is 44px tall (all in `components.css`).
+`test/qa-polish2.test.mjs` holds the list of controls. Links inside running text (a sentence, a
+callout, a spec plate) are exempt, as the target-size rule exempts them. A grown area must
+never cover another control's drawn box (a tap aimed at the neighbour would open this
+one), so controls packed close together do not grow: the homepage preset chips, card and
+spectrum links, the Wave jobs chips, the Playbox spines and deck modes, the reel's mute,
+the lean nav's mark and the code block's copy button (all 26px or more, inside the 24px
+target-size minimum with spacing). `scripts/touch-overlap.py` (after a build) checks every
+page at 390 and 320 with touch emulation. Also short of 44: a dial of 10+ contents
+stations on a phone (32px pitch) and the scrubber's range track.
+
 ### Print
 Every page prints whole: the print section at the end of `components.css` stops all
 motion, sets every reveal at rest (`[data-reveal]`, the lift, the JS settle), leaves off
@@ -376,14 +412,36 @@ Promoted from the articles. The figure and its direct `img`/`video`/`svg` never 
 the column (a 1600px asset used to push a page sideways). `--plate` sets it on a calm
 tinted inset panel (theme tokens: it recedes on the dark theme). `--phone` centres a
 portrait screenshot at 440px. `--chart` is an inline SVG chart: heading ink (the chart
-draws in `currentColor`), and on a column narrower than 34rem it scrolls inside the figure
-instead of shrinking its text below reading size; the caption stays put. The caption is
+draws in `currentColor`), its drawing in `.scroll-box--diagram`; on a phone it keeps 820px,
+where every article chart's smallest label reads at 11px or more, and scrolls inside that
+box instead of shrinking its words (on a desktop the 640px article column holds it whole,
+labels at 8.6-9.8px, accepted); the caption stays put. The caption is
 the `.fig` label in its own ink (AA). SVG charts colour their red with `var(--live)` and their paper
 with `var(--paper)` in their own `<style>`, never a literal, so they re-theme.
+
+In the articles every figure is the plate (`figure figure--plate`, with `--chart`, `--phone`
+or the page's own class for its content): one ground, one radius, one inset, the FIG.
+caption inside under the media. A landscape lead (hero) still or loop is cropped to 16:9
+(`broadcasts.css`; the two 1280x560 banners, Tower and VRAM, lose about a tenth of each side;
+every other landscape lead, share-hero.png included, is drawn 16:9 or within 3% of it); a portrait phone lead keeps its shape; the headline video sits on the
+plate with its label under the frame. No page draws its own frame round a figure (the
+routing process figure and the economics chart and formula used to). Known and left: some
+chart SVGs carry their own "FIG. n" title inside the drawing (an SVG edit), the economics
+chart's caption is set in the prose face (its caption is a paragraph), and three articles
+have no hero art (new art, not CSS).
 
 ### Scroll box
 `<div class="scroll-box"><table>...</table></div>`: anything wider than a phone scrolls
 sideways inside the box, never the page.
+
+`scroll-box--diagram` holds an inline SVG diagram (the svg its direct child, the caption
+outside it): the drawing keeps at least `--diagram-min` of width and scrolls on a narrower
+column instead of shrinking its labels, with the code block's edge shade while there is
+more to scroll (the same grouped rule; `--edge-ground` is the ground the shade ends on,
+paper by default). The page sets `--diagram-min` in its own context so the figure's
+smallest label renders at 11px or more: 11 x viewBox width / smallest label size
+(`test/qa-polish2.test.mjs` checks the Tower, Pricing, Industrial and Wave family
+figures). It prints at the page width.
 
 ### Code block
 ```html
@@ -526,6 +584,15 @@ of it. What was found and where it went:
   (`.primary`, `.ghost`, `.gh`) and fields are account-base's own, not `.research-button`:
   full-width form controls, a different job. Page scripts keep their own affordances
   (keys, private copy).
+  One pattern is shared across them: the **account state** (`.acct-state.tint-panel`,
+  account-base.css), the look of every signed-out and empty state: the shared tinted
+  ground placed in the plate, the card's mono section label (its `h2`), the page's own
+  words, an optional command well, and the page's existing action as the lead row's
+  solid button (keys and usage signed out; no stations; no dashboard traffic; Base Station
+  signed out, whose Log in stays a link in its sentence). Dashboard, console and payouts
+  send a signed-out visitor to /login, and /r writes its message from script, so they
+  have no signed-out panel; /stations shows its error line when signed out (a logic
+  change, not this pass).
 - **Playbox** (playbox, wave-patch, wave-factory sheets): self-contained games with their
   own palettes; 310 of the remaining colour literals.
 - **/models and /voices**: the text-label copy pill written by hand.

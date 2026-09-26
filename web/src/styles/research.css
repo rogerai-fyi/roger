@@ -46,10 +46,8 @@
 @media (max-width: 880px) { .usecase-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .research-hero__layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: var(--s-12); align-items: center; }
 .research-hero__mascot { min-width: 0; }
-/* The hub hero's four section buttons: a 2x2 block. As a flex row inside the narrower
-   copy column they wrapped 3+1 and orphaned the last button on its own line. */
-.research-hero__layout .research-actions { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); }
-.research-hero__layout .research-actions .research-button { justify-content: flex-start; }
+/* The hub hero's section buttons are the plain lead row (boxed, each at its own width,
+   wrapping): as a 2x2 grid in the copy column its five boxes took three rows at 1440. */
 .research-hero__mascot .tube-ping { grid-template-columns: 1fr; align-items: start; }
 .release-ticker {
   display: flex;
@@ -285,8 +283,6 @@
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
   }
-  /* a phone: the 2x2 block becomes the lead row's wrap, each button at its own width */
-  .research-hero__layout .research-actions { display: flex; }
 }
 
 /* =====================================================================
@@ -579,6 +575,8 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
    the conventional way, process at the bottom, enterprise at the top. */
 .purdue { margin: var(--s-6) 0 0; }
 .purdue__svg { display: block; width: 100%; height: auto; }
+/* in the diagram scroll box: never narrower than the width where its 9px labels read at 11px */
+.purdue { --diagram-min: 880px; }
 
 .purdue__levels rect { fill: var(--paper-2); stroke: var(--hairline-2); stroke-width: 1; }
 .purdue__levels text {
@@ -691,3 +689,10 @@ main .band--inset :is(.developer-step, .deployment-grid article, .research-onwar
 /* a state chip and the release ticker's name keep their red rule but set their words in ink */
 .status--none { color: var(--ink-900); }
 .release-ticker b { color: var(--ink-900); }
+
+/* touch: this sheet's small controls keep their look and grow a --hit tap area
+   (the pattern: the touch hit area block in components.css) */
+@media (pointer: coarse) {
+  :where(.wf-back, .scope__mode, .model-note, .model-download) { position: relative; }
+  :is(.wf-back, .scope__mode, .model-note)::before, .model-download::after { content: ""; position: absolute; inset: var(--hit-inset); }
+}
