@@ -74,7 +74,12 @@ func (it edgeNetItem) icon() (string, lipgloss.Style) {
 // sub returns the one-line description under a node's name, with the alert count when rules fire.
 func (it edgeNetItem) sub() string {
 	s := it.subBase()
-	if tag := it.alertTag(); tag != "" && (it.machine || it.member) {
+	tag := it.alertTag()
+	switch {
+	case tag == "" || !(it.machine || it.member):
+	case it.member && it.dark:
+		s = "offline · " + tag // fits the card; the readout says "member"
+	default:
 		s += " · " + tag
 	}
 	return s
