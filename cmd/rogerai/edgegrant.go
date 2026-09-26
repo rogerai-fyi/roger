@@ -254,10 +254,16 @@ func cmdEdgeGrantRevoke(id string) error {
 // by a caller holding a revoked grant. A grant this node did not issue has no local standing here
 // (its cross-node revocation rides a distributed grant-CRL, a later slice); such a grant keeps
 // whatever the signed fields say, still bounded by expiry and by node-level cert revocation.
-func edgeTrustedRevocation(st *edge.GrantStore, g store.Grant) store.Grant {
+func edgeTrustedRevocation(st *edge.GrantStore, g store.Grant) (store.Grant, error) {
 	g.Revoked = false
-	if rec, ok, err := st.Get(g.ID); err == nil && ok {
+	rec, ok, err := st.Get(g.ID)
+	if err != nil {
+		// The store could not be read, so we cannot confirm the grant is still live. Fail CLOSED:
+		// return the error so Authorize refuses rather than honoring a possibly-revoked grant.
+		return store.Grant{}, fmt.Errorf("could not read this Edge's grant store to check revocation: %w", err)
+	}
+	if ok {
 		g.Revoked = rec.Revoked
 	}
-	return g
+	return g, nil
 }

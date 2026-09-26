@@ -271,18 +271,11 @@ func (h *edgeHost) adopt(id, name string) error {
 	// RE-ADMIT, not a double-issue: re-admit revokes its old certificate (a stolen copy stays refused)
 	// and grants a fresh claim, so it rejoins cleanly with a new cert. Only the claim path (a phone
 	// with no servable face) re-admits this way.
-	if known && c.Pin == "" && edge.Presence(n.Presence) == edge.PresenceDark {
-		if err := edgeReAdmitByClaim(c.ID, c.Name); err != nil {
-			return err
-		}
-		h.st.candidates = edgeFilter(h.st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
-		_ = h.st.save()
-		return nil
-	}
-	if known {
-		// A SERVING node that is already a member: adopting again would mint a second live certificate
-		// while the first still verifies (there is no leave signal to know it is gone). Refuse; the
-		// owner forgets it first if they mean to replace it.
+	if known && edge.Presence(n.Presence) == edge.PresenceVerified {
+		// A LIVE member: adopting again would disrupt a connected device (or mint a second serving
+		// cert while the first still verifies). Refuse; the owner forgets it first to replace it. A
+		// member that is NOT live (dark, re-enrolling) has effectively left, and falls through to be
+		// re-admitted below.
 		name := n.Name
 		if name == "" {
 			name = edgeShortID(c.ID)

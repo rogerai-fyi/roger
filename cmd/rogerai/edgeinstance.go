@@ -280,7 +280,10 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			// per-grant revocation rides a distributed grant-CRL that is a later slice; until then a
 			// caller is still cut off at the node level by cert revocation (internal/edge/verify.go),
 			// which the mutual-TLS handshake already enforces before this runs.
-			g = edgeTrustedRevocation(edgeGrantStore(), g)
+			g, err = edgeTrustedRevocation(edgeGrantStore(), g)
+			if err != nil {
+				return err // fail closed: an unreadable grant store refuses the invoke
+			}
 			if g.Caller != "" && g.Caller != callerID {
 				return fmt.Errorf("that grant is for a different caller")
 			}

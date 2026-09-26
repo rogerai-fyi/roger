@@ -34,7 +34,8 @@ func TestReAdmitLetsAForgottenDeviceRejoin(t *testing.T) {
 	require.Error(t, err, "a plain re-grant after forget must NOT mint a fresh cert")
 
 	// The owner deliberately RE-ADMITS it. Now a fresh claim succeeds with a NEW certificate.
-	require.NoError(t, local.ReAdmit(id, "pixel-8"))
+	_, err = local.ReAdmit(id, "pixel-8")
+	require.NoError(t, err)
 	respB, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.NoError(t, err, "after ReAdmit a deliberate re-adopt mints a fresh certificate")
 	newCert, err := edgeauth.DecodeCert(respB.Cert)
@@ -78,7 +79,8 @@ func TestReAdmitRevokesAStillHeldCertBeforeReissuing(t *testing.T) {
 	require.NoError(t, err)
 
 	// No forget/revoke - the device simply left. The owner re-admits it.
-	require.NoError(t, local.ReAdmit(id, "pixel-8"))
+	_, err = local.ReAdmit(id, "pixel-8")
+	require.NoError(t, err)
 	respB, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.NoError(t, err)
 	newCert, err := edgeauth.DecodeCert(respB.Cert)

@@ -348,11 +348,12 @@ func (l *Local) grantClaimLocked(nodeID, name string) error {
 // This is the OWNER's explicit action. A stale or reappearing grant ALONE can never do it: the claim
 // path still refuses a node whose issued history carries a revoked serial (Revoke leaves that history
 // intact), so `Revoke` stays final. Only ReAdmit clears it, and only the owner calls ReAdmit.
-func (l *Local) ReAdmit(nodeID, name string) error {
+func (l *Local) ReAdmit(nodeID, name string) ([]string, error) {
 	if strings.TrimSpace(nodeID) == "" {
-		return nil
+		return nil, nil
 	}
-	return l.withLock(func() error {
+	var revoked []string
+	err := l.withLock(func() error {
 		serials, err := l.serialsFor(nodeID)
 		if err != nil {
 			return err
@@ -365,12 +366,14 @@ func (l *Local) ReAdmit(nodeID, name string) error {
 			if err := l.auth.Revoke(n); err != nil {
 				return err
 			}
+			revoked = append(revoked, srl)
 		}
 		if err := l.clearIssued(nodeID); err != nil {
 			return err
 		}
 		return l.grantClaimLocked(nodeID, name)
 	})
+	return revoked, err
 }
 
 // clearIssued drops a node's issued-serial records (issued.json + issued_history.json). The serials

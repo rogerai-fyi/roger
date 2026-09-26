@@ -108,7 +108,8 @@ func TestEdgeTrustedRevocationIgnoresTheWireValue(t *testing.T) {
 	// A caller sends the SAME grant with Revoked:false (forged - Revoked is unsigned). The callee must
 	// apply the store's standing, not the wire's.
 	wire := store.Grant{ID: "g1", Revoked: false}
-	got := edgeTrustedRevocation(st, wire)
+	got, terr := edgeTrustedRevocation(st, wire)
+	require.NoError(t, terr)
 	require.True(t, got.Revoked, "the callee trusts its own store, never the wire Revoked")
 }
 
@@ -116,7 +117,8 @@ func TestEdgeTrustedRevocationClearsAForgedRevokedTrueToo(t *testing.T) {
 	st := &edge.GrantStore{Path: filepath.Join(t.TempDir(), "edge", "grants.json")}
 	require.NoError(t, st.Put(store.Grant{ID: "g_live"})) // issued, not revoked
 	// A wire grant claiming Revoked:true for a live grant is also not trusted - the store says live.
-	got := edgeTrustedRevocation(st, store.Grant{ID: "g_live", Revoked: true})
+	got, terr := edgeTrustedRevocation(st, store.Grant{ID: "g_live", Revoked: true})
+	require.NoError(t, terr)
 	require.False(t, got.Revoked, "the wire value is ignored in both directions; the store is the truth")
 }
 
@@ -124,7 +126,8 @@ func TestEdgeTrustedRevocationUnknownGrantHasNoLocalStanding(t *testing.T) {
 	st := &edge.GrantStore{Path: filepath.Join(t.TempDir(), "edge", "grants.json")}
 	// A grant this node did not issue: no local standing, so the wire Revoked is cleared to false and
 	// the grant stands on its signed fields (expiry, node scope) plus node-level cert revocation.
-	got := edgeTrustedRevocation(st, store.Grant{ID: "g_foreign", Revoked: true})
+	got, terr := edgeTrustedRevocation(st, store.Grant{ID: "g_foreign", Revoked: true})
+	require.NoError(t, terr)
 	require.False(t, got.Revoked)
 }
 

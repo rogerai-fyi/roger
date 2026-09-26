@@ -1136,22 +1136,10 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	if ok {
-		// A member that is OFFLINE and is re-advertising as a candidate (a phone that left and wants
-		// back) is RE-ADMITTED, not refused: revoke its old certificate and grant a fresh claim so it
-		// rejoins cleanly (features/edge/claim.feature). A live member is left alone.
-		if edge.Presence(n.Presence) == edge.PresenceDark {
-			if c, cok, _ := edgeResolve(st.candidates, want); cok && c.Pin == "" {
-				if err := edgeReAdmitByClaim(n.ID, n.Name); err != nil {
-					return err
-				}
-				st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
-				_ = st.save()
-				fmt.Printf("re-admitted %s (%s) - its old certificate is revoked; it can claim a fresh one and rejoin.\n", n.Name, edgeShortID(n.ID))
-				return nil
-			}
-		}
-		fmt.Printf("%s is already a member of this Edge - nothing to do.\n", n.Name)
+	if ok && edge.Presence(n.Presence) == edge.PresenceVerified {
+		// A LIVE member: nothing to do (forget it first to replace it). A member that is NOT live has
+		// effectively left; it falls through to be RE-ADMITTED via the claim path below.
+		fmt.Printf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).\n", n.Name)
 		return nil
 	}
 	c, found, err := edgeResolve(st.candidates, want)
@@ -1169,7 +1157,11 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 		// Auto-clear: it leaves DISCOVERED at once (it is adopting now, not to-adopt).
 		st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
 		_ = st.save()
-		fmt.Printf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
+		if ok { // it was already on this Edge (offline) - this is a RE-ADMIT, which revokes its old cert
+			fmt.Printf("re-admitted %s (%s) - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
+		} else {
+			fmt.Printf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.\n", c.Name, edgeShortID(c.ID))
+		}
 		return nil
 	}
 	// A serving candidate is verified and enrolled directly; it is NOT granted a claim (a grant that
@@ -1262,6 +1254,12 @@ func edgeResolveNotInFleet(want string) (map[string]string, string, error) {
 
 // edgeAdoptByClaim adopts a non-serving candidate (a phone) by GRANTING it a claim, so it can fetch
 // its certificate from this authority. Only the machine that roots the Edge can do it.
+// edgeAdoptByClaim adopts a device that joins by CLAIM (a phone: no servable face). A device this
+// authority has NEVER issued a certificate to is granted a fresh claim. A device it HAS issued one to
+// before - one that left the Edge, or that the owner forgot and is re-pinging - is RE-ADMITTED
+// instead: its old certificate is revoked (a stolen or abandoned copy stays refused by every peer,
+// offline, after a restart), its issued history is cleared so those revoked serials do not block the
+// fresh claim, and a new claim is granted. Only the machine that roots this Edge can do it.
 func edgeAdoptByClaim(nodeID, name string) error {
 	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
@@ -1270,23 +1268,27 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	if !hasRoot {
 		return fmt.Errorf("only the machine that roots this Edge can adopt a device that joins by claim")
 	}
-	return local.GrantClaim(nodeID, name)
-}
-
-// edgeReAdmitByClaim re-admits a device that LEFT the Edge (or that the owner forgot) and is asking
-// back: it revokes the device's old certificate (so a stolen or abandoned copy stays refused), clears
-// its issued history so the fresh claim is not blocked as a revoked node, and grants a new claim. It
-// becomes a verified member again when it re-claims and presents (features/edge/claim.feature). Only
-// the machine that roots this Edge can do it.
-func edgeReAdmitByClaim(nodeID, name string) error {
-	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	issued, err := local.HasIssued(nodeID)
 	if err != nil {
 		return err
 	}
-	if !hasRoot {
-		return fmt.Errorf("only the machine that roots this Edge can re-admit a device that joins by claim")
+	if !issued {
+		return local.GrantClaim(nodeID, name) // a brand-new device
 	}
-	return local.ReAdmit(nodeID, name)
+	revoked, err := local.ReAdmit(nodeID, name)
+	if err != nil {
+		return err
+	}
+	// Record the revoked serials in THIS machine's own trust store too, so its verification refuses
+	// the old certificate at once rather than at the next refresh - mirroring edgeRevokeOnForget.
+	st := edgeIdentityStore()
+	now := time.Now()
+	for _, srl := range revoked {
+		if err := st.Revoke(srl, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // edgeDropMembers removes candidates that are already members of the fleet. A node's advert carries
