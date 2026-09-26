@@ -85,7 +85,8 @@ function rig({ reduced = false, listForm = false, coarse = true } = {}) {
   const wait = (ms) => { for (const q of timers.splice(0)) { if (q.f && q.ms <= ms) q.f(); else if (q.f) timers.push(q); } };
   const scroll = (dy = 200) => { win.pageYOffset = (win.pageYOffset || 0) + dy; fire(win, "scroll", {}); };
   const tapElsewhere = () => fire(doc, "pointerdown", { target: { id: "page" } });
-  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, outside, nativeClick, readout, hint, clickOn, wait, scroll, tapElsewhere };
+  const releaseOutside = (o) => fire(win, "pointerup", ev(50, 400, { target: { id: "page" }, ...o }));
+  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, outside, nativeClick, readout, hint, clickOn, wait, scroll, tapElsewhere, releaseOutside };
 }
 
 const at = (t) => Number(t.style["--at"]);
@@ -211,7 +212,7 @@ test("mouse: a click goes straight there (the link's own), a drag jumps on relea
   t.down(250, 50, mouse); t.up(250, 50, mouse);
   assert.ok(!selected(t));
   assert.equal(t.nativeClick(1), true, "the click's own navigation goes through");
-  assert.equal(t.hint(), undefined, "no hint on a fine pointer");
+  assert.ok(t.hint() && !selected(t), "the hint exists on any device (a touch laptop), shown only by a touch selection");
   const d = rig({ coarse: false });
   d.down(150, 50, mouse); d.move(200, 50, mouse); d.move(450, 50, mouse); d.up(450, 50, mouse);
   assert.deepEqual(d.clicks, ["s4"]);
@@ -274,7 +275,7 @@ test("the scale is the drag zone: touch-action none there, finger-sized on touch
   assert.match(css, /\.toc-tuner__scale \{[^}]*touch-action: none/);
   assert.match(css, /\.toc-tuner__band \{[^}]*touch-action: pan-y/, "outside the scale the page scrolls");
   assert.match(css, /\.toc-tuner__band \{[^}]*user-select: none/);
-  const coarse = [...css.matchAll(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
+  const coarse = [...css.matchAll(/@media \(any-pointer: coarse\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
   assert.match(coarse, /\.toc-tuner__scale \{[^}]*min-height: 56px/, "a finger-sized strip, the full tuner width");
   assert.match(coarse, /\.toc-tuner__needle::before \{[^}]*width: 12px;[^}]*height: 12px/, "a heavier needle head says it can be grabbed");
   assert.doesNotMatch(coarse, /\.toc-tuner__needle[^{]*\{[^}]*box-shadow:[^}]*(blur|\d+px \d+px \d+px)/, "no glow");
@@ -297,7 +298,7 @@ test("the long-document list form is not a drag surface: its names select and lo
 });
 
 test("touch: the needle head (the grip) sits inside the scale's hit area, so pressing it drags", () => {
-  const coarse = [...css.matchAll(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
+  const coarse = [...css.matchAll(/@media \(any-pointer: coarse\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
   const band = Number(css.match(/\.toc-tuner__band \{[^}]*padding-top: (\d+)px/)[1]);             // the scale starts here
   const needleTop = Number(css.match(/\.toc-tuner__needle \{[^}]*top: (\d+)px/)[1]);
   const head = coarse.match(/\.toc-tuner__needle::before \{[^}]*height: (\d+)px;[^}]*top: (-?\d+)px/);
@@ -327,4 +328,32 @@ test("the header comment describes the touch flow (select, then tap again)", () 
   assert.doesNotMatch(head, /letting\s+go on another station follows/);
   assert.match(head, /first tap or drag only selects/);
   assert.match(head, /second tap/);
+});
+
+test("a mouse or pen press that leaves the scale before it drags, and is released off it, still ends", () => {
+  const t = rig({ coarse: false });
+  t.down(150, 50, mouse);                 // is-dragging and the needle start at once
+  assert.ok(t.nav.cls.has("is-dragging"));
+  t.releaseOutside(mouse);                // no pointerup on the scale: the window hears it
+  assert.ok(!t.nav.cls.has("is-dragging"), "the drag state ends");
+  assert.equal(t.style["--at"], undefined, "the needle hands back to the stylesheet");
+  assert.ok(t.links.every((a) => !a.cls.has("is-tuning")));
+  assert.deepEqual(t.clicks, []);
+});
+
+test("hybrid devices: the hint exists without a coarse primary pointer; the tall strip keys on any coarse pointer", () => {
+  const t = rig({ coarse: false });
+  t.down(250); t.up(250);                 // a finger on a touch laptop whose primary pointer is fine
+  assert.ok(selected(t));
+  assert.equal(t.hint().textContent, "Tap again to tune in", "the selection has its hint");
+  assert.match(css, /@media \(any-pointer: coarse\) \{[^@]*\.toc-tuner__scale \{[^}]*min-height: 56px/);
+  assert.match(css, /@media \(any-pointer: coarse\) \{[^@]*\.toc-tuner__band:has\(\.toc-tuner__hint\) \{ padding-bottom: 36px; \}/, "room for the hint only where touch can select");
+  assert.doesNotMatch(css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, ""), /\.toc-tuner__band:has\(\.toc-tuner__hint\)/, "not reserved on a mouse-only desktop");
+});
+
+test("a touch screen's sticky :hover never steers the needle or the readout once JS rests it", () => {
+  const none = css.match(/@media \(hover: none\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.match(none, /\.toc-tuner\.toc-tuner\.toc-tuner:has\(a\.is-current\):not\(:has\(a:focus-visible\)\) \{ --at: var\(--cur, 0\); \}/, "the needle rests on the section in view");
+  assert.match(none, /:has\(a\.is-current\):not\(:has\(a:focus-visible\)\) a:not\(\.is-current\):not\(\.is-tuning\) \.toc-tuner__name \{[^}]*opacity: 0/, "a stuck-hovered name hides");
+  assert.match(none, /:has\(a\.is-current\):not\(:has\(a:focus-visible\)\) a\.is-current \.toc-tuner__name \{[^}]*opacity: 1/, "the current name shows");
 });

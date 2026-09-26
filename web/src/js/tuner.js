@@ -112,7 +112,8 @@
     var timer = 0;
     var swallow = false; // the browser's own click at the end of a gesture is not a second tap
     var hint = null;
-    if (mq("(pointer: coarse)") && document.createElement && band.appendChild) {
+    // on any device: a touch laptop's finger selects even when its primary pointer is fine
+    if (document.createElement && band.appendChild) {
       hint = document.createElement("span");
       hint.className = "toc-tuner__hint";
       hint.setAttribute("aria-hidden", "true");
@@ -203,7 +204,11 @@
       hold();
       if (k !== was.from) go(k);
     });
-    scale.addEventListener("pointercancel", function () { if (g) { g = null; if (sel >= 0) select(sel); else clear(); } });
+    function abandon() { if (g) { g = null; if (sel >= 0) select(sel); else clear(); } }
+    scale.addEventListener("pointercancel", abandon);
+    // a mouse or pen press that leaves the scale before it drags (no capture yet) and is let
+    // go elsewhere never reaches the scale's pointerup: the window hears it, and it ends
+    if (window.addEventListener) window.addEventListener("pointerup", function (e) { if (g && e.pointerId === g.id) abandon(); });
     nav.addEventListener("click", function (e) {
       var t = e.target;
       if (sel >= 0 && ((readout && readout.contains && readout.contains(t)) || (hint && (t === hint)))) {
