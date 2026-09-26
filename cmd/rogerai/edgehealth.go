@@ -6,6 +6,7 @@ package main
 // with how old the reading is.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,13 +14,55 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/fleetview"
 )
+
+// edgeRunHealthScreen opens the live health screen (a seam: the test records the call).
+var edgeRunHealthScreen = func(ctx context.Context, src fleetview.HealthSource) error {
+	return fleetview.NewHealth(src).Run(ctx)
+}
+
+// edgeHealthSource is the screen's read: the same judged fleet read as the table, plus the
+// rules in force as `roger edge alert` lists them.
+func edgeHealthSource() (fleetview.HealthSnapshot, error) {
+	now := time.Now()
+	hs, firing, err := edgeReadHealth(now)
+	if err != nil {
+		return fleetview.HealthSnapshot{}, err
+	}
+	rules, err := edgeAlertLog().Rules()
+	if err != nil {
+		return fleetview.HealthSnapshot{}, err
+	}
+	names := map[string]string{}
+	for _, h := range hs {
+		names[h.ID] = h.Name
+	}
+	snap := fleetview.HealthSnapshot{Nodes: hs, Firing: map[string][]string{}, At: now}
+	for _, h := range hs {
+		for _, id := range firing.FiringFor(h.ID) {
+			for _, r := range rules {
+				if r.ID == id {
+					snap.Firing[h.ID] = append(snap.Firing[h.ID], r.Key())
+				}
+			}
+		}
+	}
+	for _, r := range rules {
+		snap.Rules = append(snap.Rules, fleetview.RuleLine{ID: r.ID, When: r.Key(),
+			Scope: edgeRuleScope(r, names), Kind: edgeRuleKind(r), State: edgeRuleState(r, firing, hs)})
+	}
+	return snap, nil
+}
 
 func cmdEdgeHealth(cfg config, args []string) error {
 	leaf, _ := edgeLeaf("health")
 	argv, err := parseEdgeArgv(leaf, args)
 	if err != nil {
 		return err
+	}
+	if argv.has("live") {
+		return edgeRunHealthScreen(context.Background(), edgeHealthSource)
 	}
 	now := time.Now()
 	hs, firing, err := edgeReadHealth(now) // every health read evaluates the rules

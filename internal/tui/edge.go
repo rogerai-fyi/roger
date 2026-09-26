@@ -19,6 +19,8 @@ package tui
 // Spec: features/edge/topology_view.feature.
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -366,7 +368,7 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.edgeSetupState().Enrolled {
 			m.openEdgeSetup()
 		}
-	case "g", "+", "s", "n", "y", "u", "x", "b", "a":
+	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h":
 		// The lettered actions - each also reachable by focusing its button (Tab / down) and
 		// pressing enter. One dispatch, so a key press and a button press do the same thing.
 		return m.edgeDispatchAction(key)
@@ -513,6 +515,8 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 		m.edgeRemoveSelected()
 	case "f":
 		m.edgeForgetSelected()
+	case "h":
+		return m, m.edgeOpenHealth()
 	case "b":
 		m.edgeStartBind()
 	case "p":
@@ -1020,3 +1024,23 @@ var edgeCapMark = map[edge.Capability]string{
 	edge.Relay:    "rl",
 	edge.Operate:  "op",
 }
+
+// edgeOpenHealth runs `roger edge health --live` (the Limoni health screen) as a child process
+// over this terminal, through the same seam the guest-operator handoff uses; the fleet screen
+// redraws when it returns.
+func (m *model) edgeOpenHealth() tea.Cmd {
+	if !m.hooks.EdgeHealthLive {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		m.edge.err = "could not find this roger's binary: " + err.Error()
+		return nil
+	}
+	c := exec.Command(exe, "edge", "health", "--live")
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return operatorExec(c, func(err error) tea.Msg { return edgeHealthDoneMsg{err: err} })
+}
+
+// edgeHealthDoneMsg is the child's return; a failure is shown on the fleet screen, never swallowed.
+type edgeHealthDoneMsg struct{ err error }

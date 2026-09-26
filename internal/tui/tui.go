@@ -111,7 +111,10 @@ type Hooks struct {
 	EdgeGrants func() ([]store.Grant, error)
 	// EdgeAlerts is the alert rules firing right now, by node id, each as its rule wording
 	// ("cpu_temp > 85") - the fleet surface of health.feature §5. Nil = no alerting on this build.
-	EdgeAlerts      func() map[string][]string
+	EdgeAlerts func() map[string][]string
+	// EdgeHealthLive says this binary can open the live health screen (`roger edge health --live`);
+	// [3] then offers Health (h), run as a child process like a guest operator.
+	EdgeHealthLive  bool
 	EdgeIssueGrant  func(caller, capability, callee, forDur string) (store.Grant, error)
 	EdgeRevokeGrant func(id string) error
 	// EdgeSessions is the account's live session ledger: the traffic this Edge really
@@ -2074,6 +2077,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onOperatorExec()
 	case operatorDoneMsg: // the guest returned the terminal (every child outcome)
 		return m.onOperatorDone(msg)
+	case edgeHealthDoneMsg: // the live health screen returned the terminal
+		if msg.err != nil {
+			m.edge.err = "the health screen ended with an error: " + msg.err.Error()
+		}
+		m.refreshEdge()
+		return m, nil
 	case remoteEnabledMsg:
 		return m.onRemoteEnabled(msg)
 	case remoteInboundMsg:

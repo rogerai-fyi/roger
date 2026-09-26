@@ -98,33 +98,7 @@ func edgeAlertList(l edge.AlertLog) error {
 	}
 	fmt.Printf("%-12s %-18s %-14s %-8s %s\n", "RULE", "WHEN", "SCOPE", "KIND", "STATE")
 	for _, r := range rules {
-		scope := "fleet"
-		if r.Scope != "" {
-			scope = names[r.Scope]
-			if scope == "" {
-				scope = edgeShortID(r.Scope)
-			}
-		}
-		kind := "owner"
-		if r.Default {
-			kind = "default"
-		}
-		state := "quiet"
-		switch {
-		case r.Off:
-			state = "off"
-		default:
-			var on []string
-			for _, h := range hs {
-				if firing.Firing(r.ID, h.ID) {
-					on = append(on, h.Name)
-				}
-			}
-			if len(on) > 0 {
-				state = "firing: " + strings.Join(on, ", ")
-			}
-		}
-		fmt.Printf("%-12s %-18s %-14s %-8s %s\n", r.ID, r.Key(), scope, kind, state)
+		fmt.Printf("%-12s %-18s %-14s %-8s %s\n", r.ID, r.Key(), edgeRuleScope(r, names), edgeRuleKind(r), edgeRuleState(r, firing, hs))
 	}
 	fmt.Printf("\n%-10s none configured - alerts stay on this machine (fleet surfaces and the alert log)\n", "sinks")
 	recent, err := l.Recent(8)
@@ -231,4 +205,39 @@ func edgeReadFiring() map[string][]string {
 		sort.Strings(out[n])
 	}
 	return out
+}
+
+// edgeRuleScope, edgeRuleKind and edgeRuleState are one rule's columns, shared by the CLI list
+// and the live screen so the two never word a rule differently.
+func edgeRuleScope(r edge.Rule, names map[string]string) string {
+	if r.Scope == "" {
+		return "fleet"
+	}
+	if n := names[r.Scope]; n != "" {
+		return n
+	}
+	return edgeShortID(r.Scope)
+}
+
+func edgeRuleKind(r edge.Rule) string {
+	if r.Default {
+		return "default"
+	}
+	return "owner"
+}
+
+func edgeRuleState(r edge.Rule, firing edge.AlertState, hs []edge.NodeHealth) string {
+	if r.Off {
+		return "off"
+	}
+	var on []string
+	for _, h := range hs {
+		if firing.Firing(r.ID, h.ID) {
+			on = append(on, h.Name)
+		}
+	}
+	if len(on) == 0 {
+		return "quiet"
+	}
+	return "firing: " + strings.Join(on, ", ")
 }

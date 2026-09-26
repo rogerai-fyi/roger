@@ -214,7 +214,7 @@ func edgeWantsHelp(args []string) bool {
 
 // edgeFlags is what one leaf's flags may be: the name, and whether it takes a value.
 var edgeFlags = map[string]bool{
-	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false,
+	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false,
 	"force":      false,
 	"capability": true, "authority": true, "account": true, "scope": true,
 }

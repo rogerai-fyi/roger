@@ -1,0 +1,111 @@
+package fleetview_test
+
+// The Edge Health screen (features/edge/health.feature §2, §5, §6) as a Limoni view, tested the
+// Playwright way: drive it by key in-process and assert on what the frame shows - no terminal, no
+// ANSI scraping. Same honesty rules as the CLI: a metric a node does not report is a dash, never a
+// zero; an offline node says for how long; a firing rule is named on the node that fires it.
+
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/thebanri/limoni/uitest"
+
+	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/fleetview"
+	"rogerai.fm/roger/v6/internal/store"
+)
+
+func fleet(now time.Time) []edge.NodeHealth {
+	temp, load := 95.5, 3.2
+	return []edge.NodeHealth{
+		{ID: "n_desk", Name: "RogGentooEdged", Kind: "host", Presence: string(edge.PresenceVerified), LastHeard: now,
+			Readings: &store.EdgeResources{CPUTempC: &temp, CPULoad1: &load, RAMUsedGB: 79.2, RAMTotalGB: 125, UptimeS: 14 * 86400,
+				GPU: "RTX PRO 4500", GPUMemUsed: 0.43,
+				Disks:  []store.EdgeDisk{{Mount: "/", UsedGB: 120, TotalGB: 400}, {Mount: "/mnt/train", UsedGB: 886, TotalGB: 960}},
+				ReadAt: now.Add(-18 * time.Second).Unix()}, ReadAge: 18 * time.Second},
+		{ID: "n_quiet", Name: "quiet-pi", Kind: "board", Presence: string(edge.PresenceVerified), LastHeard: now},
+		{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile", Presence: string(edge.PresenceDark), Dark: true,
+			DarkFor: 26 * time.Hour, LastHeard: now.Add(-26 * time.Hour)},
+	}
+}
+
+func TestHealthScreenShowsTheFleetHonestlyAndFollowsTheSelection(t *testing.T) {
+	now := time.Now()
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{
+			Nodes:  fleet(now),
+			Firing: map[string][]string{"n_desk": {"cpu_temp > 85", "disk > 90"}, "n_ibex": {"offline > 5"}},
+			Rules:  []fleetview.RuleLine{{ID: "cpu_temp", When: "cpu_temp > 85", Scope: "fleet", Kind: "default", State: "firing: RogGentooEdged"}},
+			At:     now,
+		}, nil
+	})
+	page := uitest.Run(t, 120, 40, h.Draw)
+
+	screen := page.Screen()
+	must(t, screen, "RogGentooEdged", "95.5", "79", "125", "92%", "14d", "quiet-pi", "gentle-ibex-14", "offline 1d")
+	if strings.Contains(screen, "0.0°C") {
+		t.Fatalf("a node that reports no temperature must never show zero degrees:\n%s", screen)
+	}
+	// The first node is selected: its readout names every reading with its age, and its alerts.
+	must(t, screen, "/mnt/train", "886", "960", "18s ago", "cpu_temp > 85", "disk > 90", "RTX PRO 4500")
+	// The rules pane names the rules in force and where alerts go (nowhere, by default).
+	must(t, screen, "cpu_temp > 85", "default", "none configured")
+
+	// Down walks to the quiet board: it reports nothing, and the readout says so - no zeros.
+	page.Press("Down")
+	screen = page.Screen()
+	must(t, screen, "quiet-pi · board", "no health readings")
+	if strings.Contains(screen, "0 / 0 GB") || strings.Contains(screen, "0%") {
+		t.Fatalf("no readings must not be drawn as zeros:\n%s", screen)
+	}
+
+	// Down to the dark phone: offline for how long, when last heard, and its offline alert.
+	page.Press("Down")
+	screen = page.Screen()
+	must(t, screen, "gentle-ibex-14 · mobile", "offline 1d", "last heard", "offline > 5")
+
+	// Down at the end stays put; Up walks back; q quits.
+	page.Press("Down")
+	page.Press("Up")
+	must(t, page.Screen(), "quiet-pi · board")
+	page.Press("q")
+	page.ExpectExit()
+}
+
+func TestHealthScreenShowsASourceErrorInsteadOfAStaleOrEmptyFleet(t *testing.T) {
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{}, errors.New("the fleet store is locked by another roger")
+	})
+	page := uitest.Run(t, 100, 30, h.Draw)
+	must(t, page.Screen(), "could not read the fleet", "locked by another roger")
+}
+
+func TestHealthScreenRefreshesFromItsSourceOnATimerNotOnlyOnKeys(t *testing.T) {
+	now := time.Now()
+	calls := 0
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		calls++
+		n := fleet(now)[:1]
+		if calls > 1 {
+			n[0].Name = "RogGentooEdged-renamed"
+		}
+		return fleetview.HealthSnapshot{Nodes: n, At: now}, nil
+	})
+	h.Every = 0 // re-read on every frame, so the test needs no clock
+	page := uitest.Run(t, 120, 40, h.Draw)
+	must(t, page.Screen(), "RogGentooEdged")
+	page.Press("r") // any frame after the first re-reads
+	must(t, page.Screen(), "RogGentooEdged-renamed")
+}
+
+func must(t *testing.T, screen string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(screen, w) {
+			t.Fatalf("expected the screen to show %q; screen:\n%s", w, screen)
+		}
+	}
+}

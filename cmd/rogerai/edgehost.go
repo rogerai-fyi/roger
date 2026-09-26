@@ -141,6 +141,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeSetPrefer = h.setPrefer
 	hooks.EdgeGrants = h.grants
 	hooks.EdgeAlerts = edgeFiringAlerts
+	hooks.EdgeHealthLive = true
 	hooks.EdgeIssueGrant = h.issueGrant
 	hooks.EdgeRevokeGrant = h.revokeGrant
 	// The agents the owner marked persistent - a durable record, so one that has stopped still
