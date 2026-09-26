@@ -78,7 +78,7 @@
             adversarial tool-calling gauntlet.
           </p>
           <figure class="figure figure--plate" data-reveal>
-            <img src="assets/broadcasts/mtp-knowledge-vs-tools.webp" srcset="assets/broadcasts/mtp-knowledge-vs-tools-800.webp 800w, assets/broadcasts/mtp-knowledge-vs-tools.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="2200" height="1000"
+            <img src="assets/broadcasts/mtp-knowledge-vs-tools.webp" srcset="assets/broadcasts/mtp-knowledge-vs-tools-800.webp 800w, assets/broadcasts/mtp-knowledge-vs-tools.webp 1600w, assets/broadcasts/mtp-knowledge-vs-tools-1920.webp 1920w" sizes="(max-width: 1000px) 100vw, 960px" width="2200" height="1000"
                  alt="Two bar charts: DeepSeek with Q4 experts leads knowledge at 85 MMLU while a 35B MoE leads adversarial tool use at 87; no model wins both panels." loading="lazy" />
             <figcaption class="fig mono">FIG. 2 &middot; NO MODEL WINS BOTH</figcaption>
           </figure>
@@ -124,7 +124,7 @@
           <span class="bc-sec__no">&sect;5 &middot; The build</span>
           <h2>How do you give llama.cpp the missing MTP?</h2>
           <figure class="figure figure--plate" data-reveal>
-            <img src="assets/broadcasts/mtp-nextn-layer.webp" srcset="assets/broadcasts/mtp-nextn-layer-800.webp 800w, assets/broadcasts/mtp-nextn-layer.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="2200" height="1240"
+            <img src="assets/broadcasts/mtp-nextn-layer.webp" srcset="assets/broadcasts/mtp-nextn-layer-800.webp 800w, assets/broadcasts/mtp-nextn-layer.webp 1600w, assets/broadcasts/mtp-nextn-layer-1920.webp 1920w" sizes="(max-width: 1000px) 100vw, 960px" width="2200" height="1240"
                  alt="Architecture diagram of DeepSeek-V4&apos;s NextN block: a draft token and the trunk hidden state meet in a projection, flow through a full V4 transformer layer with attention and a 256-expert MoE, and exit through the shared language-model head." loading="lazy" />
             <figcaption class="fig mono">FIG. 3 &middot; THE SECOND BRAIN IS A WHOLE LAYER</figcaption>
           </figure>
@@ -148,7 +148,7 @@
             The classic economics invert.
           </p>
           <figure class="figure figure--plate" data-reveal>
-            <img src="assets/broadcasts/mtp-nmax-sweep.webp" srcset="assets/broadcasts/mtp-nmax-sweep-800.webp 800w, assets/broadcasts/mtp-nmax-sweep.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1800" height="1040"
+            <img src="assets/broadcasts/mtp-nmax-sweep.webp" srcset="assets/broadcasts/mtp-nmax-sweep-800.webp 800w, assets/broadcasts/mtp-nmax-sweep.webp 1600w, assets/broadcasts/mtp-nmax-sweep-1920.webp 1800w" sizes="(max-width: 1000px) 100vw, 960px" width="1800" height="1040"
                  alt="Line chart of decode speed versus draft length: speed peaks at a draft of one token with 100 percent acceptance and falls at drafts of two and three." loading="lazy" />
             <figcaption class="fig mono">FIG. 4 &middot; DRAFT SHORTER, GO FASTER</figcaption>
           </figure>
@@ -158,7 +158,7 @@
             spilled layers, 1.30x at 10, 2.2x at zero spill.
           </p>
           <figure class="figure figure--plate" data-reveal>
-            <img src="assets/broadcasts/mtp-spill-vs-speedup.webp" srcset="assets/broadcasts/mtp-spill-vs-speedup-800.webp 800w, assets/broadcasts/mtp-spill-vs-speedup.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1800" height="1040"
+            <img src="assets/broadcasts/mtp-spill-vs-speedup.webp" srcset="assets/broadcasts/mtp-spill-vs-speedup-800.webp 800w, assets/broadcasts/mtp-spill-vs-speedup.webp 1600w, assets/broadcasts/mtp-spill-vs-speedup-1920.webp 1800w" sizes="(max-width: 1000px) 100vw, 960px" width="1800" height="1040"
                  alt="Line chart of MTP speedup versus how many expert layers spill to system RAM: 1.18x at fourteen layers, 1.3x at ten, 2.2x at zero spill." loading="lazy" />
             <figcaption class="fig mono">FIG. 5 &middot; SPECULATION PAYS WHEN THE MODEL LIVES ON THE GPU</figcaption>
           </figure>
@@ -179,7 +179,7 @@
             sideways re-encode.
           </p>
           <figure class="figure figure--plate" data-reveal>
-            <img src="assets/broadcasts/mtp-quality-vs-speed.webp" srcset="assets/broadcasts/mtp-quality-vs-speed-800.webp 800w, assets/broadcasts/mtp-quality-vs-speed.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1800" height="1120"
+            <img src="assets/broadcasts/mtp-quality-vs-speed.webp" srcset="assets/broadcasts/mtp-quality-vs-speed-800.webp 800w, assets/broadcasts/mtp-quality-vs-speed.webp 1600w, assets/broadcasts/mtp-quality-vs-speed-1920.webp 1800w" sizes="(max-width: 1000px) 100vw, 960px" width="1800" height="1120"
                  alt="Scatter chart of MMLU versus decode speed for four DeepSeek files: the un-requantized Q8-MTP master sits above every quant at old-production speed, and the Q3 speed build is fastest." loading="lazy" />
             <figcaption class="fig mono">FIG. 6 &middot; OFF THE MENU</figcaption>
           </figure>

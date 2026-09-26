@@ -22,7 +22,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { MASTERS, WEBP_DIR, WIDE, NARROW, pngSize } from "../scripts/derive-webp.mjs";
+import { MASTERS, WEBP_DIR, WIDE, NARROW, SHARP, pngSize } from "../scripts/derive-webp.mjs";
 import { noComments, attr, local, bytes, candidates, images, firstLoad, BUDGET_FILE } from "../scripts/page-weight.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -107,6 +107,25 @@ test("every PNG master has its two WebP copies, in the master's shape", () => {
       assert.ok(Math.abs(s.h - Math.round((w * m.h) / m.w)) <= 1, `${file}: ${s.w}x${s.h} is not the master's ${m.w}x${m.h} shape`);
     }
   }
+});
+
+test("a master wider than 1600 also ships a sharp step for a 2x wide column (up to 1920w)", () => {
+  // the article column holds a figure up to 960px wide; at 2x that wants ~1920 pixels, and
+  // the charts and diagrams (2200px masters) went soft capped at 1600
+  const bad = [];
+  for (const name of MASTERS) {
+    const m = pngSize(path.join(WEBP_DIR, `${name}.png`));
+    const f = path.join(WEBP_DIR, `${name}-${SHARP}.webp`);
+    if (m.w <= WIDE) { if (existsSync(f)) bad.push(`${name}: a ${SHARP} step for a master no wider than ${WIDE}`); continue; }
+    if (!existsSync(f)) { bad.push(`${name}-${SHARP}.webp missing: node web/scripts/derive-webp.mjs ${name}`); continue; }
+    const s = webpSize(f), w = Math.min(m.w, SHARP);
+    if (s.w !== w || Math.abs(s.h - Math.round((w * m.h) / m.w)) > 1) bad.push(`${name}-${SHARP}.webp is ${s.w}x${s.h}`);
+    for (const p of PAGES) for (const { tag } of images(page(p)))
+      if ((local(attr(tag, "src")) || "").endsWith(`/${name}.webp`)
+          && !new RegExp(`${name}-${SHARP}\\.webp(\\?v=[0-9a-f]+)? ${w}w`).test(attr(tag, "srcset") || ""))
+        bad.push(`${p}: ${name} srcset lacks its ${w}w step`);
+  }
+  assert.deepEqual(bad, []);
 });
 
 test("pages show the WebP copies, not the PNG masters, with a srcset and sizes", () => {

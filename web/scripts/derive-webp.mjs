@@ -12,7 +12,9 @@
 // Needs `cwebp` (libwebp) on PATH. Output is written next to the master:
 //   <name>.webp       the wide copy, min(master width, 1600) px wide
 //   <name>-800.webp   the phone / 1x copy, 800 px wide
-// test/perf-guards.test.mjs checks every pair exists and keeps the master's shape.
+//   <name>-1920.webp  only for a master wider than 1600: min(master width, 1920) px, the
+//                     sharp step for a 960px article column at 2x (charts, diagrams)
+// test/perf-guards.test.mjs checks every copy exists and keeps the master's shape.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -23,6 +25,7 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const WEBP_DIR = path.join(WEB, "src", "assets", "broadcasts");
 export const WIDE = 1600;
 export const NARROW = 800;
+export const SHARP = 1920;
 const QUALITY = "82";
 
 // every PNG master a page shows in an <img> (the social cards, *-og.png, stay PNG only)
@@ -45,7 +48,9 @@ function main() {
   for (const name of MASTERS.filter((n) => !only || n.includes(only))) {
     const src = path.join(WEBP_DIR, `${name}.png`);
     const { w } = pngSize(src);
-    for (const [out, width] of [[`${name}.webp`, Math.min(w, WIDE)], [`${name}-${NARROW}.webp`, NARROW]]) {
+    const steps = [[`${name}.webp`, Math.min(w, WIDE)], [`${name}-${NARROW}.webp`, NARROW]];
+    if (w > WIDE) steps.push([`${name}-${SHARP}.webp`, Math.min(w, SHARP)]);
+    for (const [out, width] of steps) {
       execFileSync("cwebp", ["-quiet", "-q", QUALITY, "-m", "6", "-sharp_yuv", "-metadata", "none",
         "-resize", String(width), "0", src, "-o", path.join(WEBP_DIR, out)]);
       console.log(`${out}  ${width}w`);

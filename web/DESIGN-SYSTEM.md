@@ -517,7 +517,8 @@ behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1
 - **Weight.** No image a page shows weighs more than 300 KB. Draw big art as a PNG master,
   then show WebP: add the master to `MASTERS` in `scripts/derive-webp.mjs`, run it, and use
   `src="<name>.webp" srcset="<name>-800.webp 800w, <name>.webp <W>w" sizes="(max-width:
-  1000px) 100vw, 960px"`. The master stays the social card (scrapers want PNG).
+  1000px) 100vw, 960px"`; a master wider than 1600 also gets `<name>-1920.webp` at
+  min(master, 1920)w in the srcset, so a chart stays sharp in the 960px column at 2x. The master stays the social card (scrapers want PNG).
 - **Fonts** are self-hosted (`assets/fonts`, `scripts/vendor-fonts.mjs`), `font-display:
   swap`; `head.html` preloads the text face's latin file (it was most of the phone layout
   shift), not the mono face (preloading both cost first paint more than it saved). No page links a third-party
