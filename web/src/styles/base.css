@@ -275,6 +275,9 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   background: var(--paper-2, var(--paper));
 }
 .promo[hidden] { display: none; }
+/* theme-init.js marks a visitor who has not dismissed it before first paint, so the
+   strip takes its space in the first frame instead of pushing the page down later */
+html.promo-early .promo[hidden] { display: block; }
 .promo__inner {
   display: flex; align-items: center; gap: var(--s-4, 14px);
   min-height: 38px; padding-top: 6px; padding-bottom: 6px;
