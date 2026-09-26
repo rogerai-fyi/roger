@@ -16,7 +16,7 @@
 /* ---------- typefaces (self-hosted) ------------------------------
    Space Grotesk (display + prose) + JetBrains Mono (machine truth), both SIL OFL 1.1
    (licences in assets/fonts). Served from this origin so no third-party stylesheet
-   blocks first paint; head.html preloads the two latin files every page paints first.
+   blocks first paint; head.html preloads the text face's latin file.
    Variable fonts: one file per unicode-range subset serves every weight, and a subset
    is fetched only when a page uses a character in its range. Regenerate the files and
    this block with scripts/vendor-fonts.mjs. */
