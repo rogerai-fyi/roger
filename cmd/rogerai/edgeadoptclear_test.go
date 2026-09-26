@@ -317,3 +317,40 @@ func TestOfflineMemberIsOfferedAndReAdmitted(t *testing.T) {
 	require.True(t, reopened.ClaimGranted("n_phone"),
 		"re-admit leaves a fresh claim so the device rejoins when it claims again")
 }
+
+// A REVOKED device (the owner forgot or revoked it) must NOT rejoin on a routine adopt click - that
+// would silently lift a deliberate revocation (a stolen key back in). It is refused, pointed at the
+// explicit `roger edge readmit`, which is the one path that lifts a revocation on purpose.
+func TestRevokedDeviceNeedsExplicitReadmit(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	local, err := edgeauth.Designate(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+
+	// Adopt + claim a real cert, then FORGET it (revokes its serial).
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	id := edgeauth.NodeID(pub)
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	c := edgeauth.NewClaimRequest("pixel-8", "mobile", pub, time.Now())
+	c.Sign(priv)
+	_, err = local.Claim(c, time.Now())
+	require.NoError(t, err)
+	_, _, err = local.Forget(id)
+	require.NoError(t, err)
+
+	// A routine adopt-by-claim is REFUSED and names the readmit path.
+	err = edgeAdoptByClaim(id, "pixel-8")
+	require.Error(t, err, "a revoked device must not rejoin on a routine adopt")
+	require.Contains(t, err.Error(), "readmit")
+
+	// The explicit, deliberate readmit lifts it: a fresh claim then succeeds.
+	require.NoError(t, edgeReAdmitDeliberate(id, "pixel-8"))
+	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	c2 := edgeauth.NewClaimRequest("pixel-8", "mobile", pub, time.Now())
+	c2.Sign(priv)
+	_, err = reopened.Claim(c2, time.Now())
+	require.NoError(t, err, "after an explicit readmit, the device claims a fresh certificate")
+}

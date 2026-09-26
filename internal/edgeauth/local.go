@@ -661,6 +661,29 @@ func (l *Local) loadHistory() (map[string][]string, error) {
 // HasIssued reports whether this authority has issued at least one certificate to a node id. It
 // returns an error rather than a bare false when the issued state cannot be read, so a caller
 // (forget) can fail closed instead of silently reporting "nothing to forget" while a cert is live.
+// NodeRevoked reports whether ANY certificate this authority issued to a node stands revoked. It
+// tells a re-adopt apart from a routine rejoin: a device that merely LEFT has an issued history but
+// no revoked serial, while a device the owner FORGOT or REVOKED has revoked serials - and lifting
+// that is a deliberate act, not a one-click adopt. Fails CLOSED: an unreadable list is an error.
+func (l *Local) NodeRevoked(nodeID string) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	serials, err := l.serialsFor(nodeID)
+	if err != nil {
+		return false, err
+	}
+	revoked, err := l.revokedNow()
+	if err != nil {
+		return false, err
+	}
+	for _, srl := range serials {
+		if revoked[srl] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (l *Local) HasIssued(nodeID string) (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

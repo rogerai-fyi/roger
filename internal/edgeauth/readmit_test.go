@@ -91,3 +91,22 @@ func TestReAdmitRevokesAStillHeldCertBeforeReissuing(t *testing.T) {
 	require.Contains(t, revs, oldCert.SerialNumber.String(), "the abandoned old cert is revoked on re-admit")
 	require.NotContains(t, revs, newCert.SerialNumber.String(), "the fresh cert is not revoked")
 }
+
+func TestNodeRevokedTellsLeftFromForgotten(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	_, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+
+	// A device that merely LEFT (issued a cert, never revoked) is NOT revoked.
+	was, err := local.NodeRevoked(id)
+	require.NoError(t, err)
+	require.False(t, was, "a device that left but was not forgotten is not revoked")
+
+	// After forget, it IS revoked - so a plain adopt must gate it to the explicit readmit.
+	_, _, err = local.Forget(id)
+	require.NoError(t, err)
+	was, err = local.NodeRevoked(id)
+	require.NoError(t, err)
+	require.True(t, was, "a forgotten device is revoked")
+}

@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
@@ -36,8 +37,25 @@ type edgeGrantSpec struct {
 
 // edgeGrantStore is the owner's issued-grants file, under the edge dir (not the authority dir, which
 // stays Core-free).
+// edgeGrantStore returns the ONE GrantStore for the current edge dir, so its mutex actually
+// serialises concurrent read-modify-write on grants.json across the webui, TUI and CLI in this
+// process. A fresh store per call would each carry its own mutex and a concurrent Put could lose an
+// update. Re-created when the path changes (a test's temp config), keyed by that path.
+var (
+	edgeGrantStoreMu   sync.Mutex
+	edgeGrantStoreInst *edge.GrantStore
+	edgeGrantStorePath string
+)
+
 func edgeGrantStore() *edge.GrantStore {
-	return &edge.GrantStore{Path: edgeGrantsPath()}
+	edgeGrantStoreMu.Lock()
+	defer edgeGrantStoreMu.Unlock()
+	p := edgeGrantsPath()
+	if edgeGrantStoreInst == nil || edgeGrantStorePath != p {
+		edgeGrantStoreInst = &edge.GrantStore{Path: p}
+		edgeGrantStorePath = p
+	}
+	return edgeGrantStoreInst
 }
 
 func edgeGrantsPath() string { return edgeAuthDir() + "/grants.json" }

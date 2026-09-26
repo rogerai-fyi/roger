@@ -257,20 +257,16 @@ func (h *edgeHost) adopt(id, name string) error {
 	if !ok {
 		return fmt.Errorf("no candidate %q was seen on this network", id)
 	}
-	// A node already in the fleet must not be adopted again. Re-adopting a member would mint it a
-	// SECOND certificate while the first is still live, and a later forget would revoke only the
-	// newest - leaving the old one working. A member can keep advertising as a candidate (the
-	// account field is the device's own claim), so this guard is what stops the double-issue, the
-	// same check the CLI adopt makes (audit 2026-09-23).
+	// A device that LEFT the Edge (a phone: "Leave this Edge") does NOT tell the authority, so it is
+	// still a member here. Re-adopting it must not blindly mint a SECOND certificate while the first is
+	// live; but a member that has effectively LEFT should be able to rejoin. So: a LIVE (verified)
+	// member is refused (forget it first); a member that is NOT live falls through - a claim device is
+	// RE-ADMITTED (old cert revoked, fresh claim; edgeAdoptByClaim gates a revoked device to the
+	// explicit readmit), and a serving node is re-dialed, re-verified and re-pinned.
 	n, known, err := h.st.fleet.Get(c.ID)
 	if err != nil {
 		return fmt.Errorf("could not check whether %s is already a member: %w", edgeShortID(c.ID), err)
 	}
-	// A device that LEFT the Edge (a phone: "Leave this Edge") does NOT tell the authority, so it is
-	// still a member here. When it re-pings as a candidate and the owner adopts it again, that is a
-	// RE-ADMIT, not a double-issue: re-admit revokes its old certificate (a stolen copy stays refused)
-	// and grants a fresh claim, so it rejoins cleanly with a new cert. Only the claim path (a phone
-	// with no servable face) re-admits this way.
 	if known && edge.Presence(n.Presence) == edge.PresenceVerified {
 		// A LIVE member: adopting again would disrupt a connected device (or mint a second serving
 		// cert while the first still verifies). Refuse; the owner forgets it first to replace it. A

@@ -79,6 +79,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"name", "<node>|. <name>", "give a node a name the owner chooses", 2, 2},
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
 	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1},
+	{"readmit", "<node>", "bring back a device you forgot or revoked (lifts its revocation)", 1, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
 	{"sessions", "", "show the live sessions on this machine's Edge", 0, 0},
 	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
@@ -165,6 +166,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeForget(cfg, rest)
 	case "adopt":
 		return cmdEdgeAdopt(cfg, rest)
+	case "readmit":
+		return cmdEdgeReadmit(cfg, rest)
 	case "sessions":
 		return cmdEdgeSessions(cfg, rest)
 	case "prefer":
@@ -1174,6 +1177,50 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	return nil
 }
 
+// cmdEdgeReadmit is the DELIBERATE re-admission of a device the owner forgot or revoked - the one
+// path that lifts a revocation (a routine adopt refuses that). It revokes any certificate the device
+// still holds and grants a fresh claim, so it can rejoin with a NEW certificate while a stolen or
+// abandoned old copy stays refused. Confirmed, because it undoes a revocation.
+func cmdEdgeReadmit(cfg config, args []string) error {
+	leaf, _ := edgeLeaf("readmit")
+	argv, err := parseEdgeArgv(leaf, args)
+	if err != nil {
+		return err
+	}
+	want := argv.pos[0]
+	st, err := loadEdgeState()
+	if err != nil {
+		return err
+	}
+	// Resolve the node id the owner means: a re-pinging candidate first, then a fleet member, then a
+	// raw node id (a device that was forgotten and is not on the network right now).
+	id, name := "", ""
+	if c, ok, _ := edgeResolve(st.candidates, want); ok {
+		id, name = c.ID, c.Name
+	} else if nodes, lerr := st.list(); lerr == nil {
+		if n, ok, _ := edgeResolve(nodes, want); ok {
+			id, name = n.ID, n.Name
+		}
+	}
+	if id == "" {
+		id, name = want, want // a raw node id for a device not seen right now
+	}
+	if !argv.has("yes") {
+		fmt.Printf("re-admit %s? its previous certificate is revoked and it may claim a fresh one to rejoin [y/N]: ", name)
+		if !edgeConfirmed() {
+			fmt.Println("left alone.")
+			return nil
+		}
+	}
+	if err := edgeReAdmitDeliberate(id, name); err != nil {
+		return err
+	}
+	st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != id })
+	_ = st.save()
+	fmt.Printf("re-admitted %s (%s) - its old certificate is revoked; it can claim a fresh one and rejoin.\n", name, edgeShortID(id))
+	return nil
+}
+
 // edgeForgetNotInFleet forgets a device that is not (yet) in the fleet but still has a relationship
 // with this authority: a standing claim grant (adopted, not yet claimed) and/or an issued
 // certificate (claimed, not yet checked in). want may be a node id or the friendly name a grant
@@ -1252,8 +1299,6 @@ func edgeResolveNotInFleet(want string) (map[string]string, string, error) {
 	return ids, label, nil
 }
 
-// edgeAdoptByClaim adopts a non-serving candidate (a phone) by GRANTING it a claim, so it can fetch
-// its certificate from this authority. Only the machine that roots the Edge can do it.
 // edgeAdoptByClaim adopts a device that joins by CLAIM (a phone: no servable face). A device this
 // authority has NEVER issued a certificate to is granted a fresh claim. A device it HAS issued one to
 // before - one that left the Edge, or that the owner forgot and is re-pinging - is RE-ADMITTED
@@ -1275,12 +1320,27 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	if !issued {
 		return local.GrantClaim(nodeID, name) // a brand-new device
 	}
-	revoked, err := local.ReAdmit(nodeID, name)
+	// A device previously issued a cert is rejoining. If its certificate was REVOKED (the owner forgot
+	// or revoked it), re-admitting LIFTS a deliberate revocation - a stolen key must not rejoin on one
+	// routine adopt click. Refuse here and require the explicit, confirmed `roger edge readmit`. A
+	// device that merely LEFT (no revoked serial) is a routine rejoin and re-admits in place.
+	wasRevoked, err := local.NodeRevoked(nodeID)
 	if err != nil {
 		return err
 	}
-	// Record the revoked serials in THIS machine's own trust store too, so its verification refuses
-	// the old certificate at once rather than at the next refresh - mirroring edgeRevokeOnForget.
+	if wasRevoked {
+		return fmt.Errorf("%s was removed and its certificate revoked; re-admitting lifts that revocation - run `roger edge readmit %s` to do it deliberately", name, edgeShortID(nodeID))
+	}
+	return edgeReAdmitRecord(local, nodeID, name)
+}
+
+// edgeReAdmitRecord re-admits a device (revoke its old cert, clear its issued history, grant a fresh
+// claim) and mirrors the revoked serials into THIS machine's own trust store so its verification
+// refuses the old cert at once, not at the next refresh (like edgeRevokeOnForget). The serials are
+// recorded even if ReAdmit returns an error partway, since whatever it revoked is already final on
+// the authority and its local mirror must not lag.
+func edgeReAdmitRecord(local *edgeauth.Local, nodeID, name string) error {
+	revoked, readmitErr := local.ReAdmit(nodeID, name)
 	st := edgeIdentityStore()
 	now := time.Now()
 	for _, srl := range revoked {
@@ -1288,7 +1348,21 @@ func edgeAdoptByClaim(nodeID, name string) error {
 			return err
 		}
 	}
-	return nil
+	return readmitErr
+}
+
+// edgeReAdmitDeliberate is the explicit `roger edge readmit`: it lifts a revocation on purpose, so a
+// forgotten or revoked device can be brought back. It is the ONE path that re-admits a revoked
+// device; a routine adopt refuses that (edgeAdoptByClaim). Only the machine that roots this Edge.
+func edgeReAdmitDeliberate(nodeID, name string) error {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return err
+	}
+	if !hasRoot {
+		return fmt.Errorf("only the machine that roots this Edge can re-admit a device")
+	}
+	return edgeReAdmitRecord(local, nodeID, name)
 }
 
 // edgeDropMembers removes candidates that are already members of the fleet. A node's advert carries
