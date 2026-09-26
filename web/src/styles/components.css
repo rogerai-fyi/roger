@@ -683,7 +683,10 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
   .toc-tuner:has(li:nth-child(13)) .toc-tuner__name {
     position: static; transform: none; max-width: none; height: auto; overflow: visible;
     white-space: normal; text-align: left; line-height: 1.35; opacity: 1 !important;
-    color: var(--ink-700); letter-spacing: 0.04em;
+    color: var(--ink-700);
+    /* a list row is always readable: none of the scale form's out-of-tune blur or wide
+       tracking, whatever is hovered, focused or current */
+    filter: none !important; letter-spacing: 0.04em !important;
   }
   .toc-tuner:has(li:nth-child(13)) a:is(:hover, :focus-visible, .is-current) .toc-tuner__name { color: var(--ink-900); }
   .toc-tuner:has(li:nth-child(13)) a.is-current { box-shadow: inset 2px 0 0 var(--live); }

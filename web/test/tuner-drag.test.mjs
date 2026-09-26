@@ -380,3 +380,11 @@ test("the hint is described as it is: added on any device, shown only by a touch
     assert.match(text.replace(/\s+/g, " "), /added by the script on any device; shown only by a touch selection/, name);
   }
 });
+
+test("the long-document list form: every row's name is readable (no blur, full opacity, its own tracking), hovered or not", () => {
+  const list = css.match(/@media \(max-width: 760px\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const rule = list.match(/\.toc-tuner:has\(li:nth-child\(13\)\) \.toc-tuner__name \{([^}]*)\}/)?.[1] || "";
+  assert.match(rule, /opacity: 1 !important/);
+  assert.match(rule, /filter: none !important/, "the scale form's blur (a name coming into tune) is not a list's");
+  assert.match(rule, /letter-spacing: 0\.04em !important/, "nor its wide tracking while out of tune");
+});
