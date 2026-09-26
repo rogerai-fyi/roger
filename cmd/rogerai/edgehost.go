@@ -521,11 +521,23 @@ func (h *edgeHost) serving() bool {
 	return h.face != nil
 }
 
-// edgeAuthAccessLog logs each authority request (method, path, remote) - a diagnostic for a device
-// that cannot join. Enabled by ROGERAI_EDGE_AUTHLOG=1.
+// edgeAuthAccessLog logs each authority request (method, path, remote) to a FILE - a diagnostic for a
+// device that cannot join. Enabled by ROGERAI_EDGE_AUTHLOG=1 (path from ROGERAI_EDGE_AUTHLOG_FILE, or
+// a default under the edge dir). It writes to the file directly, NOT the std logger, because the TUI
+// captures log output into an in-memory ring where it cannot be read from outside the process.
 func edgeAuthAccessLog(next http.Handler) http.Handler {
+	path := os.Getenv("ROGERAI_EDGE_AUTHLOG_FILE")
+	if path == "" {
+		path = filepath.Join(edgeAuthDir(), "access.log")
+	}
+	var mu sync.Mutex
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("edge-auth: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		mu.Lock()
+		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			fmt.Fprintf(f, "%s  %s %s from %s\n", time.Now().Format(time.RFC3339), r.Method, r.URL.Path, r.RemoteAddr)
+			f.Close()
+		}
+		mu.Unlock()
 		next.ServeHTTP(w, r)
 	})
 }
