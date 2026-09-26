@@ -221,3 +221,15 @@ test("the promo strip is laid out before first paint for a visitor who has not d
   assert.ok((promo.match(/\bhide\(\)/g) || []).length >= 3, "hide() is defined and used on dismiss and on an inactive offer");
   assert.match(promo, /function hide\(\)\s*{[^}]*bar\.hidden = true;[^}]*classList\.remove\("promo-early"\)/, "hide() drops the mark");
 });
+
+test("a page without promo.js does not render the promo strip at all", () => {
+  // The strip is shown, hidden and closed by promo.js; the early-layout mark (theme-init.js)
+  // would otherwise lay it out, un-closable, on the pages that leave promo.js out
+  // (site-js.html promo=0, or no site-js at all). Such a page passes promo=0 to nav.html too.
+  const bad = [];
+  for (const p of PAGES) {
+    const h = noComments(page(p));
+    if (/id="promoBar"/.test(h) && !/<script\b[^>]*src="js\/promo\.js/.test(h)) bad.push(p);
+  }
+  assert.deepEqual(bad, []);
+});

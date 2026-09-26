@@ -491,7 +491,8 @@ style and no colour literal in an article (guarded).
 
 1. `src/<page>.html`: `<!-- include: head.html title=... desc=... theme=external -->`,
    `<!-- include: nav.html variant=marketing ... -->`, content, `<!-- include: footer.html -->`,
-   then `<!-- include: site-js.html -->` (`promo=0` to leave out the promo strip script).
+   then `<!-- include: site-js.html -->` (`promo=0` to leave out the promo strip script; pass
+   `promo=0` to `nav.html` too, which leaves out the strip itself, or it shows un-closable).
    Every script is deferred, so they run in document order: a page script written before
    the include runs before site.js, one written after it runs after. Page scripts that need site.js to have run
    go after the include.
