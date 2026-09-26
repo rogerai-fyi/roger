@@ -95,19 +95,14 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusForbidden, "that invocation is stale")
 		return
 	}
-	// 3. Not a replay. The cache is built in NewServer (never lazily here: that raced).
-	if !s.invokeSeen.admit(req.Nonce, time.Unix(req.TS, 0).Add(invokeFreshness).Unix(), now.Unix()) {
-		refuse(http.StatusForbidden, "that invocation was already seen")
-		return
-	}
-	// 4. No loop: a task whose chain already names THIS node is refused (control.feature rule 4).
+	// 3. No loop: a task whose chain already names THIS node is refused (control.feature rule 4).
 	for _, hop := range req.Origin {
 		if hop == s.serving.NodeID {
 			refuse(http.StatusForbidden, "that task's chain already names this node - refusing the loop")
 			return
 		}
 	}
-	// 5. Hop limit: onward delegation is bounded by the grant (0 = no onward delegation). Origin is
+	// 4. Hop limit: onward delegation is bounded by the grant (0 = no onward delegation). Origin is
 	//    caller-supplied and NOT signed, so today - with no onward delegation yet emitting it - this
 	//    and the loop check above are best-effort against an honest delegation path; when the runner
 	//    gains onward invoke (Slice 3), it will APPEND this node to Origin so the chain is built by the
@@ -116,10 +111,16 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusForbidden, "that task has been delegated more times than the grant allows")
 		return
 	}
-	// 6. The AUTHORIZATION: signature under this Edge's root, the caller, and the capability on this
+	// 5. The AUTHORIZATION: signature under this Edge's root, the caller, and the capability on this
 	//    node. Injected, composed at the host.
 	if err := s.serving.Authorize(req.Grant, callerID, Capability(req.Capability)); err != nil {
 		refuse(http.StatusForbidden, err.Error())
+		return
+	}
+	// 6. Not a replay - checked AFTER authorization, so an unauthorized caller can never consume a
+	//    nonce and fill the replay cache. The cache is built in NewServer (never lazily here: that raced).
+	if !s.invokeSeen.admit(req.Nonce, time.Unix(req.TS, 0).Add(invokeFreshness).Unix(), now.Unix()) {
+		refuse(http.StatusForbidden, "that invocation was already seen")
 		return
 	}
 	// 7. Run it. The receiver's runner uses its OWN harness, tools and permissions (control.feature).

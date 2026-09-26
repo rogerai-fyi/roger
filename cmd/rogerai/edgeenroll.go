@@ -515,7 +515,6 @@ func edgeDesignateCore(dir, where string) (*edgeauth.Local, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The machine that designated is the first machine allowed to enroll against it.
 	// The machine that designated is the first machine allowed to enroll against it, and its own key
 	// is PROTECTED (a later forget must never evict it, or the authority could lock itself out of
 	// renewing its own certificate) - both in one locked step so a crash cannot leave it

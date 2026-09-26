@@ -44,7 +44,13 @@ type edgeTurnDeps struct {
 
 // edgeInvokeHandler builds Serving.Invoke from the receiver-side deps: it dispatches on capability,
 // then runs an operate task in this node's headless harness.
+// edgeMaxConcurrentInvokes bounds how many delegated turns run at once, so a member cannot pin the
+// model with a flood of parallel invokes (each turn holds the model for up to edgeDelegateTimeout).
+// Beyond the cap an invoke is refused promptly rather than queued behind a busy model.
+const edgeMaxConcurrentInvokes = 2
+
 func edgeInvokeHandler(d edgeTurnDeps) func(callerID string, req edge.InvokeRequest) (edge.InvokeResult, error) {
+	sem := make(chan struct{}, edgeMaxConcurrentInvokes)
 	run := edge.NewRunner(func(ctx context.Context, callerID string, task edge.InvokeTask) (string, error) {
 		chatURL, key, model, ok := d.band(task.Model)
 		if !ok {
@@ -62,6 +68,14 @@ func edgeInvokeHandler(d edgeTurnDeps) func(callerID string, req edge.InvokeRequ
 			return edge.InvokeResult{Refused: fmt.Sprintf(
 				"this node runs an agent; it does not %s (that is a device capability, for a board node)",
 				req.Capability)}, nil
+		}
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		default:
+			// At capacity: refuse now, do not let a flood of invokes pin the model. This is a task-level
+			// refusal (returned to the caller), not an infra error.
+			return edge.InvokeResult{Refused: "this node is already running as many delegated tasks as it will at once - try again shortly"}, nil
 		}
 		return run(callerID, req)
 	}

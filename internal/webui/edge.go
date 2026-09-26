@@ -316,12 +316,12 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	snap.Grants = []edgeGrantJSON{}
 	snap.GrantsManage = h.IssueGrant != nil && h.RevokeGrant != nil
 	if h.Grants != nil {
-		gs, gerr := h.Grants()
-		if gerr != nil {
-			return snap, gerr
-		}
-		for _, g := range gs {
-			snap.Grants = append(snap.Grants, edgeGrantOf(g, now))
+		// A grants read error must not blank the whole Edge tab - the fleet, sessions and controls still
+		// matter. Degrade: leave grants empty (the section simply shows none) and draw everything else.
+		if gs, gerr := h.Grants(); gerr == nil {
+			for _, g := range gs {
+				snap.Grants = append(snap.Grants, edgeGrantOf(g, now))
+			}
 		}
 	}
 	if h.Sessions != nil {
