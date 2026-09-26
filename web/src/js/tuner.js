@@ -209,6 +209,14 @@
     // a mouse or pen press that leaves the scale before it drags (no capture yet) and is let
     // go elsewhere never reaches the scale's pointerup: the window hears it, and it ends
     if (window.addEventListener) window.addEventListener("pointerup", function (e) { if (g && e.pointerId === g.id) abandon(); });
+    // a resize or rotation can swap the scale for the list form: nothing pending survives it
+    function reset() { if (g || sel >= 0) { g = null; clear(); } }
+    if (window.addEventListener) {
+      window.addEventListener("resize", reset);
+      window.addEventListener("orientationchange", reset);
+    }
+    // a key inside the tuner (a touch laptop's keyboard): focus and the needle follow it
+    nav.addEventListener("keydown", function () { if (sel >= 0) clear(); });
     nav.addEventListener("click", function (e) {
       var t = e.target;
       if (sel >= 0 && ((readout && readout.contains && readout.contains(t)) || (hint && (t === hint)))) {

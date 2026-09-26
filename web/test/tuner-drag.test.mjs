@@ -86,7 +86,9 @@ function rig({ reduced = false, listForm = false, coarse = true } = {}) {
   const scroll = (dy = 200) => { win.pageYOffset = (win.pageYOffset || 0) + dy; fire(win, "scroll", {}); };
   const tapElsewhere = () => fire(doc, "pointerdown", { target: { id: "page" } });
   const releaseOutside = (o) => fire(win, "pointerup", ev(50, 400, { target: { id: "page" }, ...o }));
-  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, outside, nativeClick, readout, hint, clickOn, wait, scroll, tapElsewhere, releaseOutside };
+  const resize = () => fire(win, "resize", {});
+  const key = (k) => fire(nav, "keydown", { key: k, target: links[0] });
+  return { nav, links, style, clicks, captured, vibes, down, move, up, cancel, outside, nativeClick, readout, hint, clickOn, wait, scroll, tapElsewhere, releaseOutside, resize, key };
 }
 
 const at = (t) => Number(t.style["--at"]);
@@ -272,7 +274,8 @@ test("the hint: a mono label that fades in under the readout (instant under redu
 });
 
 test("the scale is the drag zone: touch-action none there, finger-sized on touch, with a grip; the readout still scrolls", () => {
-  assert.match(css, /\.toc-tuner__scale \{[^}]*touch-action: none/);
+  assert.match(css, /\.toc-tuner__band:has\(\.toc-tuner__hint\) \.toc-tuner__scale \{ touch-action: none; \}/, "only once the script runs (the hint is its mark)");
+  assert.doesNotMatch(css, /(^|\n)\.toc-tuner__scale \{[^}]*touch-action: none/, "never on the bare scale: without JS the strip must scroll and zoom");
   assert.match(css, /\.toc-tuner__band \{[^}]*touch-action: pan-y/, "outside the scale the page scrolls");
   assert.match(css, /\.toc-tuner__band \{[^}]*user-select: none/);
   const coarse = [...css.matchAll(/@media \(any-pointer: coarse\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
@@ -348,7 +351,7 @@ test("hybrid devices: the hint exists without a coarse primary pointer; the tall
   assert.equal(t.hint().textContent, "Tap again to tune in", "the selection has its hint");
   assert.match(css, /@media \(any-pointer: coarse\) \{[^@]*\.toc-tuner__scale \{[^}]*min-height: 56px/);
   assert.match(css, /@media \(any-pointer: coarse\) \{[^@]*\.toc-tuner__band:has\(\.toc-tuner__hint\) \{ padding-bottom: 36px; \}/, "room for the hint only where touch can select");
-  assert.doesNotMatch(css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, ""), /\.toc-tuner__band:has\(\.toc-tuner__hint\)/, "not reserved on a mouse-only desktop");
+  assert.doesNotMatch(css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, ""), /\.toc-tuner__band:has\(\.toc-tuner__hint\) \{ padding-bottom/, "not reserved on a mouse-only desktop");
 });
 
 test("a touch screen's sticky :hover never steers the needle or the readout once JS rests it", () => {
@@ -383,8 +386,70 @@ test("the hint is described as it is: added on any device, shown only by a touch
 
 test("the long-document list form: every row's name is readable (no blur, full opacity, its own tracking), hovered or not", () => {
   const list = css.match(/@media \(max-width: 760px\) \{[\s\S]*?\n\}/)?.[0] || "";
-  const rule = list.match(/\.toc-tuner:has\(li:nth-child\(13\)\) \.toc-tuner__name \{([^}]*)\}/)?.[1] || "";
+  const rule = list.match(/\.toc-tuner\.toc-tuner:has\(li:nth-child\(13\)\) a \.toc-tuner__name \{([^}]*)\}/)?.[1] || "";
+  assert.ok(rule, "the list rule outranks the tuner-state rules (.toc-tuner:is(.is-dragging, .is-selected) a:not(.is-tuning) .toc-tuner__name, 0,4,1)");
   assert.match(rule, /opacity: 1 !important/);
   assert.match(rule, /filter: none !important/, "the scale form's blur (a name coming into tune) is not a list's");
   assert.match(rule, /letter-spacing: 0\.04em !important/, "nor its wide tracking while out of tune");
+});
+
+test("a resize or rotation (the list form may now show) clears a pending selection or drag", () => {
+  const t = rig();
+  t.down(350); t.up(350);
+  assert.ok(selected(t));
+  t.resize();
+  assert.ok(!selected(t) && !t.nav.cls.has("is-dragging"));
+  assert.equal(t.style["--at"], undefined);
+  const d = rig();
+  d.down(150); d.move(300);
+  d.resize();
+  assert.ok(!d.nav.cls.has("is-dragging"));
+  d.up(300);
+  assert.ok(!selected(d), "and the finger's release after it selects nothing");
+});
+
+test("a pen is one step, like a mouse: a tap is the link's own click, a drag jumps on release", () => {
+  const pen = { pointerType: "pen" };
+  const t = rig();
+  t.down(250, 50, pen); t.up(250, 50, pen);
+  assert.ok(!selected(t));
+  assert.equal(t.nativeClick(1), true);
+  const d = rig();
+  d.down(150, 50, pen); d.move(200, 50, pen); d.move(450, 50, pen); d.up(450, 50, pen);
+  assert.deepEqual(d.clicks, ["s4"]);
+  assert.ok(!selected(d));
+});
+
+test("a modified click (ctrl, cmd, shift: a new tab or window) is the browser's", () => {
+  for (const mod of ["ctrlKey", "metaKey", "shiftKey"]) {
+    const t = rig();
+    t.down(250, 50, { pointerType: "mouse", [mod]: true });
+    assert.ok(!t.nav.cls.has("is-dragging") && t.style["--at"] === undefined, `${mod}: the press does not take the needle`);
+    t.move(400, 50, { pointerType: "mouse", [mod]: true });
+    assert.deepEqual(t.captured, [], `${mod}: nor drag it`);
+    t.up(400, 50, { pointerType: "mouse", [mod]: true });
+    assert.ok(!t.nav.cls.has("is-dragging") && !selected(t), mod);
+    assert.equal(t.style["--at"], undefined, mod);
+    assert.equal(t.nativeClick(1), true, `${mod}: the click goes through untouched`);
+    assert.deepEqual(t.clicks, []);
+  }
+});
+
+test("a cancelled gesture during a pending selection puts the selection back (it is not dropped)", () => {
+  const t = rig();
+  t.down(150); t.up(150);                 // station 1 selected
+  t.down(450); t.move(470);               // a new gesture over station 4...
+  assert.ok(t.links[3].cls.has("is-tuning"));
+  t.cancel();                             // ...that the browser takes
+  assert.ok(selected(t), "still selected");
+  assert.ok(t.links[0].cls.has("is-tuning") && !t.links[3].cls.has("is-tuning"));
+  assert.equal(t.style["--at"], "0");
+});
+
+test("hybrid touch and keyboard: a key inside the tuner clears a pending touch selection", () => {
+  const t = rig();
+  t.down(350); t.up(350);
+  t.key("Tab");
+  assert.ok(!selected(t));
+  assert.equal(t.style["--at"], undefined, "the needle follows the keyboard, not the stale selection");
 });
