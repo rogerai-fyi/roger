@@ -1980,7 +1980,14 @@
         andon.appendChild(tile);
       });
       var foot = $("edge-andon-foot");
-      if (foot) foot.textContent = "THE RACK  " + (f.units || []).length + " units   " + on + " on air   " + trouble + " trouble   " + dark + " dark";
+      if (foot) {
+        foot.innerHTML = "";
+        foot.appendChild(el("span", "eyebrow", "THE RACK"));
+        foot.appendChild(el("span", "edge-foot__part", (f.units || []).length + " units"));
+        foot.appendChild(el("span", "edge-foot__part" + (on ? "" : " muted"), on + " on air"));
+        foot.appendChild(el("span", "edge-foot__part" + (trouble ? " live" : " muted"), trouble + " trouble"));
+        foot.appendChild(el("span", "edge-foot__part muted", dark + " dark"));
+      }
     }
     var head = $("edge-trouble-head");
     if (head) {
@@ -2023,10 +2030,10 @@
         body.appendChild(tr);
         var why = el("tr", "edge-why muted small");
         var wc = el("td", null); wc.colSpan = 7;
-        wc.appendChild(el("span", "eyebrow", "WHY IT MATTERS "));
-        wc.appendChild(document.createTextNode(c.why + "   "));
-        wc.appendChild(el("span", "eyebrow", "DO "));
-        wc.appendChild(document.createTextNode(c.do));
+        wc.appendChild(el("span", "eyebrow", "WHY IT MATTERS"));
+        wc.appendChild(el("span", "edge-why__text", c.why));
+        wc.appendChild(el("span", "eyebrow edge-why__do", "DO"));
+        wc.appendChild(el("span", "edge-why__text", c.do));
         why.appendChild(wc);
         body.appendChild(why);
       });
@@ -2034,25 +2041,32 @@
     var so = $("edge-signoff");
     if (so && f.sign_off) {
       var s = f.sign_off;
-      var line = "SIGN-OFF  this shift  " + s.raised + " raised \u00b7 " + s.cleared + " cleared";
-      if (s.loudest) line += " \u00b7 loudest " + s.loudest + " (" + s.loudest_count + ")";
-      if (s.dead_air && s.dead_air.length) line += " \u00b7 dead air " + s.dead_air.map(function (x) { return x.node + " " + edgeAge(x.for_s); }).join(", ");
-      so.textContent = (s.raised || s.cleared || (s.dead_air && s.dead_air.length)) ? line : "";
+      so.innerHTML = "";
+      if (s.raised || s.cleared || (s.dead_air && s.dead_air.length)) {
+        so.appendChild(el("span", "eyebrow", "SIGN-OFF"));
+        so.appendChild(el("span", "edge-foot__part muted", "this shift"));
+        var parts = [];
+        if (s.raised) parts.push(s.raised + " raised");
+        if (s.cleared) parts.push(s.cleared + " cleared");
+        if (!parts.length) parts.push("no calls");
+        so.appendChild(el("span", "edge-foot__part", parts.join(" \u00b7 ")));
+        if (s.loudest) so.appendChild(el("span", "edge-foot__part", "loudest " + s.loudest + " (" + s.loudest_count + ")"));
+        if (s.dead_air && s.dead_air.length) so.appendChild(el("span", "edge-foot__part muted", "dead air this shift " + s.dead_air.map(function (x) { return x.node + " " + edgeAge(x.for_s); }).join(", ")));
+      }
     }
   }
 
-  // edgeLogStrip draws a unit's last hour: \u2581 on air, \u2592 dark, \u25b2 trouble, \u00b7 not judged.
+  // edgeLogStrip draws a unit's last hour as cells (a proportional font breaks the glyphs' baseline):
+  // ink for on air, faint for dark, red for trouble, empty for a minute nobody judged.
   function edgeLogStrip(log) {
-    var span = el("span", "edge-log mono");
-    var last = log.slice(-20); // twenty minutes fit a tile; the TUI's strip is the full hour
+    var strip = el("span", "edge-log");
+    var last = log.slice(-30);
     last.forEach(function (st) {
-      var ch = "\u00b7", cls = "dim";
-      if (st === "air") { ch = "\u2581"; cls = "signal"; }
-      else if (st === "dark") { ch = "\u2592"; cls = "dark"; }
-      else if (st === "trouble") { ch = "\u25b2"; cls = "live"; }
-      span.appendChild(el("span", "edge-log__" + cls, ch));
+      var cls = "dim";
+      if (st === "air") cls = "signal"; else if (st === "dark") cls = "dark"; else if (st === "trouble") cls = "live";
+      strip.appendChild(el("span", "edge-log__cell edge-log__" + cls));
     });
-    return span;
+    return strip;
   }
 
   function edgeAge(s) {

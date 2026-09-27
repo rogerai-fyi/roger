@@ -68,14 +68,14 @@ func newFleet(t *testing.T, rec *recorder) (*fleetview.Fleet, *uitest.Page) {
 func TestFleetScreenDrawsTheWholeEdgeWithItsFacts(t *testing.T) {
 	_, page := newFleet(t, &recorder{})
 	s := page.Screen()
-	must(t, s, "ROGER", "EDGE", "ON AIR", "RogGentooEdged", "prefers local")
+	must(t, s, "ROGER", "EDGE", "RogGentooEdged", "go local first")
 	must(t, s, "roggentooedged", "this one", "roggentooedged-2", "qwen3.8-27b", "watcher", "offline")
 	must(t, s, "ON THE RACK", "nas", "gentle-ibex-14", "DARK 1d", "ON THE BENCH", "blue-fox-3", "adopt")
 	must(t, s, "▲ 1", "▲ 2", "scanning this network")
 	// The hub is selected first: its readout names its role, its alert on the temperature meter, its health.
 	must(t, s, "this machine", "▲ cpu_temp > 85", "95.5")
 	// A long fact wraps in the readout; it is never cut at the pane edge.
-	must(t, s, "look now")
+	must(t, s, "scanning this network every 30s")
 }
 
 func TestFleetScreenActionsGoThroughTheHandedInFunctions(t *testing.T) {
@@ -312,7 +312,7 @@ func TestFleetScreenShowsTheLogAndTimeInState(t *testing.T) {
 		page.Press("Down")
 	}
 	s = page.Screen()
-	must(t, s, "THE LOG", "▁▁▁▁▁▁▲▲▲▲▲▲▲▁▁▁", "on air 3m")
+	must(t, s, "THE LOG", "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁", "on air 3m")
 }
 
 // TROUBLE tab: the standing calls sorted priority then oldest first, each with why it matters and

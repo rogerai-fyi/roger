@@ -47,7 +47,7 @@ func eye(level float64, dark, asking, alarm bool, frame, row int) []lm.Span {
 	switch u := int(level*9 + 0.5); {
 	case u >= 9:
 		l, r = "◉", "◉"
-		if motion && (f/12)%2 == 1 {
+		if motion && (f/6)%2 == 1 { // the lamp's phase: the station breathes as one thing
 			r = "◎"
 		}
 	case u >= 7:
@@ -197,14 +197,13 @@ func chips(caps []Cap) []lm.Span {
 
 // brandBand is the one-row head: the mark, the name, the on-air lamp breathing, the tabs, and
 // the right-hand facts - then the rule: heavy red for a stretch, then a hairline.
-func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string, frame int) {
+func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string, alerts int, hot bool, frame int) {
 	rows := lm.SplitVertical(area, lm.Fixed(1), lm.Fixed(1))
 	lampC := live
 	if motion && (frame/6)%2 == 1 {
 		lampC = lamp
 	}
-	head := lm.NewLine(bold(" ▟•▙ ", live), bold("ROGER", paper), span(" · ", live), bold("EDGE", paper),
-		span("    ", dim), bold("◉", lampC), span(" ON AIR", muted), span("            ", dim))
+	head := lm.NewLine(bold(" ▟•▙ ", live), bold("ROGER", paper), span(" · ", live), bold("EDGE", paper), span("            ", dim))
 	for i, t := range tabs {
 		if i == tab {
 			head.Spans = append(head.Spans, bold(strings.ToUpper(t), paper), span("   ", dim))
@@ -219,15 +218,26 @@ func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string,
 		used += len([]rune(s.Text))
 	}
 	parts := strings.Split(right, " · ")
-	for len(parts) > 1 && int(area.Width)-used-len([]rune(strings.Join(parts, " · ")))-1 < 1 {
+	for len(parts) > 1 && int(area.Width)-used-len([]rune(strings.Join(parts, " · ")))-9 < 1 {
 		parts = parts[1:]
 	}
 	right = strings.Join(parts, " · ")
-	gap := int(area.Width) - used - len([]rune(right)) - 1
+	tail := "◉ " + right
+	if alerts > 0 {
+		tail += fmt.Sprintf(" · ▲ %d", alerts)
+	}
+	gap := int(area.Width) - used - len([]rune(tail)) - 1
 	if gap > 1 {
 		head.Spans = append(head.Spans, span(strings.Repeat(" ", gap), dim))
 	}
-	head.Spans = append(head.Spans, span(right, muted))
+	head.Spans = append(head.Spans, bold("◉ ", lampC), span(right, muted))
+	if alerts > 0 {
+		c := muted
+		if hot {
+			c = live
+		}
+		head.Spans = append(head.Spans, span(" · ", dim), bold(fmt.Sprintf("▲ %d", alerts), c))
+	}
 	fr.RenderWidget(lm.NewText(head).WithWrap(false), rows[0])
 	w := int(area.Width)
 	heavy := 24

@@ -8,6 +8,7 @@ package fleetview
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,14 +90,11 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 		firing += len(a)
 	}
 	right := clock(h.snap.At) + " · " + unitsWord(len(h.snap.Nodes))
-	if firing > 0 {
-		right += fmt.Sprintf(" · ▲ %d", firing)
-	}
 	tabs, tab := []string{"health"}, 0
 	if len(h.Tabs) > 0 {
 		tabs, tab = h.Tabs, h.Tab
 	}
-	brandBand(f, rows[0], tabs, tab, right, h.frame)
+	brandBand(f, rows[0], tabs, tab, right, firing, firing > 0, h.frame)
 	if h.err != nil {
 		f.RenderWidget(lm.NewText(
 			lm.NewLine(),
@@ -209,9 +207,9 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		if kindW > 0 {
 			l.Spans = append(l.Spans, span(pad(kindLabel(n.Kind), kindW), dim))
 		}
-		l.Spans = append(l.Spans, cellTemp(n, firing)...)
+		l.Spans = append(l.Spans, cellTemp(n, firing, h.snap.Rules)...)
 		l.Spans = append(l.Spans, cellMem(n)...)
-		l.Spans = append(l.Spans, cellDisk(n, firing)...)
+		l.Spans = append(l.Spans, cellDisk(n, firing, h.snap.Rules)...)
 		lv := carrierLevel(n.LastHeard, n.Dark, now)
 		if !narrow {
 			l.Spans = append(l.Spans, meter(lv, !n.LastHeard.IsZero(), -1, h.frame, !n.Dark)...)
@@ -261,8 +259,8 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		if wide < 16 {
 			wide = 16
 		}
-		if wide > 60 {
-			wide = 60
+		if wide > 40 { // a brick five rows deep is not a meter
+			wide = 40
 		}
 		row := func(k string, v ...lm.Span) {
 			l := lm.NewLine(span("  ", dim), eyebrow(pad(k, 8), muted))
@@ -271,6 +269,15 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		}
 		r := n.Readings
 		hs := h.hist[n.ID]
+		line := func(metric string, scale float64) float64 {
+			if th, ok := ruleLine(h.snap.Rules, n.Name, metric); ok {
+				return th / scale
+			}
+			if th, ok := thresholdIn(firing, metric); ok {
+				return th / scale
+			}
+			return -1
+		}
 		switch {
 		case r == nil:
 			lines = append(lines, lm.NewLine(span("  this node reports no health readings", muted)))
@@ -294,10 +301,11 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 			}
 			if l, ok := n.MemoryLevel(); ok {
 				row("memory", append([]lm.Span{span(pad(fmt.Sprintf("%.1f of %s GB", r.RAMUsedGB, fmtGB(r.RAMTotalGB)), 18), ink)},
-					append(meterN(l, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%%", 100*l), ink))...)...)
+					append(meterN(l, line("memory", 100), 0, false, wide), span(fmt.Sprintf(" %.0f%%", 100*l), ink))...)...)
 			} else if r.RAMUsedGB > 0 {
 				row("memory", span(fmt.Sprintf("%.1f GB used · no total reported", r.RAMUsedGB), ink))
 			}
+			from := line("disk", 100)
 			th, hasTh := thresholdIn(firing, "disk")
 			first := true
 			for _, d := range r.Disks {
@@ -309,10 +317,6 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 					k, first = "disk", false
 				}
 				l := d.UsedGB / d.TotalGB
-				from := -1.0
-				if hasTh {
-					from = th / 100
-				}
 				v := []lm.Span{span(pad(d.Mount, 18), ink)}
 				v = append(v, meterN(l, from, 0, false, wide)...)
 				v = append(v, span(fmt.Sprintf(" %.0f%%", 100*l), ink))
@@ -322,7 +326,7 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 				row(k, v...)
 			}
 			if r.GPU != "" {
-				row("gpu", append([]lm.Span{span(pad(r.GPU, 18), ink)}, append(meterN(r.GPUMemUsed, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%% memory", 100*r.GPUMemUsed), ink))...)...)
+				row("gpu", append([]lm.Span{span(pad(elide(r.GPU, 17), 18), ink)}, append(meterN(r.GPUMemUsed, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%% memory", 100*r.GPUMemUsed), ink))...)...)
 			}
 			if r.SDWearPct != nil {
 				row("sd card", append(meterN(*r.SDWearPct/100, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%% worn", *r.SDWearPct), ink))...)
@@ -385,12 +389,14 @@ func sparkline(xs []float64, th float64, hasTh bool) []lm.Span {
 
 // --- the strip's cells, with the CLI's honesty rules -------------------------------------------
 
-func cellTemp(n edge.NodeHealth, firing []string) []lm.Span {
+func cellTemp(n edge.NodeHealth, firing []string, rules []RuleLine) []lm.Span {
 	if n.Readings == nil || n.Readings.CPUTempC == nil {
 		return append(meter(0, false, -1, 0, false), span(pad("", 9), dim))
 	}
 	from := -1.0
-	if th, ok := thresholdIn(firing, "cpu_temp"); ok {
+	if th, ok := ruleLine(rules, n.Name, "cpu_temp"); ok {
+		from = th / 110
+	} else if th, ok := thresholdIn(firing, "cpu_temp"); ok {
 		from = th / 110
 	}
 	return append(meterN(*n.Readings.CPUTempC/110, from, 0, false, meterCells), span(pad(fmt.Sprintf(" %.1f°", *n.Readings.CPUTempC), 9), ink))
@@ -404,14 +410,42 @@ func cellMem(n edge.NodeHealth) []lm.Span {
 	return append(meterN(l, -1, 0, false, meterCells), span(pad(fmt.Sprintf(" %.0f%%", 100*l), 9), ink))
 }
 
-func cellDisk(n edge.NodeHealth, firing []string) []lm.Span {
+func cellDisk(n edge.NodeHealth, firing []string, rules []RuleLine) []lm.Span {
 	l, ok := n.DiskLevel()
 	if !ok {
 		return append(meter(0, false, -1, 0, false), span(pad("", 9), dim))
 	}
 	from := -1.0
-	if th, ok := thresholdIn(firing, "disk"); ok {
+	if th, ok := ruleLine(rules, n.Name, "disk"); ok {
+		from = th / 100
+	} else if th, ok := thresholdIn(firing, "disk"); ok {
 		from = th / 100
 	}
 	return append(meterN(l, from, 0, false, meterCells), span(pad(fmt.Sprintf(" %.0f%%", 100*l), 9), ink))
+}
+
+// ruleLine is the threshold in force for a unit on a metric, from the rules the pane lists: the
+// unit's own rule when it has one, else the fleet's. A quiet unit sees its line too.
+func ruleLine(rules []RuleLine, node, metric string) (float64, bool) {
+	fleet, ok := 0.0, false
+	for _, r := range rules {
+		if strings.HasPrefix(r.State, "off") {
+			continue
+		}
+		f := strings.Fields(r.When)
+		if len(f) != 3 || f[0] != metric {
+			continue
+		}
+		v, err := strconv.ParseFloat(f[2], 64)
+		if err != nil {
+			continue
+		}
+		if r.Scope == node {
+			return v, true
+		}
+		if r.Scope == "fleet" {
+			fleet, ok = v, true
+		}
+	}
+	return fleet, ok
 }

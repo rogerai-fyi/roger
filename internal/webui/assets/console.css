@@ -1468,8 +1468,9 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 /* The floor: andon tiles and the trouble list (the console's ANDON and TROUBLE). One colour per
    tile, red only for trouble; dark is dim, not coloured. */
 .edge-floor-wrap { margin-top: var(--s-6); }
+.edge-floor-wrap .sub-head { margin-top: var(--s-8); }
 .edge-andon { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); margin: var(--s-3) 0; }
-.edge-tile { border-left: 3px solid var(--ink-300); padding: var(--s-2) var(--s-3); background: var(--paper-2); }
+.edge-tile { border-left: 3px solid var(--ink-300); padding: var(--s-3) var(--s-4); background: var(--paper-2); }
 .edge-tile--air { border-left-color: var(--ink-500); }
 .edge-tile--trouble { border-left-color: var(--live); }
 .edge-tile--dark { border-left-color: var(--ink-300); opacity: 0.7; }
@@ -1479,10 +1480,14 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edge-tile--dark .edge-tile__state { color: var(--ink-500); }
 .edge-tile__air { margin-top: 4px; color: var(--ink-500); white-space: nowrap; overflow: hidden; }
 .edge-tile__what { margin-top: 2px; }
-.edge-log { margin-left: 6px; letter-spacing: 0; }
-.edge-log__signal { color: var(--ink-500); }
-.edge-log__dark { color: var(--ink-300); }
-.edge-log__live { color: var(--live-text); }
-.edge-log__dim { color: var(--ink-300); }
+.edge-log { margin-left: 8px; display: inline-flex; align-items: flex-end; gap: 1px; vertical-align: middle; }
+.edge-log__cell { display: inline-block; width: 4px; height: 10px; background: transparent; }
+.edge-log__signal { background: var(--ink-500); }
+.edge-log__dark { background: var(--ink-300); height: 6px; }
+.edge-log__live { background: var(--live); }
+.edge-log__dim { background: transparent; }
+.edge-foot__part { margin-left: var(--s-3); }
 .edge-why td { padding-top: 0; padding-bottom: var(--s-2); border-top: 0; white-space: normal; }
+.edge-why__text { margin-left: var(--s-1); }
+.edge-why__do { margin-left: var(--s-3); }
 .eyebrow { font-size: 0.72em; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-400); }

@@ -61,6 +61,11 @@ type FleetItem struct {
 	// The OP and JOB line: the jobs the rogers on this unit hold, and the sessions it served.
 	Jobs   []string
 	Served int
+	// AlarmSince is the oldest standing call on this unit: TROUBLE has lasted at least that long.
+	AlarmSince time.Duration
+	// Lines are the rule thresholds in force for this unit by metric, so a meter draws its line
+	// whether or not the unit is over it.
+	Lines map[string]float64
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -104,6 +109,9 @@ func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
 	if it.Dark && !it.LastSeen.IsZero() && now.Sub(it.LastSeen) > since {
 		since = now.Sub(it.LastSeen) // the log began after it went dark; last-seen knows better
 	}
+	if st == edge.StateTrouble && it.AlarmSince > since {
+		since = it.AlarmSince // the call has stood longer than the log has watched
+	}
 	switch st {
 	case edge.StateDark:
 		return "DARK", ash, since
@@ -120,7 +128,7 @@ func (it FleetItem) sinceWords(now time.Time) string {
 	if d <= 0 {
 		return ""
 	}
-	if it.SinceCapped && !(it.Dark && !it.LastSeen.IsZero()) {
+	if it.SinceCapped && !(it.Dark && !it.LastSeen.IsZero()) && it.AlarmSince <= it.Since {
 		return "≥" + edge.Age(d)
 	}
 	return edge.Age(d)
@@ -240,8 +248,18 @@ func (f *Fleet) signOffSpans() []lm.Span {
 	if so.Raised == 0 && so.Cleared == 0 && len(so.DeadAir) == 0 {
 		return nil
 	}
-	out := []lm.Span{span("   ", dim), eyebrow("sign-off", muted), span("  this shift  ", dim),
-		span(fmt.Sprintf("%d raised", so.Raised), ink), span(" · ", dim), span(fmt.Sprintf("%d cleared", so.Cleared), ink)}
+	out := []lm.Span{span("   ", dim), eyebrow("sign-off", muted), span("  this shift  ", dim)}
+	parts := []string{}
+	if so.Raised > 0 {
+		parts = append(parts, fmt.Sprintf("%d raised", so.Raised))
+	}
+	if so.Cleared > 0 {
+		parts = append(parts, fmt.Sprintf("%d cleared", so.Cleared))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "no calls")
+	}
+	out = append(out, span(strings.Join(parts, " · "), ink))
 	if so.Loudest != "" {
 		out = append(out, span(" · ", dim), span(fmt.Sprintf("loudest %s (%d)", so.Loudest, so.LoudestCount), ink))
 	}
@@ -595,11 +613,42 @@ func (f *Fleet) refresh() {
 	if !f.readAt.IsZero() && time.Since(f.readAt) < f.Every {
 		return
 	}
+	first := f.snap.At.IsZero()
 	snap, err := f.Source()
 	f.readAt, f.err = time.Now(), err
 	if err == nil {
 		f.snap = snap
+		if first {
+			f.signOn()
+		}
 	}
+}
+
+// signOn is the greeting when the screen opens: since when this machine has been on air, and to
+// whom - six seconds in the action bar, then gone.
+func (f *Fleet) signOn() {
+	for _, it := range f.snap.Items {
+		if it.Kind != ItemHub || it.Health == nil || it.Health.Readings == nil || it.Health.Readings.UptimeS <= 0 {
+			continue
+		}
+		up := f.snap.At.Add(-time.Duration(it.Health.Readings.UptimeS) * time.Second)
+		msg := "on air since " + up.Format("15:04 Jan 2")
+		if op := f.snap.Self.Op; op != "" {
+			msg += " · good " + partOfDay(f.snap.At) + ", " + op
+		}
+		f.toast, f.toastAt, f.toastErr = msg, time.Now(), false
+		return
+	}
+}
+
+func partOfDay(t time.Time) string {
+	switch h := t.Hour(); {
+	case h < 12:
+		return "morning"
+	case h < 18:
+		return "afternoon"
+	}
+	return "evening"
 }
 
 func (f *Fleet) clamp() {
@@ -643,10 +692,13 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 		alerts += len(it.Alerts)
 	}
 	right := clock(f.snap.At) + " · " + unitsWord(units)
-	if alerts > 0 {
-		right += fmt.Sprintf(" · ▲ %d", alerts)
+	hot := false
+	for _, a := range f.snap.Alarms {
+		if a.Priority() == "HI" && !a.Acked && !a.Shelved {
+			hot = true
+		}
 	}
-	brandBand(fr, rows[0], f.tabs(), f.tab, right, f.frame)
+	brandBand(fr, rows[0], f.tabs(), f.tab, right, alerts, hot, f.frame)
 	switch {
 	case f.err == nil && f.tab == tabGrants:
 		f.drawGrants(fr, rows[1])
@@ -797,8 +849,7 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			l.Spans = append(l.Spans, eye(lv, false, false, len(it.Alerts) > 0, f.frame, i)...)
 			l.Spans = append(l.Spans, span(" ", dim), bold(it.Name, paper), span("   this machine", muted))
 			top = append(top, l)
-			top = append(top, lm.NewLine(span(" ", dim), rail(i, dial), span("    ", dim),
-				span(strings.ToLower(f.snap.Self.Authority)+" · "+f.snap.Self.Prefer, muted)))
+			top = append(top, lm.NewLine(span(" ", dim), rail(i, dial), span("    ", dim), span(strings.ToLower(f.snap.Self.Authority), muted)))
 			l = lm.NewLine(span(" ", dim), rail(i, dial), span("    ", dim))
 			l.Spans = append(l.Spans, meter(lv, true, -1, f.frame, true)...)
 			l.Spans = append(l.Spans, span(" "+sUnit(lv)+"  ", muted))
@@ -817,7 +868,7 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			if i == f.sel {
 				gc = live
 			}
-			top = append(top, lm.NewLine(span(" ", dim), rail(i, dial), span("      "+branch+" ", dim), bold(g+" ", gc),
+			top = append(top, lm.NewLine(span(" ", dim), rail(i, dim), span("      "+branch+" ", dim), bold(g+" ", gc),
 				span(pad(elide(it.Name, nameW-2), nameW-2), nameC(i, it.Dark)), span(elide(it.rogerWords(), wordsW), muted)))
 		case ItemMember:
 			if !seenMember {
@@ -843,7 +894,11 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			top = append(top, l)
 		case ItemCandidate:
 			if len(bench) == 0 {
-				bench = append(bench, lm.NewLine(span("   ", dim), eyebrow("on the bench", glow),
+				bc := glow // the bench wakes when a device asks: it breathes amber
+				if motion && (f.frame/6)%2 == 1 {
+					bc = dim
+				}
+				bench = append(bench, lm.NewLine(span("   ", dim), eyebrow("on the bench", bc),
 					span(fmt.Sprintf("  %d asking to be adopted", cands), dim)), lm.NewLine())
 			}
 			l := lm.NewLine(span(" ", dim), rail(i, glow), span(" ", dim))
@@ -867,9 +922,10 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 		}
 		bench = append(bench, lm.NewLine(span("   or scan the LAN      ", dim), span("roger edge scan", ink)))
 	}
+	// A tall rack pins the bench to the floor, where a rack's loose units sit; a short rack lets
+	// it follow after two rows of air - the remaining air is then honest, not a hole.
 	benchH := uint16(len(bench) + 1)
-	if benchH+uint16(len(top))+2 > area.Height {
-		// Not enough air to pin the bench: it follows the rack.
+	if uint16(len(top)) < area.Height/2 || benchH+uint16(len(top))+2 > area.Height {
 		all := append(append(top, lm.NewLine(), lm.NewLine()), bench...)
 		fr.RenderWidget(lm.NewText(all...).WithWrap(false), area)
 		return len(all)
@@ -977,21 +1033,24 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 	// Instruments, where the unit reports them.
 	if h := it.Health; h != nil && h.Readings != nil {
 		r := h.Readings
-		if r.CPUTempC != nil {
-			from := -1.0
-			if th, ok := thresholdIn(it.Alerts, "cpu_temp"); ok {
-				from = th / 110
+		lineFor := func(metric string, scale float64) float64 {
+			if th, ok := it.Lines[metric]; ok {
+				return th / scale
 			}
+			if th, ok := thresholdIn(it.Alerts, metric); ok {
+				return th / scale
+			}
+			return -1
+		}
+		if r.CPUTempC != nil {
+			from := lineFor("cpu_temp", 110)
 			row("temp", append(append(meterN(*r.CPUTempC/110, from, 0, false, meterCells), span(fmt.Sprintf(" %.1f°C", *r.CPUTempC), ink)), alarm(it.Alerts, "cpu_temp")...)...)
 		}
 		if l, ok := h.MemoryLevel(); ok {
-			row("memory", append(meterN(l, -1, 0, false, meterCells), span(fmt.Sprintf(" %s of %s GB", fmtGB(r.RAMUsedGB), fmtGB(r.RAMTotalGB)), ink))...)
+			row("memory", append(meterN(l, lineFor("memory", 100), 0, false, meterCells), span(fmt.Sprintf(" %s of %s GB", fmtGB(r.RAMUsedGB), fmtGB(r.RAMTotalGB)), ink))...)
 		}
 		if l, ok := h.DiskLevel(); ok {
-			from := -1.0
-			if th, ok := thresholdIn(it.Alerts, "disk"); ok {
-				from = th / 100
-			}
+			from := lineFor("disk", 100)
 			row("disk", append(append(meterN(l, from, 0, false, meterCells), span(fmt.Sprintf(" %.0f%%", 100*l), ink)), alarm(it.Alerts, "disk")...)...)
 		}
 	}
@@ -1021,14 +1080,11 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 	}
 	if it.Kind == ItemHub {
 		air()
-		if len(f.snap.Self.AuthorityLines) > 0 {
-			prose(f.snap.Self.AuthorityLines[0], muted)
-		}
-		if f.snap.Self.Discovery != "" {
-			prose(f.snap.Self.Discovery, muted)
+		if d := f.snap.Self.Discovery; d != "" {
+			first, _, _ := strings.Cut(d, " · ") // the one clause that matters here
+			prose(first, muted)
 		}
 		if f.snap.Self.Join != "" {
-			air()
 			prose("another machine joins with  "+f.snap.Self.Join, muted)
 		}
 	}
@@ -1251,7 +1307,7 @@ func logStrip(log []edge.UnitState, w int) []lm.Span {
 		case edge.StateDark:
 			r, c = '▒', ash
 		case edge.StateTrouble:
-			r, c = '▲', live
+			r, c = '▁', live // red air: the hour reads red without thirty-four alarms
 		}
 		if !started || c != cur {
 			flush()
@@ -1387,7 +1443,6 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 	if perRow < 1 {
 		perRow = 1
 	}
-	rows := lm.SplitVertical(area, lm.Fill(), lm.Fixed(3))
 	on, trouble, dark := 0, 0, 0
 	var lines []lm.Line
 	lines = append(lines, lm.NewLine())
@@ -1418,22 +1473,32 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 				pctS = fmt.Sprintf("%d%%", pct)
 			}
 			row0 := append([]lm.Span{span(" ", dim), bold("▌", railC), span(" ", dim)}, eye(carrierLevel(it.heard(now), it.Dark, now), it.Dark, it.Asking, len(it.Alerts) > 0, f.frame, ti)...)
-			row0 = append(row0, span(" ", dim), bold(pad(elide(it.Name, 26), 27), paper))
+			nameC := paper
+			if word == "DARK" {
+				nameC = ash
+			}
+			row0 = append(row0, span(" ", dim), bold(pad(elide(it.Name, 26), 27), nameC))
 			row1 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), bold(pad(word, 10), c), span(pad(it.sinceWords(now), 19), c)}
 			row2 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), eyebrow("airtime ", muted), bold(pad(pctS, 5), ink)}
 			row2 = append(row2, logStrip(it.Log, 16)...)
 			row2 = append(row2, span(" ", dim))
 			row3 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim)}
+			row4 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim)}
 			switch {
 			case len(it.Alerts) > 0:
 				row3 = append(row3, span(pad(elide("▲ "+it.Alerts[0], 28), 29), live))
+				if len(it.Jobs) > 0 {
+					row4 = append(row4, eyebrow("job ", muted), span(pad(elide(it.Jobs[0], 24), 25), ink))
+				} else {
+					row4 = append(row4, span(pad(elide(tileWhat(it), 28), 29), muted))
+				}
 			case len(it.Jobs) > 0:
 				row3 = append(row3, eyebrow("job ", muted), span(pad(elide(it.Jobs[0], 24), 25), ink))
+				row4 = append(row4, tileCrew(it)...)
 			default:
 				row3 = append(row3, span(pad(elide(tileWhat(it), 28), 29), muted))
+				row4 = append(row4, tileCrew(it)...)
 			}
-			row4 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim)}
-			row4 = append(row4, tileCrew(it, f.snap.Self.Op)...)
 			for r, sp := range [][]lm.Span{row0, row1, row2, row3, row4, {span(pad("", tileW), dim)}} {
 				tile[r] = append(tile[r], sp...)
 				tile[r] = append(tile[r], span(" ", dim))
@@ -1443,15 +1508,23 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 			lines = append(lines, lm.NewLine(tile[r]...))
 		}
 	}
-	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), rows[0])
-	foot := lm.NewLine(span("   ", dim), eyebrow("the rack", muted), span(fmt.Sprintf("  %d units   ", len(units)), dim),
-		bold(fmt.Sprintf("%d on air", on), signal), span("   ", dim), bold(fmt.Sprintf("%d trouble", trouble), live), span("   ", dim),
-		span(fmt.Sprintf("%d dark", dark), ash))
-	footer := []lm.Line{lm.NewLine(), foot}
-	if so := f.signOffSpans(); so != nil {
-		footer = append(footer, lm.NewLine(so...))
+	count := func(n int, word string, c lm.Color) lm.Span {
+		if n == 0 {
+			return span(fmt.Sprintf("%d %s", n, word), dim) // a zero is quiet, never a bold green nothing
+		}
+		return bold(fmt.Sprintf("%d %s", n, word), c)
 	}
-	fr.RenderWidget(lm.NewText(footer...).WithWrap(false), rows[1])
+	foot := lm.NewLine(span("   ", dim), eyebrow("the rack", muted), span(fmt.Sprintf("  %d units", len(units)), dim))
+	if f.snap.Self.Op != "" {
+		foot.Spans = append(foot.Spans, span(" · ", dim), eyebrow("op ", muted), span(f.snap.Self.Op, ink))
+	}
+	foot.Spans = append(foot.Spans, span("   ", dim), count(on, "on air", signal), span("   ", dim), count(trouble, "trouble", live),
+		span("   ", dim), count(dark, "dark", ash))
+	lines = append(lines, lm.NewLine(), foot) // the foot follows the tiles; the air below is honest
+	if so := f.signOffSpans(); so != nil {
+		lines = append(lines, lm.NewLine(so...))
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 }
 
 // atAuthority words where a device claims: the port when one is known, else the plain fact that
@@ -1474,23 +1547,11 @@ func tileWhat(it FleetItem) string {
 	return kindLabel(it.NodeKind)
 }
 
-// tileCrew is the tile's OP and JOB line, fitted to the tile.
-func tileCrew(it FleetItem, op string) []lm.Span {
-	var out []lm.Span
-	used := 0
-	add := func(k, v string, c lm.Color) {
-		if v == "" || used+len(k)+len([]rune(v))+1 > 29 {
-			return
-		}
-		out = append(out, eyebrow(k, muted), span(v+" ", c))
-		used += len(k) + len([]rune(v)) + 1
-	}
-	add("op ", op, ink)
+// tileCrew is the tile's last line: what the unit served (the operator is named once, in the foot).
+func tileCrew(it FleetItem) []lm.Span {
+	s := ""
 	if it.Served > 0 {
-		add("", fmt.Sprintf("%d sessions", it.Served), muted)
+		s = fmt.Sprintf("%d session%s served", it.Served, plural(it.Served))
 	}
-	if used < 29 {
-		out = append(out, span(pad("", 29-used), dim))
-	}
-	return out
+	return []lm.Span{span(pad(s, 29), muted)}
 }

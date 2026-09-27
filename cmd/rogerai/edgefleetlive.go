@@ -181,8 +181,31 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	if err != nil {
 		return fleetview.FleetSnapshot{}, err
 	}
+	// An offline call has stood since the unit was last heard, whatever the judging clock says.
+	for i := range calls {
+		if calls[i].Metric == edge.MetricOffline {
+			for _, n := range nodes {
+				if n.ID == calls[i].NodeID && n.LastSeen > 0 && now.Sub(time.Unix(n.LastSeen, 0)) > calls[i].Since {
+					calls[i].Since = now.Sub(time.Unix(n.LastSeen, 0))
+				}
+			}
+		}
+	}
 	snap.Alarms = edgeAlarmLines(calls, names)
 	snap.Rate = rate
+	rules, _ := edgeAlertLog().Rules()
+	for i := range snap.Items {
+		it := &snap.Items[i]
+		if it.Kind != fleetview.ItemHub && it.Kind != fleetview.ItemMember {
+			continue
+		}
+		for _, c := range calls {
+			if c.NodeID == it.ID && c.Since > it.AlarmSince {
+				it.AlarmSince = c.Since
+			}
+		}
+		it.Lines = edgeLinesFor(rules, it.ID)
+	}
 	{
 		snap.SignOff = fleetview.SignOffLine{Raised: r.Raised, Cleared: r.Cleared, Loudest: r.Loudest, LoudestCount: r.LoudestCount}
 		for id, d := range r.DeadAir {
@@ -300,4 +323,33 @@ func edgeAuthorityWord(s edge.SelfStatus) string {
 		return "LOCAL"
 	}
 	return "CORE"
+}
+
+// edgeLinesFor is the threshold in force for a unit on each metric: its own rule when it has one,
+// else the fleet's, skipping what is off - so a meter shows its line before anything is over it.
+func edgeLinesFor(rules edge.RuleSet, nodeID string) map[string]float64 {
+	out := map[string]float64{}
+	for _, m := range edge.Metrics {
+		var fleet *edge.Rule
+		var own *edge.Rule
+		for i := range rules {
+			r := &rules[i]
+			if r.Metric != m || r.Off {
+				continue
+			}
+			switch {
+			case r.Scope == nodeID:
+				own = r
+			case r.Scope == "":
+				fleet = r
+			}
+		}
+		switch {
+		case own != nil:
+			out[string(m)] = own.Value
+		case fleet != nil:
+			out[string(m)] = fleet.Value
+		}
+	}
+	return out
 }
