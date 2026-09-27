@@ -611,3 +611,61 @@ func (l AlertLog) Rate(now time.Time, window time.Duration) (int, error) {
 	}
 	return n, nil
 }
+
+// The SIGN-OFF report: the shift in one line - calls raised and cleared, the loudest unit, each
+// unit's dead air - from the history and the state log.
+type SignOffReport struct {
+	Raised, Cleared int
+	Loudest         string // the unit that raised the most calls
+	LoudestCount    int
+	DeadAir         map[string]time.Duration // node id -> minutes dark this shift
+}
+
+// SignOff sums the window ending now.
+func (l AlertLog) SignOff(now time.Time, window time.Duration) (SignOffReport, error) {
+	r := SignOffReport{DeadAir: map[string]time.Duration{}}
+	hist, err := l.Recent(1 << 20)
+	if err != nil {
+		return r, err
+	}
+	since := now.Add(-window)
+	byNode := map[string]int{}
+	names := map[string]string{}
+	for _, a := range hist {
+		if a.At.Before(since) || a.At.After(now) {
+			continue
+		}
+		if a.Firing {
+			r.Raised++
+			byNode[a.NodeID]++
+			names[a.NodeID] = a.Node
+		} else {
+			r.Cleared++
+		}
+	}
+	for id, n := range byNode {
+		if n > r.LoudestCount || (n == r.LoudestCount && names[id] < r.Loudest) {
+			r.Loudest, r.LoudestCount = names[id], n
+		}
+	}
+	samples, err := l.States(since)
+	if err != nil {
+		return r, err
+	}
+	// Each sample stands for the minutes until the next one (a minute at most, so a gap in
+	// judging is not counted as dead air nobody saw).
+	for i, s := range samples {
+		span := time.Minute
+		if i+1 < len(samples) {
+			if d := time.Duration(samples[i+1].At-s.At) * time.Second; d < span {
+				span = d
+			}
+		}
+		for id, st := range s.States {
+			if st == StateDark {
+				r.DeadAir[id] += span
+			}
+		}
+	}
+	return r, nil
+}

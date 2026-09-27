@@ -425,3 +425,17 @@ func TestFleetScreenBindsJobsAndTellsStandByStaleAndPileUp(t *testing.T) {
 		t.Fatalf("standBy = %v", standBy)
 	}
 }
+
+// The SIGN-OFF line at the foot of ANDON and TROUBLE: the shift in one line.
+func TestFleetScreenSignOffLine(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.SignOff = fleetview.SignOffLine{Raised: 4, Cleared: 2, Loudest: "RogGentooEdged", LoudestCount: 3,
+		DeadAir: []fleetview.DeadAir{{Node: "gentle-ibex-14", For: 8 * time.Hour}}}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("2")
+	must(t, page.Screen(), "SIGN-OFF", "4 raised", "2 cleared", "loudest RogGentooEdged", "dead air", "gentle-ibex-14 8h")
+	page.Press("3")
+	must(t, page.Screen(), "SIGN-OFF", "4 raised")
+}

@@ -192,7 +192,43 @@ type FleetSnapshot struct {
 	Sessions []SessionLine
 	Alarms   []AlarmLine
 	Rate     int // calls fired in the last ten minutes; ten is a PILE-UP
+	SignOff  SignOffLine
 	At       time.Time
+}
+
+// SignOffLine is the shift in one line: raised, cleared, the loudest unit, who was dark and how long.
+type SignOffLine struct {
+	Raised, Cleared int
+	Loudest         string
+	LoudestCount    int
+	DeadAir         []DeadAir
+}
+
+// DeadAir is one unit's dark time this shift.
+type DeadAir struct {
+	Node string
+	For  time.Duration
+}
+
+// signOffSpans words the shift; empty when nothing happened.
+func (f *Fleet) signOffSpans() []lm.Span {
+	so := f.snap.SignOff
+	if so.Raised == 0 && so.Cleared == 0 && len(so.DeadAir) == 0 {
+		return nil
+	}
+	out := []lm.Span{span("   ", dim), eyebrow("sign-off", muted), span("  this shift  ", dim),
+		span(fmt.Sprintf("%d raised", so.Raised), ink), span(" · ", dim), span(fmt.Sprintf("%d cleared", so.Cleared), ink)}
+	if so.Loudest != "" {
+		out = append(out, span(" · ", dim), span(fmt.Sprintf("loudest %s (%d)", so.Loudest, so.LoudestCount), ink))
+	}
+	if len(so.DeadAir) > 0 {
+		parts := make([]string, 0, len(so.DeadAir))
+		for _, d := range so.DeadAir {
+			parts = append(parts, d.Node+" "+edge.Age(d.For))
+		}
+		out = append(out, span(" · ", dim), span("dead air ", ash), span(strings.Join(parts, ", "), ash))
+	}
+	return out
 }
 
 // FleetSource reads a snapshot.
@@ -1263,6 +1299,9 @@ func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
 			lines = append(lines, lm.NewLine(span("     ", dim), eyebrow(pad("do", 16), muted), span(do, ink)), lm.NewLine())
 		}
 	}
+	if so := f.signOffSpans(); so != nil {
+		lines = append(lines, lm.NewLine(), lm.NewLine(so...))
+	}
 	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 }
 
@@ -1301,7 +1340,7 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 	if perRow < 1 {
 		perRow = 1
 	}
-	rows := lm.SplitVertical(area, lm.Fill(), lm.Fixed(2))
+	rows := lm.SplitVertical(area, lm.Fill(), lm.Fixed(3))
 	on, trouble, dark := 0, 0, 0
 	var lines []lm.Line
 	lines = append(lines, lm.NewLine())
@@ -1367,5 +1406,9 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 	foot := lm.NewLine(span("   ", dim), eyebrow("the rack", muted), span(fmt.Sprintf("  %d units   ", len(units)), dim),
 		bold(fmt.Sprintf("%d on air", on), signal), span("   ", dim), bold(fmt.Sprintf("%d trouble", trouble), live), span("   ", dim),
 		span(fmt.Sprintf("%d dark", dark), ash))
-	fr.RenderWidget(lm.NewText(lm.NewLine(), foot).WithWrap(false), rows[1])
+	footer := []lm.Line{lm.NewLine(), foot}
+	if so := f.signOffSpans(); so != nil {
+		footer = append(footer, lm.NewLine(so...))
+	}
+	fr.RenderWidget(lm.NewText(footer...).WithWrap(false), rows[1])
 }

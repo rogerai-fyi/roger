@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -165,6 +166,17 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		return fleetview.FleetSnapshot{}, err
 	}
 	snap.Rate, _ = edgeAlertLog().Rate(now, 10*time.Minute)
+	if r, err := edgeAlertLog().SignOff(now, 8*time.Hour); err == nil {
+		snap.SignOff = fleetview.SignOffLine{Raised: r.Raised, Cleared: r.Cleared, Loudest: r.Loudest, LoudestCount: r.LoudestCount}
+		for id, d := range r.DeadAir {
+			name := names[id]
+			if name == "" {
+				name = edgeShortID(id)
+			}
+			snap.SignOff.DeadAir = append(snap.SignOff.DeadAir, fleetview.DeadAir{Node: name, For: d})
+		}
+		sort.Slice(snap.SignOff.DeadAir, func(i, j int) bool { return snap.SignOff.DeadAir[i].For > snap.SignOff.DeadAir[j].For })
+	}
 	snap.Self.AgentActive = edgeIsAgentRole(loadConfig())
 	return snap, nil
 }

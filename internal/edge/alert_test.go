@@ -398,3 +398,29 @@ func TestStandByStaleAndPileUp(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, rate, 10)
 }
+
+// The SIGN-OFF report: what this shift held - calls raised and cleared, the loudest unit, and each
+// unit's dead air - from the history and the state log, so an owner reads the shift in one line.
+func TestSignOffReportSumsTheShift(t *testing.T) {
+	dir := t.TempDir()
+	l := edge.AlertLog{Dir: dir}
+	t0 := time.Date(2026, 9, 26, 6, 0, 0, 0, time.UTC)
+	dark := edge.NodeHealth{ID: "n_q", Name: "quiet", Presence: string(edge.PresenceDark), Dark: true, DarkFor: 10 * time.Minute, LastHeard: t0.Add(-10 * time.Minute)}
+	for i := 0; i < 3; i++ { // pi runs hot three times this shift, cools twice
+		at := t0.Add(time.Duration(i) * time.Hour)
+		_, _, _ = l.Judge([]edge.NodeHealth{healthOf("pi", at, 99, 10), dark}, at)
+		if i < 2 {
+			_, _, _ = l.Judge([]edge.NodeHealth{healthOf("pi", at, 70, 10), dark}, at.Add(20*time.Minute))
+		}
+	}
+	r, err := l.SignOff(t0.Add(3*time.Hour), 8*time.Hour)
+	require.NoError(t, err)
+	require.Equal(t, 4, r.Raised, "three hot calls and the dark call")
+	require.Equal(t, 2, r.Cleared)
+	require.Equal(t, "pi", r.Loudest)
+	require.Equal(t, 3, r.LoudestCount)
+	// Five judgements this shift, each a minute of dead air at most: a gap nobody judged is not
+	// counted as dark - the report says what was seen, never more.
+	require.InDelta(t, 5, r.DeadAir["n_q"].Minutes(), 0.1, "only the judged minutes count as dead air")
+	require.Zero(t, r.DeadAir["n_pi"], "hot is not dead air")
+}
