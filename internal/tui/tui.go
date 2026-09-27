@@ -112,6 +112,11 @@ type Hooks struct {
 	// EdgeAlerts is the alert rules firing right now, by node id, each as its rule wording
 	// ("cpu_temp > 85") - the fleet surface of health.feature §5. Nil = no alerting on this build.
 	EdgeAlerts func() map[string][]string
+	// EdgeFloor is the floor's raw facts for the console (the state log, the standing calls, the
+	// rate, the sign-off); EdgeRoger acknowledges a call, EdgeStandBy quiets one for a time.
+	EdgeFloor   func(now time.Time) (samples []edge.StateSample, calls []edge.TroubleCall, rate int, so edge.SignOffReport)
+	EdgeRoger   func(ruleID, nodeID string) error
+	EdgeStandBy func(ruleID, nodeID string, d time.Duration) error
 	// EdgeHealthLive says this binary can open the live health screen (`roger edge health --live`);
 	// [3] then offers Health (h), run as a child process like a guest operator.
 	EdgeHealthLive  bool

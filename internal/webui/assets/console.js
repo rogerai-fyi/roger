@@ -1678,6 +1678,7 @@
     edgeRenderAdopting(d);
     edgeRenderSessions(d);
     edgeRenderGrants(d);
+    edgeRenderFloor(d);
     edgeCanManage = !!d.manage;
     edgeRenderSelfControls(d);
     edgeRenderDetail(d);
@@ -1760,12 +1761,16 @@
     var svg = $("edge-graph");
     if (!svg) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    edgePos = edgeLayout(d.nodes);
+    // This machine heartbeats into its own fleet row (its instances and alerts ride on it); the
+    // graph draws it ONCE, as the hub at the centre, never again as a member node.
+    var selfRow = null;
+    var others = (d.nodes || []).filter(function (n) { if (n.name === d.self) { selfRow = n; return false; } return true; });
+    edgePos = edgeLayout(others);
     var byName = {};
-    d.nodes.forEach(function (n) { byName[n.name] = n; });
+    others.forEach(function (n) { byName[n.name] = n; });
 
     // links first, so nodes paint over them
-    d.nodes.forEach(function (n) {
+    others.forEach(function (n) {
       var p = edgePos[n.id];
       if (!p) return;
       var to = [EDGE_CX, EDGE_CY];
@@ -1779,9 +1784,15 @@
     var st = svgEl("text", { x: EDGE_CX, y: EDGE_CY + 24, "text-anchor": "middle" });
     st.textContent = edgeClip(d.self || "this machine", 16);
     self.appendChild(st);
+    if (selfRow && selfRow.alerts && selfRow.alerts.length) {
+      self.setAttribute("class", "edge-node edge-self edge-node--alert");
+      var sm = svgEl("text", { x: EDGE_CX, y: EDGE_CY + 38, "text-anchor": "middle", "class": "edge-marks" });
+      sm.textContent = "\u26a0 " + selfRow.alerts.length;
+      self.appendChild(sm);
+    }
     svg.appendChild(self);
 
-    d.nodes.forEach(function (n) {
+    others.forEach(function (n) {
       var p = edgePos[n.id];
       if (!p) return;
       var alerts = n.alerts || [];
@@ -1936,6 +1947,124 @@
       tr.appendChild(td);
       body.appendChild(tr);
     });
+  }
+
+  // edgeRenderFloor draws the floor: the andon tiles (one word, one colour, one number per unit), the
+  // standing trouble calls with why/do and roger / stand by, and the sign-off line - the console's
+  // mirror of the TUI's ANDON and TROUBLE. Shown only when the host wired the floor.
+  function edgeRenderFloor(d) {
+    var wrap = $("edge-floor-wrap");
+    if (!wrap) return;
+    if (!d.floor) { show(wrap, false); return; }
+    show(wrap, true);
+    var f = d.floor;
+    var andon = $("edge-andon");
+    if (andon) {
+      andon.innerHTML = "";
+      var on = 0, trouble = 0, dark = 0;
+      (f.units || []).forEach(function (u) {
+        var cls = u.state === "TROUBLE" ? "trouble" : u.state === "DARK" ? "dark" : "air";
+        if (cls === "air") on++; else if (cls === "trouble") trouble++; else dark++;
+        var tile = el("div", "edge-tile edge-tile--" + cls);
+        tile.appendChild(el("div", "edge-tile__name mono", u.name));
+        var since = u.since_s > 0 ? edgeAge(u.since_s) : "";
+        if (u.capped && since) since = "\u2265" + since;
+        tile.appendChild(el("div", "edge-tile__state mono", u.state + (since ? "  " + since : "")));
+        var air = el("div", "edge-tile__air mono small");
+        air.appendChild(el("span", "eyebrow", "AIRTIME "));
+        air.appendChild(el("span", null, u.no_log ? "\u2014" : u.airtime + "%"));
+        air.appendChild(edgeLogStrip(u.log || []));
+        tile.appendChild(air);
+        var what = (u.alerts && u.alerts.length) ? "\u25b2 " + u.alerts[0] : (u.kind || "");
+        tile.appendChild(el("div", "edge-tile__what mono small" + ((u.alerts && u.alerts.length) ? " live" : " muted"), what));
+        andon.appendChild(tile);
+      });
+      var foot = $("edge-andon-foot");
+      if (foot) foot.textContent = "THE RACK  " + (f.units || []).length + " units   " + on + " on air   " + trouble + " trouble   " + dark + " dark";
+    }
+    var head = $("edge-trouble-head");
+    if (head) {
+      var calls = f.calls || [];
+      var txt = calls.length + " standing.";
+      if (f.rate >= 10) txt += "  PILE-UP: " + f.rate + " calls in 10 min."; else if (f.rate > 0) txt += "  " + f.rate + " in the last 10 min.";
+      head.textContent = txt + " Roger acknowledges; stand by quiets a call for an hour.";
+    }
+    var body = $("edge-trouble");
+    if (body) {
+      body.innerHTML = "";
+      var calls2 = f.calls || [];
+      if (!calls2.length) {
+        var er = el("tr", "empty-row"); var ec = el("td", null, "All clear - nothing is over its line."); ec.colSpan = 7;
+        er.appendChild(ec); body.appendChild(er);
+      }
+      calls2.forEach(function (c) {
+        var tr = el("tr", (c.acked || c.shelved) ? "muted" : null);
+        tr.appendChild(el("td", "mono small" + ((c.acked || c.shelved) ? "" : (c.priority === "HI" ? " live" : "")), "\u25b2 " + c.priority));
+        tr.appendChild(el("td", "mono small", edgeAge(c.since_s) + (c.stale ? "  STALE" : "")));
+        tr.appendChild(el("td", "mono small", c.node));
+        tr.appendChild(el("td", "mono small", c.when));
+        tr.appendChild(el("td", "mono small", c.value));
+        var ack = c.shelved ? "STAND BY until " + new Date(c.until_at * 1000).toTimeString().slice(0, 5) : (c.acked ? "ROGER " + (c.ack_by || "") : "\u2014");
+        tr.appendChild(el("td", "mono small", ack));
+        var td = el("td");
+        if (d.floor_manage) {
+          if (!c.acked) {
+            var kb = el("button", "btn small ghost", "roger"); kb.type = "button";
+            kb.addEventListener("click", function () { edgePostFloor("/api/edge/roger", { rule: c.rule, node: c.node_id }); });
+            td.appendChild(kb);
+          }
+          if (!c.shelved) {
+            var sb = el("button", "btn small ghost", "stand by 1h"); sb.type = "button";
+            sb.addEventListener("click", function () { edgePostFloor("/api/edge/standby", { rule: c.rule, node: c.node_id, hours: 1 }); });
+            td.appendChild(sb);
+          }
+        }
+        tr.appendChild(td);
+        body.appendChild(tr);
+        var why = el("tr", "edge-why muted small");
+        var wc = el("td", null); wc.colSpan = 7;
+        wc.appendChild(el("span", "eyebrow", "WHY IT MATTERS "));
+        wc.appendChild(document.createTextNode(c.why + "   "));
+        wc.appendChild(el("span", "eyebrow", "DO "));
+        wc.appendChild(document.createTextNode(c.do));
+        why.appendChild(wc);
+        body.appendChild(why);
+      });
+    }
+    var so = $("edge-signoff");
+    if (so && f.sign_off) {
+      var s = f.sign_off;
+      var line = "SIGN-OFF  this shift  " + s.raised + " raised \u00b7 " + s.cleared + " cleared";
+      if (s.loudest) line += " \u00b7 loudest " + s.loudest + " (" + s.loudest_count + ")";
+      if (s.dead_air && s.dead_air.length) line += " \u00b7 dead air " + s.dead_air.map(function (x) { return x.node + " " + edgeAge(x.for_s); }).join(", ");
+      so.textContent = (s.raised || s.cleared || (s.dead_air && s.dead_air.length)) ? line : "";
+    }
+  }
+
+  // edgeLogStrip draws a unit's last hour: \u2581 on air, \u2592 dark, \u25b2 trouble, \u00b7 not judged.
+  function edgeLogStrip(log) {
+    var span = el("span", "edge-log mono");
+    var last = log.slice(-20); // twenty minutes fit a tile; the TUI's strip is the full hour
+    last.forEach(function (st) {
+      var ch = "\u00b7", cls = "dim";
+      if (st === "air") { ch = "\u2581"; cls = "signal"; }
+      else if (st === "dark") { ch = "\u2592"; cls = "dark"; }
+      else if (st === "trouble") { ch = "\u25b2"; cls = "live"; }
+      span.appendChild(el("span", "edge-log__" + cls, ch));
+    });
+    return span;
+  }
+
+  function edgeAge(s) {
+    s = Math.floor(s || 0);
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    if (s < 86400) return Math.floor(s / 3600) + "h";
+    return Math.floor(s / 86400) + "d";
+  }
+
+  function edgePostFloor(path, body) {
+    apiPost(path, body).then(function (d) { edgeRender(d); }).catch(function (e) { toast(e.message, "err"); });
   }
 
   // edgeNodeName maps a node id to its friendly name from the current snapshot, for readable grant rows.

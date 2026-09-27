@@ -1464,3 +1464,25 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 }
 .edge-res-fill { height: 100%; background: var(--ink-700); border-radius: var(--r-pill); }
 .edge-res-fig { font-size: var(--t-xs); color: var(--ink-500); white-space: nowrap; }
+
+/* The floor: andon tiles and the trouble list (the console's ANDON and TROUBLE). One colour per
+   tile, red only for trouble; dark is dim, not coloured. */
+.edge-floor-wrap { margin-top: var(--s-6); }
+.edge-andon { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); margin: var(--s-3) 0; }
+.edge-tile { border-left: 3px solid var(--ink-300); padding: var(--s-2) var(--s-3); background: var(--paper-2); }
+.edge-tile--air { border-left-color: var(--ink-500); }
+.edge-tile--trouble { border-left-color: var(--live); }
+.edge-tile--dark { border-left-color: var(--ink-300); opacity: 0.7; }
+.edge-tile__name { font-weight: 600; color: var(--ink-900); }
+.edge-tile__state { margin-top: 2px; color: var(--ink-700); }
+.edge-tile--trouble .edge-tile__state { color: var(--live-text); font-weight: 600; }
+.edge-tile--dark .edge-tile__state { color: var(--ink-500); }
+.edge-tile__air { margin-top: 4px; color: var(--ink-500); white-space: nowrap; overflow: hidden; }
+.edge-tile__what { margin-top: 2px; }
+.edge-log { margin-left: 6px; letter-spacing: 0; }
+.edge-log__signal { color: var(--ink-500); }
+.edge-log__dark { color: var(--ink-300); }
+.edge-log__live { color: var(--live-text); }
+.edge-log__dim { color: var(--ink-300); }
+.edge-why td { padding-top: 0; padding-bottom: var(--s-2); border-top: 0; white-space: normal; }
+.eyebrow { font-size: 0.72em; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-400); }

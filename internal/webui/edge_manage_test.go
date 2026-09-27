@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
@@ -421,5 +422,100 @@ func TestConsoleSnapshotCarriesFiringAlerts(t *testing.T) {
 	}
 	if len(snap.Nodes) != 1 || len(snap.Nodes[0].Alerts) != 1 || snap.Nodes[0].Alerts[0] != "disk > 75" {
 		t.Fatalf("nodes = %+v, want nas carrying its firing rule", snap.Nodes)
+	}
+}
+
+// The floor on the console, the same facts the TUI's ANDON and TROUBLE show: each unit's state
+// in words with time in state, its airtime and log strip; the standing trouble calls with why/do;
+// the pile-up rate and the sign-off line. Roger and stand by act through the host, token-gated,
+// and are honestly absent when unwired.
+func TestConsoleSnapshotCarriesTheFloorAndActsOnCalls(t *testing.T) {
+	now := time.Unix(1790000000, 0)
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	if _, err := fleet.Enroll(store.EdgeNode{ID: "n_nas", Name: "nas", Kind: "host", Presence: string(edge.PresenceVerified), LastSeen: now.Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.Enroll(store.EdgeNode{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile", Presence: string(edge.PresenceDark), LastSeen: now.Add(-26 * time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	var samples []edge.StateSample
+	for i := 30; i > 0; i-- {
+		st := edge.StateAir
+		if i <= 6 {
+			st = edge.StateTrouble
+		}
+		samples = append(samples, edge.StateSample{At: now.Add(-time.Duration(i) * time.Minute).Unix(),
+			States: map[string]edge.UnitState{"n_nas": st, "n_ibex": edge.StateDark}})
+	}
+	var rogered, stoodBy []string
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Self: "workshop", Fleet: fleet, Now: func() time.Time { return now },
+		Alerts: func() map[string][]string {
+			return map[string][]string{"n_nas": {"disk > 90"}, "n_ibex": {"offline > 5"}}
+		},
+		Floor: func(at time.Time) EdgeFloor {
+			return EdgeFloor{Samples: samples, Rate: 2,
+				Calls: []edge.TroubleCall{
+					{RuleID: "disk", NodeID: "n_nas", Node: "nas", Metric: edge.MetricDisk, When: "disk > 90", Value: 92, Since: 6 * time.Minute},
+					{RuleID: "offline", NodeID: "n_ibex", Node: "gentle-ibex-14", Metric: edge.MetricOffline, When: "offline > 5", Value: 1560, Since: 26 * time.Hour, Acked: true, AckBy: "luis"},
+				},
+				SignOff: edge.SignOffReport{Raised: 3, Cleared: 1, Loudest: "nas", LoudestCount: 2, DeadAir: map[string]time.Duration{"n_ibex": 8 * time.Hour}}}
+		},
+		Roger: func(ruleID, nodeID string) error { rogered = append(rogered, ruleID+"@"+nodeID); return nil },
+		StandBy: func(ruleID, nodeID string, d time.Duration) error {
+			stoodBy = append(stoodBy, ruleID+"@"+nodeID+" "+d.String())
+			return nil
+		},
+	}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/api/edge?t=" + s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var snap edgeSnap
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		t.Fatal(err)
+	}
+	if snap.Floor == nil || !snap.FloorManage {
+		t.Fatalf("the floor and its actions should be on the snapshot: %+v", snap.Floor)
+	}
+	units := map[string]edgeUnitJSON{}
+	for _, u := range snap.Floor.Units {
+		units[u.ID] = u
+	}
+	if u := units["n_nas"]; u.State != "TROUBLE" || u.SinceS < 5*60 || u.Airtime != 100 || len(u.Log) != 60 || u.Log[59] != "trouble" {
+		t.Fatalf("nas = %+v", u)
+	}
+	if u := units["n_ibex"]; u.State != "DARK" || u.SinceS < 25*3600 || u.Airtime != 0 {
+		t.Fatalf("ibex = %+v (dark since its last-seen, airtime 0)", u)
+	}
+	if len(snap.Floor.Calls) != 2 || snap.Floor.Calls[0].Priority != "HI" || snap.Floor.Calls[0].Why == "" || snap.Floor.Calls[0].Do == "" {
+		t.Fatalf("calls = %+v (priority first, each with why and do)", snap.Floor.Calls)
+	}
+	if snap.Floor.Calls[1].AckBy != "luis" || snap.Floor.Rate != 2 || snap.Floor.SignOff.Raised != 3 || snap.Floor.SignOff.DeadAir[0].Node != "gentle-ibex-14" {
+		t.Fatalf("floor = %+v", snap.Floor)
+	}
+
+	r2 := postJSONTok(t, srv, s, "/api/edge/roger", `{"rule":"disk","node":"n_nas"}`)
+	if r2.StatusCode != http.StatusOK || len(rogered) != 1 || rogered[0] != "disk@n_nas" {
+		t.Fatalf("roger: %d %v", r2.StatusCode, rogered)
+	}
+	r3 := postJSONTok(t, srv, s, "/api/edge/standby", `{"rule":"disk","node":"n_nas","hours":1}`)
+	if r3.StatusCode != http.StatusOK || len(stoodBy) != 1 || stoodBy[0] != "disk@n_nas 1h0m0s" {
+		t.Fatalf("stand by: %d %v", r3.StatusCode, stoodBy)
+	}
+	// No token, no action.
+	r4, _ := http.Post(srv.URL+"/api/edge/roger", "application/json", strings.NewReader(`{"rule":"disk","node":"n_nas"}`))
+	if r4.StatusCode == http.StatusOK || len(rogered) != 1 {
+		t.Fatalf("an untokened roger must be refused: %d", r4.StatusCode)
+	}
+
+	// Unwired: the snapshot says so and the endpoints refuse.
+	s2 := New(testCtrl(), Options{Edge: EdgeHooks{Self: "workshop", Fleet: fleet}})
+	srv2 := httptest.NewServer(s2.Handler())
+	t.Cleanup(srv2.Close)
+	if r := postJSONTok(t, srv2, s2, "/api/edge/roger", `{"rule":"disk","node":"n_nas"}`); r.StatusCode != http.StatusNotImplemented {
+		t.Fatalf("unwired roger = %d, want 501", r.StatusCode)
 	}
 }

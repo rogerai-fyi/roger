@@ -17,7 +17,9 @@ package webui
 // Spec: features/edge/console_view.feature.
 
 import (
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -59,7 +61,13 @@ type EdgeHooks struct {
 	RevokeGrant func(id string) error
 	// Alerts is the rules firing right now by node id, each as its wording ("disk > 90") - the
 	// console's share of health.feature §5 (alerts show on the fleet surfaces). Nil = unknown.
-	Alerts   func() map[string][]string
+	Alerts func() map[string][]string
+	// Floor is the factory-floor view of the rack (health.feature §5 and the floor research): the
+	// state log's samples, the standing trouble calls, the pile-up rate and the sign-off report;
+	// Roger acknowledges a call, StandBy quiets one for a time. Nil = the console shows no floor.
+	Floor    func(now time.Time) EdgeFloor
+	Roger    func(ruleID, nodeID string) error
+	StandBy  func(ruleID, nodeID string, d time.Duration) error
 	Sessions *edge.Sessions
 	// Status is what is true about THIS machine's place on its Edge (enrolled, authority,
 	// discovery), for the empty state. Nil = unknown; the panel then names the LAN path only.
@@ -193,6 +201,71 @@ type edgeSnap struct {
 	AgentJobs        []edge.AgentJob        `json:"agent_jobs"`
 	Grants           []edgeGrantJSON        `json:"grants"`
 	GrantsManage     bool                   `json:"grants_manage"`
+	// Floor is the ANDON and TROUBLE facts the TUI shows; FloorManage whether roger/stand by are wired.
+	Floor       *edgeFloorJSON `json:"floor,omitempty"`
+	FloorManage bool           `json:"floor_manage"`
+}
+
+// EdgeFloor is what the host hands the console for the floor: raw facts, worded here.
+type EdgeFloor struct {
+	Samples []edge.StateSample
+	Calls   []edge.TroubleCall
+	Rate    int
+	SignOff edge.SignOffReport
+}
+
+type edgeFloorJSON struct {
+	Units   []edgeUnitJSON `json:"units"`
+	Calls   []edgeCallJSON `json:"calls"`
+	Rate    int            `json:"rate"`
+	SignOff edgeSignOff    `json:"sign_off"`
+}
+
+// edgeUnitJSON is one unit as the andon tile draws it: the state in words, how long, airtime over
+// the last hour, the log strip (60 cells, oldest first, "" = not judged), what fires on it.
+type edgeUnitJSON struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Kind     string   `json:"kind"`
+	State    string   `json:"state"` // ON AIR | TROUBLE | DARK
+	SinceS   int64    `json:"since_s"`
+	Capped   bool     `json:"capped,omitempty"` // the log began inside the run: since is a floor
+	Airtime  int      `json:"airtime"`
+	NoLog    bool     `json:"no_log,omitempty"` // nothing judged yet: airtime means nothing
+	Log      []string `json:"log"`
+	Alerts   []string `json:"alerts"`
+	LastSeen int64    `json:"last_seen,omitempty"`
+}
+
+type edgeCallJSON struct {
+	Rule     string `json:"rule"`
+	NodeID   string `json:"node_id"`
+	Node     string `json:"node"`
+	Metric   string `json:"metric"`
+	When     string `json:"when"`
+	Value    string `json:"value"`
+	Priority string `json:"priority"`
+	SinceS   int64  `json:"since_s"`
+	Stale    bool   `json:"stale,omitempty"`
+	Acked    bool   `json:"acked"`
+	AckBy    string `json:"ack_by,omitempty"`
+	Shelved  bool   `json:"shelved,omitempty"`
+	UntilAt  int64  `json:"until_at,omitempty"`
+	Why      string `json:"why"`
+	Do       string `json:"do"`
+}
+
+type edgeSignOff struct {
+	Raised       int           `json:"raised"`
+	Cleared      int           `json:"cleared"`
+	Loudest      string        `json:"loudest,omitempty"`
+	LoudestCount int           `json:"loudest_count,omitempty"`
+	DeadAir      []edgeDeadAir `json:"dead_air"`
+}
+
+type edgeDeadAir struct {
+	Node string `json:"node"`
+	ForS int64  `json:"for_s"`
 }
 
 func (s *Server) edgeNow() time.Time {
@@ -292,6 +365,10 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		n.Via, n.Relay, n.Child = r.Via, r.Relay, r.Child
 		n.Alerts = append(n.Alerts, alerts[n.ID]...)
 		snap.Nodes = append(snap.Nodes, n)
+	}
+	if h.Floor != nil {
+		snap.Floor = edgeFloorOf(h.Floor(now), list, alerts, now)
+		snap.FloorManage = h.Roger != nil && h.StandBy != nil
 	}
 	snap.TooMany = len(snap.Nodes) > edgeGraphMax
 	if h.Status != nil {
@@ -617,4 +694,200 @@ func (s *Server) recordConsoleSession(rec protocol.UsageReceipt) {
 		Account: led.Account(), Kind: edge.FromConsole, Request: rec.RequestID,
 		Receipts: []protocol.UsageReceipt{rec},
 	})
+}
+
+// edgeFloorOf words the floor: the state and time in state per unit from the log (a dark unit's
+// last-seen knows better than a log that began after it went dark), airtime as availability
+// over the last hour, calls priority-then-oldest with why and do, the sign-off line.
+func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string, now time.Time) *edgeFloorJSON {
+	out := &edgeFloorJSON{Units: []edgeUnitJSON{}, Calls: []edgeCallJSON{}, SignOff: edgeSignOff{DeadAir: []edgeDeadAir{}}}
+	names := map[string]string{}
+	for _, n := range nodes {
+		names[n.ID] = n.Name
+		cells, since, capped := edge.LogOf(f.Samples, n.ID, now)
+		u := edgeUnitJSON{ID: n.ID, Name: n.Name, Kind: n.Kind, Log: make([]string, len(cells)), Alerts: alerts[n.ID], LastSeen: n.LastSeen}
+		if u.Alerts == nil {
+			u.Alerts = []string{}
+		}
+		air, known := 0, 0
+		for i, c := range cells {
+			u.Log[i] = string(c)
+			if c != edge.StateUnknown {
+				known++
+				if c != edge.StateDark {
+					air++
+				}
+			}
+		}
+		if known > 0 {
+			u.Airtime = int(float64(air)/float64(known)*100 + 0.5)
+		} else {
+			u.NoLog = true
+		}
+		dark := n.Presence == string(edge.PresenceDark)
+		last := edge.StateUnknown
+		if len(cells) > 0 {
+			last = cells[len(cells)-1]
+		}
+		switch {
+		case dark || last == edge.StateDark:
+			u.State = "DARK"
+		case len(u.Alerts) > 0 || last == edge.StateTrouble:
+			u.State = "TROUBLE"
+		default:
+			u.State = "ON AIR"
+		}
+		if dark && n.LastSeen > 0 && now.Sub(time.Unix(n.LastSeen, 0)) > since {
+			since, capped = now.Sub(time.Unix(n.LastSeen, 0)), false
+		}
+		u.SinceS, u.Capped = int64(since.Seconds()), capped
+		out.Units = append(out.Units, u)
+	}
+	calls := append([]edge.TroubleCall(nil), f.Calls...)
+	sort.SliceStable(calls, func(i, j int) bool {
+		if calls[i].Shelved != calls[j].Shelved {
+			return !calls[i].Shelved
+		}
+		pi, pj := edgePriorityRank(edgeCallPriority(calls[i].Metric)), edgePriorityRank(edgeCallPriority(calls[j].Metric))
+		if pi != pj {
+			return pi < pj
+		}
+		return calls[i].Since > calls[j].Since
+	})
+	for _, c := range calls {
+		node := names[c.NodeID]
+		if node == "" {
+			node = c.Node
+		}
+		why, do := edgeWhyAndDo(string(c.Metric))
+		j := edgeCallJSON{Rule: c.RuleID, NodeID: c.NodeID, Node: node, Metric: string(c.Metric), When: c.When,
+			Value: edgeCallValue(c), Priority: edgeCallPriority(c.Metric), SinceS: int64(c.Since.Seconds()), Stale: c.Stale,
+			Acked: c.Acked, AckBy: edgeHandle(c.AckBy), Shelved: c.Shelved, Why: why, Do: do}
+		if c.Shelved {
+			j.UntilAt = c.StandByUntil.Unix()
+		}
+		out.Calls = append(out.Calls, j)
+	}
+	out.Rate = f.Rate
+	out.SignOff = edgeSignOff{Raised: f.SignOff.Raised, Cleared: f.SignOff.Cleared, Loudest: f.SignOff.Loudest, LoudestCount: f.SignOff.LoudestCount, DeadAir: []edgeDeadAir{}}
+	for id, d := range f.SignOff.DeadAir {
+		name := names[id]
+		if name == "" {
+			name = id
+		}
+		out.SignOff.DeadAir = append(out.SignOff.DeadAir, edgeDeadAir{Node: name, ForS: int64(d.Seconds())})
+	}
+	sort.Slice(out.SignOff.DeadAir, func(i, j int) bool { return out.SignOff.DeadAir[i].ForS > out.SignOff.DeadAir[j].ForS })
+	return out
+}
+
+// edgeCallPriority is ISA-18.2's three, as the TUI ranks them.
+func edgeCallPriority(m edge.Metric) string {
+	switch m {
+	case edge.MetricCPUTemp, edge.MetricDisk, edge.MetricSDWear:
+		return "HI"
+	case edge.MetricOffline, edge.MetricMemory:
+		return "MED"
+	}
+	return "LOW"
+}
+
+func edgePriorityRank(p string) int {
+	switch p {
+	case "HI":
+		return 0
+	case "MED":
+		return 1
+	}
+	return 2
+}
+
+// edgeWhyAndDo is the call's two sentences - the same two the TUI shows.
+func edgeWhyAndDo(metric string) (string, string) {
+	switch metric {
+	case "cpu_temp":
+		return "a hot processor throttles, then fails early", "check the cooling and airflow · bind it a lighter model or job"
+	case "disk":
+		return "a full disk stops new models loading and logs writing", "free space (old models, caches) · or move the store to a bigger disk"
+	case "memory":
+		return "a full memory swaps and stalls every job on it", "bind a smaller model · stop a roger you do not need on it"
+	case "offline":
+		return "a dark unit serves nothing and its jobs wait", "check its power and network · if it is gone for good, forget it"
+	case "sd_wear":
+		return "a worn card corrupts silently, then will not boot", "back it up now · replace the card before it fails"
+	case "cpu_load":
+		return "a saturated processor answers late", "spread the jobs · or add a unit to the rack"
+	}
+	return "a rule you set is over its line", "look at the unit · adjust the rule if the line was wrong"
+}
+
+func edgeCallValue(c edge.TroubleCall) string {
+	switch c.Metric {
+	case edge.MetricCPUTemp:
+		return fmt.Sprintf("%.1f°C", c.Value)
+	case edge.MetricOffline:
+		return edge.Age(time.Duration(c.Value * float64(time.Minute)))
+	case edge.MetricCPULoad:
+		return fmt.Sprintf("%.2f", c.Value)
+	}
+	return fmt.Sprintf("%.0f%%", c.Value)
+}
+
+// edgeHandle is a login as a handle, never a whole address on a page.
+func edgeHandle(who string) string {
+	if i := strings.IndexByte(who, '@'); i > 0 {
+		return who[:i]
+	}
+	return who
+}
+
+// handleEdgeRoger acknowledges a standing trouble call through the host.
+func (s *Server) handleEdgeRoger(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.Roger == nil {
+		http.Error(w, "this build cannot acknowledge calls from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Rule string `json:"rule"`
+		Node string `json:"node"`
+	}
+	if !decode(r, &req) || req.Rule == "" || req.Node == "" {
+		http.Error(w, "rule and node required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Roger(req.Rule, req.Node); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeStandBy quiets a standing call for a number of hours (one by default, eight at most).
+func (s *Server) handleEdgeStandBy(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.StandBy == nil {
+		http.Error(w, "this build cannot put calls on stand by from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Rule  string  `json:"rule"`
+		Node  string  `json:"node"`
+		Hours float64 `json:"hours"`
+	}
+	if !decode(r, &req) || req.Rule == "" || req.Node == "" {
+		http.Error(w, "rule and node required", http.StatusBadRequest)
+		return
+	}
+	if req.Hours <= 0 {
+		req.Hours = 1
+	}
+	if req.Hours > 8 {
+		req.Hours = 8
+	}
+	if err := h.StandBy(req.Rule, req.Node, time.Duration(req.Hours*float64(time.Hour))); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
 }

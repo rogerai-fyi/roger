@@ -321,6 +321,26 @@
           </table>
         </div>
 
+        <div class="edge-floor-wrap" id="edge-floor-wrap" hidden>
+          <h3 class="sub-head">Andon</h3>
+          <p class="muted small">The rack in two seconds: one tile per unit, one word, one colour, its airtime over the last hour and its log strip.</p>
+          <div id="edge-andon" class="edge-andon"></div>
+          <p id="edge-andon-foot" class="mono small muted"></p>
+          <h3 class="sub-head">Trouble</h3>
+          <p id="edge-trouble-head" class="muted small">Standing calls, priority first, oldest first. Roger acknowledges; stand by quiets a call for an hour.</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>PRI</th><th>AGE</th><th>UNIT</th><th>CALL</th><th>NOW</th><th>ACKNOWLEDGED</th><th></th></tr>
+              </thead>
+              <tbody id="edge-trouble">
+                <tr class="empty-row"><td colspan="7">All clear.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="edge-signoff" class="mono small muted"></p>
+        </div>
+
         <div class="edge-grants-wrap" id="edge-grants-wrap" hidden>
           <h3 class="sub-head">Grants</h3>
           <p class="muted small">Authority-signed permissions: who may act on which node, and for how long. A member verifies a grant with your Edge's public root alone - no broker.</p>

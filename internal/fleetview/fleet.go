@@ -58,6 +58,29 @@ type FleetItem struct {
 	Log         []edge.UnitState
 	Since       time.Duration
 	SinceCapped bool // the run reaches the oldest sample: it began before the log did
+	// The OP and JOB line: the jobs the rogers on this unit hold, and the sessions it served.
+	Jobs   []string
+	Served int
+}
+
+// crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
+// rogers on it hold, one line of its own so neither is cut.
+func (it FleetItem) crew(op string) []lm.Span {
+	var out []lm.Span
+	if op != "" {
+		out = append(out, eyebrow("op ", muted), span(op, ink))
+	}
+	if it.Served > 0 {
+		out = append(out, span(fmt.Sprintf("  %d session%s served", it.Served, plural(it.Served)), muted))
+	}
+	return out
+}
+
+func (it FleetItem) jobLine() []lm.Span {
+	if len(it.Jobs) == 0 {
+		return nil
+	}
+	return []lm.Span{span(strings.Join(it.Jobs, " · "), ink)}
 }
 
 // state is the unit's state in the station's words, and how long: ON AIR 3h12m, DARK 41m,
@@ -118,7 +141,8 @@ type SelfFacts struct {
 	Name, Root, Authority, Prefer, PreferValue, Machine, Discovery, Join string
 	AuthorityLines                                                       []string // the readout's full account
 	Enrolled                                                             bool
-	AgentActive                                                          bool // this roger runs as an agent
+	AgentActive                                                          bool   // this roger runs as an agent
+	Op                                                                   string // the operator: the owner's handle
 }
 
 // AlarmLine is one standing trouble call as the TROUBLE tab lists it.
@@ -971,6 +995,14 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			row("disk", append(append(meterN(l, from, 0, false, meterCells), span(fmt.Sprintf(" %.0f%%", 100*l), ink)), alarm(it.Alerts, "disk")...)...)
 		}
 	}
+	if it.Kind == ItemHub || it.Kind == ItemMember {
+		if c := it.crew(f.snap.Self.Op); len(c) > 0 {
+			row("crew", c...)
+		}
+		if j := it.jobLine(); len(j) > 0 {
+			row("job", j...)
+		}
+	}
 	if len(it.Log) > 0 && (it.Kind == ItemHub || it.Kind == ItemMember) {
 		w, c, _ := it.state(now)
 		row("the log", append(logStrip(it.Log, width-22), span("  "+strings.ToLower(w)+" "+it.sinceWords(now), c))...)
@@ -1350,7 +1382,7 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 			unitIdx = append(unitIdx, i)
 		}
 	}
-	const tileW, tileH = 30, 6
+	const tileW, tileH = 34, 6
 	perRow := int(area.Width-2) / (tileW + 1)
 	if perRow < 1 {
 		perRow = 1
@@ -1386,28 +1418,22 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 				pctS = fmt.Sprintf("%d%%", pct)
 			}
 			row0 := append([]lm.Span{span(" ", dim), bold("▌", railC), span(" ", dim)}, eye(carrierLevel(it.heard(now), it.Dark, now), it.Dark, it.Asking, len(it.Alerts) > 0, f.frame, ti)...)
-			row0 = append(row0, span(" ", dim), bold(pad(elide(it.Name, 22), 23), paper))
-			row1 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), bold(pad(word, 10), c), span(pad(it.sinceWords(now), 15), c)}
+			row0 = append(row0, span(" ", dim), bold(pad(elide(it.Name, 26), 27), paper))
+			row1 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), bold(pad(word, 10), c), span(pad(it.sinceWords(now), 19), c)}
 			row2 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), eyebrow("airtime ", muted), bold(pad(pctS, 5), ink)}
-			row2 = append(row2, logStrip(it.Log, 12)...)
+			row2 = append(row2, logStrip(it.Log, 16)...)
 			row2 = append(row2, span(" ", dim))
-			what := ""
+			row3 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim)}
 			switch {
 			case len(it.Alerts) > 0:
-				what = "▲ " + it.Alerts[0]
-			case len(it.Bands) > 0:
-				what = "on air " + fewBands(it.Bands)
-			case it.Kind == ItemHub:
-				what = "the authority"
+				row3 = append(row3, span(pad(elide("▲ "+it.Alerts[0], 28), 29), live))
+			case len(it.Jobs) > 0:
+				row3 = append(row3, eyebrow("job ", muted), span(pad(elide(it.Jobs[0], 24), 25), ink))
 			default:
-				what = kindLabel(it.NodeKind)
+				row3 = append(row3, span(pad(elide(tileWhat(it), 28), 29), muted))
 			}
-			wc := muted
-			if len(it.Alerts) > 0 {
-				wc = live
-			}
-			row3 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), span(pad(elide(what, 24), 25), wc)}
-			row4 := []lm.Span{span(" ", dim), span("▌", dim), span(pad("", 27), dim)}
+			row4 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim)}
+			row4 = append(row4, tileCrew(it, f.snap.Self.Op)...)
 			for r, sp := range [][]lm.Span{row0, row1, row2, row3, row4, {span(pad("", tileW), dim)}} {
 				tile[r] = append(tile[r], sp...)
 				tile[r] = append(tile[r], span(" ", dim))
@@ -1435,4 +1461,36 @@ func atAuthority(port string) string {
 		return "at this authority, which is not listening right now (open the TUI or the console)"
 	}
 	return "at this authority's port " + port
+}
+
+// tileWhat is the tile's third line when nothing fires: what the unit has on air, or what it is.
+func tileWhat(it FleetItem) string {
+	switch {
+	case len(it.Bands) > 0:
+		return "on air " + fewBands(it.Bands)
+	case it.Kind == ItemHub:
+		return "the authority"
+	}
+	return kindLabel(it.NodeKind)
+}
+
+// tileCrew is the tile's OP and JOB line, fitted to the tile.
+func tileCrew(it FleetItem, op string) []lm.Span {
+	var out []lm.Span
+	used := 0
+	add := func(k, v string, c lm.Color) {
+		if v == "" || used+len(k)+len([]rune(v))+1 > 29 {
+			return
+		}
+		out = append(out, eyebrow(k, muted), span(v+" ", c))
+		used += len(k) + len([]rune(v)) + 1
+	}
+	add("op ", op, ink)
+	if it.Served > 0 {
+		add("", fmt.Sprintf("%d sessions", it.Served), muted)
+	}
+	if used < 29 {
+		out = append(out, span(pad("", 29-used), dim))
+	}
+	return out
 }

@@ -439,3 +439,26 @@ func TestFleetScreenSignOffLine(t *testing.T) {
 	page.Press("3")
 	must(t, page.Screen(), "SIGN-OFF", "4 raised")
 }
+
+// Every unit carries who runs it and what it is doing: the OP and JOB line on the andon tile and
+// in the readout, with the sessions it served.
+func TestFleetScreenShowsOpAndJobOnUnits(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.Self.Op = "luis"
+	for i := range snap.Items {
+		switch snap.Items[i].Name {
+		case "RogGentooEdged":
+			snap.Items[i].Jobs = []string{"roggentooedged-2 serve qwen3.8-27b"}
+			snap.Items[i].Served = 3
+			snap.Items[i].Alerts = nil // a firing call would take the tile's line instead, rightly
+		case "nas":
+			snap.Items[i].Served = 12
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	must(t, page.Screen(), "OP luis", "roggentooedged-2 serve qwen3.8-27b", "3 sessions served")
+	page.Press("2")
+	must(t, page.Screen(), "OP luis", "JOB roggentooedged-2 serve", "12 sessions")
+}

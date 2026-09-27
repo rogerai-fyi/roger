@@ -72,6 +72,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	if snap.Self.Name == "" {
 		snap.Self.Name = "this machine"
 	}
+	snap.Self.Op = edgeOperatorName()
 	// The hub.
 	hub := fleetview.FleetItem{Kind: fleetview.ItemHub, ID: self.NodeID, Name: snap.Self.Name, NodeKind: "host",
 		Presence: "online", Health: health[self.NodeID], Alerts: firing[self.NodeID]}
@@ -91,6 +92,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		}
 		if j, ok := jobs[in.Name]; ok {
 			it.Job = edgeJobWords(j)
+			snap.Items[0].Jobs = append(snap.Items[0].Jobs, in.Name+" "+it.Job)
 		}
 		snap.Items = append(snap.Items, it)
 	}
@@ -163,6 +165,18 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		return fleetview.FleetSnapshot{}, err
 	}
 	snap.Sessions = edgeSessionLines(st, now)
+	// What each unit served, from the ledger: the station that answered, by name.
+	served := map[string]int{}
+	for _, x := range snap.Sessions {
+		if x.Station != "" {
+			served[x.Station] += x.Count
+		}
+	}
+	for i := range snap.Items {
+		if it := &snap.Items[i]; it.Kind == fleetview.ItemHub || it.Kind == fleetview.ItemMember {
+			it.Served = served[it.Name]
+		}
+	}
 	calls, rate, r, err := edgeAlertLog().Report(now)
 	if err != nil {
 		return fleetview.FleetSnapshot{}, err

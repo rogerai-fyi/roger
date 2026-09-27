@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/tui"
@@ -154,8 +155,22 @@ func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
 		SetAgentJob: h.EdgeSetAgentJob, ClearAgentJob: h.EdgeClearAgentJob,
 		Grants: h.EdgeGrants, IssueGrant: h.EdgeIssueGrant, RevokeGrant: h.EdgeRevokeGrant,
 		Alerts:   h.EdgeAlerts,
+		Roger:    h.EdgeRoger,
+		StandBy:  h.EdgeStandBy,
+		Floor:    edgeFloorHook(h),
 		Adopting: h.EdgeAdopting, PersistentAgents: h.EdgePersistentAgents, AgentJobs: h.EdgeAgentJobs,
 		Household: h.EdgeHousehold,
 		Sessions:  h.EdgeSessions, Status: h.EdgeStatus,
+	}
+}
+
+// edgeFloorHook adapts the TUI hook's four values to the console's one struct (nil when unwired).
+func edgeFloorHook(h *tui.Hooks) func(time.Time) webui.EdgeFloor {
+	if h.EdgeFloor == nil {
+		return nil
+	}
+	return func(now time.Time) webui.EdgeFloor {
+		samples, calls, rate, so := h.EdgeFloor(now)
+		return webui.EdgeFloor{Samples: samples, Calls: calls, Rate: rate, SignOff: so}
 	}
 }

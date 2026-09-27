@@ -141,6 +141,18 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeSetPrefer = h.setPrefer
 	hooks.EdgeGrants = h.grants
 	hooks.EdgeAlerts = edgeFiringAlerts
+	hooks.EdgeFloor = func(now time.Time) ([]edge.StateSample, []edge.TroubleCall, int, edge.SignOffReport) {
+		l := edgeAlertLog()
+		samples, _ := l.States(now.Add(-24 * time.Hour))
+		calls, rate, so, _ := l.Report(now)
+		return samples, calls, rate, so
+	}
+	hooks.EdgeRoger = func(ruleID, nodeID string) error {
+		return edgeAlertLog().Roger(ruleID, nodeID, edgeOperatorName(), time.Now())
+	}
+	hooks.EdgeStandBy = func(ruleID, nodeID string, d time.Duration) error {
+		return edgeAlertLog().StandBy(ruleID, nodeID, time.Now().Add(d))
+	}
 	hooks.EdgeHealthLive = true
 	hooks.EdgeIssueGrant = h.issueGrant
 	hooks.EdgeRevokeGrant = h.revokeGrant
