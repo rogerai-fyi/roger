@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,4 +69,45 @@ func TestEdgeTroubleDialRefusesAFaceThatDoesNotMatchItsPin(t *testing.T) {
 	_, err := edgeDialTrouble(context.Background(), client.EdgePeer{Addr: srv.Listener.Addr().String(), Pin: "0000", Node: "imposter"}, &self, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "pin")
+}
+
+// --watch polls the feed the way the phone does: it prints each new transition once (the slack
+// re-sends what was seen; the dedupe by rule, node, at drops it), carries the cursor forward, and
+// stops when told.
+func TestEdgeTroubleWatchPrintsEachTransitionOnce(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	now := time.Now()
+	edgeSeed(t, store.EdgeNode{ID: "n_nas", Name: "nas", Kind: "host", Presence: string(edge.PresenceVerified), LastSeen: now.Unix(),
+		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.9:44121", Fingerprint: "abab"}}, Pin: "abab"})
+	reads := 0
+	prev := edgeDialTrouble
+	edgeDialTrouble = func(ctx context.Context, p client.EdgePeer, cert *tls.Certificate, since string) (edge.TroubleFeed, error) {
+		reads++
+		fired := edge.TroubleTransition{At: now.Unix(), Rule: "cpu_temp", NodeID: "n_nas", Node: "nas", When: "cpu_temp > 85", Firing: true, Priority: "HI"}
+		cleared := edge.TroubleTransition{At: now.Unix() + 60, Rule: "cpu_temp", NodeID: "n_nas", Node: "nas", When: "cpu_temp > 85", Firing: false, Priority: "HI"}
+		switch reads {
+		case 1:
+			return edge.TroubleFeed{At: now.Unix(), Cursor: "c1", Transitions: []edge.TroubleTransition{fired}}, nil
+		case 2:
+			return edge.TroubleFeed{At: now.Unix() + 60, Cursor: "c2", Transitions: []edge.TroubleTransition{fired, cleared}}, nil // the slack re-sends the firing
+		}
+		return edge.TroubleFeed{At: now.Unix() + 120, Cursor: "c3", Transitions: []edge.TroubleTransition{fired, cleared}}, nil
+	}
+	t.Cleanup(func() { edgeDialTrouble = prev })
+	prevCert := edgeCallerCertFn
+	edgeCallerCertFn = func() *tls.Certificate { return &tls.Certificate{} }
+	t.Cleanup(func() { edgeCallerCertFn = prevCert })
+	prevEvery := edgeTroubleWatchEvery
+	edgeTroubleWatchEvery = time.Millisecond
+	t.Cleanup(func() { edgeTroubleWatchEvery = prevEvery })
+	prevMax := edgeTroubleWatchMax
+	edgeTroubleWatchMax = 3
+	t.Cleanup(func() { edgeTroubleWatchMax = prevMax })
+
+	out, code := edgeRun(t, "edge", "trouble", "nas", "--watch")
+	require.Equal(t, 0, code, out)
+	require.Equal(t, 1, strings.Count(out, "fired    cpu_temp > 85 on nas"), "printed once, though re-sent")
+	require.Equal(t, 1, strings.Count(out, "cleared  cpu_temp > 85 on nas"))
+	require.Contains(t, out, "watching nas")
 }

@@ -250,6 +250,7 @@ type edgeCallJSON struct {
 	AckBy    string `json:"ack_by,omitempty"`
 	Shelved  bool   `json:"shelved,omitempty"`
 	UntilAt  int64  `json:"until_at,omitempty"`
+	StandBy  string `json:"standby_by,omitempty"` // who quieted it
 	Why      string `json:"why"`
 	Do       string `json:"do"`
 }
@@ -754,7 +755,7 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 			Value: edge.FormatValue(c.Metric, c.Value), Priority: edge.Priority(c.Metric), SinceS: int64(c.Since.Seconds()), Stale: c.Stale,
 			Acked: c.Acked, AckBy: edge.Handle(c.AckBy), Shelved: c.Shelved, Why: why, Do: do}
 		if c.Shelved {
-			j.UntilAt = c.StandByUntil.Unix()
+			j.UntilAt, j.StandBy = c.StandByUntil.Unix(), edge.Handle(c.StandByBy)
 		}
 		out.Calls = append(out.Calls, j)
 	}

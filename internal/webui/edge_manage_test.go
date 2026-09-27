@@ -457,6 +457,7 @@ func TestConsoleSnapshotCarriesTheFloorAndActsOnCalls(t *testing.T) {
 				Calls: []edge.TroubleCall{
 					{RuleID: "disk", NodeID: "n_nas", Node: "nas", Metric: edge.MetricDisk, When: "disk > 90", Value: 92, Since: 6 * time.Minute},
 					{RuleID: "offline", NodeID: "n_ibex", Node: "gentle-ibex-14", Metric: edge.MetricOffline, When: "offline > 5", Value: 1560, Since: 26 * time.Hour, Acked: true, AckBy: "luis"},
+					{RuleID: "cpu_temp", NodeID: "n_nas", Node: "nas", Metric: edge.MetricCPUTemp, When: "cpu_temp > 85", Value: 90, Since: time.Hour, Shelved: true, StandByUntil: now.Add(time.Hour), StandByBy: "gentle-ibex-14"},
 				},
 				SignOff: edge.SignOffReport{Raised: 3, Cleared: 1, Loudest: "nas", LoudestCount: 2, DeadAir: map[string]time.Duration{"n_ibex": 8 * time.Hour}}}
 		},
@@ -490,8 +491,11 @@ func TestConsoleSnapshotCarriesTheFloorAndActsOnCalls(t *testing.T) {
 	if u := units["n_ibex"]; u.State != "DARK" || u.SinceS < 25*3600 || u.Airtime != 0 {
 		t.Fatalf("ibex = %+v (dark since its last-seen, airtime 0)", u)
 	}
-	if len(snap.Floor.Calls) != 2 || snap.Floor.Calls[0].Priority != "HI" || snap.Floor.Calls[0].Why == "" || snap.Floor.Calls[0].Do == "" {
+	if len(snap.Floor.Calls) != 3 || snap.Floor.Calls[0].Priority != "HI" || snap.Floor.Calls[0].Why == "" || snap.Floor.Calls[0].Do == "" {
 		t.Fatalf("calls = %+v (priority first, each with why and do)", snap.Floor.Calls)
+	}
+	if last := snap.Floor.Calls[2]; !last.Shelved || last.StandBy != "gentle-ibex-14" {
+		t.Fatalf("a call on stand by sorts last and names who quieted it: %+v", last)
 	}
 	if snap.Floor.Calls[1].AckBy != "luis" || snap.Floor.Rate != 2 || snap.Floor.SignOff.Raised != 3 || snap.Floor.SignOff.DeadAir[0].Node != "gentle-ibex-14" {
 		t.Fatalf("floor = %+v", snap.Floor)

@@ -2011,7 +2011,7 @@
         tr.appendChild(el("td", "mono small", c.node));
         tr.appendChild(el("td", "mono small", c.when));
         tr.appendChild(el("td", "mono small", c.value));
-        var ack = c.shelved ? "STAND BY until " + new Date(c.until_at * 1000).toTimeString().slice(0, 5) : (c.acked ? "ROGER " + (c.ack_by || "") : "\u2014");
+        var ack = c.shelved ? "STAND BY until " + new Date(c.until_at * 1000).toTimeString().slice(0, 5) + (c.standby_by ? " \u00b7 " + c.standby_by : "") : (c.acked ? "ROGER " + (c.ack_by || "") : "\u2014");
         tr.appendChild(el("td", "mono small", ack));
         var td = el("td");
         if (d.floor_manage) {

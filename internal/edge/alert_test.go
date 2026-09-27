@@ -7,6 +7,7 @@ package edge_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -490,4 +491,23 @@ func TestTheLogsDoNotGrowWithoutEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(got), 10000)
 	require.Equal(t, "pi", got[len(got)-1].Node, "the newest line is the one just written")
+}
+
+// A stand-by written by an older build (key -> until, no asker) still reads: the live machine's
+// feed answered 500 the night the shape changed, until this.
+func TestStandBysWrittenByAnOlderBuildStillRead(t *testing.T) {
+	dir := t.TempDir()
+	l := edge.AlertLog{Dir: dir}
+	t0 := time.Now()
+	_, _, err := l.Judge([]edge.NodeHealth{healthOf("pi", t0, 99, 10)}, t0)
+	require.NoError(t, err)
+	until := t0.Add(time.Hour).Unix()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "standby.json"), []byte(fmt.Sprintf(`{"cpu_temp|n_pi": %d}`, until)), 0o600))
+	calls, err := l.Standing(t0.Add(time.Minute))
+	require.NoError(t, err)
+	require.True(t, calls[0].Shelved)
+	require.Equal(t, until, calls[0].StandByUntil.Unix())
+	require.Empty(t, calls[0].StandByBy, "the old shape knew no asker")
+	_, err = l.Feed(time.Time{}, t0.Add(time.Minute), nil)
+	require.NoError(t, err)
 }

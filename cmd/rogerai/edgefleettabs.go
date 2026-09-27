@@ -71,7 +71,7 @@ func edgeAlarmLines(calls []edge.TroubleCall, names map[string]string) []fleetvi
 		}
 		value := edge.FormatValue(c.Metric, c.Value)
 		out = append(out, fleetview.AlarmLine{RuleID: c.RuleID, NodeID: c.NodeID, Node: node, Metric: string(c.Metric), When: c.When,
-			Value: value, Since: c.Since, Acked: c.Acked, AckBy: c.AckBy, Shelved: c.Shelved, StandByUntil: c.StandByUntil})
+			Value: value, Since: c.Since, Acked: c.Acked, AckBy: c.AckBy, Shelved: c.Shelved, StandByUntil: c.StandByUntil, StandByBy: c.StandByBy})
 	}
 	return out
 }

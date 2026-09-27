@@ -24,6 +24,13 @@ import (
 // edgeCallerCertFn is this machine's certificate (a seam for the test).
 var edgeCallerCertFn = edgeCallerCert
 
+// edgeTroubleWatchEvery is the poll cadence of --watch (the phone's own); edgeTroubleWatchMax
+// bounds the reads, 0 = until interrupted (the test bounds it).
+var (
+	edgeTroubleWatchEvery = 30 * time.Second
+	edgeTroubleWatchMax   = 0
+)
+
 func cmdEdgeTrouble(cfg config, args []string) error {
 	leaf, _ := edgeLeaf("trouble")
 	argv, err := parseEdgeArgv(leaf, args)
@@ -44,6 +51,9 @@ func cmdEdgeTrouble(cfg config, args []string) error {
 	cert := edgeCallerCertFn()
 	if cert == nil {
 		return fmt.Errorf("this machine has no Edge certificate to read a feed with - run `roger edge enroll` first")
+	}
+	if argv.has("watch") {
+		return edgeWatchTrouble(peer, cert, argv.flags["since"])
 	}
 	feed, err := edgeDialTrouble(context.Background(), peer, cert, argv.flags["since"])
 	if err != nil {
@@ -167,4 +177,39 @@ var edgeDialTrouble = func(ctx context.Context, p client.EdgePeer, cert *tls.Cer
 		return edge.TroubleFeed{}, fmt.Errorf("%s answered with something that is not a feed: %w", p.Node, err)
 	}
 	return feed, nil
+}
+
+// edgeWatchTrouble polls the feed the way the phone does and prints each transition once: the
+// cursor moves forward with every read, the slack re-sends what was seen, and (rule, node, at)
+// drops it. It runs until interrupted (or the test's bound).
+func edgeWatchTrouble(p client.EdgePeer, cert *tls.Certificate, since string) error {
+	fmt.Printf("watching %s every %s · ctrl-c stops\n", p.Node, edgeTroubleWatchEvery)
+	seen := map[string]bool{}
+	for reads := 0; edgeTroubleWatchMax == 0 || reads < edgeTroubleWatchMax; reads++ {
+		if reads > 0 {
+			time.Sleep(edgeTroubleWatchEvery)
+		}
+		feed, err := edgeDialTrouble(context.Background(), p, cert, since)
+		if err != nil {
+			fmt.Printf("  %s  %v\n", time.Now().Format("15:04:05"), err)
+			continue
+		}
+		for _, tr := range feed.Transitions {
+			key := fmt.Sprintf("%s|%s|%d", tr.Rule, tr.NodeID, tr.At)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			word := "cleared"
+			if tr.Firing {
+				word = "fired"
+			}
+			if tr.Test {
+				word = "TEST"
+			}
+			fmt.Printf("  %s  ▲ %-3s %-8s %s on %s\n", time.Unix(tr.At, 0).Local().Format("15:04:05"), tr.Priority, word, tr.When, tr.Node)
+		}
+		since = feed.Cursor
+	}
+	return nil
 }

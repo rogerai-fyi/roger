@@ -389,7 +389,7 @@ func TestFleetScreenBindsJobsAndTellsStandByStaleAndPileUp(t *testing.T) {
 	snap := fleetSnap(now)
 	snap.Alarms = []fleetview.AlarmLine{
 		{RuleID: "cpu_temp", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "cpu_temp", When: "cpu_temp > 85", Value: "95.5°C", Since: 30 * time.Hour},
-		{RuleID: "disk", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "disk", When: "disk > 90", Value: "92%", Since: 3 * time.Hour, Shelved: true, StandByUntil: now.Add(time.Hour)},
+		{RuleID: "disk", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "disk", When: "disk > 90", Value: "92%", Since: 3 * time.Hour, Shelved: true, StandByUntil: now.Add(time.Hour), StandByBy: "gentle-ibex-14"},
 	}
 	snap.Rate = 12
 	acts := (&recorder{}).actions()
@@ -419,7 +419,7 @@ func TestFleetScreenBindsJobsAndTellsStandByStaleAndPileUp(t *testing.T) {
 
 	page.Press("3")
 	s := page.Screen()
-	must(t, s, "PILE-UP", "12 in 10 min", "STALE", "STAND BY", "s stand by")
+	must(t, s, "PILE-UP", "12 in 10 min", "STALE", "STAND BY", "· gentle-ibex-14", "s stand by")
 	page.Press("s") // the first call (cpu_temp, HI, oldest) goes on stand by for an hour
 	if len(standBy) != 1 || standBy[0] != "cpu_temp@n_desk 1h0m0s" {
 		t.Fatalf("standBy = %v", standBy)

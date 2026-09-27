@@ -617,8 +617,18 @@ func (l AlertLog) clearAcks(st AlertState) error {
 
 func (l AlertLog) standBys() (map[string]standBy, error) {
 	out := map[string]standBy{}
-	err := l.readJSON("standby.json", &out)
-	return out, err
+	if err := l.readJSON("standby.json", &out); err == nil {
+		return out, nil
+	}
+	// The shape an older build wrote: key -> until. The log outlives any one build.
+	old := map[string]int64{}
+	if err := l.readJSON("standby.json", &old); err != nil {
+		return nil, err
+	}
+	for k, until := range old {
+		out[k] = standBy{Until: until}
+	}
+	return out, nil
 }
 
 // StandBy quiets a standing call until a time, attributed to who asked.

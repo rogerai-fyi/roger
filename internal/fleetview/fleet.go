@@ -161,6 +161,7 @@ type AlarmLine struct {
 	AckBy                                     string
 	Shelved                                   bool // on STAND BY until StandByUntil
 	StandByUntil                              time.Time
+	StandByBy                                 string // who quieted it
 }
 
 // Stale is a call standing over a day: the rule, not the unit, is probably wrong.
@@ -1403,7 +1404,11 @@ func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
 		ack := span("-", dim)
 		switch {
 		case c.Shelved:
-			ack = span("STAND BY until "+c.StandByUntil.Local().Format("15:04"), muted)
+			by := ""
+			if c.StandByBy != "" {
+				by = " · " + edge.Handle(c.StandByBy)
+			}
+			ack = span("STAND BY until "+c.StandByUntil.Local().Format("15:04")+by, muted)
 		case c.Acked:
 			ack = span("ROGER "+edge.Handle(c.AckBy), signal)
 		}
