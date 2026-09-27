@@ -462,3 +462,34 @@ func TestFleetScreenShowsOpAndJobOnUnits(t *testing.T) {
 	page.Press("2")
 	must(t, page.Screen(), "OP luis", "JOB roggentooedged-2 serve", "12 sessions")
 }
+
+// A grant is issued from the GRANTS tab in place: i opens the prompt, <caller|self> <capability>
+// <callee> [for], enter issues through the handed-in function; the outcome stays in view.
+func TestFleetScreenIssuesAGrantInPlace(t *testing.T) {
+	now := time.Now()
+	var issued []string
+	acts := (&recorder{}).actions()
+	acts.IssueGrant = func(caller, capability, callee, forDur string) (string, error) {
+		issued = append(issued, caller+" "+capability+" "+callee+" "+forDur)
+		return "issued grant_new1: self may operate nas until 2026-10-03", nil
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, nil, acts)
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("4")
+	must(t, page.Screen(), "i issue")
+	page.Press("i")
+	must(t, page.Screen(), "issue", "caller")
+	page.Type("self operate nas 7d")
+	page.Press("Enter")
+	if len(issued) != 1 || issued[0] != "self operate nas 7d" {
+		t.Fatalf("issued = %v", issued)
+	}
+	must(t, page.Screen(), "issued grant_new1")
+	// A default duration when none is typed.
+	page.Press("i")
+	page.Type("self sense nas")
+	page.Press("Enter")
+	if len(issued) != 2 || issued[1] != "self sense nas 30d" {
+		t.Fatalf("issued = %v (30d is the default, as the CLI's)", issued)
+	}
+}

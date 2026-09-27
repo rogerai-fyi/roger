@@ -19,7 +19,9 @@ import (
 
 // edgeRunHealthScreen opens the live health screen (a seam: the test records the call).
 var edgeRunHealthScreen = func(ctx context.Context, src fleetview.HealthSource) error {
-	return fleetview.NewHealth(src).Run(ctx)
+	h := fleetview.NewHealth(src)
+	h.Actions = edgeHealthActions()
+	return h.Run(ctx)
 }
 
 // edgeHealthSource is the screen's read: the same judged fleet read as the table, plus the

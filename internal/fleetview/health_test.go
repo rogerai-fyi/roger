@@ -7,6 +7,7 @@ package fleetview_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -108,4 +109,51 @@ func must(t *testing.T, screen string, wants ...string) {
 			t.Fatalf("expected the screen to show %q; screen:\n%s", w, screen)
 		}
 	}
+}
+
+// The rules are edited on the HEALTH screen: a adds one (<metric> <gt|lt> <value> [fleet|<unit>]),
+// [ ] walk the rules, o turns the chosen one off or on, x removes an owner rule - each through the
+// handed-in functions, never a rule invented on screen.
+func TestHealthScreenEditsRulesInPlace(t *testing.T) {
+	now := time.Now()
+	var set, toggled, removed []string
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{Nodes: fleet(now), At: now, Rules: []fleetview.RuleLine{
+			{ID: "cpu_temp", When: "cpu_temp > 85", Scope: "fleet", Kind: "default", State: "quiet"},
+			{ID: "disk-fleet", When: "disk > 80", Scope: "fleet", Kind: "owner", State: "quiet"},
+		}}, nil
+	})
+	h.Actions = fleetview.HealthActions{
+		SetRule: func(metric, op, value, scope string) (string, error) {
+			set = append(set, metric+" "+op+" "+value+" "+scope)
+			return "rule " + metric + "-fleet set", nil
+		},
+		RuleOff:    func(id string, off bool) error { toggled = append(toggled, fmt.Sprintf("%s=%v", id, off)); return nil },
+		RemoveRule: func(id string) error { removed = append(removed, id); return nil },
+	}
+	page := uitest.Run(t, 130, 44, h.Draw)
+	must(t, page.Screen(), "a add rule")
+	page.Press("a")
+	must(t, page.Screen(), "add rule", "metric")
+	page.Type("memory gt 90 fleet")
+	page.Press("Enter")
+	if len(set) != 1 || set[0] != "memory gt 90 fleet" {
+		t.Fatalf("set = %v", set)
+	}
+	must(t, page.Screen(), "rule memory-fleet set")
+	page.Press("o") // the first rule (the default cpu_temp) goes off
+	if len(toggled) != 1 || toggled[0] != "cpu_temp=true" {
+		t.Fatalf("toggled = %v", toggled)
+	}
+	page.Press("]") // to the owner rule
+	page.Press("x")
+	if len(removed) != 1 || removed[0] != "disk-fleet" {
+		t.Fatalf("removed = %v", removed)
+	}
+	page.Press("[")
+	page.Press("x") // a default cannot be removed: nothing happens, the screen says so
+	if len(removed) != 1 {
+		t.Fatalf("a default is never removed: %v", removed)
+	}
+	must(t, page.Screen(), "a default is turned off, not removed")
 }

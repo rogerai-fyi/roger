@@ -228,3 +228,49 @@ func TestEdgeFleetScreenBindsJobsAndStandsBy(t *testing.T) {
 	require.True(t, snap.Alarms[0].Shelved)
 	require.WithinDuration(t, now.Add(time.Hour), snap.Alarms[0].StandByUntil, 5*time.Second)
 }
+
+// Issuing a grant and editing rules from the screens run the CLI's own code paths.
+func TestEdgeFleetScreenIssuesGrantsAndEditsRules(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	t.Setenv(edge.EnvDiscovery, "0")
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	now := time.Now()
+	edgeSeed(t, store.EdgeNode{ID: "n_nas", Name: "nas", Kind: "host", Presence: string(edge.PresenceVerified), LastSeen: now.Unix()})
+	acts := edgeFleetActions()
+	msg, err := acts.IssueGrant("self", "operate", "nas", "7d")
+	require.NoError(t, err)
+	require.Contains(t, msg, "issued")
+	gs, err := edgeGrantStore().List()
+	require.NoError(t, err)
+	require.Len(t, gs, 1)
+	require.Equal(t, []string{"n_nas"}, gs[0].Nodes)
+	_, err = acts.IssueGrant("self", "dance", "nas", "7d")
+	require.Error(t, err, "an unknown capability is refused")
+
+	hacts := edgeHealthActions()
+	msg, err = hacts.SetRule("memory", "gt", "90", "nas")
+	require.NoError(t, err)
+	require.Contains(t, msg, "memory")
+	rules, err := edgeAlertLog().Rules()
+	require.NoError(t, err)
+	found := false
+	for _, r := range rules {
+		if r.Metric == edge.MetricMemory && r.Scope == "n_nas" && r.Value == 90 {
+			found = true
+		}
+	}
+	require.True(t, found, "the rule is stored for the resolved node")
+	require.NoError(t, hacts.RuleOff("cpu_temp", true))
+	rules, _ = edgeAlertLog().Rules()
+	for _, r := range rules {
+		if r.ID == "cpu_temp" {
+			require.True(t, r.Off)
+		}
+	}
+	require.Error(t, hacts.RemoveRule("cpu_temp"), "a default is turned off, never removed")
+	require.NoError(t, hacts.RemoveRule("memory-n_nas"))
+	_, err = hacts.SetRule("warp", "gt", "1", "")
+	require.Error(t, err)
+}

@@ -20,7 +20,20 @@ import (
 
 // edgeRunFleetScreen opens the screen (a seam: the test records the source and actions).
 var edgeRunFleetScreen = func(ctx context.Context, src fleetview.FleetSource, acts fleetview.FleetActions) error {
-	return fleetview.NewFleet(src, fleetview.NewHealth(edgeHealthSource), acts).Run(ctx)
+	health := fleetview.NewHealth(edgeHealthSource)
+	health.Actions = edgeHealthActions()
+	return fleetview.NewFleet(src, health, acts).Run(ctx)
+}
+
+// edgeHealthActions are the rule edits the health screen offers, each the CLI's own path.
+func edgeHealthActions() fleetview.HealthActions {
+	return fleetview.HealthActions{
+		SetRule: func(metric, op, value, scope string) (string, error) {
+			return edgeAlertSetRule(edgeAlertLog(), metric, op, value, scope)
+		},
+		RuleOff:    func(id string, off bool) error { return edgeAlertLog().SetOff(id, off) },
+		RemoveRule: func(id string) error { return edgeAlertLog().Remove(id) },
+	}
 }
 
 func cmdEdgeFleet(cfg config, args []string) error {
@@ -313,6 +326,13 @@ func edgeFleetActions() fleetview.FleetActions {
 		ClearJob: func(name string) error {
 			_, err := edge.ClearAgentJob(edgeJobsDir(), name)
 			return err
+		},
+		IssueGrant: func(caller, capability, callee, forDur string) (string, error) {
+			g, line, err := edgeGrantIssueCore(caller, capability, callee, forDur, 0)
+			if err != nil {
+				return "", err
+			}
+			return "issued " + g.ID + ": " + line, nil
 		},
 	}
 }

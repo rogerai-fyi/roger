@@ -136,34 +136,43 @@ func edgeAlertSet(l edge.AlertLog, argv edgeArgv) error {
 	if len(argv.pos) != 4 {
 		return usagef("usage: roger edge alert set <metric> <gt|lt> <value> [--scope fleet|<node>]\nmetrics: %s", edgeMetricList())
 	}
-	m := edge.Metric(argv.pos[1])
-	if !edge.ValidMetric(m) {
-		return usagef("roger edge alert set: unknown metric %q\nmetrics: %s", argv.pos[1], edgeMetricList())
-	}
-	op := edge.Op(argv.pos[2])
-	if op != edge.OpGT && op != edge.OpLT {
-		return usagef("roger edge alert set: comparison must be gt or lt, not %q", argv.pos[2])
-	}
-	v, err := strconv.ParseFloat(argv.pos[3], 64)
+	msg, err := edgeAlertSetRule(l, argv.pos[1], argv.pos[2], argv.pos[3], argv.flags["scope"])
 	if err != nil {
-		return usagef("roger edge alert set: value must be a number, not %q", argv.pos[3])
+		return err
+	}
+	fmt.Println(msg)
+	return nil
+}
+
+// edgeAlertSetRule stores a rule from words as typed - shared by the CLI and the health screen.
+func edgeAlertSetRule(l edge.AlertLog, metric, opWord, value, scope string) (string, error) {
+	m := edge.Metric(metric)
+	if !edge.ValidMetric(m) {
+		return "", usagef("unknown metric %q - metrics: %s", metric, edgeMetricList())
+	}
+	op := edge.Op(opWord)
+	if op != edge.OpGT && op != edge.OpLT {
+		return "", usagef("comparison must be gt or lt, not %q", opWord)
+	}
+	v, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return "", usagef("value must be a number, not %q", value)
 	}
 	// One rule per metric per scope: the id comes from the RESOLVED node, so "jetson" and its id
 	// prefix name the same rule and the second spelling replaces the first.
 	r := edge.Rule{ID: string(m) + "-fleet", Metric: m, Op: op, Value: v}
-	scope, where := argv.flags["scope"], "every node"
+	where := "every node"
 	if scope != "" && scope != "fleet" {
 		id, err := edgeGrantResolveNode(scope, false)
 		if err != nil {
-			return err
+			return "", err
 		}
 		r.Scope, where, r.ID = id, scope, string(m)+"-"+edgeShortID(id)
 	}
 	if err := l.SetRule(r); err != nil {
-		return err
+		return "", err
 	}
-	fmt.Printf("rule %s: %s on %s - it takes effect on the next health read\n", r.ID, r.Key(), where)
-	return nil
+	return fmt.Sprintf("rule %s: %s on %s - it takes effect on the next health read", r.ID, r.Key(), where), nil
 }
 
 func edgeMetricList() string {

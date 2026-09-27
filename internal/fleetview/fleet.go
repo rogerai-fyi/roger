@@ -257,6 +257,7 @@ type FleetActions struct {
 	StandBy     func(ruleID, nodeID string, d time.Duration) error // quiet a call for a time
 	BindJob     func(name, model, job string) error                // bind a model and a job to a roger here
 	ClearJob    func(name string) error
+	IssueGrant  func(caller, capability, callee, forDur string) (string, error) // returns the line to show
 }
 
 // Fleet is the screen.
@@ -279,6 +280,7 @@ type Fleet struct {
 	revoke   bool   // the revoke question is up
 	revokeID string
 	binding  bool // the bind prompt is up (input holds the text)
+	issuing  bool // the issue-grant prompt is up
 	rename   bool
 	input    []rune
 	toast    string
@@ -345,6 +347,40 @@ func (f *Fleet) tabs() []string {
 func (f *Fleet) onKey(ev *lm.Event) bool {
 	k := ev.Key
 	switch {
+	case f.issuing:
+		switch {
+		case k.Type == lm.KeyEsc:
+			f.issuing = false
+		case k.Type == lm.KeyEnter:
+			f.issuing = false
+			words := strings.Fields(string(f.input))
+			if len(words) < 3 {
+				f.say("a grant needs a caller, a capability and a callee: self operate nas 7d", true)
+				return true
+			}
+			forDur := "30d"
+			if len(words) > 3 {
+				forDur = words[3]
+			}
+			if f.Actions.IssueGrant != nil {
+				msg, err := f.Actions.IssueGrant(words[0], words[1], words[2], forDur)
+				if err != nil {
+					f.say(err.Error(), true)
+				} else {
+					f.say(msg, false)
+				}
+				f.readAt = time.Time{}
+			}
+		case k.Type == lm.KeyBackspace:
+			if len(f.input) > 0 {
+				f.input = f.input[:len(f.input)-1]
+			}
+		case k.Type == lm.KeySpace:
+			f.input = append(f.input, ' ')
+		case k.Ch != 0:
+			f.input = append(f.input, k.Ch)
+		}
+		return true
 	case f.binding:
 		switch {
 		case k.Type == lm.KeyEsc:
@@ -463,6 +499,10 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		case k.Ch == 'x':
 			if f.gsel < len(f.snap.Grants) && f.Actions.RevokeGrant != nil && f.snap.Grants[f.gsel].State == "live" {
 				f.revoke, f.revokeID = true, f.snap.Grants[f.gsel].ID
+			}
+		case k.Ch == 'i':
+			if f.Actions.IssueGrant != nil {
+				f.issuing, f.input = true, nil
 			}
 		case k.Ch == 'r':
 			f.readAt = time.Time{}
@@ -1119,6 +1159,9 @@ func (f *Fleet) actions() []action {
 	switch f.tab {
 	case tabGrants:
 		out := []action{{"↑↓", "select"}}
+		if f.Actions.IssueGrant != nil {
+			out = append(out, action{"i", "issue"})
+		}
 		if f.Actions.RevokeGrant != nil {
 			out = append(out, action{"x", "revoke"})
 		}
@@ -1196,6 +1239,18 @@ func (f *Fleet) drawGrants(fr *lm.Frame, area lm.Rect) {
 	}
 	lines := []lm.Line{lm.NewLine(), lm.NewLine(span("   ", dim), eyebrow("grants", muted),
 		span("  what one node may ask another to do, signed by the authority", dim)), lm.NewLine()}
+	if f.issuing {
+		lines = append(lines, lm.NewLine(span("   ", dim), span("issue  ", paper), bold(string(f.input)+"▏", paper)),
+			lm.NewLine(span("   caller (self, or a unit) · capability · callee · for (7d; 30d when left out) · enter issues · esc cancels", muted)),
+			lm.NewLine())
+	}
+	if f.last != "" && f.tab == tabGrants {
+		c := signal
+		if f.lastErr {
+			c = live
+		}
+		lines = append(lines, lm.NewLine(span("   ▸ ", c), span(f.last, c)), lm.NewLine())
+	}
 	if len(f.snap.Grants) == 0 {
 		lines = append(lines, lm.NewLine(span("   no grants issued yet   ", muted), span("roger edge grant <caller> <capability> <callee> --for 7d", ink)))
 	}

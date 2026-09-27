@@ -151,37 +151,47 @@ func cmdEdgeGrantIssue(cfg config, args []string) error {
 	}
 	callerArg, capArg, calleeArg := pos[0], pos[1], pos[2]
 
-	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	g, line, err := edgeGrantIssueCore(callerArg, capArg, calleeArg, forDur, hops)
 	if err != nil {
 		return err
 	}
+	fmt.Printf("issued %s\n", g.ID)
+	fmt.Printf("  %s\n", line)
+	fmt.Printf("  signed by this Edge's authority; any member verifies it with the public root alone\n")
+	return nil
+}
+
+// edgeGrantIssueCore issues a grant from addresses as typed - shared by the CLI and the fleet
+// screen, so both do exactly the same thing. It returns the grant and its one-line description.
+func edgeGrantIssueCore(callerArg, capArg, calleeArg, forDur string, hops int) (store.Grant, string, error) {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return store.Grant{}, "", err
+	}
 	if !hasRoot {
-		return fmt.Errorf("this machine is not the authority of a locally-rooted Edge; grants are issued where the root key lives (run `roger edge authority local <name>` to designate one)")
+		return store.Grant{}, "", fmt.Errorf("this machine is not the authority of a locally-rooted Edge; grants are issued where the root key lives (run `roger edge authority local <name>` to designate one)")
 	}
 	callerID, err := edgeGrantResolveNode(callerArg, true)
 	if err != nil {
-		return err
+		return store.Grant{}, "", err
 	}
 	calleeID, err := edgeGrantResolveNode(calleeArg, false)
 	if err != nil {
-		return err
+		return store.Grant{}, "", err
 	}
 	expiresAt, err := parseExpires(forDur)
 	if err != nil {
 		// parseExpires is shared with `roger grant` and words its error for --expires; this command's
 		// flag is --for, so re-word it here rather than send the user chasing a flag that does not exist.
-		return fmt.Errorf("bad --for %q, want e.g. 7d or 2026-12-31", forDur)
+		return store.Grant{}, "", fmt.Errorf("bad --for %q, want e.g. 7d or 2026-12-31", forDur)
 	}
 	g, err := edgeIssueGrant(edgeGrantStore(), local.Account(), local.Authority().RootKey(),
 		edgeGrantSpec{caller: callerID, callee: calleeID, capability: capArg, expiresAt: expiresAt, maxHops: hops}, time.Now())
 	if err != nil {
-		return err
+		return store.Grant{}, "", err
 	}
-	fmt.Printf("issued %s\n", g.ID)
-	fmt.Printf("  %s may %s %s until %s\n", edgeGrantWho(callerID), capArg, calleeArg,
-		time.Unix(g.ExpiresAt, 0).Format("2006-01-02 15:04"))
-	fmt.Printf("  signed by this Edge's authority; any member verifies it with the public root alone\n")
-	return nil
+	line := fmt.Sprintf("%s may %s %s until %s", edgeGrantWho(callerID), capArg, calleeArg, time.Unix(g.ExpiresAt, 0).Format("2006-01-02 15:04"))
+	return g, line, nil
 }
 
 // edgeGrantResolveNode turns a caller/callee ADDRESS into a node id. A caller may be empty-meaning

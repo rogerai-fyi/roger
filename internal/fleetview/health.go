@@ -33,6 +33,13 @@ type RuleLine struct{ ID, When, Scope, Kind, State string }
 // HealthSource reads a snapshot. It is called on the first frame and again every Every.
 type HealthSource func() (HealthSnapshot, error)
 
+// HealthActions edit the rules in place: the CLI's `roger edge alert set|off|on|rm` as functions.
+type HealthActions struct {
+	SetRule    func(metric, op, value, scope string) (string, error)
+	RuleOff    func(id string, off bool) error
+	RemoveRule func(id string) error
+}
+
 const historyLen = 60
 
 // history is the last readings of one unit, kept in this process, for the sparklines.
@@ -47,14 +54,21 @@ type Health struct {
 	BackHint string
 	Tabs     []string
 	Tab      int
+	Actions  HealthActions
 
-	snap   HealthSnapshot
-	err    error
-	readAt time.Time
-	sel    int
-	frame  int
-	hist   map[string]*history
-	lastAt map[string]int64 // the ReadAt last folded into hist, per unit
+	snap    HealthSnapshot
+	rsel    int // the chosen rule, walked with [ and ]
+	adding  bool
+	input   []rune
+	last    string // the last edit's outcome
+	lastErr bool
+	saidAt  time.Time
+	err     error
+	readAt  time.Time
+	sel     int
+	frame   int
+	hist    map[string]*history
+	lastAt  map[string]int64 // the ReadAt last folded into hist, per unit
 }
 
 // NewHealth makes the screen over src, re-reading every 2s.
@@ -104,13 +118,36 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 	} else {
 		h.drawBody(f, rows[1])
 	}
-	acts := []action{{"↑↓", "unit"}, {"r", "re-read"}}
+	acts := []action{{"↑↓", "unit"}}
+	if h.Actions.SetRule != nil {
+		acts = append(acts, action{"a", "add rule"})
+	}
+	if h.Actions.RuleOff != nil || h.Actions.RemoveRule != nil {
+		acts = append(acts, action{"[ ]", "rule"})
+	}
+	if h.Actions.RuleOff != nil {
+		acts = append(acts, action{"o", "off/on"})
+	}
+	if h.Actions.RemoveRule != nil {
+		acts = append(acts, action{"x", "remove"})
+	}
+	acts = append(acts, action{"r", "re-read"})
 	if h.BackHint != "" {
 		acts = append(acts, action{"1", "fleet"})
 	}
 	acts = append(acts, action{"q", "quit"})
-	actionBar(f, rows[2], acts, "", false, time.Time{})
+	actionBar(f, rows[2], acts, h.last, h.lastErr, h.saidAt)
 	return true
+}
+
+func (h *Health) say(s string, isErr bool) { h.last, h.lastErr, h.saidAt = s, isErr, time.Now() }
+
+// chosenRule is the rule under the [ ] cursor, if any.
+func (h *Health) chosenRule() (RuleLine, bool) {
+	if h.rsel < 0 || h.rsel >= len(h.snap.Rules) {
+		return RuleLine{}, false
+	}
+	return h.snap.Rules[h.rsel], true
 }
 
 // onKey handles one key; false ends the screen.
@@ -118,15 +155,84 @@ func (h *Health) onKey(ev *lm.Event) bool {
 	if ev == nil || ev.Type != lm.EventKey {
 		return true
 	}
+	k := ev.Key
+	if h.adding {
+		switch {
+		case k.Type == lm.KeyEsc:
+			h.adding = false
+		case k.Type == lm.KeyEnter:
+			h.adding = false
+			w := strings.Fields(string(h.input))
+			if len(w) < 3 {
+				h.say("a rule is a metric, gt or lt, and a value: cpu_temp gt 80 [fleet|<unit>]", true)
+				return true
+			}
+			scope := "fleet"
+			if len(w) > 3 {
+				scope = w[3]
+			}
+			if h.Actions.SetRule != nil {
+				msg, err := h.Actions.SetRule(w[0], w[1], w[2], scope)
+				if err != nil {
+					h.say(err.Error(), true)
+				} else {
+					h.say(msg, false)
+				}
+				h.readAt = time.Time{}
+			}
+		case k.Type == lm.KeyBackspace:
+			if len(h.input) > 0 {
+				h.input = h.input[:len(h.input)-1]
+			}
+		case k.Type == lm.KeySpace:
+			h.input = append(h.input, ' ')
+		case k.Ch != 0:
+			h.input = append(h.input, k.Ch)
+		}
+		return true
+	}
 	switch {
-	case ev.Key.Ch == 'q' || ev.Key.Ch == 'Q' || ev.Key.Type == lm.KeyEsc:
+	case k.Ch == 'q' || k.Ch == 'Q' || k.Type == lm.KeyEsc:
 		return false
-	case ev.Key.Ch == 'r':
+	case k.Ch == 'r':
 		h.readAt = time.Time{} // re-read now
-	case ev.Key.Type == lm.KeyDown || ev.Key.Ch == 'j':
+	case k.Type == lm.KeyDown || k.Ch == 'j':
 		h.sel++
-	case ev.Key.Type == lm.KeyUp || ev.Key.Ch == 'k':
+	case k.Type == lm.KeyUp || k.Ch == 'k':
 		h.sel--
+	case k.Ch == ']':
+		h.rsel++
+	case k.Ch == '[':
+		h.rsel--
+	case k.Ch == 'a':
+		if h.Actions.SetRule != nil {
+			h.adding, h.input = true, nil
+		}
+	case k.Ch == 'o':
+		if r, ok := h.chosenRule(); ok && h.Actions.RuleOff != nil {
+			off := !strings.HasPrefix(r.State, "off")
+			if err := h.Actions.RuleOff(r.ID, off); err != nil {
+				h.say(err.Error(), true)
+			} else if off {
+				h.say("rule "+r.ID+" is off", false)
+			} else {
+				h.say("rule "+r.ID+" is on", false)
+			}
+			h.readAt = time.Time{}
+		}
+	case k.Ch == 'x':
+		if r, ok := h.chosenRule(); ok && h.Actions.RemoveRule != nil {
+			if r.Kind == "default" {
+				h.say("a default is turned off, not removed (o)", true)
+				return true
+			}
+			if err := h.Actions.RemoveRule(r.ID); err != nil {
+				h.say(err.Error(), true)
+			} else {
+				h.say("rule "+r.ID+" removed", false)
+			}
+			h.readAt = time.Time{}
+		}
 	}
 	return true
 }
@@ -346,7 +452,17 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		sinks = "sinks: none configured · alerts stay on this machine"
 	}
 	lines = append(lines, lm.NewLine(span("  ", dim), eyebrow(pad("rules", 8), muted), span(sinks, muted)))
-	for _, rl := range h.snap.Rules {
+	if h.rsel >= len(h.snap.Rules) {
+		h.rsel = len(h.snap.Rules) - 1
+	}
+	if h.rsel < 0 {
+		h.rsel = 0
+	}
+	if h.adding {
+		lines = append(lines, lm.NewLine(span("          ", dim), span("add rule  ", paper), bold(string(h.input)+"▏", paper)),
+			lm.NewLine(span("          metric (cpu_temp, disk, memory, cpu_load, sd_wear, offline) · gt or lt · value · fleet or a unit · enter · esc", muted)))
+	}
+	for i, rl := range h.snap.Rules {
 		dot, dc := "○", dim
 		if strings.HasPrefix(rl.State, "firing") {
 			dot, dc = "●", live
@@ -355,7 +471,11 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		if state == "quiet" {
 			state = ""
 		}
-		lines = append(lines, lm.NewLine(span("          ", dim), bold(dot+" ", dc), span(pad(rl.When, 18), ink),
+		rail := span("  ", dim)
+		if i == h.rsel && (h.Actions.RuleOff != nil || h.Actions.RemoveRule != nil) {
+			rail = bold("▌ ", live)
+		}
+		lines = append(lines, lm.NewLine(span("        ", dim), rail, bold(dot+" ", dc), span(pad(rl.When, 18), ink),
 			span(pad(rl.Scope, 12), muted), span(pad(rl.Kind, 9), muted), span(strings.Replace(state, "firing:", "firing on", 1), dc)))
 	}
 	f.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
