@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -536,5 +537,42 @@ func TestConsoleAgentToggleNeedsAnExplicitValue(t *testing.T) {
 	}
 	if r := postJSONTok(t, srv, s, "/api/edge/agent", `{"on":false}`); r.StatusCode != http.StatusOK || len(got) != 1 || got[0] {
 		t.Fatalf("explicit off = %d, got %v", r.StatusCode, got)
+	}
+}
+
+// The console card carries the inventory line and the BEHIND mark the TUI carries, worded on the
+// server (features/edge/inventory.feature).
+func TestConsoleSnapshotCarriesSoftwareAndWhoIsBehind(t *testing.T) {
+	db := store.NewMem()
+	fleet := edge.NewFleet(db, "acct-1")
+	for _, n := range []store.EdgeNode{
+		{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(edge.PresenceVerified),
+			Instances: []edge.Instance{{Name: "desk", Software: &store.EdgeSoftware{Roger: "6.11.2", OS: "Gentoo Linux", Arch: "amd64"}}}},
+		{ID: "n_shed", Name: "shed", Kind: "host", Presence: string(edge.PresenceVerified),
+			Instances: []edge.Instance{{Name: "shed", Software: &store.EdgeSoftware{Roger: "6.9.0", OS: "Debian GNU/Linux 12", Arch: "arm64", Machine: "Raspberry Pi 5"}}, {Name: "shed-2"}}},
+	} {
+		if _, err := fleet.Enroll(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Self: "desk", Fleet: fleet}})
+	snap, err := s.edgeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]edgeSoftwareJSON{}
+	for _, n := range snap.Nodes {
+		got[n.Name] = n.Software
+	}
+	if len(got["desk"]) != 1 || got["desk"][0].Words != "roger 6.11.2 · Gentoo Linux · amd64" || got["desk"][0].Behind != "" {
+		t.Fatalf("desk: %+v", got["desk"])
+	}
+	if len(got["shed"]) != 1 || got["shed"][0].Instance != "shed" || got["shed"][0].Behind != "6.11.2" ||
+		got["shed"][0].Words != "roger 6.9.0 · Debian GNU/Linux 12 · arm64 · Raspberry Pi 5" {
+		t.Fatalf("shed (one line: shed-2 has no record): %+v", got["shed"])
+	}
+	js, _ := os.ReadFile("assets/console.js")
+	if !strings.Contains(string(js), `"   behind " + sw.behind`) || !strings.Contains(string(js), "sw.instance !== i.name") {
+		t.Fatal("console.js does not draw the software line under its instance with the behind mark")
 	}
 }

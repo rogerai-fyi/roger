@@ -90,7 +90,7 @@ func (h *edgeHost) registerInstance(cfg config) {
 	}
 	bands := edgeBandsOnAir()
 	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCaps(bands),
-		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now)}
+		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now), Software: edgeReadSoftware()}
 	reg, err := edge.Register(dir, id.NodeID, inst, now)
 	if err != nil {
 		// A taken name is the one refusal a default cannot avoid on a race: fall back to
@@ -125,6 +125,9 @@ func (h *edgeHost) beatInstance(cfg config) {
 	_ = reg.Update(node, func(i *edge.Instance) {
 		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCaps(bands), edgeReadResources(now)
 		i.Agent = agent // a change via `roger edge agent on` is picked up on the next pass
+		if i.Software == nil {
+			i.Software = edgeReadSoftware() // a record written by an older roger, refreshed once
+		}
 	})
 	// An env-named process keeps its env name; only a config choice (and only when no env
 	// override is set) renames a running instance to follow the owner's `roger edge name .`.

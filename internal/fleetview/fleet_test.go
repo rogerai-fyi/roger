@@ -574,3 +574,30 @@ func TestFleetScreenSurvivesASliverOfATerminal(t *testing.T) {
 		uitest.Run(t, w, 6, h.Draw)
 	}
 }
+
+// The inventory line and the BEHIND mark on the readout (features/edge/inventory.feature).
+func TestReadoutCarriesTheSoftwareLineAndWhoIsBehind(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		switch snap.Items[i].Name {
+		case "nas":
+			snap.Items[i].Software = []string{"roger 6.9.0 · Debian GNU/Linux 12 · 6.1.0 · arm64 · Raspberry Pi 5"}
+			snap.Items[i].Behind = "6.11.2"
+		case "roggentooedged-2":
+			snap.Items[i].Software = []string{"roger 6.11.2 · Gentoo Linux · 6.18.31 · amd64"}
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	for range 4 {
+		page.Press("j")
+	}
+	must(t, page.Screen(), "SOFTWARE", "roger 6.9.0 · Debian GNU/Linux 12 · 6.1.0", "arm64 · Raspberry Pi 5", "UPDATE", "behind 6.11.2")
+	page.Press("k")
+	page.Press("k")
+	must(t, page.Screen(), "roger 6.11.2 · Gentoo Linux")
+	if strings.Contains(page.Screen(), "behind") {
+		t.Fatal("a current roger is not marked behind")
+	}
+}

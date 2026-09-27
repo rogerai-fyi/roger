@@ -2377,6 +2377,10 @@
       var job = edgeJobFor(d, i.name);
       if (job) line += "  \u00b7 " + job;
       edgeKV(card, idx === 0 ? "instances" : "", line);
+      (n.software || []).forEach(function (sw) {
+        if (sw.instance !== i.name) return;
+        edgeKV(card, "", "  " + sw.words + (sw.behind ? "   behind " + sw.behind : ""), sw.behind ? "edge-alert" : "muted");
+      });
       edgeInstanceResources(card, i);
       // On THIS machine's own instances (the self row) the console can assign a model/job, like the
       // TUI's Bind Model. The host fills in the node; a relayed member's instances are not this machine's.

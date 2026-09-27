@@ -60,6 +60,18 @@ runs it on each instance it has just certificate-verified whose serve is still C
 runs the same check on its own household through its own upstream map. The peer's own word still
 counts for nothing. Proposed in features/edge/serving_probe.feature, pinned by Go tests.
 
+## Inventory: what each unit runs, and who is behind
+
+Every fleet manager shows the agent version, the OS, the kernel, the architecture and the hardware
+per device, and flags the devices that are BEHIND. Roger Edge showed resources but not one software
+fact. Now each running roger records what it IS beside what it has: its version, the OS pretty name,
+the kernel release, the architecture, the hostname and the hardware model where the machine names
+one (a Jetson, a Pi, a DMI product). Nothing is invented: a fact the machine does not expose is
+absent. The newest roger on the Edge is the reference, and an older one reads "behind 6.11.2" on
+every surface. `roger edge inventory [--json]` is the table; the fleet screen's readout carries a
+SOFTWARE row and an UPDATE row, the console's node card carries the same line under each instance,
+and `roger edge describe` prints it. Proposed in features/edge/inventory.feature.
+
 ## The console
 
 The console's EDGE tab carries the same floor: Andon tiles, the Trouble list with roger and

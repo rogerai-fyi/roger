@@ -122,6 +122,16 @@ type edgeNodeJSON struct {
 	InstancesTruncated bool            `json:"instances_truncated,omitempty"`
 	// Alerts are the rules firing for this node right now, by wording; decided by the host.
 	Alerts []string `json:"alerts"`
+	// Software is the inventory of each roger on the node, worded here so the browser draws the same
+	// line the TUI does, with the newest roger it is behind (features/edge/inventory.feature).
+	Software []edgeSoftwareJSON `json:"software"`
+}
+
+// edgeSoftwareJSON is one roger's inventory line on a node card.
+type edgeSoftwareJSON struct {
+	Instance string `json:"instance"`
+	Words    string `json:"words"`
+	Behind   string `json:"behind,omitempty"`
 }
 
 type edgeContractJSON struct {
@@ -362,10 +372,17 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	if h.Alerts != nil {
 		alerts = h.Alerts()
 	}
+	newest := edge.NewestRoger(list)
 	for _, r := range edge.Arrange(list) {
 		n := edgeNodeOf(r.Node, now)
 		n.Via, n.Relay, n.Child = r.Via, r.Relay, r.Child
 		n.Alerts = append(n.Alerts, alerts[n.ID]...)
+		n.Software = []edgeSoftwareJSON{}
+		for _, in := range r.Node.Instances {
+			if w := edge.SoftwareWords(in.Software); w != "" {
+				n.Software = append(n.Software, edgeSoftwareJSON{Instance: in.Name, Words: w, Behind: edge.Behind(in, newest)})
+			}
+		}
 		snap.Nodes = append(snap.Nodes, n)
 	}
 	if h.Floor != nil {

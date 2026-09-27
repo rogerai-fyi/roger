@@ -46,6 +46,20 @@ type EdgeInstance struct {
 	Started   int64          `json:"started,omitempty"`
 	Port      int            `json:"port,omitempty"` // its own LAN face, when it has one
 	Resources *EdgeResources `json:"resources,omitempty"`
+	// Software is what this roger IS: its version and the machine it runs on
+	// (features/edge/inventory.feature). Read, never invented; nil on an older face.
+	Software *EdgeSoftware `json:"software,omitempty"`
+}
+
+// EdgeSoftware is the software inventory of one running roger. Every field is what the machine
+// said, or empty when it could not be read.
+type EdgeSoftware struct {
+	Roger    string `json:"roger,omitempty"`    // the roger version, e.g. 6.11.2
+	OS       string `json:"os,omitempty"`       // the OS pretty name, e.g. Debian GNU/Linux 12
+	Kernel   string `json:"kernel,omitempty"`   // the kernel release
+	Arch     string `json:"arch,omitempty"`     // amd64, arm64, ...
+	Hostname string `json:"hostname,omitempty"` // the machine's own name
+	Machine  string `json:"machine,omitempty"`  // the hardware model: a Jetson, a Pi, a DMI product
 }
 
 // EdgeResources are the local resource facts an instance could READ - never invented: a

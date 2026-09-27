@@ -87,6 +87,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"health", "[<node>]", "show the fleet's health at a glance, or one node in full", 0, 1},
 	{"fleet", "", "open the live fleet screen: the map, the readouts, the actions", 0, 0},
 	{"trouble", "[<node>] [--since <cursor>] [--json|--watch]", "read a member's trouble feed, as the phone does; --watch follows it", 0, 1},
+	{"inventory", "[--json]", "list every unit's software: roger version, OS, kernel, arch, machine, and who is behind", 0, 0},
 	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
@@ -184,6 +185,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeFleet(cfg, rest)
 	case "trouble":
 		return cmdEdgeTrouble(cfg, rest)
+	case "inventory":
+		return cmdEdgeInventory(cfg, rest)
 	case "alert":
 		return cmdEdgeAlert(cfg, rest)
 	case "enroll":
@@ -747,6 +750,9 @@ func edgeWriteTable(w io.Writer, nodes []store.EdgeNode, reach map[string]edgeRe
 func edgeWriteInstances(w io.Writer, insts []edge.Instance, truncated bool) {
 	for _, in := range insts {
 		fmt.Fprintf(w, "  %-16s %-6s %-30s %s\n", "/"+in.Name, "roger", edgeInstanceCapsLabel(in), edgeInstanceServes(in))
+		if words := edge.SoftwareWords(in.Software); words != "" {
+			fmt.Fprintf(w, "  %-16s %s\n", "", words) // the inventory line (features/edge/inventory.feature)
+		}
 	}
 	if truncated {
 		fmt.Fprintf(w, "  %-16s (this node runs more instances than are shown)\n", "")

@@ -68,6 +68,12 @@ type FleetItem struct {
 	// Lines are the rule thresholds in force for this unit by metric, so a meter draws its line
 	// whether or not the unit is over it.
 	Lines map[string]float64
+	// Software is the unit's inventory line (features/edge/inventory.feature): "roger 6.9.0 · Debian
+	// GNU/Linux 12 · 6.1.0 · arm64 · Raspberry Pi 5"; Behind is the newest roger on the Edge when this
+	// unit runs an older one, "" when it is current or reports none. A member with several rogers
+	// carries one line per roger, each led by its name.
+	Software []string
+	Behind   string
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -984,6 +990,21 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		lines = append(lines, lm.NewLine(), l)
 	}
 	air := func() { lines = append(lines, lm.NewLine()) }
+	// software is the inventory line, and the BEHIND mark in the alarm colour when the unit runs an
+	// older roger than the newest on the Edge (features/edge/inventory.feature).
+	software := func() {
+		if it.Behind != "" {
+			row("update", bold("behind "+it.Behind, live), span("  the newest roger on this Edge", muted))
+		}
+		label := "software"
+		for _, line := range it.Software {
+			// Wrapped at the separators, so a long OS name and a machine name each stay whole.
+			for _, piece := range wrapDots(line, 46) {
+				row(label, span(piece, ink))
+				label = ""
+			}
+		}
+	}
 	switch it.Kind {
 	case ItemHub:
 		lv := carrierLevel(it.heard(now), false, now)
@@ -1018,6 +1039,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			air()
 			row("job", bold(it.Job, glow))
 		}
+		software()
 	case ItemMember:
 		lv := carrierLevel(it.LastSeen, it.Dark, now)
 		head(lv, it.Dark, it.Asking, it.Name, kindLabel(it.NodeKind)+" · patched in")
@@ -1047,6 +1069,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		if !it.LastRead.IsZero() {
 			row("hears", span("hears the Edge · read the feed "+edge.Age(now.Sub(it.LastRead))+" ago", signal))
 		}
+		software()
 	case ItemCandidate:
 		head(0, false, true, it.Name, kindLabel(it.NodeKind)+" · on the bench")
 		prose("seen on this network, not on your Edge. adopting it grants a claim; it fetches its certificate and patches in", ink)
@@ -1606,4 +1629,27 @@ func clampIndex(i, n int) int {
 		i = 0
 	}
 	return i
+}
+
+// wrapDots breaks a " · "-separated line into pieces no longer than width, cutting only at the
+// separators; one piece longer than width stands alone rather than being cut mid-word.
+func wrapDots(line string, width int) []string {
+	parts := strings.Split(line, " · ")
+	var out []string
+	cur := ""
+	for _, p := range parts {
+		switch {
+		case cur == "":
+			cur = p
+		case len([]rune(cur))+3+len([]rune(p)) <= width:
+			cur += " · " + p
+		default:
+			out = append(out, cur)
+			cur = p
+		}
+	}
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
 }

@@ -97,9 +97,13 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		jobs[j.Name] = j
 	}
 	live := map[string]bool{}
-	for _, in := range edge.Household(edgeInstancesDir(), now) {
+	nodes0, _ := st.fleet.List()
+	household := edge.Household(edgeInstancesDir(), now)
+	newest := edge.NewestRoger(append(nodes0, store.EdgeNode{Instances: household}))
+	for _, in := range household {
 		live[in.Name] = true
-		it := fleetview.FleetItem{Kind: fleetview.ItemInstance, Name: in.Name, Bands: in.Bands, Caps: edgeCapsOf(in.Caps)}
+		it := fleetview.FleetItem{Kind: fleetview.ItemInstance, Name: in.Name, Bands: in.Bands, Caps: edgeCapsOf(in.Caps),
+			Software: edgeSoftwareLines([]edge.Instance{in}), Behind: edge.Behind(in, newest)}
 		if in.Agent {
 			it.Kind = fleetview.ItemAgent
 		}
@@ -164,7 +168,11 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		}
 		for _, in := range n.Instances {
 			it.Bands = append(it.Bands, in.Bands...)
+			if b := edge.Behind(in, newest); b != "" && it.Behind == "" {
+				it.Behind = b
+			}
 		}
+		it.Software = edgeSoftwareLines(n.Instances)
 		snap.Items = append(snap.Items, it)
 	}
 	for _, c := range st.candidates {
@@ -391,6 +399,23 @@ func edgeLinesFor(rules edge.RuleSet, nodeID string) map[string]float64 {
 		case fleet != nil:
 			out[string(m)] = fleet.Value
 		}
+	}
+	return out
+}
+
+// edgeSoftwareLines words a household's inventory: one line when there is one roger, one per roger
+// led by its name when there are several. A roger with no record (an older face) has no line.
+func edgeSoftwareLines(insts []edge.Instance) []string {
+	var out []string
+	for _, in := range insts {
+		w := edge.SoftwareWords(in.Software)
+		if w == "" {
+			continue
+		}
+		if len(insts) > 1 {
+			w = in.Name + ": " + w
+		}
+		out = append(out, w)
 	}
 	return out
 }
