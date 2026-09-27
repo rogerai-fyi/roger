@@ -151,7 +151,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 		return edgeAlertLog().Roger(ruleID, nodeID, edgeOperatorName(), time.Now())
 	}
 	hooks.EdgeStandBy = func(ruleID, nodeID string, d time.Duration) error {
-		return edgeAlertLog().StandBy(ruleID, nodeID, time.Now().Add(d))
+		return edgeAlertLog().StandByAs(ruleID, nodeID, edgeOperatorName(), time.Now().Add(d))
 	}
 	hooks.EdgeHealthLive = true
 	hooks.EdgeIssueGrant = h.issueGrant

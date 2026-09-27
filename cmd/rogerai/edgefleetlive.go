@@ -303,7 +303,7 @@ func edgeFleetActions() fleetview.FleetActions {
 			return edgeAlertLog().Roger(ruleID, nodeID, edgeOperatorName(), time.Now())
 		},
 		StandBy: func(ruleID, nodeID string, d time.Duration) error {
-			return edgeAlertLog().StandBy(ruleID, nodeID, time.Now().Add(d))
+			return edgeAlertLog().StandByAs(ruleID, nodeID, edgeOperatorName(), time.Now().Add(d))
 		},
 		BindJob: func(name, model, job string) error {
 			if err := edge.ValidInstanceName(name); err != nil {

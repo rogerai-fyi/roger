@@ -49,6 +49,7 @@ type TroubleItem struct {
 	AckAt    int64  `json:"ack_at,omitempty"`
 	Shelved  bool   `json:"shelved"`
 	UntilAt  int64  `json:"until_at,omitempty"`
+	StandBy  string `json:"standby_by,omitempty"` // who quieted it
 	Why      string `json:"why"`
 	Do       string `json:"do"`
 }
@@ -142,17 +143,31 @@ func Handle(who string) string {
 	return who
 }
 
+// feedSlack is how far before the reader's cursor transitions are still sent: a judgement that
+// began before the last read and landed after it carries an earlier time than the cursor, and
+// must not be lost. The reader dedupes by (rule, node, at).
+const feedSlack = 2 * time.Minute
+
 // Feed is the feed as of now: the standing calls, the transitions after since (the last hour
-// when since is zero), the rate and the sign-off, with node ids worded by names.
-func (l AlertLog) Feed(since, now time.Time, names func(id string) string) (TroubleFeed, error) {
-	calls, rate, so, err := l.Report(now)
-	if err != nil {
-		return TroubleFeed{}, err
-	}
-	hist, err := l.Recent(1 << 20)
-	if err != nil {
-		return TroubleFeed{}, err
-	}
+// when since is zero), the rate and the sign-off, with node ids worded by names. One read of the
+// history, under the log's lock, so a feed is one consistent moment.
+func (l AlertLog) Feed(since, now time.Time, names func(id string) string) (feed TroubleFeed, err error) {
+	err = l.withLock(func() error {
+		hist, err := l.Recent(1 << 20)
+		if err != nil {
+			return err
+		}
+		calls, rate, so, err := l.reportFrom(hist, now)
+		if err != nil {
+			return err
+		}
+		feed = l.feedFrom(hist, calls, rate, so, since, now, names)
+		return nil
+	})
+	return feed, err
+}
+
+func (l AlertLog) feedFrom(hist []Alert, calls []TroubleCall, rate int, so SignOffReport, since, now time.Time, names func(id string) string) TroubleFeed {
 	name := func(id, fallback string) string {
 		if names != nil {
 			if n := names(id); n != "" && n != id {
@@ -167,16 +182,7 @@ func (l AlertLog) Feed(since, now time.Time, names func(id string) string) (Trou
 	feed := TroubleFeed{At: now.Unix(), Cursor: strconv.FormatInt(now.UnixNano(), 10), Standing: []TroubleItem{},
 		Transitions: []TroubleTransition{}, Rate: rate, SignOff: TroubleSignOff{Raised: so.Raised, Cleared: so.Cleared,
 			Loudest: so.Loudest, LoudestCount: so.LoudestCount, DeadAir: []TroubleDeadAir{}}}
-	sort.SliceStable(calls, func(i, j int) bool {
-		if calls[i].Shelved != calls[j].Shelved {
-			return !calls[i].Shelved
-		}
-		pi, pj := PriorityRank(Priority(calls[i].Metric)), PriorityRank(Priority(calls[j].Metric))
-		if pi != pj {
-			return pi < pj
-		}
-		return calls[i].Since > calls[j].Since
-	})
+	SortCalls(calls)
 	for _, c := range calls {
 		why, do := WhyAndDo(c.Metric)
 		it := TroubleItem{Rule: c.RuleID, NodeID: c.NodeID, Node: name(c.NodeID, c.Node), Metric: string(c.Metric), When: c.When,
@@ -186,12 +192,14 @@ func (l AlertLog) Feed(since, now time.Time, names func(id string) string) (Trou
 			it.AckAt = c.AckAt.Unix()
 		}
 		if c.Shelved {
-			it.UntilAt = c.StandByUntil.Unix()
+			it.UntilAt, it.StandBy = c.StandByUntil.Unix(), Handle(c.StandByBy)
 		}
 		feed.Standing = append(feed.Standing, it)
 	}
 	if since.IsZero() {
 		since = now.Add(-time.Hour)
+	} else {
+		since = since.Add(-feedSlack)
 	}
 	for _, a := range hist {
 		if !a.At.After(since) || a.At.After(now) {
@@ -210,7 +218,7 @@ func (l AlertLog) Feed(since, now time.Time, names func(id string) string) (Trou
 		feed.SignOff.DeadAir = append(feed.SignOff.DeadAir, TroubleDeadAir{Node: name(id, ""), ForS: int64(d.Seconds())})
 	}
 	sort.Slice(feed.SignOff.DeadAir, func(i, j int) bool { return feed.SignOff.DeadAir[i].ForS > feed.SignOff.DeadAir[j].ForS })
-	return feed, nil
+	return feed
 }
 
 // TestCall puts one clearly-marked test transition in the feed for a member, changing no rule
@@ -229,12 +237,16 @@ func (l AlertLog) Reads() (map[string]int64, error) {
 	return out, err
 }
 
-// RecordRead notes that a member read the feed now.
+// RecordRead notes that a member read the feed now - once a minute per member, so a tight poll
+// does not write a file on every request.
 func (l AlertLog) RecordRead(nodeID string, now time.Time) error {
 	return l.withLock(func() error {
 		reads, err := l.Reads()
 		if err != nil {
 			return err
+		}
+		if last := reads[nodeID]; last > 0 && now.Unix()-last < 60 {
+			return nil
 		}
 		reads[nodeID] = now.Unix()
 		return l.writeJSON("reads.json", reads)
@@ -245,20 +257,23 @@ func (l AlertLog) RecordRead(nodeID string, now time.Time) error {
 
 // handleTrouble serves GET /edge/trouble to a member.
 func (s *Server) handleTrouble(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		inferError(w, http.StatusMethodNotAllowed, "method not allowed")
+	id, log, ok := s.troubleCaller(w, r) // who asks is settled before anything else is said
+	if !ok {
 		return
 	}
-	id, log, ok := s.troubleCaller(w, r)
-	if !ok {
+	if r.Method != http.MethodGet {
+		inferError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	now := s.now()
 	var since time.Time
 	if c := r.URL.Query().Get("since"); c != "" {
-		if ns, err := strconv.ParseInt(c, 10, 64); err == nil {
-			since = time.Unix(0, ns)
+		ns, err := strconv.ParseInt(c, 10, 64)
+		if err != nil || ns <= 0 {
+			inferError(w, http.StatusBadRequest, "since must be a cursor this feed gave you")
+			return
 		}
+		since = time.Unix(0, ns)
 	}
 	feed, err := log.Feed(since, now, s.name)
 	if err != nil {
@@ -293,7 +308,7 @@ func (s *Server) handleTroubleRoger(w http.ResponseWriter, r *http.Request) {
 
 // handleTroubleStandBy serves POST /edge/trouble/standby: the member quiets a call for 1..8 hours.
 func (s *Server) handleTroubleStandBy(w http.ResponseWriter, r *http.Request) {
-	_, log, ok := s.troubleCaller(w, r)
+	id, log, ok := s.troubleCaller(w, r)
 	if !ok || !s.troublePost(w, r) {
 		return
 	}
@@ -306,13 +321,13 @@ func (s *Server) handleTroubleStandBy(w http.ResponseWriter, r *http.Request) {
 		inferError(w, http.StatusBadRequest, "rule and node required")
 		return
 	}
-	if req.Hours <= 0 {
+	if req.Hours < 1 { // an hour at least, eight at most
 		req.Hours = 1
 	}
 	if req.Hours > 8 {
 		req.Hours = 8
 	}
-	if err := log.StandBy(req.Rule, req.Node, s.now().Add(time.Duration(req.Hours*float64(time.Hour)))); err != nil {
+	if err := log.StandByAs(req.Rule, req.Node, s.name(id), s.now().Add(time.Duration(req.Hours*float64(time.Hour)))); err != nil {
 		inferError(w, http.StatusNotFound, "no such standing call")
 		return
 	}
@@ -321,13 +336,13 @@ func (s *Server) handleTroubleStandBy(w http.ResponseWriter, r *http.Request) {
 
 // troubleCaller authenticates the member and finds the log; it writes the refusal itself.
 func (s *Server) troubleCaller(w http.ResponseWriter, r *http.Request) (string, *AlertLog, bool) {
-	if s.serving == nil || s.serving.Trouble == nil {
-		inferError(w, http.StatusNotFound, "this node keeps no trouble log")
-		return "", nil, false
-	}
-	id, status, msg := s.caller(r)
+	id, status, msg := s.caller(r) // authenticate first: a stranger learns nothing, not even that
 	if status != 0 {
 		inferError(w, status, msg)
+		return "", nil, false
+	}
+	if s.serving.Trouble == nil {
+		inferError(w, http.StatusNotFound, "this node keeps no trouble log")
 		return "", nil, false
 	}
 	return id, s.serving.Trouble, true

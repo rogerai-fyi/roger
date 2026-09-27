@@ -184,9 +184,13 @@ func TestTroubleFeedCursorTellsWhatChangedSoThePhoneNotifiesOnce(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	var second TroubleFeed
 	require.NoError(t, json.Unmarshal([]byte(body), &second))
-	require.Len(t, second.Transitions, 2, "only what changed after the cursor")
-	require.False(t, second.Transitions[0].Firing, "the clear at 12:05 first")
-	require.True(t, second.Transitions[1].Firing, "then the firing at 12:10")
+	// What changed after the cursor, plus two minutes of slack before it (a judgement that began
+	// before the last read and landed after it must not be lost); the phone dedupes by
+	// (rule, node, at), so the 12:00 firing it already saw comes again and is dropped there.
+	require.Len(t, second.Transitions, 3)
+	require.True(t, second.Transitions[0].Firing, "the 12:00 firing, inside the slack")
+	require.False(t, second.Transitions[1].Firing, "the clear at 12:05")
+	require.True(t, second.Transitions[2].Firing, "then the firing at 12:10")
 	require.Len(t, second.Standing, 1, "the standing calls are still complete")
 	require.NotEqual(t, first.Cursor, second.Cursor)
 }
@@ -248,4 +252,60 @@ func TestTroubleFeedCarriesNoSecretAndTestCallsAreMarked(t *testing.T) {
 	require.Len(t, feed.Standing, 1, "and it is not a standing call: no rule state changed")
 	st, _ := rig.log.State()
 	require.Len(t, st, 1)
+}
+
+// The review's gaps: the last hour and no more; a member of another account is 403; a cursor the
+// feed never gave is refused; a stand-by names who asked; a test call moves no rate and no
+// sign-off; a forgotten reader leaves the sink line.
+func TestTroubleFeedEdgesTheReviewAsked(t *testing.T) {
+	rig := newTroubleRig(t)
+	t0 := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	rig.now = t0
+	_, _, _ = rig.log.Judge(hotDesk(t0, 95), t0.Add(-2*time.Hour)) // fired two hours ago
+	_, _, _ = rig.log.Judge(hotDesk(t0, 70), t0.Add(-90*time.Minute))
+	_, _, _ = rig.log.Judge(hotDesk(t0, 95), t0.Add(-10*time.Minute))
+	_, body := rig.get(t, &rig.phone, "")
+	var feed TroubleFeed
+	require.NoError(t, json.Unmarshal([]byte(body), &feed))
+	require.Len(t, feed.Transitions, 1, "no cursor: the last hour of transitions and no more")
+
+	code, body := rig.get(t, &rig.phone, "?since=yesterday")
+	require.Equal(t, http.StatusBadRequest, code, body)
+	code, _ = rig.get(t, &rig.phone, "?since=-5")
+	require.Equal(t, http.StatusBadRequest, code)
+
+	// A stand-by from the phone names the phone.
+	code, _ = rig.post(t, &rig.phone, TroubleStandByPath, map[string]any{"rule": "cpu_temp", "node": "n_desk", "hours": 0.001})
+	require.Equal(t, http.StatusOK, code)
+	calls, _ := rig.log.Standing(t0)
+	require.Equal(t, "gentle-ibex-14", calls[0].StandByBy)
+	require.WithinDuration(t, t0.Add(time.Hour), calls[0].StandByUntil, time.Second, "an hour at least")
+	_, body = rig.get(t, &rig.phone, "")
+	require.NoError(t, json.Unmarshal([]byte(body), &feed))
+	require.Equal(t, "gentle-ibex-14", feed.Standing[0].StandBy)
+
+	// A test call is in the transitions, and nowhere else.
+	require.NoError(t, rig.log.TestCall("gentle-ibex-14", t0))
+	rate, _ := rig.log.Rate(t0, 10*time.Minute)
+	require.Equal(t, 1, rate, "the real firing ten minutes ago, not the test")
+	so, _ := rig.log.SignOff(t0, 8*time.Hour)
+	require.Equal(t, 2, so.Raised, "two real firings, no test")
+
+	// A forgotten reader leaves the sink line.
+	reads, _ := rig.log.Reads()
+	require.Contains(t, reads, "n_ibex")
+	require.NoError(t, rig.log.ForgetReader("n_ibex"))
+	reads, _ = rig.log.Reads()
+	require.NotContains(t, reads, "n_ibex")
+}
+
+func TestTroubleFeedRefusesAMemberOfAnotherAccount(t *testing.T) {
+	rig := newTroubleRig(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	leaf, err := rig.authority.Issue("n_other", pub) // under our root, but not on this fleet
+	require.NoError(t, err)
+	other := tls.Certificate{Certificate: [][]byte{leaf.Raw}, PrivateKey: priv}
+	code, body := rig.get(t, &other, "")
+	require.Equal(t, http.StatusForbidden, code)
+	require.NotContains(t, body, "desk")
 }

@@ -743,25 +743,16 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 		out.Units = append(out.Units, u)
 	}
 	calls := append([]edge.TroubleCall(nil), f.Calls...)
-	sort.SliceStable(calls, func(i, j int) bool {
-		if calls[i].Shelved != calls[j].Shelved {
-			return !calls[i].Shelved
-		}
-		pi, pj := edgePriorityRank(edgeCallPriority(calls[i].Metric)), edgePriorityRank(edgeCallPriority(calls[j].Metric))
-		if pi != pj {
-			return pi < pj
-		}
-		return calls[i].Since > calls[j].Since
-	})
+	edge.SortCalls(calls)
 	for _, c := range calls {
 		node := names[c.NodeID]
 		if node == "" {
 			node = c.Node
 		}
-		why, do := edgeWhyAndDo(string(c.Metric))
+		why, do := edge.WhyAndDo(c.Metric)
 		j := edgeCallJSON{Rule: c.RuleID, NodeID: c.NodeID, Node: node, Metric: string(c.Metric), When: c.When,
-			Value: edgeCallValue(c), Priority: edgeCallPriority(c.Metric), SinceS: int64(c.Since.Seconds()), Stale: c.Stale,
-			Acked: c.Acked, AckBy: edgeHandle(c.AckBy), Shelved: c.Shelved, Why: why, Do: do}
+			Value: edge.FormatValue(c.Metric, c.Value), Priority: edge.Priority(c.Metric), SinceS: int64(c.Since.Seconds()), Stale: c.Stale,
+			Acked: c.Acked, AckBy: edge.Handle(c.AckBy), Shelved: c.Shelved, Why: why, Do: do}
 		if c.Shelved {
 			j.UntilAt = c.StandByUntil.Unix()
 		}
@@ -779,16 +770,6 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 	sort.Slice(out.SignOff.DeadAir, func(i, j int) bool { return out.SignOff.DeadAir[i].ForS > out.SignOff.DeadAir[j].ForS })
 	return out
 }
-
-func edgeCallPriority(m edge.Metric) string { return edge.Priority(m) }
-
-func edgePriorityRank(p string) int { return edge.PriorityRank(p) }
-
-func edgeWhyAndDo(metric string) (string, string) { return edge.WhyAndDo(edge.Metric(metric)) }
-
-func edgeCallValue(c edge.TroubleCall) string { return edge.FormatValue(c.Metric, c.Value) }
-
-func edgeHandle(who string) string { return edge.Handle(who) }
 
 // handleEdgeRoger acknowledges a standing trouble call through the host.
 func (s *Server) handleEdgeRoger(w http.ResponseWriter, r *http.Request) {

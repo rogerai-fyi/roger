@@ -169,11 +169,6 @@ func (a AlarmLine) Stale() bool { return a.Since > 24*time.Hour }
 // Priority is the call's rank - edge.Priority, so every surface ranks alike.
 func (a AlarmLine) Priority() string { return edge.Priority(edge.Metric(a.Metric)) }
 
-func priorityRank(p string) int { return edge.PriorityRank(p) }
-
-// whyAndDo is the call's two sentences - edge.WhyAndDo, one wording for every surface.
-func whyAndDo(metric string) (string, string) { return edge.WhyAndDo(edge.Metric(metric)) }
-
 // GrantLine is one authority-signed grant as the GRANTS tab lists it: its facts, never a secret.
 type GrantLine struct{ ID, Caller, Caps, Callee, Until, State string }
 
@@ -1344,11 +1339,11 @@ func logStrip(log []edge.UnitState, w int) []lm.Span {
 // sortedAlarms is the standing calls the ISA-18.2 way: priority first, then the oldest first.
 func (f *Fleet) sortedAlarms() []AlarmLine {
 	out := append([]AlarmLine(nil), f.snap.Alarms...)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Shelved != out[j].Shelved { // a call on stand by waits at the end
+	sort.SliceStable(out, func(i, j int) bool { // the same order edge.SortCalls gives every surface
+		if out[i].Shelved != out[j].Shelved {
 			return !out[i].Shelved
 		}
-		pi, pj := priorityRank(out[i].Priority()), priorityRank(out[j].Priority())
+		pi, pj := edge.PriorityRank(out[i].Priority()), edge.PriorityRank(out[j].Priority())
 		if pi != pj {
 			return pi < pj
 		}
@@ -1418,7 +1413,7 @@ func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
 		lines = append(lines, lm.NewLine(span(" ", dim), rail, span(" ", dim), bold(pad(mark, 7), mc), span(pad(edge.Age(c.Since), 8), muted),
 			span(pad(elide(c.Node, 19), 20), nc), span(pad(c.When, 20), nc), span(pad(c.Value, 10), ink), ack))
 		if i == f.asel {
-			why, do := whyAndDo(c.Metric)
+			why, do := edge.WhyAndDo(edge.Metric(c.Metric))
 			lines = append(lines, lm.NewLine(span("     ", dim), eyebrow(pad("why it matters", 16), muted), span(why, ink)))
 			lines = append(lines, lm.NewLine(span("     ", dim), eyebrow(pad("do", 16), muted), span(do, ink)), lm.NewLine())
 		}

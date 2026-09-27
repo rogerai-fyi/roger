@@ -489,7 +489,14 @@ type TroubleCall struct {
 	AckAt                time.Time
 	Shelved              bool // on STAND BY until StandByUntil
 	StandByUntil         time.Time
-	Stale                bool // standing past StaleAfter
+	StandByBy            string // who quieted it
+	Stale                bool   // standing past StaleAfter
+}
+
+// standBy is one stand-by: until when, and who asked.
+type standBy struct {
+	Until int64  `json:"until"`
+	Who   string `json:"who,omitempty"`
 }
 
 func (l AlertLog) acks() (map[string]Ack, error) {
@@ -552,8 +559,8 @@ func (l AlertLog) standingFrom(hist []Alert, now time.Time) ([]TroubleCall, erro
 		if a, ok := acks[k]; ok {
 			c.Acked, c.AckBy, c.AckAt = true, a.Who, time.Unix(a.At, 0)
 		}
-		if until, ok := sb[k]; ok && until > now.Unix() {
-			c.Shelved, c.StandByUntil = true, time.Unix(until, 0)
+		if s, ok := sb[k]; ok && s.Until > now.Unix() {
+			c.Shelved, c.StandByUntil, c.StandByBy = true, time.Unix(s.Until, 0), s.Who
 		}
 		c.Stale = c.Since > StaleAfter
 		out = append(out, c)
@@ -608,14 +615,19 @@ func (l AlertLog) clearAcks(st AlertState) error {
 // STAND BY (ISA-18.2 shelving): the operator quiets a call for a set time, and it comes back on
 // its own. Stand-bys of calls that cleared go with them, like acknowledgements.
 
-func (l AlertLog) standBys() (map[string]int64, error) {
-	out := map[string]int64{}
+func (l AlertLog) standBys() (map[string]standBy, error) {
+	out := map[string]standBy{}
 	err := l.readJSON("standby.json", &out)
 	return out, err
 }
 
-// StandBy quiets a standing call until a time.
+// StandBy quiets a standing call until a time, attributed to who asked.
 func (l AlertLog) StandBy(ruleID, nodeID string, until time.Time) error {
+	return l.StandByAs(ruleID, nodeID, "", until)
+}
+
+// StandByAs is StandBy with the asker's name (a member's, from its certificate).
+func (l AlertLog) StandByAs(ruleID, nodeID, who string, until time.Time) error {
 	return l.withLock(func() error {
 		st, err := l.State()
 		if err != nil {
@@ -628,7 +640,7 @@ func (l AlertLog) StandBy(ruleID, nodeID string, until time.Time) error {
 		if err != nil {
 			return err
 		}
-		sb[stateKey(ruleID, nodeID)] = until.Unix()
+		sb[stateKey(ruleID, nodeID)] = standBy{Until: until.Unix(), Who: who}
 		return l.writeJSON("standby.json", sb)
 	})
 }
@@ -687,7 +699,7 @@ func (l AlertLog) signOffFrom(hist []Alert, now time.Time, window time.Duration)
 	byNode := map[string]int{}
 	names := map[string]string{}
 	for _, a := range hist {
-		if a.At.Before(since) || a.At.After(now) {
+		if a.Test || a.At.Before(since) || a.At.After(now) {
 			continue
 		}
 		if a.Firing {
@@ -732,6 +744,10 @@ func (l AlertLog) Report(now time.Time) ([]TroubleCall, int, SignOffReport, erro
 	if err != nil {
 		return nil, 0, SignOffReport{}, err
 	}
+	return l.reportFrom(hist, now)
+}
+
+func (l AlertLog) reportFrom(hist []Alert, now time.Time) ([]TroubleCall, int, SignOffReport, error) {
 	calls, err := l.standingFrom(hist, now)
 	if err != nil {
 		return nil, 0, SignOffReport{}, err
@@ -743,9 +759,37 @@ func (l AlertLog) Report(now time.Time) ([]TroubleCall, int, SignOffReport, erro
 func rateFrom(hist []Alert, now time.Time, window time.Duration) int {
 	n := 0
 	for _, a := range hist {
-		if a.Firing && !a.At.Before(now.Add(-window)) && !a.At.After(now) {
+		if a.Firing && !a.Test && !a.At.Before(now.Add(-window)) && !a.At.After(now) {
 			n++
 		}
 	}
 	return n
+}
+
+// SortCalls orders calls the ISA-18.2 way, for every surface: stand-bys last, then priority,
+// then the oldest first.
+func SortCalls(calls []TroubleCall) {
+	sort.SliceStable(calls, func(i, j int) bool {
+		if calls[i].Shelved != calls[j].Shelved {
+			return !calls[i].Shelved
+		}
+		pi, pj := PriorityRank(Priority(calls[i].Metric)), PriorityRank(Priority(calls[j].Metric))
+		if pi != pj {
+			return pi < pj
+		}
+		return calls[i].Since > calls[j].Since
+	})
+}
+
+// ForgetReader drops a member's read record when it is forgotten, so the sink line never names
+// a reader that is no longer on the Edge.
+func (l AlertLog) ForgetReader(nodeID string) error {
+	return l.withLock(func() error {
+		reads, err := l.Reads()
+		if err != nil || reads[nodeID] == 0 {
+			return err
+		}
+		delete(reads, nodeID)
+		return l.writeJSON("reads.json", reads)
+	})
 }

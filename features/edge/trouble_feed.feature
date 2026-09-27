@@ -156,3 +156,12 @@ Feature: The owner's phone receives the Edge's trouble calls, privately, and can
     When they run "roger edge alert test gentle-ibex-14"
     Then a clearly-marked TEST call appears in the feed once
     And it raises no real alarm and changes no rule state
+
+  @cli
+  Scenario: roger edge trouble reads a member's feed from a terminal, the way the phone does
+    Given a member "nas" serving its face
+    When they run "roger edge trouble nas"
+    Then it reads the feed over nas's pinned face with this machine's certificate
+    And it prints the standing calls with priority, age, unit, wording and value, each with why it matters and what to do
+    And "--json" prints the feed as the phone receives it
+    And a face that does not match its pin is refused before a byte is sent
