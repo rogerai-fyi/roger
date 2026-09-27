@@ -110,7 +110,11 @@ func TestHostAdoptsEditsMadeByAnotherProcess(t *testing.T) {
 	require.NoError(t, other.fleet.Forget("n_ibex"))
 	require.NoError(t, other.save())
 
-	h.adoptExternalEdits()
+	// Meanwhile the host itself learned a node (discovery enrolled it in memory, not yet saved).
+	_, err = h.st.fleet.Enroll(store.EdgeNode{ID: "n_new", Name: "new-pi", Kind: "board", Presence: string(edge.PresenceVerified), LastSeen: now.Unix()})
+	require.NoError(t, err)
+
+	require.NoError(t, h.st.save()) // the host's next ordinary save (observeSelf, adopt, a pass): adoption happens IN save
 	n, ok, err := h.st.fleet.Get("n_nas")
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -118,11 +122,23 @@ func TestHostAdoptsEditsMadeByAnotherProcess(t *testing.T) {
 	_, ok, err = h.st.fleet.Get("n_ibex")
 	require.NoError(t, err)
 	require.False(t, ok, "the forget made elsewhere is adopted")
-	require.NoError(t, h.st.save())
 	again, err := loadEdgeState()
 	require.NoError(t, err)
 	_, ok, _ = again.fleet.Get("n_ibex")
 	require.False(t, ok, "and the host's save does not resurrect it")
+	_, ok, _ = again.fleet.Get("n_new")
+	require.True(t, ok, "a node the host added in memory is not mistaken for a forget made elsewhere")
+
+	// A node ADDED on disk by another process (a serving-path adopt from the screen) is adopted too.
+	other, err = loadEdgeState()
+	require.NoError(t, err)
+	_, err = other.fleet.Enroll(store.EdgeNode{ID: "n_added", Name: "added-pi", Kind: "board", Presence: string(edge.PresenceVerified), LastSeen: now.Unix()})
+	require.NoError(t, err)
+	time.Sleep(20 * time.Millisecond)
+	require.NoError(t, other.save())
+	require.NoError(t, h.st.save())
+	_, ok, _ = h.st.fleet.Get("n_added")
+	require.True(t, ok, "the node adopted elsewhere is in the host's memory")
 }
 
 // A dark member re-advertising as a candidate is ONE unit on the screen (asking to re-join), and a
@@ -155,7 +171,7 @@ func TestEdgeFleetScreenTellsAReJoinOnOneUnit(t *testing.T) {
 		require.Equal(t, fleetview.ItemMember, it.Kind)
 		require.True(t, it.Asking, "the candidate advert is told on the member row")
 		require.True(t, it.ClaimStanding, "the standing grant is told")
-		require.NotEmpty(t, it.AuthPort)
+		require.Empty(t, it.AuthPort, "no host has ever listened here: the screen must not name a port")
 	}
 	require.Equal(t, 1, seen, "one unit, not a member and a candidate")
 }

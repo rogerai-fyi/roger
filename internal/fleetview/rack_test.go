@@ -3,6 +3,8 @@ package fleetview
 import (
 	"strings"
 	"testing"
+
+	lm "github.com/thebanri/limoni"
 )
 
 // A level over the threshold always shows red: 92% against 90% lights the cell past the line
@@ -11,7 +13,7 @@ func TestMeterShowsRedPastTheThresholdAndATickAtIt(t *testing.T) {
 	spans := meterN(0.92, 0.90, 0, false, 9)
 	red, tick := false, false
 	for _, s := range spans {
-		if s.Style == boldOrPlain(live) && strings.Contains(s.Text, "▇") {
+		if s.Style == lm.Fg(live) && strings.Contains(s.Text, "▇") {
 			red = true
 		}
 		if strings.Contains(s.Text, "┊") {

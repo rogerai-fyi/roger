@@ -320,6 +320,3 @@ func plural(n int) string {
 	}
 	return "s"
 }
-
-// boldOrPlain is the style meterN paints a lit cell with, for the tests.
-func boldOrPlain(c lm.Color) lm.Style { return lm.Fg(c) }

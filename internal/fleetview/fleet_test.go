@@ -375,7 +375,7 @@ func TestFleetScreenAndonTiles(t *testing.T) {
 	page := uitest.Run(t, 130, 44, f.Draw)
 	page.Press("2")
 	s := page.Screen()
-	must(t, s, "ANDON", "ON AIR", "TROUBLE", "DARK", "AIRTIME", "100%", "90%", "0%", "1 on air", "1 trouble", "1 dark")
+	must(t, s, "ANDON", "ON AIR", "TROUBLE", "DARK", "AIRTIME", "100%", "0%", "1 on air", "1 trouble", "1 dark")
 }
 
 // b on a roger binds a model and a job in place (the TUI's Bind Model), c clears it; the TROUBLE

@@ -106,14 +106,15 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		asking[c.ID] = true
 	}
 	standing := map[string]bool{}
-	if local, ok, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && ok {
-		if grants, err := local.Claims(); err == nil {
-			for _, g := range grants {
-				standing[g.NodeID] = true
-			}
+	if grants, err := edgeauth.ReadClaims(edgeAuthDir()); err == nil {
+		for _, g := range grants {
+			standing[g.NodeID] = true
 		}
 	}
-	authPort := strconv.Itoa(edgeSavedAuthorityPort())
+	authPort := "" // "" = the authority is not listening right now (no port was ever saved)
+	if port := edgeSavedAuthorityPort(); port > 0 {
+		authPort = strconv.Itoa(port)
+	}
 	samples, _ := edgeAlertLog().States(now.Add(-time.Hour)) // the log is a bonus: unreadable = empty
 	snap.Items[0].Log, snap.Items[0].Since, snap.Items[0].SinceCapped = edge.LogOf(samples, self.NodeID, now)
 	members := map[string]bool{}
@@ -162,11 +163,13 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		return fleetview.FleetSnapshot{}, err
 	}
 	snap.Sessions = edgeSessionLines(st, now)
-	if snap.Alarms, err = edgeAlarmLines(names, now); err != nil {
+	calls, rate, r, err := edgeAlertLog().Report(now)
+	if err != nil {
 		return fleetview.FleetSnapshot{}, err
 	}
-	snap.Rate, _ = edgeAlertLog().Rate(now, 10*time.Minute)
-	if r, err := edgeAlertLog().SignOff(now, 8*time.Hour); err == nil {
+	snap.Alarms = edgeAlarmLines(calls, names)
+	snap.Rate = rate
+	{
 		snap.SignOff = fleetview.SignOffLine{Raised: r.Raised, Cleared: r.Cleared, Loudest: r.Loudest, LoudestCount: r.LoudestCount}
 		for id, d := range r.DeadAir {
 			name := names[id]

@@ -295,8 +295,11 @@ type edgeState struct {
 	// happened in would be a lie about what is happening now.
 	sessions *edge.Sessions
 	// savedAt is the file's mtime after this state's last save; a newer mtime is another
-	// process's edit (the fleet screen, a CLI forget), which the host adopts before it writes.
-	savedAt time.Time
+	// process's edit (the fleet screen, a CLI forget), which is adopted before the next write.
+	// lastSaved is what that save held (id -> name), so an edit made elsewhere can be told from a
+	// node this process added in memory since.
+	savedAt   time.Time
+	lastSaved map[string]string
 }
 
 // edgeAccount is the owner this machine's Edge belongs to. Anonymous is a real state and
@@ -343,6 +346,9 @@ func loadEdgeState() (*edgeState, error) {
 }
 
 func (s *edgeState) save() error {
+	if !s.savedAt.IsZero() { // a long-lived state (the host): fold in what changed on disk first
+		s.adoptExternalEdits()
+	}
 	nodes, err := s.db.EdgeNodesOfAccount(s.account)
 	if err != nil {
 		return err
@@ -358,7 +364,62 @@ func (s *edgeState) save() error {
 	if fi, err := os.Stat(edgeStatePath()); err == nil {
 		s.savedAt = fi.ModTime()
 	}
+	s.lastSaved = map[string]string{}
+	for _, n := range nodes {
+		s.lastSaved[n.ID] = n.Name
+	}
 	return nil
+}
+
+// adoptExternalEdits folds in what another process changed on disk since this state last wrote:
+// a member forgotten, renamed or adopted by the fleet screen or by a CLI in a second terminal.
+// Without it the next save, written from memory, would undo them. Only what THIS state saved
+// last time can have been edited elsewhere: a node added in memory since (a candidate just
+// adopted, a node discovery just enrolled) is not "forgotten elsewhere" merely because the disk
+// does not know it yet.
+func (s *edgeState) adoptExternalEdits() {
+	fi, err := os.Stat(edgeStatePath())
+	if err != nil || !fi.ModTime().After(s.savedAt) {
+		return
+	}
+	b, err := os.ReadFile(edgeStatePath())
+	if err != nil {
+		return
+	}
+	var snap edgeSnapshot
+	if json.Unmarshal(b, &snap) != nil || snap.Account != s.account {
+		return
+	}
+	onDisk := map[string]store.EdgeNode{}
+	for _, n := range snap.Nodes {
+		onDisk[n.ID] = n
+	}
+	mine, err := s.fleet.List()
+	if err != nil {
+		return
+	}
+	inMemory := map[string]bool{}
+	for _, n := range mine {
+		inMemory[n.ID] = true
+		lastName, saved := s.lastSaved[n.ID]
+		if !saved {
+			continue // added here since the last save: the disk has not seen it yet
+		}
+		d, still := onDisk[n.ID]
+		switch {
+		case !still:
+			_ = s.fleet.Forget(n.ID)
+		case d.Name != n.Name && d.Name != lastName && d.Name != "":
+			_ = s.fleet.Rename(n.ID, d.Name)
+		}
+	}
+	for id, n := range onDisk {
+		if _, saved := s.lastSaved[id]; !saved && !inMemory[id] {
+			_, _ = s.db.EnrollEdgeNode(n) // adopted elsewhere (a serving-path adopt from the screen)
+		}
+	}
+	s.candidates = snap.Candidates
+	s.savedAt = fi.ModTime()
 }
 
 // list is the fleet as this machine last knew it.

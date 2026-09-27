@@ -1020,3 +1020,17 @@ func parseSerial(s string) (*big.Int, bool) {
 	n, ok := new(big.Int).SetString(s, 10)
 	return n, ok
 }
+
+// ReadClaims lists the standing claim grants of the local authority under edgeDir WITHOUT opening
+// its key custody - for a surface that only needs to say "adopted, waiting to claim". Nothing
+// when no local authority was designated there.
+func ReadClaims(edgeDir string) ([]ClaimGrant, error) {
+	dir := filepath.Join(edgeDir, AuthorityDir)
+	if _, err := os.Stat(filepath.Join(dir, ClaimsFile)); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return (&Local{dir: dir}).Claims()
+}

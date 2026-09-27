@@ -165,36 +165,49 @@ func (l AlertLog) State() (AlertState, error) {
 	return st, err
 }
 
+// withLock runs fn under the log's file lock: every read-modify-write of the log's files goes
+// through here - Judge, Roger, StandBy - so the host judging every pass and a screen in another
+// process can never lose each other's writes.
+func (l AlertLog) withLock(fn func() error) error {
+	if err := os.MkdirAll(l.Dir, 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(l.path("lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := flockExclusive(f); err != nil {
+		return err
+	}
+	defer func() { _ = flockUnlock(f) }()
+	return fn()
+}
+
 // Judge is the one way the log advances: under the log's lock it reads what was firing, judges
 // the fleet against the rules in force, records the new state and appends each change. The lock
 // is what makes a crossing ONE event when the host judges every pass and a CLI read judges
 // beside it in another process.
-func (l AlertLog) Judge(hs []NodeHealth, now time.Time) (AlertState, []Alert, error) {
-	if err := os.MkdirAll(l.Dir, 0o700); err != nil {
-		return nil, nil, err
-	}
-	f, err := os.OpenFile(l.path("lock"), os.O_CREATE|os.O_RDWR, 0o600)
+func (l AlertLog) Judge(hs []NodeHealth, now time.Time) (st AlertState, alerts []Alert, err error) {
+	err = l.withLock(func() error {
+		rules, err := l.Rules()
+		if err != nil {
+			return err
+		}
+		prev, err := l.State()
+		if err != nil {
+			return err
+		}
+		st, alerts = Evaluate(rules, hs, prev, now)
+		if err := l.Record(st, alerts); err != nil {
+			return err
+		}
+		return l.recordStates(hs, st, now)
+	})
 	if err != nil {
 		return nil, nil, err
 	}
-	defer f.Close()
-	if err := flockExclusive(f); err != nil {
-		return nil, nil, err
-	}
-	defer func() { _ = flockUnlock(f) }()
-	rules, err := l.Rules()
-	if err != nil {
-		return nil, nil, err
-	}
-	prev, err := l.State()
-	if err != nil {
-		return nil, nil, err
-	}
-	st, alerts := Evaluate(rules, hs, prev, now)
-	if err := l.Record(st, alerts); err != nil {
-		return nil, nil, err
-	}
-	return st, alerts, l.recordStates(hs, st, now)
+	return st, alerts, nil
 }
 
 // Record stores the new state and appends each alert to the history; acknowledgements of calls
@@ -226,7 +239,34 @@ func (l AlertLog) Record(st AlertState, alerts []Alert) error {
 		w.Write(b)
 		w.WriteByte('\n')
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	return l.capHistory()
+}
+
+const (
+	historyKeep = 10000 // lines kept when the history is trimmed
+	historyTrim = 12000 // lines past which it is trimmed
+)
+
+// capHistory keeps the history from growing without end: past historyTrim lines the oldest go,
+// leaving historyKeep. Trimmed the same way states.jsonl is, whole and atomically.
+func (l AlertLog) capHistory() error {
+	b, err := os.ReadFile(l.path("log.jsonl"))
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) <= historyTrim {
+		return nil
+	}
+	keep := strings.Join(lines[len(lines)-historyKeep:], "\n") + "\n"
+	tmp := l.path("log.jsonl.tmp")
+	if err := os.WriteFile(tmp, []byte(keep), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, l.path("log.jsonl"))
 }
 
 // Recent is the last n alerts, newest last.
@@ -393,7 +433,7 @@ func LogOf(samples []StateSample, nodeID string, now time.Time) (cells []UnitSta
 	cells = make([]UnitState, 60)
 	end := now.Truncate(time.Minute)
 	var cur UnitState
-	var curSince, first time.Time
+	var curSince, first, prevAt time.Time
 	for _, s := range samples {
 		st, ok := s.States[nodeID]
 		if !ok {
@@ -406,9 +446,13 @@ func LogOf(samples []StateSample, nodeID string, now time.Time) (cells []UnitSta
 		if i := 59 - int(end.Sub(at)/time.Minute); i >= 0 && i < 60 {
 			cells[i] = st
 		}
+		if !prevAt.IsZero() && at.Sub(prevAt) > 2*time.Minute {
+			cur = StateUnknown // nobody judged in between: the run before the gap is not this run
+		}
 		if st != cur {
 			cur, curSince = st, at
 		}
+		prevAt = at
 	}
 	if curSince.IsZero() {
 		return cells, 0, false
@@ -451,6 +495,14 @@ func (l AlertLog) acks() (map[string]Ack, error) {
 
 // Standing is every call firing now, oldest first, with when it fired and its acknowledgement.
 func (l AlertLog) Standing(now time.Time) ([]TroubleCall, error) {
+	hist, err := l.Recent(1 << 20)
+	if err != nil {
+		return nil, err
+	}
+	return l.standingFrom(hist, now)
+}
+
+func (l AlertLog) standingFrom(hist []Alert, now time.Time) ([]TroubleCall, error) {
 	st, err := l.State()
 	if err != nil {
 		return nil, err
@@ -464,10 +516,6 @@ func (l AlertLog) Standing(now time.Time) ([]TroubleCall, error) {
 		return nil, err
 	}
 	sb, err := l.standBys()
-	if err != nil {
-		return nil, err
-	}
-	hist, err := l.Recent(1 << 20)
 	if err != nil {
 		return nil, err
 	}
@@ -516,19 +564,21 @@ func (l AlertLog) Standing(now time.Time) ([]TroubleCall, error) {
 
 // Roger acknowledges a standing call. A call that is not standing cannot be acknowledged.
 func (l AlertLog) Roger(ruleID, nodeID, who string, now time.Time) error {
-	st, err := l.State()
-	if err != nil {
-		return err
-	}
-	if !st.Firing(ruleID, nodeID) {
-		return fmt.Errorf("no standing call %s on %s", ruleID, nodeID)
-	}
-	acks, err := l.acks()
-	if err != nil {
-		return err
-	}
-	acks[stateKey(ruleID, nodeID)] = Ack{Who: who, At: now.Unix()}
-	return l.writeJSON("acks.json", acks)
+	return l.withLock(func() error {
+		st, err := l.State()
+		if err != nil {
+			return err
+		}
+		if !st.Firing(ruleID, nodeID) {
+			return fmt.Errorf("no standing call %s on %s", ruleID, nodeID)
+		}
+		acks, err := l.acks()
+		if err != nil {
+			return err
+		}
+		acks[stateKey(ruleID, nodeID)] = Ack{Who: who, At: now.Unix()}
+		return l.writeJSON("acks.json", acks)
+	})
 }
 
 // clearAcks drops the acknowledgements of calls that are no longer standing.
@@ -561,19 +611,21 @@ func (l AlertLog) standBys() (map[string]int64, error) {
 
 // StandBy quiets a standing call until a time.
 func (l AlertLog) StandBy(ruleID, nodeID string, until time.Time) error {
-	st, err := l.State()
-	if err != nil {
-		return err
-	}
-	if !st.Firing(ruleID, nodeID) {
-		return fmt.Errorf("no standing call %s on %s", ruleID, nodeID)
-	}
-	sb, err := l.standBys()
-	if err != nil {
-		return err
-	}
-	sb[stateKey(ruleID, nodeID)] = until.Unix()
-	return l.writeJSON("standby.json", sb)
+	return l.withLock(func() error {
+		st, err := l.State()
+		if err != nil {
+			return err
+		}
+		if !st.Firing(ruleID, nodeID) {
+			return fmt.Errorf("no standing call %s on %s", ruleID, nodeID)
+		}
+		sb, err := l.standBys()
+		if err != nil {
+			return err
+		}
+		sb[stateKey(ruleID, nodeID)] = until.Unix()
+		return l.writeJSON("standby.json", sb)
+	})
 }
 
 func (l AlertLog) clearStandBys(st AlertState) error {
@@ -603,13 +655,7 @@ func (l AlertLog) Rate(now time.Time, window time.Duration) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	n := 0
-	for _, a := range hist {
-		if a.Firing && !a.At.Before(now.Add(-window)) && !a.At.After(now) {
-			n++
-		}
-	}
-	return n, nil
+	return rateFrom(hist, now, window), nil
 }
 
 // The SIGN-OFF report: the shift in one line - calls raised and cleared, the loudest unit, each
@@ -623,11 +669,15 @@ type SignOffReport struct {
 
 // SignOff sums the window ending now.
 func (l AlertLog) SignOff(now time.Time, window time.Duration) (SignOffReport, error) {
-	r := SignOffReport{DeadAir: map[string]time.Duration{}}
 	hist, err := l.Recent(1 << 20)
 	if err != nil {
-		return r, err
+		return SignOffReport{}, err
 	}
+	return l.signOffFrom(hist, now, window)
+}
+
+func (l AlertLog) signOffFrom(hist []Alert, now time.Time, window time.Duration) (SignOffReport, error) {
+	r := SignOffReport{DeadAir: map[string]time.Duration{}}
 	since := now.Add(-window)
 	byNode := map[string]int{}
 	names := map[string]string{}
@@ -668,4 +718,29 @@ func (l AlertLog) SignOff(now time.Time, window time.Duration) (SignOffReport, e
 		}
 	}
 	return r, nil
+}
+
+// Report is Standing, Rate (ten minutes) and SignOff (eight hours) from ONE read of the history,
+// for a surface that redraws every couple of seconds.
+func (l AlertLog) Report(now time.Time) ([]TroubleCall, int, SignOffReport, error) {
+	hist, err := l.Recent(1 << 20)
+	if err != nil {
+		return nil, 0, SignOffReport{}, err
+	}
+	calls, err := l.standingFrom(hist, now)
+	if err != nil {
+		return nil, 0, SignOffReport{}, err
+	}
+	so, err := l.signOffFrom(hist, now, 8*time.Hour)
+	return calls, rateFrom(hist, now, 10*time.Minute), so, err
+}
+
+func rateFrom(hist []Alert, now time.Time, window time.Duration) int {
+	n := 0
+	for _, a := range hist {
+		if a.Firing && !a.At.Before(now.Add(-window)) && !a.At.After(now) {
+			n++
+		}
+	}
+	return n
 }

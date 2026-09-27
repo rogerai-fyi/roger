@@ -383,7 +383,7 @@ func TestStandByStaleAndPileUp(t *testing.T) {
 	require.Equal(t, t0.Add(time.Hour).Unix(), calls[0].StandByUntil.Unix())
 	calls, _ = l.Standing(t0.Add(61 * time.Minute))
 	require.False(t, calls[0].Shelved, "the time is up: the call is loud again")
-	require.True(t, calls[0].Stale == false)
+	require.False(t, calls[0].Stale)
 	calls, _ = l.Standing(t0.Add(25 * time.Hour))
 	require.True(t, calls[0].Stale, "standing over a day")
 	require.Error(t, l.StandBy("disk", "n_pi", t0.Add(time.Hour)), "only a standing call goes on stand by")
@@ -423,4 +423,71 @@ func TestSignOffReportSumsTheShift(t *testing.T) {
 	// counted as dark - the report says what was seen, never more.
 	require.InDelta(t, 5, r.DeadAir["n_q"].Minutes(), 0.1, "only the judged minutes count as dead air")
 	require.Zero(t, r.DeadAir["n_pi"], "hot is not dead air")
+}
+
+// A roger pressed while the host is judging is never lost, and a cleared call's ack never
+// resurrects: every read-modify-write of the log's files runs under the one lock.
+func TestRogerAndJudgeSerialise(t *testing.T) {
+	dir := t.TempDir()
+	l := edge.AlertLog{Dir: dir}
+	t0 := time.Now()
+	hot := []edge.NodeHealth{healthOf("pi", t0, 99, 10)}
+	_, _, err := l.Judge(hot, t0)
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _, _, _ = edge.AlertLog{Dir: dir}.Judge(hot, t0.Add(time.Second)) }()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, edge.AlertLog{Dir: dir}.Roger("cpu_temp", "n_pi", "luis", t0.Add(time.Second)))
+	}()
+	wg.Wait()
+	calls, err := l.Standing(t0.Add(2 * time.Second))
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	require.True(t, calls[0].Acked, "the roger survived eight concurrent judgements")
+}
+
+// A gap nobody judged ends a run: time in state counts from the first sample after the gap, and
+// is exact (not capped) because the log saw it begin.
+func TestLogOfDoesNotCountAnUnjudgedGapAsTimeInState(t *testing.T) {
+	t0 := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	samples := []edge.StateSample{
+		{At: t0.Unix(), States: map[string]edge.UnitState{"n_pi": edge.StateAir}},
+		{At: t0.Add(time.Minute).Unix(), States: map[string]edge.UnitState{"n_pi": edge.StateAir}},
+		{At: t0.Add(41 * time.Minute).Unix(), States: map[string]edge.UnitState{"n_pi": edge.StateAir}}, // a 40-minute hole
+		{At: t0.Add(42 * time.Minute).Unix(), States: map[string]edge.UnitState{"n_pi": edge.StateAir}},
+	}
+	_, since, capped := edge.LogOf(samples, "n_pi", t0.Add(43*time.Minute))
+	require.InDelta(t, 2, since.Minutes(), 0.1, "since the first sample after the hole")
+	require.False(t, capped)
+}
+
+// The state log is pruned to a day, the history to ten thousand lines.
+func TestTheLogsDoNotGrowWithoutEnd(t *testing.T) {
+	dir := t.TempDir()
+	l := edge.AlertLog{Dir: dir}
+	t0 := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	_, _, err := l.Judge([]edge.NodeHealth{healthOf("pi", t0, 40, 10)}, t0.Add(-30*time.Hour))
+	require.NoError(t, err)
+	_, _, err = l.Judge([]edge.NodeHealth{healthOf("pi", t0, 40, 10)}, t0.Truncate(time.Hour)) // on the half hour: prunes
+	require.NoError(t, err)
+	samples, err := l.States(t0.Add(-48 * time.Hour))
+	require.NoError(t, err)
+	require.Len(t, samples, 1, "the sample from 30 hours ago is gone")
+
+	var b strings.Builder
+	for i := 0; i < 12001; i++ {
+		b.WriteString(`{"at":"2026-09-26T10:00:00Z","rule":"cpu_temp","node_id":"n_x","node":"x","firing":true}` + "\n")
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "log.jsonl"), []byte(b.String()), 0o600))
+	_, _, err = l.Judge([]edge.NodeHealth{healthOf("pi", t0, 99, 10)}, t0.Add(time.Minute))
+	require.NoError(t, err)
+	got, err := l.Recent(1 << 20)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(got), 10000)
+	require.Equal(t, "pi", got[len(got)-1].Node, "the newest line is the one just written")
 }

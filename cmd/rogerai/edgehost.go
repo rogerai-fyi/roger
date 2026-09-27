@@ -21,7 +21,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -768,7 +767,7 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.judgeHealth(time.Now()) // the authority judges the rules, so a dead node still reports
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
-	h.adoptExternalEditsLocked()
+	h.st.adoptExternalEdits() // before merging discovery in: a candidate adopted elsewhere is gone
 	h.st.candidates = edgeMergeCandidates(h.st.candidates, h.disc.Candidates())
 	h.st.candidates = edgeDropGranted(h.st.candidates)             // a candidate we already adopted is adopting, not to-adopt
 	h.st.candidates = edgeDropMembers(h.st.candidates, h.st.fleet) // a member re-advertising as a candidate is not to-adopt
@@ -909,49 +908,4 @@ func (h *edgeHost) judgeHealth(now time.Time) {
 			log.Println("edge alert:", a)
 		}
 	}
-}
-
-// adoptExternalEdits folds in what another process changed on disk since this host last wrote:
-// a member forgotten or renamed by the fleet screen or by `roger edge forget` in a second
-// terminal. Without it the host's next save, written from memory, would resurrect the node.
-// Only removals and renames are adopted - a node ADDED elsewhere arrives through discovery and
-// presence, the paths that verify it.
-func (h *edgeHost) adoptExternalEdits() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.adoptExternalEditsLocked()
-}
-
-func (h *edgeHost) adoptExternalEditsLocked() {
-	fi, err := os.Stat(edgeStatePath())
-	if err != nil || !fi.ModTime().After(h.st.savedAt) {
-		return
-	}
-	b, err := os.ReadFile(edgeStatePath())
-	if err != nil {
-		return
-	}
-	var snap edgeSnapshot
-	if json.Unmarshal(b, &snap) != nil || snap.Account != h.st.account {
-		return
-	}
-	onDisk := map[string]store.EdgeNode{}
-	for _, n := range snap.Nodes {
-		onDisk[n.ID] = n
-	}
-	mine, err := h.st.fleet.List()
-	if err != nil {
-		return
-	}
-	for _, n := range mine {
-		d, still := onDisk[n.ID]
-		switch {
-		case !still:
-			_ = h.st.fleet.Forget(n.ID)
-		case d.Name != n.Name && d.Name != "":
-			_ = h.st.fleet.Rename(n.ID, d.Name)
-		}
-	}
-	h.st.candidates = snap.Candidates
-	h.st.savedAt = fi.ModTime()
 }

@@ -137,7 +137,7 @@ func (a AlarmLine) Stale() bool { return a.Since > 24*time.Hour }
 // Priority is the call's rank, ISA-18.2's three: HI needs a hand now, MED soon, LOW when convenient.
 func (a AlarmLine) Priority() string {
 	switch a.Metric {
-	case "cpu_temp", "disk":
+	case "cpu_temp", "disk", "sd_wear": // a worn card corrupts silently: as urgent as heat or a full disk
 		return "HI"
 	case "offline", "memory":
 		return "MED"
@@ -266,7 +266,9 @@ type Fleet struct {
 	tab      int // see tabs(): fleet, andon, trouble, grants, sessions, health
 	frame    int // advances each frame; the pulses breathe on it
 	confirm  bool
-	revoke   bool // the revoke question is up
+	askID    string // the unit the forget question is about, fixed when it was asked
+	revoke   bool   // the revoke question is up
+	revokeID string
 	binding  bool // the bind prompt is up (input holds the text)
 	rename   bool
 	input    []rune
@@ -385,9 +387,12 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		return true
 	case f.confirm:
 		if k.Ch == 'y' || k.Ch == 'Y' {
-			it := f.selected()
+			it, still := f.itemByID(f.askID) // the unit the question was about, not whatever is under the cursor now
 			f.confirm = false
-			if f.Actions.Forget != nil {
+			switch {
+			case !still:
+				f.say(f.askID+" is no longer on the rack - nothing forgotten", true)
+			case f.Actions.Forget != nil:
 				f.report(f.Actions.Forget(it.ID), "forgot "+it.Name)
 			}
 		} else {
@@ -397,9 +402,8 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		return true
 	case f.revoke:
 		f.revoke = false
-		if (k.Ch == 'y' || k.Ch == 'Y') && f.gsel < len(f.snap.Grants) && f.Actions.RevokeGrant != nil {
-			g := f.snap.Grants[f.gsel]
-			f.report(f.Actions.RevokeGrant(g.ID), "revoked "+g.ID)
+		if (k.Ch == 'y' || k.Ch == 'Y') && f.revokeID != "" && f.Actions.RevokeGrant != nil {
+			f.report(f.Actions.RevokeGrant(f.revokeID), "revoked "+f.revokeID)
 		} else {
 			f.say("left standing", false)
 		}
@@ -418,7 +422,8 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	}
 	switch f.tab {
 	case tabHealth:
-		return f.health.Draw(nil, ev) || true
+		f.health.Draw(nil, ev) // keys only; q was handled above, so the tab never ends the screen
+		return true
 	case tabTrouble:
 		calls := f.sortedAlarms()
 		switch {
@@ -448,7 +453,7 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 			f.gsel--
 		case k.Ch == 'x':
 			if f.gsel < len(f.snap.Grants) && f.Actions.RevokeGrant != nil && f.snap.Grants[f.gsel].State == "live" {
-				f.revoke = true
+				f.revoke, f.revokeID = true, f.snap.Grants[f.gsel].ID
 			}
 		case k.Ch == 'r':
 			f.readAt = time.Time{}
@@ -509,7 +514,7 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		}
 	case k.Ch == 'f':
 		if it := f.selected(); it.Kind == ItemMember && f.Actions.Forget != nil {
-			f.confirm = true
+			f.confirm, f.askID = true, it.ID
 		}
 	case k.Ch == 'n':
 		if it := f.selected(); it.Kind == ItemMember && f.Actions.Rename != nil {
@@ -582,6 +587,16 @@ func (f *Fleet) clamp() {
 	}
 }
 
+// itemByID finds a unit by id; false when it has left the rack.
+func (f *Fleet) itemByID(id string) (FleetItem, bool) {
+	for _, it := range f.snap.Items {
+		if it.ID == id && id != "" {
+			return it, true
+		}
+	}
+	return FleetItem{}, false
+}
+
 func (f *Fleet) selected() FleetItem {
 	if len(f.snap.Items) == 0 {
 		return FleetItem{}
@@ -612,8 +627,8 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 	case f.err == nil && f.tab == tabGrants:
 		f.drawGrants(fr, rows[1])
 		actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
-		if f.revoke && f.gsel < len(f.snap.Grants) {
-			confirmBox(fr, "revoke "+f.snap.Grants[f.gsel].ID+"?", "every node stops honoring it at once; a revocation is final", "y revoke", "n keep it")
+		if f.revoke && f.revokeID != "" {
+			confirmBox(fr, "revoke "+f.revokeID+"?", "every node stops honoring it at once; a revocation is final", "y revoke", "n keep it")
 		}
 		return
 	case f.err == nil && f.tab == tabSessions:
@@ -645,7 +660,7 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 	}
 	actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
 	if f.confirm {
-		it := f.selected()
+		it, _ := f.itemByID(f.askID)
 		confirmBox(fr, "forget "+it.Name+"?", "it leaves this Edge and its certificate is revoked", "y forget", "n keep it")
 	}
 }
@@ -908,11 +923,11 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		head(lv, it.Dark, it.Asking, it.Name, kindLabel(it.NodeKind)+" · patched in")
 		switch {
 		case it.Asking && it.ClaimStanding:
-			prose("back on this network and asking to re-join. its claim is granted: it is waiting for it to claim its certificate at this authority's port "+it.AuthPort+" - nothing has arrived yet. a re-admits it again (a fresh grant, its old certificate revoked)", ink)
+			prose("back on this network and asking to re-join. its claim is granted: it is waiting for it to claim its certificate "+atAuthority(it.AuthPort)+" - nothing has arrived yet. a re-admits it again (a fresh grant, its old certificate revoked)", ink)
 		case it.Asking:
 			prose("back on this network and asking to re-join. a re-admits it: a fresh claim is granted and it fetches a new certificate", ink)
 		case it.ClaimStanding:
-			prose("adopted: waiting for it to claim its certificate at this authority's port "+it.AuthPort+" - nothing has arrived yet", ink)
+			prose("adopted: waiting for it to claim its certificate "+atAuthority(it.AuthPort)+" - nothing has arrived yet", ink)
 		case it.Dark:
 			prose("dark: the authority has not heard from it past the liveness window. it re-admits itself when it pings again", ink)
 		default:
@@ -1041,78 +1056,78 @@ func pad(s string, n int) string {
 	return s + strings.Repeat(" ", n-len([]rune(s)))
 }
 
-type action struct{ key, label, hint string }
+type action struct{ key, label string }
 
 // actions is what the selected unit offers, in order.
 func (f *Fleet) actions() []action {
 	it := f.selected()
 	switch f.tab {
 	case tabGrants:
-		out := []action{{"↑↓", "select", ""}}
+		out := []action{{"↑↓", "select"}}
 		if f.Actions.RevokeGrant != nil {
-			out = append(out, action{"x", "revoke", ""})
+			out = append(out, action{"x", "revoke"})
 		}
-		return append(out, action{"1", "fleet", ""}, action{"r", "re-read", ""}, action{"q", "quit", ""})
+		return append(out, action{"1", "fleet"}, action{"r", "re-read"}, action{"q", "quit"})
 	case tabSessions:
-		return []action{{"1", "fleet", ""}, {"r", "re-read", ""}, {"q", "quit", ""}}
+		return []action{{"1", "fleet"}, {"r", "re-read"}, {"q", "quit"}}
 	case tabTrouble:
-		out := []action{{"↑↓", "select", ""}}
+		out := []action{{"↑↓", "select"}}
 		if f.Actions.Roger != nil {
-			out = append(out, action{"k", "roger", ""})
+			out = append(out, action{"k", "roger"})
 		}
 		if f.Actions.StandBy != nil {
-			out = append(out, action{"s", "stand by", ""})
+			out = append(out, action{"s", "stand by"})
 		}
-		return append(out, action{"1", "fleet", ""}, action{"r", "re-read", ""}, action{"q", "quit", ""})
+		return append(out, action{"1", "fleet"}, action{"r", "re-read"}, action{"q", "quit"})
 	case tabAndon:
-		return []action{{"↑↓", "select", ""}, {"1", "fleet", ""}, {"3", "trouble", ""}, {"r", "re-read", ""}, {"q", "quit", ""}}
+		return []action{{"↑↓", "select"}, {"1", "fleet"}, {"3", "trouble"}, {"r", "re-read"}, {"q", "quit"}}
 	}
-	out := []action{{"↑↓", "select", ""}}
+	out := []action{{"↑↓", "select"}}
 	switch it.Kind {
 	case ItemAgent, ItemInstance:
 		if it.Dark && f.Actions.ResumeAgent != nil {
-			out = append(out, action{"u", "resume", ""})
+			out = append(out, action{"u", "resume"})
 		}
 		if it.Dark && f.Actions.RemoveAgent != nil {
-			out = append(out, action{"x", "remove", ""})
+			out = append(out, action{"x", "remove"})
 		}
 		if !it.Dark && f.Actions.BindJob != nil {
-			out = append(out, action{"b", "bind", ""})
+			out = append(out, action{"b", "bind"})
 		}
 		if !it.Dark && it.Job != "" && f.Actions.ClearJob != nil {
-			out = append(out, action{"c", "clear", ""})
+			out = append(out, action{"c", "clear"})
 		}
 	case ItemCandidate:
 		if f.Actions.Adopt != nil {
-			out = append(out, action{"a", "adopt", ""})
+			out = append(out, action{"a", "adopt"})
 		}
 	case ItemMember:
 		if it.Asking && f.Actions.Adopt != nil {
-			out = append(out, action{"a", "re-admit", ""})
+			out = append(out, action{"a", "re-admit"})
 		}
 		if f.Actions.Rename != nil {
-			out = append(out, action{"n", "rename", ""})
+			out = append(out, action{"n", "rename"})
 		}
 		if f.Actions.Forget != nil {
-			out = append(out, action{"f", "forget", ""})
+			out = append(out, action{"f", "forget"})
 		}
 	case ItemHub:
 		if f.Actions.SetPrefer != nil {
-			out = append(out, action{"p", "prefer", ""})
+			out = append(out, action{"p", "prefer"})
 		}
 		if f.Actions.SetAgent != nil {
 			if f.snap.Self.AgentActive {
-				out = append(out, action{"g", "agent off", ""})
+				out = append(out, action{"g", "agent off"})
 			} else {
-				out = append(out, action{"g", "agent on", ""})
+				out = append(out, action{"g", "agent on"})
 			}
 		}
 	}
-	out = append(out, action{"2", "andon", ""}, action{"3", "trouble", ""}, action{"4", "grants", ""}, action{"5", "sessions", ""})
+	out = append(out, action{"2", "andon"}, action{"3", "trouble"}, action{"4", "grants"}, action{"5", "sessions"})
 	if f.health != nil {
-		out = append(out, action{"6", "health", ""})
+		out = append(out, action{"6", "health"})
 	}
-	return append(out, action{"r", "re-read", ""}, action{"q", "quit", ""})
+	return append(out, action{"r", "re-read"}, action{"q", "quit"})
 }
 
 // drawGrants is the GRANTS tab: every authority-signed grant, live, expired or revoked (a revoked
@@ -1313,7 +1328,7 @@ func airtime(log []edge.UnitState) (int, bool) {
 			continue
 		}
 		known++
-		if st == edge.StateAir { // trouble is on air, but it is not clean airtime
+		if st == edge.StateAir || st == edge.StateTrouble { // airtime is availability: a troubled unit is still on air
 			air++
 		}
 	}
@@ -1411,4 +1426,13 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 		footer = append(footer, lm.NewLine(so...))
 	}
 	fr.RenderWidget(lm.NewText(footer...).WithWrap(false), rows[1])
+}
+
+// atAuthority words where a device claims: the port when one is known, else the plain fact that
+// nothing is listening until the TUI or the console is open.
+func atAuthority(port string) string {
+	if port == "" {
+		return "at this authority, which is not listening right now (open the TUI or the console)"
+	}
+	return "at this authority's port " + port
 }

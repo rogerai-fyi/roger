@@ -63,11 +63,7 @@ func edgeSessionLines(st *edgeState, now time.Time) []fleetview.SessionLine {
 }
 
 // edgeAlarmLines is every standing trouble call as the screen lists it.
-func edgeAlarmLines(names map[string]string, now time.Time) ([]fleetview.AlarmLine, error) {
-	calls, err := edgeAlertLog().Standing(now)
-	if err != nil {
-		return nil, err
-	}
+func edgeAlarmLines(calls []edge.TroubleCall, names map[string]string) []fleetview.AlarmLine {
 	out := make([]fleetview.AlarmLine, 0, len(calls))
 	for _, c := range calls {
 		node := names[c.NodeID]
@@ -88,7 +84,7 @@ func edgeAlarmLines(names map[string]string, now time.Time) ([]fleetview.AlarmLi
 		out = append(out, fleetview.AlarmLine{RuleID: c.RuleID, NodeID: c.NodeID, Node: node, Metric: string(c.Metric), When: c.When,
 			Value: value, Since: c.Since, Acked: c.Acked, AckBy: c.AckBy, Shelved: c.Shelved, StandByUntil: c.StandByUntil})
 	}
-	return out, nil
+	return out
 }
 
 // edgeOperatorName is who says roger: the linked login's handle (never the whole address on a

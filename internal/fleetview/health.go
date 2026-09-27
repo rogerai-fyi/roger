@@ -106,11 +106,11 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 	} else {
 		h.drawBody(f, rows[1])
 	}
-	acts := []action{{"↑↓", "unit", ""}, {"r", "re-read", ""}}
+	acts := []action{{"↑↓", "unit"}, {"r", "re-read"}}
 	if h.BackHint != "" {
-		acts = append(acts, action{"1", "fleet", ""})
+		acts = append(acts, action{"1", "fleet"})
 	}
-	acts = append(acts, action{"q", "quit", ""})
+	acts = append(acts, action{"q", "quit"})
 	actionBar(f, rows[2], acts, "", false, time.Time{})
 	return true
 }
