@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -488,7 +490,19 @@ var errNoSharedStore = redis.Nil
 // namespaced under keyPrefix so they never collide with another tenant sharing the
 // instance.
 type valkeyStore struct {
-	rdb *redis.Client
+	// rdb is one Valkey, a client-side ring of independent Valkeys, or a Valkey Cluster
+	// (valkeyTopology). Every hot-path command touches ONE key, so all three work unchanged.
+	rdb redis.UniversalClient
+	// dial builds a fresh client over the SAME topology with its own small pool and the
+	// given read timeout. The dispatch plane's inbox reader uses it so its held XREAD never
+	// occupies a pooled connection other calls need (DISPATCH-SCALE-DESIGN section 3.7).
+	dial func(readTimeout time.Duration) redis.UniversalClient
+	// poolSize is the effective per-server connection pool of rdb (go-redis's default when
+	// the URL sets none), exposed for the connection-budget scenario.
+	poolSize int
+	// closed is closed by Close so the dispatch plane's reader stops with the store.
+	closed    chan struct{}
+	closeOnce sync.Once
 
 	mu      sync.Mutex
 	up      bool // last observed reachability (for healthy())
@@ -561,16 +575,116 @@ func retrySubscribe(ctx context.Context, attempts int, backoff time.Duration, fn
 // to in-memory - it never crashes). Returns the store even when the ping fails so a
 // later recovery is possible, but reports the error so startup can log + degrade.
 func newValkeyStore(url string) (*valkeyStore, error) {
-	opt, err := redis.ParseURL(url)
+	return newValkeyStoreTopology(valkeyTopology{urls: []string{url}})
+}
+
+// valkeyTopology names the shared-state servers. One URL is a single Valkey. Several URLs
+// are a client-side consistent-hash RING of independent Valkeys (works on any provider,
+// because every hot-path command is single-key), or, with cluster set, the seed nodes of a
+// Valkey Cluster. Ring shard names follow URL order, so keep the order stable: reordering
+// or adding a shard remaps keys.
+type valkeyTopology struct {
+	urls    []string
+	cluster bool
+}
+
+// valkeyTopologyFromEnv reads ROGERAI_REDIS_RING or ROGERAI_REDIS_CLUSTER (comma-separated
+// URLs) before the single ROGERAI_REDIS_URL. All unset = no shared store.
+func valkeyTopologyFromEnv() (valkeyTopology, bool) {
+	split := func(v string) []string {
+		var out []string
+		for _, u := range strings.Split(v, ",") {
+			if u = strings.TrimSpace(u); u != "" {
+				out = append(out, u)
+			}
+		}
+		return out
+	}
+	if urls := split(envStr("ROGERAI_REDIS_RING", "")); len(urls) > 0 {
+		return valkeyTopology{urls: urls}, true
+	}
+	if urls := split(envStr("ROGERAI_REDIS_CLUSTER", "")); len(urls) > 0 {
+		return valkeyTopology{urls: urls, cluster: true}, true
+	}
+	if url := envStr("ROGERAI_REDIS_URL", ""); url != "" {
+		return valkeyTopology{urls: []string{url}}, true
+	}
+	return valkeyTopology{}, false
+}
+
+// build returns a client for the topology with the broker's tight timeouts. poolSize 0
+// keeps go-redis's default; readTimeout overrides the per-op read timeout (a blocking
+// reader needs longer than sharedOpTimeout).
+func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.UniversalClient, int, error) {
+	if len(tp.urls) == 0 {
+		return nil, 0, fmt.Errorf("no valkey url")
+	}
+	opts := make([]*redis.Options, len(tp.urls))
+	for i, u := range tp.urls {
+		opt, err := redis.ParseURL(u)
+		if err != nil {
+			return nil, 0, err
+		}
+		opt.DialTimeout = 2 * time.Second
+		opt.ReadTimeout = readTimeout
+		opt.WriteTimeout = sharedOpTimeout
+		opt.MaxRetries = 1
+		if poolSize > 0 {
+			opt.PoolSize = poolSize
+		}
+		opts[i] = opt
+	}
+	eff := opts[0].PoolSize
+	if eff == 0 {
+		eff = 10 * runtime.GOMAXPROCS(0) // go-redis's default
+	}
+	switch {
+	case len(opts) == 1 && !tp.cluster:
+		return redis.NewClient(opts[0]), eff, nil
+	case tp.cluster:
+		o := opts[0]
+		addrs := make([]string, len(opts))
+		for i, op := range opts {
+			addrs[i] = op.Addr
+		}
+		return redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs: addrs, Username: o.Username, Password: o.Password, TLSConfig: o.TLSConfig,
+			DialTimeout: o.DialTimeout, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout,
+			MaxRetries: o.MaxRetries, PoolSize: o.PoolSize,
+		}), eff, nil
+	default:
+		byAddr := map[string]*redis.Options{}
+		shards := map[string]string{}
+		for i, op := range opts {
+			byAddr[op.Addr] = op
+			shards[fmt.Sprintf("s%d", i)] = op.Addr
+		}
+		return redis.NewRing(&redis.RingOptions{
+			Addrs: shards,
+			// Each shard keeps its OWN credentials/TLS/db from its URL.
+			NewClient: func(o *redis.Options) *redis.Client {
+				cp := *byAddr[o.Addr]
+				return redis.NewClient(&cp)
+			},
+		}), eff, nil
+	}
+}
+
+// newValkeyStoreTopology connects to the topology. It does a single bounded PING so a bad
+// URL / unreachable server is detected at startup; the CALLER decides what to do with the
+// error (the broker logs a warning and falls back to in-memory - it never crashes). Returns
+// the store even when the ping fails so a later recovery is possible.
+func newValkeyStoreTopology(tp valkeyTopology) (*valkeyStore, error) {
+	// Keep timeouts tight: this is a hot-path cache, not a primary store.
+	rdb, pool, err := tp.build(sharedOpTimeout, 0)
 	if err != nil {
 		return nil, err
 	}
-	// Keep timeouts tight: this is a hot-path cache, not a primary store.
-	opt.DialTimeout = 2 * time.Second
-	opt.ReadTimeout = sharedOpTimeout
-	opt.WriteTimeout = sharedOpTimeout
-	opt.MaxRetries = 1
-	vs := &valkeyStore{rdb: redis.NewClient(opt)}
+	vs := &valkeyStore{rdb: rdb, poolSize: pool, closed: make(chan struct{})}
+	vs.dial = func(readTimeout time.Duration) redis.UniversalClient {
+		c, _, _ := tp.build(readTimeout, 2) // tp already parsed once above, so no error here
+		return c
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := vs.rdb.Ping(ctx).Err(); err != nil {
@@ -616,6 +730,9 @@ func (v *valkeyStore) noteErr(op string, err error) {
 func (v *valkeyStore) Close() error {
 	if v == nil || v.rdb == nil {
 		return nil
+	}
+	if v.closed != nil {
+		v.closeOnce.Do(func() { close(v.closed) })
 	}
 	return v.rdb.Close()
 }
@@ -1896,11 +2013,11 @@ func (v *valkeyStore) busNextRCSeq(sid string) (uint64, error) {
 // in-memory path and NEVER crashes. (The returned store is closed on a connect
 // failure so we leak no client.)
 func openSharedStore() sharedStore {
-	url := envStr("ROGERAI_REDIS_URL", "")
-	if url == "" {
+	tp, ok := valkeyTopologyFromEnv()
+	if !ok {
 		return nil // flag OFF: in-memory, byte-for-byte today's behavior.
 	}
-	vs, err := newValkeyStore(url)
+	vs, err := newValkeyStoreTopology(tp)
 	if err != nil {
 		if vs != nil {
 			_ = vs.Close()

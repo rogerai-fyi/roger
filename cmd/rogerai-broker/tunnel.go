@@ -1427,49 +1427,9 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 	b.localPollAt[node] = time.Now()
 	b.mu.Unlock()
 
-	// MULTI-INSTANCE (Stage 2): a job for this node may have been dispatched on a PEER
-	// instance, so subscribe to the node's bus channel for the life of this long-poll.
-	// In multi-instance mode the relay dispatches ONLY over the bus (single delivery
-	// path - no double-serve), and a local poller receives its own instance's dispatch
-	// over the same bus, so we wait on the bus channel here. On a bus subscribe error we
-	// fall through to a 204 re-poll (the node simply re-polls; no job is lost because the
-	// dispatcher's publish would have reported 0 subscribers and failed that relay
-	// cleanly). The local t.jobs channel is still drained too, so a flag flip / mixed
-	// fleet can never strand a job already sitting in the in-memory queue.
+	// MULTI-INSTANCE: a job for this node may have been dispatched on a PEER instance.
 	if b.multiInstance && b.shared != nil {
-		busJobs, cancel, err := b.shared.busSubscribeJobs(r.Context(), node)
-		if err != nil {
-			w.WriteHeader(http.StatusNoContent) // bus unavailable: re-poll
-			return
-		}
-		defer cancel()
-		select {
-		case job := <-t.jobs: // drain any in-memory job (mixed-mode safety)
-			_ = json.NewEncoder(w).Encode(job)
-		case raw, ok := <-busJobs:
-			if !ok {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			var job protocol.Job
-			if json.Unmarshal(raw, &job) != nil {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			// SINGLE DELIVERY: busPublishJob is a fan-out PUBLISH, so every one of this node's
-			// parallel pollers (across instances) just received this same job. Claim it so exactly
-			// ONE poller serves it; a poller that loses the claim re-polls (204) instead of serving
-			// a duplicate (N-fold billing + interleaved corrupted streams). On a claim-store error
-			// we fall through and serve, degrading to today's fan-out on a rare outage rather than
-			// stranding the job (no poller would serve it -> the consumer 504s).
-			if won, cerr := b.shared.busClaimJob(job.ID); cerr == nil && !won {
-				w.WriteHeader(http.StatusNoContent) // another poller won this job
-				return
-			}
-			_ = json.NewEncoder(w).Encode(job)
-		case <-time.After(25 * time.Second):
-			w.WriteHeader(http.StatusNoContent) // re-poll
-		}
+		b.agentPollMulti(w, r, t, node)
 		return
 	}
 
@@ -1478,6 +1438,97 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(job)
 	case <-time.After(25 * time.Second):
 		w.WriteHeader(http.StatusNoContent) // re-poll
+	}
+}
+
+// agentPollMulti is the multi-instance long-poll. It serves the dispatch queue (dispatchq.go):
+// pop the node's list, else advertise this poll as idle, pop once more (no lost wake-up), and
+// wait for a nudge or a direct local handoff. Until the rollout reaches queue-only it ALSO
+// listens on the legacy fan-out bus, so instances still dispatching by publish are heard.
+// A poll leaves only with a job or at the end of its hold: another poller winning a job never
+// costs this one its place (in the legacy bus mode a lost claim still re-polls, as before).
+func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeTunnel, node string) {
+	ctx := r.Context()
+	var legacy <-chan []byte
+	if b.dispatchMode != dispatchViaQueueOnly {
+		ch, cancel, err := b.shared.busSubscribeJobs(ctx, node)
+		switch {
+		case err == nil:
+			defer cancel()
+			legacy = ch
+		case b.dispatchMode == dispatchViaBus:
+			w.WriteHeader(http.StatusNoContent) // bus unavailable: re-poll (the dispatcher saw 0 subscribers)
+			return
+		}
+	}
+	q := b.dqueue()
+	var pw *pollWaiter
+	var wake chan *dqEntry
+	if q != nil {
+		pw = q.newWaiter(node)
+		wake = pw.wake
+		defer q.retire(pw)
+	}
+	hold := time.NewTimer(25 * time.Second)
+	defer hold.Stop()
+	advertised := false // only a waker (wakeIdle) takes this poll out of the idle set
+	for {
+		if q != nil && q.stopped() {
+			w.WriteHeader(http.StatusNoContent) // this instance is shutting down: poll elsewhere
+			return
+		}
+		if q != nil {
+			if e := q.pop(node); e != nil {
+				if q.handOver(w, r, node, e) {
+					return
+				}
+				continue
+			}
+			if !advertised {
+				q.advertise(pw)
+				advertised = true
+				continue // pop once more AFTER advertising: a job pushed meanwhile is seen
+			}
+		}
+		select {
+		case e := <-wake: // a nudge (nil: pop again) or a direct local handoff
+			advertised = false
+			if e != nil && q.handOver(w, r, node, e) {
+				return
+			}
+		case job := <-t.jobs: // drain any in-memory job (mixed-mode safety)
+			_ = json.NewEncoder(w).Encode(job)
+			return
+		case raw, ok := <-legacy:
+			if !ok {
+				if b.dispatchMode == dispatchViaBus {
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+				legacy = nil
+				continue
+			}
+			var job protocol.Job
+			if json.Unmarshal(raw, &job) != nil {
+				continue
+			}
+			// SINGLE DELIVERY on the legacy fan-out: every poller heard this PUBLISH; the claim
+			// lets exactly ONE serve. On a claim-store error we serve rather than strand the job.
+			if won, cerr := b.shared.busClaimJob(job.ID); cerr == nil && !won {
+				if b.dispatchMode == dispatchViaBus {
+					w.WriteHeader(http.StatusNoContent) // another poller won this job
+					return
+				}
+				continue // keep this poll's place
+			}
+			_ = json.NewEncoder(w).Encode(job)
+			return
+		case <-hold.C:
+			w.WriteHeader(http.StatusNoContent) // re-poll
+			return
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -1510,6 +1561,22 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 	// double-serve. A bus publish error is surfaced to the node (the relay's own timeout
 	// is the backstop: it fails the request cleanly and refunds the hold).
 	if b.multiInstance && b.shared != nil {
+		// A queue-dispatched job names its origin; send the result to that instance's inbox.
+		if q := b.dqueue(); q != nil {
+			origin, err := q.originOf(res.ID)
+			if err != nil {
+				jsonErr(w, http.StatusServiceUnavailable, "result bus unavailable")
+				return
+			}
+			if origin != "" {
+				if err := q.send(origin, dqMsg{kind: "res", job: res.ID, node: node, data: body}); err != nil {
+					jsonErr(w, http.StatusServiceUnavailable, "result bus unavailable")
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+				return
+			}
+		}
 		if err := b.shared.busPublishResult(res.ID, body); err != nil {
 			jsonErr(w, http.StatusServiceUnavailable, "result bus unavailable")
 			return
@@ -2006,11 +2073,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		res, concurrentAtDispatch, outcome := b.dispatchAwait(r.Context(), t, node.NodeID, job, resCh, deadline)
 		unreg()
 		switch outcome {
-		case dispatchBusy:
-			jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
-			return
-		case dispatchBusErr:
-			jsonErr(w, http.StatusServiceUnavailable, "dispatch bus unavailable")
+		case dispatchBusy, dispatchBusErr, dispatchOffAir, dispatchLost:
+			b.writeDispatchFailure(w, outcome)
 			return
 		case dispatchTimeout:
 			// CLOUDFLARE ~100s PROXY CAP: CF aborts a proxied request that has produced NO
@@ -2235,7 +2299,51 @@ const (
 	dispatchBusy                           // no poller free (local queue full / no bus subscriber)
 	dispatchBusErr                         // the dispatch bus itself failed
 	dispatchTimeout                        // no result before the deadline
+	dispatchOffAir                         // the node is not live: refused at once (queue modes)
+	dispatchLost                           // a poller took the job but never handed it over
 )
+
+// dispatchErrOutcome maps a dispatch-plane error to its outcome (counting it).
+func (b *broker) dispatchErrOutcome(err error) dispatchOutcome {
+	switch err {
+	case errNoPoller:
+		b.stats.busNoPoller.Add(1)
+		return dispatchBusy
+	case errStationBusy:
+		return dispatchBusy
+	case errOffAir:
+		return dispatchOffAir
+	case errHandoffLost:
+		return dispatchLost
+	case context.DeadlineExceeded:
+		return dispatchTimeout
+	}
+	b.stats.busDispatchErr.Add(1)
+	return dispatchBusErr
+}
+
+// writeDispatchFailure answers a request whose dispatch did not reach a result. The queue
+// modes say what happened (off air is not busy; busy means "retry in a moment"); the legacy
+// bus and the single-instance path keep their original wording.
+func (b *broker) writeDispatchFailure(w http.ResponseWriter, outcome dispatchOutcome) {
+	queue := b.multiInstance && b.dispatchMode != dispatchViaBus
+	switch outcome {
+	case dispatchOffAir:
+		jsonErr(w, http.StatusServiceUnavailable, "station off air")
+	case dispatchLost:
+		w.Header().Set("Retry-After", "1")
+		jsonErr(w, http.StatusServiceUnavailable, "station handoff failed")
+	case dispatchBusErr:
+		jsonErr(w, http.StatusServiceUnavailable, "dispatch bus unavailable")
+	default: // dispatchBusy
+		if queue {
+			w.Header().Set("Retry-After", "1")
+			jsonErr(w, http.StatusServiceUnavailable, "station busy")
+			return
+		}
+		jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
+	}
+}
 
 // dispatchAwait hands ONE attempt's job to its station - over the Valkey bus when the poller
 // may be on a peer instance, else the local job channel - and waits for the result until the
@@ -2248,49 +2356,35 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 	// measurement (concurrentTPS is only sampled when this is >= 2).
 	concurrentAtDispatch := b.inflightOf(nodeID)
 	if b.multiInstance && b.shared != nil {
-		// MULTI-INSTANCE (Stage 2): the poller for this node may be on a PEER instance, so
-		// dispatch + await the result over the Valkey bus. Subscribe to the per-job result
-		// channel BEFORE publishing the job so a fast peer result cannot race ahead of our
-		// subscription. On any bus error the request fails cleanly (the caller's deferred
-		// ReleaseHold refunds the pre-auth hold - never a double-charge). delivered==0 means
-		// no poller is listening on ANY instance, exactly like a full local job channel.
-		ch, cancel, derr := b.busDispatchJob(ctx, nodeID, job)
-		if cancel != nil {
-			defer cancel()
-		}
+		// MULTI-INSTANCE: the poller for this node may be on a PEER instance. Any failure
+		// fails the request cleanly (the caller's deferred ReleaseHold refunds the hold).
+		tk, derr := b.dispatchRemote(ctx, nodeID, job, false)
 		if derr != nil {
 			b.exitInflight(nodeID, false)
-			if derr == errNoPoller {
-				b.stats.busNoPoller.Add(1)
-				return protocol.JobResult{}, concurrentAtDispatch, dispatchBusy
-			}
-			b.stats.busDispatchErr.Add(1)
-			return protocol.JobResult{}, concurrentAtDispatch, dispatchBusErr
+			return protocol.JobResult{}, concurrentAtDispatch, b.dispatchErrOutcome(derr)
 		}
-		b.stats.busDispatch.Add(1)
-		// Decode the raw bus result and forward it into resCh so the wait below is shared
-		// with the single-instance path.
-		go func() {
-			raw, ok := <-ch
-			if !ok {
-				return // bus closed; the deadline below fails the request cleanly
-			}
-			var br protocol.JobResult
-			if json.Unmarshal(raw, &br) == nil {
-				select {
-				case resCh <- br:
-				default:
-				}
-			}
-		}()
-	} else {
-		select {
-		case t.jobs <- job:
-			b.stats.localDispatch.Add(1)
-		case <-time.After(3 * time.Second):
+		defer tk.close()
+		if b.dispatchMode == dispatchViaBus {
+			b.stats.busDispatch.Add(1)
+		}
+		raw, werr := tk.awaitResult(deadline)
+		var res protocol.JobResult
+		if werr == nil && json.Unmarshal(raw, &res) != nil {
+			werr = errBadResult
+		}
+		if werr != nil {
 			b.exitInflight(nodeID, false)
-			return protocol.JobResult{}, concurrentAtDispatch, dispatchBusy
+			return protocol.JobResult{}, concurrentAtDispatch, b.dispatchErrOutcome(werr)
 		}
+		b.exitInflightStatus(nodeID, res.Status)
+		return res, concurrentAtDispatch, dispatchResult
+	}
+	select {
+	case t.jobs <- job:
+		b.stats.localDispatch.Add(1)
+	case <-time.After(3 * time.Second):
+		b.exitInflight(nodeID, false)
+		return protocol.JobResult{}, concurrentAtDispatch, dispatchBusy
 	}
 	select {
 	case res := <-resCh:
@@ -2556,52 +2650,46 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 	// IDENTICAL on both paths. On any bus error we fail cleanly: the headers go out as an
 	// empty/short stream and the deferred ReleaseHold refunds the hold (never a
 	// double-charge).
+	var dispatchFailed <-chan struct{} // closed when a dispatched job is withdrawn or lost
 	if b.multiInstance && b.shared != nil {
-		streamCtx, streamCancel := context.WithCancel(context.Background())
-		defer streamCancel()
-		busStream, scancel, serr := b.shared.busSubscribeStream(streamCtx, jobID)
-		if serr != nil {
-			b.stats.busDispatchErr.Add(1)
-			b.exitInflight(node.NodeID, false)
-			lw.commit()
-			return protocol.JobResult{}, false
-		}
-		defer scancel()
-		ch, rcancel, derr := b.busDispatchJob(streamCtx, node.NodeID, job)
-		if rcancel != nil {
-			defer rcancel()
-		}
+		tk, derr := b.dispatchRemote(context.Background(), node.NodeID, job, true)
 		if derr != nil {
-			if derr == errNoPoller {
-				b.stats.busNoPoller.Add(1)
-			} else {
-				b.stats.busDispatchErr.Add(1)
-			}
+			b.dispatchErrOutcome(derr) // counts it
 			b.exitInflight(node.NodeID, false)
 			lw.commit()
 			return protocol.JobResult{}, false // the client gets an empty stream, as before
 		}
-		b.stats.busDispatch.Add(1)
-		// Pump bus chunks -> client (+ capture). Runs until the done marker or the bus
-		// closes; relays each frame in order and flushes, mirroring agentStream's local
-		// write+flush+capture so settlement reads the same captured completion. pumpDone is
-		// closed when the pump exits; the attempt waits on it (bounded) BEFORE returning so
-		// no goroutine writes the client ResponseWriter after the handler has returned.
-		pumpDone := make(chan struct{})
+		defer tk.close()
+		if b.dispatchMode == dispatchViaBus {
+			b.stats.busDispatch.Add(1)
+		}
+		dispatchFailed = tk.done
+		// Pump the station's chunks -> client (+ capture), in order, mirroring agentStream's
+		// local write+flush+capture so settlement reads the same captured completion. The
+		// attempt waits on pumpDone (bounded) BEFORE returning so no goroutine writes the
+		// client ResponseWriter after the handler has returned.
+		pumpDone, stopPump := make(chan struct{}), make(chan struct{})
+		var stopOnce sync.Once
 		waitPump = func() {
 			select {
 			case <-pumpDone:
 			case <-time.After(2 * time.Second):
-				// The done marker never arrived (bus hiccup): cancel the subscription so the
-				// pump's range over busStream ends, then it closes pumpDone.
-				streamCancel()
+				stopOnce.Do(func() { close(stopPump) }) // the done marker never arrived
 				<-pumpDone
 			}
 		}
 		defer waitPump()
 		go func() {
 			defer close(pumpDone)
-			for fr := range busStream {
+			for {
+				var fr streamFrame
+				select {
+				case fr = <-tk.frames:
+				case <-stopPump:
+					return
+				case <-tk.done:
+					return
+				}
 				if fr.isDone {
 					return
 				}
@@ -2618,21 +2706,9 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				}
 			}
 		}()
-		// Forward the decoded bus result into resCh so the settlement select below is
-		// shared with the single-instance path.
-		go func() {
-			raw, ok := <-ch
-			if !ok {
-				return
-			}
-			var br protocol.JobResult
-			if json.Unmarshal(raw, &br) == nil {
-				select {
-				case resCh <- br:
-				default:
-				}
-			}
-		}()
+		// Forward the decoded result into resCh so the settlement select below is shared
+		// with the single-instance path.
+		tk.forward(resCh)
 	} else {
 		select {
 		case t.jobs <- job:
@@ -2662,6 +2738,10 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			idleTimer.Reset(idle)
 			continue
 		case <-idleTimer.C:
+			b.exitInflight(node.NodeID, false)
+			lw.commit()
+			return protocol.JobResult{}, false
+		case <-dispatchFailed: // withdrawn as busy, or lost in handoff: nothing is coming
 			b.exitInflight(node.NodeID, false)
 			lw.commit()
 			return protocol.JobResult{}, false
@@ -2876,11 +2956,24 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	// would double-deliver. A bus publish error ends the forward; the relay's stream
 	// timeout is the backstop (it fails/closes the client stream cleanly).
 	if b.multiInstance && b.shared != nil {
+		// A queue-dispatched job streams to its origin's inbox (ordered: one sender, one
+		// stream); a legacy-dispatched job to its per-job bus channel.
+		publish := b.shared.busPublishStreamChunk
+		finish := func() { _ = b.shared.busPublishStreamDone(jobID) }
+		if q := b.dqueue(); q != nil {
+			if origin, _ := q.originOf(jobID); origin != "" {
+				publish = func(_ string, p []byte) error {
+					return q.send(origin, dqMsg{kind: "chunk", job: jobID, node: nodeID, data: p})
+				}
+				finish = func() { _ = q.send(origin, dqMsg{kind: "done", job: jobID, node: nodeID}) }
+			}
+		}
 		buf := make([]byte, 8192)
 		for {
 			n, err := r.Body.Read(buf)
 			if n > 0 {
-				if perr := b.shared.busPublishStreamChunk(jobID, buf[:n]); perr != nil {
+				// copy: an in-process send hands the slice to the consumer's pump
+				if perr := publish(jobID, append([]byte(nil), buf[:n]...)); perr != nil {
 					break // bus down: stop forwarding; relay times out + closes cleanly
 				}
 			}
@@ -2888,7 +2981,7 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		_ = b.shared.busPublishStreamDone(jobID)
+		finish()
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}

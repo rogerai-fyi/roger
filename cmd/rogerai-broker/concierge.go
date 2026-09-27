@@ -338,27 +338,15 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 	// hangs the full relayWait (30s) before falling back to Groq on every band-node pick (audit
 	// #7). busDispatchJob publishes the job (single-delivered via the agentPoll claim) and hands
 	// back the per-job result channel; forward it to resCh so the wait below is unchanged.
+	var dispatchFailed <-chan struct{}
 	if b.multiInstance && b.shared != nil {
-		ch, cancel, derr := b.busDispatchJob(context.Background(), node, job)
-		if cancel != nil {
-			defer cancel()
-		}
+		tk, derr := b.dispatchRemote(context.Background(), node, job, false)
 		if derr != nil {
-			return "", false // no poller on any instance / bus error -> fall through to Groq
+			return "", false // off air / busy / bus error -> fall through to Groq
 		}
-		go func() {
-			raw, ok := <-ch
-			if !ok {
-				return
-			}
-			var br protocol.JobResult
-			if json.Unmarshal(raw, &br) == nil {
-				select {
-				case resCh <- br:
-				default:
-				}
-			}
-		}()
+		defer tk.close()
+		dispatchFailed = tk.done
+		tk.forward(resCh)
 	} else {
 		select {
 		case t.jobs <- job:
@@ -372,6 +360,8 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 			return "", false
 		}
 		return conciergeReplyText(res.Body), true
+	case <-dispatchFailed: // withdrawn busy or lost in handoff: fall through to Groq now
+		return "", false
 	case <-time.After(c.relayWait()):
 		return "", false
 	}
@@ -499,31 +489,21 @@ func (b *broker) grantRelayOnce(t *nodeTunnel, model, node string, rawBody []byt
 	// result served on a PEER instance still reaches resCh - the local t.jobs path would hang
 	// the full relayWait (audit #7). errNoPoller stays retryable (like the local enqueue
 	// timeout); any other bus error is a real miss so the retry loop does not spin on a broken bus.
+	var tk *dispatchTicket
+	var dispatchFailed <-chan struct{}
 	if b.multiInstance && b.shared != nil {
-		ch, cancel, derr := b.busDispatchJob(context.Background(), node, job)
-		if cancel != nil {
-			defer cancel()
-		}
+		var derr error
+		tk, derr = b.dispatchRemote(context.Background(), node, job, false)
 		if derr != nil {
-			if derr == errNoPoller {
-				return "", false, false // no poller on any instance - retryable
+			if derr == errNoPoller || derr == errStationBusy {
+				return "", false, false // no poller free on any instance - retryable
 			}
 			log.Printf("CONCIERGE grant-dogfood miss: relay-error (bus dispatch) model=%q node=%s: %v", model, node, derr)
 			return "", false, true
 		}
-		go func() {
-			raw, ok := <-ch
-			if !ok {
-				return
-			}
-			var br protocol.JobResult
-			if json.Unmarshal(raw, &br) == nil {
-				select {
-				case resCh <- br:
-				default:
-				}
-			}
-		}()
+		defer tk.close()
+		dispatchFailed = tk.done
+		tk.forward(resCh)
 	} else {
 		select {
 		case t.jobs <- job:
@@ -538,6 +518,12 @@ func (b *broker) grantRelayOnce(t *nodeTunnel, model, node string, rawBody []byt
 			return "", false, true
 		}
 		return conciergeReplyText(res.Body), true, true
+	case <-dispatchFailed:
+		if tk.Err() == errStationBusy {
+			return "", false, false // withdrawn after its queue wait - retryable
+		}
+		log.Printf("CONCIERGE grant-dogfood miss: relay-error (%v) model=%q node=%s", tk.Err(), model, node)
+		return "", false, true
 	case <-time.After(c.relayWait()):
 		log.Printf("CONCIERGE grant-dogfood miss: relay-error (result timeout) model=%q node=%s", model, node)
 		return "", false, true

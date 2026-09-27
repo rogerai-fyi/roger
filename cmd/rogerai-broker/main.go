@@ -279,6 +279,11 @@ type broker struct {
 	// Finalize are unchanged (already durable/shared) - the bus only carries the
 	// transient handoff, and a bus error fails the request cleanly (never double-charge).
 	multiInstance bool
+	// dispatchMode is the multi-instance dispatch rollout switch (ROGERAI_DISPATCH, see
+	// dispatchq.go); dq is this instance's end of the dispatch plane, started on first use.
+	dispatchMode dispatchMode
+	dqOnce       sync.Once
+	dq           *dispatchQueue
 
 	// instanceID identifies THIS broker process in the shared inflight hash (each
 	// instance write-throughs its own count under this field; a peer sums the others).
@@ -831,6 +836,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
 		if multiInstanceEnabled() {
 			b.multiInstance = true
+			b.dispatchMode = dispatchModeFromEnv()
 			b.instanceID = newInstanceID()
 			b.peerInflight = map[string]int{}
 			b.peerEdgeLoad = map[string]int{}
@@ -844,7 +850,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 			// is gated on multi-instance, so the single-instance log format is unchanged.
 			log.SetPrefix("[" + b.instanceID + "] ")
 			go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
-			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
+			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s, ROGERAI_DISPATCH=%s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID, [...]string{"bus", "queue", "queue-only"}[b.dispatchMode])
 		} else {
 			// The registry mirror + lazy-learn run whenever the shared backend is wired
 			// (task #52: registration state travels with liveness state under both flag
