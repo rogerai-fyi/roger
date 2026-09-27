@@ -6,7 +6,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -110,4 +112,21 @@ func TestEdgeTroubleWatchPrintsEachTransitionOnce(t *testing.T) {
 	require.Equal(t, 1, strings.Count(out, "fired    cpu_temp > 85 on nas"), "printed once, though re-sent")
 	require.Equal(t, 1, strings.Count(out, "cleared  cpu_temp > 85 on nas"))
 	require.Contains(t, out, "watching nas")
+}
+
+// A face that refuses answers in the infer error shape: {"error":{"message":...}}. The dial carries
+// that message to the owner, not a bare status line (audit 2026-09-27 asked for the pin).
+func TestEdgeTroubleDialCarriesTheFacesNestedReason(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"that certificate is not a member of this Edge","type":"edge_error"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	self := srv.TLS.Certificates[0]
+	pin := fmt.Sprintf("%x", sha256.Sum256(srv.Certificate().Raw))
+	_, err := edgeDialTrouble(context.Background(), client.EdgePeer{Addr: srv.Listener.Addr().String(), Pin: pin, Node: "desk"}, &self, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "desk refused the feed: that certificate is not a member of this Edge")
+	require.NotContains(t, err.Error(), "403")
 }

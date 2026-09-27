@@ -419,12 +419,53 @@ func (h *edgeHost) observeSelf(now time.Time) {
 		Addr: ln.Addr().String(), Fingerprint: srv.Fingerprint(),
 		Instances: edge.Household(edgeInstancesDir(), now),
 	}
+	proven := h.probeOwnServe(id.NodeID, srv, obs.Instances) // before the lock: the probe reads h.mu itself
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, err := h.st.fleet.Observe(id.NodeID, obs); err != nil {
 		return
 	}
+	for _, name := range proven {
+		_ = h.st.fleet.RecordInstanceProbe(id.NodeID, name, edge.Serve, true)
+	}
 	_ = h.st.save()
+}
+
+// probeOwnServe runs the serving probe (features/edge/serving_probe.feature) on this machine's own
+// household, through its own face's upstream map - the same check a peer's discovery makes over the
+// wire, minus the wire. It returns the instances whose serve was proven on at least one band. An
+// instance already VERIFIED for its current bands is not asked again; one whose band this face cannot
+// route stays CLAIMED, because a peer's turn could not reach it either. It never holds h.mu: the
+// face's Upstream takes that lock.
+func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.Instance) []string {
+	h.mu.Lock()
+	cur, _, _ := h.st.fleet.Get(nodeID)
+	h.mu.Unlock()
+	done := map[string]bool{}
+	for _, in := range cur.Instances {
+		for _, c := range in.Caps {
+			if c.Name == string(edge.Serve) && c.State == string(edge.Verified) {
+				done[in.Name+"|"+strings.Join(in.Bands, ",")] = true
+			}
+		}
+	}
+	var proven []string
+	for _, in := range insts {
+		claims := false
+		for _, c := range in.Caps {
+			claims = claims || c.Name == string(edge.Serve)
+		}
+		if !claims || len(in.Bands) == 0 || done[in.Name+"|"+strings.Join(in.Bands, ",")] {
+			continue
+		}
+		for _, b := range in.Bands {
+			if got, status, _ := srv.ProbeBand(context.Background(), b); status == 0 && got == in.Name {
+				proven = append(proven, in.Name)
+				break
+			}
+		}
+	}
+	return proven
 }
 
 // nameNode renames a node on this Edge, the host-side of the console's Name action and the CLI's

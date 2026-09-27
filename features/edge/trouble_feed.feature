@@ -1,5 +1,10 @@
 # ROGER EDGE - THE TROUBLE FEED: alerts reach the owner's phone, through the Roger app, privately.
 #
+# STATUS: APPROVED 2026-09-26 (founder: "approve, pull is fine, member-wide read") and LIVE. Not
+# godog-bound: the scenarios are pinned one-for-one by Go tests against a real mTLS face -
+# internal/edge/trouble_test.go (the feed, roger, stand by, refusals, cursor, test calls) and
+# cmd/rogerai/edgetrouble_test.go (@cli `roger edge trouble`, --watch, the pinned dial).
+#
 # WHY. health.feature §5 delivers alerts to a configured sink. The founder's ruling (2026-09-26):
 # for now the ONE sink is the Roger iOS app - its notification system, and an alert list on the
 # Edge tab. The Edge is airgap-capable, so this cannot depend on a push service in a cloud: the

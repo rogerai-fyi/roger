@@ -1592,7 +1592,7 @@ func defaultEdgeDiscoveryOptions(f *edge.Fleet) edge.Options {
 	// ONE pass, driven by this command, rather than the daemon's ticker: a scan is a
 	// thing the owner asked for once.
 	cfg.ManualPasses = true
-	o := edge.Options{Fleet: f, Config: cfg}
+	o := edge.Options{Fleet: f, Config: cfg, CallerCert: edgeCallerCert()} // the certificate the serving probe presents
 	// The authority is whatever THIS machine was enrolled under - Core's root or a
 	// designated machine's, indistinguishably. A machine that has not enrolled holds
 	// none, so a peer cannot be certificate-verified and the scan says so rather than

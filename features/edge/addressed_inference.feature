@@ -1,6 +1,11 @@
 # ROGER EDGE - ADDRESSED INFERENCE: run a turn on a SPECIFIC node's model, not just "the nearest peer
 # that serves this band". Every refusal is specified before the happy path.
 #
+# STATUS: built 2026-09-24. Not godog-bound: pinned by Go tests - internal/edge/addressed_test.go
+# (ServingPeer and every refusal), cmd/rogerai/edgeladder_test.go (`roger use <node>`), and
+# internal/tui/edge_network_test.go (the Ask action). VERIFIED serve is earned by the serving probe
+# (features/edge/serving_probe.feature); until 2026-09-27 nothing in production ran it.
+#
 # WHY THIS EXISTS
 #
 # FOUNDER DIRECTION 2026-09-24: "I should be able to open any agent and prompt to find information

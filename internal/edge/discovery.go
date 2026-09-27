@@ -2,6 +2,7 @@ package edge
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -161,7 +162,12 @@ type Options struct {
 	AdvertiseIPs []net.IP
 	// Dial is how a peer is checked (nil means DialTLS).
 	Dial DialFunc
-	Now  func() time.Time
+	// Probe is the serving probe run against a just-verified peer's instances whose serve is still
+	// CLAIMED (nil means ProbeServe); CallerCert is this node's certificate, presented to the peer.
+	// A machine holding no certificate probes nothing: it cannot be admitted to a member-only read.
+	Probe      ProbeFunc
+	CallerCert *tls.Certificate
+	Now        func() time.Time
 	// Log receives the lines a human reads. Nil discards them.
 	Log func(string)
 }
@@ -448,6 +454,47 @@ func (d *Discovery) consider(ctx context.Context, ad Advert, rep *Report) {
 		return
 	}
 	rep.Verified = append(rep.Verified, Sighting{NodeID: ad.NodeID, Name: n.Name, Addr: ad.Addr()})
+	d.verifyServe(ctx, ad.Addr(), peer.Fingerprint, n)
+}
+
+// verifyServe runs the serving probe (features/edge/serving_probe.feature) against every instance of
+// a node that was just certificate-verified whose serve is still CLAIMED, and records a pass on the
+// ONE instance the face named. It is the only way a peer's serve becomes VERIFIED: the peer's own
+// word was dropped in applyInstances. An instance already VERIFIED is not asked again - a change of
+// bands already resets it to CLAIMED, and the next pass re-proves it.
+func (d *Discovery) verifyServe(ctx context.Context, addr, pin string, n store.EdgeNode) {
+	if d.opts.CallerCert == nil || d.opts.Fleet == nil {
+		return
+	}
+	probe := d.opts.Probe
+	if probe == nil {
+		probe = ProbeServe
+	}
+	for _, in := range n.Instances {
+		if !claimsServe(in) || len(in.Bands) == 0 {
+			continue
+		}
+		for _, b := range in.Bands {
+			got, err := probe(ctx, addr, pin, d.opts.CallerCert, b)
+			if err != nil || got != in.Name {
+				continue // not proven on this band; another band may still prove it
+			}
+			if err := d.opts.Fleet.RecordInstanceProbe(n.ID, in.Name, Serve, true); err == nil {
+				d.log(fmt.Sprintf("edge discovery: %s/%s serves %s, verified", n.Name, in.Name, b))
+			}
+			break
+		}
+	}
+}
+
+// claimsServe reports whether an instance declares serve and has not yet had it verified.
+func claimsServe(in Instance) bool {
+	for _, c := range in.Caps {
+		if c.Name == string(Serve) {
+			return c.State != string(Verified)
+		}
+	}
+	return false
 }
 
 // refuse records a refusal and says it out loud, once, with everything the owner needs

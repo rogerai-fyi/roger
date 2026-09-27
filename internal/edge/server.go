@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc(InferPath, s.handleInfer)
 	mux.HandleFunc(InvokePath, s.handleInvoke)
+	mux.HandleFunc(ProbePath, s.handleProbe)
 	mux.HandleFunc(TroublePath, s.handleTrouble)
 	mux.HandleFunc(TroubleRogerPath, s.handleTroubleRoger)
 	mux.HandleFunc(TroubleStandByPath, s.handleTroubleStandBy)

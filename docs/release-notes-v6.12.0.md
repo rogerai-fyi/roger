@@ -49,6 +49,17 @@ the machine unless a member asks. `roger edge trouble [<node>] [--watch]` reads 
 feed from a terminal the same way. Pinned by features/edge/trouble_feed.feature and
 features/edge/health.feature.
 
+## The serving probe
+
+An instance's `serve` was CLAIMED until "the serving probe" passed, and outside a broker-registered
+station nothing ever ran that probe: on an Edge with no broker every peer stayed CLAIMED, so the peer
+ladder had no rung, `roger use <node>` always refused, and Ask never lit. Now the face answers
+`GET /edge/probe?band=<band>` to members: it asks the server behind that band for its model list and
+passes only when the server is up and lists it. No token is spent and nothing is receipted. Discovery
+runs it on each instance it has just certificate-verified whose serve is still CLAIMED, and the host
+runs the same check on its own household through its own upstream map. The peer's own word still
+counts for nothing. Proposed in features/edge/serving_probe.feature, pinned by Go tests.
+
 ## The console
 
 The console's EDGE tab carries the same floor: Andon tiles, the Trouble list with roger and

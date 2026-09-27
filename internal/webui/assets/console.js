@@ -2340,13 +2340,22 @@
     }).catch(function (e) { toast(e.message, "err"); });
   }
 
+  // edgeFormBusy: the operator is typing in a rename or job form inside the card. Only a focused text
+  // control counts - a focused BUTTON (the save or cancel just clicked, an adopt) must never hold the
+  // card back, or the form would stay on screen after it had acted (audit 2026-09-27).
+  function edgeFormBusy(card) {
+    var a = document.activeElement;
+    if (!a || a === card || !card.contains(a)) return false;
+    return a.tagName === "INPUT" || a.tagName === "SELECT" || a.tagName === "TEXTAREA";
+  }
+
   function edgeRenderDetail(d) {
     var card = $("edge-detail");
     if (!card) return;
     var f = edgeSel ? edgeFind(d, edgeSel) : { n: null };
     if (!f.n) { show(card, false); return; }
-    // A rename or job form the operator is typing into must not be wiped by the poll.
-    if (document.activeElement && document.activeElement !== card && card.contains(document.activeElement)) return;
+    // A rename or job form the operator is TYPING into must not be wiped by the poll.
+    if (edgeFormBusy(card)) return;
     var n = f.n;
     card.innerHTML = "";
     var title = el("div", "card-title", (f.cand ? "CANDIDATE · " : "NODE · ") + n.name);
@@ -2431,8 +2440,8 @@
     save.addEventListener("click", commit);
     cancel.addEventListener("click", function () { edgeTick(); });
     input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); commit(); }
-      else if (e.key === "Escape") { e.preventDefault(); edgeTick(); }
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); input.blur(); edgeTick(); }
     });
   }
 
