@@ -1,5 +1,5 @@
-# AWAITING FOUNDER APPROVAL (spec-first workflow step 3) - do NOT write step definitions or
-# implementation until approved. Phase 5, lean form (founder ruling 2026-09-27: no WebSocket
+# APPROVED by the founder 2026-09-27 (spec-first workflow step 3). Do not edit a scenario
+# without re-approval. Phase 5, lean form (founder ruling 2026-09-27: no WebSocket
 # for now; revisit only if broker memory or per-job latency becomes a measured problem).
 # Needs a `roger` release; no new dependency.
 #

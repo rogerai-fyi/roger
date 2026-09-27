@@ -1,5 +1,5 @@
-# AWAITING FOUNDER APPROVAL (spec-first workflow step 3) - do NOT write step definitions or
-# implementation until approved. Phase 4 of the dispatch-scale design.
+# APPROVED by the founder 2026-09-27 (spec-first workflow step 3). Do not edit a scenario
+# without re-approval. Phase 4 of the dispatch-scale design.
 #
 # THE COST: every instance re-reads whole sets every 5 s tick, with no revision check except
 # bans: SMEMBERS regset + one GET per public node, SMEMBERS pregset + one GET per private node,

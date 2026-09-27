@@ -1,5 +1,5 @@
-# AWAITING FOUNDER APPROVAL (spec-first workflow step 3) - do NOT write step definitions or
-# implementation until approved. Remote-control sessions on the dispatch plane.
+# APPROVED by the founder 2026-09-27 (spec-first workflow step 3). Do not edit a scenario
+# without re-approval. Remote-control sessions on the dispatch plane.
 #
 # TODAY: every viewer's SSE stream holds its own store SUBSCRIBE for its whole life, and the
 # host's poll opens one per 25 s poll: 1 + V dedicated store connections per session.
