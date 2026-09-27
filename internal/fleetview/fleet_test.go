@@ -493,3 +493,22 @@ func TestFleetScreenIssuesAGrantInPlace(t *testing.T) {
 		t.Fatalf("issued = %v (30d is the default, as the CLI's)", issued)
 	}
 }
+
+// A phone that reads the trouble feed is heard: its row and readout say so, with when.
+func TestFleetScreenSaysWhenAPhoneLastReadTheFeed(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		if snap.Items[i].Name == "gentle-ibex-14" {
+			snap.Items[i].Dark, snap.Items[i].Presence, snap.Items[i].Alerts = false, "online", nil
+			snap.Items[i].LastSeen = now
+			snap.Items[i].LastRead = now.Add(-90 * time.Second)
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	for i := 0; i < 5; i++ {
+		page.Press("Down")
+	}
+	must(t, page.Screen(), "hears the Edge", "read the feed 1m ago")
+}

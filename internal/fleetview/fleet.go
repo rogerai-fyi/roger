@@ -63,6 +63,8 @@ type FleetItem struct {
 	Served int
 	// AlarmSince is the oldest standing call on this unit: TROUBLE has lasted at least that long.
 	AlarmSince time.Duration
+	// LastRead is when this unit last read the trouble feed (a phone's Roger app hearing the Edge).
+	LastRead time.Time
 	// Lines are the rule thresholds in force for this unit by metric, so a meter draws its line
 	// whether or not the unit is over it.
 	Lines map[string]float64
@@ -1026,6 +1028,9 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		row("carrier", cs...)
 		if it.Via != "" {
 			row("reached", span("through "+it.Via, ink))
+		}
+		if !it.LastRead.IsZero() {
+			row("hears", span("hears the Edge · read the feed "+edge.Age(now.Sub(it.LastRead))+" ago", signal))
 		}
 	case ItemCandidate:
 		head(0, false, true, it.Name, kindLabel(it.NodeKind)+" · on the bench")

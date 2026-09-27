@@ -120,6 +120,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	for _, c := range st.candidates {
 		asking[c.ID] = true
 	}
+	reads, _ := edgeAlertLog().Reads() // which members' Roger apps read the feed, and when
 	standing := map[string]bool{}
 	if grants, err := edgeauth.ReadClaims(edgeAuthDir()); err == nil {
 		for _, g := range grants {
@@ -145,6 +146,9 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 			Caps: edgeCapsOf(n.Caps), Via: r.Via, Health: health[n.ID], Alerts: firing[n.ID],
 			Asking: asking[n.ID] && dark, ClaimStanding: standing[n.ID], AuthPort: authPort}
 		it.Log, it.Since, it.SinceCapped = edge.LogOf(samples, n.ID, now)
+		if at := reads[n.ID]; at > 0 {
+			it.LastRead = time.Unix(at, 0)
+		}
 		if n.LastSeen > 0 {
 			it.LastSeen = time.Unix(n.LastSeen, 0)
 		}
