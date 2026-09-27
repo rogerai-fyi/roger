@@ -74,11 +74,28 @@ func cmdEdgeAlert(cfg config, args []string) error {
 		return nil
 	case "test":
 		if len(argv.pos) != 2 {
-			return usagef("usage: roger edge alert test <sink>")
+			return usagef("usage: roger edge alert test <member>")
 		}
-		// No sink kind is configurable yet: alerts stay on this machine. Say so rather than
-		// pretend a message went somewhere.
-		return fmt.Errorf("no sink named %q is configured - alerts stay on this machine (fleet surfaces and the alert log)", argv.pos[1])
+		// The sink is a member's Roger app reading the trouble feed (trouble_feed.feature): a test
+		// call is one clearly-marked transition in that feed, changing no rule state.
+		id, err := edgeGrantResolveNode(argv.pos[1], false)
+		if err != nil {
+			return fmt.Errorf("a test call goes to a member's Roger app: %w", err)
+		}
+		st, err := loadEdgeState()
+		if err != nil {
+			return err
+		}
+		n, _, _ := st.fleet.Get(id)
+		name := n.Name
+		if name == "" {
+			name = argv.pos[1]
+		}
+		if err := l.TestCall(name, time.Now()); err != nil {
+			return err
+		}
+		fmt.Printf("test call sent to the feed for %s - it appears once there, marked TEST, and raises no real alarm.\n", name)
+		return nil
 	}
 	return usagef("usage: roger edge alert [set <metric> <gt|lt> <value> [--scope fleet|<node>] | off <rule> | on <rule> | rm <rule> | test <sink>]")
 }
@@ -88,7 +105,8 @@ func edgeAlertList(l edge.AlertLog) error {
 	if err != nil {
 		return err
 	}
-	hs, firing, err := edgeReadHealth(time.Now())
+	now := time.Now()
+	hs, firing, err := edgeReadHealth(now)
 	if err != nil {
 		return err
 	}
@@ -100,7 +118,7 @@ func edgeAlertList(l edge.AlertLog) error {
 	for _, r := range rules {
 		fmt.Printf("%-12s %-18s %-14s %-8s %s\n", r.ID, r.Key(), edgeRuleScope(r, names), edgeRuleKind(r), edgeRuleState(r, firing, hs))
 	}
-	fmt.Printf("\n%-10s none configured - alerts stay on this machine (fleet surfaces and the alert log)\n", "sinks")
+	fmt.Printf("\n%-10s %s\n", "sinks", edgeSinkLine(l, names, now))
 	recent, err := l.Recent(8)
 	if err != nil {
 		return err
@@ -245,4 +263,27 @@ func edgeRuleState(r edge.Rule, firing edge.AlertState, hs []edge.NodeHealth) st
 		return "quiet"
 	}
 	return "firing: " + strings.Join(on, ", ")
+}
+
+// edgeSinkLine names where alerts go: the Roger app on each member that has read the trouble
+// feed, and when it last looked - or nowhere, until one does.
+func edgeSinkLine(l edge.AlertLog, names map[string]string, now time.Time) string {
+	reads, err := l.Reads()
+	if err != nil || len(reads) == 0 {
+		return "none configured - alerts stay on this machine (fleet surfaces and the alert log) until a member's Roger app reads the feed"
+	}
+	ids := make([]string, 0, len(reads))
+	for id := range reads {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		name := names[id]
+		if name == "" {
+			name = edgeShortID(id)
+		}
+		parts = append(parts, fmt.Sprintf("the Roger app on %s (last read %s ago)", name, edge.Age(now.Sub(time.Unix(reads[id], 0)))))
+	}
+	return strings.Join(parts, " · ")
 }

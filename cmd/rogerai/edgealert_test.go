@@ -87,7 +87,7 @@ func TestEdgeAlertCLIRulesFireOnTheNextHealthRead(t *testing.T) {
 
 	out, code = edgeRun(t, "edge", "alert", "test", "discord")
 	require.NotEqual(t, 0, code)
-	require.Contains(t, out, "no sink", "no sink is configured, and nothing pretends one was reached")
+	require.Contains(t, out, "member", "the only sink is a member's Roger app; nothing pretends a message went to a name nobody has")
 }
 
 func TestEdgeHealthJSONIsHonestAboutAbsentMetrics(t *testing.T) {
@@ -133,4 +133,39 @@ func TestOnlyTheAuthorityJudgesOnItsPass(t *testing.T) {
 	st, err := edgeAlertLog().State()
 	require.NoError(t, err)
 	require.Empty(t, st, "a member machine's pass does not judge the fleet")
+}
+
+// trouble_feed.feature @cli: once the phone has read the feed, `roger edge alert` names it as the
+// sink and when it last looked; `alert test <member>` puts one clearly-marked test call in the
+// feed without touching any rule.
+func TestEdgeAlertNamesThePhoneAsTheSinkAndSendsATestCall(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	now := time.Now()
+	edgeSeed(t, store.EdgeNode{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile", Presence: string(edge.PresenceVerified), LastSeen: now.Unix()})
+	out, _ := edgeRun(t, "edge", "alert")
+	require.Contains(t, out, "none configured", "before any phone has read the feed")
+
+	require.NoError(t, edgeAlertLog().RecordRead("n_ibex", now.Add(-time.Minute)))
+	out, code := edgeRun(t, "edge", "alert")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "the Roger app on gentle-ibex-14")
+	require.Contains(t, out, "1m ago")
+
+	out, code = edgeRun(t, "edge", "alert", "test", "gentle-ibex-14")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "test call")
+	feed, err := edgeAlertLog().Feed(time.Time{}, now.Add(time.Second), func(id string) string { return map[string]string{"n_ibex": "gentle-ibex-14"}[id] })
+	require.NoError(t, err)
+	tests := 0
+	for _, tr := range feed.Transitions {
+		if tr.Test {
+			tests++
+		}
+	}
+	require.Equal(t, 1, tests)
+	require.Empty(t, feed.Standing, "a test call is not a standing call")
+
+	out, code = edgeRun(t, "edge", "alert", "test", "nobody")
+	require.NotEqual(t, 0, code, "a test call goes to a member, not to a name nobody has")
 }

@@ -67,6 +67,10 @@ type Serving struct {
 	// Invoke runs an authorized task in this node's OWN harness, tools and permissions, returning the
 	// result. Injected by the host/agent; nil means this node accepts no invocations.
 	Invoke func(callerID string, req InvokeRequest) (InvokeResult, error)
+	// Trouble is this node's alert log, served to members at /edge/trouble (trouble_feed.feature);
+	// nil means this node keeps none. Names words a member's id for the feed and its acknowledgements.
+	Trouble *AlertLog
+	Names   func(nodeID string) string
 }
 
 // SetServing arms the infer path. Without it the face answers describe only.

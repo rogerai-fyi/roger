@@ -17,7 +17,6 @@ package webui
 // Spec: features/edge/console_view.feature.
 
 import (
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -781,65 +780,15 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 	return out
 }
 
-// edgeCallPriority is ISA-18.2's three, as the TUI ranks them.
-func edgeCallPriority(m edge.Metric) string {
-	switch m {
-	case edge.MetricCPUTemp, edge.MetricDisk, edge.MetricSDWear:
-		return "HI"
-	case edge.MetricOffline, edge.MetricMemory:
-		return "MED"
-	}
-	return "LOW"
-}
+func edgeCallPriority(m edge.Metric) string { return edge.Priority(m) }
 
-func edgePriorityRank(p string) int {
-	switch p {
-	case "HI":
-		return 0
-	case "MED":
-		return 1
-	}
-	return 2
-}
+func edgePriorityRank(p string) int { return edge.PriorityRank(p) }
 
-// edgeWhyAndDo is the call's two sentences - the same two the TUI shows.
-func edgeWhyAndDo(metric string) (string, string) {
-	switch metric {
-	case "cpu_temp":
-		return "a hot processor throttles, then fails early", "check the cooling and airflow · bind it a lighter model or job"
-	case "disk":
-		return "a full disk stops new models loading and logs writing", "free space (old models, caches) · or move the store to a bigger disk"
-	case "memory":
-		return "a full memory swaps and stalls every job on it", "bind a smaller model · stop a roger you do not need on it"
-	case "offline":
-		return "a dark unit serves nothing and its jobs wait", "check its power and network · if it is gone for good, forget it"
-	case "sd_wear":
-		return "a worn card corrupts silently, then will not boot", "back it up now · replace the card before it fails"
-	case "cpu_load":
-		return "a saturated processor answers late", "spread the jobs · or add a unit to the rack"
-	}
-	return "a rule you set is over its line", "look at the unit · adjust the rule if the line was wrong"
-}
+func edgeWhyAndDo(metric string) (string, string) { return edge.WhyAndDo(edge.Metric(metric)) }
 
-func edgeCallValue(c edge.TroubleCall) string {
-	switch c.Metric {
-	case edge.MetricCPUTemp:
-		return fmt.Sprintf("%.1f°C", c.Value)
-	case edge.MetricOffline:
-		return edge.Age(time.Duration(c.Value * float64(time.Minute)))
-	case edge.MetricCPULoad:
-		return fmt.Sprintf("%.2f", c.Value)
-	}
-	return fmt.Sprintf("%.0f%%", c.Value)
-}
+func edgeCallValue(c edge.TroubleCall) string { return edge.FormatValue(c.Metric, c.Value) }
 
-// edgeHandle is a login as a handle, never a whole address on a page.
-func edgeHandle(who string) string {
-	if i := strings.IndexByte(who, '@'); i > 0 {
-		return who[:i]
-	}
-	return who
-}
+func edgeHandle(who string) string { return edge.Handle(who) }
 
 // handleEdgeRoger acknowledges a standing trouble call through the host.
 func (s *Server) handleEdgeRoger(w http.ResponseWriter, r *http.Request) {

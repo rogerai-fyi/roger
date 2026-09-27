@@ -166,46 +166,13 @@ type AlarmLine struct {
 // Stale is a call standing over a day: the rule, not the unit, is probably wrong.
 func (a AlarmLine) Stale() bool { return a.Since > 24*time.Hour }
 
-// Priority is the call's rank, ISA-18.2's three: HI needs a hand now, MED soon, LOW when convenient.
-func (a AlarmLine) Priority() string {
-	switch a.Metric {
-	case "cpu_temp", "disk", "sd_wear": // a worn card corrupts silently: as urgent as heat or a full disk
-		return "HI"
-	case "offline", "memory":
-		return "MED"
-	}
-	return "LOW"
-}
+// Priority is the call's rank - edge.Priority, so every surface ranks alike.
+func (a AlarmLine) Priority() string { return edge.Priority(edge.Metric(a.Metric)) }
 
-func priorityRank(p string) int {
-	switch p {
-	case "HI":
-		return 0
-	case "MED":
-		return 1
-	}
-	return 2
-}
+func priorityRank(p string) int { return edge.PriorityRank(p) }
 
-// whyAndDo is the call's two sentences: why it matters, and what to do. Every call ships its
-// own action - a call nobody can act on is a status line, not a call.
-func whyAndDo(metric string) (string, string) {
-	switch metric {
-	case "cpu_temp":
-		return "a hot processor throttles, then fails early", "check the cooling and airflow · bind it a lighter model or job"
-	case "disk":
-		return "a full disk stops new models loading and logs writing", "free space (old models, caches) · or move the store to a bigger disk"
-	case "memory":
-		return "a full memory swaps and stalls every job on it", "bind a smaller model · stop a roger you do not need on it"
-	case "offline":
-		return "a dark unit serves nothing and its jobs wait", "check its power and network · if it is gone for good, forget it"
-	case "sd_wear":
-		return "a worn card corrupts silently, then will not boot", "back it up now · replace the card before it fails"
-	case "cpu_load":
-		return "a saturated processor answers late", "spread the jobs · or add a unit to the rack"
-	}
-	return "a rule you set is over its line", "look at the unit · adjust the rule if the line was wrong"
-}
+// whyAndDo is the call's two sentences - edge.WhyAndDo, one wording for every surface.
+func whyAndDo(metric string) (string, string) { return edge.WhyAndDo(edge.Metric(metric)) }
 
 // GrantLine is one authority-signed grant as the GRANTS tab lists it: its facts, never a secret.
 type GrantLine struct{ ID, Caller, Caps, Callee, Until, State string }
@@ -1388,8 +1355,7 @@ func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
 		case c.Shelved:
 			ack = span("STAND BY until "+c.StandByUntil.Local().Format("15:04"), muted)
 		case c.Acked:
-			who, _, _ := strings.Cut(c.AckBy, "@") // a handle on the screen, never a whole address
-			ack = span("ROGER "+who, signal)
+			ack = span("ROGER "+edge.Handle(c.AckBy), signal)
 		}
 		if c.Stale() {
 			ack.Text += "  STALE: standing over a day - review the rule"

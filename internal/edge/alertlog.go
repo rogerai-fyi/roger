@@ -225,6 +225,11 @@ func (l AlertLog) Record(st AlertState, alerts []Alert) error {
 	if len(alerts) == 0 {
 		return nil
 	}
+	return l.appendHistory(alerts)
+}
+
+// appendHistory adds lines to the history and keeps it capped.
+func (l AlertLog) appendHistory(alerts []Alert) error {
 	f, err := os.OpenFile(l.path("log.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err

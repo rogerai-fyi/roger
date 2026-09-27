@@ -335,8 +335,20 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 	if err != nil || auth == nil {
 		return edge.Serving{}, false
 	}
+	troubleLog := edgeAlertLog()
 	return edge.Serving{
 		Trust: auth,
+		// The trouble feed (trouble_feed.feature): members read this machine's alert log and answer
+		// under their certificates; a member's id is worded by the name the fleet knows it by.
+		Trouble: &troubleLog,
+		Names: func(id string) string {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if n, ok, err := h.st.fleet.Get(id); err == nil && ok {
+				return n.Name
+			}
+			return ""
+		},
 		// Re-read trust per request so a node revoked while this face runs is refused at once.
 		TrustNow: func() *cert.Authority {
 			fresh, _, err := edgeIdentityStore().Trust(time.Now())

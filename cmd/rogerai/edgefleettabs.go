@@ -4,7 +4,6 @@ package main
 // the CLI runs: `roger edge grant` / `grant revoke`, `roger edge sessions`, `roger edge agent`.
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -70,17 +69,7 @@ func edgeAlarmLines(calls []edge.TroubleCall, names map[string]string) []fleetvi
 		if node == "" {
 			node = c.Node
 		}
-		value := ""
-		switch c.Metric {
-		case edge.MetricCPUTemp:
-			value = fmt.Sprintf("%.1f°C", c.Value)
-		case edge.MetricOffline:
-			value = edge.Age(time.Duration(c.Value * float64(time.Minute)))
-		case edge.MetricCPULoad:
-			value = fmt.Sprintf("%.2f", c.Value)
-		default:
-			value = fmt.Sprintf("%.0f%%", c.Value)
-		}
+		value := edge.FormatValue(c.Metric, c.Value)
 		out = append(out, fleetview.AlarmLine{RuleID: c.RuleID, NodeID: c.NodeID, Node: node, Metric: string(c.Metric), When: c.When,
 			Value: value, Since: c.Since, Acked: c.Acked, AckBy: c.AckBy, Shelved: c.Shelved, StandByUntil: c.StandByUntil})
 	}
@@ -91,10 +80,7 @@ func edgeAlarmLines(calls []edge.TroubleCall, names map[string]string) []fleetvi
 // screen), or the owner.
 func edgeOperatorName() string {
 	if l := client.LinkedLogin(); l != "" {
-		if i := strings.IndexByte(l, '@'); i > 0 {
-			return l[:i]
-		}
-		return l
+		return edge.Handle(l)
 	}
 	return "owner"
 }
