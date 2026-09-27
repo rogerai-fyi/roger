@@ -114,8 +114,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	}
 	authPort := strconv.Itoa(edgeSavedAuthorityPort())
 	samples, _ := edgeAlertLog().States(now.Add(-time.Hour)) // the log is a bonus: unreadable = empty
-	hubLog, hubSince := edge.LogOf(samples, self.NodeID, now)
-	snap.Items[0].Log, snap.Items[0].Since = hubLog, hubSince
+	snap.Items[0].Log, snap.Items[0].Since, snap.Items[0].SinceCapped = edge.LogOf(samples, self.NodeID, now)
 	members := map[string]bool{}
 	// The members, arranged; this machine's own row is the hub, not a member.
 	for _, r := range edge.Arrange(nodes) {
@@ -128,7 +127,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		it := fleetview.FleetItem{Kind: fleetview.ItemMember, ID: n.ID, Name: n.Name, NodeKind: n.Kind, Dark: dark,
 			Caps: edgeCapsOf(n.Caps), Via: r.Via, Health: health[n.ID], Alerts: firing[n.ID],
 			Asking: asking[n.ID] && dark, ClaimStanding: standing[n.ID], AuthPort: authPort}
-		it.Log, it.Since = edge.LogOf(samples, n.ID, now)
+		it.Log, it.Since, it.SinceCapped = edge.LogOf(samples, n.ID, now)
 		if n.LastSeen > 0 {
 			it.LastSeen = time.Unix(n.LastSeen, 0)
 		}
@@ -165,6 +164,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	if snap.Alarms, err = edgeAlarmLines(names, now); err != nil {
 		return fleetview.FleetSnapshot{}, err
 	}
+	snap.Rate, _ = edgeAlertLog().Rate(now, 10*time.Minute)
 	snap.Self.AgentActive = edgeIsAgentRole(loadConfig())
 	return snap, nil
 }
@@ -236,6 +236,31 @@ func edgeFleetActions() fleetview.FleetActions {
 		RemoveAgent: func(name string) error { return edgeAgentRemove(loadConfig(), name) },
 		Roger: func(ruleID, nodeID string) error {
 			return edgeAlertLog().Roger(ruleID, nodeID, edgeOperatorName(), time.Now())
+		},
+		StandBy: func(ruleID, nodeID string, d time.Duration) error {
+			return edgeAlertLog().StandBy(ruleID, nodeID, time.Now().Add(d))
+		},
+		BindJob: func(name, model, job string) error {
+			if err := edge.ValidInstanceName(name); err != nil {
+				return err
+			}
+			if job != "" && job != "serve" && job != "watch" && job != "relay" {
+				return fmt.Errorf("a job is serve, watch or relay, not %q", job)
+			}
+			j, _ := edge.AgentJobOf(edgeJobsDir(), name)
+			j.Name, j.Node = name, edgeThisNodeID()
+			if model != "" {
+				j.Model, j.Use = model, true
+			}
+			if job != "" {
+				j.Job = job
+				j.Share = j.Share || job == "serve"
+			}
+			return edge.SetAgentJob(edgeJobsDir(), j, time.Now())
+		},
+		ClearJob: func(name string) error {
+			_, err := edge.ClearAgentJob(edgeJobsDir(), name)
+			return err
 		},
 	}
 }

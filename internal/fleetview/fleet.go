@@ -55,8 +55,9 @@ type FleetItem struct {
 	AuthPort      string
 	// THE LOG: the unit's last hour, one cell a minute (oldest first), and how long it has been
 	// in its current state.
-	Log   []edge.UnitState
-	Since time.Duration
+	Log         []edge.UnitState
+	Since       time.Duration
+	SinceCapped bool // the run reaches the oldest sample: it began before the log did
 }
 
 // state is the unit's state in the station's words, and how long: ON AIR 3h12m, DARK 41m,
@@ -77,8 +78,8 @@ func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
 		}
 	}
 	since := it.Since
-	if since == 0 && it.Dark && !it.LastSeen.IsZero() {
-		since = now.Sub(it.LastSeen)
+	if it.Dark && !it.LastSeen.IsZero() && now.Sub(it.LastSeen) > since {
+		since = now.Sub(it.LastSeen) // the log began after it went dark; last-seen knows better
 	}
 	switch st {
 	case edge.StateDark:
@@ -89,11 +90,24 @@ func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
 	return "ON AIR", signal, since
 }
 
+// sinceWords is the duration in state, with "≥" when the log began inside the run (it cannot say
+// when the run really started).
+func (it FleetItem) sinceWords(now time.Time) string {
+	_, _, d := it.state(now)
+	if d <= 0 {
+		return ""
+	}
+	if it.SinceCapped && !(it.Dark && !it.LastSeen.IsZero()) {
+		return "≥" + edge.Age(d)
+	}
+	return edge.Age(d)
+}
+
 // stateWords is the state and its duration as one span pair.
 func (it FleetItem) stateWords(now time.Time) []lm.Span {
-	w, c, d := it.state(now)
-	if d > 0 {
-		return []lm.Span{span(w+" ", c), span(edge.Age(d), c)}
+	w, c, _ := it.state(now)
+	if d := it.sinceWords(now); d != "" {
+		return []lm.Span{span(w+" ", c), span(d, c)}
 	}
 	return []lm.Span{span(w, c)}
 }
@@ -113,7 +127,12 @@ type AlarmLine struct {
 	Since                                     time.Duration
 	Acked                                     bool
 	AckBy                                     string
+	Shelved                                   bool // on STAND BY until StandByUntil
+	StandByUntil                              time.Time
 }
+
+// Stale is a call standing over a day: the rule, not the unit, is probably wrong.
+func (a AlarmLine) Stale() bool { return a.Since > 24*time.Hour }
 
 // Priority is the call's rank, ISA-18.2's three: HI needs a hand now, MED soon, LOW when convenient.
 func (a AlarmLine) Priority() string {
@@ -172,6 +191,7 @@ type FleetSnapshot struct {
 	Grants   []GrantLine
 	Sessions []SessionLine
 	Alarms   []AlarmLine
+	Rate     int // calls fired in the last ten minutes; ten is a PILE-UP
 	At       time.Time
 }
 
@@ -188,7 +208,10 @@ type FleetActions struct {
 	SetAgent    func(on bool) error
 	ResumeAgent func(name string) error
 	RemoveAgent func(name string) error
-	Roger       func(ruleID, nodeID string) error // acknowledge a standing trouble call
+	Roger       func(ruleID, nodeID string) error                  // acknowledge a standing trouble call
+	StandBy     func(ruleID, nodeID string, d time.Duration) error // quiet a call for a time
+	BindJob     func(name, model, job string) error                // bind a model and a job to a roger here
+	ClearJob    func(name string) error
 }
 
 // Fleet is the screen.
@@ -208,6 +231,7 @@ type Fleet struct {
 	frame    int // advances each frame; the pulses breathe on it
 	confirm  bool
 	revoke   bool // the revoke question is up
+	binding  bool // the bind prompt is up (input holds the text)
 	rename   bool
 	input    []rune
 	toast    string
@@ -274,6 +298,34 @@ func (f *Fleet) tabs() []string {
 func (f *Fleet) onKey(ev *lm.Event) bool {
 	k := ev.Key
 	switch {
+	case f.binding:
+		switch {
+		case k.Type == lm.KeyEsc:
+			f.binding = false
+		case k.Type == lm.KeyEnter:
+			it := f.selected()
+			f.binding = false
+			words := strings.Fields(string(f.input))
+			model, job := "", ""
+			if len(words) > 0 && words[0] != "-" {
+				model = words[0]
+			}
+			if len(words) > 1 {
+				job = words[1]
+			}
+			if (model != "" || job != "") && f.Actions.BindJob != nil {
+				f.report(f.Actions.BindJob(it.Name, model, job), "bound "+strings.TrimSpace(model+" "+job)+" to "+it.Name)
+			}
+		case k.Type == lm.KeyBackspace:
+			if len(f.input) > 0 {
+				f.input = f.input[:len(f.input)-1]
+			}
+		case k.Type == lm.KeySpace:
+			f.input = append(f.input, ' ')
+		case k.Ch != 0:
+			f.input = append(f.input, k.Ch)
+		}
+		return true
 	case f.rename:
 		switch {
 		case k.Type == lm.KeyEsc:
@@ -289,6 +341,8 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 			if len(f.input) > 0 {
 				f.input = f.input[:len(f.input)-1]
 			}
+		case k.Type == lm.KeySpace:
+			f.input = append(f.input, ' ')
 		case k.Ch != 0:
 			f.input = append(f.input, k.Ch)
 		}
@@ -341,6 +395,11 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 				c := calls[f.asel]
 				f.report(f.Actions.Roger(c.RuleID, c.NodeID), "roger · "+c.When+" on "+c.Node)
 			}
+		case k.Ch == 's':
+			if f.asel < len(calls) && f.Actions.StandBy != nil && !calls[f.asel].Shelved {
+				c := calls[f.asel]
+				f.report(f.Actions.StandBy(c.RuleID, c.NodeID, time.Hour), "stand by an hour · "+c.When+" on "+c.Node)
+			}
 		case k.Ch == 'r':
 			f.readAt = time.Time{}
 		}
@@ -379,6 +438,14 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 					f.say("this roger is no longer an agent", false)
 				}
 			}
+		}
+	case k.Ch == 'b':
+		if it := f.selected(); (it.Kind == ItemAgent || it.Kind == ItemInstance) && !it.Dark && f.Actions.BindJob != nil {
+			f.binding, f.input = true, nil
+		}
+	case k.Ch == 'c':
+		if it := f.selected(); (it.Kind == ItemAgent || it.Kind == ItemInstance) && it.Job != "" && f.Actions.ClearJob != nil {
+			f.report(f.Actions.ClearJob(it.Name), "cleared the job on "+it.Name)
 		}
 	case k.Ch == 'u':
 		if it := f.selected(); it.Kind == ItemAgent && it.Dark && f.Actions.ResumeAgent != nil {
@@ -854,12 +921,8 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		}
 	}
 	if len(it.Log) > 0 && (it.Kind == ItemHub || it.Kind == ItemMember) {
-		w, c, d := it.state(now)
-		tail := strings.ToLower(w)
-		if d > 0 {
-			tail += " " + edge.Age(d)
-		}
-		row("the log", append(logStrip(it.Log, width-22), span("  "+tail, c))...)
+		w, c, _ := it.state(now)
+		row("the log", append(logStrip(it.Log, width-22), span("  "+strings.ToLower(w)+" "+it.sinceWords(now), c))...)
 	}
 	if len(it.Bands) > 0 {
 		row("on air", span(strings.Join(it.Bands, "  "), dial))
@@ -890,6 +953,11 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		air()
 		lines = append(lines, lm.NewLine(span("  ", dim), span("new name  ", paper), bold(string(f.input)+"▏", paper),
 			span("  (was "+it.Name+") · enter to rename · esc to cancel", muted)))
+	}
+	if f.binding {
+		air()
+		lines = append(lines, lm.NewLine(span("  ", dim), span("bind  ", paper), bold(string(f.input)+"▏", paper)))
+		prose("a model to use, then a job: <model> [serve|watch|relay] · enter binds · esc cancels", muted)
 	}
 	if f.last != "" {
 		air()
@@ -956,18 +1024,27 @@ func (f *Fleet) actions() []action {
 		if f.Actions.Roger != nil {
 			out = append(out, action{"k", "roger", ""})
 		}
+		if f.Actions.StandBy != nil {
+			out = append(out, action{"s", "stand by", ""})
+		}
 		return append(out, action{"1", "fleet", ""}, action{"r", "re-read", ""}, action{"q", "quit", ""})
 	case tabAndon:
 		return []action{{"↑↓", "select", ""}, {"1", "fleet", ""}, {"3", "trouble", ""}, {"r", "re-read", ""}, {"q", "quit", ""}}
 	}
 	out := []action{{"↑↓", "select", ""}}
 	switch it.Kind {
-	case ItemAgent:
+	case ItemAgent, ItemInstance:
 		if it.Dark && f.Actions.ResumeAgent != nil {
 			out = append(out, action{"u", "resume", ""})
 		}
 		if it.Dark && f.Actions.RemoveAgent != nil {
 			out = append(out, action{"x", "remove", ""})
+		}
+		if !it.Dark && f.Actions.BindJob != nil {
+			out = append(out, action{"b", "bind", ""})
+		}
+		if !it.Dark && it.Job != "" && f.Actions.ClearJob != nil {
+			out = append(out, action{"c", "clear", ""})
 		}
 	case ItemCandidate:
 		if f.Actions.Adopt != nil {
@@ -1107,6 +1184,9 @@ func logStrip(log []edge.UnitState, w int) []lm.Span {
 func (f *Fleet) sortedAlarms() []AlarmLine {
 	out := append([]AlarmLine(nil), f.snap.Alarms...)
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Shelved != out[j].Shelved { // a call on stand by waits at the end
+			return !out[i].Shelved
+		}
 		pi, pj := priorityRank(out[i].Priority()), priorityRank(out[j].Priority())
 		if pi != pj {
 			return pi < pj
@@ -1136,6 +1216,12 @@ func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
 	if hi > 0 {
 		head.Spans = append(head.Spans, span(" · ", dim), bold(fmt.Sprintf("%d high, not yet acknowledged", hi), live))
 	}
+	switch {
+	case f.snap.Rate >= 10:
+		head.Spans = append(head.Spans, span(" · ", dim), bold(fmt.Sprintf("PILE-UP · %d in 10 min", f.snap.Rate), live))
+	case f.snap.Rate > 0:
+		head.Spans = append(head.Spans, span(fmt.Sprintf(" · %d in 10 min", f.snap.Rate), dim))
+	}
 	lines := []lm.Line{lm.NewLine(), head, lm.NewLine()}
 	if len(calls) == 0 {
 		lines = append(lines, lm.NewLine(span("   ", dim), bold("ALL CLEAR", signal), span("  nothing is over its line", muted)))
@@ -1151,7 +1237,7 @@ func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
 		}
 		mark, mc := "▲ "+c.Priority(), live
 		switch {
-		case c.Acked:
+		case c.Acked || c.Shelved:
 			mc = muted
 		case c.Priority() == "MED":
 			mc = glow
@@ -1159,8 +1245,15 @@ func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
 			mc = muted
 		}
 		ack := span("-", dim)
-		if c.Acked {
-			ack = span("ROGER "+c.AckBy, signal)
+		switch {
+		case c.Shelved:
+			ack = span("STAND BY until "+c.StandByUntil.Local().Format("15:04"), muted)
+		case c.Acked:
+			who, _, _ := strings.Cut(c.AckBy, "@") // a handle on the screen, never a whole address
+			ack = span("ROGER "+who, signal)
+		}
+		if c.Stale() {
+			ack.Text += "  STALE: standing over a day - review the rule"
 		}
 		lines = append(lines, lm.NewLine(span(" ", dim), rail, span(" ", dim), bold(pad(mark, 7), mc), span(pad(edge.Age(c.Since), 8), muted),
 			span(pad(elide(c.Node, 19), 20), nc), span(pad(c.When, 20), nc), span(pad(c.Value, 10), ink), ack))
@@ -1220,7 +1313,7 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 		tile := make([][]lm.Span, tileH)
 		for ti := start; ti < end; ti++ {
 			it := units[ti]
-			word, c, since := it.state(now)
+			word, c, _ := it.state(now)
 			switch word {
 			case "ON AIR":
 				on++
@@ -1240,11 +1333,7 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 			}
 			row0 := append([]lm.Span{span(" ", dim), bold("▌", railC), span(" ", dim)}, eye(carrierLevel(it.heard(now), it.Dark, now), it.Dark, it.Asking, len(it.Alerts) > 0, f.frame, ti)...)
 			row0 = append(row0, span(" ", dim), bold(pad(elide(it.Name, 22), 23), paper))
-			sinceS := ""
-			if since > 0 {
-				sinceS = edge.Age(since)
-			}
-			row1 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), bold(pad(word, 10), c), span(pad(sinceS, 15), c)}
+			row1 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), bold(pad(word, 10), c), span(pad(it.sinceWords(now), 15), c)}
 			row2 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), eyebrow("airtime ", muted), bold(pad(pctS, 5), ink)}
 			row2 = append(row2, logStrip(it.Log, 12)...)
 			row2 = append(row2, span(" ", dim))

@@ -206,6 +206,9 @@ func (l AlertLog) Record(st AlertState, alerts []Alert) error {
 	if err := l.clearAcks(st); err != nil {
 		return err
 	}
+	if err := l.clearStandBys(st); err != nil {
+		return err
+	}
 	if len(alerts) == 0 {
 		return nil
 	}
@@ -384,18 +387,22 @@ func (l AlertLog) States(since time.Time) ([]StateSample, error) {
 }
 
 // LogOf is one unit's last hour as 60 cells (oldest first, unknown where nothing was judged)
-// and how long it has been in its current state, from the samples.
-func LogOf(samples []StateSample, nodeID string, now time.Time) ([]UnitState, time.Duration) {
-	cells := make([]UnitState, 60)
+// and how long it has been in its current state, from the samples. capped says the run reaches
+// the oldest sample the unit has: it began before the log did, so the duration is a floor.
+func LogOf(samples []StateSample, nodeID string, now time.Time) (cells []UnitState, since time.Duration, capped bool) {
+	cells = make([]UnitState, 60)
 	end := now.Truncate(time.Minute)
 	var cur UnitState
-	var curSince time.Time
+	var curSince, first time.Time
 	for _, s := range samples {
 		st, ok := s.States[nodeID]
 		if !ok {
 			continue
 		}
 		at := time.Unix(s.At, 0)
+		if first.IsZero() {
+			first = at
+		}
 		if i := 59 - int(end.Sub(at)/time.Minute); i >= 0 && i < 60 {
 			cells[i] = st
 		}
@@ -404,9 +411,9 @@ func LogOf(samples []StateSample, nodeID string, now time.Time) ([]UnitState, ti
 		}
 	}
 	if curSince.IsZero() {
-		return cells, 0
+		return cells, 0, false
 	}
-	return cells, now.Sub(curSince)
+	return cells, now.Sub(curSince), curSince.Equal(first)
 }
 
 // TROUBLE CALLS (ISA-18.2 by way of the station): what is standing, since when, and whether the
@@ -431,6 +438,9 @@ type TroubleCall struct {
 	Acked                bool
 	AckBy                string
 	AckAt                time.Time
+	Shelved              bool // on STAND BY until StandByUntil
+	StandByUntil         time.Time
+	Stale                bool // standing past StaleAfter
 }
 
 func (l AlertLog) acks() (map[string]Ack, error) {
@@ -450,6 +460,10 @@ func (l AlertLog) Standing(now time.Time) ([]TroubleCall, error) {
 		return nil, err
 	}
 	acks, err := l.acks()
+	if err != nil {
+		return nil, err
+	}
+	sb, err := l.standBys()
 	if err != nil {
 		return nil, err
 	}
@@ -485,6 +499,10 @@ func (l AlertLog) Standing(now time.Time) ([]TroubleCall, error) {
 		if a, ok := acks[k]; ok {
 			c.Acked, c.AckBy, c.AckAt = true, a.Who, time.Unix(a.At, 0)
 		}
+		if until, ok := sb[k]; ok && until > now.Unix() {
+			c.Shelved, c.StandByUntil = true, time.Unix(until, 0)
+		}
+		c.Stale = c.Since > StaleAfter
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -530,4 +548,66 @@ func (l AlertLog) clearAcks(st AlertState) error {
 		return nil
 	}
 	return l.writeJSON("acks.json", acks)
+}
+
+// STAND BY (ISA-18.2 shelving): the operator quiets a call for a set time, and it comes back on
+// its own. Stand-bys of calls that cleared go with them, like acknowledgements.
+
+func (l AlertLog) standBys() (map[string]int64, error) {
+	out := map[string]int64{}
+	err := l.readJSON("standby.json", &out)
+	return out, err
+}
+
+// StandBy quiets a standing call until a time.
+func (l AlertLog) StandBy(ruleID, nodeID string, until time.Time) error {
+	st, err := l.State()
+	if err != nil {
+		return err
+	}
+	if !st.Firing(ruleID, nodeID) {
+		return fmt.Errorf("no standing call %s on %s", ruleID, nodeID)
+	}
+	sb, err := l.standBys()
+	if err != nil {
+		return err
+	}
+	sb[stateKey(ruleID, nodeID)] = until.Unix()
+	return l.writeJSON("standby.json", sb)
+}
+
+func (l AlertLog) clearStandBys(st AlertState) error {
+	sb, err := l.standBys()
+	if err != nil || len(sb) == 0 {
+		return err
+	}
+	changed := false
+	for k := range sb {
+		if !st[k] {
+			delete(sb, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return l.writeJSON("standby.json", sb)
+}
+
+// StaleAfter is how long a call may stand before it is STALE - a sign the rule is wrong.
+const StaleAfter = 24 * time.Hour
+
+// Rate is how many calls fired in the window ending now - the PILE-UP figure.
+func (l AlertLog) Rate(now time.Time, window time.Duration) (int, error) {
+	hist, err := l.Recent(1 << 20)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, a := range hist {
+		if a.Firing && !a.At.Before(now.Add(-window)) && !a.At.After(now) {
+			n++
+		}
+	}
+	return n, nil
 }

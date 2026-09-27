@@ -86,7 +86,7 @@ func edgeAlarmLines(names map[string]string, now time.Time) ([]fleetview.AlarmLi
 			value = fmt.Sprintf("%.0f%%", c.Value)
 		}
 		out = append(out, fleetview.AlarmLine{RuleID: c.RuleID, NodeID: c.NodeID, Node: node, Metric: string(c.Metric), When: c.When,
-			Value: value, Since: c.Since, Acked: c.Acked, AckBy: c.AckBy})
+			Value: value, Since: c.Since, Acked: c.Acked, AckBy: c.AckBy, Shelved: c.Shelved, StandByUntil: c.StandByUntil})
 	}
 	return out, nil
 }

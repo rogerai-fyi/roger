@@ -302,7 +302,10 @@ func TestJudgeKeepsAStateLogOncePerMinute(t *testing.T) {
 
 	// The last hour as 60 cells, oldest first, unknown where nothing was judged; and how long
 	// the unit has been in its current state.
-	cells, since := edge.LogOf(samples, "n_pi", t0.Add(3*time.Minute))
+	cells, since, capped := edge.LogOf(samples, "n_pi", t0.Add(3*time.Minute))
+	require.False(t, capped, "pi changed state inside the log, so the duration is exact")
+	_, _, capped = edge.LogOf(samples, "n_q", t0.Add(3*time.Minute))
+	require.True(t, capped, "quiet was dark from the first sample: the log cannot say since when")
 	require.Len(t, cells, 60)
 	require.Equal(t, edge.StateTrouble, cells[56], "t0 is 3 minutes before the end")
 	require.Equal(t, edge.StateUnknown, cells[0])
@@ -362,4 +365,36 @@ func TestRecentReadsHistoryWrittenByAnOlderBinary(t *testing.T) {
 	require.Equal(t, 95.5, got[0].Value)
 	require.True(t, got[1].Firing)
 	require.NotZero(t, got[1].LastHeard, "a real last-heard time is kept")
+}
+
+// STAND BY (ISA-18.2 shelving): the operator quiets a call for a set time; it comes back on its
+// own when the time is up. A call standing over a day is STALE - a sign the rule, not the unit,
+// is wrong. A PILE-UP is ten calls in ten minutes.
+func TestStandByStaleAndPileUp(t *testing.T) {
+	dir := t.TempDir()
+	l := edge.AlertLog{Dir: dir}
+	t0 := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	_, _, err := l.Judge([]edge.NodeHealth{healthOf("pi", t0, 99, 10)}, t0)
+	require.NoError(t, err)
+	require.NoError(t, l.StandBy("cpu_temp", "n_pi", t0.Add(time.Hour)))
+	calls, err := l.Standing(t0.Add(10 * time.Minute))
+	require.NoError(t, err)
+	require.True(t, calls[0].Shelved, "on stand by")
+	require.Equal(t, t0.Add(time.Hour).Unix(), calls[0].StandByUntil.Unix())
+	calls, _ = l.Standing(t0.Add(61 * time.Minute))
+	require.False(t, calls[0].Shelved, "the time is up: the call is loud again")
+	require.True(t, calls[0].Stale == false)
+	calls, _ = l.Standing(t0.Add(25 * time.Hour))
+	require.True(t, calls[0].Stale, "standing over a day")
+	require.Error(t, l.StandBy("disk", "n_pi", t0.Add(time.Hour)), "only a standing call goes on stand by")
+
+	// Ten crossings in ten minutes is a pile-up; the rate is what the header shows.
+	for i := 0; i < 10; i++ {
+		at := t0.Add(time.Duration(i) * 30 * time.Second)
+		_, _, _ = l.Judge([]edge.NodeHealth{healthOf("pi", at, 70, 10)}, at) // clears
+		_, _, _ = l.Judge([]edge.NodeHealth{healthOf("pi", at, 99, 10)}, at.Add(time.Second))
+	}
+	rate, err := l.Rate(t0.Add(6*time.Minute), 10*time.Minute)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, rate, 10)
 }

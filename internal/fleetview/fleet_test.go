@@ -377,3 +377,51 @@ func TestFleetScreenAndonTiles(t *testing.T) {
 	s := page.Screen()
 	must(t, s, "ANDON", "ON AIR", "TROUBLE", "DARK", "AIRTIME", "100%", "90%", "0%", "1 on air", "1 trouble", "1 dark")
 }
+
+// b on a roger binds a model and a job in place (the TUI's Bind Model), c clears it; the TROUBLE
+// header shows the rate and calls out a pile-up; a shelved call reads STAND BY and a stale one
+// STALE.
+func TestFleetScreenBindsJobsAndTellsStandByStaleAndPileUp(t *testing.T) {
+	now := time.Now()
+	var bound []string
+	var cleared []string
+	var standBy []string
+	snap := fleetSnap(now)
+	snap.Alarms = []fleetview.AlarmLine{
+		{RuleID: "cpu_temp", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "cpu_temp", When: "cpu_temp > 85", Value: "95.5°C", Since: 30 * time.Hour},
+		{RuleID: "disk", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "disk", When: "disk > 90", Value: "92%", Since: 3 * time.Hour, Shelved: true, StandByUntil: now.Add(time.Hour)},
+	}
+	snap.Rate = 12
+	acts := (&recorder{}).actions()
+	acts.BindJob = func(name, model, job string) error { bound = append(bound, name+"="+model+"/"+job); return nil }
+	acts.ClearJob = func(name string) error { cleared = append(cleared, name); return nil }
+	acts.StandBy = func(ruleID, nodeID string, d time.Duration) error {
+		standBy = append(standBy, ruleID+"@"+nodeID+" "+d.String())
+		return nil
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, acts)
+	page := uitest.Run(t, 130, 44, f.Draw)
+
+	page.Press("Down")
+	page.Press("Down") // roggentooedged-2, the agent
+	must(t, page.Screen(), "b bind", "c clear")
+	page.Press("b")
+	must(t, page.Screen(), "bind", "model", "job")
+	page.Type("qwen3-8b serve")
+	page.Press("Enter")
+	if len(bound) != 1 || bound[0] != "roggentooedged-2=qwen3-8b/serve" {
+		t.Fatalf("bound = %v", bound)
+	}
+	page.Press("c")
+	if len(cleared) != 1 || cleared[0] != "roggentooedged-2" {
+		t.Fatalf("cleared = %v", cleared)
+	}
+
+	page.Press("3")
+	s := page.Screen()
+	must(t, s, "PILE-UP", "12 in 10 min", "STALE", "STAND BY", "s stand by")
+	page.Press("s") // the first call (cpu_temp, HI, oldest) goes on stand by for an hour
+	if len(standBy) != 1 || standBy[0] != "cpu_temp@n_desk 1h0m0s" {
+		t.Fatalf("standBy = %v", standBy)
+	}
+}

@@ -182,3 +182,33 @@ func TestEdgeFleetScreenStandingCallsAndRoger(t *testing.T) {
 	require.NotEmpty(t, snap.Alarms[0].AckBy)
 	require.Error(t, edgeFleetActions().Roger("disk", "n_hot"), "only a standing call can be acknowledged")
 }
+
+// b binds a model and a job to a roger on this machine through the same record the CLI writes;
+// c clears it; s puts a standing call on stand by for an hour.
+func TestEdgeFleetScreenBindsJobsAndStandsBy(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	acts := edgeFleetActions()
+	require.NoError(t, acts.BindJob("watcher", "qwen3-8b", "serve"))
+	j, ok := edge.AgentJobOf(edgeJobsDir(), "watcher")
+	require.True(t, ok)
+	require.Equal(t, "qwen3-8b", j.Model)
+	require.Equal(t, "serve", j.Job)
+	require.True(t, j.Share, "serve shares the model")
+	require.Error(t, acts.BindJob("watcher", "", "dance"), "a job is serve, watch or relay")
+	require.NoError(t, acts.ClearJob("watcher"))
+	_, ok = edge.AgentJobOf(edgeJobsDir(), "watcher")
+	require.False(t, ok)
+
+	now := time.Now()
+	temp := 99.0
+	edgeSeed(t, store.EdgeNode{ID: "n_hot", Name: "hot-pi", Kind: "board", Presence: string(edge.PresenceVerified), LastSeen: now.Unix(),
+		Instances: []store.EdgeInstance{{Name: "sensor", Resources: &store.EdgeResources{CPUTempC: &temp, ReadAt: now.Unix()}}}})
+	snap, err := edgeFleetSource()
+	require.NoError(t, err)
+	require.Len(t, snap.Alarms, 1)
+	require.NoError(t, acts.StandBy("cpu_temp", "n_hot", time.Hour))
+	snap, _ = edgeFleetSource()
+	require.True(t, snap.Alarms[0].Shelved)
+	require.WithinDuration(t, now.Add(time.Hour), snap.Alarms[0].StandByUntil, 5*time.Second)
+}
