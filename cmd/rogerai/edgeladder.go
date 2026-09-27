@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
@@ -87,7 +88,9 @@ func applyEdgeLadder(cfg config, o *client.ProxyOptions) {
 func edgeResolveAddressed(addr, model string) (peer client.EdgePeer, band string, isNode bool, err error) {
 	st, e := loadEdgeState()
 	if e != nil {
-		return client.EdgePeer{}, "", false, nil // no fleet to address: treat as a model
+		// A fleet that cannot be read is said, not skipped: silently treating the address as a
+		// model would send a turn meant for your own node out to the market.
+		return client.EdgePeer{}, "", true, fmt.Errorf("could not read this machine's Edge to address %q: %w", addr, e)
 	}
 	loc, b, e := st.fleet.ServingPeer(addr, model)
 	if errors.Is(e, edge.ErrNoSuchNode) {

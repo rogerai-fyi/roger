@@ -452,6 +452,10 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		}
 		return true
 	}
+	if f.tab == tabHealth && f.health != nil && f.health.Busy() {
+		f.health.Draw(nil, ev) // a prompt on HEALTH owns every key, q and the tab numbers included
+		return true
+	}
 	// Tabs, from anywhere.
 	switch {
 	case k.Ch == 'q' || k.Ch == 'Q' || k.Type == lm.KeyEsc:
@@ -471,9 +475,9 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		calls := f.sortedAlarms()
 		switch {
 		case k.Type == lm.KeyDown || k.Ch == 'j':
-			f.asel++
+			f.asel = clampIndex(f.asel+1, len(calls))
 		case k.Type == lm.KeyUp:
-			f.asel--
+			f.asel = clampIndex(f.asel-1, len(calls))
 		case k.Ch == 'k':
 			if f.asel < len(calls) && f.Actions.Roger != nil && !calls[f.asel].Acked {
 				c := calls[f.asel]
@@ -491,9 +495,9 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	case tabGrants:
 		switch {
 		case k.Type == lm.KeyDown || k.Ch == 'j':
-			f.gsel++
+			f.gsel = clampIndex(f.gsel+1, len(f.snap.Grants))
 		case k.Type == lm.KeyUp || k.Ch == 'k':
-			f.gsel--
+			f.gsel = clampIndex(f.gsel-1, len(f.snap.Grants))
 		case k.Ch == 'x':
 			if f.gsel < len(f.snap.Grants) && f.Actions.RevokeGrant != nil && f.snap.Grants[f.gsel].State == "live" {
 				f.revoke, f.revokeID = true, f.snap.Grants[f.gsel].ID
@@ -510,6 +514,17 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		if k.Ch == 'r' {
 			f.readAt = time.Time{}
 		}
+		return true
+	case tabAndon: // the board is read, not worked: move between units, re-read, nothing else
+		switch {
+		case k.Type == lm.KeyDown || k.Ch == 'j':
+			f.sel++
+		case k.Type == lm.KeyUp || k.Ch == 'k':
+			f.sel--
+		case k.Ch == 'r':
+			f.readAt = time.Time{}
+		}
+		f.clamp()
 		return true
 	}
 	switch {
@@ -1580,4 +1595,15 @@ func tileCrew(it FleetItem) []lm.Span {
 		s = fmt.Sprintf("%d session%s served", it.Served, plural(it.Served))
 	}
 	return []lm.Span{span(pad(s, 29), muted)}
+}
+
+// clampIndex keeps a cursor inside [0, n).
+func clampIndex(i, n int) int {
+	if i >= n {
+		i = n - 1
+	}
+	if i < 0 {
+		i = 0
+	}
+	return i
 }

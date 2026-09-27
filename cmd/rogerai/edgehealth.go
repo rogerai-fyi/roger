@@ -36,11 +36,11 @@ func edgeHealthSource() (fleetview.HealthSnapshot, error) {
 	if err != nil {
 		return fleetview.HealthSnapshot{}, err
 	}
-	names := map[string]string{}
+	names, kinds := map[string]string{}, map[string]string{}
 	for _, h := range hs {
-		names[h.ID] = h.Name
+		names[h.ID], kinds[h.ID] = h.Name, h.Kind
 	}
-	snap := fleetview.HealthSnapshot{Nodes: hs, Firing: map[string][]string{}, At: now}
+	snap := fleetview.HealthSnapshot{Nodes: hs, Firing: map[string][]string{}, At: now, Sinks: "sinks: " + edgeSinkLine(edgeAlertLog(), names, kinds, now)}
 	for _, h := range hs {
 		for _, id := range firing.FiringFor(h.ID) {
 			for _, r := range rules {

@@ -512,3 +512,49 @@ func TestFleetScreenSaysWhenAPhoneLastReadTheFeed(t *testing.T) {
 	}
 	must(t, page.Screen(), "hears the Edge", "read the feed 1m ago")
 }
+
+// Cursors never leave their lists, whatever the keys: Up above the first call, then k, is nothing
+// - not a panic; a prompt on HEALTH owns q and the tab numbers while it is open; ANDON takes no
+// action keys.
+func TestFleetScreenCursorsAndPromptsAreSafe(t *testing.T) {
+	now := time.Now()
+	rec := &recorder{}
+	snap := fleetSnap(now)
+	snap.Alarms = []fleetview.AlarmLine{{RuleID: "cpu_temp", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "cpu_temp", When: "cpu_temp > 85", Value: "95.5°C", Since: 14 * time.Minute}}
+	var rogered []string
+	acts := rec.actions()
+	acts.Roger = func(ruleID, nodeID string) error { rogered = append(rogered, ruleID); return nil }
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{Nodes: fleet(now), At: now}, nil
+	})
+	var set []string
+	h.Actions = fleetview.HealthActions{SetRule: func(metric, op, value, scope string) (string, error) { set = append(set, metric); return "ok", nil }}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, h, acts)
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("3")
+	page.Press("Up")
+	page.Press("Up")
+	page.Press("k")
+	if len(rogered) != 1 {
+		t.Fatalf("k on the first call after over-scrolling up still acknowledges it once: %v", rogered)
+	}
+	page.Press("4")
+	page.Press("Up")
+	page.Press("x") // no grants: nothing, no panic
+	page.Press("2")
+	page.Press("Down")
+	page.Press("f") // ANDON: no forget question
+	if strings.Contains(page.Screen(), "forget ") {
+		t.Fatal("ANDON must not arm the forget question")
+	}
+	page.Press("6")
+	page.Press("a")
+	page.Type("memory gt 90 q1") // q and 1 are letters of the rule here, not quit and a tab
+	page.Press("Enter")
+	if len(set) != 1 || set[0] != "memory" {
+		t.Fatalf("the prompt owned its keys: %v", set)
+	}
+	if page.Exited() {
+		t.Fatal("typing q inside the prompt must not quit")
+	}
+}

@@ -67,3 +67,37 @@ func TestFiringAlertsShowOnTheFleetSurfaces(t *testing.T) {
 		t.Errorf("dark member label = %q", got)
 	}
 }
+
+// The lettered actions the panel advertises with "press the letter" must work from the keyboard,
+// not only from their buttons: f arms the forget question on a member.
+func TestForgetKeyWorksFromTheKeyboard(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		Enrolled: true, Name: "desk", NodeID: "n_desk", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	fl := edge.NewFleet(store.NewMem(), "acct-1")
+	if _, err := fl.Enroll(store.EdgeNode{ID: "n_nas", Name: "nas", Kind: "host", Presence: string(edge.PresenceVerified)}); err != nil {
+		t.Fatal(err)
+	}
+	h := Hooks{Station: "gm-93", EdgeFleet: fl, EdgeSelf: self.Name,
+		EdgeCandidates: func() []store.EdgeNode { return nil },
+		EdgeStatus:     func() edge.SelfStatus { return self },
+		EdgeForget:     func(id string) error { return nil }}
+	var tm tea.Model = NewWithHooks("http://b", "t", nil, h)
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 104, Height: 44})
+	m := tm.(model)
+	m.enterEdge()
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "nas" {
+			m.edge.netSel, m.edge.netSelSet = i, true
+		}
+	}
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	switch got := tm.(type) { // the edge key path returns a pointer, other paths a value
+	case *model:
+		m = *got
+	case model:
+		m = got
+	}
+	if m.edge.forgetID != "n_nas" {
+		t.Fatalf("pressing f must arm the forget question for nas, got forgetID=%q", m.edge.forgetID)
+	}
+}

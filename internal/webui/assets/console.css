@@ -1491,3 +1491,5 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edge-why__text { margin-left: var(--s-1); }
 .edge-why__do { margin-left: var(--s-3); }
 .eyebrow { font-size: 0.72em; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-400); }
+.live { color: var(--live-text); }
+.edge-self.edge-node--alert circle { stroke: var(--live); stroke-width: 2; }

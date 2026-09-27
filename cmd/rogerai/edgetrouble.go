@@ -164,13 +164,16 @@ var edgeDialTrouble = func(ctx context.Context, p client.EdgePeer, cert *tls.Cer
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
-			Error string `json:"error"`
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&e)
-		if e.Error == "" {
-			e.Error = resp.Status
+		reason := e.Error.Message
+		if reason == "" {
+			reason = resp.Status
 		}
-		return edge.TroubleFeed{}, fmt.Errorf("%s refused the feed: %s", p.Node, e.Error)
+		return edge.TroubleFeed{}, fmt.Errorf("%s refused the feed: %s", p.Node, reason)
 	}
 	var feed edge.TroubleFeed
 	if err := json.NewDecoder(resp.Body).Decode(&feed); err != nil {

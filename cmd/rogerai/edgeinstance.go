@@ -312,7 +312,7 @@ func edgeSelfDeclares(need edge.Capability) bool {
 	}
 	for _, c := range edgeInstanceCaps(edgeBandsOnAir()) {
 		if c.Name == string(need) {
-			return edge.DeclarationGated(need) || c.State == string(edge.Verified)
+			return c.State == string(edge.Verified)
 		}
 	}
 	return false

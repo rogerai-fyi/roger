@@ -140,6 +140,9 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 	return true
 }
 
+// Busy reports whether a prompt is open: every key belongs to it then.
+func (h *Health) Busy() bool { return h.adding }
+
 func (h *Health) say(s string, isErr bool) { h.last, h.lastErr, h.saidAt = s, isErr, time.Now() }
 
 // chosenRule is the rule under the [ ] cursor, if any.

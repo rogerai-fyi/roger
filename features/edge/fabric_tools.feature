@@ -1,6 +1,9 @@
 # ROGER EDGE - FABRIC TOOLS: the agent you are talking to can SEE and REACH the rest of your Edge,
 # through tools, scoped to your Edge and gated by grants. Every boundary is specified before the use.
 #
+# STATUS: PROPOSED (2026-09-20), not yet executable - no step definitions bind these scenarios and
+# the named tools do not exist yet. It is the spec the fabric-tools slice will be built to.
+#
 # WHY THIS EXISTS
 #
 # FOUNDER DIRECTION 2026-09-24: "I should be able to ... ask about any of the other agents assuming

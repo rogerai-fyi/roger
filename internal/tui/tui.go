@@ -2083,11 +2083,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onOperatorExec()
 	case operatorDoneMsg: // the guest returned the terminal (every child outcome)
 		return m.onOperatorDone(msg)
-	case edgeHealthDoneMsg: // the live health screen returned the terminal
+	case edgeHealthDoneMsg: // a live Edge screen returned the terminal
 		if msg.err != nil {
-			m.edge.err = "the health screen ended with an error: " + msg.err.Error()
+			m.edge.err = "the live screen ended with an error: " + msg.err.Error()
 		}
 		m.refreshEdge()
+		if !m.mouseOff { // bubbletea's RestoreTerminal never re-enables the mouse (operator.go does the same)
+			return m, tea.EnableMouseCellMotion
+		}
 		return m, nil
 	case remoteEnabledMsg:
 		return m.onRemoteEnabled(msg)

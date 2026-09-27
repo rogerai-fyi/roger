@@ -2310,7 +2310,7 @@
     ["local", "market", "local-only"].forEach(function (opt) {
       var o = el("option", null, opt);
       o.value = opt;
-      if ((d.facts && (d.facts.prefer || "").toLowerCase()) === opt) o.selected = true;
+      if ((d.facts && (d.facts.prefer || "").toLowerCase().replace(/^prefers\s+/, "")) === opt) o.selected = true;
       sel.appendChild(o);
     });
     sel.addEventListener("change", function () { edgeSetPrefer(sel.value); });
@@ -2345,6 +2345,8 @@
     if (!card) return;
     var f = edgeSel ? edgeFind(d, edgeSel) : { n: null };
     if (!f.n) { show(card, false); return; }
+    // A rename or job form the operator is typing into must not be wiped by the poll.
+    if (document.activeElement && document.activeElement !== card && card.contains(document.activeElement)) return;
     var n = f.n;
     card.innerHTML = "";
     var title = el("div", "card-title", (f.cand ? "CANDIDATE · " : "NODE · ") + n.name);

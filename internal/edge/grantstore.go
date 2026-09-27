@@ -30,6 +30,11 @@ type GrantStore struct {
 func (s *GrantStore) Put(g store.Grant) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.flock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	got, err := s.read()
 	if err != nil {
 		return err
@@ -71,6 +76,11 @@ func (s *GrantStore) Get(id string) (store.Grant, bool, error) {
 func (s *GrantStore) Revoke(id string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.flock()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	got, err := s.read()
 	if err != nil {
 		return false, err
@@ -131,4 +141,21 @@ func (s *GrantStore) write(gs []store.Grant) error {
 		return err
 	}
 	return os.Rename(tmpName, s.Path)
+}
+
+// flock serialises the store's read-modify-write ACROSS processes (the host and a CLI or a screen
+// issuing beside it), which the in-process mutex alone cannot.
+func (s *GrantStore) flock() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(s.Path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := flockExclusive(f); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() { _ = flockUnlock(f); f.Close() }, nil
 }

@@ -523,3 +523,18 @@ func TestConsoleSnapshotCarriesTheFloorAndActsOnCalls(t *testing.T) {
 		t.Fatalf("unwired roger = %d, want 501", r.StatusCode)
 	}
 }
+
+// An empty body is not "agent off": the toggle needs an explicit on.
+func TestConsoleAgentToggleNeedsAnExplicitValue(t *testing.T) {
+	var got []bool
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Self: "workshop", Fleet: edge.NewFleet(store.NewMem(), "acct-1"),
+		SetAgent: func(on bool) error { got = append(got, on); return nil }, AddAgent: func() error { return nil }, SetPrefer: func(string) error { return nil }}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	if r := postJSONTok(t, srv, s, "/api/edge/agent", `{}`); r.StatusCode != http.StatusBadRequest || len(got) != 0 {
+		t.Fatalf("empty body = %d, got %v", r.StatusCode, got)
+	}
+	if r := postJSONTok(t, srv, s, "/api/edge/agent", `{"on":false}`); r.StatusCode != http.StatusOK || len(got) != 1 || got[0] {
+		t.Fatalf("explicit off = %d, got %v", r.StatusCode, got)
+	}
+}

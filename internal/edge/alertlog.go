@@ -82,23 +82,29 @@ func (l AlertLog) SetRule(r Rule) error {
 			return fmt.Errorf("%q is a default rule: turn it off, or add your own under another id", r.ID)
 		}
 	}
-	f, err := l.rulesFile()
-	if err != nil {
-		return err
-	}
-	r.Default, r.Off = false, false
-	kept := f.Rules[:0]
-	for _, x := range f.Rules {
-		if x.ID != r.ID {
-			kept = append(kept, x)
+	return l.withLock(func() error {
+		f, err := l.rulesFile()
+		if err != nil {
+			return err
 		}
-	}
-	f.Rules = append(kept, r)
-	return l.writeJSON("rules.json", f)
+		r.Default, r.Off = false, false
+		kept := f.Rules[:0]
+		for _, x := range f.Rules {
+			if x.ID != r.ID {
+				kept = append(kept, x)
+			}
+		}
+		f.Rules = append(kept, r)
+		return l.writeJSON("rules.json", f)
+	})
 }
 
 // SetOff turns a rule off or back on. Defaults are only ever turned off, never removed.
 func (l AlertLog) SetOff(id string, off bool) error {
+	return l.withLock(func() error { return l.setOffLocked(id, off) })
+}
+
+func (l AlertLog) setOffLocked(id string, off bool) error {
 	f, err := l.rulesFile()
 	if err != nil {
 		return err
@@ -138,6 +144,10 @@ func (l AlertLog) Remove(id string) error {
 			return fmt.Errorf("%q is a default rule: `alert off %s` turns it off", id, id)
 		}
 	}
+	return l.withLock(func() error { return l.removeLocked(id) })
+}
+
+func (l AlertLog) removeLocked(id string) error {
 	f, err := l.rulesFile()
 	if err != nil {
 		return err

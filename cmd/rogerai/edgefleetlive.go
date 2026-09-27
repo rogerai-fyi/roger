@@ -299,10 +299,27 @@ func edgeFleetActions() fleetview.FleetActions {
 			cfg.EdgePrefer = want
 			return saveConfig(cfg)
 		},
-		RevokeGrant: func(id string) error { return cmdEdgeGrantRevoke(id) },
-		SetAgent:    func(on bool) error { return edgeAgentSetRole(loadConfig(), on) },
-		ResumeAgent: func(name string) error { return edgeAgentResume(loadConfig(), name) },
-		RemoveAgent: func(name string) error { return edgeAgentRemove(loadConfig(), name) },
+		RevokeGrant: func(id string) error { // nothing printed: the screen owns the terminal
+			found, err := edgeGrantStore().Revoke(id)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return fmt.Errorf("no such grant %q", id)
+			}
+			return nil
+		},
+		SetAgent: func(on bool) error {
+			cfg := loadConfig()
+			cfg.EdgeAgent = on
+			if err := saveConfig(cfg); err != nil {
+				return err
+			}
+			_, err := edgeAgentRoleApplied(cfg, on)
+			return err
+		},
+		ResumeAgent: func(name string) error { _, err := edgeAgentResumed(loadConfig(), name); return err },
+		RemoveAgent: func(name string) error { _, err := edgeAgentRemoved(loadConfig(), name); return err },
 		Roger: func(ruleID, nodeID string) error {
 			return edgeAlertLog().Roger(ruleID, nodeID, edgeOperatorName(), time.Now())
 		},

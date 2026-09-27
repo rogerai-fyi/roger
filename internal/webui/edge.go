@@ -534,13 +534,13 @@ func (s *Server) handleEdgeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		On bool `json:"on"`
+		On *bool `json:"on"`
 	}
-	if !decode(r, &req) {
+	if !decode(r, &req) || req.On == nil { // an empty body must not read as "off"
 		http.Error(w, "on (bool) required", http.StatusBadRequest)
 		return
 	}
-	if err := h.SetAgent(req.On); err != nil {
+	if err := h.SetAgent(*req.On); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -607,7 +607,7 @@ func (s *Server) handleEdgeJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.SetAgentJob(edge.AgentJob{
-		Name: req.Name, Node: req.Node, Model: req.Model,
+		Name: req.Name, Model: req.Model, // the node is this machine's: the host fills it in, never the browser
 		Use: req.Use, Share: req.Share, Job: req.Job, Targets: req.Targets,
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

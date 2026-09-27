@@ -80,19 +80,11 @@ func edgeAgentSetRole(cfg config, on bool) error {
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	name := edgeThisAgentName(cfg)
-	if on {
-		if err := edge.MarkPersistent(edgePersistDir(), edgeThisNodeID(), name, time.Now()); err != nil {
-			return err
-		}
-		fmt.Printf("this roger is now a persistent agent on your Edge (◆), as %q.\n", name)
-		fmt.Println("  it can operate on other nodes; if it stops, `roger edge agent resume` brings it back.")
-	} else {
-		if _, err := edge.UnmarkPersistent(edgePersistDir(), name); err != nil {
-			return err
-		}
-		fmt.Println("this roger is no longer an agent, and no longer persistent.")
+	msg, err := edgeAgentRoleApplied(cfg, on)
+	if err != nil {
+		return err
 	}
+	fmt.Println(msg)
 	fmt.Println("  a running roger picks this up on its next pass; a new one starts with it.")
 	return nil
 }
@@ -157,36 +149,67 @@ func runEdgeAgentCtx(ctx context.Context, cfg config) error {
 	return nil
 }
 
+// edgeAgentRoleApplied records the persistence that goes with the role and returns the line that
+// says what happened - shared by the CLI and the screens, which must not print into an alt screen.
+func edgeAgentRoleApplied(cfg config, on bool) (string, error) {
+	name := edgeThisAgentName(cfg)
+	if on {
+		if err := edge.MarkPersistent(edgePersistDir(), edgeThisNodeID(), name, time.Now()); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("this roger is now a persistent agent on your Edge (◆), as %q.\n  it can operate on other nodes; if it stops, `roger edge agent resume` brings it back.", name), nil
+	}
+	if _, err := edge.UnmarkPersistent(edgePersistDir(), name); err != nil {
+		return "", err
+	}
+	return "this roger is no longer an agent, and no longer persistent.", nil
+}
+
 // edgeAgentResume relaunches a dark persistent agent as a plain roger with its role and name.
 func edgeAgentResume(cfg config, name string) error {
+	msg, err := edgeAgentResumed(cfg, name)
+	if err != nil {
+		return err
+	}
+	fmt.Println(msg)
+	return nil
+}
+
+// edgeAgentResumed relaunches a persistent agent and returns the line that says what happened.
+func edgeAgentResumed(cfg config, name string) (string, error) {
 	if !edge.IsPersistent(edgePersistDir(), name) {
-		return fmt.Errorf("no persistent agent named %q - `roger edge agent` lists them", name)
+		return "", fmt.Errorf("no persistent agent named %q - `roger edge agent` lists them", name)
 	}
 	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
 		if in.Name == name {
-			fmt.Printf("%q is already running - nothing to resume.\n", name)
-			return nil
+			return fmt.Sprintf("%q is already running - nothing to resume.", name), nil
 		}
 	}
 	if err := edgeSpawnRoger(map[string]string{"ROGER_EDGE_AGENT": "1", "ROGER_EDGE_INSTANCE": name}); err != nil {
-		return fmt.Errorf("could not launch a roger for %q: %w", name, err)
+		return "", fmt.Errorf("could not launch a roger for %q: %w", name, err)
 	}
-	fmt.Printf("launched a roger for %q as an agent; it returns to your Edge on its next registration.\n", name)
-	return nil
+	return fmt.Sprintf("launched a roger for %q as an agent; it returns to your Edge on its next registration.", name), nil
 }
 
 // edgeAgentRemove drops a persistent agent's durable record. It does NOT kill a running process -
 // remove stops the persistence (no more resume), it does not reach into a live agent.
 func edgeAgentRemove(cfg config, name string) error {
-	had, err := edge.UnmarkPersistent(edgePersistDir(), name)
+	msg, err := edgeAgentRemoved(cfg, name)
 	if err != nil {
 		return err
 	}
-	if !had {
-		fmt.Printf("no persistent agent named %q - nothing to remove.\n", name)
-		return nil
-	}
-	fmt.Printf("removed the persistent agent %q; it will not be offered to resume.\n", name)
-	fmt.Println("  a running one is left alone - remove stops the persistence, it does not stop a live process.")
+	fmt.Println(msg)
 	return nil
+}
+
+// edgeAgentRemoved drops the durable record and returns the line that says what happened.
+func edgeAgentRemoved(cfg config, name string) (string, error) {
+	had, err := edge.UnmarkPersistent(edgePersistDir(), name)
+	if err != nil {
+		return "", err
+	}
+	if !had {
+		return fmt.Sprintf("no persistent agent named %q - nothing to remove.", name), nil
+	}
+	return fmt.Sprintf("removed the persistent agent %q; it will not be offered to resume.\n  a running one is left alone - remove stops the persistence, it does not stop a live process.", name), nil
 }
