@@ -269,6 +269,12 @@ func (q *dispatchQueue) handle(m dqMsg) {
 		q.b.stats.dqBounce.Add(1)
 		go q.send(m.from, dqMsg{kind: "bounce", job: m.job, node: m.node}) // never block the reader
 		return
+	case "rcf": // a remote-control frame for this instance's viewers (rcinbox.go)
+		q.b.rcFrameArrived(q, m.job, m.data)
+		return
+	case "rcin": // an inbound queued for a host poll waiting here
+		q.b.rcHostWake(m.job)
+		return
 	}
 	q.mu.Lock()
 	tk := q.tickets[m.job]

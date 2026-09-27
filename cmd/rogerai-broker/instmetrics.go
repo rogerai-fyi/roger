@@ -41,6 +41,8 @@ type instStats struct {
 	dqBusy    atomic.Int64
 	dqLost    atomic.Int64
 	dqOffAir  atomic.Int64
+	// rcFrames counts remote-control frames this instance received for its viewers.
+	rcFrames atomic.Int64
 
 	// Upstream failover / cooldown (features/routing/upstream_failover.feature): relays
 	// re-dispatched to a sibling after a no-output failure, stations cooled by an upstream
