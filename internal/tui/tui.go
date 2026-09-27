@@ -2084,10 +2084,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case operatorDoneMsg: // the guest returned the terminal (every child outcome)
 		return m.onOperatorDone(msg)
 	case edgeHealthDoneMsg: // a live Edge screen returned the terminal
+		m.refreshEdge() // first: the refresh clears edge.err, so the screen's error must be set after it
 		if msg.err != nil {
 			m.edge.err = "the live screen ended with an error: " + msg.err.Error()
 		}
-		m.refreshEdge()
 		if !m.mouseOff { // bubbletea's RestoreTerminal never re-enables the mouse (operator.go does the same)
 			return m, tea.EnableMouseCellMotion
 		}

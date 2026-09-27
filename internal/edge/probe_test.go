@@ -12,7 +12,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -225,4 +227,59 @@ func TestProbeServeClientRefusesNonsenseAndNeedsACertificate(t *testing.T) {
 	_, err = ProbeServe(context.Background(), face.Listener.Addr().String(), pin, &self, "qwen")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a probe result")
+}
+
+// Writers of one log inside one process queue on its mutex, not only on the flock (which the
+// Windows build lacks): twenty goroutines acknowledging and judging at once leave a whole, parseable
+// state and exactly one line per crossing (audit 2026-09-27).
+func TestAlertLogSerialisesWritersInProcess(t *testing.T) {
+	l := AlertLog{Dir: t.TempDir()}
+	now := time.Now()
+	hot := 95.0
+	hs := []NodeHealth{{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(PresenceVerified), LastHeard: now,
+		Readings: &store.EdgeResources{CPUTempC: &hot, ReadAt: now.Unix()}}}
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, _ = l.Judge(hs, now)
+			_ = l.Roger("cpu_temp", "n_desk", "op", now)
+		}()
+	}
+	wg.Wait()
+	var st AlertState
+	require.NoError(t, l.readJSON("state.json", &st))
+	calls, err := l.Standing(now)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	require.True(t, calls[0].Acked)
+	lines, _ := os.ReadFile(l.path("log.jsonl"))
+	require.Equal(t, 1, strings.Count(string(lines), "\n"), "one crossing, one line, however many judged it")
+}
+
+// A state that has not moved is not a write: the host judges every pass and the screens poll every
+// two seconds, so state.json is rewritten only when its content changes (audit 2026-09-27).
+func TestJudgeRewritesStateOnlyWhenItChanges(t *testing.T) {
+	l := AlertLog{Dir: t.TempDir()}
+	now := time.Now()
+	hot := 95.0
+	hs := []NodeHealth{{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(PresenceVerified), LastHeard: now,
+		Readings: &store.EdgeResources{CPUTempC: &hot, ReadAt: now.Unix()}}}
+	_, _, err := l.Judge(hs, now)
+	require.NoError(t, err)
+	first, err := os.Stat(l.path("state.json"))
+	require.NoError(t, err)
+	time.Sleep(30 * time.Millisecond)
+	_, _, err = l.Judge(hs, now.Add(time.Second))
+	require.NoError(t, err)
+	again, err := os.Stat(l.path("state.json"))
+	require.NoError(t, err)
+	require.Equal(t, first.ModTime(), again.ModTime(), "nothing moved: nothing written")
+	cool := 40.0
+	hs[0].Readings = &store.EdgeResources{CPUTempC: &cool, ReadAt: now.Unix()}
+	_, _, err = l.Judge(hs, now.Add(2*time.Second))
+	require.NoError(t, err)
+	third, _ := os.Stat(l.path("state.json"))
+	require.NotEqual(t, first.ModTime(), third.ModTime(), "the crossing cleared: written")
 }

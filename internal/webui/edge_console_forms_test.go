@@ -38,3 +38,14 @@ func TestConsoleEdgeFormGuardBlocksOnlyTypingAndActionsBlurFirst(t *testing.T) {
 	require.Contains(t, rename, `else if (e.key === "Escape") { e.preventDefault(); input.blur(); edgeTick(); }`)
 	require.True(t, strings.Count(rename, "input.blur()") >= 2)
 }
+
+// The bind model / job controls belong to THIS machine's instances - the self row - not to a member
+// reached through a relay (audit 2026-09-27: they were gated on n.child, so the self hub had no
+// click target and a relayed member showed controls the host would refuse).
+func TestConsoleJobControlsAreOnTheSelfRow(t *testing.T) {
+	b, err := os.ReadFile("assets/console.js")
+	require.NoError(t, err)
+	js := string(b)
+	require.Contains(t, js, "if (d.jobs_manage && n.name === d.self) edgeInstanceJobControls(card, d, i.name);")
+	require.NotContains(t, js, "d.jobs_manage && n.child")
+}

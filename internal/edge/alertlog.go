@@ -6,12 +6,14 @@ package edge
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +37,19 @@ func (l AlertLog) readJSON(name string, v any) error {
 		return err
 	}
 	return json.Unmarshal(b, v)
+}
+
+// writeJSONIfChanged rewrites a file only when its content would change: the host judges every
+// pass and screens poll every two seconds, and a state that has not moved is not a write.
+func (l AlertLog) writeJSONIfChanged(name string, v any) error {
+	want, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	if have, err := os.ReadFile(l.path(name)); err == nil && bytes.Equal(bytes.TrimSpace(have), bytes.TrimSpace(want)) {
+		return nil
+	}
+	return l.writeJSON(name, v)
 }
 
 func (l AlertLog) writeJSON(name string, v any) error {
@@ -178,7 +193,15 @@ func (l AlertLog) State() (AlertState, error) {
 // withLock runs fn under the log's file lock: every read-modify-write of the log's files goes
 // through here - Judge, Roger, StandBy - so the host judging every pass and a screen in another
 // process can never lose each other's writes.
+// alertMu serialises the writers of one log INSIDE this process: goroutines (the host's pass, a
+// console request, a screen's action) queue here, and the flock below queues processes. Without it
+// the Windows build, whose flock is a no-op, let two goroutines tear state.json (audit 2026-09-27).
+var alertMu sync.Map // Dir -> *sync.Mutex
+
 func (l AlertLog) withLock(fn func() error) error {
+	mu, _ := alertMu.LoadOrStore(filepath.Clean(l.Dir), &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 	if err := os.MkdirAll(l.Dir, 0o700); err != nil {
 		return err
 	}
@@ -223,7 +246,7 @@ func (l AlertLog) Judge(hs []NodeHealth, now time.Time) (st AlertState, alerts [
 // Record stores the new state and appends each alert to the history; acknowledgements of calls
 // that cleared go with them.
 func (l AlertLog) Record(st AlertState, alerts []Alert) error {
-	if err := l.writeJSON("state.json", st); err != nil {
+	if err := l.writeJSONIfChanged("state.json", st); err != nil {
 		return err
 	}
 	if err := l.clearAcks(st); err != nil {

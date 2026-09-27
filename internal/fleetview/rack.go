@@ -241,8 +241,11 @@ func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string,
 	fr.RenderWidget(lm.NewText(head).WithWrap(false), rows[0])
 	w := int(area.Width)
 	heavy := 24
-	if heavy > w {
-		heavy = w
+	if heavy > w-1 {
+		heavy = w - 1 // a terminal narrower than the heavy rule gets what fits, never a negative count
+	}
+	if heavy < 0 {
+		heavy = 0
 	}
 	fr.RenderWidget(lm.NewText(lm.NewLine(span(" "+strings.Repeat("━", heavy), live), span(strings.Repeat("─", w-heavy-1), dim))).WithWrap(false), rows[1])
 }

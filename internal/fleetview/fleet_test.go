@@ -558,3 +558,19 @@ func TestFleetScreenCursorsAndPromptsAreSafe(t *testing.T) {
 		t.Fatal("typing q inside the prompt must not quit")
 	}
 }
+
+// A terminal narrower than the brand band's heavy rule (an SSH window shrunk to a sliver) draws
+// what fits; it never panics the frame (audit 2026-09-27: strings.Repeat with a negative count).
+func TestFleetScreenSurvivesASliverOfATerminal(t *testing.T) {
+	f, _ := newFleet(t, &recorder{})
+	for _, w := range []uint16{8, 20, 24, 25} {
+		uitest.Run(t, w, 6, f.Draw)
+	}
+	now := time.Now()
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{Nodes: fleet(now), At: now}, nil
+	})
+	for _, w := range []uint16{8, 20, 24, 25} {
+		uitest.Run(t, w, 6, h.Draw)
+	}
+}

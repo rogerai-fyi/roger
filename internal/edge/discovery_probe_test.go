@@ -6,13 +6,18 @@ package edge
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/tls"
 	"errors"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
 
 func claimServe(name string, bands ...string) Instance {
@@ -89,4 +94,35 @@ func TestDiscoveryDoesNotReprobeAVerifiedInstanceNorProbeUnenrolled(t *testing.T
 	New(Options{Fleet: f2, Probe: probe}).verifyServe(context.Background(), "10.0.0.2:44121", "ab12", n2)
 	require.Equal(t, 0, calls, "no certificate to present: nothing is probed")
 	require.Equal(t, string(Claimed), serveStateOf(t, f2, "n_desk", "serve"))
+}
+
+// The wiring, end to end inside discovery: a certificate-verified sighting runs the probe and the
+// fleet row comes out VERIFIED - not only verifyServe called by hand (audit 2026-09-27).
+func TestConsiderRunsTheServingProbeAfterVerifyingAPeer(t *testing.T) {
+	authority, err := cert.NewAuthority(cert.Config{TTL: time.Hour})
+	require.NoError(t, err)
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	id := NodeID(pub)
+	leaf, err := authority.Issue(id, pub)
+	require.NoError(t, err)
+	fp := Fingerprint(leaf.Raw)
+	f := NewFleet(store.NewMem(), "acct-1")
+	probed := []string{}
+	d := New(Options{
+		Fleet: f, Authority: authority, CallerCert: &tls.Certificate{},
+		Self: Advert{NodeID: "n_self", Account: "acct-1"},
+		Dial: func(context.Context, string) (*Peer, error) {
+			return &Peer{Cert: leaf, Fingerprint: fp, Describe: Describe{NodeID: id, Account: "acct-1", Kind: string(Host),
+				Caps: []string{string(Serve)}, Instances: []Instance{claimServe("serve", "qwen")}}}, nil
+		},
+		Probe: func(_ context.Context, addr, pin string, _ *tls.Certificate, band string) (string, error) {
+			probed = append(probed, addr+" "+pin+" "+band)
+			return "serve", nil
+		},
+	})
+	var rep Report
+	d.consider(context.Background(), Advert{NodeID: id, Account: "acct-1", Kind: string(Host), IP: net.ParseIP("10.0.0.2"), Port: 44121, Fingerprint: fp}, &rep)
+	require.Len(t, rep.Verified, 1)
+	require.Equal(t, []string{"10.0.0.2:44121 " + fp + " qwen"}, probed, "probed at the address and pin just verified")
+	require.Equal(t, string(Verified), serveStateOf(t, f, id, "serve"))
 }

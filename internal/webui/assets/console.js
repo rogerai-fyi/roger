@@ -2378,8 +2378,9 @@
       if (job) line += "  \u00b7 " + job;
       edgeKV(card, idx === 0 ? "instances" : "", line);
       edgeInstanceResources(card, i);
-      // On THIS machine's own instances the console can assign a model/job, like the TUI's Bind Model.
-      if (d.jobs_manage && n.child) edgeInstanceJobControls(card, d, i.name);
+      // On THIS machine's own instances (the self row) the console can assign a model/job, like the
+      // TUI's Bind Model. The host fills in the node; a relayed member's instances are not this machine's.
+      if (d.jobs_manage && n.name === d.self) edgeInstanceJobControls(card, d, i.name);
     });
     if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));

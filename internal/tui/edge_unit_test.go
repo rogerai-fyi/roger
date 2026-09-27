@@ -9,6 +9,7 @@ package tui
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -486,4 +487,15 @@ func TestEdgeConnectorsCloseTheDrawing(t *testing.T) {
 	require.Zero(t, m.edgePulseCells("n_nobody"))
 	m.width = 40
 	require.Zero(t, m.edgePulseCells(m.edge.rows[0].n.ID))
+}
+
+// A live Edge screen that ended with an error is SAID on [3]: the refresh that follows its return
+// clears the last error, so the screen's error has to be set after it (audit 2026-09-27).
+func TestLiveScreenErrorSurvivesTheRefresh(t *testing.T) {
+	m, _, _ := edgeFixture(t, Hooks{})
+	m.enterEdge()
+	tm, _ := m.Update(edgeHealthDoneMsg{err: errors.New("exit status 2")})
+	got := asModel(tm)
+	require.Equal(t, "the live screen ended with an error: exit status 2", got.edge.err)
+	require.Contains(t, stripANSI(got.edgeView(100)), "exit status 2")
 }
