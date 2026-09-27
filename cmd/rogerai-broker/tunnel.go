@@ -940,14 +940,11 @@ func (b *broker) syncLivenessOnce() {
 	//     a Valkey restart/eviction) the snapshot stayed empty, the registry never
 	//     reconciled, and the token ping-pong became SELF-SUSTAINING: rotated tokens
 	//     could never converge (the v5.0.0 flag=1 launch symptom).
-	b.syncRegistry()
-	// Refresh the cross-instance verified-tools union on the same tick (BEFORE the liveness
-	// early-return, so a host's regression clear still propagates when the liveness snapshot is
-	// momentarily empty). Keeps the hot /discover + /market read in-memory.
-	b.syncToolsVerified()
-	// Station cooldowns learned on a peer (an upstream 429 it saw) are merged here too, so
-	// every instance routes around a cooling station, not only the one that was told no.
-	b.syncCooling()
+	// The same tick (still BEFORE the liveness early-return) also brings in the verified-tools
+	// union, so a host's regression clear propagates, and peers' station cooldowns, so every
+	// instance routes around a cooling station. All three arrive by the change log, or by a
+	// full snapshot at boot, on a gap, or on the reconcile interval (changelog.go).
+	b.syncChanges()
 	snap, err := b.shared.liveness()
 	if err != nil || len(snap) == 0 {
 		return
@@ -1003,9 +1000,20 @@ func (b *broker) syncRegistry() {
 	// bands must still mirror them (don't early-return on an empty public registry).
 	regs, _ := b.shared.allNodes()
 	pregs, _ := b.shared.allPrivateNodes()
+	b.applyRegistry(regs, pregs)
+}
+
+// applyRegistry adopts shared registrations (public and private namespaces) into this
+// instance: the full snapshot and each change-log entry both go through it, so the grace
+// window, the stale-mirror heal and the private/public separation are the same on both paths.
+//
+// It returns the ids it skipped only because this instance registered them within the local
+// grace window; the change log re-applies those once the grace has passed.
+func (b *broker) applyRegistry(regs, pregs map[string][]byte) (graced map[string]bool) {
 	if len(regs) == 0 && len(pregs) == 0 {
-		return
+		return nil
 	}
+	graced = map[string]bool{}
 	// heals collects the fresher LOCAL registrations whose shared mirror was found stale,
 	// marshaled UNDER the lock (the b.nodes read must hold b.mu anyway, and snapshotting
 	// the bytes right there matches the attestation-lapse and rehydrate re-publishes;
@@ -1030,6 +1038,7 @@ func (b *broker) syncRegistry() {
 		// from the shared registry like any other, so a token rotated on a PEER instance
 		// (authority migration) reconverges here instead of pinning a stale token -> 401s.
 		if at, ok := b.localRegAt[id]; ok && time.Since(at) < syncLocalRegisterGrace {
+			graced[id] = true
 			continue
 		}
 		var reg protocol.NodeRegistration
@@ -1077,6 +1086,7 @@ func (b *broker) syncRegistry() {
 	// on b.private). The band CODE is never here - only the node reg (offers + bridge token).
 	for id, raw := range pregs {
 		if at, ok := b.localRegAt[id]; ok && time.Since(at) < syncLocalRegisterGrace {
+			graced[id] = true
 			continue
 		}
 		var reg protocol.NodeRegistration
@@ -1123,6 +1133,7 @@ func (b *broker) syncRegistry() {
 			_ = b.shared.putNode(h.id, h.raw, livenessTTL)
 		}
 	}
+	return graced
 }
 
 // tunnelFor returns the node's tunnel + a SNAPSHOT of its bridge token, LAZILY

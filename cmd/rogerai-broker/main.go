@@ -284,6 +284,8 @@ type broker struct {
 	dispatchMode dispatchMode
 	dqOnce       sync.Once
 	dq           *dispatchQueue
+	// changes is this instance's position in the shared change log (changelog.go).
+	changes changeTail
 
 	// instanceID identifies THIS broker process in the shared inflight hash (each
 	// instance write-throughs its own count under this field; a peer sums the others).

@@ -821,6 +821,11 @@ func (v *valkeyStore) markSeen(node string, now time.Time) error {
 	pipe := v.rdb.Pipeline()
 	pipe.HSet(ctx, key, livenessField, now.UnixMilli())
 	pipe.PExpire(ctx, key, livenessTTL)
+	// The whole fleet's last_seen in ONE hash, so a peer's tick reads it with one HGETALL
+	// instead of one HGET per node (registry_changelog.feature C1). The per-node key above
+	// stays for instances still running code that reads it.
+	pipe.HSet(ctx, livenessAllKey, node, now.UnixMilli())
+	pipe.PExpire(ctx, livenessAllKey, livenessTTL)
 	// Keep the shared REGISTRY entry (if any) alive as long as the node heartbeats, even
 	// though it only re-registers rarely: a heartbeat that lands on ANY instance extends
 	// the reg TTL so the registry mirror doesn't drop a live node. No-op if no reg key.
@@ -857,6 +862,37 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
+	// One HGETALL over the fleet hash. Its fields never expire individually, so a field older
+	// than livenessTTL is skipped here and pruned in the background.
+	all, err := v.rdb.HGetAll(ctx, livenessAllKey).Result()
+	if err != nil {
+		v.noteErr("liveness", err)
+		return nil, err
+	}
+	if len(all) > 0 {
+		out := make(map[string]time.Time, len(all))
+		cutoff := time.Now().Add(-livenessTTL).UnixMilli()
+		var stale []string
+		for id, val := range all {
+			ms, perr := strconv.ParseInt(val, 10, 64)
+			if perr != nil || ms < cutoff {
+				stale = append(stale, id)
+				continue
+			}
+			out[id] = time.UnixMilli(ms)
+		}
+		if len(stale) > 0 {
+			go func() {
+				c, cc := context.WithTimeout(context.Background(), sharedOpTimeout)
+				defer cc()
+				v.rdb.HDel(c, livenessAllKey, stale...)
+			}()
+		}
+		v.setUp(true)
+		return out, nil
+	}
+	// Empty fleet hash: nodes heartbeating only on instances that predate it (a rolling
+	// deploy) are still found through the per-node keys.
 	ids, err := v.rdb.SMembers(ctx, keyPrefix+"nodes").Result()
 	if err != nil {
 		v.noteErr("liveness", err)
@@ -909,8 +945,10 @@ func (v *valkeyStore) markToolsVerified(node, model string, ttl time.Duration) e
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	pipe := v.rdb.Pipeline()
-	pipe.HSet(ctx, toolsKey(), node+"\x00"+model, time.Now().UnixMilli())
+	nowMs := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	pipe.HSet(ctx, toolsKey(), node+"\x00"+model, nowMs)
 	pipe.PExpire(ctx, toolsKey(), ttl) // refresh the hash TTL on every mark (like liveness)
+	logChange(ctx, pipe, "tok", node+"\x00"+model, []byte(nowMs))
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("markToolsVerified", err)
 		return err
@@ -925,7 +963,10 @@ func (v *valkeyStore) clearToolsVerified(node, model string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
-	if err := v.rdb.HDel(ctx, toolsKey(), node+"\x00"+model).Err(); err != nil && err != redis.Nil {
+	pipe := v.rdb.Pipeline()
+	pipe.HDel(ctx, toolsKey(), node+"\x00"+model)
+	logChange(ctx, pipe, "tclr", node+"\x00"+model, nil)
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
 		v.noteErr("clearToolsVerified", err)
 		return err
 	}
@@ -1021,6 +1062,7 @@ func (v *valkeyStore) putNode(id string, reg []byte, ttl time.Duration) error {
 	pipe.Set(ctx, regKey(id), reg, ttl)
 	pipe.SAdd(ctx, keyPrefix+"regset", id)
 	pipe.PExpire(ctx, keyPrefix+"regset", ttl)
+	logChange(ctx, pipe, "reg", id, reg)
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("putNode", err)
 		return err
@@ -1107,6 +1149,7 @@ func (v *valkeyStore) putPrivateNode(id string, reg []byte, ttl time.Duration) e
 	pipe.Set(ctx, pregKey(id), reg, ttl)
 	pipe.SAdd(ctx, pregsetKey, id)
 	pipe.PExpire(ctx, pregsetKey, ttl)
+	logChange(ctx, pipe, "preg", id, reg)
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("putPrivateNode", err)
 		return err
@@ -1192,7 +1235,9 @@ func (v *valkeyStore) markCooling(node, model string, until time.Time, ttl time.
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	pipe := v.rdb.Pipeline()
-	pipe.Set(ctx, coolKey(node), strconv.FormatInt(until.Unix(), 10)+"|"+model, ttl)
+	coolVal := strconv.FormatInt(until.Unix(), 10) + "|" + model
+	pipe.Set(ctx, coolKey(node), coolVal, ttl)
+	logChange(ctx, pipe, "cool", node, []byte(coolVal))
 	pipe.SAdd(ctx, coolSetKey, node)
 	pipe.PExpire(ctx, coolSetKey, 2*ttl+time.Minute) // the index outlives its members; stale ids are dropped on read
 	if _, err := pipe.Exec(ctx); err != nil {
@@ -2193,3 +2238,76 @@ const (
 	publicMarketTTL = 3 * time.Second
 	authedFeedTTL   = 20 * time.Second
 )
+
+// ---- the change log (features/multinode/registry_changelog.feature) ----------------------
+
+// changeLogKey is the append-only log of registry, cooldown and tools-verdict changes. Every
+// writer of those appends one entry in the SAME pipeline as its write; each instance tails it
+// from the last id it applied, so a quiet tick costs one read instead of a full re-read.
+const changeLogKey = keyPrefix + "ctl:changes"
+
+// changeLogMaxLen bounds the log. An instance that falls further behind than this sees a gap
+// and takes a full snapshot (never a partial view).
+const changeLogMaxLen = 5000
+
+// livenessAllKey is the fleet-wide last_seen hash (node -> unix ms).
+const livenessAllKey = keyPrefix + "lsall"
+
+// logChange appends one change entry to a pipeline the caller executes.
+func logChange(ctx context.Context, pipe redis.Pipeliner, kind, id string, data []byte) {
+	pipe.XAdd(ctx, &redis.XAddArgs{
+		Stream: changeLogKey, MaxLen: changeLogMaxLen, Approx: true,
+		Values: []any{"k", kind, "id", id, "d", data},
+	})
+	pipe.Expire(ctx, changeLogKey, livenessTTL)
+}
+
+// changeEntry is one applied change.
+type changeEntry struct {
+	id, kind, key string
+	data          []byte
+}
+
+// changeHead is the id of the newest log entry ("0-0" when the log is empty).
+func (v *valkeyStore) changeHead() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	msgs, err := v.rdb.XRevRangeN(ctx, changeLogKey, "+", "-", 1).Result()
+	if err != nil {
+		v.noteErr("changeHead", err)
+		return "", err
+	}
+	if len(msgs) == 0 {
+		return "0-0", nil
+	}
+	return msgs[0].ID, nil
+}
+
+// changesAfter returns the entries after `after`. gap is true when the entry `after` itself
+// is no longer in the log (trimmed, or the store restarted) or more than max entries are
+// pending: the caller must take a full snapshot instead.
+func (v *valkeyStore) changesAfter(after string, max int64) ([]changeEntry, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	msgs, err := v.rdb.XRangeN(ctx, changeLogKey, after, "+", max+1).Result()
+	if err != nil {
+		v.noteErr("changesAfter", err)
+		return nil, false, err
+	}
+	if after != "0-0" {
+		if len(msgs) == 0 || msgs[0].ID != after {
+			return nil, true, nil // our position is gone: trimmed, or the store restarted
+		}
+		msgs = msgs[1:]
+	}
+	if int64(len(msgs)) > max {
+		return nil, true, nil // too far behind: a snapshot is cheaper and exact
+	}
+	out := make([]changeEntry, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, changeEntry{
+			id: m.ID, kind: xstr(m.Values["k"]), key: xstr(m.Values["id"]), data: []byte(xstr(m.Values["d"])),
+		})
+	}
+	return out, false, nil
+}

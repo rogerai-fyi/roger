@@ -23,8 +23,10 @@ func TestLivenessPipelineSkipsExpired(t *testing.T) {
 		}
 	}
 	// Simulate "expired since the SMEMBERS listing": the id stays in the index set but its
-	// per-node liveness value key is gone.
+	// per-node liveness value key is gone. The fleet hash is emptied so this exercises the
+	// per-node read, which remains the fallback for writers that predate the hash.
 	mr.Del(livenessKey("node-2"))
+	mr.Del(livenessAllKey)
 
 	snap, err := vs.liveness()
 	if err != nil {
@@ -101,5 +103,35 @@ func TestInflightByNodePipelineSumsAndExcludesSelf(t *testing.T) {
 	}
 	if _, present := snap["node-3"]; present {
 		t.Errorf("node-3 should be skipped (hash expired since listing)")
+	}
+}
+
+// TestLivenessHashSkipsAndPrunesStale: the fleet liveness hash (one HGETALL per tick) skips a
+// node whose last_seen is older than livenessTTL, and prunes that field.
+func TestLivenessHashSkipsAndPrunesStale(t *testing.T) {
+	vs, mr := newTestValkey(t)
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		if err := vs.markSeen("node-"+strconv.Itoa(i), now); err != nil {
+			t.Fatalf("markSeen: %v", err)
+		}
+	}
+	mr.HSet(livenessAllKey, "node-1", strconv.FormatInt(now.Add(-livenessTTL-time.Minute).UnixMilli(), 10))
+	snap, err := vs.liveness()
+	if err != nil {
+		t.Fatalf("liveness: %v", err)
+	}
+	if len(snap) != 2 || !snap["node-0"].Equal(time.UnixMilli(now.UnixMilli())) {
+		t.Fatalf("liveness = %v, want node-0 and node-2 only", snap)
+	}
+	if _, stale := snap["node-1"]; stale {
+		t.Error("a node older than livenessTTL was reported live")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for mr.HGet(livenessAllKey, "node-1") != "" {
+		if time.Now().After(deadline) {
+			t.Fatal("the stale field was never pruned")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

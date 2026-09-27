@@ -307,6 +307,11 @@ func (b *broker) syncCooling() {
 	if err != nil {
 		return
 	}
+	b.applyCooling(shared)
+}
+
+// applyCooling merges shared cooldowns, keeping the later expiry (snapshot and change log).
+func (b *broker) applyCooling(shared map[string]sharedCooling) {
 	now := b.now()
 	b.metricsMu.Lock()
 	if b.cooling == nil {
