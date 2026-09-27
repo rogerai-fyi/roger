@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/fleetview"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -122,4 +123,62 @@ func TestHostAdoptsEditsMadeByAnotherProcess(t *testing.T) {
 	require.NoError(t, err)
 	_, ok, _ = again.fleet.Get("n_ibex")
 	require.False(t, ok, "and the host's save does not resurrect it")
+}
+
+// A dark member re-advertising as a candidate is ONE unit on the screen (asking to re-join), and a
+// standing claim grant is told on it with the authority's port.
+func TestEdgeFleetScreenTellsAReJoinOnOneUnit(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	t.Setenv(edge.EnvDiscovery, "0")
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	now := time.Now()
+	edgeSeed(t, store.EdgeNode{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile", Presence: string(edge.PresenceDark), LastSeen: now.Add(-2 * time.Hour).Unix()})
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	st.candidates = []store.EdgeNode{{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile"}}
+	require.NoError(t, st.save())
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, local.GrantClaim("n_ibex", "gentle-ibex-14"))
+
+	snap, err := edgeFleetSource()
+	require.NoError(t, err)
+	seen := 0
+	for _, it := range snap.Items {
+		if it.Name != "gentle-ibex-14" {
+			continue
+		}
+		seen++
+		require.Equal(t, fleetview.ItemMember, it.Kind)
+		require.True(t, it.Asking, "the candidate advert is told on the member row")
+		require.True(t, it.ClaimStanding, "the standing grant is told")
+		require.NotEmpty(t, it.AuthPort)
+	}
+	require.Equal(t, 1, seen, "one unit, not a member and a candidate")
+}
+
+// A unit over a rule's line is a standing TROUBLE call on the screen, with its value; k says
+// roger through the alert log, and the call stays until the condition clears.
+func TestEdgeFleetScreenStandingCallsAndRoger(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	now := time.Now()
+	temp := 99.0
+	edgeSeed(t, store.EdgeNode{ID: "n_hot", Name: "hot-pi", Kind: "board", Presence: string(edge.PresenceVerified), LastSeen: now.Unix(),
+		Instances: []store.EdgeInstance{{Name: "sensor", Resources: &store.EdgeResources{CPUTempC: &temp, ReadAt: now.Unix()}}}})
+	snap, err := edgeFleetSource()
+	require.NoError(t, err)
+	require.Len(t, snap.Alarms, 1)
+	require.Equal(t, "hot-pi", snap.Alarms[0].Node)
+	require.Equal(t, "cpu_temp > 85", snap.Alarms[0].When)
+	require.Equal(t, "99.0°C", snap.Alarms[0].Value)
+	require.False(t, snap.Alarms[0].Acked)
+	require.NoError(t, edgeFleetActions().Roger("cpu_temp", "n_hot"))
+	snap, _ = edgeFleetSource()
+	require.True(t, snap.Alarms[0].Acked)
+	require.NotEmpty(t, snap.Alarms[0].AckBy)
+	require.Error(t, edgeFleetActions().Roger("disk", "n_hot"), "only a standing call can be acknowledged")
 }

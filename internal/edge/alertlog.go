@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -190,12 +191,19 @@ func (l AlertLog) Judge(hs []NodeHealth, now time.Time) (AlertState, []Alert, er
 		return nil, nil, err
 	}
 	st, alerts := Evaluate(rules, hs, prev, now)
-	return st, alerts, l.Record(st, alerts)
+	if err := l.Record(st, alerts); err != nil {
+		return nil, nil, err
+	}
+	return st, alerts, l.recordStates(hs, st, now)
 }
 
-// Record stores the new state and appends each alert to the history.
+// Record stores the new state and appends each alert to the history; acknowledgements of calls
+// that cleared go with them.
 func (l AlertLog) Record(st AlertState, alerts []Alert) error {
 	if err := l.writeJSON("state.json", st); err != nil {
+		return err
+	}
+	if err := l.clearAcks(st); err != nil {
 		return err
 	}
 	if len(alerts) == 0 {
@@ -236,10 +244,290 @@ func (l AlertLog) Recent(n int) ([]Alert, error) {
 		if ln == "" {
 			continue
 		}
-		var a Alert
-		if json.Unmarshal([]byte(ln), &a) == nil {
+		if a, ok := parseAlertLine(ln); ok {
 			out = append(out, a)
 		}
 	}
 	return out, nil
+}
+
+// parseAlertLine reads one history line, including the shape an older binary wrote (last_heard
+// as a time string, dark_for in nanoseconds): the history outlives any one build.
+func parseAlertLine(ln string) (Alert, bool) {
+	var a Alert
+	if json.Unmarshal([]byte(ln), &a) == nil {
+		return a, true
+	}
+	var w struct {
+		Alert
+		LastHeard json.RawMessage `json:"last_heard"`
+		DarkFor   json.RawMessage `json:"dark_for"`
+	}
+	if json.Unmarshal([]byte(ln), &w) != nil {
+		return Alert{}, false
+	}
+	a = w.Alert
+	var ts time.Time
+	if json.Unmarshal(w.LastHeard, &ts) == nil && !ts.IsZero() {
+		a.LastHeard = ts.Unix()
+	}
+	var ns int64
+	if json.Unmarshal(w.DarkFor, &ns) == nil && ns > 0 {
+		a.DarkForS = ns / int64(time.Second)
+	}
+	return a, true
+}
+
+// THE LOG (health.feature §2, the station's log): each judgement records every unit's state -
+// on air, dark, trouble - once per minute in states.jsonl, so a surface can draw the last hour
+// and say how long a unit has been as it is, whether or not anyone was watching.
+
+// UnitState is a unit's state at a minute.
+type UnitState string
+
+const (
+	StateUnknown UnitState = ""
+	StateAir     UnitState = "air"
+	StateDark    UnitState = "dark"
+	StateTrouble UnitState = "trouble"
+)
+
+// StateSample is every unit's state at one minute.
+type StateSample struct {
+	At     int64                `json:"at"`
+	States map[string]UnitState `json:"states"`
+}
+
+const statesKeep = 24 * time.Hour
+
+// stateOf is a unit's state from its health and what is firing on it.
+func stateOf(h NodeHealth, st AlertState) UnitState {
+	switch {
+	case h.Dark:
+		return StateDark
+	case len(st.FiringFor(h.ID)) > 0:
+		return StateTrouble
+	}
+	return StateAir
+}
+
+// recordStates appends this minute's sample, once per minute; older than a day is dropped.
+func (l AlertLog) recordStates(hs []NodeHealth, st AlertState, now time.Time) error {
+	minute := now.Truncate(time.Minute).Unix()
+	prev, err := l.States(now.Add(-2 * time.Minute))
+	if err != nil {
+		return err
+	}
+	if len(prev) > 0 && prev[len(prev)-1].At == minute {
+		return nil
+	}
+	s := StateSample{At: minute, States: map[string]UnitState{}}
+	for _, h := range hs {
+		s.States[h.ID] = stateOf(h, st)
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	if minute%(30*60) == 0 { // twice an hour, drop what is older than a day
+		if err := l.pruneStates(now.Add(-statesKeep)); err != nil {
+			return err
+		}
+	}
+	f, err := os.OpenFile(l.path("states.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(append(b, '\n'))
+	return err
+}
+
+func (l AlertLog) pruneStates(since time.Time) error {
+	keep, err := l.States(since)
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	for _, s := range keep {
+		line, _ := json.Marshal(s)
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	tmp := l.path("states.jsonl.tmp")
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, l.path("states.jsonl"))
+}
+
+// States is the samples since a time, oldest first.
+func (l AlertLog) States(since time.Time) ([]StateSample, error) {
+	b, err := os.ReadFile(l.path("states.jsonl"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []StateSample
+	for _, ln := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if ln == "" {
+			continue
+		}
+		var s StateSample
+		if json.Unmarshal([]byte(ln), &s) == nil && s.At >= since.Unix() {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// LogOf is one unit's last hour as 60 cells (oldest first, unknown where nothing was judged)
+// and how long it has been in its current state, from the samples.
+func LogOf(samples []StateSample, nodeID string, now time.Time) ([]UnitState, time.Duration) {
+	cells := make([]UnitState, 60)
+	end := now.Truncate(time.Minute)
+	var cur UnitState
+	var curSince time.Time
+	for _, s := range samples {
+		st, ok := s.States[nodeID]
+		if !ok {
+			continue
+		}
+		at := time.Unix(s.At, 0)
+		if i := 59 - int(end.Sub(at)/time.Minute); i >= 0 && i < 60 {
+			cells[i] = st
+		}
+		if st != cur {
+			cur, curSince = st, at
+		}
+	}
+	if curSince.IsZero() {
+		return cells, 0
+	}
+	return cells, now.Sub(curSince)
+}
+
+// TROUBLE CALLS (ISA-18.2 by way of the station): what is standing, since when, and whether the
+// operator has said ROGER to it. An acknowledgement quiets a call, never removes it; the call
+// leaves when its condition clears, and its acknowledgement with it, so a fresh call is never
+// pre-acknowledged.
+
+// Ack is one acknowledgement.
+type Ack struct {
+	Who string `json:"who"`
+	At  int64  `json:"at"`
+}
+
+// TroubleCall is one standing alert with its history.
+type TroubleCall struct {
+	RuleID, NodeID, Node string
+	Metric               Metric
+	When                 string // the rule's wording, "cpu_temp > 85"
+	Value, Threshold     float64
+	FiredAt              time.Time
+	Since                time.Duration
+	Acked                bool
+	AckBy                string
+	AckAt                time.Time
+}
+
+func (l AlertLog) acks() (map[string]Ack, error) {
+	out := map[string]Ack{}
+	err := l.readJSON("acks.json", &out)
+	return out, err
+}
+
+// Standing is every call firing now, oldest first, with when it fired and its acknowledgement.
+func (l AlertLog) Standing(now time.Time) ([]TroubleCall, error) {
+	st, err := l.State()
+	if err != nil {
+		return nil, err
+	}
+	rules, err := l.Rules()
+	if err != nil {
+		return nil, err
+	}
+	acks, err := l.acks()
+	if err != nil {
+		return nil, err
+	}
+	hist, err := l.Recent(1 << 20)
+	if err != nil {
+		return nil, err
+	}
+	var out []TroubleCall
+	for k, firing := range st {
+		if !firing {
+			continue
+		}
+		ruleID, nodeID, _ := strings.Cut(k, "|")
+		c := TroubleCall{RuleID: ruleID, NodeID: nodeID, Node: nodeID}
+		for _, r := range rules {
+			if r.ID == ruleID {
+				c.Metric, c.When, c.Threshold = r.Metric, r.Key(), r.Value
+			}
+		}
+		for i := len(hist) - 1; i >= 0; i-- { // the LAST time it fired is when this call began
+			a := hist[i]
+			if a.RuleID == ruleID && a.NodeID == nodeID && a.Firing {
+				c.FiredAt, c.Node, c.Value = a.At, a.Node, a.Value
+				if c.Metric == "" {
+					c.Metric = a.Metric
+				}
+				break
+			}
+		}
+		if !c.FiredAt.IsZero() {
+			c.Since = now.Sub(c.FiredAt)
+		}
+		if a, ok := acks[k]; ok {
+			c.Acked, c.AckBy, c.AckAt = true, a.Who, time.Unix(a.At, 0)
+		}
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Since != out[j].Since {
+			return out[i].Since > out[j].Since
+		}
+		return out[i].RuleID+out[i].NodeID < out[j].RuleID+out[j].NodeID
+	})
+	return out, nil
+}
+
+// Roger acknowledges a standing call. A call that is not standing cannot be acknowledged.
+func (l AlertLog) Roger(ruleID, nodeID, who string, now time.Time) error {
+	st, err := l.State()
+	if err != nil {
+		return err
+	}
+	if !st.Firing(ruleID, nodeID) {
+		return fmt.Errorf("no standing call %s on %s", ruleID, nodeID)
+	}
+	acks, err := l.acks()
+	if err != nil {
+		return err
+	}
+	acks[stateKey(ruleID, nodeID)] = Ack{Who: who, At: now.Unix()}
+	return l.writeJSON("acks.json", acks)
+}
+
+// clearAcks drops the acknowledgements of calls that are no longer standing.
+func (l AlertLog) clearAcks(st AlertState) error {
+	acks, err := l.acks()
+	if err != nil || len(acks) == 0 {
+		return err
+	}
+	changed := false
+	for k := range acks {
+		if !st[k] {
+			delete(acks, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return l.writeJSON("acks.json", acks)
 }

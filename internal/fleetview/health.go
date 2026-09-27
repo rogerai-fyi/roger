@@ -177,9 +177,18 @@ func appendCap(xs []float64, v float64) []float64 {
 func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 	var lines []lm.Line
 	now := h.snap.At
-	// The strip: one row per unit.
-	lines = append(lines, lm.NewLine(), lm.NewLine(span("   ", dim), eyebrow(pad("unit", 28), muted), eyebrow(pad("temp", 18), muted),
-		eyebrow(pad("memory", 18), muted), eyebrow(pad("disk", 18), muted), eyebrow("carrier", muted)))
+	narrow := area.Width < 120
+	nameW, kindW := 18, 7
+	if narrow {
+		nameW, kindW = 16, 0
+	}
+	// The strip: one row per unit; at 100 columns the carrier meter goes (the eye tells presence).
+	head := lm.NewLine(span("   ", dim), eyebrow(pad("unit", nameW+kindW+4), muted), eyebrow(pad("temp", 18), muted),
+		eyebrow(pad("memory", 18), muted), eyebrow(pad("disk", 18), muted))
+	if !narrow {
+		head.Spans = append(head.Spans, eyebrow("carrier", muted))
+	}
+	lines = append(lines, lm.NewLine(), head)
 	for i, n := range h.snap.Nodes {
 		firing := h.snap.Firing[n.ID]
 		railC := kindColor(n.Kind)
@@ -196,18 +205,27 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		}
 		l := lm.NewLine(span(" ", dim), rail, span(" ", dim))
 		l.Spans = append(l.Spans, eye(carrierLevel(n.LastHeard, n.Dark, now), n.Dark, false, len(firing) > 0, h.frame, i)...)
-		l.Spans = append(l.Spans, span(" ", dim), span(pad(n.Name, 18), nc), span(pad(kindLabel(n.Kind), 7), dim))
+		l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(n.Name, nameW), nameW), nc))
+		if kindW > 0 {
+			l.Spans = append(l.Spans, span(pad(kindLabel(n.Kind), kindW), dim))
+		}
 		l.Spans = append(l.Spans, cellTemp(n, firing)...)
 		l.Spans = append(l.Spans, cellMem(n)...)
 		l.Spans = append(l.Spans, cellDisk(n, firing)...)
 		lv := carrierLevel(n.LastHeard, n.Dark, now)
-		l.Spans = append(l.Spans, meter(lv, !n.LastHeard.IsZero(), -1, h.frame, !n.Dark)...)
-		if n.Dark {
-			l.Spans = append(l.Spans, span(" offline "+edge.Age(n.DarkFor), ash))
-		} else if n.Readings != nil && n.Readings.UptimeS > 0 {
-			l.Spans = append(l.Spans, span(" "+edge.Age(time.Duration(n.Readings.UptimeS)*time.Second)+" up", signal))
-		} else {
-			l.Spans = append(l.Spans, span(" online", signal))
+		if !narrow {
+			l.Spans = append(l.Spans, meter(lv, !n.LastHeard.IsZero(), -1, h.frame, !n.Dark)...)
+		}
+		switch {
+		case n.Dark:
+			l.Spans = append(l.Spans, span(" DARK "+edge.Age(n.DarkFor), ash))
+		case len(firing) > 0:
+			l.Spans = append(l.Spans, span(" TROUBLE", live))
+		default:
+			l.Spans = append(l.Spans, span(" ON AIR", signal))
+		}
+		if !n.Dark && n.Readings != nil && n.Readings.UptimeS > 0 {
+			l.Spans = append(l.Spans, span(" · up "+edge.Age(time.Duration(n.Readings.UptimeS)*time.Second), muted))
 		}
 		l.Spans = append(l.Spans, alertChip(len(firing))...)
 		lines = append(lines, l)
@@ -223,10 +241,13 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		headline := lm.NewLine(span(" ", dim))
 		headline.Spans = append(headline.Spans, eye(carrierLevel(n.LastHeard, n.Dark, now), n.Dark, false, len(firing) > 0, h.frame, 99)...)
 		headline.Spans = append(headline.Spans, span(" ", dim), bold(n.Name, ink), span("   "+kindLabel(n.Kind)+" · ", dim))
-		if n.Dark {
-			headline.Spans = append(headline.Spans, span("offline "+edge.Age(n.DarkFor), ash))
-		} else {
-			headline.Spans = append(headline.Spans, span("online", signal))
+		switch {
+		case n.Dark:
+			headline.Spans = append(headline.Spans, span("DARK "+edge.Age(n.DarkFor), ash))
+		case len(firing) > 0:
+			headline.Spans = append(headline.Spans, span("TROUBLE", live))
+		default:
+			headline.Spans = append(headline.Spans, span("ON AIR", signal))
 		}
 		if !n.LastHeard.IsZero() {
 			headline.Spans = append(headline.Spans, span(" · last heard "+edge.Age(now.Sub(n.LastHeard))+" ago", muted))
@@ -235,9 +256,10 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 			headline.Spans = append(headline.Spans, span(" · readings "+edge.Age(n.ReadAge)+" ago", muted))
 		}
 		lines = append(lines, headline)
-		wide := int(area.Width) - 40
-		if wide < 20 {
-			wide = 20
+		// The wide meters leave room for the value and an alarm sentence at the right.
+		wide := int(area.Width) - 58
+		if wide < 16 {
+			wide = 16
 		}
 		if wide > 60 {
 			wide = 60

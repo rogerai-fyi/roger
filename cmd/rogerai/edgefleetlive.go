@@ -7,10 +7,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/fleetview"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -45,13 +47,20 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	if self.Err != "" {
 		return fleetview.FleetSnapshot{}, fmt.Errorf("%s", self.Err)
 	}
+	// The fleet's health, JUDGED on this read (as `roger edge health` judges), so the screen
+	// never shows a stale verdict and a standing call is standing the moment it is over its line.
 	health := map[string]*edge.NodeHealth{}
+	firing := map[string][]string{}
 	if hs, err := edge.FleetHealth(st.fleet, now); err == nil {
 		for i := range hs {
 			health[hs[i].ID] = &hs[i]
 		}
+		if judged, _, err := edgeEvaluateAlerts(hs, now); err == nil {
+			if rules, err := edgeAlertLog().Rules(); err == nil {
+				firing = edgeFiringWords(judged, rules)
+			}
+		}
 	}
-	firing := edgeFiringAlerts()
 	snap := fleetview.FleetSnapshot{At: now, Self: fleetview.SelfFacts{
 		Name: self.Name, Root: self.RootBadge(), Prefer: self.PreferBadge(), PreferValue: self.EffectivePrefer(),
 		Authority: "authority · " + edgeAuthorityWord(self), AuthorityLines: self.AuthorityLines(), Machine: self.MachineLine(),
@@ -89,6 +98,25 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 			snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemAgent, Name: p.Name, Dark: true})
 		}
 	}
+	// A candidate that is a member re-advertising is the SAME unit asking to re-join - told on
+	// its member row, never listed twice. A standing claim grant is told too.
+	asking := map[string]bool{}
+	for _, c := range st.candidates {
+		asking[c.ID] = true
+	}
+	standing := map[string]bool{}
+	if local, ok, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && ok {
+		if grants, err := local.Claims(); err == nil {
+			for _, g := range grants {
+				standing[g.NodeID] = true
+			}
+		}
+	}
+	authPort := strconv.Itoa(edgeSavedAuthorityPort())
+	samples, _ := edgeAlertLog().States(now.Add(-time.Hour)) // the log is a bonus: unreadable = empty
+	hubLog, hubSince := edge.LogOf(samples, self.NodeID, now)
+	snap.Items[0].Log, snap.Items[0].Since = hubLog, hubSince
+	members := map[string]bool{}
 	// The members, arranged; this machine's own row is the hub, not a member.
 	for _, r := range edge.Arrange(nodes) {
 		n := r.Node
@@ -96,8 +124,11 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 			continue
 		}
 		dark := edge.Presence(n.Presence) == edge.PresenceDark
+		members[n.ID] = true
 		it := fleetview.FleetItem{Kind: fleetview.ItemMember, ID: n.ID, Name: n.Name, NodeKind: n.Kind, Dark: dark,
-			Caps: edgeCapsOf(n.Caps), Via: r.Via, Health: health[n.ID], Alerts: firing[n.ID]}
+			Caps: edgeCapsOf(n.Caps), Via: r.Via, Health: health[n.ID], Alerts: firing[n.ID],
+			Asking: asking[n.ID] && dark, ClaimStanding: standing[n.ID], AuthPort: authPort}
+		it.Log, it.Since = edge.LogOf(samples, n.ID, now)
 		if n.LastSeen > 0 {
 			it.LastSeen = time.Unix(n.LastSeen, 0)
 		}
@@ -117,8 +148,11 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		snap.Items = append(snap.Items, it)
 	}
 	for _, c := range st.candidates {
+		if members[c.ID] {
+			continue // told on its member row
+		}
 		snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemCandidate, ID: c.ID, Name: c.Name, NodeKind: c.Kind,
-			Presence: "discovered", Caps: edgeCapsOf(c.Caps)})
+			Presence: "discovered", Caps: edgeCapsOf(c.Caps), ClaimStanding: standing[c.ID], AuthPort: authPort})
 	}
 	names := map[string]string{}
 	for _, n := range nodes {
@@ -128,6 +162,9 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		return fleetview.FleetSnapshot{}, err
 	}
 	snap.Sessions = edgeSessionLines(st, now)
+	if snap.Alarms, err = edgeAlarmLines(names, now); err != nil {
+		return fleetview.FleetSnapshot{}, err
+	}
 	snap.Self.AgentActive = edgeIsAgentRole(loadConfig())
 	return snap, nil
 }
@@ -197,6 +234,9 @@ func edgeFleetActions() fleetview.FleetActions {
 		SetAgent:    func(on bool) error { return edgeAgentSetRole(loadConfig(), on) },
 		ResumeAgent: func(name string) error { return edgeAgentResume(loadConfig(), name) },
 		RemoveAgent: func(name string) error { return edgeAgentRemove(loadConfig(), name) },
+		Roger: func(ruleID, nodeID string) error {
+			return edgeAlertLog().Roger(ruleID, nodeID, edgeOperatorName(), time.Now())
+		},
 	}
 }
 

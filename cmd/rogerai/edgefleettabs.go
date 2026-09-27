@@ -4,9 +4,11 @@ package main
 // the CLI runs: `roger edge grant` / `grant revoke`, `roger edge sessions`, `roger edge agent`.
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/fleetview"
 )
@@ -58,4 +60,45 @@ func edgeSessionLines(st *edgeState, now time.Time) []fleetview.SessionLine {
 			Outcome: x.OutcomeLabel(), Count: g.Count, Age: edge.Age(now.Sub(time.Unix(x.At, 0)))})
 	}
 	return out
+}
+
+// edgeAlarmLines is every standing trouble call as the screen lists it.
+func edgeAlarmLines(names map[string]string, now time.Time) ([]fleetview.AlarmLine, error) {
+	calls, err := edgeAlertLog().Standing(now)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]fleetview.AlarmLine, 0, len(calls))
+	for _, c := range calls {
+		node := names[c.NodeID]
+		if node == "" {
+			node = c.Node
+		}
+		value := ""
+		switch c.Metric {
+		case edge.MetricCPUTemp:
+			value = fmt.Sprintf("%.1f°C", c.Value)
+		case edge.MetricOffline:
+			value = edge.Age(time.Duration(c.Value * float64(time.Minute)))
+		case edge.MetricCPULoad:
+			value = fmt.Sprintf("%.2f", c.Value)
+		default:
+			value = fmt.Sprintf("%.0f%%", c.Value)
+		}
+		out = append(out, fleetview.AlarmLine{RuleID: c.RuleID, NodeID: c.NodeID, Node: node, Metric: string(c.Metric), When: c.When,
+			Value: value, Since: c.Since, Acked: c.Acked, AckBy: c.AckBy})
+	}
+	return out, nil
+}
+
+// edgeOperatorName is who says roger: the linked login's handle (never the whole address on a
+// screen), or the owner.
+func edgeOperatorName() string {
+	if l := client.LinkedLogin(); l != "" {
+		if i := strings.IndexByte(l, '@'); i > 0 {
+			return l[:i]
+		}
+		return l
+	}
+	return "owner"
 }

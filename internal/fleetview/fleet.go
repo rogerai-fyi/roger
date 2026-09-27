@@ -8,6 +8,7 @@ package fleetview
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,6 +47,55 @@ type FleetItem struct {
 	LastSeen time.Time
 	Health   *edge.NodeHealth
 	Alerts   []string
+	// The re-join story, told on ONE unit: Asking is a dark member back on the network
+	// advertising itself (a re-admits it); ClaimStanding is a claim grant waiting for the device
+	// to fetch its certificate at the authority's AuthPort.
+	Asking        bool
+	ClaimStanding bool
+	AuthPort      string
+	// THE LOG: the unit's last hour, one cell a minute (oldest first), and how long it has been
+	// in its current state.
+	Log   []edge.UnitState
+	Since time.Duration
+}
+
+// state is the unit's state in the station's words, and how long: ON AIR 3h12m, DARK 41m,
+// TROUBLE 7m. From the log when there is one; from what is known otherwise.
+func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
+	st := edge.StateUnknown
+	if n := len(it.Log); n > 0 {
+		st = it.Log[n-1]
+	}
+	if st == edge.StateUnknown {
+		switch {
+		case it.Dark:
+			st = edge.StateDark
+		case len(it.Alerts) > 0:
+			st = edge.StateTrouble
+		default:
+			st = edge.StateAir
+		}
+	}
+	since := it.Since
+	if since == 0 && it.Dark && !it.LastSeen.IsZero() {
+		since = now.Sub(it.LastSeen)
+	}
+	switch st {
+	case edge.StateDark:
+		return "DARK", ash, since
+	case edge.StateTrouble:
+		return "TROUBLE", live, since
+	}
+	return "ON AIR", signal, since
+}
+
+// stateWords is the state and its duration as one span pair.
+func (it FleetItem) stateWords(now time.Time) []lm.Span {
+	w, c, d := it.state(now)
+	if d > 0 {
+		return []lm.Span{span(w+" ", c), span(edge.Age(d), c)}
+	}
+	return []lm.Span{span(w, c)}
 }
 
 // SelfFacts is this machine's place on its Edge, worded by the caller (the same lines the CLI
@@ -55,6 +105,55 @@ type SelfFacts struct {
 	AuthorityLines                                                       []string // the readout's full account
 	Enrolled                                                             bool
 	AgentActive                                                          bool // this roger runs as an agent
+}
+
+// AlarmLine is one standing trouble call as the TROUBLE tab lists it.
+type AlarmLine struct {
+	RuleID, NodeID, Node, Metric, When, Value string
+	Since                                     time.Duration
+	Acked                                     bool
+	AckBy                                     string
+}
+
+// Priority is the call's rank, ISA-18.2's three: HI needs a hand now, MED soon, LOW when convenient.
+func (a AlarmLine) Priority() string {
+	switch a.Metric {
+	case "cpu_temp", "disk":
+		return "HI"
+	case "offline", "memory":
+		return "MED"
+	}
+	return "LOW"
+}
+
+func priorityRank(p string) int {
+	switch p {
+	case "HI":
+		return 0
+	case "MED":
+		return 1
+	}
+	return 2
+}
+
+// whyAndDo is the call's two sentences: why it matters, and what to do. Every call ships its
+// own action - a call nobody can act on is a status line, not a call.
+func whyAndDo(metric string) (string, string) {
+	switch metric {
+	case "cpu_temp":
+		return "a hot processor throttles, then fails early", "check the cooling and airflow · bind it a lighter model or job"
+	case "disk":
+		return "a full disk stops new models loading and logs writing", "free space (old models, caches) · or move the store to a bigger disk"
+	case "memory":
+		return "a full memory swaps and stalls every job on it", "bind a smaller model · stop a roger you do not need on it"
+	case "offline":
+		return "a dark unit serves nothing and its jobs wait", "check its power and network · if it is gone for good, forget it"
+	case "sd_wear":
+		return "a worn card corrupts silently, then will not boot", "back it up now · replace the card before it fails"
+	case "cpu_load":
+		return "a saturated processor answers late", "spread the jobs · or add a unit to the rack"
+	}
+	return "a rule you set is over its line", "look at the unit · adjust the rule if the line was wrong"
 }
 
 // GrantLine is one authority-signed grant as the GRANTS tab lists it: its facts, never a secret.
@@ -72,6 +171,7 @@ type FleetSnapshot struct {
 	Items    []FleetItem // draw order: hub, its rogers, members, candidates
 	Grants   []GrantLine
 	Sessions []SessionLine
+	Alarms   []AlarmLine
 	At       time.Time
 }
 
@@ -88,6 +188,7 @@ type FleetActions struct {
 	SetAgent    func(on bool) error
 	ResumeAgent func(name string) error
 	RemoveAgent func(name string) error
+	Roger       func(ruleID, nodeID string) error // acknowledge a standing trouble call
 }
 
 // Fleet is the screen.
@@ -102,7 +203,8 @@ type Fleet struct {
 	readAt   time.Time
 	sel      int
 	gsel     int // the selected grant on the GRANTS tab
-	tab      int // 0 fleet, 1 grants, 2 sessions, 3 health
+	asel     int // the selected call on the TROUBLE tab
+	tab      int // see tabs(): fleet, andon, trouble, grants, sessions, health
 	frame    int // advances each frame; the pulses breathe on it
 	confirm  bool
 	revoke   bool // the revoke question is up
@@ -111,6 +213,8 @@ type Fleet struct {
 	toast    string
 	toastAt  time.Time
 	toastErr bool
+	last     string // the last action's outcome, kept in the readout until the next
+	lastErr  bool
 }
 
 // NewFleet makes the screen over src, with health as its second tab (nil = no tab).
@@ -118,7 +222,7 @@ func NewFleet(src FleetSource, health *Health, acts FleetActions) *Fleet {
 	f := &Fleet{Source: src, Actions: acts, Every: 2 * time.Second, health: health}
 	if health != nil {
 		health.BackHint = "1 fleet"
-		health.Tabs, health.Tab = f.tabs(), 3
+		health.Tabs, health.Tab = f.tabs(), tabHealth
 	}
 	return f
 }
@@ -136,7 +240,7 @@ func (f *Fleet) Draw(fr *lm.Frame, ev *lm.Event) bool {
 			return false
 		}
 	}
-	if f.tab == 3 && f.health != nil {
+	if f.tab == tabHealth && f.health != nil {
 		return f.health.Draw(fr, nil)
 	}
 	f.refresh()
@@ -146,9 +250,20 @@ func (f *Fleet) Draw(fr *lm.Frame, ev *lm.Event) bool {
 	return true
 }
 
+// The tabs, by index: ANDON is the whole rack in two seconds (level 1), FLEET the rack (level 2),
+// TROUBLE the standing calls, GRANTS and SESSIONS the ledgers, HEALTH the instruments.
+const (
+	tabFleet = iota
+	tabAndon
+	tabTrouble
+	tabGrants
+	tabSessions
+	tabHealth
+)
+
 // tabs is the tab strip; HEALTH only when a health screen was given.
 func (f *Fleet) tabs() []string {
-	t := []string{"fleet", "grants", "sessions"}
+	t := []string{"fleet", "andon", "trouble", "grants", "sessions"}
 	if f.health != nil {
 		t = append(t, "health")
 	}
@@ -204,26 +319,33 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	switch {
 	case k.Ch == 'q' || k.Ch == 'Q' || k.Type == lm.KeyEsc:
 		return false
-	case k.Ch == '1':
-		f.tab = 0
-		return true
-	case k.Ch == '2':
-		f.tab = 1
-		return true
-	case k.Ch == '3':
-		f.tab = 2
-		return true
-	case k.Ch == '4' && f.health != nil:
-		f.tab = 3
+	case k.Ch >= '1' && k.Ch <= '6' && int(k.Ch-'1') < len(f.tabs()):
+		f.tab = int(k.Ch - '1')
 		return true
 	case k.Type == lm.KeyTab:
 		f.tab = (f.tab + 1) % len(f.tabs())
 		return true
 	}
 	switch f.tab {
-	case 3:
+	case tabHealth:
 		return f.health.Draw(nil, ev) || true
-	case 1:
+	case tabTrouble:
+		calls := f.sortedAlarms()
+		switch {
+		case k.Type == lm.KeyDown || k.Ch == 'j':
+			f.asel++
+		case k.Type == lm.KeyUp:
+			f.asel--
+		case k.Ch == 'k':
+			if f.asel < len(calls) && f.Actions.Roger != nil && !calls[f.asel].Acked {
+				c := calls[f.asel]
+				f.report(f.Actions.Roger(c.RuleID, c.NodeID), "roger · "+c.When+" on "+c.Node)
+			}
+		case k.Ch == 'r':
+			f.readAt = time.Time{}
+		}
+		return true
+	case tabGrants:
 		switch {
 		case k.Type == lm.KeyDown || k.Ch == 'j':
 			f.gsel++
@@ -237,7 +359,7 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 			f.readAt = time.Time{}
 		}
 		return true
-	case 2:
+	case tabSessions:
 		if k.Ch == 'r' {
 			f.readAt = time.Time{}
 		}
@@ -273,7 +395,7 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	case k.Type == lm.KeyUp || k.Ch == 'k':
 		f.sel--
 	case k.Ch == 'a':
-		if it := f.selected(); it.Kind == ItemCandidate && f.Actions.Adopt != nil {
+		if it := f.selected(); (it.Kind == ItemCandidate || (it.Kind == ItemMember && it.Asking)) && f.Actions.Adopt != nil {
 			msg, err := f.Actions.Adopt(it.ID, it.Name)
 			if err != nil {
 				f.say(err.Error(), true)
@@ -304,6 +426,14 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	return true
 }
 
+// preferWord is the preference as a word; the default is local.
+func preferWord(v string) string {
+	if v == "" {
+		return "local"
+	}
+	return v
+}
+
 func nextPrefer(cur string) string {
 	switch cur {
 	case "market":
@@ -324,7 +454,10 @@ func (f *Fleet) report(err error, ok string) {
 	f.readAt = time.Time{}
 }
 
-func (f *Fleet) say(s string, isErr bool) { f.toast, f.toastAt, f.toastErr = s, time.Now(), isErr }
+func (f *Fleet) say(s string, isErr bool) {
+	f.toast, f.toastAt, f.toastErr = s, time.Now(), isErr
+	f.last, f.lastErr = s, isErr
+}
 
 func (f *Fleet) refresh() {
 	if !f.readAt.IsZero() && time.Since(f.readAt) < f.Every {
@@ -373,15 +506,23 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 	}
 	brandBand(fr, rows[0], f.tabs(), f.tab, right, f.frame)
 	switch {
-	case f.err == nil && f.tab == 1:
+	case f.err == nil && f.tab == tabGrants:
 		f.drawGrants(fr, rows[1])
 		actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
 		if f.revoke && f.gsel < len(f.snap.Grants) {
 			confirmBox(fr, "revoke "+f.snap.Grants[f.gsel].ID+"?", "every node stops honoring it at once; a revocation is final", "y revoke", "n keep it")
 		}
 		return
-	case f.err == nil && f.tab == 2:
+	case f.err == nil && f.tab == tabSessions:
 		f.drawSessions(fr, rows[1])
+		actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
+		return
+	case f.err == nil && f.tab == tabTrouble:
+		f.drawTrouble(fr, rows[1])
+		actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
+		return
+	case f.err == nil && f.tab == tabAndon:
+		f.drawAndon(fr, rows[1])
 		actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
 		return
 	}
@@ -469,6 +610,16 @@ func alertChip(n int) []lm.Span {
 // many rows it drew, so the hairline beside it is as tall as the content.
 func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 	now := f.snap.At
+	narrow := area.Width < 66
+	nameW, kindW := 22, 8
+	if narrow {
+		nameW, kindW = 16, 0 // the eye and the glyph tell the kind
+	}
+	// wordsW is what is left on a roger's line for its words, and on a unit's line after the meter.
+	wordsW := int(area.Width) - 12 - nameW
+	if wordsW < 8 {
+		wordsW = 8
+	}
 	rail := func(i int, c lm.Color) lm.Span {
 		if i == f.sel {
 			return bold("▌", live)
@@ -508,9 +659,10 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 				span(strings.ToLower(f.snap.Self.Authority)+" · "+f.snap.Self.Prefer, muted)))
 			l = lm.NewLine(span(" ", dim), rail(i, dial), span("    ", dim))
 			l.Spans = append(l.Spans, meter(lv, true, -1, f.frame, true)...)
-			l.Spans = append(l.Spans, span(" "+sUnit(lv)+"  ", muted), span("online", signal))
+			l.Spans = append(l.Spans, span(" "+sUnit(lv)+"  ", muted))
+			l.Spans = append(l.Spans, it.stateWords(now)...)
 			if it.Health != nil && it.Health.Readings != nil && it.Health.Readings.UptimeS > 0 {
-				l.Spans = append(l.Spans, span(" "+edge.Age(time.Duration(it.Health.Readings.UptimeS)*time.Second), muted))
+				l.Spans = append(l.Spans, span(" · up "+edge.Age(time.Duration(it.Health.Readings.UptimeS)*time.Second), muted))
 			}
 			l.Spans = append(l.Spans, alertChip(len(it.Alerts))...)
 			top = append(top, l)
@@ -524,7 +676,7 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 				gc = live
 			}
 			top = append(top, lm.NewLine(span(" ", dim), rail(i, dial), span("      "+branch+" ", dim), bold(g+" ", gc),
-				span(pad(it.Name, 20), nameC(i, it.Dark)), span(it.rogerWords(), muted)))
+				span(pad(elide(it.Name, nameW-2), nameW-2), nameC(i, it.Dark)), span(elide(it.rogerWords(), wordsW), muted)))
 		case ItemMember:
 			if !seenMember {
 				seenMember = true
@@ -534,13 +686,17 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			lv := carrierLevel(it.LastSeen, it.Dark, now)
 			l := lm.NewLine(span(" ", dim), rail(i, dial), span(" ", dim))
 			l.Spans = append(l.Spans, eye(lv, it.Dark, false, len(it.Alerts) > 0, f.frame, i)...)
-			l.Spans = append(l.Spans, span(" ", dim), span(pad(it.Name, 22), nameC(i, it.Dark)), span(pad(kindLabel(it.NodeKind), 8), dim))
-			l.Spans = append(l.Spans, meter(lv, true, -1, f.frame, !it.Dark)...)
-			pc := signal
-			if it.Dark {
-				pc = ash
+			l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(it.Name, nameW), nameW), nameC(i, it.Dark)))
+			if kindW > 0 {
+				l.Spans = append(l.Spans, span(pad(kindLabel(it.NodeKind), kindW), dim))
 			}
-			l.Spans = append(l.Spans, span(" ", dim), span(it.Presence, pc))
+			l.Spans = append(l.Spans, meter(lv, true, -1, f.frame, !it.Dark)...)
+			if it.Asking { // the ask is the news; dark is implied by the eye and the flat meter
+				l.Spans = append(l.Spans, span(" ", dim), span("asking to re-join", glow))
+			} else {
+				l.Spans = append(l.Spans, span(" ", dim))
+				l.Spans = append(l.Spans, it.stateWords(now)...)
+			}
 			l.Spans = append(l.Spans, alertChip(len(it.Alerts))...)
 			top = append(top, l)
 		case ItemCandidate:
@@ -550,7 +706,10 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			}
 			l := lm.NewLine(span(" ", dim), rail(i, glow), span(" ", dim))
 			l.Spans = append(l.Spans, eye(0, false, true, false, f.frame, i)...)
-			l.Spans = append(l.Spans, span(" ", dim), span(pad(it.Name, 22), nameC(i, false)), span(pad(kindLabel(it.NodeKind), 8), dim))
+			l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(it.Name, nameW), nameW), nameC(i, false)))
+			if kindW > 0 {
+				l.Spans = append(l.Spans, span(pad(kindLabel(it.NodeKind), kindW), dim))
+			}
 			l.Spans = append(l.Spans, meter(0, false, -1, 0, false)...)
 			l.Spans = append(l.Spans, span(" found · a adopt", glow))
 			bench = append(bench, l)
@@ -614,7 +773,12 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		head(lv, false, false, it.Name, "this machine · "+strings.ToLower(root))
 		prose("the transmitter of this Edge: it holds the root key and signs every member's certificate", ink)
 		air()
-		row("carrier", append(meter(lv, true, -1, f.frame, true), span(" "+sUnit(lv)+"   ", muted), span("turns go "+f.snap.Self.PreferValue+" first", dial))...)
+		if area.Width < 56 { // narrow: the preference on its own row rather than cut
+			row("carrier", append(meter(lv, true, -1, f.frame, true), span(" "+sUnit(lv), muted))...)
+			row("turns", span("go "+preferWord(f.snap.Self.PreferValue)+" first", dial))
+		} else {
+			row("carrier", append(meter(lv, true, -1, f.frame, true), span(" "+sUnit(lv)+"   ", muted), span("turns go "+preferWord(f.snap.Self.PreferValue)+" first", dial))...)
+		}
 	case ItemInstance, ItemAgent:
 		role := "roger on this machine"
 		if it.Kind == ItemAgent {
@@ -638,10 +802,17 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		}
 	case ItemMember:
 		lv := carrierLevel(it.LastSeen, it.Dark, now)
-		head(lv, it.Dark, false, it.Name, kindLabel(it.NodeKind)+" · patched in")
-		if it.Dark {
+		head(lv, it.Dark, it.Asking, it.Name, kindLabel(it.NodeKind)+" · patched in")
+		switch {
+		case it.Asking && it.ClaimStanding:
+			prose("back on this network and asking to re-join. its claim is granted: it is waiting for it to claim its certificate at this authority's port "+it.AuthPort+" - nothing has arrived yet. a re-admits it again (a fresh grant, its old certificate revoked)", ink)
+		case it.Asking:
+			prose("back on this network and asking to re-join. a re-admits it: a fresh claim is granted and it fetches a new certificate", ink)
+		case it.ClaimStanding:
+			prose("adopted: waiting for it to claim its certificate at this authority's port "+it.AuthPort+" - nothing has arrived yet", ink)
+		case it.Dark:
 			prose("dark: the authority has not heard from it past the liveness window. it re-admits itself when it pings again", ink)
-		} else {
+		default:
 			prose("a member of this Edge, verified by the certificate this authority issued it", ink)
 		}
 		air()
@@ -682,6 +853,14 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			row("disk", append(append(meterN(l, from, 0, false, meterCells), span(fmt.Sprintf(" %.0f%%", 100*l), ink)), alarm(it.Alerts, "disk")...)...)
 		}
 	}
+	if len(it.Log) > 0 && (it.Kind == ItemHub || it.Kind == ItemMember) {
+		w, c, d := it.state(now)
+		tail := strings.ToLower(w)
+		if d > 0 {
+			tail += " " + edge.Age(d)
+		}
+		row("the log", append(logStrip(it.Log, width-22), span("  "+tail, c))...)
+	}
 	if len(it.Bands) > 0 {
 		row("on air", span(strings.Join(it.Bands, "  "), dial))
 	}
@@ -711,6 +890,20 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		air()
 		lines = append(lines, lm.NewLine(span("  ", dim), span("new name  ", paper), bold(string(f.input)+"▏", paper),
 			span("  (was "+it.Name+") · enter to rename · esc to cancel", muted)))
+	}
+	if f.last != "" {
+		air()
+		c := signal
+		if f.lastErr {
+			c = live
+		}
+		for i, part := range wrapWords(f.last, width) {
+			k := "▸ "
+			if i > 0 {
+				k = "  "
+			}
+			lines = append(lines, lm.NewLine(span("  "+k, c), span(part, c)))
+		}
 	}
 	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 	return len(lines)
@@ -750,14 +943,22 @@ type action struct{ key, label, hint string }
 func (f *Fleet) actions() []action {
 	it := f.selected()
 	switch f.tab {
-	case 1:
+	case tabGrants:
 		out := []action{{"↑↓", "select", ""}}
 		if f.Actions.RevokeGrant != nil {
 			out = append(out, action{"x", "revoke", ""})
 		}
 		return append(out, action{"1", "fleet", ""}, action{"r", "re-read", ""}, action{"q", "quit", ""})
-	case 2:
+	case tabSessions:
 		return []action{{"1", "fleet", ""}, {"r", "re-read", ""}, {"q", "quit", ""}}
+	case tabTrouble:
+		out := []action{{"↑↓", "select", ""}}
+		if f.Actions.Roger != nil {
+			out = append(out, action{"k", "roger", ""})
+		}
+		return append(out, action{"1", "fleet", ""}, action{"r", "re-read", ""}, action{"q", "quit", ""})
+	case tabAndon:
+		return []action{{"↑↓", "select", ""}, {"1", "fleet", ""}, {"3", "trouble", ""}, {"r", "re-read", ""}, {"q", "quit", ""}}
 	}
 	out := []action{{"↑↓", "select", ""}}
 	switch it.Kind {
@@ -773,6 +974,9 @@ func (f *Fleet) actions() []action {
 			out = append(out, action{"a", "adopt", ""})
 		}
 	case ItemMember:
+		if it.Asking && f.Actions.Adopt != nil {
+			out = append(out, action{"a", "re-admit", ""})
+		}
 		if f.Actions.Rename != nil {
 			out = append(out, action{"n", "rename", ""})
 		}
@@ -791,9 +995,9 @@ func (f *Fleet) actions() []action {
 			}
 		}
 	}
-	out = append(out, action{"2", "grants", ""}, action{"3", "sessions", ""})
+	out = append(out, action{"2", "andon", ""}, action{"3", "trouble", ""}, action{"4", "grants", ""}, action{"5", "sessions", ""})
 	if f.health != nil {
-		out = append(out, action{"4", "health", ""})
+		out = append(out, action{"6", "health", ""})
 	}
 	return append(out, action{"r", "re-read", ""}, action{"q", "quit", ""})
 }
@@ -859,4 +1063,220 @@ func (f *Fleet) drawSessions(fr *lm.Frame, area lm.Rect) {
 		lines = append(lines, l)
 	}
 	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
+}
+
+// logStrip draws a unit's last hour, newest at the right, at most w cells: ▁ on air, ▒ dark,
+// ▲ trouble (red), · not judged.
+func logStrip(log []edge.UnitState, w int) []lm.Span {
+	if w < 12 {
+		w = 12
+	}
+	if len(log) > w {
+		log = log[len(log)-w:]
+	}
+	var out []lm.Span
+	var b strings.Builder
+	cur, started := dim, false
+	flush := func() {
+		if b.Len() > 0 {
+			out = append(out, span(b.String(), cur))
+			b.Reset()
+		}
+	}
+	for _, st := range log {
+		r, c := '·', dim
+		switch st {
+		case edge.StateAir:
+			r, c = '▁', signal
+		case edge.StateDark:
+			r, c = '▒', ash
+		case edge.StateTrouble:
+			r, c = '▲', live
+		}
+		if !started || c != cur {
+			flush()
+			cur, started = c, true
+		}
+		b.WriteRune(r)
+	}
+	flush()
+	return out
+}
+
+// sortedAlarms is the standing calls the ISA-18.2 way: priority first, then the oldest first.
+func (f *Fleet) sortedAlarms() []AlarmLine {
+	out := append([]AlarmLine(nil), f.snap.Alarms...)
+	sort.SliceStable(out, func(i, j int) bool {
+		pi, pj := priorityRank(out[i].Priority()), priorityRank(out[j].Priority())
+		if pi != pj {
+			return pi < pj
+		}
+		return out[i].Since > out[j].Since
+	})
+	return out
+}
+
+// drawTrouble is the TROUBLE tab: the standing calls, each with why it matters and what to do;
+// an acknowledged call keeps its row and loses its color.
+func (f *Fleet) drawTrouble(fr *lm.Frame, area lm.Rect) {
+	calls := f.sortedAlarms()
+	if f.asel >= len(calls) {
+		f.asel = len(calls) - 1
+	}
+	if f.asel < 0 {
+		f.asel = 0
+	}
+	hi := 0
+	for _, c := range calls {
+		if c.Priority() == "HI" && !c.Acked {
+			hi++
+		}
+	}
+	head := lm.NewLine(span("   ", dim), eyebrow("trouble", muted), span(fmt.Sprintf("  %d standing", len(calls)), dim))
+	if hi > 0 {
+		head.Spans = append(head.Spans, span(" · ", dim), bold(fmt.Sprintf("%d high, not yet acknowledged", hi), live))
+	}
+	lines := []lm.Line{lm.NewLine(), head, lm.NewLine()}
+	if len(calls) == 0 {
+		lines = append(lines, lm.NewLine(span("   ", dim), bold("ALL CLEAR", signal), span("  nothing is over its line", muted)))
+	} else {
+		lines = append(lines, lm.NewLine(span("     ", dim), eyebrow(pad("pri", 7), dim), eyebrow(pad("age", 8), dim), eyebrow(pad("unit", 20), dim),
+			eyebrow(pad("call", 20), dim), eyebrow(pad("now", 10), dim), eyebrow("acknowledged", dim)))
+	}
+	for i, c := range calls {
+		rail := span("▌", dim)
+		nc := ink
+		if i == f.asel {
+			rail, nc = bold("▌", live), paper
+		}
+		mark, mc := "▲ "+c.Priority(), live
+		switch {
+		case c.Acked:
+			mc = muted
+		case c.Priority() == "MED":
+			mc = glow
+		case c.Priority() == "LOW":
+			mc = muted
+		}
+		ack := span("-", dim)
+		if c.Acked {
+			ack = span("ROGER "+c.AckBy, signal)
+		}
+		lines = append(lines, lm.NewLine(span(" ", dim), rail, span(" ", dim), bold(pad(mark, 7), mc), span(pad(edge.Age(c.Since), 8), muted),
+			span(pad(elide(c.Node, 19), 20), nc), span(pad(c.When, 20), nc), span(pad(c.Value, 10), ink), ack))
+		if i == f.asel {
+			why, do := whyAndDo(c.Metric)
+			lines = append(lines, lm.NewLine(span("     ", dim), eyebrow(pad("why it matters", 16), muted), span(why, ink)))
+			lines = append(lines, lm.NewLine(span("     ", dim), eyebrow(pad("do", 16), muted), span(do, ink)), lm.NewLine())
+		}
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
+}
+
+// airtime is the share of the last hour a unit was on air, over the minutes that were judged.
+func airtime(log []edge.UnitState) (int, bool) {
+	air, known := 0, 0
+	for _, st := range log {
+		if st == edge.StateUnknown {
+			continue
+		}
+		known++
+		if st == edge.StateAir { // trouble is on air, but it is not clean airtime
+			air++
+		}
+	}
+	if known == 0 {
+		return 0, false
+	}
+	return int(float64(air)/float64(known)*100 + 0.5), true
+}
+
+// drawAndon is the ANDON tab: one tile per unit - one word, one color, one number - the rack in
+// two seconds; the counter line at the foot.
+func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
+	now := f.snap.At
+	var units []FleetItem
+	var unitIdx []int
+	for i, it := range f.snap.Items {
+		if it.Kind == ItemHub || it.Kind == ItemMember {
+			units = append(units, it)
+			unitIdx = append(unitIdx, i)
+		}
+	}
+	const tileW, tileH = 30, 6
+	perRow := int(area.Width-2) / (tileW + 1)
+	if perRow < 1 {
+		perRow = 1
+	}
+	rows := lm.SplitVertical(area, lm.Fill(), lm.Fixed(2))
+	on, trouble, dark := 0, 0, 0
+	var lines []lm.Line
+	lines = append(lines, lm.NewLine())
+	for start := 0; start < len(units); start += perRow {
+		end := start + perRow
+		if end > len(units) {
+			end = len(units)
+		}
+		tile := make([][]lm.Span, tileH)
+		for ti := start; ti < end; ti++ {
+			it := units[ti]
+			word, c, since := it.state(now)
+			switch word {
+			case "ON AIR":
+				on++
+			case "TROUBLE":
+				trouble++
+			default:
+				dark++
+			}
+			railC := dim
+			if unitIdx[ti] == f.sel {
+				railC = live
+			}
+			pct, ok := airtime(it.Log)
+			pctS := "-"
+			if ok {
+				pctS = fmt.Sprintf("%d%%", pct)
+			}
+			row0 := append([]lm.Span{span(" ", dim), bold("▌", railC), span(" ", dim)}, eye(carrierLevel(it.heard(now), it.Dark, now), it.Dark, it.Asking, len(it.Alerts) > 0, f.frame, ti)...)
+			row0 = append(row0, span(" ", dim), bold(pad(elide(it.Name, 22), 23), paper))
+			sinceS := ""
+			if since > 0 {
+				sinceS = edge.Age(since)
+			}
+			row1 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), bold(pad(word, 10), c), span(pad(sinceS, 15), c)}
+			row2 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), eyebrow("airtime ", muted), bold(pad(pctS, 5), ink)}
+			row2 = append(row2, logStrip(it.Log, 12)...)
+			row2 = append(row2, span(" ", dim))
+			what := ""
+			switch {
+			case len(it.Alerts) > 0:
+				what = "▲ " + it.Alerts[0]
+			case len(it.Bands) > 0:
+				what = "on air " + fewBands(it.Bands)
+			case it.Kind == ItemHub:
+				what = "the authority"
+			default:
+				what = kindLabel(it.NodeKind)
+			}
+			wc := muted
+			if len(it.Alerts) > 0 {
+				wc = live
+			}
+			row3 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), span(pad(elide(what, 24), 25), wc)}
+			row4 := []lm.Span{span(" ", dim), span("▌", dim), span(pad("", 27), dim)}
+			for r, sp := range [][]lm.Span{row0, row1, row2, row3, row4, {span(pad("", tileW), dim)}} {
+				tile[r] = append(tile[r], sp...)
+				tile[r] = append(tile[r], span(" ", dim))
+			}
+		}
+		for r := 0; r < tileH; r++ {
+			lines = append(lines, lm.NewLine(tile[r]...))
+		}
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), rows[0])
+	foot := lm.NewLine(span("   ", dim), eyebrow("the rack", muted), span(fmt.Sprintf("  %d units   ", len(units)), dim),
+		bold(fmt.Sprintf("%d on air", on), signal), span("   ", dim), bold(fmt.Sprintf("%d trouble", trouble), live), span("   ", dim),
+		span(fmt.Sprintf("%d dark", dark), ash))
+	fr.RenderWidget(lm.NewText(lm.NewLine(), foot).WithWrap(false), rows[1])
 }

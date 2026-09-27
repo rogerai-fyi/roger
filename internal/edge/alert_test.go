@@ -7,6 +7,8 @@ package edge_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -271,4 +273,93 @@ func TestAnAlertRecordIsHonestJSON(t *testing.T) {
 	_, hasDark := m["dark_for_s"]
 	require.False(t, hasDark, "a temperature alert carries no dark time: %s", b)
 	require.NotContains(t, string(b), "0001-01-01", "no zero time is ever written: %s", b)
+}
+
+// THE LOG (a factory's state timeline, the station's log): each judgement records every unit's
+// state - on air, dark, trouble - once per minute, so the surfaces can draw the last hour and
+// say how long a unit has been in its state without anyone having watched the screen.
+func TestJudgeKeepsAStateLogOncePerMinute(t *testing.T) {
+	dir := t.TempDir()
+	l := edge.AlertLog{Dir: dir}
+	t0 := time.Date(2026, 9, 26, 12, 0, 5, 0, time.UTC)
+	hot := healthOf("pi", t0, 99, 10)
+	dark := edge.NodeHealth{ID: "n_q", Name: "quiet", Presence: string(edge.PresenceDark), Dark: true, DarkFor: 10 * time.Minute, LastHeard: t0.Add(-10 * time.Minute)}
+	fine := healthOf("nas", t0, 40, 10)
+	_, _, err := l.Judge([]edge.NodeHealth{hot, dark, fine}, t0)
+	require.NoError(t, err)
+	_, _, err = l.Judge([]edge.NodeHealth{hot, dark, fine}, t0.Add(20*time.Second)) // same minute: no new line
+	require.NoError(t, err)
+	_, _, err = l.Judge([]edge.NodeHealth{healthOf("pi", t0, 70, 10), dark, fine}, t0.Add(2*time.Minute)) // pi cooled
+	require.NoError(t, err)
+
+	samples, err := l.States(t0.Add(-time.Hour))
+	require.NoError(t, err)
+	require.Len(t, samples, 2, "one sample per minute that was judged")
+	require.Equal(t, edge.StateTrouble, samples[0].States["n_pi"])
+	require.Equal(t, edge.StateDark, samples[0].States["n_q"])
+	require.Equal(t, edge.StateAir, samples[0].States["n_nas"])
+	require.Equal(t, edge.StateAir, samples[1].States["n_pi"], "cleared: on air again")
+
+	// The last hour as 60 cells, oldest first, unknown where nothing was judged; and how long
+	// the unit has been in its current state.
+	cells, since := edge.LogOf(samples, "n_pi", t0.Add(3*time.Minute))
+	require.Len(t, cells, 60)
+	require.Equal(t, edge.StateTrouble, cells[56], "t0 is 3 minutes before the end")
+	require.Equal(t, edge.StateUnknown, cells[0])
+	require.Equal(t, edge.StateAir, cells[58])
+	require.InDelta(t, (1 * time.Minute).Minutes(), since.Minutes(), 0.6, "on air since the t0+2m sample")
+}
+
+// TROUBLE CALLS (ISA-18.2 by way of the station): what is standing, since when, and whether
+// the operator has said ROGER to it. An acknowledgement quiets the call, never removes it; the
+// call leaves when the condition clears, and its acknowledgement with it.
+func TestStandingTroubleCallsAndRoger(t *testing.T) {
+	dir := t.TempDir()
+	l := edge.AlertLog{Dir: dir}
+	t0 := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	_, _, err := l.Judge([]edge.NodeHealth{healthOf("pi", t0, 99, 10)}, t0)
+	require.NoError(t, err)
+	calls, err := l.Standing(t0.Add(7 * time.Minute))
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	c := calls[0]
+	require.Equal(t, "cpu_temp", c.RuleID)
+	require.Equal(t, "n_pi", c.NodeID)
+	require.Equal(t, "pi", c.Node)
+	require.InDelta(t, 7, c.Since.Minutes(), 0.1, "standing since it fired")
+	require.False(t, c.Acked)
+
+	require.NoError(t, l.Roger("cpu_temp", "n_pi", "luis", t0.Add(8*time.Minute)))
+	calls, _ = l.Standing(t0.Add(9 * time.Minute))
+	require.True(t, calls[0].Acked)
+	require.Equal(t, "luis", calls[0].AckBy)
+	require.Error(t, l.Roger("disk", "n_pi", "luis", t0), "only a standing call can be acknowledged")
+
+	// It clears: the call is gone, and so is its acknowledgement (a new call needs a new roger).
+	_, _, err = l.Judge([]edge.NodeHealth{healthOf("pi", t0, 70, 10)}, t0.Add(10*time.Minute))
+	require.NoError(t, err)
+	calls, _ = l.Standing(t0.Add(11 * time.Minute))
+	require.Empty(t, calls)
+	_, _, err = l.Judge([]edge.NodeHealth{healthOf("pi", t0, 99, 10)}, t0.Add(12*time.Minute))
+	require.NoError(t, err)
+	calls, _ = l.Standing(t0.Add(13 * time.Minute))
+	require.Len(t, calls, 1)
+	require.False(t, calls[0].Acked, "a fresh call is not pre-acknowledged")
+}
+
+// The history outlives the binary that wrote it: a line from before the alert record changed
+// shape (a zero time for last_heard, a nanosecond dark_for) still reads, so a standing call keeps
+// its age across an upgrade instead of showing as new.
+func TestRecentReadsHistoryWrittenByAnOlderBinary(t *testing.T) {
+	dir := t.TempDir()
+	old := `{"at":"2026-09-26T10:43:00-07:00","rule":"cpu_temp","node_id":"n_pi","node":"pi","metric":"cpu_temp","value":95.5,"threshold":85,"op":"gt","firing":true,"last_heard":"0001-01-01T00:00:00Z"}` + "\n" +
+		`{"at":"2026-09-26T10:43:00-07:00","rule":"offline","node_id":"n_q","node":"quiet","metric":"offline","value":1500,"threshold":5,"op":"gt","firing":true,"dark_for":90000000000000,"last_heard":"2026-09-24T13:23:00-07:00"}` + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "log.jsonl"), []byte(old), 0o600))
+	got, err := edge.AlertLog{Dir: dir}.Recent(10)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, "pi", got[0].Node)
+	require.Equal(t, 95.5, got[0].Value)
+	require.True(t, got[1].Firing)
+	require.NotZero(t, got[1].LastHeard, "a real last-heard time is kept")
 }

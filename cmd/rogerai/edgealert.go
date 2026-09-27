@@ -187,6 +187,11 @@ func edgeReadFiring() map[string][]string {
 		log.Println("edge: could not read the alert rules:", err)
 		return nil
 	}
+	return edgeFiringWords(st, rules)
+}
+
+// edgeFiringWords is a firing state as the surfaces draw it: node id -> the rules firing, worded.
+func edgeFiringWords(st edge.AlertState, rules edge.RuleSet) map[string][]string {
 	byID := map[string]edge.Rule{}
 	for _, r := range rules {
 		byID[r.ID] = r

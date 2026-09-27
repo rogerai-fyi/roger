@@ -212,11 +212,17 @@ func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string,
 			head.Spans = append(head.Spans, span(strings.ToLower(t), muted), span("   ", dim))
 		}
 	}
-	// Right-align the facts by padding to the width.
+	// Right-align the facts by padding to the width; when they do not fit, the clock goes first,
+	// then whatever else must, so the alert count is the last thing lost.
 	used := 0
 	for _, s := range head.Spans {
 		used += len([]rune(s.Text))
 	}
+	parts := strings.Split(right, " · ")
+	for len(parts) > 1 && int(area.Width)-used-len([]rune(strings.Join(parts, " · ")))-1 < 1 {
+		parts = parts[1:]
+	}
+	right = strings.Join(parts, " · ")
 	gap := int(area.Width) - used - len([]rune(right)) - 1
 	if gap > 1 {
 		head.Spans = append(head.Spans, span(strings.Repeat(" ", gap), dim))
@@ -287,6 +293,19 @@ func confirmBox(fr *lm.Frame, title, sentence, yes, no string) {
 	}
 	fr.RenderWidget(lm.NewBlock().WithBorders(0).WithStyle(lm.Bg(ground)).
 		WithChild(lm.NewText(lines...).WithWrap(false).WithStyle(lm.Bg(ground))), box)
+}
+
+// elide cuts s to n cells with an ellipsis, so a long name folds instead of running into the
+// next column.
+func elide(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 1 {
+		return "…"
+	}
+	return string(r[:n-1]) + "…"
 }
 
 func fmtGB(v float64) string { return strconv.FormatFloat(v, 'f', 0, 64) }

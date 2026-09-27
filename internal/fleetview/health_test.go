@@ -45,7 +45,7 @@ func TestHealthScreenShowsTheFleetHonestlyAndFollowsTheSelection(t *testing.T) {
 	page := uitest.Run(t, 120, 40, h.Draw)
 
 	screen := page.Screen()
-	must(t, screen, "RogGentooEdged", "95.5", "79", "125", "92%", "14d", "quiet-pi", "gentle-ibex-14", "offline 1d")
+	must(t, screen, "RogGentooEdged", "95.5", "79", "125", "92%", "14d", "quiet-pi", "gentle-ibex-14", "DARK 1d")
 	if strings.Contains(screen, "0.0°C") {
 		t.Fatalf("a node that reports no temperature must never show zero degrees:\n%s", screen)
 	}
@@ -65,7 +65,7 @@ func TestHealthScreenShowsTheFleetHonestlyAndFollowsTheSelection(t *testing.T) {
 	// Down to the dark phone: offline for how long, when last heard, and its offline alert.
 	page.Press("Down")
 	screen = page.Screen()
-	must(t, screen, "gentle-ibex-14   phone", "offline 1d", "last heard", "▲ offline > 5")
+	must(t, screen, "gentle-ibex-14   phone", "DARK 1d", "last heard", "▲ offline > 5")
 
 	// Down at the end stays put; Up walks back; q quits.
 	page.Press("Down")

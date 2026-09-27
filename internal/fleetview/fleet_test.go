@@ -70,7 +70,7 @@ func TestFleetScreenDrawsTheWholeEdgeWithItsFacts(t *testing.T) {
 	s := page.Screen()
 	must(t, s, "ROGER", "EDGE", "ON AIR", "RogGentooEdged", "prefers local")
 	must(t, s, "roggentooedged", "this one", "roggentooedged-2", "qwen3.8-27b", "watcher", "offline")
-	must(t, s, "ON THE RACK", "nas", "gentle-ibex-14", "offline 1d", "ON THE BENCH", "blue-fox-3", "adopt")
+	must(t, s, "ON THE RACK", "nas", "gentle-ibex-14", "DARK 1d", "ON THE BENCH", "blue-fox-3", "adopt")
 	must(t, s, "▲ 1", "▲ 2", "scanning this network")
 	// The hub is selected first: its readout names its role, its alert on the temperature meter, its health.
 	must(t, s, "this machine", "▲ cpu_temp > 85", "95.5")
@@ -142,7 +142,7 @@ func TestFleetScreenHasAHealthTabAndComesBack(t *testing.T) {
 	})
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, h, (&recorder{}).actions())
 	page := uitest.Run(t, 130, 44, f.Draw)
-	page.Press("4")
+	page.Press("6")
 	must(t, page.Screen(), "UNIT", "TEMP", "CARRIER", "quiet-pi")
 	page.Press("1")
 	must(t, page.Screen(), "ON THE RACK", "ON THE BENCH")
@@ -179,7 +179,7 @@ func TestFleetScreenGrantsAndSessionsTabs(t *testing.T) {
 	acts.RevokeGrant = func(id string) error { revoked = append(revoked, id); return nil }
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, acts)
 	page := uitest.Run(t, 130, 44, f.Draw)
-	page.Press("2")
+	page.Press("4")
 	must(t, page.Screen(), "GRANTS", "grant_ab12cd", "workstation", "may operate", "RogGentooEdged", "REVOKED")
 	page.Press("x")
 	must(t, page.Screen(), "revoke grant_ab12cd?")
@@ -187,7 +187,7 @@ func TestFleetScreenGrantsAndSessionsTabs(t *testing.T) {
 	if len(revoked) != 1 || revoked[0] != "grant_ab12cd" {
 		t.Fatalf("revoked = %v", revoked)
 	}
-	page.Press("3")
+	page.Press("5")
 	must(t, page.Screen(), "SESSIONS", "workstation/agent", "qwen3.8-27b", "served", "REFUSED (no grant)", "×3")
 	page.Press("1")
 	must(t, page.Screen(), "ON THE RACK")
@@ -221,4 +221,159 @@ func TestFleetScreenAgentActions(t *testing.T) {
 	if len(resumed) != 1 || resumed[0] != "watcher" || len(removed) != 1 || removed[0] != "watcher" {
 		t.Fatalf("resumed = %v removed = %v", resumed, removed)
 	}
+}
+
+// At 100 columns the screens fold rather than cut: the kind column and the strip's carrier meter
+// go (the eye tells presence), names elide, and the facts that matter stay whole.
+func TestScreensFoldAtAHundredColumns(t *testing.T) {
+	now := time.Now()
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{Nodes: fleet(now), Firing: map[string][]string{"n_desk": {"cpu_temp > 85", "disk > 90"}, "n_ibex": {"offline > 5"}}, At: now}, nil
+	})
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, h, (&recorder{}).actions())
+	page := uitest.Run(t, 100, 30, f.Draw)
+	s := page.Screen()
+	must(t, s, "▲ 2", "DARK 1d", "found · a adopt", "go local first")
+	for _, cut := range []string{"onlin ", "offlin ", "▲ ove", "qwen3.8-│"} {
+		if strings.Contains(s, cut) {
+			t.Fatalf("a fact was cut instead of folded (%q):\n%s", cut, s)
+		}
+	}
+	page.Press("6")
+	s = page.Screen()
+	must(t, s, "UNIT", "TEMP", "DARK 1d", "▲ 2", "▲ 1", "▲ over 90")
+	if strings.Contains(s, "CARRIER") {
+		t.Fatalf("at 100 columns the strip drops the carrier meter (the eye tells presence):\n%s", s)
+	}
+	for _, cut := range []string{"onlin ", "offli "} {
+		if strings.Contains(s, cut) {
+			t.Fatalf("a fact was cut instead of folded (%q):\n%s", cut, s)
+		}
+	}
+}
+
+// A dark member that is back on the network asking to re-join is ONE unit, not a member and a
+// candidate: its row says so, a re-admits it, and the readout explains what happens next. A unit
+// that was adopted but has not claimed yet says it is waiting, and where.
+func TestFleetScreenTellsTheReJoinStoryOnOneUnit(t *testing.T) {
+	now := time.Now()
+	rec := &recorder{}
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		if snap.Items[i].Name == "gentle-ibex-14" {
+			snap.Items[i].Asking = true
+			snap.Items[i].ClaimStanding = true
+			snap.Items[i].AuthPort = "39009"
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, rec.actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	for i := 0; i < 5; i++ {
+		page.Press("Down")
+	}
+	s := page.Screen()
+	must(t, s, "asking to re-join", "a re-admit", "waiting for it to claim", "39009")
+	page.Press("a")
+	if len(rec.adopted) != 1 || rec.adopted[0] != "n_ibex" {
+		t.Fatalf("a on an asking member re-admits it through Adopt: %v", rec.adopted)
+	}
+	// The outcome stays in the readout, not only in a passing toast.
+	must(t, page.Screen(), "adopted gentle-ibex-14")
+}
+
+// THE LOG on every unit: the last hour as a strip, and the state in words with how long.
+func TestFleetScreenShowsTheLogAndTimeInState(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		switch snap.Items[i].Name {
+		case "nas":
+			log := make([]edge.UnitState, 60)
+			for j := range log {
+				log[j] = edge.StateAir
+			}
+			for j := 50; j < 57; j++ {
+				log[j] = edge.StateTrouble
+			}
+			snap.Items[i].Log, snap.Items[i].Since = log, 3*time.Minute
+		case "gentle-ibex-14":
+			log := make([]edge.UnitState, 60)
+			for j := range log {
+				log[j] = edge.StateDark
+			}
+			snap.Items[i].Log, snap.Items[i].Since = log, 26*time.Hour
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	s := page.Screen()
+	must(t, s, "ON AIR 3m", "DARK 1d")
+	for i := 0; i < 4; i++ {
+		page.Press("Down")
+	}
+	s = page.Screen()
+	must(t, s, "THE LOG", "▁▁▁▁▁▁▲▲▲▲▲▲▲▁▁▁", "on air 3m")
+}
+
+// TROUBLE tab: the standing calls sorted priority then oldest first, each with why it matters and
+// what to do; k says ROGER - the row loses its color, not its place.
+func TestFleetScreenTroubleTabAndRoger(t *testing.T) {
+	now := time.Now()
+	var rogered []string
+	snap := fleetSnap(now)
+	snap.Alarms = []fleetview.AlarmLine{
+		{RuleID: "offline", NodeID: "n_ibex", Node: "gentle-ibex-14", Metric: "offline", When: "offline > 5", Value: "26h", Since: 26 * time.Hour},
+		{RuleID: "cpu_temp", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "cpu_temp", When: "cpu_temp > 85", Value: "95.5°C", Since: 14 * time.Minute},
+		{RuleID: "disk", NodeID: "n_desk", Node: "RogGentooEdged", Metric: "disk", When: "disk > 90", Value: "92%", Since: 3 * time.Hour, Acked: true, AckBy: "luis"},
+	}
+	acts := (&recorder{}).actions()
+	acts.Roger = func(ruleID, nodeID string) error { rogered = append(rogered, ruleID+"@"+nodeID); return nil }
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, acts)
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("3")
+	s := page.Screen()
+	must(t, s, "TROUBLE", "3 standing", "HI", "MED", "cpu_temp > 85", "95.5°C", "WHY IT MATTERS", "free space", "ROGER luis")
+	// Priority first (HI before MED), then the oldest first among equals: disk (3h) before cpu_temp (14m).
+	if strings.Index(s, "disk > 90") > strings.Index(s, "cpu_temp > 85") || strings.Index(s, "cpu_temp > 85") > strings.Index(s, "offline > 5") {
+		t.Fatalf("calls must sort priority then age:\n%s", s)
+	}
+	page.Press("Down") // the second row: cpu_temp, not yet acknowledged
+	page.Press("k")
+	if len(rogered) != 1 || rogered[0] != "cpu_temp@n_desk" {
+		t.Fatalf("k should say roger to the selected call: %v", rogered)
+	}
+}
+
+// ANDON: one tile per unit - one word, one color, one number - so the whole rack is read in two
+// seconds; the counter line at the foot says how many are on air, in trouble, dark.
+func TestFleetScreenAndonTiles(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		log := make([]edge.UnitState, 60)
+		for j := range log {
+			log[j] = edge.StateAir
+		}
+		switch snap.Items[i].Name {
+		case "gentle-ibex-14":
+			for j := range log {
+				log[j] = edge.StateDark
+			}
+			snap.Items[i].Log, snap.Items[i].Since = log, 26*time.Hour
+		case "nas":
+			for j := 54; j < 60; j++ {
+				log[j] = edge.StateTrouble
+			}
+			snap.Items[i].Log, snap.Items[i].Since = log, 6*time.Minute
+			snap.Items[i].Alerts = []string{"disk > 90"}
+		case "RogGentooEdged":
+			snap.Items[i].Log, snap.Items[i].Since = log, 15*24*time.Hour
+			snap.Items[i].Alerts = nil
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("2")
+	s := page.Screen()
+	must(t, s, "ANDON", "ON AIR", "TROUBLE", "DARK", "AIRTIME", "100%", "90%", "0%", "1 on air", "1 trouble", "1 dark")
 }
