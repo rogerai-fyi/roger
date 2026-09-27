@@ -110,15 +110,15 @@ func edgeAlertList(l edge.AlertLog) error {
 	if err != nil {
 		return err
 	}
-	names := map[string]string{}
+	names, kinds := map[string]string{}, map[string]string{}
 	for _, h := range hs {
-		names[h.ID] = h.Name
+		names[h.ID], kinds[h.ID] = h.Name, h.Kind
 	}
 	fmt.Printf("%-12s %-18s %-14s %-8s %s\n", "RULE", "WHEN", "SCOPE", "KIND", "STATE")
 	for _, r := range rules {
 		fmt.Printf("%-12s %-18s %-14s %-8s %s\n", r.ID, r.Key(), edgeRuleScope(r, names), edgeRuleKind(r), edgeRuleState(r, firing, hs))
 	}
-	fmt.Printf("\n%-10s %s\n", "sinks", edgeSinkLine(l, names, now))
+	fmt.Printf("\n%-10s %s\n", "sinks", edgeSinkLine(l, names, kinds, now))
 	recent, err := l.Recent(8)
 	if err != nil {
 		return err
@@ -267,7 +267,7 @@ func edgeRuleState(r edge.Rule, firing edge.AlertState, hs []edge.NodeHealth) st
 
 // edgeSinkLine names where alerts go: the Roger app on each member that has read the trouble
 // feed, and when it last looked - or nowhere, until one does.
-func edgeSinkLine(l edge.AlertLog, names map[string]string, now time.Time) string {
+func edgeSinkLine(l edge.AlertLog, names map[string]string, kinds map[string]string, now time.Time) string {
 	reads, err := l.Reads()
 	if err != nil || len(reads) == 0 {
 		return "none configured - alerts stay on this machine (fleet surfaces and the alert log) until a member's Roger app reads the feed"
@@ -283,7 +283,11 @@ func edgeSinkLine(l edge.AlertLog, names map[string]string, now time.Time) strin
 		if name == "" {
 			name = edgeShortID(id)
 		}
-		parts = append(parts, fmt.Sprintf("the Roger app on %s (last read %s ago)", name, edge.Age(now.Sub(time.Unix(reads[id], 0)))))
+		who := "the Roger app on " + name
+		if kinds[id] != "mobile" { // a machine reading its own feed is a reader, not a phone
+			who = "read by " + name
+		}
+		parts = append(parts, fmt.Sprintf("%s (last read %s ago)", who, edge.Age(now.Sub(time.Unix(reads[id], 0)))))
 	}
 	return strings.Join(parts, " · ")
 }
