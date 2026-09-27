@@ -65,6 +65,26 @@ func TestEdgeFleetScreenReadsAndManagesTheRealEdge(t *testing.T) {
 
 	_, err = acts.Adopt("n_nobody", "nobody")
 	require.Error(t, err, "adopting a candidate that was never seen is refused")
+
+	// The GRANTS tab lists what the grant store holds, worded by node name, and revokes through
+	// the CLI's own path; SESSIONS is the ledger (empty here, never nil).
+	require.NoError(t, edgeGrantStore().Put(store.Grant{ID: "grant_t1", Caller: "n_nas", Nodes: []string{"n_nas"}, Caps: []string{"operate"},
+		ExpiresAt: now.Add(time.Hour).Unix()}))
+	snap, err = src()
+	require.NoError(t, err)
+	require.Len(t, snap.Grants, 1)
+	require.Equal(t, "nas-2", snap.Grants[0].Callee, "the callee is named, not an id")
+	require.Equal(t, "live", snap.Grants[0].State)
+	require.NoError(t, acts.RevokeGrant("grant_t1"))
+	snap, _ = src()
+	require.Equal(t, "REVOKED", snap.Grants[0].State, "a revoked grant is listed as revoked, never hidden")
+	require.Error(t, acts.RevokeGrant("grant_nope"))
+	require.NotNil(t, snap.Sessions)
+
+	require.False(t, snap.Self.AgentActive)
+	require.NoError(t, acts.SetAgent(true))
+	snap, _ = src()
+	require.True(t, snap.Self.AgentActive, "agent on is read back from the config")
 }
 
 // A change made by another process (the fleet screen, or `roger edge forget` in a second

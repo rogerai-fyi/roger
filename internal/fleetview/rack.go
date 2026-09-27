@@ -8,6 +8,7 @@ package fleetview
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,49 @@ import (
 const meterCells = 9
 
 var ramp = []rune("▁▂▃▄▅▆▇█")
+
+// motion is whether anything breathes. Off under NO_COLOR / ROGER_REDUCED_MOTION: every breather
+// rests at its lit end state.
+var motion = os.Getenv("NO_COLOR") == "" && os.Getenv("ROGER_REDUCED_MOTION") == ""
+
+// eye is THE signature: a tuning-eye tube in two cells, its iris closing as the signal drops.
+// S9 ◉◉ (the right cell breathes), S7 ◉◎, S5 ◎◎, S3 ◎○ shaded, S1 ○○ dim; dark ··; a device
+// asking to be adopted ◌◌ in amber, blinking. An alarm turns the LEFT cell red while the right
+// keeps the signal, so "S7 with an alarm" is one glance. row offsets the breathing so a rack of
+// units never blinks in unison.
+func eye(level float64, dark, asking, alarm bool, frame, row int) []lm.Span {
+	f := frame + row*5
+	switch {
+	case asking:
+		if motion && (f/6)%2 == 1 {
+			return []lm.Span{span("◌ ", glow)}
+		}
+		return []lm.Span{span("◌◌", glow)}
+	case dark:
+		return []lm.Span{span("··", ash)}
+	}
+	var l, r string
+	c := signal
+	switch u := int(level*9 + 0.5); {
+	case u >= 9:
+		l, r = "◉", "◉"
+		if motion && (f/12)%2 == 1 {
+			r = "◎"
+		}
+	case u >= 7:
+		l, r = "◉", "◎"
+	case u >= 5:
+		l, r = "◎", "◎"
+	case u >= 3:
+		l, r, c = "◎", "○", shade
+	default:
+		l, r, c = "○", "○", dim
+	}
+	if alarm {
+		return []lm.Span{bold(l, live), span(r, c)}
+	}
+	return []lm.Span{span(l, c), span(r, c)}
+}
 
 // meter is a 9-cell S-meter as spans. level is 0..1 (lit cells); alarmFrom is the level a rule
 // fires at (lit cells from there are red; <0 = no rule); ok=false is "no reading": a dim ┈ rail,
@@ -46,6 +90,9 @@ func meterN(level, alarmFrom float64, frame int, breathe bool, cells int) []lm.S
 	alarmCell := cells + 1
 	if alarmFrom >= 0 {
 		alarmCell = int(alarmFrom * float64(cells))
+		if level > alarmFrom && lit <= alarmCell { // over the line is always seen as over the line
+			lit = alarmCell + 1
+		}
 	}
 	var out []lm.Span
 	var b strings.Builder
@@ -62,13 +109,15 @@ func meterN(level, alarmFrom float64, frame int, breathe bool, cells int) []lm.S
 		switch {
 		case i < lit:
 			r = ramp[6]
-			c = teal
+			c = signal
 			if i >= alarmCell {
 				c = live
 			}
-			if i == lit-1 && breathe {
+			if i == lit-1 && breathe && motion {
 				r = ramp[5+(frame/3)%3] // ▆ ▇ █ - breathing, never below the rail
 			}
+		case i == alarmCell:
+			r = '┊' // the threshold, so the eye sees how far from the line a level sits
 		default:
 			r = ramp[0]
 		}
@@ -140,7 +189,7 @@ func chips(caps []Cap) []lm.Span {
 		if c.State == "VERIFIED" {
 			out = append(out, bold(strings.ToUpper(c.Name), capColor(c.Name)), span("  ", dim))
 		} else {
-			out = append(out, span(c.Name+"·", capColor(c.Name)), span("  ", dim))
+			out = append(out, span(c.Name+"·", glow), span("  ", dim))
 		}
 	}
 	return out
@@ -151,8 +200,8 @@ func chips(caps []Cap) []lm.Span {
 func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string, frame int) {
 	rows := lm.SplitVertical(area, lm.Fixed(1), lm.Fixed(1))
 	lampC := live
-	if (frame/6)%2 == 1 {
-		lampC = ember
+	if motion && (frame/6)%2 == 1 {
+		lampC = lamp
 	}
 	head := lm.NewLine(bold(" ▟•▙ ", live), bold("ROGER", paper), span(" · ", live), bold("EDGE", paper),
 		span("    ", dim), bold("◉", lampC), span(" ON AIR", muted), span("            ", dim))
@@ -182,10 +231,13 @@ func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string,
 	fr.RenderWidget(lm.NewText(lm.NewLine(span(" "+strings.Repeat("━", heavy), live), span(strings.Repeat("─", w-heavy-1), dim))).WithWrap(false), rows[1])
 }
 
-// hairline draws the one vertical rule between two regions.
-func hairline(fr *lm.Frame, area lm.Rect) {
-	lines := make([]lm.Line, 0, area.Height)
-	for i := uint16(0); i < area.Height; i++ {
+// hairline draws the one vertical rule between two regions, as tall as their content.
+func hairline(fr *lm.Frame, area lm.Rect, rows int) {
+	if rows > int(area.Height) || rows <= 0 {
+		rows = int(area.Height)
+	}
+	lines := make([]lm.Line, 0, rows)
+	for i := 0; i < rows; i++ {
 		lines = append(lines, lm.NewLine(span("│", dim)))
 	}
 	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
@@ -198,7 +250,7 @@ func actionBar(fr *lm.Frame, area lm.Rect, acts []action, toast string, toastErr
 		l.Spans = append(l.Spans, bold(a.key, paper), span(" "+a.label+"   ", muted))
 	}
 	if toast != "" && time.Since(toastAt) < 6*time.Second {
-		c := mint
+		c := signal
 		if toastErr {
 			c = live
 		}
@@ -233,8 +285,8 @@ func confirmBox(fr *lm.Frame, title, sentence, yes, no string) {
 		lm.NewLine(span("  ", dim), bold(yes, live), span("      ", dim), span(no, muted)),
 		lm.NewLine(span(strings.Repeat("─", int(w)), dim)),
 	}
-	fr.RenderWidget(lm.NewBlock().WithBorders(0).WithStyle(lm.Bg(lm.RGB(22, 20, 15))).
-		WithChild(lm.NewText(lines...).WithWrap(false).WithStyle(lm.Bg(lm.RGB(22, 20, 15)))), box)
+	fr.RenderWidget(lm.NewBlock().WithBorders(0).WithStyle(lm.Bg(ground)).
+		WithChild(lm.NewText(lines...).WithWrap(false).WithStyle(lm.Bg(ground))), box)
 }
 
 func fmtGB(v float64) string { return strconv.FormatFloat(v, 'f', 0, 64) }
@@ -249,3 +301,6 @@ func plural(n int) string {
 	}
 	return "s"
 }
+
+// boldOrPlain is the style meterN paints a lit cell with, for the tests.
+func boldOrPlain(c lm.Color) lm.Style { return lm.Fg(c) }

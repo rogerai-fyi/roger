@@ -2,36 +2,27 @@ package fleetview
 
 import lm "github.com/thebanri/limoni"
 
-// The Edge palette. Red stays THE signal (live, selected, alert); around it a warm, deliberate set
-// so a glance tells a machine from a board from a phone, a verified capability from a claimed one,
-// online from dark. Chosen on a dark ground; every color is also legible on the terminal default.
+// The Edge palette is the radio TUI's instrument set on the warm ink ground: a 1950s receiver's
+// magic-eye green, its dial's amber glow, its dial's blue-white, and the ONE red. Red is the
+// signal: selection, on air, alarm. A unit's kind is told by its word and its glyph, never by a
+// hue of its own - three rail hues per kind is a chart legend, not a rack.
 var (
-	live   = lm.RGB(255, 68, 56)   // THE red: selection, on air, alarm (the site's --live on ink)
-	ink    = lm.RGB(215, 211, 200) // body (--ink-700 on ink)
-	muted  = lm.RGB(154, 150, 139) // eyebrows, verbs (--ink-500)
-	dim    = lm.RGB(85, 81, 72)    // rails, off cells (--ink-300)
-	ember  = lm.RGB(255, 138, 61)  // this machine's own rogers
-	gold   = lm.RGB(242, 193, 78)  // agents, and a discovered device asking to be adopted
-	teal   = lm.RGB(63, 184, 175)  // phones, and models on air
-	sky    = lm.RGB(111, 183, 255) // host machines
-	violet = lm.RGB(167, 139, 250) // boards
-	mint   = lm.RGB(126, 217, 166) // online, verified
-	rose   = lm.RGB(255, 120, 140) // actuate - needs the owner's yes
-	paper  = lm.RGB(240, 236, 226) // titles
-	ash    = lm.RGB(120, 116, 108) // dark, offline
+	live   = lm.RGB(255, 68, 56)   // selection rail, alarm, the ON AIR lamp, a red iris, a firing rule
+	lamp   = lm.RGB(140, 40, 32)   // the lamp between breaths: red, dimmed - never another hue
+	signal = lm.RGB(132, 194, 85)  // the magic eye's iris, a healthy meter, online, VERIFIED, a good outcome
+	shade  = lm.RGB(66, 97, 42)    // the iris closing
+	glow   = lm.RGB(245, 166, 35)  // a device asking to be adopted, the bench, claimed chips, this machine's rogers
+	dial   = lm.RGB(126, 166, 216) // member machines, models on air, sparklines
+	paper  = lm.RGB(243, 241, 234) // the hub's name, key caps, the values that matter
+	ink    = lm.RGB(215, 211, 200) // prose and readings
+	muted  = lm.RGB(154, 150, 139) // eyebrows, verbs, kinds
+	dim    = lm.RGB(85, 81, 72)    // off cells, rules, unselected rails
+	ash    = lm.RGB(135, 131, 120) // dark units
+	ground = lm.RGB(14, 13, 11)    // the confirm box's fill
 )
 
-// kindColor is a node's color by what it is.
-func kindColor(kind string) lm.Color {
-	switch kind {
-	case "board":
-		return violet
-	case "mobile":
-		return teal
-	default:
-		return sky
-	}
-}
+// kindColor is a node's rail: one hue for every kind (its word and glyph tell them apart).
+func kindColor(string) lm.Color { return dial }
 
 // kindLabel is the word the readout uses for a node's kind.
 func kindLabel(kind string) string {
@@ -46,21 +37,12 @@ func kindLabel(kind string) string {
 	return "device"
 }
 
-// capColor is a capability's color, the same in every chip.
+// capColor is a capability's color, the same in every chip: what a node can do is signal, what
+// needs the owner's yes (actuate) or acts on others (operate) is red.
 func capColor(name string) lm.Color {
 	switch name {
-	case "serve":
-		return teal
-	case "classify":
-		return violet
-	case "sense":
-		return mint
-	case "actuate":
-		return rose
-	case "relay":
-		return sky
-	case "operate":
+	case "actuate", "operate":
 		return live
 	}
-	return muted
+	return signal
 }

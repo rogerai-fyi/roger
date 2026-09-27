@@ -120,6 +120,15 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemCandidate, ID: c.ID, Name: c.Name, NodeKind: c.Kind,
 			Presence: "discovered", Caps: edgeCapsOf(c.Caps)})
 	}
+	names := map[string]string{}
+	for _, n := range nodes {
+		names[n.ID] = n.Name
+	}
+	if snap.Grants, err = edgeGrantLines(names, now); err != nil {
+		return fleetview.FleetSnapshot{}, err
+	}
+	snap.Sessions = edgeSessionLines(st, now)
+	snap.Self.AgentActive = edgeIsAgentRole(loadConfig())
 	return snap, nil
 }
 
@@ -184,6 +193,10 @@ func edgeFleetActions() fleetview.FleetActions {
 			cfg.EdgePrefer = want
 			return saveConfig(cfg)
 		},
+		RevokeGrant: func(id string) error { return cmdEdgeGrantRevoke(id) },
+		SetAgent:    func(on bool) error { return edgeAgentSetRole(loadConfig(), on) },
+		ResumeAgent: func(name string) error { return edgeAgentResume(loadConfig(), name) },
+		RemoveAgent: func(name string) error { return edgeAgentRemove(loadConfig(), name) },
 	}
 }
 

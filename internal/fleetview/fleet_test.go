@@ -142,7 +142,7 @@ func TestFleetScreenHasAHealthTabAndComesBack(t *testing.T) {
 	})
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, h, (&recorder{}).actions())
 	page := uitest.Run(t, 130, 44, f.Draw)
-	page.Press("2")
+	page.Press("4")
 	must(t, page.Screen(), "UNIT", "TEMP", "CARRIER", "quiet-pi")
 	page.Press("1")
 	must(t, page.Screen(), "ON THE RACK", "ON THE BENCH")
@@ -158,5 +158,67 @@ func TestFleetScreenShowsASourceError(t *testing.T) {
 	must(t, page.Screen(), "could not read the Edge", "edge.json is unreadable")
 	if strings.Contains(page.Screen(), "ON THE BENCH") {
 		t.Fatal("no fleet is drawn over an error")
+	}
+}
+
+// GRANTS and SESSIONS are tabs of the same screen: the standing permissions and the traffic the
+// Edge really carried, read from the same snapshot; a grant can be revoked in place.
+func TestFleetScreenGrantsAndSessionsTabs(t *testing.T) {
+	now := time.Now()
+	var revoked []string
+	snap := fleetSnap(now)
+	snap.Grants = []fleetview.GrantLine{
+		{ID: "grant_ab12cd", Caller: "workstation", Caps: "operate", Callee: "RogGentooEdged", Until: "2026-10-03", State: "live"},
+		{ID: "grant_zz99xx", Caller: "laptop", Caps: "operate", Callee: "workstation", Until: "2026-09-20", State: "REVOKED"},
+	}
+	snap.Sessions = []fleetview.SessionLine{
+		{Who: "workstation/agent", Band: "qwen3.8-27b", Route: "local", Station: "nas", Outcome: "served", Count: 3, Age: "2m"},
+		{Who: "laptop/agent", Band: "qwen3.8-27b", Route: "market", Outcome: "REFUSED (no grant)", Count: 1, Age: "9m"},
+	}
+	acts := (&recorder{}).actions()
+	acts.RevokeGrant = func(id string) error { revoked = append(revoked, id); return nil }
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, acts)
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("2")
+	must(t, page.Screen(), "GRANTS", "grant_ab12cd", "workstation", "may operate", "RogGentooEdged", "REVOKED")
+	page.Press("x")
+	must(t, page.Screen(), "revoke grant_ab12cd?")
+	page.Press("y")
+	if len(revoked) != 1 || revoked[0] != "grant_ab12cd" {
+		t.Fatalf("revoked = %v", revoked)
+	}
+	page.Press("3")
+	must(t, page.Screen(), "SESSIONS", "workstation/agent", "qwen3.8-27b", "served", "REFUSED (no grant)", "×3")
+	page.Press("1")
+	must(t, page.Screen(), "ON THE RACK")
+}
+
+// The hub toggles this roger's agent role; a dark persistent agent resumes or is removed - the
+// TUI's [3] self-management, here through handed-in functions.
+func TestFleetScreenAgentActions(t *testing.T) {
+	now := time.Now()
+	var setAgent []bool
+	var resumed, removed []string
+	snap := fleetSnap(now)
+	snap.Self.AgentActive = false
+	acts := (&recorder{}).actions()
+	acts.SetAgent = func(on bool) error { setAgent = append(setAgent, on); return nil }
+	acts.ResumeAgent = func(name string) error { resumed = append(resumed, name); return nil }
+	acts.RemoveAgent = func(name string) error { removed = append(removed, name); return nil }
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, acts)
+	page := uitest.Run(t, 130, 44, f.Draw)
+	must(t, page.Screen(), "g agent on")
+	page.Press("g")
+	if len(setAgent) != 1 || setAgent[0] != true {
+		t.Fatalf("setAgent = %v", setAgent)
+	}
+	page.Press("Down")
+	page.Press("Down")
+	page.Press("Down") // watcher, the dark agent
+	must(t, page.Screen(), "u resume", "x remove")
+	page.Press("u")
+	page.Press("x")
+	if len(resumed) != 1 || resumed[0] != "watcher" || len(removed) != 1 || removed[0] != "watcher" {
+		t.Fatalf("resumed = %v removed = %v", resumed, removed)
 	}
 }

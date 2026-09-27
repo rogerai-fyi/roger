@@ -41,8 +41,11 @@ type history struct{ temp, load []float64 }
 type Health struct {
 	Source HealthSource
 	Every  time.Duration // how often the source is re-read; 0 = every frame
-	// BackHint names the way back when this screen is a tab of another ("1 fleet").
+	// BackHint names the way back when this screen is a tab of another ("1 fleet"); Tabs/Tab is
+	// then the parent's strip, so the band reads the same on every tab.
 	BackHint string
+	Tabs     []string
+	Tab      int
 
 	snap   HealthSnapshot
 	err    error
@@ -90,8 +93,8 @@ func (h *Health) Draw(f *lm.Frame, ev *lm.Event) bool {
 		right += fmt.Sprintf(" · ▲ %d", firing)
 	}
 	tabs, tab := []string{"health"}, 0
-	if h.BackHint != "" {
-		tabs, tab = []string{"fleet", "health"}, 1
+	if len(h.Tabs) > 0 {
+		tabs, tab = h.Tabs, h.Tab
 	}
 	brandBand(f, rows[0], tabs, tab, right, h.frame)
 	if h.err != nil {
@@ -191,11 +194,9 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		if n.Dark && i != h.sel {
 			nc = ash
 		}
-		g := "▣"
-		if i == 0 && n.Kind == "host" {
-			g = "◉"
-		}
-		l := lm.NewLine(span(" ", dim), rail, span(" ", dim), bold(g+" ", kindColor(n.Kind)), bold(pad(n.Name, 18), nc), span(pad(kindLabel(n.Kind), 7), muted))
+		l := lm.NewLine(span(" ", dim), rail, span(" ", dim))
+		l.Spans = append(l.Spans, eye(carrierLevel(n.LastHeard, n.Dark, now), n.Dark, false, len(firing) > 0, h.frame, i)...)
+		l.Spans = append(l.Spans, span(" ", dim), span(pad(n.Name, 18), nc), span(pad(kindLabel(n.Kind), 7), dim))
 		l.Spans = append(l.Spans, cellTemp(n, firing)...)
 		l.Spans = append(l.Spans, cellMem(n)...)
 		l.Spans = append(l.Spans, cellDisk(n, firing)...)
@@ -204,9 +205,9 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		if n.Dark {
 			l.Spans = append(l.Spans, span(" offline "+edge.Age(n.DarkFor), ash))
 		} else if n.Readings != nil && n.Readings.UptimeS > 0 {
-			l.Spans = append(l.Spans, span(" "+edge.Age(time.Duration(n.Readings.UptimeS)*time.Second)+" up", mint))
+			l.Spans = append(l.Spans, span(" "+edge.Age(time.Duration(n.Readings.UptimeS)*time.Second)+" up", signal))
 		} else {
-			l.Spans = append(l.Spans, span(" online", mint))
+			l.Spans = append(l.Spans, span(" online", signal))
 		}
 		l.Spans = append(l.Spans, alertChip(len(firing))...)
 		lines = append(lines, l)
@@ -219,11 +220,13 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		n := h.snap.Nodes[h.sel]
 		firing := h.snap.Firing[n.ID]
 		lines = append(lines, lm.NewLine())
-		headline := lm.NewLine(span("  ", dim), bold(n.Name, paper), span("   "+kindLabel(n.Kind)+" · ", muted))
+		headline := lm.NewLine(span(" ", dim))
+		headline.Spans = append(headline.Spans, eye(carrierLevel(n.LastHeard, n.Dark, now), n.Dark, false, len(firing) > 0, h.frame, 99)...)
+		headline.Spans = append(headline.Spans, span(" ", dim), bold(n.Name, ink), span("   "+kindLabel(n.Kind)+" · ", dim))
 		if n.Dark {
 			headline.Spans = append(headline.Spans, span("offline "+edge.Age(n.DarkFor), ash))
 		} else {
-			headline.Spans = append(headline.Spans, span("online", mint))
+			headline.Spans = append(headline.Spans, span("online", signal))
 		}
 		if !n.LastHeard.IsZero() {
 			headline.Spans = append(headline.Spans, span(" · last heard "+edge.Age(now.Sub(n.LastHeard))+" ago", muted))
@@ -274,10 +277,14 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 				row("memory", span(fmt.Sprintf("%.1f GB used · no total reported", r.RAMUsedGB), ink))
 			}
 			th, hasTh := thresholdIn(firing, "disk")
-			for i, d := range r.Disks {
+			first := true
+			for _, d := range r.Disks {
+				if d.TotalGB < 1 { // a boot stub is not a disk worth a meter
+					continue
+				}
 				k := ""
-				if i == 0 {
-					k = "disk"
+				if first {
+					k, first = "disk", false
 				}
 				l := d.UsedGB / d.TotalGB
 				from := -1.0
@@ -345,7 +352,7 @@ func sparkline(xs []float64, th float64, hasTh bool) []lm.Span {
 		if hi > lo {
 			i = int((x - lo) / (hi - lo) * float64(len(ramp)-1))
 		}
-		c := teal
+		c := dial
 		if hasTh && x > th {
 			c = live
 		}
