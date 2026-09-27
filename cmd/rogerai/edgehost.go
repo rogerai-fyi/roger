@@ -147,6 +147,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 		calls, rate, so, _ := l.Report(now)
 		return samples, calls, rate, so
 	}
+	hooks.EdgeReads = func() map[string]int64 { reads, _ := edgeAlertLog().Reads(); return reads }
 	hooks.EdgeRoger = func(ruleID, nodeID string) error {
 		return edgeAlertLog().Roger(ruleID, nodeID, edgeOperatorName(), time.Now())
 	}

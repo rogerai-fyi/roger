@@ -211,6 +211,7 @@ type EdgeFloor struct {
 	Calls   []edge.TroubleCall
 	Rate    int
 	SignOff edge.SignOffReport
+	Reads   map[string]int64 // node id -> when its Roger app last read the trouble feed
 }
 
 type edgeFloorJSON struct {
@@ -234,6 +235,7 @@ type edgeUnitJSON struct {
 	Log      []string `json:"log"`
 	Alerts   []string `json:"alerts"`
 	LastSeen int64    `json:"last_seen,omitempty"`
+	LastRead int64    `json:"last_read,omitempty"` // when its Roger app last read the feed: it hears the Edge
 }
 
 type edgeCallJSON struct {
@@ -741,6 +743,7 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 			since, capped = now.Sub(time.Unix(n.LastSeen, 0)), false
 		}
 		u.SinceS, u.Capped = int64(since.Seconds()), capped
+		u.LastRead = f.Reads[n.ID]
 		out.Units = append(out.Units, u)
 	}
 	calls := append([]edge.TroubleCall(nil), f.Calls...)

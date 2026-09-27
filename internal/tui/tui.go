@@ -115,6 +115,7 @@ type Hooks struct {
 	// EdgeFloor is the floor's raw facts for the console (the state log, the standing calls, the
 	// rate, the sign-off); EdgeRoger acknowledges a call, EdgeStandBy quiets one for a time.
 	EdgeFloor   func(now time.Time) (samples []edge.StateSample, calls []edge.TroubleCall, rate int, so edge.SignOffReport)
+	EdgeReads   func() map[string]int64 // node id -> when its Roger app last read the trouble feed
 	EdgeRoger   func(ruleID, nodeID string) error
 	EdgeStandBy func(ruleID, nodeID string, d time.Duration) error
 	// EdgeHealthLive says this binary can open the live health screen (`roger edge health --live`);

@@ -453,7 +453,7 @@ func TestConsoleSnapshotCarriesTheFloorAndActsOnCalls(t *testing.T) {
 			return map[string][]string{"n_nas": {"disk > 90"}, "n_ibex": {"offline > 5"}}
 		},
 		Floor: func(at time.Time) EdgeFloor {
-			return EdgeFloor{Samples: samples, Rate: 2,
+			return EdgeFloor{Samples: samples, Rate: 2, Reads: map[string]int64{"n_ibex": now.Add(-90 * time.Second).Unix()},
 				Calls: []edge.TroubleCall{
 					{RuleID: "disk", NodeID: "n_nas", Node: "nas", Metric: edge.MetricDisk, When: "disk > 90", Value: 92, Since: 6 * time.Minute},
 					{RuleID: "offline", NodeID: "n_ibex", Node: "gentle-ibex-14", Metric: edge.MetricOffline, When: "offline > 5", Value: 1560, Since: 26 * time.Hour, Acked: true, AckBy: "luis"},
@@ -488,8 +488,8 @@ func TestConsoleSnapshotCarriesTheFloorAndActsOnCalls(t *testing.T) {
 	if u := units["n_nas"]; u.State != "TROUBLE" || u.SinceS < 5*60 || u.Airtime != 100 || len(u.Log) != 60 || u.Log[59] != "trouble" {
 		t.Fatalf("nas = %+v", u)
 	}
-	if u := units["n_ibex"]; u.State != "DARK" || u.SinceS < 25*3600 || u.Airtime != 0 {
-		t.Fatalf("ibex = %+v (dark since its last-seen, airtime 0)", u)
+	if u := units["n_ibex"]; u.State != "DARK" || u.SinceS < 25*3600 || u.Airtime != 0 || u.LastRead != now.Add(-90*time.Second).Unix() {
+		t.Fatalf("ibex = %+v (dark since its last-seen, airtime 0, and when its app last read the feed)", u)
 	}
 	if len(snap.Floor.Calls) != 3 || snap.Floor.Calls[0].Priority != "HI" || snap.Floor.Calls[0].Why == "" || snap.Floor.Calls[0].Do == "" {
 		t.Fatalf("calls = %+v (priority first, each with why and do)", snap.Floor.Calls)

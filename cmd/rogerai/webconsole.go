@@ -171,6 +171,10 @@ func edgeFloorHook(h *tui.Hooks) func(time.Time) webui.EdgeFloor {
 	}
 	return func(now time.Time) webui.EdgeFloor {
 		samples, calls, rate, so := h.EdgeFloor(now)
-		return webui.EdgeFloor{Samples: samples, Calls: calls, Rate: rate, SignOff: so}
+		f := webui.EdgeFloor{Samples: samples, Calls: calls, Rate: rate, SignOff: so}
+		if h.EdgeReads != nil {
+			f.Reads = h.EdgeReads()
+		}
+		return f
 	}
 }

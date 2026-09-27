@@ -1977,6 +1977,7 @@
         tile.appendChild(air);
         var what = (u.alerts && u.alerts.length) ? "\u25b2 " + u.alerts[0] : (u.kind || "");
         tile.appendChild(el("div", "edge-tile__what mono small" + ((u.alerts && u.alerts.length) ? " live" : " muted"), what));
+        if (u.last_read) tile.appendChild(el("div", "edge-tile__what mono small muted", "hears the Edge \u00b7 read the feed " + edgeAge(Math.max(0, Math.floor(Date.now() / 1000) - u.last_read)) + " ago"));
         andon.appendChild(tile);
       });
       var foot = $("edge-andon-foot");
