@@ -36,7 +36,9 @@ func edgeReadSoftwareFrom(root, version string) *store.EdgeSoftware {
 	}
 	for _, line := range strings.Split(read("etc/os-release"), "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "PRETTY_NAME="); ok {
-			sw.OS = strings.Trim(v, `"`)
+			// os-release quotes with either mark: Debian writes "Debian GNU/Linux 12", Gentoo
+			// writes 'Gentoo Linux'. Strip both, or the quotes end up on screen.
+			sw.OS = strings.Trim(v, `"'`)
 		}
 	}
 	sw.Kernel = read("proc/sys/kernel/osrelease")

@@ -33,6 +33,11 @@ func TestSoftwareIsReadFromTheMachineAndNeverInvented(t *testing.T) {
 	require.Equal(t, &store.EdgeSoftware{Roger: "6.9.0", OS: "Debian GNU/Linux 12 (bookworm)", Kernel: "6.1.0-rpi7-rpi-2712",
 		Arch: runtime.GOARCH, Hostname: "shed", Machine: "Raspberry Pi 5 Model B Rev 1.0"}, sw)
 
+	// os-release quotes with either mark (Gentoo uses single quotes), and neither ends up on screen.
+	gentoo := t.TempDir()
+	writeUnder(t, gentoo, "etc/os-release", "NAME=Gentoo\nPRETTY_NAME='Gentoo Linux'\nID=gentoo\n")
+	require.Equal(t, "Gentoo Linux", edgeReadSoftwareFrom(gentoo, "6.11.2").OS)
+
 	// A PC: no device tree, a DMI product; vendor prefixed unless the product already names it.
 	pc := t.TempDir()
 	writeUnder(t, pc, "sys/class/dmi/id/product_name", "ThinkStation P360\n")
