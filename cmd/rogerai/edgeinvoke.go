@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,16 +163,18 @@ func cmdEdgeInvoke(cfg config, args []string) error {
 // node that cannot be dialed directly (dark, or no LAN transport). Unlike the serving-peer resolver,
 // it does not require the callee to serve a model: an invoke target is an agent or a device.
 func edgeResolveNodeFace(addr string) (client.EdgePeer, string, error) {
-	// "." and "self" mean THIS machine, wherever a node is named. The translation lives here so the
-	// trouble feed, an invoke, a maintenance action and a log tail cannot disagree about it.
-	if t := strings.TrimSpace(addr); t == "." || t == "self" {
-		if id := edgeThisNodeID(); id != "" {
-			addr = id
-		}
+	node, want := strings.TrimSpace(addr), ""
+	if i := strings.IndexByte(node, '/'); i >= 0 {
+		node, want = node[:i], node[i+1:]
 	}
-	node := addr
-	if i := strings.IndexByte(addr, '/'); i >= 0 {
-		node = addr[:i]
+	// "." and "self" mean THIS machine, wherever a node is named - including as the node half of
+	// "./roger", which is how an owner addresses one roger on the machine they are sitting at. The
+	// translation lives here so the trouble feed, an invoke, a maintenance action and a log tail
+	// cannot disagree about it.
+	if node == "." || node == "self" {
+		if id := edgeThisNodeID(); id != "" {
+			node = id
+		}
 	}
 	st, err := loadEdgeState()
 	if err != nil {
@@ -196,6 +199,26 @@ func edgeResolveNodeFace(addr string) (client.EdgePeer, string, error) {
 	}
 	if a == "" || pin == "" {
 		return client.EdgePeer{}, "", fmt.Errorf("%q has no LAN face to invoke - it is dark or reachable only by relay", node)
+	}
+	// node/instance addresses ONE roger rather than the machine. The machine's recorded face is
+	// whichever roger observed itself last, so on a node running several a request meant for one can
+	// land on another; each roger records its OWN face port, and this dials that. Same node, same
+	// certificate, so the pin is unchanged (features/edge/maintenance.feature).
+	if want != "" {
+		port, found := edgeInstanceFacePort(n, want)
+		if !found {
+			return client.EdgePeer{}, "", fmt.Errorf("%q runs no roger called %q - `roger edge describe %s` lists them", n.Name, want, n.Name)
+		}
+		if port == 0 {
+			return client.EdgePeer{}, "", fmt.Errorf("%s/%s reports no face of its own, so it cannot be addressed directly - ask %s instead",
+				n.Name, want, n.Name)
+		}
+		host, _, err := net.SplitHostPort(a)
+		if err != nil {
+			return client.EdgePeer{}, "", fmt.Errorf("%q's recorded address %q cannot be read", node, a)
+		}
+		a = net.JoinHostPort(host, strconv.Itoa(port))
+		return client.EdgePeer{Addr: a, Pin: pin, Node: n.Name, Instance: want}, n.ID, nil
 	}
 	return client.EdgePeer{Addr: a, Pin: pin, Node: n.Name}, n.ID, nil
 }
@@ -286,4 +309,16 @@ func edgeNewRequestID() string {
 	b := make([]byte, 8)
 	_, _ = crand.Read(b)
 	return "einv_" + hex.EncodeToString(b)
+}
+
+// edgeInstanceFacePort is the face port one roger on a node reports, and whether the node runs a
+// roger by that name at all. A port of 0 means it runs but reports no face of its own, which is what
+// a roger written before instance addressing existed reports.
+func edgeInstanceFacePort(n store.EdgeNode, instance string) (port int, found bool) {
+	for _, in := range n.Instances {
+		if in.Name == instance {
+			return in.Port, true
+		}
+	}
+	return 0, false
 }

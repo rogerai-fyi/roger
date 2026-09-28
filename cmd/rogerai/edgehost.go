@@ -403,6 +403,23 @@ func (h *edgeHost) revokeGrant(id string) error {
 // state and only a probe or the owner's confirmation moves them - so self cannot grant itself
 // VERIFIED (the audit's earlier finding stays closed). Requires the face to be up, so the address
 // and fingerprint recorded are the ones a peer really dials.
+// facePort is the port THIS process's LAN face listens on, or 0 before it is up. It goes on the
+// process's own registration so a caller can address this roger - node/instance - rather than the
+// machine, whose recorded face is whichever roger observed itself last
+// (features/edge/maintenance.feature).
+func (h *edgeHost) facePort() int {
+	h.mu.Lock()
+	ln := h.faceLn
+	h.mu.Unlock()
+	if ln == nil {
+		return 0
+	}
+	if a, ok := ln.Addr().(*net.TCPAddr); ok {
+		return a.Port
+	}
+	return 0
+}
+
 func (h *edgeHost) observeSelf(now time.Time) {
 	id, _, ok, err := edgeIdentityStore().LoadIdentity()
 	if err != nil || !ok {

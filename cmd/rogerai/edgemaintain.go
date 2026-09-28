@@ -103,8 +103,9 @@ func edgeMaintainRun(cfg config, callerID, callerName, selfInstance string, raw 
 	if task.Target == selfInstance {
 		return edge.MaintainResult{}, "that is the roger answering this request, and it cannot start, stop or " +
 			"restart itself through its own face. On a machine running several rogers the node's recorded " +
-			"face is whichever of them last observed itself, so the request can land on the one you named: " +
-			"ask again, or run `roger edge agent resume`/`roger edge agent remove` on that machine"
+			"face is whichever of them last observed itself, so a request for the machine can land on the " +
+			"one you named - address another roger on it instead, as <node>/<roger>, and `roger edge " +
+			"describe <node>` lists them"
 	}
 	res := edge.MaintainResult{Action: task.Action, Target: task.Target}
 	var says, why string

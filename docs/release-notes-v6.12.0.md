@@ -122,6 +122,15 @@ restart that did not happen. A start waits briefly and says whether the agent re
 merely that it was launched. `roger edge maintain <node> start|stop|restart <agent>`, and the fleet
 screen says which units have maintenance on.
 
+On a machine running several rogers you can now address the one you mean: `roger edge maintain
+<node>/<roger> stop <agent>`. A node's recorded face is whichever roger observed itself last, so a
+request for the machine could land on the very roger you named and be refused as itself. Each roger
+records its own face port now, and an instance address dials that - the same node, the same
+certificate, so the pin is unchanged and nothing new is trusted. A roger the node does not run, or an
+older one that reports no face of its own, is refused by name rather than quietly sent to the machine.
+"." and "self" mean this machine there too, so `./roger` is how you address one roger on the machine
+you are sitting at.
+
 Running the actions for real found three things tests had not. A spawned agent inherited this
 process's pinned face port, so it could never bind and exited at once while the owner was told it had
 launched; a child is given its own face now. Nothing ever waited for that child, so an agent that

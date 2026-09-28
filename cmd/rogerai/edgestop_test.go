@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // stopRig is a machine with a persistent agent "watcher" REGISTERED as if it were running, with the
@@ -234,7 +235,7 @@ func TestTheSelfTargetIsTheRegisteredNameNotAGuess(t *testing.T) {
 		res = ask(a, "roger")
 		require.Contains(t, res.Refused, "cannot start, stop or restart itself", string(a))
 		require.Contains(t, res.Refused, "several rogers", "the refusal says why it can happen")
-		require.Contains(t, res.Refused, "ask again", string(a))
+		require.Contains(t, res.Refused, "<node>/<roger>", "and names the address that does reach it")
 	}
 
 	// A process that registered nothing is nobody's target: the check cannot match an empty name.
@@ -308,3 +309,105 @@ func TestASpawnedAgentDoesNotInheritThePinnedFacePort(t *testing.T) {
 }
 
 var errStubbedDetach = errors.New("detach stubbed out")
+
+// node/instance addresses ONE roger rather than the machine, because a node's recorded face is
+// whichever roger observed itself last (features/edge/maintenance.feature).
+func TestAnInstanceAddressDialsThatRogersOwnFace(t *testing.T) {
+	stopRig(t, 424242)
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	id := edgeThisNodeID()
+	nodes, err := st.fleet.List()
+	require.NoError(t, err)
+	for _, n := range nodes {
+		if n.ID != id {
+			continue
+		}
+		n.Pin = "abab"
+		n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: "10.0.0.5:44121", Fingerprint: "abab"}}
+		n.Instances = []edge.Instance{
+			{Name: "roger", Port: 44121},
+			{Name: "roger-3", Port: 51000},
+			{Name: "ancient"}, // written before instance addressing: no face of its own
+		}
+		require.NoError(t, st.db.UpdateEdgeNode(n))
+	}
+	require.NoError(t, st.save())
+
+	// The machine: its recorded face.
+	peer, gotID, err := edgeResolveNodeFace("shed")
+	require.NoError(t, err)
+	require.Equal(t, id, gotID)
+	require.Equal(t, "10.0.0.5:44121", peer.Addr)
+	require.Equal(t, "", peer.Instance)
+
+	// One roger on it: the node's host, that roger's port, and the NODE's pin - nothing new trusted.
+	peer, gotID, err = edgeResolveNodeFace("shed/roger-3")
+	require.NoError(t, err)
+	require.Equal(t, id, gotID)
+	require.Equal(t, "10.0.0.5:51000", peer.Addr)
+	require.Equal(t, "abab", peer.Pin)
+	require.Equal(t, "roger-3", peer.Instance)
+
+	// A roger the node does not run, and one with no face of its own.
+	_, _, err = edgeResolveNodeFace("shed/nosuch")
+	require.ErrorContains(t, err, "runs no roger called")
+	require.ErrorContains(t, err, "roger edge describe")
+	_, _, err = edgeResolveNodeFace("shed/ancient")
+	require.ErrorContains(t, err, "reports no face of its own")
+	require.ErrorContains(t, err, "ask shed instead")
+
+	// "." still means this machine, and it means it as the NODE half of an instance address too -
+	// "./roger" is how an owner addresses one roger on the machine they are sitting at.
+	peer, _, err = edgeResolveNodeFace(".")
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.5:44121", peer.Addr)
+	peer, _, err = edgeResolveNodeFace("./roger-3")
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.5:51000", peer.Addr)
+	require.Equal(t, "roger-3", peer.Instance)
+	peer, _, err = edgeResolveNodeFace("self/roger")
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.5:44121", peer.Addr)
+}
+
+// The host records its OWN face port, which is what makes the address above dialable.
+func TestTheHostRecordsItsOwnFacePort(t *testing.T) {
+	offline(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	out, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code, out)
+	out, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code, out)
+
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+	require.Zero(t, h.facePort(), "before the face is up there is no port to report")
+	_, ok := h.startFace()
+	require.True(t, ok)
+	port := h.facePort()
+	require.Greater(t, port, 0)
+
+	h.registerInstance(h.cfg)
+	require.NotNil(t, h.reg)
+	name := h.reg.Instance().Name
+	found := false
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		if in.Name == name {
+			found = true
+			require.Equal(t, port, in.Port, "its own face, on its own registration")
+			require.Equal(t, os.Getpid(), in.PID)
+		}
+	}
+	require.True(t, found)
+
+	// And a beat keeps it, so a registration written before the face was up gains it.
+	require.NoError(t, h.reg.Update(edgeThisNodeID(), func(i *edge.Instance) { i.Port = 0 }))
+	h.beatInstance(h.cfg)
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		if in.Name == name {
+			require.Equal(t, port, in.Port, "the beat restores it")
+		}
+	}
+}

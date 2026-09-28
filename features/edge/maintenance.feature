@@ -95,16 +95,19 @@ Feature: maintenance actions
     And "shed"'s history carries a maintenance event naming the caller and the action
 
   @edge
-  Scenario: on a machine running several rogers, the request can land on the one you named
+  Scenario: on a machine running several rogers, address the one you mean
     Given a machine running two rogers, "roger" and "roger-3"
     And the node's recorded face is whichever of them last observed itself
-    When desk asks to stop "roger-3" and the request lands on "roger-3" itself
-    Then it is refused, and the refusal SAYS why it can happen and what to do instead
-    And it is not silently routed to the other roger, which would be a different machine's answer
-      than the one the caller reached
-    # THE REAL FIX is an instance-addressed invoke: EdgeInstance already carries a Port, and
-    # node/instance is already an address form, so a caller could dial the process it means. That is
-    # its own slice, written up in the night notes.
+    When desk asks "shed" (the machine) to stop "roger-3"
+    Then the request can land on "roger-3" itself, and is refused saying why and what to do
+    When desk asks "shed/roger" to stop "roger-3"
+    Then it reaches THAT roger's own face and the stop is carried out
+    And each roger records its own face port, so the address is the node's host and that port
+    And the certificate is the NODE's, so the pin is unchanged and nothing new is trusted
+    When desk addresses a roger the node does not run
+    Then it is refused, naming the command that lists them
+    When desk addresses a roger that reports no face of its own, as an older one does
+    Then it is refused, saying to ask the node instead - it is never silently sent to the machine
 
   @edge
   Scenario: a spawned agent gets its own face, and is never left as a zombie
