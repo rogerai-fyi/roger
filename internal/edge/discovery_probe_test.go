@@ -62,7 +62,8 @@ func TestDiscoveryVerifiesServeOnTheInstanceTheProbePassed(t *testing.T) {
 	d.verifyServe(context.Background(), "10.0.0.2:44121", "ab12", n)
 	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
 	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "lab"), "the probe named 'serve', not 'lab'")
-	require.Equal(t, []string{"10.0.0.2:44121 ab12 qwen", "10.0.0.2:44121 ab12 qwen"}, asked, "one probe per claimed instance, at the address and pin just verified")
+	require.Equal(t, []string{"10.0.0.2:44121 ab12 qwen", "10.0.0.2:44121 ab12 qwen"}, asked,
+		"one probe per claimed instance's single band, at the address and pin just verified")
 }
 
 func TestDiscoveryLeavesServeClaimedWhenTheProbeFails(t *testing.T) {
@@ -125,4 +126,29 @@ func TestConsiderRunsTheServingProbeAfterVerifyingAPeer(t *testing.T) {
 	require.Len(t, rep.Verified, 1)
 	require.Equal(t, []string{"10.0.0.2:44121 " + fp + " qwen"}, probed, "probed at the address and pin just verified")
 	require.Equal(t, string(Verified), serveStateOf(t, f, id, "serve"))
+}
+
+// EVERY band an instance advertises must answer: proving one and marking the instance would let the
+// fleet route a peer the band it cannot serve (features/edge/serving_probe.feature).
+func TestDiscoveryRequiresEveryBandToAnswer(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	n, err := f.Observe("n_desk", Observation{Name: "desk", Kind: string(Host), Caps: []Capability{Serve},
+		Addr: "10.0.0.2:44121", Fingerprint: "ab12",
+		Instances: []Instance{claimServe("serve", "qwen", "mistral")}})
+	require.NoError(t, err)
+
+	only := New(Options{Fleet: f, CallerCert: &tls.Certificate{}, Probe: func(_ context.Context, _, _ string, _ *tls.Certificate, band string) (string, error) {
+		if band != "qwen" {
+			return "", errors.New("the server behind mistral does not list it")
+		}
+		return "serve", nil
+	}})
+	only.verifyServe(context.Background(), "10.0.0.2:44121", "ab12", n)
+	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"), "one band is not the set")
+
+	both := New(Options{Fleet: f, CallerCert: &tls.Certificate{}, Probe: func(context.Context, string, string, *tls.Certificate, string) (string, error) {
+		return "serve", nil
+	}})
+	both.verifyServe(context.Background(), "10.0.0.2:44121", "ab12", n)
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
 }

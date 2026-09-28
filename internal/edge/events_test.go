@@ -168,3 +168,43 @@ func TestSameBandsIgnoresOrder(t *testing.T) {
 	require.False(t, SameBands([]string{"a"}, []string{"a", "b"}))
 	require.False(t, SameBands([]string{"a", "a"}, []string{"a", "b"}))
 }
+
+// Every band must answer, and a SHRINKING band set keeps the verdict the probe earned: an instance
+// that drops a model does not re-prove itself on every pass (features/edge/serving_probe.feature).
+func TestBandsWithinDecidesWhenAVerdictCarries(t *testing.T) {
+	require.True(t, BandsWithin([]string{"a"}, []string{"a", "b"}), "a subset of what was proven is proven")
+	require.True(t, BandsWithin([]string{"b", "a"}, []string{"a", "b"}), "order does not matter")
+	require.False(t, BandsWithin([]string{"a", "c"}, []string{"a", "b"}), "c was never proven")
+	require.False(t, BandsWithin(nil, []string{"a"}), "advertising nothing is not being proven")
+	require.False(t, BandsWithin([]string{"a"}, nil))
+}
+
+func TestAShrinkingBandSetKeepsItsVerdict(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	claimed := []store.EdgeCap{{Name: string(Serve), State: string(Claimed)}}
+	obs := func(bands ...string) Observation {
+		return Observation{Name: "desk", Kind: string(Host), Addr: "10.0.0.2:1", Fingerprint: "ab",
+			Caps: []Capability{Serve}, Instances: []Instance{{Name: "serve", Bands: bands, Caps: claimed}}}
+	}
+	_, err := f.Observe("n_desk", obs("qwen", "mistral"))
+	require.NoError(t, err)
+	require.NoError(t, f.RecordInstanceProbe("n_desk", "serve", Serve, true))
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
+
+	// It drops a model: still proven, because the probe answered for every band it marked.
+	_, err = f.Observe("n_desk", obs("qwen"))
+	require.NoError(t, err)
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
+
+	// The dropped model comes back: nothing new, still within what was proven... except the record
+	// now says only "qwen" was proven, so the wider set must be proven again.
+	_, err = f.Observe("n_desk", obs("qwen", "mistral"))
+	require.NoError(t, err)
+	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"))
+
+	// A band nobody ever proved always resets it.
+	require.NoError(t, f.RecordInstanceProbe("n_desk", "serve", Serve, true))
+	_, err = f.Observe("n_desk", obs("qwen", "mistral", "llama-3"))
+	require.NoError(t, err)
+	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"))
+}

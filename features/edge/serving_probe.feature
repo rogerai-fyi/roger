@@ -94,6 +94,24 @@ Feature: the serving probe
   # ---- discovery ---------------------------------------------------------------
 
   @edge
+  Scenario: every band an instance advertises must answer
+    Given "desk" runs an instance "serve" claiming serve for "qwen" and "mistral"
+    And the server behind the face lists only "qwen"
+    When serve is probed on "desk/serve"
+    Then it stays CLAIMED: proving one band would let the fleet route the other
+    When the server lists both
+    Then serve on "desk/serve" is VERIFIED
+
+  @edge
+  Scenario: a shrinking band set keeps the verdict; a growing one is re-probed
+    Given serve on "desk/serve" is VERIFIED for "qwen" and "mistral"
+    When the instance advertises "qwen" only
+    Then serve stays VERIFIED and nothing is probed again
+    When it advertises "qwen", "mistral" and "llama-3"
+    Then serve returns to CLAIMED until the probe answers for all three
+    And an instance advertising nothing is never counted as proven
+
+  @edge
   Scenario: discovery verifies serve on the instance the probe passed, and only that one
     Given the node "desk" was just certificate-verified with instances "serve" (claims serve, band qwen) and "lab" (claims serve, band qwen)
     And the probe for "qwen" answers with the instance "serve"

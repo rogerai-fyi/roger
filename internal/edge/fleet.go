@@ -620,6 +620,25 @@ func LANAddr(n store.EdgeNode) string {
 
 // sameBands reports whether two band sets are equal as sets (order-insensitive). A serve
 // verification is tied to the bands it was probed against, so a change here re-opens the probe.
+// BandsWithin reports whether every band in want is in have. It is how a SHRINKING band set keeps a
+// verdict the probe earned: the probe marks an instance only when EVERY band it advertises answered,
+// so any subset of that set is proven too. A band that is not in have was never proven.
+func BandsWithin(want, have []string) bool {
+	if len(want) == 0 {
+		return false // nothing advertised is not something proven
+	}
+	in := make(map[string]bool, len(have))
+	for _, b := range have {
+		in[b] = true
+	}
+	for _, b := range want {
+		if !in[b] {
+			return false
+		}
+	}
+	return true
+}
+
 // SameBands reports whether two band lists hold the same bands, whatever their order. Order is not
 // meaningful - it is whatever the process listed its models in - so anything that decides "have the
 // bands changed" must use this rather than comparing joined strings.
@@ -688,8 +707,11 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 				// instance now advertises different bands, the earned state does not carry - it must
 				// be re-probed - so a re-banded instance cannot route on an old serve probe (audit
 				// 2026-09-24). Other capabilities are not band-scoped and carry as before.
-				if cap == Serve && !sameBands(prevBands[in.Name], in.Bands) {
-					// keep initialState: re-probe required for the new bands
+				if cap == Serve && !BandsWithin(in.Bands, prevBands[in.Name]) {
+					// keep initialState: a band nobody proved needs a probe. A SUBSET of what was
+					// proven is still proven - the probe answers for every band it marks - so an
+					// instance that drops a model keeps its verdict rather than re-proving on every
+					// pass (features/edge/serving_probe.feature).
 				} else {
 					state = p.State // earned once, kept
 				}

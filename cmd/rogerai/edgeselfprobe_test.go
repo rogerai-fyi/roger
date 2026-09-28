@@ -32,12 +32,14 @@ func TestHostVerifiesItsOwnServeThroughItsFace(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "qwen"}}})
 	}))
 	t.Cleanup(upstream.Close)
-	edgeAttachOnAir(func() []string { return []string{"qwen", "mistral"} })
+	// One band on air, and this face can route it. (An instance advertising a band the face CANNOT
+	// route stays CLAIMED as a whole - every band must answer - which is the next case.)
+	edgeAttachOnAir(func() []string { return []string{"qwen"} })
 	edgeAttachUpstream(func(band string) (string, string, bool) {
 		if band == "qwen" {
 			return upstream.URL + "/v1/chat/completions", "", true
 		}
-		return "", "", false // mistral is on air in name only: this face cannot route it
+		return "", "", false
 	})
 	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })
 
@@ -55,7 +57,7 @@ func TestHostVerifiesItsOwnServeThroughItsFace(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, after.Instances, 1)
 	mine := after.Instances[0]
-	require.ElementsMatch(t, []string{"qwen", "mistral"}, mine.Bands)
+	require.Equal(t, []string{"qwen"}, mine.Bands)
 	state := ""
 	for _, c := range mine.Caps {
 		if c.Name == string(edge.Serve) {
@@ -165,4 +167,56 @@ func TestTheHostDoesNotReprobeWhatItHasProven(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, probeEvents, "one crossing, one event, however many passes: %+v", after.History)
+}
+
+// An instance that advertises a band this face cannot route is not marked as serving: proving the
+// one that answers would let the fleet route the one that does not
+// (features/edge/serving_probe.feature).
+func TestHostDoesNotVerifyAMixedBandSet(t *testing.T) {
+	offline(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	out, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code, out)
+	out, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code, out)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "qwen"}}})
+	}))
+	t.Cleanup(upstream.Close)
+	edgeAttachOnAir(func() []string { return []string{"qwen", "mistral"} })
+	edgeAttachUpstream(func(band string) (string, string, bool) {
+		if band == "qwen" {
+			return upstream.URL + "/v1/chat/completions", "", true
+		}
+		return "", "", false // on air in name only: this face cannot route it
+	})
+	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })
+
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+	_, ok := h.startFace()
+	require.True(t, ok)
+	h.registerInstance(h.cfg)
+	id, _, _, _ := edgeIdentityStore().LoadIdentity()
+	h.observeSelf(time.Now())
+
+	after, _, err := h.st.fleet.Get(id.NodeID)
+	require.NoError(t, err)
+	require.Len(t, after.Instances, 1)
+	for _, c := range after.Instances[0].Caps {
+		if c.Name == string(edge.Serve) {
+			require.Equal(t, string(edge.Claimed), c.State, "one band answered, the other did not: not proven")
+		}
+	}
+	who, err := h.st.fleet.ServersOf("qwen")
+	require.NoError(t, err)
+	for _, l := range who {
+		require.False(t, l.Serves(), "the ladder gets no rung from an unproven instance")
+	}
 }

@@ -462,14 +462,21 @@ func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.I
 		if !claims || len(in.Bands) == 0 {
 			continue
 		}
-		if was, ok := already[in.Name]; ok && edge.SameBands(was, in.Bands) {
-			continue // already proven for exactly these bands
+		if was, ok := already[in.Name]; ok && edge.BandsWithin(in.Bands, was) {
+			continue // already proven for these bands, or for a set that contains them
 		}
+		// EVERY band must answer. Proving one and marking the instance would let a roger that
+		// advertises two models be routed the one it cannot serve - and it is what makes a SHRINKING
+		// band set keep its verdict without a re-probe (features/edge/serving_probe.feature).
+		all := true
 		for _, b := range in.Bands {
-			if got, status, _ := srv.ProbeBand(context.Background(), b); status == 0 && got == in.Name {
-				proven = append(proven, in.Name)
+			if got, status, _ := srv.ProbeBand(context.Background(), b); status != 0 || got != in.Name {
+				all = false
 				break
 			}
+		}
+		if all {
+			proven = append(proven, in.Name)
 		}
 	}
 	return proven
