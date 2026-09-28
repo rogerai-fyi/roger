@@ -144,6 +144,7 @@ func init() { heartbeatInterval.Store(int64(10 * time.Second)) }
 // node's gross owner-share in credits (= dollars), summed from served receipts.
 type Session struct {
 	cfg           Config
+	accepted      acceptedJobs // job ids this node already received (node acks)
 	servedReqs    atomic.Int64
 	servedToks    atomic.Int64
 	earningsMicro atomic.Int64 // owner-share in millionths of a credit (avoid float races)
@@ -536,6 +537,7 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 		token, gen := sess.rereg.curToken()
 		req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set(ackHeader, "1") // we confirm every job we receive (POST /agent/ack)
 		resp, err := poll.Do(req)
 		if err != nil {
 			// Transient network error: keep the existing short retry (the broker may
@@ -562,6 +564,15 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 		var job protocol.Job
 		json.NewDecoder(resp.Body).Decode(&job)
 		resp.Body.Close()
+		if job.ID != "" {
+			first := sess.accepted.first(job.ID, time.Now())
+			if resp.Header.Get(ackHeader) == "1" { // this broker wants this job acked
+				ackJob(cfg, token, job.ID) // before serving: one short round trip
+			}
+			if !first {
+				continue // re-delivered after a lost ack: acked again, never served twice
+			}
+		}
 		if isStream(job.Body) {
 			rec := serveStream(cfg, offer, priv, token, job)
 			recordIf(sess, job, rec)
@@ -1222,4 +1233,76 @@ func slugify(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// ackHeader tells the broker this node confirms each job it receives (features/multinode/
+// node_ack.feature). A header, not a registration field: an older broker ignores it, and the
+// registration signature is untouched.
+const ackHeader = "X-Roger-Ack"
+
+// acceptedJobsTTL is how long a received job id is remembered, so a re-delivery (its ack was
+// lost) is acked again but not served twice. Longer than any relay deadline.
+const acceptedJobsTTL = 10 * time.Minute
+
+// acceptedJobs is the set of job ids this node received recently, shared by all pollers.
+type acceptedJobs struct {
+	mu sync.Mutex
+	at map[string]time.Time
+}
+
+// first records id and reports whether it is new (not received within acceptedJobsTTL).
+func (a *acceptedJobs) first(id string, now time.Time) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.at == nil {
+		a.at = map[string]time.Time{}
+	}
+	if at, ok := a.at[id]; ok && now.Sub(at) < acceptedJobsTTL {
+		return false
+	}
+	if len(a.at) >= 4096 { // bounded: prune expired ids
+		for k, at := range a.at {
+			if now.Sub(at) >= acceptedJobsTTL {
+				delete(a.at, k)
+			}
+		}
+	}
+	a.at[id] = now
+	return true
+}
+
+// ackClient bounds an ack well under the broker's re-delivery grace; an ack is best-effort
+// (the broker re-delivers a job it never hears about).
+var ackClient = &http.Client{Timeout: 2 * time.Second}
+
+// ackRetryDelay spaces the one retry of an ack the broker could not forward.
+var ackRetryDelay = 200 * time.Millisecond
+
+// ackJob confirms receipt of a job. A 404 is an older broker without /agent/ack: ignored, and
+// it must NEVER trigger a re-register. A failure (network, 5xx) is retried once in the
+// background, so serving is never held up by it.
+func ackJob(cfg Config, token, jobID string) {
+	if !postAck(cfg, token, jobID) {
+		go func() {
+			time.Sleep(ackRetryDelay)
+			postAck(cfg, token, jobID)
+		}()
+	}
+}
+
+// postAck sends one ack; it reports false only when a retry could help.
+func postAck(cfg Config, token, jobID string) bool {
+	u := cfg.Broker + "/agent/ack?node=" + url.QueryEscape(cfg.NodeID) + "&job=" + url.QueryEscape(jobID)
+	req, err := http.NewRequest(http.MethodPost, u, nil)
+	if err != nil {
+		return true
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := ackClient.Do(req)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode < 500
 }

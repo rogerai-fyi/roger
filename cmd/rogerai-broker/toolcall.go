@@ -393,26 +393,20 @@ func (b *broker) probeToolCall(node protocol.NodeRegistration, model string, aut
 	if mi {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ch, dcancel, derr := b.busDispatchJob(ctx, node.NodeID, job)
-		if dcancel != nil {
-			defer dcancel()
-		}
+		tk, derr := b.dispatchRemote(ctx, node.NodeID, job, false)
 		if derr != nil {
 			return // transient dispatch failure: no verdict
 		}
-		select {
-		case raw, okc := <-ch:
-			if !okc {
-				return
-			}
-			var res protocol.JobResult
-			if json.Unmarshal(raw, &res) != nil {
-				return
-			}
-			b.applyToolVerdict(node.NodeID, model, res, authoritative, nonce)
-		case <-time.After(30 * time.Second):
-			return // transient timeout: no verdict
+		defer tk.close()
+		raw, werr := tk.awaitResult(time.Now().Add(30 * time.Second))
+		if werr != nil {
+			return // transient timeout / withdrawn / lost: no verdict
 		}
+		var res protocol.JobResult
+		if json.Unmarshal(raw, &res) != nil {
+			return
+		}
+		b.applyToolVerdict(node.NodeID, model, res, authoritative, nonce)
 		return
 	}
 

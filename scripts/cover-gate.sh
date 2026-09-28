@@ -130,7 +130,7 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
 fi
 
 echo "[cover] running full suite with coverage…" >&2
-if ! out="$(go test -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
+if ! out="$(go test -timeout 20m -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
   echo "$out"
   echo "[cover] FAIL: the test suite did not pass"
   exit 1

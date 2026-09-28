@@ -437,17 +437,22 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
-	var busRes <-chan []byte
+	var dispatchFailed <-chan struct{}
+	var tk *dispatchTicket
 	if b.multiInstance && b.shared != nil {
-		ch, cancel, derr := b.busDispatchJob(r.Context(), node.NodeID, job)
-		if cancel != nil {
-			defer cancel()
-		}
+		var derr error
+		tk, derr = b.dispatchRemote(r.Context(), node.NodeID, job, false)
 		if derr != nil {
-			jsonErr(w, http.StatusServiceUnavailable, "station busy (no poller free)")
+			if b.dispatchMode == dispatchViaBus {
+				jsonErr(w, http.StatusServiceUnavailable, "station busy (no poller free)")
+				return
+			}
+			b.writeDispatchFailure(w, b.dispatchErrOutcome(derr))
 			return
 		}
-		busRes = ch
+		defer tk.close()
+		dispatchFailed = tk.done
+		tk.forward(resCh)
 	} else {
 		select {
 		case t.jobs <- job:
@@ -455,21 +460,6 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			jsonErr(w, http.StatusServiceUnavailable, "station busy")
 			return
 		}
-	}
-	if busRes != nil {
-		go func() {
-			raw, ok := <-busRes
-			if !ok {
-				return
-			}
-			var br protocol.JobResult
-			if json.Unmarshal(raw, &br) == nil {
-				select {
-				case resCh <- br:
-				default:
-				}
-			}
-		}()
 	}
 
 	select {
@@ -582,6 +572,8 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 		w.Header().Set("Content-Type", ct)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(res.Body)
+	case <-dispatchFailed: // withdrawn after its queue wait, or lost in handoff
+		b.writeDispatchFailure(w, b.dispatchErrOutcome(tk.Err()))
 	case <-time.After(nonStreamRelayWait):
 		jsonErr(w, http.StatusGatewayTimeout, "station timed out")
 	}

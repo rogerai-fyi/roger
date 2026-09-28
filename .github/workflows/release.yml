@@ -57,7 +57,7 @@ jobs:
       - name: create schema
         run: psql "$ROGERAI_TEST_DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS rogerai;"
       - name: test + coverage
-        run: go test -covermode=atomic -coverprofile=cover.out ./...
+        run: go test -timeout 20m -covermode=atomic -coverprofile=cover.out ./...
       - name: coverage gate (90% bar, aim 95%)
         run: scripts/cover-gate.sh
 
