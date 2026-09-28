@@ -1,0 +1,207 @@
+package main
+
+// Executable pins for features/edge/maintenance.feature, the stop and restart half: what may be
+// signalled, what may never be, and that a restart says which half did what.
+
+import (
+	"encoding/json"
+	"os"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/edge"
+)
+
+// stopRig is a machine with a persistent agent "watcher" REGISTERED as if it were running, with the
+// signal and the roger check recorded rather than performed.
+func stopRig(t *testing.T, pid int) (*[]int, *edge.Registry) {
+	t.Helper()
+	useTempConfig(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	_, err := edgeDesignateCore(edgeAuthDir(), "shed")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "shed", "", "")
+	require.NoError(t, err)
+	now := timeNowForTest()
+	require.NoError(t, edge.MarkPersistent(edgePersistDir(), edgeThisNodeID(), "watcher", now))
+	reg, err := edge.Register(edgeInstancesDir(), edgeThisNodeID(),
+		edge.Instance{Name: "watcher", Agent: true, PID: pid}, now)
+	require.NoError(t, err)
+
+	signalled := []int{}
+	prevSig, prevProc, prevSpawn := edgeSignal, edgeProcIsRoger, edgeSpawnRoger
+	t.Cleanup(func() { edgeSignal, edgeProcIsRoger, edgeSpawnRoger = prevSig, prevProc, prevSpawn })
+	edgeSignal = func(pid int, sig syscall.Signal) error {
+		require.Equal(t, syscall.SIGTERM, sig, "SIGTERM, never SIGKILL")
+		signalled = append(signalled, pid)
+		return nil
+	}
+	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
+	edgeSpawnRoger = func(map[string]string) error { return nil }
+	return &signalled, reg
+}
+
+func TestStopSignalsARunningAgentWithSIGTERM(t *testing.T) {
+	signalled, reg := stopRig(t, 424242)
+	says, changed, refused := edgeStopAgent("watcher", time.Now())
+	require.Equal(t, "", refused)
+	require.True(t, changed)
+	require.Equal(t, []int{424242}, *signalled)
+	// The fake process never leaves the household, so the answer says exactly that, and says why it
+	// is not forced.
+	require.Contains(t, says, "had not gone yet")
+	require.Contains(t, says, "SIGTERM, never SIGKILL")
+
+	// Once it has gone, the same ask is not an error and signals nothing more.
+	require.NoError(t, reg.Deregister())
+	*signalled = nil
+	says, changed, refused = edgeStopAgent("watcher", time.Now())
+	require.Equal(t, "", refused)
+	require.False(t, changed)
+	require.Contains(t, says, "not running")
+	require.Empty(t, *signalled)
+}
+
+func TestStopNeverSignalsAProcessItCannotVouchFor(t *testing.T) {
+	t.Run("stale registration", func(t *testing.T) {
+		signalled, reg := stopRig(t, 424242)
+		// Age the registration past the reap window: the pid may be somebody else's now.
+		old := time.Now().Add(-2 * edge.InstanceLife)
+		require.NoError(t, os.Chtimes(regPath(t, reg), old, old))
+		says, changed, refused := edgeStopAgent("watcher", time.Now())
+		require.False(t, changed)
+		require.Equal(t, "", refused)
+		require.Contains(t, says, "not running",
+			"a process that stopped beating reads as gone here, exactly as the fleet draws it DARK")
+		require.Empty(t, *signalled, "nothing is signalled on a pid nobody can vouch for")
+	})
+
+	t.Run("its own pid", func(t *testing.T) {
+		signalled, _ := stopRig(t, os.Getpid())
+		_, changed, refused := edgeStopAgent("watcher", time.Now())
+		require.False(t, changed)
+		require.Contains(t, refused, "cannot stop itself")
+		require.Empty(t, *signalled)
+	})
+
+	t.Run("not a roger any more", func(t *testing.T) {
+		signalled, _ := stopRig(t, 424242)
+		edgeProcIsRoger = func(int) (bool, bool) { return false, true }
+		_, changed, refused := edgeStopAgent("watcher", time.Now())
+		require.False(t, changed)
+		require.Contains(t, refused, "not a roger any more")
+		require.Empty(t, *signalled)
+	})
+
+	t.Run("no pid recorded", func(t *testing.T) {
+		signalled, _ := stopRig(t, 0)
+		_, changed, refused := edgeStopAgent("watcher", time.Now())
+		require.False(t, changed)
+		require.Contains(t, refused, "too old to record its process")
+		require.Empty(t, *signalled)
+	})
+
+	t.Run("not persistent", func(t *testing.T) {
+		signalled, _ := stopRig(t, 424242)
+		_, err := edge.UnmarkPersistent(edgePersistDir(), "watcher")
+		require.NoError(t, err)
+		_, changed, refused := edgeStopAgent("watcher", time.Now())
+		require.False(t, changed)
+		require.Contains(t, refused, "no persistent agent")
+		require.Empty(t, *signalled)
+	})
+}
+
+// regPath is where a registration was written, so a test can age it.
+func regPath(t *testing.T, reg *edge.Registry) string {
+	t.Helper()
+	entries, err := os.ReadDir(edgeInstancesDir())
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+	return edgeInstancesDir() + "/" + entries[0].Name()
+}
+
+func TestRestartSaysWhichHalfDidWhat(t *testing.T) {
+	signalled, reg := stopRig(t, 424242)
+	launched := 0
+	edgeSpawnRoger = func(map[string]string) error { launched++; return nil }
+
+	// Running, and it does not go: it is NOT started on top of itself, and the answer says so rather
+	// than reporting a restart that did not happen.
+	says, changed, refused := edgeRestartAgent(loadConfig(), "watcher", time.Now())
+	require.Equal(t, "", refused)
+	require.True(t, changed)
+	require.Equal(t, []int{424242}, *signalled)
+	require.Contains(t, says, "asked \"watcher\" to stop")
+	require.Contains(t, says, "NOT started again")
+	require.Zero(t, launched, "nothing is launched on top of a roger that is still there")
+
+	// Gone: the stop took, and the start half runs.
+	require.NoError(t, reg.Deregister())
+	*signalled, launched = nil, 0
+	says, changed, refused = edgeRestartAgent(loadConfig(), "watcher", time.Now())
+	require.Equal(t, "", refused)
+	require.True(t, changed)
+	require.Empty(t, *signalled)
+	require.Equal(t, 1, launched)
+	require.Contains(t, says, "launched a roger")
+
+	// A stop that refuses stops the whole thing: nothing is launched on top of a live process.
+	_, reg2 := stopRig(t, os.Getpid())
+	_ = reg2
+	launched = 0
+	_, _, refused = edgeRestartAgent(loadConfig(), "watcher", time.Now())
+	require.Contains(t, refused, "cannot stop itself")
+	require.Zero(t, launched, "nothing is launched on top of a process that is still there")
+}
+
+// The whole way in: stop and restart are refused unless BOTH of the owner's locks are open, and
+// reboot and shutdown are still refused by name.
+func TestStopAndRestartGoThroughTheMaintenanceGate(t *testing.T) {
+	signalled, _ := stopRig(t, 424242)
+	task := func(a edge.MaintainAction) json.RawMessage {
+		b, _ := json.Marshal(edge.MaintainTask{Action: a, Target: "watcher"})
+		return b
+	}
+	now := time.Now()
+
+	// Maintenance off: refused, nothing signalled.
+	for _, a := range []edge.MaintainAction{edge.MaintainStop, edge.MaintainRestart} {
+		_, refused := edgeMaintainRun(loadConfig(), "n_desk", "desk", "shed", task(a), now)
+		require.Equal(t, edge.MaintainOffReason, refused, string(a))
+	}
+	require.Empty(t, *signalled)
+
+	_, err := captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"on"}) })
+	require.NoError(t, err)
+
+	res, refused := edgeMaintainRun(loadConfig(), "n_desk", "desk", "shed", task(edge.MaintainStop), now)
+	require.Equal(t, "", refused)
+	require.True(t, res.Changed)
+	require.Equal(t, []int{424242}, *signalled)
+
+	// The action is on the machine's own history, naming who asked.
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	n, ok, err := st.fleet.Get(edgeThisNodeID())
+	require.NoError(t, err)
+	require.True(t, ok)
+	found := false
+	for _, e := range n.History {
+		if e.What == "maintenance" && strings.Contains(e.Detail, "stop watcher") {
+			found = true
+			require.Contains(t, e.Detail, "asked by desk")
+		}
+	}
+	require.True(t, found, "the stop is on the history: %+v", n.History)
+
+	// Reboot and shutdown are still refused BY NAME.
+	for _, a := range []edge.MaintainAction{edge.MaintainReboot, edge.MaintainShutdown} {
+		_, refused := edgeMaintainRun(loadConfig(), "n_desk", "desk", "shed", task(a), now)
+		require.Contains(t, refused, "not built yet", string(a))
+	}
+}

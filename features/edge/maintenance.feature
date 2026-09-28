@@ -20,11 +20,22 @@
 # On top of those: the caller is a member over mutual TLS, the grant's caller must match the
 # certificate, a revoked certificate is refused at once, and every action is on the node's history.
 #
-# WHAT IT CANNOT DO. It cannot run a command, a script or a shell: the ONLY thing it starts is a
-# roger the owner already marked persistent ON THAT MACHINE, by the name they gave it. It cannot
-# start something that is already running, cannot reach a name that is not persistent, and cannot
-# touch the roger serving the request. Rebooting, shutting down and stopping a running agent are
-# NOT in this slice and are refused by name, so nothing pretends they exist.
+# WHAT IT CANNOT DO. It cannot run a command, a script or a shell. The only processes it touches are
+# rogers the owner already marked persistent ON THAT MACHINE, by the names they gave them. It cannot
+# reach a name that is not persistent, and it cannot touch the roger serving the request. Rebooting
+# and shutting a machine down are NOT here and are refused by name, so nothing pretends they exist.
+#
+# THE ACTIONS, as of 2026-09-28: START a persistent agent that is down, STOP one that is running,
+# RESTART one (stop, wait for it to leave the household, start), and LOGS, the redacted log tail
+# (features/edge/logs.feature). Every one of them goes through the two locks above.
+#
+# HOW A STOP IS SAFE. Signalling a process by number is how a pid gets reused under you, so a stop
+# only signals a pid when ALL of these hold: the household registration that names it is FRESH (its
+# heartbeat is inside the reap window, so the process it describes is the process still beating), the
+# pid is not this process (a roger cannot kill the face answering the request), and on Linux the
+# process's own command line still names a roger. It sends SIGTERM and never SIGKILL: a roger that
+# will not leave is reported, not forced. The stop waits a bounded time for the registration to go,
+# and says plainly whether it went.
 #
 # WHO MAY DECLARE IT. features/edge/node_identity.feature (approved) says a host may declare any
 # capability and a mobile any but relay, so both may DECLARE maintain; a board may not. Declaring it
@@ -123,10 +134,51 @@ Feature: maintenance actions
     Then its readout says maintenance is on there, and what it allows
     And a unit that does not declare it says nothing at all
 
+  # ---- stopping and restarting ----------------------------------------------
+
+  @edge
+  Scenario: stopping a running agent
+    Given "watcher" is running on "shed" and its registration is fresh
+    When desk asks "shed" to stop "watcher"
+    Then it is sent SIGTERM, never SIGKILL
+    And the answer says it was asked to stop, and whether it had gone by the time the answer was sent
+    And "shed"'s history carries the action and who asked
+    When it is asked to stop something that is not running
+    Then nothing is signalled, and the answer says it was not running - that is not an error
+
+  @edge
+  Scenario: a stop never signals a process it cannot vouch for
+    Given a registration whose heartbeat is older than the reap window
+    When desk asks to stop that agent
+    Then nothing is signalled, and the answer says it is not running - a process that stopped beating
+      reads as gone here, exactly as the fleet draws it DARK, and no pid nobody can vouch for is
+      ever signalled
+    Given a registration that names THIS process's own pid
+    When desk asks to stop it
+    Then it is refused: a roger cannot kill the face that is answering
+    Given a registration naming a pid whose command line is not a roger
+    When desk asks to stop it
+    Then nothing is signalled, and the refusal says the pid is not a roger any more
+    And a registration with no pid at all (written by an older roger) is refused the same way
+
+  @edge
+  Scenario: restarting is a stop then a start, and says which half did what
+    Given "watcher" is running on "shed"
+    When desk asks "shed" to restart "watcher"
+    Then it is stopped, and once its registration goes a fresh roger is launched for it
+    And the answer names both halves
+    When the roger has not gone by the time the answer is due
+    Then it is NOT started on top of itself, and the answer says so rather than reporting a restart
+      that did not happen - asking again in a moment works
+    When the stop half is refused
+    Then nothing is launched, and the refusal is the stop's own reason
+    When it is asked to restart something that is not running
+    Then it is simply started, and the answer says so
+
   # ---- what is NOT here -----------------------------------------------------
 
   @edge
-  Scenario: stop, restart and reboot are refused by name until they are built
-    When desk asks "shed" to stop, restart, reboot or shut down
+  Scenario: reboot and shutdown are refused by name until they are built
+    When desk asks "shed" to reboot or shut down
     Then each is refused by name, saying it is not built yet
     And no partial action is taken

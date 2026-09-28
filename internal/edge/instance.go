@@ -251,6 +251,38 @@ func Household(dir string, now time.Time) []Instance {
 	return out
 }
 
+// LiveInstance is one instance of the household together with how fresh its registration is: a stop
+// signals a pid only when the file that names it has been touched inside InstanceLife, because that
+// is what says the process it describes is the process still beating (features/edge/maintenance.feature).
+type LiveInstance struct {
+	Instance
+	Beat time.Time // when its registration was last touched
+}
+
+// LiveHousehold is Household with each registration's heartbeat, oldest name first.
+func LiveHousehold(dir string, now time.Time) []LiveInstance {
+	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	sort.Strings(files)
+	out := []LiveInstance{}
+	for _, p := range files {
+		fi, err := os.Stat(p)
+		if err != nil || now.Sub(fi.ModTime()) > InstanceLife {
+			continue // a dead file is Household's to reap; here it is simply not live
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var h householdFile
+		if json.Unmarshal(b, &h) != nil || h.Instance.Name == "" {
+			continue
+		}
+		out = append(out, LiveInstance{Instance: h.Instance, Beat: fi.ModTime()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // DescribeInstances is the household as a node's face reports it: bounded, and the
 // truncation is said rather than hidden.
 func DescribeInstances(dir string, now time.Time) ([]Instance, bool) {

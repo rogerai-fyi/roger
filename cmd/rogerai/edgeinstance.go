@@ -100,7 +100,8 @@ func (h *edgeHost) registerInstance(cfg config) {
 	}
 	bands := edgeBandsOnAir()
 	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCaps(bands, edgeMaintenanceOn(cfg)),
-		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now), Software: edgeReadSoftware()}
+		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now), Software: edgeReadSoftware(),
+		PID: os.Getpid()} // its own pid, about itself: what lets the owner stop it from another machine
 	reg, err := edge.Register(dir, id.NodeID, inst, now)
 	if err != nil {
 		// A taken name is the one refusal a default cannot avoid on a race: fall back to
@@ -140,6 +141,7 @@ func (h *edgeHost) beatInstance(cfg config) {
 		// the process, so a kernel upgrade - or a fix to the reader itself - showed up on a restart
 		// and nowhere else.
 		i.Software = edgeReadSoftware()
+		i.PID = os.Getpid() // refreshed with the rest, so a record written by an older roger gains it
 	})
 	// An env-named process keeps its env name; only a config choice (and only when no env
 	// override is set) renames a running instance to follow the owner's `roger edge name .`.

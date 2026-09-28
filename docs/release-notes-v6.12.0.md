@@ -108,11 +108,18 @@ maintenance, because running a turn and starting a process are different powers.
 mutual TLS, the caller matched to its certificate, revocation applied from the local authority
 store, one action at a time, and the action on the node's own history naming who asked.
 
-It cannot run a command, a script or a shell. The only thing it starts is a roger the owner already
-named there. Stopping, restarting and rebooting are refused by name, so nothing pretends they exist.
-`roger edge maintain <node> start <agent>` is the arrow, and the fleet screen says which units have
-maintenance on. Proposed in features/edge/maintenance.feature; it needs the founder's approval
-before any machine is left with the switch on.
+It cannot run a command, a script or a shell. The only processes it touches are rogers the owner
+already named there. The actions are START one that is down, STOP one that is running, RESTART one,
+and LOGS, the redacted tail. Rebooting and shutting a machine down are refused by name, so nothing
+pretends they exist.
+
+A stop signals nothing it cannot vouch for, because signalling by number is how a process id gets
+reused under you. It signals only when the registration naming the pid is still beating, the pid is
+not the process answering the request, and the pid's own command line still names a roger. It sends
+SIGTERM and never SIGKILL: a roger that will not leave is reported, not forced. A restart that finds
+the roger still there does not start a second one on top of it, and says so rather than reporting a
+restart that did not happen. `roger edge maintain <node> start|stop|restart <agent>`, and the fleet
+screen says which units have maintenance on.
 
 ## The log tail, with secrets removed
 

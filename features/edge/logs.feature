@@ -1,9 +1,9 @@
 # ROGER EDGE - THE LOG TAIL: reading a unit's recent log from another machine, with secrets removed.
 #
-# STATUS: PROPOSED 2026-09-28. Not godog-bound: pinned by Go tests - internal/edge/logtail_test.go
-# (the ring, the redaction, the face) and cmd/rogerai/edgelogs_test.go (`roger edge logs`).
-# NEEDS THE FOUNDER'S APPROVAL: it moves log lines off a machine, and a log line can contain
-# anything. Read the REDACTION section before approving.
+# STATUS: APPROVED 2026-09-28 (founder: "approved", after reading the REDACTION section). Not
+# godog-bound: pinned by Go tests - internal/edge/logtail_test.go (the ring, the redaction),
+# cmd/rogerai/edgelogs_test.go (the action and `roger edge logs`) and internal/tui/
+# logcap_mirror_test.go (the mirror that makes the ring non-empty under a terminal).
 #
 # WHY. It is the feature an operator reaches for most in every fleet manager: a unit is behaving
 # oddly and you want its last hundred lines without walking to it or opening an SSH session. Roger

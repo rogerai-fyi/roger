@@ -27,10 +27,12 @@ const (
 	// invoke path already makes - the certificate, the grant's signature, the revocation, the caller
 	// match, the capability scope, the owner's switch, the replay cache - and adds no new one.
 	MaintainLogs MaintainAction = "logs"
+	// MaintainStop asks a running persistent agent to stop: SIGTERM, never SIGKILL.
+	MaintainStop MaintainAction = "stop"
+	// MaintainRestart is a stop then a start, and says which half did what.
+	MaintainRestart MaintainAction = "restart"
 	// The actions that are NOT built. They are named so a caller is refused by name rather than
 	// with "unknown", and so nothing pretends they exist.
-	MaintainStop     MaintainAction = "stop"
-	MaintainRestart  MaintainAction = "restart"
 	MaintainReboot   MaintainAction = "reboot"
 	MaintainShutdown MaintainAction = "shutdown"
 )
@@ -57,11 +59,12 @@ type MaintainResult struct {
 // notBuilt names the actions that are specified and deliberately not implemented, with the words
 // the caller is refused with.
 var notBuilt = map[MaintainAction]string{
-	MaintainStop:     "stopping a running agent is not built yet",
-	MaintainRestart:  "restarting a running agent is not built yet - start one that is down instead",
 	MaintainReboot:   "rebooting a machine is not built yet",
 	MaintainShutdown: "shutting a machine down is not built yet",
 }
+
+// MaintainActs are the actions that act on a NAMED agent, so the task must name one.
+var MaintainActs = []MaintainAction{MaintainStart, MaintainStop, MaintainRestart}
 
 // ParseMaintainTask reads a maintenance task and refuses everything that cannot mean what it says,
 // before the host looks anything up. The returned string is the refusal, "" when the task is good.
@@ -73,7 +76,7 @@ func ParseMaintainTask(raw json.RawMessage) (MaintainTask, string) {
 	t.Action = MaintainAction(strings.ToLower(strings.TrimSpace(string(t.Action))))
 	t.Target = strings.TrimSpace(t.Target)
 	if t.Action == "" {
-		return t, "a maintenance task names an action; the ones there are: start, logs"
+		return t, "a maintenance task names an action; the ones there are: start, stop, restart, logs"
 	}
 	if why, ok := notBuilt[t.Action]; ok {
 		return t, why
@@ -81,8 +84,12 @@ func ParseMaintainTask(raw json.RawMessage) (MaintainTask, string) {
 	if t.Action == MaintainLogs {
 		return t, "" // it acts on the machine itself: no target, and the line count is clamped later
 	}
-	if t.Action != MaintainStart {
-		return t, fmt.Sprintf("%q is not a maintenance action; the ones there are: start, logs", string(t.Action))
+	named := false
+	for _, a := range MaintainActs {
+		named = named || t.Action == a
+	}
+	if !named {
+		return t, fmt.Sprintf("%q is not a maintenance action; the ones there are: start, stop, restart, logs", string(t.Action))
 	}
 	if t.Target == "" {
 		return t, "a maintenance action names the agent it acts on"

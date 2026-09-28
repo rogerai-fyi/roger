@@ -105,11 +105,23 @@ func edgeMaintainRun(cfg config, callerID, callerName, selfInstance string, raw 
 		return edge.MaintainResult{}, "that is the roger serving this request: a process cannot restart itself through its own face"
 	}
 	res := edge.MaintainResult{Action: task.Action, Target: task.Target}
-	msg, err := edgeAgentResumed(cfg, task.Target)
-	if err != nil {
-		return res, err.Error()
+	var says, why string
+	switch task.Action {
+	case edge.MaintainStop:
+		says, res.Changed, why = edgeStopAgent(task.Target, now)
+	case edge.MaintainRestart:
+		says, res.Changed, why = edgeRestartAgent(cfg, task.Target, now)
+	default: // start
+		msg, err := edgeAgentResumed(cfg, task.Target)
+		if err != nil {
+			return res, err.Error()
+		}
+		says, res.Changed = msg, !strings.Contains(msg, "already running")
 	}
-	res.Says, res.Changed = msg, !strings.Contains(msg, "already running")
+	if why != "" {
+		return res, why
+	}
+	res.Says = says
 	if res.Changed {
 		edgeRecordMaintenance(callerID, callerName, task, now)
 	}

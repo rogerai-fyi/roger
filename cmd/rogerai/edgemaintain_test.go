@@ -149,9 +149,12 @@ func TestMaintenanceRefusals(t *testing.T) {
 		{"bad name", maintainTask(edge.MaintainStart, "not a name"), "shed", "not an agent name"},
 		{"unreadable", json.RawMessage(`{`), "shed", "could not be read"},
 		{"reboot", maintainTask(edge.MaintainReboot, "shed"), "shed", "not built yet"},
-		{"stop", maintainTask(edge.MaintainStop, "watcher"), "shed", "not built yet"},
-		{"restart", maintainTask(edge.MaintainRestart, "watcher"), "shed", "not built yet"},
 		{"shutdown", maintainTask(edge.MaintainShutdown, "shed"), "shed", "not built yet"},
+		// stop and restart exist now, and their own refusals are pinned in edgestop_test.go. Here they
+		// only have to refuse a target that is not a persistent agent, like start does.
+		{"stop an unknown agent", maintainTask(edge.MaintainStop, "nosuch"), "shed", "no persistent agent"},
+		{"restart an unknown agent", maintainTask(edge.MaintainRestart, "nosuch"), "shed", "no persistent agent"},
+		{"stop itself", maintainTask(edge.MaintainStop, "shed"), "shed", "cannot restart itself"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

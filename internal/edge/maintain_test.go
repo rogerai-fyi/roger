@@ -48,6 +48,17 @@ func TestMaintenanceTaskRefusesEverythingItCannotMean(t *testing.T) {
 	require.Equal(t, MaintainStart, good.Action)
 	require.Equal(t, "watcher", good.Target, "normalised before anything is looked up")
 
+	// The actions that act on a named agent all take one, and all exist.
+	for _, a := range MaintainActs {
+		got, says := ParseMaintainTask(raw(MaintainTask{Action: a, Target: "watcher"}))
+		require.Equal(t, "", says, string(a))
+		require.Equal(t, a, got.Action)
+	}
+	// The tail acts on the machine itself, so it needs no target.
+	got, says := ParseMaintainTask(raw(MaintainTask{Action: MaintainLogs}))
+	require.Equal(t, "", says)
+	require.Equal(t, MaintainLogs, got.Action)
+
 	cases := []struct {
 		name string
 		task json.RawMessage
@@ -58,10 +69,10 @@ func TestMaintenanceTaskRefusesEverythingItCannotMean(t *testing.T) {
 		{"no target", raw(MaintainTask{Action: MaintainStart}), "names the agent"},
 		{"bad name", raw(MaintainTask{Action: MaintainStart, Target: "not a name"}), "not an agent name"},
 		{"unknown", raw(MaintainTask{Action: "frobnicate", Target: "watcher"}), "is not a maintenance action"},
-		{"stop", raw(MaintainTask{Action: MaintainStop, Target: "watcher"}), "not built yet"},
-		{"restart", raw(MaintainTask{Action: MaintainRestart, Target: "watcher"}), "not built yet"},
 		{"reboot", raw(MaintainTask{Action: MaintainReboot, Target: "watcher"}), "not built yet"},
 		{"shutdown", raw(MaintainTask{Action: MaintainShutdown, Target: "watcher"}), "not built yet"},
+		{"stop with no target", raw(MaintainTask{Action: MaintainStop}), "names the agent"},
+		{"restart with a bad name", raw(MaintainTask{Action: MaintainRestart, Target: "not a name"}), "not an agent name"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

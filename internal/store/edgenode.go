@@ -42,9 +42,14 @@ type EdgeInstance struct {
 	// and the surfaces draw it as ◆ (features/edge/agents.feature). Distinct from merely claiming
 	// the operate capability, which any instance may do; Agent is the owner's declaration - a
 	// command, a config role, or the ROGER_EDGE_AGENT launch env.
-	Agent     bool           `json:"agent,omitempty"`
-	Started   int64          `json:"started,omitempty"`
-	Port      int            `json:"port,omitempty"` // its own LAN face, when it has one
+	Agent   bool  `json:"agent,omitempty"`
+	Started int64 `json:"started,omitempty"`
+	Port    int   `json:"port,omitempty"` // its own LAN face, when it has one
+	// PID is the process that wrote this registration, on the machine that wrote it. It is written by
+	// the process about ITSELF, so it is never a claim about anybody else, and it is what lets the
+	// owner stop or restart a roger from another machine (features/edge/maintenance.feature). A
+	// registration from an older roger carries none, and a stop refuses rather than guessing.
+	PID       int            `json:"pid,omitempty"`
 	Resources *EdgeResources `json:"resources,omitempty"`
 	// ServeProven are the bands the serving probe actually answered for on this instance
 	// (features/edge/serving_probe.feature). A VERIFIED serve means EVERY band in this list was
