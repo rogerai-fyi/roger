@@ -135,7 +135,15 @@ var edgeScheduleRunning sync.Mutex
 // edgeRunSchedule runs whatever is due, once. It is called from the host's ordinary pass, so a machine
 // that is not running a roger runs nothing - which is correct: the schedule belongs to the machine that
 // holds the grant, and a machine that is off is not holding anything.
+//
+// ONE RUNNER PER MACHINE. Every roger on a machine makes this pass, and if each ran the schedule they
+// would race for it and take turns being the target of their own jobs (a live run did exactly that: the
+// roger that ran "restart roger" was that roger). The runner is the first live instance BY NAME, which
+// is deterministic, always exactly one, and needs no election.
 func edgeRunSchedule(cfg config, now time.Time) {
+	if !edgeScheduleRunsHereFn(now) {
+		return
+	}
 	if !edgeScheduleRunning.TryLock() {
 		return // a run is still going; the next pass will find whatever is still due
 	}
@@ -183,6 +191,31 @@ func edgeRunSchedule(cfg config, now time.Time) {
 	}
 }
 
+// edgeScheduleRunsHereFn is the one-runner rule, as a seam: a test that is exercising what a RUN does
+// sets it rather than arranging instance names to come out in the right order. The rule itself is
+// pinned directly.
+var edgeScheduleRunsHereFn = edgeScheduleRunsHere
+
+// edgeScheduleRunsHere reports whether THIS process is the roger that runs this machine's schedules:
+// the first live instance by name. Every roger passes here, and only one may act.
+func edgeScheduleRunsHere(now time.Time) bool {
+	me := edgeMyInstanceName()
+	if me == "" {
+		return false // not registered: this process is not one of the machine's rogers
+	}
+	first := ""
+	for _, in := range edge.LiveHousehold(edgeInstancesDir(), now) {
+		if first == "" || in.Name < first {
+			first = in.Name
+		}
+	}
+	return first == me
+}
+
+// edgeMyInstanceName is the name THIS process registered, or "" before it has. It is set once the host
+// registers and read on every pass.
+var edgeMyInstanceName = func() string { return "" }
+
 // edgeRunScheduledOn takes one job to one unit. THIS MACHINE is acted on LOCALLY - no face, no grant,
 // no switch, because it is the owner's own machine and this is the same thing `roger edge agent resume`
 // does; the gate exists for a REMOTE caller, and a roger cannot reach its own face anyway. Every other
@@ -209,6 +242,13 @@ func edgeRunScheduledOn(cfg config, j edge.Job, target edge.Node, selfID string)
 func edgeRunScheduledHere(cfg config, j edge.Job) (outcome string, changed bool) {
 	now := time.Now()
 	var says, refused string
+	defer func() {
+		if refused != "" {
+			// Say WHICH roger tried, so a self-refusal reads as the fact it is: the schedule is run by
+			// one roger on this machine, and it cannot be its own target.
+			outcome = refused + " (the schedule is run here by " + edgeMyInstanceName() + ")"
+		}
+	}()
 	switch j.What {
 	case edge.MaintainStop:
 		says, changed, refused = edgeStopAgent(j.Agent, now)

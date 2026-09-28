@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +28,11 @@ func scheduleSeed(t *testing.T) {
 	require.NoError(t, err)
 	_, err = edgeEnrollCore(loadConfig(), "desk", "", "")
 	require.NoError(t, err)
+	// This process is the machine's schedule runner. The RULE that picks it is pinned on its own in
+	// TestOnlyOneRogerOnAMachineRunsTheSchedules; every other test here is about what a run does.
+	prevRuns := edgeScheduleRunsHereFn
+	t.Cleanup(func() { edgeScheduleRunsHereFn = prevRuns })
+	edgeScheduleRunsHereFn = func(time.Time) bool { return true }
 	edgeSeed(t,
 		store.EdgeNode{ID: "n_shed", Name: "shed", Kind: "host", Presence: string(edge.PresenceVerified),
 			Tags: []string{"production"}, Pin: "abab",
@@ -347,4 +353,62 @@ func TestAScheduledJobThatMatchesNothingSaysSo(t *testing.T) {
 	out, code := edgeRun(t, "edge", "schedule")
 	require.Equal(t, 0, code, out)
 	require.Contains(t, out, "no unit matched this scope")
+}
+
+// ONE RUNNER PER MACHINE. Every roger on a machine makes the same pass, and if each ran the schedule
+// they would race for it and take turns being the target of their own jobs - a live run did exactly
+// that, restarting the roger that was running the schedule.
+func TestOnlyOneRogerOnAMachineRunsTheSchedules(t *testing.T) {
+	scheduleSeed(t)
+	now := timeNowForTest()
+	// Two rogers registered here.
+	for _, name := range []string{"roger", "roger-2"} {
+		_, err := edge.Register(edgeInstancesDir(), edgeThisNodeID(), edge.Instance{Name: name, PID: 4242}, now)
+		require.NoError(t, err)
+	}
+	prev := edgeMyInstanceName
+	t.Cleanup(func() { edgeMyInstanceName = prev })
+	edgeScheduleRunsHereFn = edgeScheduleRunsHere // the real rule, for this test
+
+	edgeMyInstanceName = func() string { return "roger" }
+	require.True(t, edgeScheduleRunsHere(time.Now()), "the first live instance by name runs them")
+	edgeMyInstanceName = func() string { return "roger-2" }
+	require.False(t, edgeScheduleRunsHere(time.Now()), "the other passes over it")
+	edgeMyInstanceName = func() string { return "" }
+	require.False(t, edgeScheduleRunsHere(time.Now()), "a process that registered nothing runs nothing")
+
+	// And a due job is untouched by the roger that must not run it.
+	_, code := edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", "shed", "--every", "1h")
+	require.Equal(t, 0, code)
+	edgeMyInstanceName = func() string { return "roger-2" }
+	edgeRunSchedule(loadConfig(), time.Now())
+	jobs, err := edgeAlertLog().Jobs()
+	require.NoError(t, err)
+	require.Empty(t, jobs[0].Runs, "the roger that does not run schedules recorded nothing")
+	require.True(t, jobs[0].Due(time.Now()), "and left it due for the one that does")
+}
+
+// When a job's target IS the roger running the schedules, the refusal names which roger tried - so the
+// owner can see why, rather than reading a bare "cannot stop itself".
+func TestASelfTargetedScheduleSaysWhichRogerRanIt(t *testing.T) {
+	scheduleSeed(t)
+	now := timeNowForTest()
+	require.NoError(t, edge.MarkPersistent(edgePersistDir(), edgeThisNodeID(), "roger", now))
+	_, err := edge.Register(edgeInstancesDir(), edgeThisNodeID(), edge.Instance{Name: "roger", PID: os.Getpid()}, now)
+	require.NoError(t, err)
+	prev := edgeMyInstanceName
+	t.Cleanup(func() { edgeMyInstanceName = prev })
+	edgeMyInstanceName = func() string { return "roger" }
+
+	_, code := edgeRun(t, "edge", "schedule", "add", "restart", "roger", "--scope", ".", "--every", "1h")
+	require.Equal(t, 0, code)
+	edgeRunSchedule(loadConfig(), time.Now())
+
+	jobs, err := edgeAlertLog().Jobs()
+	require.NoError(t, err)
+	require.Len(t, jobs[0].Runs, 1)
+	out := jobs[0].Runs[0].Outcome
+	require.Contains(t, out, "cannot stop itself")
+	require.Contains(t, out, "the schedule is run here by roger")
+	require.False(t, jobs[0].Runs[0].Changed)
 }

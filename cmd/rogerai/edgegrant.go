@@ -207,6 +207,14 @@ func edgeGrantResolveNode(addr string, isCaller bool) (string, error) {
 	if i := strings.IndexByte(addr, '/'); i >= 0 {
 		node = addr[:i]
 	}
+	// "." and "self" mean THIS machine wherever a node is named - a grant's callee, an alert rule's
+	// scope, an expectation's, a schedule's. The face resolver has said so for a while; this is the
+	// same promise for everything that names a node by way of the fleet.
+	if node == "." || (node == "self" && !isCaller) {
+		if id := edgeThisNodeID(); id != "" {
+			return id, nil
+		}
+	}
 	st, err := loadEdgeState()
 	if err != nil {
 		return "", err

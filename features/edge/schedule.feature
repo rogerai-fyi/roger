@@ -123,6 +123,16 @@ Feature: schedules
     And a run records when it happened whether it worked or not, so the next one is not immediate
 
   @edge
+  Scenario: one roger per machine runs the schedules
+    Given a machine running two rogers, both making their ordinary pass
+    Then only ONE of them runs what is due: the first live instance by name
+    And the other passes over it, so they never race for a job nor take turns being its target
+    When a job's target IS the roger that runs the schedules
+    Then it is refused by the pid check, and the outcome NAMES which roger tried, so the owner can
+      see why - a live run hit exactly this, restarting the roger that was running the schedule
+    And the fix in the owner's hands is to name a different agent
+
+  @edge
   Scenario: one run at a time, and a slow run does not stack
     Given a run in progress
     When the pass comes round again

@@ -120,6 +120,15 @@ func (h *edgeHost) registerInstance(cfg config) {
 	}
 	h.reg, h.regNode = reg, id.NodeID
 	h.mu.Unlock()
+	// The name this process answers to, for the one-runner-per-machine rule the schedules use.
+	edgeMyInstanceName = func() string {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.reg == nil {
+			return ""
+		}
+		return h.reg.Instance().Name
+	}
 }
 
 // beatInstance keeps the registration fresh and true: the bands on air right now, the

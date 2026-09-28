@@ -151,3 +151,43 @@ func TestDriftLinesAreOnlyWhatIsKnownWrong(t *testing.T) {
 	require.Empty(t, edgeDriftLines(nil, "n_shed"))
 	_ = time.Now
 }
+
+// "." and "self" mean THIS machine wherever a node is named by way of the fleet: a grant's callee, an
+// alert rule's scope, an expectation's, a schedule's. The face resolver promised it; these did not.
+func TestTheSelfAliasWorksWhereverANodeIsNamed(t *testing.T) {
+	offline(t)
+	_, err := edgeDesignateCore(edgeAuthDir(), "desk")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "desk", "", "")
+	require.NoError(t, err)
+	self := edgeThisNodeID()
+	require.NotEmpty(t, self)
+
+	for _, alias := range []string{".", "self"} {
+		got, err := edgeGrantResolveNode(alias, false)
+		require.NoError(t, err, alias)
+		require.Equal(t, self, got, alias)
+	}
+	// As a CALLER, "self" still means "any of the owner's own instances" - that is a different question.
+	got, err := edgeGrantResolveNode("self", true)
+	require.NoError(t, err)
+	require.Equal(t, "", got)
+	// And as a caller "." is this machine, which is a node it can name.
+	got, err = edgeGrantResolveNode(".", true)
+	require.NoError(t, err)
+	require.Equal(t, self, got)
+
+	// So an expectation and a schedule can both be scoped to this machine by ".".
+	scope, where, err := edgeExpectScope(".")
+	require.NoError(t, err)
+	require.Equal(t, self, scope)
+	require.Equal(t, ".", where)
+	_, code := edgeRun(t, "edge", "expect", "agent", "--scope", ".")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", ".", "--every", "1h")
+	require.Equal(t, 0, code)
+	jobs, err := edgeAlertLog().Jobs()
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	require.Equal(t, self, jobs[0].Scope)
+}
