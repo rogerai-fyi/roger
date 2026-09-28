@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -167,7 +168,11 @@ func edgeBandsOnAir() []string {
 	if edgeOnAir == nil {
 		return nil
 	}
-	return edgeOnAir()
+	// SORTED: the order a process happens to list its models in is not a fact about the Edge, and an
+	// unstable order rewrote the registration and the fleet record on every pass.
+	out := append([]string(nil), edgeOnAir()...)
+	sort.Strings(out)
+	return out
 }
 
 // edgeReadResources reads what it can and invents nothing: RAM from the kernel on Linux, a

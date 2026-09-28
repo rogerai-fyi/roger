@@ -620,6 +620,11 @@ func LANAddr(n store.EdgeNode) string {
 
 // sameBands reports whether two band sets are equal as sets (order-insensitive). A serve
 // verification is tied to the bands it was probed against, so a change here re-opens the probe.
+// SameBands reports whether two band lists hold the same bands, whatever their order. Order is not
+// meaningful - it is whatever the process listed its models in - so anything that decides "have the
+// bands changed" must use this rather than comparing joined strings.
+func SameBands(a, b []string) bool { return sameBands(a, b) }
+
 func sameBands(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -730,6 +735,9 @@ func (f *Fleet) RecordInstanceProbe(id, instance string, c Capability, passed bo
 				state := Claimed
 				if passed {
 					state = Verified
+				}
+				if d.State == string(state) {
+					return nil // nothing moved: not an event, and not a write worth making
 				}
 				n.Instances[i].Caps[j].State = string(state)
 				n.Caps = unionCaps(n.Caps, n.Instances)

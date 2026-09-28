@@ -97,3 +97,72 @@ func TestHostDoesNotVerifyWhatItsFaceCannotRoute(t *testing.T) {
 		require.NotEqual(t, string(edge.Verified), c.State, "nothing answered: nothing is verified")
 	}
 }
+
+// The host does not re-probe what it has already proven, whatever order the bands come back in: an
+// unstable order made every pass look like a change, so the probe ran and re-recorded itself on
+// every pass (the events timeline filled with it).
+func TestTheHostDoesNotReprobeWhatItHasProven(t *testing.T) {
+	offline(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	out, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code, out)
+	out, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code, out)
+
+	probes := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		probes++
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "qwen"}, {"id": "mistral"}}})
+	}))
+	t.Cleanup(upstream.Close)
+	// Two bands, handed back in a DIFFERENT order each call, as a map iteration would.
+	flip := false
+	edgeAttachOnAir(func() []string {
+		flip = !flip
+		if flip {
+			return []string{"qwen", "mistral"}
+		}
+		return []string{"mistral", "qwen"}
+	})
+	edgeAttachUpstream(func(band string) (string, string, bool) {
+		if band == "qwen" || band == "mistral" {
+			return upstream.URL + "/v1/chat/completions", "", true
+		}
+		return "", "", false
+	})
+	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })
+
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+	_, ok := h.startFace()
+	require.True(t, ok)
+	h.registerInstance(h.cfg)
+	id, _, _, _ := edgeIdentityStore().LoadIdentity()
+
+	h.observeSelf(time.Now())
+	first := probes
+	require.Greater(t, first, 0, "the first pass proves it")
+
+	for range 5 {
+		h.beatInstance(h.cfg)
+		h.observeSelf(time.Now())
+	}
+	require.Equal(t, first, probes, "five more passes ask the server nothing: it is already proven")
+
+	after, _, err := h.st.fleet.Get(id.NodeID)
+	require.NoError(t, err)
+	require.Len(t, after.Instances, 1)
+	require.Equal(t, []string{"mistral", "qwen"}, after.Instances[0].Bands, "the bands are recorded sorted")
+	probeEvents := 0
+	for _, e := range after.History {
+		if e.What == "probe" {
+			probeEvents++
+		}
+	}
+	require.Equal(t, 1, probeEvents, "one crossing, one event, however many passes: %+v", after.History)
+}

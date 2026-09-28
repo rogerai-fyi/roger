@@ -441,11 +441,15 @@ func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.I
 	h.mu.Lock()
 	cur, _, _ := h.st.fleet.Get(nodeID)
 	h.mu.Unlock()
-	done := map[string]bool{}
+	// Which instances are already proven, and for which bands. The bands are compared as a SET: their
+	// order is whatever the process listed its models in, and a joined-string key made every pass
+	// look like a change, so the probe ran and re-recorded itself forever (caught by the events
+	// timeline, which filled with "serve -> VERIFIED" every 30 seconds).
+	already := map[string][]string{}
 	for _, in := range cur.Instances {
 		for _, c := range in.Caps {
 			if c.Name == string(edge.Serve) && c.State == string(edge.Verified) {
-				done[in.Name+"|"+strings.Join(in.Bands, ",")] = true
+				already[in.Name] = in.Bands
 			}
 		}
 	}
@@ -455,8 +459,11 @@ func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.I
 		for _, c := range in.Caps {
 			claims = claims || c.Name == string(edge.Serve)
 		}
-		if !claims || len(in.Bands) == 0 || done[in.Name+"|"+strings.Join(in.Bands, ",")] {
+		if !claims || len(in.Bands) == 0 {
 			continue
+		}
+		if was, ok := already[in.Name]; ok && edge.SameBands(was, in.Bands) {
+			continue // already proven for exactly these bands
 		}
 		for _, b := range in.Bands {
 			if got, status, _ := srv.ProbeBand(context.Background(), b); status == 0 && got == in.Name {

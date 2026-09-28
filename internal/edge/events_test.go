@@ -129,3 +129,42 @@ func TestNodeHistoryIsCapped(t *testing.T) {
 	}
 	require.NotEqual(t, "filler", after.History[0].Detail+"x", "the oldest were dropped")
 }
+
+// A probe that changes nothing is not an event. The host re-runs the serving probe on every pass, so
+// an unconditional write filled a node's history with "serve -> VERIFIED" every thirty seconds - the
+// events timeline is what caught it.
+func TestARepeatedProbeIsNotAnEvent(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	_, err := f.Enroll(store.EdgeNode{ID: "n_desk", Name: "desk", Kind: string(Host),
+		Instances: []Instance{{Name: "desk", Bands: []string{"qwen"},
+			Caps: []store.EdgeCap{{Name: string(Serve), State: string(Claimed)}}}}})
+	require.NoError(t, err)
+
+	require.NoError(t, f.RecordInstanceProbe("n_desk", "desk", Serve, true))
+	after, _, err := f.Get("n_desk")
+	require.NoError(t, err)
+	events := len(after.History)
+	require.Equal(t, "probe", after.History[events-1].What)
+
+	for range 20 {
+		require.NoError(t, f.RecordInstanceProbe("n_desk", "desk", Serve, true))
+	}
+	after, _, err = f.Get("n_desk")
+	require.NoError(t, err)
+	require.Len(t, after.History, events, "twenty more passes, and the record is unchanged")
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "desk"))
+
+	// A probe that FAILS after passing is a real change, and is recorded.
+	require.NoError(t, f.RecordInstanceProbe("n_desk", "desk", Serve, false))
+	after, _, err = f.Get("n_desk")
+	require.NoError(t, err)
+	require.Len(t, after.History, events+1)
+	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "desk"))
+}
+
+func TestSameBandsIgnoresOrder(t *testing.T) {
+	require.True(t, SameBands([]string{"a", "b"}, []string{"b", "a"}))
+	require.True(t, SameBands(nil, nil))
+	require.False(t, SameBands([]string{"a"}, []string{"a", "b"}))
+	require.False(t, SameBands([]string{"a", "a"}, []string{"a", "b"}))
+}
