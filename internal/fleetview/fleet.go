@@ -77,6 +77,9 @@ type FleetItem struct {
 	// Tags are the OWNER's words for this unit (features/edge/tags.feature): the groups a rule can
 	// cover. Empty on a unit the owner has not labelled, and on a candidate, which is not theirs yet.
 	Tags []string
+	// Drift is what this unit does not match, one line per expectation (features/edge/drift.feature).
+	// Empty on a unit in order, and on one whose facts are not known - an unknown is not a wrong.
+	Drift []string
 	// Maintain is true when the unit declares the maintain capability - its owner turned maintenance
 	// on there, so a member holding a maintain grant can start one of its agents
 	// (features/edge/maintenance.feature). False says nothing at all, not "refused".
@@ -1040,6 +1043,13 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		}
 		if it.Maintain {
 			row("service", span("maintenance is on there · a member with a grant can start one of its agents", glow))
+		}
+		for k, line := range it.Drift {
+			label := ""
+			if k == 0 {
+				label = "drift"
+			}
+			row(label, bold(line, live))
 		}
 	}
 	software := func() {

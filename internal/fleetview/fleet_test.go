@@ -681,3 +681,25 @@ func TestEventsTabShowsACollapsedRun(t *testing.T) {
 	page.Press("6")
 	must(t, page.Screen(), "×12 over 11m")
 }
+
+// A unit that does not match what the owner expects carries a DRIFT row, one line per thing; a unit
+// in order carries none at all (features/edge/drift.feature).
+func TestReadoutSaysWhereAUnitHasDrifted(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		if snap.Items[i].Name == "nas" {
+			snap.Items[i].Drift = []string{"roger 6.13.0 · runs 6.9.0", "agent · runs no agent"}
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	for range 4 {
+		page.Press("j")
+	}
+	must(t, page.Screen(), "DRIFT", "roger 6.13.0 · runs 6.9.0", "agent · runs no agent")
+	page.Press("j")
+	if strings.Contains(page.Screen(), "DRIFT") {
+		t.Fatal("a unit in order carries no drift row")
+	}
+}

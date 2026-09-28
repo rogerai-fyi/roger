@@ -191,6 +191,15 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		return fleetview.FleetSnapshot{}, err
 	}
 	snap.Sessions = edgeSessionLines(st, now)
+	// Where the fleet does not match what the owner expects of it (features/edge/drift.feature), from
+	// the same read `roger edge drift` prints.
+	if _, drift, _, err := edgeDriftRead(now); err == nil {
+		for i := range snap.Items {
+			if id := snap.Items[i].ID; id != "" {
+				snap.Items[i].Drift = edgeDriftLines(drift, id)
+			}
+		}
+	}
 	// The timeline, from the same read the CLI does (features/edge/events.feature).
 	if events, _, err := edgeEventsRead(edge.EventQuery{Limit: 40}, now); err == nil {
 		for _, e := range events {

@@ -20,6 +20,60 @@ import (
 // AlertLog is the alert store rooted at Dir.
 type AlertLog struct{ Dir string }
 
+// Expectations are what the owner holds the fleet to (features/edge/drift.feature). They live beside
+// the rules, on the authority's own disk, and are read and written under the same lock.
+func (l AlertLog) Expectations() (ExpectSet, error) {
+	var set ExpectSet
+	if err := l.readJSON("expect.json", &set); err != nil {
+		return nil, err
+	}
+	return CleanExpectations(set), nil
+}
+
+// SetExpectation keeps one expectation, replacing any with the same thing and scope.
+func (l AlertLog) SetExpectation(e Expectation) error {
+	if err := ValidateExpectation(e); err != nil {
+		return err
+	}
+	return l.withLock(func() error {
+		var set ExpectSet
+		if err := l.readJSON("expect.json", &set); err != nil {
+			return err
+		}
+		out := make(ExpectSet, 0, len(set)+1)
+		for _, had := range set {
+			if had.Key() != e.Key() {
+				out = append(out, had)
+			}
+		}
+		return l.writeJSON("expect.json", CleanExpectations(append(out, e)))
+	})
+}
+
+// RemoveExpectation drops one by thing and scope, and says whether there was one.
+func (l AlertLog) RemoveExpectation(what ExpectWhat, scope string) (bool, error) {
+	had := false
+	err := l.withLock(func() error {
+		var set ExpectSet
+		if err := l.readJSON("expect.json", &set); err != nil {
+			return err
+		}
+		out := make(ExpectSet, 0, len(set))
+		for _, e := range set {
+			if e.What == what && e.Scope == scope {
+				had = true
+				continue
+			}
+			out = append(out, e)
+		}
+		if !had {
+			return nil
+		}
+		return l.writeJSON("expect.json", CleanExpectations(out))
+	})
+	return had, err
+}
+
 // alertRulesFile is what the owner set: their own rules, and which defaults they turned off.
 type alertRulesFile struct {
 	Rules []Rule   `json:"rules"`

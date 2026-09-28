@@ -163,6 +163,24 @@ capability scope, the owner's switch and the replay cache, and adds no authoriza
 It is not a file read either: the only thing served is the process's own ring, so no path comes from
 the caller. Proposed in features/edge/logs.feature.
 
+## Say what the fleet should look like
+
+The half of a fleet manager Edge still lacked: a desired state, and a drift report. An owner can
+expect four things of a unit, each a fact the fleet already collects over that node's own certificate,
+so none of it needs new data or a new path: a roger version floor, a band it should have on air, that
+it runs an agent, and that maintenance is on there. Each is scoped like an alert rule - the whole
+fleet, a tag, or one node - and the most specific scope wins, with the tightest of two groups applying
+so a group can never loosen what another asked.
+
+`roger edge expect` says what is expected and how many units differ; `roger edge drift` names each
+unit, what was expected and what is there. A unit selected on the fleet screen carries a DRIFT row.
+
+Two honest boundaries. UNKNOWN IS NOT DRIFT: a member that has never been dialled reports no software
+and no instances, and "we have not heard" is not "it is wrong" - it reads as unknown and is not
+counted. And nothing here writes another machine's configuration: the fleet reports, and the owner
+closes the gap. Making a member pull the intended state and apply it to itself needs a distribution
+channel and is its own slice, which the spec says plainly rather than implying it exists.
+
 ## Console parity
 
 The browser tab carries what the terminal shows: the events timeline as its own list, with a run of
