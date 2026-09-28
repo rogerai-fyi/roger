@@ -197,12 +197,27 @@ func edgeResolveNodeFace(addr string) (client.EdgePeer, string, error) {
 // certificate presented, the peer's checked against its pin before any byte is sent. It returns the
 // result and the receipt the callee signed.
 func edgeDialInvoke(ctx context.Context, p client.EdgePeer, cert *tls.Certificate, g store.Grant, capability, prompt, model string) (edge.InvokeResult, protocol.UsageReceipt, error) {
-	nonce := make([]byte, 16)
-	if _, err := crand.Read(nonce); err != nil {
-		return edge.InvokeResult{}, protocol.UsageReceipt{}, err
-	}
 	task, err := json.Marshal(edge.InvokeTask{Prompt: prompt, Model: model})
 	if err != nil {
+		return edge.InvokeResult{}, protocol.UsageReceipt{}, err
+	}
+	return edgeDialInvokeTask(ctx, p, cert, g, capability, task)
+}
+
+// edgeDialInvokeTask is the dial itself, for ANY task payload: an agent turn (above) or a
+// maintenance action (features/edge/maintenance.feature). One dial, so the pin check, the nonce,
+// the timeout and the receipt reading cannot drift between them.
+func edgeDialInvokeTask(ctx context.Context, p client.EdgePeer, cert *tls.Certificate, g store.Grant, capability string, task json.RawMessage) (edge.InvokeResult, protocol.UsageReceipt, error) {
+	return edgeDialInvokeTaskFn(ctx, p, cert, g, capability, task)
+}
+
+// edgeDialInvokeTaskFn is the dial itself, a seam so a caller-side test drives the command without a
+// live peer. Production is edgeDialInvokeTaskReal.
+var edgeDialInvokeTaskFn = edgeDialInvokeTaskReal
+
+func edgeDialInvokeTaskReal(ctx context.Context, p client.EdgePeer, cert *tls.Certificate, g store.Grant, capability string, task json.RawMessage) (edge.InvokeResult, protocol.UsageReceipt, error) {
+	nonce := make([]byte, 16)
+	if _, err := crand.Read(nonce); err != nil {
 		return edge.InvokeResult{}, protocol.UsageReceipt{}, err
 	}
 	body, err := json.Marshal(edge.InvokeRequest{

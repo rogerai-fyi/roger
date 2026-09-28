@@ -23,7 +23,7 @@ func TestCapabilityVocabulary(t *testing.T) {
 	}
 	require.False(t, edge.Capability("root").Valid())
 	require.Empty(t, edge.Capability("root").VerificationMethod())
-	require.Len(t, edge.Capabilities(), 6)
+	require.Len(t, edge.Capabilities(), 7)
 }
 
 func TestKindBoundsWhatMayBeAsked(t *testing.T) {
@@ -34,7 +34,7 @@ func TestKindBoundsWhatMayBeAsked(t *testing.T) {
 	}{
 		{edge.Host, "json", edge.Capabilities()},
 		{edge.Board, "compact", []edge.Capability{edge.Classify, edge.Sense, edge.Actuate}},
-		{edge.Mobile, "json", []edge.Capability{edge.Serve, edge.Classify, edge.Sense, edge.Actuate, edge.Operate}},
+		{edge.Mobile, "json", []edge.Capability{edge.Serve, edge.Classify, edge.Sense, edge.Actuate, edge.Operate, edge.Maintain}},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.kind), func(t *testing.T) {

@@ -31,11 +31,16 @@ const (
 	Relay Capability = "relay"
 	// Operate runs an agent that can act on other nodes.
 	Operate Capability = "operate"
+	// Maintain accepts MAINTENANCE actions from another member: starting an agent the owner
+	// already marked persistent on that machine (features/edge/maintenance.feature). It is
+	// off until the owner turns it on THERE, and it never runs a command of the caller's
+	// choosing - it is not a shell, and a grant for operate does not reach it.
+	Maintain Capability = "maintain"
 )
 
 // Capabilities lists the vocabulary in the design's order.
 func Capabilities() []Capability {
-	return []Capability{Serve, Classify, Sense, Actuate, Relay, Operate}
+	return []Capability{Serve, Classify, Sense, Actuate, Relay, Operate, Maintain}
 }
 
 // Valid reports whether c is a capability at all. An unknown string is never stored:
@@ -66,6 +71,8 @@ func (c Capability) VerificationMethod() string {
 		return "reachability observed from a second node"
 	case Operate:
 		return "declared, and gated by grant at use time"
+	case Maintain:
+		return "declared by the owner on that machine, and gated by grant at use time"
 	}
 	return ""
 }
@@ -220,7 +227,7 @@ func Routable(n store.EdgeNode, c Capability) bool {
 // it is "declared only, owner-confirmed": it stays PENDING CONFIRMATION until the owner confirms it
 // (which is what sets it VERIFIED), so it correctly still requires Routable. The probe-verified caps
 // (serve/classify/sense/relay) require VERIFIED too.
-func DeclarationGated(c Capability) bool { return c == Operate }
+func DeclarationGated(c Capability) bool { return c == Operate || c == Maintain }
 
 // Declares reports whether the node declares c at all, at any state.
 func Declares(n store.EdgeNode, c Capability) bool {

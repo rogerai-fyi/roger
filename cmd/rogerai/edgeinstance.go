@@ -58,6 +58,12 @@ func edgeInstanceCaps(bands []string) []store.EdgeCap {
 	if len(bands) > 0 {
 		caps = append(caps, store.EdgeCap{Name: string(edge.Serve), State: string(edge.Claimed)})
 	}
+	// MAINTAIN is declared only when the owner turned maintenance on HERE
+	// (features/edge/maintenance.feature). Off by default, so the face refuses every maintenance
+	// invoke on a machine whose owner never asked for it.
+	if edgeMaintenanceOn(loadConfig()) {
+		caps = append(caps, store.EdgeCap{Name: string(edge.Maintain), State: string(edge.Claimed)})
+	}
 	return caps
 }
 
@@ -312,6 +318,11 @@ func edgeRealFS(t string) bool {
 func edgeSelfDeclares(need edge.Capability) bool {
 	if need == edge.Operate {
 		return edgeIsAgentRole(loadConfig())
+	}
+	if need == edge.Maintain {
+		// The owner's switch on THIS machine is the whole declaration: there is no probe for it, and
+		// a grant alone never reaches a machine whose owner did not ask (features/edge/maintenance.feature).
+		return edgeMaintenanceOn(loadConfig())
 	}
 	for _, c := range edgeInstanceCaps(edgeBandsOnAir()) {
 		if c.Name == string(need) {

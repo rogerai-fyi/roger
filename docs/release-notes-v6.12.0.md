@@ -84,6 +84,26 @@ in force for a node is its own, then the TIGHTEST rule on any tag it carries, th
 so a bench group can never quietly raise a production limit. The tags show on the fleet screen's
 readout, the console card and the terminal's node detail. Proposed in features/edge/tags.feature.
 
+## Maintenance: starting an agent from another machine
+
+Monitoring without acting is half a fleet manager: the screens said a unit's agent was offline and
+the owner still had to walk to the shed. This is the first remote action, and the smallest that
+closes the loop - START an agent the owner already marked persistent on that machine.
+
+Nothing here is reachable unless the owner did both of these, on two machines. On the TARGET,
+`roger edge maintenance on`, which is off by default and without which the machine declares no
+maintain capability and refuses every maintenance invoke, grant or not. On the CALLER, an
+authority-signed grant scoped to `maintain` and to that node - a grant for operate does not reach
+maintenance, because running a turn and starting a process are different powers. On top of those:
+mutual TLS, the caller matched to its certificate, revocation applied from the local authority
+store, one action at a time, and the action on the node's own history naming who asked.
+
+It cannot run a command, a script or a shell. The only thing it starts is a roger the owner already
+named there. Stopping, restarting and rebooting are refused by name, so nothing pretends they exist.
+`roger edge maintain <node> start <agent>` is the arrow, and the fleet screen says which units have
+maintenance on. Proposed in features/edge/maintenance.feature; it needs the founder's approval
+before any machine is left with the switch on.
+
 ## The console
 
 The console's EDGE tab carries the same floor: Andon tiles, the Trouble list with roger and

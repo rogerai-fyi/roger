@@ -117,6 +117,11 @@ type config struct {
 	// agents.feature): it operates on other nodes and draws as ◆. Set by `roger edge agent on`;
 	// the ROGER_EDGE_AGENT env overrides per-run for a launched agent job.
 	EdgeAgent bool `json:"edge_agent,omitempty"`
+	// EdgeMaintenance lets another member of this Edge start a persistent agent HERE, under an
+	// authority-signed grant scoped to maintain (features/edge/maintenance.feature). Off by
+	// default: without it this machine declares no maintain capability and its face refuses every
+	// maintenance invoke, grant or not.
+	EdgeMaintenance bool `json:"edge_maintenance,omitempty"`
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted

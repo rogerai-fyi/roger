@@ -155,9 +155,18 @@ func (s *edgeCLIBDD) reset(t *testing.T) {
 	}
 	// The suite drives loopback addresses only: a refused connection is instant, so a
 	// short bound keeps a 34-scenario suite honest AND quick.
+	prevDial, prevStdin := edgeDialTimeout, edgeStdin
 	edgeDialTimeout = 300 * time.Millisecond
 	edgeStdin = strings.NewReader("")
 	edgeDiscoveryOptions = defaultEdgeDiscoveryOptions
+	// EVERY package-level seam this scenario moves is put back when it ends. useBus() points
+	// edgeDiscoveryOptions at THIS scenario's loopback bus and testing.T; leaving it set outlived the
+	// suite, so a later test in the package ran discovery against a closed bus and a finished t - a
+	// failure that only ever appeared in a full-package run, and never in isolation.
+	t.Cleanup(func() {
+		edgeDiscoveryOptions = defaultEdgeDiscoveryOptions
+		edgeDialTimeout, edgeStdin = prevDial, prevStdin
+	})
 }
 
 // --- fixtures -------------------------------------------------------------

@@ -77,6 +77,10 @@ type FleetItem struct {
 	// Tags are the OWNER's words for this unit (features/edge/tags.feature): the groups a rule can
 	// cover. Empty on a unit the owner has not labelled, and on a candidate, which is not theirs yet.
 	Tags []string
+	// Maintain is true when the unit declares the maintain capability - its owner turned maintenance
+	// on there, so a member holding a maintain grant can start one of its agents
+	// (features/edge/maintenance.feature). False says nothing at all, not "refused".
+	Maintain bool
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -999,6 +1003,9 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 	tagRow := func() {
 		if len(it.Tags) > 0 {
 			row("tags", span(strings.Join(it.Tags, " · "), dial))
+		}
+		if it.Maintain {
+			row("service", span("maintenance is on there · a member with a grant can start one of its agents", glow))
 		}
 	}
 	software := func() {

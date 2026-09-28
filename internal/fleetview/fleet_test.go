@@ -623,3 +623,25 @@ func TestReadoutCarriesTheOwnersTags(t *testing.T) {
 		t.Fatal("a unit with no tags draws no tags row")
 	}
 }
+
+// A unit whose owner turned maintenance on says so; one that did not says nothing
+// (features/edge/maintenance.feature).
+func TestReadoutSaysWhenAUnitCanBeMaintained(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		if snap.Items[i].Name == "nas" {
+			snap.Items[i].Maintain = true
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	for range 4 {
+		page.Press("j")
+	}
+	must(t, page.Screen(), "SERVICE", "maintenance is on there")
+	page.Press("j")
+	if strings.Contains(page.Screen(), "maintenance is on") {
+		t.Fatal("a unit that does not declare maintain says nothing about it")
+	}
+}

@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,6 +41,19 @@ type edgeTurnDeps struct {
 	// runLoop runs one headless agent turn against that band and returns its text output. Injected so
 	// the live harness stays out of the unit tests.
 	runLoop func(ctx context.Context, chatURL, key, model, prompt string) (string, error)
+	// maintain runs a MAINTENANCE action on this machine (features/edge/maintenance.feature) and
+	// returns the result, or the sentence it is refused with. Injected for the same reason.
+	maintain func(callerID string, task json.RawMessage) (edge.MaintainResult, string)
+}
+
+// mustInvokeJSON marshals a result for the wire; a result that cannot be marshalled is a bug, and
+// an empty output is better than a panic on the face.
+func mustInvokeJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // edgeInvokeHandler builds Serving.Invoke from the receiver-side deps: it dispatches on capability,
@@ -62,7 +76,24 @@ func edgeInvokeHandler(d edgeTurnDeps) func(callerID string, req edge.InvokeRequ
 		defer cancel()
 		return d.runLoop(ctx, chatURL, key, model, task.Prompt)
 	})
+	maintain := make(chan struct{}, 1) // one maintenance action at a time on this machine
 	return func(callerID string, req edge.InvokeRequest) (edge.InvokeResult, error) {
+		if req.Capability == string(edge.Maintain) {
+			// MAINTENANCE (features/edge/maintenance.feature): start a persistent agent the owner
+			// already marked HERE. The face has authenticated the caller and checked the grant; the
+			// owner's switch on this machine is the second lock, checked inside.
+			select {
+			case maintain <- struct{}{}:
+				defer func() { <-maintain }()
+			default:
+				return edge.InvokeResult{Refused: "a maintenance action is already running on this machine - try again shortly"}, nil
+			}
+			res, refused := d.maintain(callerID, req.Task)
+			if refused != "" {
+				return edge.InvokeResult{Refused: refused}, nil
+			}
+			return edge.InvokeResult{Output: mustInvokeJSON(res)}, nil
+		}
 		if req.Capability != string(edge.Operate) {
 			// This roger runs an agent; it is not a device. Name it, do not pretend it ran.
 			return edge.InvokeResult{Refused: fmt.Sprintf(
@@ -104,6 +135,9 @@ func edgeLiveTurnDeps() edgeTurnDeps {
 			return u, k, model, true
 		},
 		runLoop: edgeRunDelegatedTurn,
+		maintain: func(callerID string, task json.RawMessage) (edge.MaintainResult, string) {
+			return edgeMaintainRun(loadConfig(), callerID, edgeNameOfNode(callerID), edgeThisInstanceName(), task, time.Now())
+		},
 	}
 }
 
