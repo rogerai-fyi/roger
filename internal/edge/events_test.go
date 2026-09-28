@@ -196,14 +196,13 @@ func TestAShrinkingBandSetKeepsItsVerdict(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
 
-	// The dropped model comes back: nothing new, still within what was proven... except the record
-	// now says only "qwen" was proven, so the wider set must be proven again.
+	// The dropped model comes back: still within what the probe answered for, because the record
+	// keeps the PROVEN set rather than the last advertised one, so nothing is proven again.
 	_, err = f.Observe("n_desk", obs("qwen", "mistral"))
 	require.NoError(t, err)
-	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"))
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
 
 	// A band nobody ever proved always resets it.
-	require.NoError(t, f.RecordInstanceProbe("n_desk", "serve", Serve, true))
 	_, err = f.Observe("n_desk", obs("qwen", "mistral", "llama-3"))
 	require.NoError(t, err)
 	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"))
@@ -248,4 +247,84 @@ func TestEventsCollapseRepeats(t *testing.T) {
 	flood := Events(nodes, nil, EventQuery{Limit: 2}, now)
 	require.Len(t, flood, 2)
 	require.Equal(t, "renamed", flood[1].What)
+}
+
+// The record says WHICH bands the probe answered for, and only those route. A boolean could say
+// "something answered", which let the fleet dispatch a band nobody proved
+// (features/edge/serving_probe.feature).
+func TestTheProvenBandsAreRecordedAndRouted(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	claimed := []store.EdgeCap{{Name: string(Serve), State: string(Claimed)}}
+	obs := func(bands ...string) Observation {
+		return Observation{Name: "desk", Kind: string(Host), Addr: "10.0.0.2:1", Fingerprint: "ab",
+			Caps: []Capability{Serve}, Instances: []Instance{{Name: "serve", Bands: bands, Caps: claimed}}}
+	}
+	_, err := f.Observe("n_desk", obs("qwen", "mistral"))
+	require.NoError(t, err)
+	require.NoError(t, f.RecordServeProbe("n_desk", "serve", []string{"qwen", "mistral"}))
+
+	n, _, err := f.Get("n_desk")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"qwen", "mistral"}, n.Instances[0].ServeProven)
+
+	loc := Located{Node: n, Instance: n.Instances[0]}
+	require.True(t, loc.ServesBand("qwen"))
+	require.True(t, loc.ServesBand("mistral"))
+	require.False(t, loc.ServesBand("llama-3"))
+
+	// It advertises a third band nobody proved: serve returns to CLAIMED, and nothing routes.
+	_, err = f.Observe("n_desk", obs("qwen", "mistral", "llama-3"))
+	require.NoError(t, err)
+	n, _, _ = f.Get("n_desk")
+	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"))
+	loc = Located{Node: n, Instance: n.Instances[0]}
+	require.False(t, loc.ServesBand("qwen"), "an unproven set routes nothing at all")
+
+	// A record from before the probe kept a band list falls back to what it advertises.
+	old := Located{Node: n, Instance: Instance{Name: "old", Bands: []string{"qwen"},
+		Caps: []store.EdgeCap{{Name: string(Serve), State: string(Verified)}}}}
+	require.True(t, old.ServesBand("qwen"), "an older Edge routes as it did")
+	require.False(t, old.ServesBand("mistral"))
+
+	require.ErrorContains(t, f.RecordServeProbe("n_desk", "serve", nil), "names the bands")
+}
+
+func TestASetThatGrowsBackToAProvenShapeIsNotProbedAgain(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	claimed := []store.EdgeCap{{Name: string(Serve), State: string(Claimed)}}
+	obs := func(bands ...string) Observation {
+		return Observation{Name: "desk", Kind: string(Host), Addr: "10.0.0.2:1", Fingerprint: "ab",
+			Caps: []Capability{Serve}, Instances: []Instance{{Name: "serve", Bands: bands, Caps: claimed}}}
+	}
+	_, err := f.Observe("n_desk", obs("qwen", "mistral"))
+	require.NoError(t, err)
+	require.NoError(t, f.RecordServeProbe("n_desk", "serve", []string{"qwen", "mistral"}))
+	events := func() int {
+		n, _, _ := f.Get("n_desk")
+		c := 0
+		for _, e := range n.History {
+			if e.What == "probe" {
+				c++
+			}
+		}
+		return c
+	}
+	first := events()
+
+	// The flap that filled the timeline: one band drops, then comes back. Neither is a change to
+	// what was proven, so serve holds and nothing is recorded.
+	for range 10 {
+		_, err = f.Observe("n_desk", obs("qwen"))
+		require.NoError(t, err)
+		require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
+		_, err = f.Observe("n_desk", obs("qwen", "mistral"))
+		require.NoError(t, err)
+		require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
+	}
+	require.Equal(t, first, events(), "twenty flaps, and the record is unchanged")
+
+	// A band outside the proven set still asks for a fresh probe.
+	_, err = f.Observe("n_desk", obs("qwen", "llama-3"))
+	require.NoError(t, err)
+	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"))
 }

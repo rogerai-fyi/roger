@@ -1,9 +1,9 @@
 # ROGER EDGE - THE SERVING PROBE: how an instance's `serve` goes from CLAIMED to VERIFIED, for real.
 #
-# STATUS: PROPOSED 2026-09-27, written the night of the second audit. Not godog-bound: every
+# STATUS: APPROVED 2026-09-28 (founder: "approved"); written the night of the second audit. Not godog-bound: every
 # scenario below is pinned by Go tests instead - internal/edge/probe_test.go (the face path and
 # the client), internal/edge/discovery_probe_test.go (discovery runs it), and
-# cmd/rogerai/edgeselfprobe_test.go (the host probes its own household). Founder review pending.
+# cmd/rogerai/edgeselfprobe_test.go (the host probes its own household).
 #
 # WHY. instances.feature §2 says a claimed capability is CLAIMED "until it is verified", and that
 # "the serving probe" is what verifies serve on ONE instance. local_inference.feature and
@@ -101,6 +101,23 @@ Feature: the serving probe
     Then it stays CLAIMED: proving one band would let the fleet route the other
     When the server lists both
     Then serve on "desk/serve" is VERIFIED
+
+  @edge
+  Scenario: the record says WHICH bands were proven, and only those route
+    Given serve on "desk/serve" is VERIFIED, proven for "qwen" and "mistral"
+    Then the record names those two bands as proven
+    And the ladder dispatches "qwen" to it
+    When the instance also advertises "llama-3", which nothing proved
+    Then the ladder does not dispatch "llama-3" to it, though the instance advertises it
+    And a record written before the probe kept a band list falls back to what it advertises,
+      so an older Edge routes exactly as it did
+
+  @edge
+  Scenario: a set that grows back to an already-proven shape is not probed again
+    Given serve was proven for "qwen" and "mistral"
+    When the instance advertises "qwen" only, and later "qwen" and "mistral" again
+    Then nothing is probed on either change, and serve stays VERIFIED throughout
+    And a band outside the proven set still asks for a fresh probe
 
   @edge
   Scenario: a shrinking band set keeps the verdict; a growing one is re-probed

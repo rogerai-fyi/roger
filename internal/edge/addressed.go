@@ -95,7 +95,7 @@ func (f *Fleet) ServingPeer(addr, model string) (Located, string, error) {
 		}
 		loc := Located{Node: n, Instance: in}
 		if loc.Serves() {
-			candidates = append(candidates, loc)
+			candidates = append(candidates, loc) // narrowed to the asked band below, by what was PROVEN
 		}
 	}
 

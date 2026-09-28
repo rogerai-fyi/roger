@@ -46,6 +46,11 @@ type EdgeInstance struct {
 	Started   int64          `json:"started,omitempty"`
 	Port      int            `json:"port,omitempty"` // its own LAN face, when it has one
 	Resources *EdgeResources `json:"resources,omitempty"`
+	// ServeProven are the bands the serving probe actually answered for on this instance
+	// (features/edge/serving_probe.feature). A VERIFIED serve means EVERY band in this list was
+	// proven, so any subset of it is proven too and only a band outside it needs a fresh probe.
+	// Empty on a record written before the probe existed: such a record falls back to Bands.
+	ServeProven []string `json:"serve_proven,omitempty"`
 	// Software is what this roger IS: its version and the machine it runs on
 	// (features/edge/inventory.feature). Read, never invented; nil on an older face.
 	Software *EdgeSoftware `json:"software,omitempty"`

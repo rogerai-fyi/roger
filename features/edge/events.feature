@@ -1,8 +1,8 @@
 # ROGER EDGE - THE EVENTS TIMELINE: what happened on this Edge, in one place, newest first.
 #
-# STATUS: PROPOSED 2026-09-27. Not godog-bound: pinned by Go tests - internal/edge/events_test.go
+# STATUS: APPROVED 2026-09-28 (founder: "approved"). Not godog-bound: pinned by Go tests - internal/edge/events_test.go
 # (the merge, the ordering, the cap), cmd/rogerai/edgeevents_test.go (`roger edge events`),
-# internal/fleetview/fleet_test.go (the EVENTS tab). Founder review pending.
+# internal/fleetview/fleet_test.go (the EVENTS tab).
 #
 # WHY. Every fleet manager has an activity view: an operator who finds a unit in a strange state asks
 # "what happened to it, and when". Roger Edge recorded plenty - enrolled, seen, went dark, renamed,

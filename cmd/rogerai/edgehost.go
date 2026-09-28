@@ -425,8 +425,8 @@ func (h *edgeHost) observeSelf(now time.Time) {
 	if _, err := h.st.fleet.Observe(id.NodeID, obs); err != nil {
 		return
 	}
-	for _, name := range proven {
-		_ = h.st.fleet.RecordInstanceProbe(id.NodeID, name, edge.Serve, true)
+	for name, bands := range proven {
+		_ = h.st.fleet.RecordServeProbe(id.NodeID, name, bands)
 	}
 	_ = h.st.save()
 }
@@ -437,7 +437,7 @@ func (h *edgeHost) observeSelf(now time.Time) {
 // instance already VERIFIED for its current bands is not asked again; one whose band this face cannot
 // route stays CLAIMED, because a peer's turn could not reach it either. It never holds h.mu: the
 // face's Upstream takes that lock.
-func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.Instance) []string {
+func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.Instance) map[string][]string {
 	h.mu.Lock()
 	cur, _, _ := h.st.fleet.Get(nodeID)
 	h.mu.Unlock()
@@ -449,11 +449,15 @@ func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.I
 	for _, in := range cur.Instances {
 		for _, c := range in.Caps {
 			if c.Name == string(edge.Serve) && c.State == string(edge.Verified) {
-				already[in.Name] = in.Bands
+				if len(in.ServeProven) > 0 {
+					already[in.Name] = in.ServeProven
+				} else {
+					already[in.Name] = in.Bands // a record from before the probe kept its bands
+				}
 			}
 		}
 	}
-	var proven []string
+	proven := map[string][]string{}
 	for _, in := range insts {
 		claims := false
 		for _, c := range in.Caps {
@@ -476,7 +480,7 @@ func (h *edgeHost) probeOwnServe(nodeID string, srv *edge.Server, insts []edge.I
 			}
 		}
 		if all {
-			proven = append(proven, in.Name)
+			proven[in.Name] = append([]string(nil), in.Bands...)
 		}
 	}
 	return proven

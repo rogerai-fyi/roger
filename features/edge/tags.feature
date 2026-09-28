@@ -1,10 +1,10 @@
 # ROGER EDGE - TAGS: the owner's own words for what a unit IS, and rules that cover a group.
 #
-# STATUS: PROPOSED 2026-09-27. Not godog-bound: pinned by Go tests - internal/edge/tag_test.go
+# STATUS: APPROVED 2026-09-28 (founder: "approved"). Not godog-bound: pinned by Go tests - internal/edge/tag_test.go
 # (validation, the fleet methods, precedence), internal/edge/alert_test.go (a tag-scoped rule
 # judged), cmd/rogerai/edgetag_test.go (`roger edge tag`, `list --tag`, `alert --scope tag:`),
 # internal/fleetview and internal/webui tests (the tags on the readout and the card).
-# Founder review pending.
+#
 #
 # WHY. Every fleet manager lets an operator label a device and then act on the label: it is how a
 # fleet of a dozen becomes three groups an operator can reason about. Roger Edge had exactly two

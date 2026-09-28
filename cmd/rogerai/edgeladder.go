@@ -37,8 +37,10 @@ func edgePeersFor(band string) []client.EdgePeer {
 	}
 	var out []client.EdgePeer
 	for _, l := range who {
-		if l.Node.ID == self || !l.Serves() || !edge.HasLANTransport(l.Node) {
-			continue // not my own process, VERIFIED serve only, LAN-direct only
+		if l.Node.ID == self || !l.ServesBand(band) || !edge.HasLANTransport(l.Node) {
+			// not my own process; the band must be one the serving probe ANSWERED for, not merely one
+			// the instance advertises; LAN-direct only.
+			continue
 		}
 		addr, pin := "", ""
 		for _, t := range l.Node.Transports {

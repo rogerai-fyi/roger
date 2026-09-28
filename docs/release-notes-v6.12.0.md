@@ -84,6 +84,16 @@ in force for a node is its own, then the TIGHTEST rule on any tag it carries, th
 so a bench group can never quietly raise a production limit. The tags show on the fleet screen's
 readout, the console card and the terminal's node detail. Proposed in features/edge/tags.feature.
 
+## The serving probe records WHICH bands it proved
+
+A boolean could only say "something answered", so an instance advertising two models was marked as
+serving both when one had been proven - and the fleet would dispatch it the band it could not serve.
+The record now keeps the bands the probe actually answered for. Only those route, a subset of them
+needs no fresh probe, and a band outside them still does. That also ends a churn this machine really
+has: an on-air set that gains and drops a band from pass to pass used to re-prove itself every
+thirty seconds, and now holds its verdict. A record written before the probe kept a band list falls
+back to what the instance advertises, so an older Edge routes exactly as it did.
+
 ## Maintenance: starting an agent from another machine
 
 Monitoring without acting is half a fleet manager: the screens said a unit's agent was offline and

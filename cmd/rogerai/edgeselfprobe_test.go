@@ -220,3 +220,83 @@ func TestHostDoesNotVerifyAMixedBandSet(t *testing.T) {
 		require.False(t, l.Serves(), "the ladder gets no rung from an unproven instance")
 	}
 }
+
+// The flap that filled the timeline, end to end on the host: a band comes and goes, and after the
+// first pass nothing is probed and nothing is recorded, because the record keeps the PROVEN bands
+// (features/edge/serving_probe.feature).
+func TestTheHostRidesOutAFlappingBandSet(t *testing.T) {
+	offline(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	out, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code, out)
+	out, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code, out)
+
+	probes := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		probes++
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "qwen"}, {"id": "shim"}}})
+	}))
+	t.Cleanup(upstream.Close)
+	both := true
+	edgeAttachOnAir(func() []string {
+		both = !both
+		if both {
+			return []string{"qwen", "shim"}
+		}
+		return []string{"qwen"} // the shim band comes and goes, as it does on the real machine
+	})
+	edgeAttachUpstream(func(band string) (string, string, bool) {
+		if band == "qwen" || band == "shim" {
+			return upstream.URL + "/v1/chat/completions", "", true
+		}
+		return "", "", false
+	})
+	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })
+
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+	_, ok := h.startFace()
+	require.True(t, ok)
+	h.registerInstance(h.cfg)
+	id, _, _, _ := edgeIdentityStore().LoadIdentity()
+
+	// Pass until the wider set is the one on air, so both bands get proven.
+	for range 3 {
+		h.beatInstance(h.cfg)
+		h.observeSelf(time.Now())
+	}
+	settled := probes
+	require.Greater(t, settled, 0)
+
+	for range 10 {
+		h.beatInstance(h.cfg)
+		h.observeSelf(time.Now())
+	}
+	require.Equal(t, settled, probes, "ten flaps and the server is asked nothing more")
+
+	after, _, err := h.st.fleet.Get(id.NodeID)
+	require.NoError(t, err)
+	require.Len(t, after.Instances, 1)
+	require.ElementsMatch(t, []string{"qwen", "shim"}, after.Instances[0].ServeProven)
+	probeEvents := 0
+	for _, e := range after.History {
+		if e.What == "probe" {
+			probeEvents++
+		}
+	}
+	require.LessOrEqual(t, probeEvents, 2, "at most the one crossing, however many flaps: %+v", after.History)
+
+	// And the ladder routes both proven bands.
+	for _, band := range []string{"qwen", "shim"} {
+		who, err := h.st.fleet.ServersOf(band)
+		require.NoError(t, err)
+		require.NotEmpty(t, who)
+		require.True(t, who[0].ServesBand(band), band)
+	}
+}

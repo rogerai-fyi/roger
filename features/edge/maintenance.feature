@@ -1,9 +1,9 @@
 # ROGER EDGE - MAINTENANCE: acting on a unit from another machine, under the owner's two locks.
 #
-# STATUS: PROPOSED 2026-09-27, built the same night. Not godog-bound: pinned by Go tests -
+# STATUS: APPROVED 2026-09-28 (founder: "approved"); built the night of 2026-09-27. Not godog-bound: pinned by Go tests -
 # internal/edge/maintain_test.go (the capability, the task, the face), cmd/rogerai/edgemaintain_test.go
-# (the switch, the runner, `roger edge maintain`). NEEDS THE FOUNDER'S APPROVAL: it is a new action
-# a REMOTE member can cause on this machine, and that is a security boundary.
+# (the switch, the runner, `roger edge maintain`). The founder approved it on 2026-09-28,
+# with the switch still OFF on every machine until an owner turns it on there.
 #
 # WHY. Monitoring without acting is half a fleet manager. The screens already say a unit's agent is
 # offline - an owner could see it from the kitchen and still had to walk to the shed. Every fleet

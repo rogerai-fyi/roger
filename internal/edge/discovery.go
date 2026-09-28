@@ -474,6 +474,9 @@ func (d *Discovery) verifyServe(ctx context.Context, addr, pin string, n store.E
 		if !claimsServe(in) || len(in.Bands) == 0 {
 			continue
 		}
+		if BandsWithin(in.Bands, in.ServeProven) {
+			continue // already proven for these bands: a peer is not asked again every pass
+		}
 		// EVERY band the instance advertises must answer. Proving one and marking the instance would
 		// let the fleet route a peer the band it cannot serve, and it is what lets a shrinking band
 		// set keep its verdict without a re-probe.
@@ -487,7 +490,7 @@ func (d *Discovery) verifyServe(ctx context.Context, addr, pin string, n store.E
 		if !all {
 			continue
 		}
-		if err := d.opts.Fleet.RecordInstanceProbe(n.ID, in.Name, Serve, true); err == nil {
+		if err := d.opts.Fleet.RecordServeProbe(n.ID, in.Name, in.Bands); err == nil {
 			d.log(fmt.Sprintf("edge discovery: %s/%s serves %s, verified", n.Name, in.Name, strings.Join(in.Bands, ", ")))
 		}
 	}

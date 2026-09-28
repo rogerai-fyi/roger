@@ -670,14 +670,20 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 		return // an older face that reports no household: the node-level caps stand
 	}
 	prev := map[string]map[string]store.EdgeCap{}
-	prevBands := map[string][]string{}
+	prevProven := map[string][]string{}
 	for _, in := range n.Instances {
 		m := map[string]store.EdgeCap{}
 		for _, c := range in.Caps {
 			m[c.Name] = c
 		}
 		prev[in.Name] = m
-		prevBands[in.Name] = in.Bands
+		// What the probe actually answered for. An older record carries none, so its band list stands
+		// in for it and the behaviour is what it always was.
+		if len(in.ServeProven) > 0 {
+			prevProven[in.Name] = in.ServeProven
+		} else {
+			prevProven[in.Name] = in.Bands
+		}
 	}
 	kind := Kind(n.Kind)
 	next := make([]Instance, 0, len(obs.Instances))
@@ -687,6 +693,10 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 		}
 		cp := in
 		cp.Caps = nil
+		cp.ServeProven = append([]string(nil), prevProven[in.Name]...) // the peer never states this
+		if len(prev[in.Name]) == 0 {
+			cp.ServeProven = nil // an instance we have not seen before has proven nothing
+		}
 		for _, c := range in.Caps {
 			cap := Capability(c.Name)
 			// A node's KIND bounds what it may declare at all. Drop a capability its kind cannot
@@ -707,7 +717,7 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 				// instance now advertises different bands, the earned state does not carry - it must
 				// be re-probed - so a re-banded instance cannot route on an old serve probe (audit
 				// 2026-09-24). Other capabilities are not band-scoped and carry as before.
-				if cap == Serve && !BandsWithin(in.Bands, prevBands[in.Name]) {
+				if cap == Serve && !BandsWithin(in.Bands, prevProven[in.Name]) {
 					// keep initialState: a band nobody proved needs a probe. A SUBSET of what was
 					// proven is still proven - the probe answers for every band it marks - so an
 					// instance that drops a model keeps its verdict rather than re-proving on every
@@ -742,6 +752,21 @@ func (f *Fleet) InstancesOf(id string) ([]Instance, error) {
 // RecordInstanceProbe verifies a capability on ONE instance, never on the whole machine:
 // the probe passed against that process. Actuate is never probed, on an instance either.
 func (f *Fleet) RecordInstanceProbe(id, instance string, c Capability, passed bool) error {
+	return f.recordInstanceProbe(id, instance, c, passed, nil)
+}
+
+// RecordServeProbe records a passed SERVING probe together with the bands it answered for
+// (features/edge/serving_probe.feature). Recording the bands is what lets an instance that drops a
+// model keep its verdict, and what keeps the fleet from routing a band nobody proved: a boolean
+// could only say "something answered".
+func (f *Fleet) RecordServeProbe(id, instance string, bands []string) error {
+	if len(bands) == 0 {
+		return fmt.Errorf("a serving probe names the bands it answered for")
+	}
+	return f.recordInstanceProbe(id, instance, Serve, true, bands)
+}
+
+func (f *Fleet) recordInstanceProbe(id, instance string, c Capability, passed bool, bands []string) error {
 	if c == Actuate {
 		return fmt.Errorf("actuate is never probed; it is confirmed by the owner")
 	}
@@ -758,8 +783,21 @@ func (f *Fleet) RecordInstanceProbe(id, instance string, c Capability, passed bo
 				if passed {
 					state = Verified
 				}
-				if d.State == string(state) {
+				proven := n.Instances[i].ServeProven
+				if c == Serve {
+					proven = nil
+					if passed {
+						proven = append([]string(nil), bands...)
+						if len(proven) == 0 {
+							proven = append([]string(nil), n.Instances[i].Bands...) // a caller that named none
+						}
+					}
+				}
+				if d.State == string(state) && sameBands(proven, n.Instances[i].ServeProven) {
 					return nil // nothing moved: not an event, and not a write worth making
+				}
+				if c == Serve {
+					n.Instances[i].ServeProven = proven
 				}
 				n.Instances[i].Caps[j].State = string(state)
 				n.Caps = unionCaps(n.Caps, n.Instances)
@@ -834,6 +872,25 @@ func (f *Fleet) ServersOf(band string) ([]Located, error) {
 		}
 	}
 	return out, nil
+}
+
+// ServesBand reports whether this instance may be dispatched the given band: its serve is VERIFIED
+// AND the probe answered for that band (features/edge/serving_probe.feature). A record written before
+// the probe kept a band list falls back to what it advertises, so an older Edge routes as it did.
+func (l Located) ServesBand(band string) bool {
+	if !l.Serves() {
+		return false
+	}
+	proven := l.Instance.ServeProven
+	if len(proven) == 0 {
+		proven = l.Instance.Bands
+	}
+	for _, b := range proven {
+		if b == band {
+			return true
+		}
+	}
+	return false
 }
 
 // Serves reports whether the instance's serve capability is VERIFIED - the only state the

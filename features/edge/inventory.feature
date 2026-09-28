@@ -1,9 +1,9 @@
 # ROGER EDGE - INVENTORY: what software each unit runs, and which units are behind.
 #
-# STATUS: PROPOSED 2026-09-27. Not godog-bound: pinned by Go tests - internal/edge/software_test.go
+# STATUS: APPROVED 2026-09-28 (founder: "approved"). Not godog-bound: pinned by Go tests - internal/edge/software_test.go
 # (the words, the version order, who is behind), cmd/rogerai/edgesoftware_test.go (the read from
 # a machine, `roger edge inventory`), internal/fleetview/fleet_test.go and internal/webui tests
-# (the software line on the readout and the console card). Founder review pending.
+# (the software line on the readout and the console card).
 #
 # WHY. Every fleet manager an operator has used shows, per device, the agent version, the OS, the
 # kernel, the architecture and the hardware, and flags the devices that are BEHIND - that is how an
