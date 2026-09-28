@@ -24,7 +24,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -32,11 +31,14 @@ import (
 )
 
 const (
-	rcRouteFresh   = 90 * time.Second // a viewer instance refreshes its entry every 30 s
-	rcHostFresh    = 30 * time.Second // > the 25 s poll hold
-	rcRouteRefresh = 30 * time.Second
-	rcKeysTTL      = 7 * 24 * time.Hour // the seq and ring live as long as the old seq did
+	rcRouteFresh = 90 * time.Second   // a viewer instance refreshes its entry every 30 s
+	rcHostFresh  = 30 * time.Second   // > the 25 s poll hold
+	rcKeysTTL    = 7 * 24 * time.Hour // the seq and ring live as long as the old seq did
 )
+
+// rcRouteRefresh is how often a worker refreshes its viewer route entry and checks for idleness
+// (var so a test can shorten it; production never mutates it).
+var rcRouteRefresh = 30 * time.Second
 
 func rcKey(sid, part string) string { return keyPrefix + "rc:{" + sid + "}:" + part }
 
@@ -128,13 +130,13 @@ func (b *broker) rcSetRoute(q *dispatchQueue, sid, field string, on bool) {
 }
 
 // rcRingSince returns the ring's frames with lo < seq <= hi, in seq order.
-func rcRingSince(q *dispatchQueue, sid string, lo, hi uint64) []protocol.RCFrame {
+func rcRingSince(q *dispatchQueue, sid string, lo, hi uint64) ([]protocol.RCFrame, error) {
 	ctx, cancel := opCtx()
 	defer cancel()
 	items, err := q.rdb.LRange(ctx, rcKey(sid, "ring"), 0, -1).Result()
 	if err != nil {
 		q.noteErr("rc ring", err)
-		return nil
+		return nil, err
 	}
 	var out []protocol.RCFrame
 	for _, it := range items {
@@ -150,12 +152,13 @@ func rcRingSince(q *dispatchQueue, sid string, lo, hi uint64) []protocol.RCFrame
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
-	return out
+	return out, nil
 }
 
-// rcRemote is a hub's multi-instance state on this instance.
+// rcRemote is a hub's multi-instance state on this instance. Its worker exits once the
+// session has had no viewer, no host poll and no frame here for two route refreshes, and the
+// hub forgets it (a later viewer, poll or frame starts a fresh one).
 type rcRemote struct {
-	once  sync.Once
 	work  chan protocol.RCFrame // frames for this instance's viewers, in arrival order
 	vlast map[string]uint64     // viewerID -> last seq delivered (guarded by the hub's mu)
 	hosts []chan struct{}       // idle host polls here (guarded by the hub's mu)
@@ -170,23 +173,25 @@ func (b *broker) rcFrameArrived(q *dispatchQueue, sid string, raw []byte) {
 	}
 	b.stats.rcFrames.Add(1)
 	h := b.rcHubFor(sid)
-	r := h.remote(b, q, sid)
-	select {
-	case r.work <- f:
-	default:
-	}
+	h.withRemote(b, q, sid, func(r *rcRemote) {
+		select {
+		case r.work <- f:
+		default:
+		}
+	})
 }
 
-// remote returns the hub's multi-instance state, starting its delivery worker on first use.
-func (h *rcHub) remote(b *broker, q *dispatchQueue, sid string) *rcRemote {
+// withRemote runs fn on the hub's multi-instance state under the hub's lock, starting a
+// delivery worker if there is none. Holding the lock is what keeps a registration from
+// landing on a worker that is exiting.
+func (h *rcHub) withRemote(b *broker, q *dispatchQueue, sid string, fn func(*rcRemote)) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.rem == nil {
-		h.rem = &rcRemote{work: make(chan protocol.RCFrame, 1024), vlast: map[string]uint64{}}
+		h.rem = &rcRemote{work: make(chan protocol.RCFrame, 256), vlast: map[string]uint64{}}
+		go h.deliverLoop(b, q, sid, h.rem)
 	}
-	r := h.rem
-	h.mu.Unlock()
-	r.once.Do(func() { go h.deliverLoop(b, q, sid, r) })
-	return r
+	fn(h.rem)
 }
 
 // deliverLoop delivers frames to local viewers in seq order, exactly once each, filling any
@@ -194,6 +199,7 @@ func (h *rcHub) remote(b *broker, q *dispatchQueue, sid string) *rcRemote {
 func (h *rcHub) deliverLoop(b *broker, q *dispatchQueue, sid string, r *rcRemote) {
 	refresh := time.NewTicker(rcRouteRefresh)
 	defer refresh.Stop()
+	idle := 0
 	for {
 		select {
 		case <-q.stopCh:
@@ -202,11 +208,20 @@ func (h *rcHub) deliverLoop(b *broker, q *dispatchQueue, sid string, r *rcRemote
 			b.rcMu.Lock()
 			dropped := b.rcHubs[sid] != h
 			b.rcMu.Unlock()
-			if dropped && len(r.work) == 0 {
-				return // the session ended and its last frames are delivered
-			}
 			h.mu.Lock()
 			n := len(h.viewers)
+			if n == 0 && len(r.hosts) == 0 && len(r.work) == 0 {
+				idle++
+			} else {
+				idle = 0
+			}
+			if dropped && len(r.work) == 0 || idle >= 2 {
+				if h.rem == r {
+					h.rem = nil // a later viewer, poll or frame starts a fresh worker
+				}
+				h.mu.Unlock()
+				return
+			}
 			h.mu.Unlock()
 			if n > 0 {
 				b.rcSetRoute(q, sid, "v:"+q.self, true)
@@ -221,8 +236,13 @@ func (h *rcHub) deliverLoop(b *broker, q *dispatchQueue, sid string, r *rcRemote
 			}
 			h.mu.Unlock()
 			frames := []protocol.RCFrame{f}
+			fillFailed := false
 			if behind+1 < f.Seq { // a viewer is missing frames before this one: fill from the ring
-				if filled := rcRingSince(q, sid, behind, f.Seq); len(filled) > 0 {
+				filled, err := rcRingSince(q, sid, behind, f.Seq)
+				switch {
+				case err != nil:
+					fillFailed = true
+				case len(filled) > 0:
 					frames = filled
 				}
 			}
@@ -231,6 +251,9 @@ func (h *rcHub) deliverLoop(b *broker, q *dispatchQueue, sid string, r *rcRemote
 				for id, ch := range h.viewers {
 					if fr.Seq <= r.vlast[id] {
 						continue // already delivered
+					}
+					if fillFailed && r.vlast[id]+1 < fr.Seq {
+						continue // never skip past a gap we could not fill: the next frame retries it
 					}
 					r.vlast[id] = fr.Seq
 					select {
@@ -246,7 +269,6 @@ func (h *rcHub) deliverLoop(b *broker, q *dispatchQueue, sid string, r *rcRemote
 
 // rcStreamInbox is the viewer SSE loop on the inbox plane.
 func (b *broker) rcStreamInbox(q *dispatchQueue, ctx context.Context, sid string, h *rcHub, viewerID string, since uint64, emit func(protocol.RCFrame) bool) {
-	r := h.remote(b, q, sid)
 	// Route FIRST, then read the seq: a frame assigned after the read is sent here; one assigned
 	// before it counts as "before this viewer attached" (or is replayed for Last-Event-ID).
 	b.rcSetRoute(q, sid, "v:"+q.self, true)
@@ -259,12 +281,14 @@ func (b *broker) rcStreamInbox(q *dispatchQueue, ctx context.Context, sid string
 	ch := make(chan protocol.RCFrame, 256)
 	var replay []protocol.RCFrame
 	if since > 0 && since < cur {
-		replay = rcRingSince(q, sid, since, cur)
+		replay, _ = rcRingSince(q, sid, since, cur)
 	}
-	h.mu.Lock()
-	h.viewers[viewerID] = ch
-	r.vlast[viewerID] = cur
-	h.mu.Unlock()
+	var r *rcRemote
+	h.withRemote(b, q, sid, func(rem *rcRemote) {
+		r = rem
+		h.viewers[viewerID] = ch
+		rem.vlast[viewerID] = cur
+	})
 	defer func() {
 		h.mu.Lock()
 		delete(h.viewers, viewerID)
@@ -275,6 +299,26 @@ func (b *broker) rcStreamInbox(q *dispatchQueue, ctx context.Context, sid string
 			b.rcSetRoute(q, sid, "v:"+q.self, false)
 		}
 	}()
+	// A frame assigned just after the seq read may have reached the worker before this viewer
+	// was registered: catch up from the ring (the worker's own delivery is deduped by vlast).
+	cctx, cancel = opCtx()
+	now, err := q.rdb.Get(cctx, rcKey(sid, "seq")).Uint64()
+	cancel()
+	if err == nil && now > cur {
+		if fill, ferr := rcRingSince(q, sid, cur, now); ferr == nil {
+			h.mu.Lock()
+			for _, f := range fill {
+				if f.Seq > r.vlast[viewerID] {
+					r.vlast[viewerID] = f.Seq
+					select {
+					case ch <- f:
+					default:
+					}
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
 	for _, f := range replay {
 		if !emit(f) {
 			return
@@ -315,9 +359,15 @@ func (b *broker) rcSendInbox(q *dispatchQueue, sid string, in protocol.RCInbound
 	}
 }
 
-// rcHostWake wakes this instance's idle host polls of the session (they pop the queue).
+// rcHostWake wakes this instance's idle host polls of the session (they pop the queue). A
+// session with no hub here has no poll to wake: none is created.
 func (b *broker) rcHostWake(sid string) {
-	h := b.rcHubFor(sid)
+	b.rcMu.Lock()
+	h := b.rcHubs[sid]
+	b.rcMu.Unlock()
+	if h == nil {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.rem == nil {
@@ -334,7 +384,7 @@ func (b *broker) rcHostWake(sid string) {
 // rcPollInbox is the host long-poll on the inbox plane: pop, else advertise and pop again,
 // then wait for a wake-up. Returns when it wrote an inbound, answered 204, or the host left.
 func (b *broker) rcPollInbox(q *dispatchQueue, w http.ResponseWriter, r context.Context, sid string, h *rcHub) {
-	rem := h.remote(b, q, sid)
+	var rem *rcRemote
 	wake := make(chan struct{}, 1)
 	advertised := false
 	defer func() {
@@ -357,6 +407,9 @@ func (b *broker) rcPollInbox(q *dispatchQueue, w http.ResponseWriter, r context.
 	hold := time.NewTimer(rcPollHold)
 	defer hold.Stop()
 	for {
+		if r.Err() != nil {
+			return // the host left: pop nothing it would never read
+		}
 		ctx, cancel := opCtx()
 		raw, err := q.rdb.LPop(ctx, rcKey(sid, "inq")).Bytes()
 		cancel()
@@ -372,9 +425,10 @@ func (b *broker) rcPollInbox(q *dispatchQueue, w http.ResponseWriter, r context.
 			q.noteErr("rc poll", err)
 		}
 		if !advertised {
-			h.mu.Lock()
-			rem.hosts = append(rem.hosts, wake)
-			h.mu.Unlock()
+			h.withRemote(b, q, sid, func(x *rcRemote) {
+				rem = x
+				x.hosts = append(x.hosts, wake)
+			})
 			b.rcSetRoute(q, sid, "h:"+q.self, true)
 			advertised = true
 			continue // pop once more AFTER advertising: an inbound pushed meanwhile is seen

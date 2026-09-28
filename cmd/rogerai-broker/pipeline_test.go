@@ -110,6 +110,7 @@ func TestInflightByNodePipelineSumsAndExcludesSelf(t *testing.T) {
 // node whose last_seen is older than livenessTTL, and prunes that field.
 func TestLivenessHashSkipsAndPrunesStale(t *testing.T) {
 	vs, mr := newTestValkey(t)
+	vs.livenessHashOnly.Store(true) // the fleet is on a queue rollout mode: the hash alone decides
 	now := time.Now()
 	for i := 0; i < 3; i++ {
 		if err := vs.markSeen("node-"+strconv.Itoa(i), now); err != nil {
@@ -133,5 +134,29 @@ func TestLivenessHashSkipsAndPrunesStale(t *testing.T) {
 			t.Fatal("the stale field was never pruned")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestLivenessMergesPerNodeKeysDuringRollout: until the rollout reaches a queue mode, a node
+// heartbeating only through an instance running older code (per-node key, no fleet hash) is
+// still seen.
+func TestLivenessMergesPerNodeKeysDuringRollout(t *testing.T) {
+	vs, mr := newTestValkey(t)
+	now := time.Now()
+	if err := vs.markSeen("new-node", now); err != nil {
+		t.Fatal(err)
+	}
+	// An older instance wrote only the per-node key.
+	mr.HSet(livenessKey("old-node"), livenessField, strconv.FormatInt(now.UnixMilli(), 10))
+	mr.SAdd(keyPrefix+"nodes", "old-node")
+	snap, err := vs.liveness()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snap["old-node"]; !ok {
+		t.Fatalf("a node heartbeating only on an older instance was lost: %v", snap)
+	}
+	if _, ok := snap["new-node"]; !ok {
+		t.Fatalf("a node in the fleet hash was lost: %v", snap)
 	}
 }

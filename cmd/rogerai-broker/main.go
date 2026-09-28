@@ -839,6 +839,9 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		if multiInstanceEnabled() {
 			b.multiInstance = true
 			b.dispatchMode = dispatchModeFromEnv()
+			if vs, ok := b.shared.(*valkeyStore); ok && b.dispatchMode != dispatchViaBus {
+				vs.livenessHashOnly.Store(true) // every instance runs code that writes the fleet hash
+			}
 			b.instanceID = newInstanceID()
 			b.peerInflight = map[string]int{}
 			b.peerEdgeLoad = map[string]int{}

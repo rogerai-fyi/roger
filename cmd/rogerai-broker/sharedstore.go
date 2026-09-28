@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -503,6 +505,10 @@ type valkeyStore struct {
 	// closed is closed by Close so the dispatch plane's reader stops with the store.
 	closed    chan struct{}
 	closeOnce sync.Once
+	// livenessHashOnly: every instance writes the fleet liveness hash, so a tick reads only it.
+	// Set once the rollout reaches a queue mode (ROGERAI_DISPATCH); until then an instance
+	// still running older code heartbeats only into the per-node keys, so both are read.
+	livenessHashOnly atomic.Bool
 
 	mu      sync.Mutex
 	up      bool // last observed reachability (for healthy())
@@ -863,36 +869,60 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	// One HGETALL over the fleet hash. Its fields never expire individually, so a field older
-	// than livenessTTL is skipped here and pruned in the background.
+	// than livenessTTL is skipped here and pruned in the background (compare-and-delete, so a
+	// heartbeat landing meanwhile is never removed).
 	all, err := v.rdb.HGetAll(ctx, livenessAllKey).Result()
 	if err != nil {
 		v.noteErr("liveness", err)
 		return nil, err
 	}
-	if len(all) > 0 {
-		out := make(map[string]time.Time, len(all))
-		cutoff := time.Now().Add(-livenessTTL).UnixMilli()
-		var stale []string
-		for id, val := range all {
-			ms, perr := strconv.ParseInt(val, 10, 64)
-			if perr != nil || ms < cutoff {
-				stale = append(stale, id)
-				continue
-			}
-			out[id] = time.UnixMilli(ms)
+	hash := make(map[string]time.Time, len(all))
+	cutoff := time.Now().Add(-livenessTTL).UnixMilli()
+	var stale []any
+	for id, val := range all {
+		ms, perr := strconv.ParseInt(val, 10, 64)
+		if perr != nil || ms < cutoff {
+			stale = append(stale, id)
+			continue
 		}
-		if len(stale) > 0 {
-			go func() {
-				c, cc := context.WithTimeout(context.Background(), sharedOpTimeout)
-				defer cc()
-				v.rdb.HDel(c, livenessAllKey, stale...)
-			}()
-		}
-		v.setUp(true)
-		return out, nil
+		hash[id] = time.UnixMilli(ms)
 	}
-	// Empty fleet hash: nodes heartbeating only on instances that predate it (a rolling
-	// deploy) are still found through the per-node keys.
+	if len(stale) > 0 {
+		go func() {
+			c, cc := context.WithTimeout(context.Background(), sharedOpTimeout)
+			defer cc()
+			pruneStaleLivenessScript.Run(c, v.rdb, []string{livenessAllKey}, append([]any{cutoff}, stale...)...)
+		}()
+	}
+	if len(hash) > 0 && v.livenessHashOnly.Load() {
+		v.setUp(true)
+		return hash, nil
+	}
+	perNode, err := v.livenessPerNode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for id, at := range hash {
+		if at.After(perNode[id]) {
+			perNode[id] = at
+		}
+	}
+	return perNode, nil
+}
+
+// pruneStaleLivenessScript deletes a fleet-hash field only if it is STILL older than the cutoff.
+var pruneStaleLivenessScript = redis.NewScript(`
+for i = 2, #ARGV do
+  local v = redis.call('HGET', KEYS[1], ARGV[i])
+  if v and tonumber(v) and tonumber(v) < tonumber(ARGV[1]) then
+    redis.call('HDEL', KEYS[1], ARGV[i])
+  end
+end
+return 0
+`)
+
+// livenessPerNode reads the per-node liveness keys (one HGET per node, pipelined).
+func (v *valkeyStore) livenessPerNode(ctx context.Context) (map[string]time.Time, error) {
 	ids, err := v.rdb.SMembers(ctx, keyPrefix+"nodes").Result()
 	if err != nil {
 		v.noteErr("liveness", err)
@@ -2268,25 +2298,36 @@ type changeEntry struct {
 	data          []byte
 }
 
-// changeHead is the id of the newest log entry ("0-0" when the log is empty).
-func (v *valkeyStore) changeHead() (string, error) {
+// fingerprint identifies an entry beyond its id (a store emptied by a restart can hand the
+// same id to a different entry).
+func (e changeEntry) fingerprint() string {
+	h := sha256.Sum256(append([]byte(e.kind+"\x00"+e.key+"\x00"), e.data...))
+	return hex.EncodeToString(h[:8])
+}
+
+func entryOf(m redis.XMessage) changeEntry {
+	return changeEntry{id: m.ID, kind: xstr(m.Values["k"]), key: xstr(m.Values["id"]), data: []byte(xstr(m.Values["d"]))}
+}
+
+// changeHead is the id and fingerprint of the newest log entry ("0-0" when the log is empty).
+func (v *valkeyStore) changeHead() (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	msgs, err := v.rdb.XRevRangeN(ctx, changeLogKey, "+", "-", 1).Result()
 	if err != nil {
 		v.noteErr("changeHead", err)
-		return "", err
+		return "", "", err
 	}
 	if len(msgs) == 0 {
-		return "0-0", nil
+		return "0-0", "", nil
 	}
-	return msgs[0].ID, nil
+	return msgs[0].ID, entryOf(msgs[0]).fingerprint(), nil
 }
 
 // changesAfter returns the entries after `after`. gap is true when the entry `after` itself
 // is no longer in the log (trimmed, or the store restarted) or more than max entries are
 // pending: the caller must take a full snapshot instead.
-func (v *valkeyStore) changesAfter(after string, max int64) ([]changeEntry, bool, error) {
+func (v *valkeyStore) changesAfter(after, afterFP string, max int64) ([]changeEntry, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	msgs, err := v.rdb.XRangeN(ctx, changeLogKey, after, "+", max+1).Result()
@@ -2295,7 +2336,7 @@ func (v *valkeyStore) changesAfter(after string, max int64) ([]changeEntry, bool
 		return nil, false, err
 	}
 	if after != "0-0" {
-		if len(msgs) == 0 || msgs[0].ID != after {
+		if len(msgs) == 0 || msgs[0].ID != after || (afterFP != "" && entryOf(msgs[0]).fingerprint() != afterFP) {
 			return nil, true, nil // our position is gone: trimmed, or the store restarted
 		}
 		msgs = msgs[1:]
@@ -2305,9 +2346,7 @@ func (v *valkeyStore) changesAfter(after string, max int64) ([]changeEntry, bool
 	}
 	out := make([]changeEntry, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, changeEntry{
-			id: m.ID, kind: xstr(m.Values["k"]), key: xstr(m.Values["id"]), data: []byte(xstr(m.Values["d"])),
-		})
+		out = append(out, entryOf(m))
 	}
 	return out, false, nil
 }

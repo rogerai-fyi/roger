@@ -88,6 +88,7 @@ func TestPollAcksBeforeServingAndDedupes(t *testing.T) {
 				headers.Add(1)
 			}
 			if n := polls.Add(1); n <= 2 { // the same job twice: a re-delivery after a lost ack
+				w.Header().Set(ackHeader, "1") // this broker wants the job acked
 				_ = json.NewEncoder(w).Encode(protocol.Job{ID: "same", Body: []byte(`{"model":"m"}`)})
 				return
 			}
@@ -128,5 +129,63 @@ func TestPollAcksBeforeServingAndDedupes(t *testing.T) {
 	}
 	if headers.Load() != polls.Load() {
 		t.Fatalf("%d of %d polls carried the ack header", headers.Load(), polls.Load())
+	}
+}
+
+// A broker that does not ask for an ack (an older broker, or the legacy bus) gets none: no
+// wasted round trip before serving.
+func TestPollDoesNotAckWhenNotAsked(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer upstream.Close()
+	var acks, results, polls atomic.Int64
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agent/poll":
+			if polls.Add(1) == 1 {
+				_ = json.NewEncoder(w).Encode(protocol.Job{ID: "j", Body: []byte(`{"model":"m"}`)})
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+			w.WriteHeader(http.StatusNoContent)
+		case "/agent/ack":
+			acks.Add(1)
+		case "/agent/result":
+			results.Add(1)
+		}
+	}))
+	defer broker.Close()
+	_, priv, _ := ed25519.GenerateKey(nil)
+	cfg := Config{Broker: broker.URL, Upstream: upstream.URL, NodeID: "n1", Model: "m"}
+	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: newReregistrar(broker.URL, protocol.NodeRegistration{NodeID: "n1", BridgeToken: "t"}, priv)}
+	go pollLoop(cfg, protocol.ModelOffer{Model: "m"}, priv, sess)
+	defer close(sess.stop)
+	deadline := time.Now().Add(5 * time.Second)
+	for results.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the job was never served")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if acks.Load() != 0 {
+		t.Fatalf("the node acked %d times for a broker that did not ask", acks.Load())
+	}
+}
+
+// An ack the broker could not forward (5xx) is retried once, in the background.
+func TestAckRetriedOnceOnServerError(t *testing.T) {
+	defer func(d time.Duration) { ackRetryDelay = d }(ackRetryDelay)
+	ackRetryDelay = 10 * time.Millisecond
+	var acks atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acks.Add(1)
+		http.Error(w, "ack not delivered", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	ackJob(Config{Broker: srv.URL, NodeID: "n1"}, "tok", "j")
+	time.Sleep(200 * time.Millisecond)
+	if n := acks.Load(); n != 2 {
+		t.Fatalf("the ack was sent %d times, want the first try plus one retry", n)
 	}
 }

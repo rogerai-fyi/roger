@@ -427,7 +427,7 @@ func (s *ackState) noReceipt() error {
 
 func (s *ackState) ackLost() error {
 	s.proxy.mu.Lock()
-	s.proxy.dropAcks = 1
+	s.proxy.dropAcks = 2 // the ack and the node's one retry
 	s.proxy.mu.Unlock()
 	s.mu.Lock()
 	s.slow = 3 * dqTakenGrace.get() // a long generation: still serving when the job is re-delivered

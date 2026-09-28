@@ -22,6 +22,7 @@ const changeBatch = 1000
 type changeTail struct {
 	mu     sync.Mutex
 	last   string    // id of the last entry applied ("" = never synced)
+	lastFP string    // that entry's fingerprint: an emptied store can reuse the same id
 	fullAt time.Time // last full snapshot
 	// deferred holds the newest registration entry per node that applyRegistry skipped only
 	// because this instance registered the node within its grace window; it is re-applied on
@@ -46,29 +47,59 @@ func (b *broker) syncChanges() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.last != "" && time.Since(t.fullAt) < changeReconcile {
-		entries, gap, err := vs.changesAfter(t.last, changeBatch)
+		entries, gap, err := vs.changesAfter(t.last, t.lastFP, changeBatch)
 		if err != nil {
 			return // store unreachable: keep the local view (C5)
 		}
 		if !gap {
 			b.applyChanges(append(t.takeDeferred(), entries...))
 			if len(entries) > 0 {
-				t.last = entries[len(entries)-1].id
+				e := entries[len(entries)-1]
+				t.last, t.lastFP = e.id, e.fingerprint()
 			}
 			return
 		}
 	}
 	// Full snapshot. Read the head FIRST: anything logged during the snapshot is applied
 	// again on the next tick, and applying an entry twice changes nothing.
-	head, err := vs.changeHead()
+	head, headFP, err := vs.changeHead()
 	if err != nil {
 		return
 	}
-	b.syncRegistry()
-	b.syncToolsVerified()
-	b.syncCooling()
-	t.last, t.fullAt, t.deferred = head, time.Now(), nil
+	// Every read must succeed before the position moves: a snapshot that failed part-way
+	// must be retried on the next tick, not skipped until the next reconcile.
+	regs, err1 := vs.allNodes()
+	pregs, err2 := vs.allPrivateNodes()
+	tools, err3 := vs.toolsVerified(toolsVerifiedTTL)
+	cools, err4 := vs.cooling()
+	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+		return
+	}
+	graced := b.applyRegistry(regs, pregs)
+	b.metricsMu.Lock()
+	b.toolsMerged = tools
+	b.metricsMu.Unlock()
+	b.applyCooling(cools)
+	// A registration skipped only for the local grace window is deferred, not dropped, so a
+	// peer's newer registration still lands once the grace has passed.
+	t.deferred = nil
+	for id := range graced {
+		if raw, ok := pregs[id]; ok {
+			t.hold(changeEntry{kind: "preg", key: id, data: raw})
+		} else if raw, ok := regs[id]; ok {
+			t.hold(changeEntry{kind: "reg", key: id, data: raw})
+		}
+	}
+	t.last, t.lastFP, t.fullAt = head, headFP, time.Now()
 	t.snapshots.Add(1)
+}
+
+// hold keeps the newest skipped registration entry for a node (caller holds t.mu).
+func (t *changeTail) hold(e changeEntry) {
+	if t.deferred == nil {
+		t.deferred = map[string]changeEntry{}
+	}
+	t.deferred[e.key] = e
 }
 
 // takeDeferred returns the deferred entries and clears them (caller holds t.mu).
@@ -94,10 +125,7 @@ func (b *broker) applyChanges(entries []changeEntry) {
 				graced = b.applyRegistry(nil, map[string][]byte{e.key: e.data})
 			}
 			if graced[e.key] {
-				if b.changes.deferred == nil {
-					b.changes.deferred = map[string]changeEntry{}
-				}
-				b.changes.deferred[e.key] = e
+				b.changes.hold(e)
 			} else {
 				delete(b.changes.deferred, e.key) // a later entry was applied: the deferred one is moot
 			}

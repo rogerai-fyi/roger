@@ -566,7 +566,9 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 		resp.Body.Close()
 		if job.ID != "" {
 			first := sess.accepted.first(job.ID, time.Now())
-			ackJob(cfg, token, job.ID) // confirm receipt before serving (one short round trip)
+			if resp.Header.Get(ackHeader) == "1" { // this broker wants this job acked
+				ackJob(cfg, token, job.ID) // before serving: one short round trip
+			}
 			if !first {
 				continue // re-delivered after a lost ack: acked again, never served twice
 			}
@@ -1269,20 +1271,38 @@ func (a *acceptedJobs) first(id string, now time.Time) bool {
 	return true
 }
 
-// ackClient bounds an ack; an ack is best-effort (the broker re-delivers without one).
-var ackClient = &http.Client{Timeout: 5 * time.Second}
+// ackClient bounds an ack well under the broker's re-delivery grace; an ack is best-effort
+// (the broker re-delivers a job it never hears about).
+var ackClient = &http.Client{Timeout: 2 * time.Second}
 
-// ackJob confirms receipt of a job. Every answer is ignored on purpose: in particular a 404
-// is an older broker without /agent/ack and must NEVER trigger a re-register.
+// ackRetryDelay spaces the one retry of an ack the broker could not forward.
+var ackRetryDelay = 200 * time.Millisecond
+
+// ackJob confirms receipt of a job. A 404 is an older broker without /agent/ack: ignored, and
+// it must NEVER trigger a re-register. A failure (network, 5xx) is retried once in the
+// background, so serving is never held up by it.
 func ackJob(cfg Config, token, jobID string) {
+	if !postAck(cfg, token, jobID) {
+		go func() {
+			time.Sleep(ackRetryDelay)
+			postAck(cfg, token, jobID)
+		}()
+	}
+}
+
+// postAck sends one ack; it reports false only when a retry could help.
+func postAck(cfg Config, token, jobID string) bool {
 	u := cfg.Broker + "/agent/ack?node=" + url.QueryEscape(cfg.NodeID) + "&job=" + url.QueryEscape(jobID)
 	req, err := http.NewRequest(http.MethodPost, u, nil)
 	if err != nil {
-		return
+		return true
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	if resp, err := ackClient.Do(req); err == nil {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+	resp, err := ackClient.Do(req)
+	if err != nil {
+		return false
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode < 500
 }

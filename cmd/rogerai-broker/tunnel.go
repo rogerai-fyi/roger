@@ -1446,6 +1446,9 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case job := <-t.jobs:
+		if r.Header.Get(ackHeader) == "1" {
+			w.Header().Set(ackHeader, "1") // accepted and changes nothing here (node_ack.feature)
+		}
 		_ = json.NewEncoder(w).Encode(job)
 	case <-time.After(25 * time.Second):
 		w.WriteHeader(http.StatusNoContent) // re-poll

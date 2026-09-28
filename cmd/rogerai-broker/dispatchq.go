@@ -303,18 +303,10 @@ func (q *dispatchQueue) handle(m dqMsg) {
 			return // an ack can only confirm the acking node's own job
 		}
 		tk.markTaken()
-		tk.mu.Lock()
-		requeued := tk.requeued
-		tk.mu.Unlock()
-		if requeued { // a put-back copy may still wait in the list: withdraw it
-			go func() {
-				ctx, cancel := opCtx()
-				defer cancel()
-				q.rdb.LRem(ctx, dqListPrefix+tk.node, 0, tk.raw)
-			}()
-		}
+		q.dropRequeued(tk)
 	case "res":
 		tk.markTaken()
+		q.dropRequeued(tk)
 		q.noteServe(tk)
 		select {
 		case tk.res <- m.data:
@@ -692,7 +684,8 @@ func (q *dispatchQueue) watch(tk *dispatchTicket, wait time.Duration) {
 			if sent > 0 && sent < dqMaxDeliveries {
 				// Written to an ack-capable poll but never acked: the node did not get it (or
 				// its ack was lost; the node dedupes). Put it back at the front and wake a poll.
-				q.redeliver(tk)
+				q.redeliver(tk, wait)
+				withdraw.Reset(wait) // nobody takes the copy: busy, not a wait to the relay deadline
 				lost = nil
 				continue
 			}
@@ -703,18 +696,41 @@ func (q *dispatchQueue) watch(tk *dispatchTicket, wait time.Duration) {
 	}
 }
 
+// dropRequeued withdraws a put-back copy of a job the node has confirmed (never blocks the reader).
+func (q *dispatchQueue) dropRequeued(tk *dispatchTicket) {
+	tk.mu.Lock()
+	requeued, raw := tk.requeued, tk.raw
+	tk.mu.Unlock()
+	if !requeued {
+		return
+	}
+	go func() {
+		ctx, cancel := opCtx()
+		defer cancel()
+		q.rdb.LRem(ctx, dqListPrefix+tk.node, 0, raw)
+	}()
+}
+
 // dqMaxDeliveries bounds how often an unacked job is written before the consumer gets a 503.
 const dqMaxDeliveries = 3
 
 // redeliver puts an unacked job back at the front of its node's list and wakes a poll.
-func (q *dispatchQueue) redeliver(tk *dispatchTicket) {
+func (q *dispatchQueue) redeliver(tk *dispatchTicket, wait time.Duration) {
 	tk.mu.Lock()
+	var e dqEntry
+	if json.Unmarshal(tk.raw, &e) == nil { // a fresh deadline: the copy must not be dropped as expired
+		e.Deadline = time.Now().Add(wait + dqTakenGrace.get() + 30*time.Second).UnixMilli()
+		if raw, err := json.Marshal(e); err == nil {
+			tk.raw = raw
+		}
+	}
 	tk.requeued = true
 	tk.elem = tk.raw
 	tk.tried = map[string]bool{}
+	raw := tk.raw
 	tk.mu.Unlock()
 	ctx, cancel := opCtx()
-	err := q.rdb.LPush(ctx, dqListPrefix+tk.node, tk.raw).Err()
+	err := q.rdb.LPush(ctx, dqListPrefix+tk.node, raw).Err()
 	cancel()
 	if err != nil {
 		q.noteErr("dq redeliver", err)
@@ -963,13 +979,17 @@ func (q *dispatchQueue) handOver(w http.ResponseWriter, r *http.Request, node st
 	}
 	var job protocol.Job
 	_ = json.Unmarshal(e.Job, &job)
+	acked := r.Header.Get(ackHeader) == "1"
+	if acked {
+		w.Header().Set(ackHeader, "1") // this job wants the node's ack
+	}
 	if err := writeJob(w, job); err != nil {
 		log.Printf("dq handoff write failed node=%s job=%s: %v (the origin fails it fast)", node, job.ID, err)
 		return true
 	}
 	q.b.stats.dqHandoff.Add(1)
 	kind := "taken"
-	if r.Header.Get(ackHeader) == "1" {
+	if acked {
 		kind = "sent" // this node confirms receipt itself: taken only on its ack
 	}
 	_ = q.send(e.Origin, dqMsg{kind: kind, job: job.ID, node: node})
@@ -1047,8 +1067,13 @@ func (b *broker) agentAck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if q := b.dqueue(); q != nil && b.multiInstance && jobID != "" {
-		if origin, err := q.originOf(jobID); err == nil && origin != "" {
-			_ = q.send(origin, dqMsg{kind: "ack", job: jobID, node: node})
+		origin, err := q.originOf(jobID)
+		if err == nil && origin != "" {
+			err = q.send(origin, dqMsg{kind: "ack", job: jobID, node: node})
+		}
+		if err != nil {
+			jsonErr(w, http.StatusServiceUnavailable, "ack not delivered") // the node retries it
+			return
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

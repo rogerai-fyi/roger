@@ -41,8 +41,11 @@ func (s *clState) twoInstances() error {
 	s.mr = miniredis.RunT(s.t)
 	s.redisURL = "redis://" + s.mr.Addr()
 	s.nodes = map[string]*xiNode{}
-	s.newInstance("A", true)
-	s.newInstance("B", true)
+	for _, n := range []string{"A", "B"} {
+		b := s.newInstance(n, true).b
+		b.dispatchMode = dispatchViaQueueOnly // the rollout is complete: one liveness read
+		b.shared.(*valkeyStore).livenessHashOnly.Store(true)
+	}
 	// Each instance syncs once as it boots, so every later tick is a change-log tick.
 	s.inst("A").syncLivenessOnce()
 	s.inst("B").syncLivenessOnce()
@@ -397,7 +400,7 @@ func (s *clState) appliesSameTwice() error {
 		return err
 	}
 	vs := s.inst("B").shared.(*valkeyStore)
-	entries, _, err := vs.changesAfter("0-0", 10000)
+	entries, _, err := vs.changesAfter("0-0", "", 10000)
 	if err != nil {
 		return err
 	}
@@ -502,7 +505,9 @@ func (s *clState) twentyNodes() error {
 }
 
 func (s *clState) thirdStarts() error {
-	s.newInstance("C", true)
+	b := s.newInstance("C", true).b
+	b.dispatchMode = dispatchViaQueueOnly
+	b.shared.(*valkeyStore).livenessHashOnly.Store(true)
 	return nil
 }
 
