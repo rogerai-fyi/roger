@@ -21,6 +21,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // edgeMaintenanceOn reports whether the owner turned maintenance on THIS machine.
@@ -128,7 +129,14 @@ var edgeLogRing = edge.NewLogRing(0)
 func edgeTeeLog() func() {
 	prev := log.Writer()
 	log.SetOutput(io.MultiWriter(prev, edgeLogRing))
-	return func() { log.SetOutput(prev) }
+	// A TUI takes the standard logger for itself while it runs (internal/tui/logcap.go), which would
+	// otherwise leave this ring empty for the whole session - exactly when an operator is looking. The
+	// mirror hands it the same lines.
+	tui.SetLogMirror(edgeLogRing)
+	return func() {
+		tui.SetLogMirror(nil)
+		log.SetOutput(prev)
+	}
 }
 
 func edgeRecordMaintenance(callerID, callerName string, task edge.MaintainTask, now time.Time) {

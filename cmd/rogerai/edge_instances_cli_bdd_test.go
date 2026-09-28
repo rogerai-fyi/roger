@@ -70,7 +70,7 @@ func (s *instCLIBDD) nodeID() string {
 
 // running is a roger on this machine: a real registration in this machine's household.
 func (s *instCLIBDD) running(name string, bands ...string) error {
-	inst := edge.Instance{Name: name, Caps: edgeInstanceCaps(bands), Bands: bands}
+	inst := edge.Instance{Name: name, Caps: edgeInstanceCaps(bands, false), Bands: bands}
 	r, err := edge.Register(edgeInstancesDir(), s.nodeID(), inst, time.Now())
 	if err != nil {
 		return err

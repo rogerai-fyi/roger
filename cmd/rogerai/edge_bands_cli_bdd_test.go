@@ -43,7 +43,7 @@ func (s *bandsCLIBDD) instancesServing(a, b string) error {
 	runEdgeCLI(s.t, "edge", "enroll", "workshop")
 	id, _, _, _ := edgeIdentityStore().LoadIdentity()
 	// this machine serves one band; a peer node serves the other
-	if _, err := edge.Register(edgeInstancesDir(), id.NodeID, edge.Instance{Name: "here", Caps: edgeInstanceCaps([]string{a}), Bands: []string{a}}, time.Now()); err != nil {
+	if _, err := edge.Register(edgeInstancesDir(), id.NodeID, edge.Instance{Name: "here", Caps: edgeInstanceCaps([]string{a}, false), Bands: []string{a}}, time.Now()); err != nil {
 		return err
 	}
 	st, err := loadEdgeState()
@@ -51,7 +51,7 @@ func (s *bandsCLIBDD) instancesServing(a, b string) error {
 		return err
 	}
 	_, err = st.fleet.Observe("n_jetson0000000000000000", edge.Observation{Name: "jetson", Kind: "host", Addr: "192.168.1.20:1",
-		Fingerprint: strings.Repeat("cd", 32), Instances: []edge.Instance{{Name: "serve", Caps: edgeInstanceCaps([]string{b}), Bands: []string{b}}}})
+		Fingerprint: strings.Repeat("cd", 32), Instances: []edge.Instance{{Name: "serve", Caps: edgeInstanceCaps([]string{b}, false), Bands: []string{b}}}})
 	if err != nil {
 		return err
 	}
@@ -118,10 +118,10 @@ func TestEdgeBandsAndHouseholdDisplay(t *testing.T) {
 	// on this machine's own row, with the served band.
 	id, _, _, _ := edgeIdentityStore().LoadIdentity()
 	_, err := edge.Register(edgeInstancesDir(), id.NodeID, edge.Instance{Name: "share",
-		Caps: edgeInstanceCaps([]string{"gpt-oss-20b"}), Bands: []string{"gpt-oss-20b"}}, time.Now())
+		Caps: edgeInstanceCaps([]string{"gpt-oss-20b"}, false), Bands: []string{"gpt-oss-20b"}}, time.Now())
 	require.NoError(t, err)
 	_, err = edge.Register(edgeInstancesDir(), id.NodeID, edge.Instance{Name: "desk",
-		Caps: edgeInstanceCaps(nil)}, time.Now())
+		Caps: edgeInstanceCaps(nil, false)}, time.Now())
 	require.NoError(t, err)
 	out = runEdgeCLI(t, "edge")
 	require.Contains(t, out, "/share")

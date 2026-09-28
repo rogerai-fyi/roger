@@ -54,15 +54,18 @@ func edgeInstanceName(cfg config, node string, taken []string) string {
 
 // edgeInstanceCaps is what this process can be asked for: it operates (it runs an agent),
 // and it serves when it has a model on air.
-func edgeInstanceCaps(bands []string) []store.EdgeCap {
+// maintain is whether the owner turned maintenance on HERE (features/edge/maintenance.feature). It is
+// a PARAMETER rather than a read of the global config: the callers all hold the config already, and a
+// helper that reaches for it silently depends on whatever config the process happens to see - which
+// is how a test that never isolated its config started failing once maintenance existed.
+func edgeInstanceCaps(bands []string, maintain bool) []store.EdgeCap {
 	caps := []store.EdgeCap{{Name: string(edge.Operate), State: string(edge.Claimed)}}
 	if len(bands) > 0 {
 		caps = append(caps, store.EdgeCap{Name: string(edge.Serve), State: string(edge.Claimed)})
 	}
-	// MAINTAIN is declared only when the owner turned maintenance on HERE
-	// (features/edge/maintenance.feature). Off by default, so the face refuses every maintenance
-	// invoke on a machine whose owner never asked for it.
-	if edgeMaintenanceOn(loadConfig()) {
+	// Off by default, so the face refuses every maintenance invoke on a machine whose owner never
+	// asked for it.
+	if maintain {
 		caps = append(caps, store.EdgeCap{Name: string(edge.Maintain), State: string(edge.Claimed)})
 	}
 	return caps
@@ -96,7 +99,7 @@ func (h *edgeHost) registerInstance(cfg config) {
 		taken = append(taken, in.Name)
 	}
 	bands := edgeBandsOnAir()
-	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCaps(bands),
+	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCaps(bands, edgeMaintenanceOn(cfg)),
 		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now), Software: edgeReadSoftware()}
 	reg, err := edge.Register(dir, id.NodeID, inst, now)
 	if err != nil {
@@ -130,7 +133,7 @@ func (h *edgeHost) beatInstance(cfg config) {
 	bands := edgeBandsOnAir()
 	agent := edgeIsAgentRole(cfg)
 	_ = reg.Update(node, func(i *edge.Instance) {
-		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCaps(bands), edgeReadResources(now)
+		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCaps(bands, edgeMaintenanceOn(cfg)), edgeReadResources(now)
 		i.Agent = agent // a change via `roger edge agent on` is picked up on the next pass
 		// The software record is refreshed every beat, exactly like the resources: it is what the
 		// machine says NOW. Refreshing only when absent left a stale record standing for the life of
@@ -331,7 +334,7 @@ func edgeSelfDeclares(need edge.Capability) bool {
 		// a grant alone never reaches a machine whose owner did not ask (features/edge/maintenance.feature).
 		return edgeMaintenanceOn(loadConfig())
 	}
-	for _, c := range edgeInstanceCaps(edgeBandsOnAir()) {
+	for _, c := range edgeInstanceCaps(edgeBandsOnAir(), edgeMaintenanceOn(loadConfig())) {
 		if c.Name == string(need) {
 			return c.State == string(edge.Verified)
 		}
@@ -455,6 +458,11 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 				return err
 			}
 			if need != "" && !edgeSelfDeclares(need) {
+				if need == edge.Maintain {
+					// The owner's switch is off here. Say THAT, and how to turn it on: "no verified
+					// capability for this" is true and tells the operator nothing they can act on.
+					return fmt.Errorf("%s", edge.MaintainOffReason)
+				}
 				return fmt.Errorf("%w: %s", edge.ErrNotVerified, need)
 			}
 			return nil

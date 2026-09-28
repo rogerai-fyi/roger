@@ -47,7 +47,7 @@ func TestMaintenanceIsOffUntilTheOwnerTurnsItOnHere(t *testing.T) {
 	require.False(t, edgeMaintenanceOn(cfg), "off by default")
 
 	// The capability is not declared, so no member is even authorized to ask.
-	require.NotContains(t, edgeCapNames(edgeInstanceCaps(nil)), string(edge.Maintain))
+	require.NotContains(t, edgeCapNames(edgeInstanceCaps(nil, edgeMaintenanceOn(cfg))), string(edge.Maintain))
 	require.False(t, edgeSelfDeclares(edge.Maintain))
 
 	// And the action itself refuses, grant or not.
@@ -62,7 +62,7 @@ func TestMaintenanceIsOffUntilTheOwnerTurnsItOnHere(t *testing.T) {
 	require.Contains(t, out, "cannot run a command")
 	cfg = loadConfig()
 	require.True(t, edgeMaintenanceOn(cfg))
-	require.Contains(t, edgeCapNames(edgeInstanceCaps(nil)), string(edge.Maintain), "declared from the next registration")
+	require.Contains(t, edgeCapNames(edgeInstanceCaps(nil, edgeMaintenanceOn(cfg))), string(edge.Maintain), "declared from the next registration")
 	require.True(t, edgeSelfDeclares(edge.Maintain))
 
 	// ...and off again.
@@ -190,10 +190,15 @@ func TestMaintenanceNeedsBothOfTheOwnersLocks(t *testing.T) {
 		"a grant for operate never reaches maintenance")
 	require.NoError(t, sv.Authorize(maintain, id.NodeID, edge.Maintain))
 
-	// With maintenance off, even the right grant is refused: the target's own switch is the other lock.
+	// With maintenance off, even the right grant is refused: the target's own switch is the other
+	// lock - and the refusal SAYS so, with the command that turns it on, rather than "no verified
+	// capability for this", which an operator cannot act on.
 	_, err = captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"off"}) })
 	require.NoError(t, err)
-	require.Error(t, sv.Authorize(maintain, id.NodeID, edge.Maintain))
+	err = sv.Authorize(maintain, id.NodeID, edge.Maintain)
+	require.Error(t, err)
+	require.Equal(t, edge.MaintainOffReason, err.Error())
+	require.Contains(t, err.Error(), "roger edge maintenance on")
 }
 
 // One action at a time, and the runner routes maintain to the maintenance path rather than the

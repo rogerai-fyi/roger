@@ -18,6 +18,7 @@ import (
 )
 
 func TestEdgeInstanceNameAndCaps(t *testing.T) {
+	useTempConfig(t) // never read the REAL user config: this asserts on what a bare config declares
 	require.Equal(t, "workshop", edgeInstanceName(config{}, "workshop", nil))
 	require.Equal(t, "workshop-2", edgeInstanceName(config{}, "workshop", []string{"workshop"}))
 	require.Equal(t, "desk", edgeInstanceName(config{EdgeInstance: "desk"}, "workshop", nil))
@@ -27,12 +28,20 @@ func TestEdgeInstanceNameAndCaps(t *testing.T) {
 	t.Setenv("ROGER_EDGE_INSTANCE", "Not Valid")
 	require.Equal(t, "desk", edgeInstanceName(config{EdgeInstance: "desk"}, "workshop", nil), "an unusable env override is ignored")
 
-	caps := edgeInstanceCaps(nil)
+	caps := edgeInstanceCaps(nil, false)
 	require.Len(t, caps, 1)
 	require.Equal(t, "operate", caps[0].Name)
-	caps = edgeInstanceCaps([]string{"gpt-oss-20b"})
+	caps = edgeInstanceCaps([]string{"gpt-oss-20b"}, false)
 	require.Len(t, caps, 2)
 	require.Equal(t, "serve", caps[1].Name)
+	// MAINTAIN is declared only when the owner turned maintenance on, and it is a parameter, so this
+	// says what it means without depending on any config at all.
+	caps = edgeInstanceCaps(nil, true)
+	require.Len(t, caps, 2)
+	require.Equal(t, "maintain", caps[1].Name)
+	caps = edgeInstanceCaps([]string{"gpt-oss-20b"}, true)
+	require.Len(t, caps, 3)
+	require.Equal(t, "maintain", caps[2].Name)
 }
 
 func TestEdgeReadResourcesInventsNothing(t *testing.T) {
@@ -128,7 +137,7 @@ func TestEdgeInstanceCLIBranches(t *testing.T) {
 	require.Contains(t, out, "workshop")
 
 	// A running roger, described by "./name" and by "workshop/name".
-	reg, err := edge.Register(edgeInstancesDir(), nodeIDOf(t), edge.Instance{Name: "desk", Caps: edgeInstanceCaps(nil),
+	reg, err := edge.Register(edgeInstancesDir(), nodeIDOf(t), edge.Instance{Name: "desk", Caps: edgeInstanceCaps(nil, false),
 		Resources: &store.EdgeResources{GPU: "Orin", GPUMemUsed: 0.5, RAMUsedGB: 8, RAMTotalGB: 32, ReadAt: time.Now().Unix()}}, time.Now())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reg.Deregister() })
@@ -152,7 +161,7 @@ func TestEdgeInstanceCLIBranches(t *testing.T) {
 	st, err := loadEdgeState()
 	require.NoError(t, err)
 	_, err = st.fleet.Observe("n_peer000000000000000000", edge.Observation{Name: "jetson", Kind: "host", Addr: "192.168.1.20:1",
-		Fingerprint: strings.Repeat("cd", 32), Instances: []edge.Instance{{Name: "serve", Caps: edgeInstanceCaps([]string{"qwen-3.8-27b"}), Bands: []string{"qwen-3.8-27b"}, Started: time.Now().Unix()}}})
+		Fingerprint: strings.Repeat("cd", 32), Instances: []edge.Instance{{Name: "serve", Caps: edgeInstanceCaps([]string{"qwen-3.8-27b"}, false), Bands: []string{"qwen-3.8-27b"}, Started: time.Now().Unix()}}})
 	require.NoError(t, err)
 	require.NoError(t, st.save())
 	out = runEdgeCLI(t, "edge", "describe", "jetson/serve")
@@ -179,7 +188,7 @@ func TestRegisterInstanceCollisionAndBeat(t *testing.T) {
 
 	// A sibling already holds the default name: registerInstance falls back to the next
 	// default rather than leaving this roger off its own Edge.
-	_, err := edge.Register(edgeInstancesDir(), nodeIDOf(t), edge.Instance{Name: "workshop", Caps: edgeInstanceCaps(nil)}, time.Now())
+	_, err := edge.Register(edgeInstancesDir(), nodeIDOf(t), edge.Instance{Name: "workshop", Caps: edgeInstanceCaps(nil, false)}, time.Now())
 	require.NoError(t, err)
 	h, err := newEdgeHost("workshop")
 	require.NoError(t, err)
