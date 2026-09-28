@@ -88,8 +88,32 @@ Feature: maintenance actions
     Given maintenance is on at "shed" and desk holds a maintain grant for it
     When desk asks "shed" to start "watcher"
     Then a roger is launched on "shed" as the agent "watcher"
-    And the answer says what was started, by name, and that it returns on its next registration
+    And the answer WAITS briefly and says whether it really joined the Edge, not merely that it was
+      launched - a spawned agent that cannot stand up its face exits at once, and the owner hears it
+      from the action they asked for
+    And when it does not join, the answer says where to look: that machine's log
     And "shed"'s history carries a maintenance event naming the caller and the action
+
+  @edge
+  Scenario: on a machine running several rogers, the request can land on the one you named
+    Given a machine running two rogers, "roger" and "roger-3"
+    And the node's recorded face is whichever of them last observed itself
+    When desk asks to stop "roger-3" and the request lands on "roger-3" itself
+    Then it is refused, and the refusal SAYS why it can happen and what to do instead
+    And it is not silently routed to the other roger, which would be a different machine's answer
+      than the one the caller reached
+    # THE REAL FIX is an instance-addressed invoke: EdgeInstance already carries a Port, and
+    # node/instance is already an address form, so a caller could dial the process it means. That is
+    # its own slice, written up in the night notes.
+
+  @edge
+  Scenario: a spawned agent gets its own face, and is never left as a zombie
+    Given this machine runs with a pinned face port
+    When an agent is spawned here
+    Then it does NOT inherit that pinned port, because two rogers cannot bind one face and the child
+      would exit at once reporting nothing
+    And the child is waited for, so a child that exits is not left a zombie for the life of this roger
+    And a child that dies within seconds is logged, because the owner was told it had launched
 
   @edge
   Scenario: starting what is already running changes nothing, and says so

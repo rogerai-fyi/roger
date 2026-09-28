@@ -114,7 +114,10 @@ func edgeInvokeHandler(d edgeTurnDeps) func(callerID string, req edge.InvokeRequ
 
 // edgeLiveTurnDeps are the real receiver-side pieces, backed by what this process has on air and the
 // live harness loop. This is the glue edgeInvokeHandler is fed in production.
-func edgeLiveTurnDeps() edgeTurnDeps {
+// selfInstance is a function so the host can hand in the name it ACTUALLY registered. Guessing it
+// from the config computed the name the NEXT roger would take, which refused a start for the very
+// agent the owner had asked for, as itself.
+func edgeLiveTurnDeps(selfInstance func() string) edgeTurnDeps {
 	return edgeTurnDeps{
 		band: func(want string) (string, string, string, bool) {
 			if edgeUpstreamOf == nil {
@@ -136,7 +139,11 @@ func edgeLiveTurnDeps() edgeTurnDeps {
 		},
 		runLoop: edgeRunDelegatedTurn,
 		maintain: func(callerID string, task json.RawMessage) (edge.MaintainResult, string) {
-			return edgeMaintainRun(loadConfig(), callerID, edgeNameOfNode(callerID), edgeThisInstanceName(), task, time.Now())
+			self := ""
+			if selfInstance != nil {
+				self = selfInstance()
+			}
+			return edgeMaintainRun(loadConfig(), callerID, edgeNameOfNode(callerID), self, task, time.Now())
 		},
 	}
 }

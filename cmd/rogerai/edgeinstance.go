@@ -474,7 +474,16 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 		// its own tools, its own permissions, no human to open a confirm gate - and returns the result.
 		// Device capabilities (sense/actuate) are refused here by name: this binary runs an agent, not
 		// a board. See cmd/rogerai/edgerunner.go.
-		Invoke: edgeInvokeHandler(edgeLiveTurnDeps()),
+		// The name this process REGISTERED, read live: it is what may never be the target of a
+		// maintenance action, and a guess from the config named the next roger instead.
+		Invoke: edgeInvokeHandler(edgeLiveTurnDeps(func() string {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if h.reg == nil {
+				return "" // not registered: this process is nobody's target
+			}
+			return h.reg.Instance().Name
+		})),
 	}, true
 }
 

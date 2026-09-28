@@ -9,10 +9,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -97,13 +99,37 @@ var edgeSpawnRoger = func(env map[string]string) error {
 		return err
 	}
 	c := exec.Command(exe, edgeAgentRunArg)
-	c.Env = os.Environ()
+	// The child needs its OWN face. Inheriting a pinned face port from this process guarantees the
+	// child cannot bind and exits at once, reporting nothing - which is exactly what happened on a
+	// machine running with ROGERAI_EDGE_BIND set: "launched a roger" and then a zombie.
+	for _, kv := range os.Environ() {
+		if k, _, ok := strings.Cut(kv, "="); ok && k == envFaceBind {
+			continue
+		}
+		c.Env = append(c.Env, kv)
+	}
 	for k, v := range env {
 		c.Env = append(c.Env, k+"="+v)
 	}
 	c.Stdin, c.Stdout, c.Stderr = nil, nil, nil
-	return edgeDetach(c) // start in its own session so it outlives this shell
+	if err := edgeDetachFn(c); err != nil { // start in its own session so it outlives this shell
+		return err
+	}
+	// REAP it. Setsid changes the child's session, not its parent, so a child that exits without
+	// being waited for stays a zombie for as long as this roger runs. An agent that dies at once is
+	// also worth saying out loud: the owner was told it was launched.
+	go func(c *exec.Cmd, started time.Time) {
+		err := c.Wait()
+		if d := time.Since(started); d < 5*time.Second {
+			log.Printf("edge: the agent this roger launched exited after %s (%v) - it is not running", d.Round(time.Millisecond), err)
+		}
+	}(c, time.Now())
+	return nil
 }
+
+// edgeDetachFn starts a detached child. A seam, so a test can see the environment a spawn would pass
+// without starting a process.
+var edgeDetachFn = edgeDetach
 
 // edgeAgentRunArg is the hidden argument a spawned agent is launched with. It runs the HEADLESS
 // agent loop (below) instead of the interactive TUI, which a detached process with no terminal

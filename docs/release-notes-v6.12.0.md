@@ -118,8 +118,17 @@ reused under you. It signals only when the registration naming the pid is still 
 not the process answering the request, and the pid's own command line still names a roger. It sends
 SIGTERM and never SIGKILL: a roger that will not leave is reported, not forced. A restart that finds
 the roger still there does not start a second one on top of it, and says so rather than reporting a
-restart that did not happen. `roger edge maintain <node> start|stop|restart <agent>`, and the fleet
+restart that did not happen. A start waits briefly and says whether the agent really joined, not
+merely that it was launched. `roger edge maintain <node> start|stop|restart <agent>`, and the fleet
 screen says which units have maintenance on.
+
+Running the actions for real found three things tests had not. A spawned agent inherited this
+process's pinned face port, so it could never bind and exited at once while the owner was told it had
+launched; a child is given its own face now. Nothing ever waited for that child, so an agent that
+died left a zombie for the life of the roger that spawned it; children are reaped, and one that dies
+within seconds is logged. And the roger that may never be a target is the one this process
+REGISTERED, not the name a new roger would take - guessing it refused a start for the very agent the
+owner had named.
 
 ## The log tail, with secrets removed
 

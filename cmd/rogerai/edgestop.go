@@ -134,3 +134,30 @@ func edgeRestartAgent(cfg config, name string, now time.Time) (says string, chan
 	}
 	return strings.TrimSuffix(stopSays, ".") + " " + startSays, true, ""
 }
+
+// edgeStartAgent launches a persistent agent that is down and WAITS briefly for it to register, so
+// the answer says whether it is really running rather than only that it was launched. A spawned agent
+// that cannot stand up its face exits at once, and the owner deserves to hear that from the action
+// they asked for (features/edge/maintenance.feature).
+func edgeStartAgent(cfg config, name string, now time.Time) (says string, changed bool, refused string) {
+	msg, err := edgeAgentResumed(cfg, name)
+	if err != nil {
+		return "", false, err.Error()
+	}
+	if strings.Contains(msg, "already running") {
+		return msg, false, ""
+	}
+	deadline := time.Now().Add(edgeStartWait)
+	for time.Now().Before(deadline) {
+		if edgeStillRunning(name, time.Now()) {
+			return fmt.Sprintf("started %q, and it is on your Edge.", name), true, ""
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Sprintf("launched a roger for %q, but it had not joined your Edge %s later - look at that machine's log (`roger edge logs`) for why.",
+		name, edgeStartWait), true, ""
+}
+
+// edgeStartWait is how long a start waits for the agent to register before it answers. Long enough
+// for a roger to stand up its face, short enough that the caller is not left holding the request.
+const edgeStartWait = 6 * time.Second

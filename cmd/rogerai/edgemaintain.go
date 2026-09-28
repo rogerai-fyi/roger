@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -102,7 +101,10 @@ func edgeMaintainRun(cfg config, callerID, callerName, selfInstance string, raw 
 		return edge.MaintainResult{Action: task.Action, Lines: lines, Held: held, Says: says}, ""
 	}
 	if task.Target == selfInstance {
-		return edge.MaintainResult{}, "that is the roger serving this request: a process cannot restart itself through its own face"
+		return edge.MaintainResult{}, "that is the roger answering this request, and it cannot start, stop or " +
+			"restart itself through its own face. On a machine running several rogers the node's recorded " +
+			"face is whichever of them last observed itself, so the request can land on the one you named: " +
+			"ask again, or run `roger edge agent resume`/`roger edge agent remove` on that machine"
 	}
 	res := edge.MaintainResult{Action: task.Action, Target: task.Target}
 	var says, why string
@@ -112,11 +114,7 @@ func edgeMaintainRun(cfg config, callerID, callerName, selfInstance string, raw 
 	case edge.MaintainRestart:
 		says, res.Changed, why = edgeRestartAgent(cfg, task.Target, now)
 	default: // start
-		msg, err := edgeAgentResumed(cfg, task.Target)
-		if err != nil {
-			return res, err.Error()
-		}
-		says, res.Changed = msg, !strings.Contains(msg, "already running")
+		says, res.Changed, why = edgeStartAgent(cfg, task.Target, now)
 	}
 	if why != "" {
 		return res, why
@@ -212,19 +210,6 @@ func edgeNameOfNode(id string) string {
 		return n.Name
 	}
 	return ""
-}
-
-// edgeThisInstanceName is the name of the roger serving this process's face, which can never be the
-// target of a maintenance action it is itself serving.
-func edgeThisInstanceName() string {
-	cfg := loadConfig()
-	if v := strings.TrimSpace(os.Getenv("ROGER_EDGE_INSTANCE")); v != "" {
-		return v
-	}
-	if cfg.EdgeInstance != "" {
-		return cfg.EdgeInstance
-	}
-	return edgeThisAgentName(cfg)
 }
 
 // edgeMaintainableNodes is the members that declare maintain, for the surfaces that say so.

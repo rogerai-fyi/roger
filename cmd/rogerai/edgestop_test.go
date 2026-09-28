@@ -5,7 +5,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"testing"
@@ -205,3 +207,104 @@ func TestStopAndRestartGoThroughTheMaintenanceGate(t *testing.T) {
 		require.Contains(t, refused, "not built yet", string(a))
 	}
 }
+
+// The roger that may never be a target is the one THIS process REGISTERED - not the name a new roger
+// would take. Guessing it from the config refused a start for the very agent the owner named.
+func TestTheSelfTargetIsTheRegisteredNameNotAGuess(t *testing.T) {
+	signalled, _ := stopRig(t, 424242)
+	deps := edgeLiveTurnDeps(func() string { return "roger" }) // what this process registered
+	handler := edgeInvokeHandler(deps)
+	_, err := captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"on"}) })
+	require.NoError(t, err)
+
+	ask := func(action edge.MaintainAction, target string) edge.InvokeResult {
+		b, _ := json.Marshal(edge.MaintainTask{Action: action, Target: target})
+		res, err := handler("n_desk", edge.InvokeRequest{Capability: string(edge.Maintain), Task: b})
+		require.NoError(t, err)
+		return res
+	}
+
+	// "watcher" is NOT this process, so it may be acted on.
+	res := ask(edge.MaintainStop, "watcher")
+	require.Equal(t, "", res.Refused)
+	require.Equal(t, []int{424242}, *signalled)
+
+	// The registered name is refused, whichever action asks.
+	for _, a := range edge.MaintainActs {
+		res = ask(a, "roger")
+		require.Contains(t, res.Refused, "cannot start, stop or restart itself", string(a))
+		require.Contains(t, res.Refused, "several rogers", "the refusal says why it can happen")
+		require.Contains(t, res.Refused, "ask again", string(a))
+	}
+
+	// A process that registered nothing is nobody's target: the check cannot match an empty name.
+	none := edgeInvokeHandler(edgeLiveTurnDeps(func() string { return "" }))
+	b, _ := json.Marshal(edge.MaintainTask{Action: edge.MaintainStop, Target: "watcher"})
+	res, err = none("n_desk", edge.InvokeRequest{Capability: string(edge.Maintain), Task: b})
+	require.NoError(t, err)
+	require.Equal(t, "", res.Refused)
+}
+
+// A start says whether the agent really JOINED, not merely that it was launched: a spawned roger
+// that cannot stand up its face exits at once (features/edge/maintenance.feature).
+func TestStartSaysWhetherTheAgentReallyJoined(t *testing.T) {
+	_, reg := stopRig(t, 424242)
+	require.NoError(t, reg.Deregister()) // "watcher" is marked persistent and not running
+
+	// It joins: the answer says so.
+	edgeSpawnRoger = func(map[string]string) error {
+		_, err := edge.Register(edgeInstancesDir(), edgeThisNodeID(),
+			edge.Instance{Name: "watcher", Agent: true, PID: 515151}, time.Now())
+		return err
+	}
+	says, changed, refused := edgeStartAgent(loadConfig(), "watcher", time.Now())
+	require.Equal(t, "", refused)
+	require.True(t, changed)
+	require.Contains(t, says, "it is on your Edge")
+
+	// Already running: nothing is launched, and that is not an error.
+	launched := 0
+	edgeSpawnRoger = func(map[string]string) error { launched++; return nil }
+	says, changed, refused = edgeStartAgent(loadConfig(), "watcher", time.Now())
+	require.Equal(t, "", refused)
+	require.False(t, changed)
+	require.Contains(t, says, "already running")
+	require.Zero(t, launched)
+
+	// It dies at once: the answer says it did not join, and where to look.
+	for _, in := range edge.LiveHousehold(edgeInstancesDir(), time.Now()) {
+		_ = in
+	}
+	entries, err := os.ReadDir(edgeInstancesDir())
+	require.NoError(t, err)
+	for _, e := range entries {
+		require.NoError(t, os.Remove(edgeInstancesDir()+"/"+e.Name()))
+	}
+	says, changed, refused = edgeStartAgent(loadConfig(), "watcher", time.Now())
+	require.Equal(t, "", refused)
+	require.True(t, changed, "a roger was launched, even though it did not stay")
+	require.Contains(t, says, "had not joined your Edge")
+	require.Contains(t, says, "roger edge logs")
+}
+
+// A spawned agent gets its OWN face: inheriting a pinned face port guarantees it cannot bind and
+// exits at once, which is what happened on a machine running with the port pinned.
+func TestASpawnedAgentDoesNotInheritThePinnedFacePort(t *testing.T) {
+	useTempConfig(t)
+	t.Setenv(envFaceBind, ":44121")
+	t.Setenv("ROGER_EDGE_KEEP", "yes-please")
+	var gotEnv []string
+	prevDetach := edgeDetachFn
+	t.Cleanup(func() { edgeDetachFn = prevDetach })
+	edgeDetachFn = func(c *exec.Cmd) error { gotEnv = c.Env; return errStubbedDetach }
+
+	err := edgeSpawnRoger(map[string]string{"ROGER_EDGE_AGENT": "1", "ROGER_EDGE_INSTANCE": "watcher"})
+	require.ErrorIs(t, err, errStubbedDetach)
+	joined := strings.Join(gotEnv, "\n")
+	require.NotContains(t, joined, envFaceBind+"=", "the child must not inherit the pinned face port")
+	require.Contains(t, joined, "ROGER_EDGE_KEEP=yes-please", "every other variable is passed through")
+	require.Contains(t, joined, "ROGER_EDGE_INSTANCE=watcher")
+	require.Contains(t, joined, "ROGER_EDGE_AGENT=1")
+}
+
+var errStubbedDetach = errors.New("detach stubbed out")

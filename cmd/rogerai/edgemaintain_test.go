@@ -143,7 +143,7 @@ func TestMaintenanceRefusals(t *testing.T) {
 		says string
 	}{
 		{"unknown agent", maintainTask(edge.MaintainStart, "nosuch"), "shed", "no persistent agent"},
-		{"itself", maintainTask(edge.MaintainStart, "watcher"), "watcher", "cannot restart itself"},
+		{"itself", maintainTask(edge.MaintainStart, "watcher"), "watcher", "cannot start, stop or restart itself"},
 		{"not an action", maintainTask("frobnicate", "watcher"), "shed", "is not a maintenance action"},
 		{"no target", maintainTask(edge.MaintainStart, ""), "shed", "names the agent"},
 		{"bad name", maintainTask(edge.MaintainStart, "not a name"), "shed", "not an agent name"},
@@ -154,7 +154,7 @@ func TestMaintenanceRefusals(t *testing.T) {
 		// only have to refuse a target that is not a persistent agent, like start does.
 		{"stop an unknown agent", maintainTask(edge.MaintainStop, "nosuch"), "shed", "no persistent agent"},
 		{"restart an unknown agent", maintainTask(edge.MaintainRestart, "nosuch"), "shed", "no persistent agent"},
-		{"stop itself", maintainTask(edge.MaintainStop, "shed"), "shed", "cannot restart itself"},
+		{"stop itself", maintainTask(edge.MaintainStop, "shed"), "shed", "cannot start, stop or restart itself"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
