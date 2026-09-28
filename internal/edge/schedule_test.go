@@ -94,10 +94,12 @@ func TestAJobsScopeDecidesWhatItTouches(t *testing.T) {
 		}
 		return out
 	}
-	// The fleet: every member, and NEVER this machine's own roger - it cannot act on itself through
-	// its own face, and a fleet-wide job that tried would refuse on every pass.
-	require.Equal(t, []string{"shed", "quiet-pi"},
+	// The fleet: every member AND this machine, which is acted on locally (no face, no grant) because
+	// it is the owner's own machine. A single-machine Edge must not be one where nothing can run.
+	require.Equal(t, []string{"desk", "shed", "quiet-pi"},
 		names(set.Targets(Job{Scope: ""}, nodes, "n_self")))
+	require.Equal(t, []string{"desk"},
+		names(set.Targets(Job{Scope: "n_self"}, nodes, "n_self")), "and it can be named on its own")
 	// A group.
 	require.Equal(t, []string{"shed"},
 		names(set.Targets(Job{Scope: TagScope("production")}, nodes, "n_self")))

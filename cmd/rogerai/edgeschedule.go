@@ -164,8 +164,15 @@ func edgeRunSchedule(cfg config, now time.Time) {
 	}
 	self := edgeThisNodeID()
 	for _, j := range due {
-		for _, target := range jobs.Targets(j, units, self) {
-			outcome, changed := edgeRunScheduledOn(cfg, j, target)
+		targets := jobs.Targets(j, units, self)
+		if len(targets) == 0 {
+			// Nothing matched. Say so rather than coming back to it every pass: a job whose scope
+			// matches no unit is a job the owner should hear about.
+			_ = log.NoteRun(j.ID, now, "-", "no unit matched this scope", false)
+			continue
+		}
+		for _, target := range targets {
+			outcome, changed := edgeRunScheduledOn(cfg, j, target, self)
 			_ = log.NoteRun(j.ID, now, target.Name, outcome, changed)
 			// The owner's own view of that unit records what their schedule did to it, so the events
 			// timeline shows scheduled runs beside everything else.
@@ -176,9 +183,15 @@ func edgeRunSchedule(cfg config, now time.Time) {
 	}
 }
 
-// edgeRunScheduledOn takes one job to one unit, through the ordinary maintenance path. A unit with no
-// face is DARK, which is a fact about the unit and not a failure of the job.
-func edgeRunScheduledOn(cfg config, j edge.Job, target edge.Node) (outcome string, changed bool) {
+// edgeRunScheduledOn takes one job to one unit. THIS MACHINE is acted on LOCALLY - no face, no grant,
+// no switch, because it is the owner's own machine and this is the same thing `roger edge agent resume`
+// does; the gate exists for a REMOTE caller, and a roger cannot reach its own face anyway. Every other
+// unit goes through the ordinary maintenance path, and one with no face is DARK, which is a fact about
+// the unit and not a failure of the job.
+func edgeRunScheduledOn(cfg config, j edge.Job, target edge.Node, selfID string) (outcome string, changed bool) {
+	if target.ID == selfID {
+		return edgeRunScheduledHere(cfg, j)
+	}
 	res, err := edgeMaintainInvoke(cfg, target.ID, edge.MaintainTask{Action: j.What, Target: j.Agent})
 	if err != nil {
 		msg := err.Error()
@@ -188,4 +201,24 @@ func edgeRunScheduledOn(cfg config, j edge.Job, target edge.Node) (outcome strin
 		return msg, false
 	}
 	return res.Says, res.Changed
+}
+
+// edgeRunScheduledHere runs the action on THIS machine, through the same functions the face's own
+// handler runs. edgeStopAgent still refuses to signal this very process, so a roger cannot stop
+// itself even here.
+func edgeRunScheduledHere(cfg config, j edge.Job) (outcome string, changed bool) {
+	now := time.Now()
+	var says, refused string
+	switch j.What {
+	case edge.MaintainStop:
+		says, changed, refused = edgeStopAgent(j.Agent, now)
+	case edge.MaintainRestart:
+		says, changed, refused = edgeRestartAgent(cfg, j.Agent, now)
+	default:
+		says, changed, refused = edgeStartAgent(cfg, j.Agent, now)
+	}
+	if refused != "" {
+		return refused, false
+	}
+	return says, changed
 }

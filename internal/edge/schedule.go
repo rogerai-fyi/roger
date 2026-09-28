@@ -3,12 +3,14 @@ package edge
 // SCHEDULES (features/edge/schedule.feature): an action the owner wants taken again and again without
 // being there.
 //
-// A schedule is ONLY A CLOCK in front of the existing gate. A run takes exactly the path a hand-typed
-// `roger edge maintain` takes - the target's own maintenance switch, an authority-signed grant scoped
-// to maintain and that node, the mutual TLS, the caller matched to its certificate, the revocation
-// check, the replay cache - so it can never do anything its owner could not do by hand at that moment.
-// This file owns the jobs, when they are due and what a run recorded; the running itself is the host's,
-// through the one maintenance path.
+// A schedule is ONLY A CLOCK in front of what the owner could already do by hand, and never a way
+// round it. A run on ANOTHER machine takes exactly the path a hand-typed `roger edge maintain` takes -
+// that machine's own maintenance switch, an authority-signed grant scoped to maintain and that node,
+// the mutual TLS, the caller matched to its certificate, the revocation check, the replay cache. A run
+// on THIS machine is done locally, with no face and no grant, because it is the owner's own machine and
+// it is the same thing `roger edge agent resume` does; the gate exists for a remote caller.
+//
+// This file owns the jobs, when they are due and what a run recorded; the running itself is the host's.
 
 import (
 	"crypto/rand"
@@ -175,16 +177,13 @@ func (js JobSet) Due(now time.Time) JobSet {
 	return out
 }
 
-// Targets resolves a job's scope to the units it acts on. This machine's own node is never a target:
-// a roger cannot act on itself through its own face, and a fleet-wide job that tried would refuse on
-// every pass. A dark unit IS a target - the run records that it was dark, which is the fact worth
-// having.
+// Targets resolves a job's scope to the units it acts on. THIS MACHINE IS A TARGET like any other:
+// acting on a roger here needs no face, no grant and no switch, because it is the owner's own machine
+// and the same thing `roger edge agent resume` does - the gate exists for a REMOTE caller. A run on a
+// unit that is dark is a target too: the run records that it was dark, which is the fact worth having.
 func (js JobSet) Targets(j Job, nodes []Node, selfID string) []Node {
 	var out []Node
 	for _, n := range nodes {
-		if n.ID == selfID {
-			continue
-		}
 		switch {
 		case j.Scope == "":
 		case j.Scope == n.ID:

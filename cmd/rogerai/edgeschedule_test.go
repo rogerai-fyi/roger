@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -258,9 +257,9 @@ func TestAScheduledOneOffRunsOnceAndRetires(t *testing.T) {
 	require.Contains(t, out, "nothing is scheduled")
 }
 
-// A fleet-wide job never targets this machine's own roger: it cannot act on itself through its own
-// face, and one that tried would refuse on every pass.
-func TestAFleetWideScheduleSkipsThisMachine(t *testing.T) {
+// A fleet-wide job reaches every member over the wire AND this machine locally, so "the fleet" means
+// the fleet rather than everything-but-here.
+func TestAFleetWideScheduleReachesEveryUnitIncludingHere(t *testing.T) {
 	scheduleSeed(t)
 	prev := edgeDialInvokeTaskFn
 	t.Cleanup(func() { edgeDialInvokeTaskFn = prev })
@@ -278,13 +277,74 @@ func TestAFleetWideScheduleSkipsThisMachine(t *testing.T) {
 	require.Equal(t, 0, code)
 
 	edgeRunSchedule(loadConfig(), time.Now())
-	require.ElementsMatch(t, []string{"shed", "quiet-pi"}, dialled, "every member, and the dark one recorded without a dial")
-	for _, d := range dialled {
-		require.NotEqual(t, edgeThisNodeID(), d)
-	}
+	require.ElementsMatch(t, []string{"shed", "quiet-pi"}, dialled,
+		"the two reachable members were dialled; the dark one and this machine were not")
+
 	jobs, _ := edgeAlertLog().Jobs()
-	require.Len(t, jobs[0].Runs, 3, "shed, quiet-pi and the dark one")
-	require.True(t, strings.Contains(jobs[0].Runs[2].Outcome, "dark") ||
-		strings.Contains(jobs[0].Runs[0].Outcome, "dark") ||
-		strings.Contains(jobs[0].Runs[1].Outcome, "dark"))
+	require.Len(t, jobs[0].Runs, 4, "shed, quiet-pi, the dark one, and this machine")
+	byNode := map[string]edge.JobRun{}
+	for _, r := range jobs[0].Runs {
+		byNode[r.Node] = r
+	}
+	require.Contains(t, byNode["dark-box"].Outcome, "dark")
+	require.Contains(t, byNode["desk"].Outcome, "no persistent agent",
+		"this machine was acted on LOCALLY, and said what it found: no such agent here")
+	require.NotContains(t, byNode["desk"].Outcome, "grant", "no grant was needed for this machine")
+	require.Equal(t, "ok", byNode["shed"].Outcome)
+}
+
+// A job on THIS machine runs here: no face, no grant, no switch - it is the owner's own machine, and
+// the same thing `roger edge agent resume` does at the keyboard. Without this a single-machine Edge
+// would be one where a schedule could never do anything, which is how the live run found it.
+func TestAScheduledJobOnThisMachineRunsLocally(t *testing.T) {
+	scheduleSeed(t)
+	dialled := 0
+	prev := edgeDialInvokeTaskFn
+	t.Cleanup(func() { edgeDialInvokeTaskFn = prev })
+	edgeDialInvokeTaskFn = func(context.Context, client.EdgePeer, *tls.Certificate, store.Grant, string, json.RawMessage) (edge.InvokeResult, protocol.UsageReceipt, error) {
+		dialled++
+		return edge.InvokeResult{}, protocol.UsageReceipt{}, nil
+	}
+	launched := 0
+	prevSpawn := edgeSpawnRoger
+	t.Cleanup(func() { edgeSpawnRoger = prevSpawn })
+	edgeSpawnRoger = func(map[string]string) error { launched++; return nil }
+	require.NoError(t, edge.MarkPersistent(edgePersistDir(), edgeThisNodeID(), "watcher", timeNowForTest()))
+
+	// Scoped to this machine by name: it runs here.
+	_, code := edgeRun(t, "edge", "schedule", "add", "start", "watcher", "--scope", "desk", "--every", "1h")
+	require.Equal(t, 0, code)
+	now := time.Now()
+	edgeRunSchedule(loadConfig(), now)
+
+	require.Zero(t, dialled, "no face is dialled for this machine")
+	require.Equal(t, 1, launched, "the action was taken here")
+	jobs, err := edgeAlertLog().Jobs()
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	require.Len(t, jobs[0].Runs, 1)
+	require.Equal(t, "desk", jobs[0].Runs[0].Node)
+	require.Contains(t, jobs[0].Runs[0].Outcome, "watcher")
+
+	// No maintenance switch was needed: it is still off.
+	require.False(t, edgeMaintenanceOn(loadConfig()))
+}
+
+// A job whose scope matches no unit says so, rather than being come back to on every pass.
+func TestAScheduledJobThatMatchesNothingSaysSo(t *testing.T) {
+	scheduleSeed(t)
+	_, code := edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", "tag:winter", "--every", "1h")
+	require.Equal(t, 0, code)
+	now := time.Now()
+	edgeRunSchedule(loadConfig(), now)
+	jobs, err := edgeAlertLog().Jobs()
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	require.Len(t, jobs[0].Runs, 1)
+	require.Equal(t, "no unit matched this scope", jobs[0].Runs[0].Outcome)
+	require.False(t, jobs[0].Due(now), "it waits out its cadence rather than spinning")
+
+	out, code := edgeRun(t, "edge", "schedule")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "no unit matched this scope")
 }

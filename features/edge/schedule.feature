@@ -9,13 +9,15 @@
 # on shed in ten minutes, when its upstream is back." Everything needed to DO those exists - the
 # maintenance actions and their two locks - and what is missing is a clock.
 #
-# A SCHEDULE IS ONLY A CLOCK IN FRONT OF THE EXISTING GATE. This is the whole safety argument, and it
-# is worth stating plainly: a scheduled run goes through exactly the path a hand-typed
-# `roger edge maintain` goes through - the target's own maintenance switch, an authority-signed grant
-# scoped to maintain AND that node, the mutual TLS, the caller matched to its certificate, the
-# revocation check, the replay cache. A schedule can therefore never do anything its owner could not
-# do by hand at that moment, and a grant that expires or a switch turned off stops it dead. It adds
-# no new path, no new capability and no new authorization code.
+# A SCHEDULE IS ONLY A CLOCK IN FRONT OF WHAT THE OWNER COULD ALREADY DO, and never a way round it.
+# This is the whole safety argument, and it is worth stating plainly. A run on ANOTHER machine goes
+# through exactly the path a hand-typed `roger edge maintain` goes through - that machine's own
+# maintenance switch, an authority-signed grant scoped to maintain AND that node, the mutual TLS, the
+# caller matched to its certificate, the revocation check, the replay cache - so a grant that expires
+# or a switch turned off stops it dead. A run on THIS machine is done LOCALLY, with no face, no grant
+# and no switch, because it is the owner's own machine and it is the same thing `roger edge agent
+# resume` does at the keyboard; the gate exists for a REMOTE caller, and a roger cannot reach its own
+# face anyway. Either way a schedule adds no new path, no new capability and no authorization code.
 #
 # WHERE IT LIVES AND WHO RUNS IT. On the CALLER's machine, because the caller is the one holding the
 # grant: the owner's own roger keeps the schedule and runs what is due on the pass it already makes.
@@ -93,7 +95,22 @@ Feature: schedules
     When it comes due
     Then every unit tagged production is acted on, and no other
     And a job scoped to one node touches only that node
-    And a fleet-scoped job touches every member, and never this machine's own roger
+    And a fleet-scoped job touches every member AND this machine, which it acts on locally
+
+  @edge
+  Scenario: a job on this machine runs here, with no face and no grant
+    Given a job scoped to this machine
+    When it comes due
+    Then the action is taken locally, through the same functions the face's own handler runs
+    And no grant is needed and no face is dialled, because this is the owner's own machine
+    And the roger answering cannot stop ITSELF even here: the pid check still refuses
+    And a single-machine Edge is therefore not a fleet where schedules can never do anything
+
+  @edge
+  Scenario: a job whose scope matches nothing says so
+    Given a job scoped to a tag no unit carries
+    When it comes due
+    Then it is recorded as matching no unit, rather than coming back to it on every pass
 
   @edge
   Scenario: what happens when a run cannot be made

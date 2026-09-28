@@ -171,12 +171,13 @@ The last of the list: the ad-hoc maintenance an operator wants standing rather t
 retires itself. The list shows each job, its scope, its cadence, when it last ran and what came of it,
 and a run appears on the events timeline against the unit it touched.
 
-A schedule is only a clock in front of the gate that already exists, and that is the whole safety
-argument. A run takes exactly the path a typed maintain takes: the target's own maintenance switch, an
-authority-signed grant scoped to maintain and that node, the mutual TLS, the caller matched to its
-certificate, the revocation check, the replay cache. It can never do anything its owner could not do
-by hand at that moment, and a grant that expires or a switch turned off stops it dead. It lives on the
-machine that runs it, because that is the machine holding the grant, and nothing is pushed to anybody.
+A schedule is only a clock in front of what the owner could already do by hand, and never a way round
+it. A run on another machine takes exactly the path a typed maintain takes: that machine's own
+maintenance switch, an authority-signed grant scoped to maintain and that node, the mutual TLS, the
+caller matched to its certificate, the revocation check, the replay cache. A grant that expires or a
+switch turned off stops it dead. A run on the machine the schedule lives on is done locally, with no
+face and no grant, because it is the owner's own machine and it is the same thing `roger edge agent
+resume` does at the keyboard. Either way, nothing is pushed to anybody and no new path exists.
 
 The failures got as much attention as the happy path. A run that cannot be made is recorded and waited
 out to the next cadence, never retried in a tight loop. A unit with no face is recorded as dark rather
