@@ -403,6 +403,18 @@ func (h *edgeHost) revokeGrant(id string) error {
 // state and only a probe or the owner's confirmation moves them - so self cannot grant itself
 // VERIFIED (the audit's earlier finding stays closed). Requires the face to be up, so the address
 // and fingerprint recorded are the ones a peer really dials.
+// recordOnNode puts one event on a node's row in THIS host's state, and saves it. A schedule run goes
+// through here rather than through a fresh read of the state: the host saves its own copy at the end of
+// the same pass, so a separate write is overwritten and the event is lost.
+func (h *edgeHost) recordOnNode(nodeID, what, detail string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.st.fleet.RecordEvent(nodeID, what, detail); err != nil {
+		return
+	}
+	_ = h.st.save()
+}
+
 // facePort is the port THIS process's LAN face listens on, or 0 before it is up. It goes on the
 // process's own registration so a caller can address this roger - node/instance - rather than the
 // machine, whose recorded face is whichever roger observed itself last
@@ -857,7 +869,7 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	// Anything the owner left standing and that is due now (features/edge/schedule.feature). It runs
 	// through the ordinary maintenance path, so the target's switch and the grant still decide; a
 	// machine with no schedules does nothing at all here.
-	edgeRunSchedule(cfg, time.Now())
+	edgeRunSchedule(cfg, time.Now(), h.recordOnNode)
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.adoptExternalEdits() // before merging discovery in: a candidate adopted elsewhere is gone

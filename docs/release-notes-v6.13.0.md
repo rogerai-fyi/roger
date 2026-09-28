@@ -179,6 +179,11 @@ switch turned off stops it dead. A run on the machine the schedule lives on is d
 face and no grant, because it is the owner's own machine and it is the same thing `roger edge agent
 resume` does at the keyboard. Either way, nothing is pushed to anybody and no new path exists.
 
+One roger per machine runs the schedules, the first live instance by name. Every roger makes the same
+pass, and if each ran them they would race for a job and take turns being the target of their own - a
+live run did exactly that. When the runner's own name IS the target the refusal says which roger tried,
+so the reason is on the page rather than guessed at.
+
 The failures got as much attention as the happy path. A run that cannot be made is recorded and waited
 out to the next cadence, never retried in a tight loop. A unit with no face is recorded as dark rather
 than failed, because nothing was wrong with the job. A refusal is recorded in the words the face used.

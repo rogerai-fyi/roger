@@ -140,7 +140,10 @@ var edgeScheduleRunning sync.Mutex
 // would race for it and take turns being the target of their own jobs (a live run did exactly that: the
 // roger that ran "restart roger" was that roger). The runner is the first live instance BY NAME, which
 // is deterministic, always exactly one, and needs no election.
-func edgeRunSchedule(cfg config, now time.Time) {
+// record is how a run reaches the owner's own view of that unit. It MUST be the host's state, not a
+// fresh read: the host saves its own copy at the end of the same pass, and a separate write was simply
+// overwritten - the run never appeared on the timeline, which is how this was found.
+func edgeRunSchedule(cfg config, now time.Time, record func(nodeID, what, detail string)) {
 	if !edgeScheduleRunsHereFn(now) {
 		return
 	}
@@ -184,8 +187,8 @@ func edgeRunSchedule(cfg config, now time.Time) {
 			_ = log.NoteRun(j.ID, now, target.Name, outcome, changed)
 			// The owner's own view of that unit records what their schedule did to it, so the events
 			// timeline shows scheduled runs beside everything else.
-			if err := st.fleet.RecordEvent(target.ID, "scheduled", j.Words()+": "+outcome); err == nil {
-				_ = st.save()
+			if record != nil {
+				record(target.ID, "scheduled", j.Words()+": "+outcome)
 			}
 		}
 	}

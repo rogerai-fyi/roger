@@ -19,6 +19,21 @@ import (
 	"rogerai.fm/roger/v6/internal/store"
 )
 
+// recordEvents is the host's recorder, as a test sees it: it writes through a state it loads and saves,
+// which is what the host does under its own lock.
+func recordEvents(t *testing.T) func(string, string, string) {
+	t.Helper()
+	return func(nodeID, what, detail string) {
+		st, err := loadEdgeState()
+		if err != nil {
+			return
+		}
+		if err := st.fleet.RecordEvent(nodeID, what, detail); err == nil {
+			require.NoError(t, st.save())
+		}
+	}
+}
+
 // scheduleSeed is an Edge with two members, one tagged, both reachable, and a maintain grant for each.
 func scheduleSeed(t *testing.T) {
 	t.Helper()
@@ -137,7 +152,7 @@ func TestAScheduledRunTakesTheOrdinaryPath(t *testing.T) {
 	require.Equal(t, 0, code)
 
 	now := time.Now()
-	edgeRunSchedule(loadConfig(), now)
+	edgeRunSchedule(loadConfig(), now, recordEvents(t))
 
 	require.Len(t, got, 1, "only the tagged unit")
 	require.Equal(t, "10.0.0.5:44121", got[0].addr, "the unit's own face")
@@ -173,10 +188,10 @@ func TestAScheduledRunTakesTheOrdinaryPath(t *testing.T) {
 
 	// The pass comes round again and nothing is sent, because it is not due.
 	got = nil
-	edgeRunSchedule(loadConfig(), now.Add(time.Minute))
+	edgeRunSchedule(loadConfig(), now.Add(time.Minute), recordEvents(t))
 	require.Empty(t, got)
 	// ...and when it IS due, it goes again.
-	edgeRunSchedule(loadConfig(), now.Add(2*time.Hour))
+	edgeRunSchedule(loadConfig(), now.Add(2*time.Hour), recordEvents(t))
 	require.Len(t, got, 1)
 }
 
@@ -195,7 +210,7 @@ func TestAScheduledRunThatCannotBeMadeIsRecordedAndWaitedOut(t *testing.T) {
 	_, code := edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", "dark-box", "--every", "1h")
 	require.Equal(t, 0, code)
 	now := time.Now()
-	edgeRunSchedule(loadConfig(), now)
+	edgeRunSchedule(loadConfig(), now, recordEvents(t))
 	require.Zero(t, calls, "nothing was dialled: there is no face")
 	jobs, _ := edgeAlertLog().Jobs()
 	require.Len(t, jobs[0].Runs, 1)
@@ -206,7 +221,7 @@ func TestAScheduledRunThatCannotBeMadeIsRecordedAndWaitedOut(t *testing.T) {
 	// A unit with no grant: said, recorded, waited out.
 	_, code = edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", "quiet-pi", "--every", "1h")
 	require.Equal(t, 0, code)
-	edgeRunSchedule(loadConfig(), now)
+	edgeRunSchedule(loadConfig(), now, recordEvents(t))
 	jobs, _ = edgeAlertLog().Jobs()
 	for _, j := range jobs {
 		if j.Scope != "n_pi" {
@@ -220,7 +235,7 @@ func TestAScheduledRunThatCannotBeMadeIsRecordedAndWaitedOut(t *testing.T) {
 	// A face that refuses: the refusal is recorded in the words the face used.
 	_, _, err := edgeGrantIssueCore("self", "maintain", "quiet-pi", "1h", 0)
 	require.NoError(t, err)
-	edgeRunSchedule(loadConfig(), now.Add(2*time.Hour))
+	edgeRunSchedule(loadConfig(), now.Add(2*time.Hour), recordEvents(t))
 	jobs, _ = edgeAlertLog().Jobs()
 	for _, j := range jobs {
 		if j.Scope != "n_pi" {
@@ -250,12 +265,12 @@ func TestAScheduledOneOffRunsOnceAndRetires(t *testing.T) {
 	require.Equal(t, 0, code)
 
 	now := time.Now()
-	edgeRunSchedule(loadConfig(), now)
+	edgeRunSchedule(loadConfig(), now, recordEvents(t))
 	require.Equal(t, 1, calls)
 	jobs, _ := edgeAlertLog().Jobs()
 	require.Empty(t, jobs, "a spent one-off is retired from the list")
 
-	edgeRunSchedule(loadConfig(), now.Add(100*time.Hour))
+	edgeRunSchedule(loadConfig(), now.Add(100*time.Hour), recordEvents(t))
 	require.Equal(t, 1, calls, "and never runs again")
 
 	out, code := edgeRun(t, "edge", "schedule")
@@ -282,7 +297,7 @@ func TestAFleetWideScheduleReachesEveryUnitIncludingHere(t *testing.T) {
 	_, code := edgeRun(t, "edge", "schedule", "add", "stop", "watcher", "--every", "1h")
 	require.Equal(t, 0, code)
 
-	edgeRunSchedule(loadConfig(), time.Now())
+	edgeRunSchedule(loadConfig(), time.Now(), recordEvents(t))
 	require.ElementsMatch(t, []string{"shed", "quiet-pi"}, dialled,
 		"the two reachable members were dialled; the dark one and this machine were not")
 
@@ -321,7 +336,7 @@ func TestAScheduledJobOnThisMachineRunsLocally(t *testing.T) {
 	_, code := edgeRun(t, "edge", "schedule", "add", "start", "watcher", "--scope", "desk", "--every", "1h")
 	require.Equal(t, 0, code)
 	now := time.Now()
-	edgeRunSchedule(loadConfig(), now)
+	edgeRunSchedule(loadConfig(), now, recordEvents(t))
 
 	require.Zero(t, dialled, "no face is dialled for this machine")
 	require.Equal(t, 1, launched, "the action was taken here")
@@ -342,7 +357,7 @@ func TestAScheduledJobThatMatchesNothingSaysSo(t *testing.T) {
 	_, code := edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", "tag:winter", "--every", "1h")
 	require.Equal(t, 0, code)
 	now := time.Now()
-	edgeRunSchedule(loadConfig(), now)
+	edgeRunSchedule(loadConfig(), now, recordEvents(t))
 	jobs, err := edgeAlertLog().Jobs()
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
@@ -381,7 +396,7 @@ func TestOnlyOneRogerOnAMachineRunsTheSchedules(t *testing.T) {
 	_, code := edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", "shed", "--every", "1h")
 	require.Equal(t, 0, code)
 	edgeMyInstanceName = func() string { return "roger-2" }
-	edgeRunSchedule(loadConfig(), time.Now())
+	edgeRunSchedule(loadConfig(), time.Now(), recordEvents(t))
 	jobs, err := edgeAlertLog().Jobs()
 	require.NoError(t, err)
 	require.Empty(t, jobs[0].Runs, "the roger that does not run schedules recorded nothing")
@@ -402,7 +417,7 @@ func TestASelfTargetedScheduleSaysWhichRogerRanIt(t *testing.T) {
 
 	_, code := edgeRun(t, "edge", "schedule", "add", "restart", "roger", "--scope", ".", "--every", "1h")
 	require.Equal(t, 0, code)
-	edgeRunSchedule(loadConfig(), time.Now())
+	edgeRunSchedule(loadConfig(), time.Now(), recordEvents(t))
 
 	jobs, err := edgeAlertLog().Jobs()
 	require.NoError(t, err)
