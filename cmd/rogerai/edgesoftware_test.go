@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -96,4 +97,39 @@ func TestEdgeInventoryListsEveryUnitAndWhoIsBehind(t *testing.T) {
 
 	_, code = edgeRun(t, "edge", "inventory", "extra")
 	require.NotEqual(t, 0, code, "inventory takes no positional argument")
+}
+
+// A beat refreshes the software record rather than leaving a stale one standing: an upgraded roger,
+// a new kernel, or a fix to the reader shows up on the next pass, not only on a restart.
+func TestABeatRefreshesTheSoftwareRecord(t *testing.T) {
+	offline(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code)
+
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+	h.registerInstance(h.cfg)
+	require.NotNil(t, h.reg)
+	name := h.reg.Instance().Name
+
+	// A record written with a stale OS, as an older roger would have left it.
+	require.NoError(t, h.reg.Update(edgeThisNodeID(), func(i *edge.Instance) {
+		i.Software = &store.EdgeSoftware{Roger: "0.0.1", OS: "'quoted linux'"}
+	}))
+	h.beatInstance(h.cfg)
+
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		if in.Name != name {
+			continue
+		}
+		require.NotNil(t, in.Software)
+		require.Equal(t, Version, in.Software.Roger, "the beat wrote what this binary IS")
+		require.NotEqual(t, "'quoted linux'", in.Software.OS, "a stale record is replaced, not kept")
+		return
+	}
+	t.Fatal("the beating instance is not in the household")
 }

@@ -131,9 +131,11 @@ func (h *edgeHost) beatInstance(cfg config) {
 	_ = reg.Update(node, func(i *edge.Instance) {
 		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCaps(bands), edgeReadResources(now)
 		i.Agent = agent // a change via `roger edge agent on` is picked up on the next pass
-		if i.Software == nil {
-			i.Software = edgeReadSoftware() // a record written by an older roger, refreshed once
-		}
+		// The software record is refreshed every beat, exactly like the resources: it is what the
+		// machine says NOW. Refreshing only when absent left a stale record standing for the life of
+		// the process, so a kernel upgrade - or a fix to the reader itself - showed up on a restart
+		// and nowhere else.
+		i.Software = edgeReadSoftware()
 	})
 	// An env-named process keeps its env name; only a config choice (and only when no env
 	// override is set) renames a running instance to follow the owner's `roger edge name .`.
