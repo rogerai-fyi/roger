@@ -459,7 +459,7 @@ func ttsQueuePair(t *testing.T) (consumerSide, nodeSide *broker, nodePriv ed2551
 	return consumerSide, nodeSide, nodePriv, speech
 }
 
-// The Petlings shape: a burst of sentences to a voice station whose polls sit on the OTHER
+// A voice app's shape: a burst of sentences to a voice station whose polls sit on the OTHER
 // instance is spoken in full, each once.
 func TestQueueAudioBurstAcrossInstances(t *testing.T) {
 	cons, node, nodePriv, speech := ttsQueuePair(t)
