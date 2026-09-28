@@ -22,6 +22,11 @@ type MaintainAction string
 const (
 	// MaintainStart launches a persistent agent that is not running.
 	MaintainStart MaintainAction = "start"
+	// MaintainLogs returns this roger's recent log lines, redacted (features/edge/logs.feature). It
+	// rides the maintenance path rather than a face path of its own, so it inherits every check the
+	// invoke path already makes - the certificate, the grant's signature, the revocation, the caller
+	// match, the capability scope, the owner's switch, the replay cache - and adds no new one.
+	MaintainLogs MaintainAction = "logs"
 	// The actions that are NOT built. They are named so a caller is refused by name rather than
 	// with "unknown", and so nothing pretends they exist.
 	MaintainStop     MaintainAction = "stop"
@@ -33,15 +38,20 @@ const (
 // MaintainTask is the task payload of a maintenance invoke.
 type MaintainTask struct {
 	Action MaintainAction `json:"action"`
-	Target string         `json:"target"` // the agent the action acts on
+	Target string         `json:"target,omitempty"` // the agent the action acts on; not used by logs
+	Lines  int            `json:"lines,omitempty"`  // logs only: how many lines, clamped by the ring
 }
 
 // MaintainResult is what the callee answers with.
 type MaintainResult struct {
 	Action  MaintainAction `json:"action"`
-	Target  string         `json:"target"`
+	Target  string         `json:"target,omitempty"`
 	Changed bool           `json:"changed"` // false when it was already so
 	Says    string         `json:"says"`
+	// logs only: the lines, oldest first, ALREADY redacted on the serving side, and how many the
+	// ring holds in total.
+	Lines []string `json:"lines,omitempty"`
+	Held  int      `json:"held,omitempty"`
 }
 
 // notBuilt names the actions that are specified and deliberately not implemented, with the words
@@ -63,13 +73,16 @@ func ParseMaintainTask(raw json.RawMessage) (MaintainTask, string) {
 	t.Action = MaintainAction(strings.ToLower(strings.TrimSpace(string(t.Action))))
 	t.Target = strings.TrimSpace(t.Target)
 	if t.Action == "" {
-		return t, "a maintenance task names an action; the one there is: start"
+		return t, "a maintenance task names an action; the ones there are: start, logs"
 	}
 	if why, ok := notBuilt[t.Action]; ok {
 		return t, why
 	}
+	if t.Action == MaintainLogs {
+		return t, "" // it acts on the machine itself: no target, and the line count is clamped later
+	}
 	if t.Action != MaintainStart {
-		return t, fmt.Sprintf("%q is not a maintenance action; the one there is: start", string(t.Action))
+		return t, fmt.Sprintf("%q is not a maintenance action; the ones there are: start, logs", string(t.Action))
 	}
 	if t.Target == "" {
 		return t, "a maintenance action names the agent it acts on"

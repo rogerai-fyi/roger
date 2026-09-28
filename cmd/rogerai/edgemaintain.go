@@ -11,9 +11,10 @@ package main
 // it is not a shell, and it runs nothing of the caller's choosing.
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -88,6 +89,17 @@ func edgeMaintainRun(cfg config, callerID, callerName, selfInstance string, raw 
 	if refused != "" {
 		return edge.MaintainResult{}, refused
 	}
+	if task.Action == edge.MaintainLogs {
+		// THE LOG TAIL (features/edge/logs.feature): this roger's own ring, redacted by Tail on the
+		// way out. Nothing on disk is reachable and no path comes from the caller.
+		lines, held := edgeLogRing.Tail(task.Lines)
+		says := fmt.Sprintf("%d of %d lines from %s, secrets removed", len(lines), held, selfInstance)
+		if held == 0 {
+			says = "nothing has been logged on this machine yet"
+		}
+		edgeRecordMaintenance(callerID, callerName, task, now)
+		return edge.MaintainResult{Action: task.Action, Lines: lines, Held: held, Says: says}, ""
+	}
 	if task.Target == selfInstance {
 		return edge.MaintainResult{}, "that is the roger serving this request: a process cannot restart itself through its own face"
 	}
@@ -105,6 +117,20 @@ func edgeMaintainRun(cfg config, callerID, callerName, selfInstance string, raw 
 
 // edgeRecordMaintenance puts the action on THIS machine's own fleet row, so the owner can see what
 // was done to it and by whom, on the same history every other event is on.
+// edgeLogRing is THIS roger's own log ring: the standard logger is teed into it at start-up, so the
+// lines still reach wherever they went before and a member with a maintain grant can read the last
+// few hundred of them, redacted (features/edge/logs.feature).
+var edgeLogRing = edge.NewLogRing(0)
+
+// edgeTeeLog points the standard logger at both its current destination and the ring. It returns a
+// function that puts the logger back, so a test (or a TUI, which redirects the logger itself) can
+// undo it.
+func edgeTeeLog() func() {
+	prev := log.Writer()
+	log.SetOutput(io.MultiWriter(prev, edgeLogRing))
+	return func() { log.SetOutput(prev) }
+}
+
 func edgeRecordMaintenance(callerID, callerName string, task edge.MaintainTask, now time.Time) {
 	st, err := loadEdgeState()
 	if err != nil {
@@ -119,6 +145,9 @@ func edgeRecordMaintenance(callerID, callerName string, task edge.MaintainTask, 
 		who = edgeShortID(callerID)
 	}
 	detail := fmt.Sprintf("%s %s, asked by %s", task.Action, task.Target, who)
+	if task.Target == "" {
+		detail = fmt.Sprintf("%s, asked by %s", task.Action, who)
+	}
 	if err := st.fleet.RecordEvent(id.NodeID, "maintenance", detail); err != nil {
 		return
 	}
@@ -136,44 +165,11 @@ func cmdEdgeMaintain(cfg config, args []string) error {
 		return usagef("usage: roger edge maintain %s", leaf.args)
 	}
 	node, action, target := argv.pos[0], argv.pos[1], argv.pos[2]
-	task := edge.MaintainTask{Action: edge.MaintainAction(strings.ToLower(action)), Target: target}
-	if _, refused := edge.ParseMaintainTask(mustTaskJSON(task)); refused != "" {
-		return fmt.Errorf("%s", refused) // refused here, before anything is sent
-	}
-	peer, calleeID, err := edgeResolveNodeFace(node)
+	res, err := edgeMaintainInvoke(cfg, node, edge.MaintainTask{Action: edge.MaintainAction(strings.ToLower(action)), Target: target})
 	if err != nil {
 		return err
 	}
-	callerID := edgeThisNodeID()
-	grants, err := edgeGrantStore().List()
-	if err != nil {
-		return err
-	}
-	g, ok := edgeSelectGrant(grants, callerID, calleeID, string(edge.Maintain), time.Now())
-	if !ok {
-		return fmt.Errorf("no live grant lets %s maintain %s - issue one on the authority with `roger edge grant self maintain %s`",
-			edgeGrantWho(callerID), node, node)
-	}
-	cert := edgeCallerCert()
-	if cert == nil {
-		return fmt.Errorf("this machine has no Edge certificate to act with - run `roger edge enroll` first")
-	}
-	res, rec, err := edgeDialInvokeTask(context.Background(), peer, cert, g, string(edge.Maintain), mustTaskJSON(task))
-	if err != nil {
-		return err
-	}
-	if res.Refused != "" {
-		return fmt.Errorf("%s refused: %s", node, res.Refused)
-	}
-	var out edge.MaintainResult
-	if json.Unmarshal(res.Output, &out) != nil || out.Says == "" {
-		fmt.Println(string(res.Output))
-		return nil
-	}
-	fmt.Println(out.Says)
-	if rec.RequestID != "" {
-		fmt.Printf("(receipt %s on %s)\n", rec.RequestID, edgeShortID(rec.NodeID))
-	}
+	fmt.Println(res.Says)
 	return nil
 }
 

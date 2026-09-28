@@ -945,16 +945,22 @@ func (h *edgeHost) closeListeners() {
 // `roger edge` reads - and starts LAN discovery behind it. It returns the stop the launch
 // path defers.
 func startEdge(hooks *tui.Hooks) func() {
+	// The log ring is teed on before anything else, so the first lines of the run are in it too
+	// (features/edge/logs.feature). It is a TEE: the lines still reach wherever they went before.
+	untee := edgeTeeLog()
 	h, err := newEdgeHost(hooks.Station)
 	if err != nil {
 		// An Edge that could not be READ is not an empty Edge. Say so once and leave the
 		// screen honestly unwired rather than drawing a fleet of none.
 		log.Println("edge: could not read this machine's Edge:", err, "- the EDGE screen is unwired this run")
-		return func() {}
+		return untee
 	}
 	h.wire(hooks)
 	_ = h.start(context.Background())
-	return h.stop
+	return func() {
+		h.stop()
+		untee()
+	}
 }
 
 // judgeHealth evaluates the alert rules against the fleet each pass and records the outcome.

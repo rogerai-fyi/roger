@@ -96,6 +96,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
 	{"maintenance", "[on|off]", "let members with a maintain grant start an agent on THIS machine (off by default)", 0, 1},
 	{"maintain", "<node> start <agent>", "ask a member to start one of its persistent agents, under a maintain grant", 3, 3},
+	{"logs", "<node> [--lines <n>]", "read a member's recent log lines, redacted, under a maintain grant", 1, 1},
 	{"model", "<agent> <model> [use|share|use,share]", "bind a model to an agent, to use or share on the Edge", 2, 3},
 	{"job", "<agent> <serve|watch|relay|none> [targets...]", "give an agent a job, or clear it", 2, 16},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
@@ -207,6 +208,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeMaintenance(cfg, rest)
 	case "maintain":
 		return cmdEdgeMaintain(cfg, rest)
+	case "logs":
+		return cmdEdgeLogs(cfg, rest)
 	case "model":
 		return cmdEdgeModel(cfg, rest)
 	case "job":
@@ -238,7 +241,7 @@ var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
 	"force": false, "clear": false,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
-	"node": true, "limit": true,
+	"node": true, "limit": true, "lines": true,
 }
 
 type edgeArgv struct {

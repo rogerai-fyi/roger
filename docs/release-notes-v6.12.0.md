@@ -114,6 +114,27 @@ named there. Stopping, restarting and rebooting are refused by name, so nothing 
 maintenance on. Proposed in features/edge/maintenance.feature; it needs the founder's approval
 before any machine is left with the switch on.
 
+## The log tail, with secrets removed
+
+The feature an operator reaches for most: a unit is behaving oddly and you want its last hundred
+lines without walking to it or opening a session. A roger now keeps its own recent lines in memory -
+a tee on the standard logger, so the lines still reach wherever they went before - and a member can
+read them with `roger edge logs <node> [--lines N]`.
+
+Redaction is the whole risk, and it happens on the serving side, on the way out. Log lines on this
+fleet really do carry credentials: an upstream key sits on the command line of every share process on
+this machine today. Before a line leaves the process, API keys by their shapes, bearer tokens,
+anything after key=, token=, secret=, password= or authorization:, and any long high-entropy run are
+replaced by a marker that says something was removed. Because it happens on the read, it also covers
+lines logged before any of this existed, and no flag asks for the raw text. An ordinary line survives
+whole, which is pinned by tests.
+
+It opens no new authenticated path. The tail is a maintenance action on the existing invoke path, so
+it inherits the mutual TLS, the grant's signature, the revocation check, the caller match, the
+capability scope, the owner's switch and the replay cache, and adds no authorization code of its own.
+It is not a file read either: the only thing served is the process's own ring, so no path comes from
+the caller. Proposed in features/edge/logs.feature.
+
 ## The events timeline
 
 An operator who finds a unit in a strange state asks what happened to it and when. The Edge recorded
