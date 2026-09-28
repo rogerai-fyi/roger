@@ -645,3 +645,26 @@ func TestReadoutSaysWhenAUnitCanBeMaintained(t *testing.T) {
 		t.Fatal("a unit that does not declare maintain says nothing about it")
 	}
 }
+
+// The EVENTS tab: the timeline, newest first, a crossing marked and a node event quiet; and an
+// empty timeline says so rather than drawing nothing (features/edge/events.feature).
+func TestEventsTabDrawsTheTimeline(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.Events = []fleetview.EventLine{
+		{Age: "2m ago", Node: "desk", What: "raised cpu_temp", Detail: "95.5°C, over 85°C", Alarm: true},
+		{Age: "1h ago", Node: "shed", What: "tagged", Detail: "production"},
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 150, 44, f.Draw)
+	page.Press("6")
+	must(t, page.Screen(), "EVENTS", "what happened on this Edge", "raised cpu_temp", "95.5°C, over 85°C", "tagged", "production", "re-read")
+	page.Press("1")
+	must(t, page.Screen(), "ON THE RACK")
+
+	empty := fleetSnap(now)
+	e := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return empty, nil }, nil, (&recorder{}).actions())
+	p2 := uitest.Run(t, 150, 44, e.Draw)
+	p2.Press("6")
+	must(t, p2.Screen(), "nothing has happened on this Edge yet")
+}

@@ -104,6 +104,23 @@ named there. Stopping, restarting and rebooting are refused by name, so nothing 
 maintenance on. Proposed in features/edge/maintenance.feature; it needs the founder's approval
 before any machine is left with the switch on.
 
+## The events timeline
+
+An operator who finds a unit in a strange state asks what happened to it and when. The Edge recorded
+plenty - enrolled, seen, went dark, renamed, re-pinned, probed, tagged, capabilities changed,
+maintenance done - and the alert log recorded every crossing, but the two lived apart and neither
+could be read across the fleet: `roger edge describe` showed the last five lines of one node and that
+was all. Now there is one timeline, merged from both, newest first, saying when, which unit, what and
+the detail. `roger edge events [--node <node>] [--since 2h] [--limit <n>] [--json]`, and an EVENTS
+tab on the fleet screen where a crossing is drawn in the alarm colour and a node event quietly. It
+records nothing: it is a read.
+
+Two things came out of building it. Fourteen places appended to a node's history and nothing ever
+trimmed it, so a node on a flaky network grew a record that is re-read on every command; history is
+capped at the newest 200 events per node, in the one write path. And the tab strip now gives up room
+before a fact does: a seventh tab pushed the alert count off a 100-column window, so a narrow
+terminal shortens the inactive tab names and keeps the count. Proposed in features/edge/events.feature.
+
 ## The console
 
 The console's EDGE tab carries the same floor: Andon tiles, the Trouble list with roger and

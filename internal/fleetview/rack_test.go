@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	lm "github.com/thebanri/limoni"
+	"github.com/thebanri/limoni/uitest"
 )
 
 // A level over the threshold always shows red: 92% against 90% lights the cell past the line
@@ -33,5 +34,25 @@ func TestMeterShowsRedPastTheThresholdAndATickAtIt(t *testing.T) {
 	}
 	if !strings.Contains(joined, "┊") {
 		t.Fatalf("under the line the tick marks where it is: %q", joined)
+	}
+}
+
+// A narrow terminal gives up the tab STRIP before it gives up a fact: the alert count survives, and
+// the tab in force still reads in full (found when a seventh tab pushed the count off a 100-column
+// window).
+func TestBrandBandGivesUpTheTabsBeforeTheAlertCount(t *testing.T) {
+	tabs := []string{"fleet", "andon", "trouble", "grants", "sessions", "health", "events"}
+	for _, w := range []uint16{160, 120, 100, 90, 80} {
+		page := uitest.Run(t, w, 6, func(fr *lm.Frame, _ *lm.Event) bool {
+			brandBand(fr, lm.Rect{Width: w, Height: 2}, tabs, 2, "12:00:00 · 3 units", 2, true, 0)
+			return true
+		})
+		s := page.Screen()
+		if !strings.Contains(s, "▲ 2") {
+			t.Fatalf("at %d columns the alert count was lost:\n%s", w, s)
+		}
+		if !strings.Contains(s, "TROUBLE") {
+			t.Fatalf("at %d columns the tab in force lost its name:\n%s", w, s)
+		}
 	}
 }

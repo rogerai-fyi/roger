@@ -201,9 +201,12 @@ type FleetSnapshot struct {
 	Grants   []GrantLine
 	Sessions []SessionLine
 	Alarms   []AlarmLine
-	Rate     int // calls fired in the last ten minutes; ten is a PILE-UP
-	SignOff  SignOffLine
-	At       time.Time
+	// Events is the merged timeline (features/edge/events.feature), newest first: what happened on
+	// this Edge, from the node histories and the alert crossings.
+	Events  []EventLine
+	Rate    int // calls fired in the last ten minutes; ten is a PILE-UP
+	SignOff SignOffLine
+	At      time.Time
 }
 
 // SignOffLine is the shift in one line: raised, cleared, the loudest unit, who was dark and how long.
@@ -306,7 +309,7 @@ func NewFleet(src FleetSource, health *Health, acts FleetActions) *Fleet {
 	f := &Fleet{Source: src, Actions: acts, Every: 2 * time.Second, health: health}
 	if health != nil {
 		health.BackHint = "1 fleet"
-		health.Tabs, health.Tab = f.tabs(), tabHealth
+		health.Tabs, health.Tab = f.tabs(), f.tabAt()
 	}
 	return f
 }
@@ -343,15 +346,41 @@ const (
 	tabGrants
 	tabSessions
 	tabHealth
+	tabEvents
 )
 
-// tabs is the tab strip; HEALTH only when a health screen was given.
-func (f *Fleet) tabs() []string {
-	t := []string{"fleet", "andon", "trouble", "grants", "sessions"}
+// tabOrder is the tabs in STRIP order, as the constants they select. HEALTH is there only when a
+// health screen was given, so the order is not the constant order - which is why keys map through
+// here rather than being cast from the digit. It also means a new tab is appended at the end and
+// never renumbers a tab an operator already learned.
+func (f *Fleet) tabOrder() []int {
+	t := []int{tabFleet, tabAndon, tabTrouble, tabGrants, tabSessions}
 	if f.health != nil {
-		t = append(t, "health")
+		t = append(t, tabHealth)
 	}
-	return t
+	return append(t, tabEvents)
+}
+
+// tabs is the tab strip, in the same order as tabOrder.
+func (f *Fleet) tabs() []string {
+	names := map[int]string{tabFleet: "fleet", tabAndon: "andon", tabTrouble: "trouble",
+		tabGrants: "grants", tabSessions: "sessions", tabHealth: "health", tabEvents: "events"}
+	order := f.tabOrder()
+	out := make([]string, 0, len(order))
+	for _, t := range order {
+		out = append(out, names[t])
+	}
+	return out
+}
+
+// tabAt is the strip position of the tab in force, for the strip's own highlight.
+func (f *Fleet) tabAt() int {
+	for i, t := range f.tabOrder() {
+		if t == f.tab {
+			return i
+		}
+	}
+	return 0
 }
 
 // onKey handles one key; false ends the screen.
@@ -473,11 +502,12 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	switch {
 	case k.Ch == 'q' || k.Ch == 'Q' || k.Type == lm.KeyEsc:
 		return false
-	case k.Ch >= '1' && k.Ch <= '6' && int(k.Ch-'1') < len(f.tabs()):
-		f.tab = int(k.Ch - '1')
+	case k.Ch >= '1' && k.Ch <= '9' && int(k.Ch-'1') < len(f.tabOrder()):
+		f.tab = f.tabOrder()[int(k.Ch-'1')]
 		return true
 	case k.Type == lm.KeyTab:
-		f.tab = (f.tab + 1) % len(f.tabs())
+		order := f.tabOrder()
+		f.tab = order[(f.tabAt()+1)%len(order)]
 		return true
 	}
 	switch f.tab {
@@ -523,7 +553,7 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 			f.readAt = time.Time{}
 		}
 		return true
-	case tabSessions:
+	case tabSessions, tabEvents: // ledgers: read, re-read, nothing to work
 		if k.Ch == 'r' {
 			f.readAt = time.Time{}
 		}
@@ -731,7 +761,7 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 			hot = true
 		}
 	}
-	brandBand(fr, rows[0], f.tabs(), f.tab, right, alerts, hot, f.frame)
+	brandBand(fr, rows[0], f.tabs(), f.tabAt(), right, alerts, hot, f.frame)
 	switch {
 	case f.err == nil && f.tab == tabGrants:
 		f.drawGrants(fr, rows[1])
@@ -739,6 +769,10 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 		if f.revoke && f.revokeID != "" {
 			confirmBox(fr, "revoke "+f.revokeID+"?", "every node stops honoring it at once; a revocation is final", "y revoke", "n keep it")
 		}
+		return
+	case f.err == nil && f.tab == tabEvents:
+		f.drawEvents(fr, rows[1])
+		actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
 		return
 	case f.err == nil && f.tab == tabSessions:
 		f.drawSessions(fr, rows[1])
@@ -1223,7 +1257,7 @@ func (f *Fleet) actions() []action {
 			out = append(out, action{"x", "revoke"})
 		}
 		return append(out, action{"1", "fleet"}, action{"r", "re-read"}, action{"q", "quit"})
-	case tabSessions:
+	case tabSessions, tabEvents:
 		return []action{{"1", "fleet"}, {"r", "re-read"}, {"q", "quit"}}
 	case tabTrouble:
 		out := []action{{"↑↓", "select"}}
@@ -1670,4 +1704,31 @@ func wrapDots(line string, width int) []string {
 		out = append(out, cur)
 	}
 	return out
+}
+
+// EventLine is one line of the EVENTS tab: already worded, so the screen only draws it.
+type EventLine struct {
+	Age    string
+	Node   string
+	What   string
+	Detail string
+	Alarm  bool // a crossing in the alert log, drawn in the alarm colour; a node event is quiet
+}
+
+// drawEvents is the EVENTS tab: what happened on this Edge, newest first. It is read, not worked.
+func (f *Fleet) drawEvents(fr *lm.Frame, area lm.Rect) {
+	lines := []lm.Line{lm.NewLine(), lm.NewLine(span("   ", dim), eyebrow("events", muted),
+		span("  what happened on this Edge, newest first", dim)), lm.NewLine()}
+	if len(f.snap.Events) == 0 {
+		lines = append(lines, lm.NewLine(span("   nothing has happened on this Edge yet", muted)))
+	}
+	for _, e := range f.snap.Events {
+		mark, wc := span("  ", dim), ink
+		if e.Alarm {
+			mark, wc = bold(" \u25b2", live), live
+		}
+		lines = append(lines, lm.NewLine(span("  ", dim), mark, span(" ", dim),
+			span(pad(e.Age, 8), muted), span(pad(e.Node, 18), ink), span(pad(e.What, 22), wc), span(e.Detail, dim)))
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 }

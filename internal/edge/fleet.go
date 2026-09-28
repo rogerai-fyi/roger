@@ -86,6 +86,7 @@ func (f *Fleet) Enroll(n store.EdgeNode) (store.EdgeNode, error) {
 		n.Presence = string(PresenceVerified)
 	}
 	n.History = append(n.History, store.EdgeEvent{At: now, What: "enrolled", Detail: n.Name})
+	capHistoryOn(&n) // the enroll path writes without mutate, so it caps here (features/edge/events.feature)
 	got, err := f.db.EnrollEdgeNode(n)
 	if err != nil {
 		var elsewhere *store.EdgeEnrolledElsewhere
@@ -231,6 +232,9 @@ func (f *Fleet) mutate(id string, fn func(*store.EdgeNode) error) error {
 	if err := fn(&n); err != nil {
 		return err
 	}
+	// Every write goes through here, so the history cap belongs here too rather than in fourteen
+	// callers (features/edge/events.feature).
+	capHistoryOn(&n)
 	sortTransports(n.Transports)
 	if err := f.db.UpdateEdgeNode(n); err != nil {
 		return err

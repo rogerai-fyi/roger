@@ -1,0 +1,135 @@
+package edge
+
+// THE EVENTS TIMELINE (features/edge/events.feature): what happened on this Edge, in one place,
+// newest first. It is a READ, merged from the two places the Edge already writes - each node's own
+// history, and the alert log's crossings - so nothing new is recorded for it.
+
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	"rogerai.fm/roger/v6/internal/store"
+)
+
+// MaxNodeHistory bounds one node's history. Fourteen places append to it and nothing trimmed it, so
+// a node on a flaky network grew a record that is re-read on every CLI call. Generous enough that an
+// owner looking for what happened last week still finds it.
+const MaxNodeHistory = 200
+
+// EventKind is where a line came from: the node's own record, or a crossing in the alert log.
+type EventKind string
+
+const (
+	EventNode  EventKind = "node"
+	EventAlert EventKind = "alert"
+)
+
+// Event is one line of the timeline.
+type Event struct {
+	At     time.Time `json:"at"`
+	Kind   EventKind `json:"kind"`
+	NodeID string    `json:"node_id,omitempty"`
+	Node   string    `json:"node"`
+	What   string    `json:"what"`
+	Detail string    `json:"detail,omitempty"`
+}
+
+// EventQuery narrows a timeline read.
+type EventQuery struct {
+	NodeID string        // "" = every unit
+	Since  time.Duration // 0 = no age bound
+	Limit  int           // 0 = DefaultEventLimit
+}
+
+// DefaultEventLimit is how many lines a timeline returns when the caller does not say.
+const DefaultEventLimit = 100
+
+// Events is the merged timeline. alerts may be nil (an alert log that could not be read is not a
+// reason to lose the node events - the caller says so in its own words); nodes is the fleet as read.
+func Events(nodes []store.EdgeNode, alerts []Alert, q EventQuery, now time.Time) []Event {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = DefaultEventLimit
+	}
+	var cutoff time.Time
+	if q.Since > 0 {
+		cutoff = now.Add(-q.Since)
+	}
+	keep := func(id string, at time.Time) bool {
+		if q.NodeID != "" && id != q.NodeID {
+			return false
+		}
+		return cutoff.IsZero() || !at.Before(cutoff)
+	}
+	out := make([]Event, 0, limit)
+	for _, n := range nodes {
+		for _, e := range n.History {
+			at := time.Unix(e.At, 0)
+			if !keep(n.ID, at) {
+				continue
+			}
+			out = append(out, Event{At: at, Kind: EventNode, NodeID: n.ID, Node: n.Name, What: e.What, Detail: e.Detail})
+		}
+	}
+	for _, a := range alerts {
+		if !keep(a.NodeID, a.At) {
+			continue
+		}
+		out = append(out, Event{At: a.At, Kind: EventAlert, NodeID: a.NodeID, Node: a.Node,
+			What: alertEventWhat(a), Detail: alertEventDetail(a)})
+	}
+	// Newest first, with a stable tie-break so two events in the same second do not swap between
+	// reads: unit, then kind, then words.
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if !a.At.Equal(b.At) {
+			return a.At.After(b.At)
+		}
+		if a.Node != b.Node {
+			return a.Node < b.Node
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		return a.What < b.What
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// alertEventWhat is the timeline's word for a crossing: the same raised/cleared vocabulary the other
+// surfaces use, with the rule in it.
+func alertEventWhat(a Alert) string {
+	state := "cleared"
+	if a.Firing {
+		state = "raised"
+	}
+	if a.Test {
+		state += " (test)"
+	}
+	return state + " " + string(a.Metric)
+}
+
+// alertEventDetail is the reading and the line it crossed, in the words the trouble surfaces use.
+func alertEventDetail(a Alert) string {
+	if a.Metric == MetricOffline {
+		if a.Firing {
+			return fmt.Sprintf("unheard for %s, past %s", Age(time.Duration(a.DarkForS)*time.Second), FormatValue(a.Metric, a.Threshold))
+		}
+		return "heard again"
+	}
+	if !a.Firing {
+		return fmt.Sprintf("%s, back under %s", FormatValue(a.Metric, a.Value), FormatValue(a.Metric, a.Threshold))
+	}
+	return fmt.Sprintf("%s, over %s", FormatValue(a.Metric, a.Value), FormatValue(a.Metric, a.Threshold))
+}
+
+// capHistoryOn trims a node's history to the newest MaxNodeHistory events.
+func capHistoryOn(n *store.EdgeNode) {
+	if len(n.History) > MaxNodeHistory {
+		n.History = append([]store.EdgeEvent(nil), n.History[len(n.History)-MaxNodeHistory:]...)
+	}
+}

@@ -89,6 +89,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"fleet", "", "open the live fleet screen: the map, the readouts, the actions", 0, 0},
 	{"trouble", "[<node>] [--since <cursor>] [--json|--watch]", "read a member's trouble feed, as the phone does; --watch follows it", 0, 1},
 	{"inventory", "[--json]", "list every unit's software: roger version, OS, kernel, arch, machine, and who is behind", 0, 0},
+	{"events", "[--node <node>] [--since <dur>] [--limit <n>] [--json]", "what happened on this Edge, newest first", 0, 0},
 	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>|tag:<tag>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
@@ -192,6 +193,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeTrouble(cfg, rest)
 	case "inventory":
 		return cmdEdgeInventory(cfg, rest)
+	case "events":
+		return cmdEdgeEvents(cfg, rest)
 	case "alert":
 		return cmdEdgeAlert(cfg, rest)
 	case "enroll":
@@ -235,6 +238,7 @@ var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
 	"force": false, "clear": false,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
+	"node": true, "limit": true,
 }
 
 type edgeArgv struct {

@@ -203,16 +203,50 @@ func brandBand(fr *lm.Frame, area lm.Rect, tabs []string, tab int, right string,
 	if motion && (frame/6)%2 == 1 {
 		lampC = lamp
 	}
-	head := lm.NewLine(bold(" ▟•▙ ", live), bold("ROGER", paper), span(" · ", live), bold("EDGE", paper), span("            ", dim))
-	for i, t := range tabs {
-		if i == tab {
-			head.Spans = append(head.Spans, bold(strings.ToUpper(t), paper), span("   ", dim))
-		} else {
-			head.Spans = append(head.Spans, span(strings.ToLower(t), muted), span("   ", dim))
+	// The brand, then the tabs. A narrow terminal gives up the tab STRIP before it gives up a fact:
+	// first the space between tabs, then the inactive names shortened to three letters. The tab in
+	// force always reads in full, and the alert count is the last thing lost (a count that vanished
+	// on a 100-column window was how this was found, when a seventh tab arrived).
+	brand := []lm.Span{bold(" ▟•▙ ", live), bold("ROGER", paper), span(" · ", live), bold("EDGE", paper)}
+	tabSpans := func(gap string, shortInactive bool) []lm.Span {
+		out := []lm.Span{span(strings.Repeat(" ", len(gap)+9), dim)}
+		for i, t := range tabs {
+			if i == tab {
+				out = append(out, bold(strings.ToUpper(t), paper), span(gap, dim))
+				continue
+			}
+			name := strings.ToLower(t)
+			if shortInactive && len(name) > 3 {
+				name = name[:3]
+			}
+			out = append(out, span(name, muted), span(gap, dim))
+		}
+		return out
+	}
+	width := func(ss ...[]lm.Span) int {
+		n := 0
+		for _, group := range ss {
+			for _, s := range group {
+				n += len([]rune(s.Text))
+			}
+		}
+		return n
+	}
+	// The tail this has to leave room for: the lamp, the facts, and the count.
+	tailLen := 2 + len([]rune(right)) + 1
+	if alerts > 0 {
+		tailLen += len([]rune(fmt.Sprintf(" · ▲ %d", alerts)))
+	}
+	chosen := tabSpans("   ", false)
+	for _, try := range [][]lm.Span{tabSpans("   ", false), tabSpans(" ", false), tabSpans(" ", true)} {
+		chosen = try
+		if width(brand, try)+tailLen < int(area.Width) {
+			break
 		}
 	}
-	// Right-align the facts by padding to the width; when they do not fit, the clock goes first,
-	// then whatever else must, so the alert count is the last thing lost.
+	head := lm.NewLine(append(brand, chosen...)...)
+	// Right-align the facts by padding to the width; when they still do not fit, the clock goes
+	// first, then whatever else must, so the alert count is the last thing lost.
 	used := 0
 	for _, s := range head.Spans {
 		used += len([]rune(s.Text))
