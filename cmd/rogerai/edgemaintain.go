@@ -207,8 +207,8 @@ func edgeNameOfNode(id string) string {
 	if err != nil {
 		return ""
 	}
-	if n, ok, err := st.fleet.Get(id); err == nil && ok {
-		return n.Name
+	if n, ok, err := st.fleet.Get(id); err == nil && ok && n.Name != n.ID {
+		return n.Name // an id is not a name: a node the owner never named reads as a SHORT id
 	}
 	return ""
 }

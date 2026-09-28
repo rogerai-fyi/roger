@@ -411,3 +411,36 @@ func TestTheHostRecordsItsOwnFacePort(t *testing.T) {
 		}
 	}
 }
+
+// WHO asked is worth reading: a node the owner never named has its id as its record name, and a
+// 48-character id in a history line is not a name. It reads as a short id instead.
+func TestWhoAskedReadsAsANameOrAShortID(t *testing.T) {
+	maintainRig(t)
+	id := edgeThisNodeID()
+	require.Equal(t, "", edgeNameOfNode(""), "no caller, no name")
+	require.Equal(t, "", edgeNameOfNode("n_nobody"), "not a member of record")
+
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	// As enrolled by this rig it has a name.
+	require.Equal(t, "shed", edgeNameOfNode(id))
+
+	// A node whose record name IS its id was never named by the owner: that is not a name.
+	require.NoError(t, st.fleet.Rename(id, id))
+	require.NoError(t, st.save())
+	require.Equal(t, "", edgeNameOfNode(id))
+
+	// And the history line then carries the SHORT id rather than forty-eight characters.
+	_, err = captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"on"}) })
+	require.NoError(t, err)
+	edgeRecordMaintenance(id, edgeNameOfNode(id), edge.MaintainTask{Action: edge.MaintainLogs}, time.Now())
+	fresh, err := loadEdgeState() // it records through its own read of the state, as the host does
+	require.NoError(t, err)
+	n, ok, err := fresh.fleet.Get(id)
+	require.NoError(t, err)
+	require.True(t, ok)
+	last := n.History[len(n.History)-1]
+	require.Equal(t, "maintenance", last.What)
+	require.Contains(t, last.Detail, "asked by "+edgeShortID(id))
+	require.NotContains(t, last.Detail, id, "the whole id never appears in a line a person reads")
+}
