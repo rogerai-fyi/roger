@@ -103,6 +103,11 @@ func ValidateRule(r Rule) error {
 	if r.ID == "" {
 		return errors.New("a rule needs an id")
 	}
+	if t, ok := ScopeTag(r.Scope); ok {
+		if err := ValidTag(t); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -152,23 +157,52 @@ func (rs RuleSet) Off(id string) RuleSet {
 	return out
 }
 
-// applying is the rule in force for node on metric: its own scoped rule if it has one, else the
-// fleet rule; ok is false when nothing applies (or what applies is off).
-func (rs RuleSet) applying(m Metric, nodeID string) (Rule, bool) {
-	var fleet Rule
-	haveFleet := false
+// applying is the rule in force for node on metric (features/edge/tags.feature): its own scoped rule
+// if it has one, else the TIGHTEST rule on any tag it carries, else the fleet rule. ok is false when
+// nothing applies (or what applies is off).
+//
+// The tightest wins among tag rules because a node in two groups must not be judged by the looser of
+// them: a bench rule cannot quietly raise a production limit. Tightest means the threshold that
+// fires soonest - the lowest for "gt", the highest for "lt" - and a tie is broken by rule id so the
+// same rule is chosen on every pass.
+func (rs RuleSet) applying(m Metric, nodeID string, tags []string) (Rule, bool) {
+	var fleet, tag Rule
+	haveFleet, haveTag := false, false
 	for _, r := range rs {
 		if r.Metric != m || r.Off {
 			continue
 		}
-		if r.Scope != "" && r.Scope == nodeID {
+		switch {
+		case r.Scope != "" && r.Scope == nodeID:
 			return r, true
-		}
-		if r.Scope == "" {
+		case r.Scope == "":
 			fleet, haveFleet = r, true
+		default:
+			t, isTag := ScopeTag(r.Scope)
+			if !isTag || !HasTag(tags, t) {
+				continue
+			}
+			if !haveTag || tighter(r, tag) {
+				tag, haveTag = r, true
+			}
 		}
 	}
+	if haveTag {
+		return tag, true
+	}
 	return fleet, haveFleet
+}
+
+// tighter reports whether a fires sooner than b on the same metric: the lower threshold for "gt",
+// the higher for "lt". Equal thresholds are ordered by rule id, so the choice is stable.
+func tighter(a, b Rule) bool {
+	if a.Value != b.Value {
+		if a.Op == OpLT {
+			return a.Value > b.Value
+		}
+		return a.Value < b.Value
+	}
+	return a.ID < b.ID
 }
 
 // AlertState is which (rule, node) pairs are firing now. It is what makes a crossing one event.
@@ -274,7 +308,7 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 	judged := map[string]bool{}
 	for _, h := range hs {
 		for _, m := range Metrics {
-			r, ok := rules.applying(m, h.ID)
+			r, ok := rules.applying(m, h.ID, h.Tags)
 			if !ok {
 				continue
 			}

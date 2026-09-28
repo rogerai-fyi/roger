@@ -576,3 +576,41 @@ func TestConsoleSnapshotCarriesSoftwareAndWhoIsBehind(t *testing.T) {
 		t.Fatal("console.js does not draw the software line under its instance with the behind mark")
 	}
 }
+
+// The console card carries the owner's words, from the snapshot, and draws no row without them.
+func TestConsoleSnapshotCarriesTags(t *testing.T) {
+	db := store.NewMem()
+	fleet := edge.NewFleet(db, "acct-1")
+	for _, n := range []store.EdgeNode{
+		{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(edge.PresenceVerified)},
+		{ID: "n_pi", Name: "quiet-pi", Kind: "host", Presence: string(edge.PresenceVerified)},
+	} {
+		if _, err := fleet.Enroll(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fleet.SetTags("n_desk", []string{"production", "gpu"}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Self: "desk", Fleet: fleet}})
+	snap, err := s.edgeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range snap.Nodes {
+		switch n.Name {
+		case "desk":
+			if len(n.Tags) != 2 || n.Tags[0] != "gpu" || n.Tags[1] != "production" {
+				t.Fatalf("desk tags: %v", n.Tags)
+			}
+		case "quiet-pi":
+			if len(n.Tags) != 0 {
+				t.Fatalf("quiet-pi carries no tags, got %v", n.Tags)
+			}
+		}
+	}
+	js, _ := os.ReadFile("assets/console.js")
+	if !strings.Contains(string(js), `if ((n.tags || []).length) edgeKV(card, "tags"`) {
+		t.Fatal("console.js does not draw the tags row only when there are tags")
+	}
+}

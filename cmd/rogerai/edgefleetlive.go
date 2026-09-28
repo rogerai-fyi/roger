@@ -88,7 +88,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	snap.Self.Op = edgeOperatorName()
 	// The hub.
 	hub := fleetview.FleetItem{Kind: fleetview.ItemHub, ID: self.NodeID, Name: snap.Self.Name, NodeKind: "host",
-		Presence: "online", Health: health[self.NodeID], Alerts: firing[self.NodeID]}
+		Presence: "online", Health: health[self.NodeID], Alerts: firing[self.NodeID], Tags: edgeTagsOf(nodes, self.NodeID)}
 	snap.Items = append(snap.Items, hub)
 	// Its rogers: the live household, then the persistent agents that are not running. This
 	// process is a screen, not a registered roger, so no instance is marked as "this one".
@@ -97,9 +97,8 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		jobs[j.Name] = j
 	}
 	live := map[string]bool{}
-	nodes0, _ := st.fleet.List()
 	household := edge.Household(edgeInstancesDir(), now)
-	newest := edge.NewestRoger(append(nodes0, store.EdgeNode{Instances: household}))
+	newest := edge.NewestRoger(append(append([]store.EdgeNode(nil), nodes...), store.EdgeNode{Instances: household}))
 	for _, in := range household {
 		live[in.Name] = true
 		it := fleetview.FleetItem{Kind: fleetview.ItemInstance, Name: in.Name, Bands: in.Bands, Caps: edgeCapsOf(in.Caps),
@@ -173,6 +172,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 			}
 		}
 		it.Software = edgeSoftwareLines(n.Instances)
+		it.Tags = append([]string(nil), n.Tags...)
 		snap.Items = append(snap.Items, it)
 	}
 	for _, c := range st.candidates {
@@ -418,4 +418,14 @@ func edgeSoftwareLines(insts []edge.Instance) []string {
 		out = append(out, w)
 	}
 	return out
+}
+
+// edgeTagsOf is one node's owner-given words, by id.
+func edgeTagsOf(nodes []store.EdgeNode, id string) []string {
+	for _, n := range nodes {
+		if n.ID == id {
+			return append([]string(nil), n.Tags...)
+		}
+	}
+	return nil
 }

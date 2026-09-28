@@ -111,9 +111,12 @@ type EdgeNode struct {
 	Caps       []EdgeCap       `json:"caps,omitempty"`
 	Transports []EdgeTransport `json:"transports,omitempty"`
 	Presence   string          `json:"presence,omitempty"` // VERIFIED | DARK | CANDIDATE
-	LastSeen   int64           `json:"last_seen,omitempty"`
-	Pin        string          `json:"pin,omitempty"` // pinned certificate SHA-256 (hex)
-	History    []EdgeEvent     `json:"history,omitempty"`
+	// Tags are the OWNER's words for what this unit is (features/edge/tags.feature): a group a rule
+	// can be scoped to. Never read from the node itself, and never a permission.
+	Tags     []string    `json:"tags,omitempty"`
+	LastSeen int64       `json:"last_seen,omitempty"`
+	Pin      string      `json:"pin,omitempty"` // pinned certificate SHA-256 (hex)
+	History  []EdgeEvent `json:"history,omitempty"`
 	// Contract is what a CLASSIFYING node is framed with. Wave models are contract
 	// models - the device prompt is PART of the device - so the framing lives on the
 	// node record and travels with every escalation it raises. Empty for a node that

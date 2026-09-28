@@ -499,3 +499,21 @@ func TestLiveScreenErrorSurvivesTheRefresh(t *testing.T) {
 	require.Equal(t, "the live screen ended with an error: exit status 2", got.edge.err)
 	require.Contains(t, stripANSI(got.edgeView(100)), "exit status 2")
 }
+
+// The [3] detail card carries the owner's words, and nothing where there are none
+// (features/edge/tags.feature).
+func TestEdgeDetailShowsTheOwnersTags(t *testing.T) {
+	m, f, _ := edgeFixture(t, Hooks{})
+	n := edgeAddNode(t, f, "shed", nil, edge.Serve)
+	m.enterEdge()
+	require.NoError(t, f.SetTags(n.ID, []string{"production", "gpu"}))
+	m.refreshEdge()
+	m.edge.sel, m.edge.detail = n.ID, true
+	out := stripANSI(m.edgeView(100))
+	require.Contains(t, out, "tags")
+	require.Contains(t, out, "gpu · production")
+
+	require.NoError(t, f.SetTags(n.ID, nil))
+	m.refreshEdge()
+	require.NotContains(t, stripANSI(m.edgeView(100)), "tags", "no tags, no row")
+}

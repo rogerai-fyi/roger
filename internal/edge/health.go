@@ -16,9 +16,12 @@ import (
 type NodeHealth struct {
 	ID, Name, Kind string
 	Presence       string
-	Dark           bool
-	DarkFor        time.Duration // how long it has been unheard, when Dark
-	LastHeard      time.Time
+	// Tags are the owner's words for this unit, so a tag-scoped rule can judge it
+	// (features/edge/tags.feature).
+	Tags      []string
+	Dark      bool
+	DarkFor   time.Duration // how long it has been unheard, when Dark
+	LastHeard time.Time
 	// Readings is the newest report across the node's instances, or nil when it reports nothing.
 	Readings *store.EdgeResources
 	ReadAge  time.Duration // how old Readings is
@@ -58,7 +61,7 @@ func FleetHealth(f *Fleet, now time.Time) ([]NodeHealth, error) {
 	out := make([]NodeHealth, 0, len(nodes))
 	for _, n := range nodes {
 		h := NodeHealth{ID: n.ID, Name: n.Name, Kind: n.Kind, Presence: n.Presence,
-			Dark: n.Presence == string(PresenceDark)}
+			Tags: append([]string(nil), n.Tags...), Dark: n.Presence == string(PresenceDark)}
 		if n.LastSeen > 0 {
 			h.LastHeard = time.Unix(n.LastSeen, 0)
 			if h.Dark {

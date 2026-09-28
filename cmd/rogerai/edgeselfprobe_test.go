@@ -19,10 +19,10 @@ import (
 func TestHostVerifiesItsOwnServeThroughItsFace(t *testing.T) {
 	offline(t)
 	t.Setenv(edge.EnvDiscovery, "0")
-	_, code := edgeRun(t, "edge", "authority", "local", "shed")
-	require.Equal(t, 0, code)
-	_, code = edgeRun(t, "edge", "enroll", "workshop")
-	require.Equal(t, 0, code)
+	out, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code, out)
+	out, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code, out)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -74,10 +74,10 @@ func TestHostVerifiesItsOwnServeThroughItsFace(t *testing.T) {
 func TestHostDoesNotVerifyWhatItsFaceCannotRoute(t *testing.T) {
 	offline(t)
 	t.Setenv(edge.EnvDiscovery, "0")
-	_, code := edgeRun(t, "edge", "authority", "local", "shed")
-	require.Equal(t, 0, code)
-	_, code = edgeRun(t, "edge", "enroll", "workshop")
-	require.Equal(t, 0, code)
+	out, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code, out)
+	out, code = edgeRun(t, "edge", "enroll", "workshop")
+	require.Equal(t, 0, code, out)
 	edgeAttachOnAir(func() []string { return []string{"mistral"} })
 	edgeAttachUpstream(func(string) (string, string, bool) { return "", "", false })
 	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })

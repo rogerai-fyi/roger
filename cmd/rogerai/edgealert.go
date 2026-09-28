@@ -162,7 +162,16 @@ func edgeAlertSetRule(l edge.AlertLog, metric, opWord, value, scope string) (str
 	// prefix name the same rule and the second spelling replaces the first.
 	r := edge.Rule{ID: string(m) + "-fleet", Metric: m, Op: op, Value: v}
 	where := "every node"
-	if scope != "" && scope != "fleet" {
+	switch tag, isTag := edge.ScopeTag(scope); {
+	case isTag:
+		// A GROUP rule (features/edge/tags.feature): every node carrying the owner's word, and the
+		// tightest such rule wins where a node is in two groups.
+		tag = edge.NormalizeTag(tag)
+		if err := edge.ValidTag(tag); err != nil {
+			return "", err
+		}
+		r.Scope, where, r.ID = edge.TagScope(tag), "every node tagged "+tag, string(m)+"-tag-"+tag
+	case scope != "" && scope != "fleet":
 		id, err := edgeGrantResolveNode(scope, false)
 		if err != nil {
 			return "", err
@@ -244,6 +253,9 @@ func edgeFiringWords(st edge.AlertState, rules edge.RuleSet) map[string][]string
 func edgeRuleScope(r edge.Rule, names map[string]string) string {
 	if r.Scope == "" {
 		return "fleet"
+	}
+	if tag, ok := edge.ScopeTag(r.Scope); ok {
+		return "tag " + tag
 	}
 	if n := names[r.Scope]; n != "" {
 		return n

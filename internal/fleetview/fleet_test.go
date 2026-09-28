@@ -601,3 +601,25 @@ func TestReadoutCarriesTheSoftwareLineAndWhoIsBehind(t *testing.T) {
 		t.Fatal("a current roger is not marked behind")
 	}
 }
+
+// The owner's words on the readout: drawn where they exist, and no empty row where they do not
+// (features/edge/tags.feature).
+func TestReadoutCarriesTheOwnersTags(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		if snap.Items[i].Name == "nas" {
+			snap.Items[i].Tags = []string{"production", "gpu"}
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 150, 44, f.Draw)
+	for range 4 {
+		page.Press("j")
+	}
+	must(t, page.Screen(), "TAGS", "production · gpu")
+	page.Press("j") // the phone carries none
+	if strings.Contains(page.Screen(), "TAGS") {
+		t.Fatal("a unit with no tags draws no tags row")
+	}
+}

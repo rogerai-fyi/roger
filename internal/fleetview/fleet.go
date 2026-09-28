@@ -74,6 +74,9 @@ type FleetItem struct {
 	// carries one line per roger, each led by its name.
 	Software []string
 	Behind   string
+	// Tags are the OWNER's words for this unit (features/edge/tags.feature): the groups a rule can
+	// cover. Empty on a unit the owner has not labelled, and on a candidate, which is not theirs yet.
+	Tags []string
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -992,6 +995,12 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 	air := func() { lines = append(lines, lm.NewLine()) }
 	// software is the inventory line, and the BEHIND mark in the alarm colour when the unit runs an
 	// older roger than the newest on the Edge (features/edge/inventory.feature).
+	// tags are the owner's words: drawn where they exist, never as an empty row.
+	tagRow := func() {
+		if len(it.Tags) > 0 {
+			row("tags", span(strings.Join(it.Tags, " · "), dial))
+		}
+	}
 	software := func() {
 		if it.Behind != "" {
 			row("update", bold("behind "+it.Behind, live), span("  the newest roger on this Edge", muted))
@@ -1018,6 +1027,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		} else {
 			row("carrier", append(meter(lv, true, -1, f.frame, true), span(" "+sUnit(lv)+"   ", muted), span("turns go "+preferWord(f.snap.Self.PreferValue)+" first", dial))...)
 		}
+		tagRow()
 	case ItemInstance, ItemAgent:
 		role := "roger on this machine"
 		if it.Kind == ItemAgent {
@@ -1069,6 +1079,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		if !it.LastRead.IsZero() {
 			row("hears", span("hears the Edge · read the feed "+edge.Age(now.Sub(it.LastRead))+" ago", signal))
 		}
+		tagRow()
 		software()
 	case ItemCandidate:
 		head(0, false, true, it.Name, kindLabel(it.NodeKind)+" · on the bench")

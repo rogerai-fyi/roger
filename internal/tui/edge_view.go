@@ -1102,6 +1102,9 @@ func (m model) edgeDetailView(w int, line func(string)) {
 	if isCand {
 		label("status", "not on your Edge - a adopts it")
 	}
+	if len(n.Tags) > 0 {
+		label("tags", strings.Join(n.Tags, " · ")) // the owner's words: the groups a rule can cover
+	}
 	caps := n.Caps
 	if len(caps) == 0 {
 		label("capabilities", stDim.Render("none declared"))

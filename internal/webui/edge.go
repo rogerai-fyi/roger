@@ -125,6 +125,8 @@ type edgeNodeJSON struct {
 	// Software is the inventory of each roger on the node, worded here so the browser draws the same
 	// line the TUI does, with the newest roger it is behind (features/edge/inventory.feature).
 	Software []edgeSoftwareJSON `json:"software"`
+	// Tags are the owner's words for this unit (features/edge/tags.feature).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // edgeSoftwareJSON is one roger's inventory line on a node card.
@@ -290,7 +292,7 @@ func (s *Server) edgeNow() time.Time {
 func edgeNodeOf(n store.EdgeNode, now time.Time) edgeNodeJSON {
 	out := edgeNodeJSON{
 		ID: n.ID, Name: n.Name, Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
-		Pin: n.Pin, Contract: n.Contract, Station: n.Station,
+		Pin: n.Pin, Contract: n.Contract, Station: n.Station, Tags: append([]string(nil), n.Tags...),
 		Caps:               []edgeCapJSON{},
 		Transports:         append([]store.EdgeTransport{}, n.Transports...),
 		History:            append([]store.EdgeEvent{}, n.History...),

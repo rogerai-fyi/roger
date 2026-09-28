@@ -224,7 +224,13 @@ func TestEdgeGroupHelpAndUnknownCommand(t *testing.T) {
 
 	out, code = edgeRun(t, "edge", "frobnicate")
 	require.Equal(t, 2, code)
-	require.Contains(t, out, "list | describe | name | forget | adopt | readmit | scan")
+	// The refusal names EVERY command, in the order they are declared: derived here, so adding a
+	// command extends the list rather than breaking this test with a stale prefix.
+	var names []string
+	for _, c := range edgeSubcommands {
+		names = append(names, c.name)
+	}
+	require.Contains(t, out, strings.Join(names, " | "))
 
 	out, code = edgeRun(t, "edge", "list", "--frobnicate")
 	require.Equal(t, 2, code)

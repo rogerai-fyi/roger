@@ -74,10 +74,11 @@ type edgeSubcommand struct {
 }
 
 var edgeSubcommands = []edgeSubcommand{
-	{"list", "", "show every node on this Edge", 0, 0},
+	{"list", "[--tag <tag>]", "show every node on this Edge, or one tagged group", 0, 0},
 	{"describe", "<node>", "show one node in full", 1, 1},
 	{"name", "<node>|. <name>", "give a node a name the owner chooses", 2, 2},
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
+	{"tag", "<node> [+tag|-tag|tag...] [--clear]", "show or change the owner's words for a unit: a group a rule can cover", 1, 14},
 	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1},
 	{"readmit", "<node>", "bring back a device you forgot or revoked (lifts its revocation)", 1, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
@@ -88,7 +89,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"fleet", "", "open the live fleet screen: the map, the readouts, the actions", 0, 0},
 	{"trouble", "[<node>] [--since <cursor>] [--json|--watch]", "read a member's trouble feed, as the phone does; --watch follows it", 0, 1},
 	{"inventory", "[--json]", "list every unit's software: roger version, OS, kernel, arch, machine, and who is behind", 0, 0},
-	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
+	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>|tag:<tag>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
@@ -169,6 +170,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeName(cfg, rest)
 	case "forget":
 		return cmdEdgeForget(cfg, rest)
+	case "tag":
+		return cmdEdgeTag(cfg, rest)
 	case "adopt":
 		return cmdEdgeAdopt(cfg, rest)
 	case "readmit":
@@ -224,8 +227,8 @@ func edgeWantsHelp(args []string) bool {
 // edgeFlags is what one leaf's flags may be: the name, and whether it takes a value.
 var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
-	"force":      false,
-	"capability": true, "authority": true, "account": true, "scope": true, "since": true,
+	"force": false, "clear": false,
+	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
 }
 
 type edgeArgv struct {
@@ -610,6 +613,14 @@ func cmdEdgeList(cfg config, args []string) error {
 		nodes = edgeFilter(nodes, func(n store.EdgeNode) bool { return edge.Declares(n, c) })
 		cands = nil
 	}
+	if want, ok := argv.flags["tag"]; ok {
+		t := edge.NormalizeTag(want)
+		if err := edge.ValidTag(t); err != nil {
+			return err
+		}
+		nodes = edgeFilter(nodes, func(n store.EdgeNode) bool { return edge.HasTag(n.Tags, t) })
+		cands = nil // a candidate is not on your Edge, so it carries none of your words
+	}
 	if argv.has("dark") {
 		nodes = edgeFilter(nodes, func(n store.EdgeNode) bool {
 			return n.Presence == string(edge.PresenceDark)
@@ -619,7 +630,7 @@ func cmdEdgeList(cfg config, args []string) error {
 	if argv.has("candidates") {
 		nodes = nil
 	}
-	filtered := argv.has("dark") || argv.has("candidates") || argv.has("capability")
+	filtered := argv.has("dark") || argv.has("candidates") || argv.has("capability") || argv.has("tag")
 
 	// Reach every member ONCE, and reuse the answer: the transport column, the staleness
 	// banner and --verbose are three views of the same probe.
@@ -734,14 +745,29 @@ func edgeNewestSeen(ns []store.EdgeNode) int64 {
 // edgeWriteTable is the fleet view: one row per node, the columns the spec names, and the
 // node's running instances indented under it (features/edge/instances.feature).
 func edgeWriteTable(w io.Writer, nodes []store.EdgeNode, reach map[string]edgeReach) {
-	fmt.Fprintf(w, "%-18s %-6s %-30s %-10s %s\n", "name", "kind", "capabilities", "transport", "last seen")
+	// The tags column appears only when some node carries one, so an Edge that uses no tags reads
+	// exactly as it did.
+	tagged := false
+	for _, n := range nodes {
+		tagged = tagged || len(n.Tags) > 0
+	}
+	head := "%-18s %-6s %-30s %-10s %s\n"
+	if tagged {
+		head = "%-18s %-6s %-30s %-10s %-18s %s\n"
+		fmt.Fprintf(w, head, "name", "kind", "capabilities", "transport", "tags", "last seen")
+	} else {
+		fmt.Fprintf(w, head, "name", "kind", "capabilities", "transport", "last seen")
+	}
 	for _, n := range nodes {
 		via := reach[n.ID].Via
 		if via == "" {
 			via = "-"
 		}
-		fmt.Fprintf(w, "%-18s %-6s %-30s %-10s %s\n",
-			n.Name, n.Kind, edgeCapsLabel(n), via, edgeSeenLabel(n))
+		if tagged {
+			fmt.Fprintf(w, head, n.Name, n.Kind, edgeCapsLabel(n), via, edgeTagsLabel(n), edgeSeenLabel(n))
+		} else {
+			fmt.Fprintf(w, head, n.Name, n.Kind, edgeCapsLabel(n), via, edgeSeenLabel(n))
+		}
 		edgeWriteInstances(w, n.Instances, n.InstancesTruncated)
 	}
 }

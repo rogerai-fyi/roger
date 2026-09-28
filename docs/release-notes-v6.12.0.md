@@ -72,6 +72,18 @@ every surface. `roger edge inventory [--json]` is the table; the fleet screen's 
 SOFTWARE row and an UPDATE row, the console's node card carries the same line under each instance,
 and `roger edge describe` prints it. Proposed in features/edge/inventory.feature.
 
+## Tags, and rules that cover a group
+
+An Edge had two scopes for an alert rule: the whole fleet, or one node. "Warn me when any
+PRODUCTION box runs hot, and leave the bench alone" could not be said. A node now carries up to
+twelve tags - the owner's own words, lowercased, never read from the node itself and never a
+permission. `roger edge tag <node>` shows them, `+word` adds, `-word` removes, a bare list replaces,
+`--clear` empties. `roger edge list --tag production` lists the group, and the fleet table grows a
+tags column only when something is tagged. An alert rule may be scoped to `tag:<tag>`, and the rule
+in force for a node is its own, then the TIGHTEST rule on any tag it carries, then the fleet rule -
+so a bench group can never quietly raise a production limit. The tags show on the fleet screen's
+readout, the console card and the terminal's node detail. Proposed in features/edge/tags.feature.
+
 ## The console
 
 The console's EDGE tab carries the same floor: Andon tiles, the Trouble list with roger and

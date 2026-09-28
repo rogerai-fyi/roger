@@ -2387,6 +2387,7 @@
       if (d.jobs_manage && n.name === d.self) edgeInstanceJobControls(card, d, i.name);
     });
     if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
+    if ((n.tags || []).length) edgeKV(card, "tags", n.tags.join(" \u00b7 "));
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
     (n.alerts || []).forEach(function (a, i) { edgeKV(card, i === 0 ? "alerts" : "", "\u26a0 firing \u00b7 " + a, "edge-alert"); });
     if (n.pin) edgeKV(card, "pin", edgeClip(n.pin, 24));
