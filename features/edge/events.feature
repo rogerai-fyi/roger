@@ -43,6 +43,15 @@ Feature: the events timeline
     Then the order is the same both times
 
   @edge
+  Scenario: a run of identical events is one line with a count
+    Given the same probe recorded forty times in a row on one unit
+    When the timeline is read
+    Then it is one line, saying ×40 and over how long
+    And its time is the newest of them
+    And an event of a different kind between two runs keeps them apart
+    And the limit counts collapsed lines, so a flood cannot crowd out the rest
+
+  @edge
   Scenario: the timeline can be narrowed
     When the timeline is read for one node
     Then only that unit's events are in it, alert crossings included

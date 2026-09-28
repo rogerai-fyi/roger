@@ -25,7 +25,9 @@ const (
 	EventAlert EventKind = "alert"
 )
 
-// Event is one line of the timeline.
+// Event is one line of the timeline. Count is how many times the SAME thing happened in a row on the
+// same unit, collapsed into this line: an activity view that prints one fact forty times hides the
+// other thirty-nine. At is the newest of them, Since the oldest.
 type Event struct {
 	At     time.Time `json:"at"`
 	Kind   EventKind `json:"kind"`
@@ -33,6 +35,8 @@ type Event struct {
 	Node   string    `json:"node"`
 	What   string    `json:"what"`
 	Detail string    `json:"detail,omitempty"`
+	Count  int       `json:"count,omitempty"` // >1 when repeats were collapsed
+	Since  time.Time `json:"since,omitempty"` // the oldest of the collapsed run
 }
 
 // EventQuery narrows a timeline read.
@@ -94,8 +98,30 @@ func Events(nodes []store.EdgeNode, alerts []Alert, q EventQuery, now time.Time)
 		}
 		return a.What < b.What
 	})
+	out = collapseRepeats(out)
 	if len(out) > limit {
 		out = out[:limit]
+	}
+	return out
+}
+
+// collapseRepeats folds a RUN of identical events on one unit into a single line with a count. They
+// are adjacent because the list is sorted by time, so this never joins two runs that something else
+// happened between.
+func collapseRepeats(in []Event) []Event {
+	out := make([]Event, 0, len(in))
+	for _, e := range in {
+		if n := len(out) - 1; n >= 0 {
+			if p := out[n]; p.NodeID == e.NodeID && p.Kind == e.Kind && p.What == e.What && p.Detail == e.Detail {
+				if out[n].Count == 0 {
+					out[n].Count = 1
+				}
+				out[n].Count++
+				out[n].Since = e.At // the list is newest-first, so each repeat is older
+				continue
+			}
+		}
+		out = append(out, e)
 	}
 	return out
 }

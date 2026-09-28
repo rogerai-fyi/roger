@@ -99,6 +99,10 @@ func edgeWriteEvents(w io.Writer, events []edge.Event, note string, now time.Tim
 		if e.Kind == edge.EventAlert {
 			mark = "▲"
 		}
-		fmt.Fprintf(w, "%s %-7s %-18s %-22s %s\n", mark, edge.Age(now.Sub(e.At)), elideTo(e.Node, 18), elideTo(e.What, 22), e.Detail)
+		detail := e.Detail
+		if e.Count > 1 {
+			detail += fmt.Sprintf("   ×%d, over %s", e.Count, edge.Age(e.At.Sub(e.Since)))
+		}
+		fmt.Fprintf(w, "%s %-7s %-18s %-22s %s\n", mark, edge.Age(now.Sub(e.At)), elideTo(e.Node, 18), elideTo(e.What, 22), detail)
 	}
 }

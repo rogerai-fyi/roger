@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,6 +73,24 @@ func TestEdgeEventsListsTheTimelineAndNarrowsIt(t *testing.T) {
 	require.NotEqual(t, 0, code)
 	_, code = edgeRun(t, "edge", "events", "--node", "nosuch")
 	require.NotEqual(t, 0, code)
+}
+
+// A run of identical events prints as one counted line (features/edge/events.feature).
+func TestEdgeEventsCollapsesARun(t *testing.T) {
+	offline(t)
+	now := time.Now()
+	var hist []store.EdgeEvent
+	for i := 0; i < 12; i++ {
+		hist = append(hist, store.EdgeEvent{At: now.Add(-time.Duration(i) * time.Minute).Unix(),
+			What: "probe", Detail: "serve -> VERIFIED"})
+	}
+	edgeSeed(t, store.EdgeNode{ID: "n_desk", Name: "desk", Kind: "host",
+		Presence: string(edge.PresenceVerified), History: hist})
+	out, code := edgeRun(t, "edge", "events")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "EVENTS · 2,", "the collapsed run, and the enrolled line the seed writes")
+	require.Contains(t, out, "×12, over 11m")
+	require.Equal(t, 1, strings.Count(out, "serve -> VERIFIED"))
 }
 
 func TestEdgeEventsOnAnEdgeWithNothingRecorded(t *testing.T) {

@@ -194,8 +194,12 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	// The timeline, from the same read the CLI does (features/edge/events.feature).
 	if events, _, err := edgeEventsRead(edge.EventQuery{Limit: 40}, now); err == nil {
 		for _, e := range events {
+			detail := e.Detail
+			if e.Count > 1 {
+				detail += fmt.Sprintf("   ×%d over %s", e.Count, edge.Age(e.At.Sub(e.Since)))
+			}
 			snap.Events = append(snap.Events, fleetview.EventLine{Age: edge.Age(now.Sub(e.At)) + " ago",
-				Node: e.Node, What: e.What, Detail: e.Detail, Alarm: e.Kind == edge.EventAlert})
+				Node: e.Node, What: e.What, Detail: detail, Alarm: e.Kind == edge.EventAlert})
 		}
 	}
 	// What each unit served, from the ledger: the station that answered, by name.

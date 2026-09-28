@@ -208,3 +208,44 @@ func TestAShrinkingBandSetKeepsItsVerdict(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_desk", "serve"))
 }
+
+// A run of identical events is one line with a count: an activity view that prints one fact forty
+// times hides the other thirty-nine (features/edge/events.feature).
+func TestEventsCollapseRepeats(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	var hist []store.EdgeEvent
+	for i := 0; i < 40; i++ {
+		hist = append(hist, store.EdgeEvent{At: now.Add(-time.Duration(i) * time.Minute).Unix(),
+			What: "probe", Detail: "serve -> VERIFIED"})
+	}
+	nodes := []store.EdgeNode{{ID: "n_desk", Name: "desk", History: hist}}
+	got := Events(nodes, nil, EventQuery{}, now)
+	require.Len(t, got, 1)
+	require.Equal(t, 40, got[0].Count)
+	require.Equal(t, now, got[0].At, "the newest of them")
+	require.Equal(t, now.Add(-39*time.Minute), got[0].Since, "the oldest of them")
+
+	// Something else between two runs keeps them apart. The renamed line sits between the probe at
+	// -20m and the one at -21m, so the runs are 21 and 19.
+	withGap := append([]store.EdgeEvent(nil), hist...)
+	withGap = append(withGap, store.EdgeEvent{At: now.Add(-20*time.Minute - 30*time.Second).Unix(),
+		What: "renamed", Detail: "desk"})
+	nodes = []store.EdgeNode{{ID: "n_desk", Name: "desk", History: withGap}}
+	got = Events(nodes, nil, EventQuery{}, now)
+	require.Len(t, got, 3)
+	require.Equal(t, 21, got[0].Count)
+	require.Equal(t, "renamed", got[1].What)
+	require.Equal(t, 0, got[1].Count, "a single event carries no count")
+	require.Equal(t, 19, got[2].Count)
+
+	// A crossing and a node event that happen to read alike are still separate lines.
+	mixed := Events([]store.EdgeNode{{ID: "n_desk", Name: "desk", History: []store.EdgeEvent{
+		{At: now.Unix(), What: "raised cpu_temp"}}}},
+		[]Alert{{At: now, NodeID: "n_desk", Node: "desk", Metric: MetricCPUTemp, Firing: true}}, EventQuery{}, now)
+	require.Len(t, mixed, 2, "kinds are not folded together")
+
+	// The limit counts collapsed lines, so a flood cannot crowd out the rest.
+	flood := Events(nodes, nil, EventQuery{Limit: 2}, now)
+	require.Len(t, flood, 2)
+	require.Equal(t, "renamed", flood[1].What)
+}

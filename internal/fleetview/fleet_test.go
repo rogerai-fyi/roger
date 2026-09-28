@@ -668,3 +668,16 @@ func TestEventsTabDrawsTheTimeline(t *testing.T) {
 	p2.Press("6")
 	must(t, p2.Screen(), "nothing has happened on this Edge yet")
 }
+
+// A collapsed run reads as one line with its count on the EVENTS tab.
+func TestEventsTabShowsACollapsedRun(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.Events = []fleetview.EventLine{
+		{Age: "30s ago", Node: "desk", What: "probe", Detail: "serve -> VERIFIED   ×12 over 11m"},
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 150, 44, f.Draw)
+	page.Press("6")
+	must(t, page.Screen(), "×12 over 11m")
+}
