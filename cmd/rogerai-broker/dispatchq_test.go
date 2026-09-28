@@ -535,3 +535,52 @@ func TestQueueAudioBusyAfterQueueWait(t *testing.T) {
 		t.Errorf("balance %v -> %v: the hold for an unserved sentence was not refunded", before, after)
 	}
 }
+
+// failingWriter is a poll response whose connection is already gone.
+type failingWriter struct{ h http.Header }
+
+func (f *failingWriter) Header() http.Header       { return f.h }
+func (f *failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+func (f *failingWriter) WriteHeader(int)           {}
+
+// A job whose write to an ack-capable poll fails is re-delivered, not failed: the node never
+// got it, and a node that acks dedupes by job id anyway.
+func TestQueueWriteFailureToAckingPollIsRedelivered(t *testing.T) {
+	defer dqTakenGrace.set(dqTakenGrace.get())
+	dqTakenGrace.set(200 * time.Millisecond)
+	mr := miniredis.RunT(t)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	a := newQBroker(t, priv, store.NewMem(), mr, dispatchViaQueueOnly)
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	miRegisterNode(a, "n1", hex.EncodeToString(nodePub), "tok", []protocol.ModelOffer{{Model: "free-m"}})
+	tk, err := a.dispatchRemote(context.Background(), "n1", protocol.Job{ID: "wf-1", Body: []byte(`{}`)}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tk.close()
+	q := a.dqueue()
+	e := q.pop("n1")
+	if e == nil {
+		t.Fatal("the job was not queued")
+	}
+	r := httptest.NewRequest(http.MethodGet, "/agent/poll?node=n1", nil)
+	r.Header.Set(ackHeader, "1")
+	if !q.handOver(&failingWriter{h: http.Header{}}, r, "n1", e) {
+		t.Fatal("a failed write did not finish the poll")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for a.stats.dqRedeliver.Load() == 0 {
+		select {
+		case <-tk.done:
+			t.Fatalf("the job failed (%v) instead of being re-delivered", tk.Err())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the job was never re-delivered")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if again := q.pop("n1"); again == nil {
+		t.Fatal("the re-delivered job is not back in the node's queue")
+	}
+}

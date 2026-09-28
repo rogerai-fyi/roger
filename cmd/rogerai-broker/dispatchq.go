@@ -984,6 +984,11 @@ func (q *dispatchQueue) handOver(w http.ResponseWriter, r *http.Request, node st
 		w.Header().Set(ackHeader, "1") // this job wants the node's ack
 	}
 	if err := writeJob(w, job); err != nil {
+		if acked { // the node dedupes by job id, so the origin may safely re-deliver it
+			log.Printf("dq handoff write failed node=%s job=%s: %v (re-delivered: the node acks)", node, job.ID, err)
+			_ = q.send(e.Origin, dqMsg{kind: "sent", job: job.ID, node: node})
+			return true
+		}
 		log.Printf("dq handoff write failed node=%s job=%s: %v (the origin fails it fast)", node, job.ID, err)
 		return true
 	}
