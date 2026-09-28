@@ -41,10 +41,7 @@ func cmdEdgeTrouble(cfg config, args []string) error {
 	if len(argv.pos) == 1 {
 		target = argv.pos[0]
 	}
-	if target == "." || target == "self" {
-		target = edgeThisNodeID()
-	}
-	peer, _, err := edgeResolveNodeFace(target)
+	peer, _, err := edgeResolveNodeFace(target) // "." and "self" are this machine, resolved in there
 	if err != nil {
 		return err
 	}

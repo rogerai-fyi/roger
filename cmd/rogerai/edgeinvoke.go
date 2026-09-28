@@ -162,6 +162,13 @@ func cmdEdgeInvoke(cfg config, args []string) error {
 // node that cannot be dialed directly (dark, or no LAN transport). Unlike the serving-peer resolver,
 // it does not require the callee to serve a model: an invoke target is an agent or a device.
 func edgeResolveNodeFace(addr string) (client.EdgePeer, string, error) {
+	// "." and "self" mean THIS machine, wherever a node is named. The translation lives here so the
+	// trouble feed, an invoke, a maintenance action and a log tail cannot disagree about it.
+	if t := strings.TrimSpace(addr); t == "." || t == "self" {
+		if id := edgeThisNodeID(); id != "" {
+			addr = id
+		}
+	}
 	node := addr
 	if i := strings.IndexByte(addr, '/'); i >= 0 {
 		node = addr[:i]

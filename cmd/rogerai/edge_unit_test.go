@@ -338,7 +338,11 @@ func TestEdgeDescribeAnUnreachableNodeStillAnswers(t *testing.T) {
 	useTempConfig(t)
 	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1") // a relay with no address of its own falls back here
 	edgeWriteAuth(t, "owner")
-	edgeDialTimeout = 300 * time.Millisecond
+	// 300ms was too tight: a loopback dial that SUCCEEDS has to complete inside it, and under
+	// coverage instrumentation it sometimes did not - a failure that appeared only in a full
+	// `go test -cover` run. A refused connection still fails instantly, which is what the short
+	// bound was for, so a second costs this suite nothing.
+	edgeDialTimeout = time.Second
 	edgeSeed(t, store.EdgeNode{ID: "n_a1", Name: "bench-pi", Kind: "board",
 		Caps:       []store.EdgeCap{{Name: "classify", State: string(edge.Claimed)}},
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "127.0.0.1:1"}, {Kind: "relay"}},
@@ -401,7 +405,7 @@ func TestEdgeMergeCandidatesKeepsWhatThisPassMissed(t *testing.T) {
 func TestEdgeReachAllAnswersForEveryNode(t *testing.T) {
 	useTempConfig(t)
 	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
-	edgeDialTimeout = 300 * time.Millisecond
+	edgeDialTimeout = time.Second
 	live, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = live.Close() })

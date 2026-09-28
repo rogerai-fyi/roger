@@ -156,7 +156,11 @@ func (s *edgeCLIBDD) reset(t *testing.T) {
 	// The suite drives loopback addresses only: a refused connection is instant, so a
 	// short bound keeps a 34-scenario suite honest AND quick.
 	prevDial, prevStdin := edgeDialTimeout, edgeStdin
-	edgeDialTimeout = 300 * time.Millisecond
+	// 300ms was too tight: a loopback dial that SUCCEEDS has to complete inside it, and under
+	// coverage instrumentation it sometimes did not - a failure that appeared only in a full
+	// `go test -cover` run. A refused connection still fails instantly, which is what the short
+	// bound was for, so a second costs this suite nothing.
+	edgeDialTimeout = time.Second
 	edgeStdin = strings.NewReader("")
 	edgeDiscoveryOptions = defaultEdgeDiscoveryOptions
 	// EVERY package-level seam this scenario moves is put back when it ends. useBus() points

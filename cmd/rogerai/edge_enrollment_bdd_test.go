@@ -298,7 +298,11 @@ func (s *enrollBDD) reset(t *testing.T) {
 	s.beforeStation = store.NodeRecord{}
 	s.verdict, s.failReason = "", ""
 	s.core = newCoreStub(t)
-	edgeDialTimeout = 300 * time.Millisecond
+	// 300ms was too tight: a loopback dial that SUCCEEDS has to complete inside it, and under
+	// coverage instrumentation it sometimes did not - a failure that appeared only in a full
+	// `go test -cover` run. A refused connection still fails instantly, which is what the short
+	// bound was for, so a second costs this suite nothing.
+	edgeDialTimeout = time.Second
 	edgeStdin = strings.NewReader("")
 	edgeDiscoveryOptions = defaultEdgeDiscoveryOptions
 	s.pointDiscoveryAtTheBus()

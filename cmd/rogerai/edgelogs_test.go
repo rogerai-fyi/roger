@@ -146,3 +146,31 @@ func TestEdgeLogsCommand(t *testing.T) {
 	err = cmdEdgeLogs(loadConfig(), nil)
 	require.Error(t, err)
 }
+
+// "." and "self" mean THIS machine wherever a node is named, so the trouble feed, an invoke, a
+// maintenance action and a log tail cannot disagree about it.
+func TestSelfAliasResolvesEverywhereANodeIsNamed(t *testing.T) {
+	maintainRig(t)
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	nodes, err := st.fleet.List()
+	require.NoError(t, err)
+	for _, n := range nodes {
+		if n.ID != edgeThisNodeID() {
+			continue
+		}
+		n.Pin = "abab"
+		n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: "127.0.0.1:44197", Fingerprint: "abab"}}
+		require.NoError(t, st.db.UpdateEdgeNode(n))
+	}
+	require.NoError(t, st.save())
+
+	for _, alias := range []string{".", "self", "shed", edgeThisNodeID()} {
+		peer, id, err := edgeResolveNodeFace(alias)
+		require.NoError(t, err, alias)
+		require.Equal(t, edgeThisNodeID(), id, alias)
+		require.Equal(t, "127.0.0.1:44197", peer.Addr, alias)
+	}
+	_, _, err = edgeResolveNodeFace("nosuch")
+	require.Error(t, err)
+}
