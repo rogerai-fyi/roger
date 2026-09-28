@@ -1452,6 +1452,7 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(job)
 	case <-time.After(25 * time.Second):
 		w.WriteHeader(http.StatusNoContent) // re-poll
+	case <-r.Context().Done(): // the node hung up: free the handler now, not at the hold's end
 	}
 }
 

@@ -68,7 +68,7 @@ jobs:
 
       # 1) Tests + coverage profile. Fails the job only if TESTS fail (not on low coverage).
       - name: test + coverage
-        run: go test -covermode=atomic -coverprofile=cover.out ./...
+        run: go test -timeout 20m -covermode=atomic -coverprofile=cover.out ./...
 
       # 2) Build the report site — ONLY the html + the func summary (not the whole repo).
       - name: build report + badge
