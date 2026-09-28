@@ -1,8 +1,11 @@
-# v6.12.0 - the rack: your Edge as a station, with trouble calls that reach your phone
+# v6.13.0 - the rack: your Edge as a fleet you can see, and act on
 
 Roger Edge grows a fleet manager. This release is the machine side: the screens, the
 health rules and the alerts, and a private feed the Roger app on your phone pulls from.
-Draft: the version is a placeholder until the release is cut.
+Then it grows the rest of a fleet manager: an inventory, tags and group rules, a timeline, a
+redacted log tail, and the actions that start, stop and restart a roger on another machine.
+
+Draft. v6.12.0 was already cut, so this is numbered v6.13.0; confirm that when the release is made.
 
 ## The fleet screens
 
