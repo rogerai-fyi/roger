@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -293,16 +294,23 @@ func edgeDialInvokeTaskReal(ctx context.Context, p client.EdgePeer, cert *tls.Ce
 	defer resp.Body.Close()
 	rec, _ := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt"))
 	if resp.StatusCode != http.StatusOK {
+		// BOUNDED: a refusal is a sentence, and a peer we are arguing with does not get to choose how
+		// much memory its answer costs (the same rule the describe read follows).
 		var msg bytes.Buffer
-		_, _ = msg.ReadFrom(resp.Body)
+		_, _ = msg.ReadFrom(io.LimitReader(resp.Body, 8<<10))
 		return edge.InvokeResult{}, rec, fmt.Errorf("%s refused the invoke (%d): %s", p.Node, resp.StatusCode, strings.TrimSpace(msg.String()))
 	}
 	var out edge.InvokeResult
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	// The reply is bounded too: an authorized callee is trusted to be honest, not to be small.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, edgeInvokeReplyCap)).Decode(&out); err != nil {
 		return edge.InvokeResult{}, rec, fmt.Errorf("the callee's reply could not be read: %w", err)
 	}
 	return out, rec, nil
 }
+
+// edgeInvokeReplyCap bounds a callee's reply. A delegated turn answers with text, so a few megabytes
+// is generous; without a bound one peer could hand this process the whole of its memory.
+const edgeInvokeReplyCap = 4 << 20
 
 // edgeNewRequestID mints a request id for the receipt trail.
 func edgeNewRequestID() string {

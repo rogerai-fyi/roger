@@ -64,7 +64,10 @@ type EdgeHooks struct {
 	// Floor is the factory-floor view of the rack (health.feature §5 and the floor research): the
 	// state log's samples, the standing trouble calls, the pile-up rate and the sign-off report;
 	// Roger acknowledges a call, StandBy quiets one for a time. Nil = the console shows no floor.
-	Floor    func(now time.Time) EdgeFloor
+	Floor func(now time.Time) EdgeFloor
+	// Events is the merged timeline (features/edge/events.feature); nil means this build wired none and
+	// the tab simply has no activity list.
+	Events   func(now time.Time, limit int) []EdgeEvent
 	Roger    func(ruleID, nodeID string) error
 	StandBy  func(ruleID, nodeID string, d time.Duration) error
 	Sessions *edge.Sessions
@@ -127,6 +130,9 @@ type edgeNodeJSON struct {
 	Software []edgeSoftwareJSON `json:"software"`
 	// Tags are the owner's words for this unit (features/edge/tags.feature).
 	Tags []string `json:"tags,omitempty"`
+	// Maintain is true when the unit declares maintain - its owner turned maintenance on there, so a
+	// member with a grant can act on it (features/edge/maintenance.feature). False says nothing.
+	Maintain bool `json:"maintain,omitempty"`
 }
 
 // edgeSoftwareJSON is one roger's inventory line on a node card.
@@ -213,8 +219,11 @@ type edgeSnap struct {
 	Grants           []edgeGrantJSON        `json:"grants"`
 	GrantsManage     bool                   `json:"grants_manage"`
 	// Floor is the ANDON and TROUBLE facts the TUI shows; FloorManage whether roger/stand by are wired.
-	Floor       *edgeFloorJSON `json:"floor,omitempty"`
-	FloorManage bool           `json:"floor_manage"`
+	Floor *edgeFloorJSON `json:"floor,omitempty"`
+	// Events is the timeline the terminal's EVENTS tab shows (features/edge/events.feature), worded on
+	// this side so the browser draws what it is told.
+	Events      []edgeEventJSON `json:"events"`
+	FloorManage bool            `json:"floor_manage"`
 }
 
 // EdgeFloor is what the host hands the console for the floor: raw facts, worded here.
@@ -225,6 +234,28 @@ type EdgeFloor struct {
 	SignOff edge.SignOffReport
 	Reads   map[string]int64 // node id -> when its Roger app last read the trouble feed
 }
+
+// edgeEventJSON is one line of the timeline: already worded, with its age.
+type edgeEventJSON struct {
+	Age    string `json:"age"`
+	Node   string `json:"node"`
+	What   string `json:"what"`
+	Detail string `json:"detail,omitempty"`
+	Alarm  bool   `json:"alarm,omitempty"` // a crossing in the alert log, not a node event
+}
+
+// EdgeEvent is one timeline line as the host hands it over, already worded.
+type EdgeEvent struct {
+	Age    string
+	Node   string
+	What   string
+	Detail string
+	Alarm  bool
+}
+
+// edgeConsoleEvents is how many lines the tab shows: enough to read what happened, few enough that
+// the snapshot stays small on every poll.
+const edgeConsoleEvents = 30
 
 type edgeFloorJSON struct {
 	Units   []edgeUnitJSON `json:"units"`
@@ -379,6 +410,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		n := edgeNodeOf(r.Node, now)
 		n.Via, n.Relay, n.Child = r.Via, r.Relay, r.Child
 		n.Alerts = append(n.Alerts, alerts[n.ID]...)
+		n.Maintain = edge.Declares(r.Node, edge.Maintain)
 		n.Software = []edgeSoftwareJSON{}
 		for _, in := range r.Node.Instances {
 			if w := edge.SoftwareWords(in.Software); w != "" {
@@ -386,6 +418,13 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 			}
 		}
 		snap.Nodes = append(snap.Nodes, n)
+	}
+	snap.Events = []edgeEventJSON{}
+	if h.Events != nil {
+		for _, e := range h.Events(now, edgeConsoleEvents) {
+			snap.Events = append(snap.Events, edgeEventJSON{Age: e.Age, Node: e.Node, What: e.What,
+				Detail: e.Detail, Alarm: e.Alarm})
+		}
 	}
 	if h.Floor != nil {
 		snap.Floor = edgeFloorOf(h.Floor(now), list, alerts, now)

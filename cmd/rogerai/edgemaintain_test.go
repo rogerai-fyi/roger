@@ -59,7 +59,7 @@ func TestMaintenanceIsOffUntilTheOwnerTurnsItOnHere(t *testing.T) {
 	out, err := captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"on"}) })
 	require.NoError(t, err)
 	require.Contains(t, out, "maintenance is ON")
-	require.Contains(t, out, "cannot run a command")
+	require.Contains(t, out, "CANNOT run a command") // the consent text is pinned in full by TestTheMaintenanceSwitchSaysEverythingItGrants
 	cfg = loadConfig()
 	require.True(t, edgeMaintenanceOn(cfg))
 	require.Contains(t, edgeCapNames(edgeInstanceCaps(nil, edgeMaintenanceOn(cfg))), string(edge.Maintain), "declared from the next registration")

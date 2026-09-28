@@ -94,7 +94,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
-	{"maintenance", "[on|off]", "let members with a maintain grant start an agent on THIS machine (off by default)", 0, 1},
+	{"maintenance", "[on|off]", "let members with a maintain grant start, stop or restart an agent here and read this machine's log (off by default)", 0, 1},
 	{"maintain", "<node> start <agent>", "ask a member to start one of its persistent agents, under a maintain grant", 3, 3},
 	{"logs", "<node> [--lines <n>]", "read a member's recent log lines, redacted, under a maintain grant", 1, 1},
 	{"model", "<agent> <model> [use|share|use,share]", "bind a model to an agent, to use or share on the Edge", 2, 3},

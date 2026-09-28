@@ -102,9 +102,16 @@ func TestRedactionRemovesEverySecretShapeAndKeepsTheLine(t *testing.T) {
 		})
 	}
 
-	// The labelled forms keep their label, so the line still says what was removed.
+	// The labelled forms keep their label, so the line still says what was removed. The label may
+	// carry a prefix, be quoted, or be a flag - the cases the fourth audit named as leaking.
 	for _, c := range []struct{ in, keep string }{
 		{`starting share with key=hunter2 and ctx=90112`, "key="},
+		{`share --upstream-key hunter2 --ctx 90112`, "upstream-key"},
+		{`share --api-key=hunter2`, "api-key"},
+		{`config {"api_key": "hunter2", "ctx": 90112}`, "api_key"},
+		{`env UPSTREAM_KEY=hunter2 loaded`, "UPSTREAM_KEY"},
+		{`env upstream_token: hunter2`, "upstream_token"},
+		{`-secret hunter2 given`, "secret"},
 		{`token = abc123def456 was rejected`, "token"},
 		{`authorization: Basic YWxhZGRpbjpvcGVuc2VzYW1l`, "authorization:"},
 		{`sent Bearer abc123def456ghi`, "Bearer"},

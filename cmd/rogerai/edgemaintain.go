@@ -2,13 +2,14 @@ package main
 
 // MAINTENANCE, host side (features/edge/maintenance.feature).
 //
-//	roger edge maintenance [on|off]      the owner's switch, ON THIS MACHINE (off by default)
-//	roger edge maintain <node> start <agent>   ask another member to start one of its agents
+//	roger edge maintenance [on|off]                        the owner's switch, ON THIS MACHINE (off by default)
+//	roger edge maintain <node> start|stop|restart <agent>  act on one of that machine's agents
+//	roger edge logs <node>                                 read its recent log lines, redacted
 //
 // The two locks are both the owner's, on two machines: this switch on the TARGET, and a grant the
 // authority signed scoped to `maintain` AND that node, held by the CALLER. Neither alone is enough.
-// The action can only start a roger the target's owner already marked persistent THERE, by name:
-// it is not a shell, and it runs nothing of the caller's choosing.
+// The actions only ever touch rogers the target's owner already marked persistent THERE, by name,
+// and its own recent log lines: it is not a shell, and it runs nothing of the caller's choosing.
 
 import (
 	"encoding/json"
@@ -47,8 +48,7 @@ func cmdEdgeMaintenance(cfg config, args []string) error {
 	}
 	if on {
 		fmt.Println("maintenance is ON for this machine.")
-		fmt.Println("  another member holding a grant scoped to maintain on this node can START a")
-		fmt.Println("  persistent agent here, by name. It cannot run a command, stop anything, or reboot.")
+		edgePrintMaintenanceGrants()
 		fmt.Println("  this roger declares maintain from its next registration; `roger edge maintenance off` ends it.")
 		return nil
 	}
@@ -56,10 +56,38 @@ func cmdEdgeMaintenance(cfg config, args []string) error {
 	return nil
 }
 
+// edgePrintMaintenanceGrants says EVERYTHING the switch grants, and the boundaries that remain. The
+// owner is consenting to it, so it is generated from the action list rather than written out: an
+// action added without a word here would tell them less than they are giving, and the test that pins
+// this fails if the two ever drift.
+func edgePrintMaintenanceGrants() {
+	fmt.Printf("  a member holding a grant scoped to maintain on this node can: %s.\n", edgeMaintenanceGrantsLine())
+	fmt.Println("  it CANNOT run a command, a script or a shell, reboot or shut the machine down, read any")
+	fmt.Println("  file, or touch a roger you did not mark persistent. The log it can read is redacted.")
+}
+
+// edgeMaintenanceGrantsLine words what the actions are, from the actions themselves.
+func edgeMaintenanceGrantsLine() string {
+	acts := []string{}
+	for _, a := range edge.MaintainActs {
+		switch a {
+		case edge.MaintainStart:
+			acts = append(acts, "START a persistent agent that is down")
+		case edge.MaintainStop:
+			acts = append(acts, "STOP one that is running")
+		case edge.MaintainRestart:
+			acts = append(acts, "RESTART one")
+		default:
+			acts = append(acts, strings.ToUpper(string(a))+" one")
+		}
+	}
+	return strings.Join(acts, ", ") + ", and READ this machine's recent log lines"
+}
+
 func edgePrintMaintenance(cfg config) {
 	if edgeMaintenanceOn(cfg) {
 		fmt.Println("maintenance: ON for this machine.")
-		fmt.Println("  a member with a grant scoped to maintain on this node can start a persistent agent here.")
+		edgePrintMaintenanceGrants()
 	} else {
 		fmt.Println("maintenance: OFF for this machine (the default).")
 		fmt.Println("  no member can act on it, grant or not.")

@@ -92,8 +92,13 @@ var redactors = []*regexp.Regexp{
 	// authorization: Bearer xyz / authorization: Basic xyz
 	regexp.MustCompile(`(?i)\b(authorization\s*[:=]\s*)(bearer|basic|token)?\s*\S+`),
 	regexp.MustCompile(`(?i)\b(bearer)\s+\S+`),
-	// key= / token= / secret= / password= / passwd= / pwd=, with : or = and optional quotes
-	regexp.MustCompile(`(?i)\b((?:api[_-]?)?(?:key|token|secret|password|passwd|pwd))\s*[:=]\s*"?[^"\s,;]+"?`),
+	// A LABELLED value, however the label is spelled: key=, api_key=, upstream_key=, "api_key": "x",
+	// UPSTREAM-TOKEN: x. The label may carry a prefix joined by _ - or . (so \b would not find it),
+	// may be quoted, and the separator may be : or =. The spec promises "anything after key=", and a
+	// value with no recognisable shape is exactly the case that used to leak.
+	regexp.MustCompile(`(?i)"?[a-z0-9_.-]*(?:key|token|secret|password|passwd|pwd)"?\s*[:=]\s*"?[^"\s,;)]+"?`),
+	// The FLAG form, where the separator is a space: --api-key abc, -token abc, --upstream-key=abc.
+	regexp.MustCompile(`(?i)(--?[a-z0-9_.-]*(?:key|token|secret|password|passwd|pwd))[\s=]+"?[^"\s,;)]+"?`),
 	// the key shapes this fleet really uses
 	regexp.MustCompile(`\bsk-or-v1-[A-Za-z0-9_-]{8,}`),
 	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}`),
@@ -115,7 +120,7 @@ func RedactSecrets(line string) string {
 	for i, re := range redactors {
 		out = re.ReplaceAllStringFunc(out, func(m string) string {
 			// The labelled forms keep their label so the line still says WHAT was removed.
-			if i <= 2 {
+			if i <= 3 {
 				if j := strings.IndexAny(m, ":="); j >= 0 {
 					return m[:j+1] + " " + redactMarker
 				}

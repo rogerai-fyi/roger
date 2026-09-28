@@ -614,3 +614,73 @@ func TestConsoleSnapshotCarriesTags(t *testing.T) {
 		t.Fatal("console.js does not draw the tags row only when there are tags")
 	}
 }
+
+// Console parity for the timeline and the maintenance mark: the browser draws what the terminal's
+// EVENTS tab draws, worded on this side (features/edge/events.feature, maintenance.feature).
+func TestConsoleCarriesTheTimelineAndTheMaintenanceMark(t *testing.T) {
+	db := store.NewMem()
+	fleet := edge.NewFleet(db, "acct-1")
+	for _, n := range []store.EdgeNode{
+		{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(edge.PresenceVerified),
+			Caps: []store.EdgeCap{{Name: string(edge.Maintain), State: string(edge.Claimed)}}},
+		{ID: "n_pi", Name: "quiet-pi", Kind: "host", Presence: string(edge.PresenceVerified)},
+	} {
+		if _, err := fleet.Enroll(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	asked := 0
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Self: "desk", Fleet: fleet,
+		Events: func(now time.Time, limit int) []EdgeEvent {
+			asked = limit
+			return []EdgeEvent{
+				{Age: "2m ago", Node: "desk", What: "raised cpu_temp", Detail: "95.5°C, over 85°C", Alarm: true},
+				{Age: "1h ago", Node: "quiet-pi", What: "tagged", Detail: "production"},
+			}
+		}}})
+	snap, err := s.edgeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked != edgeConsoleEvents {
+		t.Fatalf("the tab asks for %d lines, got %d", edgeConsoleEvents, asked)
+	}
+	if len(snap.Events) != 2 || snap.Events[0].What != "raised cpu_temp" || !snap.Events[0].Alarm {
+		t.Fatalf("events: %+v", snap.Events)
+	}
+	if snap.Events[1].Alarm {
+		t.Error("a node event is not an alarm")
+	}
+	byName := map[string]bool{}
+	for _, n := range snap.Nodes {
+		byName[n.Name] = n.Maintain
+	}
+	if !byName["desk"] {
+		t.Error("a node that declares maintain says so")
+	}
+	if byName["quiet-pi"] {
+		t.Error("one that does not declare it says nothing")
+	}
+
+	// With no hook wired the tab simply has no list, and says so rather than breaking.
+	bare := New(testCtrl(), Options{Edge: EdgeHooks{Self: "desk", Fleet: fleet}})
+	snap, err = bare.edgeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Events == nil || len(snap.Events) != 0 {
+		t.Fatalf("an unwired hook is an empty list, never nil: %+v", snap.Events)
+	}
+
+	js, _ := os.ReadFile("assets/console.js")
+	html, _ := os.ReadFile("assets/console.html")
+	for _, want := range []string{"function edgeRenderEvents(d)", "edgeRenderEvents(d);", `$("edge-events")`,
+		"Nothing has happened on this Edge yet.", `if (n.maintain) edgeKV(card, "service"`} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("console.js is missing %q", want)
+		}
+	}
+	if !strings.Contains(string(html), `id="edge-events"`) {
+		t.Error("console.html has no events list")
+	}
+}

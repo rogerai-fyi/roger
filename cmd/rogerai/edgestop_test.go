@@ -444,3 +444,32 @@ func TestWhoAskedReadsAsANameOrAShortID(t *testing.T) {
 	require.Contains(t, last.Detail, "asked by "+edgeShortID(id))
 	require.NotContains(t, last.Detail, id, "the whole id never appears in a line a person reads")
 }
+
+// THE CONSENT TEXT must say everything the switch grants. An action added without a word here would
+// tell the owner less than they are giving, so it is generated from the action list and pinned here.
+func TestTheMaintenanceSwitchSaysEverythingItGrants(t *testing.T) {
+	maintainRig(t)
+	out, err := captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"on"}) })
+	require.NoError(t, err)
+
+	// Every action the vocabulary carries is named, and so is the log.
+	for _, want := range []string{"START", "STOP", "RESTART", "READ this machine's recent log lines"} {
+		require.Contains(t, out, want, "the owner is told what they are granting")
+	}
+	require.Equal(t, 3, len(edge.MaintainActs), "a new action needs a word in the consent text")
+	// And the boundaries that remain.
+	for _, want := range []string{"CANNOT run a command", "reboot or shut the machine down", "redacted"} {
+		require.Contains(t, out, want)
+	}
+	// The stale claim is gone: it said members could not stop anything, after stop had shipped.
+	require.NotContains(t, out, "stop anything")
+
+	// The same words when it is merely read, and none of them when it is off.
+	out, err = captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), nil) })
+	require.NoError(t, err)
+	require.Contains(t, out, "STOP one that is running")
+	out, err = captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"off"}) })
+	require.NoError(t, err)
+	require.NotContains(t, out, "STOP one that is running")
+	require.Contains(t, out, "No member can act on it")
+}

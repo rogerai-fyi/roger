@@ -163,6 +163,12 @@ capability scope, the owner's switch and the replay cache, and adds no authoriza
 It is not a file read either: the only thing served is the process's own ring, so no path comes from
 the caller. Proposed in features/edge/logs.feature.
 
+## Console parity
+
+The browser tab carries what the terminal shows: the events timeline as its own list, with a run of
+the same thing read once and counted, and a mark on a node whose owner turned maintenance on. The
+words are chosen on the server, as the rest of the tab's are, so the two surfaces cannot drift.
+
 ## The events timeline
 
 An operator who finds a unit in a strange state asks what happened to it and when. The Edge recorded

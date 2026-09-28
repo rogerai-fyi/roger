@@ -1679,6 +1679,7 @@
     edgeRenderSessions(d);
     edgeRenderGrants(d);
     edgeRenderFloor(d);
+    edgeRenderEvents(d);
     edgeCanManage = !!d.manage;
     edgeRenderSelfControls(d);
     edgeRenderDetail(d);
@@ -1952,6 +1953,31 @@
   // edgeRenderFloor draws the floor: the andon tiles (one word, one colour, one number per unit), the
   // standing trouble calls with why/do and roger / stand by, and the sign-off line - the console's
   // mirror of the TUI's ANDON and TROUBLE. Shown only when the host wired the floor.
+  // edgeRenderEvents draws the timeline (features/edge/events.feature): a crossing in the alarm
+  // colour, a node event quietly, an empty list SAID rather than drawn as nothing.
+  function edgeRenderEvents(d) {
+    var body = $("edge-events");
+    if (!body) return;
+    body.innerHTML = "";
+    var events = d.events || [];
+    if (!events.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "Nothing has happened on this Edge yet.");
+      ec.colSpan = 4;
+      er.appendChild(ec);
+      body.appendChild(er);
+      return;
+    }
+    events.forEach(function (e) {
+      var tr = el("tr", e.alarm ? null : "muted");
+      tr.appendChild(el("td", "mono small", e.age));
+      tr.appendChild(el("td", "mono small", e.node));
+      tr.appendChild(el("td", "mono small" + (e.alarm ? " live" : ""), (e.alarm ? "\u25b2 " : "") + e.what));
+      tr.appendChild(el("td", "mono small", e.detail || ""));
+      body.appendChild(tr);
+    });
+  }
+
   function edgeRenderFloor(d) {
     var wrap = $("edge-floor-wrap");
     if (!wrap) return;
@@ -2388,6 +2414,8 @@
     });
     if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
     if ((n.tags || []).length) edgeKV(card, "tags", n.tags.join(" \u00b7 "));
+    // Maintenance is on there: a member with a grant can start, stop or restart one of its rogers.
+    if (n.maintain) edgeKV(card, "service", "maintenance is on there", "edge-alert");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
     (n.alerts || []).forEach(function (a, i) { edgeKV(card, i === 0 ? "alerts" : "", "\u26a0 firing \u00b7 " + a, "edge-alert"); });
     if (n.pin) edgeKV(card, "pin", edgeClip(n.pin, 24));

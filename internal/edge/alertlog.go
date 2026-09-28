@@ -291,6 +291,12 @@ const (
 // capHistory keeps the history from growing without end: past historyTrim lines the oldest go,
 // leaving historyKeep. Trimmed the same way states.jsonl is, whole and atomically.
 func (l AlertLog) capHistory() error {
+	// A STAT first: this runs on every append, and reading the whole history to learn it is short is
+	// work for nothing. No alert line is as small as minHistoryLine bytes, so a file under that many
+	// times the trim point cannot hold enough lines to need trimming.
+	if fi, err := os.Stat(l.path("log.jsonl")); err == nil && fi.Size() < int64(historyTrim)*minHistoryLine {
+		return nil
+	}
 	b, err := os.ReadFile(l.path("log.jsonl"))
 	if err != nil {
 		return err
@@ -300,12 +306,18 @@ func (l AlertLog) capHistory() error {
 		return nil
 	}
 	keep := strings.Join(lines[len(lines)-historyKeep:], "\n") + "\n"
-	tmp := l.path("log.jsonl.tmp")
+	// A tmp name of this process's own: capHistory runs under the log's lock, so a collision needs a
+	// bug elsewhere - and if there ever is one, two writers must not scribble on one temporary file.
+	tmp := l.path(fmt.Sprintf("log.jsonl.%d.tmp", os.Getpid()))
 	if err := os.WriteFile(tmp, []byte(keep), 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, l.path("log.jsonl"))
 }
+
+// minHistoryLine is a conservative floor on how many bytes one history line takes: the shortest alert
+// line carries a timestamp, a rule, a node and a metric, so it is far more than this.
+const minHistoryLine = 40
 
 // Recent is the last n alerts, newest last.
 func (l AlertLog) Recent(n int) ([]Alert, error) {

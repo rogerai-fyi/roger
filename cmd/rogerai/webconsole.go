@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/tui"
 	"rogerai.fm/roger/v6/internal/webui"
@@ -158,6 +159,7 @@ func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
 		Roger:    h.EdgeRoger,
 		StandBy:  h.EdgeStandBy,
 		Floor:    edgeFloorHook(h),
+		Events:   edgeEventsHook(),
 		Adopting: h.EdgeAdopting, PersistentAgents: h.EdgePersistentAgents, AgentJobs: h.EdgeAgentJobs,
 		Household: h.EdgeHousehold,
 		Sessions:  h.EdgeSessions, Status: h.EdgeStatus,
@@ -165,6 +167,27 @@ func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
 }
 
 // edgeFloorHook adapts the TUI hook's four values to the console's one struct (nil when unwired).
+// edgeEventsHook hands the console the same merged timeline the CLI prints and the fleet screen's
+// EVENTS tab draws (features/edge/events.feature), worded once here so the three cannot diverge.
+func edgeEventsHook() func(time.Time, int) []webui.EdgeEvent {
+	return func(now time.Time, limit int) []webui.EdgeEvent {
+		events, _, err := edgeEventsRead(edge.EventQuery{Limit: limit}, now)
+		if err != nil {
+			return nil // an Edge that cannot be read is said elsewhere; the tab simply has no list
+		}
+		out := make([]webui.EdgeEvent, 0, len(events))
+		for _, e := range events {
+			detail := e.Detail
+			if e.Count > 1 {
+				detail += fmt.Sprintf("   ×%d over %s", e.Count, edge.Age(e.At.Sub(e.Since)))
+			}
+			out = append(out, webui.EdgeEvent{Age: edge.Age(now.Sub(e.At)) + " ago", Node: e.Node,
+				What: e.What, Detail: detail, Alarm: e.Kind == edge.EventAlert})
+		}
+		return out
+	}
+}
+
 func edgeFloorHook(h *tui.Hooks) func(time.Time) webui.EdgeFloor {
 	if h.EdgeFloor == nil {
 		return nil
