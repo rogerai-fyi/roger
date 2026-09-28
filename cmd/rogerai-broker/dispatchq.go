@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -78,8 +79,9 @@ var (
 	// dqPopCheck is how often a waiting ticket checks its job is still queued (and re-nudges).
 	dqPopCheck = time.Second
 	// dqTakenGrace is how long a popped job may go without a "taken" before it is declared
-	// lost (the popping instance died, or its write to the node failed).
-	dqTakenGrace = 5 * time.Second
+	// lost (the popping instance died, or its write to the node failed), or, for a node that
+	// acks, put back for another delivery. Atomic so scenarios can shorten it while watchers run.
+	dqTakenGrace = newAtomicDuration(5 * time.Second)
 	// dqAfterPop is a TEST HOOK run between a poll's pop and its handoff (nil in production);
 	// returning true simulates the process dying at that point.
 	dqAfterPop func(inst string) (crashed bool)
@@ -288,6 +290,29 @@ func (q *dispatchQueue) handle(m dqMsg) {
 		go q.nudge(tk) // Valkey I/O: never on the reader
 	case "taken":
 		tk.markTaken()
+	case "sent": // written to an ack-capable poll: taken only when the node acks
+		tk.mu.Lock()
+		tk.sent++
+		tk.mu.Unlock()
+		select {
+		case tk.sentCh <- struct{}{}:
+		default:
+		}
+	case "ack":
+		if m.node != tk.node {
+			return // an ack can only confirm the acking node's own job
+		}
+		tk.markTaken()
+		tk.mu.Lock()
+		requeued := tk.requeued
+		tk.mu.Unlock()
+		if requeued { // a put-back copy may still wait in the list: withdraw it
+			go func() {
+				ctx, cancel := opCtx()
+				defer cancel()
+				q.rdb.LRem(ctx, dqListPrefix+tk.node, 0, tk.raw)
+			}()
+		}
 	case "res":
 		tk.markTaken()
 		q.noteServe(tk)
@@ -329,6 +354,13 @@ type dispatchTicket struct {
 	mu    sync.Mutex
 	tried map[string]bool
 
+	// Node acks (node_ack.feature): raw is the list element (kept even for an in-memory
+	// handoff, so the job can be put back); sent counts deliveries to an ack-capable poll.
+	raw      []byte
+	sent     int
+	sentCh   chan struct{} // signalled on each delivery to an ack-capable poll
+	requeued bool
+
 	legacyCancel func() // dispatchViaBus: tears down the legacy subscriptions
 }
 
@@ -337,7 +369,7 @@ func newTicket(q *dispatchQueue, id, node string) *dispatchTicket {
 		q: q, id: id, node: node,
 		res: make(chan []byte, 1), frames: make(chan streamFrame, dqFrameBuf),
 		done: make(chan struct{}), taken: make(chan struct{}), closed: make(chan struct{}),
-		tried: map[string]bool{},
+		tried: map[string]bool{}, sentCh: make(chan struct{}, 1),
 	}
 }
 
@@ -520,12 +552,12 @@ func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTick
 	}
 	wait := queueWaitFor(job)
 	// A job popped after this is one whose origin died without withdrawing it: drop it.
-	e := dqEntry{Origin: q.self, Deadline: time.Now().Add(wait + dqTakenGrace + 30*time.Second).UnixMilli(), Job: jraw}
+	e := dqEntry{Origin: q.self, Deadline: time.Now().Add(wait + dqTakenGrace.get() + 30*time.Second).UnixMilli(), Job: jraw}
 	elem, _ := json.Marshal(e)
 	e.raw = elem
 
 	tk := newTicket(q, job.ID, nodeID)
-	tk.elem = elem
+	tk.elem, tk.raw = elem, elem
 	q.mu.Lock()
 	q.tickets[job.ID] = tk
 	q.mu.Unlock()
@@ -586,14 +618,19 @@ func (q *dispatchQueue) watch(tk *dispatchTicket, wait time.Duration) {
 	check := time.NewTicker(dqPopCheck)
 	defer check.Stop()
 	var lost <-chan time.Time
+	grace := dqTakenGrace.get() // read once: fixed for this job's life
 	startLost := func() {
 		if lost == nil {
-			lost = time.After(dqTakenGrace)
+			lost = time.After(grace)
 		}
 	}
 	lkey := dqListPrefix + tk.node
 	for {
 		select {
+		case <-tk.sentCh:
+			// A poll took it: the queue wait no longer applies; the ack (or its absence) decides.
+			withdraw.Stop()
+			startLost()
 		case <-tk.taken:
 			return
 		case <-tk.done:
@@ -649,11 +686,42 @@ func (q *dispatchQueue) watch(tk *dispatchTicket, wait time.Duration) {
 					continue
 				}
 			}
+			tk.mu.Lock()
+			sent := tk.sent
+			tk.mu.Unlock()
+			if sent > 0 && sent < dqMaxDeliveries {
+				// Written to an ack-capable poll but never acked: the node did not get it (or
+				// its ack was lost; the node dedupes). Put it back at the front and wake a poll.
+				q.redeliver(tk)
+				lost = nil
+				continue
+			}
 			q.b.stats.dqLost.Add(1)
 			tk.fail(errHandoffLost)
 			return
 		}
 	}
+}
+
+// dqMaxDeliveries bounds how often an unacked job is written before the consumer gets a 503.
+const dqMaxDeliveries = 3
+
+// redeliver puts an unacked job back at the front of its node's list and wakes a poll.
+func (q *dispatchQueue) redeliver(tk *dispatchTicket) {
+	tk.mu.Lock()
+	tk.requeued = true
+	tk.elem = tk.raw
+	tk.tried = map[string]bool{}
+	tk.mu.Unlock()
+	ctx, cancel := opCtx()
+	err := q.rdb.LPush(ctx, dqListPrefix+tk.node, tk.raw).Err()
+	cancel()
+	if err != nil {
+		q.noteErr("dq redeliver", err)
+		return
+	}
+	q.b.stats.dqRedeliver.Add(1)
+	q.nudge(tk)
 }
 
 // nudge wakes one idle poller of the ticket's node: local first, else the instance the route
@@ -900,7 +968,11 @@ func (q *dispatchQueue) handOver(w http.ResponseWriter, r *http.Request, node st
 		return true
 	}
 	q.b.stats.dqHandoff.Add(1)
-	_ = q.send(e.Origin, dqMsg{kind: "taken", job: job.ID, node: node})
+	kind := "taken"
+	if r.Header.Get(ackHeader) == "1" {
+		kind = "sent" // this node confirms receipt itself: taken only on its ack
+	}
+	_ = q.send(e.Origin, dqMsg{kind: kind, job: job.ID, node: node})
 	return true
 }
 
@@ -953,3 +1025,43 @@ func (q *dispatchQueue) originOf(jobID string) (string, error) {
 	}
 	return o, err
 }
+
+// ackHeader is sent by nodes that POST /agent/ack for every job they receive.
+const ackHeader = "X-Roger-Ack"
+
+// agentAck handles POST /agent/ack?node=<id>&job=<id>: the node confirms it received a job.
+// Authenticated like a poll. It marks the job taken at its origin; an ack for a job this
+// node was not sent, or for an unknown job, changes nothing. Single-instance: accepted, no-op.
+func (b *broker) agentAck(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	node, jobID := r.URL.Query().Get("node"), r.URL.Query().Get("job")
+	t, tok := b.tunnelFor(node)
+	if t == nil {
+		jsonErr(w, http.StatusNotFound, "unknown node")
+		return
+	}
+	if !authNode(r, tok) {
+		jsonErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if q := b.dqueue(); q != nil && b.multiInstance && jobID != "" {
+		if origin, err := q.originOf(jobID); err == nil && origin != "" {
+			_ = q.send(origin, dqMsg{kind: "ack", job: jobID, node: node})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// atomicDuration is a tunable read by background goroutines and shortened by scenarios.
+type atomicDuration struct{ v atomic.Int64 }
+
+func newAtomicDuration(d time.Duration) *atomicDuration {
+	a := &atomicDuration{}
+	a.v.Store(int64(d))
+	return a
+}
+
+func (a *atomicDuration) get() time.Duration  { return time.Duration(a.v.Load()) }
+func (a *atomicDuration) set(d time.Duration) { a.v.Store(int64(d)) }

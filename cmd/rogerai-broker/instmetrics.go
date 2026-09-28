@@ -41,6 +41,8 @@ type instStats struct {
 	dqBusy    atomic.Int64
 	dqLost    atomic.Int64
 	dqOffAir  atomic.Int64
+	// dqRedeliver counts jobs put back because an ack-capable node never acked them.
+	dqRedeliver atomic.Int64
 	// rcFrames counts remote-control frames this instance received for its viewers.
 	rcFrames atomic.Int64
 

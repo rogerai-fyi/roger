@@ -891,6 +891,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
 	mux.HandleFunc("/agent/poll", b.agentPoll)     // node dials out, long-polls for jobs
 	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
+	mux.HandleFunc("/agent/ack", b.agentAck)       // node confirms it received a job (node_ack.feature)
 	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
 	mux.HandleFunc("/voices", b.voices) // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
