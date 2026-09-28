@@ -92,6 +92,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"events", "[--node <node>] [--since <dur>] [--limit <n>] [--json]", "what happened on this Edge, newest first", 0, 0},
 	{"expect", "[<what> [value] [--scope fleet|tag:<tag>|<node>] | rm <what>]", "say what this Edge should look like: roger <version>, serves <band>, agent, maintenance", 0, 2},
 	{"drift", "[--json]", "where this Edge does not match what you expect of it", 0, 0},
+	{"schedule", "[add <start|stop|restart> <agent> [--scope ...] [--every <dur>|--once] | rm <id>]", "leave a maintenance action standing, run on this machine's own pass", 0, 3},
 	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>|tag:<tag>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
@@ -202,6 +203,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeExpect(cfg, rest)
 	case "drift":
 		return cmdEdgeDrift(cfg, rest)
+	case "schedule":
+		return cmdEdgeSchedule(cfg, rest)
 	case "alert":
 		return cmdEdgeAlert(cfg, rest)
 	case "enroll":
@@ -247,7 +250,7 @@ var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
 	"force": false, "clear": false,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
-	"node": true, "limit": true, "lines": true,
+	"node": true, "limit": true, "lines": true, "every": true, "once": false,
 }
 
 type edgeArgv struct {

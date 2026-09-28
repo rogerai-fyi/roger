@@ -854,6 +854,10 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.beatInstance(loadConfig())
 	h.observeSelf(time.Now()) // this machine's own row: live household, fresh last-seen
 	h.judgeHealth(time.Now()) // the authority judges the rules, so a dead node still reports
+	// Anything the owner left standing and that is due now (features/edge/schedule.feature). It runs
+	// through the ordinary maintenance path, so the target's switch and the grant still decide; a
+	// machine with no schedules does nothing at all here.
+	edgeRunSchedule(cfg, time.Now())
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.adoptExternalEdits() // before merging discovery in: a candidate adopted elsewhere is gone

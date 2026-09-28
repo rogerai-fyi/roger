@@ -163,6 +163,28 @@ capability scope, the owner's switch and the replay cache, and adds no authoriza
 It is not a file read either: the only thing served is the process's own ring, so no path comes from
 the caller. Proposed in features/edge/logs.feature.
 
+## Schedules: an action left standing
+
+The last of the list: the ad-hoc maintenance an operator wants standing rather than remembered.
+"Restart the watcher on every production box each night." `roger edge schedule add restart watcher
+--scope tag:production --every 24h`, or `--once` for a job that runs at the next opportunity and
+retires itself. The list shows each job, its scope, its cadence, when it last ran and what came of it,
+and a run appears on the events timeline against the unit it touched.
+
+A schedule is only a clock in front of the gate that already exists, and that is the whole safety
+argument. A run takes exactly the path a typed maintain takes: the target's own maintenance switch, an
+authority-signed grant scoped to maintain and that node, the mutual TLS, the caller matched to its
+certificate, the revocation check, the replay cache. It can never do anything its owner could not do
+by hand at that moment, and a grant that expires or a switch turned off stops it dead. It lives on the
+machine that runs it, because that is the machine holding the grant, and nothing is pushed to anybody.
+
+The failures got as much attention as the happy path. A run that cannot be made is recorded and waited
+out to the next cadence, never retried in a tight loop. A unit with no face is recorded as dark rather
+than failed, because nothing was wrong with the job. A refusal is recorded in the words the face used.
+One run at a time, a cadence floor so a schedule cannot become a hammer, and a fleet-wide job never
+targets the machine it runs on. A log tail is not schedulable: a tail nobody reads is only a copy of
+somebody's log lying around.
+
 ## Say what the fleet should look like
 
 The half of a fleet manager Edge still lacked: a desired state, and a drift report. An owner can

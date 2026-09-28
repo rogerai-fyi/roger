@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -116,21 +117,35 @@ func TestTheLocalHardwarePictureNeverReachesTheWire(t *testing.T) {
 	if !strings.Contains(sent, "/nodes/register") {
 		t.Fatalf("nothing registered, so this test proved nothing:\n%s", sent)
 	}
-	// Everything the preflight can see, and none of it may appear.
+	// Everything the preflight can see, and none of it may appear. A NUMBER is looked for as a VALUE,
+	// not as a substring: a transcript carries random hex ids and request ids, and four digits turn up
+	// inside one by chance often enough to fail this for no reason (it did, on "4093" inside
+	// "...9228b84093b4f52f..."). A false alarm on a privacy test is worse than no test, because the
+	// next person stops believing it.
 	for _, secret := range []string{
 		"SENTINELGPUMODELQX9",  // the GPU model
 		"SENTINELNOTEQX9",      // an undetermined note
 		"/sentineldiskpathqx9", // the filesystem path that was measured
-		"65531", "131062",      // per-GPU and total VRAM
-		"524269", // system RAM
-		"999983", // free disk
-		"4093",   // core count
 	} {
 		if strings.Contains(sent, secret) {
 			t.Errorf("the node transmitted %q, which is local-only hardware detail. "+
 				"docs/relay-selection-design.md §4.1: supply-side capability may not be self-declared, "+
 				"and the preflight is only allowed to read this much BECAUSE it sends none of it.\n%s",
 				secret, sent)
+		}
+	}
+	for _, n := range []string{
+		"65531", "131062", // per-GPU and total VRAM
+		"524269", // system RAM
+		"999983", // free disk
+		"4093",   // core count
+	} {
+		// Bounded by anything that is not alphanumeric, so the number has to appear AS a number.
+		if regexp.MustCompile(`(^|[^0-9A-Za-z])` + n + `([^0-9A-Za-z]|$)`).MatchString(sent) {
+			t.Errorf("the node transmitted %q as a value, which is local-only hardware detail. "+
+				"docs/relay-selection-design.md §4.1: supply-side capability may not be self-declared, "+
+				"and the preflight is only allowed to read this much BECAUSE it sends none of it.\n%s",
+				n, sent)
 		}
 	}
 	// The one value that IS allowed out, so this test also proves the share still works
