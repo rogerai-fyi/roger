@@ -404,7 +404,9 @@ func edgeMapTally(items []edgeNetItem, cw int) string {
 	}
 	var parts []string
 	if members > 0 {
-		parts = append(parts, edgeCountWords(members, "machine", "machines")+" on your Edge")
+		// NOT "machines": a phone and a board are on this Edge too, and calling them machines is the
+		// exact confusion the shared kind words were introduced to end. The cards say which is which.
+		parts = append(parts, edgeCountWords(members, "unit", "units")+" on your Edge")
 	}
 	if waiting > 0 {
 		parts = append(parts, edgeCountWords(waiting, "device", "devices")+" waiting to be adopted")
@@ -629,20 +631,24 @@ func (m model) edgeActions() []edgeAction {
 		if m.hooks.EdgeAddAgent != nil {
 			out = append(out, edgeAction{"+", "Add Agent", "run a new agent here", false})
 		}
-		out = append(out, edgeAction{"s", "Add Device", "another machine joins", false})
-		if m.edge.status != nil && m.edge.status.AuthorityHere {
-			out = append(out, edgeAction{"y", "Allow Machine", "show your key to admit", false})
-		}
+		out = append(out, m.edgeWideActions()...)
 	}
 	// NEVER A DEAD END. A node this build can do nothing to in place still leaves the owner the
 	// Edge-wide actions, which is a great deal better than a panel reading "nothing to do on this
 	// node here" - the first thing this screen said to the founder on opening it. A member keeps its
 	// own explanation (it serves no model yet), which is more use than a button.
 	if len(out) == 0 && !it.member {
-		out = append(out, edgeAction{"s", "Add Device", "another machine joins", false})
-		if m.edge.status != nil && m.edge.status.AuthorityHere {
-			out = append(out, edgeAction{"y", "Allow Machine", "show your key to admit", false})
-		}
+		out = append(out, m.edgeWideActions()...)
+	}
+	return out
+}
+
+// edgeWideActions are the things an owner can always do to the EDGE ITSELF rather than to one node.
+// One definition, used by the machine's own panel and as the fallback when a node offers nothing.
+func (m model) edgeWideActions() []edgeAction {
+	out := []edgeAction{{"s", "Add Device", "another machine joins", false}}
+	if m.edge.status != nil && m.edge.status.AuthorityHere {
+		out = append(out, edgeAction{"y", "Allow Machine", "show your key to admit", false})
 	}
 	return out
 }
@@ -741,13 +747,11 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 	line("  " + stKey.Render("WHAT YOU CAN DO") + stDim.Render("  on  ") + gs.Render(glyph) + " " + stEmber.Render(who) + tail)
 	acts := m.edgeActions()
 	if len(acts) == 0 {
-		if it.member {
-			// A member with no in-place action is one that serves no model yet: say what would make it
-			// askable, not a bare "nothing to do" (features/edge/addressed_inference.feature).
-			line("  " + stDim.Render("this device serves no model yet, so there is nothing to ask it - a served, verified model makes it askable"))
-		} else {
-			line("  " + stDim.Render("nothing to do on this node here - ←→ to select another"))
-		}
+		// ONLY A MEMBER can reach this now: every other selection falls back to the Edge-wide actions,
+		// so there is no "nothing to do on this node here" branch left to write. A member with no
+		// in-place action is one that serves no model yet, and saying what WOULD make it askable is
+		// more use than a button (features/edge/addressed_inference.feature).
+		line("  " + stDim.Render("this device serves no model yet, so there is nothing to ask it - a served, verified model makes it askable"))
 		return
 	}
 	// Clamp a stale focus index so the highlight lands on a real button.

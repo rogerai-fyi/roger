@@ -66,21 +66,22 @@ func TestEveryCardSaysWhatTheThingIs(t *testing.T) {
 func TestTheMapCountsWhatIsOnIt(t *testing.T) {
 	m := mapReadableModel(t)
 	out := stripANSI(m.edgeView(116))
-	for _, want := range []string{"3 machines on your Edge", "1 device waiting to be adopted", "2 rogers running here"} {
+	// NOT "3 machines": one of them is a phone and one is a board. The cards say which is which.
+	for _, want := range []string{"3 units on your Edge", "1 device waiting to be adopted", "2 rogers running here"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the map does not count what is on it: missing %q\n%s", want, out)
 		}
 	}
 	// Only what fits: a count clipped in half counts nothing.
 	narrow := edgeMapTally([]edgeNetItem{{machine: true}, {member: true}, {agent: true}}, 30)
-	if narrow != "1 machine on your Edge" {
+	if narrow != "1 unit on your Edge" {
 		t.Errorf("a narrow tally kept more than fits: %q", narrow)
 	}
 	// A clause with nothing in it is left out rather than reading "0 machines".
 	if got := edgeMapTally([]edgeNetItem{{machine: true}}, 100); got != "" {
 		t.Errorf("a bare machine should tally nothing, got %q", got)
 	}
-	if got := edgeMapTally([]edgeNetItem{{machine: true}, {member: true}, {agent: true}}, 100); got != "1 machine on your Edge  ·  1 roger running here" {
+	if got := edgeMapTally([]edgeNetItem{{machine: true}, {member: true}, {agent: true}}, 100); got != "1 unit on your Edge  ·  1 roger running here" {
 		t.Errorf("singulars are wrong: %q", got)
 	}
 }
@@ -195,6 +196,43 @@ func TestTheJoinAddressIsOnTheScreen(t *testing.T) {
 	for _, want := range []string{"NO DEVICES YET", "http://192.168.1.9:8791", "open the Roger app"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the join address is not on the screen: missing %q\n%s", want, out)
+		}
+	}
+}
+
+// EVERY capability has a mark, and no two share one. A capability added without a mark rendered
+// as a BLANK inside the marks cell, so a node that declared it looked like a node that declared
+// nothing, and the column gained a hole. That is how `maintain` went unseen from the day it
+// shipped until 2026-09-29. This test fails the moment a capability is added without a mark.
+func TestEveryCapabilityHasItsOwnMark(t *testing.T) {
+	seen := map[string]edge.Capability{}
+	for _, c := range edge.Capabilities() {
+		mk := edgeCapMark[c]
+		if mk == "" {
+			t.Errorf("capability %q has no mark, so a node that declares it draws a blank", c)
+			continue
+		}
+		if had, clash := seen[mk]; clash {
+			t.Errorf("capabilities %q and %q share the mark %q", had, c, mk)
+		}
+		seen[mk] = c
+	}
+}
+
+// And the marks cell itself never carries a hole: a node declaring every capability draws one
+// mark per capability, all of them readable.
+func TestTheMarksCellHasNoHoles(t *testing.T) {
+	n := store.EdgeNode{}
+	for _, c := range edge.Capabilities() {
+		n.Caps = append(n.Caps, store.EdgeCap{Name: string(c), State: string(edge.Verified)})
+	}
+	got := edgeMarks(n)
+	if strings.Contains(got, "  ") || strings.Contains(got, "[ ") || strings.Contains(got, " ]") {
+		t.Errorf("the marks cell has a hole in it: %q", got)
+	}
+	for _, c := range edge.Capabilities() {
+		if !strings.Contains(got, strings.ToUpper(edgeCapMark[c])) {
+			t.Errorf("%q is not in the marks cell %q", c, got)
 		}
 	}
 }

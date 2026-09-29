@@ -312,7 +312,7 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		}
 		l := lm.NewLine(span(" ", dim), rail, span(" ", dim))
 		l.Spans = append(l.Spans, eye(carrierLevel(n.LastHeard, n.Dark, now), n.Dark, false, len(firing) > 0, h.frame, i)...)
-		l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(n.Name, nameW), nameW), nc))
+		l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(edge.Label(n.Name, n.ID), nameW), nameW), nc))
 		if kindW > 0 {
 			l.Spans = append(l.Spans, span(pad(kindLabel(n.Kind), kindW), dim))
 		}
@@ -347,7 +347,10 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		lines = append(lines, lm.NewLine())
 		headline := lm.NewLine(span(" ", dim))
 		headline.Spans = append(headline.Spans, eye(carrierLevel(n.LastHeard, n.Dark, now), n.Dark, false, len(firing) > 0, h.frame, 99)...)
-		headline.Spans = append(headline.Spans, span(" ", dim), bold(n.Name, ink), span("   "+kindLabel(n.Kind)+" · ", dim))
+		// A record whose name IS its id was never named by its owner, so this screen calls it by a
+		// short id like every other surface (edge.Label). The rule lookups below still use n.Name,
+		// which is the record's own name and what a scoped rule was written against.
+		headline.Spans = append(headline.Spans, span(" ", dim), bold(edge.Label(n.Name, n.ID), ink), span("   "+kindLabel(n.Kind)+" · ", dim))
 		switch {
 		case n.Dark:
 			headline.Spans = append(headline.Spans, span("DARK "+edge.Age(n.DarkFor), ash))

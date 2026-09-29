@@ -703,3 +703,35 @@ func TestReadoutSaysWhereAUnitHasDrifted(t *testing.T) {
 		t.Fatal("a unit in order carries no drift row")
 	}
 }
+
+// A record whose name IS its own id was never named by its owner. The screen PRINTS a short label
+// for it and still ACTS on the record name, because that is what an adopt, a rule scope and an agent
+// action key off. Drawing 48 characters as somebody's name is what made the [3] map unreadable.
+func TestTheScreenPrintsALabelAndActsOnTheName(t *testing.T) {
+	id := "n_" + strings.Repeat("ab", 24)
+	now := time.Now()
+	rec := &recorder{}
+	snap := func() (fleetview.FleetSnapshot, error) {
+		return fleetview.FleetSnapshot{At: now,
+			Self: fleetview.SelfFacts{Name: "desk", Root: "LOCAL ROOT"},
+			Items: []fleetview.FleetItem{
+				{Kind: fleetview.ItemHub, ID: "n_self", Name: "desk", NodeKind: "host"},
+				{Kind: fleetview.ItemCandidate, ID: id, Name: id, Label: "n_abababab", NodeKind: "mobile", Presence: "discovered"},
+			}}, nil
+	}
+	f := fleetview.NewFleet(snap, nil, rec.actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	screen := page.Screen()
+	if !strings.Contains(screen, "n_abababab") {
+		t.Errorf("the short label is not drawn:\n%s", screen)
+	}
+	if strings.Contains(screen, id) {
+		t.Errorf("the whole 48-character id is drawn as a name:\n%s", screen)
+	}
+	// Adopting it acts on the RECORD, not on the label.
+	page.Press("Down")
+	page.Press("a")
+	if len(rec.adopted) != 1 || rec.adopted[0] != id {
+		t.Fatalf("adopt acted on %v, want the record id", rec.adopted)
+	}
+}

@@ -31,11 +31,25 @@ const (
 // Cap is one capability as a node declares it: CLAIMED or VERIFIED.
 type Cap struct{ Name, State string }
 
+// label is what to print for this item: the short label when the record was never named, else the
+// name itself.
+func (it FleetItem) label() string {
+	if it.Label != "" {
+		return it.Label
+	}
+	return it.Name
+}
+
 // FleetItem is one line of the map with everything its readout needs.
 type FleetItem struct {
-	Kind     ItemKind
-	ID       string // node id (hub, member, candidate)
+	Kind ItemKind
+	ID   string // node id (hub, member, candidate)
+	// Name is the RECORD name: what identity, an adopt, a rule scope and an agent action key off.
+	// Label is what to PRINT, and it differs only for a record that was never named by its owner and
+	// carries its own id as a name - a 48-character id is not a name (edge.Label). Draw the label,
+	// act on the name.
 	Name     string
+	Label    string
 	NodeKind string // host | board | mobile
 	Presence string // "online", "offline 1d", "discovered"
 	Dark     bool
@@ -481,7 +495,7 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 			case !still:
 				f.say(f.askID+" is no longer on the rack - nothing forgotten", true)
 			case f.Actions.Forget != nil:
-				f.report(f.Actions.Forget(it.ID), "forgot "+it.Name)
+				f.report(f.Actions.Forget(it.ID), "forgot "+it.label())
 			}
 		} else {
 			f.confirm = false
@@ -594,15 +608,15 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		}
 	case k.Ch == 'c':
 		if it := f.selected(); (it.Kind == ItemAgent || it.Kind == ItemInstance) && it.Job != "" && f.Actions.ClearJob != nil {
-			f.report(f.Actions.ClearJob(it.Name), "cleared the job on "+it.Name)
+			f.report(f.Actions.ClearJob(it.Name), "cleared the job on "+it.label())
 		}
 	case k.Ch == 'u':
 		if it := f.selected(); it.Kind == ItemAgent && it.Dark && f.Actions.ResumeAgent != nil {
-			f.report(f.Actions.ResumeAgent(it.Name), "relaunching "+it.Name)
+			f.report(f.Actions.ResumeAgent(it.Name), "relaunching "+it.label())
 		}
 	case k.Ch == 'x':
 		if it := f.selected(); it.Kind == ItemAgent && it.Dark && f.Actions.RemoveAgent != nil {
-			f.report(f.Actions.RemoveAgent(it.Name), "forgot agent "+it.Name)
+			f.report(f.Actions.RemoveAgent(it.Name), "forgot agent "+it.label())
 		}
 	case k.Ch == 'r':
 		f.readAt = time.Time{}
@@ -807,7 +821,7 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 	actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
 	if f.confirm {
 		it, _ := f.itemByID(f.askID)
-		confirmBox(fr, "forget "+it.Name+"?", "it leaves this Edge and its certificate is revoked", "y forget", "n keep it")
+		confirmBox(fr, "forget "+it.label()+"?", "it leaves this Edge and its certificate is revoked", "y forget", "n keep it")
 	}
 }
 
@@ -917,7 +931,7 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			top = append(top, lm.NewLine())
 			l := lm.NewLine(span(" ", dim), rail(i, dial), span(" ", dim))
 			l.Spans = append(l.Spans, eye(lv, false, false, len(it.Alerts) > 0, f.frame, i)...)
-			l.Spans = append(l.Spans, span(" ", dim), bold(it.Name, paper), span("   this machine", muted))
+			l.Spans = append(l.Spans, span(" ", dim), bold(it.label(), paper), span("   this machine", muted))
 			top = append(top, l)
 			top = append(top, lm.NewLine(span(" ", dim), rail(i, dial), span("    ", dim), span(strings.ToLower(f.snap.Self.Authority), muted)))
 			l = lm.NewLine(span(" ", dim), rail(i, dial), span("    ", dim))
@@ -939,7 +953,7 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 				gc = live
 			}
 			top = append(top, lm.NewLine(span(" ", dim), rail(i, dim), span("      "+branch+" ", dim), bold(g+" ", gc),
-				span(pad(elide(it.Name, nameW-2), nameW-2), nameC(i, it.Dark)), span(elide(it.rogerWords(), wordsW), muted)))
+				span(pad(elide(it.label(), nameW-2), nameW-2), nameC(i, it.Dark)), span(elide(it.rogerWords(), wordsW), muted)))
 		case ItemMember:
 			if !seenMember {
 				seenMember = true
@@ -949,7 +963,7 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			lv := carrierLevel(it.LastSeen, it.Dark, now)
 			l := lm.NewLine(span(" ", dim), rail(i, dial), span(" ", dim))
 			l.Spans = append(l.Spans, eye(lv, it.Dark, false, len(it.Alerts) > 0, f.frame, i)...)
-			l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(it.Name, nameW), nameW), nameC(i, it.Dark)))
+			l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(it.label(), nameW), nameW), nameC(i, it.Dark)))
 			if kindW > 0 {
 				l.Spans = append(l.Spans, span(pad(kindLabel(it.NodeKind), kindW), dim))
 			}
@@ -973,7 +987,7 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 			}
 			l := lm.NewLine(span(" ", dim), rail(i, glow), span(" ", dim))
 			l.Spans = append(l.Spans, eye(0, false, true, false, f.frame, i)...)
-			l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(it.Name, nameW), nameW), nameC(i, false)))
+			l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(it.label(), nameW), nameW), nameC(i, false)))
 			if kindW > 0 {
 				l.Spans = append(l.Spans, span(pad(kindLabel(it.NodeKind), kindW), dim))
 			}
@@ -1069,7 +1083,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 	case ItemHub:
 		lv := carrierLevel(it.heard(now), false, now)
 		root, _, _ := strings.Cut(f.snap.Self.Root, " · ")
-		head(lv, false, false, it.Name, "this machine · "+strings.ToLower(root))
+		head(lv, false, false, it.label(), "this machine · "+strings.ToLower(root))
 		prose("the transmitter of this Edge: it holds the root key and signs every member's certificate", ink)
 		air()
 		if area.Width < 56 { // narrow: the preference on its own row rather than cut
@@ -1085,7 +1099,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			role = "agent on this machine"
 		}
 		g, gc := it.glyph()
-		lines = append(lines, lm.NewLine(), lm.NewLine(span(" ", dim), bold(g, gc), span("  ", dim), bold(it.Name, ink), span("   "+role, dim)))
+		lines = append(lines, lm.NewLine(), lm.NewLine(span(" ", dim), bold(g, gc), span("  ", dim), bold(it.label(), ink), span("   "+role, dim)))
 		switch {
 		case it.Dark:
 			prose("offline: its process is not running. u relaunches it here, x forgets it", ink)
@@ -1103,7 +1117,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		software()
 	case ItemMember:
 		lv := carrierLevel(it.LastSeen, it.Dark, now)
-		head(lv, it.Dark, it.Asking, it.Name, kindLabel(it.NodeKind)+" · patched in")
+		head(lv, it.Dark, it.Asking, it.label(), kindLabel(it.NodeKind)+" · patched in")
 		switch {
 		case it.Asking && it.ClaimStanding:
 			prose("back on this network and asking to re-join. its claim is granted: it is waiting for it to claim its certificate "+atAuthority(it.AuthPort)+" - nothing has arrived yet. a re-admits it again (a fresh grant, its old certificate revoked)", ink)
@@ -1133,7 +1147,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		tagRow()
 		software()
 	case ItemCandidate:
-		head(0, false, true, it.Name, kindLabel(it.NodeKind)+" · on the bench")
+		head(0, false, true, it.label(), kindLabel(it.NodeKind)+" · on the bench")
 		prose("seen on this network, not on your Edge. adopting it grants a claim; it fetches its certificate and patches in", ink)
 		air()
 		row("status", bold("not on your Edge", glow), span(" · press a to adopt it", muted))
@@ -1199,7 +1213,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 	if f.rename {
 		air()
 		lines = append(lines, lm.NewLine(span("  ", dim), span("new name  ", paper), bold(string(f.input)+"▏", paper),
-			span("  (was "+it.Name+") · enter to rename · esc to cancel", muted)))
+			span("  (was "+it.label()+") · enter to rename · esc to cancel", muted)))
 	}
 	if f.binding {
 		air()
@@ -1603,7 +1617,7 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 			if word == "DARK" {
 				nameC = ash
 			}
-			row0 = append(row0, span(" ", dim), bold(pad(elide(it.Name, 26), 27), nameC))
+			row0 = append(row0, span(" ", dim), bold(pad(elide(it.label(), 26), 27), nameC))
 			row1 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), bold(pad(word, 10), c), span(pad(it.sinceWords(now), 19), c)}
 			row2 := []lm.Span{span(" ", dim), bold("▌", railC), span("   ", dim), eyebrow("airtime ", muted), bold(pad(pctS, 5), ink)}
 			row2 = append(row2, logStrip(it.Log, 16)...)

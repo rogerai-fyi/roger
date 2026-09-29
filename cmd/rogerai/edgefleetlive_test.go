@@ -55,14 +55,15 @@ func TestEdgeFleetScreenReadsAndManagesTheRealEdge(t *testing.T) {
 		Presence: string(edge.PresenceVerified), LastSeen: now.Unix()})
 	snap, err = src()
 	require.NoError(t, err)
-	shown := ""
-	for _, it := range snap.Items {
+	var found *fleetview.FleetItem
+	for i, it := range snap.Items {
 		if it.ID == longID {
-			shown = it.Name
+			found = &snap.Items[i]
 		}
 	}
-	require.NotEmpty(t, shown, "the id-named node is missing from the screen")
-	require.Equal(t, edge.ShortID(longID), shown)
+	require.NotNil(t, found, "the id-named node is missing from the screen")
+	require.Equal(t, edge.ShortID(longID), found.Label, "the screen prints a short label")
+	require.Equal(t, longID, found.Name, "and still carries the record name, which is what an action takes")
 
 	// Rename and forget act on the real state, the way the CLI does.
 	require.NoError(t, acts.Rename("n_nas", "nas-2"))

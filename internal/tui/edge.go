@@ -1025,6 +1025,7 @@ var edgeCapMark = map[edge.Capability]string{
 	edge.Actuate:  "ac",
 	edge.Relay:    "rl",
 	edge.Operate:  "op",
+	edge.Maintain: "mt",
 }
 
 // edgeOpenLive runs one of the live Edge screens (`roger edge fleet`, `roger edge health --live`)

@@ -39,8 +39,12 @@ func kindLabel(kind string) string {
 // capColor is a capability's color, the same in every chip: what a node can do is signal, what
 // needs the owner's yes (actuate) or acts on others (operate) is red.
 func capColor(name string) lm.Color {
-	switch name {
-	case "actuate", "operate":
+	// What a node can DO is signal; what needs the owner's yes, or lets one machine act on
+	// another, is the one red. The set is asked of internal/edge rather than listed here, so a
+	// capability added to the fabric cannot quietly arrive in the gentle colour: `maintain` did
+	// exactly that, and read as harmless while it could restart somebody's agent.
+	c := edge.Capability(name)
+	if c == edge.Actuate || edge.DeclarationGated(c) {
 		return live
 	}
 	return signal
