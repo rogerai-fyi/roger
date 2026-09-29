@@ -94,6 +94,8 @@ var edgeSubcommands = []edgeSubcommand{
 	{"drift", "[--json]", "where this Edge does not match what you expect of it", 0, 0},
 	{"schedule", "[add <start|stop|restart> <agent> [--scope ...] [--every <dur>|--once] | rm <id>]", "leave a maintenance action standing, run on this machine's own pass", 0, 3},
 	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>|tag:<tag>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
+	{"sink", "[add <webhook|discord|telegram> <url> | rm <id> | test <id>]", "say where an alert should go when it leaves this machine, or show what is configured", 0, 3},
+	{"actuate", "<node> [--yes]", "confirm that a node may change the physical world - the one capability only you can grant", 1, 1},
 	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
@@ -207,6 +209,10 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeSchedule(cfg, rest)
 	case "alert":
 		return cmdEdgeAlert(cfg, rest)
+	case "sink":
+		return cmdEdgeSink(cfg, rest)
+	case "actuate":
+		return cmdEdgeActuate(cfg, rest)
 	case "enroll":
 		return cmdEdgeEnroll(cfg, rest)
 	case "setup":
@@ -391,12 +397,30 @@ func edgeSameStrings(a, b []string) bool {
 }
 
 // edgeBaseOf is the merge base for a set of nodes as read or written.
+//
+// EVERY SLICE IS COPIED, and that is the whole point of this function rather than a plain map
+// assignment. A node record carries slices, and a shallow copy SHARES their backing array: an edit
+// made in place - which is what confirming a capability is - would change the base as well, the
+// merge would compare the edit against itself, conclude nothing had changed, and take the disk's
+// older version. The edit would vanish with no error anywhere, which is precisely the failure this
+// merge exists to prevent.
 func edgeBaseOf(nodes []store.EdgeNode) map[string]store.EdgeNode {
 	out := make(map[string]store.EdgeNode, len(nodes))
 	for _, n := range nodes {
-		out[n.ID] = n
+		out[n.ID] = edgeCloneNode(n)
 	}
 	return out
+}
+
+// edgeCloneNode is a node record that shares nothing with the one it came from.
+func edgeCloneNode(n store.EdgeNode) store.EdgeNode {
+	n.Caps = append([]store.EdgeCap(nil), n.Caps...)
+	n.Tags = append([]string(nil), n.Tags...)
+	n.Transports = append([]store.EdgeTransport(nil), n.Transports...)
+	n.History = append([]store.EdgeEvent(nil), n.History...)
+	n.Instances = append([]store.EdgeInstance(nil), n.Instances...)
+	n.Contract.Labels = append([]string(nil), n.Contract.Labels...)
+	return n
 }
 
 // edgeMergeOne merges ONE node that both sides hold. Each owner-decided field goes to whoever

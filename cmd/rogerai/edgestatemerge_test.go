@@ -396,3 +396,41 @@ func TestNoCLISurfacePrintsAnIdAsAName(t *testing.T) {
 		t.Errorf("the shared name lookup gives %q, want the short label", got)
 	}
 }
+
+// THE BASE MUST NOT SHARE MEMORY WITH WHAT IT IS THE BASE OF. A node record carries slices, and a
+// shallow copy of the record shares their backing array: mutating a capability IN PLACE then
+// changed the base too, the merge compared the edit against itself, concluded nothing had changed,
+// and took the disk's older version. The edit vanished with no error anywhere.
+//
+// Found on 2026-09-29 by building the actuate ceremony on top of this, which is the one edit that
+// mutates a capability in place. Rename and SetTags replace the field, so none of the tests above
+// could ever have caught it.
+func TestAnInPlaceEditIsNotLostToTheBase(t *testing.T) {
+	useTempConfig(t)
+	edgeSeed(t, store.EdgeNode{ID: "n_door", Name: "shed-door", Kind: "board",
+		Presence: string(edge.PresenceVerified), LastSeen: time.Now().Unix(),
+		Caps: []store.EdgeCap{{Name: "actuate", State: string(edge.Claimed)}}})
+
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	require.NoError(t, st.fleet.ConfirmActuate("n_door", "owner")) // mutates Caps[i] IN PLACE
+	require.NoError(t, st.save())
+
+	fresh, err := loadEdgeState()
+	require.NoError(t, err)
+	n, ok, err := fresh.fleet.Get("n_door")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, n.Caps, 1)
+	require.Equal(t, string(edge.Verified), n.Caps[0].State, "an in-place capability edit was lost")
+	require.Equal(t, "owner", n.Caps[0].ConfirmedBy)
+
+	// The same for tags and history, the other slices on the record.
+	require.NoError(t, fresh.fleet.SetTags("n_door", []string{"outside"}))
+	require.NoError(t, fresh.save())
+	again, err := loadEdgeState()
+	require.NoError(t, err)
+	n, _, _ = again.fleet.Get("n_door")
+	require.Equal(t, []string{"outside"}, n.Tags)
+	require.Equal(t, string(edge.Verified), n.Caps[0].State, "confirming was undone by a later tag edit")
+}

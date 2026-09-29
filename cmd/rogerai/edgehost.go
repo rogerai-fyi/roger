@@ -154,6 +154,9 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeStandBy = func(ruleID, nodeID string, d time.Duration) error {
 		return edgeAlertLog().StandByAs(ruleID, nodeID, edgeOperatorName(), time.Now().Add(d))
 	}
+	// The ACTUATE CEREMONY, through the fleet's own ConfirmActuate so the who and the when are
+	// recorded by the host exactly as the typed `roger edge actuate` records them.
+	hooks.EdgeConfirmActuate = h.confirmActuate
 	hooks.EdgeHealthLive = true
 	// Where the fleet does not match what the owner expects of it, from the same read
 	// `roger edge drift` prints, so the node page and the report cannot disagree.
@@ -272,6 +275,18 @@ func (h *edgeHost) adopting() []store.EdgeNode {
 		out = append(out, store.EdgeNode{ID: g.NodeID, Name: name})
 	}
 	return out
+}
+
+// confirmActuate is the owner saying yes, from the [3] screen, to a node that can change the
+// physical world. The host records WHO from its own operator identity: a screen never says who it
+// is, because a confirmation nobody can be held to is not a confirmation.
+func (h *edgeHost) confirmActuate(id string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.st.fleet.ConfirmActuate(id, edgeOperatorName()); err != nil {
+		return err
+	}
+	return h.st.save()
 }
 
 // adopt is the owner's explicit `a` on the Edge screen. It takes the SAME path as
@@ -1044,5 +1059,57 @@ func (h *edgeHost) judgeHealth(now time.Time) {
 		for _, a := range alerts {
 			log.Println("edge alert:", a)
 		}
+		edgeDeliverAlerts(alerts, now)
 	}
+}
+
+// edgeDeliverAlerts sends what just CHANGED to whatever sinks the owner configured
+// (features/edge/health.feature §5). Three rules decide where this call lives:
+//
+//   - only the HOST delivers. Judge is also called by an ordinary `roger edge health`, and a read
+//     must never send anybody a message; the host's pass is the one place that owns the transition.
+//   - only CHANGES are delivered. Judge returns what fired or cleared, not what is still firing,
+//     so nobody is messaged every thirty seconds about the same hot Pi.
+//   - it never blocks the pass. Delivery retries with a backoff, and a fleet on fire must not wait
+//     on an unreachable webhook to be told about the next thing, so it runs on its own goroutine
+//     with a bounded context.
+//
+// An Edge with no sink configured does nothing here at all, which is the private default.
+func edgeDeliverAlerts(alerts []edge.Alert, now time.Time) {
+	if len(alerts) == 0 {
+		return
+	}
+	l := edgeAlertLog()
+	if sinks, err := l.Sinks(); err != nil || len(sinks) == 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), edgeSinkPassBudget)
+		defer cancel()
+		for _, a := range alerts {
+			for _, d := range edgeDeliverOne(ctx, l, a, now) {
+				// The outcome names the sink by id and host, never by URL: a delivery line is safe to
+				// log precisely because the record it is built from cannot carry the secret.
+				if d.OK {
+					log.Printf("edge alert delivered: %s · %s", d.Words, d.Says)
+					continue
+				}
+				log.Printf("edge alert UNDELIVERED: %s · %s", d.Words, d.Says)
+			}
+		}
+	}()
+}
+
+// edgeSinkPassBudget bounds one pass's worth of delivery, so a dead sink cannot pile goroutines up
+// pass after pass.
+const edgeSinkPassBudget = 60 * time.Second
+
+// edgeDeliverOne is a seam: the spec swaps it to assert what WOULD be sent without standing up a
+// server for every scenario.
+var edgeDeliverOne = func(ctx context.Context, l edge.AlertLog, a edge.Alert, now time.Time) []edge.Delivery {
+	out, err := l.Deliver(ctx, a, now)
+	if err != nil {
+		log.Println("edge: could not deliver an alert:", err)
+	}
+	return out
 }

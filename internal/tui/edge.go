@@ -93,6 +93,11 @@ type edgeState struct {
 	// certificate, so it is never a single keypress.
 	forgetID   string
 	forgetName string
+	// actuateID + actuateName arm the ACTUATE CEREMONY for a member device, the same way forgetID
+	// arms Forget. Confirming actuate licenses a machine to change the physical world, so it is
+	// never a single keypress either (features/edge/node_identity.feature).
+	actuateID   string
+	actuateName string
 	// binding + bindBuf + bindTarget drive the inline "Bind Model" prompt (jobs.feature): the
 	// owner types a model to put on air for the selected agent. bindTarget is that agent's name.
 	binding    bool
@@ -312,6 +317,11 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.onEdgeForgetKey(k)
 		return m, nil
 	}
+	// So does the actuate ceremony.
+	if m.edge.actuateID != "" {
+		m.onEdgeActuateKey(k)
+		return m, nil
+	}
 	if m.edge.binding {
 		m.onEdgeBindKey(k)
 		return m, nil
@@ -368,7 +378,7 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.edgeSetupState().Enrolled {
 			m.openEdgeSetup()
 		}
-	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h", "o", "f", "p":
+	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h", "o", "f", "p", "c":
 		// The lettered actions - each also reachable by focusing its button (Tab / down) and
 		// pressing enter. One dispatch, so a key press and a button press do the same thing.
 		return m.edgeDispatchAction(key)
@@ -515,6 +525,8 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 		m.edgeRemoveSelected()
 	case "f":
 		m.edgeForgetSelected()
+	case "c":
+		m.edgeConfirmActuateSelected()
 	case "h":
 		return m, m.edgeOpenLive("health", "--live")
 	case "o":
@@ -760,6 +772,43 @@ func (m *model) onEdgeForgetKey(k tea.KeyMsg) {
 		m.edge.netSel--
 	}
 	m.status = stLive.Render("forgot " + name + " - it is off your Edge and its certificate is revoked")
+	m.refreshEdge()
+}
+
+// edgeConfirmActuateSelected arms the ceremony for the selected member. It says what confirming
+// LICENSES rather than merely asking to confirm, because "are you sure" is not informed consent
+// about a machine that can move something in the world.
+func (m *model) edgeConfirmActuateSelected() {
+	it, _ := m.edgeSelectedNet()
+	if !it.member || it.node == nil || !edgeActuatePending(it) {
+		m.status = stDim.Render("Confirm actuate applies to a member that declares actuate and is waiting on you")
+		return
+	}
+	if m.hooks.EdgeConfirmActuate == nil {
+		m.status = stEmber.Render("this build cannot confirm actuate here - run `roger edge actuate " + it.name + "`")
+		return
+	}
+	m.edge.actuateID, m.edge.actuateName = it.node.ID, it.name
+	m.status = stKey.Render("let "+it.name+" ACTUATE? ") +
+		stDim.Render("it may change the physical world - a door, a pump, a moving machine. Your name goes on it ") +
+		stKey.Render("[y/N]")
+}
+
+// onEdgeActuateKey answers the ceremony: y confirms through the host, anything else leaves it
+// pending. Nothing is recorded by a screen; the host records who.
+func (m *model) onEdgeActuateKey(k tea.KeyMsg) {
+	yes := k.Type == tea.KeyRunes && (string(k.Runes) == "y" || string(k.Runes) == "Y")
+	id, name := m.edge.actuateID, m.edge.actuateName
+	m.edge.actuateID, m.edge.actuateName = "", ""
+	if !yes {
+		m.status = stDim.Render("left pending - " + name + " cannot actuate until you say so")
+		return
+	}
+	if err := m.hooks.EdgeConfirmActuate(id); err != nil {
+		m.status = stEmber.Render("could not confirm " + name + ": " + err.Error())
+		return
+	}
+	m.status = stLive.Render(name + " may actuate - confirmed, and recorded on the node")
 	m.refreshEdge()
 }
 

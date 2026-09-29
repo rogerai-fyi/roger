@@ -598,6 +598,11 @@ func (m model) edgeActions() []edgeAction {
 		if m.hooks.EdgeForget != nil {
 			out = append(out, edgeAction{"f", "Forget", "remove it from your Edge", false})
 		}
+		// THE ACTUATE CEREMONY, offered only while there is something to confirm. It is lit, because
+		// a node stuck pending is a node the owner adopted and cannot use.
+		if m.hooks.EdgeConfirmActuate != nil && edgeActuatePending(it) {
+			out = append(out, edgeAction{"c", "Confirm actuate", "let it change the physical world", true})
+		}
 	case it.dark:
 		if m.hooks.EdgeResumeAgent != nil {
 			out = append(out, edgeAction{"u", "Resume", "relaunch this agent", true})
@@ -651,6 +656,21 @@ func (m model) edgeWideActions() []edgeAction {
 		out = append(out, edgeAction{"y", "Allow Machine", "show your key to admit", false})
 	}
 	return out
+}
+
+// edgeActuatePending reports whether this node declares actuate and is waiting on the owner. It is
+// the one capability that is never inferred and never probed: until a person says yes it is
+// declared and inert (features/edge/node_identity.feature).
+func edgeActuatePending(it edgeNetItem) bool {
+	if it.node == nil {
+		return false
+	}
+	for _, c := range it.node.Caps {
+		if c.Name == string(edge.Actuate) {
+			return c.State != string(edge.Verified)
+		}
+	}
+	return false
 }
 
 // edgeAdoptingHint names the devices the owner has adopted that have not yet claimed and checked

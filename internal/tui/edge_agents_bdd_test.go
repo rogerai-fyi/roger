@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cucumber/godog"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"

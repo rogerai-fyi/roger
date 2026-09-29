@@ -1000,6 +1000,11 @@ func TestNodeIdentityFeature(t *testing.T) {
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
+			// THIS PACKAGE OWNS THE FABRIC SCENARIOS. The actuate CEREMONY is a thing an owner does on
+			// a surface, so each surface runs its own: @cli in cmd/rogerai (edgeactuate_bdd_test.go),
+			// @tui in internal/tui, @web in internal/webui. The same convention every other Edge
+			// feature uses, and it is what lets one file describe a rule and all four of its faces.
+			Tags:  "~@cli && ~@tui && ~@web",
 			Paths: []string{"../../features/edge/node_identity.feature"},
 		},
 	}

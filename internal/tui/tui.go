@@ -102,6 +102,11 @@ type Hooks struct {
 	// console's Name/Forget actions. Nil when the build cannot manage the fleet.
 	EdgeName   func(id, name string) error
 	EdgeForget func(id string) error
+	// EdgeConfirmActuate is the owner saying yes to a node that can change the physical world
+	// (features/edge/node_identity.feature). It is the one capability nothing infers and no probe
+	// can verify, so it is granted by a person and the host records WHO. Nil when the build cannot
+	// perform the ceremony, and then no button for it is drawn.
+	EdgeConfirmActuate func(id string) error
 	// EdgeSetPrefer chooses where a turn goes first (local | market | local-only), the host-side of
 	// `roger edge prefer` and the console's Prefer control (features/edge/mode.feature).
 	EdgeSetPrefer func(want string) error

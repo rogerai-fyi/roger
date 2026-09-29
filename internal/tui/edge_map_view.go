@@ -759,7 +759,17 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 			if i == 0 {
 				k = "CAN DO"
 			}
-			label(k, pad(c.Name, 10)+stDim.Render(c.State))
+			state := stDim.Render(c.State)
+			switch {
+			case c.Name == string(edge.Actuate) && c.State != string(edge.Verified):
+				// A node stuck pending is one the owner adopted and cannot use, so the page says what
+				// is missing and who can supply it rather than showing a bare state word.
+				state = stEmber.Render("awaiting your confirmation") + stDim.Render(" · press ") +
+					lampStyle(roleLive).Render("c") + stDim.Render(" to let it change the physical world")
+			case c.Name == string(edge.Actuate) && c.ConfirmedBy != "":
+				state = stDim.Render(c.State + " · confirmed by " + c.ConfirmedBy)
+			}
+			label(k, pad(c.Name, 10)+state)
 		}
 		// THE PATH: how the authority reaches this unit, and through whom. It is the one fact neither
 		// the rack nor the card band can show, and it is what turns "via relay" into something an

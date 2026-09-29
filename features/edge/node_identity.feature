@@ -118,6 +118,59 @@ Feature: A node is the owner's machine, typed by what it can do rather than by w
     And it accepts no invoke until the owner confirms
     And the confirmation is recorded with who confirmed it and when
 
+  # THE CEREMONY ITSELF. Added 2026-09-29, approved by the founder. The rule above shipped with the
+  # fleet and NOTHING could perform it: Fleet.ConfirmActuate existed, recorded who and when, and had
+  # no caller on any surface, so a node declaring actuate was pending for ever and the owner had no
+  # way to say yes. That is worse than not having the feature, because the node looks adopted and is
+  # quietly inert.
+  #
+  # Confirming actuate is the one action on this Edge that licenses a machine to CHANGE THE PHYSICAL
+  # WORLD. So it is never a single keystroke anywhere, it always names the node and what it will be
+  # allowed to do, and it always records who said yes.
+
+  @cli
+  Scenario: the owner confirms actuate from the terminal
+    Given a node "shed-door" declaring "actuate", pending confirmation
+    When the owner runs roger edge actuate shed-door
+    Then it says what confirming means: this node may change the physical world
+    And it asks y/N before anything changes
+    And answering no leaves the capability pending
+    When the owner answers yes
+    Then actuate is VERIFIED on that node
+    And the confirmation records who confirmed it and when
+    And the node's history gains the confirmation
+
+  @cli
+  Scenario: confirming is refused when there is nothing to confirm
+    Given a node that does not declare "actuate"
+    When the owner runs roger edge actuate on it
+    Then it is refused, saying the node does not declare actuate
+    And nothing on the node changes
+
+  @cli
+  Scenario: confirming an already-confirmed node says so rather than re-recording
+    Given a node whose actuate the owner already confirmed
+    When the owner runs roger edge actuate on it again
+    Then it says it is already confirmed, and by whom
+    And the original confirmation's who and when are untouched
+
+  @tui
+  Scenario: the node page offers the ceremony when actuate is pending
+    Given a member declaring "actuate", pending confirmation
+    When its node page is opened
+    Then it says actuate is awaiting the owner's confirmation
+    And the panel offers to confirm it, naming what it licenses
+    And confirming asks first, exactly as forget does
+
+  @web
+  Scenario: the console performs the same ceremony, never a bare button
+    Given a console over an Edge with a node pending actuate confirmation
+    When the manage view draws that node
+    Then it says actuate is pending and what confirming licenses
+    And the confirm action is POST-only and token-gated like every other mutation
+    And it is confirmed in the browser before it is sent
+    And the host records who confirmed it, never the browser's word for who
+
   Scenario: capabilities can change without the node changing identity
     Given a verified node with "serve"
     When it stops serving and declares "sense" instead
