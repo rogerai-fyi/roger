@@ -173,3 +173,190 @@ func TestConcurrentWritesBothLand(t *testing.T) {
 	require.Equal(t, "a-one", on["n_a"])
 	require.Equal(t, "b-two", on["n_b"])
 }
+
+// ---- the review of 2026-09-29 -------------------------------------------------------------
+// Four defects were PROVEN against the first version of this merge, which compared whole records.
+// Each one is now a scenario here, named for what it did.
+
+// A HEARTBEAT IS NOT AN EDIT. The host sees every node on every pass, so comparing whole records
+// made it "the process that changed this node" every time, and it then overwrote a rename typed in
+// another terminal with its own stale copy.
+func TestAHeartbeatDoesNotEatAForeignRename(t *testing.T) {
+	useTempConfig(t)
+	edgeSeed(t, edgeNodeFor("n_pi", "quiet-pi", "board"))
+
+	host, err := loadEdgeState()
+	require.NoError(t, err)
+	require.NoError(t, host.save()) // the host is long-lived: it has a savedAt
+
+	// The owner renames the node in a second terminal.
+	other, err := loadEdgeState()
+	require.NoError(t, err)
+	require.NoError(t, other.fleet.Rename("n_pi", "bench-pi"))
+	require.NoError(t, other.save())
+
+	// The host merely SEES the node again: a new heartbeat, nothing an owner decided.
+	n, ok, err := host.fleet.Get("n_pi")
+	require.NoError(t, err)
+	require.True(t, ok)
+	n.LastSeen = time.Now().Add(time.Minute).Unix()
+	n.Presence = string(edge.PresenceVerified)
+	_, err = host.db.EnrollEdgeNode(n)
+	require.NoError(t, err)
+	require.NoError(t, host.save())
+
+	on := edgeIDsOnDisk(t)
+	require.Equal(t, "bench-pi", on["n_pi"], "a heartbeat overwrote a rename made in another terminal")
+}
+
+// AND IT DOES NOT RESURRECT WHAT WAS FORGOTTEN. Forgetting revokes the node's certificate, so a
+// record that comes back is a member that can never talk: it sits on the fleet screen, the ladder
+// dials it, and the owner has to forget it again.
+func TestAHeartbeatDoesNotResurrectAForgottenNode(t *testing.T) {
+	useTempConfig(t)
+	edgeSeed(t, edgeNodeFor("n_pi", "quiet-pi", "board"), edgeNodeFor("n_nas", "nas", "host"))
+
+	host, err := loadEdgeState()
+	require.NoError(t, err)
+	require.NoError(t, host.save())
+
+	other, err := loadEdgeState()
+	require.NoError(t, err)
+	require.NoError(t, other.fleet.Forget("n_pi"))
+	require.NoError(t, other.save())
+
+	// A sighting was in flight when the forget landed.
+	n, ok, _ := host.fleet.Get("n_pi")
+	require.True(t, ok)
+	n.LastSeen = time.Now().Add(time.Minute).Unix()
+	_, err = host.db.EnrollEdgeNode(n)
+	require.NoError(t, err)
+	require.NoError(t, host.save())
+
+	require.NotContains(t, edgeIDsOnDisk(t), "n_pi", "a sighting brought back a node whose certificate was revoked")
+}
+
+// AN ADOPTED EDIT IS NOT UNDONE BY THE NEXT SAVE. The base advanced to the merged record while
+// memory kept the stale one, so the following save saw "mine differs from base" and put the stale
+// record back.
+func TestAnAdoptedEditSurvivesTheNextSave(t *testing.T) {
+	useTempConfig(t)
+	edgeSeed(t, edgeNodeFor("n_pi", "quiet-pi", "board"))
+
+	host, err := loadEdgeState()
+	require.NoError(t, err)
+	require.NoError(t, host.save())
+
+	other, err := loadEdgeState()
+	require.NoError(t, err)
+	require.NoError(t, other.fleet.Rename("n_pi", "bench-pi"))
+	require.NoError(t, other.save())
+
+	require.NoError(t, host.save())
+	require.Equal(t, "bench-pi", edgeIDsOnDisk(t)["n_pi"], "the first save adopted the rename")
+	require.NoError(t, host.save())
+	require.Equal(t, "bench-pi", edgeIDsOnDisk(t)["n_pi"], "the second save undid the rename it had just adopted")
+
+	// And memory agrees with the file, so the screen beside it is not telling a different story.
+	n, ok, err := host.fleet.Get("n_pi")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "bench-pi", n.Name)
+}
+
+// A CANDIDATE THAT HAS BEEN ADOPTED IS NOT PUT BACK ON THE BENCH. The map lands the cursor on a
+// waiting device, so a resurrected candidate means the screen opens offering to adopt a phone that
+// is already a member.
+func TestAnAdoptedCandidateIsNotPutBackOnTheBench(t *testing.T) {
+	useTempConfig(t)
+	edgeSeed(t, edgeNodeFor("n_nas", "nas", "host"))
+
+	// A process whose candidate list still holds the phone.
+	stale, err := loadEdgeState()
+	require.NoError(t, err)
+	phone := edgeNodeFor("n_phone", "gentle-ibex-14", "mobile")
+	phone.Presence = string(edge.PresenceCandidate)
+	stale.candidates = []store.EdgeNode{phone}
+
+	// Elsewhere it is adopted.
+	host, err := loadEdgeState()
+	require.NoError(t, err)
+	_, err = host.fleet.Enroll(edgeNodeFor("n_phone", "gentle-ibex-14", "mobile"))
+	require.NoError(t, err)
+	require.NoError(t, host.save())
+
+	require.NoError(t, stale.save())
+
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	require.Contains(t, edgeIDsOnDisk(t), "n_phone", "the adopted phone left the fleet")
+	for _, c := range st.candidates {
+		require.NotEqual(t, "n_phone", c.ID, "an adopted device is still on the bench waiting to be adopted")
+	}
+}
+
+// TWO EDITS TO DIFFERENT FIELDS OF ONE NODE BOTH LAND. A record-grained merge lost one of them,
+// which the doc comment claimed it would not.
+func TestTwoEditsToOneNodeBothLand(t *testing.T) {
+	useTempConfig(t)
+	edgeSeed(t, edgeNodeFor("n_pi", "quiet-pi", "board"))
+
+	tagger, err := loadEdgeState()
+	require.NoError(t, err)
+	namer, err := loadEdgeState()
+	require.NoError(t, err)
+
+	require.NoError(t, tagger.fleet.SetTags("n_pi", []string{"bench"}))
+	require.NoError(t, namer.fleet.Rename("n_pi", "bench-pi"))
+	require.NoError(t, tagger.save())
+	require.NoError(t, namer.save())
+
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	n, ok, err := st.fleet.Get("n_pi")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "bench-pi", n.Name, "the rename was lost")
+	require.Equal(t, []string{"bench"}, n.Tags, "the tag was lost")
+}
+
+// An event is a thing that happened: a process that did not see it has not decided it did not.
+func TestHistoryIsTheUnionOfWhatEachSideSaw(t *testing.T) {
+	a := []store.EdgeEvent{{At: 10, What: "adopted"}, {At: 30, What: "renamed"}}
+	b := []store.EdgeEvent{{At: 20, What: "serving"}, {At: 30, What: "renamed"}}
+	got := edgeMergeHistory(a, b)
+	require.Len(t, got, 3, "an event was dropped for being on only one side: %+v", got)
+	require.Equal(t, int64(10), got[0].At, "history is oldest first")
+	require.Equal(t, int64(30), got[2].At)
+
+	// It stays bounded the way the record is.
+	var many []store.EdgeEvent
+	for i := 0; i < edge.MaxNodeHistory+20; i++ {
+		many = append(many, store.EdgeEvent{At: int64(i), What: "x"})
+	}
+	require.Len(t, edgeMergeHistory(many, nil), edge.MaxNodeHistory+20, "one side alone is passed through whole")
+	require.Len(t, edgeMergeHistory(many, []store.EdgeEvent{{At: 9999, What: "y"}}), edge.MaxNodeHistory)
+}
+
+// The field-grained rule itself, stated once.
+func TestIntentAndObservationMergeDifferently(t *testing.T) {
+	base := store.EdgeNode{ID: "n", Name: "a", Tags: []string{"x"}, LastSeen: 100, Presence: "VERIFIED"}
+	// Intent changed here, observation fresher there: each side wins its own half.
+	mine := base
+	mine.Name = "mine"
+	theirs := base
+	theirs.LastSeen, theirs.Presence = 200, "DARK"
+	got := edgeMergeOne(base, mine, theirs, true)
+	require.Equal(t, "mine", got.Name, "an owner's edit here was lost")
+	require.Equal(t, int64(200), got.LastSeen, "a fresher sighting there was lost")
+	require.Equal(t, "DARK", got.Presence)
+
+	// Intent changed there, and here nothing but a sighting: their edit stands, my sighting lands.
+	mine2 := base
+	mine2.LastSeen = 300
+	theirs2 := base
+	theirs2.Name = "theirs"
+	got = edgeMergeOne(base, mine2, theirs2, true)
+	require.Equal(t, "theirs", got.Name, "an edit made elsewhere was overwritten by a heartbeat")
+	require.Equal(t, int64(300), got.LastSeen)
+}

@@ -280,6 +280,17 @@ func (h *edgeHost) adopting() []store.EdgeNode {
 func (h *edgeHost) adopt(id, name string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	// MEMBERSHIP IS CHECKED FIRST, before the candidate list is even consulted. A LIVE member is not
+	// on offer and is dropped from the bench, so asking "is it a candidate?" first answered a
+	// re-adopt with "no candidate was seen", which is true and useless: the reason it is not on offer
+	// is that it is already here, and that is what the owner needs told.
+	if n, known, err := h.st.fleet.Get(id); err == nil && known && edge.Presence(n.Presence) == edge.PresenceVerified {
+		name := n.Name
+		if name == "" {
+			name = edgeShortID(id)
+		}
+		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", name)
+	}
 	c, ok, err := edgeResolve(h.st.candidates, id)
 	if err != nil {
 		return err

@@ -327,29 +327,136 @@ type edgeState struct {
 	sessions *edge.Sessions
 	// savedAt is the file's mtime after this state's last save; a newer mtime is another
 	// process's edit (the fleet screen, a CLI forget), which is adopted before the next write.
-	// base is THE MERGE BASE: every node as this state last read or wrote it, id -> fingerprint.
-	// It is what lets a save tell the three cases apart - what THIS process changed, what another
-	// process changed, and what nobody touched - so a write merges instead of overwriting. It is
-	// filled on LOAD as well as on save, because a short-lived CLI's base is the file it read.
+	// base is THE MERGE BASE: every node exactly as this state last read or wrote it. It is what
+	// lets a save tell three cases apart - what THIS process changed, what another process changed,
+	// and what nobody touched - so a write merges instead of overwriting. It is filled on LOAD as
+	// well as on save, because a short-lived CLI's base is the file it read.
 	savedAt time.Time
-	base    map[string]string
+	base    map[string]store.EdgeNode
+	// candBase is the candidate ids as last read or written, which is what tells a deliberate drop
+	// from a candidate this process has simply never seen.
+	candBase map[string]bool
 }
 
-// edgeNodeFingerprint is what "unchanged since the base" means for one node. The whole record,
-// because any field a process edited is an edit it must not lose.
-func edgeNodeFingerprint(n store.EdgeNode) string {
-	b, err := json.Marshal(n)
-	if err != nil {
-		return n.ID + "\x00" + n.Name // never happens for a record that just came out of JSON
+// WHAT A MERGE HAS TO KNOW. A node record carries two completely different kinds of field, and the
+// first version of this merge treated them alike, which lost data in the very way it was written to
+// prevent (review 2026-09-29):
+//
+//   - INTENT is what an OWNER decided: the name they chose, the words they grouped it by, the
+//     capabilities it declares, its classify contract, its pinned certificate. It changes only when
+//     somebody says so, so "this process changed it" is a meaningful claim about intent.
+//
+//   - OBSERVATION is what a MACHINE saw: when it was last heard, whether it is presently dark, the
+//     addresses it answered on, the rogers it reported running. It changes on its own, on every
+//     pass, in every process that can see the node. "This process changed it" says nothing.
+//
+// Comparing whole records made every heartbeat look like an edit, so the host - which sees every
+// node on every pass - claimed the whole record every time and overwrote a rename typed in another
+// terminal, and brought back nodes that had just been forgotten. Intent is therefore merged FIELD BY
+// FIELD against the base, and observation is merged FRESHEST-WINS by what each side last heard.
+//
+// The simpler shape (mutate inside the lock against a freshly read state, and have no base at all)
+// was considered and does not fit: the host holds a long-lived view that it updates from discovery
+// and probes between saves, and holding this lock across that work would put network calls inside
+// it. So the merge stays, and it is narrow and field-grained rather than whole-record.
+
+// edgeSameIntent reports whether the owner-decided fields of two records are the same.
+func edgeSameIntent(a, b store.EdgeNode) bool {
+	return a.Name == b.Name && a.Kind == b.Kind && a.Pin == b.Pin &&
+		edgeSameStrings(a.Tags, b.Tags) && edgeSameJSON(a.Caps, b.Caps) && edgeSameJSON(a.Contract, b.Contract)
+}
+
+// edgeSameJSON compares two values by their JSON form. Caps and the classify contract both carry
+// slices, so Go will not compare them, and their JSON is exactly "the same declaration" for a
+// merge: it is also the form they arrived in and the form they will be written back as.
+func edgeSameJSON(a, b any) bool {
+	x, err1 := json.Marshal(a)
+	y, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return false // unmarshalable is treated as different, so an edit is kept rather than lost
 	}
-	return string(b)
+	return string(x) == string(y)
+}
+
+func edgeSameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // edgeBaseOf is the merge base for a set of nodes as read or written.
-func edgeBaseOf(nodes []store.EdgeNode) map[string]string {
-	out := make(map[string]string, len(nodes))
+func edgeBaseOf(nodes []store.EdgeNode) map[string]store.EdgeNode {
+	out := make(map[string]store.EdgeNode, len(nodes))
 	for _, n := range nodes {
-		out[n.ID] = edgeNodeFingerprint(n)
+		out[n.ID] = n
+	}
+	return out
+}
+
+// edgeMergeOne merges ONE node that both sides hold. Each owner-decided field goes to whoever
+// changed it since the base; everything a machine merely saw goes to whoever saw it more recently;
+// the event history is the union, because an event is a thing that happened and neither side's
+// account of it is wrong.
+func edgeMergeOne(base, mine, theirs store.EdgeNode, inBase bool) store.EdgeNode {
+	out := theirs
+	// INTENT, field by field: mine only where I changed it.
+	if !inBase || mine.Name != base.Name {
+		out.Name = mine.Name
+	}
+	if !inBase || mine.Kind != base.Kind {
+		out.Kind = mine.Kind
+	}
+	if !inBase || mine.Pin != base.Pin {
+		out.Pin = mine.Pin
+	}
+	if !inBase || !edgeSameStrings(mine.Tags, base.Tags) {
+		out.Tags = mine.Tags
+	}
+	if !inBase || !edgeSameJSON(mine.Caps, base.Caps) {
+		out.Caps = mine.Caps
+	}
+	if !inBase || !edgeSameJSON(mine.Contract, base.Contract) {
+		out.Contract = mine.Contract
+	}
+	// OBSERVATION: whoever heard from it last. A tie goes to this process, whose sighting is at
+	// least as fresh and whose transports are the ones it just dialled.
+	if mine.LastSeen >= theirs.LastSeen {
+		out.LastSeen, out.Presence = mine.LastSeen, mine.Presence
+		out.Transports, out.Station = mine.Transports, mine.Station
+		out.Instances, out.InstancesTruncated = mine.Instances, mine.InstancesTruncated
+	}
+	out.History = edgeMergeHistory(mine.History, theirs.History)
+	return out
+}
+
+// edgeMergeHistory is the union of two event lists, oldest first, bounded the way the record is.
+// An event is a fact about the past: a process that did not see it has not decided it did not
+// happen, so nothing is dropped for being on only one side.
+func edgeMergeHistory(a, b []store.EdgeEvent) []store.EdgeEvent {
+	if len(a) == 0 {
+		return b
+	}
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[store.EdgeEvent]bool, len(a)+len(b))
+	out := make([]store.EdgeEvent, 0, len(a)+len(b))
+	for _, ev := range append(append([]store.EdgeEvent{}, a...), b...) {
+		if seen[ev] {
+			continue
+		}
+		seen[ev] = true
+		out = append(out, ev)
+	}
+	sort.SliceStable(out, func(i, k int) bool { return out[i].At < out[k].At })
+	if len(out) > edge.MaxNodeHistory {
+		out = out[len(out)-edge.MaxNodeHistory:]
 	}
 	return out
 }
@@ -357,16 +464,18 @@ func edgeBaseOf(nodes []store.EdgeNode) map[string]string {
 // edgeMergeNodes is the three-way merge that makes edge.json safe to share. theirs is the file as
 // it stands NOW, mine is this process's memory, base is the file as this process last saw it.
 //
-//   - on disk and untouched here            -> the disk's version (somebody else's edit stands)
-//   - added here since the base             -> kept (it is new, the disk has not seen it)
-//   - changed here since the base           -> kept (this process's edit stands)
-//   - in the base but gone from memory       -> dropped (this process forgot it, and means it)
-//   - in the base, untouched here, gone from the disk -> stays gone (forgotten elsewhere)
+//   - held by both                                    -> merged field by field (edgeMergeOne)
+//   - added here since the base                       -> kept, the disk has not seen it yet
+//   - added on the disk since the base                -> kept, adopted into this process
+//   - in the base but gone from memory                -> dropped, this process forgot it and means it
+//   - in the base, gone from the disk, untouched here  -> stays gone, forgotten elsewhere
+//   - in the base, gone from the disk, INTENT changed here -> comes back
 //
-// A node this process CHANGED that another process forgot comes back. That is deliberate: the
-// alternative is losing an edit, and a returning row is harmless because forgetting also revoked
-// the node's certificate - it cannot talk until it is adopted again - while a lost edit is silent.
-func edgeMergeNodes(base map[string]string, mine, theirs []store.EdgeNode) []store.EdgeNode {
+// That last case is the one asymmetry, and it is now narrow enough to defend: it fires only when
+// this process really did change something an owner decided, never on a heartbeat. Before the review
+// it fired on any sighting, so an ordinary pass could resurrect a node whose certificate had just
+// been revoked.
+func edgeMergeNodes(base map[string]store.EdgeNode, mine, theirs []store.EdgeNode) []store.EdgeNode {
 	out := make(map[string]store.EdgeNode, len(theirs)+len(mine))
 	order := make([]string, 0, len(theirs)+len(mine))
 	add := func(n store.EdgeNode) {
@@ -375,15 +484,23 @@ func edgeMergeNodes(base map[string]string, mine, theirs []store.EdgeNode) []sto
 		}
 		out[n.ID] = n
 	}
+	onDisk := make(map[string]store.EdgeNode, len(theirs))
 	for _, n := range theirs {
+		onDisk[n.ID] = n
 		add(n)
 	}
 	held := make(map[string]bool, len(mine))
 	for _, n := range mine {
 		held[n.ID] = true
 		was, inBase := base[n.ID]
-		if !inBase || was != edgeNodeFingerprint(n) {
-			add(n) // added or changed here: this process's version is the newer one
+		d, still := onDisk[n.ID]
+		switch {
+		case still:
+			add(edgeMergeOne(was, n, d, inBase))
+		case !inBase:
+			add(n) // added here: the disk has not seen it yet
+		case !edgeSameIntent(n, was):
+			add(n) // forgotten elsewhere, but an owner changed something here: keep the change
 		}
 	}
 	for id := range base {
@@ -398,6 +515,56 @@ func edgeMergeNodes(base map[string]string, mine, theirs []store.EdgeNode) []sto
 		}
 	}
 	return merged
+}
+
+// edgeCandidatesToWrite is the candidate list a save writes, merged the same three ways the nodes
+// are. Candidates are discovery's own output and they fade on their own, but a write must not lose
+// one somebody else just found, and must not RESURRECT one this process deliberately dropped.
+//
+// A drop is deliberate and there are three of them, all elsewhere and all with their own reasons:
+// a candidate this authority has granted a claim to is ADOPTING rather than on offer
+// (edgeDropGranted), a LIVE member re-advertising is already on the Edge (edgeDropMembers), and a
+// candidate past the discovery TTL has gone (edgeMergeCandidates). None of those rules is repeated
+// here: this function only decides whose list to believe about each id.
+//
+//   - held here                      -> kept, whatever the disk says
+//   - on the disk and never seen here -> kept, another process found it
+//   - on the disk, seen here at load, and dropped here since -> stays dropped, that was on purpose
+func edgeCandidatesToWrite(mine, theirs []store.EdgeNode, base map[string]bool, nodes []store.EdgeNode) []store.EdgeNode {
+	out := make([]store.EdgeNode, 0, len(mine)+len(theirs))
+	held := make(map[string]bool, len(mine))
+	for _, c := range mine {
+		held[c.ID] = true
+		out = append(out, c)
+	}
+	for _, c := range theirs {
+		if !held[c.ID] && !base[c.ID] {
+			out = append(out, c) // found by another process since this one read the file
+		}
+	}
+	// A LIVE member is not waiting to be adopted, whichever list it came from. This is the one rule
+	// repeated here, because a stale process holding a phone that has since been adopted would
+	// otherwise put it back on the bench, and the map lands the cursor on whatever is waiting - so
+	// the screen would open offering to adopt a device that is already on the Edge. A DARK member
+	// stays: that stale record is a device that left, and it must be offered so the owner can
+	// re-admit it (the rule edgeDropMembers states).
+	live := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		if edge.Presence(n.Presence) != edge.PresenceDark {
+			live[n.ID] = true
+		}
+	}
+	return edgeFilter(out, func(c store.EdgeNode) bool { return !live[c.ID] })
+}
+
+// edgeCandBaseOf is the candidate ids as this state last read or wrote them, so a later drop can be
+// told from never having seen it.
+func edgeCandBaseOf(cands []store.EdgeNode) map[string]bool {
+	out := make(map[string]bool, len(cands))
+	for _, c := range cands {
+		out[c.ID] = true
+	}
+	return out
 }
 
 // edgeAccount is the owner this machine's Edge belongs to. Anonymous is a real state and
@@ -444,6 +611,7 @@ func loadEdgeState() (*edgeState, error) {
 	// save behind it, and without a base its write could only be an overwrite of whatever another
 	// process had done in the meantime. With it, the write is a merge (edgeMergeNodes).
 	st.base = edgeBaseOf(snap.Nodes)
+	st.candBase = edgeCandBaseOf(snap.Candidates)
 	return st, nil
 }
 
@@ -465,9 +633,11 @@ func (s *edgeState) save() error {
 	if err != nil {
 		return err
 	}
-	nodes = edgeMergeNodes(s.base, nodes, s.nodesOnDisk())
+	disk, _ := s.snapshotOnDisk()
+	nodes = edgeMergeNodes(s.base, nodes, disk.Nodes)
+	cands := edgeCandidatesToWrite(s.candidates, disk.Candidates, s.candBase, nodes)
 	b, err := json.MarshalIndent(edgeSnapshot{
-		Account: s.account, Nodes: nodes, Candidates: s.candidates}, "", "  ")
+		Account: s.account, Nodes: nodes, Candidates: cands}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -478,36 +648,35 @@ func (s *edgeState) save() error {
 		s.savedAt = fi.ModTime()
 	}
 	// What was just written IS the new base, and it is also what this state now knows: a node another
-	// process added is brought into memory so the screen beside it agrees with the file.
+	// process added, or an edit it made, is brought into memory so the screen beside it agrees with
+	// the file. Every merged node is enrolled, not only the absent ones - enrolling only what was
+	// missing left memory holding the stale record while the base held the new one, and the next save
+	// then undid the edit this one had just adopted.
 	s.base = edgeBaseOf(nodes)
+	s.candidates, s.candBase = cands, edgeCandBaseOf(cands)
 	for _, n := range nodes {
-		if _, ok, _ := s.fleet.Get(n.ID); !ok {
-			_, _ = s.db.EnrollEdgeNode(n)
-		}
+		_, _ = s.db.EnrollEdgeNode(n)
 	}
 	return nil
 }
 
-// nodesOnDisk is the file as it stands now, or nothing when there is no readable file for this
-// account. Called under the lock, so what it returns cannot change before the write.
-func (s *edgeState) nodesOnDisk() []store.EdgeNode {
+// snapshotOnDisk is the file as it stands now, and whether there was one to read for this account.
+// Called under the lock on the write path, so what it returns cannot change before the write.
+func (s *edgeState) snapshotOnDisk() (edgeSnapshot, bool) {
 	b, err := os.ReadFile(edgeStatePath())
 	if err != nil {
-		return nil
+		return edgeSnapshot{}, false
 	}
 	var snap edgeSnapshot
 	if json.Unmarshal(b, &snap) != nil || snap.Account != s.account {
-		return nil
+		return edgeSnapshot{}, false
 	}
-	return snap.Nodes
+	return snap, true
 }
 
 // adoptExternalEdits folds in what another process changed on disk since this state last wrote:
 // a member forgotten, renamed or adopted by the fleet screen or by a CLI in a second terminal.
-// Without it the next save, written from memory, would undo them. Only what THIS state saved
-// last time can have been edited elsewhere: a node added in memory since (a candidate just
-// adopted, a node discovery just enrolled) is not "forgotten elsewhere" merely because the disk
-// does not know it yet.
+// Without it the next save, written from memory, would undo them.
 func (s *edgeState) adoptExternalEdits() {
 	fi, err := os.Stat(edgeStatePath())
 	if err != nil || !fi.ModTime().After(s.savedAt) {
@@ -517,11 +686,11 @@ func (s *edgeState) adoptExternalEdits() {
 	if err != nil {
 		return
 	}
-	// The SAME merge the write uses, so memory and the file cannot disagree about the rule: what this
-	// process changed stands, what another process changed is adopted, what this process forgot stays
-	// forgotten. The base is deliberately NOT advanced here - an edit made in memory and not yet
-	// written is still this process's edit, and folding it into the base would lose it on the next save.
-	merged := edgeMergeNodes(s.base, mine, s.nodesOnDisk())
+	// The SAME merge the write uses, so memory and the file cannot disagree about the rule. The base
+	// is deliberately NOT advanced here - an edit made in memory and not yet written is still this
+	// process's edit, and folding it into the base would lose it on the next save.
+	disk, _ := s.snapshotOnDisk()
+	merged := edgeMergeNodes(s.base, mine, disk.Nodes)
 	keep := make(map[string]bool, len(merged))
 	for _, n := range merged {
 		keep[n.ID] = true
@@ -532,22 +701,8 @@ func (s *edgeState) adoptExternalEdits() {
 			_ = s.fleet.Forget(n.ID)
 		}
 	}
-	s.candidates = s.candidatesOnDisk()
+	s.candidates = edgeCandidatesToWrite(s.candidates, disk.Candidates, s.candBase, merged)
 	s.savedAt = fi.ModTime()
-}
-
-// candidatesOnDisk is the discovered-but-not-adopted list as the file has it. Candidates are
-// discovery's own output and fade on their own, so they are taken whole rather than merged.
-func (s *edgeState) candidatesOnDisk() []store.EdgeNode {
-	b, err := os.ReadFile(edgeStatePath())
-	if err != nil {
-		return s.candidates
-	}
-	var snap edgeSnapshot
-	if json.Unmarshal(b, &snap) != nil || snap.Account != s.account {
-		return s.candidates
-	}
-	return snap.Candidates
 }
 
 // list is the fleet as this machine last knew it.

@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -247,27 +246,17 @@ func (l AlertLog) State() (AlertState, error) {
 // withLock runs fn under the log's file lock: every read-modify-write of the log's files goes
 // through here - Judge, Roger, StandBy - so the host judging every pass and a screen in another
 // process can never lose each other's writes.
-// alertMu serialises the writers of one log INSIDE this process: goroutines (the host's pass, a
-// console request, a screen's action) queue here, and the flock below queues processes. Without it
-// the Windows build, whose flock is a no-op, let two goroutines tear state.json (audit 2026-09-27).
-var alertMu sync.Map // Dir -> *sync.Mutex
-
+// The lock is FileLock's: one implementation of the goroutine mutex plus the process flock, rather
+// than a copy here. Both halves are needed, and why is written where FileLock lives.
 func (l AlertLog) withLock(fn func() error) error {
-	mu, _ := alertMu.LoadOrStore(filepath.Clean(l.Dir), &sync.Mutex{})
-	mu.(*sync.Mutex).Lock()
-	defer mu.(*sync.Mutex).Unlock()
 	if err := os.MkdirAll(l.Dir, 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(l.path("lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	unlock, err := FileLock(l.path("state"))
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if err := flockExclusive(f); err != nil {
-		return err
-	}
-	defer func() { _ = flockUnlock(f) }()
+	defer unlock()
 	return fn()
 }
 

@@ -157,16 +157,31 @@ func (s *GrantStore) flock() (func(), error) { return FileLock(s.Path) }
 // last writer wins with whatever it happened to be holding, and everything the others did in the
 // meantime is gone (the founder's vanished phone, 2026-09-27).
 func FileLock(path string) (func(), error) {
+	// TWO LOCKS, and both are needed. The flock queues PROCESSES. The mutex queues GOROUTINES
+	// inside this one, and it is not belt-and-braces: on Windows flockExclusive is a no-op, so
+	// without the mutex there would be no serialisation there at all and the file would tear
+	// exactly as state.json did (audit 2026-09-27). The alert log learned this the hard way and
+	// carries the same pair.
+	key := filepath.Clean(path)
+	mu, _ := fileLockMu.LoadOrStore(key, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	release := func() { mu.(*sync.Mutex).Unlock() }
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		release()
 		return nil, err
 	}
 	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
+		release()
 		return nil, err
 	}
 	if err := flockExclusive(f); err != nil {
 		f.Close()
+		release()
 		return nil, err
 	}
-	return func() { _ = flockUnlock(f); f.Close() }, nil
+	return func() { _ = flockUnlock(f); f.Close(); release() }, nil
 }
+
+// fileLockMu is one mutex per locked path, for this process's own goroutines.
+var fileLockMu sync.Map // cleaned path -> *sync.Mutex
