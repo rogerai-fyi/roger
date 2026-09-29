@@ -113,7 +113,7 @@ test-db:
 # ---- spec-first TDD / coverage (see TDD-WORKFLOW.md) -------------------------
 # cover: full self-coverage profile across the module + the total line.
 cover:
-	go test -covermode=atomic -coverprofile=cover.out ./...
+	go test -timeout 20m -covermode=atomic -coverprofile=cover.out ./...
 	@go tool cover -func=cover.out | tail -1
 
 # cover-html: per-file green/red drill-down (also what we publish to GitHub Pages).

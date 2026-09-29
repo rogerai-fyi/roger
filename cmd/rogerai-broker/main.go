@@ -279,6 +279,13 @@ type broker struct {
 	// Finalize are unchanged (already durable/shared) - the bus only carries the
 	// transient handoff, and a bus error fails the request cleanly (never double-charge).
 	multiInstance bool
+	// dispatchMode is the multi-instance dispatch rollout switch (ROGERAI_DISPATCH, see
+	// dispatchq.go); dq is this instance's end of the dispatch plane, started on first use.
+	dispatchMode dispatchMode
+	dqOnce       sync.Once
+	dq           *dispatchQueue
+	// changes is this instance's position in the shared change log (changelog.go).
+	changes changeTail
 
 	// instanceID identifies THIS broker process in the shared inflight hash (each
 	// instance write-throughs its own count under this field; a peer sums the others).
@@ -831,6 +838,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
 		if multiInstanceEnabled() {
 			b.multiInstance = true
+			b.dispatchMode = dispatchModeFromEnv()
+			if vs, ok := b.shared.(*valkeyStore); ok && b.dispatchMode != dispatchViaBus {
+				vs.livenessHashOnly.Store(true) // every instance runs code that writes the fleet hash
+			}
 			b.instanceID = newInstanceID()
 			b.peerInflight = map[string]int{}
 			b.peerEdgeLoad = map[string]int{}
@@ -844,7 +855,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 			// is gated on multi-instance, so the single-instance log format is unchanged.
 			log.SetPrefix("[" + b.instanceID + "] ")
 			go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
-			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
+			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s, ROGERAI_DISPATCH=%s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID, [...]string{"bus", "queue", "queue-only"}[b.dispatchMode])
 		} else {
 			// The registry mirror + lazy-learn run whenever the shared backend is wired
 			// (task #52: registration state travels with liveness state under both flag
@@ -883,6 +894,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
 	mux.HandleFunc("/agent/poll", b.agentPoll)     // node dials out, long-polls for jobs
 	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
+	mux.HandleFunc("/agent/ack", b.agentAck)       // node confirms it received a job (node_ack.feature)
 	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
 	mux.HandleFunc("/voices", b.voices) // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
