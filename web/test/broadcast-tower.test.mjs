@@ -168,8 +168,11 @@ test("the animated hero degrades to a still, and both are the same frame", () =>
   assert.match(html, /<video[^>]*\bplaysinline\b/, "it does not go fullscreen on iOS");
   assert.match(html, /prefers-reduced-motion: reduce/, "reduced motion is honoured");
   // The poster IS the still, so the first paint is the illustration either way.
-  assert.match(html, /poster="assets\/broadcasts\/tower-hero\.png(\?v=[0-9a-f]+)?"/,
-    "poster matches the still");
+  // (Both are the WebP copy derived from tower-hero.png, the master and the social card.)
+  const poster = (html.match(/poster="(assets\/broadcasts\/tower-hero\.webp)(\?v=[0-9a-f]+)?"/) || [])[1];
+  const still = (html.match(/<img class="tw-hero__still" src="([^"?]+)/) || [])[1];
+  assert.ok(poster, "the poster is the WebP still");
+  assert.equal(poster, still, "poster matches the still");
 });
 
 test("the FAQ answers are also in the structured data, verbatim enough to match", () => {

@@ -6,9 +6,11 @@
        variant   = "marketing" (sections + burger) | "lean" (default)
        home      = brand link target (default "/")
        anchors   = prefix for the #section links (empty on the homepage, "/" elsewhere)
-       scrolled  = "1" to ship the solid bar state for non-scrolling pages -->
-<!-- thin dismissible $1-starter promo strip, above the sticky bar (site-wide) -->
-<!-- include: promo.html -->
+       scrolled  = "1" to ship the solid bar state for non-scrolling pages
+       promo     = "0" to leave out the promo strip (pair with site-js.html promo=0) -->
+<!-- thin dismissible $1-starter promo strip, above the sticky bar. promo=0 leaves it out
+     on a page that leaves out promo.js (which shows, hides and closes it). -->
+{{#unless promo=0}}<!-- include: promo.html -->{{/unless}}
 <header class="nav{{#if scrolled=1}} is-scrolled{{/if}}" id="nav">
   <div class="wrap nav__inner">
     <!-- include: brand.html href={{home}} -->

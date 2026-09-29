@@ -103,6 +103,7 @@
 /* its label is a word, not a section mark: no red first letter */
 .gov-sources .bc-sec__no::first-letter { color: inherit; }
 .gov-sources ol { margin: var(--s-3) 0 0; padding-left: 1.2em; color: var(--ink-500); font-size: var(--t-xs); line-height: 1.8; }
+.gov-sources li + li { margin-top: var(--s-2); }   /* 24px between stacked link targets (WCAG 2.2) */
 .gov-sources a { color: var(--ink-500); }
 .gov-sources a:hover, .gov-sources a:focus-visible { color: var(--live-text); }
 
