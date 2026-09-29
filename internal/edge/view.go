@@ -27,6 +27,14 @@ type Row struct {
 	Relay bool   // other nodes are reached through this one
 	Child bool   // this node is reached through the relay above it
 	Via   string // that relay's name
+	// Depth is HOW MANY HOPS from the authority: 1 for a node this machine reaches itself, 2 through
+	// one relay, 3 through a relay's relay, and so on. Child could only ever say "not the first hop",
+	// so a three-deep chain drew flat and a node two relays away looked exactly like one that was
+	// directly relayed. A picture of the path needs the number.
+	Depth int
+	// Last is true for the final node at its own level under its own parent, which is what lets a
+	// drawing close a branch off with └ instead of looking ahead to find out.
+	Last bool
 }
 
 // HasLANTransport reports a LAN-direct transport - the one a solid edge means.
@@ -82,24 +90,38 @@ func Arrange(list []store.EdgeNode) []Row {
 	}
 	rows := make([]Row, 0, len(list))
 	drawn := make(map[string]bool, len(list))
-	var emit func(n store.EdgeNode, parent string)
-	emit = func(n store.EdgeNode, parent string) {
+	var emit func(n store.EdgeNode, parent string, depth int, last bool)
+	emit = func(n store.EdgeNode, parent string, depth int, last bool) {
 		if drawn[n.ID] {
 			return // a cycle, or a node already placed under its relay
 		}
 		drawn[n.ID] = true
-		rows = append(rows, Row{Node: n, Relay: len(children[n.Name]) > 0, Child: parent != "", Via: parent})
-		for _, c := range children[n.Name] {
-			emit(c, n.Name)
+		kids := children[n.Name]
+		rows = append(rows, Row{Node: n, Relay: len(kids) > 0, Child: parent != "", Via: parent,
+			Depth: depth, Last: last})
+		for i, c := range kids {
+			emit(c, n.Name, depth+1, i == len(kids)-1)
 		}
 	}
+	// The roots, in order, so the final one knows it is the last.
+	var roots []store.EdgeNode
 	for _, n := range list {
 		if via[n.ID] == "" {
-			emit(n, "")
+			roots = append(roots, n)
 		}
 	}
+	for i, n := range roots {
+		emit(n, "", 1, i == len(roots)-1)
+	}
+	// Whatever a cycle stranded, drawn rather than dropped. It hangs at the first level because the
+	// view cannot honestly say whose child it is: its own relay is downstream of it.
 	for _, n := range list {
-		emit(n, "") // whatever a cycle stranded, drawn rather than dropped
+		emit(n, "", 1, false)
+	}
+	// The last row drawn is the last one at its level whatever order it arrived in, so a stranded
+	// tail still closes the picture off instead of trailing into nothing.
+	if len(rows) > 0 {
+		rows[len(rows)-1].Last = true
 	}
 	return rows
 }

@@ -35,6 +35,11 @@ type edgeNetItem struct {
 	id      string           // the node id, for adopt/detail of a member or candidate
 	kind    string           // host | board | mobile, for a member/candidate emblem
 	alerts  []string         // the alert rules firing for this node right now, by wording
+	// via is the MEMBER this node is reached THROUGH, and hops is how far from the authority it is:
+	// 1 for a machine this one reaches itself, 2 through one relay, 3 through a relay's relay
+	// (edge.Arrange). The wire says a relay is in the path; these say which one and how many.
+	via  string
+	hops int
 }
 
 // alertTag is the short count a card wears when rules are firing: "1 alert", "2 alerts".
@@ -94,7 +99,11 @@ func (it edgeNetItem) sub() string {
 	switch {
 	case tag == "" || !(it.machine || it.member):
 	case it.member && it.dark:
-		s = it.kindOr("offline") + " · " + tag // the kind leads when it is known, then what is firing
+		// OFFLINE LEADS, and the kind gives up its place. Both facts want this one narrow line, and
+		// when a unit is both offline and alerting those two words are the urgent pair: the kind is
+		// still told by the card's glyph and spelled out in the readout, but "offline" is told
+		// nowhere else on the card. An earlier version dropped it and that was a step backwards.
+		s = "offline · " + tag
 	default:
 		s += " · " + tag
 	}
@@ -111,10 +120,16 @@ func (it edgeNetItem) subBase() string {
 		return it.kindWord() + " · adopt with a"
 	case it.member && it.dark:
 		return it.kindWord() + " · offline"
+	case it.member && it.via != "":
+		// WHICH relay, not just that there is one. The wire already says the path goes through
+		// something; a picture of how the Edge is connected has to name it.
+		return it.kindWord() + " · via " + it.via
 	case it.member:
 		return it.kindWord() + " · on your Edge"
-	case it.dark:
+	case it.dark && it.agent:
 		return "agent · offline"
+	case it.dark:
+		return "roger · offline"
 	case it.agent && it.job != "":
 		return "agent · " + it.job
 	case it.agent:
@@ -170,11 +185,20 @@ func (m model) edgeNetItems() []edgeNetItem {
 			items = append(items, edgeNetItem{name: p.Name, agent: true, dark: true})
 		}
 	}
-	// The OTHER machines already on this Edge - members, drawn as their own cards in a fleet band.
+	// The OTHER machines already on this Edge - members, in the order the topology arranges them, so
+	// a machine reached through a relay is drawn after the relay it hangs off rather than wherever
+	// the fleet listing happened to put it (edge.Arrange).
+	fleet := make([]store.EdgeNode, 0, len(m.edge.rows))
+	byID := map[string]*store.EdgeNode{}
 	for i := range m.edge.rows {
-		n := m.edge.rows[i].n
-		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), member: true, node: &m.edge.rows[i].n, id: n.ID, kind: n.Kind,
-			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID]})
+		fleet = append(fleet, m.edge.rows[i].n)
+		byID[m.edge.rows[i].n.ID] = &m.edge.rows[i].n
+	}
+	for _, r := range edge.Arrange(fleet) {
+		n := r.Node
+		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), member: true, node: byID[n.ID], id: n.ID, kind: n.Kind,
+			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID],
+			via: r.Via, hops: r.Depth})
 	}
 	// The DISCOVERED machines not yet on this Edge - candidates, adopt with a.
 	for i := range m.edge.cands {
@@ -653,6 +677,12 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 			}
 			label(k, pad(c.Name, 10)+stDim.Render(c.State))
 		}
+		// THE PATH: how the authority reaches this unit, and through whom. It is the one fact neither
+		// the rack nor the card band can show, and it is what turns "via relay" into something an
+		// owner can act on: when the relay goes dark, everything behind it goes with it.
+		if it.hops > 0 {
+			label("PATH", edgePathWords(m.edgeSelfName(), it))
+		}
 		for i, t := range n.Transports {
 			k := ""
 			if i == 0 {
@@ -894,6 +924,24 @@ func (m model) edgeMapList(cw int, line func(string)) {
 			stDim.Render(pad(it.kindLabel(), kindW)+state)
 		line("  " + truncVisible(row, cw))
 	}
+}
+
+// edgePathWords is the route to a unit as an operator reads it: "desk → wiltshire → nina · 2 hops".
+// One hop is drawn as the direct thing it is rather than as a route with a middle.
+func edgePathWords(self string, it edgeNetItem) string {
+	hop := " hops"
+	if it.hops == 1 {
+		hop = " hop"
+	}
+	route := self + " → " + it.name
+	if it.via != "" {
+		route = self + " → " + it.via + " → " + it.name
+	}
+	out := route + stDim.Render("  ·  "+strconv.Itoa(it.hops)+hop)
+	if it.via != "" {
+		out += stDim.Render(" · if " + it.via + " goes dark, so does this")
+	}
+	return out
 }
 
 // edgeDriftOf is what this node is failing to be, or nothing. A build that wired no expectations

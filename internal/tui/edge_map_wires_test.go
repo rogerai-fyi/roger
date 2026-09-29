@@ -131,3 +131,56 @@ func TestAHeartbeatMovesOnItsOwnWire(t *testing.T) {
 		t.Errorf("a node with no id was matched by a pulse")
 	}
 }
+
+// THE PATH is the fact this screen exists to show and no other view can: how the authority reaches
+// a unit, through whom, and what goes with the relay when it goes dark.
+func TestTheMapNamesTheRelayAndTheWholePath(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		AuthorityAddr: "http://192.168.1.9:8791", Enrolled: true, Name: "desk",
+		Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	relay := nodeOf("r", "wiltshire", "host")
+	behind := nodeOf("b", "nina", "mobile")
+	behind.Transports = []store.EdgeTransport{{Kind: "relay", Addr: "wiltshire"}}
+	m := networkModel(t, self, relay, behind)
+	m.hooks.EdgeHousehold = func() []edge.Instance { return []edge.Instance{{Name: "desk", Agent: true}} }
+	m.hooks.EdgeSelfInstance = func() string { return "desk" }
+	m.enterEdge()
+
+	out := stripANSI(m.edgeView(116))
+	if !strings.Contains(out, "via wiltshire") {
+		t.Errorf("the card does not name the relay the unit is reached through:\n%s", out)
+	}
+	// The relay is drawn BEFORE what hangs off it, whatever order the fleet listed them in.
+	if r, b := strings.Index(out, "wiltshire"), strings.Index(out, "nina"); r < 0 || b < 0 || r > b {
+		t.Errorf("the relay is not drawn before the unit reached through it:\n%s", out)
+	}
+	// And the node page gives the whole route with its blast radius.
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "nina" {
+			m.edge.netSel, m.edge.netSelSet, m.edge.netDetail = i, true, true
+			if it.hops != 2 {
+				t.Errorf("nina is %d hops away, want 2", it.hops)
+			}
+		}
+	}
+	page := stripANSI(m.edgeView(116))
+	for _, want := range []string{"PATH", "desk → wiltshire → nina", "2 hops", "if wiltshire goes dark"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the node page is missing %q from the path:\n%s", want, page)
+		}
+	}
+
+	// A unit the authority reaches itself is one hop, and is not dressed up as a route.
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "wiltshire" {
+			m.edge.netSel, m.edge.netSelSet = i, true
+		}
+	}
+	direct := stripANSI(m.edgeView(116))
+	if !strings.Contains(direct, "1 hop") || strings.Contains(direct, "1 hops") {
+		t.Errorf("a direct unit's path does not read as one hop:\n%s", direct)
+	}
+	if strings.Contains(direct, "desk → wiltshire → wiltshire") {
+		t.Errorf("a direct unit was drawn with itself as its own relay:\n%s", direct)
+	}
+}
