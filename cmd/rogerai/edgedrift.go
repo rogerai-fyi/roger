@@ -174,7 +174,10 @@ func edgeNodeNames() map[string]string {
 		return out
 	}
 	for _, n := range nodes {
-		out[n.ID] = n.Name
+		// A record whose name IS its id was never named by its owner, so every surface calls it by a
+		// short id instead (edge.Label). This map is what the drift report, the schedule listing and
+		// the console's grant lines all read, so they cannot disagree about what a unit is called.
+		out[n.ID] = edge.Label(n.Name, n.ID)
 	}
 	return out
 }

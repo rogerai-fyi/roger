@@ -277,7 +277,9 @@ func edgeRuleState(r edge.Rule, firing edge.AlertState, hs []edge.NodeHealth) st
 	var on []string
 	for _, h := range hs {
 		if firing.Firing(r.ID, h.ID) {
-			on = append(on, h.Name)
+			// The label, not the raw record name: a unit nobody named is called by a short id here as
+			// it is everywhere else, rather than putting 48 characters into an alert line.
+			on = append(on, edge.Label(h.Name, h.ID))
 		}
 	}
 	if len(on) == 0 {

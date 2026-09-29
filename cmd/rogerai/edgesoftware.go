@@ -90,7 +90,7 @@ func edgeInventoryRows(st *edgeState, now time.Time) ([]edgeInventoryRow, string
 	var rows []edgeInventoryRow
 	for _, n := range nodes {
 		for _, in := range n.Instances {
-			r := edgeInventoryRow{Node: n.Name, Instance: in.Name, Behind: edge.Behind(in, newest), Presence: strings.ToLower(n.Presence)}
+			r := edgeInventoryRow{Node: edge.Label(n.Name, n.ID), Instance: in.Name, Behind: edge.Behind(in, newest), Presence: strings.ToLower(n.Presence)}
 			if sw := in.Software; sw != nil {
 				r.Roger, r.OS, r.Kernel, r.Arch, r.Machine, r.Hostname = sw.Roger, sw.OS, sw.Kernel, sw.Arch, sw.Machine, sw.Hostname
 			}

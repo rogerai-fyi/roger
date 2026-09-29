@@ -10,6 +10,7 @@ package main
 // FORGOTTEN for good when the host folded the disk back in and found it missing.
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -359,4 +360,39 @@ func TestIntentAndObservationMergeDifferently(t *testing.T) {
 	got = edgeMergeOne(base, mine2, theirs2, true)
 	require.Equal(t, "theirs", got.Name, "an edit made elsewhere was overwritten by a heartbeat")
 	require.Equal(t, int64(300), got.LastSeen)
+}
+
+// NO SURFACE PRINTS A 48-CHARACTER ID AS A NAME. The TUI, the Limoni screens and the console were
+// swept one at a time; this pins the CLI's own text, which is the surface a script reads and the one
+// an owner sees first.
+func TestNoCLISurfacePrintsAnIdAsAName(t *testing.T) {
+	useTempConfig(t)
+	id := "n_" + strings.Repeat("ef", 24)
+	n := edgeNodeFor(id, id, "mobile") // enrolment fell back to the id as the name
+	n.Tags = []string{"bench"}
+	n.Instances = []store.EdgeInstance{{Name: "share", Software: &store.EdgeSoftware{Roger: "6.13.0"}}}
+	edgeSeed(t, n, edgeNodeFor("n_nas", "nas", "host"))
+
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"the fleet table", []string{"edge", "list"}},
+		{"the inventory", []string{"edge", "inventory"}},
+		{"the tags", []string{"edge", "tag", id}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out, _ := edgeRun(t, c.args...)
+			if strings.Contains(out, id) && !strings.Contains(out, "roger edge tag "+id) {
+				t.Errorf("%s prints the whole id as a name:\n%s", c.name, out)
+			}
+			if !strings.Contains(out, edge.ShortID(id)) {
+				t.Errorf("%s does not name the node at all:\n%s", c.name, out)
+			}
+		})
+	}
+	// And the shared name lookup every report reads is labelled at the source.
+	if got := edgeNodeNames()[id]; got != edge.ShortID(id) {
+		t.Errorf("the shared name lookup gives %q, want the short label", got)
+	}
 }
