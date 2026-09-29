@@ -17,7 +17,12 @@ import (
 )
 
 // AlertLog is the alert store rooted at Dir.
-type AlertLog struct{ Dir string }
+type AlertLog struct {
+	Dir string
+	// SinkBackoff is the wait before a retried delivery, doubling after each. Zero means the
+	// default; it is a field so a spec can exercise the retry without sleeping for real.
+	SinkBackoff time.Duration
+}
 
 // Expectations are what the owner holds the fleet to (features/edge/drift.feature). They live beside
 // the rules, on the authority's own disk, and are read and written under the same lock.

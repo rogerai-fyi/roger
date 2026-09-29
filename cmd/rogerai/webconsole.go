@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -151,11 +152,23 @@ func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 	return webui.EdgeHooks{
 		// WHAT RAISES AN ALARM, from the same log and the same wording the terminal uses, so a rule
 		// set in the browser and one set at the prompt are one rule with one id and one scope.
-		Rules:   func() ([]edge.Rule, error) { return edgeAlertLog().Rules() },
+		Rules: func() ([]edge.Rule, error) { return edgeAlertLog().Rules() },
 		SetRule: func(metric, op, value, scope string) (string, error) {
 			return edgeAlertSetRule(edgeAlertLog(), metric, op, value, scope)
 		},
-		RuleOff:    func(id string, off bool) error { return edgeAlertLog().SetOff(id, off) },
+		RuleOff: func(id string, off bool) error { return edgeAlertLog().SetOff(id, off) },
+		// WHERE AN ALERT GOES. The URL travels one way: in through AddSink, never back out, because
+		// Sinks() cannot return it and the payload has no field for it.
+		Sinks: func() ([]edge.Sink, error) { return edgeAlertLog().Sinks() },
+		AddSink: func(kind, url string) (edge.Sink, error) {
+			return edgeAlertLog().AddSink(edge.SinkKind(kind), url, time.Now())
+		},
+		RemoveSink: func(id string) (bool, error) { return edgeAlertLog().RemoveSink(id) },
+		TestSink: func(id string) (edge.Delivery, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			return edgeAlertLog().TestSink(ctx, id, time.Now())
+		},
 		RemoveRule: func(id string) error { return edgeAlertLog().Remove(id) },
 		// ONE MAINTENANCE ACTION on a member, through the very path a typed `roger edge maintain`
 		// takes. The console adds no authority of its own: the owner's maintenance switch ON THAT
@@ -167,7 +180,8 @@ func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 		},
 		Self: h.EdgeSelf, Fleet: h.EdgeFleet, Candidates: h.EdgeCandidates,
 		Adopt: h.EdgeAdopt, Name: h.EdgeName, Forget: h.EdgeForget,
-		SetAgent: h.EdgeSetAgent, AddAgent: h.EdgeAddAgent,
+		ConfirmActuate: h.EdgeConfirmActuate,
+		SetAgent:       h.EdgeSetAgent, AddAgent: h.EdgeAddAgent,
 		AgentActive: h.EdgeAgentActive, SetPrefer: h.EdgeSetPrefer,
 		SetAgentJob: h.EdgeSetAgentJob, ClearAgentJob: h.EdgeClearAgentJob,
 		Grants: h.EdgeGrants, IssueGrant: h.EdgeIssueGrant, RevokeGrant: h.EdgeRevokeGrant,

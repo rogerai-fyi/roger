@@ -43,6 +43,11 @@ type EdgeHooks struct {
 	// Nil leaves that action honestly disabled in the console.
 	Name   func(id, name string) error
 	Forget func(id string) error
+	// ConfirmActuate is the owner saying yes to a node that can change the physical world
+	// (features/edge/node_identity.feature). The console opens no new authority with it: it is the
+	// same host operation the terminal's `roger edge actuate` performs, and the HOST records who
+	// confirmed - the browser is never asked and never believed about that. Nil = disabled.
+	ConfirmActuate func(id string) error
 	// SetAgent turns THIS roger's agent role on or off, AddAgent launches a new agent roger on this
 	// machine, and SetPrefer chooses where a turn goes first - the same self-management the TUI's [3]
 	// panel does (features/edge/agents.feature, mode.feature). AgentActive reports the current role.
@@ -72,6 +77,14 @@ type EdgeHooks struct {
 	SetRule    func(metric, op, value, scope string) (string, error)
 	RuleOff    func(id string, off bool) error
 	RemoveRule func(id string) error
+	// Sinks is where an alert goes when the owner wants it to leave this machine, WITHOUT their
+	// secrets: a webhook URL is a bearer credential and the browser is never told one, not even one
+	// it supplied a moment ago. AddSink takes the URL the owner typed, RemoveSink drops one by id,
+	// TestSink proves one works. Nil = the console says so and draws nothing.
+	Sinks      func() ([]edge.Sink, error)
+	AddSink    func(kind, url string) (edge.Sink, error)
+	RemoveSink func(id string) (bool, error)
+	TestSink   func(id string) (edge.Delivery, error)
 	// Maintain performs ONE maintenance action on a member - start, stop or restart a persistent agent,
 	// or read its redacted log tail - through the SAME invoke `roger edge maintain` and `roger edge
 	// logs` take (features/edge/maintenance.feature, features/edge/logs.feature). Both locks still
@@ -275,6 +288,13 @@ type edgeSnap struct {
 	Rules          []edgeRuleJSON `json:"rules"`
 	RulesManage    bool           `json:"rules_manage"`
 	MaintainManage bool           `json:"maintain_manage"`
+	// ActuateManage says this build can perform the actuate ceremony. A console that cannot must
+	// draw no button for it rather than one that answers 501.
+	ActuateManage bool `json:"actuate_manage"`
+	// Sinks is where alerts go, each named by kind, host and id and NEVER by URL. SinkManage says
+	// this build can change them.
+	Sinks      []edgeSinkJSON `json:"sinks,omitempty"`
+	SinkManage bool           `json:"sink_manage"`
 	// Floor is the ANDON and TROUBLE facts the TUI shows; FloorManage whether roger/stand by are wired.
 	Floor *edgeFloorJSON `json:"floor,omitempty"`
 	// Events is the timeline the terminal's EVENTS tab shows (features/edge/events.feature), worded on
@@ -527,6 +547,18 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	}
 	snap.Configured, snap.Self, snap.Account, snap.At = true, h.Self, h.Fleet.Account(), now.Unix()
 	snap.Manage = h.Name != nil && h.Forget != nil
+	snap.ActuateManage = h.ConfirmActuate != nil
+	snap.SinkManage = h.AddSink != nil && h.RemoveSink != nil
+	if h.Sinks != nil {
+		if list, err := h.Sinks(); err == nil {
+			snap.Sinks = []edgeSinkJSON{}
+			for _, sk := range list {
+				// Kind, host and id. NOT the URL: the field does not even exist on this struct, so
+				// there is no line anybody can add later that leaks it by forgetting.
+				snap.Sinks = append(snap.Sinks, edgeSinkJSON{ID: sk.ID, Kind: string(sk.Kind), Host: sk.Host, Words: sk.Words()})
+			}
+		}
+	}
 	snap.SelfManage = h.SetAgent != nil && h.AddAgent != nil && h.SetPrefer != nil
 	snap.JobsManage = h.SetAgentJob != nil && h.ClearAgentJob != nil
 	if h.AgentActive != nil {
@@ -744,6 +776,106 @@ func (s *Server) handleEdgeForget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Forget(req.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// edgeSinkJSON is one destination as the browser is allowed to know it. THERE IS NO URL FIELD, and
+// that is the point: the secret cannot leak through a payload that has nowhere to put it.
+type edgeSinkJSON struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Host  string `json:"host,omitempty"`
+	Words string `json:"words"`
+}
+
+// handleEdgeSink adds, removes or tests a destination for alerts. POST-only and token-gated like
+// every other mutation. The URL travels ONE WAY: the browser may send one, and no read ever gives
+// one back, so a console that has been left open cannot be walked through to recover a credential.
+func (s *Server) handleEdgeSink(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.AddSink == nil || h.RemoveSink == nil || h.TestSink == nil {
+		http.Error(w, "this build cannot change where alerts go - run `roger edge sink`", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Do   string `json:"do"` // add | rm | test
+		Kind string `json:"kind"`
+		URL  string `json:"url"`
+		ID   string `json:"id"`
+	}
+	if !decode(r, &req) {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	switch req.Do {
+	case "add":
+		sk, err := h.AddSink(req.Kind, req.URL)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_ = sk
+	case "rm":
+		if req.ID == "" {
+			http.Error(w, "sink id required", http.StatusBadRequest)
+			return
+		}
+		had, err := h.RemoveSink(req.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		if !had {
+			http.Error(w, "no sink has that id", http.StatusNotFound)
+			return
+		}
+	case "test":
+		if req.ID == "" {
+			http.Error(w, "sink id required", http.StatusBadRequest)
+			return
+		}
+		d, err := h.TestSink(req.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		if !d.OK {
+			// The outcome is safe to show: a Delivery names the sink by id and host, never by URL.
+			http.Error(w, d.Words+" did not take it: "+d.Says, http.StatusBadGateway)
+			return
+		}
+	default:
+		http.Error(w, "sink takes add, rm or test", http.StatusBadRequest)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeActuate is THE ACTUATE CEREMONY through the host, POST-only and token-gated like every
+// other mutation here. Confirming actuate licenses a machine to CHANGE THE PHYSICAL WORLD, so:
+//
+//   - the browser confirms before it calls this, the way it does for forget;
+//   - the request carries the node and NOTHING ELSE - in particular it does not carry who is
+//     confirming, because a confirmation the requester can name themselves for is worth nothing.
+//     The host takes the operator identity it already holds;
+//   - a build with no ceremony wired answers 501 rather than pretending.
+func (s *Server) handleEdgeActuate(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.Fleet == nil || h.ConfirmActuate == nil {
+		http.Error(w, "this build cannot confirm actuate - run `roger edge actuate <node>`", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if !decode(r, &req) || req.ID == "" {
+		http.Error(w, "node id required", http.StatusBadRequest)
+		return
+	}
+	if err := h.ConfirmActuate(req.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}

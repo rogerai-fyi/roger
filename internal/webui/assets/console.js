@@ -1689,6 +1689,7 @@
     edgeRenderSessions(d);
     edgeRenderGrants(d);
     edgeRenderRules(d);
+    edgeRenderSinks(d);
     edgeRenderFloor(d);
     edgeRenderEvents(d);
     edgeRenderIntent(d);
@@ -2531,6 +2532,14 @@
       tagBtn.setAttribute("type", "button");
       tagBtn.addEventListener("click", function () { edgeTagPrompt(card, n); });
       macts.appendChild(tagBtn);
+      // THE ACTUATE CEREMONY, offered only while there is something to confirm. A node pending
+      // actuate is one the owner adopted and cannot use, and only a person can grant it.
+      if (d.actuate_manage && edgeActuatePending(n)) {
+        var actBtn = el("button", "btn small edge-actuate", "confirm actuate");
+        actBtn.setAttribute("type", "button");
+        actBtn.addEventListener("click", function () { edgeConfirmActuate(n.id, edgeName(n)); });
+        macts.appendChild(actBtn);
+      }
       var forgetBtn = el("button", "btn small ghost edge-forget", "forget");
       forgetBtn.setAttribute("type", "button");
       forgetBtn.addEventListener("click", function () { edgeForget(n.id, n.name); });
@@ -2651,6 +2660,77 @@
     close.addEventListener("click", function () { edgeTick(); });
     box.appendChild(close);
     card.appendChild(box);
+  }
+
+  // edgeRenderSinks draws WHERE an alarm goes (features/edge/health.feature §5). The table has no
+  // column for the URL because the payload has no field for it: the secret went in once and the
+  // console is never told it again, so a screen left open cannot be read for a credential.
+  function edgeRenderSinks(d) {
+    var wrap = $("edge-sinks-wrap");
+    if (!wrap) return;
+    if (!d.sink_manage) { show(wrap, false); return; }
+    show(wrap, true);
+    edgeRenderSinkForm(d);
+    var body = $("edge-sinks");
+    if (!body) return;
+    if (edgeFormBusy(body)) return;
+    body.innerHTML = "";
+    var sinks = d.sinks || [];
+    if (!sinks.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "Alerts stay on this machine."); ec.colSpan = 4;
+      er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    sinks.forEach(function (sk) {
+      var tr = el("tr");
+      tr.appendChild(el("td", "mono small", sk.kind));
+      tr.appendChild(el("td", "mono small", sk.host || "\u2014"));
+      tr.appendChild(el("td", "mono small", sk.id));
+      var acts = el("td");
+      var testBtn = el("button", "btn small ghost", "test");
+      testBtn.setAttribute("type", "button");
+      testBtn.addEventListener("click", function () { edgeSinkDo("test", { id: sk.id }, "a test reached " + sk.words); });
+      acts.appendChild(testBtn);
+      var rmBtn = el("button", "btn small ghost", "remove");
+      rmBtn.setAttribute("type", "button");
+      rmBtn.addEventListener("click", function () {
+        if (!window.confirm("Stop sending alerts to " + sk.words + "?\n\nNothing goes there again. The URL is not stored anywhere else, so you would have to paste it in again.")) return;
+        edgeSinkDo("rm", { id: sk.id }, "no alert goes to " + sk.id + " again");
+      });
+      acts.appendChild(rmBtn);
+      tr.appendChild(acts);
+      body.appendChild(tr);
+    });
+  }
+
+  function edgeRenderSinkForm(d) {
+    var box = $("edge-sink-form");
+    if (!box || edgeFormBusy(box)) return;
+    box.innerHTML = "";
+    var kind = el("select", "mono small");
+    ["webhook", "discord", "telegram"].forEach(function (k) { var o = el("option", null, k); o.value = k; kind.appendChild(o); });
+    var url = el("input", "mono small");
+    url.type = "url";
+    url.placeholder = "https://… or http://box.local/hook";
+    url.size = 44;
+    var add = el("button", "btn small", "send alerts here");
+    add.setAttribute("type", "button");
+    add.addEventListener("click", function () {
+      if (!url.value) { toast("a destination needs a URL", "err"); return; }
+      edgeSinkDo("add", { kind: kind.value, url: url.value }, "alerts now go to " + kind.value);
+      url.value = "";
+    });
+    box.appendChild(kind); box.appendChild(url); box.appendChild(add);
+  }
+
+  function edgeSinkDo(what, extra, said) {
+    var req = { do: what };
+    Object.keys(extra).forEach(function (k) { req[k] = extra[k]; });
+    apiPost("/api/edge/sink", req).then(function (d) {
+      toast(said);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
   }
 
   // edgeRenderRules draws what raises an alarm on this Edge (features/edge/health.feature, and
@@ -2798,6 +2878,23 @@
 
   // edgeForget removes a member through the host after a deliberate confirm - never a silent delete.
   // When this machine is the authority the server also revokes the node's certificate.
+  // edgeActuatePending reports whether this node declares actuate and is still waiting on its
+  // owner. It is the one capability nothing infers and no probe can verify.
+  function edgeActuatePending(n) {
+    return (n.caps || []).some(function (c) { return c.name === "actuate" && c.state !== "VERIFIED"; });
+  }
+
+  // edgeConfirmActuate is the ceremony: say what it LICENSES, ask, then let the HOST record who.
+  // The request carries the node and nothing else - a confirmation the browser can name itself for
+  // would be worth nothing.
+  function edgeConfirmActuate(id, name) {
+    if (!window.confirm("Let " + name + " ACTUATE?\n\nActuate means this node can change the PHYSICAL WORLD: a door, a pump, a relay, a moving machine. Nothing on your Edge infers this and no probe can verify it - it is yours to grant, and your name is recorded against it.")) return;
+    apiPost("/api/edge/actuate", { id: id }).then(function (d) {
+      toast(name + " may actuate - recorded on the node");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
   function edgeForget(id, name) {
     if (!window.confirm("Forget " + name + "?\n\nIt leaves your Edge and its pinned certificate is cleared. If this machine is the authority, its certificate is revoked so no peer accepts it. This cannot be undone from here.")) return;
     apiPost("/api/edge/forget", { id: id }).then(function (d) {

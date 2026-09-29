@@ -406,6 +406,22 @@
           </div>
         </div>
 
+        <div class="edge-sinks-wrap" id="edge-sinks-wrap" hidden>
+          <h3 class="sub-head">Where alerts go</h3>
+          <p class="muted small">Nothing leaves this machine until you say where. With no destination an alarm still shows on every fleet surface and in the log, it simply travels nowhere. A webhook URL is a credential: it is stored here and never shown again, not even to you.</p>
+          <div id="edge-sink-form" class="edge-rule-form"></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>KIND</th><th>GOES TO</th><th>ID</th><th></th></tr>
+              </thead>
+              <tbody id="edge-sinks">
+                <tr class="empty-row"><td colspan="4">Alerts stay on this machine.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="edge-grants-wrap" id="edge-grants-wrap" hidden>
           <h3 class="sub-head">Grants</h3>
           <p class="muted small">Authority-signed permissions: who may act on which node, and for how long. A member verifies a grant with your Edge's public root alone - no broker.</p>
