@@ -1555,6 +1555,14 @@
     return n;
   }
 
+  // edgeName is what to PRINT for a node or unit. A record whose name is its own id was never named
+  // by its owner, and the server sends a short label for it; the record name is still what identity
+  // and the rename form use, so only display goes through here.
+  function edgeName(n) {
+    if (!n) return "";
+    return String(n.label || n.name || "");
+  }
+
   // edgeClip bounds a label to its cell; the full name stays on the node's <title>.
   function edgeClip(str, n) {
     str = String(str || "");
@@ -1801,11 +1809,11 @@
       var cls = "edge-node" + (n.dark ? " edge-node--dark" : "") + (alerts.length ? " edge-node--alert" : "") + (n.id === edgeSel ? " edge-node--sel" : "");
       var g = svgEl("g", { "class": cls, "data-id": n.id, tabindex: "0", role: "button" });
       var title = svgEl("title");
-      title.textContent = n.name + (n.via ? " (through " + n.via + ")" : "");
+      title.textContent = edgeName(n) + (n.via ? " (through " + n.via + ")" : "");
       g.appendChild(title);
       g.appendChild(svgEl("circle", { cx: p[0], cy: p[1], r: n.relay ? 8 : 6 }));
       var label = svgEl("text", { x: p[0], y: p[1] - 12, "text-anchor": "middle" });
-      label.textContent = edgeClip(n.name, 14);
+      label.textContent = edgeClip(edgeName(n), 14);
       g.appendChild(label);
       var marks = svgEl("text", { x: p[0], y: p[1] + 20, "text-anchor": "middle", "class": "edge-marks" });
       marks.textContent = edgeMarks(n) + (n.dark ? " DARK " + (n.age || "") : "") + (alerts.length ? " \u26a0 " + alerts.length : "");
@@ -1867,10 +1875,10 @@
       return;
     }
     d.candidates.forEach(function (c) {
-      var b = el("button", "edge-cand", c.name + "  " + (c.kind || ""));
+      var b = el("button", "edge-cand", edgeName(c) + "  " + (c.kind || ""));
       b.setAttribute("type", "button");
       b.setAttribute("aria-pressed", c.id === edgeSel ? "true" : "false");
-      b.title = c.name;
+      b.title = edgeName(c);
       b.addEventListener("click", function () { edgeSelect(c.id); });
       box.appendChild(b);
     });
@@ -1886,7 +1894,7 @@
     box.innerHTML = "";
     box.appendChild(el("span", "mono muted small", "adopting \u00b7 waiting to check in:"));
     list.forEach(function (a) {
-      box.appendChild(el("span", "edge-adopting-pill mono small", a.name + " (" + (a.kind || "?") + ")"));
+      box.appendChild(el("span", "edge-adopting-pill mono small", edgeName(a) + " (" + (a.kind || "?") + ")"));
     });
     show(box, true);
   }
@@ -2068,7 +2076,7 @@
         var cls = u.state === "TROUBLE" ? "trouble" : u.state === "DARK" ? "dark" : "air";
         if (cls === "air") on++; else if (cls === "trouble") trouble++; else dark++;
         var tile = el("div", "edge-tile edge-tile--" + cls);
-        tile.appendChild(el("div", "edge-tile__name mono", u.name));
+        tile.appendChild(el("div", "edge-tile__name mono", edgeName(u)));
         var since = u.since_s > 0 ? edgeAge(u.since_s) : "";
         if (u.capped && since) since = "\u2265" + since;
         tile.appendChild(el("div", "edge-tile__state mono", u.state + (since ? "  " + since : "")));
@@ -2202,11 +2210,11 @@
     var nodes = d.nodes || [];
     var caller = el("select", "edge-grant-caller");
     var selfOpt = el("option", null, "self (your instances)"); selfOpt.value = "self"; caller.appendChild(selfOpt);
-    nodes.forEach(function (n) { var o = el("option", null, n.name); o.value = n.id; caller.appendChild(o); });
+    nodes.forEach(function (n) { var o = el("option", null, edgeName(n)); o.value = n.id; caller.appendChild(o); });
     var cap = el("select", "edge-grant-cap");
     ["operate", "sense", "actuate", "classify", "serve", "relay"].forEach(function (c) { var o = el("option", null, c); o.value = c; cap.appendChild(o); });
     var callee = el("select", "edge-grant-callee");
-    nodes.forEach(function (n) { var o = el("option", null, n.name); o.value = n.id; callee.appendChild(o); });
+    nodes.forEach(function (n) { var o = el("option", null, edgeName(n)); o.value = n.id; callee.appendChild(o); });
     var dur = el("input", "edge-grant-for"); dur.type = "text"; dur.value = "7d"; dur.size = 5;
     var issue = el("button", "btn small", "issue grant"); issue.type = "button";
     box.innerHTML = "";
@@ -2460,7 +2468,7 @@
     if (edgeFormBusy(card)) return;
     var n = f.n;
     card.innerHTML = "";
-    var title = el("div", "card-title", (f.cand ? "CANDIDATE · " : "NODE · ") + n.name);
+    var title = el("div", "card-title", (f.cand ? "CANDIDATE · " : "NODE · ") + edgeName(n));
     card.appendChild(title);
     edgeKV(card, "id", n.id);
     edgeKV(card, "kind", n.kind || "—");

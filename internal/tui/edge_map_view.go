@@ -468,9 +468,11 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 	case it.cand:
 		kind = "discovered · not yet on your Edge"
 	case it.member && it.dark:
-		kind = "member machine · offline"
+		// The WORD for what it is, not "machine" for everything: a phone on the Edge said "member
+		// machine", which is the confusion this line is meant to settle.
+		kind = "member " + strings.ToLower(it.kindOr("unit")) + " · offline"
 	case it.member:
-		kind = "member machine"
+		kind = "member " + strings.ToLower(it.kindOr("unit"))
 	case it.dark:
 		kind = "persistent agent · offline"
 	case it.agent && it.self:
@@ -531,7 +533,16 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 			}
 			label("STATUS", pres)
 		}
-		label("KIND", n.Kind)
+		// The kind in the shared word, with the record's own value beside it when they differ, so the
+		// screen is readable AND the owner can still see what the record says.
+		if w := edge.KindWord(n.Kind); w != "" && w != n.Kind {
+			label("KIND", w+stDim.Render("  ("+n.Kind+")"))
+		} else {
+			label("KIND", n.Kind)
+		}
+		// The FULL id, because this is the one screen with room for it and every `roger edge` command
+		// takes one. A node the owner never named is called by a short id everywhere else.
+		label("ID", stDim.Render(n.ID))
 		if len(n.Caps) == 0 {
 			label("CAN DO", stDim.Render("none declared"))
 		}
@@ -696,27 +707,21 @@ func (m model) edgeJobOf(name string) (edge.AgentJob, bool) {
 	return edge.AgentJob{}, false
 }
 
-// edgeItemKind is the one-word kind shown in the list view.
+// kindLabel is the one-word kind in the list view's KIND column, from the one shared vocabulary
+// (edge.KindWord). A MEMBER used to read "machine" whatever it really was, so an adopted phone sat
+// in the fleet labelled a machine - the very confusion this column exists to clear up.
 func (it edgeNetItem) kindLabel() string {
 	switch {
 	case it.machine:
+		// The hub is the machine you are on. Its kind is not in doubt and the STATE column already
+		// says "YOU ARE HERE", so this column names the role rather than guessing at hardware.
 		return "machine"
-	case it.cand:
-		g := it.kind
-		switch g {
-		case "board":
-			return "board"
-		case "mobile":
-			return "phone"
-		case "host":
-			return "machine"
+	case it.cand, it.member:
+		if w := edge.KindWord(it.kind); w != "" {
+			return w
 		}
 		return "device"
-	case it.member:
-		return "machine"
-	case it.dark:
-		return "agent"
-	case it.agent:
+	case it.dark, it.agent:
 		return "agent"
 	default:
 		return "roger"

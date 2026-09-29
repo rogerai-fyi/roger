@@ -145,7 +145,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		}
 		dark := edge.Presence(n.Presence) == edge.PresenceDark
 		members[n.ID] = true
-		it := fleetview.FleetItem{Kind: fleetview.ItemMember, ID: n.ID, Name: n.Name, NodeKind: n.Kind, Dark: dark,
+		it := fleetview.FleetItem{Kind: fleetview.ItemMember, ID: n.ID, Name: edge.Label(n.Name, n.ID), NodeKind: n.Kind, Dark: dark,
 			Caps: edgeCapsOf(n.Caps), Via: r.Via, Health: health[n.ID], Alerts: firing[n.ID],
 			Asking: asking[n.ID] && dark, ClaimStanding: standing[n.ID], AuthPort: authPort}
 		it.Log, it.Since, it.SinceCapped = edge.LogOf(samples, n.ID, now)
@@ -180,12 +180,14 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		if members[c.ID] {
 			continue // told on its member row
 		}
-		snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemCandidate, ID: c.ID, Name: c.Name, NodeKind: c.Kind,
+		snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemCandidate, ID: c.ID, Name: edge.Label(c.Name, c.ID), NodeKind: c.Kind,
 			Presence: "discovered", Caps: edgeCapsOf(c.Caps), ClaimStanding: standing[c.ID], AuthPort: authPort})
 	}
+	// A node whose record name IS its id was never named by its owner: every screen calls it by a
+	// short id instead (edge.Label), so a 48-character id is never drawn as somebody's name.
 	names := map[string]string{}
 	for _, n := range nodes {
-		names[n.ID] = n.Name
+		names[n.ID] = edge.Label(n.Name, n.ID)
 	}
 	if snap.Grants, err = edgeGrantLines(names, now); err != nil {
 		return fleetview.FleetSnapshot{}, err

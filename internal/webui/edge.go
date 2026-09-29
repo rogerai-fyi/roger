@@ -104,8 +104,12 @@ type edgeCapJSON struct {
 }
 
 type edgeNodeJSON struct {
-	ID         string                `json:"id"`
-	Name       string                `json:"name"`
+	ID string `json:"id"`
+	// Name is the node's RECORD name and is what the rest of the payload keys off (self, via, the
+	// rename form). Label is what to PRINT: a record whose name is its own id was never named by its
+	// owner, and a 48-character id is not a name (edge.Label). The console shows Label and sends Name.
+	Name  string `json:"name"`
+	Label string `json:"label,omitempty"`
 	Kind       string                `json:"kind"`
 	Caps       []edgeCapJSON         `json:"caps"`
 	Transports []store.EdgeTransport `json:"transports"`
@@ -339,6 +343,7 @@ type edgeFloorJSON struct {
 type edgeUnitJSON struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
+	Label    string   `json:"label,omitempty"` // what to print; see edgeNodeJSON.Label
 	Kind     string   `json:"kind"`
 	State    string   `json:"state"` // ON AIR | TROUBLE | DARK
 	SinceS   int64    `json:"since_s"`
@@ -392,7 +397,7 @@ func (s *Server) edgeNow() time.Time {
 
 func edgeNodeOf(n store.EdgeNode, now time.Time) edgeNodeJSON {
 	out := edgeNodeJSON{
-		ID: n.ID, Name: n.Name, Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
+		ID: n.ID, Name: n.Name, Label: edge.Label(n.Name, n.ID), Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
 		Pin: n.Pin, Contract: n.Contract, Station: n.Station, Tags: append([]string(nil), n.Tags...),
 		Caps:               []edgeCapJSON{},
 		Transports:         append([]store.EdgeTransport{}, n.Transports...),
@@ -848,9 +853,10 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 	out := &edgeFloorJSON{Units: []edgeUnitJSON{}, Calls: []edgeCallJSON{}, SignOff: edgeSignOff{DeadAir: []edgeDeadAir{}}}
 	names := map[string]string{}
 	for _, n := range nodes {
-		names[n.ID] = n.Name
+		names[n.ID] = edge.Label(n.Name, n.ID)
 		cells, since, capped := edge.LogOf(f.Samples, n.ID, now)
-		u := edgeUnitJSON{ID: n.ID, Name: n.Name, Kind: n.Kind, Log: make([]string, len(cells)), Alerts: alerts[n.ID], LastSeen: n.LastSeen}
+		u := edgeUnitJSON{ID: n.ID, Name: n.Name, Label: edge.Label(n.Name, n.ID), Kind: n.Kind,
+			Log: make([]string, len(cells)), Alerts: alerts[n.ID], LastSeen: n.LastSeen}
 		if u.Alerts == nil {
 			u.Alerts = []string{}
 		}

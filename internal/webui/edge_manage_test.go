@@ -763,3 +763,50 @@ func TestConsoleCarriesTheIntentAndTheSchedules(t *testing.T) {
 		}
 	}
 }
+
+// A node whose RECORD NAME is its own id was never named by its owner. The console must print a
+// short label for it - a 48-character id drawn as somebody's name is what made the TUI map
+// unreadable - while the record name stays in the payload, because that is what identity and the
+// rename form key off.
+func TestTheConsolePrintsALabelAndKeepsTheRecordName(t *testing.T) {
+	s, srv, fleet, _, _ := manageRig(t)
+	id := "n_" + strings.Repeat("ab", 24)
+	n := edge.NewNode(nil, id, edge.Mobile) // enrolment fell back to the id as the name
+	n.ID = id
+	n.Presence = string(edge.PresenceVerified)
+	if _, err := fleet.Enroll(n); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(srv.URL + "/api/edge?t=" + s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var snap edgeSnap
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	found := false
+	for _, got := range snap.Nodes {
+		if got.ID != id {
+			// A node with a real name needs no second version of it.
+			if got.Label != "" && got.Label != got.Name {
+				t.Errorf("node %q has a label %q that is not its name", got.Name, got.Label)
+			}
+			continue
+		}
+		found = true
+		if got.Name != id {
+			t.Errorf("the record name was rewritten to %q - the rename form and identity need it whole", got.Name)
+		}
+		if got.Label == id || len(got.Label) >= len(id) {
+			t.Errorf("label = %q, want a short id the console can print", got.Label)
+		}
+		if !strings.HasPrefix(id, got.Label) {
+			t.Errorf("label %q is not the head of the id it stands for", got.Label)
+		}
+	}
+	if !found {
+		t.Fatalf("the id-named node is not in the snapshot: %+v", snap.Nodes)
+	}
+}

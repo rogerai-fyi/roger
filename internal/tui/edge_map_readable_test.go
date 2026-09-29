@@ -92,6 +92,31 @@ func TestANodesIdIsNeverDrawnAsItsName(t *testing.T) {
 	}
 }
 
+// The DETAIL view (enter) names the kind in the same shared word, and is the one screen that shows
+// a node's whole id - every `roger edge` command takes one, and this is the only place with room.
+func TestTheDetailNamesTheKindAndShowsTheWholeId(t *testing.T) {
+	m := mapReadableModel(t)
+	items := m.edgeNetItems()
+	for i, it := range items {
+		if !it.member || it.kind != "mobile" {
+			continue
+		}
+		m.edge.netSel, m.edge.netSelSet = i, true
+		m.edge.netDetail = true
+		out := stripANSI(m.edgeView(116))
+		for _, want := range []string{"member phone", "phone  (mobile)", it.id} {
+			if !strings.Contains(out, want) {
+				t.Errorf("the phone's detail is missing %q:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "member machine") {
+			t.Errorf("a phone is called a machine in its own detail:\n%s", out)
+		}
+		return
+	}
+	t.Fatal("no member phone in the rig")
+}
+
 func TestThePanelIsNeverADeadEnd(t *testing.T) {
 	m := mapReadableModel(t)
 	items := m.edgeNetItems()
