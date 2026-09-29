@@ -145,11 +145,22 @@ func (s *GrantStore) write(gs []store.Grant) error {
 
 // flock serialises the store's read-modify-write ACROSS processes (the host and a CLI or a screen
 // issuing beside it), which the in-process mutex alone cannot.
-func (s *GrantStore) flock() (func(), error) {
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
+func (s *GrantStore) flock() (func(), error) { return FileLock(s.Path) }
+
+// FileLock takes an exclusive advisory lock covering path, blocking until it is held, and returns
+// the release. It locks a sidecar (path + ".lock") rather than the file itself, so the holder is
+// free to replace the file atomically while the lock stands - which is how every store here writes.
+//
+// This is what makes a READ-MODIFY-WRITE of a shared file safe across processes. On this machine
+// several rogers touch the same files at once: the host's own pass, whatever the owner types in a
+// second terminal, and the fleet screen, which is a child process of its own. Without the lock the
+// last writer wins with whatever it happened to be holding, and everything the others did in the
+// meantime is gone (the founder's vanished phone, 2026-09-27).
+func FileLock(path string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(s.Path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}

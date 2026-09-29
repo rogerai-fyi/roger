@@ -327,10 +327,77 @@ type edgeState struct {
 	sessions *edge.Sessions
 	// savedAt is the file's mtime after this state's last save; a newer mtime is another
 	// process's edit (the fleet screen, a CLI forget), which is adopted before the next write.
-	// lastSaved is what that save held (id -> name), so an edit made elsewhere can be told from a
-	// node this process added in memory since.
-	savedAt   time.Time
-	lastSaved map[string]string
+	// base is THE MERGE BASE: every node as this state last read or wrote it, id -> fingerprint.
+	// It is what lets a save tell the three cases apart - what THIS process changed, what another
+	// process changed, and what nobody touched - so a write merges instead of overwriting. It is
+	// filled on LOAD as well as on save, because a short-lived CLI's base is the file it read.
+	savedAt time.Time
+	base    map[string]string
+}
+
+// edgeNodeFingerprint is what "unchanged since the base" means for one node. The whole record,
+// because any field a process edited is an edit it must not lose.
+func edgeNodeFingerprint(n store.EdgeNode) string {
+	b, err := json.Marshal(n)
+	if err != nil {
+		return n.ID + "\x00" + n.Name // never happens for a record that just came out of JSON
+	}
+	return string(b)
+}
+
+// edgeBaseOf is the merge base for a set of nodes as read or written.
+func edgeBaseOf(nodes []store.EdgeNode) map[string]string {
+	out := make(map[string]string, len(nodes))
+	for _, n := range nodes {
+		out[n.ID] = edgeNodeFingerprint(n)
+	}
+	return out
+}
+
+// edgeMergeNodes is the three-way merge that makes edge.json safe to share. theirs is the file as
+// it stands NOW, mine is this process's memory, base is the file as this process last saw it.
+//
+//   - on disk and untouched here            -> the disk's version (somebody else's edit stands)
+//   - added here since the base             -> kept (it is new, the disk has not seen it)
+//   - changed here since the base           -> kept (this process's edit stands)
+//   - in the base but gone from memory       -> dropped (this process forgot it, and means it)
+//   - in the base, untouched here, gone from the disk -> stays gone (forgotten elsewhere)
+//
+// A node this process CHANGED that another process forgot comes back. That is deliberate: the
+// alternative is losing an edit, and a returning row is harmless because forgetting also revoked
+// the node's certificate - it cannot talk until it is adopted again - while a lost edit is silent.
+func edgeMergeNodes(base map[string]string, mine, theirs []store.EdgeNode) []store.EdgeNode {
+	out := make(map[string]store.EdgeNode, len(theirs)+len(mine))
+	order := make([]string, 0, len(theirs)+len(mine))
+	add := func(n store.EdgeNode) {
+		if _, had := out[n.ID]; !had {
+			order = append(order, n.ID)
+		}
+		out[n.ID] = n
+	}
+	for _, n := range theirs {
+		add(n)
+	}
+	held := make(map[string]bool, len(mine))
+	for _, n := range mine {
+		held[n.ID] = true
+		was, inBase := base[n.ID]
+		if !inBase || was != edgeNodeFingerprint(n) {
+			add(n) // added or changed here: this process's version is the newer one
+		}
+	}
+	for id := range base {
+		if !held[id] {
+			delete(out, id) // forgotten HERE, on purpose
+		}
+	}
+	merged := make([]store.EdgeNode, 0, len(out))
+	for _, id := range order {
+		if n, ok := out[id]; ok {
+			merged = append(merged, n)
+		}
+	}
+	return merged
 }
 
 // edgeAccount is the owner this machine's Edge belongs to. Anonymous is a real state and
@@ -373,10 +440,24 @@ func loadEdgeState() (*edgeState, error) {
 		_, _ = db.EnrollEdgeNode(n)
 	}
 	st.candidates = snap.Candidates
+	// THE FILE AS READ IS THIS STATE'S MERGE BASE. A short-lived roger - one CLI command - has no
+	// save behind it, and without a base its write could only be an overwrite of whatever another
+	// process had done in the meantime. With it, the write is a merge (edgeMergeNodes).
+	st.base = edgeBaseOf(snap.Nodes)
 	return st, nil
 }
 
+// save writes this state to edge.json as a MERGE, never as an overwrite. The file is shared by every
+// roger on the machine, so the read-modify-write happens under an exclusive lock and what the file
+// says now is merged with what this process holds (edgeMergeNodes). Before this, a process that had
+// loaded the file before somebody else adopted a device wrote that device straight out of existence,
+// and the host then forgot it for good - the founder's vanished phone (2026-09-27).
 func (s *edgeState) save() error {
+	unlock, err := edge.FileLock(edgeStatePath())
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if !s.savedAt.IsZero() { // a long-lived state (the host): fold in what changed on disk first
 		s.adoptExternalEdits()
 	}
@@ -384,6 +465,7 @@ func (s *edgeState) save() error {
 	if err != nil {
 		return err
 	}
+	nodes = edgeMergeNodes(s.base, nodes, s.nodesOnDisk())
 	b, err := json.MarshalIndent(edgeSnapshot{
 		Account: s.account, Nodes: nodes, Candidates: s.candidates}, "", "  ")
 	if err != nil {
@@ -395,11 +477,29 @@ func (s *edgeState) save() error {
 	if fi, err := os.Stat(edgeStatePath()); err == nil {
 		s.savedAt = fi.ModTime()
 	}
-	s.lastSaved = map[string]string{}
+	// What was just written IS the new base, and it is also what this state now knows: a node another
+	// process added is brought into memory so the screen beside it agrees with the file.
+	s.base = edgeBaseOf(nodes)
 	for _, n := range nodes {
-		s.lastSaved[n.ID] = n.Name
+		if _, ok, _ := s.fleet.Get(n.ID); !ok {
+			_, _ = s.db.EnrollEdgeNode(n)
+		}
 	}
 	return nil
+}
+
+// nodesOnDisk is the file as it stands now, or nothing when there is no readable file for this
+// account. Called under the lock, so what it returns cannot change before the write.
+func (s *edgeState) nodesOnDisk() []store.EdgeNode {
+	b, err := os.ReadFile(edgeStatePath())
+	if err != nil {
+		return nil
+	}
+	var snap edgeSnapshot
+	if json.Unmarshal(b, &snap) != nil || snap.Account != s.account {
+		return nil
+	}
+	return snap.Nodes
 }
 
 // adoptExternalEdits folds in what another process changed on disk since this state last wrote:
@@ -413,44 +513,41 @@ func (s *edgeState) adoptExternalEdits() {
 	if err != nil || !fi.ModTime().After(s.savedAt) {
 		return
 	}
-	b, err := os.ReadFile(edgeStatePath())
-	if err != nil {
-		return
-	}
-	var snap edgeSnapshot
-	if json.Unmarshal(b, &snap) != nil || snap.Account != s.account {
-		return
-	}
-	onDisk := map[string]store.EdgeNode{}
-	for _, n := range snap.Nodes {
-		onDisk[n.ID] = n
-	}
 	mine, err := s.fleet.List()
 	if err != nil {
 		return
 	}
-	inMemory := map[string]bool{}
+	// The SAME merge the write uses, so memory and the file cannot disagree about the rule: what this
+	// process changed stands, what another process changed is adopted, what this process forgot stays
+	// forgotten. The base is deliberately NOT advanced here - an edit made in memory and not yet
+	// written is still this process's edit, and folding it into the base would lose it on the next save.
+	merged := edgeMergeNodes(s.base, mine, s.nodesOnDisk())
+	keep := make(map[string]bool, len(merged))
+	for _, n := range merged {
+		keep[n.ID] = true
+		_, _ = s.db.EnrollEdgeNode(n) // an upsert: a rename or an adopt made elsewhere lands here
+	}
 	for _, n := range mine {
-		inMemory[n.ID] = true
-		lastName, saved := s.lastSaved[n.ID]
-		if !saved {
-			continue // added here since the last save: the disk has not seen it yet
-		}
-		d, still := onDisk[n.ID]
-		switch {
-		case !still:
+		if !keep[n.ID] {
 			_ = s.fleet.Forget(n.ID)
-		case d.Name != n.Name && d.Name != lastName && d.Name != "":
-			_ = s.fleet.Rename(n.ID, d.Name)
 		}
 	}
-	for id, n := range onDisk {
-		if _, saved := s.lastSaved[id]; !saved && !inMemory[id] {
-			_, _ = s.db.EnrollEdgeNode(n) // adopted elsewhere (a serving-path adopt from the screen)
-		}
-	}
-	s.candidates = snap.Candidates
+	s.candidates = s.candidatesOnDisk()
 	s.savedAt = fi.ModTime()
+}
+
+// candidatesOnDisk is the discovered-but-not-adopted list as the file has it. Candidates are
+// discovery's own output and fade on their own, so they are taken whole rather than merged.
+func (s *edgeState) candidatesOnDisk() []store.EdgeNode {
+	b, err := os.ReadFile(edgeStatePath())
+	if err != nil {
+		return s.candidates
+	}
+	var snap edgeSnapshot
+	if json.Unmarshal(b, &snap) != nil || snap.Account != s.account {
+		return s.candidates
+	}
+	return snap.Candidates
 }
 
 // list is the fleet as this machine last knew it.
