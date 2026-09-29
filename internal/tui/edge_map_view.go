@@ -132,6 +132,11 @@ func (it edgeNetItem) subBase() string {
 		return "roger · offline"
 	case it.agent && it.job != "":
 		return "agent · " + it.job
+	case it.agent && len(it.bands) > 0:
+		// AN AGENT THAT SERVES SAYS WHAT IT SERVES. It read "agent · idle" while it was on air with a
+		// model, because the agent case answered before the bands case ever ran
+		// (features/edge/agents.feature: an agent that is serving a model shows the band it serves).
+		return "agent · " + strings.Join(it.bands, " ")
 	case it.agent:
 		return "agent · idle"
 	case len(it.bands) > 0:
@@ -600,7 +605,14 @@ func edgeNetCard(it edgeNetItem, selected bool) string {
 	head := gs.Render(glyph) + " " + stKey.Render(name)
 	sub := stDim.Render(edgeTrunc(it.sub(), avail))
 	if it.self {
-		sub = lampStyle(roleLive).Render(edgeTrunc("‹ this one", avail))
+		// "this one" is WHICH roger, not WHAT IT DOES, and the card has room for both. The roger you
+		// are sitting in front of was the one card that never said what it was serving, which is a
+		// strange thing for the screen to keep from you (features/edge/agents.feature).
+		words := "‹ this one"
+		if what := it.subBase(); what != "" && what != "on the Edge" {
+			words += " · " + what
+		}
+		sub = lampStyle(roleLive).Render(edgeTrunc(words, avail))
 	}
 	stl := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(cRule).Padding(0, 1).Width(boxW)
 	if selected {
