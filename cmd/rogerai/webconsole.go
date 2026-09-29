@@ -99,7 +99,7 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 	s := webui.New(ctrl, webui.Options{
 		// THE SAME EDGE the TUI's [3] EDGE screen holds: one fleet, one candidate list, one
 		// adopt path, one session ledger. A console with its own would draw a second Edge.
-		Edge:   edgeHooksFor(hooks),
+		Edge:   edgeHooksFor(cfg, hooks),
 		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
 		// [4] CONFIG are two views of one setting; two stores would let them disagree
@@ -144,11 +144,27 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 
 // edgeHooksFor lifts the Edge seams off the TUI hooks for the console. Nil hooks (a
 // caller with no TUI) or an unwired Edge leave the console's EDGE tab honestly disabled.
-func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
+func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 	if h == nil || h.EdgeFleet == nil {
 		return webui.EdgeHooks{}
 	}
 	return webui.EdgeHooks{
+		// WHAT RAISES AN ALARM, from the same log and the same wording the terminal uses, so a rule
+		// set in the browser and one set at the prompt are one rule with one id and one scope.
+		Rules:   func() ([]edge.Rule, error) { return edgeAlertLog().Rules() },
+		SetRule: func(metric, op, value, scope string) (string, error) {
+			return edgeAlertSetRule(edgeAlertLog(), metric, op, value, scope)
+		},
+		RuleOff:    func(id string, off bool) error { return edgeAlertLog().SetOff(id, off) },
+		RemoveRule: func(id string) error { return edgeAlertLog().Remove(id) },
+		// ONE MAINTENANCE ACTION on a member, through the very path a typed `roger edge maintain`
+		// takes. The console adds no authority of its own: the owner's maintenance switch ON THAT
+		// MACHINE and an authority-signed grant carrying maintain still decide, and the task is
+		// parsed by the same parser the callee runs, so reboot and shutdown are refused by name.
+		Maintain: func(node string, t edge.MaintainTask) (edge.MaintainResult, error) {
+			r, _, err := edgeMaintainInvokeNamed(cfg, node, t)
+			return r, err
+		},
 		Self: h.EdgeSelf, Fleet: h.EdgeFleet, Candidates: h.EdgeCandidates,
 		Adopt: h.EdgeAdopt, Name: h.EdgeName, Forget: h.EdgeForget,
 		SetAgent: h.EdgeSetAgent, AddAgent: h.EdgeAddAgent,

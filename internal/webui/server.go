@@ -136,6 +136,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/edge/job/clear", s.action(s.handleEdgeJobClear))
 	s.mux.HandleFunc("/api/edge/grant", s.action(s.handleEdgeGrantIssue))
 	s.mux.HandleFunc("/api/edge/grant/revoke", s.action(s.handleEdgeGrantRevoke))
+	s.mux.HandleFunc("/api/edge/tags", s.action(s.handleEdgeTags))
+	s.mux.HandleFunc("/api/edge/rule", s.action(s.handleEdgeRule))
+	s.mux.HandleFunc("/api/edge/rule/off", s.action(s.handleEdgeRuleOff))
+	s.mux.HandleFunc("/api/edge/rule/remove", s.action(s.handleEdgeRuleRemove))
+	s.mux.HandleFunc("/api/edge/maintain", s.action(s.handleEdgeMaintain))
 	s.mux.HandleFunc("/api/edge/roger", s.action(s.handleEdgeRoger))
 	s.mux.HandleFunc("/api/edge/standby", s.action(s.handleEdgeStandBy))
 	// Browse (the open-market discover feed).

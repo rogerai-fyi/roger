@@ -17,6 +17,7 @@ package webui
 // Spec: features/edge/console_view.feature.
 
 import (
+	"encoding/json"
 	"net/http"
 	"sort"
 	"strings"
@@ -61,6 +62,23 @@ type EdgeHooks struct {
 	// Alerts is the rules firing right now by node id, each as its wording ("disk > 90") - the
 	// console's share of health.feature §5 (alerts show on the fleet surfaces). Nil = unknown.
 	Alerts func() map[string][]string
+	// Rules is the alert rules in force, SetRule stores one from the owner's WORDS AS TYPED (the same
+	// core `roger edge alert set` uses, so the browser and the terminal cannot derive a different rule
+	// id or resolve one scope two ways) and answers with the host's own sentence, RuleOff turns a rule
+	// off or back on, RemoveRule drops it. The console could show WHICH rules were firing and not say
+	// what fires; this is that half (features/edge/health.feature, features/edge/manage_web.feature
+	// §3). Nil leaves the list empty and the actions honestly disabled.
+	Rules      func() ([]edge.Rule, error)
+	SetRule    func(metric, op, value, scope string) (string, error)
+	RuleOff    func(id string, off bool) error
+	RemoveRule func(id string) error
+	// Maintain performs ONE maintenance action on a member - start, stop or restart a persistent agent,
+	// or read its redacted log tail - through the SAME invoke `roger edge maintain` and `roger edge
+	// logs` take (features/edge/maintenance.feature, features/edge/logs.feature). Both locks still
+	// apply and neither is re-implemented here: maintenance must be on at THAT machine, and the caller
+	// must hold an authority-signed grant carrying maintain. The console opens no new path and adds not
+	// one line of authorization of its own. Nil = disabled.
+	Maintain func(node string, t edge.MaintainTask) (edge.MaintainResult, error)
 	// Floor is the factory-floor view of the rack (health.feature §5 and the floor research): the
 	// state log's samples, the standing trouble calls, the pile-up rate and the sign-off report;
 	// Roger acknowledges a call, StandBy quiets one for a time. Nil = the console shows no floor.
@@ -108,8 +126,8 @@ type edgeNodeJSON struct {
 	// Name is the node's RECORD name and is what the rest of the payload keys off (self, via, the
 	// rename form). Label is what to PRINT: a record whose name is its own id was never named by its
 	// owner, and a 48-character id is not a name (edge.Label). The console shows Label and sends Name.
-	Name  string `json:"name"`
-	Label string `json:"label,omitempty"`
+	Name       string                `json:"name"`
+	Label      string                `json:"label,omitempty"`
 	Kind       string                `json:"kind"`
 	Caps       []edgeCapJSON         `json:"caps"`
 	Transports []store.EdgeTransport `json:"transports"`
@@ -161,6 +179,32 @@ type edgeGrantJSON struct {
 	Caps      string `json:"caps"`   // comma-joined capabilities
 	ExpiresAt int64  `json:"expires_at"`
 	State     string `json:"state"` // live | expired | REVOKED
+}
+
+// edgeRuleJSON is one alert rule as the console lists it: the words the terminal prints, the scope
+// in the owner's own terms, and whether it is off. The identity is kept so an action names the rule
+// the host knows, never a rebuilt one.
+type edgeRuleJSON struct {
+	ID      string `json:"id"`
+	Words   string `json:"words"` // "cpu_temp > 85", worded once by edge.Rule.Key
+	Of      string `json:"of"`    // every node | every node tagged production | shed
+	Off     bool   `json:"off,omitempty"`
+	Default bool   `json:"default,omitempty"`
+}
+
+// edgeScopeWords says a rule's scope the way the owner wrote it: the whole fleet, a group of their
+// own words, or one node BY THE NAME THEY GAVE IT - never a 48-character id.
+func edgeScopeWords(scope string, names map[string]string) string {
+	if scope == "" || scope == "fleet" {
+		return "every node"
+	}
+	if tag, ok := edge.ScopeTag(scope); ok {
+		return "every node tagged " + tag
+	}
+	if n := names[scope]; n != "" {
+		return n
+	}
+	return scope
 }
 
 type edgeSessJSON struct {
@@ -225,6 +269,12 @@ type edgeSnap struct {
 	AgentJobs        []edge.AgentJob        `json:"agent_jobs"`
 	Grants           []edgeGrantJSON        `json:"grants"`
 	GrantsManage     bool                   `json:"grants_manage"`
+	// Rules is what raises an alarm on this Edge, each in the words the terminal prints, with its
+	// scope said in the owner's terms. RulesManage and MaintainManage say whether this build wired
+	// those actions, so the browser offers them exactly when they work and never draws a dead button.
+	Rules          []edgeRuleJSON `json:"rules"`
+	RulesManage    bool           `json:"rules_manage"`
+	MaintainManage bool           `json:"maintain_manage"`
 	// Floor is the ANDON and TROUBLE facts the TUI shows; FloorManage whether roger/stand by are wired.
 	Floor *edgeFloorJSON `json:"floor,omitempty"`
 	// Events is the timeline the terminal's EVENTS tab shows (features/edge/events.feature), worded on
@@ -395,9 +445,19 @@ func (s *Server) edgeNow() time.Time {
 	return time.Now()
 }
 
+// edgeLabelIfDifferent is the printable label ONLY when it differs from the record name. An
+// ordinary node needs no second copy of its name in every payload, and the browser already falls
+// back to the name when the label is absent.
+func edgeLabelIfDifferent(n store.EdgeNode) string {
+	if l := edge.Label(n.Name, n.ID); l != n.Name {
+		return l
+	}
+	return ""
+}
+
 func edgeNodeOf(n store.EdgeNode, now time.Time) edgeNodeJSON {
 	out := edgeNodeJSON{
-		ID: n.ID, Name: n.Name, Label: edge.Label(n.Name, n.ID), Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
+		ID: n.ID, Name: n.Name, Label: edgeLabelIfDifferent(n), Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
 		Pin: n.Pin, Contract: n.Contract, Station: n.Station, Tags: append([]string(nil), n.Tags...),
 		Caps:               []edgeCapJSON{},
 		Transports:         append([]store.EdgeTransport{}, n.Transports...),
@@ -559,6 +619,23 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		if gs, gerr := h.Grants(); gerr == nil {
 			for _, g := range gs {
 				snap.Grants = append(snap.Grants, edgeGrantOf(g, now))
+			}
+		}
+	}
+	snap.Rules = []edgeRuleJSON{}
+	snap.RulesManage = h.SetRule != nil && h.RuleOff != nil && h.RemoveRule != nil
+	snap.MaintainManage = h.Maintain != nil
+	if h.Rules != nil {
+		// A rule read that fails must not blank the tab, exactly as a grants read must not: the fleet,
+		// the floor and the sessions still matter. Degrade to no rules and draw everything else.
+		if rules, rerr := h.Rules(); rerr == nil {
+			names := map[string]string{}
+			for _, n := range list {
+				names[n.ID] = edge.Label(n.Name, n.ID)
+			}
+			for _, r := range rules {
+				snap.Rules = append(snap.Rules, edgeRuleJSON{ID: r.ID, Words: r.Key(),
+					Of: edgeScopeWords(r.Scope, names), Off: r.Off, Default: r.Default})
 			}
 		}
 	}
@@ -831,6 +908,180 @@ func (s *Server) handleEdgeGrantRevoke(w http.ResponseWriter, r *http.Request) {
 	s.writeEdge(w)
 }
 
+// handleEdgeTags is the console's label action (features/edge/tags.feature): +word adds, -word
+// removes, a bare list replaces, clear empties. POST-only and token-gated. It goes through the SAME
+// Fleet the TUI and CLI edit, so the word validation, the twelve-tag bound, the sort and the history
+// line are one implementation, not a second one written in a browser. A tag names and groups: it is
+// never a capability, never a permission and never a grant, so this needs no hook beyond the fleet.
+func (s *Server) handleEdgeTags(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.Fleet == nil {
+		http.Error(w, "this build has no fleet to tag - no Edge is wired to the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		ID     string   `json:"id"`
+		Add    []string `json:"add"`
+		Remove []string `json:"remove"`
+		Set    []string `json:"set"`
+		Clear  bool     `json:"clear"`
+	}
+	if !decode(r, &req) || req.ID == "" {
+		http.Error(w, "node id required", http.StatusBadRequest)
+		return
+	}
+	edits, replaces := len(req.Add)+len(req.Remove) > 0, len(req.Set) > 0 || req.Clear
+	switch {
+	case edits && replaces:
+		// "gpu -bench" could mean either, so it is refused rather than guessed at, as the CLI refuses it.
+		http.Error(w, "say either what to add and remove, or the whole list to keep - not both", http.StatusBadRequest)
+		return
+	case !edits && !replaces:
+		http.Error(w, "say what to add, what to remove, the list to keep, or clear", http.StatusBadRequest)
+		return
+	case req.Clear && len(req.Set) > 0:
+		http.Error(w, "clear takes no tags; it empties them", http.StatusBadRequest)
+		return
+	}
+	var err error
+	if replaces {
+		err = h.Fleet.SetTags(req.ID, req.Set) // clear is the empty list
+	} else {
+		err = h.Fleet.EditTags(req.ID, req.Add, req.Remove)
+	}
+	if err != nil {
+		// The fleet's own words, and its own refusal: an invalid word changes nothing.
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeRule stores an alert rule from the owner's words AS TYPED - POST-only and token-gated.
+// The metric, the comparison, the value and the scope go to the host unchanged, because the rule id
+// and the scope resolution are derived once, where `roger edge alert set` derives them; a second
+// derivation here is how the browser and the terminal would come to hold two different rules.
+func (s *Server) handleEdgeRule(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.SetRule == nil {
+		http.Error(w, "this build cannot set an alert rule from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Metric string `json:"metric"`
+		Op     string `json:"op"`
+		Value  string `json:"value"`
+		Scope  string `json:"scope"`
+	}
+	if !decode(r, &req) || req.Metric == "" || req.Op == "" || req.Value == "" {
+		http.Error(w, "a rule is a metric, a comparison (gt|lt) and a value", http.StatusBadRequest)
+		return
+	}
+	says, err := h.SetRule(req.Metric, req.Op, req.Value, req.Scope)
+	if err != nil {
+		// A rule that cannot mean what it says is refused where it is made, in the host's words.
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	snap, serr := s.edgeSnapshot()
+	if serr != nil {
+		http.Error(w, serr.Error(), http.StatusBadGateway)
+		return
+	}
+	// The host's own sentence rides back with the fresh snapshot, so the browser says what the
+	// terminal says instead of composing a second version of it.
+	writeJSON(w, struct {
+		Says string   `json:"says"`
+		Edge edgeSnap `json:"edge"`
+	}{says, snap})
+}
+
+// handleEdgeRuleOff turns one rule off or back on through the host. POST-only and token-gated.
+func (s *Server) handleEdgeRuleOff(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.RuleOff == nil {
+		http.Error(w, "this build cannot turn an alert rule off from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		ID  string `json:"id"`
+		Off *bool  `json:"off"`
+	}
+	if !decode(r, &req) || req.ID == "" || req.Off == nil { // an empty body must not read as "on"
+		http.Error(w, "rule id and off (bool) required", http.StatusBadRequest)
+		return
+	}
+	if err := h.RuleOff(req.ID, *req.Off); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeRuleRemove drops a rule by id through the host. POST-only and token-gated.
+func (s *Server) handleEdgeRuleRemove(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.RemoveRule == nil {
+		http.Error(w, "this build cannot remove an alert rule from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if !decode(r, &req) || req.ID == "" {
+		http.Error(w, "rule id required", http.StatusBadRequest)
+		return
+	}
+	if err := h.RemoveRule(req.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeMaintain performs one maintenance action on a member - start, stop or restart a
+// persistent agent, or read its redacted log tail - POST-only and token-gated.
+//
+// It adds NO authorization of its own. The task is read by edge.ParseMaintainTask, the same parser
+// the callee uses, so an action that is not built is refused BY NAME and an action that acts on an
+// agent must name a usable one before anything leaves this machine; everything after that - the
+// owner's maintenance switch on that machine, the authority-signed grant carrying maintain, the
+// mutual TLS, the revocation, the replay cache - is the invoke path's, unchanged.
+func (s *Server) handleEdgeMaintain(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.Maintain == nil {
+		http.Error(w, "this build cannot perform a maintenance action from the console", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Node   string `json:"node"`
+		Action string `json:"action"`
+		Target string `json:"target"`
+		Lines  int    `json:"lines"`
+	}
+	if !decode(r, &req) || req.Node == "" {
+		http.Error(w, "the node to maintain is required", http.StatusBadRequest)
+		return
+	}
+	raw, err := json.Marshal(edge.MaintainTask{Action: edge.MaintainAction(req.Action), Target: req.Target, Lines: req.Lines})
+	if err != nil {
+		http.Error(w, "that maintenance task could not be read", http.StatusBadRequest)
+		return
+	}
+	task, why := edge.ParseMaintainTask(raw)
+	if why != "" {
+		http.Error(w, why, http.StatusBadRequest)
+		return
+	}
+	res, err := h.Maintain(req.Node, task)
+	if err != nil {
+		// The fleet's own words: the missing grant, the owner's switch, a node with no LAN face.
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, res)
+}
+
 // recordConsoleSession puts the console's own relayed turn on the Edge it came from, as
 // the receipt describes it. The console is an initiator like `roger use` or a guest:
 // leaving its traffic off the Edge would draw a quiet fleet over a busy one. A turn with
@@ -855,7 +1106,7 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 	for _, n := range nodes {
 		names[n.ID] = edge.Label(n.Name, n.ID)
 		cells, since, capped := edge.LogOf(f.Samples, n.ID, now)
-		u := edgeUnitJSON{ID: n.ID, Name: n.Name, Label: edge.Label(n.Name, n.ID), Kind: n.Kind,
+		u := edgeUnitJSON{ID: n.ID, Name: n.Name, Label: edgeLabelIfDifferent(n), Kind: n.Kind,
 			Log: make([]string, len(cells)), Alerts: alerts[n.ID], LastSeen: n.LastSeen}
 		if u.Alerts == nil {
 			u.Alerts = []string{}

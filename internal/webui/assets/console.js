@@ -1547,7 +1547,9 @@
   var edgeReduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   var EDGE_W = 640, EDGE_H = 400, EDGE_CX = 320, EDGE_CY = 200, EDGE_R = 140, EDGE_CHILD = 78;
   // the capability vocabulary as MARKS, UPPER when VERIFIED - case, not colour
-  var EDGE_MARK = { serve: "sv", classify: "cl", sense: "se", actuate: "ac", relay: "rl", operate: "op" };
+  // The capability marks, the SAME two letters the TUI and the fleet screen use. "se" for sense was
+  // this console's own invention and read as a different capability beside the terminal's "sn".
+  var EDGE_MARK = { serve: "sv", classify: "cl", sense: "sn", actuate: "ac", relay: "rl", operate: "op", maintain: "mt" };
 
   function svgEl(tag, attrs) {
     var n = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -1686,6 +1688,7 @@
     edgeRenderAdopting(d);
     edgeRenderSessions(d);
     edgeRenderGrants(d);
+    edgeRenderRules(d);
     edgeRenderFloor(d);
     edgeRenderEvents(d);
     edgeRenderIntent(d);
@@ -1843,8 +1846,8 @@
     d.nodes.forEach(function (n) {
       var tr = el("tr", n.id === edgeSel ? "is-selected" : null);
       tr.setAttribute("data-id", n.id);
-      var name = el("td", "mono", (n.child ? "└ " : "") + n.name);
-      name.title = n.name;
+      var name = el("td", "mono", (n.child ? "\u2514 " : "") + edgeName(n));
+      name.title = n.name; // the hover carries the record name, which is what a command takes
       tr.appendChild(name);
       tr.appendChild(el("td", null, n.kind));
       tr.appendChild(el("td", "mono", edgeMarks(n)));
@@ -2524,13 +2527,230 @@
       nameBtn.setAttribute("type", "button");
       nameBtn.addEventListener("click", function () { edgeRenamePrompt(card, n); });
       macts.appendChild(nameBtn);
+      var tagBtn = el("button", "btn small ghost", "tags");
+      tagBtn.setAttribute("type", "button");
+      tagBtn.addEventListener("click", function () { edgeTagPrompt(card, n); });
+      macts.appendChild(tagBtn);
       var forgetBtn = el("button", "btn small ghost edge-forget", "forget");
       forgetBtn.setAttribute("type", "button");
       forgetBtn.addEventListener("click", function () { edgeForget(n.id, n.name); });
       macts.appendChild(forgetBtn);
       card.appendChild(macts);
+      // SERVICE: start, stop or restart one of that machine's rogers, or read its log tail. Offered
+      // only where it can work - the host wired the action AND that machine declares maintenance,
+      // because the owner's switch lives THERE and nothing here can turn it on for them.
+      if (d.maintain_manage && n.maintain) edgeServiceControls(card, d, n);
     }
     show(card, true);
+  }
+
+  // edgeTagPrompt is the inline tag editor (features/edge/tags.feature): the owner's own words for
+  // what this unit IS, edited the way the terminal edits them - "+word -word" to adjust, a bare list
+  // to replace, empty to clear. A tag names and groups; it is never a capability and never a
+  // permission, and the fleet validates every word, so nothing here second-guesses it.
+  function edgeTagPrompt(card, n) {
+    var row = el("div", "card-actions");
+    var input = el("input", "edge-tag-input");
+    input.type = "text";
+    input.value = (n.tags || []).join(" ");
+    input.placeholder = "production gpu   (or +gpu -bench)";
+    input.setAttribute("aria-label", "tags for " + edgeName(n));
+    var save = el("button", "btn small", "save");
+    save.setAttribute("type", "button");
+    var cancel = el("button", "btn small ghost", "cancel");
+    cancel.setAttribute("type", "button");
+    row.appendChild(input); row.appendChild(save); row.appendChild(cancel);
+    card.appendChild(row);
+    input.focus(); input.select();
+    function commit() {
+      var words = (input.value || "").split(/[\s,]+/).filter(function (w) { return w !== ""; });
+      var add = [], remove = [], bare = [];
+      words.forEach(function (w) {
+        if (w.charAt(0) === "+") add.push(w.slice(1));
+        else if (w.charAt(0) === "-") remove.push(w.slice(1));
+        else bare.push(w);
+      });
+      if ((add.length || remove.length) && bare.length) {
+        toast("say either +add and -remove, or the whole list to keep - not both", "err");
+        return;
+      }
+      if (add.length || remove.length) edgeSetTags({ id: n.id, add: add, remove: remove });
+      else if (bare.length) edgeSetTags({ id: n.id, set: bare });
+      else edgeSetTags({ id: n.id, clear: true });
+    }
+    save.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { edgeTick(); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); input.blur(); edgeTick(); }
+    });
+  }
+
+  function edgeSetTags(body) {
+    apiPost("/api/edge/tags", body).then(function (d) {
+      toast("tags saved");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeServiceControls draws the maintenance actions for a member that declares maintenance
+  // (features/edge/maintenance.feature, features/edge/logs.feature). Every one rides the SAME
+  // maintenance invoke the CLI takes: the owner's switch on that machine and an authority-signed
+  // grant carrying maintain both still decide, and a refusal is shown in the fleet's own words.
+  function edgeServiceControls(card, d, n) {
+    var row = el("div", "card-actions edge-service-actions");
+    var agent = el("input", "edge-service-agent");
+    agent.type = "text"; agent.placeholder = "agent, e.g. watcher";
+    agent.setAttribute("aria-label", "the agent to act on");
+    row.appendChild(agent);
+    [["start", "start"], ["stop", "stop"], ["restart", "restart"]].forEach(function (pair) {
+      var b = el("button", "btn small ghost", pair[0]);
+      b.setAttribute("type", "button");
+      b.addEventListener("click", function () {
+        var target = (agent.value || "").trim();
+        if (!target) { toast("name the agent to " + pair[1], "err"); return; }
+        edgeMaintain(card, n, { node: n.name, action: pair[1], target: target });
+      });
+      row.appendChild(b);
+    });
+    var logs = el("button", "btn small ghost", "read log");
+    logs.setAttribute("type", "button");
+    logs.addEventListener("click", function () {
+      edgeMaintain(card, n, { node: n.name, action: "logs", lines: 100 });
+    });
+    row.appendChild(logs);
+    card.appendChild(row);
+  }
+
+  // edgeMaintain performs one maintenance action. Stop and restart signal a running process, so
+  // they are confirmed; reading a log and starting what is down are not destructive. The answer is
+  // the callee's own result - its words, and for a tail its already-redacted lines.
+  function edgeMaintain(card, n, body) {
+    if (body.action === "stop" || body.action === "restart") {
+      if (!window.confirm(body.action + " " + body.target + " on " + edgeName(n) + "?\n\nIt is asked to stop (SIGTERM), never killed. Anything it was doing stops with it.")) return;
+    }
+    apiPost("/api/edge/maintain", body).then(function (res) {
+      if (body.action === "logs") { edgeShowLogTail(card, n, res); return; }
+      toast(res.says || (body.action + " done"));
+      edgeTick();
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeShowLogTail draws a member's returned log lines. They are redacted on the SERVING side and
+  // they are still put on the page as TEXT, never as markup: another machine's log is not a way to
+  // run script in this console. It says how many the ring holds, so a short answer is not read as
+  // the whole log.
+  function edgeShowLogTail(card, n, res) {
+    var box = el("div", "edge-log-tail");
+    var lines = res.lines || [];
+    box.appendChild(el("div", "mono small muted", "LOG \u00b7 " + edgeName(n) + " \u00b7 " +
+      (lines.length ? lines.length + " of " + (res.held || lines.length) + " lines held" : (res.says || "nothing logged yet"))));
+    lines.forEach(function (ln) { box.appendChild(el("div", "mono small edge-log-line", ln)); });
+    var close = el("button", "btn small ghost", "close");
+    close.setAttribute("type", "button");
+    close.addEventListener("click", function () { edgeTick(); });
+    box.appendChild(close);
+    card.appendChild(box);
+  }
+
+  // edgeRenderRules draws what raises an alarm on this Edge (features/edge/health.feature, and
+  // manage_web.feature's "setting an alert rule from the dashboard stores it and takes effect").
+  // The words and the scope are the SERVER's: the browser prints what it is told, as it does
+  // everywhere else on this tab. The section is shown only when the host wired the actions, so
+  // there is never a button here that would come back 501.
+  function edgeRenderRules(d) {
+    var wrap = $("edge-rules-wrap");
+    if (!wrap) return;
+    if (!d.rules_manage) { show(wrap, false); return; }
+    show(wrap, true);
+    edgeRenderRuleForm(d);
+    var body = $("edge-rules");
+    if (!body) return;
+    body.innerHTML = "";
+    var rules = d.rules || [];
+    if (!rules.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "No rules are in force."); ec.colSpan = 5;
+      er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    rules.forEach(function (r) {
+      var tr = el("tr", r.off ? "muted" : null);
+      tr.appendChild(el("td", "mono small", r.words));
+      tr.appendChild(el("td", "mono small", r.of));
+      tr.appendChild(el("td", "mono small", r.id));
+      tr.appendChild(el("td", "mono small", r.off ? "off" : (r.default ? "on \u00b7 default" : "on")));
+      var td = el("td");
+      var toggle = el("button", "btn small ghost", r.off ? "turn on" : "turn off");
+      toggle.type = "button";
+      toggle.addEventListener("click", function () { edgeRuleOff(r.id, !r.off); });
+      td.appendChild(toggle);
+      var rm = el("button", "btn small ghost", "remove");
+      rm.type = "button";
+      rm.addEventListener("click", function () { edgeRemoveRule(r); });
+      td.appendChild(rm);
+      tr.appendChild(td);
+      body.appendChild(tr);
+    });
+  }
+
+  // edgeRenderRuleForm is the set form: a metric, a comparison, a value and a scope. The words go to
+  // the host AS TYPED - the rule id and the scope are resolved once, where the CLI resolves them.
+  function edgeRenderRuleForm(d) {
+    var box = $("edge-rule-form");
+    if (!box || box.dataset.built === "1") return; // build once; polling must not wipe a half-filled form
+    box.dataset.built = "1";
+    var metric = el("select", "edge-rule-metric");
+    ["cpu_temp", "cpu_load", "memory", "disk", "sd_wear", "offline"].forEach(function (m) {
+      var o = el("option", null, m); o.value = m; metric.appendChild(o);
+    });
+    var op = el("select", "edge-rule-op");
+    [["gt", "over"], ["lt", "under"]].forEach(function (pair) {
+      var o = el("option", null, pair[1]); o.value = pair[0]; op.appendChild(o);
+    });
+    var value = el("input", "edge-rule-value"); value.type = "text"; value.size = 6; value.value = "90";
+    var scope = el("select", "edge-rule-scope");
+    var all = el("option", null, "every node"); all.value = ""; scope.appendChild(all);
+    (d.nodes || []).forEach(function (n) { var o = el("option", null, edgeName(n)); o.value = n.name; scope.appendChild(o); });
+    var tags = {};
+    (d.nodes || []).forEach(function (n) { (n.tags || []).forEach(function (t) { tags[t] = true; }); });
+    Object.keys(tags).sort().forEach(function (t) {
+      var o = el("option", null, "every node tagged " + t); o.value = "tag:" + t; scope.appendChild(o);
+    });
+    var set = el("button", "btn small", "set rule"); set.type = "button";
+    box.innerHTML = "";
+    box.appendChild(edgeField("when", metric));
+    box.appendChild(edgeField("is", op));
+    box.appendChild(edgeField("than", value));
+    box.appendChild(edgeField("on", scope));
+    box.appendChild(set);
+    set.addEventListener("click", function () {
+      edgeSetRule({ metric: metric.value, op: op.value, value: (value.value || "").trim(), scope: scope.value });
+    });
+  }
+
+  function edgeSetRule(body) {
+    apiPost("/api/edge/rule", body).then(function (res) {
+      toast(res.says || "rule set");
+      var f = $("edge-rule-form"); if (f) f.dataset.built = ""; // rebuild against the fresh fleet
+      edgeRender(res.edge);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function edgeRuleOff(id, off) {
+    apiPost("/api/edge/rule/off", { id: id, off: off }).then(function (d) {
+      toast(off ? "rule " + id + " is off" : "rule " + id + " is on");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // Removing a rule stops an alarm the owner asked for, so it is confirmed rather than a stray click.
+  function edgeRemoveRule(r) {
+    if (!window.confirm("Remove the rule " + r.id + " (" + r.words + " on " + r.of + ")?\n\nNothing will raise an alarm for it from the next health read. A default rule comes back if no rule remains.")) return;
+    apiPost("/api/edge/rule/remove", { id: r.id }).then(function (d) {
+      toast("rule " + r.id + " removed");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
   }
 
   // edgeCanManage is set from the snapshot: true when the server wired the Name/Forget hooks, so the
@@ -2553,7 +2773,7 @@
     function commit() {
       var name = (input.value || "").trim();
       if (!name || name === n.name) { edgeTick(); return; }
-      edgeName(n.id, name);
+      edgeRename(n.id, name);
     }
     save.addEventListener("click", commit);
     cancel.addEventListener("click", function () { edgeTick(); });
@@ -2563,9 +2783,13 @@
     });
   }
 
-  // edgeName renames a member through the host - the SAME Rename the TUI and CLI use, with the same
+  // edgeRename renames a member through the host - the SAME Rename the TUI and CLI use, with the same
   // per-account uniqueness enforced server-side. It answers with the fresh snapshot.
-  function edgeName(id, name) {
+  //
+  // It is NOT called edgeName: that name belongs to the display helper above, and a second
+  // declaration of it silently replaced that helper for the whole scope, so every node label in the
+  // console read "undefined" and every render posted a nameless rename the server refused.
+  function edgeRename(id, name) {
     apiPost("/api/edge/name", { id: id, name: name }).then(function (d) {
       toast("renamed to " + name);
       edgeRender(d);

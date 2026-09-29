@@ -390,6 +390,22 @@
           </div>
         </div>
 
+        <div class="edge-rules-wrap" id="edge-rules-wrap" hidden>
+          <h3 class="sub-head">Alarms</h3>
+          <p class="muted small">What raises an alarm on this Edge. The most specific scope wins: a node's own rule, then the tightest rule on a tag it carries, then the fleet. A rule takes effect on the next health read.</p>
+          <div id="edge-rule-form" class="edge-rule-form"></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>RULE</th><th>OF</th><th>ID</th><th>STATE</th><th></th></tr>
+              </thead>
+              <tbody id="edge-rules">
+                <tr class="empty-row"><td colspan="5">No rules are in force.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="edge-grants-wrap" id="edge-grants-wrap" hidden>
           <h3 class="sub-head">Grants</h3>
           <p class="muted small">Authority-signed permissions: who may act on which node, and for how long. A member verifies a grant with your Edge's public root alone - no broker.</p>

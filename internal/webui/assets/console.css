@@ -1368,7 +1368,11 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edge-job-form input[type="text"],
 .edge-job-sel,
 .edge-grant-form select,
-.edge-grant-form input[type="text"] {
+.edge-grant-form input[type="text"],
+.edge-rule-form select,
+.edge-rule-form input[type="text"],
+.edge-tag-input,
+.edge-service-agent {
   font-family: var(--font-mono);
   font-size: var(--t-xs);
   color: var(--ink-900);
@@ -1383,12 +1387,18 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edge-job-form input[type="text"]:focus,
 .edge-job-sel:focus,
 .edge-grant-form select:focus,
-.edge-grant-form input[type="text"]:focus {
+.edge-grant-form input[type="text"]:focus,
+.edge-rule-form select:focus,
+.edge-rule-form input[type="text"]:focus,
+.edge-tag-input:focus,
+.edge-service-agent:focus {
   outline: 2px solid var(--live);
   outline-offset: 1px;
   border-color: var(--live);
 }
-.edge-rename-input { flex: 1 1 8rem; }
+.edge-rename-input,
+.edge-tag-input { flex: 1 1 8rem; }
+.edge-service-agent { flex: 0 1 10rem; }
 
 /* This machine's controls: a quiet banded strip under the header. */
 .edge-self-controls {
@@ -1421,10 +1431,28 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   background: var(--paper-2);
 }
 
+/* A member's log tail: a bounded mono block that scrolls on its own, so a hundred
+   lines never widen the card or the page. */
+.edge-log-tail {
+  margin: var(--s-2) 0;
+  padding: var(--s-2);
+  max-height: 18rem;
+  overflow: auto;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+.edge-log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-700);
+}
+
 /* Job + grant forms: a bordered panel, fields wrapping to one row on wide,
    stacking on narrow. Labels are quiet mono captions. */
 .edge-job-form,
-.edge-grant-form {
+.edge-grant-form,
+.edge-rule-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1442,7 +1470,8 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   gap: var(--s-2);
 }
 .edge-job-field > .muted,
-.edge-grant-form .muted {
+.edge-grant-form .muted,
+.edge-rule-form .muted {
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   font-size: var(--t-micro);
