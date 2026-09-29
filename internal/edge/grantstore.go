@@ -156,6 +156,10 @@ func (s *GrantStore) flock() (func(), error) { return FileLock(s.Path) }
 // second terminal, and the fleet screen, which is a child process of its own. Without the lock the
 // last writer wins with whatever it happened to be holding, and everything the others did in the
 // meantime is gone (the founder's vanished phone, 2026-09-27).
+//
+// internal/edgeauth carries its own copy of this, on purpose: it is Core-free by construction and
+// cannot import this package, which reaches the store. That duplicate is the price of the boundary
+// and is not to be folded in here.
 func FileLock(path string) (func(), error) {
 	// TWO LOCKS, and both are needed. The flock queues PROCESSES. The mutex queues GOROUTINES
 	// inside this one, and it is not belt-and-braces: on Windows flockExclusive is a no-op, so

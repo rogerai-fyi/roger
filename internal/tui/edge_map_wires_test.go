@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -182,5 +184,108 @@ func TestTheMapNamesTheRelayAndTheWholePath(t *testing.T) {
 	}
 	if strings.Contains(direct, "desk → wiltshire → wiltshire") {
 		t.Errorf("a direct unit was drawn with itself as its own relay:\n%s", direct)
+	}
+}
+
+// treeModel is an Edge with a three-deep relay chain and two machines the authority reaches itself:
+//
+//	authority ─ studio-mac
+//	          ─ wiltshire ─ nina ─ greenhouse
+//	                      ─ shed-1
+func treeModel(t *testing.T) model {
+	t.Helper()
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		AuthorityAddr: "http://192.168.1.9:8791", Enrolled: true, Name: "desk",
+		Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	through := func(id, name, kind, via string) store.EdgeNode {
+		n := nodeOf(id, name, kind)
+		n.Transports = []store.EdgeTransport{{Kind: "relay", Addr: via}}
+		return n
+	}
+	m := networkModel(t, self,
+		nodeOf("a", "studio-mac", "host"),
+		nodeOf("b", "wiltshire", "host"),
+		through("c", "nina", "mobile", "wiltshire"),
+		through("d", "shed-1", "board", "wiltshire"),
+		through("e", "greenhouse", "board", "nina"),
+	)
+	m.hooks.EdgeHousehold = func() []edge.Instance { return []edge.Instance{{Name: "desk", Agent: true}} }
+	m.hooks.EdgeSelfInstance = func() string { return "desk" }
+	m.enterEdge()
+	return m
+}
+
+// A HOP IS DRAWN AS A HOP. Every member used to hang off the hub whatever its real path was, which
+// is the flattest thing a picture of a network can be. A relay chain three deep draws three levels.
+func TestTheDrawingHasAsManyLevelsAsTheEdgeHasHops(t *testing.T) {
+	out := stripANSI(treeModel(t).edgeView(116))
+	lineOf := func(name string) int {
+		for i, ln := range strings.Split(out, "\n") {
+			if strings.Contains(ln, name) {
+				return i
+			}
+		}
+		return -1
+	}
+	hub, wilt, nina, green := lineOf("YOU ARE HERE"), lineOf("wiltshire"), lineOf("nina"), lineOf("greenhouse")
+	for name, at := range map[string]int{"hub": hub, "wiltshire": wilt, "nina": nina, "greenhouse": green} {
+		if at < 0 {
+			t.Fatalf("%s is not drawn at all:\n%s", name, out)
+		}
+	}
+	if !(hub < wilt && wilt < nina && nina < green) {
+		t.Errorf("the chain is not drawn one level per hop (hub %d, wiltshire %d, nina %d, greenhouse %d):\n%s",
+			hub, wilt, nina, green, out)
+	}
+	// And each says which machine it is reached through.
+	for _, want := range []string{"via wiltshire", "via nina"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the drawing does not name the relay in the path: missing %q\n%s", want, out)
+		}
+	}
+}
+
+// A TREE NEVER CROSSES. ┼ is the glyph for two wires meeting, and in a rooted drawing that cannot
+// happen: if one appears, the layout is wrong and the glyph is saying so.
+func TestNoWireEverCrossesAnother(t *testing.T) {
+	for _, w := range []int{80, 100, 116, 160, 200} {
+		out := stripANSI(treeModel(t).edgeView(w))
+		if i := strings.Index(out, "┼"); i >= 0 {
+			t.Errorf("at %d columns a wire crosses another, which a tree cannot do:\n%s", w, out)
+		}
+	}
+	// A single card directly below its parent hangs on a straight line, not a crossing.
+	if got := stripANSI(edgeBranchLine(40, 20, []int{20})); !strings.Contains(got, "│") || strings.Contains(got, "┼") {
+		t.Errorf("one card below its parent = %q, want a straight line", got)
+	}
+	// Several cards spread either side of the trunk do meet it, and that is a tee.
+	if got := stripANSI(edgeBranchLine(40, 20, []int{10, 30})); !strings.Contains(got, "┴") {
+		t.Errorf("a band either side of its trunk = %q, want a tee at the trunk", got)
+	}
+}
+
+// Every band hangs UNDER what it hangs off, and nothing is drawn off the screen doing it.
+func TestABandHangsUnderItsParentAndStaysOnScreen(t *testing.T) {
+	for _, w := range []int{80, 100, 116, 200} {
+		out := stripANSI(treeModel(t).edgeView(w))
+		for _, ln := range strings.Split(out, "\n") {
+			if lipgloss.Width(ln) > w {
+				t.Fatalf("at %d columns a line is %d wide:\n%s", w, lipgloss.Width(ln), ln)
+			}
+		}
+		// nina's card is drawn to the right of the left edge of wiltshire's band, which is what
+		// "under its parent" means once the row is centred on the parent's column.
+		nina, wilt := -1, -1
+		for _, ln := range strings.Split(out, "\n") {
+			if strings.Contains(ln, "nina") && nina < 0 {
+				nina = strings.Index(ln, "▯")
+			}
+			if strings.Contains(ln, "wiltshire") && wilt < 0 {
+				wilt = strings.Index(ln, "▣")
+			}
+		}
+		if nina < 0 || wilt < 0 {
+			t.Fatalf("at %d columns the chain is not drawn:\n%s", w, out)
+		}
 	}
 }

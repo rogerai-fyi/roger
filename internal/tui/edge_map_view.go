@@ -309,7 +309,7 @@ func (m model) edgeMapTopology(cw int, line func(string)) {
 	if len(hubIt) == 0 {
 		line("  " + edgeSetupCenter(stDim.Render("┈┈ no rogers running here yet ┈┈"), cw))
 	} else {
-		m.edgeCardBand(cw, trunk, hubIt, hubIx, sel, line)
+		_ = m.edgeCardBand(cw, trunk, hubIt, hubIx, sel, line)
 	}
 
 	// The other machines already on this Edge - the fleet band, WIRED to the hub. The founder's
@@ -322,7 +322,11 @@ func (m model) edgeMapTopology(cw int, line func(string)) {
 		line("  " + strings.Repeat(" ", trunk) + rail.Render("│"))
 		line("  " + edgeSetupCenter(stKey.Render("ON THE EDGE")+stDim.Render("  other machines you have adopted"), cw))
 		line("  " + strings.Repeat(" ", trunk) + rail.Render("│"))
-		m.edgeCardBand(cw, trunk, memIt, memIx, sel, line)
+		// THE HOPS ARE DRAWN AS HOPS. The machines this one reaches ITSELF hang off the hub; a machine
+		// reached THROUGH one of them hangs off that machine, on its own bus, one level down. Before
+		// this every member hung off the hub whatever its real path was, which is the flat drawing the
+		// topology could not say anything better than while Row carried only a boolean.
+		m.edgeMemberTree(cw, trunk, memIt, memIx, sel, "", line)
 		line("  " + edgeSetupCenter(edgeWireLegend(memIt), cw))
 	}
 
@@ -331,28 +335,73 @@ func (m model) edgeMapTopology(cw int, line func(string)) {
 	if len(candIt) > 0 {
 		line("")
 		line("  " + edgeSetupCenter(stKey.Render("DISCOVERED")+stDim.Render("  on your network, not yet on your Edge · press a to adopt"), cw))
-		m.edgeCardBand(cw, -1, candIt, candIx, sel, line)
+		_ = m.edgeCardBand(cw, -1, candIt, candIx, sel, line)
+	}
+}
+
+// edgeMemberTree draws the members reached through `parent` ("" = the authority itself) as one band
+// tied to the column `trunk`, then recurses: whatever is reached through each of THOSE machines is
+// drawn under it, on a bus centred on that machine's own card. A relay chain three deep therefore
+// draws three levels deep, which is the whole point of the topology knowing its depth.
+//
+// It is bounded by the fact that edge.Arrange draws every member exactly once and never places a
+// node under itself, so the recursion is over a forest and cannot loop.
+func (m model) edgeMemberTree(cw, trunk int, its []edgeNetItem, idx []int, sel int, parent string, line func(string)) {
+	var here []edgeNetItem
+	var hereIx []int
+	for j, it := range its {
+		if it.via == parent {
+			here, hereIx = append(here, it), append(hereIx, idx[j])
+		}
+	}
+	if len(here) == 0 {
+		return
+	}
+	centres := m.edgeCardBand(cw, trunk, here, hereIx, sel, line)
+	for j, it := range here {
+		// Only a machine something is reached THROUGH opens a level of its own, and it is centred on
+		// that machine's card so the wire says which machine the hop goes through.
+		if it.node == nil {
+			continue
+		}
+		if c, ok := centres[hereIx[j]]; ok {
+			m.edgeMemberTree(cw, c, its, idx, sel, it.node.Name, line)
+		}
 	}
 }
 
 // edgeCardBand draws a set of node cards packed into centred rows. When trunk >= 0 each row is
 // tied to the hub with a branch connector; when trunk < 0 the cards stand on their own (a fleet or
 // discovered band, already separated by a heading). idx[j] is card j's global selection index.
-func (m model) edgeCardBand(cw, trunk int, its []edgeNetItem, idx []int, sel int, line func(string)) {
+// It returns each card's centre column by GLOBAL index, so a caller can hang another band off one
+// of them.
+func (m model) edgeCardBand(cw, trunk int, its []edgeNetItem, idx []int, sel int, line func(string)) map[int]int {
+	centres := map[int]int{}
 	perRow := max(1, (cw+2)/(edgeNetCardW+2))
 	for i := 0; i < len(its); i += perRow {
 		end := min(i+perRow, len(its))
 		row := its[i:end]
 		groupW := len(row)*edgeNetCardW + (len(row)-1)*2
+		// A band hangs UNDER what it hangs off: centred on its trunk column, not on the screen. Centring
+		// every level on the screen made a child sit beside its parent instead of below it, and the bus
+		// then ran sideways across the picture saying nothing. Clamped into the screen, so a relay near
+		// an edge still draws its children whole.
 		start := (cw - groupW) / 2
+		if trunk >= 0 {
+			start = trunk - groupW/2
+		}
+		if start+groupW > cw {
+			start = cw - groupW
+		}
 		if start < 0 {
 			start = 0
 		}
+		centers := make([]int, len(row))
+		for j := range row {
+			centers[j] = start + j*(edgeNetCardW+2) + edgeNetCardW/2
+			centres[idx[i+j]] = centers[j]
+		}
 		if trunk >= 0 {
-			centers := make([]int, len(row))
-			for j := range row {
-				centers[j] = start + j*(edgeNetCardW+2) + edgeNetCardW/2
-			}
 			line("  " + edgeBranchLine(cw, trunk, centers))
 			line("  " + m.edgeDropLine(cw, centers, row))
 		}
@@ -368,6 +417,7 @@ func (m model) edgeCardBand(cw, trunk int, its []edgeNetItem, idx []int, sel int
 			line("  " + strings.Repeat(" ", start) + ln)
 		}
 	}
+	return centres
 }
 
 // edgeDropLine is the short wire from the bus down to each card, ONE GLYPH PER NODE, and it is
@@ -485,9 +535,14 @@ func edgeBranchLine(cw, trunk int, centers []int) string {
 		drop[c] = true
 		set(c, "┬")
 	}
-	if !drop[trunk] {
+	switch {
+	case !drop[trunk]:
 		set(trunk, "┴")
-	} else {
+	case lo == hi:
+		// ONE CARD, DIRECTLY BELOW. A ┼ says two wires cross, and in a tree they never do, so the
+		// honest glyph for "straight down" is a straight line.
+		set(trunk, "│")
+	default:
 		set(trunk, "┼")
 	}
 	return strings.TrimRight(strings.Join(cells, ""), " ")

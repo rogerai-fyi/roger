@@ -245,13 +245,11 @@ Feature: A roger instance can be an agent on the Edge, seen and adopted like a d
     And it never runs past the ends - it clamps at the first and last node
     And the highlight starts on THIS roger, so its actions are to hand without moving
 
-  # AMENDED 2026-09-29, AWAITING THE FOUNDER'S RULING. The scenario above states where the highlight
-  # starts unconditionally, and the screen now makes one exception, so it is written down here rather
-  # than left as a difference between the spec and the code. The exception exists because a device
-  # waiting to be adopted is the reason an owner opens this screen at all, and reaching it took
-  # several arrow presses. Nothing is waiting most of the time, so on an ordinary day the rule above
-  # is what happens. If this is not wanted, the code goes back to the rule above and this scenario
-  # is deleted.
+  # AMENDED 2026-09-29, APPROVED BY THE FOUNDER THE SAME DAY. The scenario above states where the
+  # highlight starts unconditionally, and the screen makes one exception. The exception exists
+  # because a device waiting to be adopted is the reason an owner opens this screen at all, and
+  # reaching it took several arrow presses. Nothing is waiting most of the time, so on an ordinary
+  # day the rule above is what happens.
   @tui
   Scenario: a device waiting to be adopted is where the highlight starts
     Given a set-up machine with a phone discovered on the network and not yet adopted

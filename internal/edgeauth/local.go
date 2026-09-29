@@ -124,6 +124,13 @@ const lockFile = ".authlock"
 // withLock runs fn while holding BOTH the in-process mutex and a cross-process file lock on the
 // authority directory, so claims.json / issued.json / revoked.json stay consistent under concurrent
 // writers whether they share this process or not (audit 2026-09-23).
+//
+// THIS IS A DELIBERATE DUPLICATE of edge.FileLock, and it must stay one. internal/edge imports
+// internal/store, and this package is Core-free BY CONSTRUCTION: an authority has to be able to root
+// an Edge with no Core behind it at all, so it imports nothing that reaches the store. Sharing the
+// helper would buy twenty lines and spend the boundary. The two copies say the same thing, and both
+// say why the pair of locks is needed: the flock queues processes, the mutex queues goroutines, and
+// on Windows the flock is a no-op so without the mutex there is nothing.
 func (l *Local) withLock(fn func() error) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()

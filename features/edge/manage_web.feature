@@ -1,6 +1,11 @@
 # ROGER EDGE - THE MANAGE CONSOLE: an offline-first fleet dashboard in the WebUI (PROPOSED).
 #
-# STATUS: PROPOSED, awaiting founder approval. NOT IMPLEMENTED. Spec for the browser half of
+# STATUS: APPROVED AND LARGELY BUILT. The header said "PROPOSED, awaiting founder approval. NOT
+# IMPLEMENTED" long after most of it shipped, which makes a spec nobody can trust: adopt, name,
+# forget, the health bars, the localhost+token guard, the alert rules an owner can set, the service
+# controls and the log tail are all live in internal/webui, and console.js cites this file by name.
+# Corrected 2026-09-29 after a review found the header stale. What remains UNBUILT is named at the
+# bottom of this file so the difference is a list rather than a mood. Spec for the browser half of
 # fleet management the founder asked for 2026-09-21: "our website and dashboard section we can
 # introduce a management web portion that you can access from the webui ... since this is meant to
 # be offline." It is the console counterpart to the TUI patch bay and the `roger edge` CLI, over
@@ -136,12 +141,16 @@ Feature: The console has an offline-first Manage view that shows fleet health an
     Then a clearly-marked test reaches the sink
     And it raises no real alarm and changes no rule state
 
-  @web
-  Scenario: enrollment is never performed from the browser
+  # SUPERSEDED by features/edge/onboard_web.feature, which says so itself: this scenario
+  # "deliberately said setup was a terminal thing FOR NOW", and onboard_web adds POST
+  # /api/edge/setup. Kept here, marked, rather than deleted: the reason the console once refused to
+  # enrol is worth reading beside the reason it now may.
+  @web @superseded
+  Scenario: enrollment from the browser is onboard_web.feature's to decide, not this file's
     Given a machine that is not yet a member
     When the manage view is opened
-    Then it points at the terminal wizard for setup, as onboard_web.feature specifies
-    And it does not enroll this machine from the browser
+    Then what it offers for setup is whatever onboard_web.feature specifies
+    And this file makes no claim of its own about enrolling from the browser
 
   # =========================================================================
   # 4. IT HOLDS UP
@@ -160,3 +169,17 @@ Feature: The console has an offline-first Manage view that shows fleet health an
     When the manage data is read
     Then the dashboard shows the read error
     And it never draws an empty, healthy-looking fleet over a failure
+
+  # =========================================================================
+  # 9. WHAT IS NOT BUILT YET (added 2026-09-29, so the gap is a list)
+  # =========================================================================
+  #
+  # Everything above is live except these, and neither is blocked on anything but a design pass:
+  #
+  #   - ALERT SINKS. Configuring where an alarm is delivered, and sending a clearly-marked test to
+  #     it. The rule half shipped; the sink half carries the "the secret URL is never sent to the
+  #     browser" rule, which wants designing against a spec rather than guessing at.
+  #   - THE ACTUATE CEREMONY. features/edge/node_identity.feature requires the owner to confirm an
+  #     actuate capability. It is deliberately NOT in the console: confirming actuation from a
+  #     browser is a security design question, and no surface for it exists until that is settled.
+  #     This is not a deferred control; it is an unopened one.
