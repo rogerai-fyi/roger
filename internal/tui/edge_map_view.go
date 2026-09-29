@@ -288,11 +288,18 @@ func (m model) edgeMapTopology(cw int, line func(string)) {
 		m.edgeCardBand(cw, trunk, hubIt, hubIx, sel, line)
 	}
 
-	// The other machines already on this Edge - the fleet band, a heading then centred cards.
+	// The other machines already on this Edge - the fleet band, WIRED to the hub. The founder's
+	// ruling for this screen was "a graphical animated ascii graph representing how your Edge is
+	// connected", and a band of cards floating under a heading was not that: it showed what is on
+	// the Edge and said nothing about how any of it is reached. Each card now hangs on its own
+	// wire, and the wire is the link this machine has actually seen.
 	if len(memIt) > 0 {
-		line("")
+		rail := lampStyle(roleDial)
+		line("  " + strings.Repeat(" ", trunk) + rail.Render("│"))
 		line("  " + edgeSetupCenter(stKey.Render("ON THE EDGE")+stDim.Render("  other machines you have adopted"), cw))
-		m.edgeCardBand(cw, -1, memIt, memIx, sel, line)
+		line("  " + strings.Repeat(" ", trunk) + rail.Render("│"))
+		m.edgeCardBand(cw, trunk, memIt, memIx, sel, line)
+		line("  " + edgeSetupCenter(edgeWireLegend(memIt), cw))
 	}
 
 	// The discovered machines not yet adopted - the adopt band. No wire: they are not on the Edge
@@ -323,6 +330,7 @@ func (m model) edgeCardBand(cw, trunk int, its []edgeNetItem, idx []int, sel int
 				centers[j] = start + j*(edgeNetCardW+2) + edgeNetCardW/2
 			}
 			line("  " + edgeBranchLine(cw, trunk, centers))
+			line("  " + m.edgeDropLine(cw, centers, row))
 		}
 		var cards []string
 		for j, it := range row {
@@ -336,6 +344,92 @@ func (m model) edgeCardBand(cw, trunk int, its []edgeNetItem, idx []int, sel int
 			line("  " + strings.Repeat(" ", start) + ln)
 		}
 	}
+}
+
+// edgeDropLine is the short wire from the bus down to each card, ONE GLYPH PER NODE, and it is
+// the only part of the picture that says how that node is reached. The screen never draws a link
+// it has not seen: a solid drop is a LAN transport this machine verified, a dotted one is a path
+// through a relay, a dashed one is a node whose heartbeat aged out. A heartbeat that arrives
+// lights its own drop, so a live fleet moves and a still one is honestly still.
+func (m model) edgeDropLine(cw int, centers []int, row []edgeNetItem) string {
+	cells := make([]string, cw)
+	for i := range cells {
+		cells[i] = " "
+	}
+	for j, c := range centers {
+		if c < 0 || c >= cw {
+			continue
+		}
+		glyph, st := edgeDropWire(row[j])
+		if m.edgePulsing(row[j]) {
+			glyph, st = string(edgeGlyphPulse), lampStyle(roleLive)
+		}
+		cells[c] = st.Render(glyph)
+	}
+	return strings.TrimRight(strings.Join(cells, ""), " ")
+}
+
+// edgeDropWire is one node's wire: its glyph and its tint. The GLYPH carries the meaning, so the
+// three links stay apart under NO_COLOR and in a pipe; the tint only repeats what the glyph says.
+func edgeDropWire(it edgeNetItem) (string, lipgloss.Style) {
+	if it.node == nil {
+		// A roger on THIS machine. There is no network between us, so there is nothing to doubt.
+		return "│", lampStyle(roleSignal)
+	}
+	switch edgeTexture(*it.node) {
+	case edgeGlyphSolid:
+		return "│", lampStyle(roleSignal)
+	case edgeGlyphDim:
+		return "┊", lampStyle(roleDial)
+	default:
+		return "╎", stDim
+	}
+}
+
+// edgePulsing reports whether a heartbeat is travelling on this node's wire right now.
+func (m model) edgePulsing(it edgeNetItem) bool {
+	if it.id == "" {
+		return false
+	}
+	for _, p := range m.edge.pulses {
+		if p.id == it.id {
+			return true
+		}
+	}
+	return false
+}
+
+// edgeWireLegend names only the wires actually on screen. A legend for a link nobody has is
+// clutter, and a fleet that is all LAN-direct should not be taught three glyphs to read one.
+func edgeWireLegend(its []edgeNetItem) string {
+	var solid, relay, dark bool
+	for _, it := range its {
+		if it.node == nil {
+			continue
+		}
+		switch edgeTexture(*it.node) {
+		case edgeGlyphSolid:
+			solid = true
+		case edgeGlyphDim:
+			relay = true
+		default:
+			dark = true
+		}
+	}
+	if !relay && !dark {
+		return "" // every wire on screen means the same thing: nothing to explain
+	}
+	var out []string
+	if solid {
+		out = append(out, lampStyle(roleSignal).Render("│")+stDim.Render(" direct"))
+	}
+	if relay {
+		out = append(out, lampStyle(roleDial).Render("┊")+stDim.Render(" through a relay"))
+	}
+	if dark {
+		out = append(out, stDim.Render("╎ not heard from"))
+	}
+	return strings.Join(out, stDim.Render("  ·  "))
 }
 
 // edgeBranchLine draws one connector row: a horizontal bus tying the trunk column to each card
@@ -384,6 +478,12 @@ func edgeNetCardBig(it edgeNetItem, selected bool, w int) string {
 		marker = lampStyle(roleLive).Render(" ◄")
 	}
 	body := gs.Render(glyph) + " " + stKey.Render(it.name) + marker + "\n" + stDim.Render(it.sub())
+	// THE JOIN ADDRESS LIVES ON THE HUB. It is the one fact an owner was made to carry in their
+	// head between two commands ("why I need to remember that address"), and the hub card is where
+	// it belongs: on the box that IS the authority, in view whether or not anything is waiting.
+	if st := it.status; st != nil && st.AuthorityHere && st.AuthorityAddr != "" {
+		body += "\n" + stDim.Render("join here  ") + stEmber.Render(st.AuthorityAddr)
+	}
 	st := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 2)
 	if selected {
 		st = st.Border(lipgloss.DoubleBorder())
@@ -566,6 +666,48 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		}
 		if n.LastSeen > 0 {
 			label("LAST SEEN", edgeAge(m.edge.at.Sub(time.Unix(n.LastSeen, 0)))+" ago")
+		}
+		// THE OWNER'S OWN WORDS for this unit (features/edge/tags.feature): the groups a rule or a
+		// schedule can be scoped to. They are the owner's, never read from the node, so they are
+		// shown as typed.
+		if len(n.Tags) > 0 {
+			label("TAGS", strings.Join(n.Tags, "  "))
+		}
+		// WHAT IT IS RUNNING (features/edge/inventory.feature). A fleet manager that cannot answer
+		// "which of these is behind" is a fleet manager in name only, so the version each roger
+		// reports is on the node's own page, beside the newest anything on this Edge reports.
+		newest := edgeNewestRogerOn(m.edge.rows)
+		for i, in := range n.Instances {
+			k := ""
+			if i == 0 {
+				k = "RUNNING"
+			}
+			words := edge.SoftwareWords(in.Software)
+			if words == "" {
+				words = stDim.Render("version not reported")
+			} else if ahead := edge.Behind(in, newest); ahead != "" {
+				words += stDim.Render("  · behind ") + stEmber.Render(ahead)
+			}
+			label(k, pad("/"+in.Name, 16)+words)
+		}
+		// WHAT HAS HAPPENED TO IT (features/edge/events.feature), newest first and only the few that
+		// fit: the node page is where an owner asks "why is this thing like this".
+		for i, ev := range edgeLastEvents(n.History, 3) {
+			k := ""
+			if i == 0 {
+				k = "LATELY"
+			}
+			label(k, pad(edgeAge(m.edge.at.Sub(time.Unix(ev.At, 0)))+" ago", 10)+stDim.Render(pad(ev.What, 12)+ev.Detail))
+		}
+		// WHERE IT DOES NOT MATCH WHAT YOU SAID IT SHOULD BE (features/edge/drift.feature). This is
+		// the difference between a fleet you are watching and a fleet you are running, so it sits
+		// on the node's own page rather than only in a report the owner has to go and ask for.
+		for i, d := range m.edgeDriftOf(n.ID) {
+			k := ""
+			if i == 0 {
+				k = "DRIFT"
+			}
+			label(k, stEmber.Render(d))
 		}
 		edgeAlertLabels(it, label)
 		// ASK: whether this node can be prompted, and with which model (addressed_inference.feature).
@@ -752,6 +894,37 @@ func (m model) edgeMapList(cw int, line func(string)) {
 			stDim.Render(pad(it.kindLabel(), kindW)+state)
 		line("  " + truncVisible(row, cw))
 	}
+}
+
+// edgeDriftOf is what this node is failing to be, or nothing. A build that wired no expectations
+// has no drift to report, which is different from a node that is in step - so nothing is drawn
+// rather than a reassuring line nobody checked.
+func (m model) edgeDriftOf(id string) []string {
+	if m.hooks.EdgeDrift == nil || id == "" {
+		return nil
+	}
+	return m.hooks.EdgeDrift()[id]
+}
+
+// edgeLastEvents is the newest n events on a node, newest first. The record keeps them oldest
+// first and bounded; a node page has room for a few, and the rest are `roger edge events`.
+func edgeLastEvents(in []store.EdgeEvent, n int) []store.EdgeEvent {
+	out := make([]store.EdgeEvent, 0, n)
+	for i := len(in) - 1; i >= 0 && len(out) < n; i-- {
+		out = append(out, in[i])
+	}
+	return out
+}
+
+// edgeNewestRogerOn is the newest roger version anything on this Edge reports, which is what
+// "behind" is measured against. It is what the fleet HAS, never a release feed: this screen makes
+// no claim about a version it has not seen on a unit of its own.
+func edgeNewestRogerOn(rows []edgeRow) string {
+	nodes := make([]store.EdgeNode, 0, len(rows))
+	for _, r := range rows {
+		nodes = append(nodes, r.n)
+	}
+	return edge.NewestRoger(nodes)
 }
 
 // edgeAlertLabels writes the rules firing for a node into its readout, one line each, in the live

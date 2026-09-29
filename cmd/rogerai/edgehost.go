@@ -155,6 +155,21 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 		return edgeAlertLog().StandByAs(ruleID, nodeID, edgeOperatorName(), time.Now().Add(d))
 	}
 	hooks.EdgeHealthLive = true
+	// Where the fleet does not match what the owner expects of it, from the same read
+	// `roger edge drift` prints, so the node page and the report cannot disagree.
+	hooks.EdgeDrift = func() map[string][]string {
+		_, drift, _, err := edgeDriftRead(time.Now())
+		if err != nil {
+			return nil
+		}
+		out := map[string][]string{}
+		for _, d := range drift {
+			if d.State == edge.DriftOut {
+				out[d.NodeID] = append(out[d.NodeID], d.Expected+" · "+d.Found)
+			}
+		}
+		return out
+	}
 	hooks.EdgeIssueGrant = h.issueGrant
 	hooks.EdgeRevokeGrant = h.revokeGrant
 	// The agents the owner marked persistent - a durable record, so one that has stopped still

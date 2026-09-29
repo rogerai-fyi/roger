@@ -390,7 +390,7 @@ func edgeHints(w int) string {
 // edgeMapTally counts what is on the map in a sentence: the machines on this Edge, anything waiting
 // to be adopted, and the rogers running here. A clause with nothing in it is left out, so a
 // one-machine Edge is not told it has "0 machines".
-func edgeMapTally(items []edgeNetItem) string {
+func edgeMapTally(items []edgeNetItem, cw int) string {
 	members, waiting, rogers := 0, 0, 0
 	for _, it := range items {
 		switch {
@@ -412,7 +412,20 @@ func edgeMapTally(items []edgeNetItem) string {
 	if rogers > 0 {
 		parts = append(parts, edgeCountWords(rogers, "roger", "rogers")+" running here")
 	}
-	return strings.Join(parts, "  ·  ")
+	// Only as many clauses as FIT. A count clipped in half counts nothing, and the leftmost clauses
+	// are the ones an owner came for.
+	out := ""
+	for _, p := range parts {
+		try := p
+		if out != "" {
+			try = out + "  ·  " + p
+		}
+		if cw > 0 && len(try) > cw {
+			break
+		}
+		out = try
+	}
+	return out
 }
 
 // edgeCountWords is "1 machine" or "3 machines".
@@ -427,19 +440,40 @@ func edgeCountWords(n int, one, many string) string {
 // on it drawn as connected nodes (not a "waiting" placeholder that would lie when rogers are
 // running), WHAT'S NEXT up front so the owner always knows the move, and the details below. It is
 // the picture that answers "where is my Edge network, and what do I do next".
+// edgeMapFitsCards reports whether the content width can hold at least two node cards side by
+// side. Below that the card map degenerates into a single column with a connector between every
+// pair of cards, which is longer AND tells the owner less than the dense list.
+func edgeMapFitsCards(cw int) bool { return cw >= edgeNetCardW*2+2 }
+
 func (m model) edgeNetworkMap(w, cw int, line func(string)) {
 	st := m.edge.status
 	line("  " + edgeColorSegments(edgeEmptyHeadline(m.edge)))
 	line("")
-	line("  " + edgeSetupCenter(stKey.Render("YOUR EDGE NETWORK")+stDim.Render("   the authority controls your machines, agents & devices"), cw))
+	// The explanation earns its place only when it FITS. Clipped mid-sentence it is worse than
+	// absent, and a narrow pane needs its columns for the fleet.
+	head := stKey.Render("YOUR EDGE NETWORK")
+	if cw >= 78 {
+		head += stDim.Render("   the authority controls your machines, agents & devices")
+	}
+	line("  " + edgeSetupCenter(head, cw))
 	// A COUNT, before any picture. "I'm not sure what I'm seeing" is answered first by a sentence
 	// saying how many of each thing is on the screen; the cards then show which.
-	if tally := edgeMapTally(m.edgeNetItems()); tally != "" {
+	if tally := edgeMapTally(m.edgeNetItems(), cw); tally != "" {
 		line("  " + edgeSetupCenter(stDim.Render(tally), cw))
 	}
 
-	// The topology: cards (spatial) or a compact list (dense), the selected node glowing. `v` toggles.
-	if m.edge.mapList {
+	// The topology: cards (spatial) or a compact list (dense), the selected node glowing. `v` toggles,
+	// and a terminal too narrow to hold two cards side by side gets the list whatever the toggle says -
+	// a picture that has stopped being a picture must become a list (features/edge/topology_view.feature).
+	// One card per row down a narrow pane is a chain, not a map, and it says less than the table does.
+	if m.edge.mapList || !edgeMapFitsCards(cw) {
+		if !m.edge.mapList {
+			note := "narrow pane · the list, not the map"
+			if cw >= 78 {
+				note = "a narrow pane cannot hold the map, so this is the list · widen to see the picture"
+			}
+			line("  " + edgeSetupCenter(stDim.Render(note), cw))
+		}
 		m.edgeMapList(cw, line)
 	} else {
 		m.edgeMapTopology(cw, line)

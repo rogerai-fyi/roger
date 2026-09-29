@@ -109,6 +109,10 @@ type Hooks struct {
 	// capability, callee node id, duration like 7d); EdgeRevokeGrant revokes by id. The invoke fabric's
 	// grant surface (features/edge/control.feature), the host-side of `roger edge grant`.
 	EdgeGrants func() ([]store.Grant, error)
+	// EdgeDrift is where the fleet does NOT match what the owner said it should be
+	// (features/edge/drift.feature), by node id, each line naming what was expected and what was
+	// found. Nothing is inferred here: a unit with no expectation on it has no entry.
+	EdgeDrift func() map[string][]string
 	// EdgeAlerts is the alert rules firing right now, by node id, each as its rule wording
 	// ("cpu_temp > 85") - the fleet surface of health.feature §5. Nil = no alerting on this build.
 	EdgeAlerts func() map[string][]string

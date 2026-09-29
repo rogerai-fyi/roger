@@ -71,11 +71,16 @@ func TestTheMapCountsWhatIsOnIt(t *testing.T) {
 			t.Errorf("the map does not count what is on it: missing %q\n%s", want, out)
 		}
 	}
+	// Only what fits: a count clipped in half counts nothing.
+	narrow := edgeMapTally([]edgeNetItem{{machine: true}, {member: true}, {agent: true}}, 30)
+	if narrow != "1 machine on your Edge" {
+		t.Errorf("a narrow tally kept more than fits: %q", narrow)
+	}
 	// A clause with nothing in it is left out rather than reading "0 machines".
-	if got := edgeMapTally([]edgeNetItem{{machine: true}}); got != "" {
+	if got := edgeMapTally([]edgeNetItem{{machine: true}}, 100); got != "" {
 		t.Errorf("a bare machine should tally nothing, got %q", got)
 	}
-	if got := edgeMapTally([]edgeNetItem{{machine: true}, {member: true}, {agent: true}}); got != "1 machine on your Edge  ·  1 roger running here" {
+	if got := edgeMapTally([]edgeNetItem{{machine: true}, {member: true}, {agent: true}}, 100); got != "1 machine on your Edge  ·  1 roger running here" {
 		t.Errorf("singulars are wrong: %q", got)
 	}
 }
@@ -149,6 +154,30 @@ func TestAWaitingDeviceIsWhereTheCursorLands(t *testing.T) {
 	m.refreshEdge()
 	if it, _ := m.edgeSelectedNet(); !it.self {
 		t.Errorf("with nothing waiting the highlight is not this roger, it is %q", it.name)
+	}
+}
+
+// The address is on the HUB CARD whenever this machine is the authority, waiting devices or not.
+// It is the fact the founder was made to carry in their head between two commands.
+func TestTheJoinAddressIsOnTheHubItself(t *testing.T) {
+	m := mapReadableModel(t)
+	out := stripANSI(m.edgeView(116))
+	hub := ""
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, "join here") {
+			hub = ln
+		}
+	}
+	if hub == "" || !strings.Contains(hub, "http://192.168.1.9:8791") {
+		t.Errorf("the join address is not on the hub card:\n%s", out)
+	}
+	// A machine that roots no Edge has no address to offer and must not invent one.
+	m2 := mapReadableModel(t)
+	st := *m2.edge.status
+	st.AuthorityHere, st.AuthorityAddr = false, ""
+	m2.edge.status = &st
+	if strings.Contains(stripANSI(m2.edgeView(116)), "join here") {
+		t.Errorf("a machine that roots no Edge still offered somewhere to join")
 	}
 }
 
