@@ -151,3 +151,38 @@ func TestOnlyTheNewestFewEventsAreDrawn(t *testing.T) {
 		t.Errorf("a node with no history produced %d events", len(got))
 	}
 }
+
+// A BOARD SAYS WHAT IT IS. The founder put a Raspberry Pi on the Edge; "MACHINE · on your Edge"
+// tells them nothing they did not know, and the node already reports its hardware model. The card
+// shows which board, the page shows the model exactly as reported.
+func TestACardSaysWhichBoardItIs(t *testing.T) {
+	m := mapReadableModel(t)
+	for i := range m.edge.rows {
+		if m.edge.rows[i].n.Name == "pi-greenhouse" {
+			m.edge.rows[i].n.Instances = []store.EdgeInstance{{Name: "share",
+				Software: &store.EdgeSoftware{Roger: "6.13.0", OS: "Debian GNU/Linux 12",
+					Arch: "arm64", Machine: "Raspberry Pi 4 Model B Rev 1.5"}}}
+		}
+	}
+	out := stripANSI(m.edgeView(116))
+	if !strings.Contains(out, "BOARD · Pi 4") {
+		t.Errorf("the card does not say which board it is:\n%s", out)
+	}
+	// And the whole model, unshortened, on the node's own page.
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "pi-greenhouse" {
+			m.edge.netSel, m.edge.netSelSet, m.edge.netDetail = i, true, true
+		}
+	}
+	page := stripANSI(m.edgeView(116))
+	for _, want := range []string{"HARDWARE", "Raspberry Pi 4 Model B Rev 1.5", "arm64"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the node page is missing %q:\n%s", want, page)
+		}
+	}
+	// A node that has not said what it is says nothing rather than something invented.
+	m2 := mapReadableModel(t)
+	if strings.Contains(stripANSI(m2.edgeView(116)), "HARDWARE") {
+		t.Errorf("a node that reported no model was given hardware anyway")
+	}
+}

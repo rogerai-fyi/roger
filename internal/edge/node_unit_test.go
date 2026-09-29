@@ -211,9 +211,47 @@ func TestLabelNeverShowsAnIdAsAName(t *testing.T) {
 // not each invent their own (the map said PC where the rack said machine).
 func TestOneWordPerKindForEverySurface(t *testing.T) {
 	for kind, want := range map[string]string{
-		string(edge.Host): "pc", string(edge.Mobile): "phone", string(edge.Board): "board",
+		string(edge.Host): "machine", string(edge.Mobile): "phone", string(edge.Board): "board",
 		"weather-balloon": "device", "": "",
 	} {
 		require.Equal(t, want, edge.KindWord(kind), "kind %q", kind)
+	}
+}
+
+// A board says what it is at length; a card has room for which board it is. The record keeps the
+// model exactly as the machine reported it - this is display shortening and nothing routes on it.
+func TestAHardwareModelIsShortenedForACardAndNeverHalfAWord(t *testing.T) {
+	for in, want := range map[string]string{
+		"Raspberry Pi 4 Model B Rev 1.5":        "Pi 4",
+		"Raspberry Pi Zero 2 W Rev 1.0":         "Pi Zero 2 W",
+		"Raspberry Pi 5 Model B Rev 1.0":        "Pi 5",
+		"NVIDIA Jetson Orin Nano Developer Kit": "NVIDIA Jetson",
+		"Dell Inc. XPS 13 9310":                 "Dell Inc. XPS",
+		"  spaced   out  model  ":               "spaced out",
+		"":                                      "",
+		"Supercalifragilisticexpialidocious":    "Supercalifragi",
+	} {
+		if got := edge.MachineShort(in); got != want {
+			t.Errorf("MachineShort(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// A model that is only "Model X" keeps it rather than shortening itself to nothing.
+	if got := edge.MachineShort("Model B"); got != "Model B" {
+		t.Errorf("MachineShort(\"Model B\") = %q", got)
+	}
+}
+
+// The model comes from the node's own instances, and a node that has not said reports nothing
+// rather than something invented.
+func TestAHardwareModelComesFromTheNodesOwnReport(t *testing.T) {
+	n := store.EdgeNode{Instances: []store.EdgeInstance{
+		{Name: "a"},
+		{Name: "b", Software: &store.EdgeSoftware{Machine: "Raspberry Pi 4 Model B Rev 1.5"}},
+	}}
+	if got := edge.MachineOf(n); got != "Raspberry Pi 4 Model B Rev 1.5" {
+		t.Errorf("MachineOf = %q, want the model whole", got)
+	}
+	if got := edge.MachineOf(store.EdgeNode{}); got != "" {
+		t.Errorf("a node that has not said reports %q", got)
 	}
 }

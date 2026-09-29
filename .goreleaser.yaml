@@ -26,7 +26,16 @@ builds:
     binary: roger
     env: [CGO_ENABLED=0]
     goos: [linux, darwin]
-    goarch: [amd64, arm64]
+    # arm (32-bit, GOARM=7) is here for the SMALL BOARDS an Edge is made of: a Raspberry Pi
+    # running a 32-bit OS, which is what an older Pi or a Pi Zero 2 ships with by default.
+    # Until 2026-09-29 roger did not even COMPILE for it (a hash constant that does not fit in a
+    # 32-bit int), so nobody had noticed there was no binary to install. darwin/arm is not a
+    # thing, and goreleaser's ignore below says so.
+    goarch: [amd64, arm64, arm]
+    goarm: ["7"]
+    ignore:
+      - goos: darwin
+        goarch: arm
     flags: [-trimpath]
     ldflags: ["-s -w -X main.Version={{.Version}}"]
   - id: roger-win

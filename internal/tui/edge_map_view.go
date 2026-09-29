@@ -76,6 +76,14 @@ func (it edgeNetItem) icon() (string, lipgloss.Style) {
 	}
 }
 
+// hardware is the short form of the model this unit reported, or "" when it has not said.
+func (it edgeNetItem) hardware() string {
+	if it.node == nil {
+		return ""
+	}
+	return edge.MachineShort(edge.MachineOf(*it.node))
+}
+
 // kindWord is what this unit IS, for the card: PC, PHONE, BOARD - or ROGER for a process. An owner
 // must be able to tell a phone from a machine without decoding a glyph.
 func (it edgeNetItem) kindWord() string { return it.kindOr("DEVICE") }
@@ -124,6 +132,10 @@ func (it edgeNetItem) subBase() string {
 		// WHICH relay, not just that there is one. The wire already says the path goes through
 		// something; a picture of how the Edge is connected has to name it.
 		return it.kindWord() + " · via " + it.via
+	case it.member && it.hardware() != "":
+		// WHAT IT IS, when the machine has said: "MACHINE · Raspberry Pi 4" tells an owner more than
+		// "MACHINE · on your Edge" ever could, and it is the node's own report, never a guess.
+		return it.kindWord() + " · " + it.hardware()
 	case it.member:
 		return it.kindWord() + " · on your Edge"
 	case it.dark && it.agent:
@@ -272,7 +284,7 @@ func edgeDefaultNetSel(items []edgeNetItem) int {
 	return 0
 }
 
-const edgeNetCardW = 28 // card width (border included); fits a kind and its state ("PHONE · adopt with a")
+const edgeNetCardW = 30 // card width (border included); fits a kind and its state ("MACHINE · on your Edge")
 
 // edgeMapTopology draws the topology: the machine card, a branch, and the instance/agent cards in
 // centred rows, the selected card glowing red. It returns nothing; it draws through line().
@@ -730,6 +742,11 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 			label("KIND", w+stDim.Render("  ("+n.Kind+")"))
 		} else {
 			label("KIND", n.Kind)
+		}
+		// THE HARDWARE, as the machine reported it and at full length: the card has room for "Raspberry
+		// Pi 4", this has room for the revision too.
+		if hw := edge.MachineOf(*n); hw != "" {
+			label("HARDWARE", hw)
 		}
 		// The FULL id, because this is the one screen with room for it and every `roger edge` command
 		// takes one. A node the owner never named is called by a short id everywhere else.

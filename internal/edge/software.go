@@ -102,3 +102,65 @@ func Behind(in Instance, newest string) string {
 	}
 	return ""
 }
+
+// MachineShort is a hardware model in the few cells a card has for it. A board says what it is at
+// length - "Raspberry Pi 4 Model B Rev 1.5", "NVIDIA Jetson Orin Nano Developer Kit" - and all an
+// owner needs on a card is which board it is. The revision and the "Model B" are dropped (they are
+// on the node's own page, whole), and what is left is cut at a WORD boundary so the answer is never
+// half a word.
+//
+// This is a display shortening and nothing else: no surface routes on it, and the record keeps the
+// model exactly as the machine reported it.
+func MachineShort(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if s == "" {
+		return ""
+	}
+	// A trailing revision is noise on a card.
+	if i := strings.Index(s, " Rev "); i > 0 {
+		s = s[:i]
+	}
+	// "Model B" likewise, but only while something identifying is left.
+	if i := strings.Index(s, " Model "); i > 0 {
+		if head := s[:i]; len(strings.Fields(head)) >= 2 {
+			s = head
+		}
+	}
+	// ONE ABBREVIATION, and it is deliberate: "Raspberry Pi" becomes "Pi". It is the board name an
+	// Edge meets most often, every model of it is longer than any card, and nobody has ever been
+	// confused about what a Pi is. The node's own page prints the model exactly as reported.
+	s = strings.TrimPrefix(s, "Raspberry ")
+	// The budget is what a card really has: its inner width less the kind word and the separator.
+	// Cutting at a word boundary inside THAT is better than letting the card ellipsise mid-word.
+	const cells = 14
+	if len(s) <= cells {
+		return s
+	}
+	out := ""
+	for _, w := range strings.Fields(s) {
+		try := w
+		if out != "" {
+			try = out + " " + w
+		}
+		if len(try) > cells {
+			break
+		}
+		out = try
+	}
+	if out == "" { // one word longer than the space: cut it rather than draw nothing
+		return s[:cells]
+	}
+	return out
+}
+
+// MachineOf is the hardware model a node reports, from the first instance that reports one, or "".
+// A node with no instance reporting is a node that has not said, which is not the same as a node
+// that is nothing in particular.
+func MachineOf(n store.EdgeNode) string {
+	for _, in := range n.Instances {
+		if in.Software != nil && in.Software.Machine != "" {
+			return in.Software.Machine
+		}
+	}
+	return ""
+}

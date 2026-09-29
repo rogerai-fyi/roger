@@ -338,7 +338,11 @@ func KindWord(kind string) string {
 	case Mobile:
 		return "phone"
 	case Host:
-		return "pc"
+		// "machine", not "pc". A host is anything with a real TCP stack and an operating system: a
+		// laptop, a Mac, a server in a rack, a Raspberry Pi. Calling a Pi or a server a PC is wrong in
+		// a way an owner notices, and the classes this word exists to separate - machine, phone,
+		// board - stay just as distinct.
+		return "machine"
 	}
 	if kind == "" {
 		return ""

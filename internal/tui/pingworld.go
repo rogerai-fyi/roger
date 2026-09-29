@@ -210,7 +210,12 @@ func (m pingWorldModel) View() string {
 
 // worldHash is the deterministic desync for star placement/twinkle + wanderer spawn - pure in
 // (a,b,seed) so the world is reproducible yet never metronomic (like idleScene's pingHash use).
-func worldHash(a, b, seed int) uint32 { return pingHash(a*7349 + b*916703 + seed*2654435761) }
+// The mixing is done in uint32 deliberately: the multiplier does not fit in an int on a 32-bit
+// build, so this line stopped roger compiling for armv7 altogether. uint32 is modular, so the value
+// is identical to what the 64-bit build always produced and no world changes shape.
+func worldHash(a, b, seed int) uint32 {
+	return pingHash32(uint32(a)*7349 + uint32(b)*916703 + uint32(seed)*2654435761)
+}
 
 // Depth-weighted starfield (v2 P0-2): three tiers give the sky genuine parallax instead of a
 // flat speckle. Far stars are tiny/faint/static, mid drift slowly, near are bright + drift

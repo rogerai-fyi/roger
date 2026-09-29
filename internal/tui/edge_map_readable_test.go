@@ -46,7 +46,7 @@ func TestEveryCardSaysWhatTheThingIs(t *testing.T) {
 	m := mapReadableModel(t)
 	out := stripANSI(m.edgeView(116))
 	// Hardware in capitals, software in lower case, so the two are never confused at a glance.
-	for _, want := range []string{"PC · on your Edge", "BOARD · on your Edge", "PHONE · on your Edge",
+	for _, want := range []string{"MACHINE · on your Edge", "BOARD · on your Edge", "PHONE · on your Edge",
 		"PHONE · adopt with a", "agent · idle", "agent · offline"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the map does not say what a unit IS: missing %q\n%s", want, out)
