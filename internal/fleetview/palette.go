@@ -1,6 +1,10 @@
 package fleetview
 
-import lm "github.com/thebanri/limoni"
+import (
+	lm "github.com/thebanri/limoni"
+
+	"rogerai.fm/roger/v6/internal/edge"
+)
 
 // The Edge palette is the radio TUI's instrument set on the warm ink ground: a 1950s receiver's
 // magic-eye green, its dial's amber glow, its dial's blue-white, and the ONE red. Red is the
@@ -26,13 +30,8 @@ func kindColor(string) lm.Color { return dial }
 
 // kindLabel is the word the readout uses for a node's kind.
 func kindLabel(kind string) string {
-	switch kind {
-	case "board":
-		return "board"
-	case "mobile":
-		return "phone"
-	case "host":
-		return "machine"
+	if w := edge.KindWord(kind); w != "" {
+		return w
 	}
 	return "device"
 }

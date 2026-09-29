@@ -785,10 +785,13 @@ func edgeWriteTable(w io.Writer, nodes []store.EdgeNode, reach map[string]edgeRe
 		if via == "" {
 			via = "-"
 		}
+		// A node whose "name" is really its id is shown as a short id, not a 48-character column that
+		// wrecks the table (edge.Label).
+		name := edge.Label(n.Name, n.ID)
 		if tagged {
-			fmt.Fprintf(w, head, n.Name, n.Kind, edgeCapsLabel(n), via, edgeTagsLabel(n), edgeSeenLabel(n))
+			fmt.Fprintf(w, head, name, n.Kind, edgeCapsLabel(n), via, edgeTagsLabel(n), edgeSeenLabel(n))
 		} else {
-			fmt.Fprintf(w, head, n.Name, n.Kind, edgeCapsLabel(n), via, edgeSeenLabel(n))
+			fmt.Fprintf(w, head, name, n.Kind, edgeCapsLabel(n), via, edgeSeenLabel(n))
 		}
 		edgeWriteInstances(w, n.Instances, n.InstancesTruncated)
 	}

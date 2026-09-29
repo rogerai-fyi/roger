@@ -185,3 +185,35 @@ func TestFingerprintHelpers(t *testing.T) {
 	require.Len(t, edge.Fingerprint([]byte("x")), 64)
 	require.Empty(t, edge.FingerprintOf(nil))
 }
+
+// An id is not a name. A machine enrolled without one carries its node id as its record name, and a
+// 48-character id drawn as the title of a box is what made the EDGE screen unreadable.
+func TestLabelNeverShowsAnIdAsAName(t *testing.T) {
+	id := "n_ebab8e241f058e18234af760ad2a1ca976647af7583e0029"
+	require.True(t, edge.LooksLikeID(id))
+	require.Equal(t, "n_ebab8e24", edge.Label(id, id), "an unnamed machine reads as a SHORT id")
+	require.Equal(t, "n_ebab8e24", edge.Label("", id))
+	require.Equal(t, "RogGentooEdged", edge.Label("RogGentooEdged", id), "a name the owner chose wins")
+
+	// The SHAPE decides, not equality with the record's id: a machine may legitimately be called
+	// after itself, and a test rig often is.
+	require.False(t, edge.LooksLikeID("workshop"))
+	require.Equal(t, "workshop", edge.Label("workshop", "workshop"))
+	require.False(t, edge.LooksLikeID("n_short"), "too short to be an id")
+	require.False(t, edge.LooksLikeID("n_not-hex-at-all-really-no"), "an id is hex")
+	require.False(t, edge.LooksLikeID("gentle-ibex-14"))
+	require.Equal(t, "", edge.Label("", ""))
+	require.Equal(t, "n_ebab8e24", edge.ShortID(id))
+	require.Equal(t, "short", edge.ShortID("short"))
+}
+
+// One word per kind, shared by every surface: the TUI map, the Limoni screens and the console must
+// not each invent their own (the map said PC where the rack said machine).
+func TestOneWordPerKindForEverySurface(t *testing.T) {
+	for kind, want := range map[string]string{
+		string(edge.Host): "pc", string(edge.Mobile): "phone", string(edge.Board): "board",
+		"weather-balloon": "device", "": "",
+	} {
+		require.Equal(t, want, edge.KindWord(kind), "kind %q", kind)
+	}
+}

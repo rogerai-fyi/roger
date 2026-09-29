@@ -71,14 +71,30 @@ func (it edgeNetItem) icon() (string, lipgloss.Style) {
 	}
 }
 
+// kindWord is what this unit IS, for the card: PC, PHONE, BOARD - or ROGER for a process. An owner
+// must be able to tell a phone from a machine without decoding a glyph.
+func (it edgeNetItem) kindWord() string { return it.kindOr("DEVICE") }
+
+// kindOr is the kind word, or def when the record carries no kind at all. A card with no kind must
+// still read as a sentence, so each caller says what it would rather print than a blank.
+func (it edgeNetItem) kindOr(def string) string {
+	if w := edgeKindWord(it.kind); w != "" {
+		return w
+	}
+	return def
+}
+
 // sub returns the one-line description under a node's name, with the alert count when rules fire.
+// HARDWARE is named in capitals (PC, PHONE, BOARD) and SOFTWARE in lower case (agent), so a glance
+// at the band tells an owner which of the two they are looking at - the thing this screen was worst
+// at before.
 func (it edgeNetItem) sub() string {
 	s := it.subBase()
 	tag := it.alertTag()
 	switch {
 	case tag == "" || !(it.machine || it.member):
 	case it.member && it.dark:
-		s = "offline · " + tag // fits the card; the readout says "member"
+		s = it.kindOr("offline") + " · " + tag // the kind leads when it is known, then what is firing
 	default:
 		s += " · " + tag
 	}
@@ -88,17 +104,19 @@ func (it edgeNetItem) sub() string {
 func (it edgeNetItem) subBase() string {
 	switch {
 	case it.machine:
-		return it.role
+		// "YOU ARE HERE" and not "THIS MACHINE": the readout below uses THIS MACHINE as a fact label,
+		// and two lines with the same words is exactly how this screen got confusing.
+		return "YOU ARE HERE · " + it.role
 	case it.cand:
-		return "adopt with a"
+		return it.kindWord() + " · adopt with a"
 	case it.member && it.dark:
-		return "member · offline"
+		return it.kindWord() + " · offline"
 	case it.member:
-		return "member"
+		return it.kindWord() + " · on your Edge"
 	case it.dark:
-		return "offline"
+		return "agent · offline"
 	case it.agent && it.job != "":
-		return it.job
+		return "agent · " + it.job
 	case it.agent:
 		return "agent · idle"
 	case len(it.bands) > 0:
@@ -155,13 +173,13 @@ func (m model) edgeNetItems() []edgeNetItem {
 	// The OTHER machines already on this Edge - members, drawn as their own cards in a fleet band.
 	for i := range m.edge.rows {
 		n := m.edge.rows[i].n
-		items = append(items, edgeNetItem{name: n.Name, member: true, node: &m.edge.rows[i].n, id: n.ID, kind: n.Kind,
+		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), member: true, node: &m.edge.rows[i].n, id: n.ID, kind: n.Kind,
 			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID]})
 	}
 	// The DISCOVERED machines not yet on this Edge - candidates, adopt with a.
 	for i := range m.edge.cands {
 		n := m.edge.cands[i]
-		items = append(items, edgeNetItem{name: n.Name, cand: true, node: &m.edge.cands[i], id: n.ID, kind: n.Kind})
+		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), cand: true, node: &m.edge.cands[i], id: n.ID, kind: n.Kind})
 	}
 	return items
 }
@@ -207,6 +225,16 @@ func (m *model) edgeMoveNetSel(delta int) {
 // edgeDefaultNetSel is the highlight before the owner moves: THIS roger if one is running here,
 // else the machine. It puts the commonest actions (Make Agent, Rename) under the cursor at once.
 func edgeDefaultNetSel(items []edgeNetItem) int {
+	// A DEVICE WAITING TO BE ADOPTED wins: it is why the owner came to this screen, and landing on it
+	// puts "a adopt" one keystroke away instead of behind several arrow presses. Nothing is waiting
+	// most of the time, so this changes nothing on an ordinary day.
+	for i, it := range items {
+		if it.cand {
+			return i
+		}
+	}
+	// Otherwise THIS roger, whose actions are then to hand without moving
+	// (features/edge/agents.feature).
 	for i, it := range items {
 		if it.self {
 			return i
@@ -215,7 +243,7 @@ func edgeDefaultNetSel(items []edgeNetItem) int {
 	return 0
 }
 
-const edgeNetCardW = 24 // card width (border included); wide enough for "serving <model>" at a glance
+const edgeNetCardW = 28 // card width (border included); fits a kind and its state ("PHONE · adopt with a")
 
 // edgeMapTopology draws the topology: the machine card, a branch, and the instance/agent cards in
 // centred rows, the selected card glowing red. It returns nothing; it draws through line().

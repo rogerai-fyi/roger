@@ -122,14 +122,21 @@ func edgeGeomFor(w, nodes int) edgeGeom {
 
 // edgeSelfName is what this instance is called on its own graph.
 func (m model) edgeSelfName() string {
-	if n := strings.TrimSpace(m.hooks.EdgeSelf); n != "" {
+	// An id is NOT a name. A machine enrolled without one carries its node id as its record name, and
+	// a 48-character id drawn as the title of the box you are sitting at is what made this screen
+	// unreadable. Prefer the owner's name, then the station's, then "this machine" - never the id.
+	if n := strings.TrimSpace(m.hooks.EdgeSelf); n != "" && !edge.LooksLikeID(n) {
 		return n
 	}
-	if n := strings.TrimSpace(m.hooks.Station); n != "" {
+	if n := strings.TrimSpace(m.hooks.Station); n != "" && !edge.LooksLikeID(n) {
 		return n
 	}
 	return "this machine"
 }
+
+// edgeKindWord is what a unit IS, in a word an owner reads at a glance: the screen has to say
+// whether a box is a PC, a phone, a board or a roger, and a glyph alone never did.
+func edgeKindWord(kind string) string { return strings.ToUpper(edge.KindWord(kind)) }
 
 // edgeMarks renders a node's capability marks: a distinct two-letter mark per capability,
 // UPPER for VERIFIED and lower for CLAIMED (or, for actuate, awaiting the owner). Nothing
@@ -380,6 +387,42 @@ func edgeHints(w int) string {
 	return "↑↓ select  ·  ⏎ detail  ·  a adopt a candidate  ·  r re-read  ·  esc back"
 }
 
+// edgeMapTally counts what is on the map in a sentence: the machines on this Edge, anything waiting
+// to be adopted, and the rogers running here. A clause with nothing in it is left out, so a
+// one-machine Edge is not told it has "0 machines".
+func edgeMapTally(items []edgeNetItem) string {
+	members, waiting, rogers := 0, 0, 0
+	for _, it := range items {
+		switch {
+		case it.cand:
+			waiting++
+		case it.member:
+			members++
+		case (it.agent || it.inst != nil) && !it.dark:
+			rogers++ // a stopped agent is not running here, so it is not counted as one
+		}
+	}
+	var parts []string
+	if members > 0 {
+		parts = append(parts, edgeCountWords(members, "machine", "machines")+" on your Edge")
+	}
+	if waiting > 0 {
+		parts = append(parts, edgeCountWords(waiting, "device", "devices")+" waiting to be adopted")
+	}
+	if rogers > 0 {
+		parts = append(parts, edgeCountWords(rogers, "roger", "rogers")+" running here")
+	}
+	return strings.Join(parts, "  ·  ")
+}
+
+// edgeCountWords is "1 machine" or "3 machines".
+func edgeCountWords(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
+}
+
 // edgeNetworkMap is the [3] screen once this machine is set up: its HUB with the rogers running
 // on it drawn as connected nodes (not a "waiting" placeholder that would lie when rogers are
 // running), WHAT'S NEXT up front so the owner always knows the move, and the details below. It is
@@ -389,6 +432,11 @@ func (m model) edgeNetworkMap(w, cw int, line func(string)) {
 	line("  " + edgeColorSegments(edgeEmptyHeadline(m.edge)))
 	line("")
 	line("  " + edgeSetupCenter(stKey.Render("YOUR EDGE NETWORK")+stDim.Render("   the authority controls your machines, agents & devices"), cw))
+	// A COUNT, before any picture. "I'm not sure what I'm seeing" is answered first by a sentence
+	// saying how many of each thing is on the screen; the cards then show which.
+	if tally := edgeMapTally(m.edgeNetItems()); tally != "" {
+		line("  " + edgeSetupCenter(stDim.Render(tally), cw))
+	}
 
 	// The topology: cards (spatial) or a compact list (dense), the selected node glowing. `v` toggles.
 	if m.edge.mapList {
@@ -549,7 +597,17 @@ func (m model) edgeActions() []edgeAction {
 		}
 		out = append(out, edgeAction{"s", "Add Device", "another machine joins", false})
 		if m.edge.status != nil && m.edge.status.AuthorityHere {
-			out = append(out, edgeAction{"y", "Allow Machine", "show your key to admit one", false})
+			out = append(out, edgeAction{"y", "Allow Machine", "show your key to admit", false})
+		}
+	}
+	// NEVER A DEAD END. A node this build can do nothing to in place still leaves the owner the
+	// Edge-wide actions, which is a great deal better than a panel reading "nothing to do on this
+	// node here" - the first thing this screen said to the founder on opening it. A member keeps its
+	// own explanation (it serves no model yet), which is more use than a button.
+	if len(out) == 0 && !it.member {
+		out = append(out, edgeAction{"s", "Add Device", "another machine joins", false})
+		if m.edge.status != nil && m.edge.status.AuthorityHere {
+			out = append(out, edgeAction{"y", "Allow Machine", "show your key to admit", false})
 		}
 	}
 	return out
@@ -590,7 +648,18 @@ func (m model) edgeFindDevicesHint(cw int, line func(string)) {
 	if len(m.edge.cands) > 0 {
 		return
 	}
-	line("  " + edgeSetupCenter(stDim.Render("no devices yet · a phone or machine running roger on this network appears here to adopt"), cw))
+	// NOTHING FOUND YET. Say what to do, and say it with the ADDRESS ON THE SCREEN: an owner should
+	// never have to go and look up where their own Edge lives, or carry it in their head from another
+	// command. This is the join card a phone needs.
+	line("")
+	line("  " + edgeSetupCenter(stKey.Render("NO DEVICES YET")+stDim.Render("  a phone or machine running roger on this network appears here to adopt"), cw))
+	if st := m.edge.status; st != nil && st.AuthorityHere && st.AuthorityAddr != "" {
+		line("  " + edgeSetupCenter(stDim.Render("open the Roger app and point it at this Edge:"), cw))
+		line("  " + edgeSetupCenter(stEmber.Render(st.AuthorityAddr)+stDim.Render("   ("+m.edgeSelfName()+")"), cw))
+		line("  " + edgeSetupCenter(stDim.Render("it should find this Edge on its own; the address is here for when it cannot"), cw))
+		return
+	}
+	line("  " + edgeSetupCenter(stDim.Render("this machine roots no Edge, so there is nothing for a device to join here"), cw))
 }
 
 // edgeActionBar draws the buttons as bordered cards, packed into rows that fit the width. The lit
@@ -618,11 +687,13 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 	case it.self:
 		who = it.name + " · this roger"
 	case it.cand:
-		who = it.name + " · discovered, not adopted"
+		who = it.name + " · " + it.kindWord() + " · discovered, not adopted"
 	case it.member:
 		// A member is checked BEFORE dark: a dark MEMBER is an offline device, not a "persistent agent"
 		// (the founder saw a phone mislabeled "offline agent"). Only a dark persistent agent is that.
-		who = it.name + " · member"
+		// The KIND leads: an owner reading this line has to know at once whether they are about to
+		// rename a phone or forget a PC.
+		who = it.name + " · " + it.kindWord() + " · member"
 		if it.dark {
 			who += " · offline"
 		}
@@ -653,7 +724,9 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 			focus = len(acts) - 1
 		}
 	}
-	cardW := 24
+	// 28 is wide enough for the longest one-line explanation a button carries ("bring it onto your
+	// Edge"), so the common case is one tidy line rather than a wrap.
+	cardW := 28
 	perRow := (cw + 1) / (cardW + 1)
 	if perRow < 1 {
 		perRow = 1
@@ -662,6 +735,12 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 		end := i + perRow
 		if end > len(acts) {
 			end = len(acts)
+		}
+		// Every card in a row is drawn to the SAME height. One button whose explanation wraps used to
+		// make its neighbours end higher than it, and a ragged row of boxes reads as a rendering fault.
+		rowH := 2
+		for _, a := range acts[i:end] {
+			rowH = max(rowH, 1+lipgloss.Height(stDim.Width(cardW-4).Render(a.sub)))
 		}
 		var cards []string
 		for j, a := range acts[i:end] {
@@ -683,8 +762,12 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 				style = lipgloss.NewStyle().Border(lipgloss.DoubleBorder()).BorderForeground(cLive)
 				key = lampStyle(roleLive).Render("▸" + a.key)
 			}
-			body := key + "  " + label + "\n" + stDim.Render(a.sub)
-			cards = append(cards, style.Width(cardW-2).Padding(0, 1).Render(body))
+			// The sub-line is wrapped BY ITS OWN STYLE at the inner width. Handing a pre-styled string
+			// to a box that then wraps it splits the ANSI run across lines, and the colour bleeds into
+			// the padding as dark blocks mid-sentence - which is exactly what these cards were doing.
+			sub := stDim.Width(cardW - 4).Render(a.sub)
+			body := key + "  " + label + "\n" + sub
+			cards = append(cards, style.Width(cardW-2).Height(rowH).Padding(0, 1).Render(body))
 		}
 		row := lipgloss.JoinHorizontal(lipgloss.Top, cards...)
 		for _, ln := range strings.Split(row, "\n") {

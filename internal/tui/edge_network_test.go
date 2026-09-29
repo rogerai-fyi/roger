@@ -514,7 +514,7 @@ func TestMapAdoptPhone(t *testing.T) {
 
 	// The panel offers Adopt for the selected candidate.
 	out = stripANSI(m.edgeView(100))
-	if !strings.Contains(out, "pixel-8 · discovered") || !strings.Contains(out, "Adopt") {
+	if !strings.Contains(out, "pixel-8 · PHONE · discovered") || !strings.Contains(out, "Adopt") {
 		t.Errorf("no Adopt action for the selected candidate:\n%s", out)
 	}
 
@@ -636,7 +636,7 @@ func TestEdgeFindDevicesHint(t *testing.T) {
 	m.hooks.EdgeSelfInstance = func() string { return "hub" }
 	m.enterEdge()
 	out := stripANSI(m.edgeView(100))
-	for _, want := range []string{"no devices yet", "running roger on this network appears here to adopt"} {
+	for _, want := range []string{"NO DEVICES YET", "running roger on this network appears here to adopt"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing find-devices hint %q:\n%s", want, out)
 		}
@@ -688,9 +688,11 @@ func TestMapListView(t *testing.T) {
 			t.Errorf("list view missing %q:\n%s", want, out)
 		}
 	}
-	// The list is dense: the phone is one row, not a 3-line bordered card.
-	if strings.Contains(out, "╭────") {
-		t.Errorf("list view should not draw bordered node cards:\n%s", out)
+	// The list is dense: the phone is one row, not a 3-line bordered card, so the map's hub card and
+	// its branch wiring are not drawn at all. (The control panel's own buttons ARE bordered - they
+	// are not node cards, and they are there in both views.)
+	if strings.Contains(out, "┼") || strings.Contains(out, "┬─") {
+		t.Errorf("list view still draws the map's card bands:\n%s", out)
 	}
 
 	// v toggles back to the map (cards return).

@@ -280,3 +280,68 @@ const (
 	// no traffic, until the owner adopts it.
 	PresenceCandidate Presence = "CANDIDATE"
 )
+
+// ShortID is an id as a person reads it: enough to tell two nodes apart, short enough to sit in a
+// column. A full node id is 48 characters and belongs in a record, not on a screen.
+func ShortID(id string) string {
+	if len(id) <= 10 {
+		return id
+	}
+	return id[:10]
+}
+
+// LooksLikeID reports whether a string is a node id rather than a name an owner chose. A node id is
+// "n_" and a long hex run; nothing a person types looks like that. It is the SHAPE that decides, not
+// whether the string happens to equal the record's id - a machine may legitimately be called after
+// itself, and a rig often is.
+func LooksLikeID(s string) bool {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "n_") || len(s) < 20 {
+		return false
+	}
+	for _, r := range s[2:] {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// Label is what to CALL a node on any surface. A record whose name IS an id was never named by the
+// owner - enrolment fell back to the id - and a 48-character id is not a name: it reads as a short id
+// instead, and the surfaces stay legible. Every surface that shows a node's name goes through here,
+// so none of them can start printing ids at an owner.
+func Label(name, id string) string {
+	name = strings.TrimSpace(name)
+	if name != "" && !LooksLikeID(name) {
+		return name
+	}
+	if name != "" {
+		return ShortID(name)
+	}
+	if id != "" {
+		return ShortID(id)
+	}
+	return name
+}
+
+// KindWord is what a unit IS, in ONE word every surface uses: pc, phone, board, or device for a
+// kind this build does not know. It lives here because the TUI map, the Limoni fleet screens and
+// the console all have to say the same word - the screens read as one product or they do not, and
+// "machine" on one screen beside "PC" on another is how an owner stops trusting either. A surface
+// cases it as it likes (the map shouts PC, the rack whispers pc); the WORD is not a surface's
+// choice. An empty kind has no word, and callers decide what to do with that.
+func KindWord(kind string) string {
+	switch Kind(kind) {
+	case Board:
+		return "board"
+	case Mobile:
+		return "phone"
+	case Host:
+		return "pc"
+	}
+	if kind == "" {
+		return ""
+	}
+	return "device"
+}
