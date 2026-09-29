@@ -67,7 +67,10 @@ type EdgeHooks struct {
 	Floor func(now time.Time) EdgeFloor
 	// Events is the merged timeline (features/edge/events.feature); nil means this build wired none and
 	// the tab simply has no activity list.
-	Events   func(now time.Time, limit int) []EdgeEvent
+	Events func(now time.Time, limit int) []EdgeEvent
+	// Intent is what the owner asked of this Edge and what they left standing; nil means this build
+	// wired neither, and the tab simply shows no such sections.
+	Intent   func(now time.Time) EdgeFleetIntent
 	Roger    func(ruleID, nodeID string) error
 	StandBy  func(ruleID, nodeID string, d time.Duration) error
 	Sessions *edge.Sessions
@@ -222,8 +225,13 @@ type edgeSnap struct {
 	Floor *edgeFloorJSON `json:"floor,omitempty"`
 	// Events is the timeline the terminal's EVENTS tab shows (features/edge/events.feature), worded on
 	// this side so the browser draws what it is told.
-	Events      []edgeEventJSON `json:"events"`
-	FloorManage bool            `json:"floor_manage"`
+	Events []edgeEventJSON `json:"events"`
+	// Expect and Drift are what the owner asked of this Edge and where it does not hold
+	// (features/edge/drift.feature); Schedule is what they left standing (schedule.feature).
+	Expect      []edgeExpectJSON   `json:"expect"`
+	Drift       []edgeDriftJSON    `json:"drift"`
+	Schedule    []edgeScheduleJSON `json:"schedule"`
+	FloorManage bool               `json:"floor_manage"`
 }
 
 // EdgeFloor is what the host hands the console for the floor: raw facts, worded here.
@@ -233,6 +241,68 @@ type EdgeFloor struct {
 	Rate    int
 	SignOff edge.SignOffReport
 	Reads   map[string]int64 // node id -> when its Roger app last read the trouble feed
+}
+
+// edgeExpectJSON is one thing the owner expects, and how many units differ from it.
+type edgeExpectJSON struct {
+	Expected string `json:"expected"`
+	Of       string `json:"of"`
+	Differ   int    `json:"differ,omitempty"`
+}
+
+// edgeDriftJSON is one unit measured against one expectation.
+type edgeDriftJSON struct {
+	Node     string `json:"node"`
+	Expected string `json:"expected"`
+	Found    string `json:"found"`
+	Unknown  bool   `json:"unknown,omitempty"` // the unit has not reported the fact this needs
+	Dark     bool   `json:"dark,omitempty"`
+}
+
+// edgeScheduleJSON is one standing job and its newest outcomes.
+type edgeScheduleJSON struct {
+	ID      string   `json:"id"`
+	What    string   `json:"what"`
+	Of      string   `json:"of"`
+	Cadence string   `json:"cadence"`
+	Last    string   `json:"last"`
+	Next    string   `json:"next"`
+	Runs    []string `json:"runs,omitempty"`
+}
+
+// EdgeFleetIntent is what the host hands over for those, already worded: the browser draws what it is
+// told, as it does for everything else on this tab.
+type EdgeFleetIntent struct {
+	Expect   []EdgeExpectLine
+	Drift    []EdgeDriftLine
+	Schedule []EdgeScheduleLine
+}
+
+// EdgeExpectLine is one expectation and how many units differ from it.
+type EdgeExpectLine struct {
+	Expected string
+	Of       string
+	Differ   int
+}
+
+// EdgeDriftLine is one unit measured against one expectation.
+type EdgeDriftLine struct {
+	Node     string
+	Expected string
+	Found    string
+	Unknown  bool
+	Dark     bool
+}
+
+// EdgeScheduleLine is one standing job.
+type EdgeScheduleLine struct {
+	ID      string
+	What    string
+	Of      string
+	Cadence string
+	Last    string
+	Next    string
+	Runs    []string
 }
 
 // edgeEventJSON is one line of the timeline: already worded, with its age.
@@ -424,6 +494,21 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		for _, e := range h.Events(now, edgeConsoleEvents) {
 			snap.Events = append(snap.Events, edgeEventJSON{Age: e.Age, Node: e.Node, What: e.What,
 				Detail: e.Detail, Alarm: e.Alarm})
+		}
+	}
+	snap.Expect, snap.Drift, snap.Schedule = []edgeExpectJSON{}, []edgeDriftJSON{}, []edgeScheduleJSON{}
+	if h.Intent != nil {
+		in := h.Intent(now)
+		for _, e := range in.Expect {
+			snap.Expect = append(snap.Expect, edgeExpectJSON{Expected: e.Expected, Of: e.Of, Differ: e.Differ})
+		}
+		for _, d := range in.Drift {
+			snap.Drift = append(snap.Drift, edgeDriftJSON{Node: d.Node, Expected: d.Expected, Found: d.Found,
+				Unknown: d.Unknown, Dark: d.Dark})
+		}
+		for _, j := range in.Schedule {
+			snap.Schedule = append(snap.Schedule, edgeScheduleJSON{ID: j.ID, What: j.What, Of: j.Of,
+				Cadence: j.Cadence, Last: j.Last, Next: j.Next, Runs: j.Runs})
 		}
 	}
 	if h.Floor != nil {

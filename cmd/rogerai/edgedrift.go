@@ -111,8 +111,7 @@ func edgePrintExpectations(w io.Writer, now time.Time) error {
 		return err
 	}
 	if len(set) == 0 {
-		fmt.Fprintln(w, "nothing is expected of this Edge yet.")
-		fmt.Fprintf(w, "  say what it should look like: roger edge expect <%s> [value] [--scope fleet|tag:<tag>|<node>]\n", edge.ExpectWhatList())
+		edgeSayNothingExpected(w)
 		return nil
 	}
 	off := map[string]int{}
@@ -133,6 +132,20 @@ func edgePrintExpectations(w io.Writer, now time.Time) error {
 		fmt.Fprintf(w, "%-24s %-26s %s\n", e.Words(), edgeExpectScopeWords(e.Scope, names), standing)
 	}
 	return nil
+}
+
+// edgeSayNothingExpected says what an empty set MEANS here. On the authority it means the owner has
+// asked for nothing yet. On a member it means no such thing: the expectations are kept where they were
+// typed, and this machine simply does not hold them - saying "nothing is expected of this Edge" there
+// would be telling the owner something untrue about their own fleet.
+func edgeSayNothingExpected(w io.Writer) {
+	if self := edgeSelfStatus(nil, edgeDiscoveryFactsFromEnv()); self.Err == "" && !self.AuthorityHere {
+		fmt.Fprintln(w, "this machine holds no expectations.")
+		fmt.Fprintln(w, "  they are kept on the machine that roots this Edge, where they were typed, and read there.")
+		return
+	}
+	fmt.Fprintln(w, "nothing is expected of this Edge yet.")
+	fmt.Fprintf(w, "  say what it should look like: roger edge expect <%s> [value] [--scope fleet|tag:<tag>|<node>]\n", edge.ExpectWhatList())
 }
 
 // edgeExpectScopeWords is how a scope reads on a surface: the fleet, a group, or a node's name.
@@ -187,8 +200,7 @@ func cmdEdgeDrift(cfg config, args []string) error {
 
 func edgeWriteDrift(w io.Writer, set edge.ExpectSet, drift []edge.Drift, checked int) {
 	if len(set) == 0 {
-		fmt.Fprintln(w, "nothing is expected of this Edge yet, so there is nothing to be in drift from.")
-		fmt.Fprintln(w, "  `roger edge expect` says how to hold it to something.")
+		edgeSayNothingExpected(w)
 		return
 	}
 	out, unknown := 0, 0

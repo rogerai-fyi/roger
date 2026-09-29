@@ -22,9 +22,23 @@
 # WHAT THIS IS NOT, and this is the honest boundary. It does NOT make a machine converge. Nothing
 # here writes another machine's configuration: the fleet reports drift, and the owner closes it -
 # with `roger edge maintenance on` on that machine, `roger edge agent on`, an upgrade, or one of the
-# maintenance actions. Making a member PULL the intended state and apply it to itself is the natural
-# follow-on and it needs a distribution channel (a member-only read on the authority's face, polled
-# on each pass); that is its own slice, and it is not pretended here.
+# maintenance actions.
+#
+# AND CONVERGENCE IS PROBABLY NOT WORTH BUILDING, which is worth writing down rather than leaving as
+# an implied next step. Taken one expectation at a time, a member could not honestly apply most of
+# them to itself:
+#   roger <version>  it cannot upgrade itself. Roger is installed by a package manager on that
+#                    machine, deliberately, so this is a report and can only be a report.
+#   serves <band>    putting a model on air spends that machine's memory and GPU. An owner may well
+#                    want that decided where the machine is, not by a line typed elsewhere.
+#   agent            it COULD turn its own agent role on. This is the one that would work.
+#   maintenance      IT MUST NEVER. The whole point of that switch is that it is turned on AT the
+#                    machine: a remotely-declared expectation that flipped it would hand every
+#                    maintain grant a way past the lock the owner set. If convergence is ever built,
+#                    this expectation is excluded from it by name.
+# So convergence buys one flag and carries a trap. What a distribution channel WOULD be good for is
+# letting a member READ what is expected of it, so this report can be run from any machine on the
+# Edge rather than only where the expectations are kept - which is the honest version of the idea.
 #
 # A UNIT THAT CANNOT BE JUDGED IS NOT DRIFT. A member that has never been dialled reports no
 # software and no instances, and "unknown" is not "wrong": it is said as unknown, and an owner can
@@ -96,6 +110,14 @@ Feature: desired state and drift
     Given no expectations are set
     When the fleet is judged
     Then the surfaces say nothing is expected yet, rather than "no drift"
+
+  @edge
+  Scenario: a machine that is not the authority says where the expectations live
+    Given this machine is a member, not the authority, and holds no expectations of its own
+    When the report is read here
+    Then it does not say "nothing is expected of this Edge": the owner may well expect plenty, on the
+      machine that holds them
+    And it says the expectations are kept on the authority, and that this machine holds none
 
   # ---- the surfaces ----------------------------------------------------------
 

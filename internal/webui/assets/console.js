@@ -1680,6 +1680,7 @@
     edgeRenderGrants(d);
     edgeRenderFloor(d);
     edgeRenderEvents(d);
+    edgeRenderIntent(d);
     edgeCanManage = !!d.manage;
     edgeRenderSelfControls(d);
     edgeRenderDetail(d);
@@ -1976,6 +1977,81 @@
       tr.appendChild(el("td", "mono small", e.detail || ""));
       body.appendChild(tr);
     });
+  }
+
+  // edgeRenderIntent draws what the owner asked of this Edge, where it does not hold, and what they
+  // left standing (features/edge/drift.feature, schedule.feature). An UNKNOWN is marked as unknown and
+  // never drawn as a wrong: a unit that has not reported a fact is not a unit that is misbehaving.
+  function edgeRenderIntent(d) {
+    var ex = $("edge-expect");
+    if (ex) {
+      ex.innerHTML = "";
+      var expect = d.expect || [];
+      if (!expect.length) {
+        var er = el("tr", "empty-row");
+        var ec = el("td", null, "Nothing is expected of this Edge yet.");
+        ec.colSpan = 3;
+        er.appendChild(ec);
+        ex.appendChild(er);
+      }
+      expect.forEach(function (e) {
+        var tr = el("tr", e.differ ? null : "muted");
+        tr.appendChild(el("td", "mono small", e.expected));
+        tr.appendChild(el("td", "mono small", e.of));
+        tr.appendChild(el("td", "mono small" + (e.differ ? " live" : ""),
+          e.differ ? e.differ + " unit(s) differ" : "holds"));
+        ex.appendChild(tr);
+      });
+    }
+    var dr = $("edge-drift");
+    if (dr) {
+      dr.innerHTML = "";
+      var drift = d.drift || [];
+      if (!drift.length) {
+        var er2 = el("tr", "empty-row");
+        var ec2 = el("td", null, (d.expect || []).length ? "This Edge is as you asked." : "Nothing to compare yet.");
+        ec2.colSpan = 4;
+        er2.appendChild(ec2);
+        dr.appendChild(er2);
+      }
+      drift.forEach(function (x) {
+        var tr = el("tr", x.unknown ? "muted" : null);
+        tr.appendChild(el("td", "mono small", x.node));
+        tr.appendChild(el("td", "mono small", x.expected));
+        tr.appendChild(el("td", "mono small" + (x.unknown ? "" : " live"), x.found));
+        tr.appendChild(el("td", "mono small muted", x.unknown ? "unknown" : (x.dark ? "dark" : "")));
+        dr.appendChild(tr);
+      });
+    }
+    var sc = $("edge-schedule");
+    if (sc) {
+      sc.innerHTML = "";
+      var jobs = d.schedule || [];
+      if (!jobs.length) {
+        var er3 = el("tr", "empty-row");
+        var ec3 = el("td", null, "Nothing is scheduled on this machine.");
+        ec3.colSpan = 6;
+        er3.appendChild(ec3);
+        sc.appendChild(er3);
+      }
+      jobs.forEach(function (j) {
+        var tr = el("tr");
+        tr.appendChild(el("td", "mono small muted", j.id));
+        tr.appendChild(el("td", "mono small", j.what));
+        tr.appendChild(el("td", "mono small", j.of));
+        tr.appendChild(el("td", "mono small", j.cadence));
+        tr.appendChild(el("td", "mono small", j.last));
+        tr.appendChild(el("td", "mono small", j.next));
+        sc.appendChild(tr);
+        (j.runs || []).forEach(function (r) {
+          var run = el("tr", "muted");
+          var c = el("td", "mono small", r);
+          c.colSpan = 6;
+          run.appendChild(c);
+          sc.appendChild(run);
+        });
+      });
+    }
   }
 
   function edgeRenderFloor(d) {

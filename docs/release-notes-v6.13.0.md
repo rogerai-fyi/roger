@@ -211,9 +211,16 @@ channel and is its own slice, which the spec says plainly rather than implying i
 
 ## Console parity
 
-The browser tab carries what the terminal shows: the events timeline as its own list, with a run of
-the same thing read once and counted, and a mark on a node whose owner turned maintenance on. The
-words are chosen on the server, as the rest of the tab's are, so the two surfaces cannot drift.
+The browser tab carries what the terminal shows: the events timeline as its own list with a run of the
+same thing read once and counted, a mark on a node whose owner turned maintenance on, what this Edge is
+expected to look like with how many units differ from each, where it does not hold, and what has been
+left standing with its last outcomes. The words are chosen on the server, as the rest of the tab's are,
+so the two surfaces cannot tell the owner different things. An unknown is marked as unknown there too,
+never painted as a wrong.
+
+One honesty fix that came out of it: on a machine that is not the authority, an empty set of
+expectations does not mean the owner asked for nothing. It says this machine holds none and that they
+are kept where they were typed, rather than claiming nothing is expected of the Edge.
 
 ## The events timeline
 

@@ -160,6 +160,7 @@ func edgeHooksFor(h *tui.Hooks) webui.EdgeHooks {
 		StandBy:  h.EdgeStandBy,
 		Floor:    edgeFloorHook(h),
 		Events:   edgeEventsHook(),
+		Intent:   edgeIntentHook(),
 		Adopting: h.EdgeAdopting, PersistentAgents: h.EdgePersistentAgents, AgentJobs: h.EdgeAgentJobs,
 		Household: h.EdgeHousehold,
 		Sessions:  h.EdgeSessions, Status: h.EdgeStatus,
@@ -183,6 +184,51 @@ func edgeEventsHook() func(time.Time, int) []webui.EdgeEvent {
 			}
 			out = append(out, webui.EdgeEvent{Age: edge.Age(now.Sub(e.At)) + " ago", Node: e.Node,
 				What: e.What, Detail: detail, Alarm: e.Kind == edge.EventAlert})
+		}
+		return out
+	}
+}
+
+// edgeIntentHook hands the console what the owner asked of this Edge and what they left standing, from
+// the same reads `roger edge expect`, `roger edge drift` and `roger edge schedule` print - so the
+// browser and the terminal cannot tell the owner different things.
+func edgeIntentHook() func(time.Time) webui.EdgeFleetIntent {
+	return func(now time.Time) webui.EdgeFleetIntent {
+		var out webui.EdgeFleetIntent
+		set, drift, _, err := edgeDriftRead(now)
+		if err == nil {
+			differ := map[string]int{}
+			for _, d := range drift {
+				if d.State == edge.DriftOut {
+					differ[string(d.What)+"|"+d.Expected]++
+				}
+			}
+			names := edgeNodeNames()
+			for _, e := range set {
+				out.Expect = append(out.Expect, webui.EdgeExpectLine{Expected: e.Words(),
+					Of: edgeExpectScopeWords(e.Scope, names), Differ: differ[string(e.What)+"|"+e.Words()]})
+			}
+			for _, d := range drift {
+				out.Drift = append(out.Drift, webui.EdgeDriftLine{Node: d.Node, Expected: d.Expected,
+					Found: d.Found, Unknown: d.State == edge.DriftUnknown, Dark: d.Dark})
+			}
+		}
+		if jobs, err := edgeAlertLog().Jobs(); err == nil {
+			names := edgeNodeNames()
+			for _, j := range jobs {
+				line := webui.EdgeScheduleLine{ID: j.ID, What: j.Words(),
+					Of: edgeExpectScopeWords(j.Scope, names), Cadence: j.Cadence(), Last: "never run", Next: "-"}
+				if !j.LastRun.IsZero() {
+					line.Last = edge.Age(now.Sub(j.LastRun)) + " ago"
+				}
+				if at, ok := j.NextRun(now); ok {
+					line.Next = edgeWhenWords(at, now)
+				}
+				for _, r := range lastRunsOf(j, 3) {
+					line.Runs = append(line.Runs, r.Node+": "+r.Outcome)
+				}
+				out.Schedule = append(out.Schedule, line)
+			}
 		}
 		return out
 	}

@@ -352,6 +352,42 @@
               </tbody>
             </table>
           </div>
+
+          <h3 class="sub-head">Expected</h3>
+          <p class="muted small">What this Edge should look like, and how many units differ from each. The most specific scope wins: a node's own, then a tag it carries, then the fleet.</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>EXPECTED</th><th>OF</th><th>STANDING</th></tr>
+              </thead>
+              <tbody id="edge-expect">
+                <tr class="empty-row"><td colspan="3">Nothing is expected of this Edge yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>UNIT</th><th>EXPECTED</th><th>FOUND</th><th></th></tr>
+              </thead>
+              <tbody id="edge-drift">
+                <tr class="empty-row"><td colspan="4">Nothing to compare yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 class="sub-head">Standing</h3>
+          <p class="muted small">Actions left standing on this machine, run on its own pass through the same gate a typed maintain goes through. A run that could not be made is recorded and waited out.</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>JOB</th><th>ACTION</th><th>OF</th><th>CADENCE</th><th>LAST</th><th>NEXT</th></tr>
+              </thead>
+              <tbody id="edge-schedule">
+                <tr class="empty-row"><td colspan="6">Nothing is scheduled on this machine.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div class="edge-grants-wrap" id="edge-grants-wrap" hidden>

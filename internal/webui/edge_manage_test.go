@@ -684,3 +684,82 @@ func TestConsoleCarriesTheTimelineAndTheMaintenanceMark(t *testing.T) {
 		t.Error("console.html has no events list")
 	}
 }
+
+// Console parity for what the owner asked of this Edge and what they left standing: the browser draws
+// what the terminal shows, worded on this side (features/edge/drift.feature, schedule.feature).
+func TestConsoleCarriesTheIntentAndTheSchedules(t *testing.T) {
+	db := store.NewMem()
+	fleet := edge.NewFleet(db, "acct-1")
+	if _, err := fleet.Enroll(store.EdgeNode{ID: "n_desk", Name: "desk", Kind: "host",
+		Presence: string(edge.PresenceVerified)}); err != nil {
+		t.Fatal(err)
+	}
+	asked := false
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Self: "desk", Fleet: fleet,
+		Intent: func(now time.Time) EdgeFleetIntent {
+			asked = true
+			return EdgeFleetIntent{
+				Expect: []EdgeExpectLine{
+					{Expected: "roger 6.13.0", Of: "the fleet", Differ: 1},
+					{Expected: "agent", Of: "tag production"},
+				},
+				Drift: []EdgeDriftLine{
+					{Node: "shed", Expected: "roger 6.13.0", Found: "runs 6.9.0", Dark: true},
+					{Node: "unseen", Expected: "roger 6.13.0", Found: "it has not reported which roger it runs", Unknown: true},
+				},
+				Schedule: []EdgeScheduleLine{
+					{ID: "job_1", What: "restart watcher", Of: "tag production", Cadence: "every 24h",
+						Last: "2m ago", Next: "in 23h", Runs: []string{"shed: asked it to stop, and it has gone."}},
+				},
+			}
+		}}})
+	snap, err := s.edgeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !asked {
+		t.Fatal("the tab never asked for the intent")
+	}
+	if len(snap.Expect) != 2 || snap.Expect[0].Differ != 1 || snap.Expect[1].Differ != 0 {
+		t.Fatalf("expect: %+v", snap.Expect)
+	}
+	if len(snap.Drift) != 2 || !snap.Drift[0].Dark || !snap.Drift[1].Unknown {
+		t.Fatalf("drift: %+v", snap.Drift)
+	}
+	if len(snap.Schedule) != 1 || snap.Schedule[0].ID != "job_1" || len(snap.Schedule[0].Runs) != 1 {
+		t.Fatalf("schedule: %+v", snap.Schedule)
+	}
+
+	// With no hook wired the sections are simply empty, never nil.
+	bare := New(testCtrl(), Options{Edge: EdgeHooks{Self: "desk", Fleet: fleet}})
+	snap, err = bare.edgeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]int{"expect": len(snap.Expect), "drift": len(snap.Drift), "schedule": len(snap.Schedule)} {
+		if got != 0 {
+			t.Errorf("%s should be empty with no hook, got %d", name, got)
+		}
+	}
+	if snap.Expect == nil || snap.Drift == nil || snap.Schedule == nil {
+		t.Error("empty, never nil: the browser iterates them")
+	}
+
+	js, _ := os.ReadFile("assets/console.js")
+	html, _ := os.ReadFile("assets/console.html")
+	for _, want := range []string{"function edgeRenderIntent(d)", "edgeRenderIntent(d);",
+		`$("edge-expect")`, `$("edge-drift")`, `$("edge-schedule")`, "This Edge is as you asked."} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("console.js is missing %q", want)
+		}
+	}
+	// An unknown must be marked as unknown rather than painted as a wrong.
+	if !strings.Contains(string(js), `x.unknown ? "" : " live"`) {
+		t.Error("console.js paints an unknown as a drift")
+	}
+	for _, id := range []string{`id="edge-expect"`, `id="edge-drift"`, `id="edge-schedule"`} {
+		if !strings.Contains(string(html), id) {
+			t.Errorf("console.html has no %s", id)
+		}
+	}
+}

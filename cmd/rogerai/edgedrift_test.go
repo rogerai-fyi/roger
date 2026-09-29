@@ -17,6 +17,12 @@ import (
 func driftSeed(t *testing.T) {
 	t.Helper()
 	offline(t)
+	// The expectations live on the machine that roots the Edge, so this rig IS that machine - the
+	// member's answer is a different case, pinned by TestAMemberSaysWhereTheExpectationsLive.
+	_, err := edgeDesignateCore(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "hub", "", "")
+	require.NoError(t, err)
 	verified := []store.EdgeCap{{Name: string(edge.Serve), State: string(edge.Verified)}}
 	edgeSeed(t,
 		store.EdgeNode{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(edge.PresenceVerified),
@@ -41,7 +47,10 @@ func TestEdgeExpectAndDrift(t *testing.T) {
 	require.Contains(t, out, "nothing is expected of this Edge yet")
 	out, code = edgeRun(t, "edge", "drift")
 	require.Equal(t, 0, code, out)
-	require.Contains(t, out, "nothing to be in drift from")
+	// One wording for an empty set, whichever command asks: on the authority it means nothing has been
+	// asked yet, and it says how to ask.
+	require.Contains(t, out, "nothing is expected of this Edge yet")
+	require.Contains(t, out, "roger edge expect")
 
 	// Say what it should look like.
 	out, code = edgeRun(t, "edge", "expect", "roger", "6.13.0")
@@ -85,7 +94,7 @@ func TestEdgeExpectAndDrift(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &got))
 	require.Len(t, got.Expected, 3)
-	require.Equal(t, 3, got.Checked)
+	require.Equal(t, 4, got.Checked, "the three seeded units and this machine, which is a unit too")
 	states := map[edge.DriftState]int{}
 	for _, d := range got.Drift {
 		states[d.State]++
@@ -190,4 +199,34 @@ func TestTheSelfAliasWorksWhereverANodeIsNamed(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
 	require.Equal(t, self, jobs[0].Scope)
+}
+
+// On a MEMBER, an empty set does not mean the owner asked for nothing: the expectations are kept where
+// they were typed. Saying "nothing is expected of this Edge" there would be untrue.
+func TestAMemberSaysWhereTheExpectationsLive(t *testing.T) {
+	offline(t)
+	// A machine enrolled against an authority ELSEWHERE holds no root of its own.
+	self := edgeSelfStatus(nil, edgeDiscoveryFactsFromEnv())
+	require.False(t, self.AuthorityHere, "this rig is not the authority")
+
+	out, code := edgeRun(t, "edge", "drift")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "this machine holds no expectations")
+	require.Contains(t, out, "kept on the machine that roots this Edge")
+	require.NotContains(t, out, "nothing is expected of this Edge yet",
+		"that would tell the owner something untrue about their own fleet")
+
+	out, code = edgeRun(t, "edge", "expect")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "this machine holds no expectations")
+
+	// On the AUTHORITY, an empty set does mean nothing has been asked yet, and it says how to ask.
+	_, err := edgeDesignateCore(edgeAuthDir(), "desk")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "desk", "", "")
+	require.NoError(t, err)
+	out, code = edgeRun(t, "edge", "expect")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "nothing is expected of this Edge yet")
+	require.Contains(t, out, "roger edge expect")
 }
