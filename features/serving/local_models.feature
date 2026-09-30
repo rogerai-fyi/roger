@@ -163,6 +163,17 @@
 # (LocalCompleter - what finally uses a served model), features/edge/serving_probe.feature (how a
 # band is proven), features/edge/remote_model.feature (switching a member's model from afar).
 #
+# WHAT STILL NEEDS HARDWARE TO SETTLE, recorded so nobody assumes it was checked:
+#   - whether the llama-server inside ollama's JetPack 6 tarball runs standalone, separated from
+#     their daemon (the only prebuilt Jetson-CUDA server that exists);
+#   - whether upstream's CUDA arm64 build actually loads and JITs on a JetPack 7 Orin;
+#   - the compute-buffer term, which has no clean closed form and is currently a budgeted
+#     approximation that stage 2 corrects;
+#   - MLX against llama.cpp Metal on Apple Silicon, which decides whether the Mac ever needs a
+#     second runtime;
+#   - whether HuggingFace's model-search endpoint stays as it is, since it is absent from their
+#     published API spec. A contract test in CI, not an assumption.
+#
 # Tags: @hf (the wide world), @runtime (the program, not the weights), @fit (the arithmetic),
 # @serve, @cli, @tui.
 
@@ -216,6 +227,10 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
 
   # =========================================================================
   # 3. THE RUNTIME - the part that is code
+  #
+  # The runtime tracks a STABLE channel, never the nightly firehose upstream publishes about
+  # twenty times a day. A pinned tag is resolved into our own manifest, and the manifest is what
+  # ships.
   # =========================================================================
 
   @runtime
@@ -262,6 +277,28 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     When roger exits, crashes or is killed
     Then no orphaned runtime is left holding the port or the memory
     And a server the operator started themselves is never touched
+
+  @runtime
+  Scenario: the runtime we fetch is one we resolved in advance, never a name we built at run time
+    Given a platform that needs a runtime
+    Then the asset is taken from a manifest shipped inside roger, carrying its tag, its exact
+      asset name, its URL, its size and its digest
+    And no asset name is ever composed from a template at run time
+    And the manifest is updated deliberately, the way roger's own release assets are
+
+  @runtime
+  Scenario: an upstream that quietly raises its floor is caught before an owner is
+    Given a manifest naming a runtime asset
+    Then the build checks each asset against the oldest system libraries we claim to support
+    And an asset that exceeds that floor fails the check rather than shipping
+    And the declared floor is written down, so raising it is a decision rather than an accident
+
+  @runtime @fit
+  Scenario: a board with one pool of memory is measured as one pool
+    Given a machine whose CPU and GPU share a single memory pool
+    Then the fitness rule treats that pool as the budget for the weights AND the cache together
+    And it does not look for a separate video memory figure that does not exist
+    And it does not report a figure from a tool that cannot see that hardware
 
   # =========================================================================
   # 4. THE ARITHMETIC - the numbers behind "fit"
@@ -372,7 +409,35 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     And the serving probe proves it before anything routes to it
 
   # =========================================================================
-  # 6. THE SCREEN
+  # 6. THE THINGS THAT BITE LATER
+  # =========================================================================
+
+  @fetch
+  Scenario: models are gigabytes and they accumulate
+    Given an owner who has fetched several models
+    Then roger says how much disk they are using and where
+    And a model can be removed, and removing it returns it to being merely offerable
+    And a cache budget can be set, so a board's card is not filled silently
+    And nothing is ever evicted without the owner having asked for a budget
+
+  @serve
+  Scenario: "roger says it is serving" must mean the model answers, not that we started something
+    Given a runtime that started and then died
+    Then the node does not report that band as served
+    And the check is the serving probe the fabric already uses, not our own bookkeeping about a
+      process we launched
+
+  @hf @serve
+  Scenario: a weight licence follows the weights, and some of them forbid what this machine does next
+    Given a model whose licence restricts how it may be used
+    Then the licence is shown at the moment of consent, before it is fetched
+    And it is recorded against the model on disk
+    And putting that model ON AIR to be paid for is gated on it, because a licence that was
+      acceptable for private use may not permit selling inference from it
+    And roger never decides that question silently on the owner's behalf
+
+  # =========================================================================
+  # 7. THE SCREEN
   # =========================================================================
 
   @tui
