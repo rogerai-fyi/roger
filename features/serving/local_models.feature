@@ -297,7 +297,64 @@ Feature: Roger can browse, fetch and serve a local model itself, with no other i
     And the receipt says local, at zero cost
 
   # =========================================================================
-  # 7. THE TERMINAL
+  # 7. THE THINGS A FIRST DRAFT FORGETS
+  # =========================================================================
+  #
+  # Added on review, before any implementation. Each of these is something an owner hits in the
+  # first hour and a spec that omits them describes a demo rather than a feature.
+
+  @catalogue @fetch
+  Scenario: a model that needs an account or a licence accepted says so BEFORE the fetch
+    Given a model whose weights are gated behind a licence or an access request
+    When the owner asks to fetch it
+    Then it is refused before any bytes move
+    And it says the model is gated, and what the owner must do and where
+    And a token the owner has configured is used if they have one
+    And a token is never required to browse, only to fetch what is gated
+
+  @catalogue @fit
+  Scenario: one model, several quantisations, and they do not fit alike
+    Given a model published in several quantisations
+    When the owner looks at it
+    Then each quantisation is listed with its own size and its own fit verdict
+    And the one that fits best on THIS machine is suggested
+    And the owner may choose a different one anyway
+    And what is finally served records WHICH quantisation it was
+
+  @serve @fit
+  Scenario: the context length is the owner's choice, and it changes the arithmetic
+    Given a model that fits at a short context and not at a long one
+    When the owner chooses the context length
+    Then the fit verdict is recomputed for that length
+    And serving it uses the length the owner chose
+    And a length the machine cannot hold is refused with the arithmetic, not silently reduced
+
+  @serve
+  Scenario: one model at a time, unless the machine can really hold two
+    Given roger is serving a model
+    When the owner serves a second one on the same machine
+    Then it is allowed only if both fit together by the same arithmetic
+    And otherwise it says so, and offers to switch instead of adding
+    And a machine serving two says so, and says what each is
+
+  @serve
+  Scenario: a model that nothing has asked for in a long time can be let go, but never by surprise
+    Given roger is serving a model that has had no turn for a long time
+    Then it keeps serving by default, because an Edge device exists to answer
+    And the owner may set an idle timeout, off by default
+    And when a timeout is set and reached, the model is unloaded, the band is withdrawn, and the
+      event is recorded - so a peer that stops finding it can see why
+
+  @serve @edge
+  Scenario: the band a served model advertises is the one peers already look for
+    Given roger serves a model locally
+    Then the band it advertises follows the same vocabulary a peer uses to ask
+    And two machines serving the same weights advertise the same band
+    And the exact file and quantisation remain visible behind that band, because the band is what
+      routes and the file is what ran
+
+  # =========================================================================
+  # 8. THE TERMINAL
   # =========================================================================
 
   @tui
