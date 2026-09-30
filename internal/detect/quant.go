@@ -83,6 +83,16 @@ var quantNameRe = regexp.MustCompile(`(?i)(^|[-_.])(` +
 // wire came to disagree with what detection produced.
 func canonicalQuantCase(s string) string { return protocol.CanonicalQuant(s) }
 
+// QuantInName is the quantisation label a file name carries, canonically cased, or "" when the
+// name does not carry one. Exported for the model index, which reads a repository's file list and
+// has nothing else to go on: there is no runtime to ask and no header fetched yet.
+//
+// It is exported rather than reimplemented there because the label families are a real list with
+// real edges - IQ1_M and IQ3_XS and MXFP4_MOE and the MLX bit-width spellings - and a second
+// parser would recognise a different subset. That is exactly what happened: a hand-rolled version
+// silently dropped the label for IQ1_M on a live repository listing.
+func QuantInName(name string) string { return quantInName(name) }
+
 func quantInName(name string) string {
 	base := filepath.Base(strings.TrimSpace(name))
 	m := quantNameRe.FindStringSubmatch(base)
