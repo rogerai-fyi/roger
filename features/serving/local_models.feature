@@ -67,6 +67,52 @@
 # filter for "what actually fits".
 #
 # =============================================================================================
+# THE ARCHITECTURE QUESTION IS ANSWERED, WITH EVIDENCE (researched 2026-09-30)
+# =============================================================================================
+#
+# The runtime is llama.cpp's `llama-server`, fetched and supervised as a child process. Not
+# written by us, not linked into us. The evidence, each item checked rather than recalled:
+#
+#   - OLLAMA ALREADY MADE THIS EXACT MOVE. The most heavily invested Go inference project there
+#     is used to bind llama.cpp through cgo and no longer does: its tree now carries
+#     llm/llama_binary.go and llm/llama_server.go, whose header says "wraps the llama-server
+#     binary as a subprocess". When the project with the most reason to keep cgo abandons it,
+#     that is the strongest available signal about where the maintenance cost really lives.
+#   - CGO WOULD COST US THE PRODUCT'S SHAPE. All nine GoReleaser targets are CGO_ENABLED=0 today
+#     and macOS notarisation happens on the Linux runner. cgo means nine toolchains, a libc
+#     floor on a binary that is currently one static file, and roger growing from 28 MB to about
+#     50 MB for CPU-only - before CUDA, whose runtime alone is a 440 MB download.
+#   - WRITING IT IS NOT A PROJECT, IT IS A TREADMILL. llama.cpp ships around twenty tagged builds
+#     A DAY, fourteen x86 CPU variants and seven arm variants as separate objects in one release,
+#     and adds whole model architectures in single releases. The pure-Go alternatives are all
+#     one-or-two-person repos younger than four months.
+#   - THE LICENCE IS CLEAN. llama.cpp and ggml are MIT. Nothing GPL, nothing awkward beside
+#     PolyForm, and we fetch at runtime rather than redistributing.
+#
+# AND IT TURNS OUT THE RUNTIME ALREADY DOES OUR HARDEST SUM. llama-server has a fitness pass of
+# its own, on by default: `-fit`, `--fit-target` (1024 MiB headroom), `--fit-ctx`, `-ngl auto`,
+# and a standalone `llama-fit-params` that prints the settings it would choose. So the rule below
+# is a PRE-DOWNLOAD estimate whose only job is to never say "fits" when it does not; once the
+# file is on disk the runtime's own answer is authoritative and we take it rather than
+# re-deriving one. That is a large piece of code we now do not write.
+#
+# THREE FACTS THAT CHANGE WHAT THE SPEC MUST SAY:
+#
+#   1. THE CONTEXT KILLS EDGE BOXES, NOT THE WEIGHTS. Qwen3-4B-Q4_K_M is a 2.33 GiB file with
+#      5.63 GiB of KV cache at its full 40960 context. A check that asks "does the 2.5 GB file
+#      fit in 8 GB?" says yes and the machine then dies. Any verdict that does not name the
+#      context it was computed at is not a verdict.
+#   2. "IT FITS" AND "IT IS USABLE" ARE DIFFERENT CLAIMS. CPU decoding is bandwidth-bound; a
+#      Pi 4 has roughly 4-6 GB/s, so a 2.3 GB model is about 2 tokens a second at best. Roger
+#      should make both claims, separately, and let the owner decide.
+#   3. SOME PLATFORMS SIMPLY CANNOT. There is no llama.cpp build for 32-bit arm anywhere, so a
+#      Pi Zero 2 or a 32-bit Pi OS can relay and control and never serve. The official arm64
+#      build needs GLIBC 2.38 and Raspberry Pi OS Bookworm has 2.36, so today's most common Pi
+#      install cannot load it either. An original Jetson Nano is below every prebuilt binary in
+#      existence. Each of those is a sentence roger must be able to say plainly, which is what
+#      the "a platform with no runtime says so" scenario below is for.
+#
+# =============================================================================================
 # WHAT IS ALREADY BUILT, so none of it is written twice (surveyed 2026-09-29)
 # =============================================================================================
 #
@@ -189,11 +235,26 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     And this holds for a catalogue entry, a search result and an Edge instruction alike
 
   @runtime
-  Scenario: a platform with no runtime says so instead of failing strangely
-    Given a platform for which no runtime is published
+  Scenario Outline: a platform that cannot serve says so plainly, and says what it CAN do
+    Given a machine that is <machine>
     When the owner tries to serve a model
-    Then it names the platform and says local serving is not available there yet
+    Then it says local serving is not available there, and why in one sentence
+    And it says what that machine can still do on the Edge
     And it does not offer a fetch that cannot end in serving
+
+    Examples:
+      | machine                                        |
+      | a 32-bit arm board, for which no build exists  |
+      | an older OS whose system libraries are too old |
+      | a board below every published build            |
+
+  @runtime
+  Scenario: the supervisor sets the flags a small machine cannot survive without
+    Given a machine with little memory
+    When roger starts the runtime
+    Then it sets the prompt-cache size explicitly rather than taking a default sized for a server
+    And it pins the parallel slot count rather than letting it be chosen for a larger machine
+    And it binds to loopback or a socket, with a key, and does not expose a second web UI
 
   @runtime
   Scenario: a runtime roger started is roger's to clean up
@@ -205,6 +266,27 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
   # =========================================================================
   # 4. THE ARITHMETIC - the numbers behind "fit"
   # =========================================================================
+
+  @fit
+  Scenario: the runtime's own fitness answer wins once the file is on disk
+    Given a model already downloaded
+    When roger judges whether it will run
+    Then it asks the runtime, which has a fitness pass of its own
+    And it takes that answer rather than re-deriving one
+    And our own estimate is used only BEFORE the file exists, where the runtime cannot be asked
+
+  @fit
+  Scenario: a verdict that does not name its context is not a verdict
+    Given a model whose weights are small and whose KV cache at full context is not
+    Then the verdict states the context it was computed at
+    And a verdict computed at one context is never shown against another
+
+  @fit
+  Scenario: fitting and being usable are two different claims
+    Given a model that fits a machine with little memory bandwidth
+    Then roger says it fits
+    And it separately estimates how fast it would answer
+    And it does not let one claim stand in for the other
 
   @fit
   Scenario: the sum is stated, not just the verdict
