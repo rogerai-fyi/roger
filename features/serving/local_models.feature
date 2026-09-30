@@ -66,6 +66,49 @@
 # failure string for every error, a dead end on gated repos with nowhere to put a token, and no
 # filter for "what actually fits".
 #
+# =============================================================================================
+# WHAT IS ALREADY BUILT, so none of it is written twice (surveyed 2026-09-29)
+# =============================================================================================
+#
+# THE DATA HALF OF THE CATALOGUE. `internal/catalog` has Entry{ID, Repo, File, Bytes, SHA256,
+# ServeMem, License, Runtime, Parent}, Validate (every consent-bearing field mandatory, Repo must
+# be an absolute URL), AssessFit with tightFraction 0.8, and - the useful surprise - Merge, which
+# presents detected and offerable models as ONE list with detected first. That is the screen's
+# data model, already written and already tested, with zero importers.
+#
+# THE SUPERVISOR. roger already spawns and reaps a long-running detached child correctly, and the
+# hard parts are the ones you only learn by getting them wrong: `edgeSpawnRoger`
+# (cmd/rogerai/edgeagentcmd.go) sanitises the environment so the child does not inherit a pinned
+# port and die instantly, detaches through a per-platform seam, and keeps a goroutine on Wait so
+# the child is not a zombie for the parent's life. `cmd/rogerai/edgestop.go` is the other half:
+# SIGTERM and never SIGKILL, a bounded wait, an honest report if it had not gone, and a pid-safety
+# check that returns "cannot tell" on a platform where it cannot read the process, rather than
+# guessing yes. An inference runtime is another long-running child. It reuses all of this.
+#
+# THE MEASUREMENTS. `detect.LocalHW` already carries VRAMTotalMiB, RAMTotalMiB, DiskFreeMiB and
+# CPUCores, each with a Known flag so a zero is never confused with an unread value, and SetGPUs
+# marks the VRAM total unknown if ANY GPU did not report rather than under-reporting.
+# `internal/detect/preflight.go` already states bars with their reasoning, including "the smallest
+# pool that holds a 7-8B model at 4-bit with a KV cache".
+#
+# WHAT IS MISSING FROM THE MEASUREMENTS, and each one changes an answer:
+#   - FREE VRAM. Only the total is read. A model fits a 24 GiB card that already has 20 GiB
+#     resident, and we would say yes.
+#   - PER-GPU. VRAMTotalMiB is a SUM. 20 GiB does not fit on two 12 GiB cards without a
+#     tensor-parallel the runtime may not have.
+#   - THE COMPUTE CAPABILITY. No CUDA arch, no Metal family, no AVX512 or NEON. That is precisely
+#     what decides WHICH prebuilt runtime binary to fetch, so it is a blocker for section 3.
+#   - THE DISK PATH IS THE HOME DIRECTORY, not wherever weights would live. Free space on the
+#     wrong filesystem is not an answer.
+#   - NO APPLE METAL CEILING. Unified memory is checked against total system RAM; macOS reserves a
+#     fraction and iogpu.wired_limit_mb caps what Metal can actually address.
+#
+# THE SCREEN'S IDIOMS. A browse screen should reuse rather than invent: the SHARE table's shape
+# and selected-row detail banner (internal/tui/view_share.go), the voice picker's heading that
+# states provenance and count ("N voices (local)" becomes "N models (cached, 3d old)"), the band
+# browser's typed live filter over a derived visible slice with a virtualised window, and the
+# explicit y/N gate before a costly irreversible action. None of these need designing.
+#
 # GROUND TRUTH: features/share/model_catalog.feature (APPROVED, the base), internal/catalog
 # (slice 1, written, no importer), features/share/hosting_compatibility.feature (the boundary
 # model_catalog deliberately moved), internal/detect/localhw.go (ParseNvidiaGPUs,

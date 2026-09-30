@@ -39,6 +39,17 @@
 #   4. THE TARGET DECIDES IF IT FITS. Fitness is judged ON THE TARGET, with the target's own
 #      measurements. The caller's opinion about a Jetson's VRAM is not evidence.
 #
+#      This one is also forced by what the fabric carries, which is worth knowing before anyone
+#      proposes showing a fit verdict in the fleet view. A node's rich hardware picture
+#      (detect.LocalHW, with VRAMTotalMiB) is LOCAL-ONLY BY DESIGN and pinned by a test: the
+#      network gets a four-value privacy bucket, because the supply side must not be believed
+#      about its own capability - a self-declared hardware field was once found moving edge
+#      placement by a factor of two. store.EdgeResources carries a GPU name and a used fraction
+#      and no VRAM total at all. So the caller CANNOT compute the target's fit even if it wanted
+#      to, and the honest design and the private one are the same design. Showing a fit verdict in
+#      the fleet view would mean adding a field to EdgeResources, and that privacy rationale would
+#      have to be revisited first for the owner-to-their-own-machine case.
+#
 # A member is always allowed to say no, and every no says why.
 #
 # GROUND TRUTH: features/serving/local_models.feature (the flow being triggered), features/edge/
