@@ -63,12 +63,21 @@ func cmdEdgeModel(cfg config, args []string) error {
 	if err := edge.SetAgentJob(edgeJobsDir(), j, time.Now()); err != nil {
 		return err
 	}
-	fmt.Printf("bound %q to %q (%s).\n", model, agent, edgePostureWord(use, share))
+	// WHAT THIS ACTUALLY DID, and nothing more. Binding writes a durable assignment that the fleet
+	// screens read; it does not start anything, does not reach the upstream map, and does not make
+	// this node advertise a band. Saying "it is on air to the Edge: other authorized nodes may
+	// route to it" was simply false - a node advertises the models it really has on air
+	// (edgeBandsOnAir), and the ladder only routes to a band the serving probe has PROVEN. The
+	// route side of share/use across the network is not built, and features/edge/jobs.feature says
+	// so in its own header. A command that overstates what it did is the same fault as a screen
+	// that draws a link it has not seen.
+	fmt.Printf("recorded: %q should %s %q.\n", agent, edgePostureWord(use, share), model)
 	if share {
-		fmt.Println("  it is on air to the Edge: other authorized nodes may route to it.")
+		fmt.Println("  this is the ASSIGNMENT, not the act. Nothing is on air yet: put a model on air")
+		fmt.Println("  with `roger share` (or the SHARE screen), and the Edge advertises it once it is.")
 	}
 	if use && !share {
-		fmt.Println("  it is private to this agent: used for its own work, not offered out.")
+		fmt.Println("  it is marked private to this agent: for its own work, never offered out.")
 	}
 	return nil
 }
@@ -134,7 +143,8 @@ func cmdEdgeJob(cfg config, args []string) error {
 	}
 	fmt.Println(line + ".")
 	if job == "serve" && j.Model == "" {
-		fmt.Println("  no model is bound yet: run `roger edge model " + agent + " <model>` to put one on air.")
+		fmt.Println("  no model is assigned yet: `roger edge model " + agent + " <model>` records which one.")
+		fmt.Println("  putting a model on air is still `roger share`; the assignment does not do it.")
 	}
 	return nil
 }

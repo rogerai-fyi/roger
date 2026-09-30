@@ -619,7 +619,7 @@ func (m model) edgeActions() []edgeAction {
 			}
 		}
 		if m.hooks.EdgeSetAgentJob != nil {
-			out = append(out, edgeAction{"b", "Bind Model", "put a model on air for it", false})
+			out = append(out, edgeAction{"b", "Bind Model", "record which model it should run", false})
 		}
 		if m.hooks.EdgeRenameSelf != nil {
 			out = append(out, edgeAction{"n", "Rename", "rename this roger", false})
@@ -627,7 +627,7 @@ func (m model) edgeActions() []edgeAction {
 	case it.inst != nil:
 		// Another running roger on this machine: bind a model to it in place, and ask it if it serves.
 		if m.hooks.EdgeSetAgentJob != nil {
-			out = append(out, edgeAction{"b", "Bind Model", "put a model on air for it", false})
+			out = append(out, edgeAction{"b", "Bind Model", "record which model it should run", false})
 		}
 		if model, ok := edgeItemServes(it); ok {
 			out = append(out, edgeAction{"p", "Ask", "prompt " + model + " on it", false})
@@ -731,9 +731,11 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 		return
 	}
 	if m.edge.binding {
-		line("  " + stKey.Render("PUT A MODEL ON AIR FOR "+strings.ToUpper(m.edge.bindTarget)) + stDim.Render("  ⏎ serve · esc cancel"))
+		line("  " + stKey.Render("WHICH MODEL SHOULD "+strings.ToUpper(m.edge.bindTarget)+" RUN?") + stDim.Render("  ⏎ record · esc cancel"))
 		line("  " + lampStyle(roleLive).Render("▶ ") + stEmber.Render(m.edge.bindBuf) + lampStyle(roleLive).Render("_"))
-		line("  " + stDim.Render("shares the model to the Edge · `roger edge model "+m.edge.bindTarget+" <model> use` for use-only"))
+		// It records an assignment. It does not put anything on air, and saying it did was a claim
+		// the code never kept (features/edge/jobs.feature: the route side is not built).
+		line("  " + stDim.Render("records the assignment · putting a model on air is still `roger share`"))
 		return
 	}
 	// WHAT YOU CAN DO names the SELECTED node, so it is always clear what the buttons act on -

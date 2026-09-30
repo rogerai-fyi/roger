@@ -434,7 +434,9 @@ func TestBindModelFlow(t *testing.T) {
 	if !m.edge.binding {
 		t.Fatalf("b did not open the bind prompt")
 	}
-	if !strings.Contains(stripANSI(m.edgeView(100)), "PUT A MODEL ON AIR FOR WORKER") {
+	// The prompt asks which model the agent should RUN. It used to say "put a model on air", which
+	// the code never did: binding records an assignment, and going on air is still `roger share`.
+	if !strings.Contains(stripANSI(m.edgeView(100)), "WHICH MODEL SHOULD WORKER RUN?") {
 		t.Errorf("the bind prompt is not shown for the selected agent")
 	}
 
