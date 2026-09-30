@@ -1,379 +1,280 @@
-# ROGER SERVES THE MODEL ITSELF: browse, fit, fetch, serve - with nothing else installed.
+# ROGER SERVES A MODEL ITSELF - THE PART THE APPROVED CATALOGUE SPEC DOES NOT COVER.
 #
 # STATUS: PROPOSED, awaiting founder approval. NOT IMPLEMENTED.
 #
-# WHY THIS EXISTS
+# READ features/share/model_catalog.feature FIRST. That spec is APPROVED and it already owns most
+# of this ground: one list of detected and offerable models, fit assessed against real detected
+# memory, consented and resumable and checksum-verified acquisition, a supervised runtime that is
+# probed before it is announced and stopped when sharing stops, and honest degradation when the
+# catalogue cannot be fetched. `internal/catalog` is slice 1 of it and is already written -
+# Entry, Validate, AssessFit, Fit, Merge - with no importer yet, by design. None of that is
+# repeated here.
 #
-# FOUNDER DIRECTION 2026-09-29: "lets say i don't have vllm or llama.cpp or osaurus etc, but i
-# downloaded some models from huggingface locally, or even the tui provides an option to download
-# more models from hugging face that are adequate for the system, similarly to how we do in ios we
-# can filter and browse and so on then serve them directly ... this will come more in hand when we
-# are working with the edge devices, lets say we have roger installed on jetson nano or nx and we
-# want it to serve a different model, we should be able to support that entire flow and switch
-# remotely through the edge".
+# THIS FILE IS THE DELTA between that spec and what the founder asked for on 2026-09-29:
 #
-# THE GAP, EXACTLY. features/edge/local_inference.feature calls rung 1 of the ladder "this
-# instance's own loaded model". It is not. harness.LocalCompleter posts to a chat-completions URL
-# that internal/detect FOUND - vLLM, llama.cpp, Ollama, LM Studio, Osaurus. Roger has never loaded
-# a model in its life. On a machine with none of those installed, rung 1 is empty, rung 2 needs a
-# peer that is not there, and an airgapped box can do nothing at all. The iOS app does not have
-# this problem: it browses, filters, downloads and serves on the device. The terminal is behind its
-# own phone.
-#
-# WHAT THIS ADDS. Roger gains the whole flow: SEE what it could run, KNOW what fits this machine,
-# FETCH it, SERVE it, and be told to switch by its owner from across the Edge. The user installs
-# nothing.
+#   "lets say i don't have vllm or llama.cpp or osaurus etc, but i downloaded some models from
+#    huggingface locally, or even the tui provides an option to download more models from hugging
+#    face that are adequate for the system, similarly to how we do in ios we can filter and browse
+#    and so on then serve them directly ... this will come more in hand when we are working with
+#    the edge devices."
 #
 # =============================================================================================
-# THE ARCHITECTURE RULING THIS SPEC NEEDS (the one question that must be answered first)
+# THE SCOPE CONFLICT THE FOUNDER MUST RULE ON (one sentence, one decision)
 # =============================================================================================
 #
-# "Serve it directly" can mean three very different things and they are not close:
+# features/share/model_catalog.feature puts this OUT OF SCOPE, in as many words:
 #
-#   (a) WRITE THE INFERENCE. Implement transformer inference in Go. Months of work to be slower
-#       than llama.cpp at every step, then a permanent obligation to keep up with every new
-#       architecture. No.
-#   (b) BIND llama.cpp INTO ROGER with cgo. One binary, no child process - and it ends our
-#       CGO_ENABLED=0 static builds, multiplies the release matrix by every CUDA/Metal/CPU
-#       variant, and puts a C++ build toolchain in the path of every contributor.
-#   (c) ROGER OWNS A RUNTIME IT DID NOT WRITE. It fetches a prebuilt inference server for this
-#       machine, verifies it, and supervises it as a child process the owner never has to know
-#       about. Roger keeps the parts that are ours: the catalogue, the fitness rule, the download,
-#       the lifecycle, the Edge integration, the screen.
+#     "acquiring or launching arbitrary third-party models the catalogue does not describe
+#      (an operator can still point --upstream at anything)"
 #
-# THIS SPEC IS WRITTEN FOR (c), and every scenario below assumes it. The reasoning: roger is a
-# static Go binary that ships to five platforms through one GoReleaser run, and (b) would end that
-# on day one. (c) also degrades honestly - on a machine where no runtime can be had, roger says so
-# instead of failing to build. If the founder rules for (b), most of this spec survives unchanged
-# and only "THE RUNTIME" below is rewritten.
+# The new direction asks for exactly that: browse HuggingFace, filter it, fetch from it. The two
+# cannot both stand. THE RULING NEEDED: does roger acquire models it did not publish a manifest
+# for? This file is written assuming YES, because the founder's sentence says huggingface twice,
+# and it carries the extra honesty that answer requires:
+#
+#   - OUR CATALOGUE AND THE WIDE WORLD ARE DRAWN DIFFERENTLY. An entry we publish carries a
+#     manifest we signed: a hash, a licence, a measured serving memory. A repo from HuggingFace
+#     carries what its author happened to upload. Those are not the same evidence and the screen
+#     must not pretend they are.
+#   - A THIRD-PARTY FETCH IS THE OWNER'S DECISION, made once per model, on a screen that says
+#     whose word it is taking.
+#
+# If the founder rules NO, delete sections 1 and 2 below; the rest stands either way.
 #
 # =============================================================================================
-# THE RULES THIS WHOLE FILE OBEYS
+# WHAT ELSE IS MISSING FROM THE APPROVED SPEC, AND WHY EACH MATTERS
 # =============================================================================================
 #
-# 1. NOTHING IS FETCHED WITHOUT BEING ASKED. Not a model, not a runtime, not a catalogue refresh.
-#    An Edge that is airgapped by choice must never reach for the network because a screen opened.
+# A. WHERE DOES THE RUNTIME COME FROM? model_catalog names `internal/runtime` (serve + health) and
+#    says a runtime is supervised - but never says where the PROGRAM comes from on a machine that
+#    has none. That is the whole of the founder's "i don't have vllm or llama.cpp". A model file is
+#    data; a runtime is code this machine will execute, and the two get different treatment.
+# B. THE ARITHMETIC. "Fit is assessed against real detected memory" is the right rule with no
+#    numbers behind it. The iOS app has the numbers, calibrated against real crashes, and a
+#    terminal that guesses differently will disagree with the phone about the same model.
+# C. GATED MODELS, QUANTISATION CHOICE, CONTEXT LENGTH, TWO AT ONCE, IDLE UNLOAD, AND THE BAND
+#    NAME. Each is something an owner meets in the first hour.
+# D. THE SCREEN. model_catalog integrates with SHARE. The founder asked for a browser with filters
+#    and "beautiful animated visuals", which is a screen of its own.
 #
-# 2. A RUNTIME IS CODE. A model file is data that a runtime interprets; the runtime is a program
-#    this machine will execute. They get different treatment and this spec never blurs them: the
-#    runtime is fetched only from a pinned source, verified against a pinned hash BEFORE it is run,
-#    and never taken from a URL that arrived over the wire.
+# WHAT IOS ALREADY PROVES, AND WHERE THE TERMINAL MUST DIFFER. The iOS app does this end to end on
+# MLX, an Apple-only runtime, so the terminal cannot reuse the engine - a Pi and a Jetson need
+# GGUF. What it CAN reuse is the arithmetic, which was calibrated against real out-of-memory kills
+# rather than guessed, and the honesty of its fit line. Its own worst gaps are named below and
+# this spec fixes them rather than inheriting them: fraction-only progress with no bytes or rate,
+# NO integrity check at all even though the expected byte count was already fetched, one generic
+# failure string for every error, a dead end on gated repos with nowhere to put a token, and no
+# filter for "what actually fits".
 #
-# 3. FIT IS ARITHMETIC, AND IT IS SHOWN. "Adequate for this system" is a calculation over facts
-#    this machine measured - total RAM, VRAM, free disk, the file's own size and quantisation - and
-#    the owner can see the sum. A model that will not fit is drawn with the reason, never hidden:
-#    hiding it is how an owner concludes the feature is broken.
+# GROUND TRUTH: features/share/model_catalog.feature (APPROVED, the base), internal/catalog
+# (slice 1, written, no importer), features/share/hosting_compatibility.feature (the boundary
+# model_catalog deliberately moved), internal/detect/localhw.go (ParseNvidiaGPUs,
+# ParseROCmVRAMMiB, ParseMemTotalMiB, ParseSysctlBytesMiB - the measurements), internal/detect/
+# gguf.go (the header reader: quant, who quantised it, finetune), internal/harness/local.go
+# (LocalCompleter - what finally uses a served model), features/edge/serving_probe.feature (how a
+# band is proven), features/edge/remote_model.feature (switching a member's model from afar).
 #
-# 4. IT NEVER CLAIMS WHAT IT HAS NOT MEASURED. A machine whose VRAM could not be read does not get
-#    a guess. It gets "cannot tell", which is a different answer from "will not run".
-#
-# 5. THE DISK IS NOT OURS TO FILL. A download that would not leave room is refused before it
-#    starts, not discovered at 94%.
-#
-# 6. WHAT IS RUNNING IS SAYABLE. At any moment a node can say which model it serves, from which
-#    file, at which quantisation, with which hash. "qwen3-8b" is not an answer; two people running
-#    "qwen3-8b" may be running very different weights (MODEL-VARIANTS-DESIGN-2026-08-22).
-#
-# GROUND TRUTH: internal/detect/localhw.go (ParseNvidiaGPUs, ParseROCmVRAMMiB, ParseMemTotalMiB,
-# ParseSysctlBytesMiB - the measurements the fitness rule reads), internal/detect/gguf.go (the
-# header reader that already names a quant and who made it), internal/detect/detect.go (how an
-# EXISTING server is found - this feature is what happens when it finds none),
-# internal/harness/local.go (LocalCompleter - what a served model is finally used by),
-# features/edge/local_inference.feature (the ladder this feeds rung 1 of),
-# features/edge/serving_probe.feature (how a served band is PROVEN rather than claimed).
-#
-# Tags: @catalogue (the list and the filter), @fit (the arithmetic), @fetch (downloads),
-# @runtime (the thing that executes a model), @serve (putting one on air), @cli, @tui.
+# Tags: @hf (the wide world), @runtime (the program, not the weights), @fit (the arithmetic),
+# @serve, @cli, @tui.
 
-Feature: Roger can browse, fetch and serve a local model itself, with no other inference software installed
+Feature: Roger can find, judge, fetch and serve a model from the wider world, on a machine with no inference software at all
 
   # =========================================================================
-  # 1. THE MACHINE WITH NOTHING ON IT
+  # 1. THE WIDE WORLD - only if the founder rules yes
   # =========================================================================
 
-  @cli
-  Scenario: a machine with no inference server says what it can do, not just what it lacks
-    Given a machine with no vLLM, llama.cpp, Ollama, LM Studio or Osaurus running
-    When the owner asks what roger can serve
-    Then it says no inference server was found
-    And it offers to serve a model itself, naming the command
-    And it does not pretend a model is loaded
+  @hf
+  Scenario: our own catalogue and a third-party repo are never drawn as equal evidence
+    Given a model from RogerAI's published catalogue and a model from HuggingFace
+    When both are listed
+    Then ours shows the hash, the licence and the serving memory we measured
+    And the third-party one shows what its author published, marked as their word not ours
+    And the two are distinguishable without colour
 
-  @cli
-  Scenario: a model already downloaded by hand is found and offered
-    Given the owner has a GGUF file under their models directory that roger did not fetch
-    When roger lists what it could serve
-    Then that file is listed, with the name, quantisation and size read from the file itself
-    And it is marked as one the owner provided, not one roger fetched
-    And roger can serve it without downloading anything
-
-  # =========================================================================
-  # 2. BROWSING - what could this machine run
-  # =========================================================================
-
-  @catalogue
-  Scenario: the catalogue lists models with the facts a decision needs
-    When the owner browses the models
-    Then each one names its parameters, its quantisation, its file size and its context length
-    And each says whether it fits THIS machine, with the reason
-    And the list is ordered with what fits first
-
-  @catalogue
-  Scenario: browsing filters by what the owner is looking for
-    When the owner filters by name, by size, or by what fits
-    Then only the matching models are drawn
-    And the count says how many of how many are shown
-
-  @catalogue
-  Scenario: the catalogue is a cache, so an airgapped machine still browses
-    Given a machine with no internet and a catalogue fetched earlier
-    When the owner browses the models
-    Then the cached catalogue is drawn, with its age
-    And nothing is fetched
-    And a model already on disk is still marked as ready to serve
-
-  @catalogue
-  Scenario: a catalogue that has never been fetched says so rather than showing an empty list
-    Given a machine that has never fetched the catalogue and has no internet
-    When the owner browses the models
-    Then it says the catalogue has never been fetched and what would fetch it
-    And any model already on disk is still listed, because that needs no catalogue
-
-  @catalogue
-  Scenario: the catalogue refresh is an action, never a side effect
-    Given a machine with a stale catalogue
+  @hf
+  Scenario: searching the wider world is an action, never something a screen does on opening
     When the owner opens the browser
-    Then nothing is fetched
-    When the owner asks to refresh
-    Then the catalogue is fetched, and the new age is shown
+    Then only the cached catalogue and what is already on disk are shown
+    When the owner searches
+    Then the search is sent, and the results are marked as coming from outside our catalogue
 
-  # =========================================================================
-  # 3. FIT - the arithmetic, shown
-  # =========================================================================
+  @hf
+  Scenario: a repo that cannot be served is rejected with the reason, before any bytes move
+    Given a search result with no servable weights, or an architecture this runtime cannot load
+    Then it is listed as unservable with the specific reason
+    And the fetch action is not offered for it
+    And the reason is the actionable one first, when there are several
 
-  @fit
-  Scenario: fit is computed from what this machine measured
-    Given a machine with a known total RAM, VRAM and free disk
-    When a model's fit is judged
-    Then the judgement uses the model's file size, its quantisation and its context length
-    And it accounts for the KV cache at the context length it would run
-    And it accounts for the runtime's own overhead
-    And the owner can see the sum, not only the verdict
-
-  @fit
-  Scenario Outline: the verdict is one of four, and each means something different
-    Given a machine and a model whose <situation>
-    Then the verdict is <verdict>
-    And the reason says <reason>
-
-    Examples:
-      | situation                                | verdict    | reason                                    |
-      | weights and cache fit in VRAM            | runs fast  | it fits on the GPU                        |
-      | weights fit in RAM but not VRAM          | runs       | it runs on the CPU, slower                |
-      | weights exceed RAM                       | too big    | how much it needs against how much exists |
-      | VRAM could not be read                   | cannot say | what could not be measured                |
-
-  @fit
-  Scenario: a machine that cannot be measured is never told a comforting lie
-    Given a machine whose total RAM could not be read
-    When a model's fit is judged
-    Then the verdict is that it cannot say
-    And it names the measurement it is missing
-    And the model can still be fetched and tried, on the owner's word
-
-  @fit
-  Scenario: the disk is checked before a fetch, with a margin
-    Given a machine with less free disk than a model needs plus a margin
+  @hf
+  Scenario: a model that needs a licence accepted says so, and a token is used only for that
+    Given a gated repo
     When the owner asks to fetch it
-    Then it is refused before anything is downloaded
-    And the refusal names the space needed and the space free
+    Then it is refused before any bytes move, naming the gate and what to do
+    And a token the owner configured is used if there is one
+    And browsing never requires a token, only fetching what is gated
 
   # =========================================================================
-  # 4. FETCHING
+  # 2. ONE REPO IS NOT ONE MODEL
   # =========================================================================
 
-  @fetch
-  Scenario: a fetch shows progress and can be stopped
-    When the owner fetches a model
-    Then the progress shows the bytes, the rate and the time remaining
-    And the owner can cancel it
-    And a cancelled fetch leaves no half file that could be served
-
-  @fetch
-  Scenario: an interrupted fetch resumes rather than starting again
-    Given a fetch that was interrupted with most of the file downloaded
-    When the owner fetches it again
-    Then it resumes from where it stopped
-    And the finished file is identical to one fetched in a single run
-
-  @fetch
-  Scenario: a fetched file is verified before it is ever served
-    Given a model whose index entry carries a size and a hash
-    When the fetch completes
-    Then the file is checked against both
-    And a file that does not match is not served, and says why
-    And a partial file is never served under any circumstances
-
-  @fetch
-  Scenario: a fetch is refused when the machine is not the owner's to fill
-    Given a model larger than the free disk allows
-    Then the fetch is refused with the arithmetic
-    And nothing was written
+  @hf @fit
+  Scenario: several quantisations of one model do not fit alike
+    Given a repo published in several quantisations
+    Then each is listed with its own size and its own fit verdict
+    And the one that fits best on THIS machine is suggested
+    And the owner may choose another anyway
+    And what is finally served records which one it was
 
   # =========================================================================
-  # 5. THE RUNTIME - the part that is code, not data
+  # 3. THE RUNTIME - the part that is code
   # =========================================================================
 
   @runtime
   Scenario: the runtime is fetched once, verified, and only then executed
-    Given a machine with no runtime yet
+    Given a machine with no inference runtime at all
     When the owner serves a model for the first time
-    Then roger says it needs a runtime and what it is
-    And the runtime is fetched from the pinned source for this platform
+    Then roger says what runtime it needs and that it will fetch it
+    And it is fetched from the pinned source for this platform
     And its hash is checked against the pinned hash BEFORE it is executed
-    And a hash that does not match means it is never executed, and the owner is told
+    And a hash that does not match is never executed, and the owner is told
 
   @runtime
-  Scenario: the runtime is never taken from somewhere that arrived over the wire
-    Given an instruction that names a runtime URL
+  Scenario: a runtime is never taken from an address that arrived from outside
+    Given any input naming a runtime URL, path or command
     Then it is refused
     And the refusal says a runtime comes from the pinned source alone
+    And this holds for a catalogue entry, a search result and an Edge instruction alike
 
   @runtime
-  Scenario: a platform with no runtime available says so plainly
-    Given a machine whose platform has no prebuilt runtime
+  Scenario: a platform with no runtime says so instead of failing strangely
+    Given a platform for which no runtime is published
     When the owner tries to serve a model
-    Then it says this platform cannot serve locally yet, and names the platform
-    And it does not fall back to something that will not work
+    Then it names the platform and says local serving is not available there yet
+    And it does not offer a fetch that cannot end in serving
 
   @runtime
-  Scenario: the runtime is roger's child, and dies with it
-    Given roger is serving a model
-    When roger exits
-    Then the runtime is stopped
-    And no orphaned server is left holding the port or the memory
+  Scenario: a runtime roger started is roger's to clean up
+    Given roger started a runtime
+    When roger exits, crashes or is killed
+    Then no orphaned runtime is left holding the port or the memory
+    And a server the operator started themselves is never touched
 
   # =========================================================================
-  # 6. SERVING
+  # 4. THE ARITHMETIC - the numbers behind "fit"
+  # =========================================================================
+
+  @fit
+  Scenario: the sum is stated, not just the verdict
+    Given a machine with measured memory and a model with a known size and context
+    When its fit is judged
+    Then the sum accounts for the weights, the KV cache at the context it would run, the
+      runtime's working set, and a reserve
+    And the owner can see each term, not only the answer
+
+  @fit
+  Scenario Outline: four verdicts, and each means something different
+    Given a machine where a model's need is <situation>
+    Then the verdict is <verdict>
+
+    Examples:
+      | situation                              | verdict     |
+      | comfortably inside what is free        | fits        |
+      | inside what is free but close to it    | tight       |
+      | beyond what is free                    | will not fit |
+      | not computable, because a reading failed | cannot say |
+
+  @fit
+  Scenario: an unmeasurable machine is told the truth, not a comfortable default
+    Given a machine whose memory could not be read
+    Then the verdict is that it cannot say, naming the missing reading
+    And the model may still be fetched on the owner's explicit word
+
+  @fit
+  Scenario: the context length is the owner's choice and it changes the sum
+    Given a model that fits at a short context and not at a long one
+    When the owner sets the context length
+    Then the verdict is recomputed for that length
+    And serving uses the length they chose
+    And a length that cannot be held is refused with the arithmetic, never silently reduced
+
+  @fit
+  Scenario: the terminal and the phone agree about the same model
+    Given a model judged on iOS and on a terminal with the same usable memory
+    Then the two verdicts agree
+    And where they cannot, the difference is a measured platform fact, not a different formula
+
+  # =========================================================================
+  # 5. SERVING, BEYOND WHAT THE APPROVED SPEC ALREADY SAYS
   # =========================================================================
 
   @serve
-  Scenario: serving a model makes it a band on the Edge, proven rather than claimed
-    Given a fetched model
-    When the owner serves it
-    Then roger starts the runtime and waits until it answers
-    And the band it serves is advertised on this node
-    And the serving probe proves it before anything routes to it
-    And a runtime that never answers is reported as failed to start, never as serving
-
-  @serve
-  Scenario: what is being served is sayable in full
-    Given roger is serving a model
-    When the owner asks what it is serving
-    Then it names the model, the quantisation, the file and its hash
-    And it says which runtime is running it, and for how long
-
-  @serve
-  Scenario: stopping gives the memory back
-    Given roger is serving a model
-    When the owner stops it
-    Then the runtime is stopped and the memory released
-    And the band is withdrawn from this node
-    And the Edge stops routing to it
-
-  @serve
-  Scenario: switching models is one action, not a stop and a start the owner must sequence
+  Scenario: switching models is one action, and the old one survives a failed switch
     Given roger is serving one model
     When the owner serves a different one
-    Then the new one is fetched if needed, started, and proven
+    Then the new one is fetched if needed, started and proven
     And only then is the old one stopped
-    And if the new one fails to start, the old one is still serving
+    And a new one that fails to start leaves the old one serving, with the reason reported
 
   @serve
-  Scenario: a served model is what rung 1 of the ladder finally means
+  Scenario: two at once only when they really fit together
     Given roger is serving a model
-    When a turn is dispatched on this machine
-    Then it goes to the local model, with no broker and no peer
-    And the receipt says local, at zero cost
-
-  # =========================================================================
-  # 7. THE THINGS A FIRST DRAFT FORGETS
-  # =========================================================================
-  #
-  # Added on review, before any implementation. Each of these is something an owner hits in the
-  # first hour and a spec that omits them describes a demo rather than a feature.
-
-  @catalogue @fetch
-  Scenario: a model that needs an account or a licence accepted says so BEFORE the fetch
-    Given a model whose weights are gated behind a licence or an access request
-    When the owner asks to fetch it
-    Then it is refused before any bytes move
-    And it says the model is gated, and what the owner must do and where
-    And a token the owner has configured is used if they have one
-    And a token is never required to browse, only to fetch what is gated
-
-  @catalogue @fit
-  Scenario: one model, several quantisations, and they do not fit alike
-    Given a model published in several quantisations
-    When the owner looks at it
-    Then each quantisation is listed with its own size and its own fit verdict
-    And the one that fits best on THIS machine is suggested
-    And the owner may choose a different one anyway
-    And what is finally served records WHICH quantisation it was
-
-  @serve @fit
-  Scenario: the context length is the owner's choice, and it changes the arithmetic
-    Given a model that fits at a short context and not at a long one
-    When the owner chooses the context length
-    Then the fit verdict is recomputed for that length
-    And serving it uses the length the owner chose
-    And a length the machine cannot hold is refused with the arithmetic, not silently reduced
-
-  @serve
-  Scenario: one model at a time, unless the machine can really hold two
-    Given roger is serving a model
-    When the owner serves a second one on the same machine
+    When the owner serves a second on the same machine
     Then it is allowed only if both fit together by the same arithmetic
-    And otherwise it says so, and offers to switch instead of adding
-    And a machine serving two says so, and says what each is
+    And otherwise it offers to switch rather than add
+    And a machine serving two says what each of them is
 
   @serve
-  Scenario: a model that nothing has asked for in a long time can be let go, but never by surprise
+  Scenario: nothing is unloaded by surprise
     Given roger is serving a model that has had no turn for a long time
     Then it keeps serving by default, because an Edge device exists to answer
-    And the owner may set an idle timeout, off by default
-    And when a timeout is set and reached, the model is unloaded, the band is withdrawn, and the
-      event is recorded - so a peer that stops finding it can see why
+    And an idle timeout may be set, off by default
+    And when one is set and fires, the band is withdrawn and the event recorded, so a peer that
+      stops finding it can see why
 
-  @serve @edge
-  Scenario: the band a served model advertises is the one peers already look for
+  @serve
+  Scenario: what is running is sayable in full
+    When the owner asks what is being served
+    Then it names the model, the quantisation, the file, its hash and the context length
+    And it says which runtime is running it and for how long
+    And "the model name" alone is never the whole answer, because two people running one name may
+      be running very different weights
+
+  @serve
+  Scenario: a locally served model advertises the band a peer already asks for
     Given roger serves a model locally
-    Then the band it advertises follows the same vocabulary a peer uses to ask
-    And two machines serving the same weights advertise the same band
-    And the exact file and quantisation remain visible behind that band, because the band is what
-      routes and the file is what ran
+    Then the band follows the vocabulary the dispatch ladder already routes on
+    And the file and quantisation stay visible behind the band
+    And the serving probe proves it before anything routes to it
 
   # =========================================================================
-  # 8. THE TERMINAL
+  # 6. THE SCREEN
   # =========================================================================
 
   @tui
-  Scenario: the browser is a screen, not a wall of text
+  Scenario: the browser answers "what can this machine run" before anything else
     When the owner opens the model browser
-    Then each model is a row with its facts and its fit verdict
+    Then the machine's own usable memory is stated at the top
+    And each model is a row with its facts and its verdict
     And what fits is distinguishable from what does not WITHOUT colour
-    And the selected row's full detail is shown beside or below the list
+    And the list can be filtered to only what fits
 
   @tui
-  Scenario: a fetch in progress is visible and alive
+  Scenario: a fetch is visible, alive, and leaveable
     Given a fetch is running
-    Then the screen shows the bytes, the rate, the remaining time and a progress bar
-    And the bar moves as the fetch moves, and stops when it stops
+    Then the screen shows the bytes, the rate and the time remaining, not a bare percentage
+    And the progress moves as the fetch moves and stops when it stops
     And the owner can leave the screen and come back to it still running
-    And nothing animates when there is nothing happening
+    And nothing animates when nothing is happening
+
+  @tui
+  Scenario: a failure says which failure it was
+    Given a fetch that fails
+    Then the reason distinguishes no space, no network, refused, gated and corrupt
+    And the action that would fix it is named
+    And one generic failure string for everything is never enough
 
   @tui
   Scenario: the screen degrades honestly
     When the browser is drawn at 80 columns and under NO_COLOR
-    Then every fact still reads, in text alone
+    Then every fact still reads in text alone
     And nothing overflows the width

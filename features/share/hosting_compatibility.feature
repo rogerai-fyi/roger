@@ -150,7 +150,16 @@ Feature: Share from any compatible model host
     And it says custom or remote endpoints may require "--upstream" and "--upstream-key"
     And it says compatibility depends on response shapes, streaming SSE, and usage reporting rather than brand alone
 
-  Scenario: RogerAI does not become another inference-engine wrapper
+  # THIS BOUNDARY HAS MOVED ONCE, AND MAY MOVE AGAIN. features/share/model_catalog.feature was
+  # approved on the explicit basis that it moves "launching/stopping model hosts" out of this
+  # scenario's scope, for artifacts RogerAI itself publishes a manifest for. A reader who finds
+  # this scenario first and stops here will conclude the opposite of what was decided, which is
+  # what happened on 2026-09-29. features/serving/local_models.feature now asks to move it a
+  # second time, to models RogerAI did not publish, and that ruling is still open.
+  #
+  # The scenario below remains true of EVERY OTHER HOST: a server the operator installed is
+  # detected over HTTP and never managed, never configured, never launched by us.
+  Scenario: RogerAI does not become another inference-engine wrapper for hosts it did not publish
     When support for a new model host is added
     Then RogerAI detects or connects to the host through its existing HTTP API
     And RogerAI does not download model weights
