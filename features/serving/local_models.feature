@@ -1,6 +1,6 @@
 # ROGER SERVES A MODEL ITSELF - THE PART THE APPROVED CATALOGUE SPEC DOES NOT COVER.
 #
-# STATUS: PROPOSED, awaiting founder approval. NOT IMPLEMENTED.
+# STATUS: APPROVED by the founder 2026-09-30, including the ruling below. NOT YET IMPLEMENTED.
 #
 # READ features/share/model_catalog.feature FIRST. That spec is APPROVED and it already owns most
 # of this ground: one list of detected and offerable models, fit assessed against real detected
@@ -28,9 +28,9 @@
 #      (an operator can still point --upstream at anything)"
 #
 # The new direction asks for exactly that: browse HuggingFace, filter it, fetch from it. The two
-# cannot both stand. THE RULING NEEDED: does roger acquire models it did not publish a manifest
-# for? This file is written assuming YES, because the founder's sentence says huggingface twice,
-# and it carries the extra honesty that answer requires:
+# cannot both stand. RULED 2026-09-30: YES, roger acquires models it did not publish a manifest
+# for. The older exclusion in model_catalog.feature is superseded for that clause alone; every
+# other line of that spec stands. What the answer still requires:
 #
 #   - OUR CATALOGUE AND THE WIDE WORLD ARE DRAWN DIFFERENTLY. An entry we publish carries a
 #     manifest we signed: a hash, a licence, a measured serving memory. A repo from HuggingFace
@@ -39,7 +39,19 @@
 #   - A THIRD-PARTY FETCH IS THE OWNER'S DECISION, made once per model, on a screen that says
 #     whose word it is taking.
 #
-# If the founder rules NO, delete sections 1 and 2 below; the rest stands either way.
+# AND A SECOND RULING, SAME DAY: "lets not block our behavior based on licenses, we care about
+# functionality". So nothing here refuses to fetch, serve or broadcast because of what a weight
+# licence says. That is the owner's call to make and the owner's risk to carry, and roger is not
+# the referee.
+#
+# The licence is still READ AND SHOWN, because that costs nothing and blocks nothing: an owner who
+# wants to know what terms came with their weights can see them, and the answer is recorded
+# against the file so the question can be asked later. Displaying a fact is not gating on it.
+#
+# ONE THING THAT LOOKS LIKE LICENCE GATING AND IS NOT. A GATED HuggingFace repo answers a download
+# with 401 and will not serve the bytes to anybody without an accepted access request and a token.
+# That is the far end refusing, not roger refusing, and detecting it early is the difference
+# between a clear message and a failed download. It stays.
 #
 # =============================================================================================
 # WHAT ELSE IS MISSING FROM THE APPROVED SPEC, AND WHY EACH MATTERS
@@ -427,14 +439,13 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     And the check is the serving probe the fabric already uses, not our own bookkeeping about a
       process we launched
 
-  @hf @serve
-  Scenario: a weight licence follows the weights, and some of them forbid what this machine does next
+  @hf
+  Scenario: the licence is shown and recorded, and it stops nothing
     Given a model whose licence restricts how it may be used
-    Then the licence is shown at the moment of consent, before it is fetched
-    And it is recorded against the model on disk
-    And putting that model ON AIR to be paid for is gated on it, because a licence that was
-      acceptable for private use may not permit selling inference from it
-    And roger never decides that question silently on the owner's behalf
+    Then the licence is shown before it is fetched, so the owner sees what came with the weights
+    And it is recorded against the model on disk, so the question can be answered later
+    And it does not prevent fetching, serving or going on air
+    And roger states the terms and leaves the decision where it belongs
 
   # =========================================================================
   # 7. THE SCREEN
