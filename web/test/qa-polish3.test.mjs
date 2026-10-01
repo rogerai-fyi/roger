@@ -95,3 +95,36 @@ test("fonts: a stylesheet's ?v= is the hash of the BUILT sheet, so a new font gi
     assert.equal(m[2], sha8(readFileSync(path.join(WEB, "dist", m[1]))), m[1]);
   }
 });
+
+// Item 3: the App page's screenshots shipped at one size (780px phones, 1200-1280px desktop
+// shots) to every screen. Each now has a smaller copy derived from it (scripts/derive-webp.mjs,
+// APP_SHOTS: phones at 400w, desktop shots at 640w) and a srcset/sizes, so a 1x desktop or a
+// 2x phone takes the small one. The hero pair stays eager; everything below it stays lazy.
+test("app: every screenshot has a smaller derived copy, the master's shape, fewer bytes", async () => {
+  const { APP_DIR, APP_SHOTS, appNarrow, webpSize } = await import("../scripts/derive-webp.mjs");
+  assert.ok(APP_SHOTS.length >= 20, `the 20 screenshots (${APP_SHOTS.length})`);
+  for (const name of APP_SHOTS) {
+    const m = webpSize(path.join(APP_DIR, `${name}.webp`));
+    const n = appNarrow(m.w);
+    const f = path.join(APP_DIR, `${name}-${n}.webp`);
+    const d = webpSize(f);
+    assert.equal(d.w, n, `${name}-${n}.webp is ${n} wide`);
+    assert.ok(Math.abs(d.h / d.w - m.h / m.w) < 0.01, `${name}: keeps the shape`);
+    assert.ok(readFileSync(f).length < readFileSync(path.join(APP_DIR, `${name}.webp`)).length, `${name}: smaller`);
+  }
+});
+
+test("app: every screenshot <img> offers the small copy through srcset + sizes", async () => {
+  const { APP_DIR, APP_SHOTS, appNarrow, webpSize } = await import("../scripts/derive-webp.mjs");
+  const html = read("src/app.html");
+  const tags = [...html.matchAll(/<img\b[^>]*src="assets\/app\/([\w-]+)\.webp"[^>]*>/g)];
+  assert.ok(tags.length >= 22, `every screenshot on the page (${tags.length})`);
+  for (const [tag, name] of tags) {
+    assert.ok(APP_SHOTS.includes(name), `${name} is in APP_SHOTS`);
+    const { w } = webpSize(path.join(APP_DIR, `${name}.webp`));
+    const n = appNarrow(w);
+    assert.match(tag, new RegExp(`srcset="assets/app/${name}-${n}\\.webp ${n}w, assets/app/${name}\\.webp ${w}w"`), name);
+    assert.match(tag, /sizes="\(max-width: \d+px\) \d+vw, [^"]*\d+px"/, `${name}: sizes`);
+    assert.match(tag, new RegExp(`width="${w}"`), `${name}: width is the master's`);
+  }
+});
