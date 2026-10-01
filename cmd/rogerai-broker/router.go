@@ -62,6 +62,20 @@ func parsePref(s string) pref {
 	}
 }
 
+// String is the wire name of a profile (the four values roger.pref / X-Roger-Pref take).
+func (p pref) String() string {
+	switch p {
+	case prefCheap:
+		return "cheap"
+	case prefFast:
+		return "fast"
+	case prefReliable:
+		return "reliable"
+	default:
+		return "balanced"
+	}
+}
+
 // prefWeights are the knob anchors (spec table 1.2): the price-modifier strength
 // kPrice + exponent priceExp, the UCB exploration radius C, the speedFit emphasis
 // speedMul, and the P2C concentration beta.

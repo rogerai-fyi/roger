@@ -430,6 +430,32 @@ miss), never about timing measurements.
 6. `--max-out 0` keeps the $10 default; help text fixed; `unlimited` added. (Q6)
 7. Broker-side `auto` is NOT in this set (waits for the multi-model pool work). (Q7)
 
+## 13. Implementation status and rulings made while building
+
+**Slice 0 (regression pins) is implemented.** Honored by the broker today: `roger.pref`,
+`roger.confidential`, `roger.min_tps`, `roger.self_hosted_only`, `roger.freq`,
+`provider.quantizations`, `provider.max_price.prompt` / `.completion`, `provider.ignore`,
+`provider.order`, `provider.allow_fallbacks`, plus implicit tools/vision gating, the stream
+usage chunk, `X-RogerAI-Model`, `503 no_match` / `band_cooling` codes, a minimal
+`GET /v1/models`, and the old-broker probe in every first-party client path. Every other key in
+§1 is RECOGNIZED and REFUSED with 400 `unsupported_routing_key` until its slice ships (no
+silent drop); OpenAPI says which is which.
+
+Rulings (founder, 2026-09-30 / 10-01):
+- The band-cooling 503 carries `code:"band_cooling"` (approved `upstream_failover.feature`
+  literal updated).
+- First-party clients carry confidential in the body; `live_options.feature` reworded.
+- A private-band request is band-scoped from the FIRST pick, not only in the failover plan (a
+  pre-existing gap: a `--freq` request could be served by a public station at the public
+  price). A band code means that station at that station's price.
+- A guest may only TIGHTEN the proxy owner's routing: `min_tps` = max, `quantizations` must be
+  a subset of the owner's rule (else a local 400 `routing_outside_session`), `freq` is never
+  taken from a guest; `confidential` / `self_hosted_only` are OR'd, `ignore` unioned.
+- Until the bridge evaluates them itself, a request carrying `quantizations`, an implicit
+  tools/vision need, `self_hosted_only`, `order`, or `allow_fallbacks:false` DECLINES the
+  Tower bridge (narrow, never widen). Slice 1 replaces the decline with real evaluation (§6).
+- `provider.order: []` is a 400; an empty `ignore` / `quantizations` is "no filter".
+
 Added during the spec pass (each is pinned by scenarios; flip the scenario if you rule otherwise):
 
 8. `provider.max_price.request` also lowers the station's `max_tokens` to what the cap buys

@@ -73,7 +73,20 @@ paths:
   /discover:
     get:
       tags: [consumer]
-      summary: List model offers (cheapest active price first)
+      summary: List public model offers on air (input price ascending)
+      description: |
+        Every public offer on air, sorted by input price ascending. The routing
+        contract (features/routing/ROUTING-EXPRESSION-CONTRACT.md, section 8)
+        defines the filter query parameters `model`, `min_tps`, `max_ttft_ms`,
+        `max_price_in`, `max_price_out`, `params_min`, `params_max`, `min_ctx`,
+        `region`, `quant`, `capability` (repeatable), `self_hosted`,
+        `confidential`, `free` and `trust_min`.
+
+        Honored today: NONE. This release of the broker ignores every query
+        parameter on this endpoint and always returns the unfiltered feed; filter
+        client-side on the offer fields below. Server-side filtering (and a 400
+        `unknown_query_param` for a name outside the list above) arrives with the
+        discovery slice of the routing contract.
       responses:
         "200":
           description: Offers
@@ -226,6 +239,15 @@ paths:
         "signal" combining supply, quality, and reliability (lightly discounted by
         congestion). Sorted by signal, highest first. The signal is a glanceable
         health bar, NOT a price.
+
+        Filter query parameters: the routing contract defines the same set as
+        `/discover` (`model`, `min_tps`, `max_ttft_ms`, `max_price_in`,
+        `max_price_out`, `params_min`, `params_max`, `min_ctx`, `region`, `quant`,
+        `capability`, `self_hosted`, `confidential`, `free`, `trust_min`), with the
+        per-model aggregates computed over the filtered providers. Honored today:
+        NONE. This release ignores every query parameter here and returns the
+        unfiltered market; server-side filtering arrives with the discovery slice
+        of the routing contract.
       responses:
         "200":
           description: Market
@@ -260,24 +282,53 @@ paths:
   /v1/chat/completions:
     post:
       tags: [consumer]
-      summary: OpenAI-compatible chat completion, relayed to the best node
+      summary: OpenAI-compatible chat completion, relayed to the best eligible node
       description: |
-        Drop-in OpenAI endpoint. The broker matches an online node serving `model`
-        (cheapest active price; optionally filtered by the constraint headers),
-        relays the request, meters it, and settles the wallet. The price the user
-        is first quoted for a (node, model) is honored for 24h (published
-        time-of-use / free windows are charged as-is). Set `stream:true` for SSE.
+        Drop-in OpenAI endpoint. The broker picks a station for `model` in two
+        passes, relays the request, meters it, and settles the wallet.
+
+        1. ELIGIBILITY (hard filters, each one gates a node in or out): heartbeat
+           liveness, node and operator bans, private-band admission, the pin /
+           allow / exclude sets, confidential (TEE) only, probe-dead exclusion,
+           the min-tps floor, the requested model, the input and output price
+           caps, the declared context window against the measured prompt, the
+           capabilities the body implies (a non-empty `tools` array needs a
+           canary-verified `tools`; an `image_url` part needs declared `vision`),
+           the quantization allow-list, and self-hosted-only (curated stations
+           out). No survivor is a 503 `no_match` - nothing is dispatched.
+        2. SCORED SELECTION among the survivors: reliability x speed-fit x price
+           modifier x load factor, with a two-tier health gate (a failing tier is
+           used only when the healthy tier is empty) and power-of-two-choices to
+           spread load. The `pref` knob (cheap / balanced / fast / reliable)
+           reshapes the weights; `provider.sort` replaces the score with a strict
+           order on one metric.
+
+        Routing preferences travel in the body (`models`, `provider`, `roger`,
+        see ChatRequest) or, for hand-rolled callers and older clients, in the
+        `X-Roger-*` headers below. The body form wins over the header for the
+        same knob, except the narrowing carriers: `provider.ignore` is unioned
+        with `X-Roger-Exclude-Nodes`, and a stated confidential restriction
+        (header or body) can never be weakened by a body `confidential:false`.
+        Unknown or invalid routing keys are a 400 (see the 400 response); the
+        routing carriers are stripped before the body reaches a station.
+
+        The price the user is first quoted for a (node, model) is honored for 24h
+        (published time-of-use / free windows are charged as-is). Set
+        `stream:true` for SSE.
       security: [ { signedUser: [] } ]
       parameters:
         - $ref: '#/components/parameters/Pubkey'
         - $ref: '#/components/parameters/SigTS'
         - $ref: '#/components/parameters/Sig'
         - $ref: '#/components/parameters/User'
-        - { in: header, name: X-Roger-Confidential, schema: { type: string }, description: "If set, route only to TEE-attested confidential nodes." }
-        - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec)." }
-        - { in: header, name: X-Roger-Max-Price, schema: { type: number }, description: "Skip nodes whose active input price exceeds this (credits/1M)." }
-        - { in: header, name: X-Roger-Node, schema: { type: string }, description: "Pin to a specific node (used by client-side failover to target a chosen provider)." }
-        - { in: header, name: X-Roger-Exclude-Nodes, schema: { type: string }, description: "Comma-separated node ids to skip (the providers a client just saw fail) - lets the connector route AROUND a dropped provider." }
+        - { in: header, name: X-Roger-Confidential, schema: { type: string }, description: "If set, route only to TEE-attested confidential nodes. Body form: `roger.confidential`. A stated restriction is never weakened by a body false." }
+        - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec); an unmeasured node still passes. Body form: `roger.min_tps`." }
+        - { in: header, name: X-Roger-Max-Price, schema: { type: number }, description: "Skip nodes whose active input price exceeds this (credits/1M). Body form: `provider.max_price.prompt`." }
+        - { in: header, name: X-Roger-Max-Price-Out, schema: { type: number }, description: "Skip offers whose active output price exceeds this (credits/1M). Absent or 0 applies the DEFAULT consumer cap of $10/1M server-side, so no caller can silently bind to an exorbitant band. A value above the register ceiling ($100/1M) is CLAMPED to the ceiling, never rejected. Body form: `provider.max_price.completion`." }
+        - { in: header, name: X-Roger-Pref, schema: { type: string, enum: [cheap, balanced, fast, reliable] }, description: "Scoring preference: cheap, balanced (default), fast or reliable. A scoring knob that reshapes the weights, never a filter. An unknown header value means balanced (legacy leniency); the body form `roger.pref` is strict." }
+        - { in: header, name: X-Roger-Node, schema: { type: string }, description: "Pin to a specific node; disables broker-side failover for this request. Body form: `provider.order:[node]` with `provider.allow_fallbacks:false`." }
+        - { in: header, name: X-Roger-Exclude-Nodes, schema: { type: string }, description: "Comma-separated node ids to skip (the providers a client just saw fail) - lets the connector route AROUND a dropped provider. Body form: `provider.ignore`; the two sets are unioned." }
+        - { in: header, name: X-Roger-Freq, schema: { type: string }, description: "Private band code: admits only that band's station(s) into routing. Admission only, never spend authorization; an unresolvable code or a model the band denies gets one uniform 503. Never logged. Body form: `roger.freq`." }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/ChatRequest' } } }
@@ -285,12 +336,72 @@ paths:
         "200":
           description: |
             Completion (verbatim upstream body). Response headers carry the meter:
-            `X-RogerAI-Provider`, `X-RogerAI-Cost`, `X-RogerAI-Balance`,
-            `X-RogerAI-Price`, `X-RogerAI-TPS`, `X-RogerAI-Receipt` (the signed receipt).
+            `X-RogerAI-Receipt` (the signed receipt), `X-RogerAI-Provider` (the
+            serving node id), `X-RogerAI-Model` (the bare model id that served),
+            `X-RogerAI-Relay` (the Tower id when the edge fabric served),
+            `X-RogerAI-Cost` (exact credits charged), `X-RogerAI-Tokens-In`,
+            `X-RogerAI-Tokens-Out` (billed counts), `X-RogerAI-Balance`,
+            `X-RogerAI-Price` (`in=;out=;locked_until=`), `X-RogerAI-TPS`,
+            `X-RogerAI-Quality`, and, when a monthly cap is set,
+            `X-RogerAI-Monthly-Cap`, `X-RogerAI-Monthly-Spend`,
+            `X-RogerAI-Monthly-Pct`, `X-RogerAI-Monthly-Notice`.
+
+            With `stream:true` the settle-time values cannot be headers: the
+            headers known before the first frame (`Provider`, `Model`, `Price`,
+            `Monthly-*`) are set up front, and the stream ends with a broker-owned
+            final USAGE CHUNK, `{"choices":[],"usage":{prompt_tokens,
+            completion_tokens, total_tokens, cost, rogerai:{receipt, node, model,
+            tokens_in, tokens_out, tps, price_in, price_out, locked_until}}}`,
+            written after the settle and before `data: [DONE]` (always sent;
+            `stream_options.include_usage:false` does not suppress it). The
+            `rogerai` object appears only in the broker's chunk. The trailing SSE
+            comment `: rogerai-cost=<credits>` is DEPRECATED but still present for
+            one release, and equals `usage.cost`.
+          headers:
+            X-RogerAI-Receipt: { schema: { type: string }, description: "Signed receipt (request id, node, model, tokens, prices). Non-stream only; streams carry it in the usage chunk." }
+            X-RogerAI-Provider: { schema: { type: string }, description: "Serving node id." }
+            X-RogerAI-Model: { schema: { type: string }, description: "Bare id of the model that served (matters with `models[]` fallback and variant sugar)." }
+            X-RogerAI-Relay: { schema: { type: string }, description: "Tower id when the edge fabric served; absent on a direct relay." }
+            X-RogerAI-Cost: { schema: { type: string }, description: "Exact credits charged (0 on a failed attempt)." }
+            X-RogerAI-Tokens-In: { schema: { type: integer }, description: "Billed prompt tokens after recount." }
+            X-RogerAI-Tokens-Out: { schema: { type: integer }, description: "Billed completion tokens after recount." }
+            X-RogerAI-Balance: { schema: { type: string }, description: "Wallet balance after settle." }
+            X-RogerAI-Price: { schema: { type: string }, description: "`in=<credits/1M>;out=<credits/1M>;locked_until=<unix>` - the 24h price lock for this (user, node, model)." }
+            X-RogerAI-TPS: { schema: { type: number }, description: "Measured output tokens/sec for this relay." }
+            X-RogerAI-Quality: { schema: { type: number }, description: "0..1 broker-measured trust signal of the serving node." }
+            X-RogerAI-Monthly-Cap: { schema: { type: string }, description: "The account's monthly spend cap, when set." }
+            X-RogerAI-Monthly-Spend: { schema: { type: string }, description: "Spend so far this month, when a cap is set." }
+            X-RogerAI-Monthly-Pct: { schema: { type: number }, description: "Spend as a percentage of the cap, when set." }
+            X-RogerAI-Monthly-Notice: { schema: { type: string }, description: "A near-cap or at-cap notice, when one applies." }
           content: { application/json: { schema: { type: object } } }
+        "400":
+          description: |
+            Malformed request or an invalid routing object. The envelope is
+            `{"error":{"code":"<code>","message":"<text>"}}`. Routing codes:
+            `unknown_routing_key` (a key under `provider` or `roger` the broker
+            does not know; the message names it), `invalid_routing_value` (wrong
+            type or out of range: a negative or non-finite price, `params_b` not a
+            [min, max] pair of positive numbers, a list over 32 entries, an unknown
+            enum value, a cased spelling of an enum), `conflicting_routing_keys`
+            (`provider.sort` with `roger.pref`, an `order` entry outside `only`, a
+            sort suffix against a different `provider.sort`). A 400 is answered
+            BEFORE moderation: nothing is screened for a request that cannot
+            route. `unsupported_routing_key` covers `max_price.image` until image
+            pricing exists.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
         "401": { description: invalid request signature, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         "402": { description: insufficient credits, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        "503": { description: no node offers the model (or matches constraints), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "503":
+          description: |
+            No station can serve. `error.code` says why: `no_match` - nothing on
+            air satisfies the model and the constraints (no Retry-After, nothing
+            dispatched, `X-RogerAI-Cost: 0`); `band_cooling` - matching stations
+            exist but every one is in an upstream-429 cooldown, with `Retry-After`
+            set to the soonest expiry. A private-band refusal carries one uniform
+            message and no distinguishing code.
+          headers:
+            Retry-After: { schema: { type: integer }, description: "Seconds until the soonest cooling station is eligible again (band_cooling only)." }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
         "504": { description: node timed out }
 
   /billing/checkout:
@@ -997,15 +1108,156 @@ components:
         spec: { type: string, example: /openapi.yaml }
     Error:
       type: object
-      properties: { error: { type: object, properties: { message: { type: string } } } }
+      properties: { error: { type: object, properties: { message: { type: string }, code: { type: string, description: "Machine-readable reason where one is defined (routing: unknown_routing_key, invalid_routing_value, conflicting_routing_keys, unsupported_routing_key, unknown_profile, no_match, band_cooling)." } } } }
     ChatRequest:
       type: object
       required: [model, messages]
+      description: |
+        An OpenAI chat request plus three optional ROUTING carriers: `models`,
+        `provider` (OpenRouter-compatible keys, with node ids where OpenRouter has
+        provider slugs) and `roger` (network-specific knobs). The carriers are
+        read by the broker and STRIPPED before the body reaches a station. Any key
+        under `provider` or `roger` that is not listed here is a 400
+        `unknown_routing_key`; a wrong type or range is a 400
+        `invalid_routing_value`; `null` for any routing key means absent.
+        Enumerated values are exact lowercase; quantization labels are the one
+        case-insensitive comparison. Other top-level OpenAI keys pass through to
+        the station untouched.
+
+        HONOURED BY THIS RELEASE: `provider.order`, `provider.ignore`,
+        `provider.allow_fallbacks`, `provider.quantizations`,
+        `provider.max_price.prompt`, `provider.max_price.completion`,
+        `roger.pref`, `roger.min_tps`, `roger.confidential`, `roger.freq`,
+        `roger.self_hosted_only`. Every other key below is part of the contract
+        and is RECOGNISED BY NAME but not yet acted on: sending it is a 400
+        `unsupported_routing_key` naming the key (never a silent drop), until
+        the slice that implements it ships.
       properties:
-        model: { type: string }
+        model:
+          type: string
+          description: |
+            Primary model id. May carry variant sugar from the closed set `:free`
+            (offers that cost this caller nothing right now), `:floor`
+            (`provider.sort: price`) and `:nitro` (`provider.sort: throughput`),
+            stackable; any other `:tag` is part of the id (`llama3:8b` stays
+            intact). `@profile/<name>` is resolved by the first-party client; the
+            broker answers 400 `unknown_profile` for an unresolved reference.
         messages: { type: array, items: { type: object } }
         stream: { type: boolean }
         max_tokens: { type: integer }
+        models:
+          type: array
+          items: { type: string }
+          maxItems: 5
+          description: |
+            Ordered fallback models tried AFTER `model`, de-duplicated preserving
+            first occurrence, at most 5 bare ids after de-dup (more is a 400). The
+            broker moves to the next model when the current one has no eligible
+            station, when its stations are exhausted on a failover trigger (429,
+            5xx, station-reported 502, empty output), or on a context-window 400;
+            never on another 4xx, a moderation verdict, or after the first
+            streamed content frame. One hold covers the priciest (model, station)
+            pair in the plan; a free relay never plans a paid pair; billed at the
+            pair that served, named in `X-RogerAI-Model` and the receipt.
+        provider:
+          type: object
+          description: OpenRouter-shaped node selection. Node ids stand where OpenRouter has provider slugs.
+          properties:
+            order:
+              type: array
+              items: { type: string }
+              maxItems: 32
+              description: "Strict priority: listed eligible nodes are tried in this order (ineligible ones skipped silently), then the remaining eligible nodes by score when `allow_fallbacks` is not false. Disables power-of-two-choices for the listed portion. An entry outside `only` is a 400 `conflicting_routing_keys`."
+            only:
+              type: array
+              items: { type: string }
+              maxItems: 32
+              description: "Allow-list of node ids, intersected with any grant or private-band admission set (it can only narrow). Deny wins over allow for a node in both `only` and `ignore`."
+            ignore:
+              type: array
+              items: { type: string }
+              maxItems: 32
+              description: "Deny-list of node ids, unioned with `X-Roger-Exclude-Nodes`. Unknown ids are a no-op."
+            allow_fallbacks:
+              type: boolean
+              default: true
+              description: "false = station failover is off: the plan is exactly the listed eligible nodes (`order` or `only`), or a single attempt when neither is given. An explicit `models` list is still walked (one station per model)."
+            sort:
+              type: string
+              enum: [price, throughput, latency]
+              description: "Strict ordering of the healthy eligible set by one metric: price = output price asc, then input price, then score; throughput = measured tok/s desc (unmeasured last); latency = measured TTFT asc (unmeasured last). Disables power-of-two-choices and replaces the edge/Tower fan-out coin with the ranking. Exclusive with `roger.pref` (400)."
+            quantizations:
+              type: array
+              items: { type: string }
+              maxItems: 32
+              description: "Verbatim quantization labels an offer must carry (`Q8_0`, `IQ4_XS`, `BF16`, ...), compared case-insensitively and never bucketed. The value `unknown` admits an offer with no label; without it an unlabeled offer is ineligible. An unrecognized label is a valid request that matches nothing (503 `no_match`), not a 400."
+            max_price:
+              type: object
+              description: Price ceilings in credits per 1M tokens (prompt, completion) and credits per request.
+              properties:
+                prompt: { type: number, minimum: 0, description: "Max input price, credits/1M. Same rule as `X-Roger-Max-Price`." }
+                completion: { type: number, minimum: 0, description: "Max output price, credits/1M. Absent or 0 applies the $10/1M default consumer cap; above the register ceiling ($100/1M) is clamped to the ceiling, never rejected." }
+                request: { type: number, minimum: 0, description: "Per-request spend cap in credits: sizes the hold and lowers the `max_tokens` sent to the station to what the cap buys after the prompt's input cost. A station whose input cost alone meets the cap is dropped from the plan; every station dropped is a 503 `no_match`." }
+                image: { type: number, minimum: 0, description: "Not supported: a 400 `unsupported_routing_key` until image pricing exists." }
+            require_parameters:
+              type: boolean
+              default: false
+              description: "true additionally requires a canary-verified `tools` capability when `tool_choice` is set and treats a json `response_format` as needing a tools-verified node. false adds nothing beyond the implicit rule (a non-empty `tools` array always requires verified `tools`; an `image_url` part always requires declared `vision`)."
+        roger:
+          type: object
+          description: Network-specific routing knobs. The header form of each key is named in the endpoint's header list.
+          properties:
+            pref:
+              type: string
+              enum: [cheap, balanced, fast, reliable]
+              default: balanced
+              description: "Scoring preference; reshapes the weights, never a filter. Exclusive with `provider.sort`."
+            require:
+              type: array
+              items: { type: string, enum: [tools, vision] }
+              description: "Capabilities every candidate must carry, from the broker's closed set: `tools` counts only when canary-verified per (node, model); `vision` is node-declared. Anything else is a 400."
+            params_b:
+              type: array
+              items: { type: number, exclusiveMinimum: 0 }
+              minItems: 2
+              maxItems: 2
+              description: "[min, max] declared parameter count in billions, inclusive, min <= max. An offer with no declared or table-estimated params is ineligible under this filter."
+            min_ctx:
+              type: integer
+              minimum: 1
+              description: "Minimum DECLARED context window; an estimated window counts as unknown and is ineligible under this filter. The measured-prompt-vs-declared-window gate applies regardless."
+            min_tps:
+              type: number
+              minimum: 0
+              description: "Measured throughput floor in tokens/sec; an unmeasured node (0) still passes. Header form `X-Roger-Min-TPS`."
+            max_ttft_ms:
+              type: integer
+              minimum: 1
+              description: "Measured time-to-first-token ceiling in ms; an unmeasured node still passes."
+            trust_min:
+              type: string
+              enum: [any, verified, confidential]
+              default: any
+              description: "verified = canary-passed serving only; confidential = TEE-attested only (same as `confidential:true`). When it disagrees with `confidential`, the stricter wins."
+            self_hosted_only:
+              type: boolean
+              default: false
+              description: "true excludes curated (commercial-proxy) stations; a plain filter with no visibility guarantee for curated supply."
+            confidential:
+              type: boolean
+              default: false
+              description: "true = TEE-attested nodes only, and declines the edge/Tower bridge. false never cancels a stated `X-Roger-Confidential` header or `trust_min: confidential`."
+            region:
+              type: array
+              items: { type: string, pattern: "^[a-z0-9-]{2,8}$" }
+              maxItems: 32
+              description: "Self-declared node region tokens, exact lowercase; a node with no region, or a region outside the set, is ineligible under this filter."
+            freq:
+              type: string
+              description: "Private band code (admission only, never spend authorization; never logged). Header form `X-Roger-Freq`."
+            profile:
+              type: string
+              description: "`@profile/<name>`, resolved by the first-party client into this body; the broker answers 400 `unknown_profile` for an unresolved reference."
     PriceWindow:
       type: object
       description: Time-of-use rule (HH:MM UTC; may wrap midnight; empty days = daily).

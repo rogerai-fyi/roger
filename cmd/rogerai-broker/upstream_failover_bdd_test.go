@@ -2922,7 +2922,7 @@ func (s *foState) is503BandCooling(secs string) error {
 	if s.lastCode != 503 {
 		return fmt.Errorf("status %d (%s)", s.lastCode, s.lastBody)
 	}
-	want := fmt.Sprintf(`{"error":{"message":"band cooling - the station serving %s was rate limited upstream, retry after %ss"}}`, s.model, secs)
+	want := fmt.Sprintf(`{"error":{"code":"band_cooling","message":"band cooling - the station serving %s was rate limited upstream, retry after %ss"}}`, s.model, secs)
 	if string(bytes.TrimSpace(s.lastBody)) != want {
 		return fmt.Errorf("body %s, want %s", bytes.TrimSpace(s.lastBody), want)
 	}
@@ -3162,7 +3162,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 
 			// 5. only station cooling
 			sc.Step(`^"s1" is the only station for "m" and is cooling for (\d+) more seconds$`, st.onlyS1CoolingFor)
-			sc.Step(`^the response is 503 \{"error":\{"message":"band cooling - the station serving m was rate limited upstream, retry after (\d+)s"\}\}$`, st.is503BandCooling)
+			sc.Step(`^the response is 503 \{"error":\{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after (\d+)s"\}\}$`, st.is503BandCooling)
 			sc.Step(`^Retry-After is (\d+)$`, st.retryAfterIs)
 			sc.Step(`^no hold, no receipt, no upstream call$`, st.noHoldReceiptCall)
 			sc.Step(`^"s1" cools for 20s and "s2" for 5s and nothing else serves "m"$`, st.s1_20_s2_5)

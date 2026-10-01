@@ -70,14 +70,17 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the response header X-RogerAI-Model is "qwen3-32b"
 
+  @slice0
   Scenario: A null provider object is treated as absent
     When "u-1" posts a chat completion for "qwen3-32b" with body `"provider": null`
     Then the response is 200
 
+  @slice0
   Scenario: A null roger object is treated as absent
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": null`
     Then the response is 200
 
+  @slice0
   Scenario Outline: A null VALUE for any routing key means absent, at every level (§1a), never a 400
     # null is "not stated": the header counterpart or the default applies. A null ELEMENT
     # inside a list is still a malformed entry (see the type/range table).
@@ -103,6 +106,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"freq": null}                               | roger.freq                    |
       | "roger": {"profile": null}                            | roger.profile                 |
 
+  @slice0
   Scenario: A null models array is treated as absent
     When "u-1" posts a chat completion for "qwen3-32b" with body `"models": null`
     Then the response is 200
@@ -169,30 +173,35 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"params": [7, 70]}                     | roger.params                |
       | "roger": {"require": ["tools"], "requires": []}  | roger.requires              |
 
+  @slice0
   Scenario: Several unknown keys are all reported, first in document order named in the message
     When "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {"foo": 1, "bar": 2}`
     Then the response is 400
     And the error code is "unknown_routing_key"
     And the error message names "provider.foo"
 
+  @slice0
   Scenario: An unknown key with a known-looking OpenRouter name is still rejected, not silently dropped
     When "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {"require_parameters": true, "experimental": {}}`
     Then the response is 400
     And the error code is "unknown_routing_key"
     And the error message names "provider.experimental"
 
+  @slice0
   Scenario: Unknown TOP-LEVEL OpenAI keys still pass through to the station untouched
     When "u-1" posts a chat completion for "qwen3-32b" with body `"frequency_penalty": 0.3, "some_vendor_key": {"x": 1}`
     Then the response is 200
     And the station received top-level key "frequency_penalty" with value 0.3
     And the station received top-level key "some_vendor_key" with value {"x": 1}
 
+  @slice0
   Scenario: `route` (OpenRouter's deprecated key) is an unknown top-level key and passes through, not a 400
     When "u-1" posts a chat completion for "qwen3-32b" with body `"route": "fallback"`
     Then the response is 200
     And the station received top-level key "route" with value "fallback"
 
   # --- max_price.image is reserved -----------------------------------------------------
+  @slice0
   Scenario: max_price.image is a 400 unsupported_routing_key until image pricing exists
     When "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {"max_price": {"image": 0.01}}`
     Then the response is 400
@@ -526,6 +535,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-b"
 
+  @slice0
   Scenario: X-Roger-Exclude-Nodes and provider.ignore agree
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Exclude-Nodes "n-a" and body `"provider": {"ignore": ["n-a"]}`
     Then the response is 200
@@ -540,8 +550,9 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-c"
 
+  @slice0
   Scenario: The union of header and body deny lists leaving nothing is a 503 no_match
-    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Exclude-Nodes "n-a" and body `"provider": {"ignore": ["n-b"]}`
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Exclude-Nodes "n-a" and body `"provider": {"ignore": ["n-b", "n-c"]}`
     Then the response is 503
     And the error code is "no_match"
 
@@ -720,6 +731,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-b"
 
+  @slice0
   Scenario: Body-over-header precedence is identical on the streaming path
     When "u-1" posts a STREAMING chat completion for "qwen3-32b" with header X-Roger-Node "n-c" and body `"provider": {"order": ["n-a"], "allow_fallbacks": false}`
     Then the response is 200
@@ -1085,6 +1097,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 400
     And the response Content-Type is "application/json"
 
+  @slice0
   Scenario: Existing (non-routing) errors gain no code field they did not have and keep their status
     When "u-1" posts a chat completion with a body that is not a JSON object
     Then the response is 400

@@ -348,6 +348,7 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     And it carries no X-Roger-Min-TPS, X-Roger-Confidential, X-Roger-Pref, X-Roger-Node or X-Roger-Exclude-Nodes
     And it still carries X-Roger-Max-Price-Out for one release
 
+  @slice0
   Scenario: PROPOSED - the mode is negotiated at tune time by probing GET /v1/models (a positive signal)
     # An OLD broker never answers 400 unknown_routing_key: it forwards unknown top-level keys
     # to the station untouched (request_shape.feature, "top-level keys pass through"), so a
@@ -359,6 +360,7 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Then the session is in body mode
     And the first chat request carries the body object and no routing headers beyond X-Roger-Max-Price-Out
 
+  @slice0
   Scenario: PROPOSED - a 404 from GET /v1/models at tune time puts the session in header mode
     Given an old broker that answers 404 to GET /v1/models
     When the operator tunes a band
@@ -367,6 +369,7 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     And it carries no "provider" or "roger" carrier
     And no request is ever retried to negotiate
 
+  @slice0
   Scenario: PROPOSED - a probe failure that is neither 200 nor 404 defaults to body mode and is logged once
     Given the broker answers 503 to GET /v1/models at tune time
     When the operator tunes a band
@@ -379,18 +382,22 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives
     Then the guest receives the 400 and the session mode is unchanged
 
+  @slice0
   Scenario: PROPOSED - in header mode, keys with no header form are dropped with one warning
     Given the session is in header mode
     When a chat request arrives with "roger": {"require": ["tools"], "min_tps": 5}
-    Then the request carries X-Roger-Min-TPS: 5
+    # the owner's floor is 10 (Background): a guest may only TIGHTEN it, so 5 is raised to 10
+    Then the request carries X-Roger-Min-TPS: 10
     And one proxy log line says "old broker: dropped roger.require (no header form)"
     And the guest's response carries X-Roger-Routing-Dropped: "roger.require"
 
+  @slice0
   Scenario: PROPOSED - in header mode, a caller's models[] cannot be honored and is refused honestly
     Given the session is in header mode
     When a chat request arrives with "models": ["a","b"]
     Then the guest receives an OpenAI-shaped 400 "this broker does not support model fallback lists"
 
+  @slice0
   Scenario: PROPOSED - a re-tune resets the negotiated mode by probing again
     Given the session negotiated header mode
     And the broker now answers 200 to GET /v1/models

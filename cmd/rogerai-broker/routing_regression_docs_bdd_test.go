@@ -197,9 +197,20 @@ func (s *docState) chatRequestHasRoutingProps() error {
 	return nil
 }
 
-var routingKeys = map[string][]string{
-	"provider": {"order", "only", "ignore", "allow_fallbacks", "sort", "quantizations", "max_price", "require_parameters"},
-	"roger":    {"pref", "require", "params_b", "min_ctx", "min_tps", "max_ttft_ms", "trust_min", "self_hosted_only", "confidential", "region", "freq", "profile"},
+// routingKeyFacets is the contract's type AND range per routing key (§1a): the schema facet
+// each key must carry beyond its type. A boolean's range is its default; a list's is its
+// bound; an enum's is its value set; a number's is its minimum; a free string (freq,
+// profile) has no range and must be a string.
+var routingKeyFacets = map[string]map[string]string{
+	"provider": {
+		"order": "maxItems", "only": "maxItems", "ignore": "maxItems", "quantizations": "maxItems",
+		"allow_fallbacks": "default", "sort": "enum", "max_price": "properties", "require_parameters": "default",
+	},
+	"roger": {
+		"pref": "enum", "require": "items.enum", "params_b": "minItems", "min_ctx": "minimum", "min_tps": "minimum",
+		"max_ttft_ms": "minimum", "trust_min": "enum", "self_hosted_only": "default", "confidential": "default",
+		"region": "maxItems", "freq": "type", "profile": "type",
+	},
 }
 
 func (s *docState) routingKeysTyped() error {
@@ -207,12 +218,12 @@ func (s *docState) routingKeysTyped() error {
 	if props == nil {
 		return fmt.Errorf("ChatRequest schema has no properties")
 	}
-	for obj, keys := range routingKeys {
+	for obj, keys := range routingKeyFacets {
 		sub, _ := dig(props, obj, "properties").(map[string]any)
 		if sub == nil {
 			return fmt.Errorf("ChatRequest.%s has no properties", obj)
 		}
-		for _, k := range keys {
+		for k, facet := range keys {
 			km, _ := sub[k].(map[string]any)
 			if km == nil {
 				return fmt.Errorf("ChatRequest.%s.%s is not documented", obj, k)
@@ -220,10 +231,23 @@ func (s *docState) routingKeysTyped() error {
 			if str(km["type"]) == "" && km["$ref"] == nil && km["oneOf"] == nil {
 				return fmt.Errorf("ChatRequest.%s.%s has no type", obj, k)
 			}
+			var have any = km[facet]
+			if facet == "items.enum" {
+				have = dig(km, "items", "enum")
+			}
+			if have == nil {
+				return fmt.Errorf("ChatRequest.%s.%s documents no range (%s)", obj, k, facet)
+			}
 		}
 	}
-	if m, _ := dig(props, "models").(map[string]any); str(m["type"]) != "array" {
-		return fmt.Errorf("ChatRequest.models is not typed as an array")
+	m, _ := dig(props, "models").(map[string]any)
+	if str(m["type"]) != "array" || m["maxItems"] == nil {
+		return fmt.Errorf("ChatRequest.models is not an array with a maxItems bound")
+	}
+	for _, k := range []string{"prompt", "completion", "request"} {
+		if dig(props, "provider", "properties", "max_price", "properties", k, "minimum") == nil {
+			return fmt.Errorf("ChatRequest.provider.max_price.%s documents no minimum", k)
+		}
 	}
 	return nil
 }

@@ -63,7 +63,7 @@ func TestChatFailsOverPastABadStation(t *testing.T) {
 			return
 		}
 		// Retry: the broker should have been told to skip the failed node.
-		excludeOnRetry = r.Header.Get("X-Roger-Exclude-Nodes")
+		excludeOnRetry = ignoredNodes(r)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-RogerAI-Provider", "good-node")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"hi back"}}]}`))
@@ -272,28 +272,30 @@ func TestSignalLevelMapping(t *testing.T) {
 	}
 }
 
-// THE EXCLUSION HEADER carries the caller's standing exclusions unioned with the live
-// failover set. That union is how a quant choice binds: the broker groups by model alone,
-// so naming the stations running a different quant is what stops it routing there.
-func TestUnionSetMergesFailoverAndStandingExclusions(t *testing.T) {
-	// Deduped across both sources, and SORTED - a header that reordered per request would
-	// be impossible to compare a log against itself with.
-	got := unionSet(map[string]bool{"b-node": true, "a-node": true}, []string{"c-node", "a-node", "  "})
-	if got != "a-node,b-node,c-node" {
-		t.Errorf("unionSet = %q, want a-node,b-node,c-node", got)
+// THE IGNORE SET carries the caller's standing exclusions unioned with the live failover
+// set (provider.ignore in the body, X-Roger-Exclude-Nodes in header mode). That union is how
+// a station that failed this turn stays out of the re-pick on every path.
+func TestUnionStringsMergesFailoverAndStandingExclusions(t *testing.T) {
+	join := func(set map[string]bool, extra []string) string {
+		return strings.Join(unionStrings(keysOf(set), extra), ",")
+	}
+	// Deduped across both sources, and SORTED - a set that reordered per request would be
+	// impossible to compare a log against itself with.
+	if got := join(map[string]bool{"b-node": true, "a-node": true}, []string{"c-node", "a-node", "  "}); got != "a-node,b-node,c-node" {
+		t.Errorf("union = %q, want a-node,b-node,c-node", got)
 	}
 	// Either source alone still works.
-	if got := unionSet(nil, []string{"only"}); got != "only" {
+	if got := join(nil, []string{"only"}); got != "only" {
 		t.Errorf("standing-only = %q", got)
 	}
-	if got := unionSet(map[string]bool{"only": true}, nil); got != "only" {
+	if got := join(map[string]bool{"only": true}, nil); got != "only" {
 		t.Errorf("failover-only = %q", got)
 	}
-	// Nothing to skip must send NO header value, so an ordinary request is unchanged.
-	if got := unionSet(nil, nil); got != "" {
-		t.Errorf("empty = %q, want the header omitted", got)
+	// Nothing to skip must send NO key, so an ordinary request is unchanged.
+	if got := unionStrings(keysOf(nil), nil); got != nil {
+		t.Errorf("empty = %q, want nil (key omitted)", got)
 	}
-	if got := unionSet(nil, []string{"", "   "}); got != "" {
+	if got := unionStrings(nil, []string{"", "   "}); got != nil {
 		t.Errorf("blank entries produced %q", got)
 	}
 }

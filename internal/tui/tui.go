@@ -1137,7 +1137,11 @@ type model struct {
 	// TUNE-IN private band: tuneFreq is the active frequency code (empty = OPEN MARKET);
 	// tuneFreqLabel is the cosmetic display shown in the header (e.g. "147.520 MHz").
 	// /freq sets them after a successful resolve; esc clears back to OPEN MARKET.
-	tuneFreq      string
+	tuneFreq string
+	// headerRouting is the routing wire negotiated at TUNE time (client.NegotiateRouting):
+	// false = the broker reads the body carriers; true = an OLD broker, speak X-Roger-*
+	// headers on every in-booth path (live proxy, chat, agent). Per session, never saved.
+	headerRouting bool
 	tuneFreqLabel string
 	// [1] TUNE IN's two halves: tabOpenMarket (the public dial) and tabPrivate (your own
 	// bands, from /bands). t switches. privCursor is the private list's own cursor - it is
@@ -2735,10 +2739,11 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		Confidential: m.confidentialOnly,
 		MaxPriceIn:   m.q.limit.MaxIn, MaxPriceOut: m.q.limit.MaxOut, MinTPS: m.q.limit.MinTPS,
 		Freq: m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
-		// The tuned row IS a quant, so the stations running a different one are named as
-		// exclusions - otherwise the broker (which groups by model alone) could route this
-		// turn to weights the operator did not choose. See quant_route.go.
-		ExcludeNodes: m.routeExcludes(m.q.b),
+		// The tuned row IS a quant, and the [3] CONFIG rules are rules: they ride the
+		// request body so the broker filters on them. See quant_route.go.
+		Pref: m.q.limit.Pref, SelfHostedOnly: m.fNoCurated,
+		Quantizations: m.quantList(o.Model, o.Quant),
+		HeaderRouting: m.headerRouting, // negotiated once per tune in bindChannel
 		// ROGERAI_REASONING_RAW is a global session knob: honor it in the TUI booth too, not just
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
 		ReasoningFallbackOff: client.RawReasoningEnv(),
@@ -2754,6 +2759,10 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 // endpoint-bind error (openChannel bounces back to BROWSE; the auto-tune notes it once).
 // It mutates the receiver in place - callers pass a &m.
 func (m *model) bindChannel(o offer) (warm bool, err error) {
+	// ONE probe per tune (contract §9): does this broker read the body carriers, or is it an
+	// old one that only knows the X-Roger-* headers? Every in-booth path reads the answer
+	// through m.routing() / liveProxyOpts; it is never persisted.
+	m.headerRouting = client.NegotiateRouting(m.broker)
 	if !m.proxyUp {
 		// Auto-pick a free port instead of dead-ending if 4141 is taken (mirrors the CLI's
 		// freePort): scan upward from the configured port so a busy port never bounces the
@@ -2954,12 +2963,37 @@ func (m *model) commitLimitField() {
 	mdl := m.limModels[m.limCursor]
 	lim := m.limits.resolve(mdl)
 	v, _ := strconv.ParseFloat(strings.TrimSpace(m.editBuf), 64)
-	if m.editField == 0 {
+	switch m.editField {
+	case 0:
 		lim.MaxOut = v
-	} else {
+	case 1:
 		lim.MinTPS = v
 	}
 	m.limits.set(mdl, lim)
+}
+
+// nextPref walks the pref knob: unset -> cheap -> balanced -> fast -> reliable -> unset
+// (and back with up=false). Unset means the balanced default.
+func nextPref(cur string, up bool) string {
+	ring := append([]string{""}, client.RoutingPrefs...)
+	i := 0
+	for j, p := range ring {
+		if p == cur {
+			i = j
+		}
+	}
+	if up {
+		return ring[(i+1)%len(ring)]
+	}
+	return ring[(i+len(ring)-1)%len(ring)]
+}
+
+// prefLabel names the knob for the footer: an unset pref is the balanced default.
+func prefLabel(p string) string {
+	if p == "" {
+		return "balanced (default)"
+	}
+	return p
 }
 
 // nudge adjusts a numeric edit buffer by delta, clamped at 0, 2dp.
@@ -5107,10 +5141,10 @@ func sendChatLocal(chatURL, key, mdl, prompt string, history []harness.Message) 
 	}
 }
 
-func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64, freq string, history []client.ChatTurn, exclude []string) tea.Cmd {
+func sendChat(broker, user, mdl, prompt string, maxOut float64, rt client.Routing, freq string, history []client.ChatTurn) tea.Cmd {
 	return func() tea.Msg {
 		turns := append(append([]client.ChatTurn{}, history...), client.ChatTurn{Role: "user", Content: prompt})
-		r, err := client.ChatTurns(broker, user, mdl, turns, confidential, maxOut, freq, exclude)
+		r, err := client.ChatTurnsRouting(broker, user, mdl, turns, maxOut, rt, freq, nil)
 		if err != nil {
 			// A chat failure is surfaced INLINE in the transcript (chatErrMsg), not on
 			// the footer status line - that was the silent-no-response bug: the user

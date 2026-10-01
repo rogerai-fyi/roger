@@ -97,6 +97,11 @@ func (s *routingPinsBDD) seed() {
 	m, _ = m.Update(balanceMsg{balance: 42.17, loggedIn: true})
 	m, _ = m.Update(tickMsg{})
 	mm := m.(model)
+	// A station joining the dial is a re-scan, not a restart: the booth keeps its rules,
+	// its tuned row and its filters (as the real offersMsg handler does).
+	if prev := s.m; prev.limits != nil {
+		mm.limits, mm.connected, mm.q, mm.fNoCurated, mm.confidentialOnly = prev.limits, prev.connected, prev.q, prev.fNoCurated, prev.confidentialOnly
+	}
 	if mm.limits == nil {
 		mm.limits = &LimitStore{Models: map[string]Limit{}}
 	}
@@ -350,17 +355,35 @@ func (s *routingPinsBDD) brokerKnob(string) error { return nil }
 // --- Givens ------------------------------------------------------------------------------
 
 func (s *routingPinsBDD) limitsEditorSetsPref(pref, mdl string) error {
-	// The REAL editor: open [3] CONFIG on the band and look for a pref field to set. There is
-	// none today (view_money.go:161 renders "max $/1M out" and "min t/s" only), so this Given
-	// fails for the right reason instead of smuggling a value in through a struct field the
-	// editor never exposes.
+	// The REAL editor: open [3] CONFIG, put the cursor on the band, and press p (cycle the
+	// pref) until the row shows the value - the same keystrokes an operator uses. Nothing is
+	// smuggled in through a struct field the editor never exposes.
 	s.addOffer(offer{NodeID: "n-1", Model: mdl, PriceOut: 0.5, TPS: 40})
-	s.m.mode = modeLimits
+	s.m.enterLimits()
 	v := stripANSI(s.m.View())
 	if !strings.Contains(strings.ToLower(v), "pref") {
 		return fmt.Errorf("the limits editor has no pref field to set %q on %q:\n%s", pref, mdl, v)
 	}
-	return fmt.Errorf("the limits editor shows a pref field but this harness has no key path to set it yet")
+	for i, row := range s.m.limModels {
+		if row == mdl {
+			s.m.limCursor = i
+		}
+	}
+	for i := 0; i < 6; i++ {
+		if s.m.limits.resolve(mdl).Pref == pref {
+			break
+		}
+		out, _ := s.m.onKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		s.m = asModel(out)
+	}
+	if got := s.m.limits.resolve(mdl).Pref; got != pref {
+		return fmt.Errorf("pressing p never reached pref %q for %q (got %q)", pref, mdl, got)
+	}
+	if v := stripANSI(s.m.View()); !strings.Contains(v, pref) {
+		return fmt.Errorf("the editor set pref %q but the row does not show it:\n%s", pref, v)
+	}
+	s.m.mode = modeBrowse
+	return nil
 }
 
 func (s *routingPinsBDD) nodeOnAirAtOut(node, mdl string, out float64) error {

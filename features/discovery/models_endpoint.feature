@@ -40,6 +40,7 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
       | n-tee    | llama-3.3-70b  | Q8_0   | 70       | 65536  | 30  | 0.15     | 0.45      | false   | true         | false    | true     |
 
   # --- shape -----------------------------------------------------------------------------------
+  @slice0
   Scenario: The list is OpenAI-shaped
     When a consumer GETs /v1/models
     Then the status is 200
@@ -47,11 +48,13 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     And the body has object "list" and a data array
     And every data entry has object "model", a string id, an integer created and owned_by "rogerai"
 
+  @slice0
   Scenario: One entry per distinct model id with a public offer on air
     When a consumer GETs /v1/models
     Then the data ids are exactly "qwen3-32b", "gpt-oss-120b", "llama-3.3-70b"
     And no id appears twice
 
+  @slice0
   Scenario: Entries are ordered by id ascending for a stable catalog
     When a consumer GETs /v1/models
     Then the data ids are in order "gpt-oss-120b", "llama-3.3-70b", "qwen3-32b"
@@ -124,17 +127,20 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     When a consumer GETs /v1/models
     Then the "llama-3.3-70b" entry's rogerai block has free_now true
 
+  @slice0
   Scenario: An OpenAI client that ignores the rogerai block still parses the list
     When an OpenAI SDK lists models against the broker
     Then it decodes 3 models without error
 
   # --- presence rules ---------------------------------------------------------------------------
+  @slice0
   Scenario: A model whose only station is COOLING is still listed (on air, not routed to for now)
     Given "n-tee" is in a 429 cooldown for 30 s
     When a consumer GETs /v1/models
     Then "llama-3.3-70b" is listed
     And its rogerai block has cooling true and cooling_until about 30 s from now
 
+  @slice0
   Scenario: A model whose only station is past its heartbeat window is absent
     Given "n-tee" has not heartbeat within nodeTTL
     When a consumer GETs /v1/models
@@ -145,11 +151,13 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     When a consumer GETs /v1/models
     Then "llama-3.3-70b" is not listed
 
+  @slice0
   Scenario: A model whose only station is banned is absent
     Given "n-tee" is banned
     When a consumer GETs /v1/models
     Then "llama-3.3-70b" is not listed
 
+  @slice0
   Scenario: A model served only on a private band is never listed without its code
     Given node "n-secret" shares "secret-model" on a PRIVATE band
     When a consumer GETs /v1/models
@@ -157,6 +165,7 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     When a consumer GETs /v1/models/secret-model
     Then the status is 404
 
+  @slice0
   Scenario: A private band's models are not listed even with the band code on /v1/models - the code is a /bands/resolve concern
     Given node "n-secret" shares "secret-model" on a PRIVATE band with frequency code "fq-1"
     When a consumer GETs /v1/models with header "X-Roger-Freq: fq-1"

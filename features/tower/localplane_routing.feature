@@ -1,3 +1,5 @@
+# BUILD STATUS: NOT BUILT. Approved 2026-09-30 as part of the routing-expression set (slice 4); the
+# local plane still reads only `model` today (internal/localplane/completion.go).
 # STANDALONE TOWER - the Core-free local plane and the routing body object (CONTRACT §1, §5, §6).
 #
 # PURPOSE: a client on a private network sends the same body object it would send the public

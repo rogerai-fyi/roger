@@ -249,27 +249,33 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # ignore (deny-list)
   # ============================================================================
 
+  @slice0
   Scenario: ignore removes one station from the pool
     When 20 funded consumers relay with provider.ignore ["s1"]
     Then every pick is "s2" or "s3"
     And "s1" received nothing
 
+  @slice0
   Scenario: ignore removing every station finds nothing
     When a funded consumer relays with provider.ignore ["s1", "s2", "s3"]
     Then the response is 503 {"error":{"code":"no_match"}}
 
+  @slice0
   Scenario: ignore naming an unknown station is a silent no-op
     When 20 funded consumers relay with provider.ignore ["s9"]
     Then the pick distribution matches 20 relays with no routing object
 
+  @slice0
   Scenario: ignore is exact-match and case-sensitive
     When 20 funded consumers relay with provider.ignore ["S1"]
     Then "s1" is picked at least once
 
+  @slice0
   Scenario: ignore with an empty array is the same as no ignore
     When 20 funded consumers relay with provider.ignore []
     Then the pick distribution matches 20 relays with no routing object
 
+  @slice0
   Scenario Outline: ignore rejects malformed entries
     When a funded consumer relays with provider.ignore <value>
     Then the response is 400 with error.code "invalid_routing_value" naming "provider.ignore"
@@ -281,19 +287,23 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
       | "s1,s2"                 |
       | 33 distinct station ids |
 
+  @slice0
   Scenario: ignore and the X-Roger-Exclude-Nodes header are unioned
     When a funded consumer relays with X-Roger-Exclude-Nodes "s1" and provider.ignore ["s2"]
     Then the pick is "s3"
 
+  @slice0
   Scenario: ignore and the header naming the same station is not an error
     When a funded consumer relays with X-Roger-Exclude-Nodes "s1" and provider.ignore ["s1"]
     Then every pick is "s2" or "s3"
 
+  @slice0
   Scenario: the failover plan honors ignore on every attempt
     Given "s2" 429s and "s3" serves
     When a funded consumer relays with provider.ignore ["s1"] and the pick lands on "s2"
     Then the failover goes to "s3", never "s1"
 
+  @slice0
   Scenario: ignore cannot un-ban, un-cool or admit anything
     Given "s1" is banned and "s2" is cooling
     When a funded consumer relays with provider.ignore ["s9"]
@@ -315,6 +325,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
     Then the pick is "p2"
 
+  @slice0
   Scenario: ignore that empties a private band is the uniform band message (no code)
     Given a private band "B" with station "p1" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
@@ -335,17 +346,20 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # ============================================================================
 
   # --- order: alone -----------------------------------------------------------
+  @slice0
   Scenario: order takes the first listed eligible station, every time
     When 20 funded consumers relay with provider.order ["s3", "s1"]
     Then every pick is "s3"
     # strict priority: no power-of-two-choices over the listed portion
 
+  @slice0
   Scenario: order skips an ineligible listed station silently and takes the next
     Given "s3" was last seen 2*nodeTTL ago
     When a funded consumer relays with provider.order ["s3", "s1"]
     Then the pick is "s1"
     And the response carries no warning about "s3"
 
+  @slice0
   Scenario Outline: order skips every kind of ineligible listed station
     Given "s3" is <state>
     When a funded consumer relays with provider.order ["s3", "s1"]
@@ -365,6 +379,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
       | lacking a required capability                |
       | not TEE-attested on a confidential request   |
 
+  @slice0
   Scenario: order with every listed station ineligible falls through to the rest by score
     Given "s3" is banned and "s2" is cooling
     When a funded consumer relays with provider.order ["s3", "s2"]
@@ -378,18 +393,22 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then both "s2" and "s3" are picked
     # P2C is disabled for the LISTED portion only; the remainder spreads as today
 
+  @slice0
   Scenario: order naming an unknown station contributes nothing
     When a funded consumer relays with provider.order ["s9"]
     Then the pick is "s1", "s2" or "s3" by score
 
+  @slice0
   Scenario: order with one live station is that station
     When 20 funded consumers relay with provider.order ["s2"]
     Then every pick is "s2"
 
+  @slice0
   Scenario: order is exact-match and case-sensitive
     When 20 funded consumers relay with provider.order ["S3"]
     Then the pick distribution matches 20 relays with no routing object
 
+  @slice0
   Scenario Outline: order rejects malformed entries
     When a funded consumer relays with provider.order <value>
     Then the response is 400 with error.code "invalid_routing_value" naming "provider.order"
@@ -402,11 +421,13 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
       | "s1"                    |
       | 33 distinct station ids |
 
+  @slice0
   Scenario: order with duplicates keeps the first occurrence
     When 20 funded consumers relay with provider.order ["s2", "s2", "s3"]
     Then every pick is "s2"
 
   # --- order: the plan --------------------------------------------------------
+  @slice0
   Scenario: the failover plan follows the order
     Given "s3" 429s, "s1" 429s, and "s2" serves
     When a funded consumer relays with provider.order ["s3", "s1", "s2"]
@@ -420,22 +441,26 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the response is 429 with Retry-After
     And "s4" and "s5" received nothing
 
+  @slice0
   Scenario: the plan after the listed stations continues by score when fallbacks are allowed
     Given "s3" 429s and "s1" and "s2" serve
     When a funded consumer relays with provider.order ["s3"]
     Then attempt 1 hit "s3" and attempt 2 hit "s1" or "s2"
     And the consumer sees 200
 
+  @slice0
   Scenario: the plan never re-picks a failed ordered station within the same request
     Given "s3" 429s twice in a row and "s1" serves
     When a funded consumer relays with provider.order ["s3", "s3", "s1"]
     Then "s3" received exactly one attempt
 
+  @slice0
   Scenario: the hold covers the priciest station in the ordered plan
     When a funded consumer relays with provider.order ["s1", "s3"]
     Then the hold covers "s3" at 3.00
     And on success at "s1" the consumer is charged at 1.00 and the remainder released
 
+  @slice0
   Scenario: an ordered station the hold cannot cover is dropped, the plan continues
     Given the consumer's balance covers "s1" but not "s3"
     When a funded consumer relays with provider.order ["s3", "s1"]
@@ -458,20 +483,24 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the response is 400 {"error":{"code":"conflicting_routing_keys","message":"provider.order names s2, which is not in provider.only"}}
     And no station received anything
 
+  @slice0
   Scenario: order with ignore of an ordered station skips it
     When a funded consumer relays with provider.order ["s3", "s1"] and provider.ignore ["s3"]
     Then the pick is "s1"
     # ignore is a hard filter; order is a preference among what survives
 
+  @slice0
   Scenario: order with ignore of every ordered station falls through to the rest
     When a funded consumer relays with provider.order ["s3"] and provider.ignore ["s3"]
     Then the pick is "s1" or "s2" by score
 
+  @slice0
   Scenario: order and the X-Roger-Node header - the body wins
     When a funded consumer relays with X-Roger-Node "s1" and provider.order ["s3"]
     Then the pick is "s3"
     And the header is ignored without error
 
+  @slice0
   Scenario: order and the X-Roger-Node header naming the same station
     When a funded consumer relays with X-Roger-Node "s3" and provider.order ["s3"]
     Then the pick is "s3"
@@ -482,12 +511,14 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When a funded consumer relays with roger.freq for band "B" and provider.order ["p2", "p1"]
     Then the pick is "p2"
 
+  @slice0
   Scenario: order naming a public station on a private-band request cannot escape the band
     Given a private band "B" with station "p1" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.order ["s1"]
     Then the pick is "p1"
     And "s1" received nothing
 
+  @slice0
   Scenario: order naming a private station without the code cannot enter the band
     Given "p1" is a private (band-only) station for "m"
     When a funded consumer relays with provider.order ["p1", "s1"]
@@ -500,23 +531,27 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the pick is "s2"
     And "s3" received nothing
 
+  @slice0
   Scenario: order cannot bypass the consumer out-price cap
     Given "s3" prices out 12.00 per 1M
     When a funded consumer relays with provider.order ["s3", "s1"] and no max_price
     Then the pick is "s1"
     And "s3" received nothing
 
+  @slice0
   Scenario: order cannot admit a banned station
     Given "s3" is banned
     When a funded consumer relays with provider.order ["s3", "s1"]
     Then the pick is "s1"
     And "s3" received nothing
 
+  @slice0
   Scenario: order with a confidential request ranks within attested stations
     Given only "s2" and "s3" are TEE-attested
     When a funded consumer relays with roger.confidential true and provider.order ["s1", "s3"]
     Then the pick is "s3"
 
+  @slice0
   Scenario: an anonymous free relay with order ranks within free stations
     Given "f1" and "f2" serve "m" free (0/0)
     When an anonymous consumer relays with provider.order ["s1", "f2", "f1"]
@@ -527,17 +562,20 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # allow_fallbacks
   # ============================================================================
 
+  @slice0
   Scenario: allow_fallbacks defaults to true
     Given "s1" 429s and "s2" serves
     When a funded consumer relays with provider.order ["s1"]
     Then the failover goes to "s2"
     And the consumer sees 200
 
+  @slice0
   Scenario: allow_fallbacks true stated explicitly behaves as the default
     Given "s1" 429s and "s2" serves
     When a funded consumer relays with provider.order ["s1"] and provider.allow_fallbacks true
     Then the failover goes to "s2"
 
+  @slice0
   Scenario Outline: allow_fallbacks rejects non-boolean values
     When a funded consumer relays with provider.allow_fallbacks <value>
     Then the response is 400 with error.code "invalid_routing_value" naming "provider.allow_fallbacks"
@@ -545,10 +583,10 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
       | value   |
       | "false" |
       | 0       |
-      | null    |
       | "yes"   |
 
   # --- allow_fallbacks:false with order -----------------------------------------
+  @slice0
   Scenario: no-fallback with an order of one station is a single attempt
     Given "s1" 429s with Retry-After 7 and "s2" serves
     When a funded consumer relays with provider.order ["s1"] and provider.allow_fallbacks false
@@ -556,6 +594,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the response is 429 with Retry-After: 7
     And "s2" received nothing
 
+  @slice0
   Scenario: no-fallback with an order of two stations tries both and no other
     Given "s1" 429s, "s2" 429s with Retry-After 4, and "s3" serves
     When a funded consumer relays with provider.order ["s1", "s2"] and provider.allow_fallbacks false
@@ -563,17 +602,20 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the response is 429 with Retry-After: 4
     And "s3" received nothing
 
+  @slice0
   Scenario: no-fallback with an order of two stations succeeds on the second
     Given "s1" 429s and "s2" serves
     When a funded consumer relays with provider.order ["s1", "s2"] and provider.allow_fallbacks false
     Then the consumer sees 200 with X-RogerAI-Provider "s2"
 
+  @slice0
   Scenario: no-fallback with an order of five is bounded by ROGERAI_RELAY_ATTEMPTS
     Given stations "s1".."s5" serve "m" and all 429
     When a funded consumer relays with provider.order ["s1","s2","s3","s4","s5"], provider.allow_fallbacks false, and ROGERAI_RELAY_ATTEMPTS 3
     Then exactly 3 attempts were made, to "s1", "s2", "s3"
     And the response is 429 with Retry-After
 
+  @slice0
   Scenario: no-fallback with an order whose listed stations are all ineligible finds nothing
     Given "s1" is banned
     When a funded consumer relays with provider.order ["s1"] and provider.allow_fallbacks false
@@ -581,6 +623,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And no station received anything
     And no hold was placed
 
+  @slice0
   Scenario: no-fallback with one ineligible and one eligible listed station takes the eligible one
     Given "s1" is stale
     When a funded consumer relays with provider.order ["s1", "s2"] and provider.allow_fallbacks false
@@ -602,6 +645,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the response is 429
 
   # --- allow_fallbacks:false with neither ---------------------------------------
+  @slice0
   Scenario: no-fallback without order or only is a single scored attempt
     Given "s1" 429s with Retry-After 7 and "s2" serves
     When a funded consumer relays with provider.allow_fallbacks false and the pick lands on "s1"
@@ -609,12 +653,14 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the response is 429 with Retry-After: 7
     # the consumer asked for no failover; the broker never adds a station they did not accept
 
+  @slice0
   Scenario: no-fallback without order or only succeeds like a plain relay when the pick serves
     When a funded consumer relays with provider.allow_fallbacks false
     Then the consumer sees 200
     And the hold covered exactly the picked station, not the priciest of three
 
   # --- allow_fallbacks:false with the pin header --------------------------------
+  @slice0
   Scenario: the X-Roger-Node header is order of one with no fallbacks
     Given "s1" 429s and "s2" serves
     When a funded consumer relays with X-Roger-Node "s1"
@@ -622,12 +668,14 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the response is 429
     # regression pin: tunnel.go:1964 today, unchanged
 
+  @slice0
   Scenario: a pin header with body allow_fallbacks true - the body wins
     Given "s1" 429s and "s2" serves
     When a funded consumer relays with X-Roger-Node "s1" and provider.allow_fallbacks true
     Then the failover goes to "s2"
     # body precedence: the header's implied no-fallback is overridden by the body's explicit true
 
+  @slice0
   Scenario: a pin header with body order naming another station - the body wins
     Given "s1" 429s and "s3" serves
     When a funded consumer relays with X-Roger-Node "s2", provider.order ["s1"], and provider.allow_fallbacks false
@@ -635,6 +683,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And "s2" received nothing
 
   # --- allow_fallbacks:false: cooling, dead, banned, stale ----------------------
+  @slice0
   Scenario: no-fallback with a cooling listed station is band cooling with that station's expiry
     Given "s1" is cooling for 11 more seconds and "s2" serves
     When a funded consumer relays with provider.order ["s1"] and provider.allow_fallbacks false
@@ -642,17 +691,20 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And no station received anything
     And no hold was placed
 
+  @slice0
   Scenario: no-fallback with two cooling listed stations reports the soonest expiry
     Given "s1" is cooling for 30 more seconds and "s2" is cooling for 5 more seconds
     When a funded consumer relays with provider.order ["s1", "s2"] and provider.allow_fallbacks false
     Then the response is 503 {"error":{"code":"band_cooling"}} with Retry-After: 5
 
+  @slice0
   Scenario: no-fallback with one cooling and one ineligible listed station is band cooling, not no_match
     Given "s1" is cooling for 9 more seconds and "s2" is banned
     When a funded consumer relays with provider.order ["s1", "s2"] and provider.allow_fallbacks false
     Then the response is 503 {"error":{"code":"band_cooling"}} with Retry-After: 9
     # a cooling station will come back; the consumer is told when
 
+  @slice0
   Scenario Outline: no-fallback with an ineligible listed station is no_match without Retry-After
     Given "s1" is <state>
     When a funded consumer relays with provider.order ["s1"] and provider.allow_fallbacks false
@@ -668,12 +720,14 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
       | not offering "m"                 |
       | priced over the default out-cap  |
 
+  @slice0
   Scenario: no-fallback never widens to a station the consumer did not name, even when the market is idle
     Given "s2" and "s3" are idle and "s1" is at capacity
     When a funded consumer relays with provider.order ["s1"] and provider.allow_fallbacks false
     Then the pick is "s1"
 
   # --- allow_fallbacks:false: money ---------------------------------------------
+  @slice0
   Scenario: no-fallback places exactly one hold, sized to the named station
     When a funded consumer relays with provider.order ["s1"] and provider.allow_fallbacks false
     Then exactly one hold was placed

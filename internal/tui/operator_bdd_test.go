@@ -11,6 +11,7 @@ package tui
 // production paths run for real underneath them, no mocks.
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -50,9 +51,26 @@ func TestGuestOperatorBDD(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			initializeOperatorScenarios(t, st, sc)
 		},
-		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/operator"}, TestingT: t, Strict: true},
+		Options: &godog.Options{Format: "pretty", Paths: operatorFeaturePaths(t), TestingT: t, Strict: true},
 	}
 	if suite.Run() != 0 {
 		t.Fatal("guest-operator scenarios failed (see godog output above)")
 	}
+}
+
+// operatorFeaturePaths is every features/operator spec THIS runner implements: the directory
+// minus guest_routing.feature, the routing-expression slice-4 spec that gets its own runner
+// (its steps are not defined here, and Strict would fail the whole suite on them).
+func operatorFeaturePaths(t *testing.T) []string {
+	all, err := filepath.Glob("../../features/operator/*.feature")
+	if err != nil || len(all) == 0 {
+		t.Fatalf("no operator specs found: %v", err)
+	}
+	var paths []string
+	for _, p := range all {
+		if filepath.Base(p) != "guest_routing.feature" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }

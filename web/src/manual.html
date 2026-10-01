@@ -565,6 +565,56 @@
               public market across many models from one endpoint, use a funded wallet via the
               local proxy (path a). See §5 for minting a grant and §6 for the wallet.
             </div>
+
+            <h3 id="routing">Routing: say what you want, the broker picks within it</h3>
+            <p>Every request can carry routing preferences. The broker applies them as
+              <b>hard filters</b> first (a station is in or out), then scores what survives
+              (reliability, speed fit for your prompt, price, load) and spreads the pick. The
+              preferences ride in the request <b>body</b>, in three optional objects the
+              broker strips before a station ever sees them; the <code>roger</code> CLI and
+              the app fill them from your flags and config, and any OpenAI client can set
+              them directly. The same knobs exist as <code>X-Roger-*</code> headers for
+              hand-rolled callers; the body form wins when both are present, except that a
+              deny-list or a confidential restriction is never weakened by the other side.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k"><code>models</code></span><span class="man-plate__v">an ordered fallback list tried after <code>model</code> (at most 5): the broker moves on when a model has no eligible station, its stations are exhausted, or the prompt does not fit its window - never on your own bad request, and never after the first streamed token</span></div>
+              <div class="man-plate__row"><span class="man-plate__k"><code>provider</code></span><span class="man-plate__v">OpenRouter-shaped node selection with node ids in place of provider slugs: <code>order</code>, <code>only</code>, <code>ignore</code>, <code>allow_fallbacks</code>, <code>sort</code> (price / throughput / latency), <code>quantizations</code> (verbatim labels; <code>unknown</code> admits an unlabeled offer), <code>max_price</code> (<code>prompt</code>, <code>completion</code>, <code>request</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k"><code>roger</code></span><span class="man-plate__v">the network-specific knobs: <code>pref</code> (cheap / balanced / fast / reliable), <code>require</code> (<code>tools</code>, <code>vision</code>), <code>params_b</code> [min, max] billions, <code>min_ctx</code>, <code>min_tps</code>, <code>max_ttft_ms</code>, <code>trust_min</code> (any / verified / confidential), <code>self_hosted_only</code>, <code>confidential</code>, <code>region</code>, <code>freq</code> (a private band code), <code>profile</code></span></div>
+            </div>
+            <p>A key the broker does not know is a <code>400</code> naming it, so a typo never
+              silently widens your request. A request carrying a <code>tools</code> array is
+              only ever routed to a station whose tool calling the broker has verified, and a
+              request carrying an image only to a station that declared vision - no knob
+              needed. When nothing on air satisfies your constraints the answer is a
+              <code>503</code> with <code>error.code</code> <code>no_match</code> and nothing is
+              dispatched; when the matching stations are all cooling after upstream
+              rate-limits it is <code>band_cooling</code> with a <code>Retry-After</code>.</p>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl https://broker.rogerai.fm/v1/chat/completions -H "Authorization: Bearer $OPENAI_API_KEY" -d '{
+    "model": "qwen3-32b", "models": ["qwen3-30b-a3b"],
+    "provider": { "quantizations": ["Q8_0", "BF16"], "max_price": { "completion": 0.60 } },
+    "roger": { "pref": "reliable", "min_tps": 20, "self_hosted_only": true },
+    "messages": [{"role": "user", "content": "hi"}]
+  }'</pre></div>
+            <p>The header form, for callers that cannot shape the body:</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Confidential</span><span class="man-plate__v">TEE-attested stations only (body <code>roger.confidential</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Min-TPS</span><span class="man-plate__v">measured throughput floor, tokens/sec; an unmeasured station still passes (body <code>roger.min_tps</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Max-Price</span><span class="man-plate__v">input price cap, per 1M tokens (body <code>provider.max_price.prompt</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Max-Price-Out</span><span class="man-plate__v">output price cap, per 1M tokens; absent or <code>0</code> means the default <code>$10 / 1M</code>; above the network ceiling is clamped to it (body <code>provider.max_price.completion</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Pref</span><span class="man-plate__v">cheap, balanced, fast or reliable - a scoring knob, never a filter (body <code>roger.pref</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Node</span><span class="man-plate__v">pin one station; broker-side failover is off for that request (body <code>provider.order</code> with <code>allow_fallbacks: false</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Exclude-Nodes</span><span class="man-plate__v">comma-separated station ids to skip (body <code>provider.ignore</code>; the two sets are combined)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">X-Roger-Freq</span><span class="man-plate__v">a private band code: admission to that band's stations, never spend authorization, never logged (body <code>roger.freq</code>)</span></div>
+            </div>
+            <p>What comes back: <code>X-RogerAI-Provider</code> (the station that served),
+              <code>X-RogerAI-Model</code> (the model that served), <code>X-RogerAI-Cost</code>
+              (exact), <code>X-RogerAI-Tokens-In</code> / <code>-Out</code>,
+              <code>X-RogerAI-Price</code> (your 24h price lock) and
+              <code>X-RogerAI-Receipt</code> (the signed receipt). A stream ends with one
+              final <b>usage chunk</b> carrying the same receipt before <code>[DONE]</code>,
+              so a streaming client is metered exactly like a non-streaming one. The full
+              field list with types and ranges is in the broker's
+              <a href="https://broker.rogerai.fm/openapi.yaml">OpenAPI document</a>.</p>
           </section>
 
 

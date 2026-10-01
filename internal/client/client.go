@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -410,6 +411,15 @@ type ProxyOptions struct {
 	MaxPriceOut  float64 // X-Roger-Max-Price-Out cap on output price (0 = none)
 	Freq         string  // X-Roger-Freq private band code (empty = open market)
 	Pref         string  // X-Roger-Pref routing knob: cheap/balanced/fast/reliable (empty = balanced)
+	// SelfHostedOnly excludes curated (commercial-proxy) stations: body roger.self_hosted_only.
+	SelfHostedOnly bool
+	// Quantizations is the accepted quant-label set (body provider.quantizations); "unknown"
+	// admits stations that stated no label. Empty = any.
+	Quantizations []string
+	// HeaderRouting speaks the pre-body X-Roger-* wire to an OLD broker (its GET /v1/models
+	// answered 404 when the band was tuned - NegotiateRouting). Negotiated per session at tune
+	// time, never persisted; the default (false) is the body carrier (contract §1, §9).
+	HeaderRouting bool
 	// ExcludeNodes are stations this caller will NOT accept, sent as X-Roger-Exclude-Nodes
 	// on every request (unioned with the failover set the proxy builds as nodes drop).
 	//
@@ -797,10 +807,12 @@ func readCappedBody(r io.Reader, limit int64) (body []byte, over bool) {
 }
 
 // relayWithFailover runs the bounded retry/failover loop for one client request.
-// It first lets the broker pick (cheapest match); on a retryable failure it
-// re-queries /discover, picks an alternative that still meets the criteria,
-// pins it, and retries with backoff - excluding every provider that already
-// failed. On total exhaustion it returns a clear 502 and fires opts.Alert.
+// It first lets the broker pick; on a retryable failure it re-queries /discover, picks an
+// alternative that still meets the criteria, and retries with backoff naming it as the
+// PREFERRED station (provider.order) - never a pin, so the broker's own station failover
+// still runs past it - and excluding every provider that already failed (provider.ignore).
+// A 503 band_cooling with a short Retry-After is waited out once on the caller's behalf.
+// On total exhaustion it returns a clear 502 and fires opts.Alert.
 // onServed, when non-nil, is invoked EXACTLY once with the request's billed cost (in dollars,
 // from X-RogerAI-Cost) the moment a response is settled - on success right before the body is
 // streamed, or with 0 on total failover exhaustion. The proxy handler uses it to accumulate
@@ -816,58 +828,86 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		ctx = context.Background()
 	}
 	failed := map[string]bool{}
-	pin := "" // "" = let the broker choose; otherwise a failover-selected node
+	var order []string // the failover's preferred alternative ("" = let the broker choose)
 	var lastErr error
 	var lastStatus int
+	waited := false // the one band-cooling wait this request gets
+	// An OLD broker (header mode) cannot read the caller's own carriers: lift what has a
+	// header form, drop and name the rest, and refuse a models[] list honestly rather than
+	// silently serving the primary alone.
+	// Seeded with the owner's floor/rule so a guest can only tighten them (Apply's rules).
+	lifted := Routing{MinTPS: opts.MinTPS, Quantizations: opts.Quantizations}
+	var dropped []string
+	if opts.HeaderRouting {
+		var hasModels bool
+		var ferr error
+		body, dropped, hasModels, ferr = lifted.foldCallerCarriers(body)
+		if ferr != nil {
+			routingRefused(w, ferr)
+			onServed(0)
+			return
+		}
+		if hasModels {
+			openAIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_routing", "this broker does not support model fallback lists")
+			onServed(0)
+			return
+		}
+		if len(dropped) > 0 {
+			log.Printf("old broker: dropped %s (no header form)", strings.Join(dropped, ", "))
+		}
+	}
 
 	for attempt := 0; attempt < policy.maxAttempts; attempt++ {
 		if attempt > 0 {
 			time.Sleep(policy.backoff(attempt))
 		}
+		rt := Routing{
+			Pref: opts.Pref, MinTPS: lifted.MinTPS, Confidential: opts.Confidential || lifted.Confidential,
+			SelfHostedOnly: opts.SelfHostedOnly, Quantizations: opts.Quantizations,
+			Order: order, Ignore: unionStrings(keysOf(failed), opts.ExcludeNodes, lifted.Ignore),
+			HeaderMode: opts.HeaderRouting,
+		}
+		if lifted.Pref != "" {
+			rt.Pref = lifted.Pref
+		}
 		// Thread the caller's request context so a client disconnect / cancel propagates
 		// upstream (ruling 7: bound by dial + response-header timeouts AND the request context;
 		// a healthy body still streams to the broker's own ceiling).
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, opts.Broker+"/v1/chat/completions", bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, opts.Broker+"/v1/chat/completions", nil)
+		sent, cerr := rt.carry(req, body)
+		if cerr != nil {
+			routingRefused(w, cerr)
+			onServed(0)
+			return
+		}
+		req.Body = io.NopCloser(bytes.NewReader(sent))
+		req.ContentLength = int64(len(sent))
 		req.Header.Set("Content-Type", "application/json")
 		// Sign the request with the local user key: the broker derives the spending
 		// wallet from the verified pubkey (X-Roger-User is sent only as a legacy,
 		// unauthenticated hint). This is the P0 security fix - a header alone can no
 		// longer spend someone else's wallet.
-		signRequest(req, body)
+		signRequest(req, sent)
 		req.Header.Set("X-Roger-User", opts.User)
-		if opts.Confidential {
-			req.Header.Set("X-Roger-Confidential", "1")
-		}
-		if opts.MinTPS > 0 {
-			req.Header.Set("X-Roger-Min-TPS", fmt.Sprintf("%g", opts.MinTPS))
-		}
 		if opts.MaxPriceIn > 0 {
 			req.Header.Set("X-Roger-Max-Price", fmt.Sprintf("%g", opts.MaxPriceIn))
 		}
 		// Always carry an out-price cap: the caller's, or the default consumer ceiling
 		// when none was set. This is the enforced overpay guard - it bounds even a
-		// headless / --yes / scripted caller that never saw the interactive confirm.
+		// headless / --yes / scripted caller that never saw the interactive confirm. It
+		// stays a HEADER for one release so an OLD broker still applies it.
 		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(opts.MaxPriceOut)))
 		// Private band tune-in: carry the frequency code so the broker admits ONLY the
 		// resolved (hidden) station. The code is discovery + routing admission, NOT
 		// spend-auth - the request is still signed (above) and billed to the signed
 		// wallet; self-use stays $0. Failover via /discover won't see a private node, so
-		// a freq channel simply has no public alternative to fail over to (by design).
+		// a freq channel retries within the band (the broker re-picks) and never names
+		// a public alternative.
 		if opts.Freq != "" {
 			req.Header.Set("X-Roger-Freq", opts.Freq)
 		}
-		// Routing knob: forward the user's cheap/fast/reliable preference so the broker
-		// reshapes the SCORE accordingly (default balanced when unset).
-		if opts.Pref != "" {
-			req.Header.Set("X-Roger-Pref", opts.Pref)
-		}
-		if pin != "" {
-			req.Header.Set("X-Roger-Node", pin)
-		}
-		// The caller's standing exclusions and the live failover set are ONE header, so a
-		// station that is both wrong-quant and failing is named once.
-		if skip := unionSet(failed, opts.ExcludeNodes); skip != "" {
-			req.Header.Set("X-Roger-Exclude-Nodes", skip)
+		if d := unionStrings(rt.Dropped(), dropped); rt.HeaderMode && len(d) > 0 {
+			w.Header().Set("X-Roger-Routing-Dropped", strings.Join(d, ", "))
 		}
 
 		resp, err := httpClient.Do(req)
@@ -898,20 +938,46 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			lastErr, lastStatus = err, 0
 		} else {
 			lastErr, lastStatus = nil, resp.StatusCode
+			// BAND COOLING is the broker saying every station is in a 429 cooldown: there is
+			// no alternative to pick. A short Retry-After is waited out ONCE (honoring the
+			// caller's context); a long one, or a second one, is passed through unchanged
+			// with its Retry-After so the caller can decide.
+			raw, wait, cooling := bandCooling(resp)
+			resp.Body.Close()
+			if cooling {
+				if waited || wait > bandCoolingWait {
+					onServed(0)
+					passThrough(w, resp, raw)
+					return
+				}
+				waited = true
+				select {
+				case <-time.After(wait):
+				case <-ctx.Done():
+					onServed(0)
+					openAIError(w, http.StatusBadGateway, "api_error", "upstream_unavailable", "request cancelled while waiting for the band to cool")
+					return
+				}
+				order = nil // the broker re-picks; no preference, no pin
+				continue
+			}
 			if p := resp.Header.Get("X-RogerAI-Provider"); p != "" {
 				failed[p] = true
 			}
-			resp.Body.Close()
 		}
-		// If we had pinned a node, it failed too - never retry it.
-		if pin != "" {
-			failed[pin] = true
+		// The preferred alternative failed too (or was skipped) - never prefer it again.
+		for _, o := range order {
+			failed[o] = true
+		}
+		order = nil
+		if opts.Freq != "" {
+			continue // a private band has no public alternative; the broker re-picks within it
 		}
 		alt, ok := selectAlternative(opts.Broker, crit, failed)
 		if !ok {
 			break // nothing else fits the criteria
 		}
-		pin = alt
+		order = []string{alt}
 	}
 
 	msg := failoverError(crit, lastStatus, lastErr)
@@ -922,6 +988,27 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	// JSON-decode the body and crash on Go's plain text) - ruling 3.
 	onServed(0)
 	openAIError(w, http.StatusBadGateway, "api_error", "upstream_unavailable", msg)
+}
+
+// routingRefused answers a request the proxy will not forward: a guest body that would widen
+// the session owner's routing (a *RoutingRefusal, with its message) or one that is not JSON.
+// OpenAI-shaped so SDKs decode it (ruling 3).
+func routingRefused(w http.ResponseWriter, err error) {
+	var rr *RoutingRefusal
+	if errors.As(err, &rr) {
+		openAIError(w, http.StatusBadRequest, "invalid_request_error", "routing_outside_session", rr.Msg)
+		return
+	}
+	openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")
+}
+
+// keysOf returns a set's members (unordered; callers sort via unionStrings).
+func keysOf(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	return out
 }
 
 // failoverError builds the user-facing message when no provider could serve the
@@ -975,7 +1062,7 @@ func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFall
 	// Deny-by-default allowlist: the safe meter headers plus Retry-After (so a 429'd agent can
 	// back off - ruling 7). Hop-by-hop / connection-scoped / cookie / server headers are NEVER
 	// forwarded (RFC 7230 §6.1); keep this list tight.
-	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After"} {
+	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Model", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}
@@ -1380,31 +1467,6 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 	return meter.cost
 }
 
-// unionSet renders the live failover set plus the caller's standing exclusions as one
-// comma-separated header value, deduped and sorted so the same set always produces the
-// same bytes (a header that reordered per request would defeat any caching or diffing
-// downstream and make a log impossible to compare against itself).
-func unionSet(set map[string]bool, extra []string) string {
-	all := make(map[string]bool, len(set)+len(extra))
-	for k := range set {
-		all[k] = true
-	}
-	for _, k := range extra {
-		if k = strings.TrimSpace(k); k != "" {
-			all[k] = true
-		}
-	}
-	if len(all) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(all))
-	for k := range all {
-		parts = append(parts, k)
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, ",")
-}
-
 // Consumer price-safety bounds (the spend side of the marketplace's price guards).
 //
 //   - ConsumerDefaultMaxOut is the out-price ceiling APPLIED when the caller set no cap
@@ -1416,6 +1478,14 @@ func unionSet(set map[string]bool, extra []string) string {
 const (
 	ConsumerDefaultMaxOut    = 10.0 // $/1M out
 	ConsumerConfirmThreshold = 20.0 // $/1M out
+	// ConsumerCeilingMaxOut is the network's register-time out-price ceiling: the client-side
+	// mirror of the broker's maxPriceOutCeiling() default (cmd/rogerai-broker/pricesafety.go,
+	// env ROGERAI_MAX_PRICE_OUT), ONE policy stated twice because the client cannot import
+	// the broker - change both together, as with ConsumerDefaultMaxOut and
+	// ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT. No offer above it can exist, so `--max-out
+	// unlimited` sends exactly this and the broker clamps anything higher to it (never an
+	// error).
+	ConsumerCeilingMaxOut = 100.0 // $/1M out
 )
 
 // priceMatches reports whether a typed out-price confirms the shown one, tolerating
@@ -1459,6 +1529,22 @@ type UseOptions struct {
 	// disable the proxy already supported programmatically (ProxyOptions.ReasoningFallbackOff)
 	// but had no user-facing surface for - a caller that wants the untouched provider body.
 	Raw bool
+	// Routing knobs (contract §1, §10): the pref profile, self-hosted-only, and the quant
+	// label set (a standing rule carries "unknown", a --quant flag does not).
+	Pref           string
+	SelfHostedOnly bool
+	Quantizations  []string
+}
+
+// limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
+// "none" - `--max-out unlimited` buys nothing above the ceiling because nothing is offered
+// above it.
+func limitsLine(maxIn, maxOut, minTPS float64) string {
+	out := fmt.Sprintf("max-out=%g $/1M", maxOut)
+	if maxOut >= ConsumerCeilingMaxOut {
+		out = fmt.Sprintf("out cap: none (register ceiling $%.0f/1M)", ConsumerCeilingMaxOut)
+	}
+	return fmt.Sprintf("max-in=%g  %s   min-tps=%g t/s", maxIn, out, minTPS)
 }
 
 // balanceOf fetches the caller's wallet credits (best-effort; -1 if unavailable).
@@ -1613,13 +1699,16 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("  %-9s %s\n", "API KEY", sessionKey)
 	fmt.Printf("  %-9s %s\n", "MODEL", model)
 	if opt.MaxIn > 0 || maxOut > 0 || opt.MinTPS > 0 {
-		fmt.Printf("  %-9s max-in=%g  max-out=%g $/1M   min-tps=%g t/s\n", "LIMITS", opt.MaxIn, maxOut, opt.MinTPS)
+		fmt.Printf("  %-9s %s\n", "LIMITS", limitsLine(opt.MaxIn, maxOut, opt.MinTPS))
 	}
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
-		fmt.Fprintln(os.Stderr, "rogerai: "+s)
-	}}
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS,
+		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
+		HeaderRouting:        NegotiateRouting(broker), // tune time: body carriers, or headers for an old broker
+		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
+			fmt.Fprintln(os.Stderr, "rogerai: "+s)
+		}}
 	return useServe(addr, newProxyHandler(opts))
 }
 
@@ -1721,9 +1810,12 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("  %-9s %s\n", "FREQ", display)
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
-		fmt.Fprintln(os.Stderr, "rogerai: "+s)
-	}}
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
+		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
+		HeaderRouting:        NegotiateRouting(broker),
+		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
+			fmt.Fprintln(os.Stderr, "rogerai: "+s)
+		}}
 	return useServe(addr, newProxyHandler(opts))
 }
 
@@ -1896,6 +1988,16 @@ type ChatTurn struct {
 // fail during this turn's failover, so a tuned row binds routing here exactly as it does
 // on the proxy path.
 func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, maxOut float64, freq string, exclude []string) (ChatResult, error) {
+	return ChatTurnsRouting(broker, user, model, turns, maxOut, Routing{Confidential: confidential}, freq, exclude)
+}
+
+// ChatTurnsRouting is ChatTurns with the full consumer routing object. ONE carrier policy
+// with the proxy and the agent harness: rt rides the request BODY on every attempt (or the
+// X-Roger-* headers in HeaderMode, for an old broker), plus exactly two headers on every
+// path - X-Roger-Max-Price-Out (one release, so an old broker applies the cap) and
+// X-Roger-Freq (the band code is admission, never a body key). The failed set rides
+// provider.ignore (body) / X-Roger-Exclude-Nodes (header mode).
+func ChatTurnsRouting(broker, user, model string, turns []ChatTurn, maxOut float64, rt Routing, freq string, exclude []string) (ChatResult, error) {
 	if len(turns) == 0 {
 		return ChatResult{}, errors.New("chat: no messages to send")
 	}
@@ -1908,7 +2010,7 @@ func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, 
 		}
 		msgs = append(msgs, map[string]string{"role": t.Role, "content": t.Content})
 	}
-	reqBody, _ := json.Marshal(map[string]any{
+	baseBody, _ := json.Marshal(map[string]any{
 		"model":      model,
 		"messages":   msgs,
 		"max_tokens": MaxAnswerTokens,
@@ -1927,25 +2029,26 @@ func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, 
 		if attempt > 0 {
 			time.Sleep(policy.backoff(attempt))
 		}
-		req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
+		// The caller's standing exclusions AND whatever failed this turn, unioned and
+		// de-duplicated so an empty set never becomes an empty key for the broker to read.
+		attempt := rt
+		attempt.Ignore = unionStrings(rt.Ignore, keysOf(failed), exclude)
+		req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", nil)
+		reqBody, cerr := attempt.carry(req, baseBody)
+		if cerr != nil {
+			return ChatResult{}, fmt.Errorf("chat: %v", cerr)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(reqBody))
+		req.ContentLength = int64(len(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 		signRequest(req, reqBody)
 		req.Header.Set("X-Roger-User", user)
-		if confidential {
-			req.Header.Set("X-Roger-Confidential", "1")
-		}
 		// Always carry an out-price cap (the caller's, or the default consumer ceiling when
 		// none was set) so the in-channel chat relay is bounded against overpay exactly like
 		// `roger use` - not only the interactive tune-in confirm.
 		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(maxOut)))
 		if freq != "" {
 			req.Header.Set("X-Roger-Freq", freq)
-		}
-		// The caller's standing exclusions AND whatever failed this turn. unionSet drops
-		// blanks and returns "" when there is nothing to say, so an empty set never
-		// becomes an empty header for the broker to interpret.
-		if ex := unionSet(failed, exclude); ex != "" {
-			req.Header.Set("X-Roger-Exclude-Nodes", ex)
 		}
 
 		start := time.Now()

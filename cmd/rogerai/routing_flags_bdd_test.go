@@ -215,10 +215,10 @@ type rfState struct {
 	cfgBefore  []byte
 	commandRan bool // a roger command ran in this scenario: "the config has" is then an assertion
 
-	chatSent  int
-	responses []*http.Response
-	respBodys [][]byte
-	markers   []string
+	chatSent   int
+	responses  []*http.Response
+	respBodys  [][]byte
+	markers    []string
 	liveBefore map[string]float64
 }
 
@@ -278,7 +278,7 @@ func (s *rfState) feeRateIs(pct int) error {
 	return nil
 }
 func (s *rfState) consumerDefaultCap(v string) error { s.defaultCap = v; return nil }
-func (s *rfState) registerCeiling(v string) error   { s.ceiling = v; return nil }
+func (s *rfState) registerCeiling(v string) error    { s.ceiling = v; return nil }
 
 func (s *rfState) ensureBroker() error {
 	if s.brokerURL != "" {
@@ -1046,8 +1046,10 @@ func (s *rfState) helpDescribesMaxOut(cmdline string) error {
 	return nil
 }
 
-func (s *rfState) useHelpDescribes() error      { return s.helpDescribesMaxOut("roger use -h") }
-func (s *rfState) setLimitHelpDescribes() error { return s.helpDescribesMaxOut("roger config set-limit -h") }
+func (s *rfState) useHelpDescribes() error { return s.helpDescribesMaxOut("roger use -h") }
+func (s *rfState) setLimitHelpDescribes() error {
+	return s.helpDescribesMaxOut("roger config set-limit -h")
+}
 
 func (s *rfState) limitsShowsPref() error {
 	s.runOnce("limits")

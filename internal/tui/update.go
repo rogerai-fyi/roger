@@ -301,15 +301,15 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, sendChatLocal(m.chatLocalChat, m.chatLocalKey, m.connected.Model, turn, msgs)
 			}
-			// The tuned row IS a quant, so the stations running a different one are named
-			// as exclusions - the broker groups by model alone and would otherwise route
-			// this turn to weights the operator did not choose. Same rule the proxy path
-			// applies in liveProxyOpts; the booth's own chat used to skip it.
-			//
-			// Derived from the CONNECTED band, not from m.q - the quote is whatever row
-			// was last priced, so an over-limit quote the operator esc'd on another row
-			// would otherwise exclude stations that serve this one perfectly well.
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq, hist, m.chatExcludes())
+			// The [3] CONFIG rules and the tuned row ride the request body (quant_route.go),
+			// derived from the CONNECTED band, not from m.q - the quote is whatever row was
+			// last priced. A row outside the standing quant rule never leaves the booth.
+			if why := m.quantRuleRefusal(m.connected.Model, m.connected.Quant); why != "" {
+				m.status = stEmber.Render(why)
+				return m, nil
+			}
+			rt := m.routing(m.connected.Model, m.connected.Quant)
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.limits.resolve(m.connected.Model).MaxOut, rt, m.tuneFreq, hist)
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
@@ -1965,6 +1965,18 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !m.limOnBudget && m.limCursor < len(m.limModels) {
 				m.limits.clear(m.limModels[m.limCursor])
 				m.enterLimits()
+			}
+		case "p":
+			// CYCLE THE PREF of the band under the cursor: unset -> cheap -> balanced ->
+			// fast -> reliable -> unset. One keypress, no input box, like Q on the dial: a
+			// scoring knob with four values does not need a text field - this is the ONE
+			// editor for the knob (the table's pref column shows it).
+			if !m.limOnBudget && m.limCursor < len(m.limModels) {
+				mdl := m.limModels[m.limCursor]
+				lim := m.limits.resolve(mdl)
+				lim.Pref = nextPref(lim.Pref, true)
+				m.limits.set(mdl, lim)
+				m.status = stDim.Render("pref for ") + stKey.Render(mdl) + stDim.Render(": "+prefLabel(lim.Pref))
 			}
 		case "enter":
 			if m.limOnBudget {

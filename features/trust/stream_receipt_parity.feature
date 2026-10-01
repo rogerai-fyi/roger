@@ -320,7 +320,7 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
     When a streaming request for "qwen3-32b" is served by "n-1"
     Then the hold is released
     And the stream ends with a usage chunk whose usage.cost is 0
-    And usage.rogerai.void_reason is "settle_failed"
+    And usage.rogerai.void_reason is "settle-failed"
     And no `: rogerai-cost=` comment is written
 
   Scenario: Reasoning tokens are billed where today's re-count bills them

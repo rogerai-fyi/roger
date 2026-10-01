@@ -236,6 +236,20 @@ func (s *rpState) callerOwnsNode(name, model string) error {
 	s.model = model
 	st := s.station(name, 0.10, 0.30)
 	s.callerPriv = st.ownerPriv // the caller IS the operator: self-use, $0
+	// A realistic owner has a wallet row: it is created the first time they read /balance or
+	// /me (dashboards.go, the same BalanceOf call). Without one, a $0 self-use settle on the
+	// POSTGRES store finds no row to update and the relay is served unreceipted - a separate,
+	// pre-existing gap (free/self relays skip ensureSeeded) that this coin invariant is not
+	// about and must not depend on. The in-memory store never showed it.
+	wallet := protocol.UserIDFromPubkey(st.acct)                       // the payer walletOf() resolves: the unified
+	if o, ok, err := s.b.db.OwnerByPubkey(st.acct); err == nil && ok { // account wallet when linked
+		if w, ok := accountWalletForOwner(o); ok {
+			wallet = w
+		}
+	}
+	if _, err := s.b.db.BalanceOf(wallet, s.b.seedFunds); err != nil {
+		return fmt.Errorf("seed the owner's wallet row: %w", err)
+	}
 	return nil
 }
 
@@ -270,7 +284,15 @@ func (s *rpState) ensureTower() error {
 	mux := http.NewServeMux()
 	s.b.registerTowerRoutes(mux)
 	s.towerSrv = httptest.NewServer(mux)
-	s.edgeConsumer = signedInConsumer(s.t, s.b)
+	// The edge consumer is the harness's GitHub-bound, funded buyer: the bridge needs a
+	// signed-in account whose wallet matches the one relay resolved, and the DIRECT path
+	// needs a logged-in ACCOUNT wallet to spend on a paid station (anonCannotPay). The
+	// shared signedInConsumer fixture is an email-only owner, whose u_email_ wallet the
+	// direct spend gate (isAccountWallet) does not recognise - see the report.
+	if err := s.ensureFunded(); err != nil {
+		return err
+	}
+	s.edgeConsumer = s.consumerPriv
 	return nil
 }
 
@@ -505,12 +527,26 @@ func (s *rpState) relayOnce(stream bool) error {
 func (s *rpState) relayBatch() error {
 	s.batch = nil
 	s.logMark = len(s.logs.String())
+	s.heartbeat()
 	for i := 0; i < rpBatch; i++ {
 		if err := s.relayOnce(false); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// heartbeat re-stamps every scenario station's lastSeen, as a real station's heartbeat loop
+// does every few seconds. The harness stamps lastSeen once at stand-up; under a loaded
+// full-suite run the Tower fabric stand-up between the Givens and the When can take long
+// enough for a station to cross nodeTTL and go stale, which is a liveness story these pins
+// do not test (eligibility.feature does).
+func (s *rpState) heartbeat() {
+	s.b.mu.Lock()
+	for _, st := range s.stations {
+		s.b.lastSeen[st.id] = time.Now()
+	}
+	s.b.mu.Unlock()
 }
 
 // idOf resolves a scenario name to the id the broker knows: a station's node id, a Tower's id,
@@ -588,6 +624,9 @@ func (s *rpState) handRolledNoCap(model string) error {
 func (s *rpState) streamServedSettles(model, name string, cost float64) error {
 	s.model = model
 	st := s.st(name)
+	// The scripted usage frame claims 5000 prompt tokens; the broker bills min(claim,
+	// re-count), so the request must carry a prompt that large for the claim to be the bill.
+	s.tokens = 5000
 	st.scriptStream(3, false)
 	if err := s.relayOnce(true); err != nil {
 		return err
@@ -709,13 +748,6 @@ func (s *rpState) routingCounter(name string) (float64, bool) {
 	if err := s.readAdminLive(); err != nil {
 		return 0, false
 	}
-	if routing, _ := s.adminResp["routing"].(map[string]any); routing != nil {
-		for _, k := range []string{name, "routing_" + name} {
-			if v, ok := routing[k].(float64); ok {
-				return v, true
-			}
-		}
-	}
 	if v, ok := s.adminResp["routing_"+name].(float64); ok {
 		return v, true
 	}
@@ -761,7 +793,24 @@ func (s *rpState) nodeServes(name string) error {
 		return fmt.Errorf("no relay in the batch was served (last: %d %s)", last.code, last.body)
 	}
 	if served != total {
-		return fmt.Errorf("%q served %d of %d successful relays; the others went elsewhere", name, served, total)
+		seen := map[string]int{}
+		for _, r := range s.batch {
+			if r.code == 200 {
+				seen[r.hdr.Get("X-RogerAI-Provider")+" relay="+r.hdr.Get("X-RogerAI-Relay")+" cost="+r.hdr.Get("X-RogerAI-Cost")]++
+			}
+		}
+		sample := ""
+		for _, r := range s.batch {
+			if r.code == 200 && r.hdr.Get("X-RogerAI-Provider") != id {
+				sample = fmt.Sprintf("%.300s | headers: %v", r.body, r.hdr)
+				break
+			}
+		}
+		logs := s.logs.String()
+		if len(logs) > 900 {
+			logs = logs[len(logs)-900:]
+		}
+		return fmt.Errorf("%q (%s) served %d of %d successful relays; the others went elsewhere: %v; sample: %s; broker log tail: %s", name, id, served, total, seen, sample, logs)
 	}
 	return nil
 }
