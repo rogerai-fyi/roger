@@ -61,6 +61,10 @@ func fakeRuntime(mode string) {
 		fmt.Fprint(w, `{"status":"ok"}`)
 	})
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if key := os.Getenv("FAKE_KEY"); key != "" && r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		served := band
 		if mode == "wrongmodel" {
 			served = "something-else"
@@ -228,4 +232,21 @@ func noStrays(t *testing.T) error {
 		return fmt.Errorf("left %d child process(es) behind: %s", len(strings.Fields(s)), s)
 	}
 	return nil
+}
+
+// A runtime that demands a key is proven WITH the key, which is how every caller will ask it.
+func TestAKeyedRuntimeIsProvenWithItsKey(t *testing.T) {
+	port := freePort(t)
+	sp := spec(t, "ok", port)
+	sp.Key = "sekrit"
+	sp.Env["FAKE_KEY"] = "sekrit"
+	s, err := runtime.Start(context.Background(), sp)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	require.Equal(t, "sekrit", s.Key)
+
+	resp, err := http.Get(s.BaseURL + "/models")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the keyed runtime answered a caller with no key")
 }

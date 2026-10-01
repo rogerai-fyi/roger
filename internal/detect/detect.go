@@ -35,6 +35,13 @@ import (
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
+// Endpoint is a server roger itself started, with the key it was started behind.
+type Endpoint struct{ Name, Base, Key string }
+
+// Served lists what roger is serving on this machine. The caller that knows where the record
+// lives sets it; detection only reads it.
+var Served = func() []Endpoint { return nil }
+
 // Found is a reachable local OpenAI-compatible server discovered by DetectFull.
 type Found struct {
 	Name    string         // friendly server name (e.g. "ollama")
@@ -215,6 +222,12 @@ func ProbeKey(rawURL, key string) (Found, Status) {
 // have (so the caller can ask for one).
 func detectWith(priority []candidate) (found []Found, needKey []string) {
 	cands := priority
+	// (a0) runtimes roger started itself. They are on a port nobody chose and behind a key
+	// nobody exported, so without this rung the only way to find them would be the blind
+	// port scan, which by design never presents a key.
+	for _, e := range Served() {
+		cands = append(cands, candidate{name: e.Name, base: e.Base, key: e.Key})
+	}
 	// (a) documented default endpoints.
 	for _, p := range probes {
 		c := candidate{name: p.name, base: p.base}

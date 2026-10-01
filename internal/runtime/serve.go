@@ -69,6 +69,7 @@ type Spec struct {
 	Band        string   // the model id it must advertise, and the one the Edge will route on
 	Ctx         int      // the context it should serve at
 	Port        int      // the loopback port. Zero is refused: a caller must choose, and know.
+	Key         string   // the bearer the runtime demands, so readiness is proven the way a caller will ask
 	Args        []string // the runtime's own flags
 	Env         map[string]string
 	ReadyWithin time.Duration
@@ -78,6 +79,7 @@ type Spec struct {
 type Server struct {
 	BaseURL string // the OpenAI-compatible base, which is what internal/detect and the face consume
 	Band    string
+	Key     string // what a caller must present; empty when the runtime asks for none
 	PID     int
 	Started time.Time
 
@@ -127,6 +129,7 @@ func Start(ctx context.Context, sp Spec) (*Server, error) {
 	s := &Server{
 		BaseURL: "http://127.0.0.1:" + strconv.Itoa(sp.Port) + "/v1",
 		Band:    sp.Band,
+		Key:     sp.Key,
 		PID:     cmd.Process.Pid,
 		Started: time.Now(),
 		cmd:     cmd,
@@ -166,7 +169,7 @@ func (s *Server) waitReady(ctx context.Context, sp Spec) error {
 		default:
 		}
 		if healthy(ctx, s.BaseURL) {
-			served, err := modelsListed(ctx, s.BaseURL)
+			served, err := modelsListed(ctx, s.BaseURL, s.Key)
 			if err == nil {
 				for _, id := range served {
 					if id == s.Band {
@@ -318,10 +321,13 @@ func healthy(ctx context.Context, base string) bool {
 
 // modelsListed is what the runtime says it serves. This is deliberately the SAME check the Edge's
 // serving probe makes over the wire, so a band cannot be proven by one and denied by the other.
-func modelsListed(ctx context.Context, base string) ([]string, error) {
+func modelsListed(ctx context.Context, base, key string) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
 	if err != nil {
 		return nil, err
+	}
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
