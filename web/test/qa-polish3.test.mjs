@@ -128,3 +128,41 @@ test("app: every screenshot <img> offers the small copy through srcset + sizes",
     assert.match(tag, new RegExp(`width="${w}"`), `${name}: width is the master's`);
   }
 });
+
+// Item 4: the last SVG words under 11px at 390. The two diagrams (Hardware ladder, Research
+// scope) joined the shared diagram scroll box (test/qa-polish2.test.mjs). The rest are
+// illustrations, where scrolling makes no sense, so their words grow inside the drawing:
+//  - the App hero's REAL APP stamp (160 x 44 units, 11-unit type) was shrunk to 120px on
+//    a tablet or phone, 8.3px type; it now keeps its drawn size everywhere (it clears the
+//    FIG. caption and still sits over the handheld's corner at 390);
+//  - the Playbox cassette (320 units drawn at ~250px on a phone, 0.78): its sub line and
+//    side letter are 10-11 units, 7.8px; on a phone they set at 14.5 units (11.3px), the
+//    sub line without tracking so the longest one ("pick a cassette from the shelf", 30
+//    mono characters) still fits the 272-unit label;
+//  - the Wave family mark's ROGERAI.FM ident, 11 units at 0.97 (10.7px): 12 units.
+const phoneBlock = (sheet) => [...css(sheet).matchAll(/@media \(max-width: (\d+)px\) \{((?:[^{}]*\{[^}]*\})*[^{}]*)\}/g)]
+  .filter((m) => Number(m[1]) <= 640 && Number(m[1]) >= 390).map((m) => m[2]).join("\n");
+
+test("labels: the App stamp keeps its drawn size (11-unit type = 11px) at every width", () => {
+  const sheet = css("app.css");
+  assert.doesNotMatch(sheet, /\.app-stamp \{[^}]*width: (?!160px)\d+px/, "no rule shrinks the stamp");
+  assert.match(read("src/app.html"), /<svg class="app-stamp" viewBox="0 0 160 44" width="160" height="44"/);
+  assert.match(sheet, /\.app-stamp \{[^}]*font-size: 11px/);
+});
+
+test("labels: the Playbox cassette's small words set at >= 14.5 units on a phone (>= 11px)", () => {
+  const phone = phoneBlock("playbox.css");
+  for (const cls of ["dk-c__sub", "dk-c__side"]) {
+    const m = phone.match(new RegExp(`\\.${cls}[^{]*\\{[^}]*font-size: ([\\d.]+)px`));
+    assert.ok(m && Number(m[1]) >= 14.5, `${cls} on a phone: ${m && m[1]}`);
+  }
+  assert.match(phone, /\.dk-c__sub[^{]*\{[^}]*letter-spacing: 0/, "the sub line fits its label untracked");
+  // the longest sub line, 30 mono characters at 0.6em, fits the 272-unit label
+  const longest = Math.max(...[...read("src/js/playbox.js").matchAll(/"([^"]+)"/g)]
+    .filter((m) => /pick a cassette|on air via|certified contracts/.test(m[1])).map((m) => m[1].length));
+  assert.ok(longest * 0.6 * 14.5 <= 272, `${longest} characters fit`);
+});
+
+test("labels: the Wave family mark's station ident is 12 units (11.6px at 390)", () => {
+  assert.match(read("src/js/wave-mark-spectrum.js"), /ident\.setAttribute\("style",\s*"font-family: var\(--font-mono\); font-size: 12px;/);
+});

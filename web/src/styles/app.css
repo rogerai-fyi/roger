@@ -215,7 +215,6 @@
   .app-feature--flip .app-feature__grid > .app-feature__copy { order: 0; }
   .app-feature--flip .app-feature__grid > .app-feature__media { order: 1; }
   .app-feature__media--trio { grid-template-columns: repeat(3, 1fr); gap: var(--s-3); }
-  .app-stamp { width: 120px; height: 33px; top: -6px; }
 }
 @media (max-width: 560px) {
   /* carry the parent so this beats the base .app-hero__devices .app-hero__phone */

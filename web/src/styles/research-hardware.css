@@ -7,9 +7,9 @@
 /* ---- §1 the spectrum -------------------------------------------------- */
 
 .hw-figure { margin: var(--s-8) 0 0; }
-/* Only the band scrolls. Putting overflow on the <figure> would carry the caption off to
-   the right with it, so the reader would scroll the band and lose the sentence explaining it. */
-.hw-figure__scroll { overflow-x: auto; }
+/* Only the band scrolls (the shared .scroll-box--diagram around the svg). Putting overflow
+   on the <figure> would carry the caption off to the right with it, so the reader would
+   scroll the band and lose the sentence explaining it. */
 /* the hint only means anything while the band is actually wider than the screen */
 .hw-figure__swipe { display: none; }
 @media (max-width: 860px) {
@@ -20,8 +20,10 @@
   }
 }
 .hw-ladder {
-  /* below this the labels stop being legible, so the band scrolls instead of shrinking */
-  display: block; width: 100%; min-width: 780px; height: auto;
+  /* the band's floor in the shared diagram scroll box: below it the band scrolls instead
+     of shrinking. On a phone it keeps 1182px, its width in user units plus its border, so the
+     smallest label (11 units) reads at 11px. */
+  --diagram-min: 780px;
   background: var(--white);
   border: 1px solid var(--hairline); border-radius: var(--panel-r);
   padding: var(--s-4) 0;
@@ -233,4 +235,9 @@
   font-family: var(--font-mono); font-size: var(--t-xs);
   background: var(--paper-2); border: 1px solid var(--hairline);
   border-radius: 3px; padding: 1px 5px; /* its words stay whole via .cmd-words, the line may wrap */
+}
+
+/* a phone: the ladder at its drawn width, every label at 11px or more */
+@media (max-width: 640px) {
+  .hw-ladder { --diagram-min: 1182px; }
 }

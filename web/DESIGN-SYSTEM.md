@@ -31,7 +31,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
 | Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
 | Figure | `.figure` (`--plate`, `--phone`, `--chart`) | - | the articles |
-| Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial and Wave family diagrams |
+| Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial, Wave family, Hardware ladder and Research scope diagrams |
 | Data table | `.data-table` | - | articles, manual, Integrations, Hardware, Wave family |
 | Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
@@ -441,7 +441,7 @@ column instead of shrinking its labels, with the code block's edge shade while t
 more to scroll (the same grouped rule; `--edge-ground` is the ground the shade ends on,
 paper by default). The page sets `--diagram-min` in its own context so the figure's
 smallest label renders at 11px or more: 11 x viewBox width / smallest label size
-(`test/qa-polish2.test.mjs` checks the Tower, Pricing, Industrial and Wave family
+(`test/qa-polish2.test.mjs` checks the Tower, Pricing, Industrial, Wave family, Hardware and Research
 figures). It prints at the page width.
 
 Keyboard: `site.js` gives any `.scroll-box`, `<pre>` or Wave family rail that overflows

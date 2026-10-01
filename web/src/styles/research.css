@@ -434,7 +434,15 @@
   display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
   gap: var(--s-8); align-items: center; padding-top: var(--s-6);
 }
-.scope__ppi { width: 100%; height: auto; overflow: visible; }
+/* the scope sits in the shared diagram scroll box: no floor in the desktop's 360px column,
+   and on a phone it keeps its 480 units at 480px, so the range and bearing labels (11-12
+   units) read at 11px or more and the scope scrolls sideways instead of shrinking them */
+.scope__ppi { width: 100%; height: auto; overflow: visible; --diagram-min: 0px; }
+.scope__body > .scroll-box { width: 100%; }
+.scope[data-mode="jobs"] .scope__ppi { margin-inline: auto; }
+@media (max-width: 640px) {
+  .scope__ppi { --diagram-min: 480px; }
+}
 
 /* --- the two axes -----------------------------------------------------------
    Both axes are rendered into the same SVG and the figure's data-mode decides
