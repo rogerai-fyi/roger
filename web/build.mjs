@@ -205,6 +205,19 @@ function cacheBust(html) {
   }).join(", ") + '"');
 }
 
+// glueDashes keeps a heading's spaced dash off the start of a line: a title that wrapped
+// right before " - " left the dash leading the next line. The word before the dash is glued
+// to it (`.nobr`, components.css), so the line can only break after the dash. Markup only:
+// the heading's words and order are unchanged (the text-freeze fixtures compare text).
+// Headings h1-h6 and the broadcasts index titles (.bc-row__title).
+const GLUE_RE = /(<(h[1-6])\b[^>]*>)([\s\S]*?)(<\/\2>)|(<span class="bc-row__title">)([^<]*)(<\/span>)/g;
+const glueOne = (s) => s.replace(/([^\s<>]+) - /g, '<span class="nobr">$1 -</span> ');
+function glueDashes(html) {
+  return html.replace(GLUE_RE, (m, open, _tag, inner, close, rOpen, rInner, rClose) =>
+    open ? open + inner.split(/(<[^>]*>)/).map((part, i) => (i % 2 ? part : glueOne(part))).join("") + close
+         : rOpen + glueOne(rInner) + rClose);
+}
+
 // ---- SEO: one canonical per page + a build-time sitemap ------------------------------------
 const ORIGIN = "https://rogerai.fm";
 const canonicalURL = (page) => (page === "index.html" ? `${ORIGIN}/` : `${ORIGIN}/${page}`);
@@ -395,6 +408,7 @@ function build() {
     out = resolveWaveTokens(out, page, wave);   // wave status labels from the one data file
     out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
     out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
+    out = glueDashes(out);             // a heading's " - " never starts a line
     out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
     if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);

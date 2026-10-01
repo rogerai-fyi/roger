@@ -36,6 +36,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
 | Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
+| Heading dash glue | `.nobr` (added by `build.mjs` glueDashes to h1-h6 and `.bc-row__title`: the word before " - " stays with the dash) | - | every page with a dashed heading |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
 | Touch hit area | `--hit`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |

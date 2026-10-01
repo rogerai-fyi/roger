@@ -23,6 +23,10 @@
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); text-wrap: pretty; }
 
+/* a heading's spaced dash never starts a line: build.mjs (glueDashes) wraps the word
+   before " - " in this span, so the line breaks after the dash. Markup only, no words. */
+.nobr { white-space: nowrap; }
+
 /* ============================ BUTTONS ========================== */
 /* ---------- section action buttons -------------------------------------------
    The hero action row is how every top-level page offers the rest of its own section,
