@@ -161,7 +161,7 @@
      plate wherever it is dropped, and so a stylesheet edit cannot silently
      un-brand it */
   ident.setAttribute("style",
-    "font-family: var(--font-mono); font-size: 11px; letter-spacing: .3em;" +
+    "font-family: var(--font-mono); font-size: 12px; letter-spacing: .3em;" +
     "fill: var(--ink-400); stroke: var(--paper); stroke-width: 3px;" +
     "paint-order: stroke; stroke-linejoin: round;");
   svg.appendChild(ident);

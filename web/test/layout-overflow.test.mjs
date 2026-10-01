@@ -153,8 +153,8 @@ test("broadcasts: article code blocks scroll inside their own box", () => {
 
 test("hardware: the ladder scrolls inside its box, the run cards never widen a phone", () => {
   const c = css("research-hardware.css");
-  assert.equal(decl(c, ".hw-figure__scroll")["overflow-x"], "auto", "the ladder band scrolls in its own box");
-  assert.match(page("research-hardware.html"), /<div class="hw-figure__scroll">\s*<svg class="hw-ladder"/);
+  assert.equal(decl(css("components.css"), ".scroll-box")["overflow-x"], "auto", "the ladder band scrolls in its own box");
+  assert.match(page("research-hardware.html"), /<div class="scroll-box scroll-box--diagram">\s*<svg class="hw-ladder"/);
   assert.equal(decl(c, ".hw-exps")["grid-template-columns"], "minmax(0, 1fr)",
     "a bare 1fr column is minmax(auto,1fr): the bench table's nowrap cells forced it wide");
   const cell = decl(c, ".hw-bench td", phone);

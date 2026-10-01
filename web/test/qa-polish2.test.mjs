@@ -38,6 +38,11 @@ const DIAGRAMS = [
   { page: "pricing.html", sheet: "pricing.css", svg: "rwire__svg", vbw: 958, smallest: 16, desktop: 922 },
   { page: "research-industry.html", sheet: "research.css", svg: "purdue__svg", vbw: 720, smallest: 9, desktop: 888 },
   { page: "research-wave-family.html", sheet: "wave-family.css", svg: "wf-orbit__svg", vbw: 900, smallest: 16, desktop: 882 },
+  // polish3: the Hardware ladder (its own 780px scroller left 7.3px labels at 390) and the
+  // Research scope (a 480-unit PPI shrunk to 350px: 8px labels; its smallest phone label is
+  // 11 units, the bearings step up to 12 at <=720; on a desktop it sits in a 360px column)
+  { page: "research-hardware.html", sheet: "research-hardware.css", svg: "hw-ladder", vbw: 1180, smallest: 11, desktop: 922 },
+  { page: "research.html", sheet: "research.css", svg: "scope__ppi", vbw: 480, smallest: 11, desktop: 360 },
 ];
 
 test("the diagram scroll box is one shared component: a floor width and the edge shade", () => {

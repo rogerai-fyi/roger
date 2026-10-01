@@ -31,11 +31,12 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
 | Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
 | Figure | `.figure` (`--plate`, `--phone`, `--chart`) | - | the articles |
-| Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial and Wave family diagrams |
+| Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial, Wave family, Hardware ladder and Research scope diagrams |
 | Data table | `.data-table` | - | articles, manual, Integrations, Hardware, Wave family |
 | Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
 | Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
+| Heading dash glue | `.nobr` (added by `build.mjs` glueDashes to h1-h6 and `.bc-row__title`: the word before " - " stays with the dash) | - | every page with a dashed heading |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
 | Touch hit area | `--hit`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
@@ -440,7 +441,7 @@ column instead of shrinking its labels, with the code block's edge shade while t
 more to scroll (the same grouped rule; `--edge-ground` is the ground the shade ends on,
 paper by default). The page sets `--diagram-min` in its own context so the figure's
 smallest label renders at 11px or more: 11 x viewBox width / smallest label size
-(`test/qa-polish2.test.mjs` checks the Tower, Pricing, Industrial and Wave family
+(`test/qa-polish2.test.mjs` checks the Tower, Pricing, Industrial, Wave family, Hardware and Research
 figures). It prints at the page width.
 
 Keyboard: `site.js` gives any `.scroll-box`, `<pre>` or Wave family rail that overflows
@@ -522,7 +523,11 @@ behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1
 - **Fonts** are self-hosted (`assets/fonts`, `scripts/vendor-fonts.mjs`), `font-display:
   swap`; `head.html` preloads the text face's latin file (it was most of the phone layout
   shift), not the mono face (preloading both cost first paint more than it saved). No page links a third-party
-  stylesheet.
+  stylesheet. The build stamps every local `url()` in a stylesheet (the fonts, a few
+  backgrounds) with `?v=<content hash>`, like the page's own asset urls, so the edge's long
+  cache for versioned urls covers them; the preload gets the same hash (preload and
+  `@font-face` must name one url, or the face downloads twice), and a stylesheet's own
+  `?v=` hashes its built bytes, so a new font gives `base.css` a new url too.
 - **Scripts** are deferred. The only parser-blocking one is the tiny theme setter in
   `<head>` (under 1 KB), which also marks a visitor who has not dismissed the promo strip so
   the strip is laid out in the first frame (it used to push every page down on reveal).

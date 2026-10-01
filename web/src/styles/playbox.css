@@ -355,6 +355,13 @@
 .dk-c__notches { stroke: var(--paper); stroke-width: 2; stroke-linecap: round; opacity: 0.7; }
 .dk-c__side { fill: var(--paper); font-family: var(--font-mono); font-size: 11px; font-weight: 600; opacity: 0.7; }
 .dk-c__screw { fill: var(--ink-700, #555); }
+/* a phone draws the cassette at ~250px (0.78 of its 320 units): its small words grow
+   inside the drawing to 14.5 units (11px+), the sub line untracked so the longest one
+   still fits the label (lifted 3 units off the red stripe) */
+@media (max-width: 560px) {
+  .dk-c__sub { font-size: 14.5px; letter-spacing: 0; transform: translateY(-3px); }
+  .dk-c__side { font-size: 14.5px; }
+}
 .dk__reel { transform-box: fill-box; transform-origin: center; }
 .dk__cassette.is-playing #dkReelL { animation: dk-spin 1.6s linear infinite; }
 .dk__cassette.is-playing #dkReelR { animation: dk-spin 1.1s linear infinite; }
