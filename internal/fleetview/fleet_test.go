@@ -32,7 +32,7 @@ func fleetSnap(now time.Time) fleetview.FleetSnapshot {
 				Caps: []fleetview.Cap{{"serve", "VERIFIED"}, {"operate", "CLAIMED"}}},
 			{Kind: fleetview.ItemAgent, Name: "watcher", Dark: true},
 			{Kind: fleetview.ItemMember, ID: "n_nas", Name: "nas", NodeKind: "host", Presence: "online",
-				Caps: []fleetview.Cap{{"serve", "VERIFIED"}}, Bands: []string{"gpt-oss-20b"}, LastSeen: now.Add(-20 * time.Second)},
+				Caps: []fleetview.Cap{{"serve", "VERIFIED"}}, Bands: []string{"gpt-oss-20b"}, LastSeen: now.Add(-20 * time.Second), Controllable: true},
 			{Kind: fleetview.ItemMember, ID: "n_ibex", Name: "gentle-ibex-14", NodeKind: "mobile", Presence: "offline 1d", Dark: true,
 				Alerts: []string{"offline > 5"}, LastSeen: now.Add(-26 * time.Hour)},
 			{Kind: fleetview.ItemCandidate, ID: "n_fox", Name: "blue-fox-3", NodeKind: "mobile", Presence: "discovered"},
@@ -734,4 +734,15 @@ func TestTheScreenPrintsALabelAndActsOnTheName(t *testing.T) {
 	if len(rec.adopted) != 1 || rec.adopted[0] != id {
 		t.Fatalf("adopt acted on %v, want the record id", rec.adopted)
 	}
+}
+
+// features/edge/fleet_window.feature §2: a member heard with no face to dial reads HEARD, not ON AIR.
+func TestFleetScreenSaysHeardForAUnitItCannotControl(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemMember, ID: "n_nina", Name: "nina", NodeKind: "mobile",
+		Presence: "online", LastSeen: now.Add(-9 * time.Second)})
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	must(t, page.Screen(), "nina", "HEARD")
 }

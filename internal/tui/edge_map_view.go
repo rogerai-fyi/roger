@@ -40,6 +40,7 @@ type edgeNetItem struct {
 	// (edge.Arrange). The wire says a relay is in the path; these say which one and how many.
 	via  string
 	hops int
+	at   time.Time // the screen's clock, for the state word's age
 }
 
 // alertTag is the short count a card wears when rules are firing: "1 alert", "2 alerts".
@@ -111,11 +112,26 @@ func (it edgeNetItem) sub() string {
 		// when a unit is both offline and alerting those two words are the urgent pair: the kind is
 		// still told by the card's glyph and spelled out in the readout, but "offline" is told
 		// nowhere else on the card. An earlier version dropped it and that was a step backwards.
-		s = "offline · " + tag
+		s = it.stateShort() + " · " + tag
 	default:
 		s += " · " + tag
 	}
 	return s
+}
+
+// stateShort is the shared state word and its age, for a member card (edge.UnitWord).
+func (it edgeNetItem) stateShort() string {
+	if it.node == nil {
+		if it.dark {
+			return edge.WordDark // no record to age it by, and still dark
+		}
+		return ""
+	}
+	w, line := edge.UnitWord(*it.node, len(it.alerts), it.at)
+	if i := strings.Index(line, " · "); i > 0 && w == edge.WordHeard {
+		return line[:i] // the card keeps the word and age; the page names the missing channel
+	}
+	return line
 }
 
 func (it edgeNetItem) subBase() string {
@@ -126,18 +142,19 @@ func (it edgeNetItem) subBase() string {
 		return "YOU ARE HERE · " + it.role
 	case it.cand:
 		return it.kindWord() + " · adopt with a"
-	case it.member && it.dark:
-		return it.kindWord() + " · offline"
-	case it.member && it.via != "":
-		// WHICH relay, not just that there is one. The wire already says the path goes through
-		// something; a picture of how the Edge is connected has to name it.
-		return it.kindWord() + " · via " + it.via
-	case it.member && it.hardware() != "":
-		// WHAT IT IS, when the machine has said: "MACHINE · Raspberry Pi 4" tells an owner more than
-		// "MACHINE · on your Edge" ever could, and it is the node's own report, never a guess.
-		return it.kindWord() + " · " + it.hardware()
 	case it.member:
-		return it.kindWord() + " · on your Edge"
+		// WHAT IT IS and HOW IT IS, with its age (features/edge/fleet_window.feature): the kind, the
+		// hardware when it fits, the relay it is reached through, and the shared state word - never
+		// only "on your Edge". The card is narrow, so the hardware gives way first.
+		state := it.stateShort()
+		base := it.kindWord()
+		if it.via != "" {
+			// WHICH relay, not just that there is one: the wire says a path goes through something.
+			base += " · via " + it.via
+		} else if hw := it.hardware(); hw != "" && lipgloss.Width(base+" · "+hw+" · "+state) <= edgeNetCardText {
+			base += " · " + hw
+		}
+		return base + " · " + state
 	case it.dark && it.agent:
 		return "agent · offline"
 	case it.dark:
@@ -222,7 +239,7 @@ func (m model) edgeNetItems() []edgeNetItem {
 		}
 		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), member: true, node: byID[n.ID], id: n.ID, kind: n.Kind,
 			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID],
-			via: r.Via, hops: r.Depth})
+			via: r.Via, hops: r.Depth, at: m.edge.at})
 	}
 	// The DISCOVERED machines not yet on this Edge - candidates, adopt with a.
 	for i := range m.edge.cands {
@@ -291,7 +308,10 @@ func edgeDefaultNetSel(items []edgeNetItem) int {
 	return 0
 }
 
-const edgeNetCardW = 30 // card width (border included); fits a kind and its state ("MACHINE · on your Edge")
+const edgeNetCardW = 32 // card width (border included); fits a kind, a board and its state ("BOARD · Pi 4 · ON AIR now")
+
+// edgeNetCardText is the text a card line holds: its width less the border and the padding.
+const edgeNetCardText = edgeNetCardW - 6
 
 // edgeMapTopology draws the topology: the machine card, a branch, and the instance/agent cards in
 // centred rows, the selected card glowing red. It returns nothing; it draws through line().
@@ -737,9 +757,13 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		if it.cand {
 			label("STATUS", stEmber.Render("not on your Edge")+stDim.Render(" · press ")+lampStyle(roleLive).Render("a")+stDim.Render(" to adopt it"))
 		} else {
-			pres := "on the Edge"
+			// The shared state word with its age, and the missing channel named when it is heard but
+			// cannot be controlled (features/edge/fleet_window.feature).
+			_, pres := edge.UnitWord(*n, len(it.alerts), m.edge.at)
 			if it.dark {
-				pres = "offline · last heartbeat aged out"
+				pres += " · its last heartbeat aged out; its values below are as old as that"
+			} else if !edge.Controllable(*n) {
+				pres += " - actions that need its face (serve model, maintenance, ask) cannot reach it"
 			}
 			label("STATUS", pres)
 		}

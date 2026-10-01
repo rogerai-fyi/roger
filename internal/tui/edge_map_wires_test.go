@@ -317,3 +317,29 @@ func TestTheMachineYouAreAtIsNotAlsoAnotherMachine(t *testing.T) {
 		t.Errorf("an id is drawn as a name:\n%s", out)
 	}
 }
+
+// features/edge/fleet_window.feature §2: a card says how a unit is with its age, and a unit that is
+// heard but has no face to dial says HEARD - its page names what that means for the actions.
+func TestACardSaysHowAUnitIsAndAHeardOnlyUnitSaysSo(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		AuthorityAddr: "http://192.168.1.9:8791", Enrolled: true, Name: "desk", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	phone := nodeOf("p", "nina", "mobile")
+	phone.Transports = nil // heard through its presence, with no LAN face to dial
+	phone.LastSeen -= 40
+	m := networkModel(t, self, nodeOf("a", "studio", "host"), phone)
+	out := stripANSI(m.edgeView(116))
+	for _, want := range []string{"MACHINE · ON AIR now", "PHONE · HEARD 43s"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "nina" {
+			m.edge.netSel, m.edge.netSelSet, m.edge.netDetail = i, true, true
+		}
+	}
+	page := stripANSI(m.edgeView(160))
+	if !strings.Contains(page, "HEARD 43s · no control path") || !strings.Contains(page, "cannot reach it") {
+		t.Errorf("the page does not say what heard-only means:\n%s", page)
+	}
+}

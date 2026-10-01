@@ -173,6 +173,10 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		it.Software = edgeSoftwareLines(n.Instances)
 		it.Tags = append([]string(nil), n.Tags...)
 		it.Maintain = edge.Declares(n, edge.Maintain)
+		it.Controllable = edge.Controllable(n)
+		if mm := edge.ModelOf(n); mm != nil {
+			it.Model = edge.ModelLine(mm)
+		}
 		snap.Items = append(snap.Items, it)
 	}
 	for _, c := range st.candidates {

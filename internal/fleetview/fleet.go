@@ -98,6 +98,11 @@ type FleetItem struct {
 	// on there, so a member holding a maintain grant can start one of its agents
 	// (features/edge/maintenance.feature). False says nothing at all, not "refused".
 	Maintain bool
+	// Controllable is whether this machine has a face it can dial for the unit (edge.Controllable).
+	// A member heard but not controllable reads HEARD, not ON AIR: what can be done to it differs.
+	Controllable bool
+	// Model is what the unit serves of its own and is fetching, in edge.ModelLine's words.
+	Model string
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -146,11 +151,14 @@ func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
 	}
 	switch st {
 	case edge.StateDark:
-		return "DARK", ash, since
+		return edge.WordDark, ash, since
 	case edge.StateTrouble:
-		return "TROUBLE", live, since
+		return edge.WordTrouble, live, since
 	}
-	return "ON AIR", signal, since
+	if it.Kind == ItemMember && !it.Controllable {
+		return edge.WordHeard, glow, since // heard, with no face this machine can dial
+	}
+	return edge.WordOnAir, signal, since
 }
 
 // sinceWords is the duration in state, with "≥" when the log began inside the run (it cannot say

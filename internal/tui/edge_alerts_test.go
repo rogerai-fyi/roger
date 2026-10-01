@@ -61,9 +61,10 @@ func TestFiringAlertsShowOnTheFleetSurfaces(t *testing.T) {
 	if !strings.Contains(out, "LOCAL · 1 alert") {
 		t.Errorf("this machine's card should count its firing alert:\n%s", out)
 	}
-	// A dark member's card is narrow: its label is "offline · N alert(s)", whole, never truncated.
+	// A dark member's card is narrow: its label is "DARK · N alert(s)", whole, never truncated - the
+	// shared state word (features/edge/fleet_window.feature) where it used to say "offline".
 	dark := edgeNetItem{member: true, dark: true, alerts: []string{"offline > 5"}}
-	if got := dark.sub(); got != "offline · 1 alert" {
+	if got := dark.sub(); got != "DARK · 1 alert" {
 		t.Errorf("dark member label = %q", got)
 	}
 }

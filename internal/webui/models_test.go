@@ -234,6 +234,7 @@ func TestTheConsoleShowsAndSwitchesAMembersModel(t *testing.T) {
 	require.Contains(t, body, `"serve_control":true`)
 	require.Contains(t, body, `serving \"qwen3-4b\" (unsloth/Qwen3-4B-GGUF:Q4_K_M, 8192 context)`)
 	require.Contains(t, body, `"model_have":["unsloth/Qwen3-4B-GGUF:Q4_K_M"]`)
+	require.Contains(t, body, `"state":"HEARD now · no control path"`, "the card carries the shared state word (fleet_window.feature)")
 
 	code, _ = call(t, srv, s.Token(), "POST", "/api/edge/serve-model", `{"id":"n_jetson","model":"unsloth/Qwen3-8B-GGUF:Q4_K_M"}`)
 	require.Equal(t, http.StatusPreconditionRequired, code, "no yes, no request")

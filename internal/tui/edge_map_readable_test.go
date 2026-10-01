@@ -45,8 +45,13 @@ func mapReadableModel(t *testing.T) model {
 func TestEveryCardSaysWhatTheThingIs(t *testing.T) {
 	m := mapReadableModel(t)
 	out := stripANSI(m.edgeView(116))
-	// Hardware in capitals, software in lower case, so the two are never confused at a glance.
-	for _, want := range []string{"MACHINE · on your Edge", "BOARD · on your Edge", "PHONE · on your Edge",
+	// Hardware in capitals, software in lower case, so the two are never confused at a glance. A member
+	// card says HOW it is with its age (features/edge/fleet_window.feature, approved 2026-10-01), never
+	// only "on your Edge".
+	if strings.Contains(out, "MACHINE · on your Edge") || strings.Contains(out, "BOARD · on your Edge") || strings.Contains(out, "PHONE · on your Edge") {
+		t.Errorf("a member card still says only \"on your Edge\":\n%s", out)
+	}
+	for _, want := range []string{"MACHINE · ON AIR now", "BOARD · ON AIR now", "PHONE · ON AIR now",
 		"PHONE · adopt with a", "agent · idle", "agent · offline"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the map does not say what a unit IS: missing %q\n%s", want, out)
