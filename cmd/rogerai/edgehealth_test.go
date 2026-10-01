@@ -95,11 +95,12 @@ func TestEdgeHealthCLI(t *testing.T) {
 	now := time.Now()
 	temp := 61.5
 	load := 1.2
+	power := uint32(0x10000)
 	edgeSeed(t,
 		store.EdgeNode{ID: "n_jetson", Name: "jetson", Kind: "host", Presence: string(edge.PresenceVerified),
 			LastSeen: now.Add(-10 * time.Second).Unix(),
 			Instances: []store.EdgeInstance{{Name: "agent", Resources: &store.EdgeResources{
-				RAMUsedGB: 8, RAMTotalGB: 32, CPUTempC: &temp, CPULoad1: &load, UptimeS: 90000,
+				RAMUsedGB: 8, RAMTotalGB: 32, CPUTempC: &temp, CPULoad1: &load, UptimeS: 90000, PiPower: &power,
 				Disks:  []store.EdgeDisk{{Mount: "/", UsedGB: 40, TotalGB: 100}},
 				ReadAt: now.Add(-90 * time.Second).Unix()}}}},
 		store.EdgeNode{ID: "n_quiet", Name: "quiet", Kind: "mobile", Presence: string(edge.PresenceVerified), LastSeen: now.Unix()},
@@ -124,6 +125,7 @@ func TestEdgeHealthCLI(t *testing.T) {
 	require.Contains(t, full, "ago", "every metric shows how old the reading is")
 	require.Contains(t, full, "/ ", "each mounted disk")
 	require.Contains(t, full, "uptime")
+	require.Contains(t, full, "good now · under-voltage since boot", "a Pi's power is shown in words")
 }
 
 // The machine's OWN fleet row must be kept alive and carry its live household - otherwise the
@@ -177,4 +179,44 @@ func TestSelfNodeHeartbeatsIntoItsOwnFleet(t *testing.T) {
 	require.NotNil(t, mine)
 	require.False(t, mine.Dark)
 	require.NotNil(t, mine.Readings)
+}
+
+// features/edge/health.feature: "a throttled or undervolted Pi is surfaced, because it is the classic
+// Pi failure" and "SD-card wear is reported where the Pi exposes it". The firmware word is read as it
+// is (the bits mean "now" and "since boot"), and wear comes from the card's own life_time register.
+func TestEdgeReadResourcesReadsThePisPowerAndCardWear(t *testing.T) {
+	root := t.TempDir()
+	w := func(rel, body string) {
+		p := filepath.Join(root, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
+	}
+	w("proc/uptime", "100.0 100.0\n")
+	now := time.Unix(1_700_000_000, 0)
+
+	r := edgeReadResourcesFrom(root, now)
+	require.Nil(t, r.PiPower, "a machine with no Pi firmware reports no power word - never 0")
+	require.Nil(t, r.SDWearPct)
+
+	// Pi 4 (and the Pi 5's own platform path): the firmware's word, in hex.
+	w("sys/devices/platform/soc/soc:firmware/get_throttled", "50005\n")
+	w("sys/block/mmcblk0/device/life_time", "0x03 0x02\n")
+	r = edgeReadResourcesFrom(root, now)
+	require.NotNil(t, r.PiPower)
+	require.Equal(t, uint32(0x50005), *r.PiPower)
+	require.NotNil(t, r.SDWearPct)
+	require.Equal(t, 30.0, *r.SDWearPct, "life_time 0x03 is 20-30% used: the upper bound, never the hopeful one")
+
+	// A healthy Pi reports a real zero, which is a reading - not an absence.
+	w("sys/devices/platform/soc/soc:firmware/get_throttled", "0\n")
+	r = edgeReadResourcesFrom(root, now)
+	require.NotNil(t, r.PiPower)
+	require.Zero(t, *r.PiPower)
+
+	// Nonsense in either file is no reading, not a guess.
+	w("sys/devices/platform/soc/soc:firmware/get_throttled", "lots\n")
+	w("sys/block/mmcblk0/device/life_time", "0x00 0x00\n")
+	r = edgeReadResourcesFrom(root, now)
+	require.Nil(t, r.PiPower)
+	require.Nil(t, r.SDWearPct, "0x00 means the card does not say")
 }

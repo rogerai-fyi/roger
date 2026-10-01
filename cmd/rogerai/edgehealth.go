@@ -131,6 +131,9 @@ func edgeHealthOne(hs []edge.NodeHealth, firing edge.AlertState, want string, no
 		if r.SDWearPct != nil {
 			fmt.Printf("  %-10s %.0f%% worn%s\n", "sd card", *r.SDWearPct, age())
 		}
+		if r.PiPower != nil {
+			fmt.Printf("  %-10s %s%s\n", "power", edge.PowerLine(*r.PiPower), age())
+		}
 		return edgeHealthAlerts(h, firing)
 	}
 	return errNoSuchNode(want)

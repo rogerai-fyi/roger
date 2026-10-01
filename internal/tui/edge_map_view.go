@@ -755,6 +755,15 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		if hw := edge.MachineOf(*n); hw != "" {
 			label("HARDWARE", hw)
 		}
+		// A Pi's power, from the freshest reading any of its rogers sent: the classic Pi failure, so
+		// it sits beside the hardware it is about. Happening now is lit; history is dim.
+		if w, ok := edgePiPower(*n); ok {
+			if now, _ := edge.PowerWords(w); len(now) > 0 {
+				label("POWER", stEmber.Render(edge.PowerLine(w)))
+			} else {
+				label("POWER", stDim.Render(edge.PowerLine(w)))
+			}
+		}
 		// The FULL id, because this is the one screen with room for it and every `roger edge` command
 		// takes one. A node the owner never named is called by a short id everywhere else.
 		label("ID", stDim.Render(n.ID))
@@ -1087,4 +1096,18 @@ func edgeAlertLabels(it edgeNetItem, label func(k, v string)) {
 		}
 		label(k, lampStyle(roleLive).Render("firing · "+a))
 	}
+}
+
+// edgePiPower is the freshest power word any roger on the node reported, and whether there is one.
+func edgePiPower(n store.EdgeNode) (uint32, bool) {
+	var best *store.EdgeResources
+	for _, in := range n.Instances {
+		if r := in.Resources; r != nil && r.PiPower != nil && (best == nil || r.ReadAt > best.ReadAt) {
+			best = r
+		}
+	}
+	if best == nil {
+		return 0, false
+	}
+	return *best.PiPower, true
 }

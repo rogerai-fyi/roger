@@ -186,3 +186,31 @@ func TestACardSaysWhichBoardItIs(t *testing.T) {
 		t.Errorf("a node that reported no model was given hardware anyway")
 	}
 }
+
+// features/edge/health.feature: a throttled or undervolted Pi shows the flag ON THE NODE. The page
+// takes the freshest reading any of its rogers reported, and says nothing for a machine that is not
+// a Pi.
+func TestANodePageSaysWhenAPiIsShortOfPower(t *testing.T) {
+	m := mapReadableModel(t)
+	old, fresh := uint32(0), uint32(0x50005)
+	for i := range m.edge.rows {
+		if m.edge.rows[i].n.Name == "pi-greenhouse" {
+			m.edge.rows[i].n.Instances = []store.EdgeInstance{
+				{Name: "old", Resources: &store.EdgeResources{PiPower: &old, ReadAt: 100}},
+				{Name: "new", Resources: &store.EdgeResources{PiPower: &fresh, ReadAt: 200}},
+			}
+		}
+	}
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "pi-greenhouse" {
+			m.edge.netSel, m.edge.netSelSet, m.edge.netDetail = i, true, true
+		}
+	}
+	page := stripANSI(m.edgeView(116))
+	if !strings.Contains(page, "POWER") || !strings.Contains(page, "under-voltage, throttled NOW") {
+		t.Errorf("the node page does not say the Pi is short of power:\n%s", page)
+	}
+	if strings.Contains(stripANSI(mapReadableModel(t).edgeView(116)), "POWER") {
+		t.Errorf("a machine that reports no power word was given one")
+	}
+}

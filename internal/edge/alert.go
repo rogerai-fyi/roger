@@ -10,6 +10,7 @@ package edge
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -19,16 +20,17 @@ import (
 type Metric string
 
 const (
-	MetricCPUTemp Metric = "cpu_temp" // degrees C
-	MetricCPULoad Metric = "cpu_load" // 1-minute load average
-	MetricMemory  Metric = "memory"   // percent of a reported total
-	MetricDisk    Metric = "disk"     // percent, the fullest mounted disk
-	MetricSDWear  Metric = "sd_wear"  // percent worn
-	MetricOffline Metric = "offline"  // minutes unheard, judged by the authority
+	MetricCPUTemp   Metric = "cpu_temp"  // degrees C
+	MetricCPULoad   Metric = "cpu_load"  // 1-minute load average
+	MetricMemory    Metric = "memory"    // percent of a reported total
+	MetricDisk      Metric = "disk"      // percent, the fullest mounted disk
+	MetricSDWear    Metric = "sd_wear"   // percent worn
+	MetricThrottled Metric = "throttled" // 1 while a Pi is under-volted, capped or throttled NOW
+	MetricOffline   Metric = "offline"   // minutes unheard, judged by the authority
 )
 
 // Metrics is every metric a rule may watch, in display order.
-var Metrics = []Metric{MetricCPUTemp, MetricCPULoad, MetricMemory, MetricDisk, MetricSDWear, MetricOffline}
+var Metrics = []Metric{MetricCPUTemp, MetricCPULoad, MetricMemory, MetricDisk, MetricSDWear, MetricThrottled, MetricOffline}
 
 func metricLabel(m Metric) string { return strings.ReplaceAll(string(m), "_", " ") }
 
@@ -139,6 +141,7 @@ func DefaultRules() []Rule {
 		{ID: "cpu_temp", Metric: MetricCPUTemp, Op: OpGT, Value: 85, Default: true},
 		{ID: "disk", Metric: MetricDisk, Op: OpGT, Value: 90, Default: true},
 		{ID: "offline", Metric: MetricOffline, Op: OpGT, Value: DefaultTTL.Minutes(), Default: true},
+		{ID: "throttled", Metric: MetricThrottled, Op: OpGT, Value: 0, Default: true},
 	}
 }
 
@@ -254,6 +257,12 @@ func (a Alert) String() string {
 		}
 		return fmt.Sprintf("%s: %s is back online", state, a.Node)
 	}
+	if a.Metric == MetricThrottled {
+		if a.Firing {
+			return fmt.Sprintf("%s: %s is short of power or throttled right now", state, a.Node)
+		}
+		return fmt.Sprintf("%s: %s is no longer throttled", state, a.Node)
+	}
 	unit := metricUnit(a.Metric)
 	return fmt.Sprintf("%s: %s %s %s%s (threshold %s %s%s)", state, a.Node, metricLabel(a.Metric),
 		fmtThreshold(a.Value), unit, a.Op, fmtThreshold(a.Threshold), unit)
@@ -292,6 +301,13 @@ func (h NodeHealth) Reading(m Metric) (float64, bool) {
 	case MetricSDWear:
 		if r.SDWearPct != nil {
 			return *r.SDWearPct, true
+		}
+	case MetricThrottled:
+		if r.PiPower != nil {
+			if now, _ := PowerWords(*r.PiPower); len(now) > 0 {
+				return 1, true
+			}
+			return 0, true
 		}
 	}
 	return 0, false
@@ -370,4 +386,51 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 		alerts = append(alerts, a)
 	}
 	return next, alerts
+}
+
+// powerBits are the Pi firmware's get_throttled flags, in the order an owner should read them. The
+// same four meanings appear twice: bits 0-3 are NOW, bits 16-19 are "has happened since boot".
+var powerBits = []struct {
+	bit  uint
+	word string
+}{{0, "under-voltage"}, {1, "frequency capped"}, {2, "throttled"}, {3, "soft temperature limit"}}
+
+// PowerWords splits a Pi's power word into what is happening now and what has happened since boot.
+// Since-boot stays set until the Pi restarts, which is the point: a supply that sagged at 3am is
+// still the reason a card got corrupted at 3am.
+func PowerWords(flags uint32) (now, since []string) {
+	for _, b := range powerBits {
+		if flags&(1<<b.bit) != 0 {
+			now = append(now, b.word)
+		}
+		if flags&(1<<(b.bit+16)) != 0 {
+			since = append(since, b.word)
+		}
+	}
+	return now, since
+}
+
+// PowerLine is a Pi's power in one line every surface prints the same way.
+func PowerLine(flags uint32) string {
+	now, since := PowerWords(flags)
+	switch {
+	case len(now) == 0 && len(since) == 0:
+		return "good"
+	case len(now) == 0:
+		return "good now · " + strings.Join(since, ", ") + " since boot"
+	case len(since) == 0:
+		return strings.Join(now, ", ") + " NOW"
+	}
+	// What is happening now first; since-boot only adds what "now" did not already say.
+	var extra []string
+	for _, w := range since {
+		if !slices.Contains(now, w) {
+			extra = append(extra, w)
+		}
+	}
+	line := strings.Join(now, ", ") + " NOW"
+	if len(extra) > 0 {
+		line += " · " + strings.Join(extra, ", ") + " since boot"
+	}
+	return line
 }

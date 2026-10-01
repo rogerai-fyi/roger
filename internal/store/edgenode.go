@@ -86,7 +86,11 @@ type EdgeResources struct {
 	UptimeS   int64      `json:"uptime_s,omitempty"`
 	Disks     []EdgeDisk `json:"disks,omitempty"` // every mounted real filesystem
 	SDWearPct *float64   `json:"sd_wear_pct,omitempty"`
-	ReadAt    int64      `json:"read_at,omitempty"`
+	// PiPower is a Raspberry Pi firmware's get_throttled word, verbatim: its low bits say what is
+	// happening NOW (under-voltage, capped, throttled, soft limit), bits 16-19 what has happened
+	// since boot. nil on anything that is not a Pi; 0 is a real, healthy reading.
+	PiPower *uint32 `json:"pi_power,omitempty"`
+	ReadAt  int64   `json:"read_at,omitempty"`
 }
 
 // EdgeDisk is one mounted filesystem's used and total, in GB.

@@ -2278,6 +2278,7 @@
     });
     if (r.uptime_s > 0) edgeKV(card, "uptime", edgeUptime(r.uptime_s), "muted");
     if (r.sd_wear_pct != null) edgeKV(card, "SD wear", Math.round(r.sd_wear_pct) + "%", r.sd_wear_pct >= 80 ? "" : "muted");
+    if (r.pi_power != null) edgeKV(card, "power", edgePowerLine(r.pi_power), (r.pi_power & 0xf) ? "" : "muted");
     if (r.read_at) {
       var ageS = Math.max(0, Math.round(Date.now() / 1000 - r.read_at));
       if (ageS > 60) edgeKV(card, "", "readings are " + edgeUptime(ageS) + " old", "muted");
@@ -2775,13 +2776,27 @@
   }
 
   // edgeRenderRuleForm is the set form: a metric, a comparison, a value and a scope. The words go to
+  // A Pi's firmware power word in the words edge.PowerLine uses on every other surface: bits 0-3 are
+  // what is happening NOW, bits 16-19 the same four since boot.
+  var EDGE_POWER_WORDS = ["under-voltage", "frequency capped", "throttled", "soft temperature limit"];
+  function edgePowerLine(flags) {
+    var now = [], since = [];
+    EDGE_POWER_WORDS.forEach(function (w, i) {
+      if (flags & (1 << i)) now.push(w);
+      if (flags & (1 << (i + 16))) since.push(w);
+    });
+    if (!now.length && !since.length) return "good";
+    if (!now.length) return "good now \u00b7 " + since.join(", ") + " since boot";
+    var extra = since.filter(function (w) { return now.indexOf(w) < 0; });
+    return now.join(", ") + " NOW" + (extra.length ? " \u00b7 " + extra.join(", ") + " since boot" : "");
+  }
   // the host AS TYPED - the rule id and the scope are resolved once, where the CLI resolves them.
   function edgeRenderRuleForm(d) {
     var box = $("edge-rule-form");
     if (!box || box.dataset.built === "1") return; // build once; polling must not wipe a half-filled form
     box.dataset.built = "1";
     var metric = el("select", "edge-rule-metric");
-    ["cpu_temp", "cpu_load", "memory", "disk", "sd_wear", "offline"].forEach(function (m) {
+    ["cpu_temp", "cpu_load", "memory", "disk", "sd_wear", "throttled", "offline"].forEach(function (m) {
       var o = el("option", null, m); o.value = m; metric.appendChild(o);
     });
     var op = el("select", "edge-rule-op");

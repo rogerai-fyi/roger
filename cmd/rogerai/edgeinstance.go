@@ -301,6 +301,30 @@ func edgeReadResourcesFrom(root string, now time.Time) *store.EdgeResources {
 			}
 		}
 	}
+	// A Raspberry Pi's power word: the firmware publishes it on the platform bus (the Pi 4 and the Pi
+	// 5 name the bus differently, hence the glob). Hex, with or without its 0x.
+	if ws, _ := filepath.Glob(filepath.Join(root, "sys/devices/platform/soc*/*firmware/get_throttled")); len(ws) > 0 {
+		if raw, err := os.ReadFile(ws[0]); err == nil {
+			txt := strings.TrimPrefix(strings.TrimSpace(string(raw)), "0x")
+			if v, err := strconv.ParseUint(txt, 16, 32); err == nil {
+				w := uint32(v)
+				r.PiPower = &w
+			}
+		}
+	}
+	// Card and eMMC wear, from the device's own life_time register: 0x01 is 0-10% used ... 0x0A is
+	// 90-100%, 0x0B past its life. The upper bound is reported, because the hopeful end of a wear
+	// estimate is how a card dies unannounced. 0x00 means the card does not say.
+	if ls, _ := filepath.Glob(filepath.Join(root, "sys/block/mmcblk*/device/life_time")); len(ls) > 0 {
+		if raw, err := os.ReadFile(ls[0]); err == nil {
+			if fs := strings.Fields(string(raw)); len(fs) > 0 {
+				if v, err := strconv.ParseUint(strings.TrimPrefix(fs[0], "0x"), 16, 8); err == nil && v > 0 {
+					pct := float64(min(v, 10)) * 10
+					r.SDWearPct = &pct
+				}
+			}
+		}
+	}
 	if path, err := exec.LookPath("nvidia-smi"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -315,7 +339,8 @@ func edgeReadResourcesFrom(root string, now time.Time) *store.EdgeResources {
 			}
 		}
 	}
-	if r.RAMTotalGB == 0 && r.GPU == "" && r.CPULoad1 == nil && r.UptimeS == 0 && r.CPUTempC == nil && len(r.Disks) == 0 {
+	if r.RAMTotalGB == 0 && r.GPU == "" && r.CPULoad1 == nil && r.UptimeS == 0 && r.CPUTempC == nil && len(r.Disks) == 0 &&
+		r.PiPower == nil && r.SDWearPct == nil {
 		return nil // nothing could be read: no record, rather than a record of zeros
 	}
 	r.ReadAt = now.Unix()

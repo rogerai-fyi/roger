@@ -511,3 +511,65 @@ func TestStandBysWrittenByAnOlderBuildStillRead(t *testing.T) {
 	_, err = l.Feed(time.Time{}, t0.Add(time.Minute), nil)
 	require.NoError(t, err)
 }
+
+// features/edge/health.feature: a throttled or undervolted Pi is surfaced, and a default rule warns
+// on throttling that is happening NOW. A flag that only says "since boot" is shown, never paged.
+func TestAThrottledPiIsSurfacedAndADefaultRuleWarns(t *testing.T) {
+	now, since := edge.PowerWords(0x50005)
+	require.Equal(t, []string{"under-voltage", "throttled"}, now)
+	require.Equal(t, []string{"under-voltage", "throttled"}, since)
+	now, since = edge.PowerWords(0x80000)
+	require.Empty(t, now)
+	require.Equal(t, []string{"soft temperature limit"}, since)
+	now, since = edge.PowerWords(0)
+	require.Empty(t, now)
+	require.Empty(t, since)
+
+	var rule edge.Rule
+	for _, r := range edge.DefaultRules() {
+		if r.Metric == edge.MetricThrottled {
+			rule = r
+		}
+	}
+	require.Equal(t, "throttled", rule.ID, "throttling has a default rule")
+	require.True(t, rule.Default)
+
+	at := time.Unix(1_700_000_000, 0)
+	h := func(word uint32) edge.NodeHealth {
+		return edge.NodeHealth{ID: "n_pi", Name: "pi", Readings: &store.EdgeResources{PiPower: &word, ReadAt: at.Unix()}}
+	}
+	v, ok := h(0x50005).Reading(edge.MetricThrottled)
+	require.True(t, ok)
+	require.Equal(t, 1.0, v)
+	v, ok = h(0x50000).Reading(edge.MetricThrottled)
+	require.True(t, ok)
+	require.Zero(t, v, "since-boot alone is history, not a page")
+	_, ok = edge.NodeHealth{ID: "n_pc", Readings: &store.EdgeResources{ReadAt: at.Unix()}}.Reading(edge.MetricThrottled)
+	require.False(t, ok, "a machine with no Pi firmware is not judged at all")
+
+	rules := edge.RuleSet(edge.DefaultRules())
+	st, alerts := edge.Evaluate(rules, []edge.NodeHealth{h(0x50005)}, edge.AlertState{}, at)
+	require.Len(t, alerts, 1)
+	require.Equal(t, edge.MetricThrottled, alerts[0].Metric)
+	require.True(t, alerts[0].Firing)
+	_, alerts = edge.Evaluate(rules, []edge.NodeHealth{h(0x50000)}, st, at)
+	require.Len(t, alerts, 1)
+	require.False(t, alerts[0].Firing, "it clears when it stops, once")
+
+	why, do := edge.WhyAndDo(edge.MetricThrottled)
+	require.Contains(t, why, "power")
+	require.Contains(t, do, "supply")
+	require.Equal(t, "HI", edge.Priority(edge.MetricThrottled))
+}
+
+func TestAPisPowerIsSaidInWordsOnEverySurface(t *testing.T) {
+	require.Equal(t, "good", edge.PowerLine(0))
+	require.Equal(t, "under-voltage NOW · throttled since boot", edge.PowerLine(0x40001))
+	require.Equal(t, "good now · under-voltage since boot", edge.PowerLine(0x10000))
+	require.Equal(t, "now", edge.FormatValue(edge.MetricThrottled, 1))
+	require.Equal(t, "clear", edge.FormatValue(edge.MetricThrottled, 0))
+	require.Equal(t, "firing: pi is short of power or throttled right now",
+		edge.Alert{Node: "pi", Metric: edge.MetricThrottled, Firing: true, Value: 1}.String())
+	require.Equal(t, "cleared: pi is no longer throttled",
+		edge.Alert{Node: "pi", Metric: edge.MetricThrottled}.String())
+}

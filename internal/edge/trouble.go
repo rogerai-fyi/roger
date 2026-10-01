@@ -83,7 +83,7 @@ type TroubleDeadAir struct {
 // a worn card), MED soon (dark, memory), LOW when convenient.
 func Priority(m Metric) string {
 	switch m {
-	case MetricCPUTemp, MetricDisk, MetricSDWear:
+	case MetricCPUTemp, MetricDisk, MetricSDWear, MetricThrottled:
 		return "HI"
 	case MetricOffline, MetricMemory:
 		return "MED"
@@ -118,6 +118,8 @@ func WhyAndDo(m Metric) (string, string) {
 		return "a worn card corrupts silently, then will not boot", "back it up now · replace the card before it fails"
 	case MetricCPULoad:
 		return "a saturated processor answers late", "spread the jobs · or add a unit to the rack"
+	case MetricThrottled:
+		return "a Pi short of power slows itself and corrupts its card", "use the official supply and a short, thick cable · check what it powers over USB"
 	}
 	return "a rule you set is over its line", "look at the unit · adjust the rule if the line was wrong"
 }
@@ -131,6 +133,11 @@ func FormatValue(m Metric, v float64) string {
 		return Age(time.Duration(v * float64(time.Minute)))
 	case MetricCPULoad:
 		return fmt.Sprintf("%.2f", v)
+	case MetricThrottled:
+		if v > 0 {
+			return "now"
+		}
+		return "clear"
 	}
 	return fmt.Sprintf("%.0f%%", v)
 }

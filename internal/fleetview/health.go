@@ -443,6 +443,13 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 			if r.SDWearPct != nil {
 				row("sd card", append(meterN(*r.SDWearPct/100, -1, 0, false, wide), span(fmt.Sprintf(" %.0f%% worn", *r.SDWearPct), ink))...)
 			}
+			if r.PiPower != nil {
+				pw := ink
+				if now, _ := edge.PowerWords(*r.PiPower); len(now) > 0 {
+					pw = live // happening now is the one that needs a hand
+				}
+				row("power", span(edge.PowerLine(*r.PiPower), pw))
+			}
 		}
 		for _, a := range firing {
 			if strings.HasPrefix(a, "cpu_temp ") || (strings.HasPrefix(a, "disk ") && r != nil) {

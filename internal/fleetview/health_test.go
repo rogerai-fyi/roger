@@ -157,3 +157,16 @@ func TestHealthScreenEditsRulesInPlace(t *testing.T) {
 	}
 	must(t, page.Screen(), "a default is turned off, not removed")
 }
+
+// features/edge/health.feature: a throttled or undervolted Pi shows the flag ON THE NODE, in words.
+func TestHealthScreenShowsAPiShortOfPower(t *testing.T) {
+	now := time.Now()
+	word, wear := uint32(0x50005), 30.0
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{Nodes: []edge.NodeHealth{{ID: "n_pi", Name: "greenhouse", Kind: "board",
+			Presence: string(edge.PresenceVerified), LastHeard: now,
+			Readings: &store.EdgeResources{PiPower: &word, SDWearPct: &wear, ReadAt: now.Unix()}}}, At: now}, nil
+	})
+	page := uitest.Run(t, 120, 40, h.Draw)
+	must(t, page.Screen(), "POWER", "under-voltage, throttled NOW", "30% worn")
+}
