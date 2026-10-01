@@ -535,6 +535,10 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 	case "h":
 		return m, m.edgeOpenLive("health", "--live")
 	case "o":
+		// The window opens on the unit the owner already had selected (fleet_window.feature).
+		if it, _ := m.edgeSelectedNet(); (it.member || it.cand) && it.id != "" {
+			return m, m.edgeOpenLive("fleet", "--select", it.id)
+		}
 		return m, m.edgeOpenLive("fleet")
 	case "b":
 		m.edgeStartBind()

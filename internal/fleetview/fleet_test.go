@@ -7,6 +7,7 @@ package fleetview_test
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +93,17 @@ func TestFleetScreenActionsGoThroughTheHandedInFunctions(t *testing.T) {
 	}
 	must(t, page.Screen(), "adopted blue-fox-3")
 
+	// The rack is worst first (fleet_window.feature): the dark phone sits above the healthy nas.
+	// Up to nas: rename it in place.
+	page.Press("Up")
+	page.Press("n")
+	must(t, page.Screen(), "new name")
+	page.Type("nas-2")
+	page.Press("Enter")
+	if len(rec.renamed) != 1 || rec.renamed[0] != "n_nas=nas-2" {
+		t.Fatalf("renamed = %v", rec.renamed)
+	}
+
 	// Up to the dark phone: forget asks first; n cancels, y forgets.
 	page.Press("Up")
 	must(t, page.Screen(), "gentle-ibex-14", "patched in", "f forget")
@@ -105,16 +117,6 @@ func TestFleetScreenActionsGoThroughTheHandedInFunctions(t *testing.T) {
 	page.Press("y")
 	if len(rec.forgot) != 1 || rec.forgot[0] != "n_ibex" {
 		t.Fatalf("forgot = %v", rec.forgot)
-	}
-
-	// Up to nas: rename it in place.
-	page.Press("Up")
-	page.Press("n")
-	must(t, page.Screen(), "new name")
-	page.Type("nas-2")
-	page.Press("Enter")
-	if len(rec.renamed) != 1 || rec.renamed[0] != "n_nas=nas-2" {
-		t.Fatalf("renamed = %v", rec.renamed)
 	}
 
 	// p cycles where a turn goes first, through the handed-in setter.
@@ -268,9 +270,8 @@ func TestFleetScreenTellsTheReJoinStoryOnOneUnit(t *testing.T) {
 	}
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, rec.actions())
 	page := uitest.Run(t, 130, 44, f.Draw)
-	for i := 0; i < 5; i++ {
-		page.Press("Down")
-	}
+	f.SelectUnit("n_ibex") // by id: the rack is worst first, so position is not identity
+	page.Press("r")
 	s := page.Screen()
 	must(t, s, "asking to re-join", "a re-admit", "waiting for it to claim", "39009")
 	page.Press("a")
@@ -308,9 +309,8 @@ func TestFleetScreenShowsTheLogAndTimeInState(t *testing.T) {
 	page := uitest.Run(t, 130, 44, f.Draw)
 	s := page.Screen()
 	must(t, s, "ON AIR 3m", "DARK 1d")
-	for i := 0; i < 4; i++ {
-		page.Press("Down")
-	}
+	f.SelectUnit("n_nas") // by id: the rack is worst first, so position is not identity
+	page.Press("r")
 	s = page.Screen()
 	must(t, s, "THE LOG", "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁", "on air 3m")
 }
@@ -507,9 +507,8 @@ func TestFleetScreenSaysWhenAPhoneLastReadTheFeed(t *testing.T) {
 	}
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
 	page := uitest.Run(t, 130, 44, f.Draw)
-	for i := 0; i < 5; i++ {
-		page.Press("Down")
-	}
+	f.SelectUnit("n_ibex") // by id: the rack is worst first, so position is not identity
+	page.Press("r")
 	must(t, page.Screen(), "hears the Edge", "read the feed 1m ago")
 }
 
@@ -590,12 +589,12 @@ func TestReadoutCarriesTheSoftwareLineAndWhoIsBehind(t *testing.T) {
 	}
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
 	page := uitest.Run(t, 160, 44, f.Draw)
-	for range 4 {
-		page.Press("j")
-	}
+	f.SelectUnit("n_nas") // by id: the rack is worst first, so position is not identity
+	page.Press("r")
 	must(t, page.Screen(), "SOFTWARE", "roger 6.9.0 · Debian GNU/Linux 12 · 6.1.0", "arm64 · Raspberry Pi 5", "UPDATE", "behind 6.11.2")
-	page.Press("k")
-	page.Press("k")
+	for range 3 { // up past the dark phone, which the worst-first rack puts above nas
+		page.Press("k")
+	}
 	must(t, page.Screen(), "roger 6.11.2 · Gentoo Linux")
 	if strings.Contains(page.Screen(), "behind") {
 		t.Fatal("a current roger is not marked behind")
@@ -614,11 +613,11 @@ func TestReadoutCarriesTheOwnersTags(t *testing.T) {
 	}
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
 	page := uitest.Run(t, 150, 44, f.Draw)
-	for range 4 {
-		page.Press("j")
-	}
+	f.SelectUnit("n_nas") // by id: the rack is worst first, so position is not identity
+	page.Press("r")
 	must(t, page.Screen(), "TAGS", "production · gpu")
-	page.Press("j") // the phone carries none
+	f.SelectUnit("n_ibex") // the phone carries none
+	page.Press("r")
 	if strings.Contains(page.Screen(), "TAGS") {
 		t.Fatal("a unit with no tags draws no tags row")
 	}
@@ -636,11 +635,11 @@ func TestReadoutSaysWhenAUnitCanBeMaintained(t *testing.T) {
 	}
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
 	page := uitest.Run(t, 160, 44, f.Draw)
-	for range 4 {
-		page.Press("j")
-	}
+	f.SelectUnit("n_nas") // by id: the rack is worst first, so position is not identity
+	page.Press("r")
 	must(t, page.Screen(), "SERVICE", "maintenance is on there")
-	page.Press("j")
+	f.SelectUnit("n_ibex")
+	page.Press("r")
 	if strings.Contains(page.Screen(), "maintenance is on") {
 		t.Fatal("a unit that does not declare maintain says nothing about it")
 	}
@@ -694,11 +693,11 @@ func TestReadoutSaysWhereAUnitHasDrifted(t *testing.T) {
 	}
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
 	page := uitest.Run(t, 160, 44, f.Draw)
-	for range 4 {
-		page.Press("j")
-	}
+	f.SelectUnit("n_nas") // by id: the rack is worst first, so position is not identity
+	page.Press("r")
 	must(t, page.Screen(), "DRIFT", "roger 6.13.0 · runs 6.9.0", "agent · runs no agent")
-	page.Press("j")
+	f.SelectUnit("n_ibex")
+	page.Press("r")
 	if strings.Contains(page.Screen(), "DRIFT") {
 		t.Fatal("a unit in order carries no drift row")
 	}
@@ -745,4 +744,152 @@ func TestFleetScreenSaysHeardForAUnitItCannotControl(t *testing.T) {
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
 	page := uitest.Run(t, 130, 44, f.Draw)
 	must(t, page.Screen(), "nina", "HEARD")
+}
+
+// features/edge/fleet_window.feature §1, §2, §5, §7: the summary first, the instruments in the row,
+// / and s from the keyboard, and the unit's page naming its control path, its model and its power.
+func TestTheFleetWindowRowsSummaryFilterAndSort(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	hot, word := 88.0, uint32(0x5)
+	for i := range snap.Items {
+		if snap.Items[i].Name == "nas" {
+			snap.Items[i].Health = &edge.NodeHealth{Readings: &store.EdgeResources{CPUTempC: &hot, RAMUsedGB: 8, RAMTotalGB: 16, PiPower: &word}}
+			snap.Items[i].Alerts = []string{"cpu_temp > 85"}
+			snap.Items[i].Serving = "qwen3-4b"
+			snap.Items[i].Model = `serving "qwen3-4b" (unsloth/Qwen3-4B-GGUF:Q4_K_M, 8192 context)`
+		}
+	}
+	snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemMember, ID: "n_nina", Name: "nina", NodeKind: "mobile",
+		Presence: "online", LastSeen: now.Add(-9 * time.Second)})
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	s := page.Screen()
+	must(t, s, "3 on your Edge", "0 on air", "1 trouble", "1 dark", "1 heard only", "1 new")
+	must(t, s, "▲88°", "50%", "⚡", "qwen3-4b", "┈┈┈")
+	if strings.Contains(s, "gpt-oss-20b") && !strings.Contains(s, "old)") {
+		t.Fatalf("a dark unit's model is drawn as current:\n%s", s)
+	}
+
+	// / narrows by what an owner would type, and says what it hides.
+	page.Press("/")
+	page.Type("kind:phone")
+	page.Press("Enter")
+	s = page.Screen()
+	must(t, s, "nina", "gentle-ibex-14", "/kind:phone hides 1") // only nas: the bench's blue-fox-3 is a phone too
+	if strings.Contains(s, " nas ") {
+		t.Fatalf("the filter did not hide nas:\n%s", s)
+	}
+	page.Press("/")
+	page.Press("Esc")
+	must(t, page.Screen(), " nas ")
+
+	// s cycles the owner's order and says which.
+	page.Press("s")
+	must(t, page.Screen(), "the rack is by name")
+
+	// The unit's page: its control path, its model, its power.
+	f.SelectUnit("n_nina")
+	page.Press("r")
+	must(t, page.Screen(), "CONTROL", "no face this machine can dial")
+	f.SelectUnit("n_nas")
+	page.Press("r")
+	must(t, page.Screen(), "MODEL", "unsloth/Qwen3-4B-GGUF:Q4_K_M", "POWER", "under-voltage, throttled NOW")
+}
+
+func TestADarkUnitsModelIsDrawnAsOldNeverAsCurrent(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	for i := range snap.Items {
+		if snap.Items[i].Name == "gentle-ibex-14" {
+			snap.Items[i].Serving = "pico-293m"
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	must(t, page.Screen(), "pico-293m (1d old)")
+}
+
+func TestHearNowAsksAControllableUnitAndSaysWhatItAnswered(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemMember, ID: "n_nina", Name: "nina", NodeKind: "mobile",
+		Presence: "online", LastSeen: now.Add(-9 * time.Second)})
+	var asked []string
+	acts := (&recorder{}).actions()
+	acts.AskNow = func(id string) (string, error) { asked = append(asked, id); return "nas answered in 12 ms", nil }
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, acts)
+	page := uitest.Run(t, 160, 44, f.Draw)
+	f.SelectUnit("n_nas")
+	page.Press("r")
+	must(t, page.Screen(), "h hear now")
+	page.Press("h")
+	must(t, page.Screen(), "nas answered in 12 ms")
+	if len(asked) != 1 || asked[0] != "n_nas" {
+		t.Fatalf("asked = %v", asked)
+	}
+	// A unit with no face to dial is not offered it, and h does nothing to it.
+	f.SelectUnit("n_nina")
+	page.Press("r")
+	if strings.Contains(page.Screen(), "h hear now") {
+		t.Fatal("hear now offered on a unit with no control path")
+	}
+	page.Press("h")
+	if len(asked) != 1 {
+		t.Fatalf("a heard-only unit was dialed: %v", asked)
+	}
+}
+
+// features/edge/fleet_window.feature §4: adoption shows its stages with their ages, and a stall says
+// which stage it waits on and what that unit must do.
+func TestAdoptionShowsItsStagesAndAStallSaysWhy(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemMember, ID: "n_pi", Name: "raspberrypi", NodeKind: "host",
+		Presence: "online", ClaimStanding: true, ClaimAt: now.Add(-12 * time.Second), AuthPort: "39009"})
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	f.SelectUnit("n_pi")
+	page.Press("r")
+	must(t, page.Screen(), "ADOPTING 12s", "✓ claim issued 12s ago", "certificate: waiting for it to fetch one", "first presence: not yet")
+
+	snap.Items[len(snap.Items)-1].ClaimAt = now.Add(-5 * time.Minute)
+	page.Press("r")
+	must(t, page.Screen(), "certificate not fetched after 5m", "39009", "roger edge enroll there")
+}
+
+// features/edge/fleet_window.feature §6: the page draws the last hour as a line, with a gap where
+// the unit was dark - never interpolated across it.
+func TestTheUnitsPageDrawsItsLastHourWithGaps(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	hour := make([]float64, 60)
+	for i := range hour {
+		hour[i] = math.NaN()
+	}
+	for i := 30; i < 60; i++ {
+		hour[i] = 50 + float64(i-30)
+	}
+	for i := 40; i < 45; i++ {
+		hour[i] = math.NaN() // dark for five minutes
+	}
+	for i := range snap.Items {
+		if snap.Items[i].Name == "nas" {
+			snap.Items[i].TempHour = hour
+		}
+	}
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	f.SelectUnit("n_nas")
+	page.Press("r")
+	s := page.Screen()
+	must(t, s, "TEMP 1H", "50° to 79°")
+	i := strings.Index(s, "TEMP 1H")
+	row := s[i : i+strings.Index(s[i:], "\n")]
+	if !strings.Contains(row, "▁") || !strings.Contains(row, "█") {
+		t.Fatalf("the hour is not drawn as a line: %q", row)
+	}
+	if !strings.Contains(strings.TrimRight(row[strings.Index(row, "▁"):], " "), "  ") {
+		t.Fatalf("the dark minutes are not a gap: %q", row)
+	}
 }

@@ -22,8 +22,16 @@ import (
 var edgeRunFleetScreen = func(ctx context.Context, src fleetview.FleetSource, acts fleetview.FleetActions) error {
 	health := fleetview.NewHealth(edgeHealthSource)
 	health.Actions = edgeHealthActions()
-	return fleetview.NewFleet(src, health, acts).Run(ctx)
+	f := fleetview.NewFleet(src, health, acts)
+	if edgeFleetSelect != "" {
+		f.SelectUnit(edgeFleetSelect)
+	}
+	return f.Run(ctx)
 }
+
+// edgeFleetSelect is the unit the screen opens on (--select), by id: what the [3] screen's o hands
+// over so the window opens where the owner already was.
+var edgeFleetSelect string
 
 // edgeHealthActions are the rule edits the health screen offers, each the CLI's own path.
 func edgeHealthActions() fleetview.HealthActions {
@@ -38,8 +46,20 @@ func edgeHealthActions() fleetview.HealthActions {
 
 func cmdEdgeFleet(cfg config, args []string) error {
 	leaf, _ := edgeLeaf("fleet")
-	if _, err := parseEdgeArgv(leaf, args); err != nil {
+	argv, err := parseEdgeArgv(leaf, args)
+	if err != nil {
 		return err
+	}
+	edgeFleetSelect = ""
+	if want := strings.TrimSpace(argv.flags["select"]); want != "" {
+		_, n, ok, err := edgeLookup(want)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errNoSuchNode(want)
+		}
+		edgeFleetSelect = n.ID
 	}
 	return edgeRunFleetScreen(context.Background(), edgeFleetSource, edgeFleetActions())
 }
@@ -124,9 +144,13 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	}
 	reads, _ := edgeAlertLog().Reads() // which members' Roger apps read the feed, and when
 	standing := map[string]bool{}
+	claimAt := map[string]time.Time{}
 	if grants, err := edgeauth.ReadClaims(edgeAuthDir()); err == nil {
 		for _, g := range grants {
 			standing[g.NodeID] = true
+			if g.At > 0 {
+				claimAt[g.NodeID] = time.Unix(g.At, 0)
+			}
 		}
 	}
 	authPort := "" // "" = the authority is not listening right now (no port was ever saved)
@@ -135,6 +159,9 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	}
 	samples, _ := edgeAlertLog().States(now.Add(-time.Hour)) // the log is a bonus: unreadable = empty
 	snap.Items[0].Log, snap.Items[0].Since, snap.Items[0].SinceCapped = edge.LogOf(samples, self.NodeID, now)
+	snap.Items[0].TempHour = edge.VitalOf(samples, self.NodeID, edge.VitalTemp, now)
+	snap.Items[0].LoadHour = edge.VitalOf(samples, self.NodeID, edge.VitalLoad, now)
+	snap.Items[0].MemHour = edge.VitalOf(samples, self.NodeID, edge.VitalMemory, now)
 	members := map[string]bool{}
 	// The members, arranged; this machine's own row is the hub, not a member.
 	unitNames := edge.UnitNames(append(append([]store.EdgeNode(nil), nodes...), st.candidates...))
@@ -147,8 +174,11 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		members[n.ID] = true
 		it := fleetview.FleetItem{Kind: fleetview.ItemMember, ID: n.ID, Name: n.Name, Label: unitNames[n.ID], NodeKind: n.Kind, Dark: dark,
 			Caps: edgeCapsOf(n.Caps), Via: r.Via, Health: health[n.ID], Alerts: firing[n.ID],
-			Asking: asking[n.ID] && dark, ClaimStanding: standing[n.ID], AuthPort: authPort}
+			Asking: asking[n.ID] && dark, ClaimStanding: standing[n.ID], ClaimAt: claimAt[n.ID], AuthPort: authPort}
 		it.Log, it.Since, it.SinceCapped = edge.LogOf(samples, n.ID, now)
+		it.TempHour = edge.VitalOf(samples, n.ID, edge.VitalTemp, now)
+		it.LoadHour = edge.VitalOf(samples, n.ID, edge.VitalLoad, now)
+		it.MemHour = edge.VitalOf(samples, n.ID, edge.VitalMemory, now)
 		if at := reads[n.ID]; at > 0 {
 			it.LastRead = time.Unix(at, 0)
 		}
@@ -176,7 +206,9 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		it.Maintain = edge.Declares(n, edge.Maintain)
 		it.Controllable = edge.Controllable(n)
 		if mm := edge.ModelOf(n); mm != nil {
-			it.Model = edge.ModelLine(mm)
+			it.Model, it.Serving = edge.ModelLine(mm), edgeServingShort(mm)
+		} else if len(n.Instances) > 0 {
+			it.Serving = strings.Join(edgeBandsOf(n), " ")
 		}
 		snap.Items = append(snap.Items, it)
 	}
@@ -185,7 +217,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 			continue // told on its member row
 		}
 		snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemCandidate, ID: c.ID, Name: c.Name, Label: unitNames[c.ID], NodeKind: c.Kind,
-			Presence: "discovered", Caps: edgeCapsOf(c.Caps), ClaimStanding: standing[c.ID], AuthPort: authPort})
+			Presence: "discovered", Caps: edgeCapsOf(c.Caps), ClaimStanding: standing[c.ID], ClaimAt: claimAt[c.ID], AuthPort: authPort})
 	}
 	// A node whose record name IS its id was never named by its owner: every screen calls it by a
 	// short id instead (edge.Label), so a 48-character id is never drawn as somebody's name.
@@ -298,7 +330,8 @@ func edgeJobWords(j edge.AgentJob) string {
 // edgeFleetActions are the screen's keys, each the CLI's own code path.
 func edgeFleetActions() fleetview.FleetActions {
 	return fleetview.FleetActions{
-		Adopt: func(id, _ string) (string, error) { return edgeAdoptWant(id) },
+		AskNow: func(id string) (string, error) { return edgeAskNow(id, time.Now()) },
+		Adopt:  func(id, _ string) (string, error) { return edgeAdoptWant(id) },
 		Forget: func(id string) error {
 			st, n, ok, err := edgeLookup(id)
 			if err != nil {
@@ -457,3 +490,29 @@ func edgeTagsOf(nodes []store.EdgeNode, id string) []string {
 // edgeStationName is this machine's station name, the fallback when its owner never named it. A
 // seam, because the real one creates the station on first read.
 var edgeStationName = loadOrCreateStation
+
+// edgeServingShort is what a unit serves in the few words a rack row has: the band, or the fetch
+// in flight, or that it cannot serve.
+func edgeServingShort(m *store.EdgeModel) string {
+	switch {
+	case m.Fetch != nil && m.Fetch.State == "fetching" && m.Fetch.Total > 0:
+		pct := 100 * m.Fetch.Done / m.Fetch.Total
+		if m.Band != "" {
+			return fmt.Sprintf("%s · fetching %d%%", m.Band, pct)
+		}
+		return fmt.Sprintf("fetching %d%%", pct)
+	case m.Band != "":
+		return m.Band
+	case m.CannotServe != "":
+		return "cannot serve here"
+	}
+	return ""
+}
+
+func edgeBandsOf(n store.EdgeNode) []string {
+	var out []string
+	for _, in := range n.Instances {
+		out = append(out, in.Bands...)
+	}
+	return out
+}

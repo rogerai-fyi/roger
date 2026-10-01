@@ -312,3 +312,40 @@ func TestEdgeFleetScreenNeverTitlesThisMachineWithItsID(t *testing.T) {
 		}
 	}
 }
+
+// features/edge/fleet_window.feature: o on a [3] card opens the window on that unit (--select), and
+// a rack row says what the unit serves in a few words.
+func TestEdgeFleetOpensOnTheUnitTheOwnerSelected(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	edgeSeed(t, store.EdgeNode{ID: "n_nas", Name: "nas", Kind: "host", Presence: string(edge.PresenceVerified), LastSeen: time.Now().Unix()})
+	prev := edgeRunFleetScreen
+	t.Cleanup(func() { edgeRunFleetScreen = prev; edgeFleetSelect = "" })
+	var opened string
+	edgeRunFleetScreen = func(context.Context, fleetview.FleetSource, fleetview.FleetActions) error {
+		opened = edgeFleetSelect
+		return nil
+	}
+	out, code := edgeRun(t, "edge", "fleet", "--select", "nas")
+	require.Equal(t, 0, code, out)
+	require.Equal(t, "n_nas", opened, "a name is resolved to the unit's id")
+	_, code = edgeRun(t, "edge", "fleet", "--select", "n_nas")
+	require.Equal(t, 0, code)
+	require.Equal(t, "n_nas", opened)
+	out, code = edgeRun(t, "edge", "fleet", "--select", "nowhere")
+	require.NotEqual(t, 0, code)
+	require.Contains(t, out, "no such node")
+	_, code = edgeRun(t, "edge", "fleet")
+	require.Equal(t, 0, code)
+	require.Empty(t, opened, "no --select opens on nothing in particular")
+}
+
+func TestARackRowSaysWhatAUnitServesInAFewWords(t *testing.T) {
+	require.Equal(t, "qwen3-4b", edgeServingShort(&store.EdgeModel{Band: "qwen3-4b"}))
+	require.Equal(t, "qwen3-4b · fetching 25%", edgeServingShort(&store.EdgeModel{Band: "qwen3-4b",
+		Fetch: &store.EdgeFetch{State: "fetching", Done: 1, Total: 4}}))
+	require.Equal(t, "fetching 50%", edgeServingShort(&store.EdgeModel{Fetch: &store.EdgeFetch{State: "fetching", Done: 2, Total: 4}}))
+	require.Equal(t, "cannot serve here", edgeServingShort(&store.EdgeModel{CannotServe: "needs glibc 2.38"}))
+	require.Empty(t, edgeServingShort(&store.EdgeModel{}))
+	require.Equal(t, []string{"a", "b"}, edgeBandsOf(store.EdgeNode{Instances: []store.EdgeInstance{{Bands: []string{"a"}}, {Bands: []string{"b"}}}}))
+}

@@ -86,7 +86,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
 	{"bands", "", "show the models this Edge can serve locally, and who serves each", 0, 0},
 	{"health", "[<node>]", "show the fleet's health at a glance, or one node in full", 0, 1},
-	{"fleet", "", "open the live fleet screen: the map, the readouts, the actions", 0, 0},
+	{"fleet", "[--select <node>]", "open the live fleet screen: the map, the readouts, the actions", 0, 0},
 	{"trouble", "[<node>] [--since <cursor>] [--json|--watch]", "read a member's trouble feed, as the phone does; --watch follows it", 0, 1},
 	{"inventory", "[--json]", "list every unit's software: roger version, OS, kernel, arch, machine, and who is behind", 0, 0},
 	{"events", "[--node <node>] [--since <dur>] [--limit <n>] [--json]", "what happened on this Edge, newest first", 0, 0},
@@ -259,7 +259,7 @@ var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
 	"force": false, "clear": false,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
-	"node": true, "limit": true, "lines": true, "every": true, "once": false,
+	"node": true, "limit": true, "lines": true, "every": true, "once": false, "select": true,
 }
 
 type edgeArgv struct {

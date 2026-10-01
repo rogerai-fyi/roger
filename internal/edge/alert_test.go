@@ -8,6 +8,7 @@ package edge_test
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -572,4 +573,36 @@ func TestAPisPowerIsSaidInWordsOnEverySurface(t *testing.T) {
 		edge.Alert{Node: "pi", Metric: edge.MetricThrottled, Firing: true, Value: 1}.String())
 	require.Equal(t, "cleared: pi is no longer throttled",
 		edge.Alert{Node: "pi", Metric: edge.MetricThrottled}.String())
+}
+
+// features/edge/fleet_window.feature §6: the page draws the last hour as a line, so a spike looks like
+// a spike - and a gap where the unit was dark is a gap, not interpolated.
+func TestTheLastHourIsKeptAsALineWithGapsWhereItWasDark(t *testing.T) {
+	l := edge.AlertLog{Dir: t.TempDir()}
+	start := time.Unix(1_700_000_000, 0).Truncate(time.Minute)
+	for m := 0; m < 6; m++ {
+		at := start.Add(time.Duration(m) * time.Minute)
+		temp, load := 50.0+float64(m*5), 0.5
+		h := edge.NodeHealth{ID: "n_pi", Readings: &store.EdgeResources{CPUTempC: &temp, CPULoad1: &load,
+			RAMUsedGB: 2, RAMTotalGB: 4, ReadAt: at.Unix()}}
+		if m == 3 {
+			h = edge.NodeHealth{ID: "n_pi", Dark: true} // dark this minute
+		}
+		_, _, err := l.Judge([]edge.NodeHealth{h}, at)
+		require.NoError(t, err)
+	}
+	now := start.Add(5 * time.Minute)
+	samples, err := l.States(now.Add(-time.Hour))
+	require.NoError(t, err)
+	temps := edge.VitalOf(samples, "n_pi", edge.VitalTemp, now)
+	require.Len(t, temps, 60)
+	got := temps[54:]
+	require.Equal(t, 50.0, got[0])
+	require.Equal(t, 60.0, got[2])
+	require.True(t, math.IsNaN(got[3]), "the dark minute is a gap")
+	require.Equal(t, 75.0, got[5])
+	require.True(t, math.IsNaN(temps[0]), "before the log began is a gap too")
+	mem := edge.VitalOf(samples, "n_pi", edge.VitalMemory, now)
+	require.InDelta(t, 0.5, mem[59], 1e-9)
+	require.True(t, math.IsNaN(edge.VitalOf(samples, "n_other", edge.VitalTemp, now)[59]))
 }

@@ -8,9 +8,11 @@ package fleetview
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	lm "github.com/thebanri/limoni"
 
@@ -66,12 +68,15 @@ type FleetItem struct {
 	// to fetch its certificate at the authority's AuthPort.
 	Asking        bool
 	ClaimStanding bool
+	ClaimAt       time.Time // when the claim was issued: the adoption's first stage
 	AuthPort      string
 	// THE LOG: the unit's last hour, one cell a minute (oldest first), and how long it has been
 	// in its current state.
-	Log         []edge.UnitState
-	Since       time.Duration
-	SinceCapped bool // the run reaches the oldest sample: it began before the log did
+	Log []edge.UnitState
+	// The last hour of its readings, one value a minute, NaN where it did not report or was dark.
+	TempHour, LoadHour, MemHour []float64
+	Since                       time.Duration
+	SinceCapped                 bool // the run reaches the oldest sample: it began before the log did
 	// The OP and JOB line: the jobs the rogers on this unit hold, and the sessions it served.
 	Jobs   []string
 	Served int
@@ -101,8 +106,10 @@ type FleetItem struct {
 	// Controllable is whether this machine has a face it can dial for the unit (edge.Controllable).
 	// A member heard but not controllable reads HEARD, not ON AIR: what can be done to it differs.
 	Controllable bool
-	// Model is what the unit serves of its own and is fetching, in edge.ModelLine's words.
-	Model string
+	// Model is what the unit serves of its own and is fetching, in edge.ModelLine's words; Serving is
+	// the same in the few words a rack row has room for.
+	Model   string
+	Serving string
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -128,6 +135,9 @@ func (it FleetItem) jobLine() []lm.Span {
 // state is the unit's state in the station's words, and how long: ON AIR 3h12m, DARK 41m,
 // TROUBLE 7m. From the log when there is one; from what is known otherwise.
 func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
+	if it.ClaimStanding && !it.Asking && !it.ClaimAt.IsZero() {
+		return "ADOPTING", glow, now.Sub(it.ClaimAt) // adopted, its certificate not yet fetched
+	}
 	st := edge.StateUnknown
 	if n := len(it.Log); n > 0 {
 		st = it.Log[n-1]
@@ -297,6 +307,7 @@ type FleetActions struct {
 	BindJob     func(name, model, job string) error                // bind a model and a job to a roger here
 	ClearJob    func(name string) error
 	IssueGrant  func(caller, capability, callee, forDur string) (string, error) // returns the line to show
+	AskNow      func(id string) (string, error)                                 // ask a unit to report now (fleet_window.feature)
 }
 
 // Fleet is the screen.
@@ -322,11 +333,18 @@ type Fleet struct {
 	issuing  bool // the issue-grant prompt is up
 	rename   bool
 	input    []rune
-	toast    string
-	toastAt  time.Time
-	toastErr bool
-	last     string // the last action's outcome, kept in the readout until the next
-	lastErr  bool
+	// The rack as the owner chose to see it (order.go): all is the snapshot's own items, and
+	// snap.Items is what is drawn - in order, filtered.
+	all       []FleetItem
+	order     rackOrder
+	query     string
+	filtering bool   // the / prompt is up (input holds the text)
+	want      string // a unit to select once it is on the rack (SelectUnit)
+	toast     string
+	toastAt   time.Time
+	toastErr  bool
+	last      string // the last action's outcome, kept in the readout until the next
+	lastErr   bool
 }
 
 // NewFleet makes the screen over src, with health as its second tab (nil = no tab).
@@ -412,6 +430,25 @@ func (f *Fleet) tabAt() int {
 func (f *Fleet) onKey(ev *lm.Event) bool {
 	k := ev.Key
 	switch {
+	case f.filtering:
+		switch {
+		case k.Type == lm.KeyEsc:
+			f.filtering, f.query = false, ""
+			f.applyView(f.selected())
+		case k.Type == lm.KeyEnter:
+			f.filtering = false
+			f.query = strings.TrimSpace(string(f.input))
+			f.applyView(f.selected())
+		case k.Type == lm.KeyBackspace:
+			if len(f.input) > 0 {
+				f.input = f.input[:len(f.input)-1]
+			}
+		case k.Type == lm.KeySpace:
+			f.input = append(f.input, ' ')
+		case k.Ch != 0:
+			f.input = append(f.input, k.Ch)
+		}
+		return true
 	case f.issuing:
 		switch {
 		case k.Type == lm.KeyEsc:
@@ -596,6 +633,18 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		return true
 	}
 	switch {
+	case k.Ch == '/':
+		f.filtering, f.input = true, []rune(f.query)
+	case k.Ch == 'h':
+		if it := f.selected(); it.Kind == ItemMember && it.Controllable && !it.Dark && f.Actions.AskNow != nil {
+			msg, err := f.Actions.AskNow(it.ID)
+			f.report(err, msg)
+			f.readAt = time.Time{} // draw what it just said
+		}
+	case k.Ch == 's':
+		f.order = nextOrder(f.order)
+		f.applyView(f.selected())
+		f.say("the rack is "+orderWords[f.order], false)
 	case k.Ch == 'g':
 		if it := f.selected(); it.Kind == ItemHub && f.Actions.SetAgent != nil {
 			on := !f.snap.Self.AgentActive
@@ -705,11 +754,44 @@ func (f *Fleet) refresh() {
 	snap, err := f.Source()
 	f.readAt, f.err = time.Now(), err
 	if err == nil {
+		was := f.selected()
 		f.snap = snap
+		f.all = snap.Items
+		f.applyView(was)
 		if first {
 			f.signOn()
 		}
 	}
+}
+
+// SelectUnit puts the cursor on a unit by id, now if it is on the rack or as soon as it arrives -
+// what `roger edge fleet --select` and the [3] screen's o use to open the window on a unit.
+func (f *Fleet) SelectUnit(id string) {
+	f.want = id
+	if len(f.all) > 0 {
+		f.applyView(f.selected())
+	}
+}
+
+// applyView re-draws the rack in the owner's order and filter, keeping the cursor on the same unit
+// when it is still there - a unit never slides out from under a reader's eye.
+func (f *Fleet) applyView(was FleetItem) {
+	f.snap.Items = arrange(f.all, f.order, f.query, f.snap.At)
+	if f.want != "" {
+		for i, it := range f.snap.Items {
+			if it.ID == f.want {
+				f.sel, f.want = i, ""
+				return
+			}
+		}
+	}
+	for i, it := range f.snap.Items {
+		if it.Kind == was.Kind && it.ID == was.ID && it.Name == was.Name {
+			f.sel = i
+			return
+		}
+	}
+	f.clamp()
 }
 
 // signOn is the greeting when the screen opens: since when this machine has been on air, and to
@@ -931,6 +1013,14 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 		}
 	}
 	var top, bench []lm.Line
+	top = append(top, f.summaryLine())
+	if vl := f.viewLine(); vl != nil {
+		top = append(top, *vl)
+	}
+	if f.filtering {
+		top = append(top, lm.NewLine(span("   / ", live), span(string(f.input), ink), span("_", live),
+			span("   name, kind:phone, tag:outdoor, state:dark · ⏎ apply · esc clear", dim)))
+	}
 	seenMember := false
 	for i, it := range f.snap.Items {
 		switch it.Kind {
@@ -983,6 +1073,9 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 				l.Spans = append(l.Spans, it.stateWords(now)...)
 			}
 			l.Spans = append(l.Spans, alertChip(len(it.Alerts))...)
+			if area.Width >= 76 {
+				l.Spans = append(l.Spans, it.rowFacts(lineWidth(l), int(area.Width), now)...)
+			}
 			top = append(top, l)
 		case ItemCandidate:
 			if len(bench) == 0 {
@@ -1026,6 +1119,187 @@ func (f *Fleet) drawRack(fr *lm.Frame, area lm.Rect) int {
 	fr.RenderWidget(lm.NewText(top...).WithWrap(false), parts[0])
 	fr.RenderWidget(lm.NewText(append([]lm.Line{lm.NewLine()}, bench...)...).WithWrap(false), parts[1])
 	return int(area.Height)
+}
+
+// adoptStall is how long a stage may stand open before the window says what it is waiting on.
+const adoptStall = 2 * time.Minute
+
+type stage struct {
+	mark, words string
+	color       lm.Color
+}
+
+// adoptionStages are the steps of an adoption as they have been SEEN, each with its age, and - when
+// one has stood open past adoptStall - which one, and what that unit must do (fleet_window.feature).
+func adoptionStages(it FleetItem, now time.Time) []stage {
+	issued := "claim issued"
+	if !it.ClaimAt.IsZero() {
+		issued += " " + edge.Age(now.Sub(it.ClaimAt)) + " ago"
+	}
+	out := []stage{{"✓", issued, signal}}
+	waiting := now.Sub(it.ClaimAt)
+	if !it.ClaimAt.IsZero() && waiting > adoptStall {
+		out = append(out, stage{"…", "certificate not fetched after " + edge.Age(waiting) + ": it must reach this authority " +
+			atAuthority(it.AuthPort) + " - check that machine can see this one, then run roger edge enroll there", live})
+	} else {
+		out = append(out, stage{"…", "certificate: waiting for it to fetch one", glow})
+	}
+	return append(out, stage{"·", "first presence: not yet", dim})
+}
+
+// sparkLevels draw a reading's hour; a space is a minute with no reading.
+var sparkLevels = []rune("▁▂▃▄▅▆▇█")
+
+// hourLine draws values (oldest first) in at most w cells, each cell the highest reading of the
+// minutes it covers. ok is false when there is nothing to draw.
+func hourLine(vals []float64, w int) (line string, lo, hi float64, ok bool) {
+	if len(vals) == 0 || w < 8 {
+		return "", 0, 0, false
+	}
+	lo, hi = math.Inf(1), math.Inf(-1)
+	for _, v := range vals {
+		if !math.IsNaN(v) {
+			lo, hi, ok = math.Min(lo, v), math.Max(hi, v), true
+		}
+	}
+	if !ok {
+		return "", 0, 0, false
+	}
+	cells := min(w, len(vals))
+	per := float64(len(vals)) / float64(cells)
+	out := make([]rune, cells)
+	for c := 0; c < cells; c++ {
+		best := math.NaN()
+		for i := int(float64(c) * per); i < int(float64(c+1)*per) && i < len(vals); i++ {
+			if !math.IsNaN(vals[i]) && (math.IsNaN(best) || vals[i] > best) {
+				best = vals[i]
+			}
+		}
+		switch {
+		case math.IsNaN(best):
+			out[c] = ' '
+		case hi == lo:
+			out[c] = sparkLevels[len(sparkLevels)/2]
+		default:
+			out[c] = sparkLevels[int((best-lo)/(hi-lo)*float64(len(sparkLevels)-1)+0.5)]
+		}
+	}
+	return string(out), lo, hi, true
+}
+
+// summaryLine is what needs the owner before any detail: how many units, how many on air, in
+// trouble, dark, heard only and waiting - and what the filter hides, so nothing is hidden silently.
+func (f *Fleet) summaryLine() lm.Line {
+	var units, air, trouble, dark, heard, waiting int
+	for _, it := range f.all {
+		switch it.Kind {
+		case ItemMember:
+			units++
+			switch {
+			case it.Dark:
+				dark++
+			case len(it.Alerts) > 0:
+				trouble++
+			case !it.Controllable:
+				heard++
+			default:
+				air++
+			}
+		case ItemCandidate:
+			waiting++
+		}
+	}
+	parts := []lm.Span{span("   ", dim), span(fmt.Sprintf("%d on your Edge", units), ink), span(fmt.Sprintf(" · %d on air", air), signal)}
+	if trouble > 0 {
+		parts = append(parts, bold(fmt.Sprintf(" · %d trouble", trouble), live))
+	}
+	if dark > 0 {
+		parts = append(parts, span(fmt.Sprintf(" · %d dark", dark), ash))
+	}
+	if heard > 0 {
+		parts = append(parts, span(fmt.Sprintf(" · %d heard only", heard), glow))
+	}
+	if waiting > 0 {
+		parts = append(parts, span(fmt.Sprintf(" · %d new", waiting), glow)) // asking to be adopted, on the bench
+	}
+	return lm.NewLine(parts...)
+}
+
+// viewLine says how the rack is narrowed and ordered when it is not the default, so nothing is
+// hidden or moved silently. Nil when it is the default view.
+func (f *Fleet) viewLine() *lm.Line {
+	var parts []lm.Span
+	if f.query != "" {
+		parts = append(parts, span(fmt.Sprintf("   /%s hides %d", f.query, hiddenBy(f.all, f.query, f.snap.At)), muted),
+			span(" · / then esc shows all", dim))
+	}
+	if f.order != orderWorst {
+		parts = append(parts, span("   "+orderWords[f.order], muted), span(" · s again for the next order", dim))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	l := lm.NewLine(parts...)
+	return &l
+}
+
+func lineWidth(l lm.Line) int {
+	n := 0
+	for _, sp := range l.Spans {
+		n += utf8.RuneCountInString(sp.Text)
+	}
+	return n
+}
+
+// rowFacts are the unit's instruments in a rack row: temperature, memory and what it serves. A dark
+// unit's last values are not drawn here as if current - a rail says "no live reading", and its page
+// shows the old values with their age.
+func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
+	gap := 48 - used
+	if gap < 2 {
+		gap = 2
+	}
+	out := []lm.Span{span(strings.Repeat(" ", gap), dim)}
+	facts := 12
+	switch {
+	case it.Dark:
+		// No live readings to draw: the eye and DARK already say so, and the room goes to what it
+		// served when last heard.
+		facts = 0
+	case it.Health == nil || it.Health.Readings == nil:
+		out = append(out, span("┈┈┈   ┈┈┈ ", ash))
+	default:
+		r := it.Health.Readings
+		if r.CPUTempC != nil {
+			c := ink
+			w := fmt.Sprintf("%3.0f°", *r.CPUTempC)
+			if len(alarm(it.Alerts, "cpu_temp")) > 0 {
+				c, w = live, "▲"+strings.TrimSpace(w)
+			}
+			out = append(out, span(pad(w, 6), c))
+		} else {
+			out = append(out, span("┈┈┈   ", ash))
+		}
+		if l, ok := it.Health.MemoryLevel(); ok {
+			out = append(out, span(pad(fmt.Sprintf("%.0f%%", 100*l), 5), ink))
+		} else {
+			out = append(out, span("┈┈┈  ", ash))
+		}
+		if r.PiPower != nil {
+			if now, _ := edge.PowerWords(*r.PiPower); len(now) > 0 {
+				out = append(out, bold("⚡", live))
+			}
+		}
+	}
+	if room := width - used - gap - facts; it.Serving != "" && room >= 6 {
+		if it.Dark && !it.LastSeen.IsZero() {
+			// What it served when last heard, said as old - never drawn as serving now.
+			out = append(out, span("  "+elide(it.Serving+" ("+edge.Age(now.Sub(it.LastSeen))+" old)", room), ash))
+		} else {
+			out = append(out, span("  "+elide(it.Serving, room), dial))
+		}
+	}
+	return out
 }
 
 // drawReadout is the selected unit in full: a headline, one line in the operator's voice, its
@@ -1133,6 +1407,15 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			prose("back on this network and asking to re-join. a re-admits it: a fresh claim is granted and it fetches a new certificate", ink)
 		case it.ClaimStanding:
 			prose("adopted: waiting for it to claim its certificate "+atAuthority(it.AuthPort)+" - nothing has arrived yet", ink)
+			for _, st := range adoptionStages(it, now) {
+				for k, part := range wrapWords(st.words, width-6) {
+					mark := "  "
+					if k == 0 {
+						mark = st.mark + " "
+					}
+					lines = append(lines, lm.NewLine(span("    ", dim), span(mark, st.color), span(part, st.color)))
+				}
+			}
 		case it.Dark:
 			prose("dark: the authority has not heard from it past the liveness window. it re-admits itself when it pings again", ink)
 		default:
@@ -1146,8 +1429,14 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			cs = append(cs, span(sUnit(lv), muted), span("   heard "+edge.Age(now.Sub(it.LastSeen))+" ago", ink))
 		}
 		row("carrier", cs...)
+		if !it.Dark && !it.Controllable {
+			row("control", span("heard, with no face this machine can dial: actions that need it (serve model, maintenance, ask) cannot reach it", glow))
+		}
 		if it.Via != "" {
 			row("reached", span("through "+it.Via, ink))
+		}
+		if it.Model != "" {
+			row("model", span(it.Model, dial))
 		}
 		if !it.LastRead.IsZero() {
 			row("hears", span("hears the Edge · read the feed "+edge.Age(now.Sub(it.LastRead))+" ago", signal))
@@ -1179,6 +1468,13 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		if l, ok := h.MemoryLevel(); ok {
 			row("memory", append(meterN(l, lineFor("memory", 100), 0, false, meterCells), span(fmt.Sprintf(" %s of %s GB", fmtGB(r.RAMUsedGB), fmtGB(r.RAMTotalGB)), ink))...)
 		}
+		if r.PiPower != nil {
+			pw := ink
+			if now, _ := edge.PowerWords(*r.PiPower); len(now) > 0 {
+				pw = live
+			}
+			row("power", span(edge.PowerLine(*r.PiPower), pw))
+		}
 		if l, ok := h.DiskLevel(); ok {
 			from := lineFor("disk", 100)
 			row("disk", append(append(meterN(l, from, 0, false, meterCells), span(fmt.Sprintf(" %.0f%%", 100*l), ink)), alarm(it.Alerts, "disk")...)...)
@@ -1190,6 +1486,21 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		}
 		if j := it.jobLine(); len(j) > 0 {
 			row("job", j...)
+		}
+	}
+	// THE LAST HOUR as lines, so a spike reads as a spike and a sustained climb as a climb; a gap
+	// where it was dark stays a gap (fleet_window.feature).
+	for _, h := range []struct {
+		name string
+		vals []float64
+		unit func(float64) string
+	}{
+		{"temp 1h", it.TempHour, func(v float64) string { return fmt.Sprintf("%.0f°", v) }},
+		{"load 1h", it.LoadHour, func(v float64) string { return fmt.Sprintf("%.2f", v) }},
+		{"mem 1h", it.MemHour, func(v float64) string { return fmt.Sprintf("%.0f%%", 100*v) }},
+	} {
+		if line, lo, hi, ok := hourLine(h.vals, width-34); ok {
+			row(h.name, span(line, dial), span("  "+h.unit(lo)+" to "+h.unit(hi), muted))
 		}
 	}
 	if len(it.Log) > 0 && (it.Kind == ItemHub || it.Kind == ItemMember) {
@@ -1326,6 +1637,9 @@ func (f *Fleet) actions() []action {
 		if it.Asking && f.Actions.Adopt != nil {
 			out = append(out, action{"a", "re-admit"})
 		}
+		if f.Actions.AskNow != nil && it.Controllable && !it.Dark {
+			out = append(out, action{"h", "hear now"})
+		}
 		if f.Actions.Rename != nil {
 			out = append(out, action{"n", "rename"})
 		}
@@ -1344,6 +1658,7 @@ func (f *Fleet) actions() []action {
 			}
 		}
 	}
+	out = append(out, action{"/", "filter"}, action{"s", "sort"})
 	out = append(out, action{"2", "andon"}, action{"3", "trouble"}, action{"4", "grants"}, action{"5", "sessions"})
 	if f.health != nil {
 		out = append(out, action{"6", "health"})

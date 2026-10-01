@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -437,7 +438,26 @@ const (
 type StateSample struct {
 	At     int64                `json:"at"`
 	States map[string]UnitState `json:"states"`
+	// Vitals are each unit's readings that minute, only where it was live and reporting: a dark
+	// minute carries none, so a line drawn from them has a gap there rather than a guess.
+	Vitals map[string]Vitals `json:"vitals,omitempty"`
 }
+
+// Vitals is one unit's readings in one minute. Absent is nil, never zero.
+type Vitals struct {
+	Temp *float64 `json:"t,omitempty"`
+	Load *float64 `json:"l,omitempty"`
+	Mem  *float64 `json:"m,omitempty"` // fraction used
+}
+
+// Vital names one line of a unit's last hour.
+type Vital int
+
+const (
+	VitalTemp Vital = iota
+	VitalLoad
+	VitalMemory
+)
 
 const statesKeep = 24 * time.Hour
 
@@ -462,9 +482,19 @@ func (l AlertLog) recordStates(hs []NodeHealth, st AlertState, now time.Time) er
 	if len(prev) > 0 && prev[len(prev)-1].At == minute {
 		return nil
 	}
-	s := StateSample{At: minute, States: map[string]UnitState{}}
+	s := StateSample{At: minute, States: map[string]UnitState{}, Vitals: map[string]Vitals{}}
 	for _, h := range hs {
 		s.States[h.ID] = stateOf(h, st)
+		if h.Dark || h.Readings == nil || h.ReadAge > DefaultTTL {
+			continue
+		}
+		v := Vitals{Temp: h.Readings.CPUTempC, Load: h.Readings.CPULoad1}
+		if lv, ok := h.MemoryLevel(); ok {
+			v.Mem = &lv
+		}
+		if v.Temp != nil || v.Load != nil || v.Mem != nil {
+			s.Vitals[h.ID] = v
+		}
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
@@ -522,6 +552,39 @@ func (l AlertLog) States(since time.Time) ([]StateSample, error) {
 		}
 	}
 	return out, nil
+}
+
+// VitalOf is one unit's last hour of one reading as 60 values, oldest first, NaN where there is no
+// reading - before the log began, a minute it was dark, a minute it did not report.
+func VitalOf(samples []StateSample, nodeID string, which Vital, now time.Time) []float64 {
+	out := make([]float64, 60)
+	for i := range out {
+		out[i] = math.NaN()
+	}
+	end := now.Truncate(time.Minute).Unix()
+	for _, s := range samples {
+		i := 59 - int((end-s.At)/60)
+		if i < 0 || i > 59 {
+			continue
+		}
+		v, ok := s.Vitals[nodeID]
+		if !ok {
+			continue
+		}
+		var p *float64
+		switch which {
+		case VitalTemp:
+			p = v.Temp
+		case VitalLoad:
+			p = v.Load
+		case VitalMemory:
+			p = v.Mem
+		}
+		if p != nil {
+			out[i] = *p
+		}
+	}
+	return out
 }
 
 // LogOf is one unit's last hour as 60 cells (oldest first, unknown where nothing was judged)
