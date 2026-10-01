@@ -875,6 +875,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the Tower received no top-level key "roger"
     And the Tower received no top-level key "models"
 
+  @harness
   Scenario: The strip happens on the agent-harness relay path
     When the agent harness relays a turn for "qwen3-32b" on behalf of "u-1" with body `"roger": {"pref": "reliable"}`
     Then the station received no top-level key "roger"

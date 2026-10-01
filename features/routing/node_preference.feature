@@ -1046,35 +1046,42 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then every relay made exactly one attempt
 
   # --- pref: reachable from the first-party clients (closes the dead knob) ------
+  @cli
   Scenario: roger use --pref sends the body pref
     When a consumer runs `roger use m --pref fast`
     Then every relay through the local proxy carries roger.pref "fast"
 
+  @cli
   Scenario: roger use --pref rejects an unknown value locally
     When a consumer runs `roger use m --pref cheapest`
     Then the command exits non-zero naming the allowed values
     And no request reached the broker
 
+  @cli
   Scenario: the config file's routing pref is sent when no flag is given
     Given the config sets limits.default.pref "reliable"
     When a consumer runs `roger use m`
     Then every relay carries roger.pref "reliable"
 
+  @cli
   Scenario: the flag overrides the config file's pref
     Given the config sets limits.default.pref "reliable"
     When a consumer runs `roger use m --pref cheap`
     Then every relay carries roger.pref "cheap"
 
+  @tui
   Scenario: the TUI limits editor exposes pref
     When the consumer opens the limits editor and chooses "fast"
     Then relays from the tuned band carry roger.pref "fast"
     And the choice persists to the config file
 
+  @harness
   Scenario: the agent harness forwards the session's pref
     Given a session with pref "reliable"
     When an agent turn relays
     Then the relay carries roger.pref "reliable"
 
+  @docs
   Scenario: OpenAPI documents pref, sort, order, only, ignore and allow_fallbacks
     When a client reads the OpenAPI document
     Then the chat-completions request schema lists provider.order, provider.only, provider.ignore, provider.allow_fallbacks, provider.sort and roger.pref with their allowed values

@@ -645,6 +645,7 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     And no log line contains "SECRET"
 
   # --- documentation ---------------------------------------------------------------------
+  @docs
   Scenario: OpenAPI documents roger.require, provider.require_parameters and the implicit rule
     When the OpenAPI document is read
     Then the chat-completions request schema documents "roger.require" with the closed set ["tools", "vision"]

@@ -545,16 +545,19 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     When the public feed is fetched
     Then no offer's model ends in ":free", ":floor" or ":nitro"
 
+  @proxy
   Scenario: The local proxy passes a suffixed model through untouched when the band's model matches the bare id
     Given a local proxy tuned to "qwen3-32b"
     When a guest operator posts a chat completion for "qwen3-32b:floor" to the proxy
     Then the broker received model "qwen3-32b:floor"
 
+  @proxy
   Scenario: The local proxy's model rewrite keeps a suffix the guest put on a FOREIGN id
     Given a local proxy tuned to "qwen3-32b"
     When a guest operator posts a chat completion for "gpt-4o:floor" to the proxy
     Then the broker received model "qwen3-32b:floor"
 
+  @proxy
   Scenario: The local proxy's /v1/models does not advertise suffixed ids
     Given a local proxy tuned to "qwen3-32b"
     When a guest operator lists /v1/models on the proxy

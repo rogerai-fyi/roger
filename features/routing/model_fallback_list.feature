@@ -244,6 +244,7 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the departed "b1" is skipped (as a departed sibling is today)
     And the response is 429 with a Retry-After
 
+  @unit
   Scenario: the per-attempt seed makes the station choice within a model reproducible (planner-level, unit step)
     # Request ids are minted per request, so this cannot be driven through the relay; the
     # step invokes the planner directly with an injected seed, as router_test.go does.
@@ -974,11 +975,13 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "model": "a" and no list
     Then the response, headers, receipts and ledger rows match the pre-feature single-model failover
 
+  @proxy
   Scenario: the local proxy passes models through untouched
     Given the local proxy is tuned to "a" and "b1" serves "b"
     When a guest sends "model": "a" and "models": ["b"] through the proxy
     Then the broker received "model": "a" and "models": ["b"] (no overwrite)
 
+  @proxy
   Scenario: the local proxy still rewrites a bare foreign id when no list is present
     Given the local proxy is tuned to "a"
     When a guest sends "model": "gpt-4o" and no list
