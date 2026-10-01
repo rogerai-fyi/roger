@@ -1924,7 +1924,7 @@ func TestRoutingCapabilityGatingBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{"../../features/routing/capability_gating.feature"},
-			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs",
+			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later",
 		},
 	}
 	if suite.Run() != 0 {

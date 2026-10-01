@@ -324,6 +324,7 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     When a request for "qwen3-32b" carries tool_choice "auto" and no provider object
     Then "n-plain" is a candidate
 
+  # corrected 2026-10-01 (founder-approved): dropped the `null` row - null means absent (§1a), never a 400.
   Scenario Outline: require_parameters must be a boolean
     Given node "n-plain" is on air for "qwen3-32b" with no recorded capability
     When a request for "qwen3-32b" carries provider.require_parameters <value>
@@ -335,7 +336,6 @@ Feature: Capability gating - a request that needs tools or vision only routes to
       | value  |
       | "true" |
       | 1      |
-      | null   |
       | []     |
 
   # --- verified-not-declared: how a station earns and loses tools ------------------------

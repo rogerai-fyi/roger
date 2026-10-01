@@ -449,6 +449,7 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then the response is 503 {"error":{"code":"no_match"}}
     And the message says no confidential station matches
 
+  # corrected 2026-10-01 (founder-approved): kept as written; contract §6 now states the two-tier health gate holds ACROSS fabrics.
   Scenario: the Tier A before Tier B gate holds across fabrics
     Given the node behind "t1-a" is Tier B and "s1" is Tier A
     When 40 consumers relay for "m"

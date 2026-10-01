@@ -1501,6 +1501,31 @@ func (s *rs1State) noStationDispatched() error {
 	return nil
 }
 
+// rs1ReceivedNothing: the named station saw no upstream request for the last shot.
+func (s *rs1State) rs1ReceivedNothing(name string) error {
+	if n := s.shot.counts[name]; n != 0 {
+		return fmt.Errorf("%q received %d upstream request(s), want none", name, n)
+	}
+	return nil
+}
+
+// rs1NoBandCodeLeaks: no band code of the scenario (alias, the real minted code, or its
+// tail) appears in the response body or in any broker log line.
+func (s *rs1State) rs1NoBandCodeLeaks() error {
+	if len(s.codes) == 0 {
+		return fmt.Errorf("fixture: the scenario minted no band code to look for")
+	}
+	out := string(s.lastBody) + "\n" + s.logs.String()
+	for alias, code := range s.codes {
+		for _, needle := range []string{alias, code, protocol.CanonicalBandTail(code)} {
+			if needle != "" && strings.Contains(out, needle) {
+				return fmt.Errorf("band code %q appears in the response or a log line", alias)
+			}
+		}
+	}
+	return nil
+}
+
 func (s *rs1State) noHoldRS1() error {
 	if s.shot.holdN != 0 {
 		return fmt.Errorf("%d hold(s) placed on %s, want none", s.shot.holdN, s.shot.payer)
@@ -2608,6 +2633,9 @@ func rs1Steps(sc *godog.ScenarioContext, st *rs1State) {
 	sc.Step(`^no broker-side failover was planned$`, st.noFailoverPlanned)
 	sc.Step(`^no hold was placed$`, st.noHoldRS1)
 	sc.Step(`^no station was dispatched$`, st.noStationDispatched)
+	sc.Step(`^no station received anything$`, st.noStationDispatched)
+	sc.Step(`^"([^"]*)" received nothing$`, st.rs1ReceivedNothing)
+	sc.Step(`^neither band code appears in the response or in a log line$`, st.rs1NoBandCodeLeaks)
 	sc.Step(`^no hold was placed and no station was dispatched$`, st.noHoldNoDispatch)
 	sc.Step(`^the failover plan contains "([^"]*)" and "([^"]*)"$`, st.planContains2)
 	sc.Step(`^the failover plan contains "([^"]*)", "([^"]*)" and "([^"]*)"$`, st.planContains3)
@@ -2712,7 +2740,7 @@ func rs1Run(t *testing.T, feature string) {
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{feature}, TestingT: t, Strict: true,
-			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs",
+			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later",
 		},
 	}
 	if suite.Run() != 0 {

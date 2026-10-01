@@ -85,9 +85,10 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the effective model list is ["b", "c"]
     And a station serving "b" received the request with body model "b"
 
-  Scenario: neither model nor models is today's 400
+  # corrected 2026-10-01 (founder-approved): no missing-model 400 exists today (a body with no model answers 503 "no node offers "); the 400 is NEW behavior and is named as such.
+  Scenario: neither model nor models is a 400 naming the missing model
     When a consumer relays with no "model" and no "models"
-    Then the response is 400 and the message is today's missing-model message
+    Then the response is 400 with error code "invalid_routing_value" and the message contains "model is required"
     And no station received anything and no hold was placed
 
   Scenario: duplicates are removed keeping the first occurrence
@@ -157,9 +158,26 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "model": "x" and "models": ["qwen3-32b"]
     Then the response is 503 with error code "no_match"
 
-  Scenario: a model id longer than the existing model-id limit is refused as today
-    When a consumer relays with "model": "a" and "models" containing a 600-character id
-    Then the response is 400 (the existing model-id length rule applies per entry)
+  # corrected 2026-10-01 (founder-approved): no model-id length rule exists today; the limit is now explicit - 256 characters, in "model" or in any models[] entry.
+  Scenario: a models[] entry longer than 256 characters is a 400 invalid_routing_value
+    When a consumer relays with "model": "a" and "models" containing a 257-character id
+    Then the response is 400 with error code "invalid_routing_value" and the message names the 256-character model id limit
+    And no station received anything and no hold was placed
+
+  Scenario: a "model" longer than 256 characters is a 400 invalid_routing_value
+    When a consumer relays with a 257-character "model"
+    Then the response is 400 with error code "invalid_routing_value" and the message names the 256-character model id limit
+    And no station received anything and no hold was placed
+
+  Scenario: a "model" of exactly 256 characters is accepted
+    Given station "long1" serves a 256-character model id
+    When a consumer relays with that 256-character id as "model"
+    Then the response is 200 from "long1"
+
+  Scenario: a models[] entry of exactly 256 characters is accepted
+    Given station "long1" serves a 256-character model id
+    When a consumer relays with "model": "a" and that 256-character id in "models"
+    Then the response is 200 from "long1"
 
   # ===========================================================================
   # 2. PLAN CONSTRUCTION - stations per model, models in order, one deadline
@@ -645,9 +663,20 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When the grant relays with "model": "a" and "models": ["b"]
     Then the grant's cap is debited once, for "o2"'s served tokens only
 
-  Scenario: a grant's price caps intersect every model in the list
+  # corrected 2026-10-01 (founder-approved): a grant's price_in/price_out is the price the GRANT BILLS AT (resolvePricing), not a cap on station offers; the old expectation that the 2.00-out station is "never planned" was a new rule, not grant semantics.
+  Scenario: a priced grant bills the served pair at the grant's price, whichever model serves
     Given a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and O's "o2" serves "b" at 0.50 out
     When the grant relays with "model": "a" and "models": ["b"]
+    Then the response is 200 from "o1", billed at the grant's 1.00/1.00, and "o2" received nothing
+
+  Scenario: a priced grant bills the grant's price when the fallback model serves too
+    Given a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and 429s, O's "o2" serves "b" at 0.50 out
+    When the grant relays with "model": "a" and "models": ["b"]
+    Then the response is 200 from "o2", billed at the grant's 1.00/1.00, not the station's 0.50
+
+  Scenario: the consumer's own max_price cap still filters station offers under a priced grant
+    Given a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and O's "o2" serves "b" at 0.50 out
+    When the grant relays with max_price.completion 1.00 and "model": "a" and "models": ["b"]
     Then "o1" is never planned and the response is 200 from "o2"
 
   Scenario: a private band that denies some listed models serves the allowed one
@@ -992,6 +1021,7 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then "b1" received model "b" and served it; the receipt is for "b"
 
-  Scenario: the request-body size limit counts the list
+  # corrected 2026-10-01 (founder-approved): no 413 exists; the reader truncates at 4 MiB, so a SIGNED over-limit body fails the signature check before it is parsed. Pins today's behavior.
+  Scenario: the request-body size limit counts the list - a signed over-limit body is 401 "invalid request signature"
     When a consumer relays with a body at the limit plus a "models" array
-    Then the response is the existing body-limit 413 and no station received anything
+    Then the response is 401 "invalid request signature" and no station received anything

@@ -81,9 +81,11 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
 
   @slice0
+  # corrected 2026-10-01 (founder-approved): an EMPTY roger.freq is absent too (it never replaces a header band); its row moved here from the 400 type/range table.
   Scenario Outline: A null VALUE for any routing key means absent, at every level (§1a), never a 400
     # null is "not stated": the header counterpart or the default applies. A null ELEMENT
-    # inside a list is still a malformed entry (see the type/range table).
+    # inside a list is still a malformed entry (see the type/range table). An empty
+    # roger.freq string is read the same way: no band stated.
     When "u-1" posts a chat completion for "qwen3-32b" with body `<fragment>`
     Then the response is 200
     And the routing pass saw no value for "<path>"
@@ -104,6 +106,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"self_hosted_only": null}                   | roger.self_hosted_only        |
       | "roger": {"region": null}                             | roger.region                  |
       | "roger": {"freq": null}                               | roger.freq                    |
+      | "roger": {"freq": ""}                                 | roger.freq                    |
       | "roger": {"profile": null}                            | roger.profile                 |
 
   @slice0
@@ -327,7 +330,6 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"region": ["eu-1"]}                         | roger.region                  |
       | "roger": {"region": [1]}                              | roger.region                  |
       | "roger": {"freq": 1234}                               | roger.freq                    |
-      | "roger": {"freq": ""}                                 | roger.freq                    |
       | "roger": {"freq": ["code"]}                           | roger.freq                    |
       | "roger": {"profile": 1}                               | roger.profile                 |
       | "roger": {"profile": ""}                              | roger.profile                 |
@@ -407,9 +409,11 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the response header X-RogerAI-Model is "qwen3-32b"
 
-  Scenario: A routing object that pushes the body past the 4 MiB limit is truncated by the reader and rejected as malformed, never dispatched
+  # corrected 2026-10-01 (founder-approved): pins today's behavior - the reader truncates at 4 MiB, so a SIGNED caller's truncated body fails the signature check (401), before it is ever parsed; no 413 exists.
+  Scenario: A routing object that pushes a signed body past the 4 MiB limit is truncated by the reader and refused 401 "invalid request signature", never dispatched
     When "u-1" posts a chat completion for "qwen3-32b" whose "roger" object is padded to 5 MiB
-    Then the response is 400
+    Then the response is 401
+    And the error message is "invalid request signature"
     And no hold was placed and no station was dispatched
 
   Scenario: A large but valid routing object under the limit is accepted and does not reach the station
@@ -570,9 +574,11 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-c"
 
+  # corrected 2026-10-01 (founder-approved): the Background's "n-c" was unmeasured, so it passed the floor (§5: unmeasured passes) and outscored "n-b"; it is now measured below the floor.
   Scenario: X-Roger-Min-TPS and roger.min_tps agree
     Given node "n-a" has a measured throughput of 10 tok/s
     And node "n-b" has a measured throughput of 50 tok/s
+    And node "n-c" has a measured throughput of 12 tok/s
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "30" and body `"roger": {"min_tps": 30}`
     Then the response is 200
     And the served node is "n-b"
@@ -605,16 +611,20 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-b"
 
+  # corrected 2026-10-01 (founder-approved): the Background's "n-c" was unmeasured, so it passed the floor (§5: unmeasured passes) and outscored "n-b"; it is now measured below the floor.
   Scenario: X-Roger-Min-TPS alone filters exactly as today
     Given node "n-a" has a measured throughput of 10 tok/s
     And node "n-b" has a measured throughput of 50 tok/s
+    And node "n-c" has a measured throughput of 12 tok/s
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "30" and no routing body
     Then the response is 200
     And the served node is "n-b"
 
+  # corrected 2026-10-01 (founder-approved): the Background's "n-c" was unmeasured, so it passed the floor (§5: unmeasured passes) and outscored "n-b"; it is now measured below the floor.
   Scenario: roger.min_tps alone filters
     Given node "n-a" has a measured throughput of 10 tok/s
     And node "n-b" has a measured throughput of 50 tok/s
+    And node "n-c" has a measured throughput of 12 tok/s
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": {"min_tps": 30}`
     Then the response is 200
     And the served node is "n-b"
@@ -1120,6 +1130,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the error code is not "unknown_routing_key"
 
   # --- error envelope -------------------------------------------------------------------
+  # corrected 2026-10-01 (founder-approved): kept as written; contract §2 now states that EVERY routing refusal (400s included) carries X-RogerAI-Cost: 0 and no receipt.
   Scenario Outline: Every routing error is the envelope {"error":{"code","message"}} with the code stated
     Given <setup>
     When "u-1" posts a chat completion for "<model>" with body `<fragment>`
@@ -1146,12 +1157,13 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the error code is "no_match"
     And the error message starts with "no node offers no-such-model"
 
+  # corrected 2026-10-01 (founder-approved): the literal omitted the model name the broker prints today (tunnel.go, the pick-found-nothing grant message).
   Scenario: The grant flavour of the no-station message is preserved
     Given owner "o-1" owns node "n-a" and minted grant "rog-grant_1" for "qwen3-32b"
     And node "n-a" goes off air
     When the grant holder posts a chat completion for "qwen3-32b" with body `"roger": {"pref": "cheap"}`
     Then the response is 503
-    And the error message is "no node of this grant's owner is serving right now"
+    And the error message is "no node of this grant's owner is serving qwen3-32b right now"
 
   Scenario: The confidential flavour of the no-station message is preserved for the body form
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": {"confidential": true}`

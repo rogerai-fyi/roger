@@ -2109,16 +2109,14 @@ func mf1Givens() []mf1Step {
 			return s.mkGrant(o1, store.Grant{Free: true, DailyCap: 1_000_000})
 		}},
 		{`a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and O's "o2" serves "b" at 0.50 out`, func(s *mf1State) error {
-			o1 := s.stn("o1", mf1StOpt{models: []string{"a"}, in: 1, out: 2, priced: true})
-			s.stn("o2", mf1StOpt{models: []string{"b"}, in: 0.5, out: 0.5, priced: true, owner: o1})
-			if o, ok, err := s.db.OwnerByPubkey(o1.acct); err == nil && ok { // the sponsor's unified wallet pays
-				if w, ok := accountWalletForOwner(o); ok {
-					if _, err := s.db.AddCredits(w, 10); err != nil {
-						return err
-					}
-				}
-			}
-			return s.mkGrant(o1, store.Grant{PriceIn: 1.00, PriceOut: 1.00})
+			return s.mf1SponsoredGrant(false)
+		}},
+		{`a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and 429s, O's "o2" serves "b" at 0.50 out`, func(s *mf1State) error {
+			return s.mf1SponsoredGrant(true)
+		}},
+		{`station "long1" serves a 256-character model id`, func(s *mf1State) error {
+			s.stn("long1", mf1StOpt{models: []string{mf1LongModel(256)}})
+			return nil
 		}},
 		{`a grant allowing models ["a"] on O's nodes; a public "x1" serves "b"`, func(s *mf1State) error {
 			o1 := s.stn("o1", mf1StOpt{models: []string{"c"}}) // O is on air, but not for "a"
@@ -2300,16 +2298,61 @@ var mf1RelayWhens = []string{
 	`the grant relays with "model": "a" (O has no "a" on air) and "models": ["b"]`,
 	`the grant relays with "model": "a" and "models": ["b", "c"]`,
 	`the grant relays with "model": "a" and "models": ["b"]`,
+	`the grant relays with max_price.completion 1.00 and "model": "a" and "models": ["b"]`,
+}
+
+// mf1LongModel is a model id of exactly n characters (the 256-character limit scenarios).
+func mf1LongModel(n int) string { return strings.Repeat("m", n) }
+
+// mf1SponsoredGrant is the priced-grant fixture: O's "o1" serves "a" at 2.00 out (optionally
+// 429ing), O's "o2" serves "b" at 0.50 out, and the grant bills at 1.00/1.00 from the
+// sponsor's unified wallet.
+func (s *mf1State) mf1SponsoredGrant(o1Throttled bool) error {
+	o1 := s.stn("o1", mf1StOpt{models: []string{"a"}, in: 1, out: 2, priced: true})
+	if o1Throttled {
+		s.behave("o1", mf1429(""))
+	}
+	s.stn("o2", mf1StOpt{models: []string{"b"}, in: 0.5, out: 0.5, priced: true, owner: o1})
+	if o, ok, err := s.db.OwnerByPubkey(o1.acct); err == nil && ok { // the sponsor's unified wallet pays
+		if w, ok := accountWalletForOwner(o); ok {
+			if _, err := s.db.AddCredits(w, 10); err != nil {
+				return err
+			}
+		}
+	}
+	return s.mkGrant(o1, store.Grant{PriceIn: 1.00, PriceOut: 1.00})
 }
 
 func mf1Whens() []mf1Step {
 	return []mf1Step{
-		{`a consumer relays with "model": "a" and "models" containing a 600-character id`, func(s *mf1State) error {
+		{`a consumer relays with "model": "a" and "models" containing a 257-character id`, func(s *mf1State) error {
 			if err := s.begin(); err != nil {
 				return err
 			}
 			a := "a"
-			raw, _ := json.Marshal([]string{strings.Repeat("m", 600)})
+			raw, _ := json.Marshal([]string{mf1LongModel(257)})
+			return s.send(mf1Req{model: &a, models: raw, tokens: 50})
+		}},
+		{`a consumer relays with a 257-character "model"`, func(s *mf1State) error {
+			if err := s.begin(); err != nil {
+				return err
+			}
+			m := mf1LongModel(257)
+			return s.send(mf1Req{model: &m, tokens: 50})
+		}},
+		{`a consumer relays with that 256-character id as "model"`, func(s *mf1State) error {
+			if err := s.begin(); err != nil {
+				return err
+			}
+			m := mf1LongModel(256)
+			return s.send(mf1Req{model: &m, tokens: 50})
+		}},
+		{`a consumer relays with "model": "a" and that 256-character id in "models"`, func(s *mf1State) error {
+			if err := s.begin(); err != nil {
+				return err
+			}
+			a := "a"
+			raw, _ := json.Marshal([]string{mf1LongModel(256)})
 			return s.send(mf1Req{model: &a, models: raw, tokens: 50})
 		}},
 		{`a consumer relays with a body at the limit plus a "models" array`, func(s *mf1State) error {
@@ -2652,13 +2695,11 @@ func mf1Thens() []mf1Step {
 		T(`the response is 401 "log in to spend on paid models" and no station received anything`, aCode(401), aMsgHas("log in to spend on paid models"), aNoStation()),
 		T(`no hold was placed and X-RogerAI-Cost is "0"`, aNoHold(), aHdr("X-RogerAI-Cost", "0")),
 		T(`no hold was placed`, aNoHold()),
-		T(`the response is 400 and the message is today's missing-model message`, aCode(400), aMsgHas("model")),
-		T(`the response is 400 (the existing model-id length rule applies per entry)`, aCode(400), func(s *mf1State) error {
-			if code, _ := s.errObj(); code == "unsupported_routing_key" {
-				return fmt.Errorf("refused as unsupported_routing_key, not by the model-id length rule")
-			}
-			return nil
-		}),
+		T(`the response is 400 with error code "invalid_routing_value" and the message contains "model is required"`, aCode(400), aErrCode("invalid_routing_value"), aMsgHas("model is required")),
+		T(`the response is 400 with error code "invalid_routing_value" and the message names the 256-character model id limit`, aCode(400), aErrCode("invalid_routing_value"), aMsgHas("256")),
+		T(`the response is 200 from "o1", billed at the grant's 1.00/1.00, and "o2" received nothing`, aFrom("o1"), aBilledAt(1, 1), aNothing("o2")),
+		T(`the response is 200 from "o2", billed at the grant's 1.00/1.00, not the station's 0.50`, aFrom("o2"), aBilledAt(1, 1)),
+		T(`the response is 200 from "long1"`, aFrom("long1")),
 		T(`the response is 400 "request exceeds the context window"`, aCode(400), aMsgHas("exceeds the context window")),
 		T(`the response is 400 "request exceeds the context window" naming 8192`, aCode(400), aMsgHas("exceeds the context window", "8192")),
 		T(`the message names the widest window across the list (16384)`, aMsgHas("16384")),
@@ -2676,7 +2717,7 @@ func mf1Thens() []mf1Step {
 		}),
 		T(`the response is the existing "node busy" 503 (dispatch outcome), not a model fallback`, aCode(503), aMsgHas("node busy"), aNothing("b1")),
 		T(`the response is the existing 504 "node timed out" and "b1" received nothing`, aCode(504), aMsgHas("node timed out"), aNothing("b1")),
-		T(`the response is the existing body-limit 413 and no station received anything`, aCode(413), aNoStation()),
+		T(`the response is 401 "invalid request signature" and no station received anything`, aCode(401), aMsgHas("invalid request signature"), aNoStation()),
 		T(`the response is the existing monthly-cap refusal for the first pick`, aCode(402), aMsgHas("monthly"), aNoStation()),
 		T(`the response is "a1"'s status and body as today, "a1" is struck for the unbound receipt`, aCode(200), aBodyIsCompletion(), aStruck("a1"), aRecvN("a1", 1)),
 		T(`the response is the screener's status (451 or 503) before any pick`, func(s *mf1State) error {
@@ -3395,7 +3436,7 @@ func TestRoutingModelFallbackBDD(t *testing.T) {
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{"../../features/routing/model_fallback_list.feature"},
-			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@unit", TestingT: t, Strict: true,
+			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@unit", TestingT: t, Strict: true,
 		},
 	}
 	if suite.Run() != 0 {

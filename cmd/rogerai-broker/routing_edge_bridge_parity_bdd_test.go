@@ -2965,7 +2965,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/routing/edge_bridge_parity.feature"},
-			Tags:     "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs",
+			Tags:     "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later",
 			TestingT: t,
 			Strict:   true,
 		},

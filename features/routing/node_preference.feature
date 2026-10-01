@@ -132,6 +132,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And "p1" received nothing
     And the error message does not reveal that "p1" exists or is private
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: only narrows a private band to one of its stations when the code is presented
     Given a private band "B" with stations "p1" and "p2" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.only ["p2"]
@@ -320,6 +322,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the response is 503 {"error":{"code":"no_match"}}
     And the message says no node of this grant's owner matches
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: ignore on a private-band relay narrows the band
     Given a private band "B" with stations "p1" and "p2" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
@@ -506,6 +510,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the pick is "s3"
     And fallbacks are allowed (the body's default), not disabled by the header
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: order on a private band ranks within the band
     Given a private band "B" with stations "p1" and "p2" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.order ["p2", "p1"]
@@ -937,6 +943,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then exactly one attempt was made, to "s1"
     And the response is 429
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: sort on a private band sorts within the band
     Given a private band "B" with stations "p1" (out 2.00) and "p2" (out 1.00) for "m"
     When 20 funded consumers relay with roger.freq for band "B" and provider.sort "price"
@@ -974,8 +982,9 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 200 funded consumers relay with roger.pref "cheap"
     Then "s1" is picked more often than under balanced
 
+  # corrected 2026-10-01 (founder-approved): at tps 90 vs 20 "s3" already took every pick under every pref, so its share could not rise; at 90 vs 60 balanced splits the picks (about 70/30) and fast moves it.
   Scenario: pref fast favors the faster station more than balanced does
-    Given measured tps "s3" 90 and "s1" 20
+    Given measured tps "s3" 90 and "s1" 60
     When 200 funded consumers relay with roger.pref "fast"
     Then "s3" is picked more often than under balanced
 
@@ -1022,8 +1031,9 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When a funded consumer relays for "m:floor" with roger.pref "reliable"
     Then the response is 400 with error.code "conflicting_routing_keys"
 
+  # corrected 2026-10-01 (founder-approved): same fixture defect as the pref-fast scenario (90 vs 20 left no share to move); 90 vs 60 lets cheap and fast disagree.
   Scenario: body pref wins over the X-Roger-Pref header
-    Given measured tps "s3" 90 and "s1" 20
+    Given measured tps "s3" 90 and "s1" 60
     When 200 funded consumers relay with X-Roger-Pref "cheap" and roger.pref "fast"
     Then "s3" is picked more often than under cheap
 

@@ -217,6 +217,7 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     And the error code is "no_match"
     And the error message starts with "no node offers qwen3-32b:FREE"
 
+  # corrected 2026-10-01 (founder-approved): dropped the row that was literally "qwen3-32b:free" (table cells are trimmed, so it was real sugar per §4, not a near-miss).
   Scenario Outline: Other casings and near-misses are part of the id too
     When "u-1" posts a chat completion for "<id>"
     Then the response is 503
@@ -232,7 +233,6 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
       | qwen3-32b:nitro2    |
       | qwen3-32b:floor-    |
       | qwen3-32b: free     |
-      | qwen3-32b:free      |
 
   Scenario: A trailing colon with nothing after it is a 400 invalid_routing_value naming model
     When "u-1" posts a chat completion for "qwen3-32b:"

@@ -2265,7 +2265,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty", Strict: true, TestingT: t,
 			Paths: []string{"../../features/routing/node_preference.feature"},
-			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs",
+			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later",
 		},
 	}
 	if suite.Run() != 0 {
