@@ -1,6 +1,6 @@
 # ROGER EDGE - THE FLEET WINDOW: SEE, MONITOR AND CONTROL EVERY UNIT FROM THE AUTHORITY.
 #
-# STATUS: PROPOSED 2026-10-01. NOT APPROVED. NOT IMPLEMENTED.
+# STATUS: APPROVED by the founder 2026-10-01 ("approve as written"). NOT YET IMPLEMENTED.
 #
 # FOUNDER DIRECTION 2026-10-01: "i want to test soon to install roger on a phone and on a pi device
 # and i should be able to see them and monitor and control them from the authoritive edge machine.

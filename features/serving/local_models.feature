@@ -479,3 +479,49 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     When the browser is drawn at 80 columns and under NO_COLOR
     Then every fact still reads in text alone
     And nothing overflows the width
+
+  # =========================================================================
+  # 8. THE BROWSER CONSOLE - APPROVED by the founder 2026-10-01
+  #
+  # FOUNDER DIRECTION 2026-10-01: "i want to add the same for the webui so we need to make sure
+  # that works from there as well". The console is the same owner on the same machine, so it does
+  # exactly what `roger model` does through the same code, and nothing more. Every rule above
+  # applies unchanged; these scenarios are only what a browser adds.
+  # =========================================================================
+
+  @web
+  Scenario: the console's model page answers "what can this machine run" like the terminal does
+    When the owner opens the console's model page
+    Then it states the machine's usable memory and which pool it is
+    And it lists the models on disk with their size, quantisation and whether roger checked them
+    And it says what is being served now, in full, or that nothing is
+
+  @web
+  Scenario: searching from the console is an action and its results are the authors' word
+    When the owner searches from the console
+    Then the results are marked as coming from outside RogerAI's catalogue
+    And a gated repo is marked before anyone tries to fetch it
+    And opening a repo judges every quantisation against THIS machine at a named context, with the
+      suggested one marked
+
+  @web @security
+  Scenario: a fetch or a serve from the console is the same consented act as at the terminal
+    When the owner fetches or serves from the console
+    Then the console shows the verdict, the sum and the licence first and asks for a yes
+    And only the page served by this machine, to its own owner, can ask; the request carries a model
+      id or a repo and file from the index, never a URL, a path outside the models directory or a
+      runtime
+    And the work happens in roger, not in the browser, so closing the tab does not stop it
+
+  @web
+  Scenario: a fetch from the console is visible with bytes, rate and time left, and survives a reload
+    Given a fetch started from the console
+    Then the page shows its bytes, rate and time remaining as it moves
+    And reloading the page shows the same fetch still running
+    And a failure names which failure it was and the fix
+
+  @web
+  Scenario: the console stops, switches and removes with the terminal's rules
+    Then stopping, switching and removing behave exactly as `roger model stop`, `serve` and `rm` do
+    And removing a model that is being served is refused with the reason
+    And a destructive action asks once and the safe answer is the default

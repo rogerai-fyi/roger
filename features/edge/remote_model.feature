@@ -1,6 +1,6 @@
 # ROGER EDGE - SWITCHING WHAT A MEMBER SERVES, FROM ACROSS THE EDGE.
 #
-# STATUS: APPROVED by the founder 2026-09-30. NOT YET IMPLEMENTED.
+# STATUS: APPROVED by the founder 2026-09-30; fetch-by-exact-id ruling 2026-10-01. NOT YET IMPLEMENTED.
 #
 # WHY THIS EXISTS
 #
@@ -97,9 +97,15 @@ Feature: The owner changes what a member serves without going to it, and nothing
     And this is true even though the caller was fully authorised
 
   @security
-  Scenario: a model the member's own catalogue does not know is refused
+  # FOUNDER RULING 2026-10-01: a member MAY fetch a model it does not have, when it is named by an
+  # exact index id ("owner/repo:QUANT"). The id is resolved against the member's OWN configured
+  # source - a lookup, not a search - and the member still judges fit with its own measurements
+  # and still never takes a URL, a path or a runtime from the wire.
+  Scenario: a model the member does not have is fetched only when named by an exact index id
     Given a caller with the switch and a valid grant
-    When it names a model id that this member's catalogue does not contain
+    When it names "owner/repo:QUANT" for a model this member does not have
+    Then the member resolves that id against its own source, judges it, fetches it and serves it
+    When it names anything else this member does not have - a bare name, a partial id, free text
     Then the member refuses, saying it does not know that model
     And it does not search anywhere for it
 
