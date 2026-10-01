@@ -389,8 +389,14 @@ func modelGet(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel
 			return localmodel.Model{}, errModelDeclined
 		}
 	}
-	m, err := modelHome().Get(ctx, modelHub(), modelFetcher(), repo, c.File, license)
+	m, err := modelHome().Fetch(ctx, modelHub(), *modelFetcher(), repo, c.File, license)
 	modelProgressDone()
+	if errors.Is(err, localmodel.ErrBusy) {
+		if j, ok := modelHome().Job(); ok {
+			return localmodel.Model{}, fmt.Errorf("%w (%s, %s of %s) - wait for it, or `roger model status`", err, j.File,
+				provision.BytesWord(j.Done), provision.BytesWord(j.Total))
+		}
+	}
 	if err != nil {
 		return localmodel.Model{}, modelFetchErr(err)
 	}
@@ -543,6 +549,9 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 }
 
 func modelStatus() error {
+	if j, ok := modelHome().Job(); ok && j.State != localmodel.JobDone {
+		fmt.Fprintln(modelOut, modelJobLine(j))
+	}
 	s, ok := modelHome().Live()
 	if !ok {
 		fmt.Fprintln(modelOut, "nothing is being served by roger on this machine.")
@@ -673,4 +682,22 @@ func modelProgressDone() {
 		fmt.Fprintln(modelOut)
 		modelProgressShown = false
 	}
+}
+
+// modelJobLine is the fetch in flight, or the last one that did not finish, in one line.
+func modelJobLine(j localmodel.Job) string {
+	switch j.State {
+	case localmodel.JobFetching:
+		line := fmt.Sprintf("fetching %s %s: %s of %s", j.Repo, j.File, provision.BytesWord(j.Done), provision.BytesWord(j.Total))
+		if j.Rate > 0 {
+			line += fmt.Sprintf(" · %s/s", provision.BytesWord(int64(j.Rate)))
+		}
+		return line
+	case localmodel.JobFailed:
+		return fmt.Sprintf("the last fetch (%s %s) failed: %s", j.Repo, j.File, j.Err)
+	case localmodel.JobInterrupted:
+		return fmt.Sprintf("the last fetch (%s %s) was interrupted at %s of %s - run it again and it resumes",
+			j.Repo, j.File, provision.BytesWord(j.Done), provision.BytesWord(j.Total))
+	}
+	return ""
 }

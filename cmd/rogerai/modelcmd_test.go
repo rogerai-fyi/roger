@@ -569,3 +569,29 @@ func TestModelADetachedServeIsSettledInFrontOfTheOwnerThenHandedOff(t *testing.T
 	_, err = r.run(t, "serve", "tiny", "--detach")
 	require.ErrorContains(t, err, "could not start serving in the background")
 }
+
+func TestModelStatusShowsAFetchThatDidNotFinish(t *testing.T) {
+	r := newModelRig(t, 16384)
+	write := func(j localmodel.Job) {
+		b, _ := json.Marshal(j)
+		require.NoError(t, os.MkdirAll(r.home.Dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "fetch.json"), b, 0o644))
+	}
+	write(localmodel.Job{Repo: "acme/Tiny-GGUF", File: "Tiny-Q4_K_M.gguf", Total: 2 << 30, Done: 1 << 30, Rate: 40 << 20,
+		State: localmodel.JobFetching, PID: os.Getpid()})
+	out, err := r.run(t, "status")
+	require.NoError(t, err)
+	require.Contains(t, out, "fetching acme/Tiny-GGUF Tiny-Q4_K_M.gguf: 1.0 GiB of 2.0 GiB · 40.0 MiB/s")
+
+	// A second fetch while one runs is refused, saying which one is running.
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
+	require.ErrorIs(t, err, localmodel.ErrBusy)
+	require.ErrorContains(t, err, "Tiny-Q4_K_M.gguf")
+
+	write(localmodel.Job{Repo: "acme/Tiny-GGUF", File: "x.gguf", State: localmodel.JobFailed, Err: "not enough free disk"})
+	out, _ = r.run(t, "status")
+	require.Contains(t, out, "failed: not enough free disk")
+	write(localmodel.Job{Repo: "acme/Tiny-GGUF", File: "x.gguf", Total: 10, Done: 5, State: localmodel.JobFetching, PID: 0})
+	out, _ = r.run(t, "status")
+	require.Contains(t, out, "was interrupted")
+}

@@ -1,0 +1,158 @@
+package localmodel
+
+// THE ONE FETCH IN FLIGHT, recorded so every surface can see it.
+//
+// A fetch runs inside a roger: the CLI's, the one serving the console, the TUI's, or a member's
+// answering an Edge request. Its progress is written to a small file beside the models, so a page
+// that reloads, a screen that was left and came back, and an authority looking at the fleet all
+// read the same truth. One at a time per machine: two multi-gigabyte downloads racing for the same
+// card help nobody, and "which one is it showing" is a question a screen should never have to ask.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"rogerai.fm/roger/v6/internal/hfhub"
+	"rogerai.fm/roger/v6/internal/provision"
+)
+
+// Job states.
+const (
+	JobFetching    = "fetching"
+	JobDone        = "done"
+	JobFailed      = "failed"
+	JobInterrupted = "interrupted" // its roger went away before it finished; the partial resumes
+)
+
+// Job is the fetch in flight, or the last one.
+type Job struct {
+	Repo       string    `json:"repo"`
+	File       string    `json:"file"`
+	ID         string    `json:"id,omitempty"` // set when done
+	Total      int64     `json:"total"`
+	Done       int64     `json:"done"`
+	Rate       float64   `json:"rate"`
+	RemainingS int64     `json:"remaining_s,omitempty"`
+	Resumed    bool      `json:"resumed,omitempty"`
+	State      string    `json:"state"`
+	Err        string    `json:"err,omitempty"`
+	PID        int       `json:"pid"`
+	Started    time.Time `json:"started"`
+	Updated    time.Time `json:"updated"`
+}
+
+// ErrBusy is a second fetch asked for while one is running.
+var ErrBusy = errors.New("a model is already being fetched on this machine")
+
+func (h Home) jobPath() string { return filepath.Join(h.Dir, "fetch.json") }
+
+var jobMu sync.Mutex // one writer per process; across processes the PID check decides
+
+// Job is the current or last fetch. A fetch whose roger has gone is reported interrupted, never
+// as still running and never as done.
+func (h Home) Job() (Job, bool) {
+	b, err := os.ReadFile(h.jobPath())
+	if err != nil {
+		return Job{}, false
+	}
+	var j Job
+	if json.Unmarshal(b, &j) != nil || j.State == "" {
+		return Job{}, false
+	}
+	if j.State == JobFetching && (j.PID <= 0 || !alive(j.PID)) {
+		j.State = JobInterrupted
+	}
+	return j, true
+}
+
+func (h Home) writeJob(j Job) {
+	j.Updated = time.Now().UTC()
+	b, err := json.Marshal(j)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(h.Dir, 0o700)
+	tmp := h.jobPath() + ".tmp"
+	if os.WriteFile(tmp, b, 0o644) == nil {
+		_ = os.Rename(tmp, h.jobPath())
+	}
+}
+
+// Fetch runs Get and records its progress as it goes. It blocks; StartFetch is the same in the
+// background.
+func (h Home) Fetch(ctx context.Context, hub *hfhub.Client, f provision.Fetcher, repo string, file hfhub.File, license string) (Model, error) {
+	jobMu.Lock()
+	if cur, ok := h.Job(); ok && cur.State == JobFetching {
+		jobMu.Unlock()
+		return Model{}, ErrBusy
+	}
+	j := Job{Repo: repo, File: file.Path, Total: file.Bytes, State: JobFetching, PID: os.Getpid(), Started: time.Now().UTC()}
+	h.writeJob(j)
+	jobMu.Unlock()
+
+	outer := f.OnProgress
+	f.OnProgress = func(p provision.Progress) {
+		j.Done, j.Rate, j.RemainingS, j.Resumed = p.Done, p.Rate, int64(p.Remaining/time.Second), p.Resumed
+		if p.Total > 0 {
+			j.Total = p.Total
+		}
+		h.writeJob(j)
+		if outer != nil {
+			outer(p)
+		}
+	}
+	m, err := h.Get(ctx, hub, &f, repo, file, license)
+	if err != nil {
+		j.State, j.Err = JobFailed, err.Error()
+	} else {
+		j.State, j.ID, j.Done = JobDone, m.ID, j.Total
+	}
+	h.writeJob(j)
+	return m, err
+}
+
+// StartFetch begins a fetch in the background and returns once it is recorded as running, so a
+// caller that answers "started" is never contradicted by a page that reads the record a moment
+// later. done, if set, is told the outcome.
+func (h Home) StartFetch(hub *hfhub.Client, f provision.Fetcher, repo string, file hfhub.File, license string, done func(Model, error)) error {
+	if why := Unservable(file.Path); why != "" {
+		return errors.New(file.Path + " is " + why)
+	}
+	if _, err := h.PathFor(repo, file.Path); err != nil {
+		return err
+	}
+	if cur, ok := h.Job(); ok && cur.State == JobFetching {
+		return ErrBusy
+	}
+	started := make(chan error, 1)
+	go func() {
+		// The first write of the record is the "started"; Fetch makes it before any byte moves.
+		var once sync.Once
+		inner := f.OnProgress
+		f.OnProgress = func(p provision.Progress) {
+			once.Do(func() { started <- nil })
+			if inner != nil {
+				inner(p)
+			}
+		}
+		m, err := h.Fetch(context.Background(), hub, f, repo, file, license)
+		once.Do(func() { started <- err })
+		if done != nil {
+			done(m, err)
+		}
+	}()
+	select {
+	case err := <-started:
+		if errors.Is(err, ErrBusy) {
+			return err
+		}
+		return nil // a failure after starting is in the record, which is where a screen reads it
+	case <-time.After(2 * time.Second):
+		return nil // still connecting; the record already says it is running
+	}
+}
