@@ -346,7 +346,8 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
   Scenario: the only station cooling returns 503 band cooling with Retry-After and no dispatch
     Given "s1" is the only station for "m" and is cooling for 8 more seconds
     When a funded consumer relays
-    Then the response is 503 {"error":{"message":"band cooling - the station serving m was rate limited upstream, retry after 8s"}}
+    Then the response is 503 {"error":{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after 8s"}}
+    # code added 2026-09-30 per the approved routing-expression contract §2 (founder re-approval)
     And Retry-After is 8
     And no hold, no receipt, no upstream call
 

@@ -2172,31 +2172,7 @@ func (b *broker) localCachedJSON(key string, ttl time.Duration, compute func() a
 }
 
 func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) {
-	// No shared (Redis) backend: still amortize via the IN-PROCESS TTL cache so a single
-	// instance doesn't recompute the full market on every hit. Safe - same key scoping as the
-	// shared path. On a marshal error, fall back to the direct encoder so the request still serves.
-	if b.shared == nil {
-		if body := b.localCachedJSON(key, ttl, compute); body != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(body)
-			return
-		}
-		writeJSON(w, http.StatusOK, compute())
-		return
-	}
-	// Cache HIT: serve the stored JSON verbatim (already serialized, small payload).
-	if val, found, err := b.shared.cacheGet(key); err == nil && found {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(val)
-		return
-	}
-	// MISS (or a cache error): compute under a per-KEY singleflight so a CONCURRENT
-	// miss/expiry on this one hot key collapses to ONE compute (+ one cache populate)
-	// instead of a thundering herd each re-running the full (b.mu-locked) recompute.
-	// Only one goroutine per key runs compute(); the rest share its serialized bytes.
-	body := b.computeCachedJSON(key, ttl, compute)
+	body := b.cachedJSON(key, ttl, compute)
 	if body == nil {
 		// Marshal failed for this view (should never happen); fall back to the standard
 		// encoder on a fresh compute so the request still serves a body.
@@ -2206,6 +2182,20 @@ func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Dur
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// cachedJSON is the serialized view behind a public cached read: the shared cache's bytes on
+// a hit, else ONE compute under the per-key singleflight (a concurrent miss/expiry on a hot
+// key collapses to one recompute instead of a thundering herd). Without a shared backend the
+// in-process TTL cache amortizes the same way. nil only on a marshal error.
+func (b *broker) cachedJSON(key string, ttl time.Duration, compute func() any) []byte {
+	if b.shared == nil {
+		return b.localCachedJSON(key, ttl, compute)
+	}
+	if val, found, err := b.shared.cacheGet(key); err == nil && found {
+		return val
+	}
+	return b.computeCachedJSON(key, ttl, compute)
 }
 
 // computeCachedJSON runs compute() under the broker's per-key singleflight, returning

@@ -50,6 +50,7 @@ type instStats struct {
 	// re-dispatched to a sibling after a no-output failure, stations cooled by an upstream
 	// 429, and consumer requests refused fast with the band-cooling 503.
 	relayFailovers   atomic.Int64
+	routingPref      [4]atomic.Int64 // per-profile routing passes, indexed by pref
 	stationCooldowns atomic.Int64
 	bandCooling503   atomic.Int64
 }

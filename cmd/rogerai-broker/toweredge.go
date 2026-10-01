@@ -544,6 +544,13 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 // tower-to-tower fallback never redials the relay that just dropped the work. Nil for
 // every single-shot caller.
 func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]bool) (dispatch.Target, fleet.Station, bool) {
+	return b.edgeTargetForC(model, rng, exclude, edgeConstraints{})
+}
+
+// edgeTargetForC is edgeTargetFor under the consumer's routing constraints (the bridge's
+// parity with pickFor); the unconstrained form is what the authorize endpoint and the
+// canary use.
+func (b *broker) edgeTargetForC(model string, rng *rand.Rand, exclude map[string]bool, c edgeConstraints) (dispatch.Target, fleet.Station, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
 		// SAID OUT LOUD, like every other refusal on this path. This one used to return in
@@ -629,6 +636,9 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 			// fallback must never redial the relay that just dropped the work.
 			continue
 		}
+		if c.exclude[row.TowerID] || c.exclude[row.NodeID] {
+			continue // the consumer excluded this Tower (or the node behind it)
+		}
 		if row.Endpoint == "" {
 			continue
 		}
@@ -662,7 +672,7 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 			"no candidate survived the attachment re-check")
 		return dispatch.Target{}, fleet.Station{}, false
 	}
-	tierA, tierB := b.edgeEligible(keep, bannedNode, time.Now())
+	tierA, tierB := b.edgeEligibleC(keep, bannedNode, time.Now(), c)
 	// Healthy beats failing as an absolute gate, and Tier B exists so a transient blip never
 	// blanks the fleet - pickFor's own two-tier shape, for the same reason.
 	pool, tier := tierA, "A"
@@ -677,7 +687,7 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 	// edgeBeta concentrates the sampling on the strong end of the band. A tie, or a nil rng,
 	// still resolves to the first row of a total order, so "same fleet, same answer" survives
 	// wherever it was true before.
-	chosen := selectP2C(pool, edgeBeta, rng)
+	chosen := selectP2C(pool, c.pref.weights().beta, rng)
 	if chosen < 0 {
 		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), len(keep),
 			"the selector drew nothing from a non-empty pool")
@@ -836,10 +846,24 @@ func (b *broker) logEdgePlacementRefusal(model string, candidates, shortlisted, 
 // which is a ranking of a fleet state that never existed. It is also N times the lock traffic
 // on a path that runs per request.
 func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, now time.Time) (tierA, tierB []scoredCand) {
+	return b.edgeEligibleC(rows, bannedNode, now, edgeConstraints{})
+}
+
+// edgeEligibleC is edgeEligible under the consumer's constraints and scoring profile.
+func (b *broker) edgeEligibleC(rows []fleet.Station, bannedNode map[string]bool, now time.Time, c edgeConstraints) (tierA, tierB []scoredCand) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
+	// The consumer's pref reshapes the score exactly as on the direct path: the same
+	// speedFit (request-size aware) and the same bounded priceMod over the eligible
+	// out-price range. Balanced weights on an unmeasured, single-price fleet multiply by
+	// the same neutral factor for every row, so "same fleet, same answer" survives.
+	w := c.pref.weights()
+	rangeMin, rangeMax, haveRange := 0.0, 0.0, false
+	for _, row := range rows {
+		rangeMin, rangeMax, haveRange = extendOutRange(edgeRowPrice(row.PriceOut), rangeMin, rangeMax, haveRange)
+	}
 	for i, row := range rows {
 		nodeID := row.NodeID
 		// NO JOIN, NO ROUTE. A row without a node id cannot be liveness-checked, ban-checked or
@@ -869,6 +893,12 @@ func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, 
 			continue // a private band is reachable by frequency code, never by public placement
 		}
 		tq := b.trust[nodeID]
+		// The same min-tps floor pickFor applies: measured and too slow is out; unmeasured
+		// passes (a floor on a measurement cannot judge what was never measured).
+		tps := b.tps[nodeID]
+		if c.minTPS > 0 && tps > 0 && tps < c.minTPS {
+			continue
+		}
 		load := b.edgeLoadLocked(nodeID)
 		// REAL CAPACITY, DERIVED HERE RATHER THAN CARRIED. This is the one place the input is
 		// already under the lock that guards it - concurrentTPS under metricsMu - so it costs a
@@ -882,7 +912,10 @@ func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, 
 		// deriving it at the moment of the decision.
 		capacity := edgeCapacityOf(b.concurrentTPS[nodeID])
 		sc := scoredCand{
-			idx: i, score: edgeScore(tq, load, capacity),
+			idx: i,
+			score: edgeScore(tq, load, capacity) *
+				speedFit(tps, tq.ttftMs, c.promptTokens, w.speedMul) *
+				priceMod(edgeRowPrice(row.PriceOut), rangeMin, rangeMax, w.kPrice, w.priceExp),
 			// The P2C tie-break is load PER UNIT OF CAPACITY, exactly as router.go computes it -
 			// two open attempts mean something different on a four-slot rig than on a laptop.
 			load: float64(load) / float64(capacity),

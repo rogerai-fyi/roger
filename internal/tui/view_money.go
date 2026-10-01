@@ -31,9 +31,13 @@ type Limit struct {
 	//
 	// It is the STANDING half of the quant choice (MODEL-VARIANTS-DESIGN-2026-08-22). The
 	// dial's Q filter is a VIEW - it narrows what you are looking at and binds nothing -
-	// while this is a RULE: it is enforced at routing like MinTPS, so it also governs the
-	// agent, `roger use`, and every turn nobody is watching.
+	// while this is a RULE: it travels as provider.quantizations (plus "unknown", so a
+	// station that stated no label still passes) and the BROKER enforces it like MinTPS, so
+	// it binds in the TUI AND in `roger use`, and every turn nobody is watching.
 	Quants []string
+	// Pref is the routing preference knob (roger.pref): cheap, balanced, fast or reliable.
+	// Empty = balanced. A scoring knob, never a filter.
+	Pref string
 }
 
 // LimitStore is the TUI's view of the persisted spend limits: a per-model map, a
@@ -181,9 +185,9 @@ func (m model) limitsBody(w int) string {
 	// the columns that remain are the ones this screen exists to edit.
 	dense := w < 80
 	if dense {
-		b.WriteString(stDim.Render(fmt.Sprintf("    %-18s %-13s %s", "band", "max $/1M out", "min t/s")) + "\n")
+		b.WriteString(stDim.Render(fmt.Sprintf("    %-18s %-13s %-8s %s", "band", "max $/1M out", "min t/s", "pref")) + "\n")
 	} else {
-		b.WriteString(stDim.Render(fmt.Sprintf("    %-22s %-13s %-10s %-15s %s", "band", "max $/1M out", "min t/s", "live now", "status")) + "\n")
+		b.WriteString(stDim.Render(fmt.Sprintf("    %-22s %-13s %-10s %-9s %-15s %s", "band", "max $/1M out", "min t/s", "pref", "live now", "status")) + "\n")
 	}
 	if len(m.limModels) == 0 {
 		b.WriteString(stDim.Render("    (none yet - press a / set one in `roger config set-limit`)") + "\n")
@@ -222,6 +226,12 @@ func (m model) limitsBody(w int) string {
 		if lim.MinTPS > 0 {
 			mtps = fmt.Sprintf("%g", lim.MinTPS)
 		}
+		// The pref column shows the knob as set; empty is the balanced default, shown as
+		// "-" like the other unset caps so a row reads "nothing special" at a glance.
+		pref := "-"
+		if lim.Pref != "" {
+			pref = lim.Pref
+		}
 		live, status := "-", stDim.Render("·")
 		for _, bd := range m.bands {
 			if bd.model == mdl && bd.online {
@@ -234,11 +244,11 @@ func (m model) limitsBody(w int) string {
 				break
 			}
 		}
-		row := fmt.Sprintf("%s   %s %s %s %s %s",
-			cur, nameStyle.Render(pad(mdl, 22)), stEmber.Render(pad(maxOut, 13)), stDim.Render(pad(mtps, 10)), stDim.Render(pad(live, 15)), status)
+		row := fmt.Sprintf("%s   %s %s %s %s %s %s",
+			cur, nameStyle.Render(pad(mdl, 22)), stEmber.Render(pad(maxOut, 13)), stDim.Render(pad(mtps, 10)), stDim.Render(pad(pref, 9)), stDim.Render(pad(live, 15)), status)
 		if dense {
-			row = fmt.Sprintf("%s   %s %s %s",
-				cur, nameStyle.Render(pad(mdl, 18)), stEmber.Render(pad(maxOut, 13)), stDim.Render(mtps))
+			row = fmt.Sprintf("%s   %s %s %s %s",
+				cur, nameStyle.Render(pad(mdl, 18)), stEmber.Render(pad(maxOut, 13)), stDim.Render(pad(mtps, 8)), stDim.Render(pref))
 		}
 		b.WriteString(truncVisible(row, w) + "\n")
 	}
@@ -304,7 +314,7 @@ func (m model) limitsBody(w int) string {
 		box := stPanel.Width(inner).Render(plate)
 		b.WriteString("\n  " + strings.ReplaceAll(box, "\n", "\n  ") + "\n")
 	}
-	keys := "↑↓ move   ⏎ edit   tab next field   d clear   esc done"
+	keys := "↑↓ move   ⏎ edit   tab next field   p pref   d clear   esc done"
 	if w < 60 {
 		keys = "↑↓ · ⏎ edit · d clear · esc"
 	}

@@ -374,7 +374,7 @@ func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confiden
 	}
 	b.stats.bandCooling503.Add(1)
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
-	jsonErr(w, http.StatusServiceUnavailable, fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ds", model, secs))
+	jsonErrCode(w, http.StatusServiceUnavailable, "band_cooling", fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ds", model, secs))
 	return true
 }
 
