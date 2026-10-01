@@ -494,8 +494,12 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 503
     And the error message is the uniform "no station on that frequency (it may be off air) - check the code"
 
-  # --- body wins over header: one block per header pair in §1a -------------------------
-  # Each pair: both agree / conflict (body wins) / header only / body only.
+  # --- header and body together: one block per header pair in §1a ----------------------
+  # Each pair: both agree / conflict / header only / body only. On a conflict a PREFERENCE
+  # knob (pin vs order, pref) is body-wins; a LIMITING knob (min-tps, the two price caps,
+  # confidential, exclusions, the band code) composes to the STRICTER, in both directions,
+  # so a body can never loosen a header limit (founder ruling 2026-10-01: the proxy owner
+  # states limits in headers, a guest application controls the body).
 
   Scenario: X-Roger-Node and provider.order agree
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Node "n-b" and body `"provider": {"order": ["n-b"], "allow_fallbacks": false}`
@@ -573,12 +577,33 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-b"
 
-  Scenario: X-Roger-Min-TPS conflicts with roger.min_tps - the body wins
+  @slice0
+  Scenario: X-Roger-Min-TPS conflicts with roger.min_tps - the HIGHER floor applies (header stricter)
+    # n-a is named first by order, so a floor of 5 would serve it; the header's 30 stands,
+    # n-a (10 tok/s) is skipped silently and the request lands on n-b.
     Given node "n-a" has a measured throughput of 10 tok/s
     And node "n-b" has a measured throughput of 50 tok/s
-    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "30" and body `"roger": {"min_tps": 5}, "provider": {"sort": "price"}`
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "30" and body `"roger": {"min_tps": 5}, "provider": {"order": ["n-a"], "ignore": ["n-c"]}`
     Then the response is 200
-    And the served node is "n-a"
+    And the served node is "n-b"
+    And "n-a" received nothing
+
+  @slice0
+  Scenario: roger.min_tps stricter than X-Roger-Min-TPS - the HIGHER floor applies (body stricter)
+    Given node "n-a" has a measured throughput of 10 tok/s
+    And node "n-b" has a measured throughput of 50 tok/s
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "5" and body `"roger": {"min_tps": 30}, "provider": {"order": ["n-a"], "ignore": ["n-c"]}`
+    Then the response is 200
+    And the served node is "n-b"
+    And "n-a" received nothing
+
+  @slice0
+  Scenario: A body min_tps of 0 cannot remove a header floor
+    Given node "n-a" has a measured throughput of 10 tok/s
+    And node "n-b" has a measured throughput of 50 tok/s
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "30" and body `"roger": {"min_tps": 0}, "provider": {"order": ["n-a"], "ignore": ["n-c"]}`
+    Then the response is 200
+    And the served node is "n-b"
 
   Scenario: X-Roger-Min-TPS alone filters exactly as today
     Given node "n-a" has a measured throughput of 10 tok/s
@@ -599,10 +624,26 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-a"
 
-  Scenario: X-Roger-Max-Price conflicts with provider.max_price.prompt - the body wins
+  @slice0
+  Scenario: X-Roger-Max-Price conflicts with provider.max_price.prompt - the LOWER cap applies (header stricter)
+    # With n-a ignored, n-b (in $0.20) fits the body's 0.25 but not the header's 0.15.
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price "0.15" and body `"provider": {"max_price": {"prompt": 0.25}, "ignore": ["n-a"]}`
+    Then the response is 503
+    And the error code is "no_match"
+    And no station received anything
+
+  @slice0
+  Scenario: provider.max_price.prompt stricter than X-Roger-Max-Price - the LOWER cap applies (body stricter)
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price "0.25" and body `"provider": {"max_price": {"prompt": 0.15}, "ignore": ["n-a"]}`
+    Then the response is 503
+    And the error code is "no_match"
+    And no station received anything
+
+  @slice0
+  Scenario: The lower in-price cap still admits a station under it
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price "0.15" and body `"provider": {"max_price": {"prompt": 0.25}}`
     Then the response is 200
-    And the served node is "n-b"
+    And the served node is "n-a"
 
   Scenario: X-Roger-Max-Price alone caps exactly as today
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price "0.15" and no routing body
@@ -619,10 +660,47 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-a"
 
-  Scenario: X-Roger-Max-Price-Out conflicts with provider.max_price.completion - the body wins
+  @slice0
+  Scenario: X-Roger-Max-Price-Out conflicts with provider.max_price.completion - the LOWER cap applies (header stricter)
+    # The money case the ruling exists for: the proxy owner's header cap is 0.50; a guest
+    # body asking for 0.70 must not reach n-b (out $0.60).
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "0.50" and body `"provider": {"max_price": {"completion": 0.70}, "ignore": ["n-a"]}`
+    Then the response is 503
+    And the error code is "no_match"
+    And no station received anything
+    And no hold was placed
+
+  @slice0
+  Scenario: provider.max_price.completion stricter than X-Roger-Max-Price-Out - the LOWER cap applies (body stricter)
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "0.70" and body `"provider": {"max_price": {"completion": 0.50}, "ignore": ["n-a"]}`
+    Then the response is 503
+    And the error code is "no_match"
+    And no station received anything
+
+  @slice0
+  Scenario: A body out-cap far above the header cap cannot reach a pricier station
+    Given node "n-x" is on air for "qwen3-32b" at in $1 out $40 per 1M, seen just now
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "2" and body `"provider": {"max_price": {"completion": 100}, "order": ["n-x"]}`
     Then the response is 200
-    And the served node is "n-b"
+    And "n-x" received nothing
+
+  @slice0
+  Scenario Outline: An absent or zero cap on one side states no cap - the other side's cap applies
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "<header>" and body `"provider": {"max_price": {"completion": <body>}, "ignore": ["n-a"]}`
+    Then the response is 503
+    And the error code is "no_match"
+
+    Examples:
+      | header | body |
+      | 0      | 0.50 |
+      | 0.50   | 0    |
+      | 0.50   | null |
+
+  @slice0
+  Scenario: The lower out-price cap still admits a station under it
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "0.50" and body `"provider": {"max_price": {"completion": 0.70}}`
+    Then the response is 200
+    And the served node is "n-a"
 
   Scenario: X-Roger-Max-Price-Out alone caps exactly as today
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "0.50" and no routing body
@@ -690,18 +768,40 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-tee"
 
+  @slice0
   Scenario: X-Roger-Freq and roger.freq agree
     Given a private band "band-1" with code "FREQ-1" whose only station is "n-p" on air for "qwen3-32b" at in $0 out $0
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Freq "FREQ-1" and body `"roger": {"freq": "FREQ-1"}`
     Then the response is 200
     And the served node is "n-p"
 
-  Scenario: X-Roger-Freq conflicts with roger.freq - the body wins
+  @slice0
+  Scenario: X-Roger-Freq with a DIFFERENT roger.freq is a 400 conflicting_routing_keys - a body cannot replace the session's band
+    # The header code is the session's band (the proxy owner's tune-in); a body naming another
+    # band would steer the owner's spend to a station the owner never tuned to.
     Given a private band "band-1" with code "FREQ-1" whose only station is "n-p" on air for "qwen3-32b" at in $0 out $0
     And a private band "band-2" with code "FREQ-2" whose only station is "n-q" on air for "qwen3-32b" at in $0 out $0
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Freq "FREQ-1" and body `"roger": {"freq": "FREQ-2"}`
+    Then the response is 400
+    And the error code is "conflicting_routing_keys"
+    And the error message names "roger.freq"
+    And no station received anything
+    And neither band code appears in the response or in a log line
+
+  @slice0
+  Scenario: X-Roger-Freq with an UNRESOLVABLE roger.freq is the same 400 - the comparison is on the two codes, not on what they resolve to
+    Given a private band "band-1" with code "FREQ-1" whose only station is "n-p" on air for "qwen3-32b" at in $0 out $0
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Freq "FREQ-1" and body `"roger": {"freq": "NOPE-0000"}`
+    Then the response is 400
+    And the error code is "conflicting_routing_keys"
+    And no station received anything
+
+  @slice0
+  Scenario: X-Roger-Freq with an empty or null roger.freq keeps the header's band (empty means absent)
+    Given a private band "band-1" with code "FREQ-1" whose only station is "n-p" on air for "qwen3-32b" at in $0 out $0
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Freq "FREQ-1" and body `"roger": {"freq": ""}`
     Then the response is 200
-    And the served node is "n-q"
+    And the served node is "n-p"
 
   Scenario: X-Roger-Freq alone tunes in exactly as today
     Given a private band "band-1" with code "FREQ-1" whose only station is "n-p" on air for "qwen3-32b" at in $0 out $0
@@ -826,10 +926,12 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the routing pass ran with an in-price cap of $50/1M
 
-  Scenario: Header and body caps are not combined - the lower one does not win, the body does
-    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "0.20" and body `"provider": {"max_price": {"completion": 0.70}, "ignore": ["n-a"]}`
-    Then the response is 200
-    And the served node is "n-b"
+  @slice0
+  Scenario: Header and body caps compose - the lower one wins, whichever carrier it came in
+    When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Max-Price-Out "0.20" and body `"provider": {"max_price": {"completion": 0.70}}`
+    Then the response is 503
+    And the error code is "no_match"
+    And no station received anything
 
   Scenario: The out-cap widens the priceMod reward range exactly as the header did
     When "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {"max_price": {"completion": 5}}`
@@ -961,6 +1063,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 503
     And the error message is the uniform "no station on that frequency (it may be off air) - check the code"
 
+  @slice0
   Scenario: An anonymous caller's body caps cannot admit a paid station
     Given node "n-free" is on air for "qwen3-32b" at in $0 out $0 per 1M, seen just now
     When an anonymous caller posts a chat completion for "qwen3-32b" with body `"provider": {"max_price": {"completion": 100}, "order": ["n-c"]}`

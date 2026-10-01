@@ -615,6 +615,23 @@ func (s *rpState) carriesBodyMaxOut(model string, completion float64) error {
 	return s.relayOnce(false)
 }
 
+// carriesHeaderAndBodyMaxOut sends BOTH carriers of the out cap; the observation is the same
+// as the body-only form (does n-dear, priced $12/1M, serve or not).
+func (s *rpState) carriesHeaderAndBodyMaxOut(model, hdr string, completion float64) error {
+	s.model, s.maxOutHdr, s.lastHdrCap = model, hdr, hdr
+	v := completion
+	s.lastBodyCap = &v
+	s.extraBody = map[string]any{"provider": map[string]any{"max_price": map[string]any{"completion": completion}}}
+	return s.relayOnce(false)
+}
+
+func (s *rpState) carriesHeaderAndBodyMinTPS(model, hdr string, body float64) error {
+	s.model, s.minTPS = model, hdr
+	s.extraBody = map[string]any{"roger": map[string]any{"min_tps": body}}
+	s.batch = nil
+	return s.relayOnce(false)
+}
+
 func (s *rpState) handRolledNoCap(model string) error {
 	s.model, s.maxOutHdr, s.lastHdrCap, s.lastBodyCap = model, "", "", nil
 	s.callerPriv = nil
@@ -1151,6 +1168,8 @@ func TestRoutingRegressionPinsBDD(t *testing.T) {
 			sc.Step(`^a request for "([^"]*)" carries X-Roger-Pref "([^"]*)" and body roger\.pref "([^"]*)"$`, st.headerPrefAndBodyPref)
 			sc.Step(`^a request for "([^"]*)" carries X-Roger-Max-Price-Out "([^"]*)"$`, st.carriesMaxOutHeader)
 			sc.Step(`^a request for "([^"]*)" carries body provider\.max_price\.completion ([0-9.]+)$`, st.carriesBodyMaxOut)
+			sc.Step(`^a request for "([^"]*)" carries X-Roger-Max-Price-Out "([^"]*)" and body provider\.max_price\.completion ([0-9.]+)$`, st.carriesHeaderAndBodyMaxOut)
+			sc.Step(`^a request for "([^"]*)" carries X-Roger-Min-TPS "([^"]*)" and body roger\.min_tps ([0-9.]+)$`, st.carriesHeaderAndBodyMinTPS)
 			sc.Step(`^a hand-rolled request for "([^"]*)" carries no X-Roger-Max-Price-Out header$`, st.handRolledNoCap)
 			sc.Step(`^a streaming request for "([^"]*)" is served by "([^"]*)" and settles at cost \$([0-9.]+)$`, st.streamServedSettles)
 			sc.Step(`^a non-streaming request for "([^"]*)" is served by "([^"]*)"$`, st.nonStreamServed)

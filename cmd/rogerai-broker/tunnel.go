@@ -1731,11 +1731,19 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// THE BODY ROUTING OBJECT (ROUTING-EXPRESSION-CONTRACT §1): decoded once, refused with a
 	// 400 naming the key BEFORE moderation (a request that cannot route is not screened),
 	// and stripped from the body before it reaches any station or the edge bridge. The
-	// header knobs below stay supported; the body wins for the same knob (§1a).
+	// header knobs below stay supported. When both forms of a knob are present, LIMITS
+	// compose to the stricter and only preferences are body-wins (§1a).
 	routing, rerr := parseRoutingBody(body)
 	if rerr != nil {
 		re := rerr.(*routingError)
 		jsonErrCode(w, http.StatusBadRequest, re.code, re.msg)
+		return
+	}
+	// The header band code is the session's band; a body naming a DIFFERENT one cannot
+	// replace it (a proxy guest must not steer the owner's spend to another band). Answered
+	// with the other routing 400s, before moderation; the message never carries a code.
+	if rr := routing.Roger; rr != nil && rr.Freq != nil && freqConflict(r.Header.Get("X-Roger-Freq"), *rr.Freq) {
+		jsonErrCode(w, http.StatusBadRequest, "conflicting_routing_keys", "roger.freq names a different band than the X-Roger-Freq header")
 		return
 	}
 	if !routing.object {
@@ -1817,8 +1825,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	var privateAllow map[string]bool
 	var freqBand store.Band
 	freq := r.Header.Get("X-Roger-Freq")
-	if routing.Roger != nil && routing.Roger.Freq != nil {
-		freq = *routing.Roger.Freq // body wins
+	if freq == "" && routing.Roger != nil && routing.Roger.Freq != nil {
+		freq = *routing.Roger.Freq // the body form alone; a differing pair was refused above
 	}
 	if freq != "" {
 		pa, bnd, _ := b.resolveFreqAllow(freq, time.Now())
@@ -1834,18 +1842,20 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// LIMITS compose to the stricter of header and body (§1a): the higher min-tps floor, the
+	// lower price cap on each axis. A body can tighten a header limit, never loosen it.
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
 	sentMaxOut := parseFloat(r.Header.Get("X-Roger-Max-Price-Out"))
 	if rr := routing.Roger; rr != nil && rr.MinTPS != nil {
-		minTPS = *rr.MinTPS
+		minTPS = stricterFloor(minTPS, *rr.MinTPS)
 	}
 	if rp := routing.Provider; rp != nil && rp.maxPrice != nil {
 		if rp.maxPrice.Prompt != nil {
-			maxPrice = *rp.maxPrice.Prompt
+			maxPrice = stricterCap(maxPrice, *rp.maxPrice.Prompt)
 		}
 		if rp.maxPrice.Completion != nil {
-			sentMaxOut = *rp.maxPrice.Completion
+			sentMaxOut = stricterCap(sentMaxOut, *rp.maxPrice.Completion)
 		}
 	}
 	// Smart-router v2 request shape: the user-preference knob (cheap/balanced/fast/
@@ -1854,7 +1864,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// exploration radius. None of these touch the hard filters.
 	routePref := parsePref(r.Header.Get("X-Roger-Pref"))
 	if rr := routing.Roger; rr != nil && rr.Pref != nil {
-		routePref = parsePref(*rr.Pref) // body wins; validated to the four values already
+		routePref = parsePref(*rr.Pref) // a preference, so the body wins; validated already
 	}
 	b.stats.routingPref[routePref].Add(1)
 	promptTokens := approxPromptTokens(body)
@@ -1953,42 +1963,75 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// applies), so an anonymous free relay ranks within free stations. The money gate reads
 	// the store, so it runs OUTSIDE b.mu and the walk re-enters past the unpayable station.
 	unpayable := map[string]bool{}
+	// The last station dropped as unpayable. When nothing payable is left, it becomes the pick
+	// again so the money gates below answer as they always have (401 "log in to spend" for a
+	// caller with no account, 402 for a balance that falls short) - the stations exist, the
+	// caller cannot pay them, which is never a 503.
+	var droppedNode protocol.NodeRegistration
+	var droppedOffer protocol.ModelOffer
+	dropped := false
 	for {
 		fromOrder := false
+		// A station dropped as unpayable is out of EVERY later pass of this walk, the scored
+		// remainder included: it must not be re-picked into the 401/402 it was dropped for.
+		skip := exclude
+		if len(unpayable) > 0 {
+			skip = make(map[string]bool, len(exclude)+len(unpayable))
+			for id := range exclude {
+				skip[id] = true
+			}
+			for id := range unpayable {
+				skip[id] = true
+			}
+		}
 		b.mu.Lock()
 		ok = false
 		for _, id := range orderList {
-			if exclude[id] || unpayable[id] {
+			if skip[id] {
 				continue
 			}
-			if node, offer, ok = b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, id, exclude, allow, privateAllow, routeReq.seeded(nil)); ok {
+			if node, offer, ok = b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, id, skip, allow, privateAllow, routeReq.seeded(nil)); ok {
 				fromOrder = true
 				break
 			}
 		}
 		if !ok && !(noFallbacks && len(orderList) > 0) {
-			node, offer, ok = b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow, routeReq.seeded(seededRand(requestID)))
+			node, offer, ok = b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, skip, allow, privateAllow, routeReq.seeded(seededRand(requestID)))
 		}
+		if !ok && dropped {
+			node, offer, ok = droppedNode, droppedOffer, true
+			dropped = false // the gates below answer for it; never dropped twice
+			fromOrder = false
+		} else if !ok {
+			node, offer = protocol.NodeRegistration{}, protocol.ModelOffer{}
+		}
+		restored := ok && unpayable[node.NodeID]
 		t = b.tunnels[node.NodeID]
 		b.mu.Unlock()
 		// The pricing plan is resolved HERE, before the fan-out coin, because free/self-use
 		// traffic ($0) must never be diverted to a billed Tower - the coin has to know.
 		edgePricing = b.resolvePricing(gc, gok, user, wallet, node, offer)
-		if ok && fromOrder {
-			// An ordered station this consumer cannot pay for - no account to spend from,
-			// or a balance the station's max cost exceeds - is dropped and the walk goes
-			// on (node_preference.feature: "an ordered station the hold cannot cover is
-			// dropped, the plan continues").
+		if ok && !restored && len(orderList) > 0 {
+			// A station this consumer has no account to spend on is dropped and the walk goes
+			// on - the ordered one and, in an ordered request, the scored remainder too, so an
+			// anonymous relay ranks within free stations (the same money gate the failover
+			// plan applies).
 			if anonCannotPay(gok, edgePricing, edgePricing.payer, offer, time.Now()) {
 				unpayable[node.NodeID] = true
+				droppedNode, droppedOffer, dropped = node, offer, true
 				continue
 			}
-			// PeekBalance is 0 for a wallet that has never been seeded (the hold path seeds
-			// it, with the free seed credit), so only a POSITIVE balance that falls short
-			// drops the station; an unseeded or drained wallet keeps today's 402 path.
+		}
+		if ok && !restored && fromOrder {
+			// An ordered station whose max cost a POSITIVE balance cannot cover is dropped too
+			// (node_preference.feature: "an ordered station the hold cannot cover is dropped,
+			// the plan continues"). PeekBalance is 0 for a wallet that has never been seeded
+			// (the hold path seeds it, with the free seed credit), so an unseeded or drained
+			// wallet keeps today's 402 path.
 			if c := holdCostFor(edgePricing, offer, body, time.Now()); c > 0 {
 				if bal, err := b.db.PeekBalance(edgePricing.payer); err == nil && bal > 0 && bal+1e-12 < c {
 					unpayable[node.NodeID] = true
+					droppedNode, droppedOffer, dropped = node, offer, true
 					continue
 				}
 			}

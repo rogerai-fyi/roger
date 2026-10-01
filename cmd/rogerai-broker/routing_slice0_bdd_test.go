@@ -57,6 +57,11 @@ type s0State struct {
 
 	// private bands by scenario name
 	bands map[string]string // "B" -> code
+
+	// header-vs-body composition (contract §1a): any extra request header by name, and the
+	// scenario band codes ("FREQ-1") mapped to the per-scenario codes actually minted.
+	hdrExtra map[string]string
+	codes    map[string]string
 }
 
 // --- fixtures ----------------------------------------------------------------------
@@ -70,6 +75,7 @@ func (s *s0State) resetSlice0() error {
 	s.holdsBefore, s.reqBefore, s.snapped = 0, nil, false
 	s.bodies = map[string][]byte{}
 	s.bands = map[string]string{}
+	s.hdrExtra, s.codes = map[string]string{}, map[string]string{}
 	_ = os.Unsetenv("ROGERAI_RELAY_ATTEMPTS")
 	return nil
 }
@@ -534,6 +540,9 @@ func (s *s0State) fire(stream bool) error {
 	if s.minTPS != "" {
 		r.Header.Set("X-Roger-Min-TPS", s.minTPS)
 	}
+	for k, v := range s.hdrExtra {
+		r.Header.Set(k, v)
+	}
 	w := &recWriter{ResponseRecorder: httptest.NewRecorder()}
 	s.b.relay(w, r)
 	res := rpResult{code: w.Code, hdr: w.Header(), body: w.Body.Bytes()}
@@ -704,6 +713,67 @@ func (s *s0State) postsBody(_, model, frag string) error {
 func (s *s0State) postsHeaderExcludeBody(_, model, hdr, frag string) error {
 	s.hdrExclude = s.idOf(hdr)
 	return s.postsBody("", model, frag)
+}
+
+// mapCodes swaps a scenario band code ("FREQ-1") for the code minted for this scenario.
+func (s *s0State) mapCodes(v string) string {
+	for scen, real := range s.codes {
+		v = strings.ReplaceAll(v, scen, real)
+	}
+	return v
+}
+
+// postsHeaderBody: one limiting (or band) header together with a body fragment - the
+// header-vs-body composition scenarios of §1a.
+func (s *s0State) postsHeaderBody(_, model, header, value, frag string) error {
+	s.hdrExtra[header] = s.mapCodes(value)
+	return s.postsBody("", model, s.mapCodes(frag))
+}
+
+func (s *s0State) anonPostsBody(model, frag string) error {
+	s.anon = true
+	// The anonymous wallet is seeded as production seeds first use, so the ~$0 hold of a
+	// free offer can land; the caller is still not logged in and cannot spend.
+	s.b.seedFunds = 0.5
+	return s.postsBody("", model, frag)
+}
+
+func (s *s0State) measuredThroughput(name string, tps int) error {
+	s.setTPS(s.st(name).id, float64(tps))
+	return nil
+}
+
+// privateBandWithCode mints a single-station private band. The scenario's code is mapped to
+// a per-scenario code with a valid Crockford tail (the store keeps one row per code hash,
+// and a real Postgres is shared across scenarios).
+func (s *s0State) privateBandWithCode(band, code, name, model, in, out string) error {
+	if err := s.nodeOnAirPriced(name, model, in, out); err != nil {
+		return err
+	}
+	st := s.st(name)
+	real := fmt.Sprintf("147.520 MHz · %dBCD-%s", len(s.codes)+1, strings.ToUpper(s.nonce[:4]))
+	if protocol.CanonicalBandTail(real) == "" {
+		return fmt.Errorf("fixture band code %q has no canonical tail", real)
+	}
+	s.codes[code], s.bands[band] = real, real
+	s.b.mu.Lock()
+	s.b.private[st.id] = true
+	s.b.mu.Unlock()
+	return s.db.CreateBand(store.Band{ID: "band_" + band + "_" + s.nonce, CodeHash: protocol.BandCodeHash(real),
+		CodeDisplay: "147.520 MHz · ••••-••••", Owner: st.acct, NodeID: st.id, CreatedAt: time.Now().Unix()})
+}
+
+// noBandCodeLeaks: neither minted code (nor its tail) is echoed to the caller or logged.
+func (s *s0State) noBandCodeLeaks() error {
+	out := string(s.lastBody) + "\n" + s.logs.String()
+	for scen, real := range s.codes {
+		for _, needle := range []string{real, protocol.CanonicalBandTail(real), scen} {
+			if needle != "" && strings.Contains(out, needle) {
+				return fmt.Errorf("band code %q appears in the response or a log line", scen)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *s0State) postsStreamingPinBody(_, model, pin, frag string) error {
@@ -1384,6 +1454,11 @@ func TestRoutingSlice0BDD(t *testing.T) {
 			sc.Step(`^a funded consumer relays with provider\.allow_fallbacks ("[^"]*"|\d+|null|true)$`, st.relayFallbacksRaw)
 			sc.Step("^\"([^\"]*)\" posts a chat completion for \"([^\"]*)\" with body `(.*)`$", st.postsBody)
 			sc.Step("^\"([^\"]*)\" posts a chat completion for \"([^\"]*)\" with header X-Roger-Exclude-Nodes \"([^\"]*)\" and body `(.*)`$", st.postsHeaderExcludeBody)
+			sc.Step("^\"([^\"]*)\" posts a chat completion for \"([^\"]*)\" with header (X-Roger-(?:Min-TPS|Max-Price|Max-Price-Out|Freq)) \"([^\"]*)\" and body `(.*)`$", st.postsHeaderBody)
+			sc.Step("^an anonymous caller posts a chat completion for \"([^\"]*)\" with body `(.*)`$", st.anonPostsBody)
+			sc.Step(`^node "([^"]*)" has a measured throughput of (\d+) tok/s$`, st.measuredThroughput)
+			sc.Step(`^a private band "([^"]*)" with code "([^"]*)" whose only station is "([^"]*)" on air for "([^"]*)" at in \$([0-9.]+) out \$([0-9.]+)$`, st.privateBandWithCode)
+			sc.Step(`^neither band code appears in the response or in a log line$`, st.noBandCodeLeaks)
 			sc.Step("^\"([^\"]*)\" posts a STREAMING chat completion for \"([^\"]*)\" with header X-Roger-Node \"([^\"]*)\" and body `(.*)`$", st.postsStreamingPinBody)
 			sc.Step(`^"([^"]*)" posts a chat completion with a body that is not a JSON object$`, st.postsNonObject)
 			// Then

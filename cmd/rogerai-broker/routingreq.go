@@ -23,6 +23,8 @@ import (
 	"errors"
 	"math"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // routingListMax bounds every node/label list in the object (§1a: more than 32 entries is a
@@ -298,4 +300,38 @@ func bodyNeedsVision(body []byte) bool {
 		}
 	}
 	return false
+}
+
+// A LIMIT stated in a header and in the body composes to the STRICTER of the two; only
+// preferences are body-wins (contract §1a, founder ruling 2026-10-01). A local proxy's owner
+// states limits in headers on every installed client while a guest application controls the
+// body, so a body must never be able to loosen a header limit.
+
+// stricterCap composes the header and body forms of one price cap ($/1M): the LOWER of the
+// two when both state one. A side that is absent or 0 states no cap, so the other side's
+// value applies; 0 means neither side stated one (the caller applies its own default).
+func stricterCap(header, body float64) float64 {
+	switch {
+	case header > 0 && body > 0:
+		return math.Min(header, body)
+	case header > 0:
+		return header
+	case body > 0:
+		return body
+	}
+	return 0
+}
+
+// stricterFloor composes the header and body forms of a floor (min tok/s): the HIGHER one.
+func stricterFloor(header, body float64) float64 { return math.Max(math.Max(header, body), 0) }
+
+// freqConflict reports a body band code that names a DIFFERENT band than the header's: the
+// header code is the session's band and a body cannot replace it. Codes are compared on
+// their canonical tail (the cosmetic frequency is not part of a code); an empty body value
+// means absent.
+func freqConflict(header, body string) bool {
+	if header == "" || body == "" {
+		return false
+	}
+	return protocol.CanonicalBandTail(header) != protocol.CanonicalBandTail(body)
 }

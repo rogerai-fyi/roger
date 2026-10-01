@@ -14,7 +14,7 @@ import (
 // ignore is unioned, pref is a default the guest may override.
 func TestRoutingApplyOwnerCeiling(t *testing.T) {
 	owner := Routing{Pref: "cheap", MinTPS: 20, Confidential: true, SelfHostedOnly: true,
-		Quantizations: []string{"Q8_0", "BF16", "unknown"}, Ignore: []string{"n9"}}
+		Quantizations: []string{"Q8_0", "BF16", "unknown"}, Ignore: []string{"n9"}, MaxOut: 2, MaxIn: 0.5}
 	type want struct {
 		roger, provider map[string]any
 		refusal         string
@@ -62,6 +62,46 @@ func TestRoutingApplyOwnerCeiling(t *testing.T) {
 			guest: `{"model":"m","provider":{"ignore":["n8"]}}`,
 			want:  want{provider: map[string]any{"ignore": []any{"n8", "n9"}}},
 		},
+		"no price carrier: the owner's caps are written into the body": {
+			guest: `{"model":"m"}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 2.0, "prompt": 0.5}}},
+		},
+		"guest raises the out cap: clamped to the owner's": {
+			guest: `{"model":"m","provider":{"max_price":{"completion":50}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 2.0, "prompt": 0.5}}},
+		},
+		"guest tightens the out cap: the guest's lower cap is kept": {
+			guest: `{"model":"m","provider":{"max_price":{"completion":1}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 1.0, "prompt": 0.5}}},
+		},
+		"guest raises the in cap: clamped to the owner's": {
+			guest: `{"model":"m","provider":{"max_price":{"prompt":3}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 2.0, "prompt": 0.5}}},
+		},
+		"guest tightens the in cap: kept": {
+			guest: `{"model":"m","provider":{"max_price":{"prompt":0.1,"completion":0.3}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 0.3, "prompt": 0.1}}},
+		},
+		"guest out cap of 0 states no cap: the owner's applies": {
+			guest: `{"model":"m","provider":{"max_price":{"completion":0}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 2.0, "prompt": 0.5}}},
+		},
+		"guest out cap of null states no cap: the owner's applies": {
+			guest: `{"model":"m","provider":{"max_price":{"completion":null}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 2.0, "prompt": 0.5}}},
+		},
+		"other max_price keys are the guest's and pass through": {
+			guest: `{"model":"m","provider":{"max_price":{"request":0.02}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": 2.0, "prompt": 0.5, "request": 0.02}}},
+		},
+		"a malformed guest cap is left for the broker to refuse, never silently repaired": {
+			guest: `{"model":"m","provider":{"max_price":{"completion":"abc"}}}`,
+			want:  want{provider: map[string]any{"max_price": map[string]any{"completion": "abc", "prompt": 0.5}}},
+		},
+		"a max_price that is not an object is left for the broker to refuse": {
+			guest: `{"model":"m","provider":{"max_price":7}}`,
+			want:  want{provider: map[string]any{"max_price": 7.0}},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, err := owner.Apply([]byte(tc.guest))
@@ -97,6 +137,77 @@ func TestRoutingApplyOwnerCeiling(t *testing.T) {
 			}
 			if strings.Contains(string(out), "ZZZZ-ZZZZ") {
 				t.Errorf("the guest's band code reached the wire: %s", out)
+			}
+		})
+	}
+}
+
+// TestRoutingApplyPriceCaps: the price ceiling without the rest of an owner's routing. An
+// owner with no --max-in lets a guest prompt cap pass as given; a Routing with no caps
+// writes no max_price at all (the in-booth chat and harness paths, which carry the cap as
+// the X-Roger-Max-Price-Out header and have no guest).
+func TestRoutingApplyPriceCaps(t *testing.T) {
+	maxPrice := func(out []byte) any {
+		var got struct {
+			Provider map[string]any `json:"provider"`
+		}
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return got.Provider["max_price"]
+	}
+	out, err := Routing{MaxOut: 10}.Apply([]byte(`{"model":"m","provider":{"max_price":{"prompt":3}}}`))
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if want := map[string]any{"completion": 10.0, "prompt": 3.0}; !equalJSON(maxPrice(out), want) {
+		t.Errorf("no owner in-cap: max_price = %v, want %v (the guest's prompt cap passes as given)", maxPrice(out), want)
+	}
+	out, err = Routing{Pref: "fast"}.Apply([]byte(`{"model":"m"}`))
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if mp := maxPrice(out); mp != nil {
+		t.Errorf("a Routing with no caps wrote max_price = %v", mp)
+	}
+	out, err = Routing{Pref: "fast"}.Apply([]byte(`{"model":"m","provider":{"max_price":{"completion":50}}}`))
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if want := map[string]any{"completion": 50.0}; !equalJSON(maxPrice(out), want) {
+		t.Errorf("a Routing with no caps must not touch a caller's max_price; got %v", maxPrice(out))
+	}
+}
+
+// TestFoldCallerCarriersPriceCaps: header mode lifts a guest's price caps onto the header
+// values under the same ceiling - tightened, never raised - and names what has no header.
+func TestFoldCallerCarriersPriceCaps(t *testing.T) {
+	for name, tc := range map[string]struct {
+		owner           Routing
+		guest           string
+		wantOut, wantIn float64
+		wantDropped     string
+	}{
+		"guest raises the out cap: the owner's stands":   {Routing{MaxOut: 2}, `{"provider":{"max_price":{"completion":50}}}`, 2, 0, ""},
+		"guest tightens the out cap: lifted":             {Routing{MaxOut: 2}, `{"provider":{"max_price":{"completion":1}}}`, 1, 0, ""},
+		"guest raises the in cap: the owner's stands":    {Routing{MaxOut: 2, MaxIn: 0.5}, `{"provider":{"max_price":{"prompt":3}}}`, 2, 0.5, ""},
+		"guest tightens the in cap: lifted":              {Routing{MaxOut: 2, MaxIn: 0.5}, `{"provider":{"max_price":{"prompt":0.1}}}`, 2, 0.1, ""},
+		"no owner in cap: the guest's passes as given":   {Routing{MaxOut: 2}, `{"provider":{"max_price":{"prompt":3}}}`, 2, 3, ""},
+		"zero and null state no cap":                     {Routing{MaxOut: 2, MaxIn: 0.5}, `{"provider":{"max_price":{"completion":0,"prompt":null}}}`, 2, 0.5, ""},
+		"a per-request cap has no header form: named":    {Routing{MaxOut: 2}, `{"provider":{"max_price":{"request":0.02,"completion":1}}}`, 1, 0, "provider.max_price.request"},
+		"a max_price that is not an object: named whole": {Routing{MaxOut: 2}, `{"provider":{"max_price":7}}`, 2, 0, "provider.max_price"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := tc.owner
+			_, dropped, _, err := r.foldCallerCarriers([]byte(tc.guest))
+			if err != nil {
+				t.Fatalf("fold: %v", err)
+			}
+			if r.MaxOut != tc.wantOut || r.MaxIn != tc.wantIn {
+				t.Errorf("caps = out %v in %v, want out %v in %v", r.MaxOut, r.MaxIn, tc.wantOut, tc.wantIn)
+			}
+			if got := strings.Join(dropped, ","); got != tc.wantDropped {
+				t.Errorf("dropped = %q, want %q", got, tc.wantDropped)
 			}
 		})
 	}

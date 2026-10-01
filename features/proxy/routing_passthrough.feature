@@ -138,25 +138,30 @@ Feature: The local proxy relays the routing body object and folds the owner's li
 
   # --- the owner's limits are defaults; the owner's caps are the ceiling ----------------
 
+  @slice0
   Scenario: The owner's limits are added when the guest body has none
     When a chat request arrives with no routing carrier
     Then the broker receives provider.max_price.completion = 2 and roger.min_tps = 10
 
+  @slice0
   Scenario: The guest may tighten a price cap below the owner's
     When a chat request arrives with "provider": {"max_price": {"completion": 1}}
     Then the broker receives provider.max_price.completion = 1
 
+  @slice0
   Scenario: The guest cannot raise a price cap above the owner's (stricter wins, silently)
     When a chat request arrives with "provider": {"max_price": {"completion": 50}}
     Then the broker receives provider.max_price.completion = 2
     And the guest's response carries no error
     And one proxy log line says "guest max_price.completion 50 clamped to owner cap 2"
 
+  @slice0
   Scenario: The guest's max_price.prompt is clamped to the owner's --max-in when set
     Given the proxy owner also tuned with --max-in 0.5
     When a chat request arrives with "provider": {"max_price": {"prompt": 3}}
     Then the broker receives provider.max_price.prompt = 0.5
 
+  @slice0
   Scenario: Without an owner --max-in the guest's prompt cap passes as given
     When a chat request arrives with "provider": {"max_price": {"prompt": 3}}
     Then the broker receives provider.max_price.prompt = 3
@@ -235,6 +240,7 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with "models": ["llama-3.3-70b", "mistral-large"]
     Then the broker receives models = ["llama-3.3-70b", "mistral-large"]
 
+  @slice0
   Scenario: The out cap default is always present even when the owner set nothing (headless guard)
     Given the proxy owner tuned with no caps at all
     When a chat request arrives with no routing carrier

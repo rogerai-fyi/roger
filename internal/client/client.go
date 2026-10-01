@@ -836,8 +836,25 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	// header form, drop and name the rest, and refuse a models[] list honestly rather than
 	// silently serving the primary alone.
 	// Seeded with the owner's floor/rule so a guest can only tighten them (Apply's rules).
-	lifted := Routing{MinTPS: opts.MinTPS, Quantizations: opts.Quantizations}
+	// The owner's price caps are a ceiling too: the EFFECTIVE out cap (the owner's --max-out,
+	// else the default consumer cap) and the in cap when one is set. A guest max_price above
+	// them is clamped, never honored (the broker composes header and body to the stricter as
+	// well, but an old broker reads only the header).
+	lifted := Routing{MinTPS: opts.MinTPS, Quantizations: opts.Quantizations,
+		MaxOut: effectiveMaxOut(opts.MaxPriceOut), MaxIn: opts.MaxPriceIn}
 	var dropped []string
+	if !opts.HeaderRouting {
+		// Body mode: fold the caps into the body ONCE, here, so a clamp is logged once per
+		// request however many attempts the failover makes (each attempt re-applies the rest
+		// of the session's routing to this already-capped body).
+		capped, cerr := (Routing{MaxOut: lifted.MaxOut, MaxIn: lifted.MaxIn}).Apply(body)
+		if cerr != nil {
+			routingRefused(w, cerr)
+			onServed(0)
+			return
+		}
+		body = capped
+	}
 	if opts.HeaderRouting {
 		var hasModels bool
 		var ferr error
@@ -889,14 +906,18 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		// longer spend someone else's wallet.
 		signRequest(req, sent)
 		req.Header.Set("X-Roger-User", opts.User)
-		if opts.MaxPriceIn > 0 {
-			req.Header.Set("X-Roger-Max-Price", fmt.Sprintf("%g", opts.MaxPriceIn))
+		// The caps as headers: the owner's, tightened by a guest's own lower cap in header
+		// mode (lifted), never raised. In body mode the guest's tightening lives in the body
+		// (written above) and the header carries the owner's cap; the broker applies the
+		// stricter of the two.
+		if lifted.MaxIn > 0 {
+			req.Header.Set("X-Roger-Max-Price", fmt.Sprintf("%g", lifted.MaxIn))
 		}
 		// Always carry an out-price cap: the caller's, or the default consumer ceiling
 		// when none was set. This is the enforced overpay guard - it bounds even a
 		// headless / --yes / scripted caller that never saw the interactive confirm. It
 		// stays a HEADER for one release so an OLD broker still applies it.
-		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(opts.MaxPriceOut)))
+		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", lifted.MaxOut))
 		// Private band tune-in: carry the frequency code so the broker admits ONLY the
 		// resolved (hidden) station. The code is discovery + routing admission, NOT
 		// spend-auth - the request is still signed (above) and billed to the signed

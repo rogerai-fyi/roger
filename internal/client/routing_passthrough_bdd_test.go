@@ -34,6 +34,7 @@ type rpNegState struct {
 	model        string
 	sessionKey   string
 	ownerMaxOut  float64
+	ownerMaxIn   float64
 	ownerMinTPS  float64
 
 	mu       sync.Mutex
@@ -126,6 +127,13 @@ func (s *rpNegState) ownerTuned(maxOut, minTPS float64) error {
 	return nil
 }
 
+func (s *rpNegState) ownerAlsoMaxIn(maxIn float64) error { s.ownerMaxIn = maxIn; return nil }
+
+func (s *rpNegState) ownerNoCaps() error {
+	s.ownerMaxOut, s.ownerMaxIn, s.ownerMinTPS = 0, 0, 0
+	return nil
+}
+
 func (s *rpNegState) brokerAcceptsBody() error { s.modelsStatus = http.StatusOK; return nil }
 
 // ---- Given ----
@@ -142,7 +150,7 @@ func (s *rpNegState) sessionInHeaderMode() error {
 // tune runs the REAL Use for the current band with --yes; the seams capture the handler.
 func (s *rpNegState) tune() error {
 	s.tuned = false
-	err := Use(s.srv.URL, "u", s.model, UseOptions{Port: 1, MaxOut: s.ownerMaxOut, MinTPS: s.ownerMinTPS, Yes: true})
+	err := Use(s.srv.URL, "u", s.model, UseOptions{Port: 1, MaxOut: s.ownerMaxOut, MaxIn: s.ownerMaxIn, MinTPS: s.ownerMinTPS, Yes: true})
 	if err != nil {
 		return fmt.Errorf("Use: %v", err)
 	}
@@ -159,7 +167,10 @@ func (s *rpNegState) retuneOther() error {
 
 func (s *rpNegState) chat(body string) error {
 	if s.handler == nil {
-		return fmt.Errorf("no band tuned")
+		// The Background describes the owner's tune; the first chat opens the channel with it.
+		if err := s.tune(); err != nil {
+			return err
+		}
 	}
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(context.Background())
 	req.Header.Set("Authorization", "Bearer "+s.sessionKey)
@@ -170,6 +181,9 @@ func (s *rpNegState) chat(body string) error {
 }
 
 func (s *rpNegState) chatWithCarrier(carrier string) error {
+	if carrier == "no routing carrier" {
+		return s.plainChat()
+	}
 	return s.chat(`{"model":"anything","messages":[{"role":"user","content":"hi"}],` + carrier + `}`)
 }
 
@@ -259,6 +273,60 @@ func (s *rpNegState) noCarrier() error {
 	return nil
 }
 
+// bodyNumber reads a dotted key ("provider.max_price.completion") from the body the broker
+// received on the last attempt.
+func (s *rpNegState) bodyNumber(path string) (float64, error) {
+	a, err := s.last()
+	if err != nil {
+		return 0, err
+	}
+	var cur any = a.body
+	for _, k := range strings.Split(path, ".") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return 0, fmt.Errorf("the broker received no %s (body=%s)", path, a.raw)
+		}
+		if cur, ok = m[k]; !ok {
+			return 0, fmt.Errorf("the broker received no %s (body=%s)", path, a.raw)
+		}
+	}
+	f, ok := cur.(float64)
+	if !ok {
+		return 0, fmt.Errorf("%s is not a number: %v (body=%s)", path, cur, a.raw)
+	}
+	return f, nil
+}
+
+func (s *rpNegState) brokerReceives(path string, want float64) error {
+	got, err := s.bodyNumber(path)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		a, _ := s.last()
+		return fmt.Errorf("the broker received %s = %v, want %v (X-Roger-Max-Price-Out=%q X-Roger-Max-Price=%q)", path, got, want,
+			a.headers.Get("X-Roger-Max-Price-Out"), a.headers.Get("X-Roger-Max-Price"))
+	}
+	return nil
+}
+
+func (s *rpNegState) brokerReceivesTwo(p1 string, v1 float64, p2 string, v2 float64) error {
+	if err := s.brokerReceives(p1, v1); err != nil {
+		return err
+	}
+	return s.brokerReceives(p2, v2)
+}
+
+func (s *rpNegState) guestNoError() error {
+	if s.rec.Code != http.StatusOK {
+		return fmt.Errorf("guest response status = %d, want 200: %s", s.rec.Code, s.rec.Body.String())
+	}
+	if strings.Contains(s.rec.Body.String(), `"error"`) {
+		return fmt.Errorf("guest response carries an error: %s", s.rec.Body.String())
+	}
+	return nil
+}
+
 func (s *rpNegState) noNegotiationRetry() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -334,6 +402,8 @@ func TestRoutingPassthroughNegotiation(t *testing.T) {
 			sc.Step(`^the local proxy is bound to that band with session key "([^"]*)"$`, st.boundWithKey)
 			sc.Step(`^the proxy owner tuned with --max-out ([0-9.]+) --min-tps ([0-9.]+)$`, st.ownerTuned)
 			sc.Step(`^the broker accepts the routing body object$`, st.brokerAcceptsBody)
+			sc.Step(`^the proxy owner also tuned with --max-in ([0-9.]+)$`, st.ownerAlsoMaxIn)
+			sc.Step(`^the proxy owner tuned with no caps at all$`, st.ownerNoCaps)
 
 			sc.Step(`^the broker answers (\d+) to GET /v1/models$`, st.modelsAnswers)
 			sc.Step(`^an old broker that answers (\d+) to GET /v1/models$`, st.modelsAnswers)
@@ -350,6 +420,9 @@ func TestRoutingPassthroughNegotiation(t *testing.T) {
 			sc.Step(`^a chat request with the owner's defaults carries X-Roger-Min-TPS: ([0-9.]+) and X-Roger-Max-Price-Out: ([0-9.]+)$`, st.chatCarriesHeaders)
 			sc.Step(`^it carries no "provider" or "roger" carrier$`, st.noCarrier)
 			sc.Step(`^no request is ever retried to negotiate$`, st.noNegotiationRetry)
+			sc.Step(`^the broker receives ([a-z_.]+) = ([0-9.]+)$`, st.brokerReceives)
+			sc.Step(`^the broker receives ([a-z_.]+) = ([0-9.]+) and ([a-z_.]+) = ([0-9.]+)$`, st.brokerReceivesTwo)
+			sc.Step(`^the guest's response carries no error$`, st.guestNoError)
 			sc.Step(`^one proxy log line says "([^"]*)"$`, st.logLineSays)
 			sc.Step(`^the request carries X-Roger-Min-TPS: ([0-9.]+)$`, st.requestCarriesMinTPS)
 			sc.Step(`^the guest's response carries X-Roger-Routing-Dropped: "([^"]*)"$`, st.responseDropped)

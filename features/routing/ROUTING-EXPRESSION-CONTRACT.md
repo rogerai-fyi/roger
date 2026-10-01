@@ -53,17 +53,37 @@ guest proxy, Tower bridge) accepts three routing carriers. All are optional.
 
 ### 1a. Precedence and validation
 
-- **Body wins over header** for the same knob (`X-Roger-Node` ≡ `provider.order:[n]` +
+- **Header and body together: LIMITS compose to the STRICTER, PREFERENCES are body-wins.**
+  Every header has a body form (`X-Roger-Node` ≡ `provider.order:[n]` +
   `allow_fallbacks:false`; `X-Roger-Exclude-Nodes` ≡ `provider.ignore`; `X-Roger-Min-TPS` ≡
   `roger.min_tps`; `X-Roger-Max-Price` ≡ `max_price.prompt`; `X-Roger-Max-Price-Out` ≡
   `max_price.completion`; `X-Roger-Pref` ≡ `roger.pref`; `X-Roger-Confidential` ≡
-  `roger.confidential`; `X-Roger-Freq` ≡ `roger.freq`). A conflict is not an error; the body
-  value REPLACES the header value (a body `provider.order` also drops the header pin's implied
-  `allow_fallbacks:false` unless the body says false). Headers remain supported indefinitely.
-  - Exception, the NARROWING carriers compose instead of replacing: `provider.ignore` and
-    `X-Roger-Exclude-Nodes` are UNIONED; `X-Roger-Confidential` set with body
-    `confidential:false` stays confidential; the stricter of header/body/`trust_min` wins.
-    A default can never weaken a stated restriction. No error in either case.
+  `roger.confidential`; `X-Roger-Freq` ≡ `roger.freq`). Headers remain supported indefinitely.
+  When BOTH forms of one knob are present (founder ruling 2026-10-01, replacing the earlier
+  blanket "body wins"):
+  - **Limiting knobs compose; neither form can loosen the other.**
+    - out-price cap: the LOWER of `X-Roger-Max-Price-Out` and `max_price.completion`. A side
+      that is absent or 0 states no cap, so the other side's value applies; both absent or 0
+      is the $10 default; the result is still clamped to the register ceiling.
+    - in-price cap: the LOWER of `X-Roger-Max-Price` and `max_price.prompt` (absent or 0 on
+      one side = no cap on that side).
+    - `min_tps`: the HIGHER of `X-Roger-Min-TPS` and `roger.min_tps`.
+    - confidential: OR. `X-Roger-Confidential` set with body `confidential:false` stays
+      confidential; the stricter of header / body / `trust_min` wins.
+    - exclusions: `provider.ignore` and `X-Roger-Exclude-Nodes` are UNIONED.
+    - band code: a present `X-Roger-Freq` is the session's band. A body `roger.freq` naming a
+      DIFFERENT code is a 400 `conflicting_routing_keys` (the message names the keys, never a
+      code); the same code, or no body freq, is fine; a body freq alone works as the header.
+    None of these is an error except the differing band code.
+  - **Preference knobs are body-wins.** `roger.pref` replaces `X-Roger-Pref`; a body
+    `provider.order` replaces the `X-Roger-Node` pin (and drops the pin's implied
+    `allow_fallbacks:false` unless the body says false); a body `allow_fallbacks:true` turns
+    the header pin into an order of one with fallbacks. A preference changes who is tried
+    first among stations the limits already admit, so it cannot widen spend or exposure.
+  - Why: a local proxy's OWNER states limits in headers (every already-installed client does)
+    while a GUEST application controls the body. Body-wins let a guest body raise the owner's
+    price cap, and no client release can repair clients already in the field, so the broker
+    itself guarantees a header limit is never loosened by a body.
   - Legacy header leniency is kept: an unknown `X-Roger-Pref` value still means balanced and a
     non-numeric `X-Roger-Min-TPS` still means 0 (today's parsers; a counter is bumped). The
     same values in the BODY are a 400. Old clients keep working; new clients get told.
@@ -450,7 +470,21 @@ Rulings (founder, 2026-09-30 / 10-01):
   price). A band code means that station at that station's price.
 - A guest may only TIGHTEN the proxy owner's routing: `min_tps` = max, `quantizations` must be
   a subset of the owner's rule (else a local 400 `routing_outside_session`), `freq` is never
-  taken from a guest; `confidential` / `self_hosted_only` are OR'd, `ignore` unioned.
+  taken from a guest; `confidential` / `self_hosted_only` are OR'd, `ignore` unioned; a guest
+  `max_price.completion` above the owner's EFFECTIVE out cap (the owner's `--max-out`, else
+  the $10 default) is clamped to it, and a guest `max_price.prompt` above the owner's
+  `--max-in` (when set) likewise, each with one proxy log line. The proxy always writes the
+  effective `max_price.completion` into the body it sends and keeps the
+  `X-Roger-Max-Price-Out` header for one release.
+- **Header and body limits compose to the stricter at the broker (2026-10-01)**, §1a: price
+  caps = the lower, `min_tps` = the higher, confidential = OR, exclusions = union, a header
+  band code cannot be replaced by a different body code (400). Only `pref` and
+  `order`/`allow_fallbacks` versus the pin header stay body-wins. Found by the pre-push audit:
+  under the earlier body-wins rule a proxy guest's body could raise the owner's header cap,
+  on every client version already installed.
+- An ordered station dropped as unpayable (anonymous caller, or a balance that cannot cover
+  it) is excluded from the remaining scored pick as well, so it cannot be re-picked into a
+  401 / 402.
 - Until the bridge evaluates them itself, a request carrying `quantizations`, an implicit
   tools/vision need, `self_hosted_only`, `order`, or `allow_fallbacks:false` DECLINES the
   Tower bridge (narrow, never widen). Slice 1 replaces the decline with real evaluation (§6).

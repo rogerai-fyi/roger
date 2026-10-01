@@ -574,8 +574,10 @@
               broker strips before a station ever sees them; the <code>roger</code> CLI and
               the app fill them from your flags and config, and any OpenAI client can set
               them directly. The same knobs exist as <code>X-Roger-*</code> headers for
-              hand-rolled callers; the body form wins when both are present, except that a
-              deny-list or a confidential restriction is never weakened by the other side.</p>
+              hand-rolled callers. When both are present, a limit takes the stricter of the
+              two (the lower price cap, the higher speed floor, confidential if either asks, the
+              union of deny-lists), so neither side can loosen the other; only a preference
+              (<code>pref</code>, or <code>order</code> against a pinned node) follows the body.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k"><code>models</code></span><span class="man-plate__v">an ordered fallback list tried after <code>model</code> (at most 5): the broker moves on when a model has no eligible station, its stations are exhausted, or the prompt does not fit its window - never on your own bad request, and never after the first streamed token</span></div>
               <div class="man-plate__row"><span class="man-plate__k"><code>provider</code></span><span class="man-plate__v">OpenRouter-shaped node selection with node ids in place of provider slugs: <code>order</code>, <code>only</code>, <code>ignore</code>, <code>allow_fallbacks</code>, <code>sort</code> (price / throughput / latency), <code>quantizations</code> (verbatim labels; <code>unknown</code> admits an unlabeled offer), <code>max_price</code> (<code>prompt</code>, <code>completion</code>, <code>request</code>)</span></div>

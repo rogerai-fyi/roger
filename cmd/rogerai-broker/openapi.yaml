@@ -305,10 +305,18 @@ paths:
 
         Routing preferences travel in the body (`models`, `provider`, `roger`,
         see ChatRequest) or, for hand-rolled callers and older clients, in the
-        `X-Roger-*` headers below. The body form wins over the header for the
-        same knob, except the narrowing carriers: `provider.ignore` is unioned
-        with `X-Roger-Exclude-Nodes`, and a stated confidential restriction
-        (header or body) can never be weakened by a body `confidential:false`.
+        `X-Roger-*` headers below. When both forms of one knob are present,
+        LIMITS compose to the stricter and neither form can loosen the other:
+        the lower price cap on each axis (`X-Roger-Max-Price-Out` with
+        `provider.max_price.completion`, `X-Roger-Max-Price` with
+        `provider.max_price.prompt`; an absent or 0 value states no cap on that
+        side), the higher `min_tps` floor, confidential if either form asks for
+        it (a body `confidential:false` never weakens the header),
+        `provider.ignore` unioned with `X-Roger-Exclude-Nodes`, and a body
+        `roger.freq` naming a different band than `X-Roger-Freq` is a 400
+        `conflicting_routing_keys`. Only PREFERENCES are body-wins: `roger.pref`
+        over `X-Roger-Pref`, and `provider.order` / `allow_fallbacks` over the
+        `X-Roger-Node` pin.
         Unknown or invalid routing keys are a 400 (see the 400 response); the
         routing carriers are stripped before the body reaches a station.
 
@@ -322,13 +330,13 @@ paths:
         - $ref: '#/components/parameters/Sig'
         - $ref: '#/components/parameters/User'
         - { in: header, name: X-Roger-Confidential, schema: { type: string }, description: "If set, route only to TEE-attested confidential nodes. Body form: `roger.confidential`. A stated restriction is never weakened by a body false." }
-        - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec); an unmeasured node still passes. Body form: `roger.min_tps`." }
-        - { in: header, name: X-Roger-Max-Price, schema: { type: number }, description: "Skip nodes whose active input price exceeds this (credits/1M). Body form: `provider.max_price.prompt`." }
-        - { in: header, name: X-Roger-Max-Price-Out, schema: { type: number }, description: "Skip offers whose active output price exceeds this (credits/1M). Absent or 0 applies the DEFAULT consumer cap of $10/1M server-side, so no caller can silently bind to an exorbitant band. A value above the register ceiling ($100/1M) is CLAMPED to the ceiling, never rejected. Body form: `provider.max_price.completion`." }
+        - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec); an unmeasured node still passes. Body form: `roger.min_tps`; with both, the higher floor applies." }
+        - { in: header, name: X-Roger-Max-Price, schema: { type: number }, description: "Skip nodes whose active input price exceeds this (credits/1M). Body form: `provider.max_price.prompt`; with both, the lower cap applies." }
+        - { in: header, name: X-Roger-Max-Price-Out, schema: { type: number }, description: "Skip offers whose active output price exceeds this (credits/1M). Absent or 0 applies the DEFAULT consumer cap of $10/1M server-side, so no caller can silently bind to an exorbitant band. A value above the register ceiling ($100/1M) is CLAMPED to the ceiling, never rejected. Body form: `provider.max_price.completion`; with both, the LOWER cap applies, so a body can never raise a header cap." }
         - { in: header, name: X-Roger-Pref, schema: { type: string, enum: [cheap, balanced, fast, reliable] }, description: "Scoring preference: cheap, balanced (default), fast or reliable. A scoring knob that reshapes the weights, never a filter. An unknown header value means balanced (legacy leniency); the body form `roger.pref` is strict." }
         - { in: header, name: X-Roger-Node, schema: { type: string }, description: "Pin to a specific node; disables broker-side failover for this request. Body form: `provider.order:[node]` with `provider.allow_fallbacks:false`." }
         - { in: header, name: X-Roger-Exclude-Nodes, schema: { type: string }, description: "Comma-separated node ids to skip (the providers a client just saw fail) - lets the connector route AROUND a dropped provider. Body form: `provider.ignore`; the two sets are unioned." }
-        - { in: header, name: X-Roger-Freq, schema: { type: string }, description: "Private band code: admits only that band's station(s) into routing. Admission only, never spend authorization; an unresolvable code or a model the band denies gets one uniform 503. Never logged. Body form: `roger.freq`." }
+        - { in: header, name: X-Roger-Freq, schema: { type: string }, description: "Private band code: admits only that band's station(s) into routing. Admission only, never spend authorization; an unresolvable code or a model the band denies gets one uniform 503. Never logged. Body form: `roger.freq`; a body code naming a different band than this header is a 400 `conflicting_routing_keys`." }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/ChatRequest' } } }

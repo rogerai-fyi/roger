@@ -273,6 +273,25 @@ Feature: The eight routing defects of the 2026-09-29 audit stay fixed
     Then the broker's effective out-cap is $100/1M
     And "n-dear" is a candidate
 
+  @broker
+  Scenario: A body cap can never raise a header cap
+    # Limits compose to the stricter (contract §1a, founder ruling 2026-10-01): the proxy
+    # owner's cap travels in the header on every installed client, a guest app controls the
+    # body. Found by the pre-push audit as a way to raise the owner's cap.
+    Given node "n-dear" is on air for "qwen3-32b" at out-price $12/1M
+    When a request for "qwen3-32b" carries X-Roger-Max-Price-Out "2" and body provider.max_price.completion 50
+    Then the broker's effective out-cap is $2/1M
+    When a request for "qwen3-32b" carries X-Roger-Max-Price-Out "50" and body provider.max_price.completion 2
+    Then the broker's effective out-cap is $2/1M
+    When a request for "qwen3-32b" carries X-Roger-Max-Price-Out "50" and body provider.max_price.completion 20
+    Then the broker's effective out-cap is $20/1M
+
+  @broker
+  Scenario: A body floor can never lower a header min-tps floor
+    Given node "n-slow" is on air for "qwen3-32b" with measured tps 12
+    When a request for "qwen3-32b" carries X-Roger-Min-TPS "30" and body roger.min_tps 5
+    Then the response is 503 with error code "no_match"
+
   @harness
   Scenario: The agent harness injects the same effective cap as `use` (invariant)
     Given the agent harness runs a turn with MaxPriceOut 0

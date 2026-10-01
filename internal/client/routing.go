@@ -30,6 +30,10 @@ type Routing struct {
 	Quantizations  []string // provider.quantizations: verbatim labels; "unknown" admits unlabeled offers
 	Order          []string // provider.order: the failover's preferred alternative, never a pin
 	Ignore         []string // provider.ignore: the failed set + the caller's standing exclusions
+	// MaxOut / MaxIn are the session OWNER's price caps ($/1M): provider.max_price.completion
+	// (always the owner's EFFECTIVE out cap on the proxy path, so never 0 there) and
+	// provider.max_price.prompt (0 = the owner set none). A caller may only tighten them.
+	MaxOut, MaxIn float64
 	// HeaderMode speaks the pre-body wire (X-Roger-* headers) to a broker whose GET
 	// /v1/models answered 404 at tune time. Keys with no header form are dropped (Dropped).
 	HeaderMode bool
@@ -80,8 +84,10 @@ func (e *RoutingRefusal) Error() string { return e.Msg }
 // `ignore` is unioned; `quantizations` from the caller must be a subset of the owner's rule
 // (case-insensitive; "unknown" is a label) or Apply returns a *RoutingRefusal; a caller
 // `freq` is never taken (the owner's band stands; the code travels as the X-Roger-Freq
-// header, not in the body). A zero Routing returns the body unchanged; a body that is not a
-// JSON object is an error.
+// header, not in the body); the owner's price caps (MaxOut, MaxIn) are a ceiling: a caller
+// `provider.max_price.completion` / `.prompt` above them is clamped (one log line), one
+// below is kept, and the effective cap is always written. A zero Routing returns the body
+// unchanged; a body that is not a JSON object is an error.
 func (r Routing) Apply(body []byte) ([]byte, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
@@ -120,9 +126,58 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if len(r.Ignore) > 0 {
 		provider["ignore"] = unionStrings(stringsOf(provider["ignore"]), r.Ignore)
 	}
+	if r.MaxOut > 0 || r.MaxIn > 0 {
+		// The owner's price caps are the ceiling. A max_price that is not an object is left
+		// for the broker to refuse (never silently repaired).
+		mp, isObj := provider["max_price"].(map[string]any)
+		if _, present := provider["max_price"]; !present || provider["max_price"] == nil {
+			mp, isObj = map[string]any{}, true
+		}
+		if isObj {
+			capPrice(mp, "completion", r.MaxOut)
+			capPrice(mp, "prompt", r.MaxIn)
+			provider["max_price"] = mp
+		}
+	}
 	putObject(m, "roger", roger)
 	putObject(m, "provider", provider)
 	return json.Marshal(m)
+}
+
+// capPrice applies the session owner's cap on one price axis of a caller's max_price: an
+// absent / null / zero caller value states no cap, so the owner's is written; a caller value
+// above the owner's is clamped to it (logged once, the caller is not told); one at or below
+// it is the caller tightening and is kept. owner <= 0 means the owner set none on this axis
+// and the caller's value passes as given. A non-number is left for the broker to refuse.
+func capPrice(mp map[string]any, axis string, owner float64) {
+	if owner <= 0 {
+		return
+	}
+	switch g := mp[axis].(type) {
+	case nil:
+		mp[axis] = owner
+	case float64:
+		if g <= 0 {
+			mp[axis] = owner
+		} else if g > owner {
+			log.Printf("guest max_price.%s %g clamped to owner cap %g", axis, g, owner)
+			mp[axis] = owner
+		}
+	}
+}
+
+// liftPrice is capPrice for the header wire: the caller's value on one axis folded into the
+// cap the session sends as a header (owner 0 = none set: the caller's value becomes the cap).
+func liftPrice(v any, axis string, owner float64) float64 {
+	g, isNum := v.(float64)
+	if !isNum || g <= 0 {
+		return owner
+	}
+	if owner > 0 && g > owner {
+		log.Printf("guest max_price.%s %g clamped to owner cap %g", axis, g, owner)
+		return owner
+	}
+	return g
 }
 
 // hasFold reports whether list contains s, comparing case-insensitively (quant labels are
@@ -312,7 +367,8 @@ func passThrough(w http.ResponseWriter, resp *http.Response, raw []byte) {
 
 // foldCallerCarriers is the HeaderMode treatment of a CALLER's own body carriers (a guest
 // that sent `roger` / `provider` / `models` to an old broker): keys with a header form are
-// lifted into r (min_tps raised never lowered, confidential, pref, ignore), the rest are
+// lifted into r (min_tps raised never lowered, confidential, pref, ignore, the two price caps
+// lowered never raised), the rest are
 // removed from the body and NAMED so the guest is told (dropped), and a `models` list, which
 // the header wire cannot express at all, is reported (hasModels) for the caller to refuse
 // honestly. r arrives seeded with the session owner's routing so the same ceiling rules as
@@ -362,6 +418,25 @@ func (r *Routing) foldCallerCarriers(body []byte) (out []byte, dropped []string,
 				}
 			}
 			dropped = append(dropped, "provider."+k)
+		case "max_price":
+			// The two per-token caps have header forms (X-Roger-Max-Price-Out / -Max-Price):
+			// lifted under the owner's ceiling, tightened never raised. Anything else in the
+			// object has no header form and is named.
+			mp, isObj := v.(map[string]any)
+			if !isObj {
+				dropped = append(dropped, "provider."+k)
+				break
+			}
+			for ax, raw := range mp {
+				switch ax {
+				case "completion":
+					r.MaxOut = liftPrice(raw, ax, r.MaxOut)
+				case "prompt":
+					r.MaxIn = liftPrice(raw, ax, r.MaxIn)
+				default:
+					dropped = append(dropped, "provider.max_price."+ax)
+				}
+			}
 		default:
 			dropped = append(dropped, "provider."+k)
 		}
