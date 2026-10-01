@@ -548,8 +548,12 @@ func (s *cg1State) grantFrom(owner, model string) error {
 	secret := "rog-grant_cg1" + s.nonce
 	sum := sha256.Sum256([]byte(secret))
 	s.cgGrant = secret
-	return s.db.CreateGrant(store.Grant{ID: "grant_cg1_" + s.nonce, SecretHash: hex.EncodeToString(sum[:]), Owner: o.acct,
-		Label: "cg1", Free: true, Models: []string{model}, CreatedAt: time.Now().Unix()})
+	g := store.Grant{ID: "grant_cg1_" + s.nonce, SecretHash: hex.EncodeToString(sum[:]), Owner: o.acct,
+		Label: "cg1", Free: true, Models: []string{model}, CreatedAt: time.Now().Unix()}
+	if err := s.db.CreateGrant(g); err != nil {
+		return err
+	}
+	return rs1GrantWalletRow(s.db, g) // see there: a free grant's wallet needs a row to settle on Postgres
 }
 
 func (s *cg1State) privateBandPlain(_, name, model string) error {
@@ -1924,7 +1928,7 @@ func TestRoutingCapabilityGatingBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{"../../features/routing/capability_gating.feature"},
-			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later",
+			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@part-b && ~@part-c && ~@slice2 && ~@slice3 && ~@slice4",
 		},
 	}
 	if suite.Run() != 0 {

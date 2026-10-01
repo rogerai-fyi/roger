@@ -398,6 +398,8 @@ func (b *broker) setRetryAfter(h http.Header, res protocol.JobResult) {
 // stations cooling right now.
 func (b *broker) routingLive() map[string]any {
 	now := b.now()
+	b.mu.Lock() // b.nodes (the capacity prior below); same order as every pick: b.mu, then metricsMu
+	defer b.mu.Unlock()
 	b.metricsMu.Lock()
 	stations := make([]map[string]any, 0, len(b.cooling))
 	for node, until := range b.cooling {
@@ -405,13 +407,26 @@ func (b *broker) routingLive() map[string]any {
 			stations = append(stations, map[string]any{"node": node, "model": b.coolModel[node], "cooling_until": until.Unix()})
 		}
 	}
+	// The capacity-aware load factor of every station carrying traffic right now (the same
+	// 1/(1+inflight/capacity) the score applies): a strict order can pile onto one station by
+	// the consumer's choice, and this is where that shows.
+	loaded := make([]map[string]any, 0)
+	for node, n := range b.inflight {
+		if n <= 0 {
+			continue
+		}
+		capacity := capacityOf(b.concurrentTPS[node], b.nodes[node].HW)
+		loaded = append(loaded, map[string]any{"node": node, "inflight": n, "capacity": capacity, "load_factor": loadFactor(n, capacity)})
+	}
 	b.metricsMu.Unlock()
 	sort.Slice(stations, func(i, j int) bool { return stations[i]["node"].(string) < stations[j]["node"].(string) })
+	sort.Slice(loaded, func(i, j int) bool { return loaded[i]["node"].(string) < loaded[j]["node"].(string) })
 	return map[string]any{
 		"relay_failovers":   b.stats.relayFailovers.Load(),
 		"station_cooldowns": b.stats.stationCooldowns.Load(),
 		"band_cooling_503":  b.stats.bandCooling503.Load(),
 		"stations":          stations,
+		"loaded":            loaded,
 	}
 }
 

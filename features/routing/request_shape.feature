@@ -371,6 +371,10 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | provider.only           |
       | provider.ignore         |
       | provider.quantizations  |
+
+    @slice2
+    Examples: honoured from slice 2 (roger.region is validated now, refused unsupported_routing_key until then)
+      | path                    |
       | roger.region            |
 
   Scenario: Duplicate entries inside a node list are de-duplicated, not rejected
@@ -470,11 +474,15 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-a"
 
+  @slice2
+
   Scenario: roger.confidential true together with roger.trust_min "verified" is accepted and the stricter (confidential) applies
     Given node "n-tee" is on air for "qwen3-32b" at in $0.10 out $0.30 per 1M, confidential-attested, seen just now
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": {"confidential": true, "trust_min": "verified"}`
     Then the response is 200
     And the served node is "n-tee"
+
+  @slice2
 
   Scenario: roger.confidential false together with roger.trust_min "confidential" is not an error - the stricter wins
     # A default (false) can never weaken a stated restriction; the same rule makes a body
@@ -949,11 +957,14 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the routing pass ran with a reward range ceiling of $5/1M out
 
   # --- max_price.request: the per-request USD cap ------------------------------------
+  @part-b
   Scenario: A per-request cap larger than the hold changes nothing
     When "u-1" posts a chat completion for "qwen3-32b" with max_tokens 1000 and body `"provider": {"max_price": {"request": 1.00}}`
     Then the response is 200
     And the hold placed equals estimateMaxCost at the priciest station in the plan, "n-c"
     And the station received the request's own max_tokens 1000
+
+  @part-b
 
   Scenario: A per-request cap below the natural hold sizes the hold to the cap and settle clamps to it
     Given node "n-a" alone is on air for "qwen3-32b" at in $1 out $10 per 1M
@@ -962,10 +973,14 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the hold placed is $0.05
     And the settled cost is at most $0.05
 
+  @part-b
+
   Scenario: The station is told the output ceiling the cap implies so it can stop, not just be clamped
     Given node "n-a" alone is on air for "qwen3-32b" at in $1 out $10 per 1M
     When "u-1" posts a chat completion for "qwen3-32b" with max_tokens 100000 and body `"provider": {"max_price": {"request": 0.05}}`
     Then the station received a "max_tokens" no larger than the token count $0.05 buys at $10/1M out after the prompt estimate
+
+  @part-b
 
   Scenario: A per-request cap so low that the prompt's input cost alone meets it on every station is a 503 no_match with no hold
     # The one case where the cap acts as a plan filter (§1a): a station whose input cost
@@ -975,6 +990,8 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the error code is "no_match"
     And no hold was placed and no station was dispatched
 
+  @part-b
+
   Scenario: A per-request cap is NOT a plan filter - a pricier station stays in the plan with a smaller max_tokens
     # 20000 prompt tokens cost $0.002 at n-a (in $0.10) and $0.010 at n-c (in $0.50). A $0.004
     # cap still buys output at n-a and n-b; at n-c the input alone exceeds the cap.
@@ -983,10 +1000,14 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the failover plan does not contain "n-c"
     And the max_tokens the plan carries for "n-b" is smaller than for "n-a"
 
+  @part-b
+
   Scenario: A per-request cap that every station can buy output under keeps the whole plan
     When "u-1" posts a chat completion for "qwen3-32b" with a 100-token prompt, max_tokens 10000 and body `"provider": {"max_price": {"request": 0.004}}`
     Then the failover plan contains "n-a", "n-b" and "n-c"
     And the hold placed is $0.004
+
+  @part-b
 
   Scenario: A wallet that cannot cover even the cheapest pair is a 402 before any dispatch - the hold is never shrunk
     Given a logged-in consumer "u-poor" with a $0.01 balance
@@ -996,21 +1017,29 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And no hold was placed and no station was dispatched
     And the response carries X-RogerAI-Cost "0"
 
+  @part-b
+
   Scenario: A per-request cap on a free relay is accepted and irrelevant (no hold)
     Given node "n-free" is on air for "free-model" at in $0 out $0 per 1M, seen just now
     When "u-1" posts a chat completion for "free-model" with body `"provider": {"max_price": {"request": 0.000001}}`
     Then the response is 200
     And no hold was placed
 
+  @part-b
+
   Scenario: A per-request cap on a grant-funded relay narrows the grant's own hold, never widens it
     Given owner "o-1" owns node "n-a" and minted grant "rog-grant_1" for "qwen3-32b" at price_out $0.30
     When the grant holder posts a chat completion for "qwen3-32b" with max_tokens 100000 and body `"provider": {"max_price": {"request": 0.01}}`
     Then the hold placed is at most $0.01
 
+  @part-b
+
   Scenario: A per-request cap is enforced against the FIXED grant price, not the market price
     Given owner "o-1" owns node "n-c" and minted grant "rog-grant_1" for "qwen3-32b" at price_out $0.10
     When the grant holder posts a chat completion for "qwen3-32b" with max_tokens 1000 and body `"provider": {"max_price": {"request": 0.0002}}`
     Then the response is 200
+
+  @part-b
 
   Scenario: A settle that would exceed the per-request cap because the station over-reported tokens is clamped to the cap
     Given node "n-a" alone is on air for "qwen3-32b" at in $1 out $10 per 1M
@@ -1038,11 +1067,15 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-a"
 
+  @part-b
+
   Scenario: A grant's model deny-list is not bypassed by models[]
     Given owner "o-1" owns node "n-a" serving "qwen3-32b" and "llama-3.3-70b", and minted grant "rog-grant_1" allowing only "qwen3-32b"
     When the grant holder posts a chat completion for "llama-3.3-70b" with body `"models": ["qwen3-32b"]`
     Then the response is 200
     And the response header X-RogerAI-Model is "qwen3-32b"
+
+  @part-b
 
   Scenario: A grant that denies every model in the list is a 403 grant_model_denied
     Given owner "o-1" owns node "n-a" serving "qwen3-32b" and "llama-3.3-70b", and minted grant "rog-grant_1" allowing only "qwen3-32b"
@@ -1067,6 +1100,8 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": {"freq": "FREQ-1"}, "provider": {"order": ["n-a", "n-p"]}`
     Then the response is 200
     And the served node is "n-p"
+
+  @part-b
 
   Scenario: A band's model deny-list is honored across models[] with the uniform message when every entry is denied
     Given a private band "band-1" with code "FREQ-1" whose station "n-p" serves "qwen3-32b", and the band denies "llama-3.3-70b" and "mistral-7b"

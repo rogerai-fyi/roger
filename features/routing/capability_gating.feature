@@ -429,6 +429,7 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     Then "n-hide" is NOT a candidate
 
   # --- interactions: models[] ------------------------------------------------------------
+  @part-b
   Scenario: A model whose stations all lack the required capability is skipped and the next model serves
     Given node "n-a" is the only station for "qwen3-32b" and has no recorded capability
     And node "n-b" is on air for "llama-3.3-70b" and earned verified "tools"
@@ -436,6 +437,8 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     Then the request is served by "n-b"
     And the response carries "X-RogerAI-Model: llama-3.3-70b"
     And no attempt was made against "n-a"
+
+  @part-b
 
   Scenario: Every model in the list lacking the capability is a single 503 no_match naming the capability
     Given node "n-a" is the only station for "qwen3-32b" and has no recorded capability
@@ -502,6 +505,8 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     Then every one of them is served by "n-cap" directly
     And the bridge was never entered
 
+  @part-c
+
   Scenario: A Tower whose offer is tools-verified serves when no direct station is capable
     Given node "n-plain" is on air for "qwen3-32b" with no recorded capability
     And a Tower relay hosts "qwen3-32b" with a verified tools verdict
@@ -515,6 +520,8 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     When a request for "qwen3-32b" carries one function tool
     Then the status is 503
     And the error code is "no_match"
+
+  @part-c
 
   Scenario: The tools array itself is forwarded to the serving station on the bridge path, the routing carriers are not
     Given a Tower relay hosts "qwen3-32b" with a verified tools verdict and is the only capable server

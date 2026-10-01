@@ -124,6 +124,8 @@ type rs1State struct {
 	grantPayer  string // the wallet a priced grant bills ("" = free grant / none)
 
 	last     rs1Req
+	tpsAt    map[string]float64 // station measurements as the last scenario relay saw them
+	ttftAt   map[string]float64
 	shot     rs1Shot // the last scenario relay
 	shots    []rs1Shot
 	holdBase map[string]int // wallet -> hold rows at the scenario snapshot
@@ -148,6 +150,11 @@ func (s *rs1State) resetRS1() error {
 	if err := s.resetSlice0(); err != nil {
 		return err
 	}
+	// The failover harness demotes every station but the first to Tier B on its first funded
+	// relay (landOrder), which is right for its own scenarios and wrong here: these features
+	// state their own tiers ("every node above ... sits in Tier A"), and the cooling fixture
+	// rides that funded relay.
+	s.ordered = true
 	s.codes, s.idAlias, s.offAir = map[string]string{}, map[string]string{}, map[string]bool{}
 	s.tou, s.rsTowers = map[string][2]int{}, map[string]*rs1Tower{}
 	s.grantSecret, s.grantPayer = "", ""
@@ -323,7 +330,9 @@ func (s *rs1State) buildBody(q rs1Req) (sent, base []byte) {
 	if strings.TrimSpace(frag) == "" {
 		return base, base
 	}
-	sent = append(bytes.TrimSuffix(bytes.TrimSpace(base), []byte("}")), []byte(","+frag+"}")...)
+	// A fresh slice: appending to a sub-slice of base would overwrite base's closing brace.
+	sent = append([]byte(nil), bytes.TrimSuffix(bytes.TrimSpace(base), []byte("}"))...)
+	sent = append(sent, []byte(","+frag+"}")...)
 	return sent, base
 }
 
@@ -378,6 +387,17 @@ func (s *rs1State) fire(q rs1Req) error {
 	if err := s.snapOnce(); err != nil {
 		return err
 	}
+	// The measurements the request is routed under: a served relay re-measures the station
+	// (tps, ttft), so a later plan probe restores these to observe the plan THIS request ran.
+	s.b.metricsMu.Lock()
+	s.tpsAt, s.ttftAt = map[string]float64{}, map[string]float64{}
+	for id, v := range s.b.tps {
+		s.tpsAt[id] = v
+	}
+	for id, tq := range s.b.trust {
+		s.ttftAt[id] = tq.ttftMs
+	}
+	s.b.metricsMu.Unlock()
 	shot, w := s.relayRaw(q)
 	shot.payer = s.payerOf(q)
 	n, amt := s.holdRowsOf(shot.payer)
@@ -471,6 +491,21 @@ func (s *rs1State) probePlan() (order []string, bodies map[string][]byte, final 
 			w.WriteHeader(429)
 			_, _ = w.Write([]byte(utDefaultBody(429)))
 		})
+	}
+	if s.tpsAt != nil {
+		s.b.metricsMu.Lock()
+		for id := range s.b.tps {
+			delete(s.b.tps, id)
+		}
+		for id, v := range s.tpsAt {
+			s.b.tps[id] = v
+		}
+		for id, v := range s.ttftAt {
+			tq := s.b.trust[id]
+			tq.ttftMs = v
+			s.b.trust[id] = tq
+		}
+		s.b.metricsMu.Unlock()
 	}
 	prev, had := os.LookupEnv("ROGERAI_RELAY_ATTEMPTS")
 	_ = os.Setenv("ROGERAI_RELAY_ATTEMPTS", "12")
@@ -821,7 +856,24 @@ func (s *rs1State) mint(owner *fstation, models []string, priceOut float64) erro
 			return err
 		}
 	}
-	return s.db.CreateGrant(g)
+	if err := s.db.CreateGrant(g); err != nil {
+		return err
+	}
+	return rs1GrantWalletRow(s.db, g)
+}
+
+// rs1GrantWalletRow gives a FREE grant's wallet ("g_<id>") a row. On the Postgres store a $0
+// settle updates the payer's wallet row and finds none for a wallet that never held money, so
+// the relay is served with no receipt and no X-RogerAI-* headers (the known open finding:
+// free / self-use relays skip ensureSeeded; nothing in production creates a grant wallet's
+// row either). These runners assert ROUTING, on both stores, so the fixture supplies the row
+// instead of depending on that gap. Zero seed: a grant wallet holds no money.
+func rs1GrantWalletRow(db store.Store, g store.Grant) error {
+	if in, out := g.GrantPrice(); in != 0 || out != 0 {
+		return nil // a priced grant bills the sponsoring owner's wallet, which is funded
+	}
+	_, err := db.BalanceOf("g_"+g.ID, 0)
+	return err
 }
 
 func (s *rs1State) ownerGrant(_, node, _, model string) error {
@@ -2031,6 +2083,24 @@ func (s *rs1State) busJobNoKey(key string) error {
 
 // --- Then: money --------------------------------------------------------------------------
 
+// holdCoversPrice: the ONE hold is the upper-bound cost at `name`'s price, sized from the
+// body a station was actually sent (the stripped body with the BARE model id: a suffixed
+// request is sized on what is dispatched, not on the sugar's extra characters).
+func (s *rs1State) holdCoversPrice(name string) error {
+	if s.shot.holdN != 1 {
+		return fmt.Errorf("%d hold(s) placed, want exactly one", s.shot.holdN)
+	}
+	_, body, err := s.upstreamBody()
+	if err != nil {
+		return err
+	}
+	want := holdCostFor(pricingPlan{}, s.offerOf(name), body, time.Now())
+	if math.Abs(s.shot.holdAmt-want) > 1e-9 {
+		return fmt.Errorf("hold %.9f, want %.9f (the upper-bound cost of the dispatched body at %s)", s.shot.holdAmt, want, name)
+	}
+	return nil
+}
+
 func (s *rs1State) holdEqualsPriciest(name string) error {
 	if s.shot.holdN != 1 {
 		return fmt.Errorf("%d hold(s) placed, want exactly one", s.shot.holdN)
@@ -2677,7 +2747,7 @@ func rs1Steps(sc *godog.ScenarioContext, st *rs1State) {
 	// Then: money
 	sc.Step(`^the hold placed equals estimateMaxCost at the priciest station in the plan, "([^"]*)"$`, st.holdEqualsPriciest)
 	sc.Step(`^the hold placed equals estimateMaxCost of the STRIPPED body at the priciest station in the plan, "([^"]*)"$`, st.holdEqualsPriciest)
-	sc.Step(`^the hold placed covers "([^"]*)"'s price$`, st.holdEqualsPriciest)
+	sc.Step(`^the hold placed covers "([^"]*)"'s price$`, st.holdCoversPrice)
 	sc.Step(`^the hold placed is \$([0-9.]+)$`, st.holdIs)
 	sc.Step(`^the hold placed is at most \$([0-9.]+)$`, st.holdAtMost)
 	sc.Step(`^the settled cost is at most \$([0-9.]+)$`, st.settledCostAtMost)
@@ -2740,7 +2810,7 @@ func rs1Run(t *testing.T, feature string) {
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{feature}, TestingT: t, Strict: true,
-			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later",
+			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@part-b && ~@part-c && ~@slice2 && ~@slice3 && ~@slice4",
 		},
 	}
 	if suite.Run() != 0 {

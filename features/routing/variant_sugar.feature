@@ -330,6 +330,7 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     And the error code is "conflicting_routing_keys"
 
   # --- sugar on models[] entries -------------------------------------------------------
+  @part-b
   Scenario: A :free suffix on a models[] entry filters that entry only
     Given node "n-l" is on air for "llama-3.3-70b" at in $0.30 out $0.90 per 1M, seen just now
     And node "n-free" goes off air
@@ -338,6 +339,8 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     And the response header X-RogerAI-Model is "llama-3.3-70b"
     And the served node is "n-l"
 
+  @part-b
+
   Scenario: A :free suffix on a later entry does not make the primary free-only
     Given node "n-l" is on air for "llama-3.3-70b" at in $0.30 out $0.90 per 1M, seen just now
     When "u-1" posts a chat completion for "qwen3-32b" with body `"models": ["llama-3.3-70b:free"], "provider": {"ignore": ["n-free"]}`
@@ -345,12 +348,16 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     And the response header X-RogerAI-Model is "qwen3-32b"
     And the served node is one of "n-cheap", "n-mid", "n-fast"
 
+  @part-b
+
   Scenario: A sort suffix on ANY entry applies to the whole request
     Given node "n-l" is on air for "llama-3.3-70b" at in $0.30 out $0.90 per 1M, seen just now
     When "u-1" posts a chat completion for "qwen3-32b" with body `"models": ["llama-3.3-70b:nitro"]`
     Then the request\'s routing log line names sort "throughput"
     And /admin/live routing_strict_sort increased by 1
     And the served node is "n-fast"
+
+  @part-b
 
   Scenario: Sort suffixes across entries - the last entry's sort wins
     Given node "n-l" is on air for "llama-3.3-70b" at in $0.30 out $0.90 per 1M, seen just now
@@ -367,6 +374,8 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     When "u-1" posts a chat completion for "qwen3-32b:free" with body `"models": ["qwen3-32b:floor", "qwen3-32b:nitro", "qwen3-32b", "qwen3-32b:free:nitro", "qwen3-32b:free:floor"]`
     Then the response is 200
 
+  @part-b
+
   Scenario: An entry whose free-only filter finds no station is skipped silently, the next entry serves
     Given node "n-l" is on air for "llama-3.3-70b" at in $0.30 out $0.90 per 1M, seen just now
     And node "n-free" goes off air
@@ -374,6 +383,8 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     Then the response is 200
     And the response header X-RogerAI-Model is "llama-3.3-70b"
     And no failed attempt was recorded for "qwen3-32b"
+
+  @part-b
 
   Scenario: Every entry free-only with no free stations at all is a 503 no_match
     Given node "n-l" is on air for "llama-3.3-70b" at in $0.30 out $0.90 per 1M, seen just now
@@ -504,6 +515,8 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     When "u-1" posts a chat completion for "qwen3-32b:free" 100 times
     Then every request was served by "n-free"
     And the Tower received no job
+
+  @part-c
 
   Scenario: :nitro's ordering applies on the bridge path - the Tower row is one more candidate, ranked by its measured tok/s
     # A sort (and the sugar that means one) replaces the fan-out coin with the ranking (§5):

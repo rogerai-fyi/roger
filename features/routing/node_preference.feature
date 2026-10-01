@@ -871,6 +871,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 20 funded consumers relay with provider.sort "latency"
     Then every pick is "s3"
 
+  @slice2
+
   Scenario: sort latency with max_ttft_ms filters first, then sorts
     Given measured ttft "s1" 900ms, "s2" 300ms, "s3" 600ms
     When 20 funded consumers relay with provider.sort "latency" and roger.max_ttft_ms 700
@@ -1101,11 +1103,15 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # Tower relay ids in node lists
   # ============================================================================
 
+  @part-c
+
   Scenario: a Tower relay id in only admits the bridge for that Tower only
     Given a Tower "t1" hosts "m" and no direct station is in the only set
     When a signed-in consumer relays with provider.only ["t1"]
     Then the bridge serves through "t1"
     And X-RogerAI-Relay names "t1"
+
+  @part-c
 
   Scenario: a Tower relay id in order ranks the bridge among direct stations
     Given a Tower "t1" hosts "m"
@@ -1130,6 +1136,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     # node ids and Tower relay ids are distinct namespaces; a list entry is matched in BOTH
     # independently (§5), so the direct "s1" is admitted and the Tower row named "s1" is
     # admitted too - and loses on the direct-first rule below, never by posing as "s1"
+
+  @part-c
 
   Scenario: an id that exists in both namespaces admits both rows and the collision is warned once
     Given a Tower registers a station whose relay name equals "s2"

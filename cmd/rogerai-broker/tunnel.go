@@ -380,6 +380,12 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, msg)
 		return
 	}
+	// A model id may not END in a variant suffix: `:free`, `:floor` and `:nitro` are consumer
+	// sugar (ROUTING-EXPRESSION-CONTRACT §4), so such an offer could never be asked for by name.
+	if msg := registerModelSuffix(reg.Offers); msg != "" {
+		jsonErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	// Login-to-monetize / login-to-go-private: a node advertising a NONZERO price is
 	// an earning node, AND a node going PRIVATE (its own discovery visibility is a
 	// per-owner resource) both HARD-REQUIRE a GitHub-linked owner bound to the signing
@@ -1264,6 +1270,12 @@ func (b *broker) rehydrateNodes() {
 			log.Printf("re-hydrate: dropping node %s (persisted price above ceiling: %s)", reg.NodeID, msg)
 			continue
 		}
+		// ...and a persisted offer whose model id ends in a variant suffix (pre-dating the
+		// rule): the suffix is consumer sugar now, so the offer could never be reached.
+		if msg := registerModelSuffix(reg.Offers); msg != "" {
+			log.Printf("re-hydrate: dropping node %s (%s)", reg.NodeID, msg)
+			continue
+		}
 		b.nodes[reg.NodeID] = reg
 		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
 		b.confidential[reg.NodeID] = rec.Confidential
@@ -1733,17 +1745,21 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// and stripped from the body before it reaches any station or the edge bridge. The
 	// header knobs below stay supported. When both forms of a knob are present, LIMITS
 	// compose to the stricter and only preferences are body-wins (§1a).
+	refuse := func(re *routingError) {
+		b.stats.routingBodyRejects.Add(1)
+		w.Header().Set("X-RogerAI-Cost", "0") // §2: every routing refusal bills nothing and says so
+		jsonErrCode(w, http.StatusBadRequest, re.code, re.msg)
+	}
 	routing, rerr := parseRoutingBody(body)
 	if rerr != nil {
-		re := rerr.(*routingError)
-		jsonErrCode(w, http.StatusBadRequest, re.code, re.msg)
+		refuse(rerr.(*routingError))
 		return
 	}
 	// The header band code is the session's band; a body naming a DIFFERENT one cannot
 	// replace it (a proxy guest must not steer the owner's spend to another band). Answered
 	// with the other routing 400s, before moderation; the message never carries a code.
-	if rr := routing.Roger; rr != nil && rr.Freq != nil && freqConflict(r.Header.Get("X-Roger-Freq"), *rr.Freq) {
-		jsonErrCode(w, http.StatusBadRequest, "conflicting_routing_keys", "roger.freq names a different band than the X-Roger-Freq header")
+	if routing.Freq != nil && freqConflict(r.Header.Get("X-Roger-Freq"), *routing.Freq) {
+		refuse(conflictRouting("roger.freq names a different band than the X-Roger-Freq header"))
 		return
 	}
 	if !routing.object {
@@ -1752,7 +1768,51 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "request body must be a JSON object")
 		return
 	}
-	body = stripRoutingCarriers(body, routing)
+	// THE MODEL AND ITS VARIANT SUGAR (§3, §4): `model:free` / `:floor` / `:nitro` are sugar
+	// over the carriers, never a model id. Everything downstream (the pick, the station, the
+	// price lock, the receipt, X-RogerAI-Model) sees the BARE id.
+	models, sugarSort, suffixes, merr := effectiveModels(req.Model, routing.Models)
+	if merr != nil {
+		refuse(merr)
+		return
+	}
+	// The pin header survives a body with no order (§1a); a kept pin outside the body's
+	// allow-list is the same conflict as an order outside only.
+	if pin := r.Header.Get("X-Roger-Node"); pin != "" && routing.Only != nil && len(routing.Order) == 0 && !containsString(routing.Only, pin) {
+		refuse(conflictRouting("the X-Roger-Node pin is not in provider.only"))
+		return
+	}
+	// A sort suffix IS a sort: exclusive with roger.pref, and with a DIFFERENT explicit
+	// provider.sort (judged against the resolved, last-wins suffix).
+	routeSort := routing.Sort
+	if sugarSort != sortNone {
+		if routing.Pref != nil {
+			refuse(conflictRouting("a model sort suffix and roger.pref are exclusive"))
+			return
+		}
+		if routing.Sort != sortNone && routing.Sort != sugarSort {
+			refuse(conflictRouting("the model sort suffix means provider.sort " + sugarSort.String() + ", which conflicts with provider.sort " + routing.Sort.String()))
+			return
+		}
+		routeSort = sugarSort
+	}
+	// Recognised but not honoured yet (§1a: no silent drop). Answered last, so a malformed
+	// or conflicting value is always named first.
+	if len(models) > 1 && routing.unsupported == "" {
+		routing.unsupported = "models"
+	}
+	if routing.unsupported != "" {
+		refuse(&routingError{code: "unsupported_routing_key", msg: "unsupported routing key " + routing.unsupported + " (not honoured by this release)"})
+		return
+	}
+	if routing.used {
+		b.stats.routingBodyRequests.Add(1)
+	}
+	b.stats.countVariants(suffixes) // per suffix, per request; never a model id
+	sentModel := req.Model
+	req.Model = models[0].bare
+	freeOnly := models[0].free
+	body = stripRoutingCarriers(body, routing, sentModel, req.Model)
 
 	// Usage backstop: ask the model for a final usage chunk on streaming requests so the
 	// node's receipt carries completion_tokens even when the delta text is an unusual
@@ -1814,7 +1874,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 
 	// A stated restriction can only be narrowed, never weakened: the header OR the body
 	// form of confidential holds (contract §1a, the narrowing exception).
-	confidentialOnly := r.Header.Get("X-Roger-Confidential") != "" || (routing.Roger != nil && routing.Roger.Confidential != nil && *routing.Roger.Confidential)
+	confidentialOnly := r.Header.Get("X-Roger-Confidential") != "" || (routing.Confidential != nil && *routing.Confidential)
 	// Private band tune-in: X-Roger-Freq carries the frequency code. Resolve it with
 	// the SAME constant-work lookup as POST /bands/resolve (always hash, uniform on
 	// any miss - no enumeration oracle). A valid live band yields privateAllow={node},
@@ -1825,19 +1885,21 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	var privateAllow map[string]bool
 	var freqBand store.Band
 	freq := r.Header.Get("X-Roger-Freq")
-	if freq == "" && routing.Roger != nil && routing.Roger.Freq != nil {
-		freq = *routing.Roger.Freq // the body form alone; a differing pair was refused above
+	if freq == "" && routing.Freq != nil {
+		freq = *routing.Freq // the body form alone; a differing pair was refused above
 	}
 	if freq != "" {
 		pa, bnd, _ := b.resolveFreqAllow(freq, time.Now())
 		privateAllow, freqBand = pa, bnd
 		if len(privateAllow) == 0 {
+			w.Header().Set("X-RogerAI-Cost", "0")
 			jsonErr(w, http.StatusServiceUnavailable, "no station on that frequency (it may be off air) - check the code")
 			return
 		}
 		if freqBand.ModelDenied(req.Model) {
 			// Uniform with the no-station message: do not reveal that the band exists
 			// but excludes this model (no oracle on a valid code's model list).
+			w.Header().Set("X-RogerAI-Cost", "0")
 			jsonErr(w, http.StatusServiceUnavailable, "no station on that frequency (it may be off air) - check the code")
 			return
 		}
@@ -1847,24 +1909,34 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
 	sentMaxOut := parseFloat(r.Header.Get("X-Roger-Max-Price-Out"))
-	if rr := routing.Roger; rr != nil && rr.MinTPS != nil {
-		minTPS = stricterFloor(minTPS, *rr.MinTPS)
+	if routing.MinTPS != nil {
+		minTPS = stricterFloor(minTPS, *routing.MinTPS)
 	}
-	if rp := routing.Provider; rp != nil && rp.maxPrice != nil {
-		if rp.maxPrice.Prompt != nil {
-			maxPrice = stricterCap(maxPrice, *rp.maxPrice.Prompt)
-		}
-		if rp.maxPrice.Completion != nil {
-			sentMaxOut = stricterCap(sentMaxOut, *rp.maxPrice.Completion)
-		}
+	if routing.MaxPrompt != nil {
+		maxPrice = stricterCap(maxPrice, *routing.MaxPrompt)
 	}
+	if routing.MaxCompletion != nil {
+		sentMaxOut = stricterCap(sentMaxOut, *routing.MaxCompletion)
+	}
+	// A cap above what any station may charge is clamped to the register ceiling, not
+	// rejected - on both axes (the out cap is clamped by effectiveRelayMaxOut below).
+	maxPrice = math.Min(maxPrice, maxPriceInCeiling())
 	// Smart-router v2 request shape: the user-preference knob (cheap/balanced/fast/
 	// reliable; default balanced), and a prompt-size estimate that makes speedFit
 	// request-size-aware (a long prompt evicts weak hardware). totalReqs feeds the UCB
 	// exploration radius. None of these touch the hard filters.
-	routePref := parsePref(r.Header.Get("X-Roger-Pref"))
-	if rr := routing.Roger; rr != nil && rr.Pref != nil {
-		routePref = parsePref(*rr.Pref) // a preference, so the body wins; validated already
+	hdrPref := r.Header.Get("X-Roger-Pref")
+	routePref := parsePref(hdrPref)
+	if hdrPref != "" && routePref.String() != strings.ToLower(strings.TrimSpace(hdrPref)) {
+		// The header path stays lenient for installed clients (an unknown value is balanced);
+		// the body path is strict. Counted, so the leniency is visible.
+		b.stats.prefHeaderUnknown.Add(1)
+	}
+	if routing.Pref != nil {
+		routePref = parsePref(*routing.Pref) // a preference, so the body wins; validated already
+	}
+	if routeSort != sortNone {
+		routePref = prefBalanced // a strict sort replaces the weighted knob (the header pref is ignored)
 	}
 	b.stats.routingPref[routePref].Add(1)
 	promptTokens := approxPromptTokens(body)
@@ -1888,32 +1960,38 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	exclude := parseNodeSet(r.Header.Get("X-Roger-Exclude-Nodes"))
 	var orderList []string
 	noFallbacks := false
-	if rp := routing.Provider; rp != nil {
-		if len(rp.Order) > 0 {
-			orderList, pinNode = rp.Order, ""
+	if len(routing.Order) > 0 {
+		orderList, pinNode = routing.Order, ""
+	}
+	noFallbacks = routing.AllowFallbacks != nil && !*routing.AllowFallbacks
+	if pinNode != "" && routing.AllowFallbacks != nil && *routing.AllowFallbacks {
+		// The header pin's IMPLIED no-fallback yields to the body's explicit true: the
+		// pin becomes an order of one with fallbacks allowed (body wins, §1a).
+		orderList, pinNode = []string{pinNode}, ""
+	}
+	for _, id := range routing.Ignore {
+		if exclude == nil {
+			exclude = map[string]bool{}
 		}
-		noFallbacks = rp.AllowFallbacks != nil && !*rp.AllowFallbacks
-		if pinNode != "" && rp.AllowFallbacks != nil && *rp.AllowFallbacks {
-			// The header pin's IMPLIED no-fallback yields to the body's explicit true: the
-			// pin becomes an order of one with fallbacks allowed (body wins, §1a).
-			orderList, pinNode = []string{pinNode}, ""
-		}
-		for _, id := range rp.Ignore {
-			if exclude == nil {
-				exclude = map[string]bool{}
-			}
-			exclude[strings.TrimSpace(id)] = true
-		}
+		exclude[id] = true
 	}
 	// One pickReq for every routing pass of this request (first pick, band-cooling probe,
 	// ctx re-pick, failover plan); only the seed differs per attempt.
-	routeReq := pickReq{pref: routePref, promptTokens: promptTokens,
-		needTools: bodyNeedsTools(body), needVision: bodyNeedsVision(body)}
-	if rp := routing.Provider; rp != nil {
-		routeReq.quants = quantSet(rp.Quantizations)
+	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, sort: routeSort,
+		needTools: bodyNeedsTools(body), needVision: bodyNeedsVision(body),
+		quants: quantSet(routing.Quantizations)}
+	// Explicit roger.require UNIONS with the implicit rule (it can add a requirement, never
+	// switch one off); require_parameters:true adds tools for a tool_choice or a JSON
+	// response_format.
+	for _, c := range routing.Require {
+		routeReq.needTools = routeReq.needTools || c == protocol.CapTools
+		routeReq.needVision = routeReq.needVision || c == protocol.CapVision
 	}
-	if rr := routing.Roger; rr != nil && rr.SelfHostedOnly != nil {
-		routeReq.selfHostedOnly = *rr.SelfHostedOnly
+	if routing.RequireParams && paramsNeedTools(body) {
+		routeReq.needTools = true
+	}
+	if routing.SelfHostedOnly != nil {
+		routeReq.selfHostedOnly = *routing.SelfHostedOnly
 	}
 	// A grant confines routing to the issuing owner's nodes (intersected with the
 	// grant's node/model allow-lists) - it can never reach another owner's hardware.
@@ -1921,6 +1999,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if gok {
 		allow = gc.nodeAllow
 		if len(allow) == 0 {
+			w.Header().Set("X-RogerAI-Cost", "0")
 			jsonErr(w, http.StatusServiceUnavailable, "no node of this grant's owner is serving right now")
 			return
 		}
@@ -1928,6 +2007,16 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusForbidden, "this grant does not allow model "+req.Model)
 			return
 		}
+	}
+	// provider.only is the consumer's allow-list: it can only NARROW what a grant or a band
+	// admits (§1b), so it intersects the grant's set here and the band's set below. Node ids
+	// are matched exactly; an id that is not on air simply contributes nothing.
+	allow = intersectAllow(allow, stringSet(routing.Only))
+	// `:free` admits only offers that cost THIS caller nothing right now (§4): priced 0/0
+	// at the active price, or a station the caller owns (self-use is $0). A free grant makes
+	// every station it reaches free, so the filter has nothing to remove there.
+	if freeOnly && !(gok && grantIsFree(gc)) {
+		routeReq.freeOnly, routeReq.freeFor = true, b.ownedNodes(r, gok, user)
 	}
 	// allow_fallbacks:false with an order means "never leave the list": the list becomes an
 	// admission set for EVERY routing pass of this request (first pick, band-cooling probe,
@@ -1962,6 +2051,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// station a not-logged-in caller cannot pay for (the same money gate the failover plan
 	// applies), so an anonymous free relay ranks within free stations. The money gate reads
 	// the store, so it runs OUTSIDE b.mu and the walk re-enters past the unpayable station.
+	// The same gate applies to every STRICT request (order / only / sort, or the sugar that
+	// means a sort): what the consumer named is ranked within what the caller can pay for.
+	strict := len(orderList) > 0 || routing.Only != nil || routeSort != sortNone
+	pickedFromOrder := false // the final pick came from the ordered list (a strict pick)
 	unpayable := map[string]bool{}
 	// The last station dropped as unpayable. When nothing payable is left, it becomes the pick
 	// again so the money gates below answer as they always have (401 "log in to spend" for a
@@ -2006,19 +2099,23 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			node, offer = protocol.NodeRegistration{}, protocol.ModelOffer{}
 		}
 		restored := ok && unpayable[node.NodeID]
+		pickedFromOrder = fromOrder
 		t = b.tunnels[node.NodeID]
 		b.mu.Unlock()
 		// The pricing plan is resolved HERE, before the fan-out coin, because free/self-use
 		// traffic ($0) must never be diverted to a billed Tower - the coin has to know.
 		edgePricing = b.resolvePricing(gc, gok, user, wallet, node, offer)
-		if ok && !restored && len(orderList) > 0 {
+		if ok && !restored && strict {
 			// A station this consumer has no account to spend on is dropped and the walk goes
-			// on - the ordered one and, in an ordered request, the scored remainder too, so an
-			// anonymous relay ranks within free stations (the same money gate the failover
-			// plan applies).
+			// on within what costs the caller nothing - the ordered one and the scored or
+			// sorted remainder too, so an anonymous relay ranks within free stations (the same
+			// money gate the failover plan applies). One re-entry, not one per paid station.
 			if anonCannotPay(gok, edgePricing, edgePricing.payer, offer, time.Now()) {
 				unpayable[node.NodeID] = true
 				droppedNode, droppedOffer, dropped = node, offer, true
+				if !routeReq.freeOnly {
+					routeReq.freeOnly, routeReq.freeFor = true, b.ownedNodes(r, gok, user)
+				}
 				continue
 			}
 		}
@@ -2038,6 +2135,26 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		break
 	}
+	// TELEMETRY (never a node id, a price or a band code on /admin/live): one count per
+	// request that used a strict order / a strict sort.
+	strictWhy := "none"
+	switch {
+	case ok && pickedFromOrder:
+		b.stats.routingStrictOrder.Add(1)
+		strictWhy = "order"
+	case ok && routeSort != sortNone:
+		b.stats.routingStrictSort.Add(1)
+		strictWhy = "sort"
+	}
+	// ONE routing line per request: the constraints the pass ran under and what it picked.
+	// reward_out is the priceMod reward-range ceiling (priceCeiling: the out cap, which every
+	// eligible price sits at or under). Never the band code.
+	picked := "-"
+	if ok {
+		picked = node.NodeID
+	}
+	log.Printf("routing request=%s model=%s strict=%s sort=%s pref=%s max_in=%g max_out=%g min_tps=%g reward_out=%g pick=%s",
+		requestID, req.Model, strictWhy, routeSort, routePref, maxPrice, maxPriceOut, minTPS, maxPriceOut, picked)
 	bridgeAuth := edgeBridgeAuth{
 		wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
 		sessionAuthed: sessionAuthed, confidentialOnly: confidentialOnly,
@@ -2048,15 +2165,20 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// weights the direct path evaluates. What the bridge cannot evaluate yet keeps
 		// the request direct-only (never a widened pick).
 		edgeConstraints: edgeConstraints{minTPS: minTPS, exclude: exclude, pref: routePref, promptTokens: promptTokens},
+		// provider.only names direct stations (a Tower id in the list is a later slice) and a
+		// `:free` request must never ride a billed Tower.
 		directOnly: len(orderList) > 0 || noFallbacks || routeReq.quants != nil ||
-			routeReq.needTools || routeReq.needVision || routeReq.selfHostedOnly,
+			routeReq.needTools || routeReq.needVision || routeReq.selfHostedOnly ||
+			routing.Only != nil || routeReq.freeOnly,
 	}
 	// BOTH FABRICS MAY SERVE. When a direct node was picked and the edge also hosts the
 	// model, a request-seeded coin sends half the traffic through the bridge - neither
 	// tier is silently preferred, and Towers earn on models the direct fleet also serves.
 	// SOFT mode: every bridge gate falls back to the direct node already picked, so this
 	// coin can only ever change who serves, never whether the consumer is served.
-	if ok && t != nil && seededRand(requestID).Intn(2) == 0 {
+	// A strict sort is the consumer declining the spread: the sorted head serves, the coin is
+	// not flipped (the bridge stays the fallback below when no direct station exists).
+	if ok && t != nil && routeSort == sortNone && seededRand(requestID).Intn(2) == 0 {
 		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true, bridgeAuth) {
 			return
 		}
@@ -2071,6 +2193,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false, bridgeAuth) {
 			return
 		}
+		// Every refusal below bills nothing and says so (§2), with no receipt.
+		w.Header().Set("X-RogerAI-Cost", "0")
 		// BAND COOLING, NOT MISSING: when the pick found nothing because every eligible
 		// station is in an upstream-429 cooldown, answer fast and honestly - 503 with
 		// Retry-After = the soonest expiry, no hold, no receipt, no upstream call - rather
@@ -2103,7 +2227,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			noSize.promptTokens = 0
 			_, _, bigOK := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
 				noSize.seeded(seededRand(requestID)))
-			maxCtx := b.maxDeclaredCtxLocked(req.Model)
+			maxCtx := b.maxDeclaredCtxLocked(req.Model, allow) // the widest window in scope
 			b.mu.Unlock()
 			if bigOK {
 				jsonErr(w, http.StatusBadRequest, fmt.Sprintf(
@@ -2124,6 +2248,16 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			msg = "no node of this grant's owner is serving " + req.Model + " right now"
 		} else if confidentialOnly {
 			msg += " on a confidential node"
+		}
+		// A capability requirement (explicit or implicit) is named, so the consumer knows the
+		// model is not missing - no station that can do what the request needs is on air.
+		if caps := routeReq.capabilityNames(); caps != "" {
+			msg += " with the " + caps + " capability"
+			b.stats.relayNoMatchCapability.Add(1)
+			log.Printf("relay no_match request=%s model=%s: no eligible station has the %s capability", requestID, req.Model, caps)
+		}
+		if noFallbacks {
+			b.stats.routingNoFallbackRefused.Add(1)
 		}
 		jsonErrCode(w, http.StatusServiceUnavailable, "no_match", msg)
 		return
@@ -2146,6 +2280,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// unaffected: this fires only for a public, priced offer billed to an anon wallet.
 	now := time.Now()
 	if anonCannotPay(gok, pricing, payer, offer, now) {
+		w.Header().Set("X-RogerAI-Cost", "0")
 		jsonErr(w, http.StatusUnauthorized, "log in to spend on paid models - run `roger login` (free models and grant keys work without an account)")
 		return
 	}
@@ -2161,7 +2296,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	plan := []attemptCand{{node: node, offer: offer, t: t, pricing: pricing, maxCost: holdCostFor(pricing, offer, body, now)}}
 	// provider.allow_fallbacks:false with no order is a single attempt; with an order it
 	// means "never leave the list" (the listed nodes are still walked in order).
-	if relayFailoverOn() && pinNode == "" && !(noFallbacks && len(orderList) == 0) {
+	// With provider.only it is the same bound over the allow-list: the set is walked (by score
+	// or sort), nothing outside it is ever tried.
+	listBound := len(orderList) > 0 || routing.Only != nil
+	if relayFailoverOn() && pinNode == "" && !(noFallbacks && !listBound) {
 		tried := map[string]bool{node.NodeID: true}
 		for k := range exclude {
 			tried[k] = true
@@ -2182,7 +2320,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 				n, o, ok = b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, id, tried, failAllow, privateAllow, routeReq.seeded(nil))
 			}
-			if !ok && !noFallbacks {
+			if !ok && (!noFallbacks || routing.Only != nil) {
 				n, o, ok = b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, "", tried, failAllow, privateAllow,
 					routeReq.seeded(seededRand(attemptID(requestID, len(plan)+1))))
 			}
@@ -3457,10 +3595,32 @@ type pickReq struct {
 	//   needTools       the body carries a non-empty tools array: only a (node, model) with the
 	//                   VERIFIED tools bit (the same bit /market emits) may serve it.
 	//   needVision      the body carries an image_url part: only an offer that declared vision.
+	//   sort            provider.sort (or its sugar): a STRICT single-metric ordering of the
+	//                   pool instead of the scored power-of-two-choices pick.
+	//   freeOnly        the `:free` sugar: only an offer that costs THIS caller nothing right
+	//                   now - priced 0/0 at the active price, or a station in freeFor (the
+	//                   caller's own: self-use is $0).
 	quants         map[string]bool
 	selfHostedOnly bool
 	needTools      bool
 	needVision     bool
+	sort           sortKey
+	freeOnly       bool
+	freeFor        map[string]bool
+}
+
+// capabilityNames is the capability requirement in words ("tools", "vision", "tools and
+// vision"), "" when the request requires none.
+func (p pickReq) capabilityNames() string {
+	switch {
+	case p.needTools && p.needVision:
+		return protocol.CapTools + " and " + protocol.CapVision
+	case p.needTools:
+		return protocol.CapTools
+	case p.needVision:
+		return protocol.CapVision
+	}
+	return ""
 }
 
 // seeded returns a copy of the request with its routing PRNG set (nil = deterministic
@@ -3530,7 +3690,9 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	type cand struct {
 		node     protocol.NodeRegistration
 		offer    protocol.ModelOffer
-		out      float64
+		in, out  float64 // the active (time-of-use) price right now
+		tps      float64 // measured throughput (0 = unmeasured)
+		ttft     float64 // measured time to first token, ms (0 = unmeasured)
 		inflight int
 		capacity int
 		rel      float64 // reliability spine
@@ -3631,7 +3793,12 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			if offerModality(o.Modality) != offerModality(req.modality) {
 				continue
 			}
-			in, out, _, _ := o.ActivePrice(now)
+			in, out, afree, _ := o.ActivePrice(now)
+			// `:free`: only what costs this caller nothing right now (a zero out price with a
+			// non-zero in price is not free).
+			if req.freeOnly && !afree && (in > 0 || out > 0) && !req.freeFor[n.NodeID] {
+				continue
+			}
 			if maxPriceIn > 0 && in > maxPriceIn {
 				continue
 			}
@@ -3674,7 +3841,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			// multi-instance is off, so the single-instance load factor is unchanged.
 			inflight := b.inflight[n.NodeID] + b.peerInflight[n.NodeID]
 			cands = append(cands, cand{
-				node: n, offer: o, out: out, inflight: inflight,
+				node: n, offer: o, in: in, out: out, tps: tps, ttft: tq.ttftMs, inflight: inflight,
 				capacity: cap, rel: rel, fit: fit, radius: radius, tierA: tierA,
 			})
 		}
@@ -3683,6 +3850,19 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	if len(cands) == 0 {
 		b.metricsMu.Unlock()
 		return protocol.NodeRegistration{}, protocol.ModelOffer{}, false
+	}
+	// The registry is a map, so the eligibility pass above visits nodes in a random order.
+	// Everything below breaks ties on a candidate's INDEX (selectP2C's "first best wins", the
+	// band it samples from), so the candidates are put in a stable order first: the same
+	// request seed over the same registry always resolves to the same station ("reproducible
+	// per request"), and a strict sort's final tie-break is the node id, never the map.
+	slices.SortStableFunc(cands, func(x, y cand) int { return strings.Compare(x.node.NodeID, y.node.NodeID) })
+	// ...and under the scored pick that order is then drawn from the request's own PRNG, so a
+	// full tie (equal score, equal load) lands on a seed-chosen station: reproducible for one
+	// request, spread across requests - the spread among equals no longer rides on Go's map
+	// iteration. A strict sort keeps the node-id order as its last tie-break.
+	if req.rng != nil && req.sort == sortNone {
+		req.rng.Shuffle(len(cands), func(i, j int) { cands[i], cands[j] = cands[j], cands[i] })
 	}
 	// User price cap (when given) widens the range ceiling so "I'll pay up to X but
 	// reward me below it" is expressible; else the eligible max is the ceiling.
@@ -3694,6 +3874,11 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		pm := priceMod(c.out, rangeMin, rmax, w.kPrice, w.priceExp)
 		s := ucb(c.rel*c.fit*pm, c.radius) * loadFactor(c.inflight, c.capacity)
 		load := float64(c.inflight) / float64(maxInt(c.capacity, 1))
+		if req.sort != sortNone {
+			// A strict sort does not explore: its tie-break is the merit itself, without the
+			// UCB lift (which also saturates the score at 1 and would flatten the tie-break).
+			s = c.rel * c.fit * pm * loadFactor(c.inflight, c.capacity)
+		}
 		sc := scoredCand{idx: i, score: s, load: load}
 		if c.tierA {
 			tierA = append(tierA, sc)
@@ -3707,7 +3892,45 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	if len(pool) == 0 {
 		pool = tierB
 	}
-	chosen := selectP2C(pool, w.beta, req.rng)
+	chosen := -1
+	if req.sort == sortNone {
+		chosen = selectP2C(pool, w.beta, req.rng)
+	} else if len(pool) > 0 {
+		// provider.sort: a STRICT ordering of the pool by one metric - no power-of-two-choices
+		// spread (the consumer said what they want). Ties fall to the score, then the stable
+		// candidate order. Unmeasured stations rank last under throughput / latency.
+		less := func(a, b cand) (bool, bool) { // (a before b, decided)
+			switch req.sort {
+			case sortPrice:
+				if a.out != b.out {
+					return a.out < b.out, true
+				}
+				if a.in != b.in {
+					return a.in < b.in, true
+				}
+			case sortThroughput:
+				if a.tps != b.tps {
+					return a.tps > b.tps, true // 0 (unmeasured) sorts last
+				}
+			case sortLatency:
+				if am, bm := a.ttft > 0, b.ttft > 0; am != bm {
+					return am, true
+				}
+				if a.ttft != b.ttft {
+					return a.ttft < b.ttft, true
+				}
+			}
+			return false, false
+		}
+		best := pool[0]
+		for _, sc := range pool[1:] {
+			before, decided := less(cands[sc.idx], cands[best.idx])
+			if (decided && before) || (!decided && sc.score > best.score) {
+				best = sc
+			}
+		}
+		chosen = best.idx
+	}
 	if chosen < 0 {
 		b.metricsMu.Unlock()
 		return protocol.NodeRegistration{}, protocol.ModelOffer{}, false

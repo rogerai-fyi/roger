@@ -45,6 +45,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -356,7 +357,7 @@ func (s *np1State) np1Generic(text string) error {
 		s.np1Prev = s.batch
 	}
 	s.batch, s.np1Attempts = nil, nil
-	if count >= 50 && s.np1Shares == nil {
+	if count >= 20 && s.np1Shares == nil {
 		s.np1Shares = map[string]map[string]float64{}
 		for _, pref := range []string{"", "balanced", "cheap", "fast", "reliable"} {
 			s.np1Shares[pref] = s.np1Share(pref, nil)
@@ -758,6 +759,15 @@ func (s *np1State) np1Measured(metric, rest string) error {
 	if len(named) == 0 {
 		return fmt.Errorf("no measurement parsed from %q", rest)
 	}
+	if metric == "ttft" {
+		// A station the Given does not name has NO ttft measurement: the harness stands every
+		// station up with a 200 ms placeholder, which would outrank the stated values.
+		for n := range s.stations {
+			if !slices.Contains(named, n) {
+				s.np1SetTTFT(n, 0)
+			}
+		}
+	}
 	if m := np1Also429Re.FindStringSubmatch(rest); m != nil {
 		s.script429For(m[1], "")
 	}
@@ -931,8 +941,12 @@ func (s *np1State) np1GrantScoped(list string) error {
 	secret := "rog-grant_np1" + s.nonce
 	sum := sha256.Sum256([]byte(secret))
 	s.grantID, s.grantToken = "grant_np1_"+s.nonce, secret
-	return s.db.CreateGrant(store.Grant{ID: s.grantID, SecretHash: hex.EncodeToString(sum[:]), Owner: owner.acct,
-		Label: "np1", Free: true, Nodes: ids, DailyCap: 1_000_000, CreatedAt: time.Now().Unix()})
+	g := store.Grant{ID: s.grantID, SecretHash: hex.EncodeToString(sum[:]), Owner: owner.acct,
+		Label: "np1", Free: true, Nodes: ids, DailyCap: 1_000_000, CreatedAt: time.Now().Unix()}
+	if err := s.db.CreateGrant(g); err != nil {
+		return err
+	}
+	return rs1GrantWalletRow(s.db, g) // see there: a free grant's wallet needs a row to settle on Postgres
 }
 
 func (s *np1State) np1GrantScopedAnd429(list, name string) error {
@@ -1414,7 +1428,13 @@ func (s *np1State) np1PicksFollowScore() error {
 	if err := s.np1AllOK(s.batch); err != nil {
 		return err
 	}
-	share := s.np1Share("balanced", nil)
+	// The score order the batch was routed under: taken at the Given state, BEFORE the batch
+	// (like every other share in this runner) - the batch's own relays re-measure the station
+	// that served and shrink its exploration lift, which is not what the picks were made on.
+	share := s.np1Shares["balanced"]
+	if share == nil {
+		share = s.np1Share("balanced", nil)
+	}
 	best, top := "", -1.0
 	for n, v := range share {
 		if v > top {
@@ -2265,7 +2285,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty", Strict: true, TestingT: t,
 			Paths: []string{"../../features/routing/node_preference.feature"},
-			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later",
+			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@part-b && ~@part-c && ~@slice2 && ~@slice3 && ~@slice4",
 		},
 	}
 	if suite.Run() != 0 {

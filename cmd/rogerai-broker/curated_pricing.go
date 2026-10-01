@@ -71,10 +71,15 @@ func curatedOwnerShare(cost float64, atCost bool) float64 {
 // "advertised" for exactly that reason. Failure-path only. CALLER HOLDS b.mu (the
 // Locked suffix is the contract): its one call site sits inside the re-pick's
 // locked section, and self-locking here would deadlock it.
-func (b *broker) maxDeclaredCtxLocked(model string) int {
+func (b *broker) maxDeclaredCtxLocked(model string, scope ...map[string]bool) int {
 	max := 0
 	now := time.Now()
 	for id, reg := range b.nodes {
+		// An admission set (the consumer's allow-list, a grant's or a band's nodes) narrows
+		// "the widest window" to what this request could actually reach.
+		if len(scope) > 0 && scope[0] != nil && !scope[0][id] {
+			continue
+		}
 		// liveness: b.nodes retains expired registrations; a window quoted from an
 		// offline node would advise a capacity nobody is serving (audit).
 		if now.Sub(b.lastSeen[id]) >= nodeTTL {

@@ -616,8 +616,17 @@ func corsCreds(w http.ResponseWriter, r *http.Request) {
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Roger-Pubkey, X-Roger-TS, X-Roger-Sig, X-Roger-User, X-Roger-Admin, X-Roger-Attach")
 		h.Set("Access-Control-Max-Age", "600")
+		// A browser can only read the response headers named here: the served model, the
+		// station, what the request cost and when to retry (the relay sets them; elsewhere
+		// they are simply absent).
+		h.Set("Access-Control-Expose-Headers", corsExposedHeaders)
 	}
 }
+
+// corsExposedHeaders is every relay response header a first-party browser page may read.
+const corsExposedHeaders = "X-RogerAI-Model, X-RogerAI-Provider, X-RogerAI-Relay, X-RogerAI-Cost, X-RogerAI-Receipt, " +
+	"X-RogerAI-Tokens-In, X-RogerAI-Tokens-Out, X-RogerAI-Balance, X-RogerAI-Price, X-RogerAI-TPS, X-RogerAI-Quality, " +
+	"X-RogerAI-Monthly-Cap, X-RogerAI-Monthly-Spend, X-RogerAI-Monthly-Pct, X-RogerAI-Monthly-Notice, Retry-After"
 
 // originAllowed reports whether the request's Origin header exactly matches one of
 // the configured first-party web origins. It is the load-bearing check for every
