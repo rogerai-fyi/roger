@@ -175,7 +175,8 @@ function copyAssets(dir) {
     if (!rel.includes("/") && ent.name.endsWith(".html")) continue;
     const dest = join(DIST, rel);
     mkdirSync(dirname(dest), { recursive: true });
-    copyOut(abs, dest);
+    if (rel.endsWith(".css")) writeOut(dest, cssOut(rel));   // its url()s versioned
+    else copyOut(abs, dest);
   }
 }
 
@@ -184,18 +185,38 @@ function copyAssets(dir) {
 // "edited terminal.js but the edge kept the old one" class of bug (and the same for swapping in a
 // re-timed ledger-demo.mp4/.gif). The hash is of the SOURCE file (byte-identical to what copyAssets
 // ships), so a url changes ONLY when that file changes; missing/external refs stay unversioned.
+// A stylesheet is hashed by its BUILT bytes (cssOut), so a re-vendored font or a swapped
+// background image also gives the sheet that names it a new url.
 const assetHashCache = new Map();
 function assetHash(rel) {
   if (assetHashCache.has(rel)) return assetHashCache.get(rel);
   let h = "0";
   try {
-    h = createHash("sha256").update(readFileSync(join(SRC, rel))).digest("hex").slice(0, 8);
+    const data = rel.endsWith(".css") ? cssOut(rel) : readFileSync(join(SRC, rel));
+    h = createHash("sha256").update(data).digest("hex").slice(0, 8);
   } catch { /* missing/external: leave it unversioned rather than break the build */ }
   assetHashCache.set(rel, h);
   return h;
 }
+// The stylesheets' own local url()s (the self-hosted fonts, a few background images) get the
+// same ?v=<content hash>, so the edge's long cache for versioned urls covers them too. The
+// head.html font preload goes through cacheBust with the same hash: preload and @font-face
+// name one url, or the face downloads twice.
+const cssOutCache = new Map();
+function cssOut(rel) {
+  if (!cssOutCache.has(rel)) {
+    const css = readFileSync(join(SRC, rel), "utf8").replace(/url\(("?)(\.\.\/[^")?#]+\.(?:woff2|png|webp|svg|jpe?g|gif|avif))\1\)/g,
+      (m, q, url) => {
+        const target = relative(SRC, resolve(SRC, dirname(rel), url));
+        const h = assetHash(target);
+        return h === "0" ? m : `url(${q}${url}?v=${h}${q})`;
+      });
+    cssOutCache.set(rel, css);
+  }
+  return cssOutCache.get(rel);
+}
 function cacheBust(html) {
-  html = html.replace(/((?:src|href|poster)=")((?:js|styles|assets)\/[^"?]+\.(?:js|css|mp4|vtt|gif|png|webp|svg|jpe?g|avif))"/g,
+  html = html.replace(/((?:src|href|poster)=")((?:js|styles|assets)\/[^"?]+\.(?:js|css|mp4|vtt|gif|png|webp|svg|jpe?g|avif|woff2))"/g,
     (_, pre, rel) => `${pre}${rel}?v=${assetHash(rel)}"`);
   // srcset carries several URLs with width descriptors; version each local one, so
   // responsive variants get the same immutable-URL treatment as plain src.

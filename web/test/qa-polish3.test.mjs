@@ -5,6 +5,7 @@ import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,5 +49,49 @@ test("headings: the glue never changes a heading's words", () => {
       const t = textOf(m[2] ?? m[3]).trim();
       if (/ - /.test(t)) assert.ok(textOf(src).includes(t.split(" - ")[0].split(" ").pop() + " - "), `${p}: ${t}`);
     }
+  }
+});
+
+// Item 2: the fonts were the one self-hosted asset without a versioned URL, so the edge's
+// long-cache rule for versioned assets (cf-edge.mjs: a `v=` query on a woff2) never applied
+// and every visit revalidated them. The build now stamps the font URLs in the stylesheets
+// with the font's content hash, the preload in <head> with the same one (a mismatch would
+// download the face twice), and versions a stylesheet by its BUILT bytes, so a new font
+// also gives base.css a new URL.
+const sha8 = (buf) => createHash("sha256").update(buf).digest("hex").slice(0, 8);
+const srcHash = (rel) => sha8(readFileSync(path.join(WEB, "src", rel)));
+
+test("fonts: every @font-face url in the built stylesheet carries the font's content hash", () => {
+  const built = read("dist/styles/base.css");
+  const urls = [...built.matchAll(/url\("?\.\.\/(assets\/fonts\/[^")?]+\.woff2)(\?v=[0-9a-f]{8})?"?\)/g)];
+  assert.ok(urls.length >= 9, `the nine faces (${urls.length})`);
+  for (const [, rel, v] of urls) assert.equal(v, `?v=${srcHash(rel)}`, rel);
+});
+
+test("fonts: every local url() in a built stylesheet is versioned, like the page's own asset urls", () => {
+  const bad = [];
+  for (const f of readdirSync(path.join(WEB, "dist/styles")).filter((f) => f.endsWith(".css"))) {
+    for (const m of read(path.join("dist/styles", f)).matchAll(/url\("?\.\.\/(assets\/[^")?]+?)(\?v=([0-9a-f]{8}))?"?\)/g)) {
+      if (m[3] !== srcHash(m[1])) bad.push(`${f}: ${m[0]}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+test("fonts: the preload is byte-for-byte the url the stylesheet asks for (no double download)", () => {
+  const css = read("dist/styles/base.css");
+  const fromCss = css.match(/url\("?\.\.\/(assets\/fonts\/space-grotesk-latin\.woff2[^")]*)"?\)/)[1];
+  for (const p of PAGES) {
+    const pre = dist(p).match(/<link rel="preload" href="([^"]+)" as="font"/);
+    if (!pre) continue;
+    assert.equal(new URL(pre[1], "https://x/").href, new URL(`../${fromCss}`, "https://x/styles/base.css").href, p);
+    assert.match(pre[1], /\?v=[0-9a-f]{8}$/, `${p}: the preload is versioned`);
+  }
+});
+
+test("fonts: a stylesheet's ?v= is the hash of the BUILT sheet, so a new font gives it a new url", () => {
+  const html = dist("index.html");
+  for (const m of html.matchAll(/href="(styles\/[^"?]+\.css)\?v=([0-9a-f]{8})"/g)) {
+    assert.equal(m[2], sha8(readFileSync(path.join(WEB, "dist", m[1]))), m[1]);
   }
 });

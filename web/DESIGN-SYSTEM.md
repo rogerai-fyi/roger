@@ -523,7 +523,11 @@ behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1
 - **Fonts** are self-hosted (`assets/fonts`, `scripts/vendor-fonts.mjs`), `font-display:
   swap`; `head.html` preloads the text face's latin file (it was most of the phone layout
   shift), not the mono face (preloading both cost first paint more than it saved). No page links a third-party
-  stylesheet.
+  stylesheet. The build stamps every local `url()` in a stylesheet (the fonts, a few
+  backgrounds) with `?v=<content hash>`, like the page's own asset urls, so the edge's long
+  cache for versioned urls covers them; the preload gets the same hash (preload and
+  `@font-face` must name one url, or the face downloads twice), and a stylesheet's own
+  `?v=` hashes its built bytes, so a new font gives `base.css` a new url too.
 - **Scripts** are deferred. The only parser-blocking one is the tiny theme setter in
   `<head>` (under 1 KB), which also marks a visitor who has not dismissed the promo strip so
   the strip is laid out in the first frame (it used to push every page down on reveal).
