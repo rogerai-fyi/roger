@@ -19,7 +19,8 @@ import (
 func Pick(files []hfhub.File, want string) (hfhub.File, error) {
 	var hits []hfhub.File
 	for _, f := range files {
-		if strings.EqualFold(f.Path, want) || strings.EqualFold(f.Quant, want) {
+		stem := strings.TrimSuffix(filepath.Base(f.Path), ".gguf")
+		if strings.EqualFold(f.Path, want) || strings.EqualFold(f.Quant, want) || strings.EqualFold(stem, want) {
 			if Unservable(f.Path) == "" {
 				hits = append(hits, f)
 			}

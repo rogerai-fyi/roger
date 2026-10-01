@@ -1,0 +1,571 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/hfhub"
+	"rogerai.fm/roger/v6/internal/localmodel"
+	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v6/internal/runtime"
+)
+
+// TestMain lets this test binary stand in for the inference runtime, reading the same command line
+// the real one is given.
+func TestMain(m *testing.M) {
+	if os.Getenv("FAKE_LLAMA") != "" {
+		modelFakeLlama(os.Args[1:])
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func modelFakeLlama(args []string) {
+	flag := map[string]string{}
+	for i := 0; i+1 < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") {
+			flag[args[i]] = args[i+1]
+		}
+	}
+	key := ""
+	if f, err := os.Open(flag["--api-key-file"]); err == nil {
+		sc := bufio.NewScanner(f)
+		if sc.Scan() {
+			key = strings.TrimSpace(sc.Text())
+		}
+		f.Close()
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"status":"ok"}`) })
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprintf(w, `{"data":[{"id":%q}]}`, flag["--alias"])
+	})
+	_ = http.ListenAndServe("127.0.0.1:"+flag["--port"], mux)
+}
+
+// modelGGUF is a real-shaped header (Qwen3-4B's numbers) padded to a file.
+func modelGGUF(pad int) []byte {
+	var b []byte
+	put := func(v any) {
+		switch x := v.(type) {
+		case string:
+			b = binary.LittleEndian.AppendUint64(b, uint64(len(x)))
+			b = append(b, x...)
+		case uint32:
+			b = binary.LittleEndian.AppendUint32(b, x)
+		case uint64:
+			b = binary.LittleEndian.AppendUint64(b, x)
+		}
+	}
+	b = append(b, 'G', 'G', 'U', 'F')
+	put(uint32(3))
+	put(uint64(0))
+	kvs := []struct {
+		k string
+		v any
+	}{
+		{"general.architecture", "qwen3"},
+		{"qwen3.block_count", uint32(36)},
+		{"qwen3.context_length", uint32(40960)},
+		{"qwen3.embedding_length", uint32(2560)},
+		{"qwen3.attention.head_count", uint32(32)},
+		{"qwen3.attention.head_count_kv", uint32(8)},
+		{"qwen3.attention.key_length", uint32(128)},
+		{"qwen3.attention.value_length", uint32(128)},
+		{"qwen3.vocab_size", uint32(151936)},
+	}
+	put(uint64(len(kvs)))
+	for _, e := range kvs {
+		put(e.k)
+		if _, ok := e.v.(string); ok {
+			put(uint32(8))
+		} else {
+			put(uint32(4))
+		}
+		put(e.v)
+	}
+	return append(b, make([]byte, pad)...)
+}
+
+type modelRig struct {
+	out   *bytes.Buffer
+	home  localmodel.Home
+	files map[string][]byte
+}
+
+// newModelRig points every seam at something local: a fake index, a temp home, a machine with a
+// stated memory, and the test binary as the runtime.
+func newModelRig(t *testing.T, ramMiB int) *modelRig {
+	t.Helper()
+	r := &modelRig{out: &bytes.Buffer{}, home: localmodel.Home{Dir: t.TempDir()}, files: map[string][]byte{
+		"Tiny-Q4_K_M.gguf": modelGGUF(4000),
+		"Tiny-Q8_0.gguf":   modelGGUF(8000),
+		"mmproj-F16.gguf":  modelGGUF(10),
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+		p := q.URL.Path
+		switch {
+		case p == "/api/models":
+			fmt.Fprint(w, `[{"id":"acme/Tiny-GGUF","downloads":51234,"tags":["gguf","license:apache-2.0"]},
+			  {"id":"acme/Locked-GGUF","downloads":7,"gated":"manual","tags":["gguf"]}]`)
+		case p == "/api/models/acme/Tiny-GGUF/tree/main":
+			var out []map[string]any
+			for name, body := range r.files {
+				sum := sha256.Sum256(body)
+				out = append(out, map[string]any{"type": "file", "path": name, "size": 130,
+					"lfs": map[string]any{"oid": hex.EncodeToString(sum[:]), "size": len(body)}})
+			}
+			_ = json.NewEncoder(w).Encode(out)
+		case p == "/api/models/acme/Locked-GGUF/tree/main":
+			w.Header().Set("X-Error-Code", "GatedRepo")
+			w.WriteHeader(http.StatusUnauthorized)
+		case strings.HasPrefix(p, "/acme/Tiny-GGUF/resolve/main/"):
+			body, ok := r.files[strings.TrimPrefix(p, "/acme/Tiny-GGUF/resolve/main/")]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = w.Write(body)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch := modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher
+	t.Cleanup(func() {
+		modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher = oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch
+	})
+	modelOut = r.out
+	modelHome = func() localmodel.Home { return r.home }
+	modelHW = func() detect.LocalHW { return detect.LocalHW{RAMKnown: true, RAMTotalMiB: ramMiB} }
+	modelHubBase = srv.URL
+	modelFetcher = func() *provision.Fetcher {
+		return &provision.Fetcher{FreeSpace: func(string) (int64, bool) { return 1 << 40, true }, OnProgress: modelProgress}
+	}
+	modelRuntime = func(context.Context) (string, string, error) { return os.Args[0], "bTEST", nil }
+	modelUntilDone = func(context.Context) {}
+	modelServeEnv = map[string]string{"FAKE_LLAMA": "1"}
+	edgeStdin = strings.NewReader("")
+	t.Setenv("HF_TOKEN", "")
+	t.Setenv("HUGGING_FACE_HUB_TOKEN", "")
+	return r
+}
+
+func (r *modelRig) run(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	r.out.Reset()
+	err := cmdModel(config{}, args)
+	return r.out.String(), err
+}
+
+func TestModelAnEmptyMachineSaysWhereToStart(t *testing.T) {
+	r := newModelRig(t, 16384)
+	out, err := r.run(t)
+	require.NoError(t, err)
+	require.Contains(t, out, "no models on this machine yet")
+	require.Contains(t, out, "roger model search")
+}
+
+func TestModelSearchIsTheWiderWorldAndSaysWhoseWordItIs(t *testing.T) {
+	r := newModelRig(t, 16384)
+	out, err := r.run(t, "search", "tiny", "--limit", "5")
+	require.NoError(t, err)
+	require.Contains(t, out, "not RogerAI's word")
+	require.Contains(t, out, "acme/Tiny-GGUF")
+	require.Contains(t, out, "51.2K downloads")
+	require.Contains(t, out, "apache-2.0")
+	require.Contains(t, out, "GATED", "a gated repo is marked before anyone tries it")
+	require.Contains(t, out, "roger model files acme/Tiny-GGUF")
+}
+
+func TestModelFilesJudgesEveryQuantAgainstThisMachine(t *testing.T) {
+	r := newModelRig(t, 16384)
+	out, err := r.run(t, "files", "acme/Tiny-GGUF")
+	require.NoError(t, err)
+	require.Contains(t, out, "this machine: 16.0 GiB of system memory")
+	require.Contains(t, out, "* Q4_K_M", "the suggestion is marked")
+	require.Contains(t, out, "at 8K - needs")
+	require.Contains(t, out, "not servable: a vision projector")
+	require.Contains(t, out, "roger model get acme/Tiny-GGUF:Q4_K_M")
+
+	// A machine that cannot hold even the smallest at any context is told so, and nothing is suggested.
+	r = newModelRig(t, 512)
+	out, err = r.run(t, "files", "acme/Tiny-GGUF", "--ctx", "40960")
+	require.NoError(t, err)
+	require.Contains(t, out, "will not fit")
+	require.Contains(t, out, "nothing here fits comfortably")
+
+	// A machine whose memory could not be read says it cannot say.
+	modelHW = func() detect.LocalHW { return detect.LocalHW{} }
+	out, err = r.run(t, "files", "acme/Tiny-GGUF")
+	require.NoError(t, err)
+	require.Contains(t, out, "this machine: cannot say")
+}
+
+func TestModelFetchingIsTheOwnersDecisionAndIsVerified(t *testing.T) {
+	r := newModelRig(t, 16384)
+	edgeStdin = strings.NewReader("n\n")
+	out, err := r.run(t, "get", "acme/Tiny-GGUF")
+	require.NoError(t, err, "saying no is an answer, not a failure")
+	require.Contains(t, out, "licence: apache-2.0", "the licence is shown before the fetch")
+	require.Contains(t, out, "the author's word")
+	require.Contains(t, out, "not fetched. Nothing changed.")
+	all, _ := r.home.List()
+	require.Empty(t, all)
+
+	edgeStdin = strings.NewReader("y\n")
+	out, err = r.run(t, "get", "acme/Tiny-GGUF")
+	require.NoError(t, err)
+	require.Contains(t, out, "fetched and verified: acme/Tiny-GGUF:Q4_K_M")
+
+	out, err = r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
+	require.NoError(t, err)
+	require.Contains(t, out, "acme/Tiny-GGUF:Q8_0")
+
+	out, err = r.run(t, "list")
+	require.NoError(t, err)
+	require.Contains(t, out, "2 models")
+	require.Contains(t, out, "checked")
+}
+
+func TestModelFetchFailuresSayWhichFailure(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Locked-GGUF", "--yes")
+	require.ErrorContains(t, err, "HF_TOKEN", "a gated repo names the fix")
+	_, err = r.run(t, "get", "acme/Nope-GGUF", "--yes")
+	require.ErrorContains(t, err, "spelling")
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q5_K_M", "--yes")
+	require.ErrorContains(t, err, "no servable file")
+	_, err = r.run(t, "get", "acme/Tiny-GGUF", "--yes", "--ctx", "999999")
+	require.ErrorContains(t, err, "fits this machine comfortably")
+
+	// What arrives is not what was promised: nothing is kept, and the owner is told to run again.
+	modelFetcher = func() *provision.Fetcher {
+		return &provision.Fetcher{FreeSpace: func(string) (int64, bool) { return 1 << 40, true },
+			Client: &http.Client{Transport: corruptingTransport{}}}
+	}
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.ErrorContains(t, err, "nothing was kept")
+}
+
+// corruptingTransport flips the last byte of every download, as a bad mirror would.
+type corruptingTransport struct{}
+
+func (corruptingTransport) RoundTrip(q *http.Request) (*http.Response, error) {
+	resp, err := http.DefaultTransport.RoundTrip(q)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return resp, err
+	}
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(resp.Body)
+	resp.Body.Close()
+	b := buf.Bytes()
+	if len(b) > 0 {
+		b[len(b)-1] ^= 0xff
+	}
+	resp.Body = ioNopCloser{bytes.NewReader(b)}
+	return resp, nil
+}
+
+type ioNopCloser struct{ *bytes.Reader }
+
+func (ioNopCloser) Close() error { return nil }
+
+func TestModelServeStartsProvesRecordsAndCleansUp(t *testing.T) {
+	r := newModelRig(t, 16384)
+	var during localmodel.Serving
+	var startOut string
+	modelUntilDone = func(context.Context) {
+		startOut = r.out.String()
+		var ok bool
+		during, ok = r.home.Live()
+		require.True(t, ok, "nothing was recorded while it served")
+		// Detection's served rung hands over the endpoint WITH its key, and the key opens it.
+		eps := detect.Served()
+		require.Len(t, eps, 1)
+		require.Equal(t, during.Key, eps[0].Key)
+		f, probed := detect.ProbeKey(eps[0].Base, eps[0].Key)
+		require.Equal(t, detect.Reachable, probed)
+		require.Equal(t, []string{"tiny"}, f.Models)
+		st, err := r.run(t, "status")
+		require.NoError(t, err)
+		require.Contains(t, st, "serving \"tiny\"")
+		require.Contains(t, st, "acme/Tiny-GGUF:Q4_K_M")
+		require.Contains(t, st, "llama.cpp bTEST")
+		ls, _ := r.run(t, "list")
+		require.Contains(t, ls, "▶ serving acme/Tiny-GGUF:Q4_K_M")
+		_, err = r.run(t, "rm", "tiny", "--yes")
+		require.ErrorContains(t, err, "being served right now")
+	}
+	// A repo not on the machine is fetched first, with the same consent.
+	_, err := r.run(t, "serve", "acme/Tiny-GGUF", "--yes")
+	require.NoError(t, err)
+	require.Contains(t, startOut, "is not on this machine yet")
+	require.Contains(t, startOut, "on the air locally: \"tiny\"")
+	require.Contains(t, startOut, "8192 context")
+	require.Equal(t, "tiny", during.Band)
+	_, ok := r.home.Live()
+	require.False(t, ok, "the record outlived the serving")
+}
+
+func TestModelServeRefusesWithTheArithmeticNeverSilentlyShrinking(t *testing.T) {
+	r := newModelRig(t, 2048)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	_, err = r.run(t, "serve", "tiny", "--ctx", "40960")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "will not fit at 40K")
+	require.Contains(t, err.Error(), "weights", "the sum is shown")
+	require.Contains(t, err.Error(), "roger model serve acme/Tiny-GGUF:Q4_K_M --ctx", "the context that does fit is offered")
+}
+
+func TestModelAMachineWithNoRuntimeSaysWhatItCanStillDo(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	modelRuntime = func(context.Context) (string, string, error) {
+		return "", "", fmt.Errorf("%w: needs glibc 2.38, this has 2.36", runtime.ErrNoRuntime)
+	}
+	_, err = r.run(t, "serve", "tiny")
+	require.ErrorContains(t, err, "local serving is not available on this machine")
+	require.ErrorContains(t, err, "2.36")
+	require.ErrorContains(t, err, "monitored and controlled from the authority")
+
+	modelRuntime = func(context.Context) (string, string, error) { return "", "", errors.New("disk full") }
+	_, err = r.run(t, "serve", "tiny")
+	require.ErrorContains(t, err, "could not get the runtime")
+}
+
+func TestModelAFileTheOwnerAlreadyHasServesWhereItIs(t *testing.T) {
+	r := newModelRig(t, 16384)
+	p := filepath.Join(t.TempDir(), "mine-Q4_K_M.gguf")
+	require.NoError(t, os.WriteFile(p, modelGGUF(100), 0o644))
+	out, err := r.run(t, "serve", p)
+	require.NoError(t, err)
+	require.Contains(t, out, "on the air locally: \"mine\"")
+
+	// A file whose header cannot be read is served on the owner's word, and says so.
+	junk := filepath.Join(t.TempDir(), "junk.gguf")
+	require.NoError(t, os.WriteFile(junk, []byte("not a gguf"), 0o644))
+	out, err = r.run(t, "serve", junk)
+	require.NoError(t, err)
+	require.Contains(t, out, "cannot judge the fit")
+}
+
+func TestModelASwitchStopsTheOldOnlyOnceTheNewAnswers(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+
+	old := localmodel.Serving{Supervisor: os.Getppid(), Band: "older", ID: "x/older:Q4_K_M", Started: time.Now()}
+	b, _ := json.Marshal(old)
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serving.json"), b, 0o600))
+
+	oldSig, oldIs := edgeSignal, edgeProcIsRoger
+	t.Cleanup(func() { edgeSignal, edgeProcIsRoger = oldSig, oldIs })
+	var signalled []int
+	edgeSignal = func(pid int, _ syscall.Signal) error { signalled = append(signalled, pid); return nil }
+	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
+
+	// A start that fails leaves the old one serving and says so.
+	modelServeEnv = map[string]string{}
+	modelRuntime = func(context.Context) (string, string, error) {
+		return filepath.Join(t.TempDir(), "absent"), "bTEST", nil
+	}
+	_, err = r.run(t, "serve", "tiny")
+	require.ErrorContains(t, err, "x/older:Q4_K_M is still serving - nothing was switched")
+	require.Empty(t, signalled, "the old one was stopped before the new one answered")
+
+	modelServeEnv = map[string]string{"FAKE_LLAMA": "1"}
+	modelRuntime = func(context.Context) (string, string, error) { return os.Args[0], "bTEST", nil }
+	out, err := r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, out, "switched from x/older:Q4_K_M")
+	require.Equal(t, []int{os.Getppid()}, signalled)
+}
+
+func TestModelStopSignalsOnlyWhatItCanVouchFor(t *testing.T) {
+	r := newModelRig(t, 16384)
+	out, err := r.run(t, "stop")
+	require.NoError(t, err)
+	require.Contains(t, out, "nothing to stop")
+	out, err = r.run(t, "status")
+	require.NoError(t, err)
+	require.Contains(t, out, "nothing is being served")
+
+	rec := filepath.Join(r.home.Dir, "serving.json")
+	b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "tiny"})
+	require.NoError(t, os.WriteFile(rec, b, 0o600))
+	oldSig, oldIs, oldWait := edgeSignal, edgeProcIsRoger, modelStopWait
+	t.Cleanup(func() { edgeSignal, edgeProcIsRoger, modelStopWait = oldSig, oldIs, oldWait })
+
+	edgeProcIsRoger = func(int) (bool, bool) { return false, true }
+	_, err = r.run(t, "stop")
+	require.ErrorContains(t, err, "not a roger any more")
+
+	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
+	edgeSignal = func(int, syscall.Signal) error { return errors.New("no permission") }
+	_, err = r.run(t, "stop")
+	require.ErrorContains(t, err, "could not ask it to stop")
+
+	modelStopWait = 300 * time.Millisecond
+	edgeSignal = func(int, syscall.Signal) error { return nil }
+	out, err = r.run(t, "stop")
+	require.NoError(t, err)
+	require.Contains(t, out, "had not finished")
+
+	edgeSignal = func(int, syscall.Signal) error { return os.Remove(rec) }
+	out, err = r.run(t, "stop")
+	require.NoError(t, err)
+	require.Contains(t, out, "stopped serving tiny")
+}
+
+func TestModelRemoveAsksFirstAndGivesTheSpaceBack(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	edgeStdin = strings.NewReader("n\n")
+	out, err := r.run(t, "rm", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, out, "kept. Nothing changed.")
+	edgeStdin = strings.NewReader("y\n")
+	out, err = r.run(t, "rm", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, out, "removed acme/Tiny-GGUF:Q4_K_M")
+	_, err = r.run(t, "rm", "tiny")
+	require.ErrorIs(t, err, localmodel.ErrUnknownModel)
+}
+
+func TestModelUsageAndFlagMistakesAreSaidPlainly(t *testing.T) {
+	r := newModelRig(t, 16384)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"files"}, "usage: roger model files"},
+		{[]string{"get"}, "usage: roger model get"},
+		{[]string{"serve"}, "usage: roger model serve"},
+		{[]string{"rm"}, "usage: roger model rm"},
+		{[]string{"frobnicate"}, "unknown: roger model frobnicate"},
+		{[]string{"serve", "x", "--ctx"}, "--ctx needs a value"},
+		{[]string{"serve", "x", "--ctx", "lots"}, "positive number"},
+		{[]string{"serve", "x", "--port=-1"}, "positive number"},
+		{[]string{"serve", "x", "--colour", "red"}, "positive number"},
+		{[]string{"serve", "x", "--colour=3"}, "unknown flag --colour"},
+		{[]string{"serve", "nothing-here"}, "no model by that name"},
+	} {
+		_, err := r.run(t, c.args...)
+		require.ErrorContains(t, err, c.want, "%v", c.args)
+	}
+}
+
+func TestModelProgressIsBytesRateAndTimeNeverABareFraction(t *testing.T) {
+	var buf bytes.Buffer
+	old := modelOut
+	modelOut = &buf
+	t.Cleanup(func() { modelOut = old })
+	modelProgress(provision.Progress{})
+	require.Empty(t, buf.String(), "nothing to say before the size is known")
+	modelProgress(provision.Progress{Done: 1 << 10, Total: 1 << 30, Rate: 1 << 10, Remaining: 3 * time.Hour})
+	require.NotContains(t, buf.String(), "left", "an estimate from the first kilobyte is not shown")
+	modelProgress(provision.Progress{Done: 512 << 20, Total: 1 << 30, Rate: 40 << 20, Remaining: 13 * time.Second, Resumed: true})
+	modelProgressDone()
+	s := buf.String()
+	require.Contains(t, s, "512.0 MiB of 1.0 GiB")
+	require.Contains(t, s, "40.0 MiB/s")
+	require.Contains(t, s, "13s left")
+	require.Contains(t, s, "resumed")
+	require.True(t, strings.HasSuffix(s, "\n"))
+}
+
+func TestModelErrorsNameTheFix(t *testing.T) {
+	for err, want := range map[error]string{
+		provision.ErrNoSpace:     "roger model rm",
+		provision.ErrGated:       "HF_TOKEN",
+		provision.ErrCorrupt:     "nothing was kept",
+		provision.ErrUnreachable: "resumes where it stopped",
+		provision.ErrRateLimited: "wait a minute",
+	} {
+		require.ErrorContains(t, modelFetchErr(err), want)
+	}
+	for err, want := range map[error]string{
+		hfhub.ErrGated:       "HF_TOKEN",
+		hfhub.ErrNotFound:    "spelling",
+		hfhub.ErrRateLimited: "HF_TOKEN",
+		hfhub.ErrUnreachable: "network",
+	} {
+		require.ErrorContains(t, modelSourceErr(err), want)
+	}
+	other := errors.New("other")
+	require.Equal(t, other, modelFetchErr(other))
+	require.Equal(t, other, modelSourceErr(other))
+	require.Equal(t, "1.2M", countWord(1_234_567))
+	require.Equal(t, "12", countWord(12))
+}
+
+func TestModelTheTokenComesFromWhereOwnersAlreadyPutIt(t *testing.T) {
+	t.Setenv("HF_TOKEN", "")
+	t.Setenv("HUGGING_FACE_HUB_TOKEN", "hf_b")
+	require.Equal(t, "hf_b", modelHub().Token)
+	t.Setenv("HF_TOKEN", "hf_a")
+	require.Equal(t, "hf_a", modelHub().Token)
+}
+
+func TestModelADetachedServeIsSettledInFrontOfTheOwnerThenHandedOff(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	oldSpawn, oldWait := modelSpawn, modelDetachWait
+	t.Cleanup(func() { modelSpawn, modelDetachWait = oldSpawn, oldWait })
+
+	var got []string
+	modelSpawn = func(args []string, logPath string) error {
+		got = args
+		// The background roger comes on the air: its record appears.
+		b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M",
+			File: "Tiny-Q4_K_M.gguf", Ctx: 4096, BaseURL: "http://127.0.0.1:1/v1"})
+		return os.WriteFile(filepath.Join(r.home.Dir, "serving.json"), b, 0o600)
+	}
+	out, err := r.run(t, "serve", "tiny", "--ctx", "4096", "--port", "9999", "-d")
+	require.NoError(t, err)
+	require.Equal(t, []string{"model", "serve", "acme/Tiny-GGUF:Q4_K_M", "--yes", "--ctx", "4096", "--port", "9999"}, got,
+		"the background is handed an exact id and every decision already made")
+	require.Contains(t, out, "keeps serving after this terminal closes")
+
+	// One that never comes on the air says so, with its own last words, and leaves the old one.
+	require.NoError(t, os.Remove(filepath.Join(r.home.Dir, "serving.json")))
+	modelDetachWait = 300 * time.Millisecond
+	modelSpawn = func(args []string, logPath string) error {
+		return os.WriteFile(logPath, []byte("loading\nerror: out of memory\n"), 0o600)
+	}
+	_, err = r.run(t, "serve", "tiny", "--detach")
+	require.ErrorContains(t, err, "did not come on the air")
+	require.ErrorContains(t, err, "error: out of memory")
+
+	modelSpawn = func([]string, string) error { return errors.New("no fork") }
+	_, err = r.run(t, "serve", "tiny", "--detach")
+	require.ErrorContains(t, err, "could not start serving in the background")
+}

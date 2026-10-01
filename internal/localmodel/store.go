@@ -218,3 +218,20 @@ func Unservable(file string) string {
 	}
 	return ""
 }
+
+// FromPath is a model file named by its path, wherever it is: the owner who already downloaded
+// something can serve it without moving it. It is served on their word, unverified.
+func FromPath(p string) (Model, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return Model{}, err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil || fi.IsDir() {
+		return Model{}, fmt.Errorf("no model file at %s", p)
+	}
+	if why := Unservable(abs); why != "" {
+		return Model{}, fmt.Errorf("%s is %s", filepath.Base(abs), why)
+	}
+	return found(abs, fi.Size()), nil
+}

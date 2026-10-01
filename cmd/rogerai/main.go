@@ -963,6 +963,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdWebui(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
+	case "model":
+		return cmdModel(cfg, args[1:])
 	case "edge":
 		return cmdEdge(cfg, args[1:])
 	case "context":
@@ -2503,6 +2505,7 @@ func usage() {
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
   roger perms <mode>          agent tool approvals default: confirm | edits | all
   roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
+  roger model                 serve a model yourself, no other software: search · files · get · serve · stop
   roger edge                  your fleet: the machines you own (list · describe · name · forget · adopt · scan)
   roger remote                your private remote sessions: list · attach <code> · off · link
   roger resume [session-id]   resume a saved local AGENT session  (alias: continue)

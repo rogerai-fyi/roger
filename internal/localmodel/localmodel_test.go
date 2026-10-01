@@ -235,6 +235,10 @@ func TestAVerdictAlwaysNamesItsContext(t *testing.T) {
 	require.Less(t, v.MaxCtx, 40960)
 	require.Contains(t, v.Line(), "will not fit at 40K context")
 	require.Contains(t, v.Line(), "fits at")
+	require.Contains(t, v.Short(), "will not fit at 40K - fits at")
+	require.Contains(t, Judge(qwen(2500<<20), pi, 2048).Short(), "at 2K - needs")
+	require.Equal(t, "cannot say", Judge(qwen(1), Budget{}, 0).Short())
+	require.Contains(t, Judge(qwen(8*gib), pi, 4096).Short(), "will not fit - needs")
 
 	// A model trained for less than the default is proposed at what it was trained for.
 	s := qwen(1 << 30)
@@ -302,6 +306,9 @@ func TestPickTakesAQuantOrAPathAndNeverGuesses(t *testing.T) {
 	require.Equal(t, "b/m-Q4_K_M.gguf", f.Path)
 	_, err = Pick(files, "Q4_K_M")
 	require.ErrorContains(t, err, "names 2 files")
+	f, err = Pick(files, "m-Q8_0")
+	require.NoError(t, err, "the label a screen shows is a name Pick takes")
+	require.Equal(t, "m-Q8_0.gguf", f.Path)
 	_, err = Pick(files, "Q5_K_M")
 	require.ErrorContains(t, err, "no servable file")
 }
@@ -463,4 +470,19 @@ func TestThePromptCacheIsSizedToTheMachine(t *testing.T) {
 	for _, want := range []string{"--parallel 1", "--cache-ram 256", "--host 127.0.0.1", "--no-webui", "-c 4096", "--alias b"} {
 		require.Contains(t, args, want)
 	}
+}
+
+func TestQuantsThatReadAlikeAreNamedByTheirFile(t *testing.T) {
+	cs := []Choice{
+		{File: hfhub.File{Path: "m-Q4_0.gguf", Quant: "Q4_0"}},
+		{File: hfhub.File{Path: "sub/m-Q4_0_4_4.gguf", Quant: "Q4_0"}},
+		{File: hfhub.File{Path: "m-Q8_0.gguf", Quant: "Q8_0"}},
+		{File: hfhub.File{Path: "m-odd.gguf"}},
+	}
+	require.Equal(t, []string{"m-Q4_0", "m-Q4_0_4_4", "Q8_0", "m-odd"}, Labels(cs))
+}
+
+func TestSeveralCardsAreSaidToBeASum(t *testing.T) {
+	b := BudgetOf(detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 49152, GPUs: make([]detect.LocalGPU, 2)})
+	require.Equal(t, "video memory across 2 GPUs", b.Pool)
 }

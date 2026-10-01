@@ -4,6 +4,7 @@ package localmodel
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/catalog"
@@ -35,7 +36,13 @@ func BudgetOf(hw detect.LocalHW) Budget {
 	case hw.UnifiedMemory && hw.RAMKnown:
 		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "unified memory"}
 	case hw.VRAMKnown && hw.VRAMTotalMiB > 0:
-		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: "video memory"}
+		pool := "video memory"
+		if len(hw.GPUs) > 1 {
+			// The runtime splits layers across cards by default, so the sum is the honest budget -
+			// but it is a sum, and the owner should know that is what they are reading.
+			pool = fmt.Sprintf("video memory across %d GPUs", len(hw.GPUs))
+		}
+		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool}
 	case hw.RAMKnown && hw.RAMTotalMiB > 0:
 		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory"}
 	}
@@ -97,6 +104,20 @@ func (v Verdict) Line() string {
 	}
 	return fmt.Sprintf("%s at %s context: needs %s of %s %s", v.Fit, ctxWord(v.Ctx), BytesWord(v.Need.Total),
 		BytesWord(v.Budget.Bytes), v.Budget.Pool)
+}
+
+// Short is the verdict for a row under a heading that already names the machine's pool.
+func (v Verdict) Short() string {
+	switch v.Fit {
+	case catalog.FitUnknown:
+		return "cannot say"
+	case catalog.FitWontFit:
+		if v.MaxCtx > 0 {
+			return fmt.Sprintf("will not fit at %s - fits at %s", ctxWord(v.Ctx), ctxWord(v.MaxCtx))
+		}
+		return fmt.Sprintf("will not fit - needs %s", BytesWord(v.Need.Total))
+	}
+	return fmt.Sprintf("%-5s at %s - needs %s", v.Fit, ctxWord(v.Ctx), BytesWord(v.Need.Total))
 }
 
 // Sum is the working, term by term.
@@ -171,3 +192,21 @@ func Suggest(cs []Choice) int {
 
 // BytesWord is a size the way every roger screen says sizes.
 func BytesWord(n int64) string { return provision.BytesWord(n) }
+
+// Labels names each choice for a person: its quantisation where that is unique in the repo, and
+// its file name where it is not, because Q4_0_4_4 and Q4_0_8_8 are different files that read alike.
+func Labels(cs []Choice) []string {
+	seen := map[string]int{}
+	for _, c := range cs {
+		seen[strings.ToUpper(c.File.Quant)]++
+	}
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		if c.File.Quant != "" && seen[strings.ToUpper(c.File.Quant)] == 1 {
+			out[i] = c.File.Quant
+		} else {
+			out[i] = strings.TrimSuffix(path.Base(c.File.Path), ".gguf")
+		}
+	}
+	return out
+}
