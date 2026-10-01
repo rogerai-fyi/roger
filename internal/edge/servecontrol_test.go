@@ -3,6 +3,8 @@ package edge_test
 // features/edge/remote_model.feature §1: the wire carries a model id, and has nowhere to put a URL.
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -84,4 +86,58 @@ func TestAMembersModelIsWordedTheSameEverywhere(t *testing.T) {
 	n.Instances = n.Instances[:2]
 	require.Same(t, idle, edge.ModelOf(n))
 	require.Nil(t, edge.ModelOf(store.EdgeNode{}))
+}
+
+// Review 2026-10-01: what a member says about its model is its word, stored by the authority and
+// drawn on every surface - so it is bounded and cleaned on the way in, whatever the sender did.
+func TestAMembersModelReportIsBoundedAndCleanedWhenStored(t *testing.T) {
+	var have []string
+	for i := 0; i < 500; i++ {
+		have = append(have, fmt.Sprintf("acme/m-%d:Q4_K_M", i))
+	}
+	have = append([]string{"/etc/passwd", "http://evil/x.gguf", "ok/fine:Q8_0"}, have...)
+	esc := "\x1b]0;owned\x07\x1b[31mred" + strings.Repeat("x", 500)
+	m := edge.CleanModel(&store.EdgeModel{Band: esc, ID: esc, Quant: esc, CannotServe: esc, Have: have,
+		Fetch: &store.EdgeFetch{Repo: esc, File: esc, Err: esc, State: "fetching\x1b[2J"}})
+	for _, s := range []string{m.Band, m.ID, m.Quant, m.CannotServe, m.Fetch.Repo, m.Fetch.File, m.Fetch.Err, m.Fetch.State} {
+		require.NotContains(t, s, "\x1b", "a control character reached the store")
+		require.NotContains(t, s, "\x07")
+		require.LessOrEqual(t, len(s), 200)
+	}
+	require.Len(t, m.Have, edge.MaxHave)
+	require.Equal(t, "ok/fine:Q8_0", m.Have[0], "only real model ids survive; a path or a URL is dropped")
+	require.Nil(t, edge.CleanModel(nil))
+}
+
+func TestTheFleetStoresAMembersModelCleaned(t *testing.T) {
+	f := edge.NewFleet(store.NewMem(), "acct-1")
+	n, err := f.Observe("n_jet", edge.Observation{Name: "jetson", Kind: "host", Addr: "1.2.3.4:5", Fingerprint: "ab",
+		Instances: []edge.Instance{{Name: "jetson", Model: &store.EdgeModel{Band: "\x1b[31mevil", Have: []string{"/etc/passwd", "a/b:Q4"}}}}})
+	require.NoError(t, err)
+	require.Equal(t, "[31mevil", n.Instances[0].Model.Band)
+	require.Equal(t, []string{"a/b:Q4"}, n.Instances[0].Model.Have)
+}
+
+// features/edge/fleet_window.feature §5: a band that is advertised but not proven is not shown as
+// serving (review 2026-10-01: the window drew the member's own word).
+func TestOnlyAProvenBandIsShownAsServing(t *testing.T) {
+	m := &store.EdgeModel{Band: "qwen3-4b", ID: "unsloth/Qwen3-4B-GGUF:Q4_K_M", Quant: "Q4_K_M", Ctx: 8192}
+	n := store.EdgeNode{Instances: []store.EdgeInstance{{Name: "jet", Bands: []string{"qwen3-4b"}, Model: m}}}
+	line := edge.ModelLineFor(n)
+	require.NotContains(t, line, `serving "qwen3-4b"`)
+	require.Contains(t, line, `says it serves "qwen3-4b" - not proven yet`)
+	require.Empty(t, edge.ServingShort(n), "the row shows nothing as served until it is proven")
+
+	n.Instances[0].ServeProven = []string{"qwen3-4b"}
+	require.Contains(t, edge.ModelLineFor(n), `serving "qwen3-4b" (unsloth/Qwen3-4B-GGUF:Q4_K_M, 8192 context)`)
+	require.Equal(t, "qwen3-4b Q4_K_M · 8K", edge.ServingShort(n), "the row shows the band, the quantisation and the context")
+
+	// A fetch still shows, and what is proven still leads.
+	m.Fetch = &store.EdgeFetch{File: "Big.gguf", Done: 1, Total: 4, State: "fetching"}
+	require.Equal(t, "qwen3-4b Q4_K_M · 8K · fetching 25%", edge.ServingShort(n))
+	// Bands with no model report of its own (another runtime): only the proven ones.
+	plain := store.EdgeNode{Instances: []store.EdgeInstance{{Name: "a", Bands: []string{"x", "y"}, ServeProven: []string{"y"}}}}
+	require.Equal(t, "y", edge.ServingShort(plain))
+	require.Equal(t, "cannot serve here", edge.ServingShort(store.EdgeNode{Instances: []store.EdgeInstance{{Model: &store.EdgeModel{CannotServe: "glibc"}}}}))
+	require.Empty(t, edge.ModelLineFor(store.EdgeNode{}))
 }

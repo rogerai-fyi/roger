@@ -16,12 +16,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/catalog"
+	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/localmodel"
 	"rogerai.fm/roger/v6/internal/provision"
@@ -88,6 +91,13 @@ func edgeModelNow() *store.EdgeModel {
 		out.CannotServe = word
 		any = true
 	}
+	if out.Band == "" {
+		// A serve asked for from afar that never came on the air: its own last words reach the owner.
+		if lines := modelRecentServeLog(h); len(lines) > 0 {
+			out.ServeFailed = lines[len(lines)-1]
+			any = true
+		}
+	}
 	if all, err := h.List(); err == nil && len(all) > 0 {
 		for _, m := range all {
 			if len(out.Have) == edge.MaxHave {
@@ -124,21 +134,25 @@ func edgeModelRun(cfg config, callerID, callerName string, raw json.RawMessage, 
 			res.Says, res.Now = "nothing is being served here - nothing to stop.", edgeModelNow()
 			return res, ""
 		}
+		if err := edgeRecordModel(callerID, callerName, "stop serving "+s.Band); err != nil {
+			return res, edgeUnrecorded(err)
+		}
 		says, err := modelSignalStop(s)
 		if err != nil {
 			return res, err.Error()
 		}
 		res.Says, res.Changed = says, true
-		edgeRecordModel(callerID, callerName, "stop serving "+s.Band)
 		res.Now = edgeModelNow()
 		return res, ""
+	}
+	if err := edgeRecordModel(callerID, callerName, "serve "+task.Model); err != nil {
+		return res, edgeUnrecorded(err)
 	}
 	says, why := edgeModelServe(task)
 	if why != "" {
 		return res, why
 	}
 	res.Says, res.Changed = says, true
-	edgeRecordModel(callerID, callerName, "serve "+task.Model)
 	res.Now = edgeModelNow()
 	return res, ""
 }
@@ -156,12 +170,18 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 	}
 	for _, m := range all {
 		if m.ID == task.Model {
+			// Over the Edge there is no owner's word to serve on: a model this machine cannot judge
+			// is refused, exactly as the fetch path refuses one (remote_model.feature: the target decides).
+			if _, err := detect.ReadShape(m.Path); err != nil && !errors.Is(err, detect.ErrNotGenerative) {
+				return "", "this machine cannot judge " + m.ID + " (" + err.Error() + "), so it will not serve it unasked"
+			}
 			ctxLen, says, err := modelPlan(m, modelBudgetNow(), task.Ctx)
 			if err != nil {
 				return "", err.Error()
 			}
 			if err := modelSpawn([]string{"model", "serve", m.ID, "--yes", "--ctx", fmt.Sprint(ctxLen)},
 				filepath.Join(h.Dir, "serve.log")); err != nil {
+				recordServeFailure(h, err)
 				return "", "could not start serving: " + err.Error()
 			}
 			return says + " - starting; it serves once proven" + edgeStillServing(h), ""
@@ -210,7 +230,9 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 	ctxLen := v.Ctx
 	err = h.StartFetch(hub, provision.Fetcher{}, repo, f.File, modelLicense(ctx, repo), func(m localmodel.Model, err error) {
 		if err == nil {
-			_ = modelSpawn([]string{"model", "serve", m.ID, "--yes", "--ctx", fmt.Sprint(ctxLen)}, filepath.Join(h.Dir, "serve.log"))
+			if serr := modelSpawn([]string{"model", "serve", m.ID, "--yes", "--ctx", fmt.Sprint(ctxLen)}, filepath.Join(h.Dir, "serve.log")); serr != nil {
+				recordServeFailure(h, serr) // the owner who asked from afar reads it in the member's report
+			}
 		}
 	})
 	if err != nil {
@@ -227,24 +249,34 @@ func edgeStillServing(h localmodel.Home) string {
 	return ""
 }
 
-// edgeRecordModel puts a remote model change on THIS machine's own history, with who asked.
-func edgeRecordModel(callerID, callerName, what string) {
+// edgeRecordModel puts a remote model request on THIS machine's own history BEFORE it is acted on,
+// naming the caller by name and by node id (a name is not unique and can change). A request that
+// cannot be recorded is not acted on: an unaudited change to what a machine runs is worse than none.
+func edgeRecordModel(callerID, callerName, what string) error {
 	st, err := loadEdgeState()
 	if err != nil {
-		return
+		return err
 	}
 	id, _, ok, err := edgeIdentityStore().LoadIdentity()
-	if err != nil || !ok {
-		return
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("this machine has no Edge identity to record against")
 	}
 	who := callerName
 	if who == "" {
 		who = edgeDisplayName(callerID)
 	}
-	if err := st.fleet.RecordEvent(id.NodeID, "model", what+", asked by "+who); err != nil {
-		return
+	if err := st.fleet.RecordEvent(id.NodeID, "model", what+", asked by "+who+" ("+edgeShortID(callerID)+")"); err != nil {
+		return err
 	}
-	_ = st.save()
+	return st.save()
+}
+
+// edgeUnrecorded is the refusal when the audit record could not be written.
+func edgeUnrecorded(err error) string {
+	return "this machine could not record the request on its history, so it did not act on it: " + err.Error()
 }
 
 // edgeModelInvoke is the CALLER side: find the member's face, a live serve-control grant, and ask.
@@ -286,9 +318,6 @@ func edgeModelInvoke(cfg config, node string, task edge.ModelTask) (edge.ModelRe
 	return out, name, nil
 }
 
-// edgeModelNowLine is edge.ModelLine, kept as the name this package's callers use.
-func edgeModelNowLine(m *store.EdgeModel) string { return edge.ModelLine(m) }
-
 // edgeServeModelHook is the screens' way to ask a member to serve a model: the CLI's own request.
 func edgeServeModelHook(node, id string) (string, error) {
 	res, _, err := edgeModelInvoke(loadConfig(), node, edge.ModelTask{Action: edge.ModelServe, Model: id})
@@ -296,4 +325,11 @@ func edgeServeModelHook(node, id string) (string, error) {
 		return "", err
 	}
 	return res.Says, nil
+}
+
+// recordServeFailure writes a serve that could not even be started where the member's report reads
+// a failed serve's last words, so the owner who asked from afar is told why.
+func recordServeFailure(h localmodel.Home, err error) {
+	_ = os.MkdirAll(h.Dir, 0o700)
+	_ = os.WriteFile(filepath.Join(h.Dir, "serve.log"), []byte("error: could not start serving: "+err.Error()+"\n"), 0o600)
 }

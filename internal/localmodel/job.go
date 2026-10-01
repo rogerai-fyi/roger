@@ -12,11 +12,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/hfhub"
 	"rogerai.fm/roger/v6/internal/provision"
 )
@@ -52,7 +54,10 @@ var ErrBusy = errors.New("a model is already being fetched on this machine")
 
 func (h Home) jobPath() string { return filepath.Join(h.Dir, "fetch.json") }
 
-var jobMu sync.Mutex // one writer per process; across processes the PID check decides
+// jobStall is how long a "fetching" record may stand without moving before it is not believed: the
+// progress callback writes several times a second while bytes flow, so ten minutes of silence is a
+// fetch that died - even if some unrelated process now holds its pid.
+const jobStall = 10 * time.Minute
 
 // Job is the current or last fetch. A fetch whose roger has gone is reported interrupted, never
 // as still running and never as done.
@@ -65,7 +70,7 @@ func (h Home) Job() (Job, bool) {
 	if json.Unmarshal(b, &j) != nil || j.State == "" {
 		return Job{}, false
 	}
-	if j.State == JobFetching && (j.PID <= 0 || !alive(j.PID)) {
+	if j.State == JobFetching && (j.PID <= 0 || !alive(j.PID) || time.Since(j.Updated) > jobStall) {
 		j.State = JobInterrupted
 	}
 	return j, true
@@ -78,23 +83,43 @@ func (h Home) writeJob(j Job) {
 		return
 	}
 	_ = os.MkdirAll(h.Dir, 0o700)
-	tmp := h.jobPath() + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
+	tmp := fmt.Sprintf("%s.%d.tmp", h.jobPath(), os.Getpid()) // one writer's file, never another process's
+	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, h.jobPath())
 	}
+}
+
+// claimFetch records j as the fetch in flight, unless one already is - checked and written under a
+// file lock, so two processes (the console and a member's face) cannot both start one.
+func (h Home) claimFetch(j Job) (bool, error) {
+	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
+		return false, err
+	}
+	unlock, err := edge.FileLock(h.jobPath() + ".lock")
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	if cur, ok := h.Job(); ok && cur.State == JobFetching {
+		return false, nil
+	}
+	j.State, j.PID, j.Started = JobFetching, os.Getpid(), time.Now().UTC()
+	h.writeJob(j)
+	return true, nil
 }
 
 // Fetch runs Get and records its progress as it goes. It blocks; StartFetch is the same in the
 // background.
 func (h Home) Fetch(ctx context.Context, hub *hfhub.Client, f provision.Fetcher, repo string, file hfhub.File, license string) (Model, error) {
-	jobMu.Lock()
-	if cur, ok := h.Job(); ok && cur.State == JobFetching {
-		jobMu.Unlock()
+	j := Job{Repo: repo, File: file.Path, Total: file.Bytes}
+	claimed, err := h.claimFetch(j)
+	if err != nil {
+		return Model{}, err
+	}
+	if !claimed {
 		return Model{}, ErrBusy
 	}
-	j := Job{Repo: repo, File: file.Path, Total: file.Bytes, State: JobFetching, PID: os.Getpid(), Started: time.Now().UTC()}
-	h.writeJob(j)
-	jobMu.Unlock()
+	j, _ = h.Job()
 
 	outer := f.OnProgress
 	f.OnProgress = func(p provision.Progress) {
@@ -126,9 +151,6 @@ func (h Home) StartFetch(hub *hfhub.Client, f provision.Fetcher, repo string, fi
 	}
 	if _, err := h.PathFor(repo, file.Path); err != nil {
 		return err
-	}
-	if cur, ok := h.Job(); ok && cur.State == JobFetching {
-		return ErrBusy
 	}
 	started := make(chan error, 1)
 	go func() {

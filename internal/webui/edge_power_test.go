@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
@@ -51,7 +52,7 @@ func TestTheConsoleCardSaysAPhoneIsAsleepAndItsVitals(t *testing.T) {
 	n := edge.NewNode(nil, "nina", edge.Mobile)
 	n.ID = "n_nina"
 	n.Presence = string(edge.PresenceVerified)
-	n.Phone = &store.EdgePhone{BatteryPct: &b, Foreground: &no}
+	n.Phone = &store.EdgePhone{BatteryPct: &b, Foreground: &no, ReadAt: time.Now().Unix()}
 	if _, err := fleet.Enroll(n); err != nil {
 		t.Fatal(err)
 	}

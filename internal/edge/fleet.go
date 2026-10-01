@@ -699,6 +699,7 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 		}
 		cp := in
 		cp.Caps = nil
+		cp.Model = CleanModel(in.Model)                                // the member's word, bounded and cleaned before it is stored
 		cp.ServeProven = append([]string(nil), prevProven[in.Name]...) // the peer never states this
 		if len(prev[in.Name]) == 0 {
 			cp.ServeProven = nil // an instance we have not seen before has proven nothing

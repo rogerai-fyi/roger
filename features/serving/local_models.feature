@@ -1,6 +1,15 @@
 # ROGER SERVES A MODEL ITSELF - THE PART THE APPROVED CATALOGUE SPEC DOES NOT COVER.
 #
-# STATUS: APPROVED by the founder 2026-09-30, including the ruling below. NOT YET IMPLEMENTED.
+# STATUS: APPROVED by the founder 2026-09-30, including the ruling below; §8 (console) 2026-10-01.
+# BUILD STATUS (2026-10-01, wt/edge-limoni): PARTIAL. BUILT: the index (search, files, gated, quant
+# choice, licence shown + recorded), the arithmetic (named context, the sum, four verdicts, refusal
+# with the context that fits), the runtime (pinned manifest, digest before run, measured glibc floor,
+# platforms with no runtime say so, loopback + key file, cache/slot flags, cleanup), serving (switch
+# proves the new before stopping the old, said in full, the band detection already routes on), removal,
+# the TUI screen (§7) and the console (§8). NOT BUILT: "fitting and being usable" (no speed estimate),
+# "the runtime's own fitness answer wins once the file is on disk" (our estimate is still used),
+# "two at once", an idle timeout (nothing unloads by surprise holds trivially), a cache budget, and
+# "the terminal and the phone agree" (same formula, not cross-checked against iOS).
 #
 # READ features/share/model_catalog.feature FIRST. That spec is APPROVED and it already owns most
 # of this ground: one list of detected and offerable models, fit assessed against real detected

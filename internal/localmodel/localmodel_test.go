@@ -486,3 +486,21 @@ func TestSeveralCardsAreSaidToBeASum(t *testing.T) {
 	b := BudgetOf(detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 49152, GPUs: make([]detect.LocalGPU, 2)})
 	require.Equal(t, "video memory across 2 GPUs", b.Pool)
 }
+
+// Review 2026-10-01: two files of one quantisation from one repo never share an id, so a serve or a
+// remove acts on the file the owner meant.
+func TestTwoFilesOfOneQuantNeverShareAnID(t *testing.T) {
+	body := []byte("gguf weights")
+	h := Home{Dir: t.TempDir()}
+	files := map[string][]byte{"m-Q4_K_M.gguf": body}
+	hb := hub(t, files, false)
+	a, err := h.Get(context.Background(), hb, roomy(), "acme/M-GGUF", fileFor("a/m-Q4_K_M.gguf", body), "")
+	require.NoError(t, err)
+	b, err := h.Get(context.Background(), hb, roomy(), "acme/M-GGUF", fileFor("b/m-Q4_K_M.gguf", body), "")
+	require.NoError(t, err)
+	require.Equal(t, "acme/M-GGUF:Q4_K_M", a.ID)
+	require.Equal(t, "acme/M-GGUF:b/m-Q4_K_M.gguf", b.ID)
+	got, err := h.Find(b.ID)
+	require.NoError(t, err)
+	require.Equal(t, "b/m-Q4_K_M.gguf", got.File)
+}

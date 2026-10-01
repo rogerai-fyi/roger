@@ -742,7 +742,7 @@ func modelOnNode(cfg config, verb string, a modelArgv) error {
 	if task.Action != edge.ModelStatus {
 		fmt.Fprintf(modelOut, "%s: %s\n", name, res.Says)
 	}
-	fmt.Fprintf(modelOut, "%s %s\n", name, edgeModelNowLine(res.Now))
+	fmt.Fprintf(modelOut, "%s %s\n", name, edge.ModelLine(res.Now))
 	return nil
 }
 

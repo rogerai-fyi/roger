@@ -2,6 +2,7 @@ package localmodel
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -113,4 +114,32 @@ func TestStartFetchRefusesWhatCouldNeverBeServedBeforeAnyByteMoves(t *testing.T)
 	require.Error(t, h.StartFetch(&hfhub.Client{}, f, "../etc", hfhub.File{Path: "x.gguf"}, "", nil))
 	_, ok := h.Job()
 	require.False(t, ok, "a refused fetch left a record")
+}
+
+// Review 2026-10-01: the one-fetch rule holds across processes (a lock, not a mutex), the record is
+// the owner's alone (0600), and a "fetching" record that stopped moving long ago - a reused pid that
+// happens to be alive - reads interrupted, never busy forever.
+func TestTheOneFetchRuleHoldsAcrossProcessesAndNeverWedges(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	claimed, err := h.claimFetch(Job{Repo: "a/b", File: "x.gguf"})
+	require.NoError(t, err)
+	require.True(t, claimed)
+	fi, err := os.Stat(h.jobPath())
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+	// Another claim while that one is fetching (and its roger alive) is refused under the lock.
+	claimed, err = h.claimFetch(Job{Repo: "c/d", File: "y.gguf"})
+	require.NoError(t, err)
+	require.False(t, claimed)
+
+	// A record that has not moved for longer than the stall window is not believed.
+	j, _ := h.Job()
+	j.Updated = time.Now().Add(-2 * jobStall)
+	b, _ := json.Marshal(j)
+	require.NoError(t, os.WriteFile(h.jobPath(), b, 0o600))
+	j, _ = h.Job()
+	require.Equal(t, JobInterrupted, j.State)
+	claimed, err = h.claimFetch(Job{Repo: "c/d", File: "y.gguf"})
+	require.NoError(t, err)
+	require.True(t, claimed, "a stalled record does not block the next fetch")
 }

@@ -168,7 +168,8 @@ func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
 	case edge.StateTrouble:
 		return edge.WordTrouble, live, since
 	}
-	if p := it.Phone; it.Kind == ItemMember && p != nil && p.Foreground != nil && !*p.Foreground {
+	if p := it.Phone; it.Kind == ItemMember && p != nil && p.Foreground != nil && !*p.Foreground &&
+		now.Sub(time.Unix(p.ReadAt, 0)) <= edge.DefaultTTL {
 		return edge.WordAsleep, muted, since // the system put its app in the background: not broken
 	}
 	if it.Kind == ItemMember && !it.Controllable {
@@ -645,10 +646,17 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	case k.Ch == '?':
 		f.help = !f.help
 	case k.Ch == 'h':
-		if it := f.selected(); it.Kind == ItemMember && it.Controllable && !it.Dark && f.Actions.AskNow != nil {
-			msg, err := f.Actions.AskNow(it.ID)
-			f.report(err, msg)
-			f.readAt = time.Time{} // draw what it just said
+		if it := f.selected(); it.Kind == ItemMember && f.Actions.AskNow != nil {
+			switch {
+			case it.Dark:
+				f.say(it.label()+" is dark: there is nothing to ask until it is heard again", true)
+			case !it.Controllable:
+				f.say(it.label()+" has no face this machine can dial: it can be heard, not asked", true)
+			default:
+				msg, err := f.Actions.AskNow(it.ID)
+				f.report(err, msg)
+				f.readAt = time.Time{} // draw what it just said
+			}
 		}
 	case k.Ch == 's':
 		f.order = nextOrder(f.order)
@@ -1688,8 +1696,17 @@ func (f *Fleet) actions() []action {
 		if it.Asking && f.Actions.Adopt != nil {
 			out = append(out, action{"a", "re-admit"})
 		}
-		if f.Actions.AskNow != nil && it.Controllable && !it.Dark {
-			out = append(out, action{"h", "hear now"})
+		// Shown either way, saying why when it cannot work now: nothing is hidden only because it
+		// cannot work right now, so the owner learns what exists (fleet_window.feature §6).
+		if f.Actions.AskNow != nil {
+			switch {
+			case it.Dark:
+				out = append(out, action{"h", "hear now (dark)"})
+			case !it.Controllable:
+				out = append(out, action{"h", "hear now (no face to dial)"})
+			default:
+				out = append(out, action{"h", "hear now"})
+			}
 		}
 		if f.Actions.Rename != nil {
 			out = append(out, action{"n", "rename"})

@@ -1,10 +1,11 @@
 package main
 
 // ASK NOW (features/edge/fleet_window.feature §3): ask a unit to report at once over its face, not on
-// the next heartbeat, and say how long the round trip took. It is the same dial and the same checks a
-// discovery pass makes - the certificate must match the unit's pin - and the answer is recorded the
-// way a discovery pass records it. Asks closer together than a floor are answered from the last one,
-// saying so, so a monitor cannot become the load.
+// the next heartbeat, and say how long the round trip took. It is the same dial and the same
+// edge.VerifyPeer a discovery pass makes - expiry, revocation, the chain to this Edge's authority,
+// the node id its key derives, and the pin - and only then is the answer recorded, the way a
+// discovery pass records it. Asks of one unit closer together than a floor - answered or not - are
+// answered from the last attempt, saying so, so a monitor cannot become the load.
 
 import (
 	"context"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
 
 // edgeAskFloor is the closest two asks of one unit may be.
@@ -32,8 +34,28 @@ func edgeAskNow(id string, now time.Time) (string, error) {
 		edgeAsked.Unlock()
 		return fmt.Sprintf("asked %s ago - %s", edge.Age(now.Sub(at)), says), nil
 	}
+	// The attempt is the floor, not the answer: a dead unit asked again and again must not be dialled
+	// again and again, and two asks at once dial once.
+	edgeAsked.at[id], edgeAsked.says[id] = now, "still waiting for its answer"
 	edgeAsked.Unlock()
+	says, err := edgeAskOnce(id, now)
+	edgeAsked.Lock()
+	if err != nil {
+		edgeAsked.says[id] = "it did not answer: " + err.Error()
+	} else {
+		edgeAsked.says[id] = says
+	}
+	edgeAsked.Unlock()
+	return says, err
+}
 
+// edgeAskTrust is this Edge's authority, the root a dialled unit must chain to (a seam for tests).
+var edgeAskTrust = func(now time.Time) (*cert.Authority, error) {
+	auth, _, err := edgeIdentityStore().Trust(now)
+	return auth, err
+}
+
+func edgeAskOnce(id string, now time.Time) (string, error) {
 	st, n, ok, err := edgeLookup(id)
 	if err != nil {
 		return "", err
@@ -48,17 +70,22 @@ func edgeAskNow(id string, now time.Time) (string, error) {
 			break
 		}
 	}
-	if addr == "" {
-		return "", fmt.Errorf("%s has no face this machine can dial, so it can only be heard, not asked", n.Name)
+	if addr == "" || n.Pin == "" {
+		return "", fmt.Errorf("%s has no pinned face this machine can dial, so it can only be heard, not asked", edgeDisplayName(n.ID))
+	}
+	auth, err := edgeAskTrust(now)
+	if err != nil || auth == nil {
+		return "", fmt.Errorf("this machine holds no Edge authority to check %s's certificate against", edgeDisplayName(n.ID))
 	}
 	start := time.Now()
 	peer, err := edgeDialPeer(context.Background(), addr)
 	rtt := time.Since(start)
 	if err != nil {
-		return "", fmt.Errorf("%s did not answer within %s: %v", n.Name, edgeAskWithin, err)
+		return "", fmt.Errorf("%s did not answer within %s: %v", edgeDisplayName(n.ID), edgeAskWithin, err)
 	}
-	if n.Pin != "" && peer.Fingerprint != n.Pin {
-		return "", fmt.Errorf("%s answered with a certificate that is not the one it was adopted with, so nothing was recorded", n.Name)
+	// The same verdict a discovery pass reaches, and nothing is recorded without it.
+	if reason := edge.VerifyPeer(edge.Advert{NodeID: n.ID, Fingerprint: n.Pin}, peer, auth, n.Pin, now); reason != "" {
+		return "", fmt.Errorf("%s answered, but its certificate did not check out (%s), so nothing was recorded", edgeDisplayName(n.ID), reason)
 	}
 	caps := make([]edge.Capability, 0, len(peer.Describe.Caps))
 	for _, c := range peer.Describe.Caps {
@@ -78,12 +105,8 @@ func edgeAskNow(id string, now time.Time) (string, error) {
 	if err := st.save(); err != nil {
 		return "", err
 	}
-	says := fmt.Sprintf("%s answered in %d ms", n.Name, rtt.Milliseconds())
-	edgeAsked.Lock()
-	edgeAsked.at[id], edgeAsked.says[id] = now, says
-	edgeAsked.Unlock()
-	return says, nil
+	return fmt.Sprintf("%s answered in %d ms", edgeDisplayName(n.ID), rtt.Milliseconds()), nil
 }
 
-// edgeAskWithin is what the owner is told the bound was: the dial's own timeout.
-const edgeAskWithin = "3s"
+// edgeAskWithin is what the owner is told the bound was: the dial's own timeout (edge.DialTLS).
+var edgeAskWithin = edge.DialTimeout.String()

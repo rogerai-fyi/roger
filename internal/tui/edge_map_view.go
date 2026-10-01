@@ -785,8 +785,8 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		// it sits beside the hardware it is about. Happening now is lit; history is dim.
 		// WHAT IT SERVES of its own, and what it is fetching - still naming what is served NOW while a
 		// fetch for something else runs (features/edge/remote_model.feature).
-		if mm := edge.ModelOf(*n); mm != nil {
-			label("MODEL", edge.ModelLine(mm))
+		if ml := edge.ModelLineFor(*n); ml != "" {
+			label("MODEL", ml)
 		}
 		// A phone's own vitals, as it signed them - absent readings left out, never zeros.
 		if pl := edge.PhoneLine(n.Phone); pl != "" {

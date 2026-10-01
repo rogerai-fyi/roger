@@ -63,7 +63,8 @@ func UnitWord(n store.EdgeNode, alerts int, now time.Time) (word, line string) {
 	if alerts > 0 {
 		return with(WordTrouble)
 	}
-	if p := n.Phone; p != nil && p.Foreground != nil && !*p.Foreground && age != "" {
+	if p := n.Phone; Kind(n.Kind) == Mobile && p != nil && p.Foreground != nil && !*p.Foreground && age != "" &&
+		now.Sub(time.Unix(p.ReadAt, 0)) <= DefaultTTL {
 		return with(WordAsleep) // backgrounded by the system: not broken, and not dark until the window says so
 	}
 	if !Controllable(n) || age == "" {

@@ -19,6 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"rogerai.fm/roger/v6/internal/modelview"
+	"rogerai.fm/roger/v6/internal/provision"
 )
 
 type modelsPane int
@@ -395,18 +396,8 @@ func (m *model) modelsEnter() tea.Cmd {
 	return nil
 }
 
-func modelsBytes(n int64) string {
-	f, u := float64(n), []string{"B", "KiB", "MiB", "GiB", "TiB"}
-	i := 0
-	for f >= 1024 && i < len(u)-1 {
-		f /= 1024
-		i++
-	}
-	if i == 0 {
-		return strconv.FormatInt(n, 10) + " B"
-	}
-	return fmt.Sprintf("%.1f %s", f, u[i])
-}
+// modelsBytes is a size the way every roger screen says sizes.
+func modelsBytes(n int64) string { return provision.BytesWord(n) }
 
 func modelsSecs(s int64) string {
 	switch {

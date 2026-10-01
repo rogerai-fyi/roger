@@ -206,11 +206,8 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		it.Maintain = edge.Declares(n, edge.Maintain)
 		it.Controllable = edge.Controllable(n)
 		it.Phone = n.Phone
-		if mm := edge.ModelOf(n); mm != nil {
-			it.Model, it.Serving = edge.ModelLine(mm), edgeServingShort(mm)
-		} else if len(n.Instances) > 0 {
-			it.Serving = strings.Join(edgeBandsOf(n), " ")
-		}
+		// Only what the serving probe proved is drawn as served (fleet_window.feature §5).
+		it.Model, it.Serving = edge.ModelLineFor(n), edge.ServingShort(n)
 		snap.Items = append(snap.Items, it)
 	}
 	for _, c := range st.candidates {
@@ -491,29 +488,3 @@ func edgeTagsOf(nodes []store.EdgeNode, id string) []string {
 // edgeStationName is this machine's station name, the fallback when its owner never named it. A
 // seam, because the real one creates the station on first read.
 var edgeStationName = loadOrCreateStation
-
-// edgeServingShort is what a unit serves in the few words a rack row has: the band, or the fetch
-// in flight, or that it cannot serve.
-func edgeServingShort(m *store.EdgeModel) string {
-	switch {
-	case m.Fetch != nil && m.Fetch.State == "fetching" && m.Fetch.Total > 0:
-		pct := 100 * m.Fetch.Done / m.Fetch.Total
-		if m.Band != "" {
-			return fmt.Sprintf("%s · fetching %d%%", m.Band, pct)
-		}
-		return fmt.Sprintf("fetching %d%%", pct)
-	case m.Band != "":
-		return m.Band
-	case m.CannotServe != "":
-		return "cannot serve here"
-	}
-	return ""
-}
-
-func edgeBandsOf(n store.EdgeNode) []string {
-	var out []string
-	for _, in := range n.Instances {
-		out = append(out, in.Bands...)
-	}
-	return out
-}

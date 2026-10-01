@@ -45,6 +45,10 @@ func (m *model) edgeStartServeModel() (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("this build cannot ask a member to serve - run `roger model serve <id> --on " + it.name + "`")
 		return m, nil
 	}
+	if !edge.Controllable(*it.node) {
+		m.status = stEmber.Render(it.name + " has no face this machine can dial, so it cannot be asked to serve - it can only be heard")
+		return m, nil
+	}
 	if !edge.Declares(*it.node, edge.ServeControl) {
 		// Never a dead end: say which switch, and where it lives.
 		m.status = stEmber.Render(it.name + " has not turned on remote serving control - run `roger edge serve-control on` THERE")

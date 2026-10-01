@@ -307,3 +307,13 @@ func TestTheV2PresenceCanonicalFormIsPinned(t *testing.T) {
 	require.Equal(t, "rogerai-edge-present/v2\nn_x\nnina\nmobile\nclassify\n\n00\n1700000000\n\n\n\n", string(p.canonical()),
 		"an absent reading is an empty field, never a zero")
 }
+
+func TestOnlyAPhoneMayReportPhoneVitals(t *testing.T) {
+	f, a, priv, id, certPEM := presenceFixture(t)
+	h := PresenceHandler(f, a, time.Now)
+	b := 50
+	p := validPresence(id, certPEM)
+	p.Kind, p.V, p.Vitals = "host", 2, &PhoneVitals{BatteryPct: &b}
+	signPresence(&p, priv)
+	require.Equal(t, http.StatusForbidden, doPresence(h, p).Code)
+}

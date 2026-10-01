@@ -216,7 +216,7 @@ func TestTheConsoleShowsAndSwitchesAMembersModel(t *testing.T) {
 	n.ID = "n_jetson"
 	n.Presence = string(edge.PresenceVerified)
 	n.Caps = []store.EdgeCap{{Name: string(edge.ServeControl), State: string(edge.Claimed)}}
-	n.Instances = []store.EdgeInstance{{Name: "jetson", Model: &store.EdgeModel{Band: "qwen3-4b", ID: "unsloth/Qwen3-4B-GGUF:Q4_K_M", Ctx: 8192,
+	n.Instances = []store.EdgeInstance{{Name: "jetson", Bands: []string{"qwen3-4b"}, ServeProven: []string{"qwen3-4b"}, Model: &store.EdgeModel{Band: "qwen3-4b", ID: "unsloth/Qwen3-4B-GGUF:Q4_K_M", Ctx: 8192,
 		Have: []string{"unsloth/Qwen3-4B-GGUF:Q4_K_M"}}}}
 	_, err := fleet.Enroll(n)
 	require.NoError(t, err)

@@ -84,6 +84,9 @@ func (p PresenceRequest) vitalsRefusal() string {
 		return "that presence version is not one this authority reads"
 	}
 	if v := p.Vitals; v != nil {
+		if Kind(p.Kind) != Mobile {
+			return "only a phone reports phone vitals"
+		}
 		if v.BatteryPct != nil && (*v.BatteryPct < 0 || *v.BatteryPct > 100) {
 			return "a battery reading outside 0-100"
 		}

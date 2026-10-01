@@ -23,7 +23,7 @@ func jetsonModel(t *testing.T, declares bool) (model, *[]string) {
 		caps = append(caps, store.EdgeCap{Name: string(edge.ServeControl), State: string(edge.Claimed)})
 	}
 	j := nodeOf("j", "jetson", "host", caps...)
-	j.Instances = []store.EdgeInstance{{Name: "jetson", Model: &store.EdgeModel{Band: "qwen3-4b", ID: "unsloth/Qwen3-4B-GGUF:Q4_K_M", Ctx: 8192,
+	j.Instances = []store.EdgeInstance{{Name: "jetson", Bands: []string{"qwen3-4b"}, ServeProven: []string{"qwen3-4b"}, Model: &store.EdgeModel{Band: "qwen3-4b", ID: "unsloth/Qwen3-4B-GGUF:Q4_K_M", Ctx: 8192,
 		Have:  []string{"unsloth/Qwen3-4B-GGUF:Q4_K_M", "unsloth/Qwen3-8B-GGUF:Q4_K_M"},
 		Fetch: &store.EdgeFetch{File: "Qwen3-14B-Q4_K_M.gguf", Done: 1 << 30, Total: 8 << 30, State: "fetching"}}}}
 	m := networkModel(t, self, j)
@@ -181,5 +181,26 @@ func TestServeModelOnThisMachineIsTheModelsScreen(t *testing.T) {
 	m, _ = edgeKey(m, "M")
 	if m.mode != modeModels {
 		t.Errorf("M on this machine did not open MODELS")
+	}
+}
+
+// fleet_window.feature §6: an action that cannot work now is shown unavailable, saying why.
+func TestServeModelOnAUnitWithNoFaceSaysWhy(t *testing.T) {
+	m, asked := jetsonModel(t, true)
+	for i := range m.edge.rows {
+		m.edge.rows[i].n.Transports = nil
+	}
+	var label string
+	for _, a := range m.edgeActions() {
+		if a.key == "M" {
+			label = a.sub
+		}
+	}
+	if label != "unavailable: no face to dial" {
+		t.Fatalf("Serve Model on a unit with no face reads %q", label)
+	}
+	m, _ = edgeKey(m, "M")
+	if m.edge.serveModel.open || len(*asked) != 0 || !strings.Contains(stripANSI(m.status), "can only be heard") {
+		t.Errorf("M on a unit with no face did not say why: %q", stripANSI(m.status))
 	}
 }

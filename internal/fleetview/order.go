@@ -28,17 +28,21 @@ var orderWords = map[rackOrder]string{orderWorst: "worst first", orderName: "by 
 
 func nextOrder(o rackOrder) rackOrder { return (o + 1) % rackOrder(len(orderWords)) }
 
-// rank is a unit's place in the worst-first order: lower is worse.
-func rank(it FleetItem) int {
-	switch {
-	case it.Dark:
+// rank is a unit's place in the worst-first order: lower is worse. It ranks on the same state word the
+// row draws, so the order and the row can never disagree.
+func rank(it FleetItem, now time.Time) int {
+	w, _, _ := it.state(now)
+	switch w {
+	case edge.WordDark:
 		return 0
-	case len(it.Alerts) > 0:
+	case edge.WordTrouble:
 		return 1
-	case !it.Controllable:
+	case "ADOPTING":
 		return 2
+	case edge.WordHeard, edge.WordAsleep:
+		return 3
 	}
-	return 3
+	return 4
 }
 
 func temp(it FleetItem) (float64, bool) {
@@ -112,7 +116,7 @@ func arrange(items []FleetItem, o rackOrder, q string, now time.Time) []FleetIte
 			}
 			return oka && ta > tb
 		}
-		return rank(a) < rank(b)
+		return rank(a, now) < rank(b, now)
 	})
 	return append(append(top, units...), bench...)
 }

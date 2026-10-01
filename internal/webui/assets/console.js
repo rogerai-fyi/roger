@@ -3138,7 +3138,7 @@
       if (j.resumed) line += " · resumed";
       if (j.state === "interrupted") line += " · fetch it again and it resumes";
       $("models-job-line").textContent = line;
-      $("models-job-fix").textContent = j.state === "failed" ? (j.err || "") + (j.fix ? " — " + j.fix : "") : "";
+      $("models-job-fix").textContent = j.state === "failed" ? (j.err || "") + (j.fix ? " - " + j.fix : "") : "";
     }
 
     // a background serve that never came on the air, in its own words

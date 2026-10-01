@@ -46,6 +46,9 @@ type DialFunc func(ctx context.Context, addr string) (*Peer, error)
 // must cost one timeout, once, not a hung browse.
 const dialTimeout = 3 * time.Second
 
+// DialTimeout is the bound on one dial, for the surfaces that tell an owner what it was.
+const DialTimeout = dialTimeout
+
 // DialTLS connects to an advertised address, captures the certificate the peer really
 // serves, and asks it to describe itself.
 //

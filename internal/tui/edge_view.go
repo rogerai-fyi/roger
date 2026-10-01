@@ -584,7 +584,11 @@ func (m model) edgeActions() []edgeAction {
 			out = append(out, edgeAction{"p", "Ask", "prompt " + model + " on this node", true})
 		}
 		if m.hooks.EdgeServeModel != nil && it.node != nil && edge.Declares(*it.node, edge.ServeControl) {
-			out = append(out, edgeAction{"M", "Serve Model", "change what it serves", false})
+			if edge.Controllable(*it.node) {
+				out = append(out, edgeAction{"M", "Serve Model", "change what it serves", false})
+			} else {
+				out = append(out, edgeAction{"M", "Serve Model", "unavailable: no face to dial", false})
+			}
 		}
 		if m.hooks.EdgeName != nil {
 			out = append(out, edgeAction{"n", "Rename", "rename this device", false})

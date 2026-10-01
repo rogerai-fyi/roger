@@ -578,7 +578,7 @@ func TestModelStatusShowsAFetchThatDidNotFinish(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "fetch.json"), b, 0o644))
 	}
 	write(localmodel.Job{Repo: "acme/Tiny-GGUF", File: "Tiny-Q4_K_M.gguf", Total: 2 << 30, Done: 1 << 30, Rate: 40 << 20,
-		State: localmodel.JobFetching, PID: os.Getpid()})
+		State: localmodel.JobFetching, PID: os.Getpid(), Updated: time.Now()})
 	out, err := r.run(t, "status")
 	require.NoError(t, err)
 	require.Contains(t, out, "fetching acme/Tiny-GGUF Tiny-Q4_K_M.gguf: 1.0 GiB of 2.0 GiB · 40.0 MiB/s")

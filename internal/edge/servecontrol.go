@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 
+	"rogerai.fm/roger/v6/internal/provision"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -139,10 +140,13 @@ func ModelLine(m *EdgeModel) string {
 	default:
 		parts = append(parts, "serving nothing")
 	}
+	if m.Band == "" && m.ServeFailed != "" {
+		parts = append(parts, "the last serve did not come on the air: "+m.ServeFailed)
+	}
 	if f := m.Fetch; f != nil {
 		switch f.State {
 		case "fetching":
-			parts = append(parts, fmt.Sprintf("fetching %s: %s of %s", f.File, byteWord(f.Done), byteWord(f.Total)))
+			parts = append(parts, fmt.Sprintf("fetching %s: %s of %s", f.File, provision.BytesWord(f.Done), provision.BytesWord(f.Total)))
 		case "failed":
 			parts = append(parts, "the last fetch failed: "+f.Err)
 		case "interrupted":
@@ -152,14 +156,122 @@ func ModelLine(m *EdgeModel) string {
 	return strings.Join(parts, " · ")
 }
 
-func byteWord(n int64) string {
-	f, u, i := float64(n), []string{"B", "KiB", "MiB", "GiB", "TiB"}, 0
-	for f >= 1024 && i < len(u)-1 {
-		f /= 1024
-		i++
+// maxModelText bounds every word a member reports about its model.
+const maxModelText = 200
+
+// cleanText strips control characters (a terminal escape in a member's report must never reach an
+// owner's screen) and bounds the length.
+func cleanText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return -1
+		}
+		return r
+	}, s)
+	if len(s) > maxModelText {
+		s = s[:maxModelText]
 	}
-	if i == 0 {
-		return fmt.Sprintf("%d B", n)
+	return strings.ToValidUTF8(s, "")
+}
+
+// CleanModel is a member's model report as the authority stores it: the member's word, bounded and
+// cleaned whatever the sender did - its ids must be model ids, at most MaxHave of them, and no text
+// carries a control character.
+func CleanModel(m *EdgeModel) *EdgeModel {
+	if m == nil {
+		return nil
 	}
-	return fmt.Sprintf("%.1f %s", f, u[i])
+	out := &EdgeModel{Band: cleanText(m.Band), ID: cleanText(m.ID), Quant: cleanText(m.Quant), Ctx: m.Ctx,
+		Since: m.Since, CannotServe: cleanText(m.CannotServe), ServeFailed: cleanText(m.ServeFailed)}
+	if out.Ctx < 0 || out.Ctx > 1<<21 {
+		out.Ctx = 0
+	}
+	for _, id := range m.Have {
+		if len(out.Have) == MaxHave {
+			break
+		}
+		if len(id) <= maxModelID && localID.MatchString(id) && !strings.Contains(id, "..") {
+			out.Have = append(out.Have, id)
+		}
+	}
+	if f := m.Fetch; f != nil {
+		out.Fetch = &store.EdgeFetch{Repo: cleanText(f.Repo), File: cleanText(f.File), Done: f.Done, Total: f.Total,
+			Rate: f.Rate, State: cleanText(f.State), Err: cleanText(f.Err)}
+	}
+	return out
+}
+
+// BandProven reports whether the serving probe proved band on any of the node's rogers: what the
+// fabric's own check saw, not what the node says.
+func BandProven(n store.EdgeNode, band string) bool {
+	for _, in := range n.Instances {
+		for _, b := range in.ServeProven {
+			if b == band {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ModelLineFor is ModelLine for a node as the fabric has checked it: a band the serving probe has
+// not proven is said as the node's claim, never as serving.
+func ModelLineFor(n store.EdgeNode) string {
+	m := ModelOf(n)
+	if m == nil {
+		return ""
+	}
+	if m.Band != "" && !BandProven(n, m.Band) {
+		claim := *m
+		claim.Band = ""
+		rest := ModelLine(&claim)
+		rest = strings.TrimPrefix(strings.TrimPrefix(rest, "serving nothing"), " · ")
+		line := fmt.Sprintf("says it serves %q - not proven yet", m.Band)
+		if rest != "" {
+			line += " · " + rest
+		}
+		return line
+	}
+	return ModelLine(m)
+}
+
+// ServingShort is what a node serves in the few words a rack row has: the proven band with its
+// quantisation and context, then a fetch in flight; or that it cannot serve.
+func ServingShort(n store.EdgeNode) string {
+	var parts []string
+	m := ModelOf(n)
+	if m != nil && m.Band != "" && BandProven(n, m.Band) {
+		w := m.Band
+		if m.Quant != "" {
+			w += " " + m.Quant
+		}
+		if m.Ctx > 0 {
+			w += " · " + ctxShort(m.Ctx)
+		}
+		parts = append(parts, w)
+	} else if m == nil || m.Band == "" {
+		for _, in := range n.Instances {
+			for _, b := range in.Bands {
+				if BandProven(n, b) {
+					parts = append(parts, b)
+				}
+			}
+		}
+	}
+	if m != nil {
+		if f := m.Fetch; f != nil && f.State == "fetching" && f.Total > 0 {
+			parts = append(parts, fmt.Sprintf("fetching %d%%", 100*f.Done/f.Total))
+		}
+		if len(parts) == 0 && m.CannotServe != "" {
+			return "cannot serve here"
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func ctxShort(n int) string {
+	if n >= 1024 && n%1024 == 0 {
+		return fmt.Sprintf("%dK", n/1024)
+	}
+	return fmt.Sprint(n)
 }

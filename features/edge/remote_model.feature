@@ -1,6 +1,10 @@
 # ROGER EDGE - SWITCHING WHAT A MEMBER SERVES, FROM ACROSS THE EDGE.
 #
-# STATUS: APPROVED by the founder 2026-09-30; fetch-by-exact-id ruling 2026-10-01. NOT YET IMPLEMENTED.
+# STATUS: APPROVED by the founder 2026-09-30; fetch-by-exact-id ruling 2026-10-01.
+# BUILD STATUS (2026-10-01, wt/edge-limoni): BUILT - CLI (`roger model ... --on <node>`), TUI (M on a
+# member), console (serve on a member card); live-proven over this machine's own face with a real
+# grant. "A member that goes dark mid-fetch" is shown as an interrupted fetch from its last report;
+# there is no separate authority-side record of a fetch beyond that.
 #
 # WHY THIS EXISTS
 #

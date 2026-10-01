@@ -66,6 +66,15 @@ func (h Home) Get(ctx context.Context, hub *hfhub.Client, f *provision.Fetcher, 
 	if file.Quant == "" {
 		id = repo + ":" + file.Path
 	}
+	// Two files of one quantisation from one repo must not share an id: the second is named by its path.
+	if all, err := h.List(); err == nil {
+		for _, m := range all {
+			if m.ID == id && m.Path != dest {
+				id = repo + ":" + file.Path
+				break
+			}
+		}
+	}
 	m := Model{ID: id, Repo: repo, File: file.Path, Path: dest, Bytes: file.Bytes, SHA256: file.SHA256,
 		Quant: file.Quant, License: license, Band: BandFor(repo), Fetched: time.Now().UTC()}
 	if err := h.record(m); err != nil {

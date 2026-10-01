@@ -596,8 +596,9 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		n.ServeControl = edge.Declares(r.Node, edge.ServeControl)
 		_, n.State = edge.UnitWord(r.Node, len(n.Alerts), now)
 		n.Phone = edge.PhoneLine(r.Node.Phone)
+		n.Model = edge.ModelLineFor(r.Node) // only a proven band is said to be served
 		if mm := edge.ModelOf(r.Node); mm != nil {
-			n.Model, n.ModelHave = edge.ModelLine(mm), mm.Have
+			n.ModelHave = mm.Have
 		}
 		n.Software = []edgeSoftwareJSON{}
 		for _, in := range r.Node.Instances {
@@ -876,15 +877,6 @@ func (s *Server) handleEdgeSink(w http.ResponseWriter, r *http.Request) {
 	s.writeEdge(w)
 }
 
-// handleEdgeActuate is THE ACTUATE CEREMONY through the host, POST-only and token-gated like every
-// other mutation here. Confirming actuate licenses a machine to CHANGE THE PHYSICAL WORLD, so:
-//
-//   - the browser confirms before it calls this, the way it does for forget;
-//   - the request carries the node and NOTHING ELSE - in particular it does not carry who is
-//     confirming, because a confirmation the requester can name themselves for is worth nothing.
-//     The host takes the operator identity it already holds;
-//   - a build with no ceremony wired answers 501 rather than pretending.
-//
 // handleEdgeServeModel asks a member to serve a model id (features/edge/remote_model.feature). The
 // body carries a node, a model id and the owner's yes - nothing that could be an address - and the
 // member judges the request itself. POST-only and token-gated like every other mutation.
@@ -915,6 +907,14 @@ func (s *Server) handleEdgeServeModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"says": says})
 }
 
+// handleEdgeActuate is THE ACTUATE CEREMONY through the host, POST-only and token-gated like every
+// other mutation here. Confirming actuate licenses a machine to CHANGE THE PHYSICAL WORLD, so:
+//
+//   - the browser confirms before it calls this, the way it does for forget;
+//   - the request carries the node and NOTHING ELSE - in particular it does not carry who is
+//     confirming, because a confirmation the requester can name themselves for is worth nothing.
+//     The host takes the operator identity it already holds;
+//   - a build with no ceremony wired answers 501 rather than pretending.
 func (s *Server) handleEdgeActuate(w http.ResponseWriter, r *http.Request) {
 	h := s.opts.Edge
 	if h.Fleet == nil || h.ConfirmActuate == nil {

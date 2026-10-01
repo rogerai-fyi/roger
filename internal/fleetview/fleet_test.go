@@ -832,13 +832,13 @@ func TestHearNowAsksAControllableUnitAndSaysWhatItAnswered(t *testing.T) {
 	// A unit with no face to dial is not offered it, and h does nothing to it.
 	f.SelectUnit("n_nina")
 	page.Press("r")
-	if strings.Contains(page.Screen(), "h hear now") {
-		t.Fatal("hear now offered on a unit with no control path")
-	}
+	// Shown, saying why it cannot work now - never hidden (fleet_window.feature §6) - and not dialled.
+	must(t, page.Screen(), "h hear now (no face to dial)")
 	page.Press("h")
 	if len(asked) != 1 {
 		t.Fatalf("a heard-only unit was dialed: %v", asked)
 	}
+	must(t, page.Screen(), "it can be heard, not asked")
 }
 
 // features/edge/fleet_window.feature §4: adoption shows its stages with their ages, and a stall says

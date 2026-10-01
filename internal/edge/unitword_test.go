@@ -78,7 +78,7 @@ func TestAPhoneInTheBackgroundIsAsleepNotBroken(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	no, yes, b := false, true, 64
 	phone := store.EdgeNode{Kind: "mobile", Presence: string(edge.PresenceVerified), LastSeen: now.Add(-3 * time.Minute).Unix(),
-		Phone: &store.EdgePhone{Foreground: &no}}
+		Phone: &store.EdgePhone{Foreground: &no, ReadAt: now.Add(-3 * time.Minute).Unix()}}
 	w, line := edge.UnitWord(phone, 0, now)
 	require.Equal(t, edge.WordAsleep, w)
 	require.Equal(t, "ASLEEP 3m", line)
@@ -96,4 +96,21 @@ func TestAPhoneInTheBackgroundIsAsleepNotBroken(t *testing.T) {
 	require.Equal(t, "battery 64% · on battery", edge.PhoneLine(&store.EdgePhone{BatteryPct: &b, Charging: &no}))
 	require.Empty(t, edge.PhoneLine(nil))
 	require.Empty(t, edge.PhoneLine(&store.EdgePhone{}))
+}
+
+// Review 2026-10-01: ASLEEP is a phone's own fresh word only - stale vitals, or a machine that is not
+// a phone, never read ASLEEP.
+func TestAsleepNeedsAPhoneAndFreshVitals(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	no := false
+	n := store.EdgeNode{Kind: "mobile", Presence: string(edge.PresenceVerified), LastSeen: now.Add(-10 * time.Second).Unix(),
+		Phone: &store.EdgePhone{Foreground: &no, ReadAt: now.Add(-time.Hour).Unix()}}
+	w, _ := edge.UnitWord(n, 0, now)
+	require.Equal(t, edge.WordHeard, w, "vitals from an hour ago do not keep it asleep")
+	n.Phone.ReadAt = now.Add(-10 * time.Second).Unix()
+	w, _ = edge.UnitWord(n, 0, now)
+	require.Equal(t, edge.WordAsleep, w)
+	n.Kind = "host"
+	w, _ = edge.UnitWord(n, 0, now)
+	require.NotEqual(t, edge.WordAsleep, w, "only a phone sleeps")
 }

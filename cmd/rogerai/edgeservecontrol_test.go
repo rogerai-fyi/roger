@@ -214,22 +214,22 @@ func TestTheFleetSeesWhatAMemberServesAndFetches(t *testing.T) {
 	r := newServeRig(t, 16384)
 	require.Nil(t, edgeModelNow(), "a roger serving nothing of its own reports nothing")
 	j, _ := json.Marshal(localmodel.Job{Repo: "acme/Tiny-GGUF", File: "Tiny-Q8_0.gguf", Total: 4 << 30, Done: 1 << 30,
-		State: localmodel.JobFetching, PID: os.Getpid()})
+		State: localmodel.JobFetching, PID: os.Getpid(), Updated: time.Now()})
 	require.NoError(t, os.MkdirAll(r.home.Dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "fetch.json"), j, 0o644))
 	b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", Ctx: 8192, Started: time.Now()})
 	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serving.json"), b, 0o600))
 	now := edgeModelNow()
 	require.NotNil(t, now)
-	line := edgeModelNowLine(now)
+	line := edge.ModelLine(now)
 	require.Contains(t, line, `serving "tiny"`)
 	require.Contains(t, line, "fetching Tiny-Q8_0.gguf: 1.0 GiB of 4.0 GiB", "a fetch shows while it still names what it serves NOW")
 
 	now.Fetch.State = localmodel.JobInterrupted
-	require.Contains(t, edgeModelNowLine(now), "never served half-done")
+	require.Contains(t, edge.ModelLine(now), "never served half-done")
 	now.Fetch.State, now.Fetch.Err = localmodel.JobFailed, "not enough free disk"
-	require.Contains(t, edgeModelNowLine(now), "failed: not enough free disk")
-	require.Equal(t, "serves nothing of its own", edgeModelNowLine(nil))
+	require.Contains(t, edge.ModelLine(now), "failed: not enough free disk")
+	require.Equal(t, "serves nothing of its own", edge.ModelLine(nil))
 }
 
 func TestTheSameCommandWorksAcrossTheEdgeByNamingTheNode(t *testing.T) {
@@ -326,7 +326,7 @@ func TestServeControlFromTheCallerUsesItsOwnGrant(t *testing.T) {
 	got, refused := edge.ParseModelTask(sentTask)
 	require.Empty(t, refused, "what was sent is what the member reads")
 	require.Equal(t, task, got)
-	require.Contains(t, edgeModelNowLine(res.Now), "fetching Tiny-Q4_K_M.gguf")
+	require.Contains(t, edge.ModelLine(res.Now), "fetching Tiny-Q4_K_M.gguf")
 
 	refuse = edge.ServeControlOffReason
 	_, _, err = edgeModelInvoke(loadConfig(), "jetson", task)
@@ -358,6 +358,19 @@ func TestServeControlNeedsBothOfTheOwnersLocksAtTheFace(t *testing.T) {
 
 	turnOn(t)
 	require.NoError(t, sv.Authorize(serve, id.NodeID, edge.ServeControl))
+
+	// A serve-control grant for ANOTHER node does not carry over, and the refusal is the same whether
+	// or not that other node would have accepted (remote_model.feature §1).
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	_, err = st.fleet.Enroll(store.EdgeNode{ID: "n_attic", Name: "attic", Kind: "host"})
+	require.NoError(t, err)
+	require.NoError(t, st.save())
+	forAttic, _, err := edgeGrantIssueCore("self", "serve-control", "attic", "1h", 0)
+	require.NoError(t, err)
+	errA := sv.Authorize(forAttic, id.NodeID, edge.ServeControl)
+	require.Error(t, errA, "a grant for attic reached this machine")
+	require.NotContains(t, errA.Error(), "serve-control on", "the refusal does not reveal anything about the other node's switch")
 }
 
 // The runner routes serve-control to the model path, one change at a time.
@@ -460,4 +473,69 @@ func TestTheTimelineCallsThisMachineByItsOwnLabel(t *testing.T) {
 		}
 	}
 	require.True(t, found, "%+v", evs)
+}
+
+// features/edge/remote_model.feature §2 (review 2026-10-01): a new model that fails to start is
+// reported to the owner WITH THE REASON - it reaches the member's report, not only its local log.
+func TestARemoteServeThatFailsReportsWhyToTheOwner(t *testing.T) {
+	r := newServeRig(t, 16384)
+	require.NoError(t, os.MkdirAll(r.home.Dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serve.log"), []byte("starting...\nerror: out of memory\n"), 0o600))
+	now := edgeModelNow()
+	require.NotNil(t, now)
+	require.Equal(t, "error: out of memory", now.ServeFailed)
+	require.Contains(t, edge.ModelLine(now), "the last serve did not come on the air: error: out of memory")
+
+	// A spawn that cannot even start is written where the report reads it.
+	cfg := turnOn(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	modelSpawn = func([]string, string) error { return errors.New("no fork") }
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Contains(t, refused, "could not start serving: no fork")
+	require.NoError(t, os.Remove(filepath.Join(r.home.Dir, "serve.log")))
+	recordServeFailure(r.home, errors.New("no fork"))
+	require.Contains(t, edgeModelNow().ServeFailed, "no fork")
+}
+
+// Review 2026-10-01: the audit record names the caller by name AND id, is written before the change,
+// and a request that cannot be recorded is not acted on.
+func TestARemoteModelRequestIsAuditedBeforeItIsActedOn(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	_, refused := edgeModelRun(cfg, "n_desk1234", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Empty(t, refused)
+	evs, _, err := edgeEventsRead(edge.EventQuery{Limit: 5}, time.Now())
+	require.NoError(t, err)
+	var detail string
+	for _, e := range evs {
+		if e.What == "model" {
+			detail = e.Detail
+		}
+	}
+	require.Contains(t, detail, "asked by desk ("+edgeShortID("n_desk1234")+")")
+
+	// No identity to record against: refused, and nothing was started.
+	r.spawned = nil
+	useTempConfig(t)
+	c := loadConfig()
+	c.EdgeServeControl = true
+	require.NoError(t, saveConfig(c))
+	_, refused = edgeModelRun(loadConfig(), "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Contains(t, refused, "could not record the request")
+	require.Empty(t, r.spawned, "an unaudited request was acted on")
+}
+
+// Review 2026-10-01: a model on the member's disk that it cannot judge is refused over the Edge -
+// there is no owner's word to serve on.
+func TestAModelTheMemberCannotJudgeIsRefusedOverTheEdge(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	require.NoError(t, os.MkdirAll(r.home.Models(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Models(), "junk-Q4_0.gguf"), []byte("not a gguf"), 0o644))
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("junk-Q4_0", 0), time.Now())
+	require.Contains(t, refused, "cannot judge junk-Q4_0")
+	require.Empty(t, r.spawned)
 }

@@ -339,13 +339,3 @@ func TestEdgeFleetOpensOnTheUnitTheOwnerSelected(t *testing.T) {
 	require.Equal(t, 0, code)
 	require.Empty(t, opened, "no --select opens on nothing in particular")
 }
-
-func TestARackRowSaysWhatAUnitServesInAFewWords(t *testing.T) {
-	require.Equal(t, "qwen3-4b", edgeServingShort(&store.EdgeModel{Band: "qwen3-4b"}))
-	require.Equal(t, "qwen3-4b · fetching 25%", edgeServingShort(&store.EdgeModel{Band: "qwen3-4b",
-		Fetch: &store.EdgeFetch{State: "fetching", Done: 1, Total: 4}}))
-	require.Equal(t, "fetching 50%", edgeServingShort(&store.EdgeModel{Fetch: &store.EdgeFetch{State: "fetching", Done: 2, Total: 4}}))
-	require.Equal(t, "cannot serve here", edgeServingShort(&store.EdgeModel{CannotServe: "needs glibc 2.38"}))
-	require.Empty(t, edgeServingShort(&store.EdgeModel{}))
-	require.Equal(t, []string{"a", "b"}, edgeBandsOf(store.EdgeNode{Instances: []store.EdgeInstance{{Bands: []string{"a"}}, {Bands: []string{"b"}}}}))
-}
