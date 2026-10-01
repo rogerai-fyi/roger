@@ -9,6 +9,7 @@ package tui
 //  4. moving onto a node the build cannot act on in place read "nothing to do on this node here".
 
 import (
+	"github.com/charmbracelet/lipgloss"
 	"strings"
 	"testing"
 
@@ -238,6 +239,26 @@ func TestTheMarksCellHasNoHoles(t *testing.T) {
 	for _, c := range edge.Capabilities() {
 		if !strings.Contains(got, strings.ToUpper(edgeCapMark[c])) {
 			t.Errorf("%q is not in the marks cell %q", c, got)
+		}
+	}
+}
+
+// At 80 columns the action header never cuts a sentence off mid-word: the hint moves to its own line
+// (found rendering [3] at 80 columns, 2026-10-01).
+func TestTheActionHeaderIsWholeAtEightyColumns(t *testing.T) {
+	m := mapReadableModel(t)
+	for i, it := range m.edgeNetItems() {
+		if it.cand {
+			m.edge.netSel, m.edge.netSelSet = i, true
+		}
+	}
+	out := stripANSI(m.edgeView(80))
+	if !strings.Contains(out, "press the letter, or ↓/Tab then ←→") {
+		t.Errorf("the action hint is cut at 80 columns:\n%s", out)
+	}
+	for _, ln := range strings.Split(out, "\n") {
+		if lipgloss.Width(ln) > 80 {
+			t.Errorf("a line overflows 80 columns: %q", ln)
 		}
 	}
 }

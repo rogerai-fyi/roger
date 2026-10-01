@@ -159,14 +159,17 @@ func TestACardSaysWhichBoardItIs(t *testing.T) {
 	m := mapReadableModel(t)
 	for i := range m.edge.rows {
 		if m.edge.rows[i].n.Name == "pi-greenhouse" {
+			// A Raspberry Pi runs roger as a host: it reads MACHINE, and WHICH machine comes from its
+			// hardware word (edge.KindWord; "board" is for microcontrollers).
+			m.edge.rows[i].n.Kind = "host"
 			m.edge.rows[i].n.Instances = []store.EdgeInstance{{Name: "share",
 				Software: &store.EdgeSoftware{Roger: "6.13.0", OS: "Debian GNU/Linux 12",
 					Arch: "arm64", Machine: "Raspberry Pi 4 Model B Rev 1.5"}}}
 		}
 	}
 	out := stripANSI(m.edgeView(116))
-	if !strings.Contains(out, "BOARD · Pi 4") {
-		t.Errorf("the card does not say which board it is:\n%s", out)
+	if !strings.Contains(out, "MACHINE · Pi 4") {
+		t.Errorf("the card does not say which machine it is:\n%s", out)
 	}
 	// And the whole model, unshortened, on the node's own page.
 	for i, it := range m.edgeNetItems() {

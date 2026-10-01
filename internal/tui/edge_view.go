@@ -767,7 +767,14 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 	if m.edge.actionFocused {
 		tail = stDim.Render("  · ") + lampStyle(roleLive).Render("←→ choose · ⏎ run · ↑ back to map")
 	}
-	line("  " + stKey.Render("WHAT YOU CAN DO") + stDim.Render("  on  ") + gs.Render(glyph) + " " + stEmber.Render(who) + tail)
+	head := "  " + stKey.Render("WHAT YOU CAN DO") + stDim.Render("  on  ") + gs.Render(glyph) + " " + stEmber.Render(who)
+	if lipgloss.Width(head+tail) <= cw {
+		line(head + tail)
+	} else {
+		// Narrow: the hint gets its own line rather than being cut mid-sentence.
+		line(head)
+		line("  " + strings.TrimLeft(tail, " "))
+	}
 	acts := m.edgeActions()
 	if len(acts) == 0 {
 		// ONLY A MEMBER can reach this now: every other selection falls back to the Edge-wide actions,
@@ -1114,7 +1121,7 @@ func (m model) edgeAgentSubLine(g edgeGeom, i int) string {
 func edgeKindEmblem(kind string) (string, lipgloss.Style) {
 	switch kind {
 	case string(edge.Board):
-		return "▤", lampStyle(roleSignal) // a board (Raspberry Pi / ESP32)
+		return "▤", lampStyle(roleSignal) // a board: a microcontroller (ESP32). A Raspberry Pi reports host and reads MACHINE · Pi 4
 	case string(edge.Mobile):
 		return "▯", lampStyle(roleDial) // a phone / tablet
 	default:

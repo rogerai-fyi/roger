@@ -310,7 +310,7 @@ func edgeDefaultNetSel(items []edgeNetItem) int {
 	return 0
 }
 
-const edgeNetCardW = 32 // card width (border included); fits a kind, a board and its state ("BOARD · Pi 4 · ON AIR now")
+const edgeNetCardW = 34 // card width (border included); fits a kind, a Pi and its state ("MACHINE · Pi 4 · ON AIR now")
 
 // edgeNetCardText is the text a card line holds: its width less the border and the padding.
 const edgeNetCardText = edgeNetCardW - 6
@@ -787,6 +787,10 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		// fetch for something else runs (features/edge/remote_model.feature).
 		if mm := edge.ModelOf(*n); mm != nil {
 			label("MODEL", edge.ModelLine(mm))
+		}
+		// A phone's own vitals, as it signed them - absent readings left out, never zeros.
+		if pl := edge.PhoneLine(n.Phone); pl != "" {
+			label("PHONE", pl+stDim.Render("  · "+edgeAge(m.edge.at.Sub(time.Unix(n.Phone.ReadAt, 0)))+" ago"))
 		}
 		if w, ok := edgePiPower(*n); ok {
 			if now, _ := edge.PowerWords(w); len(now) > 0 {
