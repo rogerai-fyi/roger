@@ -24,6 +24,7 @@ import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { loadWaveStatus, resolveWaveTokens } from "./scripts/wave-status.mjs";
+import { glueDashes } from "./scripts/glue-dashes.mjs";   // a heading's " - " never starts a line
 
 const ROOT = dirname(fileURLToPath(import.meta.url));   // web/
 const SRC = join(ROOT, "src");
@@ -224,19 +225,6 @@ function cacheBust(html) {
     const m = entry.trim().match(/^((?:js|styles|assets)\/[^\s?]+)(\s+\S+)?$/);
     return m ? `${m[1]}?v=${assetHash(m[1])}${m[2] || ""}` : entry.trim();
   }).join(", ") + '"');
-}
-
-// glueDashes keeps a heading's spaced dash off the start of a line: a title that wrapped
-// right before " - " left the dash leading the next line. The word before the dash is glued
-// to it (`.nobr`, components.css), so the line can only break after the dash. Markup only:
-// the heading's words and order are unchanged (the text-freeze fixtures compare text).
-// Headings h1-h6 and the broadcasts index titles (.bc-row__title).
-const GLUE_RE = /(<(h[1-6])\b[^>]*>)([\s\S]*?)(<\/\2>)|(<span class="bc-row__title">)([^<]*)(<\/span>)/g;
-const glueOne = (s) => s.replace(/([^\s<>]+) - /g, '<span class="nobr">$1 -</span> ');
-function glueDashes(html) {
-  return html.replace(GLUE_RE, (m, open, _tag, inner, close, rOpen, rInner, rClose) =>
-    open ? open + inner.split(/(<[^>]*>)/).map((part, i) => (i % 2 ? part : glueOne(part))).join("") + close
-         : rOpen + glueOne(rInner) + rClose);
 }
 
 // ---- SEO: one canonical per page + a build-time sitemap ------------------------------------

@@ -42,6 +42,24 @@ test("headings: no heading or index title can break a line right before its spac
   assert.ok(glued >= 16, `the known titles are glued (${glued})`);
 });
 
+test("headings: the glue never touches script, style, pre, textarea or comment text", async () => {
+  const { glueDashes } = await import("../scripts/glue-dashes.mjs");
+  const keep = [
+    '<script>const t = "<h2>Run a Tower - and get paid</h2>";</script>',
+    '<!-- <h1>RogerAI - the operating manual.</h1> -->',
+    '<style>/* <h3>Price safety - you will not</h3> */</style>',
+    '<pre><h2>Voices - speak</h2></pre>',
+    '<textarea><h2>Voices - speak</h2></textarea>',
+    '<script type="application/ld+json">{"x": "<span class=\\"bc-row__title\\">a - b</span>"}</script>',
+  ];
+  for (const k of keep) assert.equal(glueDashes(k), k, k);
+  const page = keep.join("\n") + '\n<h2 id="x">Voices - speak &amp; listen</h2>\n<span class="bc-row__title">Run a Tower - and get paid.</span>';
+  const out = glueDashes(page);
+  assert.ok(out.startsWith(keep.join("\n")), "the protected regions are byte-for-byte unchanged");
+  assert.match(out, /<h2 id="x"><span class="nobr">Voices -<\/span> speak &amp; listen<\/h2>/);
+  assert.match(out, /<span class="bc-row__title">Run a <span class="nobr">Tower -<\/span> and get paid\.<\/span>/);
+});
+
 test("headings: the glue never changes a heading's words", () => {
   for (const p of ["broadcasts.html", "broadcasts-run-a-tower.html", "manual.html", "tos.html"]) {
     const src = read(path.join("src", p));
@@ -157,10 +175,15 @@ test("labels: the Playbox cassette's small words set at >= 14.5 units on a phone
     assert.ok(m && Number(m[1]) >= 14.5, `${cls} on a phone: ${m && m[1]}`);
   }
   assert.match(phone, /\.dk-c__sub[^{]*\{[^}]*letter-spacing: 0/, "the sub line fits its label untracked");
-  // the longest sub line, 30 mono characters at 0.6em, fits the 272-unit label
-  const longest = Math.max(...[...read("src/js/playbox.js").matchAll(/"([^"]+)"/g)]
-    .filter((m) => /pick a cassette|on air via|certified contracts/.test(m[1])).map((m) => m[1].length));
-  assert.ok(longest * 0.6 * 14.5 <= 272, `${longest} characters fit`);
+  // every line playbox.js writes into the sub slot (its textContent assignments), the
+  // longest 30 mono characters at 0.6em, fits the 272-unit label
+  const subs = [...read("src/js/playbox.js").matchAll(/\$\("dkTapeSub"\)\.textContent = ([^;]+);/g)]
+    .flatMap((m) => [...m[1].matchAll(/"([^"]*)"/g)].map((q) => q[1]));
+  for (const s of ["pick a cassette from the shelf", "on air via the Tower", "certified contracts · recorded"])
+    assert.ok(subs.includes(s), `found the sub line "${s}" (${JSON.stringify(subs)})`);
+  const longest = Math.max(...subs.map((s) => s.length));
+  assert.ok(longest >= 30, `the longest sub line is measured (${longest})`);
+  assert.ok(longest * 0.6 * 14.5 <= 272, `${longest} characters fit the label`);
 });
 
 test("labels: the Wave family mark's station ident is 12 units (11.6px at 390)", () => {
