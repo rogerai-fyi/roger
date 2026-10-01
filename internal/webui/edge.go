@@ -481,16 +481,16 @@ func (s *Server) edgeNow() time.Time {
 // edgeLabelIfDifferent is the printable label ONLY when it differs from the record name. An
 // ordinary node needs no second copy of its name in every payload, and the browser already falls
 // back to the name when the label is absent.
-func edgeLabelIfDifferent(n store.EdgeNode) string {
-	if l := edge.Label(n.Name, n.ID); l != n.Name {
+func edgeLabelIfDifferent(n store.EdgeNode, all []store.EdgeNode) string {
+	if l := edge.UnitName(n, all); l != n.Name {
 		return l
 	}
 	return ""
 }
 
-func edgeNodeOf(n store.EdgeNode, now time.Time) edgeNodeJSON {
+func edgeNodeOf(n store.EdgeNode, now time.Time, all []store.EdgeNode) edgeNodeJSON {
 	out := edgeNodeJSON{
-		ID: n.ID, Name: n.Name, Label: edgeLabelIfDifferent(n), Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
+		ID: n.ID, Name: n.Name, Label: edgeLabelIfDifferent(n, all), Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
 		Pin: n.Pin, Contract: n.Contract, Station: n.Station, Tags: append([]string(nil), n.Tags...),
 		Caps:               []edgeCapJSON{},
 		Transports:         append([]store.EdgeTransport{}, n.Transports...),
@@ -587,7 +587,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	}
 	newest := edge.NewestRoger(list)
 	for _, r := range edge.Arrange(list) {
-		n := edgeNodeOf(r.Node, now)
+		n := edgeNodeOf(r.Node, now, list)
 		n.Via, n.Relay, n.Child = r.Via, r.Relay, r.Child
 		n.Alerts = append(n.Alerts, alerts[n.ID]...)
 		n.Maintain = edge.Declares(r.Node, edge.Maintain)
@@ -644,13 +644,13 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	}
 	if h.Candidates != nil {
 		for _, c := range h.Candidates() {
-			snap.Candidates = append(snap.Candidates, edgeNodeOf(c, now))
+			snap.Candidates = append(snap.Candidates, edgeNodeOf(c, now, append(append([]store.EdgeNode(nil), list...), c)))
 		}
 	}
 	snap.Adopting = []edgeNodeJSON{}
 	if h.Adopting != nil {
 		for _, a := range h.Adopting() {
-			snap.Adopting = append(snap.Adopting, edgeNodeOf(a, now))
+			snap.Adopting = append(snap.Adopting, edgeNodeOf(a, now, append(append([]store.EdgeNode(nil), list...), a)))
 		}
 	}
 	snap.PersistentAgents = []edge.PersistentAgent{}
@@ -681,8 +681,8 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		// the floor and the sessions still matter. Degrade to no rules and draw everything else.
 		if rules, rerr := h.Rules(); rerr == nil {
 			names := map[string]string{}
-			for _, n := range list {
-				names[n.ID] = edge.Label(n.Name, n.ID)
+			for id, nm := range edge.UnitNames(list) {
+				names[id] = nm
 			}
 			for _, r := range rules {
 				snap.Rules = append(snap.Rules, edgeRuleJSON{ID: r.ID, Words: r.Key(),
@@ -1286,9 +1286,9 @@ func edgeFloorOf(f EdgeFloor, nodes []store.EdgeNode, alerts map[string][]string
 	out := &edgeFloorJSON{Units: []edgeUnitJSON{}, Calls: []edgeCallJSON{}, SignOff: edgeSignOff{DeadAir: []edgeDeadAir{}}}
 	names := map[string]string{}
 	for _, n := range nodes {
-		names[n.ID] = edge.Label(n.Name, n.ID)
+		names[n.ID] = edge.UnitName(n, nodes)
 		cells, since, capped := edge.LogOf(f.Samples, n.ID, now)
-		u := edgeUnitJSON{ID: n.ID, Name: n.Name, Label: edgeLabelIfDifferent(n), Kind: n.Kind,
+		u := edgeUnitJSON{ID: n.ID, Name: n.Name, Label: edgeLabelIfDifferent(n, nodes), Kind: n.Kind,
 			Log: make([]string, len(cells)), Alerts: alerts[n.ID], LastSeen: n.LastSeen}
 		if u.Alerts == nil {
 			u.Alerts = []string{}

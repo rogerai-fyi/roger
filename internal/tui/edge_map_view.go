@@ -232,19 +232,21 @@ func (m model) edgeNetItems() []edgeNetItem {
 	if m.edge.status != nil {
 		selfID = m.edge.status.NodeID
 	}
+	// What every unit is called: its owner's name, or what it IS (edge.UnitName), never an id.
+	names := edge.UnitNames(append(append([]store.EdgeNode(nil), fleet...), m.edge.cands...))
 	for _, r := range edge.Arrange(fleet) {
 		n := r.Node
 		if n.ID == selfID && selfID != "" {
 			continue // the machine you are at is the hub, not also one of the others
 		}
-		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), member: true, node: byID[n.ID], id: n.ID, kind: n.Kind,
+		items = append(items, edgeNetItem{name: names[n.ID], member: true, node: byID[n.ID], id: n.ID, kind: n.Kind,
 			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID],
 			via: r.Via, hops: r.Depth, at: m.edge.at})
 	}
 	// The DISCOVERED machines not yet on this Edge - candidates, adopt with a.
 	for i := range m.edge.cands {
 		n := m.edge.cands[i]
-		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), cand: true, node: &m.edge.cands[i], id: n.ID, kind: n.Kind})
+		items = append(items, edgeNetItem{name: names[n.ID], cand: true, node: &m.edge.cands[i], id: n.ID, kind: n.Kind})
 	}
 	return items
 }

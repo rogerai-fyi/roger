@@ -799,11 +799,9 @@ func TestTheConsolePrintsALabelAndKeepsTheRecordName(t *testing.T) {
 		if got.Name != id {
 			t.Errorf("the record name was rewritten to %q - the rename form and identity need it whole", got.Name)
 		}
-		if got.Label == id || len(got.Label) >= len(id) {
-			t.Errorf("label = %q, want a short id the console can print", got.Label)
-		}
-		if !strings.HasPrefix(id, got.Label) {
-			t.Errorf("label %q is not the head of the id it stands for", got.Label)
+		// What it IS, never any form of its id (features/edge/fleet_window.feature, approved 2026-10-01).
+		if got.Label != "phone" {
+			t.Errorf("label = %q, want what the unit is: phone", got.Label)
 		}
 	}
 	if !found {

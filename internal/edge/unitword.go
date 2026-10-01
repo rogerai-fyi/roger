@@ -122,3 +122,12 @@ func idSuffix(id string) string {
 	}
 	return s
 }
+
+// UnitNames names every unit in all at once, by id, so a surface draws one consistent set.
+func UnitNames(all []store.EdgeNode) map[string]string {
+	out := make(map[string]string, len(all))
+	for _, n := range all {
+		out[n.ID] = UnitName(n, all)
+	}
+	return out
+}

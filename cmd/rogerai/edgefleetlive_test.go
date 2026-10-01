@@ -48,8 +48,8 @@ func TestEdgeFleetScreenReadsAndManagesTheRealEdge(t *testing.T) {
 	require.Contains(t, names["gentle-ibex-14"].Presence, "offline")
 	require.NotEmpty(t, snap.Self.Root)
 
-	// A node whose record name IS its id was never named by its owner, and the fleet screen calls it
-	// by a short id rather than drawing 48 characters as somebody's name (edge.Label).
+	// A node whose record name IS its id was never named by its owner, and the fleet screen calls it by
+	// what it is rather than drawing an id as somebody's name (edge.UnitName).
 	longID := "n_" + strings.Repeat("cd", 24)
 	edgeSeed(t, store.EdgeNode{ID: longID, Name: longID, Kind: "mobile",
 		Presence: string(edge.PresenceVerified), LastSeen: now.Unix()})
@@ -62,7 +62,8 @@ func TestEdgeFleetScreenReadsAndManagesTheRealEdge(t *testing.T) {
 		}
 	}
 	require.NotNil(t, found, "the id-named node is missing from the screen")
-	require.Equal(t, edge.ShortID(longID), found.Label, "the screen prints a short label")
+	// What it IS, not any form of its id (features/edge/fleet_window.feature, approved 2026-10-01).
+	require.Equal(t, "phone", found.Label, "the screen calls an unnamed phone the phone")
 	require.Equal(t, longID, found.Name, "and still carries the record name, which is what an action takes")
 
 	// Rename and forget act on the real state, the way the CLI does.
