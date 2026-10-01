@@ -292,3 +292,22 @@ func TestEdgeFleetScreenIssuesGrantsAndEditsRules(t *testing.T) {
 	_, err = hacts.SetRule("warp", "gt", "1", "")
 	require.Error(t, err)
 }
+
+// The fleet screen titled the authority with its full node id (found live 2026-10-01). Its hub is
+// called what the TUI map calls it.
+func TestEdgeFleetScreenNeverTitlesThisMachineWithItsID(t *testing.T) {
+	useTempConfig(t)
+	edgeWriteAuth(t, "owner")
+	prev := edgeStationName
+	edgeStationName = func() string { return "house-or" }
+	t.Cleanup(func() { edgeStationName = prev })
+	snap, err := edgeFleetSource()
+	require.NoError(t, err)
+	require.False(t, edge.LooksLikeID(snap.Self.Name), snap.Self.Name)
+	for _, it := range snap.Items {
+		if it.Kind == fleetview.ItemHub {
+			require.Equal(t, snap.Self.Name, it.Label)
+			require.False(t, edge.LooksLikeID(it.Label), it.Label)
+		}
+	}
+}

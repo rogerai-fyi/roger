@@ -325,6 +325,19 @@ func Label(name, id string) string {
 	return name
 }
 
+// SelfLabel is what the machine you are at is called on every screen: the owner's name for it, then
+// its station's, then "this machine" - never its id. A machine enrolled without a name carries its
+// node id as its record name, and a 48-character id as the title of your own box is unreadable.
+func SelfLabel(name, station string) string {
+	if n := strings.TrimSpace(name); n != "" && !LooksLikeID(n) {
+		return n
+	}
+	if n := strings.TrimSpace(station); n != "" && !LooksLikeID(n) {
+		return n
+	}
+	return "this machine"
+}
+
 // KindWord is what a unit IS, in ONE word every surface uses: pc, phone, board, or device for a
 // kind this build does not know. It lives here because the TUI map, the Limoni fleet screens and
 // the console all have to say the same word - the screens read as one product or they do not, and

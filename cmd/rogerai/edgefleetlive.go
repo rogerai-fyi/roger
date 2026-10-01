@@ -82,12 +82,11 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	if self.AuthorityHere && self.AuthorityAddr != "" {
 		snap.Self.Join = self.EnrollAgainstLine()
 	}
-	if snap.Self.Name == "" {
-		snap.Self.Name = "this machine"
-	}
+	// The same name the TUI map gives this box, never the id it enrolled under.
+	snap.Self.Name = edge.SelfLabel(self.Name, edgeStationName())
 	snap.Self.Op = edgeOperatorName()
 	// The hub.
-	hub := fleetview.FleetItem{Kind: fleetview.ItemHub, ID: self.NodeID, Name: snap.Self.Name, NodeKind: "host",
+	hub := fleetview.FleetItem{Kind: fleetview.ItemHub, ID: self.NodeID, Name: self.Name, Label: snap.Self.Name, NodeKind: "host",
 		Presence: "online", Health: health[self.NodeID], Alerts: firing[self.NodeID], Tags: edgeTagsOf(nodes, self.NodeID)}
 	snap.Items = append(snap.Items, hub)
 	// Its rogers: the live household, then the persistent agents that are not running. This
@@ -452,3 +451,7 @@ func edgeTagsOf(nodes []store.EdgeNode, id string) []string {
 	}
 	return nil
 }
+
+// edgeStationName is this machine's station name, the fallback when its owner never named it. A
+// seam, because the real one creates the station on first read.
+var edgeStationName = loadOrCreateStation

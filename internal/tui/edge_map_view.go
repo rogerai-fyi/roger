@@ -211,8 +211,15 @@ func (m model) edgeNetItems() []edgeNetItem {
 		fleet = append(fleet, m.edge.rows[i].n)
 		byID[m.edge.rows[i].n.ID] = &m.edge.rows[i].n
 	}
+	selfID := ""
+	if m.edge.status != nil {
+		selfID = m.edge.status.NodeID
+	}
 	for _, r := range edge.Arrange(fleet) {
 		n := r.Node
+		if n.ID == selfID && selfID != "" {
+			continue // the machine you are at is the hub, not also one of the others
+		}
 		items = append(items, edgeNetItem{name: edge.Label(n.Name, n.ID), member: true, node: byID[n.ID], id: n.ID, kind: n.Kind,
 			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID],
 			via: r.Via, hops: r.Depth})

@@ -289,3 +289,31 @@ func TestABandHangsUnderItsParentAndStaysOnScreen(t *testing.T) {
 		}
 	}
 }
+
+// THE AUTHORITY IS ONE BOX. Its own fleet record (the node id it enrolled itself under) was drawn a
+// second time as an "other machine you have adopted", under its raw id, carrying the same alerts as
+// the hub - found on the founder's own authority 2026-10-01.
+func TestTheMachineYouAreAtIsNotAlsoAnotherMachine(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		AuthorityAddr: "http://192.168.1.9:8791", Enrolled: true, Name: "n_ebab8e241f058e18234af760ad2a1ca9",
+		NodeID: "n_ebab8e241f058e18234af760ad2a1ca9", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	mine := nodeOf("x", "", "host")
+	mine.ID, mine.Name = self.NodeID, self.NodeID // enrolled under its own id, never named
+	m := networkModel(t, self, mine, nodeOf("b", "jetson", "host"))
+	m.enterEdge()
+	members := 0
+	for _, it := range m.edgeNetItems() {
+		if it.member {
+			members++
+			if it.id == self.NodeID {
+				t.Errorf("this machine is drawn again as a member, as %q", it.name)
+			}
+		}
+	}
+	if members != 1 {
+		t.Errorf("want only jetson as another machine, got %d members", members)
+	}
+	if out := stripANSI(m.edgeView(116)); strings.Contains(out, "n_ebab8e24") {
+		t.Errorf("an id is drawn as a name:\n%s", out)
+	}
+}

@@ -122,16 +122,7 @@ func edgeGeomFor(w, nodes int) edgeGeom {
 
 // edgeSelfName is what this instance is called on its own graph.
 func (m model) edgeSelfName() string {
-	// An id is NOT a name. A machine enrolled without one carries its node id as its record name, and
-	// a 48-character id drawn as the title of the box you are sitting at is what made this screen
-	// unreadable. Prefer the owner's name, then the station's, then "this machine" - never the id.
-	if n := strings.TrimSpace(m.hooks.EdgeSelf); n != "" && !edge.LooksLikeID(n) {
-		return n
-	}
-	if n := strings.TrimSpace(m.hooks.Station); n != "" && !edge.LooksLikeID(n) {
-		return n
-	}
-	return "this machine"
+	return edge.SelfLabel(m.hooks.EdgeSelf, m.hooks.Station)
 }
 
 // edgeKindWord is what a unit IS, in a word an owner reads at a glance: the screen has to say

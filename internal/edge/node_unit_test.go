@@ -255,3 +255,14 @@ func TestAHardwareModelComesFromTheNodesOwnReport(t *testing.T) {
 		t.Errorf("a node that has not said reports %q", got)
 	}
 }
+
+// The machine you are at is called by its owner's name, then its station's, then "this machine" -
+// on the TUI map and the fleet screen alike, and never by the id it enrolled under.
+func TestTheMachineYouAreAtIsNeverCalledByItsID(t *testing.T) {
+	id := "n_ebab8e241f058e18234af760ad2a1ca976647af7583e0029"
+	require.Equal(t, "desk", edge.SelfLabel("desk", "house-or"))
+	require.Equal(t, "house-or", edge.SelfLabel(id, "house-or"))
+	require.Equal(t, "house-or", edge.SelfLabel("  ", "house-or"))
+	require.Equal(t, "this machine", edge.SelfLabel(id, id))
+	require.Equal(t, "this machine", edge.SelfLabel("", ""))
+}
