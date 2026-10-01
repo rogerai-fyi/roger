@@ -176,6 +176,7 @@ func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 		// takes. The console adds no authority of its own: the owner's maintenance switch ON THAT
 		// MACHINE and an authority-signed grant carrying maintain still decide, and the task is
 		// parsed by the same parser the callee runs, so reboot and shutdown are refused by name.
+		ServeModel: edgeServeModelHook, // the same request as `roger model serve <id> --on <node>`
 		Maintain: func(node string, t edge.MaintainTask) (edge.MaintainResult, error) {
 			r, _, err := edgeMaintainInvokeNamed(cfg, node, t)
 			return r, err

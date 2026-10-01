@@ -24,3 +24,18 @@ func TestTheConsoleOffersEveryMetricARuleCanWatch(t *testing.T) {
 		}
 	}
 }
+
+// Every capability has a mark in the console too, so a node declaring a new one never draws a blank.
+func TestTheConsoleMarksEveryCapability(t *testing.T) {
+	js := consoleJS(t)
+	i := strings.Index(js, "var EDGE_MARK = {")
+	if i < 0 {
+		t.Fatal("EDGE_MARK is gone")
+	}
+	table := js[i : i+strings.Index(js[i:], "};")]
+	for _, c := range edge.Capabilities() {
+		if !strings.Contains(table, string(c)+`"`) && !strings.Contains(table, string(c)+":") {
+			t.Errorf("the console has no mark for %q", c)
+		}
+	}
+}

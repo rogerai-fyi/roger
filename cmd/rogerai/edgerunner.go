@@ -44,6 +44,8 @@ type edgeTurnDeps struct {
 	// maintain runs a MAINTENANCE action on this machine (features/edge/maintenance.feature) and
 	// returns the result, or the sentence it is refused with. Injected for the same reason.
 	maintain func(callerID string, task json.RawMessage) (edge.MaintainResult, string)
+	// models changes what this machine serves (features/edge/remote_model.feature), or refuses why.
+	models func(callerID string, task json.RawMessage) (edge.ModelResult, string)
 }
 
 // mustInvokeJSON marshals a result for the wire; a result that cannot be marshalled is a bug, and
@@ -77,6 +79,7 @@ func edgeInvokeHandler(d edgeTurnDeps) func(callerID string, req edge.InvokeRequ
 		return d.runLoop(ctx, chatURL, key, model, task.Prompt)
 	})
 	maintain := make(chan struct{}, 1) // one maintenance action at a time on this machine
+	models := make(chan struct{}, 1)   // one model change at a time on this machine
 	return func(callerID string, req edge.InvokeRequest) (edge.InvokeResult, error) {
 		if req.Capability == string(edge.Maintain) {
 			// MAINTENANCE (features/edge/maintenance.feature): start a persistent agent the owner
@@ -89,6 +92,21 @@ func edgeInvokeHandler(d edgeTurnDeps) func(callerID string, req edge.InvokeRequ
 				return edge.InvokeResult{Refused: "a maintenance action is already running on this machine - try again shortly"}, nil
 			}
 			res, refused := d.maintain(callerID, req.Task)
+			if refused != "" {
+				return edge.InvokeResult{Refused: refused}, nil
+			}
+			return edge.InvokeResult{Output: mustInvokeJSON(res)}, nil
+		}
+		if req.Capability == string(edge.ServeControl) && d.models != nil {
+			// SERVE CONTROL: the face has authenticated the caller and checked the grant; the owner's
+			// switch on this machine is the second lock, checked inside.
+			select {
+			case models <- struct{}{}:
+				defer func() { <-models }()
+			default:
+				return edge.InvokeResult{Refused: "a model change is already being made on this machine - try again shortly"}, nil
+			}
+			res, refused := d.models(callerID, req.Task)
 			if refused != "" {
 				return edge.InvokeResult{Refused: refused}, nil
 			}
@@ -144,6 +162,9 @@ func edgeLiveTurnDeps(selfInstance func() string) edgeTurnDeps {
 				self = selfInstance()
 			}
 			return edgeMaintainRun(loadConfig(), callerID, edgeNameOfNode(callerID), self, task, time.Now())
+		},
+		models: func(callerID string, task json.RawMessage) (edge.ModelResult, string) {
+			return edgeModelRun(loadConfig(), callerID, edgeNameOfNode(callerID), task, time.Now())
 		},
 	}
 }

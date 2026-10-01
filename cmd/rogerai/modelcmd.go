@@ -120,6 +120,7 @@ type modelArgv struct {
 	limit  int
 	yes    bool
 	detach bool
+	on     string // a member of the Edge: the same command, on that machine (remote_model.feature)
 }
 
 func parseModelArgv(args []string) (modelArgv, error) {
@@ -145,6 +146,10 @@ func parseModelArgv(args []string) (modelArgv, error) {
 			}
 			i++
 			val = args[i]
+		}
+		if name == "on" {
+			a.on = strings.TrimSpace(val)
+			continue
 		}
 		n, err := strconv.Atoi(val)
 		if err != nil || n <= 0 {
@@ -174,6 +179,9 @@ func cmdModel(cfg config, args []string) error {
 		return err
 	}
 	ctx := context.Background()
+	if a.on != "" {
+		return modelOnNode(cfg, verb, a)
+	}
 	switch verb {
 	case "list", "ls":
 		return modelList()
@@ -709,3 +717,34 @@ func modelJobLine(j localmodel.Job) string {
 	}
 	return ""
 }
+
+// modelOnNode is `roger model ... --on <node>`: the same request, carried to a member under a
+// serve-control grant. The member judges it; this machine only asks and reports.
+func modelOnNode(cfg config, verb string, a modelArgv) error {
+	task := edge.ModelTask{Ctx: a.ctx}
+	switch verb {
+	case "serve":
+		if len(a.pos) != 1 {
+			return errors.New("usage: roger model serve <owner/repo:QUANT | id on that machine> --on <node> [--ctx N]")
+		}
+		task.Action, task.Model = edge.ModelServe, a.pos[0]
+	case "status", "list", "ls":
+		task.Action = edge.ModelStatus
+	case "stop":
+		task.Action = edge.ModelStop
+	default:
+		return fmt.Errorf("roger model %s works on this machine only; on a member: serve, status, stop", verb)
+	}
+	res, name, err := modelEdgeInvoke(cfg, a.on, task)
+	if err != nil {
+		return err
+	}
+	if task.Action != edge.ModelStatus {
+		fmt.Fprintf(modelOut, "%s: %s\n", name, res.Says)
+	}
+	fmt.Fprintf(modelOut, "%s %s\n", name, edgeModelNowLine(res.Now))
+	return nil
+}
+
+// modelEdgeInvoke is the seam a test drives instead of a live member.
+var modelEdgeInvoke = edgeModelInvoke

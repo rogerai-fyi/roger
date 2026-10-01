@@ -36,11 +36,16 @@ const (
 	// off until the owner turns it on THERE, and it never runs a command of the caller's
 	// choosing - it is not a shell, and a grant for operate does not reach it.
 	Maintain Capability = "maintain"
+	// ServeControl accepts a request to change WHICH MODEL a member serves
+	// (features/edge/remote_model.feature). The one Edge action that makes a machine fetch
+	// something and run it, so it carries the owner's switch on that machine AND a grant, and the
+	// wire carries a model id only - never an address.
+	ServeControl Capability = "serve-control"
 )
 
 // Capabilities lists the vocabulary in the design's order.
 func Capabilities() []Capability {
-	return []Capability{Serve, Classify, Sense, Actuate, Relay, Operate, Maintain}
+	return []Capability{Serve, Classify, Sense, Actuate, Relay, Operate, Maintain, ServeControl}
 }
 
 // Valid reports whether c is a capability at all. An unknown string is never stored:
@@ -73,6 +78,8 @@ func (c Capability) VerificationMethod() string {
 		return "declared, and gated by grant at use time"
 	case Maintain:
 		return "declared by the owner on that machine, and gated by grant at use time"
+	case ServeControl:
+		return "turned on by the owner on that machine, and gated by grant at use time"
 	}
 	return ""
 }

@@ -92,6 +92,10 @@ type EdgeHooks struct {
 	// must hold an authority-signed grant carrying maintain. The console opens no new path and adds not
 	// one line of authorization of its own. Nil = disabled.
 	Maintain func(node string, t edge.MaintainTask) (edge.MaintainResult, error)
+	// ServeModel asks a member to serve a model id under a serve-control grant
+	// (features/edge/remote_model.feature): the same request as `roger model serve <id> --on <node>`.
+	// It returns the member's own answer. Nil leaves it disabled.
+	ServeModel func(node, id string) (string, error)
 	// Floor is the factory-floor view of the rack (health.feature §5 and the floor research): the
 	// state log's samples, the standing trouble calls, the pile-up rate and the sign-off report;
 	// Roger acknowledges a call, StandBy quiets one for a time. Nil = the console shows no floor.
@@ -171,6 +175,11 @@ type edgeNodeJSON struct {
 	// Maintain is true when the unit declares maintain - its owner turned maintenance on there, so a
 	// member with a grant can act on it (features/edge/maintenance.feature). False says nothing.
 	Maintain bool `json:"maintain,omitempty"`
+	// Model is what the unit serves of its own and is fetching, worded by edge.ModelLine; ModelHave is
+	// the model ids it reported on its disk; ServeControl is whether its owner lets the Edge change it.
+	Model        string   `json:"model,omitempty"`
+	ModelHave    []string `json:"model_have,omitempty"`
+	ServeControl bool     `json:"serve_control,omitempty"`
 }
 
 // edgeSoftwareJSON is one roger's inventory line on a node card.
@@ -285,9 +294,10 @@ type edgeSnap struct {
 	// Rules is what raises an alarm on this Edge, each in the words the terminal prints, with its
 	// scope said in the owner's terms. RulesManage and MaintainManage say whether this build wired
 	// those actions, so the browser offers them exactly when they work and never draws a dead button.
-	Rules          []edgeRuleJSON `json:"rules"`
-	RulesManage    bool           `json:"rules_manage"`
-	MaintainManage bool           `json:"maintain_manage"`
+	Rules            []edgeRuleJSON `json:"rules"`
+	RulesManage      bool           `json:"rules_manage"`
+	MaintainManage   bool           `json:"maintain_manage"`
+	ServeModelManage bool           `json:"serve_model_manage"`
 	// ActuateManage says this build can perform the actuate ceremony. A console that cannot must
 	// draw no button for it rather than one that answers 501.
 	ActuateManage bool `json:"actuate_manage"`
@@ -578,6 +588,10 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		n.Via, n.Relay, n.Child = r.Via, r.Relay, r.Child
 		n.Alerts = append(n.Alerts, alerts[n.ID]...)
 		n.Maintain = edge.Declares(r.Node, edge.Maintain)
+		n.ServeControl = edge.Declares(r.Node, edge.ServeControl)
+		if mm := edge.ModelOf(r.Node); mm != nil {
+			n.Model, n.ModelHave = edge.ModelLine(mm), mm.Have
+		}
 		n.Software = []edgeSoftwareJSON{}
 		for _, in := range r.Node.Instances {
 			if w := edge.SoftwareWords(in.Software); w != "" {
@@ -657,6 +671,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	snap.Rules = []edgeRuleJSON{}
 	snap.RulesManage = h.SetRule != nil && h.RuleOff != nil && h.RemoveRule != nil
 	snap.MaintainManage = h.Maintain != nil
+	snap.ServeModelManage = h.ServeModel != nil
 	if h.Rules != nil {
 		// A rule read that fails must not blank the tab, exactly as a grants read must not: the fleet,
 		// the floor and the sessions still matter. Degrade to no rules and draw everything else.
@@ -862,6 +877,37 @@ func (s *Server) handleEdgeSink(w http.ResponseWriter, r *http.Request) {
 //     confirming, because a confirmation the requester can name themselves for is worth nothing.
 //     The host takes the operator identity it already holds;
 //   - a build with no ceremony wired answers 501 rather than pretending.
+//
+// handleEdgeServeModel asks a member to serve a model id (features/edge/remote_model.feature). The
+// body carries a node, a model id and the owner's yes - nothing that could be an address - and the
+// member judges the request itself. POST-only and token-gated like every other mutation.
+func (s *Server) handleEdgeServeModel(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.ServeModel == nil {
+		http.Error(w, "this build cannot ask a member to serve - run `roger model serve <id> --on <node>`", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		confirmed
+		ID    string `json:"id"`
+		Model string `json:"model"`
+	}
+	if !decode(r, &req) || req.ID == "" || req.Model == "" {
+		http.Error(w, "node id and model id required", http.StatusBadRequest)
+		return
+	}
+	if !req.Confirm {
+		http.Error(w, "changing what a member serves needs the owner's yes", http.StatusPreconditionRequired)
+		return
+	}
+	says, err := h.ServeModel(req.ID, req.Model)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]string{"says": says})
+}
+
 func (s *Server) handleEdgeActuate(w http.ResponseWriter, r *http.Request) {
 	h := s.opts.Edge
 	if h.Fleet == nil || h.ConfirmActuate == nil {

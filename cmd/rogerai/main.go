@@ -122,6 +122,9 @@ type config struct {
 	// default: without it this machine declares no maintain capability and its face refuses every
 	// maintenance invoke, grant or not.
 	EdgeMaintenance bool `json:"edge_maintenance,omitempty"`
+	// EdgeServeControl lets a member holding a serve-control grant change WHICH MODEL this machine
+	// serves (features/edge/remote_model.feature). Off unless the owner turns it on HERE.
+	EdgeServeControl bool `json:"edge_serve_control,omitempty"`
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -543,6 +546,8 @@ func tuiHooks(cfg config) tui.Hooks {
 	h := tui.Hooks{
 		// THE SAME `roger model` the CLI and the console run (modelweb.go).
 		Models: modelWebHooks(),
+		// ...and the same request carried to a member (edgeservecontrol.go).
+		EdgeServeModel: edgeServeModelHook,
 		// Station is the PUBLIC, NON-SENSITIVE callsign the TUI derives every band's node
 		// id from (`<station>-<model>`). It is the saved/auto-generated station, NEVER the
 		// hostname, so going on air in the TUI leaks no machine name or port. SaveStation

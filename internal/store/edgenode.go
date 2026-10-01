@@ -59,6 +59,35 @@ type EdgeInstance struct {
 	// Software is what this roger IS: its version and the machine it runs on
 	// (features/edge/inventory.feature). Read, never invented; nil on an older face.
 	Software *EdgeSoftware `json:"software,omitempty"`
+	// Model is what this roger serves by itself and what it is fetching (features/edge/
+	// remote_model.feature), as it said in its own last report. nil on a roger that serves nothing
+	// of its own, and on an older face.
+	Model *EdgeModel `json:"model,omitempty"`
+}
+
+// EdgeModel is a roger's own serving, in full, and the fetch in flight.
+type EdgeModel struct {
+	Band        string     `json:"band,omitempty"` // empty: nothing served
+	ID          string     `json:"id,omitempty"`
+	Quant       string     `json:"quant,omitempty"`
+	Ctx         int        `json:"ctx,omitempty"`
+	Since       int64      `json:"since,omitempty"`
+	Fetch       *EdgeFetch `json:"fetch,omitempty"`
+	CannotServe string     `json:"cannot_serve,omitempty"` // why this machine has no runtime, in one sentence
+	// Have is the ids of the models on its disk (bounded), so an owner on another machine can pick
+	// one to serve without walking to it. Ids only: never a path.
+	Have []string `json:"have,omitempty"`
+}
+
+// EdgeFetch is a fetch on a member, as it last reported it.
+type EdgeFetch struct {
+	Repo  string  `json:"repo"`
+	File  string  `json:"file"`
+	Done  int64   `json:"done"`
+	Total int64   `json:"total"`
+	Rate  float64 `json:"rate,omitempty"`
+	State string  `json:"state"` // fetching | done | failed | interrupted
+	Err   string  `json:"err,omitempty"`
 }
 
 // EdgeSoftware is the software inventory of one running roger. Every field is what the machine

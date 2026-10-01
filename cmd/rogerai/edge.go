@@ -100,6 +100,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"agent", "[on|off|resume <name>|remove <name>]", "run this roger as an agent, or resume/remove a persistent one", 0, 2},
 	{"maintenance", "[on|off]", "let members with a maintain grant start, stop or restart an agent here and read this machine's log (off by default)", 0, 1},
+	{"serve-control", "[on|off]", "let members with a serve-control grant change which model this machine serves (off by default)", 0, 1},
 	{"maintain", "<node> start <agent>", "ask a member to start one of its persistent agents, under a maintain grant", 3, 3},
 	{"logs", "<node> [--lines <n>]", "read a member's recent log lines, redacted, under a maintain grant", 1, 1},
 	{"model", "<agent> <model> [use|share|use,share]", "bind a model to an agent, to use or share on the Edge", 2, 3},
@@ -221,6 +222,8 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeAgent(cfg, rest)
 	case "maintenance":
 		return cmdEdgeMaintenance(cfg, rest)
+	case "serve-control":
+		return cmdEdgeServeControl(cfg, rest)
 	case "maintain":
 		return cmdEdgeMaintain(cfg, rest)
 	case "logs":

@@ -757,6 +757,11 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		}
 		// A Pi's power, from the freshest reading any of its rogers sent: the classic Pi failure, so
 		// it sits beside the hardware it is about. Happening now is lit; history is dim.
+		// WHAT IT SERVES of its own, and what it is fetching - still naming what is served NOW while a
+		// fetch for something else runs (features/edge/remote_model.feature).
+		if mm := edge.ModelOf(*n); mm != nil {
+			label("MODEL", edge.ModelLine(mm))
+		}
 		if w, ok := edgePiPower(*n); ok {
 			if now, _ := edge.PowerWords(w); len(now) > 0 {
 				label("POWER", stEmber.Render(edge.PowerLine(w)))

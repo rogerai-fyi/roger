@@ -183,7 +183,10 @@ type Hooks struct {
 	EdgeAgentJobs func() []edge.AgentJob
 	// EdgeSetAgentJob and EdgeClearAgentJob set/clear an agent's assignment in place, so the owner
 	// binds a model or a job from [3] without leaving the screen.
-	EdgeSetAgentJob   func(j edge.AgentJob) error
+	EdgeSetAgentJob func(j edge.AgentJob) error
+	// EdgeServeModel asks a member (by node id) to serve a model id, under a serve-control grant
+	// (features/edge/remote_model.feature). It returns the member's own answer.
+	EdgeServeModel    func(node, id string) (string, error)
 	EdgeClearAgentJob func(name string) error
 	// EdgeLadder fills the dispatch-ladder seams on the live proxy options, so the TUI
 	// booth tries a peer on this Edge before the market exactly as `roger use` does.
@@ -1580,6 +1583,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.syncShareCache()
 	if nm, cmd, ok := m.onModelsMsg(msg); ok {
 		return nm, cmd
+	}
+	if sm, ok := msg.(edgeServeModelMsg); ok {
+		return m.onEdgeServeModelMsg(sm), nil
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:

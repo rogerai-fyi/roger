@@ -1550,7 +1550,7 @@
   // the capability vocabulary as MARKS, UPPER when VERIFIED - case, not colour
   // The capability marks, the SAME two letters the TUI and the fleet screen use. "se" for sense was
   // this console's own invention and read as a different capability beside the terminal's "sn".
-  var EDGE_MARK = { serve: "sv", classify: "cl", sense: "sn", actuate: "ac", relay: "rl", operate: "op", maintain: "mt" };
+  var EDGE_MARK = { serve: "sv", classify: "cl", sense: "sn", actuate: "ac", relay: "rl", operate: "op", maintain: "mt", "serve-control": "sc" };
 
   function svgEl(tag, attrs) {
     var n = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -2506,6 +2506,8 @@
     if ((n.tags || []).length) edgeKV(card, "tags", n.tags.join(" \u00b7 "));
     // Maintenance is on there: a member with a grant can start, stop or restart one of its rogers.
     if (n.maintain) edgeKV(card, "service", "maintenance is on there", "edge-alert");
+    // What it serves of its own and what it is fetching, in the words every surface uses.
+    if (n.model) edgeKV(card, "model", n.model);
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
     (n.alerts || []).forEach(function (a, i) { edgeKV(card, i === 0 ? "alerts" : "", "\u26a0 firing \u00b7 " + a, "edge-alert"); });
     if (n.pin) edgeKV(card, "pin", edgeClip(n.pin, 24));
@@ -2551,8 +2553,41 @@
       // only where it can work - the host wired the action AND that machine declares maintenance,
       // because the owner's switch lives THERE and nothing here can turn it on for them.
       if (d.maintain_manage && n.maintain) edgeServiceControls(card, d, n);
+      // SERVE MODEL: change what that machine serves. Offered only where its owner turned it on
+      // THERE; the member judges the request against its own memory and answers in its own words.
+      if (d.serve_model_manage && n.serve_control) edgeServeModelControls(card, n);
     }
     show(card, true);
+  }
+
+  // edgeServeModelControls: pick a model the member has, or name one exactly as owner/repo:QUANT for it
+  // to fetch from its own source. Asked first, with the safe answer focused.
+  function edgeServeModelControls(card, n) {
+    var row = el("div", "card-actions edge-serve-model");
+    var pick = el("select", "inp");
+    (n.model_have || []).forEach(function (id) { var o = el("option", null, id + "  (on its disk)"); o.value = id; pick.appendChild(o); });
+    var other = el("option", null, "fetch exactly…"); other.value = ""; pick.appendChild(other);
+    var exact = el("input", "inp"); exact.type = "text"; exact.maxLength = 200; exact.placeholder = "owner/repo:QUANT";
+    exact.hidden = (n.model_have || []).length > 0;
+    pick.addEventListener("change", function () { exact.hidden = pick.value !== ""; });
+    var btn = el("button", "btn small", "serve on " + edgeName(n));
+    btn.setAttribute("type", "button");
+    btn.addEventListener("click", function () {
+      var id = pick.value || exact.value.trim();
+      if (!/^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*:[A-Za-z0-9][\w.-]*$/.test(id) && (n.model_have || []).indexOf(id) < 0) {
+        toast("name it exactly as owner/repo:QUANT - a member searches nowhere for a model", "warn");
+        return;
+      }
+      askSafe("Ask " + edgeName(n) + " to serve this?", id + "\n\n" + edgeName(n) + " judges it against its own memory, fetches it if it must, and keeps serving what it serves now until the new one answers.", "Ask").then(function (yes) {
+        if (!yes) return;
+        apiPost("/api/edge/serve-model", { confirm: true, id: n.id, model: id }).then(function (d) {
+          toast(edgeName(n) + ": " + d.says);
+          loadEdge();
+        }).catch(function (e) { toast(e.message, "err"); });
+      });
+    });
+    row.appendChild(pick); row.appendChild(exact); row.appendChild(btn);
+    card.appendChild(row);
   }
 
   // edgeTagPrompt is the inline tag editor (features/edge/tags.feature): the owner's own words for

@@ -145,6 +145,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/edge/rule/remove", s.action(s.handleEdgeRuleRemove))
 	s.mux.HandleFunc("/api/edge/maintain", s.action(s.handleEdgeMaintain))
 	s.mux.HandleFunc("/api/edge/actuate", s.action(s.handleEdgeActuate))
+	s.mux.HandleFunc("/api/edge/serve-model", s.action(s.handleEdgeServeModel))
 	s.mux.HandleFunc("/api/edge/sink", s.action(s.handleEdgeSink))
 	s.mux.HandleFunc("/api/edge/roger", s.action(s.handleEdgeRoger))
 	s.mux.HandleFunc("/api/edge/standby", s.action(s.handleEdgeStandBy))

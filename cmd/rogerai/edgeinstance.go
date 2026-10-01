@@ -71,6 +71,15 @@ func edgeInstanceCaps(bands []string, maintain bool) []store.EdgeCap {
 	return caps
 }
 
+// edgeInstanceCapsFor is edgeInstanceCaps with every owner switch on THIS machine applied.
+func edgeInstanceCapsFor(cfg config, bands []string) []store.EdgeCap {
+	caps := edgeInstanceCaps(bands, edgeMaintenanceOn(cfg))
+	if edgeServeControlOn(cfg) {
+		caps = append(caps, store.EdgeCap{Name: string(edge.ServeControl), State: string(edge.Claimed)})
+	}
+	return caps
+}
+
 // edgeIsAgentRole reports whether THIS roger is declared an agent on its Edge, by ANY of the
 // three ways the founder ruled (features/edge/agents.feature): the ROGER_EDGE_AGENT launch env
 // (a scripted/automatic agent job, wins per-run), or the persisted config role (set by
@@ -99,7 +108,7 @@ func (h *edgeHost) registerInstance(cfg config) {
 		taken = append(taken, in.Name)
 	}
 	bands := edgeBandsOnAir()
-	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCaps(bands, edgeMaintenanceOn(cfg)),
+	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCapsFor(cfg, bands), Model: edgeModelNow(),
 		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now), Software: edgeReadSoftware(),
 		PID:  os.Getpid(),  // its own pid, about itself: what lets the owner stop it from another machine
 		Port: h.facePort()} // its OWN face, so a caller can address this roger rather than the machine
@@ -144,8 +153,9 @@ func (h *edgeHost) beatInstance(cfg config) {
 	bands := edgeBandsOnAir()
 	agent := edgeIsAgentRole(cfg)
 	_ = reg.Update(node, func(i *edge.Instance) {
-		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCaps(bands, edgeMaintenanceOn(cfg)), edgeReadResources(now)
-		i.Agent = agent // a change via `roger edge agent on` is picked up on the next pass
+		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCapsFor(cfg, bands), edgeReadResources(now)
+		i.Model = edgeModelNow() // what it serves of its own and is fetching, so the fleet can see it
+		i.Agent = agent          // a change via `roger edge agent on` is picked up on the next pass
 		// The software record is refreshed every beat, exactly like the resources: it is what the
 		// machine says NOW. Refreshing only when absent left a stale record standing for the life of
 		// the process, so a kernel upgrade - or a fix to the reader itself - showed up on a restart
@@ -372,6 +382,9 @@ func edgeSelfDeclares(need edge.Capability) bool {
 		// a grant alone never reaches a machine whose owner did not ask (features/edge/maintenance.feature).
 		return edgeMaintenanceOn(loadConfig())
 	}
+	if need == edge.ServeControl {
+		return edgeServeControlOn(loadConfig()) // the same rule (features/edge/remote_model.feature)
+	}
 	for _, c := range edgeInstanceCaps(edgeBandsOnAir(), edgeMaintenanceOn(loadConfig())) {
 		if c.Name == string(need) {
 			return c.State == string(edge.Verified)
@@ -500,6 +513,9 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 					// The owner's switch is off here. Say THAT, and how to turn it on: "no verified
 					// capability for this" is true and tells the operator nothing they can act on.
 					return fmt.Errorf("%s", edge.MaintainOffReason)
+				}
+				if need == edge.ServeControl {
+					return fmt.Errorf("%s", edge.ServeControlOffReason)
 				}
 				return fmt.Errorf("%w: %s", edge.ErrNotVerified, need)
 			}

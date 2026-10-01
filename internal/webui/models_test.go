@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // features/serving/local_models.feature §8: the console's models page, driven over HTTP with its
@@ -203,4 +206,54 @@ func TestTheModelsPageNeverTreatsIndexTextAsHTMLAndAsksSafely(t *testing.T) {
 	require.Contains(t, sec, `$("ask-no").focus()`, "Cancel holds the focus, so Enter alone answers No")
 	require.Equal(t, 4, strings.Count(sec, "confirm: true"), "fetch, serve, stop and remove each carry the owner's yes")
 	require.Equal(t, 4, strings.Count(sec, ".then(function (yes) {\n      if (!yes) return;"), "and each is asked first, and stops on a No")
+}
+
+// features/edge/remote_model.feature (@web): a member's model is on its card, and the console asks it
+// to serve one with the owner's yes, carrying a node and a model id only.
+func TestTheConsoleShowsAndSwitchesAMembersModel(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	n := edge.NewNode(nil, "jetson", edge.Host)
+	n.ID = "n_jetson"
+	n.Presence = string(edge.PresenceVerified)
+	n.Caps = []store.EdgeCap{{Name: string(edge.ServeControl), State: string(edge.Claimed)}}
+	n.Instances = []store.EdgeInstance{{Name: "jetson", Model: &store.EdgeModel{Band: "qwen3-4b", ID: "unsloth/Qwen3-4B-GGUF:Q4_K_M", Ctx: 8192,
+		Have: []string{"unsloth/Qwen3-4B-GGUF:Q4_K_M"}}}}
+	_, err := fleet.Enroll(n)
+	require.NoError(t, err)
+	var asked []string
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Fleet: fleet, ServeModel: func(node, id string) (string, error) {
+		asked = append(asked, node+"|"+id)
+		return "starting; it serves once proven", nil
+	}}})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	code, body := call(t, srv, s.Token(), "GET", "/api/edge", "")
+	require.Equal(t, http.StatusOK, code, body)
+	require.Contains(t, body, `"serve_model_manage":true`)
+	require.Contains(t, body, `"serve_control":true`)
+	require.Contains(t, body, `serving \"qwen3-4b\" (unsloth/Qwen3-4B-GGUF:Q4_K_M, 8192 context)`)
+	require.Contains(t, body, `"model_have":["unsloth/Qwen3-4B-GGUF:Q4_K_M"]`)
+
+	code, _ = call(t, srv, s.Token(), "POST", "/api/edge/serve-model", `{"id":"n_jetson","model":"unsloth/Qwen3-8B-GGUF:Q4_K_M"}`)
+	require.Equal(t, http.StatusPreconditionRequired, code, "no yes, no request")
+	code, body = call(t, srv, s.Token(), "POST", "/api/edge/serve-model",
+		`{"confirm":true,"id":"n_jetson","model":"unsloth/Qwen3-8B-GGUF:Q4_K_M","url":"http://evil/x.gguf"}`)
+	require.Equal(t, http.StatusOK, code, body)
+	require.Contains(t, body, "starting")
+	require.Equal(t, []string{"n_jetson|unsloth/Qwen3-8B-GGUF:Q4_K_M"}, asked, "the member is sent a node and an id, nothing else")
+	code, _ = call(t, srv, s.Token(), "POST", "/api/edge/serve-model", `{"confirm":true,"id":"n_jetson"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	code, _ = call(t, srv, s.Token(), "GET", "/api/edge/serve-model", "")
+	require.Equal(t, http.StatusMethodNotAllowed, code)
+
+	js := consoleJS(t)
+	require.Contains(t, js, "edgeServeModelControls(card, n)")
+	require.Contains(t, js, "searches nowhere for a model")
+
+	off := New(testCtrl(), Options{Edge: EdgeHooks{Fleet: fleet}})
+	srv2 := httptest.NewServer(off.Handler())
+	defer srv2.Close()
+	code, _ = call(t, srv2, off.Token(), "POST", "/api/edge/serve-model", `{"confirm":true,"id":"n_jetson","model":"a/b:Q4"}`)
+	require.Equal(t, http.StatusNotImplemented, code)
 }

@@ -103,6 +103,8 @@ type edgeState struct {
 	binding    bool
 	bindBuf    string
 	bindTarget string
+	// serveModel is the "Serve Model" picker for a member (edge_servemodel.go).
+	serveModel edgeServeModelState
 	// netSel is the highlighted node in the network map (index into edgeNetItems): the machine,
 	// then the rogers/agents on it. Arrow keys move it; the actions act on it. Until the owner first
 	// moves (netSelSet), the highlight defaults to THIS roger, so the commonest action (make this
@@ -326,6 +328,9 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.onEdgeBindKey(k)
 		return m, nil
 	}
+	if m.edge.serveModel.open {
+		return m.onEdgeServeModelKey(k)
+	}
 	if m.edge.detail {
 		switch key {
 		case "esc", "q", "enter", "i":
@@ -378,7 +383,7 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.edgeSetupState().Enrolled {
 			m.openEdgeSetup()
 		}
-	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h", "o", "f", "p", "c":
+	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h", "o", "f", "p", "c", "M":
 		// The lettered actions - each also reachable by focusing its button (Tab / down) and
 		// pressing enter. One dispatch, so a key press and a button press do the same thing.
 		return m.edgeDispatchAction(key)
@@ -533,6 +538,8 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 		return m, m.edgeOpenLive("fleet")
 	case "b":
 		m.edgeStartBind()
+	case "M":
+		return m.edgeStartServeModel()
 	case "p":
 		m.edgeStartAsk()
 	case "a":
@@ -1075,6 +1082,8 @@ var edgeCapMark = map[edge.Capability]string{
 	edge.Relay:    "rl",
 	edge.Operate:  "op",
 	edge.Maintain: "mt",
+	// "sc": serve-control, the owner let the Edge change what it serves (remote_model.feature).
+	edge.ServeControl: "sc",
 }
 
 // edgeOpenLive runs one of the live Edge screens (`roger edge fleet`, `roger edge health --live`)

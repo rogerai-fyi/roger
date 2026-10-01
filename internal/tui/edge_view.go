@@ -583,6 +583,9 @@ func (m model) edgeActions() []edgeAction {
 		if model, ok := edgeItemServes(it); ok {
 			out = append(out, edgeAction{"p", "Ask", "prompt " + model + " on this node", true})
 		}
+		if m.hooks.EdgeServeModel != nil && it.node != nil && edge.Declares(*it.node, edge.ServeControl) {
+			out = append(out, edgeAction{"M", "Serve Model", "change what it serves", false})
+		}
 		if m.hooks.EdgeName != nil {
 			out = append(out, edgeAction{"n", "Rename", "rename this device", false})
 		}
@@ -611,6 +614,9 @@ func (m model) edgeActions() []edgeAction {
 		}
 		if m.hooks.EdgeSetAgentJob != nil {
 			out = append(out, edgeAction{"b", "Bind Model", "record which model it should run", false})
+		}
+		if m.hooks.Models.View != nil {
+			out = append(out, edgeAction{"M", "Serve Model", "fetch and serve one here", false})
 		}
 		if m.hooks.EdgeRenameSelf != nil {
 			out = append(out, edgeAction{"n", "Rename", "rename this roger", false})
@@ -719,6 +725,10 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 	if m.edge.renaming {
 		line("  " + stKey.Render("RENAME THIS ROGER") + stDim.Render("  ⏎ apply · esc cancel"))
 		line("  " + lampStyle(roleLive).Render("▶ ") + stEmber.Render(m.edge.renameBuf) + lampStyle(roleLive).Render("_"))
+		return
+	}
+	if m.edge.serveModel.open {
+		m.edgeServeModelPanel(line)
 		return
 	}
 	if m.edge.binding {
