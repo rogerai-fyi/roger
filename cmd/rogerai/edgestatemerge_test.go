@@ -434,3 +434,16 @@ func TestAnInPlaceEditIsNotLostToTheBase(t *testing.T) {
 	require.Equal(t, []string{"outside"}, n.Tags)
 	require.Equal(t, string(edge.Verified), n.Caps[0].State, "confirming was undone by a later tag edit")
 }
+
+// A phone's vitals are an observation: the fresher sighting's vitals win, like its presence does.
+func TestAPhonesVitalsMergeWithTheFresherSighting(t *testing.T) {
+	low, high := 20, 80
+	base := store.EdgeNode{ID: "n_p", Name: "nina", Kind: "mobile", LastSeen: 100}
+	mine := base
+	mine.LastSeen, mine.Phone = 200, &store.EdgePhone{BatteryPct: &high}
+	theirs := base
+	theirs.LastSeen, theirs.Phone = 150, &store.EdgePhone{BatteryPct: &low}
+	require.Equal(t, 80, *edgeMergeOne(base, mine, theirs, true).Phone.BatteryPct)
+	mine.LastSeen = 120
+	require.Equal(t, 20, *edgeMergeOne(base, mine, theirs, true).Phone.BatteryPct)
+}

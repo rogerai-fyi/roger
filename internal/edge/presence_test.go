@@ -240,3 +240,70 @@ func TestPresenceNonceOutlivesAFutureDatedRequest(t *testing.T) {
 	require.NotEqual(t, http.StatusOK, doPresence(h, p).Code,
 		"the same still-fresh presence must not be replayable after its original nonce window")
 }
+
+// features/edge/fleet_window.feature §8: a phone reports what a phone can honestly report - battery,
+// charging, thermal state, whether the app is in front - SIGNED, in a v2 presence. A v1 presence is
+// still accepted unchanged; vitals that are not signed are never believed.
+func TestAPhonesVitalsArriveSignedAndAreRecorded(t *testing.T) {
+	f, a, priv, id, certPEM := presenceFixture(t)
+	h := PresenceHandler(f, a, time.Now)
+	battery, charging, front := 64, true, false
+	p := validPresence(id, certPEM)
+	p.V = 2
+	p.Vitals = &PhoneVitals{BatteryPct: &battery, Charging: &charging, Thermal: "fair", Foreground: &front}
+	signPresence(&p, priv)
+	require.Equal(t, http.StatusOK, doPresence(h, p).Code, "a signed v2 presence is accepted")
+	n, _, _ := f.Get(id)
+	require.NotNil(t, n.Phone)
+	require.Equal(t, 64, *n.Phone.BatteryPct)
+	require.True(t, *n.Phone.Charging)
+	require.Equal(t, "fair", n.Phone.Thermal)
+	require.False(t, *n.Phone.Foreground)
+	require.NotZero(t, n.Phone.ReadAt)
+
+	// The vitals are inside the signature: change one after signing and it is refused.
+	p2 := validPresence(id, certPEM)
+	p2.V = 2
+	p2.Vitals = &PhoneVitals{BatteryPct: &battery}
+	signPresence(&p2, priv)
+	other := 5
+	p2.Vitals.BatteryPct = &other
+	require.Equal(t, http.StatusForbidden, doPresence(h, p2).Code)
+
+	// Vitals on a v1 presence are not signed, so they are refused rather than believed.
+	p3 := validPresence(id, certPEM)
+	p3.Vitals = &PhoneVitals{BatteryPct: &battery}
+	signPresence(&p3, priv)
+	require.Equal(t, http.StatusForbidden, doPresence(h, p3).Code)
+
+	// Nonsense is refused: a battery over 100, a thermal state that does not exist, a version from the future.
+	for _, bad := range []func(*PresenceRequest){
+		func(p *PresenceRequest) { b := 140; p.Vitals = &PhoneVitals{BatteryPct: &b} },
+		func(p *PresenceRequest) { p.Vitals = &PhoneVitals{Thermal: "volcanic"} },
+		func(p *PresenceRequest) { p.V = 3 },
+	} {
+		p := validPresence(id, certPEM)
+		p.V = 2
+		bad(&p)
+		signPresence(&p, priv)
+		require.Equal(t, http.StatusForbidden, doPresence(h, p).Code)
+	}
+
+	// A v1 presence with no vitals still works exactly as before, and does not erase what a v2 said.
+	p4 := validPresence(id, certPEM)
+	signPresence(&p4, priv)
+	require.Equal(t, http.StatusOK, doPresence(h, p4).Code)
+	n, _, _ = f.Get(id)
+	require.NotNil(t, n.Phone, "an older app's presence does not wipe the last vitals")
+}
+
+// The v2 signed form, pinned byte for byte: this is what the Roger app must produce.
+func TestTheV2PresenceCanonicalFormIsPinned(t *testing.T) {
+	b, c, fg := 64, true, false
+	p := PresenceRequest{NodeID: "n_x", Name: "nina", Kind: "mobile", Caps: []string{"classify"}, Addr: "",
+		Nonce: "00", TS: 1700000000, V: 2, Vitals: &PhoneVitals{BatteryPct: &b, Charging: &c, Thermal: "fair", Foreground: &fg}}
+	require.Equal(t, "rogerai-edge-present/v2\nn_x\nnina\nmobile\nclassify\n\n00\n1700000000\n64\n1\nfair\n0", string(p.canonical()))
+	p.Vitals = &PhoneVitals{}
+	require.Equal(t, "rogerai-edge-present/v2\nn_x\nnina\nmobile\nclassify\n\n00\n1700000000\n\n\n\n", string(p.canonical()),
+		"an absent reading is an empty field, never a zero")
+}

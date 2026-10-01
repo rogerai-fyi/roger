@@ -71,3 +71,29 @@ func TestAUnitNobodyNamedIsCalledByWhatItIs(t *testing.T) {
 	bare := store.EdgeNode{ID: "n_eeee", Name: "n_eeee"}
 	require.Equal(t, "device", edge.UnitName(bare, []store.EdgeNode{bare}))
 }
+
+// features/edge/fleet_window.feature §8: a phone the system put in the background is ASLEEP, not
+// broken, and its vitals read in words with absent readings left out.
+func TestAPhoneInTheBackgroundIsAsleepNotBroken(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	no, yes, b := false, true, 64
+	phone := store.EdgeNode{Kind: "mobile", Presence: string(edge.PresenceVerified), LastSeen: now.Add(-3 * time.Minute).Unix(),
+		Phone: &store.EdgePhone{Foreground: &no}}
+	w, line := edge.UnitWord(phone, 0, now)
+	require.Equal(t, edge.WordAsleep, w)
+	require.Equal(t, "ASLEEP 3m", line)
+	phone.Phone.Foreground = &yes
+	w, _ = edge.UnitWord(phone, 0, now)
+	require.Equal(t, edge.WordHeard, w, "in front, with no face to dial, it is heard")
+	phone.Presence = string(edge.PresenceDark)
+	phone.Phone.Foreground = &no
+	w, _ = edge.UnitWord(phone, 0, now)
+	require.Equal(t, edge.WordDark, w, "past the liveness window it is dark, whatever it last said")
+
+	require.Equal(t, "battery 64% · charging · thermal fair · app in front",
+		edge.PhoneLine(&store.EdgePhone{BatteryPct: &b, Charging: &yes, Thermal: "fair", Foreground: &yes}))
+	require.Equal(t, "app in the background", edge.PhoneLine(&store.EdgePhone{Foreground: &no}))
+	require.Equal(t, "battery 64% · on battery", edge.PhoneLine(&store.EdgePhone{BatteryPct: &b, Charging: &no}))
+	require.Empty(t, edge.PhoneLine(nil))
+	require.Empty(t, edge.PhoneLine(&store.EdgePhone{}))
+}

@@ -205,6 +205,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		it.Tags = append([]string(nil), n.Tags...)
 		it.Maintain = edge.Declares(n, edge.Maintain)
 		it.Controllable = edge.Controllable(n)
+		it.Phone = n.Phone
 		if mm := edge.ModelOf(n); mm != nil {
 			it.Model, it.Serving = edge.ModelLine(mm), edgeServingShort(mm)
 		} else if len(n.Instances) > 0 {

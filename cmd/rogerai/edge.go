@@ -457,6 +457,7 @@ func edgeMergeOne(base, mine, theirs store.EdgeNode, inBase bool) store.EdgeNode
 		out.LastSeen, out.Presence = mine.LastSeen, mine.Presence
 		out.Transports, out.Station = mine.Transports, mine.Station
 		out.Instances, out.InstancesTruncated = mine.Instances, mine.InstancesTruncated
+		out.Phone = mine.Phone // a phone's vitals are an observation too
 	}
 	out.History = edgeMergeHistory(mine.History, theirs.History)
 	return out

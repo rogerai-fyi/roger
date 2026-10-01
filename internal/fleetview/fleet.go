@@ -17,6 +17,7 @@ import (
 	lm "github.com/thebanri/limoni"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // ItemKind is what a line on the map is.
@@ -110,6 +111,8 @@ type FleetItem struct {
 	// the same in the few words a rack row has room for.
 	Model   string
 	Serving string
+	// Phone is a phone's own signed vitals (battery, charging, thermal, app in front); nil otherwise.
+	Phone *store.EdgePhone
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -164,6 +167,9 @@ func (it FleetItem) state(now time.Time) (string, lm.Color, time.Duration) {
 		return edge.WordDark, ash, since
 	case edge.StateTrouble:
 		return edge.WordTrouble, live, since
+	}
+	if p := it.Phone; it.Kind == ItemMember && p != nil && p.Foreground != nil && !*p.Foreground {
+		return edge.WordAsleep, muted, since // the system put its app in the background: not broken
 	}
 	if it.Kind == ItemMember && !it.Controllable {
 		return edge.WordHeard, glow, since // heard, with no face this machine can dial
@@ -340,6 +346,7 @@ type Fleet struct {
 	query     string
 	filtering bool   // the / prompt is up (input holds the text)
 	want      string // a unit to select once it is on the rack (SelectUnit)
+	help      bool   // ? is up: every key, in place of the readout
 	toast     string
 	toastAt   time.Time
 	toastErr  bool
@@ -635,6 +642,8 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 	switch {
 	case k.Ch == '/':
 		f.filtering, f.input = true, []rune(f.query)
+	case k.Ch == '?':
+		f.help = !f.help
 	case k.Ch == 'h':
 		if it := f.selected(); it.Kind == ItemMember && it.Controllable && !it.Dark && f.Actions.AskNow != nil {
 			msg, err := f.Actions.AskNow(it.ID)
@@ -1187,6 +1196,34 @@ func hourLine(vals []float64, w int) (line string, lo, hi float64, ok bool) {
 	return string(out), lo, hi, true
 }
 
+// allKeys is every key the fleet window answers to, what it does and where (fleet_window.feature:
+// "question mark lists them all"). The footer shows only those that do something right now.
+var allKeys = []struct{ key, what string }{
+	{"↑↓ j k", "move between units"},
+	{"/", "filter: a name, kind:phone, tag:outdoor, state:dark · esc clears"},
+	{"s", "order the rack: worst first, name, kind, last heard, hottest"},
+	{"h", "hear now: ask a unit to report at once (a unit with a face to dial)"},
+	{"a", "adopt a unit on the bench, or re-admit one asking to re-join"},
+	{"n", "rename a unit"},
+	{"f", "forget a unit - asked first, and only y says yes"},
+	{"p", "on this machine: where a turn goes first"},
+	{"g", "on this machine: make this roger an agent, or stop"},
+	{"b c u x", "on a roger: bind a model, clear its job, resume, remove"},
+	{"1 to 7", "fleet, andon, trouble, grants, sessions, health, events"},
+	{"r", "re-read now"},
+	{"?", "this list, again to close it"},
+	{"q", "quit"},
+}
+
+func (f *Fleet) drawKeys(fr *lm.Frame, area lm.Rect) int {
+	lines := []lm.Line{lm.NewLine(), lm.NewLine(span("  ", dim), eyebrow("keys", muted), span("   ? closes", dim)), lm.NewLine()}
+	for _, k := range allKeys {
+		lines = append(lines, lm.NewLine(span("  ", dim), bold(pad(k.key, 9), ink), span(k.what, muted)))
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
+	return len(lines)
+}
+
 // summaryLine is what needs the owner before any detail: how many units, how many on air, in
 // trouble, dark, heard only and waiting - and what the filter hides, so nothing is hidden silently.
 func (f *Fleet) summaryLine() lm.Line {
@@ -1266,6 +1303,9 @@ func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
 		// No live readings to draw: the eye and DARK already say so, and the room goes to what it
 		// served when last heard.
 		facts = 0
+	case it.Phone != nil && it.Phone.BatteryPct != nil:
+		// A phone has no processor figures to give; its battery is the number that matters.
+		out = append(out, span(pad(fmt.Sprintf("batt %d%%", *it.Phone.BatteryPct), 10), ink))
 	case it.Health == nil || it.Health.Readings == nil:
 		out = append(out, span("┈┈┈   ┈┈┈ ", ash))
 	default:
@@ -1306,6 +1346,9 @@ func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
 // instruments (the only rows with an eyebrow), then its facts as plain lines. It returns how many
 // rows it drew.
 func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
+	if f.help {
+		return f.drawKeys(fr, area)
+	}
 	it := f.selected()
 	now := f.snap.At
 	width := int(area.Width) - 4
@@ -1437,6 +1480,14 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		}
 		if it.Model != "" {
 			row("model", span(it.Model, dial))
+		}
+		if pl := edge.PhoneLine(it.Phone); pl != "" {
+			label := "phone"
+			for _, piece := range wrapDots(pl, 46) {
+				row(label, span(piece, ink))
+				label = ""
+			}
+			row("", span(edge.Age(now.Sub(time.Unix(it.Phone.ReadAt, 0)))+" ago", muted))
 		}
 		if !it.LastRead.IsZero() {
 			row("hears", span("hears the Edge · read the feed "+edge.Age(now.Sub(it.LastRead))+" ago", signal))
@@ -1658,7 +1709,7 @@ func (f *Fleet) actions() []action {
 			}
 		}
 	}
-	out = append(out, action{"/", "filter"}, action{"s", "sort"})
+	out = append(out, action{"/", "filter"}, action{"s", "sort"}, action{"?", "keys"})
 	out = append(out, action{"2", "andon"}, action{"3", "trouble"}, action{"4", "grants"}, action{"5", "sessions"})
 	if f.health != nil {
 		out = append(out, action{"6", "health"})
@@ -1963,6 +2014,11 @@ func (f *Fleet) drawAndon(fr *lm.Frame, area lm.Rect) {
 				row4 = append(row4, tileCrew(it)...)
 			}
 			for r, sp := range [][]lm.Span{row0, row1, row2, row3, row4, {span(pad("", tileW), dim)}} {
+				// Every row of a tile is exactly tileW wide, whatever it holds: a short row (an empty
+				// airtime strip on a unit with no log yet) pulled every later tile out of its column.
+				if w := lineWidth(lm.NewLine(sp...)); w < tileW {
+					sp = append(sp, span(strings.Repeat(" ", tileW-w), dim))
+				}
 				tile[r] = append(tile[r], sp...)
 				tile[r] = append(tile[r], span(" ", dim))
 			}

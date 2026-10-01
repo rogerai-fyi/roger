@@ -2,10 +2,14 @@ package webui
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // The console's rule form offers every metric the fleet can judge: a rule the CLI can set and the
@@ -37,5 +41,35 @@ func TestTheConsoleMarksEveryCapability(t *testing.T) {
 		if !strings.Contains(table, string(c)+`"`) && !strings.Contains(table, string(c)+":") {
 			t.Errorf("the console has no mark for %q", c)
 		}
+	}
+}
+
+// A phone's card in the console says it is asleep and what it reported, in the shared words.
+func TestTheConsoleCardSaysAPhoneIsAsleepAndItsVitals(t *testing.T) {
+	fleet := edge.NewFleet(store.NewMem(), "acct-1")
+	b, no := 64, false
+	n := edge.NewNode(nil, "nina", edge.Mobile)
+	n.ID = "n_nina"
+	n.Presence = string(edge.PresenceVerified)
+	n.Phone = &store.EdgePhone{BatteryPct: &b, Foreground: &no}
+	if _, err := fleet.Enroll(n); err != nil {
+		t.Fatal(err)
+	}
+	s := New(testCtrl(), Options{Edge: EdgeHooks{Fleet: fleet}})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/api/edge?t=" + s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	for _, want := range []string{`"state":"ASLEEP now"`, `"phone":"battery 64% · app in the background"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("missing %s in %s", want, body)
+		}
+	}
+	if !strings.Contains(consoleJS(t), `edgeKV(card, "phone", n.phone)`) {
+		t.Error("the console does not draw a phone's vitals")
 	}
 }

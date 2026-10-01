@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/thebanri/limoni/uitest"
 
@@ -891,5 +892,97 @@ func TestTheUnitsPageDrawsItsLastHourWithGaps(t *testing.T) {
 	}
 	if !strings.Contains(strings.TrimRight(row[strings.Index(row, "▁"):], " "), "  ") {
 		t.Fatalf("the dark minutes are not a gap: %q", row)
+	}
+}
+
+// features/edge/fleet_window.feature §7, §8, §1: ? lists every key; Enter alone never forgets; the
+// window is one line per unit at 80 columns and reads without colour.
+func TestKeysAreListedEnterIsNoAndEightyColumnsHold(t *testing.T) {
+	rec := &recorder{}
+	now := time.Now()
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, nil, rec.actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("?")
+	must(t, page.Screen(), "KEYS", "hear now", "worst first", "only y says yes")
+	page.Press("?")
+	if strings.Contains(page.Screen(), "only y says yes") {
+		t.Fatal("? did not close the key list")
+	}
+	f.SelectUnit("n_nas")
+	page.Press("r")
+	page.Press("f")
+	must(t, page.Screen(), "forget nas?")
+	page.Press("Enter")
+	if len(rec.forgot) != 0 {
+		t.Fatalf("Enter alone forgot a unit: %v", rec.forgot)
+	}
+
+	narrow := uitest.Run(t, 80, 30, fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, nil, rec.actions()).Draw)
+	s := narrow.Screen()
+	for _, ln := range strings.Split(s, "\n") {
+		if utf8.RuneCountInString(ln) > 80 {
+			t.Errorf("a line is wider than 80 columns: %q", ln)
+		}
+	}
+	// Every state is a word, not a colour.
+	must(t, s, "nas", "ON AIR", "DARK")
+}
+
+// features/edge/fleet_window.feature §8: a phone's own vitals on its row and its page, and a phone in
+// the background reads ASLEEP, not broken.
+func TestAPhoneShowsItsVitalsAndSleepsHonestly(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	b, no, yes := 64, false, true
+	snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemMember, ID: "n_nina", Name: "nina", NodeKind: "mobile",
+		Presence: "online", LastSeen: now.Add(-3 * time.Minute),
+		Phone: &store.EdgePhone{BatteryPct: &b, Charging: &yes, Thermal: "nominal", Foreground: &no, ReadAt: now.Add(-3 * time.Minute).Unix()}})
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	must(t, page.Screen(), "ASLEEP", "batt 64%")
+	f.SelectUnit("n_nina")
+	page.Press("r")
+	must(t, page.Screen(), "PHONE", "battery 64% · charging", "thermal nominal", "app in the background", "3m ago")
+}
+
+// ANDON tiles stay in their columns even when a unit has no log yet (found rendering the screen at
+// 130 columns, 2026-10-01: an empty airtime strip pulled every later tile left).
+func TestAndonTilesStayInTheirColumnsWithoutALog(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now) // no unit carries a log
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 130, 44, f.Draw)
+	page.Press("2")
+	var cols []int
+	for _, ln := range strings.Split(page.Screen(), "\n") {
+		if strings.Contains(ln, "AIRTIME") {
+			r := []rune(ln)
+			for i := 0; i+7 <= len(r); i++ {
+				if string(r[i:i+7]) == "AIRTIME" {
+					cols = append(cols, i)
+				}
+			}
+			break
+		}
+	}
+	if len(cols) < 2 {
+		t.Fatalf("no tile row with two AIRTIME labels:\n%s", page.Screen())
+	}
+	var heads []int
+	for _, ln := range strings.Split(page.Screen(), "\n") {
+		if strings.Count(ln, "▌") >= 2 && !strings.Contains(ln, "AIRTIME") {
+			r := []rune(ln)
+			for i, c := range r {
+				if c == '▌' {
+					heads = append(heads, i)
+				}
+			}
+			break
+		}
+	}
+	for i := range cols {
+		if i < len(heads) && cols[i]-heads[i] != cols[0]-heads[0] {
+			t.Fatalf("tile %d's AIRTIME is at %d from its rail, tile 0's at %d", i, cols[i]-heads[i], cols[0]-heads[0])
+		}
 	}
 }

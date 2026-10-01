@@ -2508,6 +2508,7 @@
     if (n.maintain) edgeKV(card, "service", "maintenance is on there", "edge-alert");
     // What it serves of its own and what it is fetching, in the words every surface uses.
     if (n.model) edgeKV(card, "model", n.model);
+    if (n.phone) edgeKV(card, "phone", n.phone);
     // The shared state word with its age, then the raw presence for the owner who wants the record.
     if (n.state) edgeKV(card, "state", n.state, /^(TROUBLE|DARK|RE-ENROLL)/.test(n.state) ? "edge-alert" : "");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));

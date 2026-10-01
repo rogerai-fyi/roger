@@ -16,6 +16,7 @@ import (
 	"encoding/pem"
 	"io"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/store"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,12 +52,80 @@ type PresenceRequest struct {
 	Nonce  string   `json:"nonce"` // hex, 16 bytes
 	TS     int64    `json:"ts"`
 	Sig    string   `json:"sig"` // hex ed25519 signature over canonical(), by the node key
+	// V is the presence version: absent or 1 is the original form; 2 adds the phone's vitals INSIDE
+	// the signature. Vitals on anything but a v2 presence are unsigned, and are refused.
+	V      int          `json:"v,omitempty"`
+	Vitals *PhoneVitals `json:"vitals,omitempty"`
+}
+
+// PhoneVitals is what a phone can honestly report about itself (features/edge/fleet_window.feature).
+type PhoneVitals struct {
+	BatteryPct *int   `json:"battery_pct,omitempty"`
+	Charging   *bool  `json:"charging,omitempty"`
+	Thermal    string `json:"thermal,omitempty"`
+	Foreground *bool  `json:"foreground,omitempty"`
+}
+
+// presencePrefixV2 domain-separates the v2 form, which signs the vitals too.
+const presencePrefixV2 = "rogerai-edge-present/v2"
+
+var thermalStates = map[string]bool{"": true, "nominal": true, "fair": true, "serious": true, "critical": true}
+
+// vitalsRefusal is why a presence's version or vitals cannot be believed, or "".
+func (p PresenceRequest) vitalsRefusal() string {
+	switch p.V {
+	case 0, 1:
+		if p.Vitals != nil {
+			return "vitals arrive only in a v2 presence, where they are signed"
+		}
+		return ""
+	case 2:
+	default:
+		return "that presence version is not one this authority reads"
+	}
+	if v := p.Vitals; v != nil {
+		if v.BatteryPct != nil && (*v.BatteryPct < 0 || *v.BatteryPct > 100) {
+			return "a battery reading outside 0-100"
+		}
+		if !thermalStates[v.Thermal] {
+			return "a thermal state that does not exist"
+		}
+	}
+	return ""
+}
+
+func optInt(p *int) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.Itoa(*p)
+}
+
+func optBool(p *bool) string {
+	switch {
+	case p == nil:
+		return ""
+	case *p:
+		return "1"
+	}
+	return "0"
 }
 
 // canonical is the exact byte string a presence is signed over. Every field that decides what is
 // recorded is in it; the certificate is bound separately, by Authenticate deriving the same id and
 // the signature being checked against the certificate's own key.
 func (p PresenceRequest) canonical() []byte {
+	if p.V == 2 {
+		v := p.Vitals
+		if v == nil {
+			v = &PhoneVitals{}
+		}
+		// The vitals are part of what is signed: an absent reading is an empty field, never a zero.
+		return []byte(strings.Join([]string{
+			presencePrefixV2, p.NodeID, p.Name, p.Kind, strings.Join(p.Caps, ","), p.Addr, p.Nonce,
+			timeString(p.TS), optInt(v.BatteryPct), optBool(v.Charging), v.Thermal, optBool(v.Foreground),
+		}, "\n"))
+	}
 	return []byte(strings.Join([]string{
 		presencePrefix, p.NodeID, p.Name, p.Kind, strings.Join(p.Caps, ","), p.Addr, p.Nonce,
 		timeString(p.TS),
@@ -98,6 +167,11 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 			return
 		}
 
+		// 0. The version and the vitals must be readable before anything is believed of them.
+		if why := req.vitalsRefusal(); why != "" {
+			refusePresence(w, why)
+			return
+		}
 		// 1. The certificate must parse.
 		leaf, err := parseLeafPEM(req.Cert)
 		if err != nil {
@@ -152,10 +226,15 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 				caps = append(caps, cap)
 			}
 		}
-		if _, err := fleet.Observe(req.NodeID, Observation{
+		obs := Observation{
 			Name: req.Name, Kind: req.Kind, Caps: caps,
 			Addr: req.Addr, Fingerprint: Fingerprint(leaf.Raw),
-		}); err != nil {
+		}
+		if v := req.Vitals; v != nil {
+			obs.Phone = &store.EdgePhone{BatteryPct: v.BatteryPct, Charging: v.Charging, Thermal: v.Thermal,
+				Foreground: v.Foreground, ReadAt: now().Unix()}
+		}
+		if _, err := fleet.Observe(req.NodeID, obs); err != nil {
 			http.Error(w, "the fleet could not be written", http.StatusInternalServerError)
 			return
 		}

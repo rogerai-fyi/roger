@@ -174,6 +174,20 @@ type EdgeNode struct {
 	// bounded; InstancesTruncated says the face reported more than the bound.
 	Instances          []EdgeInstance `json:"instances,omitempty"`
 	InstancesTruncated bool           `json:"instances_truncated,omitempty"`
+	// Phone is what a phone last reported about itself in a signed presence (features/edge/
+	// fleet_window.feature): battery, charging, thermal state, whether the app was in front. nil
+	// for anything that is not a phone, and for a phone whose app does not report them yet.
+	Phone *EdgePhone `json:"phone,omitempty"`
+}
+
+// EdgePhone is a phone's own vitals. Absent is nil or empty, never zero: iOS gives no processor
+// load or temperature figure, and nothing here pretends it does.
+type EdgePhone struct {
+	BatteryPct *int   `json:"battery_pct,omitempty"`
+	Charging   *bool  `json:"charging,omitempty"`
+	Thermal    string `json:"thermal,omitempty"` // nominal | fair | serious | critical
+	Foreground *bool  `json:"foreground,omitempty"`
+	ReadAt     int64  `json:"read_at,omitempty"`
 }
 
 // EdgeContract is the fixed framing a classifying device carries: its task class, the

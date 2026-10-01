@@ -179,8 +179,10 @@ type edgeNodeJSON struct {
 	// the model ids it reported on its disk; ServeControl is whether its owner lets the Edge change it.
 	// State is the shared state word with its age (edge.UnitWord): ON AIR 3s, HEARD 9s · no control
 	// path, TROUBLE, DARK 2d - the same line the terminal draws.
-	State        string   `json:"state,omitempty"`
-	Model        string   `json:"model,omitempty"`
+	State string `json:"state,omitempty"`
+	Model string `json:"model,omitempty"`
+	// Phone is a phone's own signed vitals in words (edge.PhoneLine).
+	Phone        string   `json:"phone,omitempty"`
 	ModelHave    []string `json:"model_have,omitempty"`
 	ServeControl bool     `json:"serve_control,omitempty"`
 }
@@ -593,6 +595,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		n.Maintain = edge.Declares(r.Node, edge.Maintain)
 		n.ServeControl = edge.Declares(r.Node, edge.ServeControl)
 		_, n.State = edge.UnitWord(r.Node, len(n.Alerts), now)
+		n.Phone = edge.PhoneLine(r.Node.Phone)
 		if mm := edge.ModelOf(r.Node); mm != nil {
 			n.Model, n.ModelHave = edge.ModelLine(mm), mm.Have
 		}

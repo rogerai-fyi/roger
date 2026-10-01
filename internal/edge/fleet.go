@@ -500,6 +500,8 @@ type Observation struct {
 	// the union of its instances' (features/edge/instances.feature).
 	Instances          []Instance
 	InstancesTruncated bool
+	// Phone is a phone's own signed vitals, when its presence carried them (nil leaves the last).
+	Phone *store.EdgePhone
 }
 
 // Observe records a verified sighting. It is the ONLY way discovery writes to the
@@ -525,6 +527,7 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 			n.Caps = append(n.Caps, store.EdgeCap{Name: string(c), State: string(initialState(c))})
 		}
 		applyInstances(&n, obs)
+		n.Phone = obs.Phone
 		n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: obs.Addr, Fingerprint: obs.Fingerprint}}
 		n.Presence = string(PresenceVerified)
 		n.LastSeen = now
@@ -548,6 +551,9 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 		}
 		n.Caps = next
 		applyInstances(n, obs)
+		if obs.Phone != nil {
+			n.Phone = obs.Phone
+		}
 		n.Presence = string(PresenceVerified)
 		n.LastSeen = now
 		if n.Pin == "" {

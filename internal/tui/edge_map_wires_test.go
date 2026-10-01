@@ -343,3 +343,25 @@ func TestACardSaysHowAUnitIsAndAHeardOnlyUnitSaysSo(t *testing.T) {
 		t.Errorf("the page does not say what heard-only means:\n%s", page)
 	}
 }
+
+func TestAPhoneCardSleepsAndItsPageSaysItsVitals(t *testing.T) {
+	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,
+		AuthorityAddr: "http://192.168.1.9:8791", Enrolled: true, Name: "desk", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	b, no := 64, false
+	phone := nodeOf("p", "nina", "mobile")
+	phone.Transports = nil
+	phone.LastSeen -= 177
+	phone.Phone = &store.EdgePhone{BatteryPct: &b, Foreground: &no, ReadAt: phone.LastSeen}
+	m := networkModel(t, self, phone)
+	if out := stripANSI(m.edgeView(116)); !strings.Contains(out, "PHONE · ASLEEP 3m") {
+		t.Errorf("the card does not say the phone is asleep:\n%s", out)
+	}
+	for i, it := range m.edgeNetItems() {
+		if it.member {
+			m.edge.netSel, m.edge.netSelSet, m.edge.netDetail = i, true, true
+		}
+	}
+	if page := stripANSI(m.edgeView(160)); !strings.Contains(page, "battery 64% · app in the background") {
+		t.Errorf("the page does not say the phone's vitals:\n%s", page)
+	}
+}

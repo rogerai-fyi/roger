@@ -6,6 +6,7 @@ package edge
 // machine can dial), and what the owner can do to it differs.
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ const (
 	WordTrouble  = "TROUBLE"   // a rule is firing on it
 	WordDark     = "DARK"      // not heard within the liveness window
 	WordReenroll = "RE-ENROLL" // a member whose certificate this Edge can no longer verify
+	WordAsleep   = "ASLEEP"    // a phone whose app the system put in the background
 )
 
 // nowWindow is how fresh "now" is: closer than the eye can tell apart from this instant.
@@ -60,6 +62,9 @@ func UnitWord(n store.EdgeNode, alerts int, now time.Time) (word, line string) {
 	}
 	if alerts > 0 {
 		return with(WordTrouble)
+	}
+	if p := n.Phone; p != nil && p.Foreground != nil && !*p.Foreground && age != "" {
+		return with(WordAsleep) // backgrounded by the system: not broken, and not dark until the window says so
 	}
 	if !Controllable(n) || age == "" {
 		w, l := with(WordHeard)
@@ -130,4 +135,34 @@ func UnitNames(all []store.EdgeNode) map[string]string {
 		out[n.ID] = UnitName(n, all)
 	}
 	return out
+}
+
+// PhoneLine is a phone's own vitals in words, absent readings left out: iOS gives no processor load
+// or temperature, and nothing here pretends it does.
+func PhoneLine(p *store.EdgePhone) string {
+	if p == nil {
+		return ""
+	}
+	var parts []string
+	if p.BatteryPct != nil {
+		parts = append(parts, fmt.Sprintf("battery %d%%", *p.BatteryPct))
+	}
+	if p.Charging != nil {
+		if *p.Charging {
+			parts = append(parts, "charging")
+		} else {
+			parts = append(parts, "on battery")
+		}
+	}
+	if p.Thermal != "" {
+		parts = append(parts, "thermal "+p.Thermal)
+	}
+	if p.Foreground != nil {
+		if *p.Foreground {
+			parts = append(parts, "app in front")
+		} else {
+			parts = append(parts, "app in the background")
+		}
+	}
+	return strings.Join(parts, " · ")
 }
