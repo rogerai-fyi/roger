@@ -239,7 +239,7 @@ func edgeRecordModel(callerID, callerName, what string) {
 	}
 	who := callerName
 	if who == "" {
-		who = edgeShortID(callerID)
+		who = edgeDisplayName(callerID)
 	}
 	if err := st.fleet.RecordEvent(id.NodeID, "model", what+", asked by "+who); err != nil {
 		return
@@ -258,10 +258,7 @@ func edgeModelInvoke(cfg config, node string, task edge.ModelTask) (edge.ModelRe
 	if err != nil {
 		return out, node, err
 	}
-	name := peer.Node
-	if name == "" {
-		name = node
-	}
+	name := edgeDisplayName(calleeID)
 	callerID := edgeThisNodeID()
 	grants, err := edgeGrantStore().List()
 	if err != nil {

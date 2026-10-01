@@ -241,6 +241,29 @@ func edgeNameOfNode(id string) string {
 	return ""
 }
 
+// edgeDisplayName is what a node is called in a sentence: this machine by its own label, any other
+// unit by its owner's name or what it is (edge.UnitName) - never by its id.
+func edgeDisplayName(id string) string {
+	st, err := loadEdgeState()
+	if err != nil {
+		return edgeShortID(id)
+	}
+	nodes, err := st.list()
+	if err != nil {
+		return edgeShortID(id)
+	}
+	for _, n := range nodes {
+		if n.ID != id {
+			continue
+		}
+		if id == edgeThisNodeID() {
+			return edge.SelfLabel(n.Name, edgeStationName())
+		}
+		return edge.UnitName(n, nodes)
+	}
+	return edgeShortID(id)
+}
+
 // edgeMaintainableNodes is the members that declare maintain, for the surfaces that say so.
 func edgeMaintainableNodes(nodes []store.EdgeNode) map[string]bool {
 	out := map[string]bool{}

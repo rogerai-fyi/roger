@@ -67,13 +67,14 @@ func Events(nodes []store.EdgeNode, alerts []Alert, q EventQuery, now time.Time)
 		return cutoff.IsZero() || !at.Before(cutoff)
 	}
 	out := make([]Event, 0, limit)
+	names := UnitNames(nodes) // an unnamed unit is called by what it is, never by its id
 	for _, n := range nodes {
 		for _, e := range n.History {
 			at := time.Unix(e.At, 0)
 			if !keep(n.ID, at) {
 				continue
 			}
-			out = append(out, Event{At: at, Kind: EventNode, NodeID: n.ID, Node: n.Name, What: e.What, Detail: e.Detail})
+			out = append(out, Event{At: at, Kind: EventNode, NodeID: n.ID, Node: names[n.ID], What: e.What, Detail: e.Detail})
 		}
 	}
 	for _, a := range alerts {

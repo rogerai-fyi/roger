@@ -31,7 +31,21 @@ func edgeEventsRead(q edge.EventQuery, now time.Time) ([]edge.Event, string, err
 		note = "the alert history could not be read: " + err.Error()
 		alerts = nil
 	}
-	return edge.Events(nodes, alerts, q, now), note, nil
+	evs := edge.Events(nodes, alerts, q, now)
+	// This machine is called by its own label on the timeline, as on every other surface.
+	if self := edgeThisNodeID(); self != "" {
+		for _, n := range nodes {
+			if n.ID == self {
+				label := edge.SelfLabel(n.Name, edgeStationName())
+				for i := range evs {
+					if evs[i].NodeID == self && evs[i].Kind == edge.EventNode {
+						evs[i].Node = label
+					}
+				}
+			}
+		}
+	}
+	return evs, note, nil
 }
 
 func cmdEdgeEvents(cfg config, args []string) error {

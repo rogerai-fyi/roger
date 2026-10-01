@@ -393,3 +393,71 @@ func TestRunnerRoutesServeControlOneAtATime(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, edge.ServeControlOffReason, refused.Refused)
 }
+
+// Found in the live run 2026-10-01: a machine enrolled under its id was named by that id in the reply,
+// in "asked by" and on the timeline. A sentence names it the way the screens do.
+func TestASentenceNamesAUnitNeverByItsID(t *testing.T) {
+	newServeRig(t, 16384)
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	self := edgeThisNodeID()
+	nodes, err := st.list()
+	require.NoError(t, err)
+	for _, n := range nodes {
+		if n.ID == self {
+			n.Name = n.ID // enrolled without a name
+			require.NoError(t, st.db.UpdateEdgeNode(n))
+		}
+	}
+	unnamed := "n_" + strings.Repeat("9f", 24)
+	_, err = st.fleet.Enroll(store.EdgeNode{ID: unnamed, Name: unnamed, Kind: "mobile"})
+	require.NoError(t, err)
+	require.NoError(t, st.save())
+	old := edgeStationName
+	t.Cleanup(func() { edgeStationName = old })
+	edgeStationName = func() string { return "house-or" }
+	require.Equal(t, "house-or", edgeDisplayName(self))
+	require.Equal(t, "phone", edgeDisplayName(unnamed))
+	require.Equal(t, edgeShortID("n_nowhere"), edgeDisplayName("n_nowhere"))
+}
+
+func TestTheTimelineCallsThisMachineByItsOwnLabel(t *testing.T) {
+	newServeRig(t, 16384)
+	cfg := turnOn(t)
+	old := edgeStationName
+	t.Cleanup(func() { edgeStationName = old })
+	edgeStationName = func() string { return "house-or" }
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	nodes, _ := st.list()
+	for _, n := range nodes {
+		if n.ID == edgeThisNodeID() {
+			n.Name = n.ID
+			require.NoError(t, st.db.UpdateEdgeNode(n))
+		}
+	}
+	require.NoError(t, st.save())
+	_, refused := edgeModelRun(cfg, edgeThisNodeID(), "", serveTask("nothing-here", 0), time.Now())
+	require.NotEmpty(t, refused)
+	stop, _ := json.Marshal(edge.ModelTask{Action: edge.ModelStop})
+	_, _ = edgeModelRun(cfg, edgeThisNodeID(), "", stop, time.Now())
+	b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "tiny", ID: "x"})
+	require.NoError(t, os.WriteFile(filepath.Join(modelHome().Dir, "serving.json"), b, 0o600))
+	oldSig, oldIs := edgeSignal, edgeProcIsRoger
+	t.Cleanup(func() { edgeSignal, edgeProcIsRoger = oldSig, oldIs })
+	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
+	edgeSignal = func(int, syscall.Signal) error { return os.Remove(filepath.Join(modelHome().Dir, "serving.json")) }
+	_, refused = edgeModelRun(cfg, edgeThisNodeID(), "", stop, time.Now())
+	require.Empty(t, refused)
+	evs, _, err := edgeEventsRead(edge.EventQuery{Limit: 5}, time.Now())
+	require.NoError(t, err)
+	var found bool
+	for _, e := range evs {
+		if e.What == "model" {
+			found = true
+			require.Equal(t, "house-or", e.Node)
+			require.Contains(t, e.Detail, "asked by house-or")
+		}
+	}
+	require.True(t, found, "%+v", evs)
+}
