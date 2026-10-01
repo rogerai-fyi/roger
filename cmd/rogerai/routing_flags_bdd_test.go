@@ -89,13 +89,15 @@ func rfBuild(t *testing.T) {
 	}
 }
 
+// rfFreePort reuses the production free-port scan (onboard.go freePort) from a random high
+// start, rather than opening a listener of its own: the sharing path's listener call sites
+// are pinned as an exact set by web/test/broadcast-gpu-isolation.test.mjs.
 func rfFreePort(t *testing.T) int {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	p, err := freePort(20000 + int(time.Now().UnixNano()%20000))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	return p
 }
 
 // ── recorder: every proxy -> broker chat hop, verbatim ──────────────────────────────────
