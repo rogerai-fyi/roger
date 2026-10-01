@@ -49,9 +49,11 @@ Feature: The console's EDGE tab draws the owner's fleet and its live sessions, a
   # 1. THE TAB
   # =========================================================================
 
+  # AMENDED 2026-10-01: MODELS sits after SHARE (features/serving/local_models.feature §8, the
+  # console model page the founder approved that day). EDGE's own place is unchanged.
   Scenario: EDGE is a tab of the console, between BROWSE and SETTINGS
     When the console shell is served
-    Then the tab strip reads CHAT, SHARE, ACCOUNT, BROWSE, EDGE, SETTINGS in that order
+    Then the tab strip reads CHAT, SHARE, MODELS, ACCOUNT, BROWSE, EDGE, SETTINGS in that order
     And there is a panel for EDGE hidden until its tab is chosen
     And the hash #edge opens it, like every other tab's hash
 

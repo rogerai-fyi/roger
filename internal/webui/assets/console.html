@@ -40,6 +40,7 @@
       <nav class="tabs" role="tablist" aria-label="Sections">
         <button class="tab" data-tab="chat" role="tab" aria-selected="true">CHAT</button>
         <button class="tab" data-tab="share" role="tab" aria-selected="false">SHARE</button>
+        <button class="tab" data-tab="models" role="tab" aria-selected="false">MODELS</button>
         <button class="tab" data-tab="account" role="tab" aria-selected="false">ACCOUNT</button>
         <button class="tab" data-tab="browse" role="tab" aria-selected="false">BROWSE</button>
         <button class="tab" data-tab="edge" role="tab" aria-selected="false">EDGE</button>
@@ -523,6 +524,83 @@
         </div>
       </section>
 
+
+      <!-- ===================== MODELS ===================== -->
+      <!-- `roger model` from the browser (features/serving/local_models.feature §8): the same
+           judgement, the same consent, the same code. -->
+      <section class="panel" id="panel-models" role="tabpanel" hidden>
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <h2>MODELS</h2>
+            <div class="panel-head-actions">
+              <button class="btn" id="btn-models-refresh">re-read</button>
+            </div>
+          </div>
+          <p class="muted small">Serve a model on this machine with nothing else installed: find it, see whether
+             it fits, fetch it, put it on the air.</p>
+        </div>
+        <div class="not-configured" id="models-disabled" hidden></div>
+
+        <div class="models-facts mono small">
+          <div class="kv"><span>THIS MACHINE</span><b id="models-machine">&hellip;</b></div>
+          <div class="kv"><span>RUNTIME</span><b id="models-runtime">&hellip;</b></div>
+          <div class="kv"><span>ON DISK</span><b id="models-disk">&hellip;</b></div>
+        </div>
+
+        <div class="models-card" id="models-serving" hidden>
+          <div class="models-card-head"><b class="mono">ON THE AIR</b> <span class="mono" id="models-serving-band"></span>
+            <button class="btn small" id="btn-models-stop">stop</button></div>
+          <div class="mono small" id="models-serving-facts"></div>
+        </div>
+
+        <div class="models-card" id="models-job" hidden>
+          <div class="models-card-head"><b class="mono" id="models-job-head">FETCHING</b> <span class="mono small" id="models-job-file"></span></div>
+          <div class="meter"><div class="meter-fill" id="models-job-fill"></div></div>
+          <div class="mono small" id="models-job-line"></div>
+          <div class="small" id="models-job-fix"></div>
+        </div>
+
+        <div class="models-card" id="models-servelog" hidden>
+          <div class="models-card-head"><b class="mono">IT DID NOT COME ON THE AIR</b> <span class="muted small">its last words</span></div>
+          <pre class="mono small" id="models-servelog-text"></pre>
+        </div>
+
+        <h3 class="models-h">ON THIS MACHINE</h3>
+        <div class="table-wrap">
+          <table class="data-table models-table">
+            <thead><tr><th class="col-model">MODEL</th><th>QUANT</th><th class="num">SIZE</th><th>CHECKED</th><th></th></tr></thead>
+            <tbody id="models-rows"><tr class="empty-row"><td colspan="5">Reading this machine&hellip;</td></tr></tbody>
+          </table>
+        </div>
+
+        <h3 class="models-h">FIND ONE</h3>
+        <form class="models-search" id="models-search">
+          <input class="inp" id="models-q" type="search" maxlength="200" placeholder="qwen3 4b, gemma, smollm&hellip;" aria-label="search models">
+          <button class="btn" type="submit">search</button>
+        </form>
+        <p class="muted small" id="models-results-note" hidden>From HuggingFace &mdash; what their authors published, not RogerAI's word.</p>
+        <div class="table-wrap" id="models-results-wrap" hidden>
+          <table class="data-table models-table">
+            <thead><tr><th class="col-model">REPOSITORY</th><th class="num">DOWNLOADS</th><th>LICENCE</th><th></th></tr></thead>
+            <tbody id="models-results"></tbody>
+          </table>
+        </div>
+
+        <div class="models-repo" id="models-repo" hidden>
+          <div class="models-card-head"><b class="mono" id="models-repo-name"></b>
+            <span class="muted small" id="models-repo-licence"></span></div>
+          <p class="small" id="models-repo-machine"></p>
+          <label class="field models-ctx"><span>Context (tokens; empty proposes one)</span>
+            <input class="inp" id="models-ctx" type="number" min="256" step="256" placeholder="8192"></label>
+          <div class="table-wrap">
+            <table class="data-table models-table">
+              <thead><tr><th>QUANT</th><th class="num">SIZE</th><th>WILL IT RUN HERE</th><th></th></tr></thead>
+              <tbody id="models-files"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ===================== BROWSE ===================== -->
       <section class="panel" id="panel-browse" role="tabpanel" hidden>
         <div class="panel-head">
@@ -557,6 +635,17 @@
 
   <!-- ===================== MODALS / TOASTS ===================== -->
   <div class="modal-backdrop" id="modal-backdrop" hidden>
+
+    <!-- the safe-by-default question: Cancel is focused, so Enter alone answers No -->
+    <div class="modal wide" id="modal-ask" hidden>
+      <h3 id="ask-title"></h3>
+      <pre class="mono small ask-body" id="ask-body"></pre>
+      <div class="modal-actions">
+        <button class="btn ghost" id="ask-no">Cancel</button>
+        <button class="btn primary" id="ask-yes">Yes</button>
+      </div>
+    </div>
+
     <!-- rename modal -->
     <div class="modal" id="modal-rename" hidden>
       <h3>Rename station</h3>

@@ -80,6 +80,12 @@ func TestAFailedFetchSaysWhyAndAnInterruptedOneIsNotDone(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, JobFailed, j.State)
 	require.Contains(t, j.Err, "not what was promised")
+	require.Equal(t, "corrupt", j.Reason, "the record says which failure, for a screen in another process")
+	for err, want := range map[error]string{provision.ErrNoSpace: "no_space", provision.ErrGated: "gated",
+		provision.ErrUnreachable: "unreachable", provision.ErrNotFound: "not_found", provision.ErrRateLimited: "rate_limited",
+		provision.ErrUpstream: "upstream", context.Canceled: ""} {
+		require.Equal(t, want, Reason(err))
+	}
 
 	// A record left "fetching" by a roger that has gone is interrupted, never running, never done.
 	h.writeJob(Job{Repo: "acme/x", File: "x.gguf", State: JobFetching, PID: 424242})

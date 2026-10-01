@@ -446,27 +446,11 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		return err
 	}
 	b := localmodel.BudgetOf(modelHW())
-	ctxLen := a.ctx
-	if shape, err := detect.ReadShape(m.Path); err == nil {
-		v := localmodel.Judge(shape, b, a.ctx)
-		ctxLen = v.Ctx
-		if v.Fit == catalog.FitWontFit {
-			// Refused with the arithmetic, never silently reduced.
-			msg := v.Line()
-			if s := v.Sum(); s != "" {
-				msg += "\n  " + s
-			}
-			if v.MaxCtx > 0 {
-				msg += fmt.Sprintf("\n  roger model serve %s --ctx %d", m.ID, v.MaxCtx)
-			}
-			return errors.New(msg)
-		}
-		fmt.Fprintf(modelOut, "%s: %s\n", m.ID, v.Line())
-	} else if errors.Is(err, detect.ErrNotGenerative) {
-		return fmt.Errorf("%s is an embedding model, not one you serve chat from", m.ID)
-	} else {
-		fmt.Fprintf(modelOut, "%s: cannot judge the fit (%v); serving on your word.\n", m.ID, err)
+	ctxLen, says, err := modelPlan(m, b, a.ctx)
+	if err != nil {
+		return err
 	}
+	fmt.Fprintln(modelOut, says)
 	exe, tag, err := modelRuntime(ctx)
 	if err != nil {
 		if errors.Is(err, runtime.ErrNoRuntime) {
@@ -546,6 +530,30 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 		still = fmt.Sprintf("\n  %s is still serving - nothing was switched", prev.ID)
 	}
 	return fmt.Errorf("it did not come on the air within %s (log: %s)%s%s", modelDetachWait, logPath, tail, still)
+}
+
+// modelPlan settles the context a model will serve at, or refuses with the arithmetic - never
+// silently reducing what the owner asked for. says is the line to show the owner either way.
+func modelPlan(m localmodel.Model, b localmodel.Budget, want int) (ctxLen int, says string, err error) {
+	shape, err := detect.ReadShape(m.Path)
+	switch {
+	case errors.Is(err, detect.ErrNotGenerative):
+		return 0, "", fmt.Errorf("%s is an embedding model, not one you serve chat from", m.ID)
+	case err != nil:
+		return want, fmt.Sprintf("%s: cannot judge the fit (%v); serving on your word.", m.ID, err), nil
+	}
+	v := localmodel.Judge(shape, b, want)
+	if v.Fit == catalog.FitWontFit {
+		msg := v.Line()
+		if s := v.Sum(); s != "" {
+			msg += "\n  " + s
+		}
+		if v.MaxCtx > 0 {
+			msg += fmt.Sprintf("\n  roger model serve %s --ctx %d", m.ID, v.MaxCtx)
+		}
+		return 0, "", errors.New(msg)
+	}
+	return v.Ctx, fmt.Sprintf("%s: %s", m.ID, v.Line()), nil
 }
 
 func modelStatus() error {

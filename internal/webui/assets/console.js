@@ -1303,7 +1303,7 @@
   }
 
   /* TABS ------------------------------------------------------------------- */
-  var TABS = ["chat", "share", "account", "browse", "edge", "settings"];
+  var TABS = ["chat", "share", "models", "account", "browse", "edge", "settings"];
 
   // CHAT IS THE LANDING TAB (founder 2026-08-21: "lets make sure we start the webui on
   // the chat"). The console used to open on SHARE, which is the provider surface - it
@@ -1328,6 +1328,7 @@
     // The EDGE tab polls and animates ONLY while it is the shown tab (edgeStart/edgeStop
     // below): a hidden graph reading the fleet once a second would be a cost with no eyes.
     if (name === "edge") edgeStart(); else edgeStop();
+    if (name === "models") modelsStart(); else modelsStop();
     if (name === "chat") {
       // Refresh the market half (the LOCAL half is already live off the snapshot stream),
       // then focus the composer - opening CHAT means you intend to type.
@@ -3005,9 +3006,264 @@
   }
   /* end EDGE */
 
+
+  /* 8c. MODELS: `roger model` from the browser ------------------------------
+     features/serving/local_models.feature §8. Every judgement comes from the server, which
+     runs the CLI's own code; this page draws it and asks the owner before anything changes.
+     Text from the index (repo names, licences) only ever goes in as textContent. */
+  var modelsTimer = null;
+  var modelsRepo = null;   // the repo whose files are open
+  var modelsLast = null;
+
+  function fmtBytes(n) {
+    n = Number(n) || 0;
+    var u = ["B", "KiB", "MiB", "GiB", "TiB"], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + u[i];
+  }
+  function fmtSecs(s) {
+    s = Math.round(Number(s) || 0);
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m" + (s % 60 ? " " + (s % 60) + "s" : "");
+    return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+  }
+
+  // askSafe asks once, with the facts, and the safe answer is the default: Cancel holds the focus,
+  // so Enter alone answers No. Resolves true only on an explicit Yes.
+  function askSafe(title, body, yesLabel) {
+    return new Promise(function (resolve) {
+      $("ask-title").textContent = title;
+      $("ask-body").textContent = body;
+      $("ask-yes").textContent = yesLabel || "Yes";
+      var done = function (v) { $("ask-yes").onclick = null; $("ask-no").onclick = null; closeModal(); resolve(v); };
+      $("ask-yes").onclick = function () { done(true); };
+      $("ask-no").onclick = function () { done(false); };
+      modalOpen("modal-ask");
+      try { $("ask-no").focus(); } catch (_) {}
+      // Escape and a backdrop click close the modal; both are a No.
+      var watch = setInterval(function () { if ($("modal-ask").hidden) { clearInterval(watch); resolve(false); } }, 200);
+    });
+  }
+
+  function modelsStart() {
+    loadModels();
+    if (!modelsTimer) modelsTimer = setInterval(function () {
+      // fast while something is moving, calm otherwise: the page must never become the load
+      var busy = modelsLast && ((modelsLast.job && modelsLast.job.state === "fetching") || modelsLast.starting);
+      if (busy || (Date.now() / 1000 | 0) % 5 === 0) loadModels();
+    }, 1000);
+  }
+  function modelsStop() { if (modelsTimer) { clearInterval(modelsTimer); modelsTimer = null; } }
+
+  function loadModels() {
+    if (document.hidden) return;
+    apiGet("/api/models").then(function (v) {
+      show($("models-disabled"), false);
+      renderModels(v);
+    }).catch(function (e) {
+      if (e.status === 501) { $("models-disabled").textContent = e.message; show($("models-disabled"), true); modelsStop(); }
+    });
+  }
+
+  function renderModels(v) {
+    var wasStarting = modelsLast && modelsLast.starting;
+    modelsLast = v;
+    if (wasStarting && !v.serving && !(v.serve_log && v.serve_log.length)) v.starting = wasStarting;
+    $("models-machine").textContent = v.budget > 0 ? fmtBytes(v.budget) + " of " + v.pool : "cannot say - " + (v.budget_why || "memory could not be read");
+    $("models-runtime").textContent = v.runtime || "";
+    $("models-disk").textContent = (v.models || []).length + " models, " + fmtBytes(v.disk_used) + (v.dir ? "  in " + v.dir : "");
+
+    // what is on the air, in full - "the model name" alone is never the whole answer
+    var sv = v.serving;
+    show($("models-serving"), !!sv);
+    if (sv) {
+      v.starting = false;
+      $("models-serving-band").textContent = "“" + sv.band + "”";
+      var since = sv.since ? fmtSecs((Date.now() - Date.parse(sv.since)) / 1000) : "";
+      $("models-serving-facts").textContent = sv.id + " · " + (sv.quant || "-") + " · " + sv.ctx + " context · sha256 " +
+        (sv.sha256 ? sv.sha256.slice(0, 12) : "-") + " · llama.cpp " + (sv.runtime || "?") + " · for " + since + " · " + sv.address;
+    }
+
+    // the fetch: bytes, rate and time left, never a bare percentage
+    var j = v.job;
+    show($("models-job"), !!j);
+    if (j) {
+      var heads = { fetching: "FETCHING", done: "FETCHED AND CHECKED", failed: "FETCH FAILED", interrupted: "FETCH INTERRUPTED" };
+      $("models-job-head").textContent = heads[j.state] || j.state;
+      $("models-job-file").textContent = j.repo + "  " + j.file;
+      var frac = j.total > 0 ? clamp(j.done / j.total, 0, 1) : 0;
+      $("models-job-fill").style.width = (100 * frac).toFixed(1) + "%";
+      $("models-job-fill").classList.toggle("over", j.state === "failed");
+      var line = fmtBytes(j.done) + " of " + fmtBytes(j.total);
+      if (j.state === "fetching" && j.rate > 0) line += " · " + fmtBytes(j.rate) + "/s";
+      if (j.state === "fetching" && j.remaining_s > 0 && j.done * 50 >= j.total) line += " · " + fmtSecs(j.remaining_s) + " left";
+      if (j.resumed) line += " · resumed";
+      if (j.state === "interrupted") line += " · fetch it again and it resumes";
+      $("models-job-line").textContent = line;
+      $("models-job-fix").textContent = j.state === "failed" ? (j.err || "") + (j.fix ? " — " + j.fix : "") : "";
+    }
+
+    // a background serve that never came on the air, in its own words
+    var logLines = v.serve_log || [];
+    show($("models-servelog"), !sv && logLines.length > 0 && /error|fail|not|refus/i.test(logLines.join(" ")));
+    $("models-servelog-text").textContent = logLines.join("\n");
+
+    var tb = $("models-rows");
+    tb.textContent = "";
+    if (!(v.models || []).length) {
+      var tr = el("tr", "empty-row"); var td = el("td", null, "No models on this machine yet. Find one below, or drop a .gguf into " + (v.dir || "the models folder") + ".");
+      td.colSpan = 5; tr.appendChild(td); tb.appendChild(tr);
+    }
+    (v.models || []).forEach(function (m) {
+      var tr = el("tr", m.serving ? "is-serving" : "");
+      var name = el("td", "col-model mono");
+      name.appendChild(el("div", null, (m.serving ? "▶ " : "") + m.id));
+      name.appendChild(el("div", "muted small", "serves as “" + m.band + "”" + (m.license ? " · licence " + m.license : "")));
+      tr.appendChild(name);
+      tr.appendChild(el("td", "mono", m.quant || "-"));
+      tr.appendChild(el("td", "num mono", fmtBytes(m.bytes)));
+      tr.appendChild(el("td", "mono small", m.verified ? "checked" : "found (your word)"));
+      var act = el("td", "row-actions");
+      if (!m.serving && v.can_serve) {
+        var sb = el("button", "btn small", sv ? "switch to this" : "serve");
+        sb.onclick = function () { modelsServe(m, sv); };
+        act.appendChild(sb);
+      }
+      if (!m.serving) {
+        var rb = el("button", "btn small ghost", "remove");
+        rb.onclick = function () { modelsRemove(m); };
+        act.appendChild(rb);
+      }
+      tr.appendChild(act);
+      tb.appendChild(tr);
+    });
+  }
+
+  function modelsServe(m, current) {
+    var body = "Serve " + m.id + " on this machine as “" + m.band + "”.\n\n" +
+      (current ? "It is started and proven FIRST; only then is " + current.id + " stopped. If it fails to start, " + current.id + " keeps serving.\n\n" : "") +
+      "It runs in the background, so closing this page does not stop it.";
+    askSafe(current ? "Switch models?" : "Serve this model?", body, current ? "Switch" : "Serve").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/serve", { confirm: true, id: m.id }).then(function (d) {
+        toast(d.says || "starting");
+        d.view.starting = true;
+        renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function modelsStopServing() {
+    var sv = modelsLast && modelsLast.serving;
+    if (!sv) return;
+    askSafe("Stop serving?", "Stop serving “" + sv.band + "” (" + sv.id + ").\n\nAnything routed to it stops being answered.", "Stop").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/stop", { confirm: true }).then(function (d) { toast(d.says); renderModels(d.view); })
+        .catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function modelsRemove(m) {
+    askSafe("Remove this model?", "Delete " + m.id + " (" + fmtBytes(m.bytes) + ") from this machine.\n\nIt can be fetched again later.", "Remove").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/remove", { confirm: true, id: m.id }).then(function (d) { toast(d.says); renderModels(d.view); })
+        .catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function modelsSearch(q) {
+    var tb = $("models-results");
+    tb.textContent = "";
+    show($("models-results-wrap"), true);
+    show($("models-results-note"), true);
+    var tr0 = el("tr", "empty-row"); var td0 = el("td", null, "Searching…"); td0.colSpan = 4; tr0.appendChild(td0); tb.appendChild(tr0);
+    apiGet("/api/models/search?q=" + encodeURIComponent(q)).then(function (d) {
+      tb.textContent = "";
+      var rows = (d && d.results) || [];
+      if (!rows.length) { var tr = el("tr", "empty-row"); var td = el("td", null, "Nothing with servable weights matched."); td.colSpan = 4; tr.appendChild(td); tb.appendChild(tr); }
+      rows.forEach(function (r) {
+        var tr = el("tr");
+        var name = el("td", "col-model mono", r.repo);
+        if (r.gated) name.appendChild(el("div", "small", "GATED: needs accepted access and HF_TOKEN where roger runs"));
+        tr.appendChild(name);
+        tr.appendChild(el("td", "num mono", fmtInt(r.downloads)));
+        tr.appendChild(el("td", "mono small", r.license || "-"));
+        var act = el("td", "row-actions");
+        var b = el("button", "btn small", "see what fits");
+        b.onclick = function () { modelsOpenRepo(r.repo); };
+        act.appendChild(b);
+        tr.appendChild(act);
+        tb.appendChild(tr);
+      });
+    }).catch(function (e) { tb.textContent = ""; toast(e.message, "err"); });
+  }
+
+  function modelsOpenRepo(repo) {
+    modelsRepo = repo;
+    show($("models-repo"), true);
+    $("models-repo-name").textContent = repo;
+    $("models-repo-licence").textContent = "";
+    $("models-repo-machine").textContent = "Judging every file against this machine…";
+    var tb = $("models-files");
+    tb.textContent = "";
+    var ctx = parseInt($("models-ctx").value, 10) || 0;
+    apiGet("/api/models/files?repo=" + encodeURIComponent(repo) + "&ctx=" + ctx).then(function (fv) {
+      if (modelsRepo !== repo) return;
+      $("models-repo-licence").textContent = "licence: " + (fv.license || "not stated") + " (shown and recorded; it does not block anything)";
+      $("models-repo-machine").textContent = (fv.budget > 0 ? "This machine: " + fmtBytes(fv.budget) + " of " + fv.pool : "This machine's memory could not be read") +
+        " · judged at " + (fv.ctx || "the proposed") + " context.";
+      (fv.choices || []).forEach(function (c) {
+        var tr = el("tr", c.suggested ? "is-suggested" : "");
+        tr.appendChild(el("td", "mono", (c.suggested ? "★ " : "") + c.label));
+        tr.appendChild(el("td", "num mono", fmtBytes(c.bytes)));
+        var verdict = el("td", "small");
+        if (c.unservable) verdict.textContent = "not servable: " + c.unservable;
+        else { verdict.appendChild(el("div", "mono", c.short)); if (c.sum) verdict.appendChild(el("div", "muted", c.sum)); }
+        tr.appendChild(verdict);
+        var act = el("td", "row-actions");
+        if (c.have) act.appendChild(el("span", "muted small", "on this machine"));
+        else if (!c.unservable) {
+          var b = el("button", "btn small" + (c.suggested ? " primary" : ""), "fetch");
+          b.onclick = function () { modelsFetch(fv, c); };
+          act.appendChild(b);
+        }
+        tr.appendChild(act);
+        tb.appendChild(tr);
+      });
+    }).catch(function (e) {
+      $("models-repo-machine").textContent = e.message;
+    });
+  }
+
+  function modelsFetch(fv, c) {
+    var body = fv.repo + "\n" + c.file + "  " + fmtBytes(c.bytes) + "\n\n" + c.line + (c.sum ? "\n" + c.sum : "") +
+      "\n\nlicence: " + (fv.license || "not stated") + " (as its author published it; roger records it and does not referee it)" +
+      "\nsource: HuggingFace - the author's word, checked against the digest the index publishes";
+    askSafe("Fetch this model?", body, "Fetch").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/fetch", { confirm: true, repo: fv.repo, file: c.file }).then(function (d) {
+        toast("fetching " + c.file);
+        renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function wireModels() {
+    var f = $("models-search");
+    if (f) f.addEventListener("submit", function (e) { e.preventDefault(); modelsSearch($("models-q").value.trim()); });
+    var r = $("btn-models-refresh");
+    if (r) r.onclick = loadModels;
+    var st = $("btn-models-stop");
+    if (st) st.onclick = modelsStopServing;
+    var ctx = $("models-ctx");
+    if (ctx) ctx.addEventListener("change", function () { if (modelsRepo) modelsOpenRepo(modelsRepo); });
+  }
+  /* end MODELS */
+
   /* 9. BOOT / WIRING ------------------------------------------------------- */
   function wire() {
     wireChat();
+    wireModels();
     // tabs + any [data-goto] / [data-tab] click
     document.addEventListener("click", function (e) {
       var tabBtn = e.target.closest("[data-tab]");

@@ -100,7 +100,9 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 	s := webui.New(ctrl, webui.Options{
 		// THE SAME EDGE the TUI's [3] EDGE screen holds: one fleet, one candidate list, one
 		// adopt path, one session ledger. A console with its own would draw a second Edge.
-		Edge:   edgeHooksFor(cfg, hooks),
+		Edge: edgeHooksFor(cfg, hooks),
+		// THE SAME `roger model`, from the browser (modelweb.go).
+		Models: modelWebHooks(),
 		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
 		// [4] CONFIG are two views of one setting; two stores would let them disagree

@@ -41,6 +41,7 @@ type Job struct {
 	Resumed    bool      `json:"resumed,omitempty"`
 	State      string    `json:"state"`
 	Err        string    `json:"err,omitempty"`
+	Reason     string    `json:"reason,omitempty"` // which failure: no_space, unreachable, gated, not_found, rate_limited, corrupt, upstream
 	PID        int       `json:"pid"`
 	Started    time.Time `json:"started"`
 	Updated    time.Time `json:"updated"`
@@ -108,7 +109,7 @@ func (h Home) Fetch(ctx context.Context, hub *hfhub.Client, f provision.Fetcher,
 	}
 	m, err := h.Get(ctx, hub, &f, repo, file, license)
 	if err != nil {
-		j.State, j.Err = JobFailed, err.Error()
+		j.State, j.Err, j.Reason = JobFailed, err.Error(), Reason(err)
 	} else {
 		j.State, j.ID, j.Done = JobDone, m.ID, j.Total
 	}
@@ -155,4 +156,22 @@ func (h Home) StartFetch(hub *hfhub.Client, f provision.Fetcher, repo string, fi
 	case <-time.After(2 * time.Second):
 		return nil // still connecting; the record already says it is running
 	}
+}
+
+// Reason names which failure a fetch met, because the fix differs for each and a screen in another
+// process can only read the record, not the error.
+func Reason(err error) string {
+	for _, r := range []struct {
+		err  error
+		word string
+	}{
+		{provision.ErrNoSpace, "no_space"}, {provision.ErrUnreachable, "unreachable"}, {provision.ErrGated, "gated"},
+		{provision.ErrNotFound, "not_found"}, {provision.ErrRateLimited, "rate_limited"}, {provision.ErrCorrupt, "corrupt"},
+		{provision.ErrUpstream, "upstream"},
+	} {
+		if errors.Is(err, r.err) {
+			return r.word
+		}
+	}
+	return ""
 }

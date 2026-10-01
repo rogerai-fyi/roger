@@ -307,7 +307,7 @@ func (s *consoleEdgeBDD) tabStripOrder() error {
 	for _, m := range re.FindAllStringSubmatch(s.html, -1) {
 		got = append(got, m[1])
 	}
-	return want(strings.Join(got, ",") == "chat,share,account,browse,edge,settings",
+	return want(strings.Join(got, ",") == "chat,share,models,account,browse,edge,settings",
 		"tab order = %v", got)
 }
 
@@ -1231,7 +1231,7 @@ func (st *consoleEdgeBDD) init(sc *godog.ScenarioContext) {
 	// 1. the tab
 	sc.Step(`^a console over a fleet of nodes$`, st.aConsoleOverAFleet)
 	sc.Step(`^the console shell is served$`, st.shellServed)
-	sc.Step(`^the tab strip reads CHAT, SHARE, ACCOUNT, BROWSE, EDGE, SETTINGS in that order$`, st.tabStripOrder)
+	sc.Step(`^the tab strip reads CHAT, SHARE, MODELS, ACCOUNT, BROWSE, EDGE, SETTINGS in that order$`, st.tabStripOrder)
 	sc.Step(`^there is a panel for EDGE hidden until its tab is chosen$`, st.panelHiddenUntilChosen)
 	sc.Step(`^the hash #edge opens it, like every other tab's hash$`, st.hashOpensIt)
 	sc.Step(`^the console shell is fetched with no token$`, st.shellFetchedNoToken)

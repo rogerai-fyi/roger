@@ -50,6 +50,8 @@ type Options struct {
 	// Edge is this machine's Edge, for the EDGE tab (edge.go): the same fleet, candidates,
 	// adopt path and session ledger the TUI's [3] EDGE screen holds. Zero = no Edge host.
 	Edge EdgeHooks
+	// Models is the MODELS tab (models.go): `roger model` from the browser, through the same code.
+	Models ModelHooks
 }
 
 // Server is the node console HTTP server. It is safe for concurrent requests: all live
@@ -125,6 +127,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/bands/", s.action(s.handleBandAction))
 	s.mux.HandleFunc("/api/grants", s.auth(s.handleGrants)) // GET lists, POST creates
 	// EDGE: the fleet snapshot (read, GET only) and the owner's adopt (POST only).
+	s.modelRoutes()
 	s.mux.HandleFunc("/api/edge", s.auth(s.handleEdge))
 	s.mux.HandleFunc("/api/edge/adopt", s.action(s.handleEdgeAdopt))
 	s.mux.HandleFunc("/api/edge/name", s.action(s.handleEdgeName))
