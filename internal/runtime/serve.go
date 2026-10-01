@@ -40,6 +40,8 @@ import (
 
 // The ways starting can fail, as values: each has a different next step for whoever reads it.
 var (
+	errProbeTimeout = errors.New("the probe did not answer in time")
+
 	ErrNotReady   = errors.New("the runtime did not answer in time")
 	ErrExited     = errors.New("the runtime exited instead of serving")
 	ErrWrongModel = errors.New("the runtime is serving a different model than it was asked for")
