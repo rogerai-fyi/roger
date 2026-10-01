@@ -3105,7 +3105,7 @@
 
     // a background serve that never came on the air, in its own words
     var logLines = v.serve_log || [];
-    show($("models-servelog"), !sv && logLines.length > 0 && /error|fail|not|refus/i.test(logLines.join(" ")));
+    show($("models-servelog"), !sv && logLines.length > 0); // the server sends it only for a serve that failed
     $("models-servelog-text").textContent = logLines.join("\n");
 
     var tb = $("models-rows");

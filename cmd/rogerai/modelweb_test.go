@@ -146,6 +146,12 @@ func TestConsoleServeIsSettledFirstThenHandedOff(t *testing.T) {
 		[]byte("update available v1 -> v2\nstarting...\r\nerror: out of memory\n"), 0o600))
 	v, _ := modelWebView()
 	require.Equal(t, []string{"starting...", "error: out of memory"}, v.ServeLog)
+
+	// One that came on the air and was later stopped is not a failure, whatever it said after.
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serve.log"),
+		[]byte("on the air locally: \"tiny\"\nstopping tiny.\n"), 0o600))
+	v, _ = modelWebView()
+	require.Empty(t, v.ServeLog)
 }
 
 func TestConsoleStopAndRemoveKeepTheTerminalsRules(t *testing.T) {

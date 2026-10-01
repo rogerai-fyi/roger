@@ -390,6 +390,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onShareEditorKey(k)
 	case modeShareSetup:
 		return m.onShareSetupKey(k)
+	case modeModels:
+		return m.onModelsKey(k)
 	case modeAgent:
 		return m.onAgentKey(k)
 	case modeLogin:
@@ -1255,6 +1257,10 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch k.String() {
+	case "g":
+		// MODELS: fetch and serve a model with roger itself (models.go).
+		nm, cmd := m.enterModels()
+		return nm, cmd
 	case "esc", "q", "s":
 		m.mode = modeBrowse
 		m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
@@ -1398,6 +1404,12 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
 		}
+	}
+	// g: nothing found to share, so serve one with roger itself (models.go). Never while pasting:
+	// those keystrokes are the URL.
+	if k.String() == "g" && !pasting {
+		nm, cmd := m.enterModels()
+		return nm, cmd
 	}
 	switch k.String() {
 	case "esc", "s":

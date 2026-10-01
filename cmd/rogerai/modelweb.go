@@ -134,6 +134,10 @@ func modelRecentServeLog(h localmodel.Home) []string {
 	if err != nil {
 		return nil
 	}
+	// A serve that came on the air said so; whatever it said after (a normal stop) is not a failure.
+	if strings.Contains(string(b), "on the air locally") {
+		return nil
+	}
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	var keep []string
 	for _, l := range lines {

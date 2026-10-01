@@ -541,6 +541,8 @@ func tuiLimits(cfg config) *tui.LimitStore {
 func tuiHooks(cfg config) tui.Hooks {
 	sessionStore := session.NewStore(session.DefaultDir())
 	h := tui.Hooks{
+		// THE SAME `roger model` the CLI and the console run (modelweb.go).
+		Models: modelWebHooks(),
 		// Station is the PUBLIC, NON-SENSITIVE callsign the TUI derives every band's node
 		// id from (`<station>-<model>`). It is the saved/auto-generated station, NEVER the
 		// hostname, so going on air in the TUI leaks no machine name or port. SaveStation

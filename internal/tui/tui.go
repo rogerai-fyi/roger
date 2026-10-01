@@ -40,6 +40,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/glyphs"
 	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v6/internal/modelview"
 	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/operator"
 	"rogerai.fm/roger/v6/internal/protocol"
@@ -52,6 +53,10 @@ import (
 // REAL actions (not "run it elsewhere") without the tui package importing the
 // host. All are optional; a nil hook degrades that flow to a labeled hint.
 type Hooks struct {
+	// Models is `roger model` for the MODELS screen (models.go), filled by cmd/rogerai from the
+	// CLI's own code so this screen cannot judge, fetch or serve differently. Zero = not offered.
+	Models modelview.Hooks
+
 	// Station is the owner's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter`). Every band's broker node id is derived as `<station>-<model>` via
 	// agent.ShareNodeID - so it carries the station, NEVER the hostname or a port, into
@@ -589,6 +594,7 @@ const (
 	modeBandCard          // private band code card: shows the one-time frequency code after going private
 	modeShareEditor       // per-model pricing + time-of-use schedule editor (login-gated)
 	modeShareSetup        // guided fallback: no local model detected, pick a tool / paste a URL
+	modeModels            // MODELS: fetch and serve a model with nothing else installed (models.go)
 	modeQuitConfirm       // on-air quit-guard: confirm before going off air on quit
 	modeAgent             // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
 	modeLogin             // [L] confirmable login/logout panel (never an instant action)
@@ -1340,9 +1346,10 @@ type model struct {
 	prices     map[string]Pricing // per-model saved pricing (in/out + schedule)
 	// guided-fallback share setup wizard (modeShareSetup): pick a tool for a
 	// one-liner, or paste a URL we verify with detect.ProbeKey.
-	setupCursor int    // selected option in the setup wizard
-	setupPaste  string // the pasted-URL buffer (when the "Other" option is chosen)
-	setupErr    string // last paste-verify error
+	mdl         modelsState // the MODELS screen (models.go)
+	setupCursor int         // selected option in the setup wizard
+	setupPaste  string      // the pasted-URL buffer (when the "Other" option is chosen)
+	setupErr    string      // last paste-verify error
 	// setupAwaitKey + setupKey drive the second input step when a pasted endpoint is
 	// reachable but KEY-PROTECTED (a 401/403): the input flips to collecting the API
 	// key, which we send as a Bearer to re-verify and then carry onto the share row.
@@ -1571,6 +1578,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// terminal on the next message — most visibly the 160ms tick. Every TUI mutation also
 	// re-syncs locally, so this never fights an in-flight keystroke.
 	m.syncShareCache()
+	if nm, cmd, ok := m.onModelsMsg(msg); ok {
+		return nm, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -3235,7 +3245,7 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 // never ambiguous that RogerAI does both.
 func (m model) inShareSection() bool {
 	switch m.mode {
-	case modeShare, modeBandCard, modeShareEditor, modeShareSetup, modeShareVoice, modeVoicePicker:
+	case modeShare, modeBandCard, modeShareEditor, modeShareSetup, modeShareVoice, modeVoicePicker, modeModels:
 		// The SHARE VOICE BOOTH + its picker are reached FROM the SHARE table (via `p` on a tts
 		// row, same depth as the chat price editor), so they belong to the SHARE section.
 		return true
@@ -3292,6 +3302,8 @@ func (m model) modeName() string {
 		return "PRICE + SCHEDULE"
 	case modeShareSetup:
 		return "SET UP A MODEL"
+	case modeModels:
+		return "MODELS"
 	default:
 		return "BROWSE"
 	}
@@ -4675,8 +4687,11 @@ func (m model) footer(w int) string {
 			left = stDim.Render("tab field · a/f/d · ⏎ save · esc")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeModels:
+		left = stDim.Render(m.modelsKeys())
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShareSetup:
-		left = stDim.Render("↑↓ pick  ·  ⏎ select/verify  ·  r re-scan  ·  s/esc tune in")
+		left = stDim.Render("↑↓ pick  ·  ⏎ select/verify  ·  r re-scan  ·  g serve one with roger  ·  s/esc tune in")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎ · r · esc")
 		}

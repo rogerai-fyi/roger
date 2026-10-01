@@ -137,6 +137,8 @@ func (m model) View() string {
 		b.WriteString(m.shareEditorView(w))
 	case modeShareSetup:
 		b.WriteString(m.shareSetupView(w))
+	case modeModels:
+		b.WriteString(m.modelsView(w))
 	case modeQuitConfirm:
 		b.WriteString(m.quitConfirmView(w))
 	case modeAgent:
