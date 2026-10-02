@@ -381,7 +381,9 @@ func bytesWord(n int64) string {
 			return strconv.FormatFloat(v, 'f', 1, 64) + " " + u
 		}
 	}
-	return strconv.FormatFloat(v, 'f', 1, 64) + " EiB"
+	// The fallback is one step past the list, so it divides once more: without it one exbibyte
+	// printed as "1024.0 EiB", the same boundary slip the PiB entry above fixed.
+	return strconv.FormatFloat(v/unit, 'f', 1, 64) + " EiB"
 }
 
 // The small helpers are exported for the package's own tests, which pin their edges directly:
