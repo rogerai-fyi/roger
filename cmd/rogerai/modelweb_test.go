@@ -90,6 +90,24 @@ func TestConsoleSearchAndFilesAreTheCLIsJudgement(t *testing.T) {
 	require.True(t, suggested)
 	require.True(t, projector)
 
+	// local_models.feature §6: with a budget, a choice says what fetching it removes, before it is asked.
+	r := modelHome()
+	require.NoError(t, r.SetSettings(localmodel.Settings{DiskBudget: 1 << 20}))
+	big := "acme/Big-GGUF:Q4_K_M"
+	p, err := r.PathFor("acme/Big-GGUF", "big.gguf")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+	require.NoError(t, os.WriteFile(p, make([]byte, 1<<20-100), 0o644))
+	rec, _ := json.Marshal(localmodel.Model{ID: big, Repo: "acme/Big-GGUF", File: "big.gguf", Bytes: 1<<20 - 100, SHA256: "ab", Band: "big"})
+	require.NoError(t, os.WriteFile(p+".roger.json", rec, 0o644))
+	fv, err = modelWebFiles(context.Background(), "acme/Tiny-GGUF", 0)
+	require.NoError(t, err)
+	for _, c := range fv.Choices {
+		if c.Unservable == "" {
+			require.Contains(t, c.Room, "roger removes first, least recently served: "+big, c.Label)
+		}
+	}
+
 	_, err = modelWebFiles(context.Background(), "../etc", 0)
 	require.Error(t, err)
 	_, err = modelWebFiles(context.Background(), "acme/Locked-GGUF", 0)

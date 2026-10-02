@@ -97,9 +97,10 @@ func TestAMembersModelReportIsBoundedAndCleanedWhenStored(t *testing.T) {
 	}
 	have = append([]string{"/etc/passwd", "http://evil/x.gguf", "ok/fine:Q8_0"}, have...)
 	esc := "\x1b]0;owned\x07\x1b[31mred" + strings.Repeat("x", 500)
-	m := edge.CleanModel(&store.EdgeModel{Band: esc, ID: esc, Quant: esc, CannotServe: esc, Have: have,
+	m := edge.CleanModel(&store.EdgeModel{Band: esc, ID: esc, Quant: esc, CannotServe: esc, Stopped: esc, Have: have,
 		Fetch: &store.EdgeFetch{Repo: esc, File: esc, Err: esc, State: "fetching\x1b[2J"}})
-	for _, s := range []string{m.Band, m.ID, m.Quant, m.CannotServe, m.Fetch.Repo, m.Fetch.File, m.Fetch.Err, m.Fetch.State} {
+	require.NotEmpty(t, m.Stopped, "a member's own stop reason is kept")
+	for _, s := range []string{m.Band, m.ID, m.Quant, m.CannotServe, m.Stopped, m.Fetch.Repo, m.Fetch.File, m.Fetch.Err, m.Fetch.State} {
 		require.NotContains(t, s, "\x1b", "a control character reached the store")
 		require.NotContains(t, s, "\x07")
 		require.LessOrEqual(t, len(s), 200)
@@ -140,4 +141,13 @@ func TestOnlyAProvenBandIsShownAsServing(t *testing.T) {
 	require.Equal(t, "y", edge.ServingShort(plain))
 	require.Equal(t, "cannot serve here", edge.ServingShort(store.EdgeNode{Instances: []store.EdgeInstance{{Model: &store.EdgeModel{CannotServe: "glibc"}}}}))
 	require.Empty(t, edge.ModelLineFor(store.EdgeNode{}))
+}
+
+// local_models.feature §5: when a member's idle timeout withdraws its band, a peer that stops finding
+// it can see why on the member's card.
+func TestAMembersOwnStopIsSaidOnItsCard(t *testing.T) {
+	why := "qwen3-4b stopped 2026-10-01 14:02 UTC: no turn for 2h0m0s - the owner's idle timeout"
+	require.Contains(t, edge.ModelLine(&store.EdgeModel{Stopped: why}), "stopped on its own: "+why)
+	require.NotContains(t, edge.ModelLine(&store.EdgeModel{Band: "qwen3-4b", ID: "a/b:Q4", Ctx: 8192, Stopped: why}), "stopped on its own",
+		"a stop that has been served past is history, not the state")
 }

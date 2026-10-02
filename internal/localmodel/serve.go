@@ -119,6 +119,7 @@ func Args(o ServeOpts, port int, keyFile string) []string {
 		"--parallel", "1",
 		"--cache-ram", strconv.FormatInt(cacheRAMMiB(o.Budget), 10),
 		"--no-webui",
+		"--metrics", // its own token counters, behind the same key: how an idle timeout knows
 	}
 }
 

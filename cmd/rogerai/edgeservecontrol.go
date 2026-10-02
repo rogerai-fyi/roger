@@ -97,6 +97,10 @@ func edgeModelNow() *store.EdgeModel {
 			out.ServeFailed = lines[len(lines)-1]
 			any = true
 		}
+		if st, ok := h.LastStop(); ok {
+			out.Stopped = st.Line()
+			any = true
+		}
 	}
 	if all, err := h.List(); err == nil && len(all) > 0 {
 		for _, m := range all {

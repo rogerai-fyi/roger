@@ -61,6 +61,13 @@ func modelFakeLlama(args []string) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"status":"ok"}`) })
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key || !slices.Contains(args, "--metrics") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, "llamacpp:prompt_tokens_total 9\nllamacpp:tokens_predicted_total 5\nllamacpp:requests_processing 0\n")
+	})
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+key {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -677,4 +684,106 @@ func TestModelStatusShowsAFetchThatDidNotFinish(t *testing.T) {
 	write(localmodel.Job{Repo: "acme/Tiny-GGUF", File: "x.gguf", Total: 10, Done: 5, State: localmodel.JobFetching, PID: 0})
 	out, _ = r.run(t, "status")
 	require.Contains(t, out, "was interrupted")
+}
+
+// local_models.feature §5 "nothing is unloaded by surprise": off by default, set by the owner, and
+// when it fires the band is withdrawn and the reason recorded where status and the member's report
+// read it.
+func TestModelIdleTimeoutIsTheOwnersAndSaysWhyWhenItFires(t *testing.T) {
+	r := newModelRig(t, 16384)
+	out, err := r.run(t, "idle")
+	require.NoError(t, err)
+	require.Contains(t, out, "idle timeout: off - a model roger serves keeps serving until it is stopped")
+	st, err := r.run(t, "status")
+	require.NoError(t, err)
+	require.Contains(t, st, "idle timeout: off")
+
+	out, err = r.run(t, "idle", "2h")
+	require.NoError(t, err)
+	require.Contains(t, out, "idle timeout: 2h0m0s")
+	s, _ := r.home.Settings()
+	require.Equal(t, 2*time.Hour, s.IdleAfter)
+	for _, bad := range []string{"soon", "30s", "-1h"} {
+		_, err = r.run(t, "idle", bad)
+		require.Error(t, err, bad)
+	}
+	out, err = r.run(t, "idle", "off")
+	require.NoError(t, err)
+	require.Contains(t, out, "idle timeout: off")
+
+	// It fires: the runtime's counters stand still past the timeout, the serve ends on its own.
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	require.NoError(t, r.home.SetSettings(localmodel.Settings{IdleAfter: 150 * time.Millisecond}))
+	oldEvery := modelIdleEvery
+	modelIdleEvery = 20 * time.Millisecond
+	t.Cleanup(func() { modelIdleEvery = oldEvery })
+	modelUntilDone = func(ctx context.Context) {
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
+			t.Error("the idle timeout never fired")
+		}
+	}
+	out, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, out, "stopped: no turn for 150ms - the owner's idle timeout")
+	_, live := r.home.Live()
+	require.False(t, live, "the band is withdrawn")
+	stop, ok := r.home.LastStop()
+	require.True(t, ok)
+	require.Equal(t, "tiny", stop.Band)
+	st, err = r.run(t, "status")
+	require.NoError(t, err)
+	require.Contains(t, st, "tiny stopped", "status says what stopped and why")
+	require.Contains(t, edgeModelNow().Stopped, "no turn for 150ms", "and so does this member's report")
+}
+
+// local_models.feature §6 "models are gigabytes and they accumulate": a budget is the owner's to set,
+// nothing is evicted without one, and with one a fetch says first what it will remove.
+func TestModelABudgetIsSetByTheOwnerAndAFetchSaysWhatItRemoves(t *testing.T) {
+	r := newModelRig(t, 16384)
+	out, err := r.run(t, "budget")
+	require.NoError(t, err)
+	require.Contains(t, out, "budget for models: none - nothing is ever removed to make room")
+
+	out, err = r.run(t, "budget", "20G")
+	require.NoError(t, err)
+	require.Contains(t, out, "budget for models: 20.0 GiB")
+	s, _ := r.home.Settings()
+	require.Equal(t, int64(20)<<30, s.DiskBudget)
+	for _, bad := range []string{"lots", "-5G", "0.5K"} {
+		_, err = r.run(t, "budget", bad)
+		require.Error(t, err, bad)
+	}
+
+	// Two quants of the tiny repo: fetch one, then a budget that holds only one of them.
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	q4, err := r.home.Find("acme/Tiny-GGUF:Q4_K_M")
+	require.NoError(t, err)
+	q8 := int64(len(modelGGUF(8000))) // the rig's Q8_0 file
+	require.NoError(t, r.home.SetSettings(localmodel.Settings{DiskBudget: q4.Bytes + q8 - 1}))
+
+	edgeStdin = strings.NewReader("n\n")
+	out, err = r.run(t, "get", "acme/Tiny-GGUF:Q8_0")
+	require.NoError(t, err)
+	require.Contains(t, out, "roger removes first, least recently served: acme/Tiny-GGUF:Q4_K_M", "said before the question")
+	_, err = r.home.Find("acme/Tiny-GGUF:Q4_K_M")
+	require.NoError(t, err, "a No removes nothing")
+
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
+	require.NoError(t, err)
+	_, err = r.home.Find("acme/Tiny-GGUF:Q4_K_M")
+	require.ErrorIs(t, err, localmodel.ErrUnknownModel, "the planned model made room")
+	_, err = r.home.Find("acme/Tiny-GGUF:Q8_0")
+	require.NoError(t, err)
+
+	ls, err := r.run(t, "list")
+	require.NoError(t, err)
+	require.Contains(t, ls, "of a ", "the list says the budget beside the usage")
+
+	out, err = r.run(t, "budget", "off")
+	require.NoError(t, err)
+	require.Contains(t, out, "budget for models: none")
 }

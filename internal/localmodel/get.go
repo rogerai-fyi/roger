@@ -52,6 +52,12 @@ func (h Home) Get(ctx context.Context, hub *hfhub.Client, f *provision.Fetcher, 
 	if err != nil {
 		return Model{}, err
 	}
+	// The owner's budget, if they set one: room is made before a byte moves, and never without one.
+	// Before the directory is made, because removing a repo's last file tidies its directory away.
+	live, _ := h.Live()
+	if _, err := h.MakeRoom(file.Bytes, live.ID); err != nil {
+		return Model{}, err
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return Model{}, err
 	}

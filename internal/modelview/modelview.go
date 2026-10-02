@@ -94,6 +94,7 @@ type FileChoice struct {
 	Sum        string `json:"sum,omitempty"`
 	Pace       string `json:"pace,omitempty"`      // how fast it would answer, for a row - a claim apart from Fit
 	PaceLine   string `json:"pace_line,omitempty"` // the same with its working
+	Room       string `json:"room,omitempty"`      // what fetching it removes under the owner's budget, or why it cannot
 	Unservable string `json:"unservable,omitempty"`
 	Suggested  bool   `json:"suggested"`
 	Have       bool   `json:"have"` // already on this disk

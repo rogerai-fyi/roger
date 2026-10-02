@@ -377,6 +377,9 @@ func (m *model) modelsEnter() tea.Cmd {
 			if c.PaceLine != "" {
 				lines = append(lines, c.PaceLine)
 			}
+			if c.Room != "" {
+				lines = append(lines, c.Room)
+			}
 			lines = append(lines, "licence: "+lic+" (as its author published it; recorded, never a gate)",
 				"source: HuggingFace - the author's word, checked against the digest the index publishes")
 			m.mdl.ask = &modelsAsk{title: "fetch this model?", lines: lines,

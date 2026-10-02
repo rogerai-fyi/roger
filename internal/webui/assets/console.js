@@ -3286,7 +3286,7 @@
   }
 
   function modelsFetch(fv, c) {
-    var body = fv.repo + "\n" + c.file + "  " + fmtBytes(c.bytes) + "\n\n" + c.line + (c.sum ? "\n" + c.sum : "") + (c.pace_line ? "\n" + c.pace_line : "") +
+    var body = fv.repo + "\n" + c.file + "  " + fmtBytes(c.bytes) + "\n\n" + c.line + (c.sum ? "\n" + c.sum : "") + (c.pace_line ? "\n" + c.pace_line : "") + (c.room ? "\n\n" + c.room : "") +
       "\n\nlicence: " + (fv.license || "not stated") + " (as its author published it; roger records it and does not referee it)" +
       "\nsource: HuggingFace - the author's word, checked against the digest the index publishes";
     askSafe("Fetch this model?", body, "Fetch").then(function (yes) {

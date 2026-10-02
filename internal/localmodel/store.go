@@ -40,6 +40,7 @@ type Model struct {
 	License string    `json:"license,omitempty"` // shown and recorded, never a gate (ruling 2026-09-30)
 	Band    string    `json:"band"`              // the name it is served under
 	Fetched time.Time `json:"fetched,omitempty"` //
+	Served  time.Time `json:"served,omitempty"`  // last went on the air: what a budget's "least recently used" counts
 }
 
 // Verified reports whether roger checked this file's digest itself. A file dropped into the

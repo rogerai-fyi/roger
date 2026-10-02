@@ -75,6 +75,7 @@ type EdgeModel struct {
 	Fetch       *EdgeFetch `json:"fetch,omitempty"`
 	CannotServe string     `json:"cannot_serve,omitempty"` // why this machine has no runtime, in one sentence
 	ServeFailed string     `json:"serve_failed,omitempty"` // the last serve's own last words, when it never came on the air
+	Stopped     string     `json:"stopped,omitempty"`      // why roger last stopped serving on its own (an idle timeout), in one line
 	// Have is the ids of the models on its disk (bounded), so an owner on another machine can pick
 	// one to serve without walking to it. Ids only: never a path.
 	Have []string `json:"have,omitempty"`

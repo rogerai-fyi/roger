@@ -43,7 +43,8 @@ func (f *modelsFake) hooks() modelview.Hooks {
 					{Label: "Q2_K", File: "Tiny-Q2_K.gguf", Bytes: 1 << 30, Fit: "fits", Short: "fits  at 8K - needs 2.1 GiB"},
 					{Label: "Q4_K_M", File: "Tiny-Q4_K_M.gguf", Bytes: 2 << 30, Fit: "fits", Short: "fits  at 8K - needs 3.2 GiB",
 						Line: "fits at 8K context: needs 3.2 GiB of 4.0 GiB system memory", Sum: "weights 2.0 GiB + cache 1.1 GiB = 3.2 GiB", Suggested: true,
-						Pace: "~45 tok/s usable", PaceLine: "writes about 45 tok/s - usable (2.0 GiB per token at measured 100 GB/s)"},
+						Pace: "~45 tok/s usable", PaceLine: "writes about 45 tok/s - usable (2.0 GiB per token at measured 100 GB/s)",
+						Room: "to stay within the budget you set for models, roger removes first, least recently served: a/old:Q4 (1.0 GiB)"},
 					{Label: "F16", File: "Tiny-F16.gguf", Bytes: 8 << 30, Fit: "will not fit", Short: "will not fit - needs 9.4 GiB"},
 					{Label: "mmproj-F16", File: "mmproj-F16.gguf", Bytes: 1 << 20, Unservable: "a vision projector"},
 				}}, nil
@@ -163,6 +164,9 @@ func TestModelsFitAndSpeedAreSaidSeparately(t *testing.T) {
 	m, _ = press(t, m, "enter")
 	if out = screen(m); !strings.Contains(out, "writes about 45 tok/s - usable") {
 		t.Errorf("the fetch is asked without the speed:\n%s", out)
+	}
+	if !strings.Contains(out, "roger removes first, least recently served: a/old:Q4") {
+		t.Errorf("the fetch is asked without saying what the budget removes:\n%s", out)
 	}
 }
 

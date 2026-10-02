@@ -143,6 +143,9 @@ func ModelLine(m *EdgeModel) string {
 	if m.Band == "" && m.ServeFailed != "" {
 		parts = append(parts, "the last serve did not come on the air: "+m.ServeFailed)
 	}
+	if m.Band == "" && m.Stopped != "" {
+		parts = append(parts, "stopped on its own: "+m.Stopped)
+	}
 	if f := m.Fetch; f != nil {
 		switch f.State {
 		case "fetching":
@@ -182,7 +185,8 @@ func CleanModel(m *EdgeModel) *EdgeModel {
 		return nil
 	}
 	out := &EdgeModel{Band: cleanText(m.Band), ID: cleanText(m.ID), Quant: cleanText(m.Quant), Ctx: m.Ctx,
-		Since: m.Since, CannotServe: cleanText(m.CannotServe), ServeFailed: cleanText(m.ServeFailed)}
+		Since: m.Since, CannotServe: cleanText(m.CannotServe), ServeFailed: cleanText(m.ServeFailed),
+		Stopped: cleanText(m.Stopped)}
 	if out.Ctx < 0 || out.Ctx > 1<<21 {
 		out.Ctx = 0
 	}

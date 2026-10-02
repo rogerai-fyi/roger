@@ -76,4 +76,5 @@ func TestTheConsoleSaysSpeedApartFromFit(t *testing.T) {
 	js := consoleJS(t)
 	require.Contains(t, js, `if (c.pace_line) verdict.appendChild(el("div", "mono", c.pace_line));`)
 	require.Contains(t, js, `(c.pace_line ? "\n" + c.pace_line : "")`)
+	require.Contains(t, js, `(c.room ? "\n\n" + c.room : "")`, "and what the owner's disk budget removes, before it is asked")
 }

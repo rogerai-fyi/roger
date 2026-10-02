@@ -208,6 +208,10 @@ func cmdModel(cfg config, args []string) error {
 		return modelServe(ctx, a)
 	case "status":
 		return modelStatus()
+	case "idle":
+		return modelIdle(a.pos)
+	case "budget":
+		return modelBudgetCmd(a.pos)
 	case "stop":
 		return modelStop()
 	case "rm", "remove":
@@ -216,7 +220,7 @@ func cmdModel(cfg config, args []string) error {
 		}
 		return modelRemove(a.pos[0], a.yes)
 	}
-	return fmt.Errorf("unknown: roger model %s (list, search, files, get, serve, status, stop, rm)", verb)
+	return fmt.Errorf("unknown: roger model %s (list, search, files, get, serve, status, stop, rm, idle, budget)", verb)
 }
 
 func modelList() error {
@@ -232,7 +236,11 @@ func modelList() error {
 		return nil
 	}
 	used, n, _ := h.Usage()
-	fmt.Fprintf(modelOut, "%d models, %s, in %s\n\n", n, provision.BytesWord(used), h.Models())
+	budget := ""
+	if s, err := h.Settings(); err == nil && s.DiskBudget > 0 {
+		budget = " of a " + provision.BytesWord(s.DiskBudget) + " budget"
+	}
+	fmt.Fprintf(modelOut, "%d models, %s%s, in %s\n\n", n, provision.BytesWord(used), budget, h.Models())
 	for _, m := range all {
 		mark := " "
 		if serving && live.File == m.File && live.ID == m.ID {
@@ -401,6 +409,14 @@ func modelGet(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel
 	}
 	fmt.Fprintf(modelOut, "  licence: %s (as its author published it; roger records it and does not referee it)\n", modelDash(license))
 	fmt.Fprintln(modelOut, "  source: HuggingFace - the author's word, checked against the digest the index publishes")
+	live, _ := modelHome().Live()
+	plan, err := modelHome().RoomFor(c.File.Bytes, live.ID)
+	if err != nil {
+		return localmodel.Model{}, err
+	}
+	if line := localmodel.RoomLine(plan); line != "" {
+		fmt.Fprintf(modelOut, "  %s\n", line)
+	}
 	if !yes {
 		fmt.Fprint(modelOut, "fetch it? [y/N]: ")
 		if !edgeConfirmed() {
@@ -503,7 +519,29 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		modelDash(provision.ShortDigest(s.SHA256)), s.Ctx)
 	fmt.Fprintf(modelOut, "  %s (key in %s)\n", s.BaseURL, filepath.Join(h.Dir, "serving.json"))
 	fmt.Fprintln(modelOut, "  roger share picks it up like any local server. ctrl-c or `roger model stop` ends it.")
-	modelUntilDone(ctx)
+	h.ClearStop()                      // serving again: the last stop is history
+	_ = h.MarkServed(m.ID, time.Now()) // what a disk budget's "least recently served" counts
+	waitCtx, endWait := context.WithCancel(ctx)
+	defer endWait()
+	idleWhy := make(chan string, 1)
+	if settings, err := h.Settings(); err == nil && settings.IdleAfter > 0 {
+		go func() {
+			why := modelWatchIdle(waitCtx, h, s, settings.IdleAfter)
+			idleWhy <- why
+			if why != "" {
+				endWait()
+			}
+		}()
+	}
+	modelUntilDone(waitCtx)
+	select {
+	case why := <-idleWhy:
+		if why != "" {
+			fmt.Fprintf(modelOut, "stopped: %s\n", why)
+			return nil
+		}
+	default:
+	}
 	fmt.Fprintf(modelOut, "stopping %s.\n", s.Band)
 	return nil
 }
@@ -598,13 +636,144 @@ func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, wan
 	return v.Ctx, fmt.Sprintf("%s: %s", m.ID, v.Line()), nil
 }
 
+// modelIdleEvery is how often a serve reads the runtime's counters when an idle timeout is set.
+var modelIdleEvery = time.Minute
+
+// modelIdleMin is the shortest timeout an owner may set: shorter than a reading apart is noise.
+const modelIdleMin = time.Minute
+
+// modelIdle shows or sets the idle timeout (local_models.feature §5): off by default.
+func modelIdle(pos []string) error {
+	h := modelHome()
+	s, err := h.Settings()
+	if err != nil {
+		return err
+	}
+	if len(pos) == 1 {
+		switch v := strings.ToLower(pos[0]); v {
+		case "off", "0", "never":
+			s.IdleAfter = 0
+		default:
+			d, err := time.ParseDuration(v)
+			if err != nil || d < modelIdleMin {
+				return fmt.Errorf("an idle timeout is a duration of at least %s (30m, 2h) or off, not %q", modelIdleMin, pos[0])
+			}
+			s.IdleAfter = d
+		}
+		if err := h.SetSettings(s); err != nil {
+			return err
+		}
+	} else if len(pos) > 1 {
+		return errors.New("usage: roger model idle [<duration> | off]")
+	}
+	fmt.Fprintln(modelOut, modelIdleLine(s))
+	return nil
+}
+
+// modelBudgetCmd shows or sets the disk budget for models (local_models.feature §6): none by default.
+func modelBudgetCmd(pos []string) error {
+	h := modelHome()
+	s, err := h.Settings()
+	if err != nil {
+		return err
+	}
+	switch {
+	case len(pos) > 1:
+		return errors.New("usage: roger model budget [<size, like 20G> | off]")
+	case len(pos) == 1 && strings.EqualFold(pos[0], "off"):
+		s.DiskBudget = 0
+	case len(pos) == 1:
+		n, ok := parseByteSize(pos[0])
+		if !ok || n < 1<<20 {
+			return fmt.Errorf("a budget is a size of at least 1M (500M, 20G, 1T) or off, not %q", pos[0])
+		}
+		s.DiskBudget = n
+	}
+	if len(pos) == 1 {
+		if err := h.SetSettings(s); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintln(modelOut, modelBudgetWord(s))
+	return nil
+}
+
+func modelBudgetWord(s localmodel.Settings) string {
+	if s.DiskBudget <= 0 {
+		return "budget for models: none - nothing is ever removed to make room"
+	}
+	return fmt.Sprintf("budget for models: %s - a fetch past it removes the models served least recently first, "+
+		"never one being served or one you placed by hand", provision.BytesWord(s.DiskBudget))
+}
+
+// parseByteSize reads 500M, 20G, 1.5T (binary units, as every roger screen shows sizes).
+func parseByteSize(s string) (int64, bool) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	s = strings.TrimSuffix(strings.TrimSuffix(s, "IB"), "B")
+	mult := map[byte]float64{'K': 1 << 10, 'M': 1 << 20, 'G': 1 << 30, 'T': 1 << 40}
+	if s == "" {
+		return 0, false
+	}
+	m, ok := mult[s[len(s)-1]]
+	if ok {
+		s = s[:len(s)-1]
+	} else {
+		m = 1
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 {
+		return 0, false
+	}
+	return int64(f * m), true
+}
+
+func modelIdleLine(s localmodel.Settings) string {
+	if s.IdleAfter <= 0 {
+		return "idle timeout: off - a model roger serves keeps serving until it is stopped"
+	}
+	return fmt.Sprintf("idle timeout: %s - with no turn for that long, roger stops serving and records why", s.IdleAfter)
+}
+
+// modelWatchIdle ends a serve whose runtime has counted no tokens for the owner's timeout, and
+// records why before it does. It returns the reason, or "" when ctx ended first.
+func modelWatchIdle(ctx context.Context, h localmodel.Home, s localmodel.Serving, after time.Duration) string {
+	w := &localmodel.IdleWatch{After: after}
+	tick := time.NewTicker(modelIdleEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ""
+		case now := <-tick.C:
+			total, busy, err := localmodel.Activity(ctx, s)
+			if err != nil {
+				continue // an unreadable counter is not idleness
+			}
+			if w.Observe(now, total, busy) {
+				why := localmodel.IdleWhy(after)
+				_ = h.RecordStop(localmodel.Stop{Band: s.Band, ID: s.ID, At: now, Why: why})
+				return why
+			}
+		}
+	}
+}
+
 func modelStatus() error {
 	if j, ok := modelHome().Job(); ok && j.State != localmodel.JobDone {
 		fmt.Fprintln(modelOut, modelJobLine(j))
 	}
-	s, ok := modelHome().Live()
+	h := modelHome()
+	settings, err := h.Settings()
+	if err != nil {
+		return err
+	}
+	s, ok := h.Live()
 	if !ok {
 		fmt.Fprintln(modelOut, "nothing is being served by roger on this machine.")
+		if st, stopped := h.LastStop(); stopped {
+			fmt.Fprintln(modelOut, "  "+st.Line())
+		}
+		fmt.Fprintln(modelOut, "  "+modelIdleLine(settings))
 		return nil
 	}
 	fmt.Fprintf(modelOut, "serving %q\n", s.Band)
@@ -612,6 +781,7 @@ func modelStatus() error {
 		s.ID, s.File, modelDash(s.Quant), modelDash(s.SHA256), s.Ctx)
 	fmt.Fprintf(modelOut, "  runtime  llama.cpp %s, pid %d, for %s\n  address  %s\n",
 		s.Runtime, s.RuntimePID, edge.Age(time.Since(s.Started)), s.BaseURL)
+	fmt.Fprintln(modelOut, "  "+modelIdleLine(settings))
 	return nil
 }
 

@@ -11,9 +11,11 @@
 # mixture of experts; judged in the pool the runtime roger starts actually uses), and "the runtime's
 # own fitness answer wins once the file is on disk" (llama-fit-params is asked before serving, its
 # yes/no, reason, breakdown and fallback context taken; our estimate stands only when it cannot
-# answer, and says so). NOT BUILT:
-# "two at once", an idle timeout (nothing unloads by surprise holds trivially), a cache budget, and
-# "the terminal and the phone agree" (same formula, not cross-checked against iOS).
+# answer, and says so), the idle timeout (off by default; the runtime's own counters; the stop is
+# recorded and on the member's card), and the disk budget (none by default; least recently served
+# that roger fetched goes first, never one being served or placed by hand; said before the fetch).
+# NOT BUILT: "two at once", and "the terminal and the phone agree" (same formula, not cross-checked
+# against iOS).
 #
 # READ features/share/model_catalog.feature FIRST. That spec is APPROVED and it already owns most
 # of this ground: one list of detected and offerable models, fit assessed against real detected
