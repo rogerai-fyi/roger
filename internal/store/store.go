@@ -1310,7 +1310,14 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 		}
 		m.settled[rec.RequestID] = true
 	}
-	m.wallet[user] -= cost
+	// A $0 metering settle for a wallet this store has never seen must not materialize its
+	// balance entry: BalanceOf seeds a wallet only when the entry is ABSENT, so creating it
+	// here would silently forfeit the wallet's one-time starter seed. Postgres creates a
+	// zero-balance row in this case, but its seed claim is independent of the row, so both
+	// stores agree: the receipt is recorded, the balance reads 0, the seed is still owed.
+	if _, known := m.wallet[user]; known || cost != 0 {
+		m.wallet[user] -= cost
+	}
 	m.spend[user] += cost
 	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
 	// lot: free seed credits must never mint a payout (P0-1). consumeSeed is called
