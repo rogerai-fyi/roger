@@ -190,7 +190,7 @@ func edgeGrantIssueCore(callerArg, capArg, calleeArg, forDur string, hops int) (
 	if err != nil {
 		return store.Grant{}, "", err
 	}
-	line := fmt.Sprintf("%s may %s %s until %s", edgeGrantWho(callerID), capArg, calleeArg, time.Unix(g.ExpiresAt, 0).Format("2006-01-02 15:04"))
+	line := fmt.Sprintf("%s may %s %s until %s", edgeGrantWho(callerID), capArg, edgeDisplayName(calleeID), time.Unix(g.ExpiresAt, 0).Format("2006-01-02 15:04"))
 	return g, line, nil
 }
 
@@ -238,7 +238,7 @@ func edgeGrantWho(callerID string) string {
 	if callerID == "" {
 		return "your own instances"
 	}
-	return edgeShortID(callerID)
+	return edgeDisplayName(callerID)
 }
 
 func cmdEdgeGrantList() error {
@@ -254,7 +254,7 @@ func cmdEdgeGrantList() error {
 	for _, g := range gs {
 		callee := ""
 		if len(g.Nodes) > 0 {
-			callee = edgeShortID(g.Nodes[0])
+			callee = edgeDisplayName(g.Nodes[0])
 		}
 		state := "live"
 		switch {

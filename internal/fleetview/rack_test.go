@@ -56,3 +56,28 @@ func TestBrandBandGivesUpTheTabsBeforeTheAlertCount(t *testing.T) {
 		}
 	}
 }
+
+// A unit's own rule is found by the unit's ID, not by how its scope is worded: the pane words a
+// scope as the unit's name (never an id), and an unnamed unit's name is not its record name.
+func TestRuleLineFindsAUnitsOwnRuleByItsID(t *testing.T) {
+	rules := []RuleLine{
+		{ID: "disk", When: "disk > 90", Scope: "fleet"},
+		{ID: "disk-own", When: "disk > 70", Scope: "board", ScopeID: "n_ebab8e24"},
+		{ID: "temp-off", When: "cpu_temp > 50", Scope: "board", ScopeID: "n_ebab8e24", State: "off"},
+	}
+	for _, c := range []struct {
+		node, metric string
+		want         float64
+		ok           bool
+	}{
+		{"n_ebab8e24", "disk", 70, true},
+		{"n_other", "disk", 90, true},
+		{"n_ebab8e24", "cpu_temp", 0, false},
+		{"board", "disk", 90, true}, // a name is not an id: the fleet's line
+	} {
+		got, ok := ruleLine(rules, c.node, c.metric)
+		if got != c.want || ok != c.ok {
+			t.Fatalf("ruleLine(%s, %s) = %v %v, want %v %v", c.node, c.metric, got, ok, c.want, c.ok)
+		}
+	}
+}

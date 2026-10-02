@@ -1394,14 +1394,14 @@ func cmdEdgeName(cfg config, args []string) error {
 		return err
 	}
 	want := argv.pos[1]
+	was := edgeDisplayName(n.ID) // what it was called, never its id
 	if n.Name == want {
-		fmt.Printf("%s is already named %s - nothing to do.\n", edgeShortID(n.ID), want)
+		fmt.Printf("%s is already named %s - nothing to do.\n", was, want)
 		return nil
 	}
 	for _, other := range nodes {
 		if other.Name == want && other.ID != n.ID {
-			return fmt.Errorf("the name %q is already taken on this Edge: %s (%s) already holds it",
-				want, other.Name, edgeShortID(other.ID))
+			return fmt.Errorf("the name %q is already taken on this Edge: %s already holds it", want, other.Name)
 		}
 	}
 	if err := st.fleet.Rename(n.ID, want); err != nil {
@@ -1410,7 +1410,7 @@ func cmdEdgeName(cfg config, args []string) error {
 	if err := st.save(); err != nil {
 		return err
 	}
-	fmt.Printf("%s is now %s.\n", edgeShortID(n.ID), want)
+	fmt.Printf("%s is now %s.\n", was, want)
 	return nil
 }
 
@@ -1480,8 +1480,7 @@ func cmdEdgeForget(cfg config, args []string) error {
 		return nil
 	}
 	if !argv.has("yes") {
-		fmt.Printf("forget %s (%s)? it leaves this Edge and its pinned certificate is cleared [y/N]: ",
-			n.Name, edgeShortID(n.ID))
+		fmt.Printf("forget %s? it leaves this Edge and its pinned certificate is cleared [y/N]: ", edgeDisplayName(n.ID))
 		if !edgeConfirmed() {
 			fmt.Println("left alone.")
 			return nil
@@ -1579,10 +1578,11 @@ func edgeAdoptWant(want string) (string, error) {
 		// Auto-clear: it leaves DISCOVERED at once (it is adopting now, not to-adopt).
 		st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
 		_ = st.save()
-		if ok { // it was already on this Edge (offline) - this is a RE-ADMIT, which revokes its old cert
-			return fmt.Sprintf("re-admitted %s (%s) - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.", c.Name, edgeShortID(c.ID)), nil
+		name := edge.UnitName(c, append(append([]store.EdgeNode(nil), st.candidates...), c)) // what it is, never its id
+		if ok {                                                                              // it was already on this Edge (offline) - this is a RE-ADMIT, which revokes its old cert
+			return fmt.Sprintf("re-admitted %s - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.", name), nil
 		}
-		return fmt.Sprintf("adopted %s (%s) - it can now claim its certificate; it appears as a member when it checks in.", c.Name, edgeShortID(c.ID)), nil
+		return fmt.Sprintf("adopted %s - it can now claim its certificate; it appears as a member when it checks in.", name), nil
 	}
 	// A serving candidate is verified and enrolled directly; it is NOT granted a claim (a grant that
 	// outlives revoke/forget would let a removed node re-claim a fresh certificate - audit 2026-09-23).
@@ -1590,7 +1590,7 @@ func edgeAdoptWant(want string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("adopted %s (%s).", n.Name, edgeShortID(n.ID)), nil
+	return fmt.Sprintf("adopted %s.", edge.UnitName(n, nil)), nil
 }
 
 // edgeForgetMember takes a member off the Edge and returns the line that says what happened -
@@ -1672,7 +1672,10 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 	}
 	st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != id })
 	_ = st.save()
-	fmt.Printf("re-admitted %s (%s) - its old certificate is revoked; it can claim a fresh one and rejoin.\n", name, edgeShortID(id))
+	if edge.LooksLikeID(name) {
+		name = edgeDisplayName(id) // a raw id typed for a device not seen right now is not a name
+	}
+	fmt.Printf("re-admitted %s - its old certificate is revoked; it can claim a fresh one and rejoin.\n", name)
 	return nil
 }
 
@@ -1702,8 +1705,8 @@ func edgeResolveNotInFleet(want string) (map[string]string, string, error) {
 			byID := g.NodeID == want
 			if byID || (g.Name != "" && g.Name == want) {
 				who := g.Name
-				if who == "" {
-					who = edgeShortID(g.NodeID)
+				if who == "" || edge.LooksLikeID(who) {
+					who = "a device adopted but not yet claimed"
 				}
 				ids[g.NodeID] = who
 				if !byID {
@@ -1725,7 +1728,7 @@ func edgeResolveNotInFleet(want string) (map[string]string, string, error) {
 				return nil, "", fmt.Errorf("could not read this Edge's issued certificates: %w", err)
 			}
 			if issued {
-				ids[want] = edgeShortID(want)
+				ids[want] = "a device this Edge issued a certificate to"
 			}
 		}
 	}
@@ -1739,7 +1742,7 @@ func edgeResolveNotInFleet(want string) (map[string]string, string, error) {
 			return nil, "", fmt.Errorf("could not read this machine's Edge identity to forget %q: %w", want, err)
 		}
 		if ok && held.NodeID == want {
-			ids[want] = edgeShortID(want)
+			ids[want] = "this machine"
 		}
 	}
 	label := ""
@@ -1782,7 +1785,12 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	// the re-admit are ONE atomic lock in the authority, so a revoke landing mid-adopt cannot be lifted.
 	revoked, err := local.ReAdmitRoutine(nodeID, name)
 	if errors.Is(err, edgeauth.ErrRevokedNeedsReadmit) {
-		return fmt.Errorf("%s was removed and its certificate revoked; re-admitting lifts that revocation - run `roger edge readmit %s` to do it deliberately", name, edgeShortID(nodeID))
+		// The command takes the id when the device was never named: it is an argument, not a name.
+		arg := name
+		if arg == "" || edge.LooksLikeID(arg) {
+			arg = nodeID
+		}
+		return fmt.Errorf("%s was removed and its certificate revoked; re-admitting lifts that revocation - run `roger edge readmit %s` to do it deliberately", edgeDisplayName(nodeID), arg)
 	}
 	if err != nil {
 		return edgeRecordRevoked(revoked, err)

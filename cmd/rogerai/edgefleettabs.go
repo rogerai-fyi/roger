@@ -24,14 +24,14 @@ func edgeGrantLines(names map[string]string, now time.Time) ([]fleetview.GrantLi
 		if len(g.Nodes) > 0 {
 			callee = names[g.Nodes[0]]
 			if callee == "" {
-				callee = edgeShortID(g.Nodes[0])
+				callee = edgeGoneUnit
 			}
 		}
 		caller := "your own instances"
 		if g.Caller != "" {
 			caller = names[g.Caller]
 			if caller == "" {
-				caller = edgeShortID(g.Caller)
+				caller = edgeGoneUnit
 			}
 		}
 		state := "live"

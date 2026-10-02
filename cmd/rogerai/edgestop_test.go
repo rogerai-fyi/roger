@@ -430,7 +430,7 @@ func TestWhoAskedReadsAsANameOrAShortID(t *testing.T) {
 	require.NoError(t, st.save())
 	require.Equal(t, "", edgeNameOfNode(id))
 
-	// And the history line then carries the SHORT id rather than forty-eight characters.
+	// And the history line then names it as the rack does (what it is), never by an id.
 	_, err = captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"on"}) })
 	require.NoError(t, err)
 	edgeRecordMaintenance(id, edgeNameOfNode(id), edge.MaintainTask{Action: edge.MaintainLogs}, time.Now())
@@ -441,7 +441,8 @@ func TestWhoAskedReadsAsANameOrAShortID(t *testing.T) {
 	require.True(t, ok)
 	last := n.History[len(n.History)-1]
 	require.Equal(t, "maintenance", last.What)
-	require.Contains(t, last.Detail, "asked by "+edgeShortID(id))
+	require.Contains(t, last.Detail, "asked by "+edgeDisplayName(id))
+	require.NotContains(t, last.Detail, "n_", "not even a short id")
 	require.NotContains(t, last.Detail, id, "the whole id never appears in a line a person reads")
 }
 

@@ -226,7 +226,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	}
 	// A node whose record name IS its id was never named by its owner: every screen calls it by a
 	// short id instead (edge.Label), so a 48-character id is never drawn as somebody's name.
-	names := edge.UnitNames(nodes)
+	names := edgeUnitLabelsFor(nodes, self.NodeID, edgeStationName())
 	if snap.Grants, err = edgeGrantLines(names, now); err != nil {
 		return fleetview.FleetSnapshot{}, err
 	}
@@ -297,7 +297,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		for id, d := range r.DeadAir {
 			name := names[id]
 			if name == "" {
-				name = edgeShortID(id)
+				name = edgeGoneUnit
 			}
 			snap.SignOff.DeadAir = append(snap.SignOff.DeadAir, fleetview.DeadAir{Node: name, For: d})
 		}

@@ -85,13 +85,12 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 		return err
 	}
 	if res.AlreadyEnrolled {
-		fmt.Printf("already enrolled as %s (%s), on the Edge rooted at %s.\n",
-			res.Name, edgeShortID(res.NodeID), res.Authority)
+		fmt.Println(edgeEnrolledLine(res, edgeStationName()))
 		fmt.Printf("  its certificate is good until %s; nothing to do.\n",
 			res.NotAfter.UTC().Format(time.RFC3339))
 		return nil
 	}
-	fmt.Printf("enrolled %q as %s on the Edge rooted at %s.\n", res.Name, edgeShortID(res.NodeID), res.Authority)
+	fmt.Println(edgeEnrolledLine(res, edgeStationName()))
 	fmt.Printf("  this machine now advertises itself, so your other machines can see it.\n")
 	if res.TrustWarning != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", res.TrustWarning)
@@ -101,6 +100,16 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 
 // edgeEnrollResult is what an enrollment did, for a caller that prints its own UX (the CLI
 // wrapper) or drives a wizard (the TUI hook). No printing happens in the core.
+// edgeEnrolledLine is the enroll confirmation: this machine by the name every screen calls it
+// (edge.SelfLabel), never by its node id.
+func edgeEnrolledLine(res edgeEnrollResult, station string) string {
+	name := edge.SelfLabel(res.Name, station)
+	if res.AlreadyEnrolled {
+		return fmt.Sprintf("already enrolled as %q, on the Edge rooted at %s.", name, res.Authority)
+	}
+	return fmt.Sprintf("enrolled %q on the Edge rooted at %s.", name, res.Authority)
+}
+
 type edgeEnrollResult struct {
 	NodeID          string
 	Name            string
@@ -638,13 +647,13 @@ func edgeRevokeOnForget(nodeID string) ([]string, string, error) {
 		// The authority is here but could not be opened (a corrupt issued.json / revoked.json). We
 		// must NOT go on to forget the node from the fleet and report success while revoking nothing
 		// - that is the fail-open the audit caught. Stop and report (audit 2026-09-24).
-		return nil, "", fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeShortID(nodeID), err)
+		return nil, "", fmt.Errorf("could not open the Edge authority to revoke %s: %w", edgeDisplayName(nodeID), err)
 	}
 	if ok {
 		// Migrate an authority designated before protection existed: protect THIS machine's own key
 		// (if it is on the allow-list) before any eviction, so a forget can never evict it.
 		if err := local.BackfillProtection(hex.EncodeToString(edgeUserKey().Public().(ed25519.PublicKey))); err != nil {
-			return nil, "", fmt.Errorf("could not protect this machine's Edge key before forgetting %s: %w", edgeShortID(nodeID), err)
+			return nil, "", fmt.Errorf("could not protect this machine's Edge key before forgetting %s: %w", edgeDisplayName(nodeID), err)
 		}
 		// Clear any standing claim grant AND revoke every certificate the node was issued in ONE
 		// locked step, so a claim cannot mint a fresh certificate between the two (audit 2026-09-24).
@@ -652,7 +661,7 @@ func edgeRevokeOnForget(nodeID string) ([]string, string, error) {
 		// reported as done.
 		revoked, ek, err := local.Forget(nodeID)
 		if err != nil {
-			return nil, "", fmt.Errorf("could not forget %s from the authority: %w", edgeShortID(nodeID), err)
+			return nil, "", fmt.Errorf("could not forget %s from the authority: %w", edgeDisplayName(nodeID), err)
 		}
 		authorityRevoked, evictedKey = revoked, ek
 	}
@@ -660,7 +669,7 @@ func edgeRevokeOnForget(nodeID string) ([]string, string, error) {
 	// right here and leaving the Edge means giving it up.
 	held, _, ok, err := st.LoadIdentity()
 	if err != nil {
-		return nil, "", fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeShortID(nodeID), err)
+		return nil, "", fmt.Errorf("could not read this machine's identity to forget %s: %w", edgeDisplayName(nodeID), err)
 	}
 	toRecord := append([]string{}, authorityRevoked...)
 	if ok && held.NodeID == nodeID {
