@@ -3,8 +3,12 @@
 # STATUS: APPROVED by the founder 2026-10-01 ("approve as written").
 # BUILD STATUS (2026-10-01, wt/edge-limoni): BUILT in the rack (`roger edge fleet`, o from [3]) with
 # the [3] cards and the console sharing its state words, EXCEPT: the phone's own vitals need the Roger
-# app to send presence v2 (Edge side built and pinned; app change needs a Mac), and the window is the
-# Limoni rack - HEALTH is still its own tab rather than folded in.
+# app to send presence v2 (Edge side built and pinned; app change needs a Mac).
+# HEALTH FOLDED IN (2026-10-01, wt/limoni-fold): the rack has no HEALTH tab any more. The FLEET tab
+# carries it - temperature, memory and disk on a unit's row where it has room, and the selected
+# unit's health (enter, or 6, the old HEALTH key, which now lands on FLEET) with every reading and
+# its age, its history, its alarms, and the rules in force, edited in place; esc comes back to the
+# rack on the same unit. Pinned by internal/fleetview/fold_test.go.
 #
 # FOUNDER DIRECTION 2026-10-01: "i want to test soon to install roger on a phone and on a pi device
 # and i should be able to see them and monitor and control them from the authoritive edge machine.

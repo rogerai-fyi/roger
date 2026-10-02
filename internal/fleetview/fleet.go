@@ -322,16 +322,21 @@ type Fleet struct {
 	Source  FleetSource
 	Actions FleetActions
 	Every   time.Duration
-	health  *Health // the HEALTH tab, when given
+	// health is the read behind a unit's health page: the rules in force, where alerts go, the
+	// session's history of readings, and the rule edits. HEALTH is not a tab of its own any more -
+	// it is folded into FLEET (fleet_window.feature, WHERE IT LIVES) - so nil only means the page
+	// draws each unit's own readings with no rules pane.
+	health *Health
 
 	snap     FleetSnapshot
 	err      error
 	readAt   time.Time
 	sel      int
-	gsel     int // the selected grant on the GRANTS tab
-	asel     int // the selected call on the TROUBLE tab
-	tab      int // see tabs(): fleet, andon, trouble, grants, sessions, health
-	frame    int // advances each frame; the pulses breathe on it
+	gsel     int  // the selected grant on the GRANTS tab
+	asel     int  // the selected call on the TROUBLE tab
+	tab      int  // see tabs(): fleet, andon, trouble, grants, sessions, events
+	page     bool // FLEET with the selected unit's health open (6, or enter on a unit)
+	frame    int  // advances each frame; the pulses breathe on it
 	confirm  bool
 	askID    string // the unit the forget question is about, fixed when it was asked
 	revoke   bool   // the revoke question is up
@@ -355,14 +360,10 @@ type Fleet struct {
 	lastErr   bool
 }
 
-// NewFleet makes the screen over src, with health as its second tab (nil = no tab).
+// NewFleet makes the screen over src. health, when given, is what a unit's health page reads its
+// rules, sinks and session history from, and the 6 that once opened the HEALTH tab opens that page.
 func NewFleet(src FleetSource, health *Health, acts FleetActions) *Fleet {
-	f := &Fleet{Source: src, Actions: acts, Every: 2 * time.Second, health: health}
-	if health != nil {
-		health.BackHint = "1 fleet"
-		health.Tabs, health.Tab = f.tabs(), f.tabAt()
-	}
-	return f
+	return &Fleet{Source: src, Actions: acts, Every: 2 * time.Second, health: health}
 }
 
 // Run opens the screen full-screen until q/esc or ctx ends.
@@ -378,18 +379,19 @@ func (f *Fleet) Draw(fr *lm.Frame, ev *lm.Event) bool {
 			return false
 		}
 	}
-	if f.tab == tabHealth && f.health != nil {
-		return f.health.Draw(fr, nil)
-	}
 	f.refresh()
 	f.clamp()
+	if f.page && f.health != nil {
+		f.health.refresh() // read only while the page is open: the monitor stays cheap
+	}
 
 	f.drawFrame(fr)
 	return true
 }
 
 // The tabs, by index: ANDON is the whole rack in two seconds (level 1), FLEET the rack (level 2),
-// TROUBLE the standing calls, GRANTS and SESSIONS the ledgers, HEALTH the instruments.
+// TROUBLE the standing calls, GRANTS and SESSIONS the ledgers. tabHealth is a KEY, not a tab: the
+// HEALTH tab was folded into FLEET, and its key now opens FLEET with the selected unit's health.
 const (
 	tabFleet = iota
 	tabAndon
@@ -400,11 +402,11 @@ const (
 	tabEvents
 )
 
-// tabOrder is the tabs in STRIP order, as the constants they select. HEALTH is there only when a
-// health screen was given, so the order is not the constant order - which is why keys map through
-// here rather than being cast from the digit. It also means a new tab is appended at the end and
-// never renumbers a tab an operator already learned.
-func (f *Fleet) tabOrder() []int {
+// keyOrder is what the digit keys select, in order. The HEALTH slot stays where it was when a
+// health read was given (6), so folding the tab into FLEET renumbered nothing an operator already
+// learned: 6 opens a unit's health on FLEET and 7 is still EVENTS. Keys map through here rather
+// than being cast from the digit, and a new tab is appended at the end.
+func (f *Fleet) keyOrder() []int {
 	t := []int{tabFleet, tabAndon, tabTrouble, tabGrants, tabSessions}
 	if f.health != nil {
 		t = append(t, tabHealth)
@@ -412,11 +414,22 @@ func (f *Fleet) tabOrder() []int {
 	return append(t, tabEvents)
 }
 
-// tabs is the tab strip, in the same order as tabOrder.
+// stripOrder is the tab strip: every key's tab except the HEALTH slot, which is FLEET.
+func (f *Fleet) stripOrder() []int {
+	var out []int
+	for _, t := range f.keyOrder() {
+		if t != tabHealth {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// tabs is the tab strip, in the same order as stripOrder.
 func (f *Fleet) tabs() []string {
 	names := map[int]string{tabFleet: "fleet", tabAndon: "andon", tabTrouble: "trouble",
-		tabGrants: "grants", tabSessions: "sessions", tabHealth: "health", tabEvents: "events"}
-	order := f.tabOrder()
+		tabGrants: "grants", tabSessions: "sessions", tabEvents: "events"}
+	order := f.stripOrder()
 	out := make([]string, 0, len(order))
 	for _, t := range order {
 		out = append(out, names[t])
@@ -426,7 +439,7 @@ func (f *Fleet) tabs() []string {
 
 // tabAt is the strip position of the tab in force, for the strip's own highlight.
 func (f *Fleet) tabAt() int {
-	for i, t := range f.tabOrder() {
+	for i, t := range f.stripOrder() {
 		if t == f.tab {
 			return i
 		}
@@ -564,26 +577,37 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		}
 		return true
 	}
-	if f.tab == tabHealth && f.health != nil && f.health.Busy() {
-		f.health.Draw(nil, ev) // a prompt on HEALTH owns every key, q and the tab numbers included
+	onPage := f.page && f.tab == tabFleet
+	if onPage && f.health != nil && f.health.Busy() {
+		f.health.onKey(ev) // a rule prompt owns every key, q and the tab numbers included
+		f.readAt = time.Time{}
+		return true
+	}
+	if onPage && k.Type == lm.KeyEsc {
+		f.page = false // esc on a unit's health comes back to the rack, on the same unit
 		return true
 	}
 	// Tabs, from anywhere.
 	switch {
 	case k.Ch == 'q' || k.Ch == 'Q' || k.Type == lm.KeyEsc:
 		return false
-	case k.Ch >= '1' && k.Ch <= '9' && int(k.Ch-'1') < len(f.tabOrder()):
-		f.tab = f.tabOrder()[int(k.Ch-'1')]
+	case k.Ch >= '1' && k.Ch <= '9' && int(k.Ch-'1') < len(f.keyOrder()):
+		f.tab, f.page = f.keyOrder()[int(k.Ch-'1')], false
+		if f.tab == tabHealth { // the folded HEALTH tab: FLEET, with the selected unit's health open
+			f.tab = tabFleet
+			f.openPage()
+		}
 		return true
 	case k.Type == lm.KeyTab:
-		order := f.tabOrder()
-		f.tab = order[(f.tabAt()+1)%len(order)]
+		order := f.stripOrder()
+		f.tab, f.page = order[(f.tabAt()+1)%len(order)], false
+		return true
+	}
+	if onPage {
+		f.pageKey(ev)
 		return true
 	}
 	switch f.tab {
-	case tabHealth:
-		f.health.Draw(nil, ev) // keys only; q was handled above, so the tab never ends the screen
-		return true
 	case tabTrouble:
 		calls := f.sortedAlarms()
 		switch {
@@ -641,6 +665,10 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		return true
 	}
 	switch {
+	case k.Type == lm.KeyEnter:
+		if it := f.selected(); it.Kind == ItemHub || it.Kind == ItemMember {
+			f.page = true
+		}
 	case k.Ch == '/':
 		f.filtering, f.input = true, []rune(f.query)
 	case k.Ch == '?':
@@ -728,6 +756,51 @@ func (f *Fleet) onKey(ev *lm.Event) bool {
 		}
 	}
 	return true
+}
+
+// openPage opens the selected unit's health; on a roger or a bench device, which report no health
+// of their own, it opens on the nearest unit instead.
+func (f *Fleet) openPage() {
+	f.page = true
+	f.refresh()
+	f.clamp()
+	if it := f.selected(); it.Kind != ItemHub && it.Kind != ItemMember {
+		if !f.stepUnit(-1) {
+			f.stepUnit(1)
+		}
+	}
+}
+
+// stepUnit moves the selection to the next unit (the hub or a member) in direction d, skipping the
+// rogers and the bench; false when there is none that way.
+func (f *Fleet) stepUnit(d int) bool {
+	for i := f.sel + d; i >= 0 && i < len(f.snap.Items); i += d {
+		if k := f.snap.Items[i].Kind; k == ItemHub || k == ItemMember {
+			f.sel = i
+			return true
+		}
+	}
+	return false
+}
+
+// pageKey is a key on a unit's health page: the arrows walk the units, r re-reads, and the rule keys
+// edit the rules in place through the health read's own actions.
+func (f *Fleet) pageKey(ev *lm.Event) {
+	k := ev.Key
+	switch {
+	case k.Type == lm.KeyDown || k.Ch == 'j':
+		f.stepUnit(1)
+	case k.Type == lm.KeyUp || k.Ch == 'k':
+		f.stepUnit(-1)
+	case k.Ch == 'r':
+		f.readAt = time.Time{}
+		if f.health != nil {
+			f.health.readAt = time.Time{}
+		}
+	case f.health != nil && (k.Ch == 'a' || k.Ch == '[' || k.Ch == ']' || k.Ch == 'o' || k.Ch == 'x'):
+		f.health.onKey(ev)
+		f.readAt = time.Time{} // a rule changed: the rack's lines and calls follow it
+	}
 }
 
 // preferWord is the preference as a word; the default is local.
@@ -909,6 +982,14 @@ func (f *Fleet) drawFrame(fr *lm.Frame) {
 	case f.err == nil && f.tab == tabAndon:
 		f.drawAndon(fr, rows[1])
 		actionBar(fr, rows[2], f.actions(), f.toast, f.toastErr, f.toastAt)
+		return
+	case f.err == nil && f.page:
+		f.drawHealthPage(fr, rows[1])
+		toast, toastErr, toastAt := f.toast, f.toastErr, f.toastAt
+		if h := f.health; h != nil && h.saidAt.After(toastAt) { // a rule edit's outcome
+			toast, toastErr, toastAt = h.last, h.lastErr, h.saidAt
+		}
+		actionBar(fr, rows[2], f.actions(), toast, toastErr, toastAt)
 		return
 	}
 	if f.err != nil {
@@ -1217,7 +1298,9 @@ var allKeys = []struct{ key, what string }{
 	{"p", "on this machine: where a turn goes first"},
 	{"g", "on this machine: make this roger an agent, or stop"},
 	{"b c u x", "on a roger: bind a model, clear its job, resume, remove"},
-	{"1 to 7", "fleet, andon, trouble, grants, sessions, health, events"},
+	{"⏎ 6", "a unit's health: every reading with its age, the rules · esc back to the rack"},
+	{"a [ ] o x", "on a unit's health: add a rule, walk the rules, turn one off or on, remove it"},
+	{"1 to 7", "fleet, andon, trouble, grants, sessions, 6 health on fleet, events"},
 	{"r", "re-read now"},
 	{"?", "this list, again to close it"},
 	{"q", "quit"},
@@ -1306,6 +1389,9 @@ func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
 	}
 	out := []lm.Span{span(strings.Repeat(" ", gap), dim)}
 	facts := 12
+	// The disk is the first column to go: what a unit serves is worth more of a narrow row
+	// (fleet_window.feature §1 names temperature, memory and serving; the disk is on its page).
+	withDisk := width-used-gap-17 >= 2+utf8.RuneCountInString(it.Serving)
 	switch {
 	case it.Dark:
 		// No live readings to draw: the eye and DARK already say so, and the room goes to what it
@@ -1316,6 +1402,10 @@ func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
 		out = append(out, span(pad(fmt.Sprintf("batt %d%%", *it.Phone.BatteryPct), 10), ink))
 	case it.Health == nil || it.Health.Readings == nil:
 		out = append(out, span("┈┈┈   ┈┈┈ ", ash))
+		if withDisk {
+			out = append(out, span(" ┈┈┈ ", ash))
+			facts = 17
+		}
 	default:
 		r := it.Health.Readings
 		if r.CPUTempC != nil {
@@ -1333,13 +1423,24 @@ func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
 		} else {
 			out = append(out, span("┈┈┈  ", ash))
 		}
+		if l, ok := it.Health.DiskLevel(); withDisk && ok {
+			c, w := ink, fmt.Sprintf("%.0f%%", 100*l)
+			if len(alarm(it.Alerts, "disk")) > 0 {
+				c, w = live, "▲"+w
+			}
+			out = append(out, span(pad(w, 5), c))
+			facts = 17
+		} else if withDisk {
+			out = append(out, span("┈┈┈  ", ash))
+			facts = 17
+		}
 		if r.PiPower != nil {
 			if now, _ := edge.PowerWords(*r.PiPower); len(now) > 0 {
 				out = append(out, bold("⚡", live))
 			}
 		}
 	}
-	if room := width - used - gap - facts; it.Serving != "" && room >= 6 {
+	if room := width - used - gap - facts - 2; it.Serving != "" && room >= 4 { // 2: the air before it
 		if it.Dark && !it.LastSeen.IsZero() {
 			// What it served when last heard, said as old - never drawn as serving now.
 			out = append(out, span("  "+elide(it.Serving+" ("+edge.Age(now.Sub(it.LastSeen))+" old)", room), ash))
@@ -1547,20 +1648,8 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			row("job", j...)
 		}
 	}
-	// THE LAST HOUR as lines, so a spike reads as a spike and a sustained climb as a climb; a gap
-	// where it was dark stays a gap (fleet_window.feature).
-	for _, h := range []struct {
-		name string
-		vals []float64
-		unit func(float64) string
-	}{
-		{"temp 1h", it.TempHour, func(v float64) string { return fmt.Sprintf("%.0f°", v) }},
-		{"load 1h", it.LoadHour, func(v float64) string { return fmt.Sprintf("%.2f", v) }},
-		{"mem 1h", it.MemHour, func(v float64) string { return fmt.Sprintf("%.0f%%", 100*v) }},
-	} {
-		if line, lo, hi, ok := hourLine(h.vals, width-34); ok {
-			row(h.name, span(line, dial), span("  "+h.unit(lo)+" to "+h.unit(hi), muted))
-		}
+	for _, h := range it.hourRows(width - 34) {
+		row(h.name, h.spans...)
 	}
 	if len(it.Log) > 0 && (it.Kind == ItemHub || it.Kind == ItemMember) {
 		w, c, _ := it.state(now)
@@ -1614,6 +1703,88 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 	}
 	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 	return len(lines)
+}
+
+// hourRow is one of a unit's last-hour lines, ready for a row.
+type hourRow struct {
+	name  string
+	spans []lm.Span
+}
+
+// hourRows are THE LAST HOUR as lines, so a spike reads as a spike and a sustained climb as a
+// climb; a gap where it was dark stays a gap (fleet_window.feature). w is the cells the line has.
+func (it FleetItem) hourRows(w int) []hourRow {
+	var out []hourRow
+	for _, h := range []struct {
+		name string
+		vals []float64
+		unit func(float64) string
+	}{
+		{"temp 1h", it.TempHour, func(v float64) string { return fmt.Sprintf("%.0f°", v) }},
+		{"load 1h", it.LoadHour, func(v float64) string { return fmt.Sprintf("%.2f", v) }},
+		{"mem 1h", it.MemHour, func(v float64) string { return fmt.Sprintf("%.0f%%", 100*v) }},
+	} {
+		if line, lo, hi, ok := hourLine(h.vals, w); ok {
+			out = append(out, hourRow{h.name, []lm.Span{span(line, dial), span("  "+h.unit(lo)+" to "+h.unit(hi), muted)}})
+		}
+	}
+	return out
+}
+
+// nodeOf is the unit's health as the page draws it, with the rules firing on it: the health read's
+// own record when it has the unit (the same read the HEALTH screen drew), else the rack's.
+func (f *Fleet) nodeOf(it FleetItem) (edge.NodeHealth, []string) {
+	if f.health != nil {
+		for _, n := range f.health.snap.Nodes {
+			if n.ID == it.ID && it.ID != "" {
+				return n, f.health.snap.Firing[n.ID]
+			}
+		}
+	}
+	now := f.snap.At
+	var n edge.NodeHealth
+	if it.Health != nil {
+		n = *it.Health
+	}
+	n.ID, n.Name, n.Kind, n.Dark = it.ID, it.Name, it.NodeKind, it.Dark
+	if n.LastHeard.IsZero() {
+		n.LastHeard = it.heard(now)
+	}
+	if n.Dark && n.DarkFor == 0 && !n.LastHeard.IsZero() {
+		n.DarkFor = now.Sub(n.LastHeard)
+	}
+	return n, it.Alerts
+}
+
+// drawHealthPage is the FLEET tab with the selected unit's health open - what the HEALTH tab was
+// before it was folded in: every reading with its age and its meter, the session's history and
+// the last hour, the alarms standing on it, then the rules in force, editable in place.
+func (f *Fleet) drawHealthPage(fr *lm.Frame, area lm.Rect) {
+	it := f.selected()
+	now := f.snap.At
+	lines := []lm.Line{lm.NewLine(), lm.NewLine(span("  ", dim), eyebrow(pad("health", 8), muted),
+		span("↑↓ the next unit · esc back to the rack", dim)), lm.NewLine()}
+	if it.Kind == ItemHub || it.Kind == ItemMember {
+		n, firing := f.nodeOf(it)
+		var rules []RuleLine
+		var hs *history
+		if f.health != nil {
+			rules, hs = f.health.snap.Rules, f.health.hist[it.ID]
+		}
+		lines = append(lines, instrumentStack(n, it.label(), firing, rules, it.Lines, hs, now, int(area.Width), f.frame)...)
+		for _, h := range it.hourRows(int(area.Width) - 40) {
+			l := lm.NewLine(span("  ", dim), eyebrow(pad(h.name, 8), muted))
+			l.Spans = append(l.Spans, h.spans...)
+			lines = append(lines, l)
+		}
+	} else {
+		lines = append(lines, lm.NewLine(span("  nothing on this Edge reports its health yet", muted)))
+	}
+	if f.health != nil {
+		lines = append(lines, lm.NewLine())
+		lines = append(lines, f.health.rulesPane()...)
+	}
+	fr.RenderWidget(lm.NewText(lines...).WithWrap(false), area)
 }
 
 // wrapWords breaks s on spaces into lines no wider than w (a single word wider than w stands alone).
@@ -1673,6 +1844,13 @@ func (f *Fleet) actions() []action {
 	case tabAndon:
 		return []action{{"↑↓", "select"}, {"1", "fleet"}, {"3", "trouble"}, {"r", "re-read"}, {"q", "quit"}}
 	}
+	if f.page {
+		out := []action{{"↑↓", "unit"}}
+		if f.health != nil {
+			out = append(out, f.health.ruleActions()...)
+		}
+		return append(out, action{"r", "re-read"}, action{"esc", "rack"}, action{"q", "quit"})
+	}
 	out := []action{{"↑↓", "select"}}
 	switch it.Kind {
 	case ItemAgent, ItemInstance:
@@ -1693,6 +1871,7 @@ func (f *Fleet) actions() []action {
 			out = append(out, action{"a", "adopt"})
 		}
 	case ItemMember:
+		out = append(out, action{"⏎", "health"})
 		if it.Asking && f.Actions.Adopt != nil {
 			out = append(out, action{"a", "re-admit"})
 		}
@@ -1715,6 +1894,7 @@ func (f *Fleet) actions() []action {
 			out = append(out, action{"f", "forget"})
 		}
 	case ItemHub:
+		out = append(out, action{"⏎", "health"})
 		if f.Actions.SetPrefer != nil {
 			out = append(out, action{"p", "prefer"})
 		}
@@ -1728,9 +1908,6 @@ func (f *Fleet) actions() []action {
 	}
 	out = append(out, action{"/", "filter"}, action{"s", "sort"}, action{"?", "keys"})
 	out = append(out, action{"2", "andon"}, action{"3", "trouble"}, action{"4", "grants"}, action{"5", "sessions"})
-	if f.health != nil {
-		out = append(out, action{"6", "health"})
-	}
 	return append(out, action{"r", "re-read"}, action{"q", "quit"})
 }
 

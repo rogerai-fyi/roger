@@ -138,7 +138,9 @@ func TestFleetScreenShowsAFailedActionInsteadOfPretending(t *testing.T) {
 	must(t, page.Screen(), "certificate already revoked")
 }
 
-func TestFleetScreenHasAHealthTabAndComesBack(t *testing.T) {
+// HEALTH is folded into FLEET (fleet_window.feature, WHERE IT LIVES): 6, the key that opened the
+// HEALTH tab, opens FLEET with the selected unit's health, and 1 comes back to the rack.
+func TestFleetScreenHealthKeyOpensAUnitsHealthAndComesBack(t *testing.T) {
 	now := time.Now()
 	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
 		return fleetview.HealthSnapshot{Nodes: fleet(now), At: now}, nil
@@ -146,7 +148,10 @@ func TestFleetScreenHasAHealthTabAndComesBack(t *testing.T) {
 	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return fleetSnap(now), nil }, h, (&recorder{}).actions())
 	page := uitest.Run(t, 130, 44, f.Draw)
 	page.Press("6")
-	must(t, page.Screen(), "UNIT", "TEMP", "CARRIER", "quiet-pi")
+	must(t, page.Screen(), "FLEET", "esc back to the rack", "RogGentooEdged", "/mnt/train", "RTX PRO 4500")
+	if strings.Contains(strings.ToLower(strings.SplitN(page.Screen(), "\n", 2)[0]), "health") {
+		t.Fatalf("HEALTH is not a tab of its own:\n%s", page.Screen())
+	}
 	page.Press("1")
 	must(t, page.Screen(), "ON THE RACK", "ON THE BENCH")
 	page.Press("q")
@@ -242,12 +247,14 @@ func TestScreensFoldAtAHundredColumns(t *testing.T) {
 			t.Fatalf("a fact was cut instead of folded (%q):\n%s", cut, s)
 		}
 	}
+	// HEALTH is folded into FLEET: at 100 columns a unit's health page keeps its facts whole, and
+	// the arrows walk to the dark phone, which says for how long and why it is called.
 	page.Press("6")
 	s = page.Screen()
-	must(t, s, "UNIT", "TEMP", "DARK 1d", "▲ 2", "▲ 1", "▲ over 90")
-	if strings.Contains(s, "CARRIER") {
-		t.Fatalf("at 100 columns the strip drops the carrier meter (the eye tells presence):\n%s", s)
-	}
+	must(t, s, "▲ 2", "▲ cpu_temp > 85", "▲ over 90")
+	page.Press("Down")
+	s = page.Screen()
+	must(t, s, "DARK 1d", "▲ offline > 5")
 	for _, cut := range []string{"onlin ", "offli "} {
 		if strings.Contains(s, cut) {
 			t.Fatalf("a fact was cut instead of folded (%q):\n%s", cut, s)
@@ -514,7 +521,7 @@ func TestFleetScreenSaysWhenAPhoneLastReadTheFeed(t *testing.T) {
 }
 
 // Cursors never leave their lists, whatever the keys: Up above the first call, then k, is nothing
-// - not a panic; a prompt on HEALTH owns q and the tab numbers while it is open; ANDON takes no
+// - not a panic; a rule prompt on a unit's health owns q and the tab numbers while it is open; ANDON takes no
 // action keys.
 func TestFleetScreenCursorsAndPromptsAreSafe(t *testing.T) {
 	now := time.Now()
