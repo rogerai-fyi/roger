@@ -13,6 +13,7 @@ func TestOverflowRecognizedInEverySpelling(t *testing.T) {
 		"context_length_exceeded",                     // the error code form
 		"This model's maximum context length is 8192", // verbatim server text
 		"too many tokens in prompt",
+		"prompt is too long: 9000 tokens > 8192 maximum",
 		"failed to allocate kv cache",
 		// llama-server verbatim (live 2026-09-05: a real overflow the list missed)
 		"request (13073 tokens) exceeds the available context size (8192 tokens), try increasing it",

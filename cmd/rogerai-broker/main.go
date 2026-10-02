@@ -1059,6 +1059,14 @@ func isStreamRoute(p string) bool {
 // LOWER it, the user gets the lower price (we bill min(quoted, current)). Fair to
 // both: stable/predictable for users, and owners can always cut prices to compete.
 func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time) {
+	return b.quotedPrice(user, node, model, curIn, curOut, true)
+}
+
+// quotedPrice is lockedPrice with the minting made explicit. A VOIDED attempt (mint=false)
+// is priced under an existing lock when one is running, else at the current price, and
+// neither creates nor renews a lock: only a served (model, station) pair starts its 24h
+// window, so a station that failed over never leaves a lock behind.
+func (b *broker) quotedPrice(user, node, model string, curIn, curOut float64, mint bool) (in, out float64, until time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	key := user + "|" + node + "|" + model
@@ -1078,6 +1086,9 @@ func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (i
 	}
 
 	q, ok := b.quotes[key]
+	if (!ok || now.After(q.until)) && !mint {
+		return curIn, curOut, time.Time{}
+	}
 	if !ok || now.After(q.until) {
 		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin)}
 		b.quotes[key] = q

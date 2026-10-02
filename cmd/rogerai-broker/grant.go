@@ -140,7 +140,8 @@ type pricingPlan struct {
 // streamBill carries the billing context into relayStream (keeps its signature
 // from sprawling).
 type streamBill struct {
-	user string // the wallet to charge / refund (the payer)
+	requested []string // the model list as asked (bare ids), nil for a single-model request
+	user      string   // the wallet to charge / refund (the payer)
 	// consumer is the SIGNED consumer identity used as the price-LOCK key, kept distinct
 	// from `user` (the payer wallet): for a logged-in caller the payer is the unified
 	// "u_gh_<id>" wallet while the lock keys on the pubkey-derived signed id, exactly as

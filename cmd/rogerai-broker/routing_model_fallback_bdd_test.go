@@ -195,6 +195,9 @@ func (s *mf1State) resetMF1() error {
 	s.forgeStop = make(chan struct{})
 	s.ordered = true // this runner applies its own per-model order (applyOrder)
 	s.tokens = 50
+	// The price lock runs for the PRODUCTION window (the -price-lock flag default, the spec's
+	// lockWin 24 h); the shared test broker constructors use a shorter one.
+	s.b.lockWin = 24 * time.Hour
 	return nil
 }
 
@@ -607,6 +610,24 @@ func (s *mf1State) walletRowFor(pubHex string) error {
 	return err
 }
 
+// fundOwnerCaller makes the station owner who is this scenario's CONSUMER the Background's
+// "funded consumer with balance $10.00": a wallet row (the fixture rule above) holding $10, so
+// a paid station ahead of the owner's own one in the list can be held for and tried.
+func (s *mf1State) fundOwnerCaller() error {
+	if err := s.walletRowFor(s.ownerCaller.acct); err != nil {
+		return err
+	}
+	w := s.payerWallet()
+	bal, err := s.db.PeekBalance(w)
+	if err != nil {
+		return err
+	}
+	if bal < 10 {
+		_, err = s.db.AddCredits(w, 10-bal)
+	}
+	return err
+}
+
 func (s *mf1State) payerWallet() string {
 	switch s.caller {
 	case "anon":
@@ -677,7 +698,7 @@ func (s *mf1State) send(q mf1Req) error {
 		}
 		signReq(r, s.anonPriv, body)
 	case "owner":
-		if err := s.walletRowFor(s.ownerCaller.acct); err != nil {
+		if err := s.fundOwnerCaller(); err != nil {
 			return err
 		}
 		signReq(r, s.ownerCaller.ownerPriv, body)
@@ -742,6 +763,11 @@ func (s *mf1State) begin() error {
 	s.admin0 = s.adminResp
 	if !s.balanceSet && s.caller == "" {
 		if err := s.ensureFunded(); err != nil {
+			return err
+		}
+	}
+	if s.caller == "owner" && s.ownerCaller != nil {
+		if err := s.fundOwnerCaller(); err != nil { // before the snapshot below, so the deltas are the relay's
 			return err
 		}
 	}
@@ -1627,7 +1653,13 @@ func (s *mf1State) mkGrant(owner *fstation, g store.Grant) error {
 	}
 	s.owner = owner
 	s.caller = "grant"
-	return s.db.CreateGrant(g)
+	if err := s.db.CreateGrant(g); err != nil {
+		return err
+	}
+	// The grant's own wallet ("g_<id>") gets a row the way the file header's fixture rule gives
+	// every $0 payer one: on the Postgres store a free grant's settle finds no row otherwise
+	// (the open free-settle finding), and this runner must read the same on both stores.
+	return rs1GrantWalletRow(s.db, g)
 }
 
 func (s *mf1State) mkBand(name string, models []string) error {
@@ -2679,7 +2711,16 @@ func mf1Thens() []mf1Step {
 			}
 			return aRecvN("b1", 1)(s)
 		}),
-		T(`the response is 503 with the last upstream's Retry-After when present`, aCode(503), aNoHdr("Retry-After")),
+		// b1's 503 carries no Retry-After of its own, so the consumer gets the broker's default
+		// hint - the existing rule for a final 429/503 (setRetryAfter: "always tells the consumer
+		// when to come back") - and never the EARLIER attempt's value (a1's 7).
+		T(`the response is 503 with the last upstream's Retry-After when present`, aCode(503), func(s *mf1State) error {
+			want := strconv.Itoa(s.b.retryAfterHint(protocol.JobResult{}))
+			if got := s.lastHdr.Get("Retry-After"); got != want {
+				return fmt.Errorf("Retry-After=%q, want the default hint %s (b1 sent none; a1's 7 must not leak)", got, want)
+			}
+			return nil
+		}),
 		T(`the response is 503 "no node of this grant's owner is serving" with error code "no_match"`, aCode(503), aMsgHas("no node of this grant's owner is serving"), aErrCode("no_match")),
 		T(`the response is 503 "no station on that frequency (it may be off air) - check the code"`, aCode(503), aMsgHas("no station on that frequency (it may be off air) - check the code")),
 		T(`the body carries no error code that distinguishes model-denied from off-air`, func(s *mf1State) error {
@@ -2952,18 +2993,16 @@ func mf1Thens() []mf1Step {
 		}),
 		T(`"a1" is cooling for 30 s for model "a"`, aFrom("b1"), func(s *mf1State) error {
 			s.model = "a"
-			if !s.isCooling("a1") {
+			// Read the cooldown's expiry itself rather than walking the clock past it: a lapsed
+			// cooldown is DELETED on read (coolingUntilLocked), so advancing past the expiry and
+			// back would leave a1 not cooling for the next step, which needs it cooling.
+			until, cooling := s.b.coolingUntil(s.st("a1").id)
+			if !cooling {
 				return fmt.Errorf("a1 is not cooling after its 429")
 			}
-			s.advance(29 * time.Second)
-			if !s.isCooling("a1") {
-				return fmt.Errorf("a1 stopped cooling before its 30 s Retry-After")
+			if d := until.Sub(s.b.now()); d <= 29*time.Second || d > 30*time.Second+time.Second {
+				return fmt.Errorf("a1 cools for %s, want its 30 s Retry-After", d)
 			}
-			s.advance(2 * time.Second)
-			if s.isCooling("a1") {
-				return fmt.Errorf("a1 is still cooling after 31 s")
-			}
-			s.advance(-31 * time.Second)
 			return nil
 		}),
 		T(`the next single-model request for "a" skips "a1" while a sibling exists`, func(s *mf1State) error {
@@ -3436,7 +3475,7 @@ func TestRoutingModelFallbackBDD(t *testing.T) {
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{"../../features/routing/model_fallback_list.feature"},
-			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@unit", TestingT: t, Strict: true,
+			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@unit && ~@part-c && ~@slice3", TestingT: t, Strict: true,
 		},
 	}
 	if suite.Run() != 0 {

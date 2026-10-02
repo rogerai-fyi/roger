@@ -802,6 +802,7 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with max_price.completion 1.00 across ["a", "b"]
     Then the Tower is never tried and the response is 200 from "b1"
 
+  @part-c
   Scenario: the body forwarded to a Tower carries the served model and no routing carriers
     Given a Tower is the only server of "b" and "a1" 429s
     When a consumer relays with "model": "a", "models": ["b"] and a "roger" object
@@ -974,12 +975,14 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then the 429 response has no X-RogerAI-Model and X-RogerAI-Cost "0"
 
+  @slice3
   Scenario: /generation lists every attempt with its model in order
     Given "a1" 429s, "a2" 500s, "b1" serves
     When a consumer relays across ["a", "b"] and then reads /generation?id=<request id>
     Then attempts are [{1,a1,a,429},{2,a2,a,500},{3,b1,b,200}]
     And served is {node: b1, model: b} and models is ["a", "b"]
 
+  @slice3
   Scenario: /generation is owner-scoped across a model switch too
     Given a request that fell over from "a" to "b"
     When another identity reads /generation?id=<that request id>

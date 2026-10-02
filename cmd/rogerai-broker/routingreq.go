@@ -35,6 +35,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/protocol"
@@ -99,6 +100,7 @@ type routingBody struct {
 	Sort           sortKey // sortNone = not stated
 	MaxPrompt      *float64
 	MaxCompletion  *float64
+	MaxRequest     *float64 // per-request USD cap; 0 states no cap
 	RequireParams  bool
 
 	// roger{}
@@ -307,7 +309,7 @@ func parseRoutingBody(body []byte) (routingBody, error) {
 		rb.Models = make([]string, 0, len(items))
 		for _, it := range items {
 			s, ok := routingString(it)
-			if !ok || s == "" {
+			if !ok || s == "" || s != strings.TrimSpace(s) {
 				return rb, invalidRouting("models", "every entry must be a non-empty model id")
 			}
 			rb.Models = append(rb.Models, s)
@@ -380,7 +382,7 @@ func (rb *routingBody) readProvider(p, maxPrice map[string]json.RawMessage) *rou
 	for _, c := range []struct {
 		key  string
 		into **float64
-	}{{"prompt", &rb.MaxPrompt}, {"completion", &rb.MaxCompletion}, {"request", nil}, {"image", nil}} {
+	}{{"prompt", &rb.MaxPrompt}, {"completion", &rb.MaxCompletion}, {"request", &rb.MaxRequest}, {"image", nil}} {
 		raw, ok := maxPrice[c.key]
 		if !ok {
 			continue
@@ -389,12 +391,10 @@ func (rb *routingBody) readProvider(p, maxPrice map[string]json.RawMessage) *rou
 		if !ok || v < 0 {
 			return invalidRouting("provider.max_price."+c.key, "want a non-negative number")
 		}
-		switch {
-		case c.into != nil:
+		if c.into != nil {
 			*c.into = &v
-		case v > 0 || c.key == "image":
-			// request: 0 states no per-request cap; image pricing does not exist at all.
-			rb.notYet("provider.max_price." + c.key)
+		} else {
+			rb.notYet("provider.max_price." + c.key) // image pricing does not exist at all
 		}
 	}
 	return nil
@@ -661,21 +661,88 @@ func stripRoutingCarriers(body []byte, rb routingBody, sentModel, model string) 
 	if !rb.present && sentModel == model {
 		return body
 	}
-	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
-		return body
-	}
-	for _, k := range routingCarriers {
-		delete(m, k)
-	}
+	var set map[string]json.RawMessage
 	if sentModel != model {
-		m["model"], _ = json.Marshal(model)
+		v, _ := json.Marshal(model)
+		set = map[string]json.RawMessage{"model": v}
 	}
-	out, err := json.Marshal(m)
-	if err != nil {
+	return rewriteBody(body, true, set)
+}
+
+// capBody lowers the max_tokens a station is sent to what a per-request USD cap buys at that
+// station's billed prices, after the prompt's input cost (the same over-estimate the hold is
+// sized with, so the bound is conservative). The request's own max_tokens is kept when it is
+// already within the cap; a free output price needs no bound. Generation stops where the
+// money stops, instead of the operator serving tokens the settle clamp will not pay for.
+func capBody(body []byte, capUSD, in, out float64) []byte {
+	if out <= 0 {
 		return body
 	}
-	return out
+	promptEst := len(body)/4 + 1
+	buys := int(math.Floor((capUSD - float64(promptEst)*in/1e6) * 1e6 / out))
+	if buys < 1 {
+		buys = 1
+	}
+	var req struct {
+		MaxTokens int `json:"max_tokens"`
+	}
+	_ = json.Unmarshal(body, &req)
+	if req.MaxTokens > 0 && req.MaxTokens <= buys {
+		return body
+	}
+	v, _ := json.Marshal(buys)
+	return rewriteBody(body, false, map[string]json.RawMessage{"max_tokens": v})
+}
+
+// rewriteBody rebuilds a JSON object body member by member, in document order: the routing
+// carriers are dropped (when asked) and the keys in set get their new value (in place when
+// the body has the key, appended otherwise). Every OTHER member's value bytes are copied
+// untouched - re-marshalling through a map would compact them, and the station must receive
+// the consumer's tools / response_format / messages byte-identical. A body that is not an
+// object is returned as given.
+func rewriteBody(body []byte, dropCarriers bool, set map[string]json.RawMessage) []byte {
+	kvs, ok := jsonObject(body)
+	if !ok {
+		return body
+	}
+	var out bytes.Buffer
+	out.Grow(len(body) + 32)
+	out.WriteByte('{')
+	done := map[string]bool{}
+	emit := func(k string, v json.RawMessage) {
+		if out.Len() > 1 {
+			out.WriteByte(',')
+		}
+		kb, _ := json.Marshal(k)
+		out.Write(kb)
+		out.WriteByte(':')
+		out.Write(v)
+	}
+	for _, kv := range kvs {
+		if dropCarriers && (kv.key == "models" || kv.key == "provider" || kv.key == "roger") {
+			continue
+		}
+		if v, replace := set[kv.key]; replace {
+			if !done[kv.key] {
+				emit(kv.key, v)
+				done[kv.key] = true
+			}
+			continue
+		}
+		emit(kv.key, kv.val)
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		if !done[k] {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		emit(k, set[k])
+	}
+	out.WriteByte('}')
+	return out.Bytes()
 }
 
 // quantSet lowercases a provider.quantizations list into the case-insensitive set pickFor

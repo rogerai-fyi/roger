@@ -429,7 +429,6 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     Then "n-hide" is NOT a candidate
 
   # --- interactions: models[] ------------------------------------------------------------
-  @part-b
   Scenario: A model whose stations all lack the required capability is skipped and the next model serves
     Given node "n-a" is the only station for "qwen3-32b" and has no recorded capability
     And node "n-b" is on air for "llama-3.3-70b" and earned verified "tools"
@@ -437,8 +436,6 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     Then the request is served by "n-b"
     And the response carries "X-RogerAI-Model: llama-3.3-70b"
     And no attempt was made against "n-a"
-
-  @part-b
 
   Scenario: Every model in the list lacking the capability is a single 503 no_match naming the capability
     Given node "n-a" is the only station for "qwen3-32b" and has no recorded capability

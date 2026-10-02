@@ -108,6 +108,12 @@ type attemptCand struct {
 	t       *nodeTunnel
 	pricing pricingPlan
 	maxCost float64 // this candidate's hold ceiling (0 = free plan: no hold)
+	// The (model, station) pair: with a model list the plan spans models, so each candidate
+	// names the BARE model it is dispatched for and carries the body sent to it (the
+	// consumer's body with `model` set to that id, and max_tokens lowered when a per-request
+	// cap buys less at this station's prices). Nothing else in the body differs.
+	model string
+	body  []byte
 }
 
 // holdCostFor is the upper-bound cost of a request on one candidate, at the price the
@@ -156,6 +162,28 @@ func planCeiling(plan []attemptCand) float64 {
 	return c
 }
 
+// planCeilings lists the distinct hold sizes ABOVE the first pick's that would make more of
+// the plan tryable, priciest first. The hold is attempted at each in turn (balance and
+// monthly cap permitting), so a pair the wallet cannot cover is trimmed while a cheaper later
+// pair stays in the plan; the first pick's own cost is the fallback the caller holds last.
+func planCeilings(plan []attemptCand) []float64 {
+	var out []float64
+	for _, a := range plan[1:] {
+		if a.maxCost > plan[0].maxCost {
+			out = append(out, a.maxCost)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(out)))
+	n := 0
+	for i, v := range out {
+		if i == 0 || v != out[n-1] {
+			out[n] = v
+			n++
+		}
+	}
+	return out[:n]
+}
+
 // trimPlan drops the candidates the placed hold cannot cover (their attempt would settle
 // above the reservation). The first candidate is the one the hold was placed for and stays.
 func trimPlan(plan []attemptCand, held float64) []attemptCand {
@@ -175,11 +203,30 @@ func trimPlan(plan []attemptCand, held float64) []attemptCand {
 // air during attempt 1 still has its tunnel in the plan; dispatching into it would only burn
 // the deadline on a channel nobody drains).
 func (b *broker) nextAttempt(plan []attemptCand, i, status int, deadline time.Time) int {
-	if !failoverable(status) || (!deadline.IsZero() && time.Until(deadline) < relayMinAttemptBudget) {
+	if !failoverable(status) {
+		return -1
+	}
+	return b.nextLive(plan, i, "", deadline)
+}
+
+// nextModelAttempt is nextAttempt for a CONTEXT-WINDOW refusal: the prompt does not fit the
+// model, so the remaining stations of that model are passed over and the request moves on to
+// the first live candidate of a LATER model in the list (-1 when there is none).
+func (b *broker) nextModelAttempt(plan []attemptCand, i int, deadline time.Time) int {
+	return b.nextLive(plan, i, plan[i].model, deadline)
+}
+
+// nextLive is the first candidate after i that can still be tried: enough of the deadline
+// left, not cooling, its tunnel still the one planned, and not of skipModel.
+func (b *broker) nextLive(plan []attemptCand, i int, skipModel string, deadline time.Time) int {
+	if !deadline.IsZero() && time.Until(deadline) < relayMinAttemptBudget {
 		return -1
 	}
 	for j := i + 1; j < len(plan); j++ {
 		c := plan[j]
+		if skipModel != "" && c.model == skipModel {
+			continue
+		}
 		if _, cooling := b.coolingUntil(c.node.NodeID); cooling {
 			continue
 		}
@@ -368,6 +415,13 @@ func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confiden
 	if !ok {
 		return false
 	}
+	b.answerBandCooling(w, model, until)
+	return true
+}
+
+// answerBandCooling writes the band-cooling 503 for a model whose soonest cooldown expiry is
+// until (with a model list: the soonest across the list, and the model it belongs to).
+func (b *broker) answerBandCooling(w http.ResponseWriter, model string, until time.Time) {
 	secs := int(math.Ceil(until.Sub(b.now()).Seconds()))
 	if secs < 1 {
 		secs = 1
@@ -375,7 +429,6 @@ func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confiden
 	b.stats.bandCooling503.Add(1)
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	jsonErrCode(w, http.StatusServiceUnavailable, "band_cooling", fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ds", model, secs))
-	return true
 }
 
 // retryAfterHint is the Retry-After the consumer sees on a final upstream 429/503: the
@@ -423,6 +476,7 @@ func (b *broker) routingLive() map[string]any {
 	sort.Slice(loaded, func(i, j int) bool { return loaded[i]["node"].(string) < loaded[j]["node"].(string) })
 	return map[string]any{
 		"relay_failovers":   b.stats.relayFailovers.Load(),
+		"model_fallbacks":   b.stats.modelFallbacks.Load(),
 		"station_cooldowns": b.stats.stationCooldowns.Load(),
 		"band_cooling_503":  b.stats.bandCooling503.Load(),
 		"stations":          stations,

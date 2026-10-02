@@ -60,6 +60,7 @@ type instStats struct {
 	routingBodyRejects       atomic.Int64
 	routingStrictOrder       atomic.Int64
 	routingStrictSort        atomic.Int64
+	modelFallbacks           atomic.Int64 // a failover that moved to a LATER model of the list
 	routingNoFallbackRefused atomic.Int64
 	variantFree              atomic.Int64
 	variantFloor             atomic.Int64

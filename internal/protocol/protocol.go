@@ -567,6 +567,14 @@ const (
 	VoidUpstreamThrottled = "upstream-throttled" // the provider behind the station said 429: capacity, not misconduct
 	VoidUpstreamError     = "upstream-error"     // any other >= 400 from the station
 	VoidEmptyOutput       = "empty-output"       // a 2xx that carried no usable completion
+	// VoidContextWindow: the upstream refused the prompt as larger than the model's window (a
+	// 400 in the context-overflow vocabulary). It is a fact about the request against that
+	// model, never a strike; with a model list it moves the request on to the next model.
+	VoidContextWindow = "context-window"
+	// VoidSettleFailed: the station served, but the ledger refused the settle. The consumer
+	// is refunded in full and still gets the body; the operator earns nothing and is not
+	// struck (the failure is the broker's store, not the station).
+	VoidSettleFailed = "settle-failed"
 )
 
 // BrokerSigVersion is the current broker-signature canonical form.

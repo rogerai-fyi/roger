@@ -808,6 +808,45 @@ func (s *rs1State) loggedIn(name, bal string) error {
 	return s.fund(rs1f(bal))
 }
 
+// rs1ConsumerView makes the scenario's caller an account that gets the CONSUMER view of
+// /console: a Sign-in-with-Apple account. /console gives the OWNER view to any GitHub-linked
+// account (its stations' traffic), so the harness's default GitHub-bound buyer never sees its
+// own requests there. An Apple-linked wallet is a logged-in account wallet that can spend.
+func (s *rs1State) rs1ConsumerView(string) error {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	pub := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	sub := "apple-sub-" + s.nonce
+	if err := s.db.BindOwner(store.Owner{AppleSub: sub, Pubkey: pub}); err != nil {
+		return err
+	}
+	s.consumerPriv, s.wallet = priv, walletForAppleSub(sub)
+	s.funded = false
+	return s.fund(10)
+}
+
+// rs1EarnedTools gives an existing station the verified "tools" bit for a model the only way
+// the broker records it: the tool-call canary's verdict (toolcall.go).
+func (s *rs1State) rs1EarnedTools(name, model string) error {
+	st, ok := s.stations[name]
+	if !ok {
+		return fmt.Errorf("no station %q in this scenario", name)
+	}
+	s.b.recordToolProbe(st.id, model, true, false, true)
+	return nil
+}
+
+// rs1OnlyFloorHold: exactly one hold, at estimateMaxCost's 1e-6 floor (a 0/0 offer; approved
+// features/money/holds.feature) - never a priced one.
+func (s *rs1State) rs1OnlyFloorHold() error {
+	if s.shot.holdN != 1 {
+		return fmt.Errorf("%d hold(s) placed on %s, want exactly the one floor hold", s.shot.holdN, s.shot.payer)
+	}
+	if math.Abs(s.shot.holdAmt-1e-6) > 1e-12 {
+		return fmt.Errorf("hold %.9f, want the 0.000001 floor", s.shot.holdAmt)
+	}
+	return nil
+}
+
 func (s *rs1State) accountWallet(pubHex string) string {
 	wallet := protocol.UserIDFromPubkey(pubHex)
 	if o, ok, err := s.db.OwnerByPubkey(pubHex); err == nil && ok {
@@ -2702,6 +2741,9 @@ func rs1Steps(sc *godog.ScenarioContext, st *rs1State) {
 	sc.Step(`^"([^"]*)" was the last candidate in the ordered plan$`, st.lastInPlan)
 	sc.Step(`^no broker-side failover was planned$`, st.noFailoverPlanned)
 	sc.Step(`^no hold was placed$`, st.noHoldRS1)
+	sc.Step(`^only the floor hold was placed$`, st.rs1OnlyFloorHold)
+	sc.Step(`^node "([^"]*)" earned verified "tools" for "([^"]*)"$`, st.rs1EarnedTools)
+	sc.Step(`^"([^"]*)" is signed in with an account that gets the consumer view of /console$`, st.rs1ConsumerView)
 	sc.Step(`^no station was dispatched$`, st.noStationDispatched)
 	sc.Step(`^no station received anything$`, st.noStationDispatched)
 	sc.Step(`^"([^"]*)" received nothing$`, st.rs1ReceivedNothing)
