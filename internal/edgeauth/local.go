@@ -196,6 +196,7 @@ func (l *Local) Issue(r Request) (Response, error) {
 		// refused here, the same as iss.Issue would, before the tombstone is consulted) (audit 2026-09-24).
 		pub, err := r.NodePublicKey()
 		if err != nil {
+			l.iss.record(r)
 			return err
 		}
 		if NodeID(pub) != r.NodeID {

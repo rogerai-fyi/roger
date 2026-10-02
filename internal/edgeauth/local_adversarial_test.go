@@ -123,6 +123,11 @@ func TestLocalIssueRefusesAKeySwapAndAnUnusableNodeKey(t *testing.T) {
 	bad.Sign(user)
 	_, err = local.Issue(bad)
 	require.ErrorIs(t, err, edgeauth.ErrMalformed)
+	// Every refused attempt is in the owner's request log, recorded as received, like the swap.
+	log := local.Issuer().Requests()
+	require.Len(t, log, 2, "the refused bad-node-key attempt is logged too")
+	require.Equal(t, swap, log[0])
+	require.Equal(t, bad, log[1])
 
 	ok, err := local.HasIssued(edgeauth.NodeID(other))
 	require.NoError(t, err)
