@@ -158,3 +158,61 @@ func TestAnUnwritableRuntimeDirFailsBeforeFetching(t *testing.T) {
 	require.NotErrorIs(t, err, provision.ErrUnreachable, "it tried to fetch into a directory it could not make")
 	require.Error(t, Unpack("x.tar.gz", filepath.Join(blocker, "dest")))
 }
+
+func tarGz(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, body := range files {
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}))
+		_, _ = tw.Write([]byte(body))
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	return buf.Bytes()
+}
+
+// A CUDA build's runtime is a second pinned archive; its libraries go beside the server, where the
+// build's own libraries look for them ($ORIGIN), and both digests are checked before anything runs.
+func TestABuildsSecondArchiveIsVerifiedAndPlacedBesideTheServer(t *testing.T) {
+	main := runtimeArchive(t)
+	libs := tarGz(t, map[string]string{"cudart-x/libcudart.so.12": "cudart", "cudart-x/libcublas.so.12": "cublas"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/libs" {
+			_, _ = w.Write(libs)
+			return
+		}
+		_, _ = w.Write(main)
+	}))
+	defer srv.Close()
+	ms, ls := sha256.Sum256(main), sha256.Sum256(libs)
+	a := Asset{Platform: "ubuntu-cuda-x", Tag: "bX", Build: BuildCUDA, Name: "rt.tar.gz", URL: srv.URL + "/main",
+		Bytes: int64(len(main)), SHA256: hex.EncodeToString(ms[:]), Exe: "llama-bX/llama-server",
+		Libs: &Part{Name: "libs.tar.gz", URL: srv.URL + "/libs", Bytes: int64(len(libs)), SHA256: hex.EncodeToString(ls[:])}}
+	dir := t.TempDir()
+	f := &provision.Fetcher{FreeSpace: func(string) (int64, bool) { return 1 << 40, true }}
+	exe, err := installAsset(context.Background(), a, dir, f)
+	require.NoError(t, err)
+	for _, lib := range []string{"libcudart.so.12", "libcublas.so.12"} {
+		_, err := os.Stat(filepath.Join(filepath.Dir(exe), lib))
+		require.NoError(t, err, "%s sits beside the server", lib)
+	}
+	_, err = os.Stat(filepath.Join(dir, "libs.tar.gz"))
+	require.True(t, os.IsNotExist(err), "the second archive is given back too")
+	require.True(t, isVerified(treeFor(dir, a), a))
+	_, ok := installedAt(dir, a)
+	require.True(t, ok)
+
+	// A changed runtime pin is not taken as installed, even when the build's own pin is unchanged.
+	b := a
+	b.Libs = &Part{Name: "libs.tar.gz", URL: srv.URL + "/libs", Bytes: int64(len(libs)), SHA256: hex.EncodeToString(make([]byte, 32))}
+	require.False(t, isVerified(treeFor(dir, b), b))
+
+	// A runtime archive that fails its digest leaves nothing installed.
+	dir2 := t.TempDir()
+	_, err = installAsset(context.Background(), b, dir2, f)
+	require.ErrorIs(t, err, provision.ErrCorrupt)
+	_, statErr := os.Stat(treeFor(dir2, b))
+	require.True(t, os.IsNotExist(statErr), "a build whose runtime failed its digest was installed anyway")
+}

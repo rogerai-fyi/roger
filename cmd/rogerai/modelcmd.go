@@ -44,22 +44,9 @@ var (
 	modelHome           = func() localmodel.Home {
 		return localmodel.Home{Dir: filepath.Join(filepath.Dir(configPath()), "local")}
 	}
-	modelHW      = detectLocalHW
-	modelHubBase = hfhub.DefaultBase
-	modelFetcher = func() *provision.Fetcher { return &provision.Fetcher{OnProgress: modelProgress} }
-	modelRuntime = func(ctx context.Context) (exe, tag string, err error) {
-		h := runtime.ThisHost()
-		if exe, a, ok := runtime.Installed(h, modelHome().Runtime()); ok {
-			return exe, a.Tag, nil
-		}
-		if a, err := runtime.Pick(h); err == nil {
-			fmt.Fprintf(modelOut, "this machine has no inference runtime yet: fetching llama.cpp %s (%s), verified before it ever runs.\n",
-				a.Tag, provision.BytesWord(a.Bytes))
-		}
-		exe, a, err := runtime.Install(ctx, h, modelHome().Runtime(), modelFetcher())
-		modelProgressDone()
-		return exe, a.Tag, err
-	}
+	modelHW        = detectLocalHW
+	modelHubBase   = hfhub.DefaultBase
+	modelFetcher   = func() *provision.Fetcher { return &provision.Fetcher{OnProgress: modelProgress} }
 	modelUntilDone = func(ctx context.Context) {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -218,6 +205,8 @@ func cmdModel(cfg config, args []string) error {
 		return modelIdle(a.pos)
 	case "budget":
 		return modelBudgetCmd(a.pos)
+	case "runtime":
+		return modelRuntimeCmd(a.pos)
 	case "stop":
 		return modelStop(a.pos)
 	case "rm", "remove":
@@ -226,7 +215,7 @@ func cmdModel(cfg config, args []string) error {
 		}
 		return modelRemove(a.pos[0], a.yes)
 	}
-	return fmt.Errorf("unknown: roger model %s (list, search, files, get, serve, status, stop, rm, idle, budget)", verb)
+	return fmt.Errorf("unknown: roger model %s (list, search, files, get, serve, status, stop, rm, idle, budget, runtime)", verb)
 }
 
 func modelList() error {
@@ -488,16 +477,16 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		}
 		return err
 	}
-	b := modelBudget()
-	// The runtime first: serving needs it anyway, and once it is here its own fit check answers.
-	exe, tag, err := modelRuntime(ctx)
+	// The runtime first: serving needs it anyway, and once it is here its own fit check answers. The
+	// build it resolves to decides the pool (local_models.feature §10).
+	rt, err := modelRuntime(ctx)
 	if err != nil {
-		if errors.Is(err, runtime.ErrNoRuntime) {
-			return fmt.Errorf("local serving is not available on this machine: %v.\n"+
-				"  it can still join an Edge, relay, and be monitored and controlled from the authority", err)
-		}
-		return fmt.Errorf("could not get the runtime: %w", err)
+		return modelRuntimeErr(err)
 	}
+	for _, n := range rt.Notes {
+		fmt.Fprintln(modelOut, n)
+	}
+	b := modelBudgetFor(rt.Offloads)
 	h := modelHome()
 	var beside []localmodel.Serving
 	if a.add {
@@ -505,7 +494,7 @@ func modelServe(ctx context.Context, a modelArgv) error {
 			return err
 		}
 	}
-	ctxLen, says, err := modelPlan(ctx, m, b, a.ctx, exe, beside...)
+	ctxLen, says, err := modelPlan(ctx, m, b, a.ctx, rt.Exe, beside...)
 	if err != nil {
 		return err
 	}
@@ -517,8 +506,33 @@ func modelServe(ctx context.Context, a modelArgv) error {
 	if a.detach {
 		return modelServeDetached(h, m, ctxLen, a.port, prev, hadPrev, a.add)
 	}
-	fmt.Fprintf(modelOut, "starting llama.cpp %s on %s at %d context...\n", tag, m.File, ctxLen)
-	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: exe, Tag: tag, Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv})
+	fmt.Fprintf(modelOut, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
+	dev := ""
+	if rt.Offloads && rt.Build != runtime.BuildMetal {
+		if dev = modelPickDevice(rt.Devices, modelNeed(m, b, ctxLen)); dev != "" {
+			fmt.Fprintf(modelOut, "  on one card, %s: it fits there, and one card answers faster than a split\n", dev)
+		}
+	}
+	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Device: dev})
+	if err != nil && rt.Build != runtime.BuildCPU && rt.Build != runtime.BuildMetal {
+		// A GPU build that cannot start the model is never a silent fallback (§10): auto says so and
+		// serves with the CPU build, judged again in system memory; an explicit choice stops here.
+		failed := fmt.Errorf("the %s build could not start it: %v", rt.Build, err)
+		if modelRuntimeChoice() != "auto" {
+			return fmt.Errorf("%v\n  nothing was served; `roger model runtime cpu` would serve it with the CPU build", failed)
+		}
+		fmt.Fprintf(modelOut, "%v - serving with the CPU build instead\n", failed)
+		if rt, err = modelRuntimeFor(ctx, "cpu"); err != nil {
+			return modelRuntimeErr(err)
+		}
+		b = modelBudgetFor(false)
+		if ctxLen, says, err = modelPlan(ctx, m, b, a.ctx, rt.Exe, beside...); err != nil {
+			return err
+		}
+		fmt.Fprintln(modelOut, says)
+		fmt.Fprintf(modelOut, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
+		srv, s, err = h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv})
+	}
 	if err != nil {
 		if hadPrev {
 			return fmt.Errorf("%v\n  %s is still serving - nothing was switched", err, prev.ID)
@@ -634,13 +648,24 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 // modelFitExe is the seam for where the runtime's fit tool sits beside its server.
 var modelFitExe = runtime.FitExe
 
-// modelInstalledExe is the runtime's server when it is already on this machine, else "".
+// modelInstalledExe is the server of the build the owner's choice predicts, when it is already on
+// this machine, else "".
 func modelInstalledExe() string {
-	exe, _, ok := runtime.Installed(modelHost(), modelHome().Runtime())
-	if !ok {
+	a, _, err := modelPredict()
+	if err != nil {
 		return ""
 	}
+	exe, _ := runtime.InstalledBuild(a, modelHome().Runtime())
 	return exe
+}
+
+// modelRuntimeErr says why there is no runtime, and what the machine can still do.
+func modelRuntimeErr(err error) error {
+	if errors.Is(err, runtime.ErrNoRuntime) {
+		return fmt.Errorf("local serving is not available on this machine: %v.\n"+
+			"  it can still join an Edge, relay, and be monitored and controlled from the authority", err)
+	}
+	return fmt.Errorf("could not get the runtime: %w", err)
 }
 
 // modelPlan settles the context a model will serve at, or refuses with the arithmetic - never
@@ -1048,9 +1073,15 @@ func modelProgress(p provision.Progress) {
 	if p.Resumed {
 		line += "  ·  resumed"
 	}
+	if modelProgressShown && p.Total != modelProgressTotal {
+		fmt.Fprintln(modelOut) // a new archive: the finished one keeps its line
+	}
 	fmt.Fprintf(modelOut, "\r%-72s", line)
-	modelProgressShown = true
+	modelProgressShown, modelProgressTotal = true, p.Total
 }
+
+// modelProgressTotal is the size of the archive the progress line is about.
+var modelProgressTotal int64
 
 func modelProgressDone() {
 	if modelProgressShown {

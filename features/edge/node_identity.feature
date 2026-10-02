@@ -237,8 +237,7 @@ Feature: A node is the owner's machine, typed by what it can do rather than by w
 
   Scenario: forgetting a device leaves a short record that it left
     When the owner forgets a device
-    Then this Edge keeps, for that device only, its last name, its kind and hardware word, and when it
-      was forgotten
+    Then this Edge keeps, for that device only, its last name, its kind and hardware word, and when it was forgotten
     And nothing else of it is kept: not its pin, its grants, its tags or its history
     And the record is bounded: the oldest is dropped once there are more than 64
 

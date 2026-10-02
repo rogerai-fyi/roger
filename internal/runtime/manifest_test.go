@@ -141,14 +141,3 @@ func TestThisHostDescribesTheRealMachine(t *testing.T) {
 		require.Zero(t, h.GlibcMajor, "an unknown version was reported with a number anyway")
 	}
 }
-
-// Which builds put layers on a GPU decides which memory a model has to fit in, and how fast it
-// reads (local_models.feature §4). The pinned Linux and Windows builds are the CPU builds; only
-// Apple's runs on the GPU, through Metal, over its one pool.
-func TestOnlyTheAppleSiliconBuildOffloadsToAGPU(t *testing.T) {
-	for _, a := range runtime.Assets() {
-		if a.Offloads != (a.Platform == "macos-arm64") {
-			t.Errorf("%s: Offloads = %v", a.Platform, a.Offloads)
-		}
-	}
-}

@@ -187,9 +187,9 @@ func newModelRig(t *testing.T, ramMiB int) *modelRig {
 	}))
 	t.Cleanup(srv.Close)
 
-	oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch, oldFit := modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher, modelFitExe
+	oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch, oldFit := modelOut, modelHome, modelHW, modelHubBase, modelRuntimeFor, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher, modelFitExe
 	t.Cleanup(func() {
-		modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher, modelFitExe = oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch, oldFit
+		modelOut, modelHome, modelHW, modelHubBase, modelRuntimeFor, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher, modelFitExe = oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch, oldFit
 	})
 	modelOut = r.out
 	modelHome = func() localmodel.Home { return r.home }
@@ -198,7 +198,9 @@ func newModelRig(t *testing.T, ramMiB int) *modelRig {
 	modelFetcher = func() *provision.Fetcher {
 		return &provision.Fetcher{FreeSpace: func(string) (int64, bool) { return 1 << 40, true }, OnProgress: modelProgress}
 	}
-	modelRuntime = func(context.Context) (string, string, error) { return os.Args[0], "bTEST", nil }
+	modelRuntimeFor = func(context.Context, string) (modelRT, error) {
+		return modelRT{Exe: os.Args[0], Tag: "bTEST", Build: runtime.BuildCPU}, nil
+	}
 	modelUntilDone = func(context.Context) {}
 	modelServeEnv = map[string]string{"FAKE_LLAMA": "1"}
 	edgeStdin = strings.NewReader("")
@@ -436,15 +438,15 @@ func TestModelAMachineWithNoRuntimeSaysWhatItCanStillDo(t *testing.T) {
 	r := newModelRig(t, 16384)
 	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
 	require.NoError(t, err)
-	modelRuntime = func(context.Context) (string, string, error) {
-		return "", "", fmt.Errorf("%w: needs glibc 2.38, this has 2.36", runtime.ErrNoRuntime)
+	modelRuntimeFor = func(context.Context, string) (modelRT, error) {
+		return modelRT{}, fmt.Errorf("%w: needs glibc 2.38, this has 2.36", runtime.ErrNoRuntime)
 	}
 	_, err = r.run(t, "serve", "tiny")
 	require.ErrorContains(t, err, "local serving is not available on this machine")
 	require.ErrorContains(t, err, "2.36")
 	require.ErrorContains(t, err, "monitored and controlled from the authority")
 
-	modelRuntime = func(context.Context) (string, string, error) { return "", "", errors.New("disk full") }
+	modelRuntimeFor = func(context.Context, string) (modelRT, error) { return modelRT{}, errors.New("disk full") }
 	_, err = r.run(t, "serve", "tiny")
 	require.ErrorContains(t, err, "could not get the runtime")
 }
@@ -482,15 +484,17 @@ func TestModelASwitchStopsTheOldOnlyOnceTheNewAnswers(t *testing.T) {
 
 	// A start that fails leaves the old one serving and says so.
 	modelServeEnv = map[string]string{}
-	modelRuntime = func(context.Context) (string, string, error) {
-		return filepath.Join(t.TempDir(), "absent"), "bTEST", nil
+	modelRuntimeFor = func(context.Context, string) (modelRT, error) {
+		return modelRT{Exe: filepath.Join(t.TempDir(), "absent"), Tag: "bTEST", Build: runtime.BuildCPU}, nil
 	}
 	_, err = r.run(t, "serve", "tiny")
 	require.ErrorContains(t, err, "x/older:Q4_K_M is still serving - nothing was switched")
 	require.Empty(t, signalled, "the old one was stopped before the new one answered")
 
 	modelServeEnv = map[string]string{"FAKE_LLAMA": "1"}
-	modelRuntime = func(context.Context) (string, string, error) { return os.Args[0], "bTEST", nil }
+	modelRuntimeFor = func(context.Context, string) (modelRT, error) {
+		return modelRT{Exe: os.Args[0], Tag: "bTEST", Build: runtime.BuildCPU}, nil
+	}
 	out, err := r.run(t, "serve", "tiny")
 	require.NoError(t, err)
 	require.Contains(t, out, "switched from x/older:Q4_K_M")
