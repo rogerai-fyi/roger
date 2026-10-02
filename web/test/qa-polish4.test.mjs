@@ -90,3 +90,20 @@ test("models: the search placeholder steps down a size on a phone instead of bei
   // the field keeps 16px (no iOS focus zoom); only the placeholder text gets smaller
   assert.match(css("models.css"), /@media \(max-width: 480px\)\s*\{\s*\.tuner__input::placeholder\s*\{\s*font-size:\s*var\(--t-sm\);\s*\}\s*\}/);
 });
+
+/* ---- the install line breaks before its pipe ------------------------------------- */
+
+test("install pill: the pipe and what it feeds stay together on a phone", () => {
+  // at 390 the pill wrapped "... install.sh |" and left "sh" alone on the last line; the
+  // pipe segment is one unbreakable token now, so a narrow pill breaks before the pipe
+  const PAGES = readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html"));
+  let n = 0;
+  for (const p of PAGES) {
+    for (const m of readFileSync(path.join(WEB, "src", p), "utf8").matchAll(/include: install-box\.html[^>]*cmd='([^']*)'/g)) {
+      if (!m[1].includes("|")) continue;
+      n++;
+      assert.match(m[1], /<span class="tok">\| [^<]*<\/span>$/, `${p}: ${m[1]}`);
+    }
+  }
+  assert.ok(n >= 14, `every piped install line (${n})`);
+});

@@ -109,9 +109,13 @@
 /* the PowerShell one-liner moves to its own line whole, never split mid-URL */
 [data-alt-note] .inline { display: inline-block; white-space: nowrap; }
 @media (max-width: 560px) {
-  /* .75rem: the unbreakable URL and " | sh" share one line under "curl -fsSL" */
+  /* .75rem, wrapping at its spaces; the pipe segment is one token (<span class="tok">| sh</span>
+     in the markup), so a line that runs out breaks BEFORE the pipe, never after it */
   .install__code { font-size: .75rem; white-space: normal; }
-  .install__box { gap: 8px; padding: 12px 12px 12px 14px; }
+  /* the $ sits on the command's first line, not beside the middle of a wrapped one; the copy
+     icon stays centred, and its negative margin keeps a one-line pill as tall as its text */
+  .install__box { gap: 8px; padding: 12px 12px 12px 14px; align-items: baseline; }
+  .install__copy { align-self: center; margin-block: -6px; }
 }
 
 /* size step for a closing call to action (homepage §9, the Tower page) */
