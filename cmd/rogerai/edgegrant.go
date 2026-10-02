@@ -111,7 +111,7 @@ func cmdEdgeGrant(cfg config, args []string) error {
 	switch args[0] {
 	case "revoke", "rm":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: roger edge grant revoke <id>")
+			return usagef("usage: roger edge grant revoke <id>")
 		}
 		return cmdEdgeGrantRevoke(args[1])
 	case "list", "ls":
@@ -129,16 +129,16 @@ func cmdEdgeGrantIssue(cfg config, args []string) error {
 		switch args[i] {
 		case "--for", "-for":
 			if i+1 >= len(args) {
-				return fmt.Errorf("--for needs a value, e.g. --for 7d")
+				return usagef("--for needs a value, e.g. --for 7d")
 			}
 			forDur = args[i+1]
 			i++
 		case "--hops", "-hops":
 			if i+1 >= len(args) {
-				return fmt.Errorf("--hops needs a number")
+				return usagef("--hops needs a number")
 			}
 			if _, err := fmt.Sscanf(args[i+1], "%d", &hops); err != nil || hops < 0 {
-				return fmt.Errorf("--hops wants a non-negative number, got %q", args[i+1])
+				return usagef("--hops wants a non-negative number, got %q", args[i+1])
 			}
 			i++
 		default:
@@ -146,7 +146,7 @@ func cmdEdgeGrantIssue(cfg config, args []string) error {
 		}
 	}
 	if len(pos) != 3 {
-		return fmt.Errorf("usage: roger edge grant <caller> <capability> <callee> [--for 7d] [--hops N]\n" +
+		return usagef("usage: roger edge grant <caller> <capability> <callee> [--for 7d] [--hops N]\n" +
 			"  e.g. roger edge grant laptop/desk operate workstation/agent --for 7d")
 	}
 	callerArg, capArg, calleeArg := pos[0], pos[1], pos[2]

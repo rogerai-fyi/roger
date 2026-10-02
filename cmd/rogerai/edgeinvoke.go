@@ -81,19 +81,19 @@ func cmdEdgeInvoke(cfg config, args []string) error {
 		switch args[i] {
 		case "--cap", "-cap":
 			if i+1 >= len(args) {
-				return fmt.Errorf("--cap needs a value, e.g. --cap operate")
+				return usagef("--cap needs a value, e.g. --cap operate")
 			}
 			capability = args[i+1]
 			i++
 		case "--model", "-model":
 			if i+1 >= len(args) {
-				return fmt.Errorf("--model needs a value")
+				return usagef("--model needs a value")
 			}
 			model = args[i+1]
 			i++
 		case "--as", "-as":
 			if i+1 >= len(args) {
-				return fmt.Errorf("--as needs a caller node id")
+				return usagef("--as needs a caller node id")
 			}
 			asCaller = args[i+1]
 			i++
@@ -102,7 +102,7 @@ func cmdEdgeInvoke(cfg config, args []string) error {
 		}
 	}
 	if len(pos) < 2 {
-		return fmt.Errorf("usage: roger edge invoke <callee> <prompt...> [--cap operate] [--model <band>]\n" +
+		return usagef("usage: roger edge invoke <callee> <prompt...> [--cap operate] [--model <band>]\n" +
 			"  e.g. roger edge invoke workstation/agent \"summarize today's logs\"")
 	}
 	calleeArg := pos[0]
