@@ -170,3 +170,22 @@ func TestHealthScreenShowsAPiShortOfPower(t *testing.T) {
 	page := uitest.Run(t, 120, 40, h.Draw)
 	must(t, page.Screen(), "POWER", "under-voltage, throttled NOW", "30% worn")
 }
+
+// features/edge/node_identity.feature: the HEALTH screen calls a unit what the rack calls it (the
+// snapshot's Names), never its id - not even a cut of one.
+func TestHealthScreenNamesAnUnnamedUnitNeverByID(t *testing.T) {
+	now := time.Now()
+	id := "n_ebab8e241f058e18234af760ad2a1ca976647af7583e0029"
+	h := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{Nodes: []edge.NodeHealth{{ID: id, Name: id, Kind: "board", LastHeard: now}},
+			Names: map[string]string{id: "Pi 4"}, At: now,
+			Rules: []fleetview.RuleLine{{ID: "disk-own", When: "disk > 70", Scope: "Pi 4", ScopeID: id, Kind: "owner", State: "firing: Pi 4"}},
+			Sinks: "sinks: read by Pi 4 (last read 4d ago)"}, nil
+	})
+	page := uitest.Run(t, 120, 30, h.Draw)
+	s := page.Screen()
+	if strings.Contains(s, "n_eb") {
+		t.Fatalf("an id was drawn as a name:\n%s", s)
+	}
+	must(t, s, "Pi 4   board", "firing on Pi 4", "read by Pi 4")
+}

@@ -25,11 +25,17 @@ type HealthSnapshot struct {
 	Firing map[string][]string // node id -> the rule wordings firing for it
 	Rules  []RuleLine
 	Sinks  string // where alerts go; "" = none configured
-	At     time.Time
+	// Names is what each unit is called, by id - the rack's own names (edge.UnitName, and
+	// edge.SelfLabel for this machine), so no screen draws an id as a name. A unit missing here
+	// falls back to edge.Label.
+	Names map[string]string
+	At    time.Time
 }
 
-// RuleLine is one alert rule as the rules pane lists it.
-type RuleLine struct{ ID, When, Scope, Kind, State string }
+// RuleLine is one alert rule as the rules pane lists it. Scope is worded for the owner (a unit's
+// name, never its id); ScopeID is the unit a unit-scoped rule covers, which is what a unit's meter
+// matches its own rule by.
+type RuleLine struct{ ID, When, Scope, ScopeID, Kind, State string }
 
 // HealthSource reads a snapshot. It is called on the first frame and again every Every.
 type HealthSource func() (HealthSnapshot, error)
@@ -263,6 +269,14 @@ func (h *Health) refresh() {
 	}
 }
 
+// name is what this screen calls a unit: the rack's name for it, else its label - never its id.
+func (h *Health) name(n edge.NodeHealth) string {
+	if v := h.snap.Names[n.ID]; v != "" {
+		return v
+	}
+	return edge.Label(n.Name, n.ID)
+}
+
 func appendCap(xs []float64, v float64) []float64 {
 	xs = append(xs, v)
 	if len(xs) > historyLen {
@@ -302,7 +316,7 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 		}
 		l := lm.NewLine(span(" ", dim), rail, span(" ", dim))
 		l.Spans = append(l.Spans, eye(carrierLevel(n.LastHeard, n.Dark, now), n.Dark, false, len(firing) > 0, h.frame, i)...)
-		l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(edge.Label(n.Name, n.ID), nameW), nameW), nc))
+		l.Spans = append(l.Spans, span(" ", dim), span(pad(elide(h.name(n), nameW), nameW), nc))
 		if kindW > 0 {
 			l.Spans = append(l.Spans, span(pad(kindLabel(n.Kind), kindW), dim))
 		}
@@ -333,7 +347,7 @@ func (h *Health) drawBody(f *lm.Frame, area lm.Rect) {
 	if len(h.snap.Nodes) > 0 {
 		n := h.snap.Nodes[h.sel]
 		lines = append(lines, lm.NewLine())
-		lines = append(lines, instrumentStack(n, edge.Label(n.Name, n.ID), h.snap.Firing[n.ID], h.snap.Rules, nil, h.hist[n.ID], now, int(area.Width), h.frame)...)
+		lines = append(lines, instrumentStack(n, h.name(n), h.snap.Firing[n.ID], h.snap.Rules, nil, h.hist[n.ID], now, int(area.Width), h.frame)...)
 	}
 	lines = append(lines, lm.NewLine())
 	lines = append(lines, h.rulesPane()...)
@@ -373,7 +387,7 @@ func cellTemp(n edge.NodeHealth, firing []string, rules []RuleLine) []lm.Span {
 		return append(meter(0, false, -1, 0, false), span(pad("", 9), dim))
 	}
 	from := -1.0
-	if th, ok := ruleLine(rules, n.Name, "cpu_temp"); ok {
+	if th, ok := ruleLine(rules, n.ID, "cpu_temp"); ok {
 		from = th / 110
 	} else if th, ok := thresholdIn(firing, "cpu_temp"); ok {
 		from = th / 110
@@ -395,7 +409,7 @@ func cellDisk(n edge.NodeHealth, firing []string, rules []RuleLine) []lm.Span {
 		return append(meter(0, false, -1, 0, false), span(pad("", 9), dim))
 	}
 	from := -1.0
-	if th, ok := ruleLine(rules, n.Name, "disk"); ok {
+	if th, ok := ruleLine(rules, n.ID, "disk"); ok {
 		from = th / 100
 	} else if th, ok := thresholdIn(firing, "disk"); ok {
 		from = th / 100
@@ -405,7 +419,7 @@ func cellDisk(n edge.NodeHealth, firing []string, rules []RuleLine) []lm.Span {
 
 // ruleLine is the threshold in force for a unit on a metric, from the rules the pane lists: the
 // unit's own rule when it has one, else the fleet's. A quiet unit sees its line too.
-func ruleLine(rules []RuleLine, node, metric string) (float64, bool) {
+func ruleLine(rules []RuleLine, nodeID, metric string) (float64, bool) {
 	fleet, ok := 0.0, false
 	for _, r := range rules {
 		if strings.HasPrefix(r.State, "off") {
@@ -419,7 +433,7 @@ func ruleLine(rules []RuleLine, node, metric string) (float64, bool) {
 		if err != nil {
 			continue
 		}
-		if r.Scope == node {
+		if r.ScopeID != "" && r.ScopeID == nodeID {
 			return v, true
 		}
 		if r.Scope == "fleet" {
@@ -433,7 +447,7 @@ func ruleLine(rules []RuleLine, node, metric string) (float64, bool) {
 // readings, the uptime), then a wide meter per reading with its history and its alarm, then any
 // other alarm standing on it. It is the HEALTH screen's lower half and the FLEET tab's health page,
 // drawn by the one function so the two never say different things. label is what to print; the
-// rule lookups use n.Name, the record name a scoped rule was written against. lines are the
+// rule lookups use n.ID, the unit a scoped rule covers. lines are the
 // thresholds in force when the caller has them by metric (nil = read them from rules).
 func instrumentStack(n edge.NodeHealth, label string, firing []string, rules []RuleLine, lines map[string]float64,
 	hs *history, now time.Time, width, frame int) []lm.Line {
@@ -484,7 +498,7 @@ func instrumentStack(n edge.NodeHealth, label string, firing []string, rules []R
 		out = append(out, l)
 	}
 	line := func(metric string, scale float64) float64 {
-		if th, ok := ruleLine(rules, n.Name, metric); ok {
+		if th, ok := ruleLine(rules, n.ID, metric); ok {
 			return th / scale
 		}
 		if th, ok := lines[metric]; ok {

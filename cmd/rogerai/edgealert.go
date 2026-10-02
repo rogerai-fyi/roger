@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 func edgeAlertLog() edge.AlertLog { return edge.AlertLog{Dir: filepath.Join(edgeAuthDir(), "alerts")} }
@@ -110,13 +111,13 @@ func edgeAlertList(l edge.AlertLog) error {
 	if err != nil {
 		return err
 	}
-	names, kinds := map[string]string{}, map[string]string{}
+	names, kinds := edgeUnitLabels(), map[string]string{}
 	for _, h := range hs {
-		names[h.ID], kinds[h.ID] = h.Name, h.Kind
+		kinds[h.ID] = h.Kind
 	}
 	fmt.Printf("%-12s %-18s %-14s %-8s %s\n", "RULE", "WHEN", "SCOPE", "KIND", "STATE")
 	for _, r := range rules {
-		fmt.Printf("%-12s %-18s %-14s %-8s %s\n", r.ID, r.Key(), edgeRuleScope(r, names), edgeRuleKind(r), edgeRuleState(r, firing, hs))
+		fmt.Printf("%-12s %-18s %-14s %-8s %s\n", r.ID, r.Key(), edgeRuleScope(r, names), edgeRuleKind(r), edgeRuleState(r, firing, hs, names))
 	}
 	fmt.Printf("\n%-10s %s\n", "sinks", edgeSinkLine(l, names, kinds, now))
 	recent, err := l.Recent(8)
@@ -126,6 +127,9 @@ func edgeAlertList(l edge.AlertLog) error {
 	if len(recent) > 0 {
 		fmt.Println("\nrecent")
 		for _, a := range recent {
+			if n := names[a.NodeID]; n != "" {
+				a.Node = n // the rack's name, also for an alert logged before the unit was named
+			}
 			fmt.Printf("  %s  %s\n", a.At.Local().Format("Jan 2 15:04"), a)
 		}
 	}
@@ -250,6 +254,43 @@ func edgeFiringWords(st edge.AlertState, rules edge.RuleSet) map[string][]string
 
 // edgeRuleScope, edgeRuleKind and edgeRuleState are one rule's columns, shared by the CLI list
 // and the live screen so the two never word a rule differently.
+// edgeGoneUnit is how a sentence names a unit that is no longer on this Edge: its id is not a name.
+const edgeGoneUnit = "a unit no longer on this Edge"
+
+// edgeUnitLabels is what every unit on this Edge is called, by id: the rack's own names, so the
+// rules, the sinks and the firing list call a unit what the rack calls it - never its id.
+func edgeUnitLabels() map[string]string {
+	st, err := loadEdgeState()
+	if err != nil {
+		return map[string]string{}
+	}
+	nodes, err := st.list()
+	if err != nil {
+		return map[string]string{}
+	}
+	return edgeUnitLabelsFor(nodes, edgeThisNodeID(), edgeStationName())
+}
+
+// edgeUnitLabelsFor names nodes as the rack does: this machine by edge.SelfLabel (its owner's
+// name, else its station's), every other unit by edge.UnitName.
+func edgeUnitLabelsFor(nodes []store.EdgeNode, selfID, station string) map[string]string {
+	out := edge.UnitNames(nodes)
+	for _, n := range nodes {
+		if n.ID == selfID && selfID != "" {
+			out[n.ID] = edge.SelfLabel(n.Name, station)
+		}
+	}
+	return out
+}
+
+// edgeHealthName is one unit's name for a sentence: the rack's, else what its record says it is.
+func edgeHealthName(names map[string]string, h edge.NodeHealth) string {
+	if n := names[h.ID]; n != "" {
+		return n
+	}
+	return edge.UnitName(store.EdgeNode{ID: h.ID, Name: h.Name, Kind: h.Kind}, nil)
+}
+
 func edgeRuleScope(r edge.Rule, names map[string]string) string {
 	if r.Scope == "" {
 		return "fleet"
@@ -260,7 +301,7 @@ func edgeRuleScope(r edge.Rule, names map[string]string) string {
 	if n := names[r.Scope]; n != "" {
 		return n
 	}
-	return edgeShortID(r.Scope)
+	return edgeGoneUnit
 }
 
 func edgeRuleKind(r edge.Rule) string {
@@ -270,16 +311,16 @@ func edgeRuleKind(r edge.Rule) string {
 	return "owner"
 }
 
-func edgeRuleState(r edge.Rule, firing edge.AlertState, hs []edge.NodeHealth) string {
+func edgeRuleState(r edge.Rule, firing edge.AlertState, hs []edge.NodeHealth, names map[string]string) string {
 	if r.Off {
 		return "off"
 	}
 	var on []string
 	for _, h := range hs {
 		if firing.Firing(r.ID, h.ID) {
-			// The label, not the raw record name: a unit nobody named is called by a short id here as
-			// it is everywhere else, rather than putting 48 characters into an alert line.
-			on = append(on, edge.Label(h.Name, h.ID))
+			// The rack's name, never the raw record name: a unit nobody named carries its id there,
+			// and no id is ever a name (node_identity.feature).
+			on = append(on, edgeHealthName(names, h))
 		}
 	}
 	if len(on) == 0 {
@@ -304,7 +345,7 @@ func edgeSinkLine(l edge.AlertLog, names map[string]string, kinds map[string]str
 	for _, id := range ids {
 		name := names[id]
 		if name == "" {
-			name = edgeShortID(id)
+			name = edgeGoneUnit
 		}
 		who := "the Roger app on " + name
 		if kinds[id] != "mobile" { // a machine reading its own feed is a reader, not a phone

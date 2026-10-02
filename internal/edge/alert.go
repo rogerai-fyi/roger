@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // Metric is what a rule watches. The unit is fixed per metric so a rule reads plainly.
@@ -244,6 +246,13 @@ type Alert struct {
 	Test      bool      `json:"test,omitempty"`
 }
 
+// alertUnit is the unit an alert names: its owner's name, or - for a unit nobody named, whose record
+// name IS its id - what it is (UnitName). An alert is a sentence, and no id is ever a name
+// (features/edge/node_identity.feature).
+func alertUnit(h NodeHealth) string {
+	return UnitName(store.EdgeNode{ID: h.ID, Name: h.Name, Kind: h.Kind}, nil)
+}
+
 // String is the alert as a person reads it: node, metric, the real value, the threshold crossed.
 func (a Alert) String() string {
 	state := "firing"
@@ -348,7 +357,7 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 				next[stateKey(r.ID, h.ID)] = true
 			}
 			if firing != was {
-				a := Alert{At: now, RuleID: r.ID, NodeID: h.ID, Node: h.Name, Metric: m,
+				a := Alert{At: now, RuleID: r.ID, NodeID: h.ID, Node: alertUnit(h), Metric: m,
 					Value: v, Threshold: r.Value, Op: r.Op, Firing: firing}
 				if m == MetricOffline && firing {
 					a.DarkForS = int64(h.DarkFor.Seconds())
@@ -362,7 +371,7 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 	}
 	names := map[string]string{}
 	for _, h := range hs {
-		names[h.ID] = h.Name
+		names[h.ID] = alertUnit(h)
 	}
 	keys := make([]string, 0, len(prev))
 	for k := range prev {
@@ -376,7 +385,7 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 		ruleID, nodeID, _ := strings.Cut(k, "|")
 		a := Alert{At: now, RuleID: ruleID, NodeID: nodeID, Node: names[nodeID]}
 		if a.Node == "" {
-			a.Node = nodeID
+			a.Node = "a unit no longer on this Edge" // its id is not a name (node_identity.feature)
 		}
 		for _, r := range rules {
 			if r.ID == ruleID {

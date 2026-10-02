@@ -36,11 +36,11 @@ func edgeHealthSource() (fleetview.HealthSnapshot, error) {
 	if err != nil {
 		return fleetview.HealthSnapshot{}, err
 	}
-	names, kinds := map[string]string{}, map[string]string{}
+	names, kinds := edgeUnitLabels(), map[string]string{}
 	for _, h := range hs {
-		names[h.ID], kinds[h.ID] = h.Name, h.Kind
+		kinds[h.ID] = h.Kind
 	}
-	snap := fleetview.HealthSnapshot{Nodes: hs, Firing: map[string][]string{}, At: now, Sinks: "sinks: " + edgeSinkLine(edgeAlertLog(), names, kinds, now)}
+	snap := fleetview.HealthSnapshot{Nodes: hs, Names: names, Firing: map[string][]string{}, At: now, Sinks: "sinks: " + edgeSinkLine(edgeAlertLog(), names, kinds, now)}
 	for _, h := range hs {
 		for _, id := range firing.FiringFor(h.ID) {
 			for _, r := range rules {
@@ -51,8 +51,12 @@ func edgeHealthSource() (fleetview.HealthSnapshot, error) {
 		}
 	}
 	for _, r := range rules {
-		snap.Rules = append(snap.Rules, fleetview.RuleLine{ID: r.ID, When: r.Key(),
-			Scope: edgeRuleScope(r, names), Kind: edgeRuleKind(r), State: edgeRuleState(r, firing, hs)})
+		scopeID := r.Scope
+		if _, tag := edge.ScopeTag(r.Scope); tag {
+			scopeID = ""
+		}
+		snap.Rules = append(snap.Rules, fleetview.RuleLine{ID: r.ID, When: r.Key(), Scope: edgeRuleScope(r, names), ScopeID: scopeID,
+			Kind: edgeRuleKind(r), State: edgeRuleState(r, firing, hs, names)})
 	}
 	return snap, nil
 }
