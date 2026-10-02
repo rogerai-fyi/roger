@@ -265,8 +265,9 @@ func TestModelsAFetchIsVisibleAliveAndOnlyAnimatesWhileItMoves(t *testing.T) {
 		t.Errorf("the screen animated with nothing happening")
 	}
 
-	// Left and come back: the clock stops with the screen, the fetch is shown again on return.
-	m.mode = modeShare
+	// Left and come back: the clock stops with the screen, the fetch is shown again on return. (SHARE
+	// keeps it running - roger's own rows live there - so "left" is somewhere else.)
+	m.mode = modeBrowse
 	if _, cmd, _ := m.onModelsMsg(modelsTickMsg{}); cmd != nil {
 		t.Errorf("a screen nobody is looking at kept ticking")
 	}

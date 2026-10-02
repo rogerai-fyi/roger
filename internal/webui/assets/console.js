@@ -201,7 +201,7 @@
     });
     if (!tbody.children.length) {
       var er = el("tr", "empty-row");
-      var td = el("td", null, "No models detected yet. Try re-detect.");
+      var td = el("td", null, "No other model server detected. Try re-detect.");
       td.colSpan = 8; er.appendChild(td); tbody.appendChild(er);
     }
   }
@@ -1303,7 +1303,7 @@
   }
 
   /* TABS ------------------------------------------------------------------- */
-  var TABS = ["chat", "share", "models", "account", "browse", "edge", "settings"];
+  var TABS = ["chat", "share", "account", "browse", "edge", "settings"];
 
   // CHAT IS THE LANDING TAB (founder 2026-08-21: "lets make sure we start the webui on
   // the chat"). The console used to open on SHARE, which is the provider surface - it
@@ -1328,7 +1328,8 @@
     // The EDGE tab polls and animates ONLY while it is the shown tab (edgeStart/edgeStop
     // below): a hidden graph reading the fleet once a second would be a cost with no eyes.
     if (name === "edge") edgeStart(); else edgeStop();
-    if (name === "models") modelsStart(); else modelsStop();
+    // Roger's own rows live in SHARE (local_models.feature §9): their clock runs while it is shown.
+    if (name === "share") modelsStart(); else modelsStop();
     if (name === "chat") {
       // Refresh the market half (the LOCAL half is already live off the snapshot stream),
       // then focus the composer - opening CHAT means you intend to type.
@@ -3107,74 +3108,81 @@
     var wasStarting = modelsLast && modelsLast.starting;
     modelsLast = v;
     if (wasStarting && !v.serving && !(v.serve_log && v.serve_log.length)) v.starting = wasStarting;
+    if (v.serving) v.starting = false;
     $("models-machine").textContent = v.budget > 0 ? fmtBytes(v.budget) + " of " + v.pool : "cannot say - " + (v.budget_why || "memory could not be read");
     $("models-runtime").textContent = v.runtime || "";
     $("models-disk").textContent = (v.models || []).length + " models, " + fmtBytes(v.disk_used) + (v.dir ? "  in " + v.dir : "");
 
-    // what is on the air, in full - "the model name" alone is never the whole answer
-    var sv = v.serving;
-    show($("models-serving"), !!sv);
-    if (sv) {
-      v.starting = false;
-      $("models-serving-band").textContent = "“" + sv.band + "”";
-      var since = sv.since ? fmtSecs((Date.now() - Date.parse(sv.since)) / 1000) : "";
-      $("models-serving-facts").textContent = sv.id + " · " + (sv.quant || "-") + " · " + sv.ctx + " context · sha256 " +
-        (sv.sha256 ? sv.sha256.slice(0, 12) : "-") + " · llama.cpp " + (sv.runtime || "?") + " · for " + since + " · " + sv.address;
-    }
-
-    // the fetch: bytes, rate and time left, never a bare percentage
-    var j = v.job;
-    show($("models-job"), !!j);
-    if (j) {
-      var heads = { fetching: "FETCHING", done: "FETCHED AND CHECKED", failed: "FETCH FAILED", interrupted: "FETCH INTERRUPTED" };
-      $("models-job-head").textContent = heads[j.state] || j.state;
-      $("models-job-file").textContent = j.repo + "  " + j.file;
-      var frac = j.total > 0 ? clamp(j.done / j.total, 0, 1) : 0;
-      $("models-job-fill").style.width = (100 * frac).toFixed(1) + "%";
-      $("models-job-fill").classList.toggle("over", j.state === "failed");
-      var line = fmtBytes(j.done) + " of " + fmtBytes(j.total);
-      if (j.state === "fetching" && j.rate > 0) line += " · " + fmtBytes(j.rate) + "/s";
-      if (j.state === "fetching" && j.remaining_s > 0 && j.done * 50 >= j.total) line += " · " + fmtSecs(j.remaining_s) + " left";
-      if (j.resumed) line += " · resumed";
-      if (j.state === "interrupted") line += " · fetch it again and it resumes";
-      $("models-job-line").textContent = line;
-      $("models-job-fix").textContent = j.state === "failed" ? (j.err || "") + (j.fix ? " - " + j.fix : "") : "";
-    }
-
     // a background serve that never came on the air, in its own words
     var logLines = v.serve_log || [];
-    show($("models-servelog"), !sv && logLines.length > 0); // the server sends it only for a serve that failed
+    show($("models-servelog"), !v.serving && logLines.length > 0); // the server sends it only for a serve that failed
     $("models-servelog-text").textContent = logLines.join("\n");
 
-    var tb = $("models-rows");
+    // ROGER'S OWN ROWS, in the SHARE table, in its column grammar.
+    var tb = $("share-roger-rows");
+    if (!tb) return;
     tb.textContent = "";
-    if (!(v.models || []).length) {
-      var tr = el("tr", "empty-row"); var td = el("td", null, "No models on this machine yet. Find one below, or drop a .gguf into " + (v.dir || "the models folder") + ".");
-      td.colSpan = 5; tr.appendChild(td); tb.appendChild(tr);
+    var cell = function (tr, cls, txt) { var td = el("td", cls, txt); tr.appendChild(td); return td; };
+    var sv = v.serving;
+    if (sv) {
+      var tr0 = el("tr", "is-serving");
+      var c0 = cell(tr0, "col-model mono", sv.band);
+      c0.appendChild(el("div", "muted small", "served by roger itself \u00b7 " + sv.id + " \u00b7 " + sv.ctx + " context"));
+      cell(tr0, "col-variant mono small", sv.quant || "-");
+      cell(tr0, "col-status mono", "ROGER");
+      cell(tr0, "col-price muted", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-");
+      var a0 = cell(tr0, "col-actions row-actions");
+      var stopB = el("button", "btn small", "stop serving"); stopB.type = "button";
+      stopB.onclick = modelsStopServing;
+      a0.appendChild(stopB);
+      tb.appendChild(tr0);
     }
     (v.models || []).forEach(function (m) {
-      var tr = el("tr", m.serving ? "is-serving" : "");
-      var name = el("td", "col-model mono");
-      name.appendChild(el("div", null, (m.serving ? "▶ " : "") + m.id));
-      name.appendChild(el("div", "muted small", "serves as “" + m.band + "”" + (m.license ? " · licence " + m.license : "")));
-      tr.appendChild(name);
-      tr.appendChild(el("td", "mono", m.quant || "-"));
-      tr.appendChild(el("td", "num mono", fmtBytes(m.bytes)));
-      tr.appendChild(el("td", "mono small", m.verified ? "checked" : "found (your word)"));
-      var act = el("td", "row-actions");
-      if (!m.serving && v.can_serve) {
-        var sb = el("button", "btn small", sv ? "switch to this" : "serve");
+      if (m.serving) return; // a served model is already a row of its own
+      var tr = el("tr", "is-disk");
+      var c = cell(tr, "col-model mono", m.band);
+      c.appendChild(el("div", "muted small", m.id + (m.verified ? "" : " \u00b7 found, served on your word") + (m.license ? " \u00b7 licence " + m.license : "")));
+      cell(tr, "col-variant mono small", m.quant || "-");
+      cell(tr, "col-status mono", "ON DISK");
+      cell(tr, "col-price muted", fmtBytes(m.bytes)); cell(tr, "num", "-"); cell(tr, "num", "-"); cell(tr, "num", "-");
+      var act = cell(tr, "col-actions row-actions");
+      if (v.can_serve) {
+        var sb = el("button", "btn small", sv ? "switch to this" : "serve here"); sb.type = "button";
         sb.onclick = function () { modelsServe(m, sv); };
         act.appendChild(sb);
       }
-      if (!m.serving) {
-        var rb = el("button", "btn small ghost", "remove");
-        rb.onclick = function () { modelsRemove(m); };
-        act.appendChild(rb);
-      }
-      tr.appendChild(act);
+      var rb = el("button", "btn small ghost", "remove"); rb.type = "button";
+      rb.onclick = function () { modelsRemove(m); };
+      act.appendChild(rb);
       tb.appendChild(tr);
     });
+    var j = v.job;
+    if (j && j.state !== "done") {
+      var trj = el("tr", "is-fetch");
+      var cj = el("td", "mono"); cj.colSpan = 8;
+      var heads = { fetching: "\u2193 FETCHING", failed: "FETCH FAILED", interrupted: "FETCH INTERRUPTED" };
+      cj.appendChild(el("b", null, (heads[j.state] || j.state) + "  "));
+      cj.appendChild(el("span", "small", j.repo + "  " + j.file));
+      var meter = el("div", "meter"); var fill = el("div", "meter-fill" + (j.state === "failed" ? " over" : ""));
+      fill.style.width = (100 * (j.total > 0 ? clamp(j.done / j.total, 0, 1) : 0)).toFixed(1) + "%";
+      meter.appendChild(fill); cj.appendChild(meter);
+      var line = fmtBytes(j.done) + " of " + fmtBytes(j.total);
+      if (j.state === "fetching" && j.rate > 0) line += " \u00b7 " + fmtBytes(j.rate) + "/s";
+      if (j.state === "fetching" && j.remaining_s > 0 && j.done * 50 >= j.total) line += " \u00b7 " + fmtSecs(j.remaining_s) + " left";
+      if (j.resumed) line += " \u00b7 resumed";
+      if (j.state === "interrupted") line += " \u00b7 fetch it again and it resumes";
+      if (j.state === "failed") line = (j.err || "") + (j.fix ? " - " + j.fix : "");
+      cj.appendChild(el("div", "small", line));
+      trj.appendChild(cj); tb.appendChild(trj);
+    }
+    // ALWAYS LAST: the way to get a model, visibly a row of the list - never a hidden key.
+    var trg = el("tr", "is-get");
+    var cg = el("td"); cg.colSpan = 8;
+    var gb = el("button", "btn primary small", "+ Get a model that fits this machine"); gb.type = "button";
+    gb.onclick = function () { show($("share-getmodel"), true); try { $("models-q").focus(); } catch (_) {} };
+    cg.appendChild(gb);
+    cg.appendChild(el("span", "muted small", "  " + (v.budget > 0 ? fmtBytes(v.budget) + " " + v.pool + " \u00b7 " : "") + "search HuggingFace"));
+    trg.appendChild(cg); tb.appendChild(trg);
   }
 
   function modelsServe(m, current) {
@@ -3289,10 +3297,8 @@
   function wireModels() {
     var f = $("models-search");
     if (f) f.addEventListener("submit", function (e) { e.preventDefault(); modelsSearch($("models-q").value.trim()); });
-    var r = $("btn-models-refresh");
-    if (r) r.onclick = loadModels;
-    var st = $("btn-models-stop");
-    if (st) st.onclick = modelsStopServing;
+    var gc = $("btn-getmodel-close");
+    if (gc) gc.onclick = function () { show($("share-getmodel"), false); };
     var ctx = $("models-ctx");
     if (ctx) ctx.addEventListener("change", function () { if (modelsRepo) modelsOpenRepo(modelsRepo); });
   }

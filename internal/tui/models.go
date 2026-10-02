@@ -91,6 +91,14 @@ func (m model) enterModels() (model, tea.Cmd) {
 	return m, tea.Batch(m.modelsLoad(), modelsTick())
 }
 
+// shareModelsCmd loads roger's own rows for SHARE and starts their clock, when this build can serve.
+func (m model) shareModelsCmd() tea.Cmd {
+	if m.hooks.Models.View == nil {
+		return nil
+	}
+	return tea.Batch(m.modelsLoad(), modelsTick())
+}
+
 func (m model) modelsLoad() tea.Cmd {
 	view := m.hooks.Models.View
 	return func() tea.Msg {
@@ -143,10 +151,17 @@ func (m model) onModelsMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		} else {
 			m.mdl.says = msg.says
 		}
+		if m.mode == modeShare { // asked from a SHARE row: the answer goes where the owner is
+			if msg.err != nil {
+				m.status = stEmber.Render(msg.err.Error())
+			} else {
+				m.status = stLive.Render(msg.says)
+			}
+		}
 		return m, m.modelsLoad(), true
 	case modelsTickMsg:
-		if m.mode != modeModels {
-			return m, nil, true // the screen was left: its clock stops with it
+		if m.mode != modeModels && m.mode != modeShare {
+			return m, nil, true // neither screen is up: the clock stops with them
 		}
 		m.mdl.frame++
 		var cmd tea.Cmd

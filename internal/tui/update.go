@@ -981,7 +981,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 			m.sharePending = args[0]
 		}
 		m.status = stDim.Render("refreshing local models…")
-		return m, detectSharesCmd(m.shareUp, m.shareKey)
+		return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
 	}
 	m.shareLoading = true
 	m.setupOnEmpty = true // the initial open: an empty scan drops into the guided wizard
@@ -992,7 +992,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.sharePending = args[0] // `/share <model>` shortcut: flip it on air after detect
 	}
 	m.status = stDim.Render("scanning the band for local models…")
-	return m, detectSharesCmd(m.shareUp, m.shareKey)
+	return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
 }
 
 // onSharesDetected folds an async detection result into the provider table: it
@@ -1251,14 +1251,27 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Preset bank: 1 TUNE IN · 3 EDGE · 4 CONFIG · L LOGIN · ? HELP jump straight out of the
 	// table. (2 SHARE is the current screen, so it is a no-op pressed-state and falls
 	// through to the table keys below; `a`/`enter` toggle on-air as before.)
+	// A serve question asked from one of roger's own rows owns the next key (y, or anything is no).
+	if m.mdl.ask != nil {
+		return m.onModelsKey(k)
+	}
 	if k.String() != "2" {
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
 		}
 	}
+	// Roger's own rows (share_models.go) take Enter; the detected-row keys do not apply to them.
+	if e, ok := m.shareExtraAt(m.shareCursor); ok {
+		switch k.String() {
+		case "enter", "a", " ", "space":
+			return m.onShareExtraEnter(e)
+		case "h", "b", "B", "p", "e", "y":
+			return m, nil
+		}
+	}
 	switch k.String() {
 	case "g":
-		// MODELS: fetch and serve a model with roger itself (models.go).
+		// The accelerator for the last row: get a model that fits this machine (models.go).
 		nm, cmd := m.enterModels()
 		return nm, cmd
 	case "esc", "q", "s":
@@ -1270,7 +1283,7 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.shareCursor--
 		}
 	case "down", "j":
-		if m.shareCursor < len(m.shareRows)-1 {
+		if m.shareCursor < m.shareRowCount()-1 {
 			m.shareCursor++
 		}
 	case "enter", "a", " ", "space":
@@ -1480,6 +1493,14 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setupErr = "no OpenAI-compatible server at " + url + " (no /v1/models) - check it and try again"
 				return m, nil
 			}
+		}
+		// Get a model: roger serves it itself - the search and the fit view, inside SHARE.
+		if setupOptions[m.setupCursor].key == "roger" {
+			if m.hooks.Models.View == nil {
+				m.setupErr = "this build cannot serve models itself - `roger model` in a terminal"
+				return m, nil
+			}
+			return m.onShareExtraEnter(shareExtra{kind: extraGet})
 		}
 		// A named tool: ASYNC re-detect (maybe it's already up). If nothing comes back we
 		// return to the wizard with this tool's start one-liner; a found result lands the

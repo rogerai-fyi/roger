@@ -315,8 +315,10 @@ func TestShareSetupKeys(t *testing.T) {
 		t.Errorf("up should move the setup cursor back, got %d", asModel(tm).setupCursor)
 	}
 
-	// Picking a named tool (enter on a non-paste row) checks for it (loading table).
+	// Picking a named tool (enter on a non-paste row) checks for it (loading table). The first row is
+	// roger's own "get a model" (local_models.feature §9), so the named tool is the second.
 	cur := asModel(tm)
+	cur.setupCursor = 1
 	pickm, cmd := cur.onShareSetupKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if asModel(pickm).mode != modeShare || !asModel(pickm).shareLoading {
 		t.Errorf("a named-tool pick should enter the loading table, mode=%v loading=%v", asModel(pickm).mode, asModel(pickm).shareLoading)

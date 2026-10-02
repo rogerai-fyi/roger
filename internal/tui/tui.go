@@ -2565,6 +2565,9 @@ func (m *model) quitNow() (tea.Model, tea.Cmd) {
 // setupOptions are the guided-fallback choices: a tool (with a start one-liner) or
 // the paste-a-URL path. Order is the on-screen order.
 var setupOptions = []struct{ key, label, oneLiner string }{
+	// First, because it needs nothing else installed (local_models.feature §9: when nothing at all
+	// was detected, getting a model is the first option offered).
+	{"roger", "Get a model - roger serves it itself, nothing else to install", "roger finds one that fits this machine, fetches it and the runtime, checks both, and serves it"},
 	{"ollama", "Ollama", "ollama serve   then:  ollama run llama3.2   (→ :11434)"},
 	{"lm-studio", "LM Studio", "LM Studio → Developer → Start Server   (→ :1234)"},
 	{"unsloth", "Unsloth Studio", "Unsloth Studio → load a model → Settings → API → copy endpoint + key   (→ :8888)"},
@@ -3309,7 +3312,7 @@ func (m model) modeName() string {
 	case modeShareSetup:
 		return "SET UP A MODEL"
 	case modeModels:
-		return "MODELS"
+		return "GET A MODEL"
 	default:
 		return "BROWSE"
 	}

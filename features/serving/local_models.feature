@@ -490,7 +490,8 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     And nothing overflows the width
 
   # =========================================================================
-  # 8. THE BROWSER CONSOLE - APPROVED by the founder 2026-10-01
+  # 8. THE BROWSER CONSOLE - APPROVED by the founder 2026-10-01 (placement superseded by §9: inside
+  # the console's SHARE panel, not a tab of its own)
   #
   # FOUNDER DIRECTION 2026-10-01: "i want to add the same for the webui so we need to make sure
   # that works from there as well". The console is the same owner on the same machine, so it does
@@ -534,3 +535,43 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     Then stopping, switching and removing behave exactly as `roger model stop`, `serve` and `rm` do
     And removing a model that is being served is refused with the reason
     And a destructive action asks once and the safe answer is the default
+
+  # =========================================================================
+  # 9. WHERE IT LIVES - FOUNDER RULING 2026-10-01: rows in the SHARE list
+  #
+  # "no new tab, it should be something under [2] SHARE that is visually obvious not just a
+  # keybinding/shortcut, something more integrated, and as a row". Researched against LM Studio,
+  # Jan and GPT4All (models you have and getting more live in one list, each variant marked for fit)
+  # and empty-state guidance (the next action sits inside the list). Ruled: rows in the SHARE list.
+  # The console MODELS tab of §8 is withdrawn; the console's SHARE panel carries the same rows.
+  # =========================================================================
+
+  @tui @web
+  Scenario: models roger serves itself are rows of SHARE like any other
+    Given roger is serving a model itself
+    Then it is a row of the SHARE list, marked as served by roger with its quantisation and context
+    And it goes on and off air exactly as any other row does
+
+  @tui @web
+  Scenario: a model on this disk that is not served is a row you serve from SHARE
+    Given a model on this disk that nothing is serving
+    Then it is a row of the SHARE list marked as on disk
+    And choosing it serves it here, asked first
+
+  @tui @web
+  Scenario: a download in progress is a row with a live bar
+    Given a model being fetched
+    Then it is a row of the SHARE list with its bytes, rate and time left
+    And it becomes an on-disk row when it is fetched and checked
+
+  @tui @web
+  Scenario: getting a model is always the last row of SHARE, and visibly so
+    Then the SHARE list always ends with a row to get a model that fits this machine, stating the
+      machine's memory
+    And choosing it opens the search and the fit view inside SHARE, not a separate tab
+    And when nothing at all was detected, getting a model is the first option offered
+
+  @web
+  Scenario: the console has no separate models tab
+    Then the console's tabs are the ones the console spec approved
+    And everything §8 describes is reached from the console's SHARE panel

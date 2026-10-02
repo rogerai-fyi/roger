@@ -342,8 +342,21 @@ func (m model) shareView(w int) string {
 	}
 
 	if len(m.shareRows) == 0 {
-		return b.String() + "\n  " + stEmber.Render("no local models detected") +
-			stDim.Render(" - start a local LLM and press r to re-detect") + "\n"
+		b.WriteString("\n  " + stEmber.Render("no local models detected") +
+			stDim.Render(" - start a local LLM and press r to re-detect") + "\n")
+		tw := w - 4
+		if tw < 20 {
+			tw = 20
+		}
+		if extras := m.shareExtrasView(w, m.shareNameW(w), tw); extras != "" {
+			// ...or let roger serve one itself: the rows that need no other software at all.
+			b.WriteString("\n" + extras)
+			if e, ok := m.shareExtraAt(m.shareCursor); ok {
+				b.WriteString("\n  " + stSelBar.Render("▌") + stDim.Render(" "+truncVisible(m.shareExtraDetail(e), w-4)) + "\n")
+			}
+			b.WriteString(m.shareAskView(w))
+		}
+		return b.String()
 	}
 
 	// Column geometry. dense drops the metrics columns so nothing overflows.
@@ -481,14 +494,23 @@ func (m model) shareView(w int) string {
 			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
 	}
 
+	// Roger's own rows - models on this disk, a download, and the way to get a model - follow the
+	// detected ones in the same table (local_models.feature §9).
+	b.WriteString(m.shareExtrasView(w, nameW, tableW))
+
 	// DETAIL BANNER: a full-width contextual line for the SELECTED row (only when
 	// there ARE rows and the cursor is on one), so a terse cell like "set voice…" reads
 	// as its full state + next action. A ▌-barred, dim line matching the SHARE chrome; it
 	// marquee-scrolls only if the detail overflows the available width (static otherwise),
 	// driven by the SAME frame counter as the signal bars (sigFrame — frozen when compact).
-	if len(m.shareRows) > 0 && m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
+	if e, ok := m.shareExtraAt(m.shareCursor); ok {
+		b.WriteString("\n  " + stSelBar.Render("▌") + stDim.Render(" "+truncVisible(m.shareExtraDetail(e), w-4)) + "\n")
+	} else if len(m.shareRows) > 0 && m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
 		row := m.shareRows[m.shareCursor]
 		detail := m.shareRowDetail(row, m.shares[row.model])
+		if own, ok := m.servedByRoger(row); ok {
+			detail = own + " · " + detail
+		}
 		// The bar + a leading space cost 2 cols; the 2-col left margin costs 2 more.
 		avail := w - 4
 		if avail < 8 {
@@ -497,6 +519,8 @@ func (m model) shareView(w int) string {
 		detail = marquee(glyphs.Fold(detail), avail, m.sigFrame())
 		b.WriteString("\n  " + stSelBar.Render("▌") + stDim.Render(" "+detail) + "\n")
 	}
+
+	b.WriteString(m.shareAskView(w))
 
 	// Pricing affordance: logged in -> the per-model editor; anonymous -> the clear
 	// "log in to earn" gate (free sharing still works without an account).
