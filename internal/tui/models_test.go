@@ -42,7 +42,8 @@ func (f *modelsFake) hooks() modelview.Hooks {
 				Choices: []modelview.FileChoice{
 					{Label: "Q2_K", File: "Tiny-Q2_K.gguf", Bytes: 1 << 30, Fit: "fits", Short: "fits  at 8K - needs 2.1 GiB"},
 					{Label: "Q4_K_M", File: "Tiny-Q4_K_M.gguf", Bytes: 2 << 30, Fit: "fits", Short: "fits  at 8K - needs 3.2 GiB",
-						Line: "fits at 8K context: needs 3.2 GiB of 4.0 GiB system memory", Sum: "weights 2.0 GiB + cache 1.1 GiB = 3.2 GiB", Suggested: true},
+						Line: "fits at 8K context: needs 3.2 GiB of 4.0 GiB system memory", Sum: "weights 2.0 GiB + cache 1.1 GiB = 3.2 GiB", Suggested: true,
+						Pace: "~45 tok/s usable", PaceLine: "writes about 45 tok/s - usable (2.0 GiB per token at measured 100 GB/s)"},
 					{Label: "F16", File: "Tiny-F16.gguf", Bytes: 8 << 30, Fit: "will not fit", Short: "will not fit - needs 9.4 GiB"},
 					{Label: "mmproj-F16", File: "mmproj-F16.gguf", Bytes: 1 << 20, Unservable: "a vision projector"},
 				}}, nil
@@ -140,6 +141,28 @@ func TestModelsScreenAnswersWhatThisMachineCanRunFirst(t *testing.T) {
 	}
 	if !strings.Contains(m.modelsKeys(), "⏎ serve") || strings.Contains(m.modelsKeys(), "S stop") {
 		t.Errorf("the keys do not match what can be done now: %q", m.modelsKeys())
+	}
+}
+
+// local_models.feature §4: fitting and being usable are two different claims, each in its own place.
+func TestModelsFitAndSpeedAreSaidSeparately(t *testing.T) {
+	f := &modelsFake{view: baseView()}
+	m := modelsModel(t, f)
+	m, _ = press(t, m, "/", "t", "i", "n", "y")
+	m, cmd := press(t, m, "enter")
+	m = feed(t, m, cmd)
+	m, cmd = press(t, m, "enter")
+	m = feed(t, m, cmd)
+	out := screen(m)
+	if !strings.Contains(out, "fits  at 8K - needs 3.2 GiB  ~45 tok/s usable") {
+		t.Errorf("the speed is not beside the fit in its own words:\n%s", out)
+	}
+	if !strings.Contains(out, "writes about 45 tok/s - usable") {
+		t.Errorf("the selected file's speed and its working are not shown:\n%s", out)
+	}
+	m, _ = press(t, m, "enter")
+	if out = screen(m); !strings.Contains(out, "writes about 45 tok/s - usable") {
+		t.Errorf("the fetch is asked without the speed:\n%s", out)
 	}
 }
 

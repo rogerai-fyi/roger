@@ -210,6 +210,10 @@ func TestModelFilesJudgesEveryQuantAgainstThisMachine(t *testing.T) {
 	require.Contains(t, out, "at 8K - needs")
 	require.Contains(t, out, "not servable: a vision projector")
 	require.Contains(t, out, "roger model get acme/Tiny-GGUF:Q4_K_M")
+	// Fitting and being usable are two claims (local_models.feature §4): the speed has its own
+	// column and the machine's memory speed says where it came from.
+	require.Contains(t, out, "memory speed: measured")
+	require.Regexp(t, `at 8K - needs [^\n]*  ~[0-9.]+ tok/s usable`, out)
 
 	// A machine that cannot hold even the smallest at any context is told so, and nothing is suggested.
 	r = newModelRig(t, 512)

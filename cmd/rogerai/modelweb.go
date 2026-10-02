@@ -186,6 +186,9 @@ func modelWebFiles(ctx context.Context, repo string, ctxLen int) (webui.FilesVie
 			Unservable: c.Unservable, Suggested: i == pick, Have: have[c.File.Path]}
 		if c.Unservable == "" {
 			fc.Fit, fc.Short, fc.Line, fc.Sum = c.Verdict.Fit.String(), c.Verdict.Short(), c.Verdict.Line(), c.Verdict.Sum()
+			if fc.PaceLine = c.Verdict.PaceLine(); fc.PaceLine != "" {
+				fc.Pace = c.Verdict.Pace.Short()
+			}
 			v.Ctx = c.Verdict.Ctx
 		}
 		v.Choices = append(v.Choices, fc)

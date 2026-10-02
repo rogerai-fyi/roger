@@ -20,8 +20,9 @@ const DefaultCtx = 8192
 // Budget is the memory a model is judged against, and which pool it is.
 type Budget struct {
 	Bytes int64
-	Pool  string // "video memory", "unified memory", "system memory"
-	Why   string // when Bytes is zero: the reading that failed
+	Pool  string    // "video memory", "unified memory", "system memory"
+	Why   string    // when Bytes is zero: the reading that failed
+	BW    Bandwidth // how fast this pool reads, for how fast a model answers
 }
 
 // Known reports whether there is a budget at all.
@@ -34,7 +35,7 @@ func BudgetOf(hw detect.LocalHW) Budget {
 	const mib = int64(1) << 20
 	switch {
 	case hw.UnifiedMemory && hw.RAMKnown:
-		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "unified memory"}
+		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "unified memory", BW: BandwidthOf(hw)}
 	case hw.VRAMKnown && hw.VRAMTotalMiB > 0:
 		pool := "video memory"
 		if len(hw.GPUs) > 1 {
@@ -42,9 +43,9 @@ func BudgetOf(hw detect.LocalHW) Budget {
 			// but it is a sum, and the owner should know that is what they are reading.
 			pool = fmt.Sprintf("video memory across %d GPUs", len(hw.GPUs))
 		}
-		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool}
+		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool, BW: BandwidthOf(hw)}
 	case hw.RAMKnown && hw.RAMTotalMiB > 0:
-		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory"}
+		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory", BW: BandwidthOf(hw)}
 	}
 	why := "this machine's memory could not be read"
 	if len(hw.Undetermined) > 0 {
@@ -61,6 +62,7 @@ type Verdict struct {
 	Ctx    int // the context the verdict is AT. A verdict without one is not a verdict.
 	MaxCtx int // the longest context that does fit, 0 when none does
 	Why    string
+	Pace   Pace // how fast it would answer: a separate claim, never folded into Fit
 }
 
 // Judge computes the verdict at ctx, or at a proposed context when ctx is zero.
@@ -83,6 +85,7 @@ func Judge(s catalog.Shape, b Budget, ctx int) Verdict {
 		return v
 	}
 	v.Fit = catalog.AssessFit(b.Bytes, need.Total)
+	v.Pace = paceOf(s.FileBytes, s.Experts, s.ExpertsUsed, b.BW)
 	v.MaxCtx, _ = catalog.MaxCtxFor(s, b.Bytes, 1, catalog.CacheF16, catalog.CacheF16)
 	if s.TrainCtx > 0 && ctx > s.TrainCtx {
 		v.Why = fmt.Sprintf("it was trained for %d tokens of context, not %d", s.TrainCtx, ctx)
@@ -118,6 +121,15 @@ func (v Verdict) Short() string {
 		return fmt.Sprintf("will not fit - needs %s", BytesWord(v.Need.Total))
 	}
 	return fmt.Sprintf("%-5s at %s - needs %s", v.Fit, ctxWord(v.Ctx), BytesWord(v.Need.Total))
+}
+
+// PaceLine is the speed claim, beside the fit and never inside it. Empty when the model does not
+// fit, because a speed in a pool it cannot live in is not a speed it would have.
+func (v Verdict) PaceLine() string {
+	if v.Fit != catalog.FitFits && v.Fit != catalog.FitTight {
+		return ""
+	}
+	return v.Pace.Line()
 }
 
 // Sum is the working, term by term.

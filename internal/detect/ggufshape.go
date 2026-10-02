@@ -241,6 +241,9 @@ func resolveShape(arch string, nums, counts map[string]int) (catalog.Shape, erro
 		ValueDim: at("attention.value_length"),
 		TrainCtx: at("context_length"),
 		Vocab:    at("vocab_size"),
+
+		Experts:     at("expert_count"),
+		ExpertsUsed: at("expert_used_count"),
 	}
 	// TWO DOCUMENTED DEFAULTS, not guesses: the runtime derives both the same way when the keys
 	// are absent, and most real files leave at least one of them out.

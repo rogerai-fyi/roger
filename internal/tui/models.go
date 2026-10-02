@@ -374,6 +374,9 @@ func (m *model) modelsEnter() tea.Cmd {
 			if c.Sum != "" {
 				lines = append(lines, c.Sum)
 			}
+			if c.PaceLine != "" {
+				lines = append(lines, c.PaceLine)
+			}
 			lines = append(lines, "licence: "+lic+" (as its author published it; recorded, never a gate)",
 				"source: HuggingFace - the author's word, checked against the digest the index publishes")
 			m.mdl.ask = &modelsAsk{title: "fetch this model?", lines: lines,
@@ -618,15 +621,23 @@ func (m model) modelsRepoView(w int, line func(string)) {
 		case c.Suggested:
 			mark = "*"
 		}
+		if c.Pace != "" && c.Unservable == "" {
+			verdict += "  " + c.Pace
+		}
 		if c.Have {
 			verdict += "  · on this machine"
 		}
 		line("  " + cur + mark + " " + pad(truncVisible(c.Label, lw), lw) + " " + pad(modelsBytes(c.Bytes), 11) + verdict)
 	}
 	if j := m.mdl.sel; j < len(vis) {
-		if c := fv.Choices[vis[j]]; c.Sum != "" {
+		if c := fv.Choices[vis[j]]; c.Sum != "" || c.PaceLine != "" {
 			line("")
-			line("  " + stDim.Render(c.Sum))
+			if c.Sum != "" {
+				line("  " + stDim.Render(c.Sum))
+			}
+			if c.PaceLine != "" {
+				line("  " + stDim.Render(c.PaceLine))
+			}
 		}
 	}
 }

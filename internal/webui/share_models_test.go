@@ -69,3 +69,11 @@ func TestRogersOwnModelsAreRowsOfTheShareTable(t *testing.T) {
 	require.Contains(t, r, `show($("share-getmodel"), true)`, "choosing it opens the search inside SHARE")
 	require.NotContains(t, r, "innerHTML")
 }
+
+// local_models.feature §4: the console says how fast a file would answer apart from whether it fits,
+// in the row and in the question before a fetch.
+func TestTheConsoleSaysSpeedApartFromFit(t *testing.T) {
+	js := consoleJS(t)
+	require.Contains(t, js, `if (c.pace_line) verdict.appendChild(el("div", "mono", c.pace_line));`)
+	require.Contains(t, js, `(c.pace_line ? "\n" + c.pace_line : "")`)
+}

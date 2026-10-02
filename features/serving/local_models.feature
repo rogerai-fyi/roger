@@ -6,7 +6,9 @@
 # with the context that fits), the runtime (pinned manifest, digest before run, measured glibc floor,
 # platforms with no runtime say so, loopback + key file, cache/slot flags, cleanup), serving (switch
 # proves the new before stopping the old, said in full, the band detection already routes on), removal,
-# the TUI screen (§7) and the console (§8). NOT BUILT: "fitting and being usable" (no speed estimate),
+# the TUI screen (§7) and the console (§8), rows in SHARE (§9), and "fitting and being usable" (a speed
+# beside the fit: spec-sheet or measured memory speed over the bytes read per token, a floor for a
+# mixture of experts). NOT BUILT:
 # "the runtime's own fitness answer wins once the file is on disk" (our estimate is still used),
 # "two at once", an idle timeout (nothing unloads by surprise holds trivially), a cache budget, and
 # "the terminal and the phone agree" (same formula, not cross-checked against iOS).

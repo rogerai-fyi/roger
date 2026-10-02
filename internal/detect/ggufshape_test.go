@@ -229,3 +229,22 @@ func TestACompressedCacheIsCaughtByTheMarkerOrTheFamily(t *testing.T) {
 		}
 	}
 }
+
+// A mixture of experts reads only some of its weights per token, so how fast it answers depends on
+// how many experts it has and how many each token uses (local_models.feature §4, usable vs fits).
+func TestAMixtureOfExpertsDeclaresHowManyExpertsATokenUses(t *testing.T) {
+	got, err := ReadShape(writeGGUF(t, shapeKVs(), 1<<20))
+	if err != nil || got.Experts != 0 || got.ExpertsUsed != 0 {
+		t.Fatalf("a dense model has no experts: %+v %v", got, err)
+	}
+	kvs := append(shapeKVs(),
+		kv{"qwen3.expert_count", ggufTypeUint32, uint32(128)},
+		kv{"qwen3.expert_used_count", ggufTypeUint32, uint32(8)})
+	got, err = ReadShape(writeGGUF(t, kvs, 1<<20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Experts != 128 || got.ExpertsUsed != 8 {
+		t.Errorf("experts = %d used %d, want 128 used 8", got.Experts, got.ExpertsUsed)
+	}
+}

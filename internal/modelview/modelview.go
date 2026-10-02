@@ -92,6 +92,8 @@ type FileChoice struct {
 	Short      string `json:"short"` // the verdict for a row
 	Line       string `json:"line"`  // the verdict in a sentence
 	Sum        string `json:"sum,omitempty"`
+	Pace       string `json:"pace,omitempty"`      // how fast it would answer, for a row - a claim apart from Fit
+	PaceLine   string `json:"pace_line,omitempty"` // the same with its working
 	Unservable string `json:"unservable,omitempty"`
 	Suggested  bool   `json:"suggested"`
 	Have       bool   `json:"have"` // already on this disk

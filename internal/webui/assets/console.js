@@ -3264,7 +3264,11 @@
         tr.appendChild(el("td", "num mono", fmtBytes(c.bytes)));
         var verdict = el("td", "small");
         if (c.unservable) verdict.textContent = "not servable: " + c.unservable;
-        else { verdict.appendChild(el("div", "mono", c.short)); if (c.sum) verdict.appendChild(el("div", "muted", c.sum)); }
+        else {
+          verdict.appendChild(el("div", "mono", c.short));
+          if (c.pace_line) verdict.appendChild(el("div", "mono", c.pace_line));
+          if (c.sum) verdict.appendChild(el("div", "muted", c.sum));
+        }
         tr.appendChild(verdict);
         var act = el("td", "row-actions");
         if (c.have) act.appendChild(el("span", "muted small", "on this machine"));
@@ -3282,7 +3286,7 @@
   }
 
   function modelsFetch(fv, c) {
-    var body = fv.repo + "\n" + c.file + "  " + fmtBytes(c.bytes) + "\n\n" + c.line + (c.sum ? "\n" + c.sum : "") +
+    var body = fv.repo + "\n" + c.file + "  " + fmtBytes(c.bytes) + "\n\n" + c.line + (c.sum ? "\n" + c.sum : "") + (c.pace_line ? "\n" + c.pace_line : "") +
       "\n\nlicence: " + (fv.license || "not stated") + " (as its author published it; roger records it and does not referee it)" +
       "\nsource: HuggingFace - the author's word, checked against the digest the index publishes";
     askSafe("Fetch this model?", body, "Fetch").then(function (yes) {

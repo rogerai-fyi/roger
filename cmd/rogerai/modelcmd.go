@@ -332,6 +332,9 @@ func modelFiles(ctx context.Context, repo string, ctxLen int) error {
 			mark = "*"
 		}
 		verdict := c.Verdict.Short()
+		if c.Verdict.PaceLine() != "" && c.Verdict.Pace.Short() != "" {
+			verdict += "  " + c.Verdict.Pace.Short() // a second claim, in its own column
+		}
 		if c.Unservable != "" {
 			verdict = "not servable: " + c.Unservable
 		}
@@ -347,7 +350,12 @@ func modelFiles(ctx context.Context, repo string, ctxLen int) error {
 
 func modelBudgetLine(b localmodel.Budget) {
 	if b.Known() {
-		fmt.Fprintf(modelOut, "this machine: %s of %s\n\n", provision.BytesWord(b.Bytes), b.Pool)
+		fmt.Fprintf(modelOut, "this machine: %s of %s\n", provision.BytesWord(b.Bytes), b.Pool)
+		if b.BW.BytesPerSec > 0 {
+			fmt.Fprintf(modelOut, "memory speed: %s\n\n", b.BW.From)
+		} else {
+			fmt.Fprintf(modelOut, "memory speed: cannot say - %s\n\n", b.BW.Why)
+		}
 	} else {
 		fmt.Fprintf(modelOut, "this machine: cannot say - %s\n\n", b.Why)
 	}

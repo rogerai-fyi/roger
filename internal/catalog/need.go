@@ -34,6 +34,11 @@ type Shape struct {
 	ValueDim  int   // <arch>.attention.value_length
 	TrainCtx  int   // <arch>.context_length - what it was trained for, the ceiling we propose
 	Vocab     int   // the tokenizer's size, for the output buffer
+
+	// A mixture of experts reads only ExpertsUsed of its Experts per token, which changes how fast
+	// it answers but not what it needs to fit. Both zero for a dense model.
+	Experts     int // <arch>.expert_count
+	ExpertsUsed int // <arch>.expert_used_count
 }
 
 // CacheKind is the width of one KV element, which the owner can choose and which roughly halves
