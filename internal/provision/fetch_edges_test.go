@@ -211,6 +211,10 @@ func TestAnUnreadableFinishedFileIsNotTrusted(t *testing.T) {
 	require.Equal(t, body, got)
 }
 
-func TestTheSizeWordJustBelowExbibytes(t *testing.T) {
+// The same boundary the PiB fix pinned, one unit up: the fallback past the list must divide once
+// more, or one exbibyte reads as "1024.0 EiB".
+func TestTheSizeWordAtTheExbibyteBoundary(t *testing.T) {
 	require.Equal(t, "1023.0 PiB", provision.BytesWord(1023<<50))
+	require.Equal(t, "1.0 EiB", provision.BytesWord(1<<60))
+	require.Equal(t, "8.0 EiB", provision.BytesWord(1<<63-1))
 }
