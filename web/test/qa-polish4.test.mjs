@@ -128,3 +128,42 @@ test("chrome buttons: hover and press match the page's buttons", () => {
   assert.match(b, /@media \(prefers-reduced-motion: reduce\) \{[^@]*:is\(\.promo__cta, \.upgrade__cmd, \.lt-modal__send\):active \{ transform: none; \}/);
   assert.match(rule(".lt-modal__send"), /transition:[^;]*var\(--d-2\)/, "Send eases like the other buttons");
 });
+
+/* ---- the tuner finds its way home after a jump ----------------------------------- */
+
+// Found by the full-page captures: scroll to the foot of a page, then jump straight back to
+// the top (Home, a tap on a phone's status bar) and the needle stayed on the LAST station.
+// No section crosses the in-view band on a jump, so no observer reports; the needle now
+// re-reads where the sections are once the scroll settles.
+import vm from "node:vm";
+test("tuner: when a scroll settles, the needle rests on the section in view", () => {
+  const TUNER = readFileSync(path.join(WEB, "src/js/tuner.js"), "utf8");
+  const on = (el) => { el.listeners = {}; el.addEventListener = (t, f) => { (el.listeners[t] ||= []).push(f); }; return el; };
+  const style = {};
+  const ids = ["s1", "s2", "s3"];
+  const tops = { s1: 900, s2: 1800, s3: 2700 };            // page top: every section below the band
+  const links = ids.map((id) => ({ attrs: {}, cls: new Set(), getAttribute: (a) => (a === "href" ? "#" + id : null),
+    setAttribute(a, v) { this.attrs[a] = v; }, addEventListener() {}, classList: { toggle() {} } }));
+  const nav = on({ style: { setProperty: (k, v) => { style[k] = String(v); }, removeProperty() {} },
+    querySelectorAll: (q) => (q === "a" ? links : []), querySelector: () => null, classList: { add() {}, remove() {}, toggle() {}, contains: () => false } });
+  let ioCb = null;
+  const timers = [];
+  const win = on({ innerHeight: 1000, innerWidth: 1440,
+    matchMedia: () => ({ matches: false }), getComputedStyle: () => ({ display: "block" }),
+    setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout: (id) => { timers[id - 1] = null; },
+    IntersectionObserver: function (cb) { ioCb = cb; this.observe = () => {}; } });
+  win.window = win;
+  win.document = on({ querySelectorAll: (q) => (q === "[data-tuner]" ? [nav] : []),
+    getElementById: (id) => ({ id, getBoundingClientRect: () => ({ top: tops[id] }) }), createElement: () => on({ setAttribute() {} }) });
+  vm.createContext(win);
+  vm.runInContext(TUNER, win);
+  // read down to the last section: the observer reports it in view
+  Object.assign(tops, { s1: -1800, s2: -900, s3: 350 });
+  ioCb([{ target: { id: "s3" }, isIntersecting: true, boundingClientRect: { top: 350 } }]);
+  assert.equal(style["--cur"], "2");
+  // Home: straight back to the top; nothing crosses the band, nothing reports
+  Object.assign(tops, { s1: 900, s2: 1800, s3: 2700 });
+  for (const f of win.listeners.scroll || []) f({});
+  for (const f of timers.splice(0)) if (f) f();
+  assert.equal(style["--cur"], "0", "back in the hero, the needle rests on the first station");
+});

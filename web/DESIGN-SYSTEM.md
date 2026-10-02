@@ -301,7 +301,8 @@ needle is laid out against its gutter). Keep the `toc-tuner__st` class on each l
 classless link in an `<li>` gets the site's in-prose underline. CSS alone moves the needle
 and the readout to the pointed or focused station; `tuner.js` adds roving focus (one tab
 stop, arrows, Home/End) and rests the needle on the section in view
-(`aria-current="location"`). The resting station keeps a red major tick while you point
+(`aria-current="location"`), re-read whenever a scroll settles (a jump from the foot of the page
+back to the top lands on the first station). The resting station keeps a red major tick while you point
 elsewhere ("you are here"); a name comes into tune as it shows (its blur clears and its
 tracking closes up; opacity flips at once). Never pinned. Drag and tap to tune (`tuner.js`): the scale strip (ticks, needle, numerals)
 is the drag zone, `touch-action: none`, at least 56px tall on touch with a heavier needle
