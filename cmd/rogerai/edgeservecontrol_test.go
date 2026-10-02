@@ -509,13 +509,18 @@ func TestARemoteModelRequestIsAuditedBeforeItIsActedOn(t *testing.T) {
 	require.Empty(t, refused)
 	evs, _, err := edgeEventsRead(edge.EventQuery{Limit: 5}, time.Now())
 	require.NoError(t, err)
-	var detail string
+	var detail, by string
 	for _, e := range evs {
 		if e.What == "model" {
-			detail = e.Detail
+			detail, by = e.Detail, e.By
 		}
 	}
-	require.Contains(t, detail, "asked by desk ("+edgeShortID("n_desk1234")+")")
+	// WHO asked is kept for audit as the authenticated caller id, in its own field; the sentence a
+	// person reads names the caller and never carries the id, not even a short one.
+	require.Equal(t, "n_desk1234", by)
+	require.True(t, strings.HasSuffix(detail, ", asked by desk"), detail)
+	require.NotContains(t, detail, "n_desk")
+	require.NotContains(t, detail, edgeShortID("n_desk1234"))
 
 	// No identity to record against: refused, and nothing was started.
 	r.spawned = nil

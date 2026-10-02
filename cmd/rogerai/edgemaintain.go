@@ -195,7 +195,7 @@ func edgeRecordMaintenance(callerID, callerName string, task edge.MaintainTask, 
 	if task.Target == "" {
 		detail = fmt.Sprintf("%s, asked by %s", task.Action, who)
 	}
-	if err := st.fleet.RecordEvent(id.NodeID, "maintenance", detail); err != nil {
+	if err := st.fleet.RecordEventBy(id.NodeID, "maintenance", detail, callerID); err != nil { // who asked, for audit
 		return
 	}
 	_ = st.save()

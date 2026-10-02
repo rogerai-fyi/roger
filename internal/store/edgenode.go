@@ -157,6 +157,10 @@ type EdgeEvent struct {
 	At     int64  `json:"at"`
 	What   string `json:"what"`
 	Detail string `json:"detail,omitempty"`
+	// By is WHO asked for it, when someone other than the owner at this machine did: the caller's
+	// authenticated node id. It is the audit record (a name can change or be reused); the Detail
+	// sentence names the caller and never carries the id.
+	By string `json:"by,omitempty"`
 }
 
 // EdgeNode is the record itself.

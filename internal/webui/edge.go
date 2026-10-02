@@ -490,13 +490,23 @@ func edgeLabelIfDifferent(n store.EdgeNode, all []store.EdgeNode) string {
 	return ""
 }
 
+// edgeHistoryOf is a node's history as the console shows it: a copy, with a caller renamed since
+// said by its name now (edge.ActorDetail). The record itself is not touched.
+func edgeHistoryOf(h []store.EdgeEvent, all []store.EdgeNode) []store.EdgeEvent {
+	out := append([]store.EdgeEvent{}, h...)
+	for i := range out {
+		out[i].Detail = edge.ActorDetail(out[i], all)
+	}
+	return out
+}
+
 func edgeNodeOf(n store.EdgeNode, now time.Time, all []store.EdgeNode) edgeNodeJSON {
 	out := edgeNodeJSON{
 		ID: n.ID, Name: n.Name, Label: edgeLabelIfDifferent(n, all), Kind: n.Kind, Presence: n.Presence, LastSeen: n.LastSeen,
 		Pin: n.Pin, Contract: n.Contract, Station: n.Station, Tags: append([]string(nil), n.Tags...),
 		Caps:               []edgeCapJSON{},
 		Transports:         append([]store.EdgeTransport{}, n.Transports...),
-		History:            append([]store.EdgeEvent{}, n.History...),
+		History:            edgeHistoryOf(n.History, all),
 		LAN:                edge.HasLANTransport(n),
 		Dark:               n.Presence == string(edge.PresenceDark),
 		Instances:          append([]edge.Instance{}, n.Instances...),

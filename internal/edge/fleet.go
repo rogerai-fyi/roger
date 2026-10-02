@@ -432,8 +432,14 @@ func (f *Fleet) ConfirmActuate(id, who string) error {
 // separately from capability: a node that accepted world-changing commands has that in
 // its history, and STILL does not gain `actuate` from it.
 func (f *Fleet) RecordEvent(id, what, detail string) error {
+	return f.RecordEventBy(id, what, detail, "")
+}
+
+// RecordEventBy is RecordEvent with WHO asked: the authenticated node id of the caller, kept as a
+// field for audit (names change and can be reused) and never written into the sentence.
+func (f *Fleet) RecordEventBy(id, what, detail, by string) error {
 	return f.mutate(id, func(n *store.EdgeNode) error {
-		n.History = append(n.History, store.EdgeEvent{At: f.now().Unix(), What: what, Detail: detail})
+		n.History = append(n.History, store.EdgeEvent{At: f.now().Unix(), What: what, Detail: detail, By: by})
 		return nil
 	})
 }
