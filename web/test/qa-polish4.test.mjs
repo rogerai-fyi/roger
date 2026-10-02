@@ -167,3 +167,21 @@ test("tuner: when a scroll settles, the needle rests on the section in view", ()
   for (const f of timers.splice(0)) if (f) f();
   assert.equal(style["--cur"], "0", "back in the hero, the needle rests on the first station");
 });
+
+/* ---- closing sections read left on a phone --------------------------------------- */
+
+// The shell's closing section (research, industrial, pricing, FAQ, careers, Tower,
+// Integrations) is centred. At 390 that set six to eight ragged centred lines of body
+// text and left a lone wrapped button floating mid-row; on a phone it reads left, like
+// every other section and every other action row.
+test("closing section: centred on a wide screen, left-set on a phone", () => {
+  const r = css("research.css");
+  assert.match(r, /\.research-closing \{ text-align: center; \}/);
+  assert.match(r, /@media \(max-width: 640px\) \{\s*\.research-closing \{ text-align: left; \}\s*\.research-closing p \{ margin-inline: 0; \}\s*\.research-closing \.research-actions \{ justify-content: flex-start; \}\s*\}/);
+});
+
+test("closing section: the lede sits a step under its heading, whichever markup it uses", () => {
+  // four closings set the lede straight after the h2 (margin 0, flush under it), three
+  // inside .section__head (16px, lead size): one gap and one size now, the section head's
+  assert.match(css("research.css"), /\.research-closing h2 \+ p \{ margin-top: var\(--s-4\); font-size: var\(--t-lead\); \}/);
+});
