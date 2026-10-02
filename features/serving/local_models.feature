@@ -17,7 +17,11 @@
 # Two at once: `serve --add` (TUI "a add beside", console "add beside") only when both fit together
 # - the runtime's check counts what is already on the air, roger's estimate adds the needs - else it
 # says so and offers the switch; one band answers with one model; each serve has its own record, row,
-# stop and line on the member's card. NOT BUILT: "the terminal and the phone agree" (same formula,
+# stop and line on the member's card. GPU builds (§10, 2026-10-02): Vulkan + CUDA pinned beside CPU,
+# `roger model runtime`, auto asks each build which devices it can use and falls back to CPU saying
+# why, fit and speed follow the build, status names it; found live: a model that fits on one card is
+# pinned to the freest card (59.7 vs 26.8 tok/s split four ways on busy cards). NOT BUILT: "the
+# terminal and the phone agree" (same formula,
 # not cross-checked against iOS - needs the Mac).
 #
 # READ features/share/model_catalog.feature FIRST. That spec is APPROVED and it already owns most

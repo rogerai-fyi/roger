@@ -23,6 +23,7 @@ import (
 type Settings struct {
 	IdleAfter  time.Duration `json:"idle_after,omitempty"`  // 0: never unload for idleness
 	DiskBudget int64         `json:"disk_budget,omitempty"` // bytes for models; 0: no budget, nothing is ever evicted
+	Runtime    string        `json:"runtime,omitempty"`     // auto (unset), cpu, gpu, vulkan or cuda (local_models.feature §10)
 }
 
 func (h Home) settingsPath() string { return filepath.Join(h.Dir, "settings.json") }

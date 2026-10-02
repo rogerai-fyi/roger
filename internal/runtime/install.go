@@ -14,6 +14,7 @@ package runtime
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,11 +51,11 @@ func Installed(h Host, dir string) (string, Asset, bool) {
 }
 
 func installAsset(ctx context.Context, a Asset, dir string, f *provision.Fetcher) (string, error) {
-	root := treeFor(dir, a)
-	exe := filepath.Join(root, a.Exe)
-	if isVerified(root, a) && exists(exe) {
+	if exe, ok := installedAt(dir, a); ok {
 		return exe, nil // already here: the second run costs nothing
 	}
+	root := treeFor(dir, a)
+	exe := filepath.Join(root, a.Exe)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -68,6 +69,20 @@ func installAsset(ctx context.Context, a Asset, dir string, f *provision.Fetcher
 		_ = os.RemoveAll(staging)
 		return "", err
 	}
+	if a.Libs != nil {
+		// The second archive is verified like the first and its files placed beside the server.
+		libArchive := filepath.Join(dir, a.Libs.Name)
+		if err := f.Fetch(ctx, provision.Request{URL: a.Libs.URL, Dest: libArchive, Bytes: a.Libs.Bytes, SHA256: a.Libs.SHA256}); err != nil {
+			_ = os.RemoveAll(staging)
+			return "", err
+		}
+		err := placeBeside(libArchive, staging, filepath.Dir(filepath.Join(staging, a.Exe)))
+		_ = os.Remove(libArchive)
+		if err != nil {
+			_ = os.RemoveAll(staging)
+			return "", err
+		}
+	}
 	_ = os.RemoveAll(root)
 	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
 		return "", err
@@ -75,7 +90,7 @@ func installAsset(ctx context.Context, a Asset, dir string, f *provision.Fetcher
 	if err := os.Rename(staging, root); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(root, verifiedMarker), []byte(a.SHA256), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, verifiedMarker), []byte(a.pin()), 0o644); err != nil {
 		return "", err
 	}
 	// The archive has served its purpose; tens of megabytes on a Pi's card are worth giving back.
@@ -90,7 +105,49 @@ func treeFor(dir string, a Asset) string { return filepath.Join(dir, a.Tag, a.Pl
 
 func isVerified(root string, a Asset) bool {
 	b, err := os.ReadFile(filepath.Join(root, verifiedMarker))
-	return err == nil && strings.TrimSpace(string(b)) == a.SHA256
+	return err == nil && strings.TrimSpace(string(b)) == a.pin()
+}
+
+// pin is what the verified marker records: the build's digest, and its runtime's when it has one, so
+// a change to either pin is never taken as already installed.
+func (a Asset) pin() string {
+	if a.Libs != nil {
+		return a.SHA256 + "+" + a.Libs.SHA256
+	}
+	return a.SHA256
+}
+
+// installedAt is the server binary of build a under dir, when it is in place and verified.
+func installedAt(dir string, a Asset) (string, bool) {
+	root := treeFor(dir, a)
+	exe := filepath.Join(root, a.Exe)
+	return exe, isVerified(root, a) && exists(exe)
+}
+
+// InstallBuild fetches, verifies and unpacks one chosen build (see Plan), or finds it in place.
+func InstallBuild(ctx context.Context, a Asset, dir string, f *provision.Fetcher) (string, error) {
+	return installAsset(ctx, a, dir, f)
+}
+
+// InstalledBuild is the server binary of build a when it is already in place, fetching nothing.
+func InstalledBuild(a Asset, dir string) (string, bool) { return installedAt(dir, a) }
+
+// placeBeside unpacks archive under root and moves every file it holds into dest, flat.
+func placeBeside(archive, root, dest string) error {
+	tmp := filepath.Join(root, ".libs-staging")
+	if err := Unpack(archive, tmp); err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	return filepath.WalkDir(tmp, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		return os.Rename(p, filepath.Join(dest, d.Name()))
+	})
 }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }

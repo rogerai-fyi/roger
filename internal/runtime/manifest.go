@@ -52,10 +52,41 @@ type Asset struct {
 	// MinGlibc is the oldest glibc that can load this build, measured from the objects
 	// themselves. Zero means the question does not apply to that platform.
 	MinGlibcMajor, MinGlibcMinor int
-	// Offloads is whether this build puts layers on a GPU. The pinned Linux and Windows builds are
-	// upstream's CPU builds, so a model served by them lives in system memory whatever cards the
-	// machine has - which is the pool its fit and its speed have to be judged in.
+	// Offloads is whether this build puts layers on a GPU. A model served by a CPU build lives in
+	// system memory whatever cards the machine has - which is the pool its fit and speed are judged in.
 	Offloads bool
+	// Build is what the build runs on: cpu, vulkan, cuda or metal (features/serving/local_models.feature §10).
+	Build Build
+	// Libs is a second pinned archive the build needs beside it - a CUDA build's CUDA runtime. Its
+	// files are placed next to the server, where the build's own libraries look for them ($ORIGIN).
+	Libs *Part
+	// CUDAMajor/Minor is the CUDA version a driver must support for a CUDA build to load.
+	CUDAMajor, CUDAMinor int
+}
+
+// Build is what a runtime build runs on.
+type Build string
+
+const (
+	BuildCPU    Build = "cpu"
+	BuildVulkan Build = "vulkan"
+	BuildCUDA   Build = "cuda"
+	BuildMetal  Build = "metal"
+)
+
+// Part is one more pinned archive, resolved in advance like the build itself.
+type Part struct {
+	Name, URL string
+	Bytes     int64
+	SHA256    string
+}
+
+// TotalBytes is everything fetching this build moves, which the owner is told first.
+func (a Asset) TotalBytes() int64 {
+	if a.Libs != nil {
+		return a.Bytes + a.Libs.Bytes
+	}
+	return a.Bytes
 }
 
 // runtimeTag is the blessed upstream build this manifest describes. One place, so a refresh is
@@ -64,17 +95,17 @@ const runtimeTag = "b11146"
 
 const assetBase = "https://github.com/ggml-org/llama.cpp/releases/download/" + runtimeTag + "/"
 
-// manifest is the resolved list. Digests and sizes came from the release API; the glibc floors
-// were read with readelf out of the downloaded archives on 2026-10-01.
+// manifest is the resolved list. Digests and sizes came from the release API and were checked
+// against the downloaded archives; the glibc floors were read with objdump out of every object in
+// them (CPU builds 2026-10-01, GPU builds 2026-10-02).
 //
-// CUDA is deliberately absent for now. The published arm64 CUDA build does not target the compute
-// capability a Jetson Orin actually has, so it would fall back to compiling from intermediate
-// code at every start, and the x64 CUDA build is a 149 MB download plus a separate runtime
-// library. Both are real work with real test cases, and a CPU build that definitely works is a
-// better first answer than a GPU build that might.
+// GPU builds (founder ruling 2026-10-02, "Vulkan + CUDA"): Vulkan for Linux x64/arm64 and Windows x64
+// - one build for NVIDIA, AMD and Intel; CUDA 12.8 for Linux x64 and 12.4 for Windows x64, each with
+// its CUDA runtime. Upstream's arm64 CUDA build targets arm servers rather than a Jetson's compute
+// capability and needs a 13.4 driver, so it is not pinned; ROCm and SYCL are not pinned.
 var manifest = []Asset{
 	{
-		Platform: "ubuntu-x64", Tag: runtimeTag,
+		Platform: "ubuntu-x64", Tag: runtimeTag, Build: BuildCPU,
 		Name:          "llama-" + runtimeTag + "-bin-ubuntu-x64.tar.gz",
 		URL:           assetBase + "llama-" + runtimeTag + "-bin-ubuntu-x64.tar.gz",
 		Bytes:         16998357,
@@ -83,7 +114,7 @@ var manifest = []Asset{
 		MinGlibcMajor: 2, MinGlibcMinor: 34,
 	},
 	{
-		Platform: "ubuntu-arm64", Tag: runtimeTag,
+		Platform: "ubuntu-arm64", Tag: runtimeTag, Build: BuildCPU,
 		Name:   "llama-" + runtimeTag + "-bin-ubuntu-arm64.tar.gz",
 		URL:    assetBase + "llama-" + runtimeTag + "-bin-ubuntu-arm64.tar.gz",
 		Bytes:  13598346,
@@ -94,7 +125,7 @@ var manifest = []Asset{
 		MinGlibcMajor: 2, MinGlibcMinor: 38,
 	},
 	{
-		Platform: "macos-arm64", Tag: runtimeTag, Offloads: true,
+		Platform: "macos-arm64", Tag: runtimeTag, Offloads: true, Build: BuildMetal,
 		Name:   "llama-" + runtimeTag + "-bin-macos-arm64.tar.gz",
 		URL:    assetBase + "llama-" + runtimeTag + "-bin-macos-arm64.tar.gz",
 		Bytes:  11189714,
@@ -102,7 +133,7 @@ var manifest = []Asset{
 		Exe:    "llama-" + runtimeTag + "/llama-server",
 	},
 	{
-		Platform: "macos-x64", Tag: runtimeTag,
+		Platform: "macos-x64", Tag: runtimeTag, Build: BuildCPU,
 		Name:   "llama-" + runtimeTag + "-bin-macos-x64.tar.gz",
 		URL:    assetBase + "llama-" + runtimeTag + "-bin-macos-x64.tar.gz",
 		Bytes:  11237237,
@@ -110,7 +141,7 @@ var manifest = []Asset{
 		Exe:    "llama-" + runtimeTag + "/llama-server",
 	},
 	{
-		Platform: "win-cpu-x64", Tag: runtimeTag,
+		Platform: "win-cpu-x64", Tag: runtimeTag, Build: BuildCPU,
 		Name:   "llama-" + runtimeTag + "-bin-win-cpu-x64.zip",
 		URL:    assetBase + "llama-" + runtimeTag + "-bin-win-cpu-x64.zip",
 		Bytes:  18560055,
@@ -118,12 +149,65 @@ var manifest = []Asset{
 		Exe:    "llama-server.exe",
 	},
 	{
-		Platform: "win-cpu-arm64", Tag: runtimeTag,
+		Platform: "win-cpu-arm64", Tag: runtimeTag, Build: BuildCPU,
 		Name:   "llama-" + runtimeTag + "-bin-win-cpu-arm64.zip",
 		URL:    assetBase + "llama-" + runtimeTag + "-bin-win-cpu-arm64.zip",
 		Bytes:  12034624,
 		SHA256: "1727d241f3bf6d27360e984e851cf013928fd655bf89f8628e70da027f377b7d",
 		Exe:    "llama-server.exe",
+	},
+	{
+		Platform: "ubuntu-vulkan-x64", Tag: runtimeTag, Build: BuildVulkan, Offloads: true,
+		Name:          "llama-" + runtimeTag + "-bin-ubuntu-vulkan-x64.tar.gz",
+		URL:           assetBase + "llama-" + runtimeTag + "-bin-ubuntu-vulkan-x64.tar.gz",
+		Bytes:         30598492,
+		SHA256:        "d3ce40fce7403cc93bcf5718fc46c6efb61ed9709f8e5d9f10c86bf0e30e8fb3",
+		Exe:           "llama-" + runtimeTag + "/llama-server",
+		MinGlibcMajor: 2, MinGlibcMinor: 34,
+	},
+	{
+		Platform: "ubuntu-vulkan-arm64", Tag: runtimeTag, Build: BuildVulkan, Offloads: true,
+		Name:          "llama-" + runtimeTag + "-bin-ubuntu-vulkan-arm64.tar.gz",
+		URL:           assetBase + "llama-" + runtimeTag + "-bin-ubuntu-vulkan-arm64.tar.gz",
+		Bytes:         24410274,
+		SHA256:        "5dcebe3ecbcb43a1ed85e3284453f9edf54dcca833e1cb1f54b4022b753c1da5",
+		Exe:           "llama-" + runtimeTag + "/llama-server",
+		MinGlibcMajor: 2, MinGlibcMinor: 38,
+	},
+	{
+		Platform: "ubuntu-cuda-12.8-x64", Tag: runtimeTag, Build: BuildCUDA, Offloads: true,
+		Name:   "llama-" + runtimeTag + "-bin-ubuntu-cuda-12.8-x64.tar.gz",
+		URL:    assetBase + "llama-" + runtimeTag + "-bin-ubuntu-cuda-12.8-x64.tar.gz",
+		Bytes:  168920581,
+		SHA256: "c2ab9e19838513ff69d1af8d999ad717dd3c7ee4714ac04c7ed5ab9077c50e4e",
+		Exe:    "llama-" + runtimeTag + "/llama-server",
+		Libs: &Part{Name: "cudart-llama-" + runtimeTag + "-bin-ubuntu-cuda-12.8-x64.tar.gz",
+			URL:   assetBase + "cudart-llama-" + runtimeTag + "-bin-ubuntu-cuda-12.8-x64.tar.gz",
+			Bytes: 594373356, SHA256: "1466daea60aad1144819e151b2bae19d54556cf1da6c129c4f55a5ded2637c25"},
+		CUDAMajor: 12, CUDAMinor: 8,
+		// MEASURED 2.38 for the build (the CUDA runtime alone needs 2.27): Ubuntu 24.04 or newer.
+		MinGlibcMajor: 2, MinGlibcMinor: 38,
+	},
+	{
+		Platform: "win-vulkan-x64", Tag: runtimeTag, Build: BuildVulkan, Offloads: true,
+		Name:   "llama-" + runtimeTag + "-bin-win-vulkan-x64.zip",
+		URL:    assetBase + "llama-" + runtimeTag + "-bin-win-vulkan-x64.zip",
+		Bytes:  32127004,
+		SHA256: "55a378aa095b466979d85075234f66d7655c7a7483222af0c006c0e55b4d7bd6",
+		Exe:    "llama-server.exe",
+	},
+	{
+		Platform: "win-cuda-12.4-x64", Tag: runtimeTag, Build: BuildCUDA, Offloads: true,
+		Name:   "llama-" + runtimeTag + "-bin-win-cuda-12.4-x64.zip",
+		URL:    assetBase + "llama-" + runtimeTag + "-bin-win-cuda-12.4-x64.zip",
+		Bytes:  253869799,
+		SHA256: "3c806a6ceccc3dae1c743ceb1a1fb2cce5b76f40bfbd4c6b7b8afb6ef45a5807",
+		Exe:    "llama-server.exe",
+		// Upstream names the Windows CUDA runtime without the tag; it is still this release's asset.
+		Libs: &Part{Name: "cudart-llama-bin-win-cuda-12.4-x64.zip",
+			URL:   assetBase + "cudart-llama-bin-win-cuda-12.4-x64.zip",
+			Bytes: 391443627, SHA256: "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"},
+		CUDAMajor: 12, CUDAMinor: 4,
 	},
 }
 
@@ -136,6 +220,10 @@ type Host struct {
 	// be guessing in the direction that helps nobody.
 	GlibcMajor, GlibcMinor int
 	GlibcKnown             bool
+	// The GPU facts a build choice needs: whether there is a GPU at all, whether it is NVIDIA, and
+	// the CUDA version its driver supports (0.0 when it could not be read - never guessed).
+	GPU, NVIDIA          bool
+	CUDAMajor, CUDAMinor int
 }
 
 // ThisHost describes the machine roger is running on.
@@ -165,6 +253,22 @@ func Pick(h Host) (Asset, error) {
 		return a, nil
 	}
 	return Asset{}, fmt.Errorf("%w (%s/%s)", ErrNoRuntime, h.OS, h.Arch)
+}
+
+// gpuPlatforms names, per Go platform, upstream's GPU builds pinned for it.
+var gpuPlatforms = map[string]map[Build]string{
+	"linux/amd64":   {BuildVulkan: "ubuntu-vulkan-x64", BuildCUDA: "ubuntu-cuda-12.8-x64"},
+	"linux/arm64":   {BuildVulkan: "ubuntu-vulkan-arm64"},
+	"windows/amd64": {BuildVulkan: "win-vulkan-x64", BuildCUDA: "win-cuda-12.4-x64"},
+}
+
+func assetFor(platform string) (Asset, bool) {
+	for _, a := range manifest {
+		if a.Platform == platform {
+			return a, true
+		}
+	}
+	return Asset{}, false
 }
 
 // loadableOn checks the one host fact that has already silently broken a platform.

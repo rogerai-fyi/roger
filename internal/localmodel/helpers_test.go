@@ -3,6 +3,7 @@ package localmodel
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,4 +78,11 @@ func TestStopsSurviveOnlyWhatIsReadable(t *testing.T) {
 	require.Empty(t, h.Stops(), "a damaged record says nothing rather than something wrong")
 	_, ok := h.LastStop()
 	require.False(t, ok)
+}
+
+func TestAServePinnedToOneCardSaysSoToTheRuntime(t *testing.T) {
+	args := strings.Join(Args(ServeOpts{Model: Model{Path: "/m", Band: "b"}, Ctx: 4096, Device: "CUDA2"}, 9, "/k"), " ")
+	require.Contains(t, args, "--device CUDA2")
+	args = strings.Join(Args(ServeOpts{Model: Model{Path: "/m", Band: "b"}, Ctx: 4096}, 9, "/k"), " ")
+	require.NotContains(t, args, "--device", "no pin: the runtime's own placement")
 }

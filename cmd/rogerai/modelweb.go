@@ -43,24 +43,24 @@ func modelBudgetNow() localmodel.Budget {
 // modelBudget is the pool the runtime roger would start here uses, which is the pool a model has
 // to fit in and be read from (local_models.feature §4).
 func modelBudget() localmodel.Budget {
-	a, err := runtime.Pick(modelHost())
-	return localmodel.BudgetFor(modelHW(), err == nil && a.Offloads)
+	a, _, err := modelPredict()
+	return modelBudgetFor(err == nil && a.Offloads)
 }
 
 // modelHost is the seam for "which runtime would this machine take".
-var modelHost = runtime.ThisHost
+var modelHost = modelThisHost
 
-// modelRuntimeWord says whether serving can happen here and what it costs first.
+// modelRuntimeWord says whether serving can happen here, with which build, and what it costs first.
 func modelRuntimeWord() (string, bool) {
-	h := modelHost()
-	if _, a, ok := runtime.Installed(h, modelHome().Runtime()); ok {
-		return "llama.cpp " + a.Tag + " installed", true
-	}
-	a, err := runtime.Pick(h)
+	a, _, err := modelPredict()
 	if err != nil {
 		return "local serving is not available here: " + strings.TrimPrefix(err.Error(), runtime.ErrNoRuntime.Error()+": "), false
 	}
-	return fmt.Sprintf("llama.cpp %s will be fetched first (%s), verified before it runs", a.Tag, provision.BytesWord(a.Bytes)), true
+	if _, ok := runtime.InstalledBuild(a, modelHome().Runtime()); ok {
+		return fmt.Sprintf("llama.cpp %s, the %s build, installed", a.Tag, a.Build), true
+	}
+	return fmt.Sprintf("llama.cpp %s, the %s build, will be fetched first (%s), verified before it runs",
+		a.Tag, a.Build, provision.BytesWord(a.TotalBytes())), true
 }
 
 // modelFixFor is the action that fixes a failed fetch, by which failure it was.

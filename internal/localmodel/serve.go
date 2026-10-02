@@ -122,13 +122,14 @@ type ServeOpts struct {
 	Budget      Budget
 	ReadyWithin time.Duration
 	Env         map[string]string // the runtime's environment additions; tests use it
+	Device      string            // one GPU to serve on ("CUDA2"), when the model fits on one; "" lets the runtime place it
 }
 
 // Args is the runtime's command line. Every flag a small machine needs is set explicitly rather
 // than left to a default sized for a server, and the key goes in a FILE: a key on the command line
 // is readable by every user on the machine through the process list.
 func Args(o ServeOpts, port int, keyFile string) []string {
-	return []string{
+	args := []string{
 		"-m", o.Model.Path,
 		"--alias", o.Model.Band,
 		"-c", strconv.Itoa(o.Ctx),
@@ -140,6 +141,10 @@ func Args(o ServeOpts, port int, keyFile string) []string {
 		"--no-webui",
 		"--metrics", // its own token counters, behind the same key: how an idle timeout knows
 	}
+	if o.Device != "" {
+		args = append(args, "--device", o.Device)
+	}
+	return args
 }
 
 // cacheRAMMiB sizes the prompt cache to the machine: the runtime's default is 8 GiB, which is the

@@ -35,6 +35,10 @@ import (
 // TestMain lets this binary act as the fake runtime when asked.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("FAKE_RUNTIME"); mode != "" {
+		if strings.HasPrefix(mode, "devices-") {
+			fakeDevices(mode)
+			return
+		}
 		if strings.HasPrefix(mode, "fit-") {
 			fakeFitParams(mode)
 			return
@@ -253,4 +257,19 @@ func TestAKeyedRuntimeIsProvenWithItsKey(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the keyed runtime answered a caller with no key")
+}
+
+// fakeDevices answers --list-devices the way b11146 does.
+func fakeDevices(mode string) {
+	switch mode {
+	case "devices-two":
+		fmt.Println("Available devices:")
+		fmt.Println("  Vulkan0: NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition (97887 MiB, 72071 MiB free)")
+		fmt.Println("  Vulkan1: NVIDIA RTX PRO 4500 Blackwell (32623 MiB, 11718 MiB free)")
+	case "devices-none":
+		fmt.Println("Available devices:")
+	default:
+		fmt.Fprintln(os.Stderr, "error while loading shared libraries: libvulkan.so.1: cannot open shared object file")
+		os.Exit(127)
+	}
 }
