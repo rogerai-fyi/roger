@@ -670,3 +670,44 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     When the owner runs `roger model runtime` with auto, cpu, gpu, vulkan or cuda
     Then the choice is kept, and the build it means on THIS machine is said with its size
     And with no argument it says the current choice and the build it resolves to
+
+  # =========================================================================
+  # 11. THE OWNER'S SERVING SETTINGS LIVE IN SHARE, AND WHAT SERVES IS MEASURED
+  #
+  # STATUS: APPROVED by the founder 2026-10-02.
+  #
+  # Two gaps found running §5, §6 and §10 live. (1) The settings that change what roger does with its
+  # own models - which build serves, the idle timeout, the disk budget - are set only with `roger model
+  # ...` in a terminal, while the models themselves are rows of SHARE in the TUI and the console (§9).
+  # (2) The speed beside a model is an estimate from memory bandwidth; on this machine, whose cards were
+  # busy with other work, the estimate was several times the real speed. Once a model has answered,
+  # the runtime has counted its own tokens and seconds, which is a measurement, not an estimate.
+  # =========================================================================
+
+  @tui @web
+  Scenario: the serving settings are one visible line of SHARE, and changeable there
+    Then SHARE shows, under roger's own rows, the build in use or chosen, the idle timeout and the
+      disk budget, each in words ("build: auto, CUDA here · idle: off · disk: no budget")
+    And each can be changed from that line in the TUI and in the console, the same choices the CLI has
+    And a change says what it means on THIS machine, as `roger model runtime`, `idle` and `budget` do
+    And it applies from the next serve or fetch, and says so
+
+  @tui @web @fetch
+  Scenario: lowering the disk budget below what is on disk removes nothing by itself
+    Given models on disk that together exceed a budget the owner sets
+    Then setting it removes nothing now
+    And it says which models the next fetch would remove, least recently served first
+
+  @tui @web @serve
+  Scenario: a model that has answered shows the speed it was measured at
+    Given roger is serving a model that has written tokens
+    Then its row shows the speed the runtime measured, from its own counters, marked as measured
+    And the estimate is no longer shown for it, because a measurement replaces an estimate
+    And a model that has not answered yet shows the estimate, marked as an estimate
+
+  @edge @serve
+  Scenario: a member's card says which build its model runs on and how fast it is answering
+    Given a member serving a model with roger
+    Then its card names the build (CPU, Vulkan, CUDA or Metal) beside the model
+    And the measured speed once it has answered
+    And the build is the member's own word, cleaned like the rest of its report
