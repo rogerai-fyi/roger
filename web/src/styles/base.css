@@ -310,9 +310,10 @@ html.promo-early .promo[hidden] { display: block; }
   text-transform: uppercase; letter-spacing: var(--tracking-label);
   color: var(--paper); background: var(--live);
   padding: 5px 12px; border-radius: var(--r-pill); text-decoration: none;
-  transition: filter var(--d-2) var(--ease-standard), transform var(--d-2) var(--ease-standard);
+  transition: background var(--d-2) var(--ease-standard), transform var(--d-2) var(--ease-standard);
 }
-.promo__cta:hover { filter: brightness(1.06); transform: translateY(-1px); }
+/* the page buttons' contract: hover deepens to the text red (paper on it 5.5:1), a press sinks */
+.promo__cta:hover { background: var(--live-text); }
 .promo__cta:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .promo__close {
   flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
@@ -325,7 +326,6 @@ html.promo-early .promo[hidden] { display: block; }
 .promo__close:focus-visible { color: var(--ink-900); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 @media (prefers-reduced-motion: reduce) {
   .promo__dot { animation: none; box-shadow: 0 0 0 3px var(--live-wash); }
-  .promo__cta:hover { transform: none; }
 }
 /* narrow: trim to the essentials, keep the CTA + close reachable */
 @media (max-width: 560px) {
@@ -694,7 +694,7 @@ html.promo-early .promo[hidden] { display: block; }
   font: inherit; text-align: left;
   transition: border-color var(--d-2), background var(--d-2);
 }
-.upgrade__cmd:hover { border-color: var(--volt); }
+.upgrade__cmd:hover { border-color: var(--live); }
 .upgrade__cmd:focus-visible { border-color: var(--volt); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .upgrade__cmd code { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-900); }
 .upgrade__prompt { color: var(--volt); font-family: var(--font-mono); font-weight: var(--weight-semi); }
@@ -1082,8 +1082,14 @@ li > a:not([class]):focus-visible,
   font: inherit; cursor: pointer; padding: 10px 22px;
   background: var(--ink-900); color: var(--paper); border: 1px solid var(--ink-900);
   border-radius: var(--r-sm);
+  transition: background var(--d-2) var(--ease-standard), border-color var(--d-2) var(--ease-standard), transform var(--d-2) var(--ease-standard);
 }
-.lt-modal__send:hover, .lt-modal__send:focus-visible { background: var(--live); border-color: var(--live); }
+.lt-modal__send:hover, .lt-modal__send:focus-visible { background: var(--live-text); border-color: var(--live-text); }
+/* the chrome's buttons press like the page's (components.css: a 1px sink while held) */
+:is(.promo__cta, .upgrade__cmd, .lt-modal__send):active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  :is(.promo__cta, .upgrade__cmd, .lt-modal__send):active { transform: none; }
+}
 .lt-open { overflow: hidden; }
 @media (max-width: 700px) { .lt-modal__form { grid-template-columns: 1fr; } }
 

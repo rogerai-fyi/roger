@@ -109,3 +109,22 @@ test("install pill: the pipe and what it feeds stay together on a phone", () => 
   }
   assert.ok(n >= 13, `every piped install line (${n})`);
 });
+
+/* ---- one press, one hover for the chrome's buttons ------------------------------- */
+
+// The page's buttons answer the same way (components.css: hover fills --live-text, a press
+// sinks 1px). The chrome's three solid/copy buttons had drifted: the promo strip's CTA rose
+// 1px and brightened on hover (lighter red under a paper label), the Let's talk Send filled
+// the beacon red with no press, and the footer's upgrade command ringed in ink where every
+// other copy pill rings in red.
+test("chrome buttons: hover and press match the page's buttons", () => {
+  const b = css("base.css");
+  const rule = (sel) => (b.match(new RegExp(sel.replace(/[.()]/g, "\\$&") + "\\s*\\{([^}]*)\\}")) || [, ""])[1];
+  assert.match(rule(".promo__cta:hover"), /background:\s*var\(--live-text\)/, "the CTA deepens to the text red on hover");
+  assert.doesNotMatch(rule(".promo__cta:hover"), /translateY\(-|brightness/, "it neither rises nor brightens");
+  assert.match(b, /\.lt-modal__send:hover, \.lt-modal__send:focus-visible \{[^}]*background: var\(--live-text\);[^}]*border-color: var\(--live-text\)/);
+  assert.match(rule(".upgrade__cmd:hover"), /border-color:\s*var\(--live\)/, "a copy pill rings red on hover, as the install pill does");
+  assert.match(b, /:is\(\.promo__cta, \.upgrade__cmd, \.lt-modal__send\):active \{ transform: translateY\(1px\); \}/, "a press sinks 1px");
+  assert.match(b, /@media \(prefers-reduced-motion: reduce\) \{[^@]*:is\(\.promo__cta, \.upgrade__cmd, \.lt-modal__send\):active \{ transform: none; \}/);
+  assert.match(rule(".lt-modal__send"), /transition:[^;]*var\(--d-2\)/, "Send eases like the other buttons");
+});
