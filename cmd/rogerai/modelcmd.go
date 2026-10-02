@@ -293,7 +293,7 @@ func modelRank(ctx context.Context, repo string, ctxLen int) ([]localmodel.Choic
 	if err != nil {
 		return nil, localmodel.Budget{}, modelSourceErr(err)
 	}
-	b := localmodel.BudgetOf(modelHW())
+	b := modelBudget()
 	var shape catalog.Shape
 	for _, f := range files {
 		if localmodel.Unservable(f.Path) != "" {
@@ -351,6 +351,9 @@ func modelFiles(ctx context.Context, repo string, ctxLen int) error {
 func modelBudgetLine(b localmodel.Budget) {
 	if b.Known() {
 		fmt.Fprintf(modelOut, "this machine: %s of %s\n", provision.BytesWord(b.Bytes), b.Pool)
+		if b.Note != "" {
+			fmt.Fprintf(modelOut, "  (%s)\n", b.Note)
+		}
 		if b.BW.BytesPerSec > 0 {
 			fmt.Fprintf(modelOut, "memory speed: %s\n\n", b.BW.From)
 		} else {
@@ -461,7 +464,7 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		}
 		return err
 	}
-	b := localmodel.BudgetOf(modelHW())
+	b := modelBudget()
 	ctxLen, says, err := modelPlan(m, b, a.ctx)
 	if err != nil {
 		return err

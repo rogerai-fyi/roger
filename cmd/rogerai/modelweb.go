@@ -35,9 +35,16 @@ func modelBudgetNow() localmodel.Budget {
 	modelBudgetCache.Lock()
 	defer modelBudgetCache.Unlock()
 	if modelBudgetCache.at.IsZero() || time.Since(modelBudgetCache.at) > modelBudgetEvery {
-		modelBudgetCache.b, modelBudgetCache.at = localmodel.BudgetOf(modelHW()), time.Now()
+		modelBudgetCache.b, modelBudgetCache.at = modelBudget(), time.Now()
 	}
 	return modelBudgetCache.b
+}
+
+// modelBudget is the pool the runtime roger would start here uses, which is the pool a model has
+// to fit in and be read from (local_models.feature §4).
+func modelBudget() localmodel.Budget {
+	a, err := runtime.Pick(modelHost())
+	return localmodel.BudgetFor(modelHW(), err == nil && a.Offloads)
 }
 
 // modelHost is the seam for "which runtime would this machine take".

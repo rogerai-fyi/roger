@@ -215,6 +215,20 @@ func TestModelFilesJudgesEveryQuantAgainstThisMachine(t *testing.T) {
 	require.Contains(t, out, "memory speed: measured")
 	require.Regexp(t, `at 8K - needs [^\n]*  ~[0-9.]+ tok/s usable`, out)
 
+	// The runtime roger would start on Linux is the CPU build, so a machine with a card is judged
+	// in the memory that build will use, and says why (local_models.feature §4).
+	modelHW = func() detect.LocalHW {
+		return detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 8192, RAMKnown: true, RAMTotalMiB: 16384,
+			GPUs: []detect.LocalGPU{{Model: "NVIDIA GeForce RTX 4070", VRAMMiB: 8192}}}
+	}
+	oldHost := modelHost
+	modelHost = func() runtime.Host { return runtime.Host{OS: "linux", Arch: "amd64", GlibcMajor: 2, GlibcMinor: 42} }
+	out, err = r.run(t, "files", "acme/Tiny-GGUF")
+	modelHost = oldHost
+	require.NoError(t, err)
+	require.Contains(t, out, "this machine: 16.0 GiB of system memory")
+	require.Contains(t, out, "the runtime roger starts here runs on the CPU")
+
 	// A machine that cannot hold even the smallest at any context is told so, and nothing is suggested.
 	r = newModelRig(t, 512)
 	out, err = r.run(t, "files", "acme/Tiny-GGUF", "--ctx", "40960")

@@ -15,8 +15,8 @@ import (
 
 const gbps = 1e9
 
-func measured(bps float64) func() Bandwidth {
-	return func() Bandwidth { return Bandwidth{BytesPerSec: bps, Measured: true, From: "measured"} }
+func measured(bps float64) func(int) Bandwidth {
+	return func(int) Bandwidth { return Bandwidth{BytesPerSec: bps, Measured: true, From: "measured"} }
 }
 
 func TestTheMemorySpeedComesFromTheSpecSheetOrAMeasurementAndSaysWhich(t *testing.T) {
@@ -67,11 +67,23 @@ func TestTheMemorySpeedComesFromTheSpecSheetOrAMeasurementAndSaysWhich(t *testin
 }
 
 func TestTheMeasurementIsReal(t *testing.T) {
-	bw := MeasureRAM()
+	bw := MeasureRAM(4096)
 	require.True(t, bw.Measured)
 	require.Greater(t, bw.BytesPerSec, 1e8, "any machine that runs the tests reads faster than 100 MB/s")
 	require.Contains(t, bw.From, "measured")
-	require.Equal(t, bw, MeasureRAM(), "measured once per process: the monitor must not become the load")
+	require.Equal(t, bw, MeasureRAM(4096), "measured once per process: the monitor must not become the load")
+}
+
+// A buffer that fits in the processor's cache measures the cache. A server part carries hundreds of
+// megabytes of it (the first live run on one read "1681 GB/s"), so the buffer is sized against the
+// machine: an eighth of its memory, never under 64 MiB, never over 1 GiB.
+func TestTheMeasurementIsLargerThanAnyCache(t *testing.T) {
+	const mib = 1 << 20
+	for _, c := range []struct{ ram, want int }{
+		{0, 64 * mib}, {512, 64 * mib}, {1024, 128 * mib}, {4096, 512 * mib}, {8192, 1024 * mib}, {131072, 1024 * mib},
+	} {
+		require.Equal(t, c.want, measureSize(c.ram), "%d MiB of memory", c.ram)
+	}
 }
 
 func TestFittingAndBeingUsableAreTwoDifferentClaims(t *testing.T) {
@@ -111,4 +123,28 @@ func TestFittingAndBeingUsableAreTwoDifferentClaims(t *testing.T) {
 
 	// A model that will not fit has no speed here to speak of.
 	require.Empty(t, Judge(qwen(16*gib), pi, 2048).PaceLine())
+}
+
+// THE POOL IS THE ONE THE RUNTIME WILL USE. A machine with four GPUs and a CPU-only runtime serves
+// from system memory at system memory's speed; judging it against the cards would promise a fit
+// and a speed the runtime it actually starts will not deliver.
+func TestTheBudgetIsThePoolTheRuntimeWillUse(t *testing.T) {
+	hw := detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 24564, RAMKnown: true, RAMTotalMiB: 65536,
+		GPUs: []detect.LocalGPU{{Model: "NVIDIA GeForce RTX 4090", VRAMMiB: 24564}}}
+	b := budgetFor(hw, false, measured(30*gbps))
+	require.Equal(t, "system memory", b.Pool)
+	require.Equal(t, 64*gib, b.Bytes)
+	require.True(t, b.BW.Measured, "and read at system memory's speed, not the card's")
+	require.InDelta(t, 30*gbps, b.BW.BytesPerSec, 1)
+
+	b = budgetFor(hw, true, measured(30*gbps))
+	require.Equal(t, "video memory", b.Pool, "a runtime that offloads lives on the card")
+	require.InDelta(t, 1008*gbps, b.BW.BytesPerSec, 1)
+
+	mac := detect.LocalHW{UnifiedMemory: true, RAMKnown: true, RAMTotalMiB: 16384}
+	require.Equal(t, "unified memory", budgetFor(mac, false, measured(1)).Pool, "one pool is one pool either way")
+
+	var blind detect.LocalHW
+	blind.Note("could not read /proc/meminfo")
+	require.Contains(t, budgetFor(blind, false, measured(1)).Why, "/proc/meminfo")
 }

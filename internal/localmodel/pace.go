@@ -77,10 +77,10 @@ func containsWord(s, word string) bool {
 
 func isWordByte(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' }
 
-// BandwidthOf is the speed of the pool BudgetOf chose, read the same way.
+// BandwidthOf is the speed of the pool BudgetFor chose for a runtime that offloads, read the same way.
 func BandwidthOf(hw detect.LocalHW) Bandwidth { return bandwidthOf(hw, MeasureRAM) }
 
-func bandwidthOf(hw detect.LocalHW, measure func() Bandwidth) Bandwidth {
+func bandwidthOf(hw detect.LocalHW, measure func(ramMiB int) Bandwidth) Bandwidth {
 	switch {
 	case hw.UnifiedMemory && hw.RAMKnown:
 		if len(hw.GPUs) > 0 {
@@ -88,7 +88,7 @@ func bandwidthOf(hw detect.LocalHW, measure func() Bandwidth) Bandwidth {
 				return Bandwidth{BytesPerSec: bw, From: fmt.Sprintf("spec sheet: %s %.0f GB/s", name, bw/1e9)}
 			}
 		}
-		m := measure()
+		m := measure(hw.RAMTotalMiB)
 		if m.BytesPerSec > 0 {
 			m.From += "; the GPU may read faster than the processor that measured it"
 		}
@@ -119,7 +119,7 @@ func bandwidthOf(hw detect.LocalHW, measure func() Bandwidth) Bandwidth {
 		}
 		return Bandwidth{BytesPerSec: 1 / perByte, From: "spec sheet: " + strings.Join(dedupe(names), ", ")}
 	case hw.RAMKnown && hw.RAMTotalMiB > 0:
-		return measure()
+		return measure(hw.RAMTotalMiB)
 	}
 	return Bandwidth{Why: "this machine's memory could not be read"}
 }
@@ -147,9 +147,16 @@ var ramOnce struct {
 
 // MeasureRAM reads a buffer larger than any cache on every core at once and times it. Once per
 // process: a monitor that benchmarks memory every refresh would become the load it reports.
-func MeasureRAM() Bandwidth {
-	ramOnce.Do(func() { ramOnce.bw = measureRAM(64<<20, 150*time.Millisecond) })
+func MeasureRAM(ramMiB int) Bandwidth {
+	ramOnce.Do(func() { ramOnce.bw = measureRAM(measureSize(ramMiB), 150*time.Millisecond) })
 	return ramOnce.bw
+}
+
+// measureSize is an eighth of the machine's memory, between 64 MiB and 1 GiB: past any processor's
+// cache (a server part carries hundreds of megabytes), and small enough that a board can spare it.
+func measureSize(ramMiB int) int {
+	const mib = 1 << 20
+	return min(max(ramMiB/8, 64), 1024) * mib
 }
 
 func measureRAM(size int, d time.Duration) Bandwidth {
@@ -199,11 +206,13 @@ type Pace struct {
 	BW        Bandwidth
 }
 
-// Achieved is the share of the stated bandwidth a runtime reaches writing tokens. A spec sheet is a
-// peak; a measurement is already what this machine does.
+// The share of the stated bandwidth the runtime reaches writing tokens. A spec sheet is a peak. A
+// measurement is what this machine's memory does, but the runtime runs one thread per physical core
+// and does work besides reading: calibrated against llama-bench on a 64-thread workstation (159.7
+// GB/s measured, Qwen3-0.6B Q4_K_M: 233 tok/s real against 241 from this sum).
 const (
 	achievedSpec     = 0.7
-	achievedMeasured = 0.9
+	achievedMeasured = 0.6
 )
 
 // paceOf is the sum: bandwidth over the weights, read once per token at the start of a conversation.

@@ -52,6 +52,10 @@ type Asset struct {
 	// MinGlibc is the oldest glibc that can load this build, measured from the objects
 	// themselves. Zero means the question does not apply to that platform.
 	MinGlibcMajor, MinGlibcMinor int
+	// Offloads is whether this build puts layers on a GPU. The pinned Linux and Windows builds are
+	// upstream's CPU builds, so a model served by them lives in system memory whatever cards the
+	// machine has - which is the pool its fit and its speed have to be judged in.
+	Offloads bool
 }
 
 // runtimeTag is the blessed upstream build this manifest describes. One place, so a refresh is
@@ -90,7 +94,7 @@ var manifest = []Asset{
 		MinGlibcMajor: 2, MinGlibcMinor: 38,
 	},
 	{
-		Platform: "macos-arm64", Tag: runtimeTag,
+		Platform: "macos-arm64", Tag: runtimeTag, Offloads: true,
 		Name:   "llama-" + runtimeTag + "-bin-macos-arm64.tar.gz",
 		URL:    assetBase + "llama-" + runtimeTag + "-bin-macos-arm64.tar.gz",
 		Bytes:  11189714,

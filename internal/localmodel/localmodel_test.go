@@ -202,20 +202,20 @@ func qwen(file int64) catalog.Shape {
 }
 
 func TestTheBudgetIsThePoolTheModelWillLiveIn(t *testing.T) {
-	b := BudgetOf(detect.LocalHW{UnifiedMemory: true, RAMKnown: true, RAMTotalMiB: 16384, VRAMKnown: true, VRAMTotalMiB: 999})
+	b := BudgetFor(detect.LocalHW{UnifiedMemory: true, RAMKnown: true, RAMTotalMiB: 16384, VRAMKnown: true, VRAMTotalMiB: 999}, true)
 	require.Equal(t, "unified memory", b.Pool)
 	require.Equal(t, 16*gib, b.Bytes, "one pool is measured as one pool")
 
-	b = BudgetOf(detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 8192, RAMKnown: true, RAMTotalMiB: 65536})
+	b = BudgetFor(detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 8192, RAMKnown: true, RAMTotalMiB: 65536}, true)
 	require.Equal(t, "video memory", b.Pool)
 	require.Equal(t, 8*gib, b.Bytes)
 
-	b = BudgetOf(detect.LocalHW{RAMKnown: true, RAMTotalMiB: 4096})
+	b = BudgetFor(detect.LocalHW{RAMKnown: true, RAMTotalMiB: 4096}, true)
 	require.Equal(t, "system memory", b.Pool)
 
 	var hw detect.LocalHW
 	hw.Note("could not read /proc/meminfo")
-	b = BudgetOf(hw)
+	b = BudgetFor(hw, true)
 	require.False(t, b.Known())
 	require.Contains(t, b.Why, "/proc/meminfo", "the missing reading is named")
 }
@@ -483,7 +483,7 @@ func TestQuantsThatReadAlikeAreNamedByTheirFile(t *testing.T) {
 }
 
 func TestSeveralCardsAreSaidToBeASum(t *testing.T) {
-	b := BudgetOf(detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 49152, GPUs: make([]detect.LocalGPU, 2)})
+	b := BudgetFor(detect.LocalHW{VRAMKnown: true, VRAMTotalMiB: 49152, GPUs: make([]detect.LocalGPU, 2)}, true)
 	require.Equal(t, "video memory across 2 GPUs", b.Pool)
 }
 

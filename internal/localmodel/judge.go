@@ -23,29 +23,38 @@ type Budget struct {
 	Pool  string    // "video memory", "unified memory", "system memory"
 	Why   string    // when Bytes is zero: the reading that failed
 	BW    Bandwidth // how fast this pool reads, for how fast a model answers
+	Note  string    // why this pool and not another the machine has, when that is not obvious
 }
 
 // Known reports whether there is a budget at all.
 func (b Budget) Known() bool { return b.Bytes > 0 }
 
-// BudgetOf picks the pool a model has to live in. A machine with one shared pool is measured as
-// one pool, and a GPU's own memory is preferred where it was read, because that is where the
-// runtime puts the layers; spilling to system memory runs, slowly, and is not what "fits" means.
-func BudgetOf(hw detect.LocalHW) Budget {
+// BudgetFor is the pool the runtime that would serve uses: a CPU-only runtime serves from system
+// memory however many cards the machine has, and saying otherwise promises a fit it will not keep.
+// One shared pool is measured as one pool, and with a runtime that offloads, a GPU's own memory is
+// preferred where it was read, because that is where the layers go; spilling to system memory
+// runs, slowly, and is not what "fits" means.
+func BudgetFor(hw detect.LocalHW, offloads bool) Budget { return budgetFor(hw, offloads, MeasureRAM) }
+
+func budgetFor(hw detect.LocalHW, offloads bool, measure func(ramMiB int) Bandwidth) Budget {
 	const mib = int64(1) << 20
 	switch {
 	case hw.UnifiedMemory && hw.RAMKnown:
-		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "unified memory", BW: BandwidthOf(hw)}
-	case hw.VRAMKnown && hw.VRAMTotalMiB > 0:
+		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "unified memory", BW: bandwidthOf(hw, measure)}
+	case offloads && hw.VRAMKnown && hw.VRAMTotalMiB > 0:
 		pool := "video memory"
 		if len(hw.GPUs) > 1 {
 			// The runtime splits layers across cards by default, so the sum is the honest budget -
 			// but it is a sum, and the owner should know that is what they are reading.
 			pool = fmt.Sprintf("video memory across %d GPUs", len(hw.GPUs))
 		}
-		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool, BW: BandwidthOf(hw)}
+		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool, BW: bandwidthOf(hw, measure)}
 	case hw.RAMKnown && hw.RAMTotalMiB > 0:
-		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory", BW: BandwidthOf(hw)}
+		b := Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory", BW: measure(hw.RAMTotalMiB)}
+		if !offloads && len(hw.GPUs) > 0 {
+			b.Note = "the runtime roger starts here runs on the CPU, so a model lives in system memory, not on the GPU"
+		}
+		return b
 	}
 	why := "this machine's memory could not be read"
 	if len(hw.Undetermined) > 0 {
