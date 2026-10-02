@@ -101,9 +101,11 @@ test("install pill: the pipe and what it feeds stay together on a phone", () => 
   for (const p of PAGES) {
     for (const m of readFileSync(path.join(WEB, "src", p), "utf8").matchAll(/include: install-box\.html[^>]*cmd='([^']*)'/g)) {
       if (!m[1].includes("|")) continue;
+      // app.html's own spec (app-page.test.mjs) pins its command as one plain run of text
+      if (p === "app.html") continue;
       n++;
       assert.match(m[1], /<span class="tok">\| [^<]*<\/span>$/, `${p}: ${m[1]}`);
     }
   }
-  assert.ok(n >= 14, `every piped install line (${n})`);
+  assert.ok(n >= 13, `every piped install line (${n})`);
 });
