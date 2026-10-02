@@ -132,8 +132,9 @@ type Hooks struct {
 	EdgeReads   func() map[string]int64 // node id -> when its Roger app last read the trouble feed
 	EdgeRoger   func(ruleID, nodeID string) error
 	EdgeStandBy func(ruleID, nodeID string, d time.Duration) error
-	// EdgeHealthLive says this binary can open the live health screen (`roger edge health --live`);
-	// [3] then offers Health (h), run as a child process like a guest operator.
+	// EdgeHealthLive says this binary can open the live Edge window (`roger edge fleet`); [3] then
+	// offers the live map (o) and a unit's health in it (h, --health), run as a child process like a
+	// guest operator.
 	EdgeHealthLive  bool
 	EdgeIssueGrant  func(caller, capability, callee, forDur string) (store.Grant, error)
 	EdgeRevokeGrant func(id string) error

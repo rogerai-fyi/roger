@@ -26,12 +26,19 @@ var edgeRunFleetScreen = func(ctx context.Context, src fleetview.FleetSource, ac
 	if edgeFleetSelect != "" {
 		f.SelectUnit(edgeFleetSelect)
 	}
+	if edgeFleetHealth {
+		f.OpenHealth()
+	}
 	return f.Run(ctx)
 }
 
 // edgeFleetSelect is the unit the screen opens on (--select), by id: what the [3] screen's o hands
 // over so the window opens where the owner already was.
 var edgeFleetSelect string
+
+// edgeFleetHealth opens the window with the selected unit's health open (--health): what the [3]
+// screen's h hands over, since HEALTH is folded into the window's FLEET tab.
+var edgeFleetHealth bool
 
 // edgeHealthActions are the rule edits the health screen offers, each the CLI's own path.
 func edgeHealthActions() fleetview.HealthActions {
@@ -50,7 +57,7 @@ func cmdEdgeFleet(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	edgeFleetSelect = ""
+	edgeFleetSelect, edgeFleetHealth = "", argv.has("health")
 	if want := strings.TrimSpace(argv.flags["select"]); want != "" {
 		_, n, ok, err := edgeLookup(want)
 		if err != nil {
