@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -107,4 +108,18 @@ func TestGrantLinesNameBothEndsNotTheirIDs(t *testing.T) {
 		requireNoID(t, g.Caller)
 		requireNoID(t, g.Callee)
 	}
+}
+
+// An unnamed member that is re-adopted from the screen is refused by its hardware word, never its id
+// (node_identity.feature: no id is ever a name).
+func TestTheScreensAdoptRefusalNamesAnUnnamedMember(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	edgeSeed(t, store.EdgeNode{ID: "n_7c7c7c7c", Name: "n_7c7c7c7c", Kind: "board", Presence: string(edge.PresenceVerified)})
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	err = h.adopt("n_7c7c7c7c", "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "is already a member of this Edge")
+	require.NotContains(t, err.Error(), "n_7c7c", "never the id")
+	require.Contains(t, err.Error(), "board")
 }

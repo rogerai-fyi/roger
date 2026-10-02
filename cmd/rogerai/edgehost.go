@@ -289,6 +289,13 @@ func (h *edgeHost) confirmActuate(id string) error {
 	return h.st.save()
 }
 
+// unitName is how the rack names a member: its name, or its hardware word when it has none - never
+// its id (node_identity.feature).
+func (h *edgeHost) unitName(n store.EdgeNode) string {
+	nodes, _ := h.st.list()
+	return edge.UnitName(n, nodes)
+}
+
 // adopt is the owner's explicit `a` on the Edge screen. It takes the SAME path as
 // `roger edge adopt`: the certificate is checked before anything is enrolled, and the
 // cache is written so the CLI prints what the screen just did.
@@ -300,11 +307,7 @@ func (h *edgeHost) adopt(id, name string) error {
 	// re-adopt with "no candidate was seen", which is true and useless: the reason it is not on offer
 	// is that it is already here, and that is what the owner needs told.
 	if n, known, err := h.st.fleet.Get(id); err == nil && known && edge.Presence(n.Presence) == edge.PresenceVerified {
-		name := n.Name
-		if name == "" {
-			name = edgeShortID(id)
-		}
-		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", name)
+		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", h.unitName(n))
 	}
 	c, ok, err := edgeResolve(h.st.candidates, id)
 	if err != nil {
@@ -321,7 +324,7 @@ func (h *edgeHost) adopt(id, name string) error {
 	// explicit readmit), and a serving node is re-dialed, re-verified and re-pinned.
 	n, known, err := h.st.fleet.Get(c.ID)
 	if err != nil {
-		return fmt.Errorf("could not check whether %s is already a member: %w", edgeShortID(c.ID), err)
+		return fmt.Errorf("could not check whether this device is already a member: %w", err)
 	}
 	if known && (c.Pin != "" || edge.Presence(n.Presence) == edge.PresenceVerified) {
 		// Refuse re-adopting a known member on the SERVING path (Pin != "") on ANY presence: re-pinning
@@ -329,11 +332,7 @@ func (h *edgeHost) adopt(id, name string) error {
 		// take over that node's identity in the fleet. Refuse a LIVE member on any path too. Only a
 		// NON-live member rejoining by CLAIM (Pin == "", where the device's node KEY proves its
 		// identity and an advert cannot forge it) is re-admitted below.
-		name := n.Name
-		if name == "" {
-			name = edgeShortID(c.ID)
-		}
-		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", name)
+		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", h.unitName(n))
 	}
 	// A candidate that advertises NO certificate (Pin empty) - a phone - cannot be dialed and
 	// verified; it joins by CLAIM. Adopting it GRANTS the claim, and it becomes a member when it

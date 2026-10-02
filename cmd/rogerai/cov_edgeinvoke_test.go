@@ -131,7 +131,8 @@ func TestEdgeInvokePrintsTheReplyTheRefusalAndTheReceipt(t *testing.T) {
 	require.Equal(t, "127.0.0.1:44197", peer.Addr)
 	require.Equal(t, "abab", peer.Pin)
 	require.Contains(t, out, "all quiet on the logs\n")
-	require.Contains(t, out, "(receipt einv_1 on n_01234567)")
+	require.Contains(t, out, "(receipt einv_1 on jetson)", "named as it was invoked, never by its id")
+	require.NotContains(t, out, "n_0123")
 	require.NotContains(t, out, "refused")
 
 	// A non-string output is printed raw; a refusal is said; no receipt, no receipt line.

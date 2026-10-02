@@ -155,7 +155,14 @@ func cmdEdgeInvoke(cfg config, args []string) error {
 		}
 	}
 	if rec.RequestID != "" {
-		fmt.Printf("\n(receipt %s on %s)\n", rec.RequestID, edgeShortID(rec.NodeID))
+		on := edgeDisplayName(rec.NodeID)
+		if on == edgeGoneUnit { // not in this fleet's records: the name it was invoked by, never an id
+			on = calleeArg
+			if edge.LooksLikeID(on) {
+				on = "the device you invoked"
+			}
+		}
+		fmt.Printf("\n(receipt %s on %s)\n", rec.RequestID, on)
 	}
 	return nil
 }
