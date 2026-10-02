@@ -58,7 +58,14 @@ func Fit(ctx context.Context, sp FitSpec) (Fitted, error) {
 	f := Fitted{Ctx: sp.Ctx}
 	ctxArg := strconv.Itoa(sp.Ctx)
 
-	out, _, err := runFit(ctx, sp, "-m", sp.Model, "-c", ctxArg, "-fitp", "on")
+	out, said, err := runFit(ctx, sp, "-m", sp.Model, "-c", ctxArg, "-fitp", "on")
+	if err != nil && said != "" {
+		f.Said = said // it answered no while estimating: a verdict, with no breakdown to show
+		if out, _, err = runFit(ctx, sp, "-m", sp.Model); err == nil {
+			f.MaxCtx = fittedCtx(out)
+		}
+		return f, nil
+	}
 	if err != nil {
 		return Fitted{}, err
 	}
@@ -66,7 +73,7 @@ func Fit(ctx context.Context, sp FitSpec) (Fitted, error) {
 		return Fitted{}, err
 	}
 
-	out, said, err := runFit(ctx, sp, "-m", sp.Model, "-c", ctxArg)
+	out, said, err = runFit(ctx, sp, "-m", sp.Model, "-c", ctxArg)
 	var exit *exec.ExitError
 	switch {
 	case err == nil:

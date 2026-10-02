@@ -198,8 +198,7 @@ func modelWebFiles(ctx context.Context, repo string, ctxLen int) (webui.FilesVie
 				fc.Pace = c.Verdict.Pace.Short()
 			}
 			if !fc.Have {
-				live, _ := modelHome().Live()
-				plan, err := modelHome().RoomFor(c.File.Bytes, live.ID)
+				plan, err := modelHome().RoomFor(c.File.Bytes)
 				fc.Room = localmodel.RoomLine(plan)
 				if err != nil {
 					fc.Room = "the budget you set for models cannot make room for it: " + err.Error()

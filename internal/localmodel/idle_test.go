@@ -87,10 +87,27 @@ func TestAnIdleStopIsRecordedWithItsReason(t *testing.T) {
 	_, ok := h.LastStop()
 	require.False(t, ok)
 	at := time.Date(2026, 10, 1, 14, 2, 0, 0, time.UTC)
-	require.NoError(t, h.RecordStop(Stop{Band: "qwen3-4b", ID: "unsloth/Qwen3-4B-GGUF:Q4_K_M", At: at, Why: IdleWhy(2 * time.Hour)}))
+	require.NoError(t, h.RecordStop(Stop{Band: "qwen3-4b", At: at, Why: IdleWhy(2 * time.Hour)}))
 	st, ok := h.LastStop()
 	require.True(t, ok)
 	require.Equal(t, "qwen3-4b", st.Band)
 	require.Equal(t, "no turn for 2h0m0s - the owner's idle timeout (roger model idle off keeps it serving)", st.Why)
 	require.Contains(t, st.Line(), "qwen3-4b stopped 2026-10-01 14:02 UTC: no turn for 2h0m0s")
+}
+
+// Review 2026-10-01: with two on the air, each band keeps its own stop - starting another does not
+// erase it - and serving that band again is what makes it history.
+func TestEachBandKeepsItsOwnStop(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	at := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	require.NoError(t, h.RecordStop(Stop{Band: "a", At: at, Why: "idle"}))
+	require.NoError(t, h.RecordStop(Stop{Band: "b", At: at.Add(time.Minute), Why: "idle"}))
+	require.NoError(t, h.RecordStop(Stop{Band: "a", At: at.Add(2 * time.Minute), Why: "idle again"}))
+	all := h.Stops()
+	require.Len(t, all, 2)
+	require.Equal(t, "idle again", all[1].Why, "a band's newer stop replaces its older one")
+	h.ClearStop("b")
+	all = h.Stops()
+	require.Len(t, all, 1)
+	require.Equal(t, "a", all[0].Band, "serving b again clears only b")
 }

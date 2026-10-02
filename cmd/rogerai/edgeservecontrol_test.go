@@ -539,3 +539,22 @@ func TestAModelTheMemberCannotJudgeIsRefusedOverTheEdge(t *testing.T) {
 	require.Contains(t, refused, "cannot judge junk-Q4_0")
 	require.Empty(t, r.spawned)
 }
+
+// Review 2026-10-01: a fetch asked for from afar that would remove models under the owner's budget is
+// refused, saying what it would remove - no grant holder empties the owner's disk unseen.
+func TestARemoteFetchThatWouldEvictIsRefused(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
+	require.NoError(t, err)
+	q8, err := r.home.Find("acme/Tiny-GGUF:Q8_0")
+	require.NoError(t, err)
+	require.NoError(t, r.home.SetSettings(localmodel.Settings{DiskBudget: q8.Bytes + 10}))
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 4096), time.Now())
+	require.Contains(t, refused, "would remove acme/Tiny-GGUF:Q8_0")
+	require.Contains(t, refused, "at this machine")
+	j, _ := r.home.Job()
+	require.NotEqual(t, "Tiny-Q4_K_M.gguf", j.File, "nothing was fetched")
+	_, err = r.home.Find("acme/Tiny-GGUF:Q8_0")
+	require.NoError(t, err, "and nothing was removed")
+}

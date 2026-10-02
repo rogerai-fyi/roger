@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -121,10 +122,9 @@ func Activity(ctx context.Context, s Serving) (total int64, busy bool, err error
 	return total, busy, sc.Err()
 }
 
-// Stop is why roger stopped serving on its own, kept so the owner and a peer can read it later.
+// Stop is why roger stopped serving a band on its own, kept so the owner and a peer can read it later.
 type Stop struct {
 	Band string    `json:"band"`
-	ID   string    `json:"id"`
 	At   time.Time `json:"at"`
 	Why  string    `json:"why"`
 }
@@ -141,24 +141,56 @@ func (s Stop) Line() string {
 
 func (h Home) stopPath() string { return filepath.Join(h.Dir, "stopped.json") }
 
-// RecordStop keeps the last stop roger made on its own.
-func (h Home) RecordStop(s Stop) error {
-	b, err := json.MarshalIndent(s, "", "  ")
+// Stops is the last stop of each band roger stopped on its own, oldest first.
+func (h Home) Stops() []Stop {
+	var all []Stop
+	b, err := os.ReadFile(h.stopPath())
+	if err != nil || json.Unmarshal(b, &all) != nil {
+		return nil
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].At.Before(all[j].At) })
+	return all
+}
+
+func (h Home) writeStops(all []Stop) error {
+	if len(all) == 0 {
+		_ = os.Remove(h.stopPath())
+		return nil
+	}
+	b, err := json.MarshalIndent(all, "", "  ")
 	if err != nil {
 		return err
 	}
 	return writeFileAtomic(h, h.stopPath(), b)
 }
 
-// ClearStop forgets the last stop, once something is served again and it is history.
-func (h Home) ClearStop() { _ = os.Remove(h.stopPath()) }
+// RecordStop keeps a band's stop, replacing that band's older one and no other.
+func (h Home) RecordStop(s Stop) error {
+	all := []Stop{s}
+	for _, o := range h.Stops() {
+		if o.Band != s.Band {
+			all = append(all, o)
+		}
+	}
+	return h.writeStops(all)
+}
 
-// LastStop is the last stop roger made on its own, if any.
+// ClearStop forgets a band's stop once it is served again and the stop is history.
+func (h Home) ClearStop(band string) {
+	var keep []Stop
+	for _, o := range h.Stops() {
+		if o.Band != band {
+			keep = append(keep, o)
+		}
+	}
+	_ = h.writeStops(keep)
+}
+
+// LastStop is the most recent stop roger made on its own, if any.
 func (h Home) LastStop() (Stop, bool) {
-	var s Stop
-	b, err := os.ReadFile(h.stopPath())
-	if err != nil || json.Unmarshal(b, &s) != nil || s.Band == "" {
+	all := h.Stops()
+	if len(all) == 0 {
 		return Stop{}, false
 	}
-	return s, true
+	return all[len(all)-1], true
 }

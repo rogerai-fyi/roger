@@ -101,10 +101,14 @@ func edgeModelNow() *store.EdgeModel {
 			out.ServeFailed = lines[len(lines)-1]
 			any = true
 		}
-		if st, ok := h.LastStop(); ok {
-			out.Stopped = st.Line()
-			any = true
-		}
+	}
+	var quiet []string
+	for _, st := range modelQuietStops(h, h.LiveAll()) {
+		quiet = append(quiet, st.Line())
+	}
+	if len(quiet) > 0 {
+		out.Stopped = strings.Join(quiet, "; ")
+		any = true
 	}
 	if all, err := h.List(); err == nil && len(all) > 0 {
 		for _, m := range all {
@@ -239,9 +243,25 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 	case catalog.FitUnknown:
 		return "", "this machine cannot judge it, so it will not fetch it unasked: " + v.Line()
 	}
+	// The owner's disk budget: a request from afar never removes a model. The owner set the budget
+	// at this machine, and removing what they keep is decided where they can see it.
+	plan, err := h.RoomFor(f.File.Bytes)
+	if err != nil {
+		return "", err.Error()
+	}
+	if len(plan) > 0 {
+		ids := make([]string, len(plan))
+		for i, m := range plan {
+			ids[i] = m.ID
+		}
+		return "", fmt.Sprintf("fetching it would remove %s under the budget set for models; that is done at this machine "+
+			"(roger model get %s), where the owner sees what goes, or with a larger budget", strings.Join(ids, ", "), task.Model)
+	}
 	ctxLen := v.Ctx
 	err = h.StartFetch(hub, provision.Fetcher{}, repo, f.File, modelLicense(ctx, repo), func(m localmodel.Model, err error) {
 		if err == nil {
+			// A switch, never --add: serving a second model beside the first is the owner's call at
+			// this machine (local_models.feature §5), not something remote_model.feature grants.
 			if serr := modelSpawn([]string{"model", "serve", m.ID, "--yes", "--ctx", fmt.Sprint(ctxLen)}, filepath.Join(h.Dir, "serve.log")); serr != nil {
 				recordServeFailure(h, serr) // the owner who asked from afar reads it in the member's report
 			}

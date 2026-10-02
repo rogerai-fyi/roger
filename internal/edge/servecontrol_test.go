@@ -148,8 +148,9 @@ func TestOnlyAProvenBandIsShownAsServing(t *testing.T) {
 func TestAMembersOwnStopIsSaidOnItsCard(t *testing.T) {
 	why := "qwen3-4b stopped 2026-10-01 14:02 UTC: no turn for 2h0m0s - the owner's idle timeout"
 	require.Contains(t, edge.ModelLine(&store.EdgeModel{Stopped: why}), "stopped on its own: "+why)
-	require.NotContains(t, edge.ModelLine(&store.EdgeModel{Band: "qwen3-4b", ID: "a/b:Q4", Ctx: 8192, Stopped: why}), "stopped on its own",
-		"a stop that has been served past is history, not the state")
+	// Per band (review 2026-10-01): a band that stopped is said even while ANOTHER serves. The member
+	// sends only the stops of bands not on the air again, so the card shows what it is sent.
+	require.Contains(t, edge.ModelLine(&store.EdgeModel{Band: "other", ID: "a/b:Q4", Ctx: 8192, Stopped: why}), "stopped on its own: "+why)
 }
 
 // local_models.feature §5: "a machine serving two says what each of them is" - on its card too.

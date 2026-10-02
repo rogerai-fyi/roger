@@ -556,3 +556,32 @@ func TestWhetherAServeOrAModelIsStillOnTheAir(t *testing.T) {
 	_, ok = h.ServingModel(Model{ID: "x/b:Q4", File: "b.gguf"})
 	require.False(t, ok)
 }
+
+// Review 2026-10-01: a port is claimed exclusively before its key is written, so two serves that
+// picked the same port cannot share it; a claim left by a roger that died is stale and taken.
+func TestAPortIsClaimedExclusively(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	require.NoError(t, os.MkdirAll(h.Dir, 0o700))
+	release, err := h.claimPort(7001, Model{ID: "a/a:Q4"})
+	require.NoError(t, err)
+	_, err = h.claimPort(7001, Model{ID: "b/b:Q4"})
+	require.Error(t, err, "a live claim is not shared")
+	require.Equal(t, []string{"a/a:Q4"}, h.loadingIDs(), "and the model it is loading is known")
+	release()
+	require.Empty(t, h.loadingIDs())
+
+	defer func(f func(int) bool) { alive = f }(alive)
+	alive = func(int) bool { return true }
+	require.NoError(t, h.writeServing(Serving{Supervisor: 99, Port: 7001, Band: "x"}))
+	_, err = h.claimPort(7001, Model{ID: "c/c:Q4"})
+	require.Error(t, err, "nor is a port a live serve holds")
+	require.NoError(t, os.Remove(h.recordPath(7001)))
+
+	stale, err := h.claimPort(7002, Model{ID: "d/d:Q4"})
+	require.NoError(t, err)
+	_ = stale // its roger "dies" without releasing
+	alive = func(int) bool { return false }
+	again, err := h.claimPort(7002, Model{ID: "e/e:Q4"})
+	require.NoError(t, err, "a claim nobody alive holds is stale and taken")
+	again()
+}
