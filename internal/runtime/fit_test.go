@@ -44,6 +44,14 @@ func fakeFitParams(mode string) {
 		c, _ = strconv.Atoi(v)
 		hasC = true
 	}
+	if flag["-fitp"] == "on" && mode == "fit-garbled" {
+		fmt.Println("estimating... done")
+		return
+	}
+	if flag["-fitp"] == "on" && mode == "fit-nobreakdown" {
+		fmt.Fprintln(os.Stderr, "0.00.150.671 W common_fit_params: failed to fit params to free device memory: model too large for any device, abort")
+		os.Exit(1)
+	}
 	if flag["-fitp"] == "on" {
 		if !hasC {
 			c = 40960
@@ -52,7 +60,7 @@ func fakeFitParams(mode string) {
 		fmt.Printf("Host 167 %d 300\n", c*896/8192)
 		return
 	}
-	limit := map[string]int{"fit-ok": 1 << 30, "fit-cap": 16384, "fit-none": 0}[mode]
+	limit := map[string]int{"fit-ok": 1 << 30, "fit-cap": 16384, "fit-none": 0, "fit-nobreakdown": 0}[mode]
 	if hasC && c <= limit || !hasC && limit >= 4096 {
 		if !hasC {
 			c = min(limit, 40960)
@@ -118,4 +126,27 @@ func TestARuntimeThatCannotAnswerIsAnErrorNotAVerdict(t *testing.T) {
 func TestTheFitToolSitsBesideTheServer(t *testing.T) {
 	require.Equal(t, filepath.Join("a", "b", "llama-fit-params"), runtime.FitExe(filepath.Join("a", "b", "llama-server")))
 	require.Equal(t, filepath.Join("a", "llama-fit-params.exe"), runtime.FitExe(filepath.Join("a", "llama-server.exe")))
+}
+
+// Review 2026-10-01: a build that says "failed to fit" while printing its breakdown has answered no.
+// That is a verdict with its reason, not a runtime that could not answer.
+func TestANoWhileEstimatingIsStillANo(t *testing.T) {
+	f, err := runtime.Fit(context.Background(), fitSpec(t, "fit-nobreakdown", 8192))
+	require.NoError(t, err)
+	require.False(t, f.Fits)
+	require.Equal(t, "model too large for any device", f.Said)
+	require.Empty(t, f.Devices, "it gave no breakdown, and none is invented")
+}
+
+func TestAFitQuestionMustBeComplete(t *testing.T) {
+	for _, sp := range []runtime.FitSpec{{Model: "m", Ctx: 1}, {Exe: "e", Ctx: 1}, {Exe: "e", Model: "m"}} {
+		_, err := runtime.Fit(context.Background(), sp)
+		require.ErrorContains(t, err, "needs the tool, the model and a context")
+	}
+}
+
+// A tool that prints something other than its estimate has not answered; that is never read as a yes.
+func TestAnAnswerWithoutAnEstimateIsNotAnAnswer(t *testing.T) {
+	_, err := runtime.Fit(context.Background(), fitSpec(t, "fit-garbled", 8192))
+	require.ErrorContains(t, err, "printed no estimate")
 }

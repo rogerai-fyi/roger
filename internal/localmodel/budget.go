@@ -33,8 +33,8 @@ func (h Home) MarkServed(id string, at time.Time) error {
 }
 
 // RoomFor is the models that would be removed to fit need more bytes inside the owner's budget,
-// least recently used first. serving is the id on the air, which is never on the list.
-func (h Home) RoomFor(need int64, serving string) ([]Model, error) {
+// least recently used first. Nothing on the air and nothing still loading is ever on the list.
+func (h Home) RoomFor(need int64) ([]Model, error) {
 	s, err := h.Settings()
 	if err != nil || s.DiskBudget <= 0 {
 		return nil, err
@@ -47,14 +47,21 @@ func (h Home) RoomFor(need int64, serving string) ([]Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	busy := map[string]string{}
+	for _, s := range h.LiveAll() {
+		busy[s.ID] = " is being served"
+	}
+	for _, id := range h.loadingIDs() {
+		busy[id] = " is being loaded"
+	}
 	var used int64
 	var can []Model
 	var held []string
 	for _, m := range all {
 		used += m.Bytes
 		switch {
-		case m.ID == serving:
-			held = append(held, m.ID+" is being served")
+		case busy[m.ID] != "":
+			held = append(held, m.ID+busy[m.ID])
 		case !m.Verified():
 			held = append(held, m.ID+" was placed by hand")
 		default:
@@ -78,8 +85,8 @@ func (h Home) RoomFor(need int64, serving string) ([]Model, error) {
 }
 
 // MakeRoom removes what RoomFor planned, and says what went.
-func (h Home) MakeRoom(need int64, serving string) ([]Model, error) {
-	plan, err := h.RoomFor(need, serving)
+func (h Home) MakeRoom(need int64) ([]Model, error) {
+	plan, err := h.RoomFor(need)
 	if err != nil {
 		return nil, err
 	}

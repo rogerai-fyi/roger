@@ -161,14 +161,6 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 	if o.Ctx <= 0 {
 		o.Ctx = DefaultCtx
 	}
-	port := o.Port
-	if port == 0 {
-		p, err := freePort()
-		if err != nil {
-			return nil, Serving{}, err
-		}
-		port = p
-	}
 	key, err := newKey()
 	if err != nil {
 		return nil, Serving{}, err
@@ -177,6 +169,21 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
 		return nil, Serving{}, err
 	}
+	// A free port is only free until someone binds it, so the port is claimed exclusively: a second
+	// serve that picked the same one tries another rather than sharing it.
+	port := o.Port
+	var release func()
+	for try := 0; release == nil; try++ {
+		if o.Port == 0 {
+			if port, err = freePort(); err != nil {
+				return nil, Serving{}, err
+			}
+		}
+		if release, err = h.claimPort(port, o.Model); err != nil && (o.Port != 0 || try == 2) {
+			return nil, Serving{}, err
+		}
+	}
+	defer release()
 	keyFile := h.keyPath(port)
 	if err := os.WriteFile(keyFile, []byte(key+"\n"), 0o600); err != nil {
 		return nil, Serving{}, err
@@ -202,6 +209,18 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 	return srv, s, nil
 }
 
+// portHeld reports whether a live serve, or one still loading, holds port.
+func (h Home) portHeld(port int) bool {
+	for _, s := range h.LiveAll() {
+		if s.Port == port {
+			return true
+		}
+	}
+	var l loading
+	b, err := os.ReadFile(h.loadingPath(port))
+	return err == nil && json.Unmarshal(b, &l) == nil && alive(l.PID)
+}
+
 func newKey() (string, error) {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
@@ -221,6 +240,60 @@ func freePort() (int, error) {
 
 // RecordOf is where a serve's record (and so its key) is kept, for the owner to find.
 func (h Home) RecordOf(s Serving) string { return h.recordPath(s.Port) }
+
+// loading is a serve that has started its runtime but is not yet proven, so it has no record: a
+// disk budget must not remove the file it is loading.
+type loading struct {
+	ID  string `json:"id"`
+	PID int    `json:"pid"`
+}
+
+func (h Home) loadingPath(port int) string {
+	return filepath.Join(h.Dir, "serving-"+strconv.Itoa(port)+".loading")
+}
+
+// claimPort makes port this serve's until release: the claim is an exclusive file naming the model
+// and this roger, so two serves that picked the same port cannot share it (or each other's key), and
+// a disk budget sees the model as being loaded. A claim left by a roger that died is stale and taken.
+func (h Home) claimPort(port int, m Model) (release func(), err error) {
+	for _, s := range h.LiveAll() {
+		if s.Port == port {
+			return nil, fmt.Errorf("port %d is already serving %s", port, s.Band)
+		}
+	}
+	p := h.loadingPath(port)
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil && os.IsExist(err) && !h.portHeld(port) {
+		_ = os.Remove(p)
+		f, err = os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("port %d is already claimed by another serve: %w", port, err)
+	}
+	b, _ := json.Marshal(loading{ID: m.ID, PID: os.Getpid()})
+	_, werr := f.Write(b)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = os.Remove(p)
+		return nil, werr
+	}
+	return func() { _ = os.Remove(p) }, nil
+}
+
+// loadingIDs is every model a live roger is loading right now.
+func (h Home) loadingIDs() []string {
+	paths, _ := filepath.Glob(filepath.Join(h.Dir, "serving-*.loading"))
+	var out []string
+	for _, p := range paths {
+		var l loading
+		if b, err := os.ReadFile(p); err == nil && json.Unmarshal(b, &l) == nil && l.ID != "" && alive(l.PID) {
+			out = append(out, l.ID)
+		}
+	}
+	return out
+}
 
 // StillServing reports whether that serve is still on the air.
 func (h Home) StillServing(s Serving) bool {

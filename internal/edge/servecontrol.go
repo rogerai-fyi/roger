@@ -151,7 +151,7 @@ func ModelLine(m *EdgeModel) string {
 	if m.Band == "" && m.ServeFailed != "" {
 		parts = append(parts, "the last serve did not come on the air: "+m.ServeFailed)
 	}
-	if m.Band == "" && m.Stopped != "" {
+	if m.Stopped != "" {
 		parts = append(parts, "stopped on its own: "+m.Stopped)
 	}
 	if f := m.Fetch; f != nil {

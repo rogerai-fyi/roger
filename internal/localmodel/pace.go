@@ -77,9 +77,6 @@ func containsWord(s, word string) bool {
 
 func isWordByte(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' }
 
-// BandwidthOf is the speed of the pool BudgetFor chose for a runtime that offloads, read the same way.
-func BandwidthOf(hw detect.LocalHW) Bandwidth { return bandwidthOf(hw, MeasureRAM) }
-
 func bandwidthOf(hw detect.LocalHW, measure func(ramMiB int) Bandwidth) Bandwidth {
 	switch {
 	case hw.UnifiedMemory && hw.RAMKnown:

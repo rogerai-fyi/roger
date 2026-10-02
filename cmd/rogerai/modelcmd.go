@@ -418,8 +418,7 @@ func modelGet(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel
 	}
 	fmt.Fprintf(modelOut, "  licence: %s (as its author published it; roger records it and does not referee it)\n", modelDash(license))
 	fmt.Fprintln(modelOut, "  source: HuggingFace - the author's word, checked against the digest the index publishes")
-	live, _ := modelHome().Live()
-	plan, err := modelHome().RoomFor(c.File.Bytes, live.ID)
+	plan, err := modelHome().RoomFor(c.File.Bytes)
 	if err != nil {
 		return localmodel.Model{}, err
 	}
@@ -545,20 +544,21 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		modelDash(provision.ShortDigest(s.SHA256)), s.Ctx)
 	fmt.Fprintf(modelOut, "  %s (key in %s)\n", s.BaseURL, h.RecordOf(s))
 	fmt.Fprintln(modelOut, "  roger share picks it up like any local server. ctrl-c or `roger model stop` ends it.")
-	h.ClearStop()                      // serving again: the last stop is history
+	h.ClearStop(s.Band)                // serving this band again: its last stop is history
 	_ = h.MarkServed(m.ID, time.Now()) // what a disk budget's "least recently served" counts
+	// ...and again when it ends, so a model served for a month is not counted as used a month ago.
+	defer func() { _ = h.MarkServed(m.ID, time.Now()) }()
 	waitCtx, endWait := context.WithCancel(ctx)
 	defer endWait()
 	idleWhy := make(chan string, 1)
-	if settings, err := h.Settings(); err == nil && settings.IdleAfter > 0 {
-		go func() {
-			why := modelWatchIdle(waitCtx, h, s, settings.IdleAfter)
-			idleWhy <- why
-			if why != "" {
-				endWait()
-			}
-		}()
-	}
+	// Always watched: the owner can set or turn off the timeout while this serve runs, and it hears.
+	go func() {
+		why := modelWatchIdle(waitCtx, h, s)
+		idleWhy <- why
+		if why != "" {
+			endWait()
+		}
+	}()
 	modelUntilDone(waitCtx)
 	select {
 	case why := <-idleWhy:
@@ -668,15 +668,21 @@ func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, wan
 		need := v.Need.Total
 		for i, s := range beside {
 			bands[i] = s.Band
-			if o, err := modelHome().Find(s.ID); err == nil {
-				if sh, err := detect.ReadShape(o.Path); err == nil {
-					need += localmodel.Judge(sh, b, s.Ctx).Need.Total
-				}
+			o, err := modelHome().Find(s.ID)
+			if err != nil {
+				return 0, "", fmt.Errorf("roger cannot judge %s, which is on the air, so it cannot say whether %s fits beside it: %v", s.ID, m.ID, err)
 			}
+			sh, err := detect.ReadShape(o.Path)
+			if err != nil {
+				return 0, "", fmt.Errorf("roger cannot judge %s, which is on the air, so it cannot say whether %s fits beside it: %v", s.ID, m.ID, err)
+			}
+			need += localmodel.Judge(sh, b, s.Ctx).Need.Total
 		}
 		together := strings.Join(bands, ", ")
+		// roger's own sum applies even when the runtime says yes: the runtime judges free memory, and
+		// the weights of what is already on the air are mapped pages it may not count as used.
 		switch {
-		case v.Fit == catalog.FitWontFit, !v.ByRuntime && b.Known() && need > b.Bytes:
+		case v.Fit == catalog.FitWontFit, b.Known() && need > b.Bytes:
 			msg := fmt.Sprintf("%s and %s do not fit together with %s: ", m.ID, together, together)
 			if v.Fit == catalog.FitWontFit {
 				msg += v.Line()
@@ -804,8 +810,8 @@ func modelIdleLine(s localmodel.Settings) string {
 
 // modelWatchIdle ends a serve whose runtime has counted no tokens for the owner's timeout, and
 // records why before it does. It returns the reason, or "" when ctx ended first.
-func modelWatchIdle(ctx context.Context, h localmodel.Home, s localmodel.Serving, after time.Duration) string {
-	w := &localmodel.IdleWatch{After: after}
+func modelWatchIdle(ctx context.Context, h localmodel.Home, s localmodel.Serving) string {
+	w := &localmodel.IdleWatch{}
 	tick := time.NewTicker(modelIdleEvery)
 	defer tick.Stop()
 	for {
@@ -813,13 +819,21 @@ func modelWatchIdle(ctx context.Context, h localmodel.Home, s localmodel.Serving
 		case <-ctx.Done():
 			return ""
 		case now := <-tick.C:
+			// The owner's setting is read every time, so turning it off (or on) reaches this serve.
+			settings, err := h.Settings()
+			if err != nil || settings.IdleAfter <= 0 {
+				*w = localmodel.IdleWatch{} // off: nothing counts towards a later timeout
+				continue
+			}
+			after := settings.IdleAfter
+			w.After = after
 			total, busy, err := localmodel.Activity(ctx, s)
 			if err != nil {
 				continue // an unreadable counter is not idleness
 			}
 			if w.Observe(now, total, busy) {
 				why := localmodel.IdleWhy(after)
-				_ = h.RecordStop(localmodel.Stop{Band: s.Band, ID: s.ID, At: now, Why: why})
+				_ = h.RecordStop(localmodel.Stop{Band: s.Band, At: now, Why: why})
 				return why
 			}
 		}
@@ -838,9 +852,11 @@ func modelStatus() error {
 	lives := h.LiveAll()
 	if len(lives) == 0 {
 		fmt.Fprintln(modelOut, "nothing is being served by roger on this machine.")
-		if st, stopped := h.LastStop(); stopped {
-			fmt.Fprintln(modelOut, "  "+st.Line())
-		}
+	}
+	for _, st := range modelQuietStops(h, lives) {
+		fmt.Fprintln(modelOut, "  "+st.Line())
+	}
+	if len(lives) == 0 {
 		fmt.Fprintln(modelOut, "  "+modelIdleLine(settings))
 		return nil
 	}
@@ -852,6 +868,21 @@ func modelStatus() error {
 	}
 	fmt.Fprintln(modelOut, "  "+modelIdleLine(settings))
 	return nil
+}
+
+// modelQuietStops is each band roger stopped on its own that is not on the air again.
+func modelQuietStops(h localmodel.Home, lives []localmodel.Serving) []localmodel.Stop {
+	on := map[string]bool{}
+	for _, s := range lives {
+		on[s.Band] = true
+	}
+	var out []localmodel.Stop
+	for _, st := range h.Stops() {
+		if !on[st.Band] {
+			out = append(out, st)
+		}
+	}
+	return out
 }
 
 func modelStatusOne(s localmodel.Serving) {
@@ -867,7 +898,10 @@ func modelStatusOne(s localmodel.Serving) {
 func modelBeside(h localmodel.Home, m localmodel.Model) ([]localmodel.Serving, error) {
 	beside := h.LiveAll()
 	for _, s := range beside {
-		if s.Band == m.Band && (s.ID != m.ID || s.File != m.File) {
+		if s.ID == m.ID && s.File == m.File {
+			return nil, fmt.Errorf("%s is already on the air as %q - one runtime per model", m.ID, s.Band)
+		}
+		if s.Band == m.Band {
 			return nil, fmt.Errorf("%q is already on the air from %s; one name answers with one model - "+
 				"`roger model serve %s` switches to it", s.Band, s.ID, m.ID)
 		}

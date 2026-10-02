@@ -903,3 +903,88 @@ func TestModelStopTakesOneByNameOrAll(t *testing.T) {
 	_, err = r.run(t, "stop", "c")
 	require.ErrorContains(t, err, `"c" is not being served; serving: a, b`)
 }
+
+// Review 2026-10-01 findings, each pinned.
+func TestModelReviewFindingsStayFixed(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+
+	// Adding a model that is already on the air would start a second runtime under one band.
+	var refused error
+	calls := 0
+	modelUntilDone = func(context.Context) {
+		calls++
+		if calls == 1 {
+			_, refused = r.run(t, "serve", "tiny", "--add")
+		}
+	}
+	start := time.Now()
+	_, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.ErrorContains(t, refused, "is already on the air")
+
+	// Served is marked when a serve ENDS too, so a model served for a month is not "least recent".
+	m, err := r.home.Find("acme/Tiny-GGUF:Q4_K_M")
+	require.NoError(t, err)
+	require.True(t, m.Served.After(start), "marked when it stopped")
+
+	// An idle timeout turned off reaches a serve already running.
+	require.NoError(t, r.home.SetSettings(localmodel.Settings{IdleAfter: 150 * time.Millisecond}))
+	oldEvery := modelIdleEvery
+	modelIdleEvery = 20 * time.Millisecond
+	t.Cleanup(func() { modelIdleEvery = oldEvery })
+	fired := false
+	modelUntilDone = func(ctx context.Context) {
+		require.NoError(t, r.home.SetSettings(localmodel.Settings{}))
+		select {
+		case <-ctx.Done():
+			fired = true
+		case <-time.After(600 * time.Millisecond):
+		}
+	}
+	out, err := r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.False(t, fired, "the owner turned it off; the running serve heard")
+	require.NotContains(t, out, "no turn for")
+
+	// A band's stop stays visible while another band is on the air.
+	require.NoError(t, r.home.RecordStop(localmodel.Stop{Band: "older", At: time.Now(), Why: "no turn for 2h"}))
+	modelUntilDone = func(context.Context) {
+		st, _ := r.run(t, "status")
+		require.Contains(t, st, "older stopped", "status says it while tiny serves")
+		require.Contains(t, edgeModelNow().Stopped, "older stopped", "and so does the member's card")
+	}
+	_, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+
+	// "Fits together" refuses when something on the air cannot be judged, rather than leaving it out.
+	otherModel(t, r)
+	ghost, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Port: 7101, Band: "ghost", ID: "ghost/x:Q4", Started: time.Now()})
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serving-7101.json"), ghost, 0o600))
+	_, err = r.run(t, "serve", "other", "--add")
+	require.ErrorContains(t, err, "cannot judge ghost/x:Q4")
+	require.NoError(t, os.Remove(filepath.Join(r.home.Dir, "serving-7101.json")))
+}
+
+// Review 2026-10-01: roger's own sum for two applies even when the runtime says yes, because the
+// runtime may not count the first model's mapped weights as used.
+func TestModelTogetherIsJudgedByRogersSumEvenWhenTheRuntimeSaysYes(t *testing.T) {
+	r := newModelRig(t, 4096)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	otherModel(t, r)
+	modelFitExe = func(string) string { return os.Args[0] }
+	modelServeEnv = map[string]string{"FAKE_LLAMA": "1", "FAKE_FIT": "yes"}
+	var refused error
+	calls := 0
+	modelUntilDone = func(context.Context) {
+		calls++
+		if calls == 1 {
+			_, refused = r.run(t, "serve", "other", "--add")
+		}
+	}
+	_, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.ErrorContains(t, refused, "do not fit together with tiny")
+}
