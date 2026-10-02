@@ -320,7 +320,7 @@ func TestEdgeFleetOpensOnTheUnitTheOwnerSelected(t *testing.T) {
 	edgeWriteAuth(t, "owner")
 	edgeSeed(t, store.EdgeNode{ID: "n_nas", Name: "nas", Kind: "host", Presence: string(edge.PresenceVerified), LastSeen: time.Now().Unix()})
 	prev := edgeRunFleetScreen
-	t.Cleanup(func() { edgeRunFleetScreen = prev; edgeFleetSelect = "" })
+	t.Cleanup(func() { edgeRunFleetScreen = prev; edgeFleetSelect, edgeFleetHealth = "", false })
 	var opened string
 	edgeRunFleetScreen = func(context.Context, fleetview.FleetSource, fleetview.FleetActions) error {
 		opened = edgeFleetSelect
@@ -338,4 +338,14 @@ func TestEdgeFleetOpensOnTheUnitTheOwnerSelected(t *testing.T) {
 	_, code = edgeRun(t, "edge", "fleet")
 	require.Equal(t, 0, code)
 	require.Empty(t, opened, "no --select opens on nothing in particular")
+	require.False(t, edgeFleetHealth, "no --health opens the rack, not a unit's health")
+	// --health opens the window with the unit's health open: HEALTH is folded into FLEET, so this is
+	// what [3]'s h opens (fleet_window.feature, WHERE IT LIVES).
+	_, code = edgeRun(t, "edge", "fleet", "--select", "nas", "--health")
+	require.Equal(t, 0, code)
+	require.Equal(t, "n_nas", opened)
+	require.True(t, edgeFleetHealth)
+	_, code = edgeRun(t, "edge", "fleet")
+	require.Equal(t, 0, code)
+	require.False(t, edgeFleetHealth, "--health does not stick to the next open")
 }

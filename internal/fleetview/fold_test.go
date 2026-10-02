@@ -321,3 +321,20 @@ func TestTheHealthKeyOnARogerOpensTheNearestUnit(t *testing.T) {
 	p3.Press("6")
 	require.Contains(t, p3.Screen(), "nothing on this Edge reports its health yet")
 }
+
+// OpenHealth is what `roger edge fleet --health` calls: the window opens on FLEET with the selected
+// unit's health already open, on the unit --select named.
+func TestOpenHealthOpensTheWindowOnAUnitsHealth(t *testing.T) {
+	now := time.Now()
+	hs := fleetview.NewHealth(func() (fleetview.HealthSnapshot, error) {
+		return fleetview.HealthSnapshot{Nodes: foldNodes(now), At: now}, nil
+	})
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return foldSnap(now), nil }, hs, fleetview.FleetActions{})
+	f.SelectUnit("n_pi")
+	f.OpenHealth()
+	page := uitest.Run(t, 130, 44, f.Draw)
+	s := page.Screen()
+	require.Contains(t, strip(s), "FLEET")
+	require.Contains(t, s, "esc back to the rack")
+	require.Contains(t, s, "under-voltage, throttled NOW", "on the unit --select named")
+}

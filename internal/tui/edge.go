@@ -533,7 +533,12 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 	case "c":
 		m.edgeConfirmActuateSelected()
 	case "h":
-		return m, m.edgeOpenLive("health", "--live")
+		// HEALTH is folded into the window's FLEET tab (fleet_window.feature, WHERE IT LIVES): h opens
+		// the window with the selected unit's health, never a second list of the same units.
+		if it, _ := m.edgeSelectedNet(); it.member && it.id != "" { // a bench device reports no health
+			return m, m.edgeOpenLive("fleet", "--select", it.id, "--health")
+		}
+		return m, m.edgeOpenLive("fleet", "--health")
 	case "o":
 		// The window opens on the unit the owner already had selected (fleet_window.feature).
 		if it, _ := m.edgeSelectedNet(); (it.member || it.cand) && it.id != "" {
@@ -1090,7 +1095,7 @@ var edgeCapMark = map[edge.Capability]string{
 	edge.ServeControl: "sc",
 }
 
-// edgeOpenLive runs one of the live Edge screens (`roger edge fleet`, `roger edge health --live`)
+// edgeOpenLive runs the live Edge window (`roger edge fleet`, with --select and --health)
 // as a child process over this terminal, through the same seam the guest-operator handoff
 // uses; the fleet screen redraws when it returns.
 func (m *model) edgeOpenLive(args ...string) tea.Cmd {

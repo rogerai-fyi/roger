@@ -863,6 +863,10 @@ func (f *Fleet) SelectUnit(id string) {
 	}
 }
 
+// OpenHealth opens the window on FLEET with the selected unit's health open - what
+// `roger edge fleet --health` and the [3] screen's h use, since HEALTH is folded into FLEET.
+func (f *Fleet) OpenHealth() { f.tab = tabFleet; f.openPage() }
+
 // applyView re-draws the rack in the owner's order and filter, keeping the cursor on the same unit
 // when it is still there - a unit never slides out from under a reader's eye.
 func (f *Fleet) applyView(was FleetItem) {
