@@ -35,7 +35,7 @@ func TestEdgeRoutesEveryLeafToItsOwnCommand(t *testing.T) {
 		{[]string{"edge", "job"}, 2, "roger edge job <agent> <serve|watch|relay|none>"},
 		{[]string{"edge", "authority"}, 0, `this Edge is rooted at the designated machine "desk"`},
 		{[]string{"edge", "grant"}, 0, "no edge grants issued yet"},
-		{[]string{"edge", "invoke"}, 1, "usage: roger edge invoke <callee> <prompt...>"},
+		{[]string{"edge", "invoke"}, 2, "usage: roger edge invoke <callee> <prompt...>"},
 	} {
 		out, code := edgeRun(t, tc.args...)
 		require.Equal(t, tc.code, code, "%v: %s", tc.args, out)
