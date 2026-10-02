@@ -171,14 +171,15 @@ func TestEdgeReadmitAsksResolvesAndReAdmits(t *testing.T) {
 	// A fleet member by name.
 	out, code = edgeRun(t, "edge", "readmit", "attic", "--yes")
 	require.Equal(t, 0, code, out)
-	require.Contains(t, out, "re-admitted attic (n_attic)")
+	require.Contains(t, out, "re-admitted attic - its old certificate is revoked")
 	require.True(t, local.ClaimGranted("n_attic"), "it may claim a fresh certificate")
 
 	// A raw id for a device not seen right now, confirmed at the prompt.
 	edgeStdin = strings.NewReader("y\n")
 	out, code = edgeRun(t, "edge", "readmit", "n_gone")
 	require.Equal(t, 0, code, out)
-	require.Contains(t, out, "re-admitted n_gone (n_gone)")
+	// A device no longer known by any name is echoed by the id the owner typed (open naming question).
+	require.Contains(t, out, "re-admitted n_gone - its old certificate is revoked")
 
 	// A candidate on the network is resolved first, and leaves the bench once re-admitted.
 	st, err := loadEdgeState()
@@ -187,7 +188,7 @@ func TestEdgeReadmitAsksResolvesAndReAdmits(t *testing.T) {
 	require.NoError(t, st.save())
 	out, code = edgeRun(t, "edge", "readmit", "pocket", "--yes")
 	require.Equal(t, 0, code, out)
-	require.Contains(t, out, "re-admitted pocket (n_phone)")
+	require.Contains(t, out, "re-admitted pocket - its old certificate is revoked")
 	st, err = loadEdgeState()
 	require.NoError(t, err)
 	for _, c := range st.candidates {

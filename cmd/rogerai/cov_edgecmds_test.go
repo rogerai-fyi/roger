@@ -74,12 +74,12 @@ func TestEdgeAdoptWantByName(t *testing.T) {
 	require.NoError(t, err)
 	said, err = edgeAdoptWant("pocket")
 	require.NoError(t, err)
-	require.Equal(t, "adopted pocket (n_phone) - it can now claim its certificate; it appears as a member when it checks in.", said)
+	require.Equal(t, "adopted pocket - it can now claim its certificate; it appears as a member when it checks in.", said)
 	require.True(t, local.ClaimGranted("n_phone"))
 
 	said, err = edgeAdoptWant("back")
 	require.NoError(t, err)
-	require.Contains(t, said, "re-admitted back (n_back) - its previous certificate is revoked")
+	require.Contains(t, said, "re-admitted back - its previous certificate is revoked")
 
 	st, err = loadEdgeState()
 	require.NoError(t, err)

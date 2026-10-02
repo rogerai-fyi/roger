@@ -275,14 +275,14 @@ func TestEveryShapedRefusalIsA403AndEverythingElseIsAnOpaque500(t *testing.T) {
 	}
 
 	// An unexpected failure may carry a filesystem path: it must never reach the caller.
-	leaky := fmt.Errorf("open /home/owner/.roger/edge/authority/issued.json: %w", os.ErrPermission)
+	leaky := fmt.Errorf("open /srv/roger-authority/issued.json: %w", os.ErrPermission)
 	srv := httptest.NewServer(enrollhttp.Handler(errIssuer{leaky}))
 	defer srv.Close()
 	for path, what := range map[string]string{enrollhttp.Path: "enrollment", enrollhttp.ClaimPath: "claim"} {
 		code, text := status(t, http.MethodPost, srv.URL+path, `{}`)
 		require.Equal(t, http.StatusInternalServerError, code)
 		require.Equal(t, "the "+what+" could not be completed", text)
-		require.NotContains(t, text, "/home/owner")
+		require.NotContains(t, text, "/srv/roger-authority")
 		require.NotContains(t, text, "issued.json")
 	}
 }

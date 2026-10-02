@@ -99,7 +99,7 @@ func TestEdgeInvokeNamesTheGrantToIssueAndSendsNothingWithoutOne(t *testing.T) {
 	require.ErrorContains(t, err, "roger edge grant self operate jetson")
 
 	err = cmdEdgeInvoke(loadConfig(), []string{"jetson", "hello", "--as", "n_someone", "--cap", "sense"})
-	require.ErrorContains(t, err, "no live grant lets n_someone sense jetson")
+	require.ErrorContains(t, err, "no live grant lets a unit no longer on this Edge sense jetson")
 	require.ErrorContains(t, err, "roger edge grant n_someone sense jetson", "an explicit caller is named in the hint")
 	require.Zero(t, sent, "nothing is dialed without a grant")
 }
@@ -265,7 +265,7 @@ func TestEdgeGrantCommandIssuesListsAndRevokes(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, out, "issued grant_")
-	require.Contains(t, out, "your own instances may operate . until")
+	require.Contains(t, out, "your own instances may operate jetson until")
 	require.Contains(t, out, "any member verifies it with the public root alone")
 	gs, err := edgeGrantStore().List()
 	require.NoError(t, err)

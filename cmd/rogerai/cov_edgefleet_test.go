@@ -141,7 +141,7 @@ func TestEdgeFleetWindowKeysRefuseWhatTheCLIRefuses(t *testing.T) {
 	said, err := acts.IssueGrant("self", "operate", ".", "1h")
 	require.NoError(t, err)
 	require.Contains(t, said, "issued grant_")
-	require.Contains(t, said, "your own instances may operate .")
+	require.Contains(t, said, "your own instances may operate desk until")
 	_, err = acts.IssueGrant("self", "teleport", ".", "1h")
 	require.ErrorContains(t, err, "is not an edge capability")
 	gs, err := edgeGrantStore().List()

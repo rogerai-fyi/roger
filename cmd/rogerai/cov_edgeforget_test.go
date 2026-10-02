@@ -45,7 +45,8 @@ func TestEdgeForgetAPendingAdoption(t *testing.T) {
 
 	out, code = edgeRun(t, "edge", "forget", "n_bare", "--yes")
 	require.Equal(t, 0, code, out)
-	require.Contains(t, out, "forgot n_bare: its claim grant is cleared.", "a claim with no name is named by its id")
+	require.Contains(t, out, "forgot a device adopted but not yet claimed: its claim grant is cleared.", "a claim with no name is described, never named by its id")
+	require.NotContains(t, out, "n_bare")
 	require.False(t, local.ClaimGranted("n_bare"))
 
 	out, code = edgeRun(t, "edge", "forget", "n_nobody", "--yes")
@@ -62,7 +63,7 @@ func TestEdgeForgetAMemberOnlyOnAYes(t *testing.T) {
 	edgeStdin = strings.NewReader("no\n")
 	out, code := edgeRun(t, "edge", "forget", "attic")
 	require.Equal(t, 0, code, out)
-	require.Contains(t, out, "forget attic (n_attic)? it leaves this Edge and its pinned certificate is cleared [y/N]")
+	require.Contains(t, out, "forget attic? it leaves this Edge and its pinned certificate is cleared [y/N]")
 	require.Contains(t, out, "left alone.")
 	_, _, ok, err := edgeLookup("attic")
 	require.NoError(t, err)
