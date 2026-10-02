@@ -20,6 +20,29 @@ type Fleet struct {
 	// now is the clock, injectable so a test can assert on recorded times without
 	// racing the wall clock.
 	now func() time.Time
+	// returning is the name a device that was forgotten and comes back had (NameReturning).
+	returning func(id string) string
+}
+
+// NameReturning tells the fleet what a forgotten device was called, so one that is re-admitted
+// comes back under the name its owner knew it by rather than whatever it calls itself
+// (features/edge/node_identity.feature, RE-ADMITTING). fn returns "" for a device with no such name.
+func (f *Fleet) NameReturning(fn func(id string) string) { f.returning = fn }
+
+// returningName is the remembered name for a device joining the fleet, when there is one that is
+// usable and no other member holds it now; else "".
+func (f *Fleet) returningName(id string) string {
+	if f.returning == nil {
+		return ""
+	}
+	name := f.returning(id)
+	if name == "" || ValidName(name) != nil {
+		return ""
+	}
+	if _, taken, err := f.ByName(name); err != nil || taken {
+		return ""
+	}
+	return name
 }
 
 // NewFleet returns the fleet view for one account.
@@ -520,6 +543,9 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 	}
 	if !ok {
 		n := store.EdgeNode{ID: id, Name: obs.Name, Kind: obs.Kind, Pin: obs.Fingerprint}
+		if name := f.returningName(id); name != "" {
+			n.Name = name
+		}
 		if n.Kind == "" {
 			n.Kind = string(Host)
 		}
