@@ -250,7 +250,9 @@ func TestTheEnrollEndpointRefusesForgedStaleAndReplayedRequestsWith403(t *testin
 // the handler's error MAPPING, which no real authority can be made to exercise for every sentinel.
 type errIssuer struct{ err error }
 
-func (e errIssuer) Issue(edgeauth.Request) (edgeauth.Response, error) { return edgeauth.Response{}, e.err }
+func (e errIssuer) Issue(edgeauth.Request) (edgeauth.Response, error) {
+	return edgeauth.Response{}, e.err
+}
 func (e errIssuer) Claim(edgeauth.ClaimRequest, time.Time) (edgeauth.Response, error) {
 	return edgeauth.Response{}, e.err
 }
