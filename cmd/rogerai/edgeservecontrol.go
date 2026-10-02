@@ -79,8 +79,12 @@ func edgeModelNow() *store.EdgeModel {
 	h := modelHome()
 	out := &store.EdgeModel{}
 	any := false
-	if s, ok := h.Live(); ok {
+	if lives := h.LiveAll(); len(lives) > 0 {
+		s := lives[len(lives)-1]
 		out.Band, out.ID, out.Quant, out.Ctx, out.Since = s.Band, s.ID, s.Quant, s.Ctx, s.Started.Unix()
+		for _, o := range lives[:len(lives)-1] {
+			out.Also = append(out.Also, store.EdgeServed{Band: o.Band, ID: o.ID, Quant: o.Quant, Ctx: o.Ctx, Since: o.Started.Unix()})
+		}
 		any = true
 	}
 	if j, ok := h.Job(); ok && (j.State != localmodel.JobDone || time.Since(j.Updated) < time.Minute) {
@@ -133,15 +137,19 @@ func edgeModelRun(cfg config, callerID, callerName string, raw json.RawMessage, 
 		res.Now, res.Says = edgeModelNow(), "what this machine serves and fetches now"
 		return res, ""
 	case edge.ModelStop:
-		s, ok := modelHome().Live()
-		if !ok {
+		lives := modelHome().LiveAll()
+		if len(lives) == 0 {
 			res.Says, res.Now = "nothing is being served here - nothing to stop.", edgeModelNow()
 			return res, ""
 		}
-		if err := edgeRecordModel(callerID, callerName, "stop serving "+s.Band); err != nil {
+		bands := make([]string, len(lives))
+		for i, s := range lives {
+			bands[i] = s.Band
+		}
+		if err := edgeRecordModel(callerID, callerName, "stop serving "+strings.Join(bands, ", ")); err != nil {
 			return res, edgeUnrecorded(err)
 		}
-		says, err := modelSignalStop(s)
+		says, err := modelStopSays("")
 		if err != nil {
 			return res, err.Error()
 		}

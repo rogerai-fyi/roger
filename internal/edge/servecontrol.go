@@ -105,6 +105,9 @@ func ParseModelTask(raw json.RawMessage) (ModelTask, string) {
 // MaxHave bounds the model ids a member reports, so a disk full of files cannot bloat every beat.
 const MaxHave = 32
 
+// MaxAlso bounds the models a member says it serves beside its latest.
+const MaxAlso = 4
+
 // ModelOf is the model a node reported through any of its rogers: the one serving if any does, else
 // the first that reports one.
 func ModelOf(n store.EdgeNode) *EdgeModel {
@@ -134,7 +137,12 @@ func ModelLine(m *EdgeModel) string {
 	var parts []string
 	switch {
 	case m.Band != "":
-		parts = append(parts, fmt.Sprintf("serving %q (%s, %d context)", m.Band, m.ID, m.Ctx))
+		var each []string
+		for _, a := range m.Also {
+			each = append(each, fmt.Sprintf("%q (%s, %d context)", a.Band, a.ID, a.Ctx))
+		}
+		each = append(each, fmt.Sprintf("%q (%s, %d context)", m.Band, m.ID, m.Ctx))
+		parts = append(parts, "serving "+strings.Join(each, " and "))
 	case m.CannotServe != "":
 		parts = append(parts, "cannot serve here: "+m.CannotServe)
 	default:
@@ -189,6 +197,16 @@ func CleanModel(m *EdgeModel) *EdgeModel {
 		Stopped: cleanText(m.Stopped)}
 	if out.Ctx < 0 || out.Ctx > 1<<21 {
 		out.Ctx = 0
+	}
+	for _, a := range m.Also {
+		if len(out.Also) == MaxAlso {
+			break
+		}
+		c := store.EdgeServed{Band: cleanText(a.Band), ID: cleanText(a.ID), Quant: cleanText(a.Quant), Ctx: a.Ctx, Since: a.Since}
+		if c.Ctx < 0 || c.Ctx > 1<<21 {
+			c.Ctx = 0
+		}
+		out.Also = append(out.Also, c)
 	}
 	for _, id := range m.Have {
 		if len(out.Have) == MaxHave {

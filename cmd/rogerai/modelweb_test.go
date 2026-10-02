@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,7 @@ func TestConsoleViewIsTheDiskTheServeAndTheFetch(t *testing.T) {
 	v, _ = modelWebView()
 	require.False(t, v.CanServe)
 	require.Contains(t, v.Runtime, "not available here")
-	_, err = modelWebServe("acme/Tiny-GGUF:Q4_K_M", 0)
+	_, err = modelWebServe("acme/Tiny-GGUF:Q4_K_M", 0, false)
 	require.ErrorContains(t, err, "controlled from your Edge")
 }
 
@@ -143,20 +144,20 @@ func TestConsoleServeIsSettledFirstThenHandedOff(t *testing.T) {
 	var got []string
 	modelSpawn = func(args []string, logPath string) error { got = args; return nil }
 
-	says, err := modelWebServe("tiny", 4096)
+	says, err := modelWebServe("tiny", 4096, false)
 	require.NoError(t, err)
 	require.Contains(t, says, "fits at 4K")
 	require.Equal(t, []string{"model", "serve", "acme/Tiny-GGUF:Q4_K_M", "--yes", "--ctx", "4096"}, got)
 
 	got = nil
-	_, err = modelWebServe("tiny", 2_000_000)
+	_, err = modelWebServe("tiny", 2_000_000, false)
 	require.Error(t, err)
 	require.Nil(t, got, "a serve that cannot fit never reached the background")
 
 	modelSpawn = func([]string, string) error { return errors.New("no fork") }
-	_, err = modelWebServe("tiny", 0)
+	_, err = modelWebServe("tiny", 0, false)
 	require.ErrorContains(t, err, "could not start")
-	_, err = modelWebServe("nothing", 0)
+	_, err = modelWebServe("nothing", 0, false)
 	require.ErrorIs(t, err, localmodel.ErrUnknownModel)
 
 	// A serve that never came on the air leaves its last words for the page.
@@ -175,7 +176,7 @@ func TestConsoleServeIsSettledFirstThenHandedOff(t *testing.T) {
 func TestConsoleStopAndRemoveKeepTheTerminalsRules(t *testing.T) {
 	r := webRig(t)
 	h := modelWebHooks()
-	says, err := h.Stop()
+	says, err := h.Stop("")
 	require.NoError(t, err)
 	require.Contains(t, says, "nothing is being served")
 
@@ -191,7 +192,7 @@ func TestConsoleStopAndRemoveKeepTheTerminalsRules(t *testing.T) {
 	t.Cleanup(func() { edgeSignal, edgeProcIsRoger = oldSig, oldIs })
 	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
 	edgeSignal = func(int, syscall.Signal) error { return os.Remove(rec) }
-	says, err = h.Stop()
+	says, err = h.Stop("")
 	require.NoError(t, err)
 	require.Contains(t, says, "stopped serving tiny")
 
@@ -200,4 +201,31 @@ func TestConsoleStopAndRemoveKeepTheTerminalsRules(t *testing.T) {
 	require.True(t, strings.HasPrefix(says, "removed acme/Tiny-GGUF:Q4_K_M"))
 	_, err = h.Remove("tiny")
 	require.ErrorIs(t, err, localmodel.ErrUnknownModel)
+}
+
+// local_models.feature §5 on the surfaces: the view carries every serve - the latest as Serving, the
+// others as Also - and an add of a second model under a band already on the air is refused.
+func TestConsoleViewCarriesEveryServeAndRefusesASecondUnderOneBand(t *testing.T) {
+	r := webRig(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
+	require.NoError(t, err)
+	t0 := time.Now().Add(-time.Hour)
+	for i, s := range []localmodel.Serving{
+		{Supervisor: os.Getppid(), Port: 5001, Band: "older", ID: "x/older:Q4", File: "older.gguf", Started: t0},
+		{Supervisor: os.Getppid(), Port: 5002, Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", File: "Tiny-Q4_K_M.gguf", Started: t0.Add(time.Minute)},
+	} {
+		b, _ := json.Marshal(s)
+		require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, fmt.Sprintf("serving-%d.json", 5001+i)), b, 0o600))
+	}
+	v, err := modelWebView()
+	require.NoError(t, err)
+	require.NotNil(t, v.Serving)
+	require.Equal(t, "tiny", v.Serving.Band, "the latest is the one a switch replaces")
+	require.Len(t, v.Also, 1)
+	require.Equal(t, "older", v.Also[0].Band)
+
+	_, err = modelWebServe("acme/Tiny-GGUF:Q8_0", 0, true)
+	require.ErrorContains(t, err, `"tiny" is already on the air`)
 }

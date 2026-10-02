@@ -46,14 +46,20 @@ func modelsRig(t *testing.T) (*httptest.Server, string, *modelCalls) {
 			}
 			return nil
 		},
-		Serve: func(id string, ctxLen int) (string, error) {
+		Serve: func(id string, ctxLen int, add bool) (string, error) {
+			if add {
+				id += "+add"
+			}
 			c.serve = append(c.serve, id)
 			if id == "huge" {
 				return "", errors.New("will not fit at 40K context in 16.0 GiB of system memory; fits at 8K")
 			}
 			return "starting " + id, nil
 		},
-		Stop:   func() (string, error) { c.stop = append(c.stop, "stop"); return "stopped serving tiny.", nil },
+		Stop: func(id string) (string, error) {
+			c.stop = append(c.stop, "stop:"+id)
+			return "stopped serving tiny.", nil
+		},
 		Remove: func(id string) (string, error) { c.remove = append(c.remove, id); return "removed " + id, nil },
 	}})
 	srv := httptest.NewServer(s.Handler())
@@ -171,6 +177,15 @@ func TestServingStoppingAndRemovingFromTheConsole(t *testing.T) {
 	code, body = call(t, srv, tok, "POST", "/api/models/stop", `{"confirm":true}`)
 	require.Equal(t, http.StatusOK, code)
 	require.Contains(t, body, "stopped serving tiny")
+
+	// local_models.feature §5: a second beside the first is asked for as such, and one of two is
+	// stopped by its id.
+	code, _ = call(t, srv, tok, "POST", "/api/models/serve", `{"confirm":true,"id":"other","add":true}`)
+	require.Equal(t, http.StatusOK, code)
+	code, _ = call(t, srv, tok, "POST", "/api/models/stop", `{"confirm":true,"id":"acme/Tiny-GGUF:Q4_K_M"}`)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, []string{"stop:", "stop:acme/Tiny-GGUF:Q4_K_M"}, c.stop)
+	require.Contains(t, c.serve, "other+add")
 
 	code, body = call(t, srv, tok, "POST", "/api/models/remove", `{"confirm":true,"id":"tiny"}`)
 	require.Equal(t, http.StatusOK, code)

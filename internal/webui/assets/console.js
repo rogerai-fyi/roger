@@ -3124,19 +3124,20 @@
     tb.textContent = "";
     var cell = function (tr, cls, txt) { var td = el("td", cls, txt); tr.appendChild(td); return td; };
     var sv = v.serving;
-    if (sv) {
+    // Every serve is a row of its own with its own stop (local_models.feature §5: two at once).
+    (sv ? [v.serving].concat(v.also || []) : []).forEach(function (one) {
       var tr0 = el("tr", "is-serving");
-      var c0 = cell(tr0, "col-model mono", sv.band);
-      c0.appendChild(el("div", "muted small", "served by roger itself \u00b7 " + sv.id + " \u00b7 " + sv.ctx + " context"));
-      cell(tr0, "col-variant mono small", sv.quant || "-");
+      var c0 = cell(tr0, "col-model mono", one.band);
+      c0.appendChild(el("div", "muted small", "served by roger itself \u00b7 " + one.id + " \u00b7 " + one.ctx + " context"));
+      cell(tr0, "col-variant mono small", one.quant || "-");
       cell(tr0, "col-status mono", "ROGER");
       cell(tr0, "col-price muted", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-");
       var a0 = cell(tr0, "col-actions row-actions");
       var stopB = el("button", "btn small", "stop serving"); stopB.type = "button";
-      stopB.onclick = modelsStopServing;
+      stopB.onclick = function () { modelsStopServing(one); };
       a0.appendChild(stopB);
       tb.appendChild(tr0);
-    }
+    });
     (v.models || []).forEach(function (m) {
       if (m.serving) return; // a served model is already a row of its own
       var tr = el("tr", "is-disk");
@@ -3147,9 +3148,15 @@
       cell(tr, "col-price muted", fmtBytes(m.bytes)); cell(tr, "num", "-"); cell(tr, "num", "-"); cell(tr, "num", "-");
       var act = cell(tr, "col-actions row-actions");
       if (v.can_serve) {
-        var sb = el("button", "btn small", sv ? "switch to this" : "serve here"); sb.type = "button";
-        sb.onclick = function () { modelsServe(m, sv); };
+        var cur = sv;
+        var sb = el("button", "btn small", cur ? "switch to this" : "serve here"); sb.type = "button";
+        sb.onclick = function () { modelsServe(m, cur, false); };
         act.appendChild(sb);
+        if (cur) {
+          var ab = el("button", "btn small ghost", "add beside"); ab.type = "button";
+          ab.onclick = function () { modelsServe(m, cur, true); };
+          act.appendChild(ab);
+        }
       }
       var rb = el("button", "btn small ghost", "remove"); rb.type = "button";
       rb.onclick = function () { modelsRemove(m); };
@@ -3185,13 +3192,15 @@
     trg.appendChild(cg); tb.appendChild(trg);
   }
 
-  function modelsServe(m, current) {
+  function modelsServe(m, current, add) {
     var body = "Serve " + m.id + " on this machine as “" + m.band + "”.\n\n" +
-      (current ? "It is started and proven FIRST; only then is " + current.id + " stopped. If it fails to start, " + current.id + " keeps serving.\n\n" : "") +
+      (current && add ? "It is served BESIDE " + current.id + ", which keeps serving - only if both fit together. If they do not, nothing changes and you can switch instead.\n\n" :
+        current ? "It is started and proven FIRST; only then is " + current.id + " stopped. If it fails to start, " + current.id + " keeps serving.\n\n" : "") +
       "It runs in the background, so closing this page does not stop it.";
-    askSafe(current ? "Switch models?" : "Serve this model?", body, current ? "Switch" : "Serve").then(function (yes) {
+    var title = current ? (add ? "Serve it beside?" : "Switch models?") : "Serve this model?";
+    askSafe(title, body, current ? (add ? "Add beside" : "Switch") : "Serve").then(function (yes) {
       if (!yes) return;
-      apiPost("/api/models/serve", { confirm: true, id: m.id }).then(function (d) {
+      apiPost("/api/models/serve", { confirm: true, id: m.id, add: !!add }).then(function (d) {
         toast(d.says || "starting");
         d.view.starting = true;
         renderModels(d.view);
@@ -3199,12 +3208,11 @@
     });
   }
 
-  function modelsStopServing() {
-    var sv = modelsLast && modelsLast.serving;
+  function modelsStopServing(sv) {
     if (!sv) return;
     askSafe("Stop serving?", "Stop serving “" + sv.band + "” (" + sv.id + ").\n\nAnything routed to it stops being answered.", "Stop").then(function (yes) {
       if (!yes) return;
-      apiPost("/api/models/stop", { confirm: true }).then(function (d) { toast(d.says); renderModels(d.view); })
+      apiPost("/api/models/stop", { confirm: true, id: sv.id }).then(function (d) { toast(d.says); renderModels(d.view); })
         .catch(function (e) { toast(e.message, "err"); });
     });
   }

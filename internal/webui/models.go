@@ -142,6 +142,7 @@ func (s *Server) handleModelServe(w http.ResponseWriter, r *http.Request) {
 		confirmed
 		ID  string `json:"id"`
 		Ctx int    `json:"ctx"`
+		Add bool   `json:"add"`
 	}
 	if !decode(r, &req) || req.ID == "" || req.Ctx < 0 {
 		http.Error(w, "model id required", http.StatusBadRequest)
@@ -151,7 +152,7 @@ func (s *Server) handleModelServe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "serving needs the owner's yes", http.StatusPreconditionRequired)
 		return
 	}
-	says, err := h.Serve(req.ID, req.Ctx)
+	says, err := h.Serve(req.ID, req.Ctx, req.Add)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -165,12 +166,15 @@ func (s *Server) handleModelStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, noModels, http.StatusNotImplemented)
 		return
 	}
-	var req confirmed
+	var req struct {
+		confirmed
+		ID string `json:"id"` // "" stops everything roger serves
+	}
 	if !decode(r, &req) || !req.Confirm {
 		http.Error(w, "stopping needs the owner's yes", http.StatusPreconditionRequired)
 		return
 	}
-	says, err := h.Stop()
+	says, err := h.Stop(req.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return

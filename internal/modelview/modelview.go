@@ -18,7 +18,8 @@ type View struct {
 	Models    []Row     `json:"models"`
 	DiskUsed  int64     `json:"disk_used"`
 	Dir       string    `json:"dir"`
-	Serving   *Serving  `json:"serving,omitempty"`
+	Serving   *Serving  `json:"serving,omitempty"` // the one on the air last: what a switch replaces
+	Also      []Serving `json:"also,omitempty"`    // the others on the air beside it, in the order they started
 	Job       *FetchJob `json:"job,omitempty"`
 	ServeLog  []string  `json:"serve_log,omitempty"` // a background serve that never came on air, in its own words
 }
@@ -107,7 +108,7 @@ type Hooks struct {
 	Search func(ctx context.Context, q string) ([]RepoRow, error)
 	Files  func(ctx context.Context, repo string, ctxLen int) (FilesView, error)
 	Fetch  func(repo, file string) error
-	Serve  func(id string, ctxLen int) (string, error)
-	Stop   func() (string, error)
+	Serve  func(id string, ctxLen int, add bool) (string, error) // add: beside what is on the air, not instead
+	Stop   func(id string) (string, error)                       // "" stops everything roger serves
 	Remove func(id string) (string, error)
 }

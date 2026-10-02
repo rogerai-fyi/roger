@@ -152,11 +152,15 @@ func (m model) shareExtraDetail(e shareExtra) string {
 
 // servedByRoger reports whether a detected row is a model roger itself serves, and how to say so.
 func (m model) servedByRoger(row shareRow) (string, bool) {
-	sv := m.mdl.view.Serving
-	if sv == nil || sv.Band != row.model || !strings.HasPrefix(row.upstream, strings.TrimSuffix(sv.Address, "/v1")) {
+	if m.mdl.view.Serving == nil {
 		return "", false
 	}
-	return fmt.Sprintf("served by roger itself · %s · %s · %d context", sv.ID, modelsDash(sv.Quant), sv.Ctx), true
+	for _, sv := range append(append([]modelview.Serving{}, m.mdl.view.Also...), *m.mdl.view.Serving) {
+		if sv.Band == row.model && strings.HasPrefix(row.upstream, strings.TrimSuffix(sv.Address, "/v1")) {
+			return fmt.Sprintf("served by roger itself · %s · %s · %d context", sv.ID, modelsDash(sv.Quant), sv.Ctx), true
+		}
+	}
+	return "", false
 }
 
 // shareAskView is a serve question asked from a SHARE row: y answers, anything else is no.
@@ -170,6 +174,6 @@ func (m model) shareAskView(w int) string {
 	for _, l := range a.lines {
 		b.WriteString("    " + truncVisible(l, w-6) + "\n")
 	}
-	b.WriteString("  " + stKey.Render("y") + " yes   " + stKey.Render("any other key") + " no " + stDim.Render("(⏎ alone is no)") + "\n")
+	b.WriteString("  " + a.answers() + "\n")
 	return b.String()
 }

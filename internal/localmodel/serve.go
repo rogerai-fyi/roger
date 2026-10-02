@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -29,6 +30,7 @@ type Serving struct {
 	Supervisor int       `json:"supervisor"` // the roger keeping it alive
 	RuntimePID int       `json:"runtime_pid"`
 	BaseURL    string    `json:"base_url"`
+	Port       int       `json:"port,omitempty"` // names its record and key: unique while it runs
 	Key        string    `json:"key"`
 	Band       string    `json:"band"`
 	ID         string    `json:"id"`
@@ -40,24 +42,48 @@ type Serving struct {
 	Started    time.Time `json:"started"`
 }
 
+// servingPath is the single record a roger before two-at-once kept. It is still read and released,
+// so a serve started by an older roger is not lost across an upgrade.
 func (h Home) servingPath() string { return filepath.Join(h.Dir, "serving.json") }
+
+// recordPath is one serve's record, named by its port, which no other running serve can hold:
+// two serves, two records.
+func (h Home) recordPath(port int) string {
+	return filepath.Join(h.Dir, "serving-"+strconv.Itoa(port)+".json")
+}
 
 // alive is the seam a test uses for "is that supervisor still running".
 var alive = onair.ProcessAlive
 
-// Live is what this machine is serving, or false. A record whose supervisor has gone is stale:
-// the runtime died with it (the kernel was asked to see to that), so believing the record would
-// announce a band nobody answers.
+// LiveAll is everything this machine is serving, in the order it went on the air. A record whose
+// supervisor has gone is stale: the runtime died with it (the kernel was asked to see to that), so
+// believing the record would announce a band nobody answers.
+func (h Home) LiveAll() []Serving {
+	paths, _ := filepath.Glob(filepath.Join(h.Dir, "serving-*.json"))
+	paths = append(paths, h.servingPath())
+	var out []Serving
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var s Serving
+		if json.Unmarshal(b, &s) != nil || s.Supervisor <= 0 || !alive(s.Supervisor) {
+			continue
+		}
+		out = append(out, s)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
+	return out
+}
+
+// Live is what went on the air last, or false: the one a switch replaces.
 func (h Home) Live() (Serving, bool) {
-	b, err := os.ReadFile(h.servingPath())
-	if err != nil {
+	all := h.LiveAll()
+	if len(all) == 0 {
 		return Serving{}, false
 	}
-	var s Serving
-	if json.Unmarshal(b, &s) != nil || s.Supervisor <= 0 || !alive(s.Supervisor) {
-		return Serving{}, false
-	}
-	return s, true
+	return all[len(all)-1], true
 }
 
 func (h Home) writeServing(s Serving) error {
@@ -65,32 +91,25 @@ func (h Home) writeServing(s Serving) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
-		return err
-	}
-	tmp := h.servingPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, h.servingPath())
+	return writeFileAtomic(h, h.recordPath(s.Port), b)
 }
 
-// Release clears the record, but only if it is still this supervisor's: a switch writes the new
-// record BEFORE the old supervisor is stopped, and the old one must not erase its successor.
-func (h Home) Release(supervisor int) {
-	b, err := os.ReadFile(h.servingPath())
-	if err != nil {
-		return
+// Release clears one serve's record and key. Another serve's record is not its to touch: a switch
+// writes the new record BEFORE the old supervisor is stopped, and the old one must not erase its
+// successor.
+func (h Home) Release(s Serving) {
+	_ = os.Remove(h.recordPath(s.Port))
+	if b, err := os.ReadFile(h.servingPath()); err == nil {
+		var old Serving
+		if json.Unmarshal(b, &old) == nil && old.Supervisor == s.Supervisor {
+			_ = os.Remove(h.servingPath())
+		}
 	}
-	var s Serving
-	if json.Unmarshal(b, &s) == nil && s.Supervisor == supervisor {
-		_ = os.Remove(h.servingPath())
-	}
-	_ = os.Remove(h.keyPath(supervisor))
+	_ = os.Remove(h.keyPath(s.Port))
 }
 
-func (h Home) keyPath(supervisor int) string {
-	return filepath.Join(h.Dir, "serving-"+strconv.Itoa(supervisor)+".key")
+func (h Home) keyPath(port int) string {
+	return filepath.Join(h.Dir, "serving-"+strconv.Itoa(port)+".key")
 }
 
 // ServeOpts is one model to serve.
@@ -158,7 +177,7 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
 		return nil, Serving{}, err
 	}
-	keyFile := h.keyPath(me)
+	keyFile := h.keyPath(port)
 	if err := os.WriteFile(keyFile, []byte(key+"\n"), 0o600); err != nil {
 		return nil, Serving{}, err
 	}
@@ -171,7 +190,7 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 		return nil, Serving{}, err
 	}
 	s := Serving{
-		Supervisor: me, RuntimePID: srv.PID, BaseURL: srv.BaseURL, Key: key, Band: o.Model.Band,
+		Supervisor: me, RuntimePID: srv.PID, BaseURL: srv.BaseURL, Port: port, Key: key, Band: o.Model.Band,
 		ID: o.Model.ID, File: o.Model.File, SHA256: o.Model.SHA256, Quant: o.Model.Quant, Ctx: o.Ctx,
 		Runtime: o.Tag, Started: srv.Started,
 	}
@@ -198,4 +217,27 @@ func freePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// RecordOf is where a serve's record (and so its key) is kept, for the owner to find.
+func (h Home) RecordOf(s Serving) string { return h.recordPath(s.Port) }
+
+// StillServing reports whether that serve is still on the air.
+func (h Home) StillServing(s Serving) bool {
+	for _, cur := range h.LiveAll() {
+		if cur.Supervisor == s.Supervisor && cur.Port == s.Port {
+			return true
+		}
+	}
+	return false
+}
+
+// ServingModel is the serve of that model, if it is on the air.
+func (h Home) ServingModel(m Model) (Serving, bool) {
+	for _, s := range h.LiveAll() {
+		if s.ID == m.ID && s.File == m.File {
+			return s, true
+		}
+	}
+	return Serving{}, false
 }

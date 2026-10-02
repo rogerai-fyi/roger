@@ -98,10 +98,11 @@ var (
 // it up like any other local server - the dispatch ladder needs no special case.
 func init() {
 	detect.Served = func() []detect.Endpoint {
-		if s, ok := modelHome().Live(); ok {
-			return []detect.Endpoint{{Name: "roger", Base: s.BaseURL, Key: s.Key}}
+		var out []detect.Endpoint
+		for _, s := range modelHome().LiveAll() {
+			out = append(out, detect.Endpoint{Name: "roger", Base: s.BaseURL, Key: s.Key})
 		}
-		return nil
+		return out
 	}
 }
 
@@ -120,6 +121,7 @@ type modelArgv struct {
 	limit  int
 	yes    bool
 	detach bool
+	add    bool   // serve beside what is on the air, rather than switching (local_models.feature §5)
 	on     string // a member of the Edge: the same command, on that machine (remote_model.feature)
 }
 
@@ -133,6 +135,10 @@ func parseModelArgv(args []string) (modelArgv, error) {
 		}
 		if s == "--detach" || s == "-d" {
 			a.detach = true
+			continue
+		}
+		if s == "--add" {
+			a.add = true
 			continue
 		}
 		if !strings.HasPrefix(s, "--") {
@@ -203,7 +209,7 @@ func cmdModel(cfg config, args []string) error {
 		return err
 	case "serve":
 		if len(a.pos) != 1 {
-			return errors.New("usage: roger model serve <name | owner/repo[:QUANT] | file.gguf> [--ctx N] [--port N] [--detach]")
+			return errors.New("usage: roger model serve <name | owner/repo[:QUANT] | file.gguf> [--ctx N] [--port N] [--detach] [--add]")
 		}
 		return modelServe(ctx, a)
 	case "status":
@@ -213,7 +219,7 @@ func cmdModel(cfg config, args []string) error {
 	case "budget":
 		return modelBudgetCmd(a.pos)
 	case "stop":
-		return modelStop()
+		return modelStop(a.pos)
 	case "rm", "remove":
 		if len(a.pos) != 1 {
 			return errors.New("usage: roger model rm <name> [--yes]")
@@ -229,7 +235,7 @@ func modelList() error {
 	if err != nil {
 		return err
 	}
-	live, serving := h.Live()
+	lives := h.LiveAll()
 	if len(all) == 0 {
 		fmt.Fprintf(modelOut, "no models on this machine yet (%s).\n", h.Models())
 		fmt.Fprintln(modelOut, "  roger model search <words>   look for one     roger model serve file.gguf   serve one you already have")
@@ -243,7 +249,7 @@ func modelList() error {
 	fmt.Fprintf(modelOut, "%d models, %s%s, in %s\n\n", n, provision.BytesWord(used), budget, h.Models())
 	for _, m := range all {
 		mark := " "
-		if serving && live.File == m.File && live.ID == m.ID {
+		if _, on := h.ServingModel(m); on {
 			mark = "▶"
 		}
 		check := "checked"
@@ -252,8 +258,11 @@ func modelList() error {
 		}
 		fmt.Fprintf(modelOut, "%s %-44s %-8s %9s  %s\n", mark, m.ID, modelDash(m.Quant), provision.BytesWord(m.Bytes), check)
 	}
-	if serving {
-		fmt.Fprintf(modelOut, "\n▶ serving %s as %q since %s ago\n", live.ID, live.Band, edge.Age(time.Since(live.Started)))
+	if len(lives) > 0 {
+		fmt.Fprintln(modelOut)
+	}
+	for _, live := range lives {
+		fmt.Fprintf(modelOut, "▶ serving %s as %q since %s ago\n", live.ID, live.Band, edge.Age(time.Since(live.Started)))
 	}
 	return nil
 }
@@ -490,15 +499,24 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		}
 		return fmt.Errorf("could not get the runtime: %w", err)
 	}
-	ctxLen, says, err := modelPlan(ctx, m, b, a.ctx, exe)
+	h := modelHome()
+	var beside []localmodel.Serving
+	if a.add {
+		if beside, err = modelBeside(h, m); err != nil {
+			return err
+		}
+	}
+	ctxLen, says, err := modelPlan(ctx, m, b, a.ctx, exe, beside...)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(modelOut, says)
-	h := modelHome()
 	prev, hadPrev := h.Live()
+	if a.add {
+		hadPrev = false // added beside, nothing is switched away
+	}
 	if a.detach {
-		return modelServeDetached(h, m, ctxLen, a.port, prev, hadPrev)
+		return modelServeDetached(h, m, ctxLen, a.port, prev, hadPrev, a.add)
 	}
 	fmt.Fprintf(modelOut, "starting llama.cpp %s on %s at %d context...\n", tag, m.File, ctxLen)
 	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: exe, Tag: tag, Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv})
@@ -508,16 +526,24 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		}
 		return err
 	}
-	defer h.Release(os.Getpid())
+	defer h.Release(s)
 	defer func() { _ = srv.Stop(context.Background()) }()
 	// The new one answers; only now is the old one stopped.
 	if hadPrev && prev.Supervisor != os.Getpid() {
 		says, _ := modelSignalStop(prev)
 		fmt.Fprintf(modelOut, "switched from %s: %s\n", prev.ID, says)
 	}
-	fmt.Fprintf(modelOut, "on the air locally: %q - %s, %s, sha256 %s, %d context\n", s.Band, s.ID, modelDash(s.Quant),
+	where := "on the air locally"
+	if len(beside) > 0 {
+		bands := make([]string, len(beside))
+		for i, o := range beside {
+			bands[i] = o.Band
+		}
+		where += " beside " + strings.Join(bands, ", ")
+	}
+	fmt.Fprintf(modelOut, "%s: %q - %s, %s, sha256 %s, %d context\n", where, s.Band, s.ID, modelDash(s.Quant),
 		modelDash(provision.ShortDigest(s.SHA256)), s.Ctx)
-	fmt.Fprintf(modelOut, "  %s (key in %s)\n", s.BaseURL, filepath.Join(h.Dir, "serving.json"))
+	fmt.Fprintf(modelOut, "  %s (key in %s)\n", s.BaseURL, h.RecordOf(s))
 	fmt.Fprintln(modelOut, "  roger share picks it up like any local server. ctrl-c or `roger model stop` ends it.")
 	h.ClearStop()                      // serving again: the last stop is history
 	_ = h.MarkServed(m.ID, time.Now()) // what a disk budget's "least recently served" counts
@@ -549,7 +575,7 @@ func modelServe(ctx context.Context, a modelArgv) error {
 // modelServeDetached hands the serve to a roger of its own and waits until it is really answering.
 // Everything that can be refused - the fit, the runtime, the consent to fetch - was already settled
 // here, in front of the owner, so the background has nothing left to ask.
-func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int, prev localmodel.Serving, hadPrev bool) error {
+func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int, prev localmodel.Serving, hadPrev, add bool) error {
 	ref := m.Path
 	if _, err := h.Find(m.ID); err == nil {
 		ref = m.ID
@@ -557,6 +583,9 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 	args := []string{"model", "serve", ref, "--yes", "--ctx", strconv.Itoa(ctxLen)}
 	if port > 0 {
 		args = append(args, "--port", strconv.Itoa(port))
+	}
+	if add {
+		args = append(args, "--add")
 	}
 	logPath := filepath.Join(h.Dir, "serve.log")
 	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
@@ -568,8 +597,20 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 	fmt.Fprintf(modelOut, "starting %s in the background...\n", m.ID)
 	deadline := time.Now().Add(modelDetachWait)
 	for time.Now().Before(deadline) {
-		if s, ok := h.Live(); ok && s.File == m.File && (!hadPrev || s.Supervisor != prev.Supervisor) {
-			fmt.Fprintf(modelOut, "on the air locally: %q - %s, %d context, at %s\n", s.Band, s.ID, s.Ctx, s.BaseURL)
+		if s, ok := h.ServingModel(m); ok && (!hadPrev || s.Supervisor != prev.Supervisor) {
+			where := "on the air locally"
+			if add {
+				var bands []string
+				for _, o := range h.LiveAll() {
+					if o.Port != s.Port {
+						bands = append(bands, o.Band)
+					}
+				}
+				if len(bands) > 0 {
+					where += " beside " + strings.Join(bands, ", ")
+				}
+			}
+			fmt.Fprintf(modelOut, "%s: %q - %s, %d context, at %s\n", where, s.Band, s.ID, s.Ctx, s.BaseURL)
 			fmt.Fprintln(modelOut, "  it keeps serving after this terminal closes. `roger model status` · `roger model stop`")
 			return nil
 		}
@@ -605,7 +646,10 @@ func modelInstalledExe() string {
 // modelPlan settles the context a model will serve at, or refuses with the arithmetic - never
 // silently reducing what the owner asked for. says is the line to show the owner either way. With
 // the runtime here (serverExe), its own fit check answers and roger's estimate steps aside.
-func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, want int, serverExe string) (ctxLen int, says string, err error) {
+//
+// beside is what stays on the air next to it (serve --add). The runtime's check already counts it,
+// because it judges what is free now; roger's estimate adds their needs to this one.
+func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, want int, serverExe string, beside ...localmodel.Serving) (ctxLen int, says string, err error) {
 	shape, err := detect.ReadShape(m.Path)
 	switch {
 	case errors.Is(err, detect.ErrNotGenerative):
@@ -618,6 +662,30 @@ func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, wan
 		v = v.Settled(runtime.Fitted{}, errors.New("the runtime is not on this machine yet"))
 	} else {
 		v = v.Settled(runtime.Fit(ctx, runtime.FitSpec{Exe: modelFitExe(serverExe), Model: m.Path, Ctx: v.Ctx, Env: modelServeEnv}))
+	}
+	if len(beside) > 0 {
+		bands := make([]string, len(beside))
+		need := v.Need.Total
+		for i, s := range beside {
+			bands[i] = s.Band
+			if o, err := modelHome().Find(s.ID); err == nil {
+				if sh, err := detect.ReadShape(o.Path); err == nil {
+					need += localmodel.Judge(sh, b, s.Ctx).Need.Total
+				}
+			}
+		}
+		together := strings.Join(bands, ", ")
+		switch {
+		case v.Fit == catalog.FitWontFit, !v.ByRuntime && b.Known() && need > b.Bytes:
+			msg := fmt.Sprintf("%s and %s do not fit together with %s: ", m.ID, together, together)
+			if v.Fit == catalog.FitWontFit {
+				msg += v.Line()
+			} else {
+				msg += fmt.Sprintf("together they need %s of %s %s (roger's estimate)", localmodel.BytesWord(need),
+					localmodel.BytesWord(b.Bytes), b.Pool)
+			}
+			return 0, "", fmt.Errorf("%s\n  to serve it instead of %s: roger model serve %s", msg, beside[len(beside)-1].Band, m.ID)
+		}
 	}
 	if v.Fit == catalog.FitWontFit {
 		msg := v.Line()
@@ -767,8 +835,8 @@ func modelStatus() error {
 	if err != nil {
 		return err
 	}
-	s, ok := h.Live()
-	if !ok {
+	lives := h.LiveAll()
+	if len(lives) == 0 {
 		fmt.Fprintln(modelOut, "nothing is being served by roger on this machine.")
 		if st, stopped := h.LastStop(); stopped {
 			fmt.Fprintln(modelOut, "  "+st.Line())
@@ -776,27 +844,80 @@ func modelStatus() error {
 		fmt.Fprintln(modelOut, "  "+modelIdleLine(settings))
 		return nil
 	}
+	if len(lives) > 1 {
+		fmt.Fprintf(modelOut, "serving %d models, each said in full:\n", len(lives))
+	}
+	for _, s := range lives {
+		modelStatusOne(s)
+	}
+	fmt.Fprintln(modelOut, "  "+modelIdleLine(settings))
+	return nil
+}
+
+func modelStatusOne(s localmodel.Serving) {
 	fmt.Fprintf(modelOut, "serving %q\n", s.Band)
 	fmt.Fprintf(modelOut, "  model    %s\n  file     %s\n  quant    %s\n  sha256   %s\n  context  %d\n",
 		s.ID, s.File, modelDash(s.Quant), modelDash(s.SHA256), s.Ctx)
 	fmt.Fprintf(modelOut, "  runtime  llama.cpp %s, pid %d, for %s\n  address  %s\n",
 		s.Runtime, s.RuntimePID, edge.Age(time.Since(s.Started)), s.BaseURL)
-	fmt.Fprintln(modelOut, "  "+modelIdleLine(settings))
-	return nil
 }
 
-func modelStop() error {
-	s, ok := modelHome().Live()
-	if !ok {
-		fmt.Fprintln(modelOut, "nothing is being served by roger on this machine - nothing to stop.")
-		return nil
+// modelBeside is what stays on the air when m is added beside it, or why m cannot be: one band
+// answers with one model.
+func modelBeside(h localmodel.Home, m localmodel.Model) ([]localmodel.Serving, error) {
+	beside := h.LiveAll()
+	for _, s := range beside {
+		if s.Band == m.Band && (s.ID != m.ID || s.File != m.File) {
+			return nil, fmt.Errorf("%q is already on the air from %s; one name answers with one model - "+
+				"`roger model serve %s` switches to it", s.Band, s.ID, m.ID)
+		}
 	}
-	says, err := modelSignalStop(s)
+	return beside, nil
+}
+
+// modelStop stops one serve named by its band or id, or every one when none is named.
+func modelStop(pos []string) error {
+	name := ""
+	if len(pos) > 0 {
+		name = pos[0]
+	}
+	says, err := modelStopSays(name)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(modelOut, says)
 	return nil
+}
+
+// modelStopSays is the stop every surface shares: one serve by band or id, or all when name is "".
+func modelStopSays(name string) (string, error) {
+	lives := modelHome().LiveAll()
+	if len(lives) == 0 {
+		return "nothing is being served by roger on this machine - nothing to stop.", nil
+	}
+	if name != "" {
+		var hit []localmodel.Serving
+		bands := make([]string, len(lives))
+		for i, s := range lives {
+			bands[i] = s.Band
+			if s.Band == name || s.ID == name {
+				hit = append(hit, s)
+			}
+		}
+		if len(hit) == 0 {
+			return "", fmt.Errorf("%q is not being served; serving: %s", name, strings.Join(bands, ", "))
+		}
+		lives = hit
+	}
+	var said []string
+	for _, s := range lives {
+		says, err := modelSignalStop(s)
+		if err != nil {
+			return strings.Join(said, "\n"), err
+		}
+		said = append(said, says)
+	}
+	return strings.Join(said, "\n"), nil
 }
 
 // modelSignalStop asks the supervising roger to finish, which stops its runtime and clears its
@@ -813,7 +934,7 @@ func modelSignalStop(s localmodel.Serving) (string, error) {
 	}
 	deadline := time.Now().Add(modelStopWait)
 	for time.Now().Before(deadline) {
-		if cur, ok := modelHome().Live(); !ok || cur.Supervisor != s.Supervisor {
+		if !modelHome().StillServing(s) {
 			return fmt.Sprintf("stopped serving %s.", s.Band), nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -827,7 +948,7 @@ func modelRemove(ref string, yes bool) error {
 	if err != nil {
 		return err
 	}
-	if s, ok := h.Live(); ok && s.ID == m.ID && s.File == m.File {
+	if _, ok := h.ServingModel(m); ok {
 		return fmt.Errorf("%s is being served right now - `roger model stop` first", m.ID)
 	}
 	if !yes {

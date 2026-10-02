@@ -46,7 +46,7 @@ func TestTheConsoleHasNoSeparateModelsTab(t *testing.T) {
 // and the list always ends with the visible way to get a model.
 func TestRogersOwnModelsAreRowsOfTheShareTable(t *testing.T) {
 	js := consoleJS(t)
-	a, b := strings.Index(js, "  function renderModels(v) {"), strings.Index(js, "  function modelsServe(m, current) {")
+	a, b := strings.Index(js, "  function renderModels(v) {"), strings.Index(js, "  function modelsServe(m, current, add) {")
 	require.True(t, a > 0 && b > a)
 	r := js[a:b]
 	require.Contains(t, r, `$("share-roger-rows")`)
@@ -55,7 +55,7 @@ func TestRogersOwnModelsAreRowsOfTheShareTable(t *testing.T) {
 	require.Contains(t, r, `"stop serving"`)
 	require.Contains(t, r, `"ON DISK"`)
 	require.Contains(t, r, `"serve here"`)
-	require.Contains(t, r, "modelsServe(m, sv)", "serving an on-disk row goes through the asked-first path")
+	require.Contains(t, r, "modelsServe(m, cur, false)", "serving an on-disk row goes through the asked-first path")
 	require.Contains(t, r, `"meter-fill"`)
 	require.Contains(t, r, `" left"`, "a fetch states its time left")
 	require.Contains(t, r, `"/s"`, "and its rate")
@@ -77,4 +77,16 @@ func TestTheConsoleSaysSpeedApartFromFit(t *testing.T) {
 	require.Contains(t, js, `if (c.pace_line) verdict.appendChild(el("div", "mono", c.pace_line));`)
 	require.Contains(t, js, `(c.pace_line ? "\n" + c.pace_line : "")`)
 	require.Contains(t, js, `(c.room ? "\n\n" + c.room : "")`, "and what the owner's disk budget removes, before it is asked")
+}
+
+// §5 in the console: every model roger serves is a row with its own stop, and a model on disk can be
+// added beside what is on the air, as well as switched to.
+func TestTheConsoleServesASecondBesideTheFirst(t *testing.T) {
+	js := consoleJS(t)
+	require.Contains(t, js, `[v.serving].concat(v.also || [])`, "each serve is a row")
+	require.Contains(t, js, `modelsStopServing(one)`, "each with its own stop")
+	require.Contains(t, js, `{ confirm: true, id: sv.id }`, "stopping one names it")
+	require.Contains(t, js, `"add beside"`)
+	require.Contains(t, js, `modelsServe(m, cur, true)`)
+	require.Contains(t, js, `add: !!add`, "the request says it is an add")
 }

@@ -76,9 +76,21 @@ type EdgeModel struct {
 	CannotServe string     `json:"cannot_serve,omitempty"` // why this machine has no runtime, in one sentence
 	ServeFailed string     `json:"serve_failed,omitempty"` // the last serve's own last words, when it never came on the air
 	Stopped     string     `json:"stopped,omitempty"`      // why roger last stopped serving on its own (an idle timeout), in one line
+	// Also is what it serves beside Band, in the order they went on the air (two at once,
+	// local_models.feature §5). Band is the latest: the one a switch replaces.
+	Also []EdgeServed `json:"also,omitempty"`
 	// Have is the ids of the models on its disk (bounded), so an owner on another machine can pick
 	// one to serve without walking to it. Ids only: never a path.
 	Have []string `json:"have,omitempty"`
+}
+
+// EdgeServed is one more model a member serves beside its latest.
+type EdgeServed struct {
+	Band  string `json:"band"`
+	ID    string `json:"id,omitempty"`
+	Quant string `json:"quant,omitempty"`
+	Ctx   int    `json:"ctx,omitempty"`
+	Since int64  `json:"since,omitempty"`
 }
 
 // EdgeFetch is a fetch on a member, as it last reported it.

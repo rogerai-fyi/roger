@@ -89,13 +89,7 @@ func modelWebHooks() webui.ModelHooks {
 		Files:  modelWebFiles,
 		Fetch:  modelWebFetch,
 		Serve:  modelWebServe,
-		Stop: func() (string, error) {
-			s, ok := modelHome().Live()
-			if !ok {
-				return "nothing is being served by roger on this machine.", nil
-			}
-			return modelSignalStop(s)
-		},
+		Stop:   modelStopSays,
 		Remove: modelWebRemove,
 	}
 }
@@ -109,15 +103,22 @@ func modelWebView() (webui.ModelsView, error) {
 	b := modelBudgetNow()
 	v := webui.ModelsView{Budget: b.Bytes, Pool: b.Pool, BudgetWhy: b.Why, Dir: h.Models(), Models: []webui.ModelRow{}}
 	v.Runtime, v.CanServe = modelRuntimeWord()
-	live, serving := h.Live()
+	lives := h.LiveAll()
+	serving := len(lives) > 0
 	for _, m := range all {
 		v.DiskUsed += m.Bytes
+		_, on := h.ServingModel(m)
 		v.Models = append(v.Models, webui.ModelRow{ID: m.ID, Repo: m.Repo, File: m.File, Bytes: m.Bytes, Quant: m.Quant,
-			Band: m.Band, License: m.License, Verified: m.Verified(), Serving: serving && live.ID == m.ID && live.File == m.File})
+			Band: m.Band, License: m.License, Verified: m.Verified(), Serving: on})
 	}
-	if serving {
-		v.Serving = &webui.Serving{Band: live.Band, ID: live.ID, File: live.File, Quant: live.Quant, SHA256: live.SHA256,
+	for i, live := range lives {
+		sv := webui.Serving{Band: live.Band, ID: live.ID, File: live.File, Quant: live.Quant, SHA256: live.SHA256,
 			Ctx: live.Ctx, Runtime: live.Runtime, Since: live.Started, Address: live.BaseURL}
+		if i == len(lives)-1 {
+			v.Serving = &sv
+		} else {
+			v.Also = append(v.Also, sv)
+		}
 	}
 	if j, ok := h.Job(); ok && (j.State != localmodel.JobDone || time.Since(j.Updated) < time.Minute) {
 		v.Job = &webui.FetchJob{Repo: j.Repo, File: j.File, Total: j.Total, Done: j.Done, Rate: j.Rate, RemainingS: j.RemainingS,
@@ -234,7 +235,7 @@ func modelWebFetch(repo, file string) error {
 // modelWebServe settles everything in front of the owner, then hands the serve to a roger of its
 // own, so closing the page does not stop it and a switch proves the new model before the old one
 // goes (that roger does exactly what `roger model serve` does).
-func modelWebServe(id string, ctxLen int) (string, error) {
+func modelWebServe(id string, ctxLen int, add bool) (string, error) {
 	h := modelHome()
 	m, err := h.Find(id)
 	if err != nil {
@@ -243,7 +244,13 @@ func modelWebServe(id string, ctxLen int) (string, error) {
 	if word, ok := modelRuntimeWord(); !ok {
 		return "", errors.New(word + " - it can still be monitored and controlled from your Edge")
 	}
-	ctxLen, says, err := modelPlan(context.Background(), m, modelBudgetNow(), ctxLen, modelInstalledExe())
+	var beside []localmodel.Serving
+	if add {
+		if beside, err = modelBeside(h, m); err != nil {
+			return "", err
+		}
+	}
+	ctxLen, says, err := modelPlan(context.Background(), m, modelBudgetNow(), ctxLen, modelInstalledExe(), beside...)
 	if err != nil {
 		return "", err
 	}
@@ -251,6 +258,9 @@ func modelWebServe(id string, ctxLen int) (string, error) {
 		return "", err
 	}
 	args := []string{"model", "serve", m.ID, "--yes", "--ctx", fmt.Sprint(ctxLen)}
+	if add {
+		args = append(args, "--add")
+	}
 	if err := modelSpawn(args, filepath.Join(h.Dir, "serve.log")); err != nil {
 		return "", fmt.Errorf("could not start serving in the background: %w", err)
 	}
@@ -263,7 +273,7 @@ func modelWebRemove(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if s, ok := h.Live(); ok && s.ID == m.ID && s.File == m.File {
+	if _, ok := h.ServingModel(m); ok {
 		return "", fmt.Errorf("%s is being served right now - stop it first", m.ID)
 	}
 	if err := h.Remove(m); err != nil {

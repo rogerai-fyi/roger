@@ -151,3 +151,23 @@ func TestAMembersOwnStopIsSaidOnItsCard(t *testing.T) {
 	require.NotContains(t, edge.ModelLine(&store.EdgeModel{Band: "qwen3-4b", ID: "a/b:Q4", Ctx: 8192, Stopped: why}), "stopped on its own",
 		"a stop that has been served past is history, not the state")
 }
+
+// local_models.feature §5: "a machine serving two says what each of them is" - on its card too.
+func TestAMemberServingTwoSaysEach(t *testing.T) {
+	m := &store.EdgeModel{Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", Ctx: 8192,
+		Also: []store.EdgeServed{{Band: "older", ID: "x/older:Q4", Ctx: 4096}}}
+	line := edge.ModelLine(m)
+	require.Contains(t, line, `serving "older" (x/older:Q4, 4096 context) and "tiny" (acme/Tiny-GGUF:Q4_K_M, 8192 context)`)
+
+	esc := "\x1b[31m" + strings.Repeat("y", 300)
+	var many []store.EdgeServed
+	for i := 0; i < 20; i++ {
+		many = append(many, store.EdgeServed{Band: esc, ID: esc, Ctx: -5})
+	}
+	c := edge.CleanModel(&store.EdgeModel{Band: "a", Also: many})
+	require.Len(t, c.Also, edge.MaxAlso, "a member's list is bounded")
+	for _, s := range c.Also {
+		require.NotContains(t, s.Band+s.ID, "\x1b")
+		require.Zero(t, s.Ctx, "an impossible context is dropped")
+	}
+}

@@ -14,8 +14,11 @@
 # answer, and says so), the idle timeout (off by default; the runtime's own counters; the stop is
 # recorded and on the member's card), and the disk budget (none by default; least recently served
 # that roger fetched goes first, never one being served or placed by hand; said before the fetch).
-# NOT BUILT: "two at once", and "the terminal and the phone agree" (same formula, not cross-checked
-# against iOS).
+# Two at once: `serve --add` (TUI "a add beside", console "add beside") only when both fit together
+# - the runtime's check counts what is already on the air, roger's estimate adds the needs - else it
+# says so and offers the switch; one band answers with one model; each serve has its own record, row,
+# stop and line on the member's card. NOT BUILT: "the terminal and the phone agree" (same formula,
+# not cross-checked against iOS - needs the Mac).
 #
 # READ features/share/model_catalog.feature FIRST. That spec is APPROVED and it already owns most
 # of this ground: one list of detected and offerable models, fit assessed against real detected

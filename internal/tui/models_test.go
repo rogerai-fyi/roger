@@ -21,8 +21,10 @@ type modelsFake struct {
 	view    modelview.View
 	fetched []string
 	served  []string
+	added   []string
 	removed []string
 	stopped int
+	stopIDs []string
 }
 
 func (f *modelsFake) hooks() modelview.Hooks {
@@ -50,11 +52,19 @@ func (f *modelsFake) hooks() modelview.Hooks {
 				}}, nil
 		},
 		Fetch: func(repo, file string) error { f.fetched = append(f.fetched, repo+"|"+file); return nil },
-		Serve: func(id string, ctx int) (string, error) {
+		Serve: func(id string, ctx int, add bool) (string, error) {
+			if add {
+				f.added = append(f.added, id)
+				return "starting " + id + " beside", nil
+			}
 			f.served = append(f.served, id)
 			return "starting " + id, nil
 		},
-		Stop:   func() (string, error) { f.stopped++; return "stopped serving tiny.", nil },
+		Stop: func(id string) (string, error) {
+			f.stopped++
+			f.stopIDs = append(f.stopIDs, id)
+			return "stopped serving tiny.", nil
+		},
 		Remove: func(id string) (string, error) { f.removed = append(f.removed, id); return "removed " + id, nil },
 	}
 }
@@ -436,4 +446,39 @@ func modeOf(tm tea.Model) mode {
 		return v.mode
 	}
 	return -1
+}
+
+// local_models.feature §5 "two at once only when they really fit together": with one on the air, the
+// serve question offers adding beside it as well as switching, and a machine serving two shows both.
+func TestModelsASecondModelCanBeAddedBesideTheFirst(t *testing.T) {
+	f := &modelsFake{view: baseView()}
+	f.view.Serving = &modelview.Serving{Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", Quant: "Q4_K_M", Ctx: 8192, Since: time.Now()}
+	f.view.Models[0].Serving = true
+	m := modelsModel(t, f)
+	m, _ = press(t, m, "down", "enter")
+	out := screen(m)
+	if !strings.Contains(out, "a add beside") || !strings.Contains(out, "only if both fit together") {
+		t.Fatalf("adding beside is not offered with its condition:\n%s", out)
+	}
+	m, cmd := press(t, m, "a")
+	m = feed(t, m, cmd)
+	if len(f.added) != 1 || f.added[0] != "mine-Q8_0" || len(f.served) != 0 {
+		t.Fatalf("a did not add beside: added %v served %v", f.added, f.served)
+	}
+
+	f.view.Also = []modelview.Serving{{Band: "older", ID: "x/older:Q4", Quant: "Q4_K_M", Ctx: 4096, Since: time.Now().Add(-time.Hour)}}
+	m = feed(t, m, m.modelsLoad())
+	out = screen(m)
+	if !strings.Contains(out, "\"older\"") || !strings.Contains(out, "\"tiny\"") {
+		t.Errorf("a machine serving two does not say each:\n%s", out)
+	}
+	m, _ = press(t, m, "S")
+	if !strings.Contains(screen(m), "Stop serving all 2?") {
+		t.Fatalf("stopping with two on the air does not say it stops both:\n%s", screen(m))
+	}
+	m, cmd = press(t, m, "y")
+	_ = feed(t, m, cmd)
+	if len(f.stopIDs) != 1 || f.stopIDs[0] != "" {
+		t.Errorf("S with two should stop all: %v", f.stopIDs)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -405,7 +406,7 @@ func TestServingStartsTheRuntimeOnLoopbackWithAKeyAndRecordsIt(t *testing.T) {
 	require.NotEmpty(t, s.Key)
 
 	// The record holds the key, so only the owner may read it.
-	fi, err := os.Stat(h.servingPath())
+	fi, err := os.Stat(h.recordPath(s.Port))
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
 	live, ok := h.Live()
@@ -423,10 +424,10 @@ func TestServingStartsTheRuntimeOnLoopbackWithAKeyAndRecordsIt(t *testing.T) {
 		require.NotEqual(t, s.Key, a)
 	}
 
-	h.Release(os.Getpid())
+	h.Release(s)
 	_, ok = h.Live()
 	require.False(t, ok)
-	_, err = os.Stat(h.keyPath(os.Getpid()))
+	_, err = os.Stat(h.keyPath(s.Port))
 	require.True(t, os.IsNotExist(err), "the key file outlived the serving")
 }
 
@@ -444,9 +445,9 @@ func TestARecordLeftByARogerThatDiedIsNotBelieved(t *testing.T) {
 
 func TestAnOldSupervisorDoesNotEraseItsSuccessor(t *testing.T) {
 	h := Home{Dir: t.TempDir()}
-	require.NoError(t, h.writeServing(Serving{Supervisor: 2, Band: "new"}))
-	h.Release(1) // the old one leaving after a switch
-	b, err := os.ReadFile(h.servingPath())
+	require.NoError(t, h.writeServing(Serving{Supervisor: 2, Port: 2002, Band: "new"}))
+	h.Release(Serving{Supervisor: 1, Port: 2001}) // the old one leaving after a switch
+	b, err := os.ReadFile(h.recordPath(2002))
 	require.NoError(t, err)
 	require.Contains(t, string(b), `"new"`)
 }
@@ -458,8 +459,8 @@ func TestAModelThatFailsToStartLeavesNoRecordAndNoKey(t *testing.T) {
 	require.Error(t, err)
 	_, ok := h.Live()
 	require.False(t, ok)
-	_, err = os.Stat(h.keyPath(os.Getpid()))
-	require.True(t, os.IsNotExist(err))
+	keys, _ := filepath.Glob(filepath.Join(h.Dir, "serving-*.key"))
+	require.Empty(t, keys)
 }
 
 func TestThePromptCacheIsSizedToTheMachine(t *testing.T) {
@@ -503,4 +504,55 @@ func TestTwoFilesOfOneQuantNeverShareAnID(t *testing.T) {
 	got, err := h.Find(b.ID)
 	require.NoError(t, err)
 	require.Equal(t, "b/m-Q4_K_M.gguf", got.File)
+}
+
+// local_models.feature §5 "two at once only when they really fit together": each serve keeps its own
+// record, so two can be on the air and each is said in full.
+func TestTwoServesAreTwoRecordsAndEachIsSaid(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	defer func(f func(int) bool) { alive = f }(alive)
+	alive = func(int) bool { return true }
+	t0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	second := Serving{Supervisor: 11, Port: 3011, Band: "second", ID: "a/second:Q4", Started: t0.Add(time.Minute)}
+	require.NoError(t, h.writeServing(second))
+	require.NoError(t, h.writeServing(Serving{Supervisor: 10, Port: 3010, Band: "first", ID: "a/first:Q4", Started: t0}))
+
+	all := h.LiveAll()
+	require.Len(t, all, 2)
+	require.Equal(t, []string{"first", "second"}, []string{all[0].Band, all[1].Band}, "in the order they went on the air")
+	s, ok := h.Live()
+	require.True(t, ok)
+	require.Equal(t, "second", s.Band, "Live is the one that went on the air last")
+
+	h.Release(second)
+	all = h.LiveAll()
+	require.Len(t, all, 1)
+	require.Equal(t, "first", all[0].Band, "one leaving does not take the other with it")
+
+	// A record from a roger before this change is still read and still released.
+	b, _ := json.Marshal(Serving{Supervisor: 9, Band: "legacy", Started: t0.Add(-time.Hour)})
+	require.NoError(t, os.WriteFile(filepath.Join(h.Dir, "serving.json"), b, 0o600))
+	require.Len(t, h.LiveAll(), 2)
+	h.Release(Serving{Supervisor: 9})
+	require.Len(t, h.LiveAll(), 1)
+	_, err := os.Stat(filepath.Join(h.Dir, "serving.json"))
+	require.True(t, os.IsNotExist(err))
+
+	alive = func(pid int) bool { return pid != 10 }
+	require.Empty(t, h.LiveAll(), "a dead supervisor's record is not believed")
+}
+
+func TestWhetherAServeOrAModelIsStillOnTheAir(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	defer func(f func(int) bool) { alive = f }(alive)
+	alive = func(int) bool { return true }
+	a := Serving{Supervisor: 10, Port: 3010, Band: "a", ID: "x/a:Q4", File: "a.gguf"}
+	require.NoError(t, h.writeServing(a))
+	require.True(t, h.StillServing(a))
+	require.False(t, h.StillServing(Serving{Supervisor: 10, Port: 3099}))
+	s, ok := h.ServingModel(Model{ID: "x/a:Q4", File: "a.gguf"})
+	require.True(t, ok)
+	require.Equal(t, "a", s.Band)
+	_, ok = h.ServingModel(Model{ID: "x/b:Q4", File: "b.gguf"})
+	require.False(t, ok)
 }

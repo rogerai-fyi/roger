@@ -35,6 +35,23 @@ type modelsAsk struct {
 	title string
 	lines []string
 	do    func() tea.Cmd
+	// alt is a second yes with its own key, offered beside y (serving a second model beside the
+	// first, local_models.feature §5). Empty when there is only one yes.
+	altKey, altWord, yesWord string
+	alt                      func() tea.Cmd
+}
+
+// answers is the line of keys a question takes, said the same way wherever it is asked.
+func (a *modelsAsk) answers() string {
+	yes := "yes"
+	if a.yesWord != "" {
+		yes = a.yesWord
+	}
+	s := stKey.Render("y") + " " + yes + "   "
+	if a.alt != nil {
+		s += stKey.Render(a.altKey) + " " + a.altWord + "   "
+	}
+	return s + stKey.Render("any other key") + " no " + stDim.Render("(⏎ alone is no)")
 }
 
 type modelsState struct {
@@ -214,6 +231,9 @@ func (m *model) onModelsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "y" || key == "Y" {
 			return m, a.do()
 		}
+		if a.alt != nil && key == a.altKey {
+			return m, a.alt()
+		}
 		m.mdl.says = "nothing changed"
 		return m, nil
 	}
@@ -286,9 +306,14 @@ func (m *model) onModelsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "S":
 		if sv := m.mdl.view.Serving; sv != nil {
 			stop := m.hooks.Models.Stop
-			m.mdl.ask = &modelsAsk{title: "stop serving \"" + sv.Band + "\"?",
-				lines: []string{sv.ID + " · anything routed to it stops being answered"},
-				do:    func() tea.Cmd { return modelsDo(func() (string, error) { return stop() }) }}
+			title, lines := "stop serving \""+sv.Band+"\"?", []string{sv.ID + " · anything routed to it stops being answered"}
+			if n := len(m.mdl.view.Also) + 1; n > 1 {
+				title = fmt.Sprintf("stop serving all %d?", n)
+				lines = []string{"every model roger serves here stops; anything routed to them stops being answered",
+					"`roger model stop <name>` stops one"}
+			}
+			m.mdl.ask = &modelsAsk{title: title, lines: lines,
+				do: func() tea.Cmd { return modelsDo(func() (string, error) { return stop("") }) }}
 		}
 	case "x":
 		if m.mdl.pane == modelsDisk && m.mdl.sel < len(m.mdl.view.Models) {
@@ -407,12 +432,16 @@ func (m *model) modelsEnter() tea.Cmd {
 		}
 		serve, cur := m.hooks.Models.Serve, m.mdl.view.Serving
 		title, lines := "serve "+r.ID+"?", []string{"on the air as \"" + r.Band + "\", in the background: leaving this screen does not stop it"}
+		ask := &modelsAsk{title: title, lines: lines,
+			do: func() tea.Cmd { return modelsDo(func() (string, error) { return serve(r.ID, 0, false) }) }}
 		if cur != nil {
-			title = "switch to " + r.ID + "?"
-			lines = append(lines, "it is started and proven FIRST; only then is "+cur.ID+" stopped")
+			ask.title, ask.yesWord = "switch to "+r.ID+"?", "switch"
+			ask.lines = append(ask.lines, "y: it is started and proven FIRST; only then is "+cur.ID+" stopped",
+				"a: serve it beside "+cur.Band+" instead - only if both fit together; otherwise it says so and you can switch")
+			ask.altKey, ask.altWord = "a", "add beside"
+			ask.alt = func() tea.Cmd { return modelsDo(func() (string, error) { return serve(r.ID, 0, true) }) }
 		}
-		m.mdl.ask = &modelsAsk{title: title, lines: lines,
-			do: func() tea.Cmd { return modelsDo(func() (string, error) { return serve(r.ID, 0) }) }}
+		m.mdl.ask = ask
 	}
 	return nil
 }
@@ -465,13 +494,19 @@ func (m model) modelsView(w int) string {
 	}
 	line("  " + stDim.Render("THIS MACHINE  ") + machine)
 	line("  " + stDim.Render("RUNTIME       ") + v.Runtime)
-	if sv := v.Serving; sv != nil {
-		since := ""
-		if !sv.Since.IsZero() {
-			since = " · for " + modelsSecs(int64(time.Since(sv.Since)/time.Second))
+	if v.Serving != nil {
+		for i, sv := range append(append([]modelview.Serving{}, v.Also...), *v.Serving) {
+			since := ""
+			if !sv.Since.IsZero() {
+				since = " · for " + modelsSecs(int64(time.Since(sv.Since)/time.Second))
+			}
+			head := "▶ ON THE AIR  "
+			if i > 0 {
+				head = "  AND         "
+			}
+			line("  " + stLive.Render(head) + stKey.Render("\""+sv.Band+"\"") +
+				stDim.Render(fmt.Sprintf(" · %s · %s · %d context%s", sv.ID, modelsDash(sv.Quant), sv.Ctx, since)))
 		}
-		line("  " + stLive.Render("▶ ON THE AIR  ") + stKey.Render("\""+sv.Band+"\"") +
-			stDim.Render(fmt.Sprintf(" · %s · %s · %d context%s", sv.ID, modelsDash(sv.Quant), sv.Ctx, since)))
 	} else {
 		line("  " + stDim.Render("ON THE AIR    nothing - pick a model below and press ⏎"))
 	}
@@ -531,7 +566,7 @@ func (m model) modelsView(w int) string {
 		for _, l := range a.lines {
 			line("    " + l)
 		}
-		line("  " + stKey.Render("y") + " yes   " + stKey.Render("any other key") + " no " + stDim.Render("(⏎ alone is no)"))
+		line("  " + a.answers())
 	} else if s.says != "" {
 		line("  " + s.says)
 	}
@@ -649,6 +684,8 @@ func (m model) modelsRepoView(w int, line func(string)) {
 func (m model) modelsKeys() string {
 	s := m.mdl
 	switch {
+	case s.ask != nil && s.ask.alt != nil:
+		return "y " + s.ask.yesWord + " · " + s.ask.altKey + " " + s.ask.altWord + " · any other key no"
 	case s.ask != nil:
 		return "y yes · any other key no"
 	case s.typing:

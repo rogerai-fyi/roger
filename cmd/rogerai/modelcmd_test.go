@@ -645,6 +645,20 @@ func TestModelADetachedServeIsSettledInFrontOfTheOwnerThenHandedOff(t *testing.T
 		"the background is handed an exact id and every decision already made")
 	require.Contains(t, out, "keeps serving after this terminal closes")
 
+	// Added beside another in the background: the flag is handed on, and the result says beside what.
+	otherModel(t, r)
+	modelSpawn = func(args []string, logPath string) error {
+		got = args
+		b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Port: 7002, Band: "other", ID: "other-Q4_K_M",
+			File: "other-Q4_K_M.gguf", Ctx: 4096, BaseURL: "http://127.0.0.1:2/v1", Started: time.Now()})
+		return os.WriteFile(filepath.Join(r.home.Dir, "serving-7002.json"), b, 0o600)
+	}
+	out, err = r.run(t, "serve", "other", "--add", "-d")
+	require.NoError(t, err)
+	require.Contains(t, got, "--add")
+	require.Contains(t, out, `on the air locally beside tiny: "other"`)
+	require.NoError(t, os.Remove(filepath.Join(r.home.Dir, "serving-7002.json")))
+
 	// One that never comes on the air says so, with its own last words, and leaves the old one.
 	require.NoError(t, os.Remove(filepath.Join(r.home.Dir, "serving.json")))
 	modelDetachWait = 300 * time.Millisecond
@@ -786,4 +800,106 @@ func TestModelABudgetIsSetByTheOwnerAndAFetchSaysWhatItRemoves(t *testing.T) {
 	out, err = r.run(t, "budget", "off")
 	require.NoError(t, err)
 	require.Contains(t, out, "budget for models: none")
+}
+
+// otherModel places a second model by hand, under a band of its own.
+func otherModel(t *testing.T, r *modelRig) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(r.home.Models(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Models(), "other-Q4_K_M.gguf"), modelGGUF(100), 0o644))
+}
+
+// local_models.feature §5 "two at once only when they really fit together": --add serves a second
+// beside the first only if both fit by the same arithmetic, otherwise offers the switch; a machine
+// serving two says what each is, and stop can take either or both.
+func TestModelTwoAtOnceOnlyWhenTheyFitTogether(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	otherModel(t, r)
+
+	calls := 0
+	var inner, status, list string
+	var served []detect.Endpoint
+	modelUntilDone = func(context.Context) {
+		calls++
+		if calls == 1 {
+			_, err := r.run(t, "serve", "other", "--add")
+			require.NoError(t, err)
+			return
+		}
+		inner = r.out.String() // the added serve's own words, before the runs below reuse the buffer
+		require.Len(t, r.home.LiveAll(), 2, "both are on the air")
+		served = detect.Served()
+		now := edgeModelNow()
+		require.Equal(t, "other", now.Band, "the member's report: the latest")
+		require.Len(t, now.Also, 1)
+		require.Equal(t, "tiny", now.Also[0].Band, "and the one beside it")
+		status, _ = r.run(t, "status")
+		list, _ = r.run(t, "list")
+	}
+	_, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, inner, "beside tiny", "it says it is added, not switched")
+	require.NotContains(t, inner, "switched from")
+	require.Len(t, served, 2, "detection finds both, each with its own key")
+	require.NotEqual(t, served[0].Key, served[1].Key)
+	require.Contains(t, status, "serving 2 models")
+	require.Contains(t, status, `"tiny"`)
+	require.Contains(t, status, `"other"`)
+	require.Equal(t, 2, strings.Count(list, "▶ serving"), "the list marks each")
+
+	// They do not fit together on a smaller machine: the estimate (the runtime cannot be asked here)
+	// adds both needs, refuses, and offers the switch instead.
+	r = newModelRig(t, 4096)
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	otherModel(t, r)
+	calls = 0
+	var refused error
+	modelUntilDone = func(context.Context) {
+		calls++
+		if calls == 1 {
+			_, refused = r.run(t, "serve", "other", "--add")
+		}
+	}
+	_, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Error(t, refused)
+	require.Contains(t, refused.Error(), "do not fit together with tiny")
+	require.Contains(t, refused.Error(), "roger model serve other-Q4_K_M", "the switch is offered")
+	require.Equal(t, 1, calls, "nothing second was started")
+
+	// The same band twice would answer one name with two models: refused.
+	r = newModelRig(t, 16384)
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
+	require.NoError(t, err)
+	calls = 0
+	modelUntilDone = func(context.Context) {
+		calls++
+		if calls == 1 {
+			_, refused = r.run(t, "serve", "acme/Tiny-GGUF:Q8_0", "--add")
+		}
+	}
+	_, err = r.run(t, "serve", "acme/Tiny-GGUF:Q4_K_M")
+	require.NoError(t, err)
+	require.ErrorContains(t, refused, `"tiny" is already on the air`)
+}
+
+func TestModelStopTakesOneByNameOrAll(t *testing.T) {
+	r := newModelRig(t, 16384)
+	out, err := r.run(t, "stop", "nothing-here")
+	require.NoError(t, err)
+	require.Contains(t, out, "nothing is being served")
+	rec := func(port int, band, id string) {
+		b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Port: port, Band: band, ID: id, Started: time.Now()})
+		require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, fmt.Sprintf("serving-%d.json", port)), b, 0o600))
+	}
+	require.NoError(t, os.MkdirAll(r.home.Dir, 0o700))
+	rec(4001, "a", "x/a:Q4")
+	rec(4002, "b", "x/b:Q4")
+	_, err = r.run(t, "stop", "c")
+	require.ErrorContains(t, err, `"c" is not being served; serving: a, b`)
 }
