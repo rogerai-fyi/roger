@@ -36,7 +36,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
 | Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
-| Heading dash glue | `.nobr` (added by `build.mjs` glueDashes to h1-h6 and `.bc-row__title`: the word before " - " stays with the dash) | - | every page with a dashed heading |
+| Heading dash glue | `.nobr` (added by `scripts/glue-dashes.mjs` (run by `build.mjs`) to h1-h6 and `.bc-row__title`: the word before " - " stays with the dash) | - | every page with a dashed heading |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
 | Touch hit area | `--hit`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
@@ -301,7 +301,8 @@ needle is laid out against its gutter). Keep the `toc-tuner__st` class on each l
 classless link in an `<li>` gets the site's in-prose underline. CSS alone moves the needle
 and the readout to the pointed or focused station; `tuner.js` adds roving focus (one tab
 stop, arrows, Home/End) and rests the needle on the section in view
-(`aria-current="location"`). The resting station keeps a red major tick while you point
+(`aria-current="location"`), re-read whenever a scroll settles (a jump from the foot of the page
+back to the top lands on the first station). The resting station keeps a red major tick while you point
 elsewhere ("you are here"); a name comes into tune as it shows (its blur clears and its
 tracking closes up; opacity flips at once). Never pinned. Drag and tap to tune (`tuner.js`): the scale strip (ticks, needle, numerals)
 is the drag zone, `touch-action: none`, at least 56px tall on touch with a heavier needle
@@ -540,6 +541,15 @@ behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1
 - **Text and links.** Text never uses `--ink-300`. A link in running text needs more than
   its colour: a classless `<a>` in a `<p>` or `<li>` gets the hairline from base.css; one
   set straight in other text takes `class="tlink"`.
+- **Focus.** One keyboard ring: `--focus-ring` (2px `--live`) at `--focus-offset`, set on every
+  control by base.css's zero-specificity `:where(:focus-visible)`. A component may move the ring
+  (inside a frame, onto a child) or, for a text field, draw the red edge instead (`--live` border +
+  a 1px inset `--live` shadow); never a soft halo (`--live-glow`, `--volt-glow`, `--live-wash`),
+  and never a colour change alone (`test/qa-polish4.test.mjs`).
+- **Motion.** An interaction transition (hover, press, open, select) takes its time from the
+  `--d-1`..`--d-5` scale (120 to 820ms), which reduced motion sets to 0. Hover and colour changes
+  are `--d-2`; a few named motions keep their own approved timing (the tuner's needle spring,
+  hint and station names, the nav's App word), listed in the same test.
 - **Roles.** A widget with controls inside is a named `role="group"`, never `role="img"`
   (that hides its buttons), and never sits under `aria-hidden`. Headings go down one level
   at a time inside `<main>`.

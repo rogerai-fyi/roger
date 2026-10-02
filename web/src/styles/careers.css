@@ -64,5 +64,6 @@
   .role-list { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
+  .role__meta { column-gap: var(--s-6); }
   .role__meta span + span { padding-left: 0; border-left: 0; }
 }
