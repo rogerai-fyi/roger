@@ -189,7 +189,7 @@ func edgeRecordMaintenance(callerID, callerName string, task edge.MaintainTask, 
 	}
 	who := callerName
 	if who == "" {
-		who = edgeShortID(callerID)
+		who = edgeDisplayName(callerID)
 	}
 	detail := fmt.Sprintf("%s %s, asked by %s", task.Action, task.Target, who)
 	if task.Target == "" {
@@ -225,8 +225,8 @@ func mustTaskJSON(t edge.MaintainTask) json.RawMessage {
 	return b
 }
 
-// edgeNameOfNode is a member's owner-given name, for saying WHO asked; the short id when the fleet
-// cannot be read or the caller is not a member of record.
+// edgeNameOfNode is a member's owner-given name, for saying WHO asked; "" when the owner never named
+// it (or the fleet cannot be read), and the caller then says it with edgeDisplayName.
 func edgeNameOfNode(id string) string {
 	if id == "" {
 		return ""
@@ -246,11 +246,11 @@ func edgeNameOfNode(id string) string {
 func edgeDisplayName(id string) string {
 	st, err := loadEdgeState()
 	if err != nil {
-		return edgeShortID(id)
+		return edgeGoneUnit
 	}
 	nodes, err := st.list()
 	if err != nil {
-		return edgeShortID(id)
+		return edgeGoneUnit
 	}
 	for _, n := range nodes {
 		if n.ID != id {
@@ -261,7 +261,7 @@ func edgeDisplayName(id string) string {
 		}
 		return edge.UnitName(n, nodes)
 	}
-	return edgeShortID(id)
+	return edgeGoneUnit
 }
 
 // edgeMaintainableNodes is the members that declare maintain, for the surfaces that say so.

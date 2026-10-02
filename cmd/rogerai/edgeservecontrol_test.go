@@ -431,7 +431,7 @@ func TestASentenceNamesAUnitNeverByItsID(t *testing.T) {
 	edgeStationName = func() string { return "house-or" }
 	require.Equal(t, "house-or", edgeDisplayName(self))
 	require.Equal(t, "phone", edgeDisplayName(unnamed))
-	require.Equal(t, edgeShortID("n_nowhere"), edgeDisplayName("n_nowhere"))
+	require.Equal(t, edgeGoneUnit, edgeDisplayName("n_nowhere"), "a unit not on the Edge is said so, never by an id")
 }
 
 func TestTheTimelineCallsThisMachineByItsOwnLabel(t *testing.T) {
