@@ -114,6 +114,10 @@ type attemptCand struct {
 	// cap buys less at this station's prices). Nothing else in the body differs.
 	model string
 	body  []byte
+	// edge is set when the candidate is a Tower routable row (contract §6): the attempt is
+	// bridged through the Tower's sealed hub instead of dispatched to a tunnel (t is nil, and
+	// node carries only the Tower id so the plan's bookkeeping names it).
+	edge *edgeCand
 }
 
 // holdCostFor is the upper-bound cost of a request on one candidate, at the price the
@@ -474,14 +478,21 @@ func (b *broker) routingLive() map[string]any {
 	b.metricsMu.Unlock()
 	sort.Slice(stations, func(i, j int) bool { return stations[i]["node"].(string) < stations[j]["node"].(string) })
 	sort.Slice(loaded, func(i, j int) bool { return loaded[i]["node"].(string) < loaded[j]["node"].(string) })
-	return map[string]any{
-		"relay_failovers":   b.stats.relayFailovers.Load(),
-		"model_fallbacks":   b.stats.modelFallbacks.Load(),
-		"station_cooldowns": b.stats.stationCooldowns.Load(),
-		"band_cooling_503":  b.stats.bandCooling503.Load(),
-		"stations":          stations,
-		"loaded":            loaded,
+	out := map[string]any{
+		"relay_failovers":      b.stats.relayFailovers.Load(),
+		"model_fallbacks":      b.stats.modelFallbacks.Load(),
+		"station_cooldowns":    b.stats.stationCooldowns.Load(),
+		"band_cooling_503":     b.stats.bandCooling503.Load(),
+		"stations":             stations,
+		"loaded":               loaded,
+		"edge_bridge_declined": b.stats.edgeDeclinedSnapshot(),
 	}
+	// An id that names both a direct node and a Tower is matched in its own namespace on each
+	// side (contract §5); the operator is told once, here, which ids those are.
+	if ids := b.stats.collisionsSnapshot(); len(ids) > 0 {
+		out["namespace_warning"] = fmt.Sprintf("id collision: %v name both a direct node and a Tower; each is matched in its own namespace", ids)
+	}
+	return out
 }
 
 // checkCoolingAlerts pages the founder ONCE when a station has been cooling for more than

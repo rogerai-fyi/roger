@@ -254,8 +254,12 @@ limit counts bare ids after de-dup of suffixed spellings.
   `quantizations: [<chosen>..., "unknown"]`, so the approved unit test keeps its meaning.
   `CanonicalQuant` is not a closed set, so an unrecognized requested label is a valid request
   that matches nothing (503 `no_match`), not a 400.
-- Node ids and Tower relay ids are distinct namespaces; each `only`/`order`/`ignore` entry is
-  matched in both independently (a collision is logged once on /admin/live, never a 400).
+- Node ids and Tower ids are distinct namespaces. `only`, `order` and a pin match a Tower by its
+  TOWER id only (a row's node id is what the Tower published for the machine behind it, so
+  matching it would let a Tower pose as a direct station the consumer named); `ignore` and
+  `X-Roger-Exclude-Nodes`, the narrowing direction, match both the Tower id and that node id.
+  An id that names both a direct node and a Tower is matched in its own namespace on each side,
+  and /admin/live warns once (`namespace_warning`), never a 400.
 - Capability gating (`roger.require`, `provider.require_parameters`, and the implicit rule):
   - explicit `require` values come from `protocol.knownCapabilities` (`tools`, `vision` today);
     anything else → 400.
@@ -548,3 +552,19 @@ Added during the spec pass (each is pinned by scenarios; flip the scenario if yo
     the approved `features/proxy/models.feature` and is left for a separate re-ruling (§8).
 17. A defect-6 consequence: the TUI quant rule's "unlabeled passes" is preserved via `unknown`,
     so `TestAbsenceIsReadDifferentlyByRowAndRule` keeps its meaning.
+
+Slice 1 part C (2026-10-01):
+18. Tower rows are candidates IN the plan: ranked by the consumer's order (a Tower id ranks
+    where it was named), by a strict sort across both fabrics (direct first on a tie), else by
+    the tier gate across fabrics, and when the two heads tie on tier by the fan-out coin,
+    consulted once per request for the head model and counted on /admin/live
+    (`edge_coin_flips`). The request's one hold covers the priciest pair including a Tower pair
+    and follows a bridged attempt by rekey to the attempt id the Tower's settlement captures.
+19. `only` / `order` / pin match the Tower id only; `ignore` matches both ids (above).
+20. A bridged attempt's failure is a failover trigger like a direct one (the plan continues);
+    a Tower station's own 429 surfaces with its Retry-After when the bridge is the last word.
+21. Tower rows a consumer constraint declined are counted once per request and constraint
+    (`edge_bridge_declined{<constraint>}`) and logged once per constraint and Tower, naming
+    the request, never a band code.
+22. The bridged receipt carries the broker signature only; a Tower-key node signature needs a
+    hub-side protocol change (tagged `@later`).

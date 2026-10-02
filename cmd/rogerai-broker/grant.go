@@ -151,6 +151,10 @@ type streamBill struct {
 	consumer string
 	model    string
 	grantID  string
+	// pubHex is the verified consumer pubkey and req the request, both for a bridged attempt
+	// in the plan (the receipt's pseudonym; the traffic-origin record).
+	pubHex string
+	req    *http.Request
 	// screening is the off-path screening job for this request (nil when nothing was
 	// queued); each streaming attempt names its station on it so an after-the-fact flag
 	// records the station that served, not the first pick.

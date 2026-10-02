@@ -196,7 +196,7 @@ type edgeOutcome struct {
 // the attempt, seal, submit, open, acknowledge. It returns the opened answer and the grant on
 // success; otherwise the outcome. It never writes to the consumer - callers decide what the
 // consumer sees (serve, fall back, or surface the Tower's own status).
-func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.Station, model string, body []byte, consumerWallet string, hold edgeHold, soft bool) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
+func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.Station, model string, body []byte, consumerWallet string, hold edgeHold, soft bool, deadline time.Time) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
 	ts := b.tower
 	var none dispatch.EdgeGrant
 	// The projection is not a security boundary: the price is re-checked against the
@@ -290,7 +290,7 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 	// view's demand map. Attributed to the attempt being routed (idempotent), so a retry
 	// does not double-count; a failed drive still counts as demand from that country,
 	// which is exactly the signal an operator watching for an anomaly wants to see.
-	if ts.origin != nil {
+	if ts.origin != nil && r != nil {
 		if oerr := ts.origin.Record(target.TowerID, g.AttemptID, clientCountry(r), time.Now()); oerr != nil {
 			log.Printf("edge bridge: could not record traffic origin for tower %s attempt %s: %v",
 				target.TowerID, g.AttemptID, oerr)
@@ -300,6 +300,13 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 	driveTimeout := edgeBridgeTimeout
 	if soft {
 		driveTimeout = edgeBridgeSoftTimeout // a direct node waits behind this; do not stall on a dead Tower
+	}
+	// The request's own deadline bounds a planned attempt: a bridged try never extends the
+	// consumer's wait past the window a direct one is allowed.
+	if !deadline.IsZero() {
+		if left := time.Until(deadline); left < driveTimeout {
+			driveTimeout = left
+		}
 	}
 	answer, outcome, failure := b.driveSealedF(g, target, row.Endpoint, row.TLSSPKI, consumerKey, envPriv,
 		sealedDrive{tag: "bridge", body: unstreamed, timeout: driveTimeout, usageIn: int64(len(unstreamed))})
@@ -361,6 +368,19 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 	if ts == nil || ts.dispatch == nil {
 		return false
 	}
+	// A single-shot caller states its pin and price caps on the auth itself (the relay's
+	// plan states them on the constraints); fold them in so the row is judged under both.
+	c := auth.edgeConstraints
+	if c.pin == "" {
+		c.pin = auth.pinNode
+	}
+	if c.maxPriceIn == 0 {
+		c.maxPriceIn = auth.maxPriceIn
+	}
+	if c.maxPriceOut == 0 {
+		c.maxPriceOut = auth.maxPriceOut
+	}
+	auth.edgeConstraints = c
 	// A cheap eligibility probe before any consumer gating: if no eligible Tower hosts the
 	// model there is nothing to say, and the caller's "no node offers" stays the answer.
 	if _, _, ok := b.edgeTargetForC(model, rng, nil, auth.edgeConstraints); !ok {
@@ -385,7 +405,7 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		if !ok {
 			break
 		}
-		answer, g, out := b.edgeAttempt(r, target, row, model, body, consumerWallet, edgeHold{}, soft)
+		answer, g, out := b.edgeAttempt(r, target, row, model, body, consumerWallet, edgeHold{}, soft, time.Time{})
 		if len(answer) > 0 {
 			b.writeBridgedAnswer(w, g, row, auth.pubHex, answer, stream)
 			return true

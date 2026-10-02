@@ -2287,6 +2287,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("routing request=%s model=%s strict=%s sort=%s pref=%s max_in=%g max_out=%g min_tps=%g reward_out=%g pick=%s",
 		requestID, req.Model, strictWhy, routeSort, routePref, maxPrice, maxPriceOut, minTPS, maxPriceOut, picked)
+	// The per-request tally of Tower rows a consumer constraint declined (counters + one log
+	// line per constraint and Tower, flushed when the request ends).
+	declined := map[string]map[string]bool{}
+	defer b.flushEdgeDeclines(requestID, declined)
 	bridgeAuthFor := func(rr pickReq, freeOrSelf bool) edgeBridgeAuth {
 		a := edgeBridgeAuth{
 			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
@@ -2309,24 +2313,76 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		a.edgeConstraints.selfHostedOnly, a.edgeConstraints.freeOnly, a.edgeConstraints.freeFor = rr.selfHostedOnly, rr.freeOnly, rr.freeFor
 		a.edgeConstraints.sort, a.edgeConstraints.maxPriceIn, a.edgeConstraints.maxPriceOut, a.edgeConstraints.capReq = routeSort, maxPrice, maxPriceOut, capReq
 		a.edgeConstraints.allow, a.edgeConstraints.pin = stringSet(routing.Only), pinNode
-		if len(orderList) > 0 || noFallbacks {
-			a.edgeConstraints.allow = map[string]bool{}
+		if noFallbacks && len(orderList) > 0 {
+			// "never leave the list": a Tower named in the order is admitted, no other Tower is.
+			a.edgeConstraints.allow = bandAllow(a.edgeConstraints.allow, stringSet(orderList))
 		}
+		a.edgeConstraints.declined = declined
 		return a
 	}
-	// BOTH FABRICS MAY SERVE. When a direct node was picked and the edge also hosts the
-	// model, a request-seeded coin sends half the traffic through the bridge - neither
-	// tier is silently preferred, and Towers earn on models the direct fleet also serves.
-	// SOFT mode: every bridge gate falls back to the direct node already picked, so this
-	// coin can only ever change who serves, never whether the consumer is served.
-	// A strict sort is the consumer declining the spread: the sorted head serves, the coin is
-	// not flipped (the bridge stays the fallback below when no direct station exists).
-	if ok && routeSort == sortNone && seededRand(requestID).Intn(2) == 0 {
-		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true, bridgeAuthFor(routeReq, edgePricing.free)) {
-			return
-		}
+	// TOWER CANDIDATES (contract §6). The edge fabric joins the PLAN rather than a side door:
+	// for a caller the bridge may bill at all (an account; never a grant, a browser session, a
+	// confidential-only, band or $0 relay), each listed model's Tower rows are placed under
+	// that model's constraints and become candidates ranked with the direct ones below -
+	// by the consumer's order, by a strict sort, by the tier gate, and when two heads tie on
+	// tier by the fan-out coin (consulted once, for the head model). A self-use pick stays
+	// direct and $0; a pin to a direct station plans no Tower.
+	towerCands := map[string][]attemptCand{}
+	edgePayer := "" // the account wallet a bridged attempt bills ("" = the bridge may not bill this caller)
+	modelList := make([]string, len(cands))
+	for i, m := range cands {
+		modelList[i] = m.bare
 	}
-	if !ok {
+	if b.tower != nil && b.tower.dispatch != nil {
+		pinnedDirect := false
+		if pinNode != "" {
+			b.mu.Lock()
+			_, pinnedDirect = b.nodes[pinNode]
+			b.mu.Unlock()
+		}
+		edgeWallet, edgeOK, _ := b.edgeCallerFor(bridgeAuthFor(routeReq, ok && edgePricing.free))
+		if edgeOK && !(ok && edgePricing.free) && !pinnedDirect {
+			perModelTowers := edgeBridgeMaxTowers
+			if noFallbacks {
+				perModelTowers = 1
+			}
+			firstIdx := pkAt
+			if firstIdx < 0 {
+				firstIdx = 0
+			}
+			for mi := firstIdx; mi < len(cands); mi++ {
+				// picks stops at the first model with a direct pick; later models are placed
+				// under their own pickReq (a self-use pick, which stays direct, is only ever
+				// the head).
+				m := cands[mi].bare
+				rr := rrFor(cands[mi])
+				if mi < len(picks) {
+					if p := picks[mi]; p.ok && p.pricing.free {
+						continue
+					} else {
+						rr = p.rr
+					}
+				}
+				auth := bridgeAuthFor(rr, false)
+				for _, e := range b.edgePlanCands(m, seededRand(requestID), auth.edgeConstraints, perModelTowers, edgeWallet, auth.pubHex) {
+					towerCands[m] = append(towerCands[m], b.edgePlanCand(m, e, bodyOf(m), capReq, time.Now()))
+				}
+			}
+		}
+		if !edgeOK {
+			edgeWallet = ""
+		}
+		edgePayer = edgeWallet
+	}
+	if len(orderList) > 0 || routing.Only != nil || pinNode != "" {
+		ids := append(append([]string(nil), orderList...), routing.Only...)
+		if pinNode != "" {
+			ids = append(ids, pinNode)
+		}
+		b.noteIDCollisions(ids, modelList)
+	}
+	haveTowers := len(towerCands) > 0
+	if !ok && !haveTowers {
 		// NO DIRECT NODE - but the EDGE fabric may serve a listed model. The bridge drives the
 		// sealed loop (authorize -> submit to the tower's hub -> open -> ack) as the
 		// consumer's agent, with tower-to-tower fallback inside it; only when the edge has
@@ -2457,6 +2513,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// resolved account wallet. (A pick the caller has no account to pay for never gets
 	// here: the list walk above passes it over and answers the login 401.)
 	pricing := edgePricing
+	if !ok {
+		// A Tower-only head: the bridge bills the account wallet at the row's price.
+		pricing = pricingPlan{payer: edgePayer}
+	}
 	payer := pricing.payer
 	grantID := ""
 	if gok {
@@ -2474,7 +2534,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// no paid station for a not-logged-in keypair, and a free (no-hold) relay only fails over
 	// to free stations. Planning up front is what lets the consumer's ONE hold be sized for
 	// the priciest pair that could be tried.
-	plan := []attemptCand{candFor(req.Model, node, offer, t, pricing, now)}
+	var plan []attemptCand
+	if ok {
+		plan = append(plan, candFor(req.Model, node, offer, t, pricing, now))
+	}
 	// provider.allow_fallbacks:false governs STATION failover only: with no order it is one
 	// station per model (the model list is still walked); with an order it means "never leave
 	// the list" (the listed nodes are still walked in order).
@@ -2486,15 +2549,22 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if noFallbacks && !listBound {
 			perModel = 1
 		}
-		tried := map[string]bool{node.NodeID: true}
+		tried := map[string]bool{}
+		if ok {
+			tried[node.NodeID] = true
+		}
 		for k := range exclude {
 			tried[k] = true
 		}
 		failAllow := bandAllow(allow, privateAllow)
-		for mi := pkAt; mi < len(cands); mi++ {
+		firstIdx := pkAt
+		if firstIdx < 0 {
+			firstIdx = 0
+		}
+		for mi := firstIdx; mi < len(cands); mi++ {
 			m := cands[mi]
 			rr, n := rrFor(m), 0
-			if mi == pkAt {
+			if ok && mi == pkAt {
 				rr, n = routeReq, 1
 			}
 			// The ordered portion first (strict priority), then the remainder by score.
@@ -2530,7 +2600,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				c := candFor(m.bare, cn, co, nt, p, now)
-				if plan[0].maxCost == 0 && c.maxCost > 0 {
+				if len(plan) > 0 && plan[0].maxCost == 0 && c.maxCost > 0 {
 					continue // a free relay places no hold, so only a free station can follow it
 				}
 				plan = append(plan, c)
@@ -2538,6 +2608,26 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// The Tower candidates take their places in the plan (contract §6). A free head plans no
+	// paid pair, so a self-use or free relay never gains a Tower follower.
+	if haveTowers && (len(plan) == 0 || plan[0].maxCost > 0) {
+		headModel := ""
+		if ok {
+			headModel = pk.m.bare
+		}
+		plan = b.mergeEdgePlan(plan, modelList, edgeMerge{
+			order: orderList, sort: routeSort, onePerModel: noFallbacks && !listBound, headModel: headModel,
+			coinEdge: func() bool { b.stats.edgeCoinFlips.Add(1); return seededRand(requestID).Intn(2) == 0 },
+			towers:   towerCands,
+		}, now)
+	}
+	if len(plan) == 0 {
+		w.Header().Set("X-RogerAI-Cost", "0")
+		jsonErrCode(w, http.StatusServiceUnavailable, "no_match", "no node offers "+modelNames(cands))
+		return
+	}
+	// The head names the request's model and body (a Tower head too).
+	req.Model, body = plan[0].model, plan[0].body
 
 	// Pre-authorize an upper-bound cost (a "hold") BEFORE doing any work, so
 	// concurrent requests can never drive a wallet negative (free inference). The
@@ -2608,7 +2698,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	plan = trimPlan(plan, maxCost)
 
 	if req.Stream {
-		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands)}, requestID, body, maxCost)
+		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
+			pubHex: r.Header.Get(protocol.HeaderPubkey), req: r}, requestID, body, maxCost)
 		return
 	}
 
@@ -2634,6 +2725,47 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// The after-the-fact flag names the station this attempt dispatches to - set per
 		// attempt, so after a failover it is the station that served, not the first pick.
 		screening.setNode(node.NodeID) // nil-safe
+		if c.edge != nil {
+			// A BRIDGED ATTEMPT (contract §6): the request's one hold follows it (rekeyed to the
+			// attempt id the Tower's settlement captures); a Tower failure is a failover trigger
+			// like a direct one, and the plan continues; a bridge gate (rate, slot, balance) moves
+			// to the next candidate or stands as the answer.
+			answer, g, out := b.planEdgeAttempt(r, c, payer, &holdKey, maxCost, i+1 < len(plan), deadline)
+			if len(answer) > 0 {
+				b.writeBridgedAnswer(w, g, c.edge.row, c.edge.pubHex, answer, false)
+				settled = true // the hold rides the attempt id the Tower's settlement captures
+				return
+			}
+			if out.refusal != nil {
+				if next := b.nextLive(plan, i, "", deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
+					i = next - 1
+					continue
+				}
+				out.refusal.write(w)
+				return
+			}
+			// A Tower that answered with a status is a failover trigger like a direct one; a
+			// Tower that did not answer at all (dead plane, no mint) is a generic failure.
+			status := out.status
+			if status == 0 {
+				status = http.StatusBadGateway
+			}
+			b.voidEdgeAttempt(payer, user, c, g, status)
+			if next := b.nextAttempt(plan, i, status, deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
+				log.Printf("FAILOVER request=%s from=%s (%s) to=%s", requestID, c.node.NodeID, voidReasonFor(status), plan[next].node.NodeID)
+				b.countFailover(plan, i, next)
+				i = next - 1
+				continue
+			}
+			if out.status == 0 {
+				// Nothing answered: the honest refusal, as when no eligible Tower existed.
+				w.Header().Set("X-RogerAI-Cost", "0")
+				jsonErrCode(w, http.StatusServiceUnavailable, "no_match", "no node offers "+modelNames(cands))
+				return
+			}
+			writeTowerFailure(w, edgeOutcome{status: status, retryAfter: out.retryAfter})
+			return
+		}
 		jobID := attemptID(requestID, i+1)
 		// The provider never sees the real user identity - only a pseudonym that is
 		// stable per (user, node) so the owner can count repeat customers but cannot
@@ -3258,6 +3390,44 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 		abody := body
 		if c.model != "" {
 			bill.model, abody = c.model, c.body
+		}
+		if c.edge != nil {
+			// A bridged attempt on the streaming path: the hub answers whole, so a served answer
+			// goes out as one delta frame, the broker's usage chunk and [DONE] through the same
+			// lazy SSE writer (headers the bridge sets are committed with the first frame).
+			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, i+1 < len(plan), time.Time{})
+			if len(answer) > 0 {
+				rec, cost := b.bridgedReceipt(g, c.edge.row, c.edge.pubHex, answer)
+				lw.begin(g.RelayName)
+				lw.setModel(g.Model)
+				setBridgedHeaders(lw.Header(), g, rec, cost)
+				_, _ = lw.Write([]byte("data: " + string(bridgedDeltaChunk(answer, rec)) + "\n\n"))
+				lw.finish(bridgedUsageChunk(g, rec, cost), "rogerai-cost="+fmtCostHeader(cost))
+				settled = true
+				return
+			}
+			status, retry := http.StatusBadGateway, 0
+			if out.refusal != nil {
+				status = out.refusal.status
+				retry, _ = strconv.Atoi(out.refusal.retryAfter)
+			} else {
+				if out.status > 0 {
+					status, retry = out.status, out.retryAfter
+				}
+				b.voidEdgeAttempt(bill.user, bill.consumer, c, g, status)
+			}
+			res := protocol.JobResult{Status: status, Body: towerFailureBody(status), RetryAfterSec: retry}
+			if next := b.nextAfterVoid(plan, i, voidReasonOf(res), status, time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, attemptID(requestID, next+1), maxCost) {
+				log.Printf("FAILOVER request=%s from=%s (%s) to=%s", requestID, c.node.NodeID, voidReasonOf(res), plan[next].node.NodeID)
+				b.countFailover(plan, i, next)
+				i = next - 1
+				continue
+			}
+			if out.refusal == nil && out.status == 0 {
+				status, res.Body = http.StatusServiceUnavailable, []byte(`{"error":{"code":"no_match","message":"no node offers `+c.model+`"}}`)
+			}
+			lw.fail(status, res.Body, retry)
+			return
 		}
 		res, voided := b.streamAttempt(lw, c, bill, attemptID(requestID, i+1), abody, maxCost, &settled)
 		if !voided {

@@ -2312,7 +2312,7 @@ var mf1RelayWhens = []string{
 	`a consumer relays with "stream": true across ["a", "b"]`,
 	`a consumer relays with "stream": true, "model": "a" and "models": ["b"]`,
 	`a consumer relays with X-Roger-Exclude-Nodes "s1" across ["a", "b"]`,
-	`a consumer relays with X-Roger-Node "a1" and "models": ["b"]`,
+	`a consumer relays with X-Roger-Node "a1", "model": "a" and "models": ["b"]`,
 	`a consumer relays with X-Roger-Node "s1", "model": "a" and "models": ["b"]`,
 	`a consumer relays with a large max_tokens across ["a", "b"]`,
 	`a consumer relays with all five models`,
@@ -2569,7 +2569,24 @@ func mf1Thens() []mf1Step {
 			return nil
 		}),
 		T(`exactly two attempts were made, "a1" then "b1"`, aArrivals("a1", "b1")),
-		T(`the plan is ["f1", "f2"] and "p1" is never tried`, aArrivals("f1", "f2"), aNothing("p1")),
+		T(`the plan is ["f1", "p1"] and "f2" is never tried`, aArrivals("f1", "p1"), aNothing("f2")),
+		T(`the response is 200 from "p1" and the hold covered "p1"`, aFrom("p1"), aHoldEquals("p1")),
+		T(`the finished attempt on "a1" settles: one spend row, the hold captured for it and the remainder released`, aLedger(1, 1, 1), aSettled("a1")),
+		T(`"a1"'s receipt is settled, billed on the recounted tokens`, func(s *mf1State) error {
+			vr, rec, err := s.voidReason("a1")
+			if err != nil {
+				return err
+			}
+			if vr != "" {
+				return fmt.Errorf("a1's receipt is voided (%s); a reply that claims tokens is usable output", vr)
+			}
+			// The node claimed 3 or 40 completion tokens over whitespace/empty text; the broker
+			// bills min(claim, recount), so the settled count never exceeds the claim.
+			if rec.CompletionTokens > 40 {
+				return fmt.Errorf("settled completion tokens %d exceed the node's claim", rec.CompletionTokens)
+			}
+			return nil
+		}),
 		T(`exactly one station is in flight at any moment for this request`, func(s *mf1State) error {
 			s.mmu.Lock()
 			max, n := s.maxInflight, len(s.arrivals)
@@ -2626,6 +2643,7 @@ func mf1Thens() []mf1Step {
 		T(`the request is served by "s1"`, aFrom("s1")),
 		T(`the request is served by "s1" exactly as a single-model request`, aFrom("s1"), aBodyIsCompletion(), aXModel("a"), aLedger(1, 1, 1)),
 		T(`the request is served for "a" on O's node`, aFrom("o1"), aBodyModel("o1", "a"), aXModel("a")),
+		T(`the response is 200 from "a1" with X-RogerAI-Model "a"`, aFrom("a1"), aXModel("a")),
 		T(`the response is 200 from "a2" with X-RogerAI-Model "a"`, aFrom("a2"), aXModel("a")),
 		T(`the response is 200 from "b1" with X-RogerAI-Model "b"`, aFrom("b1"), aXModel("b")),
 		T(`the response is 200 from "c1" with X-RogerAI-Model "c"`, aFrom("c1"), aXModel("c")),
@@ -2634,7 +2652,6 @@ func mf1Thens() []mf1Step {
 		T(`the response is 200 from "s1" with X-RogerAI-Model "b"`, aFrom("s1"), aXModel("b")),
 		T(`the response is 200 from "b1" with no Retry-After`, aFrom("b1"), aNoHdr("Retry-After")),
 		T(`the response is 200 from "f1" with X-RogerAI-Cost "0"`, aFrom("f1"), aHdr("X-RogerAI-Cost", "0")),
-		T(`the response is 200 from "f2" and no hold was placed`, aFrom("f2"), aNoHold()),
 		T(`the response is 200 from "mine" with X-RogerAI-Cost "0" and the hold is returned`, aFrom("mine"), aHdr("X-RogerAI-Cost", "0"), aHoldReleased()),
 		T(`the response is 200 from "mine" at $0 and the Tower received nothing`, aFrom("mine"), aHdr("X-RogerAI-Cost", "0"), func(s *mf1State) error {
 			if n := len(s.towerGot()); n != 0 {

@@ -2629,8 +2629,12 @@ func (s *eb1State) eb1HoldCovers(out float64) error {
 	if len(holds) != 1 {
 		return fmt.Errorf("%d hold(s) were placed (%v), want exactly one covering the priciest pair (response %d %.200s)", len(holds), holds, s.lastCode, s.lastBody)
 	}
+	// The plan sizes a pair's hold over the body it DISPATCHES (the routing carriers stripped,
+	// `model` set to the pair's id), which is a few bytes shorter than what the consumer sent;
+	// the prompt side of estimateMaxCost is a byte over-estimate, so the step's own figure over
+	// the sent body runs a hair high. Covering 4/1M means matching that figure to 0.01 %.
 	want := estimateMaxCost(s.sent, 0.10, out, 32768)
-	if holds[0]+1e-12 < want {
+	if holds[0] < want*(1-1e-4) {
 		return fmt.Errorf("the hold is $%g, which does not cover %g/1M (that needs $%g)", holds[0], out, want)
 	}
 	return nil
@@ -2821,6 +2825,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 			sc.Step(`^the node behind "([^"]+)" never passed a tool-call canary and "([^"]+)" did$`, st.eb1TowerNoCanaryDirectDid)
 			sc.Step(`^the node behind "([^"]+)" passed a tool-call canary and "([^"]+)" did not$`, st.eb1TowerCanaryDirectNot)
 			sc.Step(`^"([^"]+)" declares "tools" but its node never passed a canary, and "([^"]+)" passed$`, st.eb1TowerDeclaresToolsUnverified)
+			sc.Step(`^the node behind "([^"]+)" has a verified tools verdict$`, func(name string) error { return st.eb1Canary(name, true) })
 			sc.Step(`^"([^"]+)" does not declare "vision" and "([^"]+)" does$`, st.eb1VisionOnlyDirect)
 			sc.Step(`^"([^"]+)" declares "vision" and "([^"]+)" does not$`, st.eb1VisionOnlyTower)
 			sc.Step(`^neither "([^"]+)" nor "([^"]+)" has "([^"]+)"$`, st.eb1VisionNeither)

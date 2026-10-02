@@ -561,6 +561,8 @@ Feature: The bridge honors every consumer constraint the direct path honors
   # ============================================================================
 
   Scenario: the carriers are stripped before the Tower's hub sees the sealed body
+    # corrected 2026-10-02 (fixture): the request requires tools, so the Tower's node must hold a verified tools verdict
+    Given the node behind "t1-a" has a verified tools verdict
     When a consumer relays with provider.order ["t1"], roger.pref "cheap", roger.require ["tools"], models ["m2"]
     Then the plaintext sealed to "t1-a" has no "provider", "roger" or "models" key
     And its "model" is the served model id
@@ -576,6 +578,11 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then the receipt names model "m", the relay, and Tower "t1"
     And the receipt's model equals X-RogerAI-Model
 
+  @later
+  # @later: the only key on the fabric is the Tower hub's epoch key, which the broker never holds,
+  # and the hub cannot see token counts (the answer is sealed). Satisfying this needs a hub-side
+  # protocol change (the Tower signing a UsageReceipt from the station's dispatch receipt).
+  # Bridged receipts carry the broker signature today.
   Scenario: a bridged receipt is signed by the Tower's relay key and co-signed by the broker, and VerifyBroker covers it
     # §7: the node signature on a bridged receipt is the party the broker dispatched to, the
     # Tower's relay key; the broker co-signs exactly as on the direct path. Today a bridged

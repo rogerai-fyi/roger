@@ -290,8 +290,22 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
       | returns 504                          | upstream-error     |
       | is unreachable (station posts 502)   | upstream-error     |
       | returns 200 with an empty completion | empty-output       |
-      | returns 200 with whitespace only     | empty-output       |
-      | returns 200 claiming tokens, no text | empty-output       |
+
+  # corrected 2026-10-01 (founder-approved): a reply that CLAIMS completion tokens is usable output
+  # (producedUsableOutput's usage backstop), so a reasoning or tool-calling node whose text is empty
+  # is never false-struck; these two rows were voids by mistake.
+  Scenario Outline: a reply that claims completion tokens is usable output - served by the first model, no failover
+    Given "a1" serves "a" and its upstream <reply>
+    And "b1" serves "b" and returns a completion
+    When a consumer relays with "model": "a" and "models": ["b"]
+    Then the response is 200 from "a1" with X-RogerAI-Model "a"
+    And "b1" received nothing
+    And "a1"'s receipt is settled, billed on the recounted tokens
+
+    Examples:
+      | reply                                |
+      | returns 200 with whitespace only     |
+      | returns 200 claiming tokens, no text |
 
   Scenario: stations of the same model are exhausted before the next model is tried
     Given "a1" and "a2" serve "a"; "a1" returns 429 and "a2" returns a completion
@@ -404,11 +418,14 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the stream ends as today (partial output, settled per today's mid-stream rule)
     And "b1" received nothing
 
+  # corrected 2026-10-01 (founder-approved): the station finishes the work after the cancel, and
+  # finished work settles today (one spend row, the hold captured for it, the remainder released);
+  # refunding served work on a disconnect would be a new money rule.
   Scenario: a client that disconnects while the first model is being tried ends the plan
     Given "a1" serves "a" slowly and "b1" serves "b"
     When the consumer disconnects during the attempt on "a1" with "models": ["b"] set
     Then no attempt on "b1" is started
-    And the hold is released in full
+    And the finished attempt on "a1" settles: one spend row, the hold captured for it and the remainder released
 
   Scenario: a dispatch failure that is not an upstream verdict is answered as today
     Given "a1" serves "a" but no poller is listening on it, and "b1" serves "b"
@@ -618,11 +635,15 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the response is 401 "log in to spend on paid models" and no station received anything
     And no hold was placed and X-RogerAI-Cost is "0"
 
-  Scenario: a free first pick admits only free followers across models
+  # corrected 2026-10-01 (founder-approved): the free-only plan belongs to anonymous, free-band and
+  # $0-grant relays; a LOGGED-IN consumer whose first pick is a 0/0 public offer may still get a
+  # paid follower within their caps, and a 0/0 public offer places the 1e-6 floor hold, so the
+  # one hold covers the priciest pair of the plan.
+  Scenario: a free first pick does not make a logged-in consumer's plan free-only
     Given "f1" serves "a" at 0/0 and returns 429; "p1" serves "b" at 1.00/1.00; "f2" serves "c" at 0/0
     When a logged-in consumer relays with "model": "a" and "models": ["b", "c"]
-    Then the plan is ["f1", "f2"] and "p1" is never tried
-    And the response is 200 from "f2" and no hold was placed
+    Then the plan is ["f1", "p1"] and "f2" is never tried
+    And the response is 200 from "p1" and the hold covered "p1"
 
   Scenario: a paid first pick followed by a free station on a later model settles free and returns the hold
     Given "p1" serves "a" at 1.00/1.00 and returns 429; "f1" serves "b" at 0/0
@@ -652,11 +673,14 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When the grant relays with "model": "a" and "models": ["b"]
     Then the request is served for "a" on O's node
 
+  # corrected 2026-10-01 (founder-approved): after a real upstream 429 and no further grant node
+  # for the next model, the LAST upstream error is returned with its Retry-After (contract §3), not
+  # a synthetic 503 no_match.
   Scenario: a grant never leaves its owner's nodes for a later model
     Given a grant on owner O; O's "o1" serves "a" and 429s; a public "x1" serves "b"
     When the grant relays with "model": "a" and "models": ["b"]
     Then "x1" received nothing
-    And the response is 503 "no node of this grant's owner is serving" with error code "no_match"
+    And the response is 429 with a Retry-After
 
   Scenario: a grant's daily token cap is debited once, for the served attempt
     Given a grant with a daily token cap; O's "o1" serves "a" and 429s, O's "o2" serves "b"
@@ -720,9 +744,11 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a confidential-only relay is made across ["a", "b"]
     Then the response is 200 from "b1"
 
+  # corrected 2026-10-01 (founder-approved): the request names "model": "a" so the list is [a, b];
+  # without it the list was [b] and the pinned station serves only "a".
   Scenario: a pinned node with a model list is honored as a pin
     Given "a1" serves "a" and returns 429; "b1" serves "b"
-    When a consumer relays with X-Roger-Node "a1" and "models": ["b"]
+    When a consumer relays with X-Roger-Node "a1", "model": "a" and "models": ["b"]
     Then the response is 429 with a Retry-After (no failover of any kind)
     And "b1" received nothing
 
@@ -802,7 +828,6 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with max_price.completion 1.00 across ["a", "b"]
     Then the Tower is never tried and the response is 200 from "b1"
 
-  @part-c
   Scenario: the body forwarded to a Tower carries the served model and no routing carriers
     Given a Tower is the only server of "b" and "a1" 429s
     When a consumer relays with "model": "a", "models": ["b"] and a "roger" object

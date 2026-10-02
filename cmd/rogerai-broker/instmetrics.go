@@ -1,6 +1,10 @@
 package main
 
-import "sync/atomic"
+import (
+	"sort"
+	"sync"
+	"sync/atomic"
+)
 
 // instmetrics.go is the MULTI-INSTANCE OBSERVABILITY surface: a handful of low-overhead,
 // lock-free counters that make cross-instance (Valkey-bus) dispatch vs. local dispatch
@@ -69,6 +73,55 @@ type instStats struct {
 	relayNoMatchCapability   atomic.Int64
 	stationCooldowns         atomic.Int64
 	bandCooling503           atomic.Int64
+	// The Tower bridge inside the plan (contract §6): fan-out coin flips (counted only when
+	// the coin is consulted), Tower rows declined per consumer constraint (once per request
+	// and constraint), and ids that name both a direct node and a Tower.
+	edgeCoinFlips atomic.Int64
+	edgeMu        sync.Mutex
+	edgeDeclined  map[string]int64
+	collisions    map[string]bool
+}
+
+// edgeDeclineAdd counts one request in which a Tower row was declined for reason.
+func (s *instStats) edgeDeclineAdd(reason string) {
+	s.edgeMu.Lock()
+	if s.edgeDeclined == nil {
+		s.edgeDeclined = map[string]int64{}
+	}
+	s.edgeDeclined[reason]++
+	s.edgeMu.Unlock()
+}
+
+// edgeDeclinedSnapshot is the per-constraint decline counters (edge_bridge_declined{<c>}).
+func (s *instStats) edgeDeclinedSnapshot() map[string]int64 {
+	s.edgeMu.Lock()
+	defer s.edgeMu.Unlock()
+	out := make(map[string]int64, len(s.edgeDeclined))
+	for k, v := range s.edgeDeclined {
+		out[k] = v
+	}
+	return out
+}
+
+// noteCollision records an id that names both a direct node and a Tower (warned once).
+func (s *instStats) noteCollision(id string) {
+	s.edgeMu.Lock()
+	if s.collisions == nil {
+		s.collisions = map[string]bool{}
+	}
+	s.collisions[id] = true
+	s.edgeMu.Unlock()
+}
+
+func (s *instStats) collisionsSnapshot() []string {
+	s.edgeMu.Lock()
+	defer s.edgeMu.Unlock()
+	out := make([]string, 0, len(s.collisions))
+	for id := range s.collisions {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // snapshot returns the counters as a plain map for the admin overview JSON. Read-only.
@@ -109,5 +162,6 @@ func (s *instStats) routingCounters() map[string]int64 {
 		"variant_nitro":              s.variantNitro.Load(),
 		"pref_header_unknown":        s.prefHeaderUnknown.Load(),
 		"relay_no_match_capability":  s.relayNoMatchCapability.Load(),
+		"edge_coin_flips":            s.edgeCoinFlips.Load(),
 	}
 }

@@ -502,8 +502,6 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     Then every one of them is served by "n-cap" directly
     And the bridge was never entered
 
-  @part-c
-
   Scenario: A Tower whose offer is tools-verified serves when no direct station is capable
     Given node "n-plain" is on air for "qwen3-32b" with no recorded capability
     And a Tower relay hosts "qwen3-32b" with a verified tools verdict
@@ -517,8 +515,6 @@ Feature: Capability gating - a request that needs tools or vision only routes to
     When a request for "qwen3-32b" carries one function tool
     Then the status is 503
     And the error code is "no_match"
-
-  @part-c
 
   Scenario: The tools array itself is forwarded to the serving station on the bridge path, the routing carriers are not
     Given a Tower relay hosts "qwen3-32b" with a verified tools verdict and is the only capable server

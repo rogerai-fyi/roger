@@ -552,7 +552,7 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 // parity with pickFor); the unconstrained form is what the authorize endpoint and the
 // canary use.
 func (b *broker) edgeTargetForC(model string, rng *rand.Rand, exclude map[string]bool, c edgeConstraints) (dispatch.Target, fleet.Station, bool) {
-	target, row, _, ok := b.edgePlacement(model, rng, exclude, c)
+	target, row, _, _, ok := b.edgePlacement(model, rng, exclude, c)
 	return target, row, ok
 }
 
@@ -561,7 +561,7 @@ func (b *broker) edgeTargetForC(model string, rng *rand.Rand, exclude map[string
 // used only when no Tier-A candidate exists on either fabric). Under a strict sort
 // (c.sort) the pool is ordered by the one metric the consumer named instead of drawn by
 // power-of-two-choices, exactly as pickFor does on the direct fabric.
-func (b *broker) edgePlacement(model string, rng *rand.Rand, exclude map[string]bool, c edgeConstraints) (dispatch.Target, fleet.Station, string, bool) {
+func (b *broker) edgePlacement(model string, rng *rand.Rand, exclude map[string]bool, c edgeConstraints) (dispatch.Target, fleet.Station, string, edgeMetric, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
 		// SAID OUT LOUD, like every other refusal on this path. This one used to return in
@@ -571,12 +571,12 @@ func (b *broker) edgePlacement(model string, rng *rand.Rand, exclude map[string]
 		// from the outside identical to an empty fleet.
 		b.logEdgePlacementRefusal(model, 0, 0, 0,
 			"this broker has no tower subsystem, so it can place nothing on the edge fabric")
-		return dispatch.Target{}, fleet.Station{}, "", false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	rows, err := ts.routable.Candidates(model, time.Now())
 	if err != nil {
 		log.Printf("edge authorize: cannot read the routable fleet: %v", err)
-		return dispatch.Target{}, fleet.Station{}, "", false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	// RANK, DO NOT TAKE THE FIRST (M1 of docs/relay-selection-design.md).
 	//
@@ -676,13 +676,13 @@ func (b *broker) edgePlacement(model string, rng *rand.Rand, exclude map[string]
 			reason = "every routable row is a legacy offer, has no data plane, or sits behind a Tower that may not take work"
 		}
 		b.logEdgePlacementRefusal(model, len(rows), 0, 0, reason)
-		return dispatch.Target{}, fleet.Station{}, "", false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	keep, targets := b.resolveEdgeCandidates(shortlist)
 	if len(keep) == 0 {
 		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), 0,
 			"no candidate survived the attachment re-check")
-		return dispatch.Target{}, fleet.Station{}, "", false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	tierA, tierB, metrics := b.edgeEligibleM(keep, bannedNode, time.Now(), c)
 	// Healthy beats failing as an absolute gate, and Tier B exists so a transient blip never
@@ -694,7 +694,7 @@ func (b *broker) edgePlacement(model string, rng *rand.Rand, exclude map[string]
 	if len(pool) == 0 {
 		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), len(keep),
 			"every resolvable candidate's node is stale, banned or on a private band")
-		return dispatch.Target{}, fleet.Station{}, "", false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	// edgeBeta concentrates the sampling on the strong end of the band. A tie, or a nil rng,
 	// still resolves to the first row of a total order, so "same fleet, same answer" survives
@@ -708,12 +708,12 @@ func (b *broker) edgePlacement(model string, rng *rand.Rand, exclude map[string]
 	if chosen < 0 {
 		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), len(keep),
 			"the selector drew nothing from a non-empty pool")
-		return dispatch.Target{}, fleet.Station{}, "", false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	b.logEdgePlacement(model, keep[chosen], pool, tier, chosen, len(rows), len(shortlist))
 	// The whole ROW rides back: the endpoint the consumer submits to, and the attachment's
 	// listed price that authorize pins into the grant.
-	return targets[chosen], keep[chosen], tier, true
+	return targets[chosen], keep[chosen], tier, metrics[chosen], true
 }
 
 // edgeStrictPick is pickFor's strict ordering over the edge pool: one metric, ties on the
@@ -722,29 +722,7 @@ func edgeStrictPick(pool []scoredCand, metrics []edgeMetric, key sortKey) int {
 	if len(pool) == 0 {
 		return -1
 	}
-	less := func(a, b edgeMetric) (bool, bool) { // (a before b, decided)
-		switch key {
-		case sortPrice:
-			if a.out != b.out {
-				return a.out < b.out, true
-			}
-			if a.in != b.in {
-				return a.in < b.in, true
-			}
-		case sortThroughput:
-			if a.tps != b.tps {
-				return a.tps > b.tps, true
-			}
-		case sortLatency:
-			if am, bm := a.ttft > 0, b.ttft > 0; am != bm {
-				return am, true
-			}
-			if a.ttft != b.ttft {
-				return a.ttft < b.ttft, true
-			}
-		}
-		return false, false
-	}
+	less := func(a, b edgeMetric) (bool, bool) { return edgeMetricLess(key, a, b) } // (a before b, decided)
 	best := pool[0]
 	for _, sc := range pool[1:] {
 		before, decided := less(metrics[sc.idx], metrics[best.idx])

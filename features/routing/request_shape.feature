@@ -991,10 +991,12 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the error code is "no_match"
     And no hold was placed and no station was dispatched
 
+  # corrected 2026-10-01 (founder-approved): at 20000 tokens n-b's input alone ($0.0040002) MEETS
+  # the cap and is rightly dropped; 19000 tokens ($0.0038 at n-b) keep the intent of the scenario.
   Scenario: A per-request cap is NOT a plan filter - a pricier station stays in the plan with a smaller max_tokens
-    # 20000 prompt tokens cost $0.002 at n-a (in $0.10) and $0.010 at n-c (in $0.50). A $0.004
-    # cap still buys output at n-a and n-b; at n-c the input alone exceeds the cap.
-    When "u-1" posts a chat completion for "qwen3-32b" with a 20000-token prompt, max_tokens 10000 and body `"provider": {"max_price": {"request": 0.004}}`
+    # 19000 prompt tokens cost $0.0019 at n-a (in $0.10), $0.0038 at n-b (in $0.20) and $0.0095 at
+    # n-c (in $0.50). A $0.004 cap still buys output at n-a and n-b; at n-c the input alone exceeds it.
+    When "u-1" posts a chat completion for "qwen3-32b" with a 19000-token prompt, max_tokens 10000 and body `"provider": {"max_price": {"request": 0.004}}`
     Then the failover plan contains "n-a" and "n-b"
     And the failover plan does not contain "n-c"
     And the max_tokens the plan carries for "n-b" is smaller than for "n-a"
@@ -1004,8 +1006,10 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the failover plan contains "n-a", "n-b" and "n-c"
     And the hold placed is $0.004
 
+  # corrected 2026-10-01 (founder-approved): $0.01 covered the cheapest station's hold and not the
+  # others', so the seeded pick decided the outcome; $0.001 fits no station's hold.
   Scenario: A wallet that cannot cover even the cheapest pair is a 402 before any dispatch - the hold is never shrunk
-    Given a logged-in consumer "u-poor" with a $0.01 balance
+    Given a logged-in consumer "u-poor" with a $0.001 balance
     When "u-poor" posts a chat completion for "qwen3-32b" with max_tokens 100000 and body `"provider": {"max_price": {"request": 5.00}}`
     Then the response is 402
     And the error code is "insufficient_balance"

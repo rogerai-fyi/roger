@@ -510,8 +510,6 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     Then every request was served by "n-free"
     And the Tower received no job
 
-  @part-c
-
   Scenario: :nitro's ordering applies on the bridge path - the Tower row is one more candidate, ranked by its measured tok/s
     # A sort (and the sugar that means one) replaces the fan-out coin with the ranking (§5):
     # the Tower wins here because 300 tok/s beats every direct station, not because a coin
