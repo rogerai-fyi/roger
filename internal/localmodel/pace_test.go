@@ -5,12 +5,14 @@ package localmodel
 // the speed is the memory's bandwidth over the bytes read per token. Roger says both, separately.
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/catalog"
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/runtime"
 )
 
 const gbps = 1e9
@@ -147,4 +149,41 @@ func TestTheBudgetIsThePoolTheRuntimeWillUse(t *testing.T) {
 	var blind detect.LocalHW
 	blind.Note("could not read /proc/meminfo")
 	require.Contains(t, budgetFor(blind, false, measured(1)).Why, "/proc/meminfo")
+}
+
+// THE RUNTIME'S OWN FITNESS ANSWER WINS ONCE THE FILE IS ON DISK (local_models.feature §4): its yes
+// or no is taken, with its own breakdown, and roger's estimate stands only when it could not answer.
+func TestTheRuntimesAnswerWinsOnceTheFileIsOnDisk(t *testing.T) {
+	pi := Budget{Bytes: 8 * gib, Pool: "system memory", BW: Bandwidth{BytesPerSec: 4 * gbps, Measured: true, From: "measured"}}
+	est := Judge(qwen(2500<<20), pi, 8192)
+	require.Equal(t, catalog.FitFits, est.Fit)
+
+	// The runtime says no where roger said yes (it judges what is free NOW): the runtime wins.
+	no := est.Settled(runtime.Fitted{Ctx: 8192, Said: "was unable to fit model into system memory by reducing context", MaxCtx: 4096,
+		Devices: []runtime.DeviceUse{{Name: "Host", Model: 2400 << 20, Context: 1152 << 20, Compute: 300 << 20}}}, nil)
+	require.Equal(t, catalog.FitWontFit, no.Fit)
+	require.True(t, no.ByRuntime)
+	require.Equal(t, 4096, no.MaxCtx)
+	require.Contains(t, no.Line(), "will not fit at 8K context by llama.cpp's own check")
+	require.Contains(t, no.Line(), "was unable to fit model into system memory")
+	require.Contains(t, no.Line(), "fits at 4K")
+	require.Equal(t, "model 2.3 GiB + context 1.1 GiB + compute 300.0 MiB + margin 1.0 GiB = 4.8 GiB", no.Sum(),
+		"the sum is the runtime's own terms")
+	require.Empty(t, no.PaceLine())
+
+	yes := est.Settled(runtime.Fitted{Fits: true, Ctx: 8192,
+		Devices: []runtime.DeviceUse{{Name: "Host", Model: 2400 << 20, Context: 1152 << 20, Compute: 300 << 20}}}, nil)
+	require.Equal(t, catalog.FitFits, yes.Fit)
+	require.Contains(t, yes.Line(), "fits at 8K context by llama.cpp's own check")
+	require.Equal(t, est.Pace, yes.Pace, "the speed is still roger's claim, beside the fit")
+	require.NotEmpty(t, yes.PaceLine())
+
+	none := est.Settled(runtime.Fitted{Ctx: 8192, Said: "out of memory", Devices: []runtime.DeviceUse{{Name: "Host", Model: 9 << 30}}}, nil)
+	require.Contains(t, none.Line(), "at no context the runtime would choose")
+
+	// It could not answer: the estimate stands, and says it is one.
+	kept := est.Settled(runtime.Fitted{}, errors.New("the runtime's fit check did not answer: exit status 1: invalid argument: -fitp"))
+	require.Equal(t, est.Fit, kept.Fit)
+	require.False(t, kept.ByRuntime)
+	require.Contains(t, kept.Line(), "roger's estimate - the runtime's own check could not run")
 }

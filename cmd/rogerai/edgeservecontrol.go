@@ -175,7 +175,7 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 			if _, err := detect.ReadShape(m.Path); err != nil && !errors.Is(err, detect.ErrNotGenerative) {
 				return "", "this machine cannot judge " + m.ID + " (" + err.Error() + "), so it will not serve it unasked"
 			}
-			ctxLen, says, err := modelPlan(m, modelBudgetNow(), task.Ctx)
+			ctxLen, says, err := modelPlan(context.Background(), m, modelBudgetNow(), task.Ctx, modelInstalledExe())
 			if err != nil {
 				return "", err.Error()
 			}

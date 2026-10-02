@@ -8,8 +8,10 @@
 # proves the new before stopping the old, said in full, the band detection already routes on), removal,
 # the TUI screen (§7) and the console (§8), rows in SHARE (§9), and "fitting and being usable" (a speed
 # beside the fit: spec-sheet or measured memory speed over the bytes read per token, a floor for a
-# mixture of experts). NOT BUILT:
-# "the runtime's own fitness answer wins once the file is on disk" (our estimate is still used),
+# mixture of experts; judged in the pool the runtime roger starts actually uses), and "the runtime's
+# own fitness answer wins once the file is on disk" (llama-fit-params is asked before serving, its
+# yes/no, reason, breakdown and fallback context taken; our estimate stands only when it cannot
+# answer, and says so). NOT BUILT:
 # "two at once", an idle timeout (nothing unloads by surprise holds trivially), a cache budget, and
 # "the terminal and the phone agree" (same formula, not cross-checked against iOS).
 #

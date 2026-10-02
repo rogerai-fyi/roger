@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -14,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -31,6 +33,10 @@ import (
 // TestMain lets this test binary stand in for the inference runtime, reading the same command line
 // the real one is given.
 func TestMain(m *testing.M) {
+	if mode := os.Getenv("FAKE_FIT"); mode != "" && !slices.Contains(os.Args[1:], "--port") {
+		modelFakeFit(mode, os.Args[1:])
+		return
+	}
 	if os.Getenv("FAKE_LLAMA") != "" {
 		modelFakeLlama(os.Args[1:])
 		return
@@ -63,6 +69,26 @@ func modelFakeLlama(args []string) {
 		fmt.Fprintf(w, `{"data":[{"id":%q}]}`, flag["--alias"])
 	})
 	_ = http.ListenAndServe("127.0.0.1:"+flag["--port"], mux)
+}
+
+// modelFakeFit answers as llama-fit-params b11146 does (internal/runtime/fit_test.go has the
+// captured output): a breakdown with -fitp on, fitted arguments or a reason otherwise.
+func modelFakeFit(mode string, args []string) {
+	c := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-c" {
+			c = args[i+1]
+		}
+	}
+	switch {
+	case slices.Contains(args, "-fitp"):
+		fmt.Println("Host 2400 1152 300")
+	case mode == "yes" || c == "":
+		fmt.Printf("-c %s -ngl -1\n", cmp.Or(c, "4096"))
+	default:
+		fmt.Fprintln(os.Stderr, "0.00.150.671 W common_fit_params: failed to fit params to free device memory: was unable to fit model into system memory by reducing context, abort")
+		os.Exit(1)
+	}
 }
 
 // modelGGUF is a real-shaped header (Qwen3-4B's numbers) padded to a file.
@@ -154,9 +180,9 @@ func newModelRig(t *testing.T, ramMiB int) *modelRig {
 	}))
 	t.Cleanup(srv.Close)
 
-	oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch := modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher
+	oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch, oldFit := modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher, modelFitExe
 	t.Cleanup(func() {
-		modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher = oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch
+		modelOut, modelHome, modelHW, modelHubBase, modelRuntime, modelUntilDone, modelServeEnv, edgeStdin, modelFetcher, modelFitExe = oldOut, oldHome, oldHW, oldBase, oldRT, oldUntil, oldEnv, oldIn, oldFetch, oldFit
 	})
 	modelOut = r.out
 	modelHome = func() localmodel.Home { return r.home }
@@ -347,6 +373,45 @@ func TestModelServeStartsProvesRecordsAndCleansUp(t *testing.T) {
 	require.Equal(t, "tiny", during.Band)
 	_, ok := r.home.Live()
 	require.False(t, ok, "the record outlived the serving")
+}
+
+// local_models.feature §4: once the file is on disk the runtime's own check is asked and its answer
+// taken - here it says no where roger's estimate said yes, because it judges what is free now.
+func TestModelServeTakesTheRuntimesOwnFitAnswer(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+
+	// The test binary is not beside a fit tool, so the runtime cannot be asked: the estimate
+	// stands and says so.
+	modelUntilDone = func(context.Context) {}
+	out, err := r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, out, "roger's estimate - the runtime's own check could not run")
+
+	modelFitExe = func(string) string { return os.Args[0] }
+	modelServeEnv = map[string]string{"FAKE_LLAMA": "1", "FAKE_FIT": "no"}
+	_, err = r.run(t, "serve", "tiny")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "will not fit at 8K context by llama.cpp's own check: was unable to fit model into system memory")
+	require.Contains(t, err.Error(), "model 2.3 GiB + context 1.1 GiB + compute 300.0 MiB + margin 1.0 GiB", "its own terms")
+	require.Contains(t, err.Error(), "roger model serve acme/Tiny-GGUF:Q4_K_M --ctx 4096", "the context the runtime would choose")
+	_, live := r.home.Live()
+	require.False(t, live, "nothing was started")
+
+	// The runtime judges what is free NOW, so a model being served counts against the new one. A
+	// refused switch says so, rather than leaving the owner to wonder why a smaller machine said yes.
+	rec, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "older", ID: "x/older:Q8_0", Started: time.Now()})
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serving.json"), rec, 0o600))
+	_, err = r.run(t, "serve", "tiny")
+	require.ErrorContains(t, err, "x/older:Q8_0 is being served and holds memory the check counted as in use")
+	require.NoError(t, os.Remove(filepath.Join(r.home.Dir, "serving.json")))
+
+	modelServeEnv = map[string]string{"FAKE_LLAMA": "1", "FAKE_FIT": "yes"}
+	out, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, out, "fits at 8K context by llama.cpp's own check")
+	require.Contains(t, out, "on the air locally")
 }
 
 func TestModelServeRefusesWithTheArithmeticNeverSilentlyShrinking(t *testing.T) {

@@ -235,7 +235,7 @@ func modelWebServe(id string, ctxLen int) (string, error) {
 	if word, ok := modelRuntimeWord(); !ok {
 		return "", errors.New(word + " - it can still be monitored and controlled from your Edge")
 	}
-	ctxLen, says, err := modelPlan(m, modelBudgetNow(), ctxLen)
+	ctxLen, says, err := modelPlan(context.Background(), m, modelBudgetNow(), ctxLen, modelInstalledExe())
 	if err != nil {
 		return "", err
 	}

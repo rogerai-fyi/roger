@@ -35,6 +35,10 @@ import (
 // TestMain lets this binary act as the fake runtime when asked.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("FAKE_RUNTIME"); mode != "" {
+		if strings.HasPrefix(mode, "fit-") {
+			fakeFitParams(mode)
+			return
+		}
 		fakeRuntime(mode)
 		return
 	}

@@ -11,6 +11,7 @@ import (
 	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/hfhub"
 	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v6/internal/runtime"
 )
 
 // DefaultCtx is the context proposed when the owner names none: long enough for a real
@@ -72,6 +73,33 @@ type Verdict struct {
 	MaxCtx int // the longest context that does fit, 0 when none does
 	Why    string
 	Pace   Pace // how fast it would answer: a separate claim, never folded into Fit
+
+	ByRuntime bool   // the runtime's own check answered, on the file on disk
+	Unasked   string // why the runtime could not be asked, when this is roger's estimate of a file on disk
+}
+
+// runtimeMargin is what llama.cpp's fit leaves free on each device by default (--fit-target).
+const runtimeMargin = int64(1024) << 20
+
+// Settled takes the runtime's answer over this estimate once the file is on disk, with its own
+// breakdown. When the runtime could not answer, the estimate stands and says it is one.
+func (v Verdict) Settled(f runtime.Fitted, err error) Verdict {
+	if err != nil {
+		v.Unasked = err.Error()
+		return v
+	}
+	out := Verdict{Budget: v.Budget, Ctx: f.Ctx, Pace: v.Pace, ByRuntime: true, Fit: catalog.FitFits}
+	for _, d := range f.Devices {
+		out.Need.Weights += d.Model
+		out.Need.KV += d.Context
+		out.Need.Compute += d.Compute
+		out.Need.Headroom += runtimeMargin
+	}
+	out.Need.Total = out.Need.Weights + out.Need.KV + out.Need.Compute + out.Need.Headroom
+	if !f.Fits {
+		out.Fit, out.MaxCtx, out.Why = catalog.FitWontFit, f.MaxCtx, f.Said
+	}
+	return out
 }
 
 // Judge computes the verdict at ctx, or at a proposed context when ctx is zero.
@@ -104,6 +132,24 @@ func Judge(s catalog.Shape, b Budget, ctx int) Verdict {
 
 // Line is the verdict in one sentence, with the context in it.
 func (v Verdict) Line() string {
+	if v.ByRuntime {
+		if v.Fit == catalog.FitWontFit {
+			where := "it fits at no context the runtime would choose"
+			if v.MaxCtx > 0 {
+				where = "fits at " + ctxWord(v.MaxCtx)
+			}
+			return fmt.Sprintf("will not fit at %s context by llama.cpp's own check: %s; %s", ctxWord(v.Ctx), v.Why, where)
+		}
+		return fmt.Sprintf("fits at %s context by llama.cpp's own check: needs %s, leaving its margin free",
+			ctxWord(v.Ctx), BytesWord(v.Need.Total-v.Need.Headroom))
+	}
+	if v.Unasked != "" {
+		return v.estimateLine() + " (roger's estimate - the runtime's own check could not run: " + v.Unasked + ")"
+	}
+	return v.estimateLine()
+}
+
+func (v Verdict) estimateLine() string {
 	switch v.Fit {
 	case catalog.FitUnknown:
 		return "cannot say - " + v.Why
@@ -141,11 +187,15 @@ func (v Verdict) PaceLine() string {
 	return v.Pace.Line()
 }
 
-// Sum is the working, term by term.
+// Sum is the working, term by term - the runtime's own terms when it answered.
 func (v Verdict) Sum() string {
 	n := v.Need
 	if n.Total == 0 {
 		return ""
+	}
+	if v.ByRuntime {
+		return fmt.Sprintf("model %s + context %s + compute %s + margin %s = %s",
+			BytesWord(n.Weights), BytesWord(n.KV), BytesWord(n.Compute), BytesWord(n.Headroom), BytesWord(n.Total))
 	}
 	return fmt.Sprintf("weights %s + cache %s + output %s + working %s + reserve %s = %s",
 		BytesWord(n.Weights), BytesWord(n.KV), BytesWord(n.Output), BytesWord(n.Compute),

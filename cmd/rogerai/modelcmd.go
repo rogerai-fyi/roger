@@ -465,11 +465,7 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		return err
 	}
 	b := modelBudget()
-	ctxLen, says, err := modelPlan(m, b, a.ctx)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(modelOut, says)
+	// The runtime first: serving needs it anyway, and once it is here its own fit check answers.
 	exe, tag, err := modelRuntime(ctx)
 	if err != nil {
 		if errors.Is(err, runtime.ErrNoRuntime) {
@@ -478,6 +474,11 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		}
 		return fmt.Errorf("could not get the runtime: %w", err)
 	}
+	ctxLen, says, err := modelPlan(ctx, m, b, a.ctx, exe)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(modelOut, says)
 	h := modelHome()
 	prev, hadPrev := h.Live()
 	if a.detach {
@@ -551,9 +552,22 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 	return fmt.Errorf("it did not come on the air within %s (log: %s)%s%s", modelDetachWait, logPath, tail, still)
 }
 
+// modelFitExe is the seam for where the runtime's fit tool sits beside its server.
+var modelFitExe = runtime.FitExe
+
+// modelInstalledExe is the runtime's server when it is already on this machine, else "".
+func modelInstalledExe() string {
+	exe, _, ok := runtime.Installed(modelHost(), modelHome().Runtime())
+	if !ok {
+		return ""
+	}
+	return exe
+}
+
 // modelPlan settles the context a model will serve at, or refuses with the arithmetic - never
-// silently reducing what the owner asked for. says is the line to show the owner either way.
-func modelPlan(m localmodel.Model, b localmodel.Budget, want int) (ctxLen int, says string, err error) {
+// silently reducing what the owner asked for. says is the line to show the owner either way. With
+// the runtime here (serverExe), its own fit check answers and roger's estimate steps aside.
+func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, want int, serverExe string) (ctxLen int, says string, err error) {
 	shape, err := detect.ReadShape(m.Path)
 	switch {
 	case errors.Is(err, detect.ErrNotGenerative):
@@ -562,6 +576,11 @@ func modelPlan(m localmodel.Model, b localmodel.Budget, want int) (ctxLen int, s
 		return want, fmt.Sprintf("%s: cannot judge the fit (%v); serving on your word.", m.ID, err), nil
 	}
 	v := localmodel.Judge(shape, b, want)
+	if serverExe == "" {
+		v = v.Settled(runtime.Fitted{}, errors.New("the runtime is not on this machine yet"))
+	} else {
+		v = v.Settled(runtime.Fit(ctx, runtime.FitSpec{Exe: modelFitExe(serverExe), Model: m.Path, Ctx: v.Ctx, Env: modelServeEnv}))
+	}
 	if v.Fit == catalog.FitWontFit {
 		msg := v.Line()
 		if s := v.Sum(); s != "" {
@@ -569,6 +588,10 @@ func modelPlan(m localmodel.Model, b localmodel.Budget, want int) (ctxLen int, s
 		}
 		if v.MaxCtx > 0 {
 			msg += fmt.Sprintf("\n  roger model serve %s --ctx %d", m.ID, v.MaxCtx)
+		}
+		if s, ok := modelHome().Live(); ok && v.ByRuntime && s.ID != m.ID {
+			msg += fmt.Sprintf("\n  %s is being served and holds memory the check counted as in use; "+
+				"a switch runs both until the new one answers. `roger model stop` first to replace it outright", s.ID)
 		}
 		return 0, "", errors.New(msg)
 	}
