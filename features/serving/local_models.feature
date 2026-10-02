@@ -584,3 +584,85 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
   Scenario: the console has no separate models tab
     Then the console's tabs are the ones the console spec approved
     And everything §8 describes is reached from the console's SHARE panel
+
+  # =========================================================================
+  # 10. A GPU BUILD AND A CPU BUILD - FOUNDER RULING 2026-10-02: "we should have both options"
+  #
+  # STATUS: APPROVED by the founder 2026-10-02, with CUDA as well as Vulkan ("Vulkan + CUDA").
+  #
+  # Found 2026-10-01: the pinned Linux and Windows runtimes were upstream's CPU builds, so on a machine
+  # with GPUs nothing roger served used them. Upstream publishes, per tag, a Vulkan build beside the
+  # CPU one for Linux x64, Linux arm64 and Windows x64. Vulkan is ONE build for NVIDIA, AMD and Intel
+  # cards (about 30 MB), and does not depend on a CUDA version: upstream's CUDA 13.4 build will not
+  # even load on a driver that supports 13.2, which is this development machine. Measured here on
+  # Qwen3-0.6B Q4_K_M: CPU build 233 tok/s, Vulkan build 538 tok/s, with its own device list and its
+  # own per-card fit answer. CUDA is pinned too (ruling): upstream's CUDA 12.8 build for Linux x64 and
+  # 12.4 for Windows x64, each WITH its CUDA runtime bundle (a second pinned asset, unpacked into the
+  # same tree). A CUDA build loads only on a driver that supports its CUDA version, so CUDA is chosen
+  # only when the driver says it does. Upstream's arm64 CUDA build targets arm servers, not Jetson,
+  # and is not pinned. ROCm and SYCL are not pinned. macOS arm64 is one build already (Metal). A
+  # platform with no GPU build keeps its CPU build alone.
+  # =========================================================================
+
+  @runtime @gpu
+  Scenario: every build is pinned the same way
+    Then each platform carries a manifest entry per build it has - CPU, Vulkan, and CUDA where pinned -
+      each with its tag, exact asset name, URL, size, digest and measured library floor
+    And a CUDA build's runtime bundle is a pinned asset of its own, with its own size and digest
+    And every asset is verified before anything from it is executed, exactly as the CPU build is
+    And the owner is told the whole size before a GPU build is fetched
+
+  @runtime @gpu
+  Scenario Outline: the owner chooses the build, and "auto" is the default
+    Given the owner's runtime choice is <choice>
+    And a machine that <machine>
+    Then the build roger serves with is <build>
+    And roger says which build and why, in one sentence
+
+    Examples:
+      | choice | machine                                              | build                                   |
+      | auto   | has no GPU                                            | CPU, and no GPU build is ever fetched  |
+      | auto   | has an NVIDIA card whose driver supports the CUDA build | CUDA                                 |
+      | auto   | has an NVIDIA card whose driver is older than the CUDA build | Vulkan                          |
+      | auto   | has an AMD or Intel card                              | Vulkan                                 |
+      | auto   | has a GPU no GPU build can see (no driver)            | CPU, naming what is missing            |
+      | cpu    | has a GPU                                             | CPU                                    |
+      | gpu    | has a GPU                                             | what auto would pick, short of CPU     |
+      | vulkan | has a GPU the Vulkan build lists as a device           | Vulkan                                 |
+      | cuda   | has an NVIDIA card whose driver is older than the CUDA build | none: refused, naming both versions |
+      | gpu    | has no GPU any GPU build can see                      | none: refused, naming what is missing  |
+
+  @runtime @gpu
+  Scenario: whether the GPU can be used is the GPU build's own answer
+    Given a machine with a GPU
+    Then roger asks the GPU build which devices it can use, rather than guessing from a card's name
+    And a GPU it cannot use is said in one sentence with the fix (the GPU's Vulkan driver)
+
+  @runtime @gpu @fit
+  Scenario: fit and speed follow the build that will serve
+    Given the GPU build will serve
+    Then a model is judged against the cards' memory, and its speed against the cards' bandwidth
+    And once the file is on disk, the GPU build's own fit check answers, card by card
+    Given the CPU build will serve
+    Then it is judged against system memory and system memory's measured speed
+
+  @runtime @gpu
+  Scenario: what is running says which build
+    When the owner asks what is being served
+    Then the runtime line names the build, CPU or GPU, beside the tag
+    And a serve already running keeps its build when the owner changes the choice; the choice
+      applies from the next serve
+
+  @runtime @gpu
+  Scenario: a GPU build that cannot start the model is not a silent fallback
+    Given the GPU build fails to start a model
+    When the choice is auto
+    Then roger says the GPU build failed, with its last words, and serves with the CPU build
+    When the choice is gpu
+    Then nothing is served, and the owner is told why and that `roger model runtime cpu` would serve it
+
+  @runtime @gpu
+  Scenario: the choice is the owner's and is said
+    When the owner runs `roger model runtime` with auto, cpu, gpu, vulkan or cuda
+    Then the choice is kept, and the build it means on THIS machine is said with its size
+    And with no argument it says the current choice and the build it resolves to

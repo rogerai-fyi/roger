@@ -223,3 +223,39 @@ Feature: A node is the owner's machine, typed by what it can do rather than by w
     Then the second enrollment is refused
     And the refusal names the account it already belongs to
     And the owner of "acct-2" learns nothing about "acct-1"
+
+  # =========================================================================
+  # RE-ADMITTING A FORGOTTEN DEVICE - FOUNDER DIRECTION 2026-10-02 ("iterate and enhance")
+  #
+  # STATUS: APPROVED by the founder 2026-10-02.
+  #
+  # Found 2026-10-01: forgetting a device removed its record, name and all, so re-admitting it later
+  # could only echo the raw id the owner typed ("re-admit n_gone?"), its old name no longer resolved,
+  # and the claim it was granted was named with the id, so it came back named by its id. Forgetting
+  # still removes the device from the fleet; what is kept is a short record THAT it was forgotten.
+  # =========================================================================
+
+  Scenario: forgetting a device leaves a short record that it left
+    When the owner forgets a device
+    Then this Edge keeps, for that device only, its last name, its kind and hardware word, and when it
+      was forgotten
+    And nothing else of it is kept: not its pin, its grants, its tags or its history
+    And the record is bounded: the oldest is dropped once there are more than 64
+
+  Scenario: a forgotten device is re-admitted by the name it had
+    Given a device named "attic" that was forgotten
+    When the owner re-admits "attic"
+    Then it resolves to that device without its id being typed
+    And the question names it as "attic", with its hardware and when it was forgotten
+    And when it claims its fresh certificate it comes back named "attic"
+
+  Scenario: an id this Edge has no record of is said as typed, never as a name
+    When the owner re-admits by an id this Edge has no record of
+    Then the question quotes it as what the owner typed and says this Edge has no record of it
+    And the device it admits is given no name until the owner names it
+
+  Scenario: re-admit with nothing named lists what can be re-admitted
+    When the owner runs re-admit with no device
+    Then it lists the forgotten devices by name, hardware and when, newest first
+    And says how to re-admit one
+
