@@ -20,6 +20,29 @@ type Fleet struct {
 	// now is the clock, injectable so a test can assert on recorded times without
 	// racing the wall clock.
 	now func() time.Time
+	// returning is the name a device that was forgotten and comes back had (NameReturning).
+	returning func(id string) string
+}
+
+// NameReturning tells the fleet what a forgotten device was called, so one that is re-admitted
+// comes back under the name its owner knew it by rather than whatever it calls itself
+// (features/edge/node_identity.feature, RE-ADMITTING). fn returns "" for a device with no such name.
+func (f *Fleet) NameReturning(fn func(id string) string) { f.returning = fn }
+
+// returningName is the remembered name for a device joining the fleet, when there is one that is
+// usable and no other member holds it now; else "".
+func (f *Fleet) returningName(id string) string {
+	if f.returning == nil {
+		return ""
+	}
+	name := f.returning(id)
+	if name == "" || ValidName(name) != nil {
+		return ""
+	}
+	if _, taken, err := f.ByName(name); err != nil || taken {
+		return ""
+	}
+	return name
 }
 
 // NewFleet returns the fleet view for one account.
@@ -409,8 +432,14 @@ func (f *Fleet) ConfirmActuate(id, who string) error {
 // separately from capability: a node that accepted world-changing commands has that in
 // its history, and STILL does not gain `actuate` from it.
 func (f *Fleet) RecordEvent(id, what, detail string) error {
+	return f.RecordEventBy(id, what, detail, "")
+}
+
+// RecordEventBy is RecordEvent with WHO asked: the authenticated node id of the caller, kept as a
+// field for audit (names change and can be reused) and never written into the sentence.
+func (f *Fleet) RecordEventBy(id, what, detail, by string) error {
 	return f.mutate(id, func(n *store.EdgeNode) error {
-		n.History = append(n.History, store.EdgeEvent{At: f.now().Unix(), What: what, Detail: detail})
+		n.History = append(n.History, store.EdgeEvent{At: f.now().Unix(), What: what, Detail: detail, By: by})
 		return nil
 	})
 }
@@ -520,6 +549,9 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 	}
 	if !ok {
 		n := store.EdgeNode{ID: id, Name: obs.Name, Kind: obs.Kind, Pin: obs.Fingerprint}
+		if name := f.returningName(id); name != "" {
+			n.Name = name
+		}
 		if n.Kind == "" {
 			n.Kind = string(Host)
 		}

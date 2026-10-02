@@ -7,6 +7,7 @@ package edge
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/store"
@@ -35,6 +36,7 @@ type Event struct {
 	Node   string    `json:"node"`
 	What   string    `json:"what"`
 	Detail string    `json:"detail,omitempty"`
+	By     string    `json:"by,omitempty"`    // who asked: the caller's node id, for audit (never in Detail)
 	Count  int       `json:"count,omitempty"` // >1 when repeats were collapsed
 	Since  time.Time `json:"since,omitempty"` // the oldest of the collapsed run
 }
@@ -74,7 +76,8 @@ func Events(nodes []store.EdgeNode, alerts []Alert, q EventQuery, now time.Time)
 			if !keep(n.ID, at) {
 				continue
 			}
-			out = append(out, Event{At: at, Kind: EventNode, NodeID: n.ID, Node: names[n.ID], What: e.What, Detail: e.Detail})
+			out = append(out, Event{At: at, Kind: EventNode, NodeID: n.ID, Node: names[n.ID], What: e.What,
+				Detail: actorDetail(e, names), By: e.By})
 		}
 	}
 	for _, a := range alerts {
@@ -152,6 +155,24 @@ func alertEventDetail(a Alert) string {
 		return fmt.Sprintf("%s, back under %s", FormatValue(a.Metric, a.Value), FormatValue(a.Metric, a.Threshold))
 	}
 	return fmt.Sprintf("%s, over %s", FormatValue(a.Metric, a.Value), FormatValue(a.Metric, a.Threshold))
+}
+
+// ActorDetail is an event's sentence as shown to people. The sentence names whoever asked as they
+// were called then; when that member has been renamed since, it adds what it is called now. A
+// member no longer on the Edge adds nothing, and the id is never said.
+func ActorDetail(e store.EdgeEvent, nodes []store.EdgeNode) string {
+	if e.By == "" {
+		return e.Detail
+	}
+	return actorDetail(e, UnitNames(nodes))
+}
+
+func actorDetail(e store.EdgeEvent, names map[string]string) string {
+	now, ok := names[e.By]
+	if e.By == "" || !ok || now == "" || strings.HasSuffix(e.Detail, " "+now) {
+		return e.Detail
+	}
+	return e.Detail + " (now " + now + ")"
 }
 
 // capHistoryOn trims a node's history to the newest MaxNodeHistory events.

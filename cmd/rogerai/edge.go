@@ -80,7 +80,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
 	{"tag", "<node> [+tag|-tag|tag...] [--clear]", "show or change the owner's words for a unit: a group a rule can cover", 1, 14},
 	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1},
-	{"readmit", "<node>", "bring back a device you forgot or revoked (lifts its revocation)", 1, 1},
+	{"readmit", "[<node>]", "bring back a device you forgot or revoked (lifts its revocation); alone, lists them", 0, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
 	{"sessions", "", "show the live sessions on this machine's Edge", 0, 0},
 	{"prefer", "[local|market|local-only]", "choose where a turn goes first, or show it", 0, 1},
@@ -613,6 +613,8 @@ func loadEdgeState() (*edgeState, error) {
 	db := store.NewMem()
 	st := &edgeState{account: acct, db: db, fleet: edge.NewFleet(db, acct),
 		sessions: edge.NewSessions(acct)}
+	// A forgotten device the owner re-admitted comes back under the name it had.
+	st.fleet.NameReturning(edgeReturningName)
 	// The TUI's and the console's ledger merges what `roger use` processes publish, and
 	// publishes its own turns for them: one machine, one view of its sessions.
 	st.sessions.Mirror(edgeSessionsDir())
@@ -1456,6 +1458,10 @@ func cmdEdgeForget(cfg config, args []string) error {
 		}
 		anyRevoked, anyEvicted := false, false
 		for id := range ids {
+			// The short record first, by the name its grant carried (node_identity.feature).
+			if err := edgeRecordDeparted(store.EdgeNode{ID: id, Name: edgeGrantName(id)}); err != nil {
+				return err
+			}
 			revoked, evictedKey, err := edgeRevokeOnForget(id)
 			if err != nil {
 				return err
@@ -1599,6 +1605,11 @@ func edgeAdoptWant(want string) (string, error) {
 // certificate is revoked is refused by every peer that holds the list, on a LAN with no
 // internet, and after a restart.
 func edgeForgetMember(st *edgeState, n store.EdgeNode) (string, error) {
+	// The short record that it left is kept FIRST, so a forget never leaves a device gone with no
+	// way to bring it back by its name (features/edge/node_identity.feature, RE-ADMITTING).
+	if err := edgeRecordDeparted(n); err != nil {
+		return "", err
+	}
 	revoked, evictedKey, err := edgeRevokeOnForget(n.ID)
 	if err != nil {
 		return "", err
@@ -1626,42 +1637,86 @@ func edgeForgetMember(st *edgeState, n store.EdgeNode) (string, error) {
 // cmdEdgeReadmit is the DELIBERATE re-admission of a device the owner forgot or revoked - the one
 // path that lifts a revocation (a routine adopt refuses that). It revokes any certificate the device
 // still holds and grants a fresh claim, so it can rejoin with a NEW certificate while a stolen or
-// abandoned old copy stays refused. Confirmed, because it undoes a revocation.
+// abandoned old copy stays refused. Confirmed, because it undoes a revocation. With no device named
+// it lists what can be re-admitted (features/edge/node_identity.feature, RE-ADMITTING).
 func cmdEdgeReadmit(cfg config, args []string) error {
 	leaf, _ := edgeLeaf("readmit")
 	argv, err := parseEdgeArgv(leaf, args)
 	if err != nil {
 		return err
 	}
-	want := argv.pos[0]
 	st, err := loadEdgeState()
 	if err != nil {
 		return err
 	}
-	// Resolve the node id the owner means: a re-pinging candidate first, then a fleet member, then a
-	// raw node id (a device that was forgotten and is not on the network right now). An AMBIGUOUS name
-	// is surfaced, never guessed at - re-admitting the wrong device revokes its certificate.
-	id, name := "", ""
+	departed, err := edgeLoadDeparted()
+	if err != nil {
+		return err
+	}
+	if len(argv.pos) == 0 {
+		return edgeListDeparted(st, departed)
+	}
+	want := argv.pos[0]
+	// Resolve the device the owner means: a re-pinging candidate first, then a fleet member, then a
+	// device this Edge forgot (by the name it had, or its id), then a raw node id this Edge has no
+	// record of. An AMBIGUOUS name is surfaced, never guessed at - re-admitting the wrong device
+	// revokes its certificate. name is what the fresh claim is granted under: never an id.
+	id, name, question, done := "", "", "", ""
+	consequence := "its previous certificate is revoked and it may claim a fresh one to rejoin"
+	after := "its old certificate is revoked; it can claim a fresh one and rejoin."
+	named := func(n store.EdgeNode) {
+		id, name = n.ID, ""
+		if !edge.LooksLikeID(n.Name) {
+			name = n.Name
+		}
+		if d, ok, _ := edge.FindDeparted(departed, n.ID); ok {
+			// It is a device this Edge forgot: said, and brought back, as it was known.
+			if d.Name != "" {
+				name = d.Name
+			}
+			question, done = edge.ReAdmitQuestion(d, time.Now()), edgeDepartedSaid(d)
+			return
+		}
+		said := edge.UnitName(n, nil)
+		question, done = "re-admit "+said+"?", said
+	}
 	c, cok, cerr := edgeResolve(st.candidates, want)
 	if cerr != nil {
 		return cerr
 	}
 	if cok {
-		id, name = c.ID, c.Name
+		named(c)
 	} else if nodes, lerr := st.list(); lerr == nil {
 		n, nok, nerr := edgeResolve(nodes, want)
 		if nerr != nil {
 			return nerr
 		}
 		if nok {
-			id, name = n.ID, n.Name
+			named(n)
 		}
 	}
 	if id == "" {
-		id, name = want, want // a raw node id for a device not seen right now
+		d, ok, err := edge.FindDeparted(departed, want)
+		if err != nil {
+			return err
+		}
+		switch {
+		case ok:
+			id, name = d.ID, d.Name
+			question, done = edge.ReAdmitQuestion(d, time.Now()), edgeDepartedSaid(d)
+		case strings.HasPrefix(want, "n_"):
+			// An id this Edge has no record of: quoted as typed, and the device is given no name.
+			id, name = want, ""
+			question = edge.ReAdmitUnknownQuestion(want) + ";"
+			done = fmt.Sprintf("the device you typed as %q", want)
+			consequence = "any certificate it holds from this Edge is revoked and it may claim a fresh one to rejoin"
+			after = "any certificate it held is revoked; it can claim a fresh one and rejoin, and it has no name until you give it one."
+		default:
+			return fmt.Errorf("no forgotten device is called %q (run `roger edge readmit` to list the ones that can be re-admitted)", want)
+		}
 	}
 	if !argv.has("yes") {
-		fmt.Printf("re-admit %s? its previous certificate is revoked and it may claim a fresh one to rejoin [y/N]: ", name)
+		fmt.Printf("%s %s [y/N]: ", question, consequence)
 		if !edgeConfirmed() {
 			fmt.Println("left alone.")
 			return nil
@@ -1672,11 +1727,55 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 	}
 	st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != id })
 	_ = st.save()
-	if edge.LooksLikeID(name) {
-		name = edgeDisplayName(id) // a raw id typed for a device not seen right now is not a name
-	}
-	fmt.Printf("re-admitted %s - its old certificate is revoked; it can claim a fresh one and rejoin.\n", name)
+	fmt.Printf("re-admitted %s - %s\n", done, after)
 	return nil
+}
+
+// edgeDepartedSaid is how a forgotten device is named in the line that says it was re-admitted.
+func edgeDepartedSaid(d edge.Departed) string {
+	if d.Name != "" {
+		return d.Name
+	}
+	return "the " + d.What()
+}
+
+// edgeListDeparted is `roger edge readmit` with no device: what can be re-admitted, newest first.
+func edgeListDeparted(st *edgeState, departed []edge.Departed) error {
+	members, err := st.list()
+	if err != nil {
+		return err
+	}
+	list := edge.NewestDeparted(departed, members)
+	if len(list) == 0 {
+		fmt.Println("no forgotten devices on this Edge - nothing to re-admit.")
+		return nil
+	}
+	now := time.Now()
+	fmt.Println("forgotten devices that can be re-admitted, newest first:")
+	for _, d := range list {
+		fmt.Printf("  %s    %s\n", edge.DepartedWords(d, now), edge.ReAdmitHow(d))
+	}
+	fmt.Println("re-admit one with `roger edge readmit <name>`; it claims a fresh certificate and rejoins under that name.")
+	return nil
+}
+
+// edgeGrantName is the name a standing claim grant carries for a node, or "" (no grant, no
+// authority here, or a grant named by an id).
+func edgeGrantName(id string) string {
+	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !hasRoot {
+		return ""
+	}
+	grants, err := local.Claims()
+	if err != nil {
+		return ""
+	}
+	for _, g := range grants {
+		if g.NodeID == id && !edge.LooksLikeID(g.Name) {
+			return g.Name
+		}
+	}
+	return ""
 }
 
 // edgeForgetNotInFleet forgets a device that is not (yet) in the fleet but still has a relationship
@@ -1785,12 +1884,13 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	// the re-admit are ONE atomic lock in the authority, so a revoke landing mid-adopt cannot be lifted.
 	revoked, err := local.ReAdmitRoutine(nodeID, name)
 	if errors.Is(err, edgeauth.ErrRevokedNeedsReadmit) {
-		// The command takes the id when the device was never named: it is an argument, not a name.
-		arg := name
-		if arg == "" || edge.LooksLikeID(arg) {
-			arg = nodeID
+		// It is said by the name it had when this Edge kept one, and the command takes that name;
+		// else the id, which is an argument, not a name.
+		said, arg := edgeDepartedLabel(nodeID)
+		if arg == nodeID && name != "" && !edge.LooksLikeID(name) {
+			arg = name
 		}
-		return fmt.Errorf("%s was removed and its certificate revoked; re-admitting lifts that revocation - run `roger edge readmit %s` to do it deliberately", edgeDisplayName(nodeID), arg)
+		return fmt.Errorf("%s was removed and its certificate revoked; re-admitting lifts that revocation - run `roger edge readmit %s` to do it deliberately", said, arg)
 	}
 	if err != nil {
 		return edgeRecordRevoked(revoked, err)

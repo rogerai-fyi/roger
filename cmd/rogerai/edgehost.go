@@ -592,10 +592,15 @@ func (h *edgeHost) nameNode(id, name string) error {
 func (h *edgeHost) forgetNode(id string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, ok, err := h.st.fleet.Get(id); err != nil {
+	n, ok, err := h.st.fleet.Get(id)
+	if err != nil {
 		return err
 	} else if !ok {
 		return fmt.Errorf("no such node on this Edge")
+	}
+	// The short record that it left, first (features/edge/node_identity.feature, RE-ADMITTING).
+	if err := edgeRecordDeparted(n); err != nil {
+		return err
 	}
 	if _, _, err := edgeRevokeOnForget(id); err != nil {
 		return err

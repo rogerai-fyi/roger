@@ -228,6 +228,10 @@ Feature: A node is the owner's machine, typed by what it can do rather than by w
   # RE-ADMITTING A FORGOTTEN DEVICE - FOUNDER DIRECTION 2026-10-02 ("iterate and enhance")
   #
   # STATUS: APPROVED by the founder 2026-10-02.
+  # BUILD STATUS (2026-10-02, wt/limoni-readmit): BUILT - the record is edge-departed.json beside
+  # edge.json (0600), written by every forget path (CLI, fleet screen, console/TUI host, a pending
+  # grant); `roger edge readmit [<name>]` resolves, asks, lists; the fleet names a returning device.
+  # Executable here under godog (internal/edge) and pinned in cmd/rogerai/edgereadmit_test.go.
   #
   # Found 2026-10-01: forgetting a device removed its record, name and all, so re-admitting it later
   # could only echo the raw id the owner typed ("re-admit n_gone?"), its old name no longer resolved,

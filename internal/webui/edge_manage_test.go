@@ -808,3 +808,23 @@ func TestTheConsolePrintsALabelAndKeepsTheRecordName(t *testing.T) {
 		t.Fatalf("the id-named node is not in the snapshot: %+v", snap.Nodes)
 	}
 }
+
+// The console's node history says a renamed caller by its name now, and never by its id (the
+// remote-model audit ruling, 2026-10-02); the id stays in the record's own field.
+func TestConsoleHistorySaysARenamedCallerByItsNameNow(t *testing.T) {
+	desk := store.EdgeNode{ID: "n_desk", Name: "desk", Kind: "host", History: []store.EdgeEvent{
+		{At: 1, What: "model", Detail: "load qwen, asked by shed", By: "n_shed"},
+		{At: 2, What: "model", Detail: "load qwen, asked by gone", By: "n_gone"},
+	}}
+	all := []store.EdgeNode{desk, {ID: "n_shed", Name: "barn", Kind: "board"}}
+	got := edgeNodeOf(desk, time.Unix(10, 0), all)
+	if got.History[0].Detail != "load qwen, asked by shed (now barn)" || got.History[0].By != "n_shed" {
+		t.Errorf("history[0] = %+v", got.History[0])
+	}
+	if got.History[1].Detail != "load qwen, asked by gone" {
+		t.Errorf("history[1] = %+v", got.History[1])
+	}
+	if desk.History[0].Detail != "load qwen, asked by shed" {
+		t.Errorf("the record itself was rewritten: %+v", desk.History[0])
+	}
+}

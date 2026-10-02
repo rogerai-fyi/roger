@@ -997,6 +997,7 @@ func TestNodeIdentityFeature(t *testing.T) {
 			sc.Step(`^the second enrollment is refused$`, st.secondEnrollmentRefused)
 			sc.Step(`^the refusal names the account it already belongs to$`, st.refusalNamesTheAccountItBelongsTo)
 			sc.Step(`^the owner of "([^"]*)" learns nothing about "([^"]*)"$`, st.otherOwnerLearnsNothing)
+			registerReAdmitSteps(sc) // RE-ADMITTING A FORGOTTEN DEVICE (node_identity_readmit_bdd_test.go)
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,

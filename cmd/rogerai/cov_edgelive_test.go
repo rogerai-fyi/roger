@@ -155,8 +155,10 @@ func TestEdgeReadmitAsksResolvesAndReAdmits(t *testing.T) {
 	prevIn := edgeStdin
 	t.Cleanup(func() { edgeStdin = prevIn })
 
+	// Alone, it lists what can be re-admitted (nothing has been forgotten yet), and that is not a mistake.
 	out, code := edgeRun(t, "edge", "readmit")
-	require.NotEqual(t, 0, code, out)
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "no forgotten devices on this Edge")
 
 	// Asked first; no leaves it alone.
 	edgeStdin = strings.NewReader("n\n")
@@ -178,8 +180,11 @@ func TestEdgeReadmitAsksResolvesAndReAdmits(t *testing.T) {
 	edgeStdin = strings.NewReader("y\n")
 	out, code = edgeRun(t, "edge", "readmit", "n_gone")
 	require.Equal(t, 0, code, out)
-	// A device no longer known by any name is echoed by the id the owner typed (open naming question).
-	require.Contains(t, out, "re-admitted n_gone - its old certificate is revoked")
+	// An id this Edge has no record of is quoted as what the owner typed, never used as a name
+	// (features/edge/node_identity.feature, RE-ADMITTING).
+	require.Contains(t, out, `re-admit the device you typed as "n_gone"? this Edge has no record of it`)
+	require.Contains(t, out, `re-admitted the device you typed as "n_gone" - any certificate it held is revoked`)
+	require.NotContains(t, out, "re-admitted n_gone")
 
 	// A candidate on the network is resolved first, and leaves the bench once re-admitted.
 	st, err := loadEdgeState()

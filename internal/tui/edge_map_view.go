@@ -867,12 +867,17 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		}
 		// WHAT HAS HAPPENED TO IT (features/edge/events.feature), newest first and only the few that
 		// fit: the node page is where an owner asks "why is this thing like this".
+		members := make([]store.EdgeNode, 0, len(m.edge.rows))
+		for _, r := range m.edge.rows {
+			members = append(members, r.n)
+		}
 		for i, ev := range edgeLastEvents(n.History, 3) {
 			k := ""
 			if i == 0 {
 				k = "LATELY"
 			}
-			label(k, pad(edgeAge(m.edge.at.Sub(time.Unix(ev.At, 0)))+" ago", 10)+stDim.Render(pad(ev.What, 12)+ev.Detail))
+			// Who asked is said by name; a caller renamed since, by its name now too.
+			label(k, pad(edgeAge(m.edge.at.Sub(time.Unix(ev.At, 0)))+" ago", 10)+stDim.Render(pad(ev.What, 12)+edge.ActorDetail(ev, members)))
 		}
 		// WHERE IT DOES NOT MATCH WHAT YOU SAID IT SHOULD BE (features/edge/drift.feature). This is
 		// the difference between a fleet you are watching and a fleet you are running, so it sits

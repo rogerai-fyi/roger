@@ -217,3 +217,36 @@ func TestANodePageSaysWhenAPiIsShortOfPower(t *testing.T) {
 		t.Errorf("a machine that reports no power word was given one")
 	}
 }
+
+// Who asked for something is kept as a node id for audit and said by name; a caller renamed since is
+// said as it was, with what it is called now (the remote-model audit ruling, 2026-10-02).
+func TestTheNodePageSaysARenamedCallerByItsNameNow(t *testing.T) {
+	m := mapReadableModel(t)
+	callerID := ""
+	for i := range m.edge.rows {
+		if m.edge.rows[i].n.Name == "pi-greenhouse" {
+			callerID = m.edge.rows[i].n.ID
+		}
+	}
+	if callerID == "" {
+		t.Fatal("no pi-greenhouse in the rig")
+	}
+	for i := range m.edge.rows {
+		n := &m.edge.rows[i].n
+		if n.Name == "studio-mac" {
+			n.History = []store.EdgeEvent{{At: time.Now().Unix(), What: "model", Detail: "load qwen, asked by gh", By: callerID}}
+		}
+	}
+	for i, it := range m.edgeNetItems() {
+		if it.member && it.name == "studio-mac" {
+			m.edge.netSel, m.edge.netSelSet, m.edge.netDetail = i, true, true
+		}
+	}
+	out := stripANSI(m.edgeView(140))
+	if !strings.Contains(out, "load qwen, asked by gh (now pi-greenhouse)") {
+		t.Errorf("a renamed caller is not said by its name now:\n%s", out)
+	}
+	if strings.Contains(out, callerID) {
+		t.Errorf("the caller's id is on the page:\n%s", out)
+	}
+}

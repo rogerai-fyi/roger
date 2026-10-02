@@ -300,7 +300,9 @@ func edgeRecordModel(callerID, callerName, what string) error {
 	if who == "" {
 		who = edgeDisplayName(callerID)
 	}
-	if err := st.fleet.RecordEvent(id.NodeID, "model", what+", asked by "+who+" ("+edgeShortID(callerID)+")"); err != nil {
+	// WHO asked is kept as the authenticated caller id, for audit (a name can change or be reused);
+	// the sentence a person reads names the caller only.
+	if err := st.fleet.RecordEventBy(id.NodeID, "model", what+", asked by "+who, callerID); err != nil {
 		return err
 	}
 	return st.save()
