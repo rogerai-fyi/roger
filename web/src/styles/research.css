@@ -182,6 +182,7 @@
 .research-closing p { max-width: 700px; margin-inline: auto; }
 /* the section head's lede (gap and size), for the closings that set it straight after the h2 */
 .research-closing h2 + p { margin-top: var(--s-4); font-size: var(--t-lead); }
+.research-split h2 + p { margin-top: var(--s-4); }
 .research-closing .research-actions { justify-content: center; }
 /* on a phone a centred closing is six or more ragged lines and a lone button mid-row: it
    reads left there, like every other section and action row */

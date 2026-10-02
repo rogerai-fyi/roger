@@ -191,3 +191,9 @@ test("careers: on a phone the role chips keep a clear gap once their rules drop"
   // "ORANGE COUNTY OR REMOTE  FULL-TIME" read as one phrase across a 12px gap
   assert.match(css("careers.css"), /@media \(max-width: 480px\) \{\s*\.role__meta \{ column-gap: var\(--s-6\); \}\s*\.role__meta span \+ span \{ padding-left: 0; border-left: 0; \}/);
 });
+
+test("research split: the lede sits a step under its heading", () => {
+  // "Claims follow measurements." / "Engineering without lock-in." set their lede flush under
+  // the h2 (no gap), unlike every section head
+  assert.match(css("research.css"), /\.research-split h2 \+ p \{ margin-top: var\(--s-4\); \}/);
+});
