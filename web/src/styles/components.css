@@ -86,7 +86,7 @@
   max-width: 100%;
 }
 .install__box:hover { border-color: var(--live); }
-.install__box:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.install__box:focus-visible { border-color: var(--live); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .install__prompt { color: var(--live-text); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
 .install__code {
   flex: 1 1 auto;

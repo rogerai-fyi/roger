@@ -540,6 +540,15 @@ behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1
 - **Text and links.** Text never uses `--ink-300`. A link in running text needs more than
   its colour: a classless `<a>` in a `<p>` or `<li>` gets the hairline from base.css; one
   set straight in other text takes `class="tlink"`.
+- **Focus.** One keyboard ring: `--focus-ring` (2px `--live`) at `--focus-offset`, set on every
+  control by base.css's zero-specificity `:where(:focus-visible)`. A component may move the ring
+  (inside a frame, onto a child) or, for a text field, draw the red edge instead (`--live` border +
+  a 1px inset `--live` shadow); never a soft halo (`--live-glow`, `--volt-glow`, `--live-wash`),
+  and never a colour change alone (`test/qa-polish4.test.mjs`).
+- **Motion.** An interaction transition (hover, press, open, select) takes its time from the
+  `--d-1`..`--d-5` scale (120 to 820ms), which reduced motion sets to 0. Hover and colour changes
+  are `--d-2`; a few named motions keep their own approved timing (the tuner's needle spring,
+  hint and station names, the nav's App word), listed in the same test.
 - **Roles.** A widget with controls inside is a named `role="group"`, never `role="img"`
   (that hides its buttons), and never sits under `aria-hidden`. Headings go down one level
   at a time inside `<main>`.
