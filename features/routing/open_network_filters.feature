@@ -167,6 +167,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When a request for "qwen3-32b" carries provider.quantizations ["Q8_0\u0007"]
     Then "n-q8" is a candidate
 
+  @cli
   Scenario: The quant filter replaces the TUI's exclude-list simulation and binds in standalone roger use
     # Contract §9: the standing quants RULE is sent as the labels plus "unknown" (the rule reads
     # an unlabeled row as "not contradicted", Limit.acceptsQuant); a tuned ROW is sent without it.
@@ -667,6 +668,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When 50 requests for "gpt-oss-120b" carry roger.self_hosted_only true
     Then every one of them is served by "n-human"
 
+  @tui
   Scenario: The TUI hide-curated toggle sends self_hosted_only, not an exclude list
     Given the operator hid curated supply in the TUI
     When the TUI sends a request on a mixed band
@@ -992,6 +994,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When 3 requests for "qwen3-32b" carry provider.quantizations ["Q8_0"] and are refused
     Then /admin/live reads relay_no_match_quantizations 3
 
+  @docs
   Scenario: OpenAPI documents every filter with its unknown-attribute rule
     When the OpenAPI document is read
     Then it documents provider.quantizations, roger.params_b, roger.min_ctx, roger.min_tps, roger.max_ttft_ms, roger.trust_min, roger.self_hosted_only, roger.confidential and roger.region
