@@ -503,8 +503,12 @@ func AttestationReportData(pubHex, nonceHex string) []byte {
 // UsageReceipt is the per-request lineage record. It is hash-chained (PrevHash)
 // per node, signed by the node, then counter-signed by the broker.
 type UsageReceipt struct {
-	RequestID        string  `json:"request_id"`
-	NodeID           string  `json:"node_id"`
+	RequestID string `json:"request_id"`
+	NodeID    string `json:"node_id"`
+	// Relay is the Tower id that carried a BRIDGED answer (features/routing/edge_bridge_parity
+	// .feature): NodeID is then the relay name the broker dispatched to. Absent on a direct
+	// receipt, so a node's signing bytes are unchanged.
+	Relay            string  `json:"relay,omitempty"`
 	User             string  `json:"user"`
 	Model            string  `json:"model"`
 	PromptTokens     int     `json:"prompt_tokens"`

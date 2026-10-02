@@ -701,6 +701,16 @@ func capBody(body []byte, capUSD, in, out float64) []byte {
 // the consumer's tools / response_format / messages byte-identical. A body that is not an
 // object is returned as given.
 func rewriteBody(body []byte, dropCarriers bool, set map[string]json.RawMessage) []byte {
+	var drop map[string]bool
+	if dropCarriers {
+		drop = map[string]bool{"models": true, "provider": true, "roger": true}
+	}
+	return rewriteBodyDrop(body, drop, set)
+}
+
+// rewriteBodyDrop is rewriteBody with an explicit set of keys to drop: the same document-order,
+// value-bytes-preserving rebuild (every other key's bytes ride through untouched).
+func rewriteBodyDrop(body []byte, drop map[string]bool, set map[string]json.RawMessage) []byte {
 	kvs, ok := jsonObject(body)
 	if !ok {
 		return body
@@ -719,7 +729,7 @@ func rewriteBody(body []byte, dropCarriers bool, set map[string]json.RawMessage)
 		out.Write(v)
 	}
 	for _, kv := range kvs {
-		if dropCarriers && (kv.key == "models" || kv.key == "provider" || kv.key == "roger") {
+		if drop[kv.key] {
 			continue
 		}
 		if v, replace := set[kv.key]; replace {

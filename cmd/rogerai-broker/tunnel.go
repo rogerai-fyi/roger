@@ -2288,7 +2288,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	log.Printf("routing request=%s model=%s strict=%s sort=%s pref=%s max_in=%g max_out=%g min_tps=%g reward_out=%g pick=%s",
 		requestID, req.Model, strictWhy, routeSort, routePref, maxPrice, maxPriceOut, minTPS, maxPriceOut, picked)
 	bridgeAuthFor := func(rr pickReq, freeOrSelf bool) edgeBridgeAuth {
-		return edgeBridgeAuth{
+		a := edgeBridgeAuth{
 			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
 			sessionAuthed: sessionAuthed, confidentialOnly: confidentialOnly,
 			maxPriceIn: maxPrice, maxPriceOut: maxPriceOut, pinNode: pinNode,
@@ -2298,13 +2298,21 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// weights the direct path evaluates. What the bridge cannot evaluate yet keeps
 			// the request direct-only (never a widened pick).
 			edgeConstraints: edgeConstraints{minTPS: minTPS, exclude: exclude, pref: routePref, promptTokens: promptTokens},
-			// provider.only names direct stations (a Tower id in the list is a later slice), a
-			// `:free` request must never ride a billed Tower, and a per-request cap is not
-			// evaluated on the bridge yet.
-			directOnly: len(orderList) > 0 || noFallbacks || rr.quants != nil ||
-				rr.needTools || rr.needVision || rr.selfHostedOnly ||
-				routing.Only != nil || rr.freeOnly || capReq > 0,
+			namedIDs:        len(orderList) > 0 || routing.Only != nil || pinNode != "",
 		}
+		// The bridge evaluates the consumer's filters on the Tower row itself (edgeEligibleM):
+		// quantizations, the capability requirement, self-hosted-only, `:free`, the price
+		// caps, the per-request cap, provider.only and a pin. An ORDER or allow_fallbacks:false
+		// still names direct stations only, so those keep the bridge closed (an empty
+		// allow-set admits no row) until the plan ranks Tower rows in the order.
+		a.edgeConstraints.quants, a.edgeConstraints.needTools, a.edgeConstraints.needVision = rr.quants, rr.needTools, rr.needVision
+		a.edgeConstraints.selfHostedOnly, a.edgeConstraints.freeOnly, a.edgeConstraints.freeFor = rr.selfHostedOnly, rr.freeOnly, rr.freeFor
+		a.edgeConstraints.sort, a.edgeConstraints.maxPriceIn, a.edgeConstraints.maxPriceOut, a.edgeConstraints.capReq = routeSort, maxPrice, maxPriceOut, capReq
+		a.edgeConstraints.allow, a.edgeConstraints.pin = stringSet(routing.Only), pinNode
+		if len(orderList) > 0 || noFallbacks {
+			a.edgeConstraints.allow = map[string]bool{}
+		}
+		return a
 	}
 	// BOTH FABRICS MAY SERVE. When a direct node was picked and the edge also hosts the
 	// model, a request-seeded coin sends half the traffic through the bridge - neither

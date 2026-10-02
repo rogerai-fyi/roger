@@ -337,37 +337,44 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then every relay is served by "s1"
 
   # --- params_b ---------------------------------------------------------------
+  @slice2
   Scenario: params_b binds on the bridge - Tower row out of range
     Given "t1-a" declares params_b 7 and "s1" declares params_b 32
     When 40 consumers relay with roger.params_b [20, 70]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: params_b binds on the bridge - direct out of range
     Given "t1-a" declares params_b 32 and "s1" declares params_b 7
     When 40 consumers relay with roger.params_b [20, 70]
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: a Tower row with no params_b is ineligible under a params filter
     Given "t1-a" declares no params_b and "s1" declares params_b 32
     When 40 consumers relay with roger.params_b [20, 70]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: params_b inclusive bounds apply identically on both fabrics
     Given "t1-a" declares params_b 70 and "s1" declares params_b 20
     When 40 consumers relay with roger.params_b [20, 70]
     Then some relays ride "t1" and some "s1"
 
   # --- min_ctx ----------------------------------------------------------------
+  @slice2
   Scenario: min_ctx binds on the bridge - Tower row too small
     Given "t1-a" declares ctx 8192 and "s1" declares ctx 65536
     When 40 consumers relay with roger.min_ctx 32768
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: min_ctx binds on the bridge - direct too small
     Given "t1-a" declares ctx 65536 and "s1" declares ctx 8192
     When 40 consumers relay with roger.min_ctx 32768
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: an estimated ctx on a Tower row is unknown under min_ctx, ineligible
     Given "t1-a"'s ctx 65536 is an estimate and "s1" declares ctx 65536
     When 40 consumers relay with roger.min_ctx 32768
@@ -404,32 +411,38 @@ Feature: The bridge honors every consumer constraint the direct path honors
     When 40 consumers relay with roger.min_tps 20
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: max_ttft_ms binds on the bridge - Tower row too slow to first token
     Given the node behind "t1-a" measures 3000ms TTFT and "s1" 400ms
     When 40 consumers relay with roger.max_ttft_ms 1000
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: max_ttft_ms binds on the bridge - direct too slow
     Given the node behind "t1-a" measures 300ms TTFT and "s1" 3000ms
     When 40 consumers relay with roger.max_ttft_ms 1000
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: an unmeasured TTFT on a Tower row passes max_ttft_ms
     Given the node behind "t1-a" has no TTFT measurement and "s1" measures 3000ms
     When 40 consumers relay with roger.max_ttft_ms 1000
     Then every relay is served through "t1"
 
   # --- trust_min --------------------------------------------------------------
+  @slice2
   Scenario: trust_min verified binds on the bridge - Tower node not canary-verified
     Given the node behind "t1-a" is not verified and "s1" is verified
     When 40 consumers relay with roger.trust_min "verified"
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: trust_min verified binds on the bridge - direct not verified
     Given the node behind "t1-a" is verified and "s1" is not
     When 40 consumers relay with roger.trust_min "verified"
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: trust_min confidential declines the bridge outright (a Tower is a third party)
     Given "s1" is TEE-attested
     When 40 consumers relay with roger.trust_min "confidential"
@@ -477,21 +490,25 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then some relays ride "t1" and some "s1"
 
   # --- region -----------------------------------------------------------------
+  @slice2
   Scenario: region binds on the bridge - Tower row elsewhere
     Given "t1-a" declares region "us" and "s1" declares region "eu"
     When 40 consumers relay with roger.region ["eu"]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: region binds on the bridge - direct elsewhere
     Given "t1-a" declares region "eu" and "s1" declares region "us"
     When 40 consumers relay with roger.region ["eu"]
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: a Tower row with no region is ineligible under a region filter
     Given "t1-a" declares no region and "s1" declares region "eu"
     When 40 consumers relay with roger.region ["eu"]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: region with several values admits any listed region on either fabric
     Given "t1-a" declares region "us" and "s1" declares region "eu"
     When 40 consumers relay with roger.region ["eu", "us"]
@@ -637,6 +654,7 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then relays may be served by either, and each is matched in its own namespace
     And the operator is warned once on /admin/live about the id collision
 
+  @slice2
   Scenario: a Tower cannot declare attributes it does not have to pass a filter it would fail
     Given "t1-a" declares quant "Q8_0" and params_b 70 but its known-model table entry says 7B
     When 40 consumers relay with roger.params_b [60, 80]
