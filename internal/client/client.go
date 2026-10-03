@@ -689,17 +689,56 @@ func rewriteModel(body []byte, target string) (out []byte, model string, ok bool
 	}
 	// A routing caller that names the tuned model keeps its spelling, variant suffix included
 	// (`band:free`); anything else becomes the band model.
+	// A guest's provider prefix (operator.ModelPrefixes) is stripped from its model and its
+	// models[] entries before the broker sees them.
 	var own string
 	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == target && hasCarrier(body) {
-		return body, own, true
+		bare := guestModelID(own)
+		models, changed := unprefixedModels(m["models"])
+		if bare == own && !changed {
+			return body, own, true
+		}
+		enc, _ := json.Marshal(bare)
+		m["model"] = enc
+		if changed {
+			m["models"] = models
+		}
+		out, err := json.Marshal(m)
+		if err != nil {
+			return nil, "", false
+		}
+		return out, bare, true
 	}
 	enc, _ := json.Marshal(target)
 	m["model"] = enc
+	if models, changed := unprefixedModels(m["models"]); changed {
+		m["models"] = models
+	}
 	out, err := json.Marshal(m)
 	if err != nil {
 		return nil, "", false
 	}
 	return out, target, true
+}
+
+// unprefixedModels strips a guest provider prefix from each models[] entry; changed reports
+// whether any entry was rewritten (a non-list value is left for the broker to refuse).
+func unprefixedModels(raw json.RawMessage) (json.RawMessage, bool) {
+	var ids []string
+	if len(raw) == 0 || json.Unmarshal(raw, &ids) != nil {
+		return raw, false
+	}
+	changed := false
+	for i, id := range ids {
+		if b := guestModelID(id); b != id {
+			ids[i], changed = b, true
+		}
+	}
+	if !changed {
+		return raw, false
+	}
+	out, _ := json.Marshal(ids)
+	return out, true
 }
 
 // ProxyHandler returns the local OpenAI-compatible handler over a FIXED options snapshot. It

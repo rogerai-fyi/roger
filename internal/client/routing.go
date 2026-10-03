@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/operator"
 )
 
 // Routing is the consumer-side routing object a first-party client puts in the request
@@ -136,6 +138,7 @@ func guestStatesSort(m map[string]json.RawMessage, provider map[string]any) bool
 		ids = append(ids, models...)
 	}
 	for _, id := range ids {
+		id = guestModelID(id)
 		if b := bareModel(id); b != id && (strings.Contains(id[len(b):], ":floor") || strings.Contains(id[len(b):], ":nitro")) {
 			return true
 		}
@@ -167,7 +170,21 @@ func guestNamesOtherModel(body []byte, model, tuned string) bool {
 	return hasCarrier(body)
 }
 
+// guestModelID strips the provider prefix a materialized guest puts in front of the band's
+// model id (operator.ModelPrefixes: hermes/opencode "roger/", aider "openai/"). Any other
+// prefix is part of the id.
+func guestModelID(id string) string {
+	for _, p := range operator.ModelPrefixes {
+		if rest, ok := strings.CutPrefix(id, p); ok && rest != "" {
+			return rest
+		}
+	}
+	return id
+}
+
+// bareModel is a guest's model id without its guest provider prefix and variant suffixes.
 func bareModel(id string) string {
+	id = guestModelID(id)
 	for {
 		trimmed := id
 		for _, sfx := range []string{":free", ":floor", ":nitro"} {

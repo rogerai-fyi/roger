@@ -114,6 +114,33 @@ Feature: The local proxy relays the routing body object and folds the owner's li
       | qwen3-32b-fp8        | "provider": {"sort": "price"} |
       | qwen3-32b-fp8:free   | "roger": {"pref": "cheap"}    |
 
+  # added 2026-10-02 (bug fix): hermes/opencode send roger/<model>, aider openai/<model>; the
+  # provider prefix their materialized config writes is not part of the model id
+  @slice0
+  Scenario Outline: A guest's provider-prefixed tuned model is accepted and reaches the broker unprefixed
+    When a chat request arrives with model "<incoming>" and <carrier>
+    Then the guest's response carries no error
+    And the broker receives model "<sent>"
+
+    Examples:
+      | incoming                  | carrier                       | sent                |
+      | roger/qwen3-32b-fp8       | "roger": {"pref": "cheap"}    | qwen3-32b-fp8       |
+      | openai/qwen3-32b-fp8      | "provider": {"sort": "price"} | qwen3-32b-fp8       |
+      | openai/qwen3-32b-fp8:free | "roger": {"pref": "cheap"}    | qwen3-32b-fp8:free  |
+
+  # added 2026-10-02 (bug fix): the same prefix inside models[] is stripped before the broker
+  @slice0
+  Scenario: A guest's provider-prefixed models[] entries reach the broker unprefixed
+    When a chat request arrives with model "roger/qwen3-32b-fp8" and "models": ["openai/qwen3-32b-fp8:floor"]
+    Then the broker receives model "qwen3-32b-fp8" and models ["qwen3-32b-fp8:floor"]
+
+  # added 2026-10-02 (bug fix): only the known guest prefixes are stripped
+  @slice0
+  Scenario: An unknown provider prefix is part of the model id and is refused with a carrier
+    When a chat request arrives with model "vendor/qwen3-32b-fp8" and "roger": {"pref": "cheap"}
+    Then the guest receives an OpenAI-shaped 400 "model vendor/qwen3-32b-fp8 is outside this session's band"
+    And nothing reaches the broker
+
   Scenario: A body with a carrier and NO model gets the band model as the primary
     # corrected 2026-10-02 (founder ruling): guest may only tighten - the list names the band model
     When a chat request arrives with no model field and "models": ["qwen3-32b-fp8:floor"]

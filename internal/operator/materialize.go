@@ -97,6 +97,19 @@ func piConfigJSON(baseURL, sessionKey, model string) ([]byte, error) {
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
+// The provider prefixes the materialized guests put in front of the band's model id: opencode
+// and hermes name the "roger" provider, aider the OpenAI-compatible one. The local proxy strips
+// exactly these (ModelPrefixes) before comparing a guest's model to the tuned band, so a guest
+// sending its normal prefixed id is not mistaken for one naming another model. The golden
+// opencode template below spells PrefixRoger literally (its bytes are pinned).
+const (
+	PrefixRoger  = "roger/"
+	PrefixOpenAI = "openai/"
+)
+
+// ModelPrefixes lists every provider prefix a materialized guest writes.
+var ModelPrefixes = []string{PrefixRoger, PrefixOpenAI}
+
 // goldenOpencodeTmpl is the §4-proven custom provider on @ai-sdk/openai-compatible. The
 // apiKey is the literal {env:ROGER_SESSION_KEY} reference (verified supported in the
 // 1.17.11 binary) so the secret never lands on disk.
@@ -166,7 +179,7 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 		// pin (a guest must never commit to the user's repo on its own);
 		// --no-show-model-warnings suppresses the unknown-model wall for the band's model.
 		return Launch{
-			Argv: []string{g.Bin, "--model", "openai/" + s.Model, "--no-show-model-warnings", "--no-auto-commits"},
+			Argv: []string{g.Bin, "--model", PrefixOpenAI + s.Model, "--no-show-model-warnings", "--no-auto-commits"},
 			Env:  []string{"OPENAI_API_BASE=" + s.BaseURL, "OPENAI_API_KEY=" + s.SessionKey},
 		}, noop, nil
 
@@ -194,7 +207,7 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 				// The argv -m pin beats EVERY config layer: a user project's own opencode.json
 				// loads AFTER OPENCODE_CONFIG in 1.17.11 and could otherwise silently re-route
 				// the guest (config_opencode.feature precedence hazard).
-				Argv: []string{g.Bin, "-m", "roger/" + s.Model},
+				Argv: []string{g.Bin, "-m", PrefixRoger + s.Model},
 				Env:  []string{"OPENCODE_CONFIG=" + cfg, SessionKeyEnv + "=" + s.SessionKey},
 				Dir:  dir,
 			}, cleanupFn(dir), nil
@@ -256,7 +269,7 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 			return Launch{}, nil, err
 		}
 		return Launch{
-			Argv: []string{g.Bin, "-m", "roger/" + s.Model},
+			Argv: []string{g.Bin, "-m", PrefixRoger + s.Model},
 			Env:  []string{"HERMES_HOME=" + home, SessionKeyEnv + "=" + s.SessionKey},
 			Dir:  dir,
 		}, cleanupFn(dir), nil

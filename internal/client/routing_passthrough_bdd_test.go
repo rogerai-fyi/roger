@@ -492,6 +492,12 @@ func TestRoutingPassthroughNegotiation(t *testing.T) {
 			sc.Step(`^nothing reaches the broker$`, st.nothingReachedBroker)
 			sc.Step(`^the broker receives models (\[.*\])$`, st.brokerReceivesModels)
 			sc.Step(`^the broker receives model "([^"]+)"$`, st.brokerReceivesModel)
+			sc.Step(`^the broker receives model "([^"]+)" and models (\[.*\])$`, func(model, models string) error {
+				if err := st.brokerReceivesModel(model); err != nil {
+					return err
+				}
+				return st.brokerReceivesModels(models)
+			})
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
