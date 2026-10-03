@@ -809,8 +809,29 @@ func edgeRefreshTrustNow(now time.Time) string {
 	endpoint := "http://" + d.Where
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	fetched, err := enrollhttp.Revocations(ctx, endpoint)
-	if err != nil {
+	// The list signed by the Edge's root first (features/edge/revocation.feature): not one serial of a
+	// list that fails its signature is used. An authority from before signing answers only the plain
+	// list, which is taken add-only, and said.
+	note := ""
+	var fetched []string
+	signed, err := enrollhttp.SignedRevocations(ctx, endpoint)
+	switch {
+	case err == nil:
+		rootPEM, rerr := os.ReadFile(filepath.Join(edgeAuthDir(), edgeauth.RootCertFile))
+		root, derr := edgeauth.DecodeCert(string(rootPEM))
+		if rerr != nil || derr != nil {
+			return "could not read this Edge's root to check the revocation list, so it was not used"
+		}
+		if verr := edgeauth.VerifyRevocations(root, signed); verr != nil {
+			return fmt.Sprintf("refused the revocation list from %s: its signature did not verify against this Edge's root - this machine's list is unchanged", endpoint)
+		}
+		fetched = signed.Revoked
+	case errors.Is(err, enrollhttp.ErrNotSigned):
+		if fetched, err = enrollhttp.Revocations(ctx, endpoint); err != nil {
+			return fmt.Sprintf("could not refresh the revocation list from %s - this machine's list may be stale", endpoint)
+		}
+		note = fmt.Sprintf("took an unsigned revocation list from %s (an authority from before signing) - it can only add revocations", endpoint)
+	default:
 		return fmt.Sprintf("could not refresh the revocation list from %s - this machine's list may be stale", endpoint)
 	}
 	t, err := st.LoadTrust()
@@ -830,5 +851,5 @@ func edgeRefreshTrustNow(now time.Time) string {
 	if err := st.SaveTrust(merged, now); err != nil {
 		return "could not save the refreshed revocation list: " + err.Error()
 	}
-	return ""
+	return note
 }
