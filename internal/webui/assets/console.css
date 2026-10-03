@@ -1550,3 +1550,28 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .share-getmodel { border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--s-3) var(--s-4); margin: var(--s-4) 0; }
 .share-roger td.col-model { white-space: normal; }
 .share-roger td.col-model .small { overflow-wrap: anywhere; max-width: 42ch; }
+
+/* roger's serving settings, one line under its rows (local_models.feature §11) */
+.share-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  align-items: center;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  padding: var(--s-3) var(--s-2);
+  margin: 0 0 var(--s-4);
+  color: var(--ink-700);
+}
+.share-settings[hidden] { display: none; }
+.share-settings .set-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); min-width: 0; }
+.share-settings .set-now { overflow-wrap: anywhere; min-width: 0; }
+.share-settings .inp.small { width: 8em; }
+.share-settings select.inp.small { width: auto; }
+.share-settings .set-says { flex: 1 0 100%; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-500); font: inherit; }
+.share-settings .set-says[hidden] { display: none; }
+@media (max-width: 640px) {
+  .share-settings { flex-direction: column; align-items: stretch; }
+  .share-settings .set-item { justify-content: flex-start; }
+}
+/* end share-settings */

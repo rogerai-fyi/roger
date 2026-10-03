@@ -133,3 +133,99 @@ func TestASettingIsChangedFromTheConsoleWithTheOwnersYes(t *testing.T) {
 	code, _ = call(t, srv2, off.Token(), "POST", "/api/models/set", `{"confirm":true,"kind":"idle","value":"2h"}`)
 	require.Equal(t, http.StatusNotImplemented, code)
 }
+
+// modelsSection is the console's MODELS section, where every model action lives.
+func modelsSection(t *testing.T) string {
+	t.Helper()
+	js := consoleJS(t)
+	a, b := strings.Index(js, "/* 8c. MODELS"), strings.Index(js, "/* end MODELS */")
+	require.True(t, a > 0 && b > a, "the models section is missing")
+	return js[a:b]
+}
+
+// local_models.feature §11 (@web): the serving settings are one visible line of SHARE, under roger's
+// own rows, each changeable in place with the same choices the CLI has.
+func TestTheServingSettingsAreOneLineOfShareUnderRogersRows(t *testing.T) {
+	html := consoleHTML(t)
+	share := panelOf(t, html, "panel-share")
+	rows, line, get := strings.Index(share, `id="share-roger-rows"`), strings.Index(share, `id="share-settings"`), strings.Index(share, `id="share-getmodel"`)
+	require.True(t, rows > 0 && line > rows, "the settings line sits under roger's rows")
+	require.True(t, get > line, "and above the search it opens")
+	set := share[line:get]
+	require.Contains(t, share, `class="share-settings mono small" id="share-settings" hidden`, "hidden until the models API answers")
+	require.Contains(t, set, `<select class="inp small" id="share-set-runtime"`, "the build is a choice of the CLI's choices")
+	for _, id := range []string{"share-set-idle", "share-set-budget"} {
+		require.Contains(t, set, `<input class="inp small" id="`+id+`" type="text"`, "%s is typed in place", id)
+	}
+	for _, id := range []string{"share-set-idle-apply", "share-set-budget-apply"} {
+		require.Contains(t, set, `id="`+id+`"`, "%s applies it", id)
+	}
+	for _, id := range []string{"share-set-runtime-now", "share-set-idle-now", "share-set-budget-now"} {
+		require.Contains(t, set, `id="`+id+`"`, "%s says the setting in words", id)
+	}
+	require.Contains(t, set, `aria-label=`, "every control is named for a screen reader")
+
+	sec := modelsSection(t)
+	require.Contains(t, sec, "renderServingSettings(v)", "every render of the view redraws the line")
+	require.Contains(t, sec, `show($("share-settings"), true)`, "always shown when the models API answers")
+	require.Contains(t, sec, `show($("share-settings"), false)`, "and not when it cannot")
+	require.Contains(t, sec, `"build: "`)
+	require.Contains(t, sec, `" - " + (st.here || "")`, "the build says what it means here")
+	require.Contains(t, sec, `"idle: " + (st.idle || "off")`)
+	require.Contains(t, sec, `"disk: " + (st.disk_budget > 0 ? fmtBytes(st.disk_budget) + " budget, " + fmtBytes(v.disk_used) + " used" : "no budget")`)
+	require.Contains(t, sec, `(st.choices || [])`, "the select offers the server's choices, no more")
+	require.Contains(t, sec, "document.activeElement", "a poll never overwrites what the owner is choosing")
+}
+
+// §11 (@web): a change is asked first (No holds the focus), carries the owner's yes, and answers with
+// the CLI's own sentence and a fresh view.
+func TestAServingSettingIsAskedFirstAndAnswersWithTheCLIsSentence(t *testing.T) {
+	sec := modelsSection(t)
+	a := strings.Index(sec, "  function modelsSet(kind, value, title, body) {")
+	require.True(t, a > 0, "one function changes a setting")
+	f := sec[a:]
+	f = f[:strings.Index(f, "\n  }\n")]
+	require.Contains(t, f, "askSafe(title, body")
+	require.Contains(t, f, ".then(function (yes) {\n      if (!yes) return;")
+	require.Contains(t, f, `apiPost("/api/models/set", { confirm: true, kind: kind, value: value })`)
+	require.Contains(t, f, "toast(d.says)")
+	require.Contains(t, f, `$("share-set-says").textContent = d.says`, "a long answer (what the next fetch removes) stays readable after the toast")
+	require.Contains(t, consoleHTML(t), `<pre class="set-says" id="share-set-says" hidden></pre>`)
+	require.Contains(t, f, "renderModels(d.view)")
+	require.Contains(t, f, `toast(e.message, "err")`, "a refused value says the server's reason")
+	for _, kind := range []string{`modelsSet("runtime"`, `modelsSet("idle"`, `modelsSet("budget"`} {
+		require.Contains(t, sec, kind)
+	}
+	require.Contains(t, sec, "applies from the next serve", "the question says when it applies")
+	require.Contains(t, sec, "removes nothing now", "a budget removes nothing by itself")
+	require.Contains(t, sec, `"keydown"`, "Enter in a field applies it")
+}
+
+// §11 (@web): roger's served rows name the build and show the measured speed once it has answered,
+// the estimate (marked as one) until then - for the serving entry and every "also".
+func TestRogersServedRowsShowTheBuildAndTheMeasuredSpeed(t *testing.T) {
+	js := consoleJS(t)
+	a, b := strings.Index(js, "  function renderModels(v) {"), strings.Index(js, "  function modelsServe(m, current, add) {")
+	r := js[a:b]
+	served := r[strings.Index(r, "[v.serving].concat(v.also || [])"):strings.Index(r, `(v.models || []).forEach`)]
+	require.Contains(t, served, "servedSpeed(one)", "each served row, the first and every also")
+	sec := modelsSection(t)
+	require.Contains(t, sec, `{ cpu: "CPU", vulkan: "Vulkan", cuda: "CUDA", metal: "Metal" }`)
+	require.Contains(t, sec, `" build"`)
+	require.Contains(t, sec, `one.measured_tok_s > 0 ? Number(one.measured_tok_s).toFixed(1) + " tok/s measured" : (one.estimate || "")`,
+		"a measurement replaces the estimate; the server marks an estimate as one")
+}
+
+// §11 (@web): the line works at phone width, on the console's own tokens.
+func TestTheServingSettingsLineFitsAPhone(t *testing.T) {
+	b, err := os.ReadFile("assets/console.css")
+	require.NoError(t, err)
+	css := string(b)
+	require.Contains(t, css, ".share-settings {")
+	require.Contains(t, css, ".share-settings .set-item {")
+	require.Contains(t, css, "flex-wrap: wrap", "items wrap rather than scroll the page sideways")
+	a := strings.Index(css, ".share-settings {")
+	block := css[a : a+strings.Index(css[a:], "\n/* end share-settings */")]
+	require.NotContains(t, block, "#", "colours come from the tokens, so dark mode follows")
+	require.NotContains(t, block, "box-shadow", "hairlines, no glows")
+}
