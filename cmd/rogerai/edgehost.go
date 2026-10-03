@@ -54,9 +54,10 @@ const (
 // edgeHost is this process's Edge: the fleet, the candidate list, the discovery engine
 // that keeps both current, and the heartbeats the screen animates on.
 type edgeHost struct {
-	self  string
-	st    *edgeState
-	beats chan string
+	trustAt time.Time // the last revocation-list refresh, paced by edgeTrustEvery
+	self    string
+	st      *edgeState
+	beats   chan string
 
 	disc    *edge.Discovery
 	every   time.Duration
@@ -898,6 +899,11 @@ func (h *edgeHost) serve(ctx context.Context) {
 // runPass is one discovery pass and everything the host does with it: the engine updates
 // the fleet itself, the candidates it saw are merged into the list the CLI reads, the
 // result is written to the cache, and every VERIFIED sighting becomes a heartbeat.
+// trustDue reports whether this pass should refresh the revocation list (edgeTrustEvery apart).
+func (h *edgeHost) trustDue(now time.Time) bool {
+	return h.trustAt.IsZero() || now.Sub(h.trustAt) >= edgeTrustEvery
+}
+
 func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.adoptEnrollment(ctx)
 	// Snapshot reg/cfg under the lock: registerInstance and deregisterInstance write h.reg while
@@ -911,6 +917,12 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.beatInstance(loadConfig())
 	h.observeSelf(time.Now()) // this machine's own row: live household, fresh last-seen
 	h.judgeHealth(time.Now()) // the authority judges the rules, so a dead node still reports
+	if now := time.Now(); h.trustDue(now) {
+		h.trustAt = now
+		if warn := edgeRefreshTrustNow(now); warn != "" {
+			log.Println("edge:", warn)
+		}
+	}
 	// Anything the owner left standing and that is due now (features/edge/schedule.feature). It runs
 	// through the ordinary maintenance path, so the target's switch and the grant still decide; a
 	// machine with no schedules does nothing at all here.

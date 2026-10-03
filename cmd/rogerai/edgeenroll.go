@@ -776,3 +776,59 @@ func edgeTrustNote(now time.Time) string {
 	return fmt.Sprintf("(trust information is stale: this machine's revocation list was last refreshed %s - "+
 		"a node revoked since then would still verify here)", edgeAge(t.RefreshedAt))
 }
+
+// edgeTrustEvery is how often a running roger refreshes its revocation list: well inside the
+// freshness window, rare enough to cost nothing.
+const edgeTrustEvery = 15 * time.Minute
+
+// edgeRefreshTrustNow brings this machine's revocation list up to date while roger runs
+// (enrollment.feature: "a peer that has the current revocation list"). The authority re-reads its
+// own list, which is the source. A member fetches its authority's list and ADDS it to what it has:
+// the list travels unsigned over the LAN, so an answer missing a serial - forged or broken - never
+// un-revokes it; a re-admitted device is issued a new serial, so nothing legitimate is lost. It
+// returns a warning to log, or "".
+func edgeRefreshTrustNow(now time.Time) string {
+	st := edgeIdentityStore()
+	if _, _, enrolled, err := st.LoadIdentity(); err != nil || !enrolled {
+		return ""
+	}
+	local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return "could not read this machine's authority to refresh its revocation list: " + err.Error()
+	}
+	if isAuthority {
+		if _, err := edgeRefreshTrust(st, "", local, true, now); err != nil {
+			return "could not refresh the revocation list: " + err.Error()
+		}
+		return ""
+	}
+	d, _, err := st.Descriptor()
+	if err != nil || d.Kind != edgeauth.KindLocal || !strings.Contains(d.Where, ":") {
+		return "" // not a member of a locally-rooted Edge reached by address: nothing to fetch from here
+	}
+	endpoint := "http://" + d.Where
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	fetched, err := enrollhttp.Revocations(ctx, endpoint)
+	if err != nil {
+		return fmt.Sprintf("could not refresh the revocation list from %s - this machine's list may be stale", endpoint)
+	}
+	t, err := st.LoadTrust()
+	if err != nil {
+		return "could not read this machine's revocation list: " + err.Error()
+	}
+	have := map[string]bool{}
+	merged := append([]string(nil), t.Revoked...)
+	for _, s := range merged {
+		have[s] = true
+	}
+	for _, s := range fetched {
+		if !have[s] {
+			merged, have[s] = append(merged, s), true
+		}
+	}
+	if err := st.SaveTrust(merged, now); err != nil {
+		return "could not save the refreshed revocation list: " + err.Error()
+	}
+	return ""
+}
