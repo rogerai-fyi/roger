@@ -386,14 +386,19 @@ func TestNoCLISurfacePrintsAnIdAsAName(t *testing.T) {
 			if strings.Contains(out, id) && !strings.Contains(out, "roger edge tag "+id) {
 				t.Errorf("%s prints the whole id as a name:\n%s", c.name, out)
 			}
-			if !strings.Contains(out, edge.ShortID(id)) {
+			// Updated 2026-10-02 for the approved fleet-window ruling: an unnamed unit is called by its
+			// hardware word (edge.UnitName), not a short id.
+			if strings.Contains(out, edge.ShortID(id)) && !strings.Contains(out, "roger edge tag "+id) {
+				t.Errorf("%s names the node by a short id:\n%s", c.name, out)
+			}
+			if !strings.Contains(out, "phone") {
 				t.Errorf("%s does not name the node at all:\n%s", c.name, out)
 			}
 		})
 	}
-	// And the shared name lookup every report reads is labelled at the source.
-	if got := edgeNodeNames()[id]; got != edge.ShortID(id) {
-		t.Errorf("the shared name lookup gives %q, want the short label", got)
+	// And the shared name lookup every report reads is named at the source.
+	if got := edgeNodeNames()[id]; got != "phone" {
+		t.Errorf("the shared name lookup gives %q, want the rack's word", got)
 	}
 }
 

@@ -81,7 +81,7 @@ func edgeTagApply(st *edgeState, n store.EdgeNode, words []string, clear bool) (
 		if err := st.fleet.SetTags(n.ID, nil); err != nil {
 			return "", err
 		}
-		return edge.Label(n.Name, n.ID) + " carries no tags now", nil
+		return edgeNodeLabel(n) + " carries no tags now", nil
 	}
 	var add, remove, replace []string
 	for _, w := range words {
@@ -118,19 +118,19 @@ func edgeTagApply(st *edgeState, n store.EdgeNode, words []string, clear bool) (
 		return "", err
 	}
 	if len(got.Tags) == 0 {
-		return edge.Label(n.Name, n.ID) + " carries no tags now", nil
+		return edgeNodeLabel(n) + " carries no tags now", nil
 	}
-	return edge.Label(n.Name, n.ID) + " carries " + strings.Join(got.Tags, " · "), nil
+	return edgeNodeLabel(n) + " carries " + strings.Join(got.Tags, " · "), nil
 }
 
 func edgePrintTags(n store.EdgeNode) {
 	if len(n.Tags) == 0 {
 		// The NAME in the example command, because that is what the owner types back, and the label in
 		// the sentence, because that is what they read. For a node nobody named they are both the id.
-		fmt.Printf("%s carries no tags. add one: roger edge tag %s +production\n", edge.Label(n.Name, n.ID), n.Name)
+		fmt.Printf("%s carries no tags. add one: roger edge tag %s +production\n", edgeNodeLabel(n), n.Name)
 		return
 	}
-	fmt.Printf("%s carries %s\n", edge.Label(n.Name, n.ID), strings.Join(n.Tags, " · "))
+	fmt.Printf("%s carries %s\n", edgeNodeLabel(n), strings.Join(n.Tags, " · "))
 	fmt.Printf("  a rule can cover the group: roger edge alert set cpu_temp gt 70 --scope %s\n", edge.TagScope(n.Tags[0]))
 }
 

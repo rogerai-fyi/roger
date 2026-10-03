@@ -254,7 +254,8 @@ func TestTheCLIAndTheTUIShareOneFleet(t *testing.T) {
 	// process would - shows the very same node.
 	out, code := edgeRun(t, "edge", "list")
 	require.Equal(t, 0, code)
-	require.Contains(t, out, p.id[:10])
+	require.Contains(t, out, edge.UnitName(members[0], members), "the very same node, by the rack's name")
+	require.NotContains(t, out, p.id[:10], "never by its id (updated 2026-10-02, fleet-window ruling)")
 }
 
 // An Edge that cannot be read is not an empty Edge: the host says so and leaves the screen

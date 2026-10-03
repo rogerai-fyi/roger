@@ -133,7 +133,13 @@ func edgeUsage() string {
 	b.WriteString("roger edge - your fleet: the machines you own\n\n")
 	b.WriteString("  roger edge                    show the fleet (same as `roger edge list`)\n")
 	for _, c := range edgeSubcommands {
-		b.WriteString(fmt.Sprintf("  %-30s%s\n", strings.TrimSpace("roger edge "+c.name+" "+c.args), c.purpose))
+		use := strings.TrimSpace("roger edge " + c.name + " " + c.args)
+		if len(use) >= 30 {
+			// A long usage keeps its own line; the purpose goes under it, in the purpose column.
+			b.WriteString(fmt.Sprintf("  %s\n  %-30s%s\n", use, "", c.purpose))
+			continue
+		}
+		b.WriteString(fmt.Sprintf("  %-30s%s\n", use, c.purpose))
 	}
 	b.WriteString(`
   list    --json  --capability <cap>  --dark  --candidates
@@ -1067,9 +1073,11 @@ func edgeWriteTable(w io.Writer, nodes []store.EdgeNode, reach map[string]edgeRe
 		if via == "" {
 			via = "-"
 		}
-		// A node whose "name" is really its id is shown as a short id, not a 48-character column that
-		// wrecks the table (edge.Label).
-		name := edge.Label(n.Name, n.ID)
+		// A node nobody named is shown by its hardware word, never its id (node_identity.feature).
+		name := edge.UnitName(n, nodes)
+		if n.ID == edgeThisNodeID() {
+			name = edge.SelfLabel(n.Name, edgeStationName())
+		}
 		if tagged {
 			fmt.Fprintf(w, head, name, n.Kind, edgeCapsLabel(n), via, edgeTagsLabel(n), edgeSeenLabel(n))
 		} else {

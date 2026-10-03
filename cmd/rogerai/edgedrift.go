@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // edgeExpectScope reads the --scope flag as an expectation scope: "" (the fleet), a tag, or a node id
@@ -163,6 +164,15 @@ func edgeExpectScopeWords(scope string, names map[string]string) string {
 }
 
 // edgeNodeNames is every node's name by id, for wording a scope.
+// edgeNodeLabel is what a sentence calls one unit: the shared lookup's name, or, for a unit not in
+// this fleet's records, its own hardware word - never its id.
+func edgeNodeLabel(n store.EdgeNode) string {
+	if name := edgeNodeNames()[n.ID]; name != "" {
+		return name
+	}
+	return edge.UnitName(n, []store.EdgeNode{n})
+}
+
 func edgeNodeNames() map[string]string {
 	out := map[string]string{}
 	st, err := loadEdgeState()
@@ -173,11 +183,16 @@ func edgeNodeNames() map[string]string {
 	if err != nil {
 		return out
 	}
+	self := edgeThisNodeID()
 	for _, n := range nodes {
-		// A record whose name IS its id was never named by its owner, so every surface calls it by a
-		// short id instead (edge.Label). This map is what the drift report, the schedule listing and
-		// the console's grant lines all read, so they cannot disagree about what a unit is called.
-		out[n.ID] = edge.Label(n.Name, n.ID)
+		// A record whose name IS its id was never named by its owner, so every surface calls it what
+		// the rack does - its hardware word (edge.UnitName), never an id (node_identity.feature). This
+		// map is what the drift report, the schedule listing, the inventory and the console's grant
+		// lines all read, so they cannot disagree about what a unit is called.
+		out[n.ID] = edge.UnitName(n, nodes)
+		if n.ID == self {
+			out[n.ID] = edge.SelfLabel(n.Name, edgeStationName())
+		}
 	}
 	return out
 }
