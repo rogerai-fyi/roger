@@ -135,7 +135,7 @@ func (s *readmitState) aDeviceNamedThatWasForgotten(name string) error {
 func (s *readmitState) ownerReAdmits(want string) error {
 	s.typed = want
 	var err error
-	s.found, s.ok, err = edge.FindDeparted(s.departed, want)
+	s.found, s.ok, err = edge.FindDeparted(s.departed, want, s.now)
 	if err != nil {
 		return err
 	}
@@ -235,11 +235,11 @@ func (s *readmitState) listsNewestFirst() error {
 }
 
 func (s *readmitState) saysHowToReAdmit() error {
-	if got := edge.ReAdmitHow(s.listing[1]); got != "roger edge readmit shed" {
+	if got := edge.ReAdmitHow(s.listing[1], s.departed, nil); got != "roger edge readmit shed" {
 		return fmt.Errorf("how = %q", got)
 	}
 	// A device that had no name is re-admitted by the only handle there is, and only as an argument.
-	if got := edge.ReAdmitHow(s.listing[0]); got != "roger edge readmit "+s.listing[0].ID {
+	if got := edge.ReAdmitHow(s.listing[0], s.departed, nil); got != "roger edge readmit "+s.listing[0].ID {
 		return fmt.Errorf("how (unnamed) = %q", got)
 	}
 	return nil

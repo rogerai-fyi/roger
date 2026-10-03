@@ -44,38 +44,72 @@ func TestRecordDepartedReplacesTheSameDevice(t *testing.T) {
 }
 
 func TestFindDeparted(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
 	list := []edge.Departed{
-		{ID: "n_a1", Name: "attic", At: 1},
+		{ID: "n_a1", Name: "attic", Hardware: "Pi 4", At: now.Add(-3 * 24 * time.Hour).Unix()},
 		{ID: "n_b", Name: "shed", At: 2},
-		{ID: "n_a2", Name: "attic", At: 3},
+		{ID: "n_a2", Name: "attic", Kind: "mobile", At: now.Add(-2 * time.Hour).Unix()},
 		{ID: "n_u", At: 4},
 	}
 	for _, tc := range []struct {
-		want   string
-		id     string
-		ok     bool
-		errHas string
+		want string
+		id   string
+		ok   bool
 	}{
-		{"shed", "n_b", true, ""},
-		{" shed ", "n_b", true, ""},
-		{"n_u", "n_u", true, ""}, // an unnamed record, by the only handle it has
-		{"n_a1", "n_a1", true, ""},
-		{"attic", "", false, `"attic" names 2 forgotten devices`},
-		{"loft", "", false, ""},
-		{"", "", false, ""},
+		{"shed", "n_b", true},
+		{" shed ", "n_b", true},
+		{"n_u", "n_u", true}, // an unnamed record, by the only handle it has
+		{"n_a1", "n_a1", true},
+		{"loft", "", false},
+		{"", "", false},
 	} {
 		t.Run(tc.want, func(t *testing.T) {
-			d, ok, err := edge.FindDeparted(list, tc.want)
-			if tc.errHas != "" {
-				require.ErrorContains(t, err, tc.errHas)
-				require.ErrorContains(t, err, "n_a1")
-				return
-			}
+			d, ok, err := edge.FindDeparted(list, tc.want, now)
 			require.NoError(t, err)
 			require.Equal(t, tc.ok, ok)
 			require.Equal(t, tc.id, d.ID)
 		})
 	}
+	// Two forgotten devices that had one name: each is said by what it is and when it left, and the
+	// id appears only as the argument that picks it.
+	_, ok, err := edge.FindDeparted(list, "attic", now)
+	require.False(t, ok)
+	require.EqualError(t, err, `"attic" names 2 forgotten devices - re-admit the one you mean: `+
+		"a Pi 4 forgotten 3 days ago (`roger edge readmit n_a1`), "+
+		"a phone forgotten 2 hours ago (`roger edge readmit n_a2`)")
+}
+
+func TestReAdmitHowNeverOffersANameThatResolvesElsewhere(t *testing.T) {
+	list := []edge.Departed{
+		{ID: "n_a", Name: "attic"},
+		{ID: "n_s1", Name: "shed"}, {ID: "n_s2", Name: "shed"},
+		{ID: "n_l", Name: "loft"},
+		{ID: "n_u"},
+		{ID: "n_p", Name: "porch"},
+	}
+	others := []store.EdgeNode{
+		{ID: "n_new", Name: "loft"}, // a member that took a forgotten device's name
+		{ID: "n_p", Name: "porch"},  // the same device, back: its own name is no conflict
+	}
+	for _, tc := range []struct{ id, want string }{
+		{"n_a", "roger edge readmit attic"},
+		{"n_s1", "roger edge readmit n_s1"},
+		{"n_s2", "roger edge readmit n_s2"},
+		{"n_l", "roger edge readmit n_l"},
+		{"n_u", "roger edge readmit n_u"},
+		{"n_p", "roger edge readmit porch"},
+	} {
+		var d edge.Departed
+		for _, x := range list {
+			if x.ID == tc.id {
+				d = x
+			}
+		}
+		require.Equal(t, tc.want, edge.ReAdmitHow(d, list, others), tc.id)
+	}
+	require.Equal(t, []store.EdgeNode{{ID: "n_new", Name: "loft"}}, edge.NameHeldElsewhere(list[3], others))
+	require.Empty(t, edge.NameHeldElsewhere(list[5], others))
+	require.Empty(t, edge.NameHeldElsewhere(list[4], others), "an unnamed record has no name to collide")
 }
 
 func TestDepartedWordsAndAgo(t *testing.T) {

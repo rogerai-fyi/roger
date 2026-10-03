@@ -73,8 +73,9 @@ func NewestDeparted(list []Departed, members []store.EdgeNode) []Departed {
 
 // FindDeparted resolves what the owner typed to one forgotten device: by its id, or by the name it
 // had. A name two forgotten devices had is refused rather than guessed at - re-admitting the wrong
-// device revokes its certificate - and the refusal gives the ids to choose by.
-func FindDeparted(list []Departed, want string) (Departed, bool, error) {
+// device revokes its certificate - and the refusal says each by what it is and when it left, with the
+// id only as the argument that picks it.
+func FindDeparted(list []Departed, want string, now time.Time) (Departed, bool, error) {
 	want = strings.TrimSpace(want)
 	if want == "" {
 		return Departed{}, false, nil
@@ -94,12 +95,35 @@ func FindDeparted(list []Departed, want string) (Departed, bool, error) {
 	case 1:
 		return byName[0], true, nil
 	}
-	ids := make([]string, 0, len(byName))
+	picks := make([]string, 0, len(byName))
 	for _, d := range byName {
-		ids = append(ids, d.ID)
+		picks = append(picks, ReAdmitPick(d, now))
 	}
-	return Departed{}, false, fmt.Errorf("%q names %d forgotten devices - re-admit one by its node id: %s",
-		want, len(byName), strings.Join(ids, ", "))
+	return Departed{}, false, fmt.Errorf("%q names %d forgotten devices - re-admit the one you mean: %s",
+		want, len(byName), strings.Join(picks, ", "))
+}
+
+// ReAdmitPick says one forgotten device by what it is and when it left, with the command that picks
+// it by id: "a Pi 4 forgotten 3 days ago (`roger edge readmit n_...`)". For a refusal where its name
+// alone would not say which.
+func ReAdmitPick(d Departed, now time.Time) string {
+	return article(d.What()) + " forgotten " + Ago(now.Sub(time.Unix(d.At, 0))) + " (`roger edge readmit " + d.ID + "`)"
+}
+
+// NameHeldElsewhere is the devices among others - fleet members, devices announcing themselves on the
+// network - that carry d's old name under a DIFFERENT id. A name one of them holds would resolve to
+// it, so it is not a safe way to say d.
+func NameHeldElsewhere(d Departed, others []store.EdgeNode) []store.EdgeNode {
+	if d.Name == "" {
+		return nil
+	}
+	var out []store.EdgeNode
+	for _, n := range others {
+		if n.ID != d.ID && strings.TrimSpace(n.Name) == d.Name {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // DepartedName is the name a returning device had, or "" when it had none or there is no record.
@@ -144,13 +168,19 @@ func ReAdmitUnknownQuestion(typed string) string {
 	return fmt.Sprintf("re-admit the device you typed as %q? this Edge has no record of it", typed)
 }
 
-// ReAdmitHow is the command that re-admits d: by its name, or, for a device that had none, by the
-// only handle there is - as an argument, not as what it is called.
-func ReAdmitHow(d Departed) string {
-	if d.Name != "" {
-		return "roger edge readmit " + d.Name
+// ReAdmitHow is the command that re-admits d: by its name when that name says d and nothing else;
+// by its id - as an argument, not as what it is called - when it had no name, when another forgotten
+// device had the same one, or when a device in others carries it now.
+func ReAdmitHow(d Departed, list []Departed, others []store.EdgeNode) string {
+	if d.Name == "" || len(NameHeldElsewhere(d, others)) > 0 {
+		return "roger edge readmit " + d.ID
 	}
-	return "roger edge readmit " + d.ID
+	for _, x := range list {
+		if x.ID != d.ID && x.Name == d.Name {
+			return "roger edge readmit " + d.ID
+		}
+	}
+	return "roger edge readmit " + d.Name
 }
 
 // Ago is a duration in words: "just now", "5 minutes ago", "1 hour ago", "3 days ago".
