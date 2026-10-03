@@ -1,6 +1,9 @@
 # ROGER EDGE ON A MACHINE WITH NO SCREEN - running headless, and at boot.
 #
 # STATUS: APPROVED by the founder 2026-10-03.
+# BUILD STATUS (2026-10-03, wt/edge-limoni): BUILT - `roger edge run`, `roger edge service [install|remove]` (systemd;
+# shown and asked first; as a normal user it stages the unit and prints the sudo commands; carries a
+# non-default config location). Reboot recovery is systemd's Restart + WantedBy, first proven on the Pi.
 #
 # Found preparing the Pi test (2026-10-02): a member answers on its Edge only while roger runs, and
 # the only way to run roger without a terminal is a hidden `__edge-agent` argument the launcher uses.

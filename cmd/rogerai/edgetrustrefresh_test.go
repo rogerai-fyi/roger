@@ -7,10 +7,10 @@ package main
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
