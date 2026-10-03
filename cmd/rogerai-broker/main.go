@@ -302,6 +302,8 @@ type broker struct {
 	// admin overview. Bumped with a single atomic add on the relay path; see instmetrics.go.
 	// Pure telemetry - they change no request behavior and are invisible to clients.
 	stats instStats
+	// gens holds /generation records in flight and, with no shared store, this instance's copy.
+	gens genRegistry
 
 	// peerInflight is the merged SUM of OTHER instances' in-flight counts per node
 	// (cross-instance capacity), refreshed on the same background loop as liveness via
@@ -944,6 +946,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/metrics/provider", b.metricsProvider)   // per-model SERVE metrics (free/paid + earnings)
 	mux.HandleFunc("/metrics/usage", b.metricsUsage)         // per-model CONSUME metrics (free/paid + spend)
 	mux.HandleFunc("/metrics/series", b.metricsSeries)       // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)
+	mux.HandleFunc("/generation", b.generation)              // one request's routing + billing history (owner-scoped)
 	mux.HandleFunc("/console", b.console)                    // recent lineage feed + live counters (Console page)
 	mux.HandleFunc("/activity", b.console)                   // alias for /console
 	mux.HandleFunc("/provider/models", b.providerModels)     // owner: per-model price + time-of-use schedule (Console pricing manager)

@@ -533,6 +533,7 @@ func (s *screener) recordFlag(job *screenJob, category string) {
 		log.Printf("MODERATION: flag record FAILED (category=%s request=%s pseudonym=%s): %v", category, job.id, job.pseudonym, err)
 		return
 	}
+	s.b.genVerdictLater(job.id, "flagged_after_serve")
 	log.Printf("MODERATION: flagged after the fact (category=%s request=%s pseudonym=%s model=%s node=%s) - recorded for review, not enforced",
 		category, job.id, job.pseudonym, job.model, f.Node)
 	flags, err := s.b.db.ModerationFlagsByPseudonym(job.pseudonym, now.Add(-24*time.Hour).Unix(), 0)

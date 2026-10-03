@@ -472,14 +472,14 @@ func (b *broker) bridgedReceipt(g dispatch.EdgeGrant, row fleet.Station, consume
 // cost, tokens). The answer bytes ARE the upstream's OpenAI-shaped JSON - the station seals
 // its upstream's response body verbatim - so the non-streamed path passes them through, and
 // the streamed path wraps them as one delta chunk, the broker's usage chunk, then [DONE].
-func (b *broker) writeBridgedAnswer(w http.ResponseWriter, g dispatch.EdgeGrant, row fleet.Station, consumerPub string, answer []byte, stream bool) {
+func (b *broker) writeBridgedAnswer(w http.ResponseWriter, g dispatch.EdgeGrant, row fleet.Station, consumerPub string, answer []byte, stream bool) (protocol.UsageReceipt, float64) {
 	rec, cost := b.bridgedReceipt(g, row, consumerPub, answer)
 	setBridgedHeaders(w.Header(), g, rec, cost)
 	if !stream {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(answer)
-		return
+		return rec, cost
 	}
 	// A streaming request served by the edge arrives whole - the hub is submit/answer, not
 	// a byte stream - so the answer goes out as one well-formed SSE chunk. Honest about
@@ -494,6 +494,7 @@ func (b *broker) writeBridgedAnswer(w http.ResponseWriter, g dispatch.EdgeGrant,
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+	return rec, cost
 }
 
 func setBridgedHeaders(h http.Header, g dispatch.EdgeGrant, rec protocol.UsageReceipt, cost float64) {

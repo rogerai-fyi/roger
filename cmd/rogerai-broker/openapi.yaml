@@ -367,6 +367,7 @@ paths:
             one release, and equals `usage.cost`.
           headers:
             X-RogerAI-Receipt: { schema: { type: string }, description: "Signed receipt (request id, node, model, tokens, prices). Non-stream only; streams carry it in the usage chunk." }
+            X-RogerAI-Request-Id: { schema: { type: string, pattern: "^[0-9a-f]{16}$" }, description: "The request id. Set on EVERY relay response, served or refused; look the request up with GET /generation?id=." }
             X-RogerAI-Provider: { schema: { type: string }, description: "Serving node id." }
             X-RogerAI-Model: { schema: { type: string }, description: "Bare id of the model that served (matters with `models[]` fallback and variant sugar)." }
             X-RogerAI-Relay: { schema: { type: string }, description: "Tower id when the edge fabric served; absent on a direct relay." }
@@ -595,6 +596,35 @@ paths:
                     items: { type: object, properties: { key: { type: string }, cost: { type: number }, count: { type: integer } } }
                   recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
         "401": { description: no valid session }
+
+  /generation:
+    get:
+      tags: [account]
+      summary: One request's routing and billing history
+      description: |
+        The record of one relay, written when it returns (served or refused): every attempt
+        in order with its station, model, status, duration and void reason; who served; the
+        cost, tokens, tps, ttft and latency; the moderation verdict; and the served receipt.
+        The CONSUMER view goes to the identity that made the request (the signed wallet, the
+        browser session, or the exact grant token). The OWNER view goes to the payout owner
+        of a station that served or was tried, and to the owner who minted the grant: only
+        that owner's own attempts, the served station and the bill only when their station
+        served, and never the receipt or anything of the consumer's. Everyone else, an
+        unknown id and an expired record get the same 404. Never message text, band codes or
+        station addresses. A request still in flight is 404 until it ends.
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: string, pattern: "^[0-9a-f]{16}$" }
+          description: The X-RogerAI-Request-Id the relay returned.
+      responses:
+        "200": { description: The record (consumer or owner view) }
+        "400": { description: "id missing or malformed: error.code invalid_request_id" }
+        "404": { description: Not found, or not yours (uniform) }
+        "405": { description: Only GET is served }
+        "429": { description: Rate limited per identity (Retry-After) }
+        "503": { description: The record store is unreachable (fails closed) }
 
   /connect/onboard:
     post:

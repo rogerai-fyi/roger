@@ -730,6 +730,7 @@ func (g *gl3State) noLongerHeld() error {
 	g.reqIDs["held"] = g.reqID
 	g.proofWho, g.proofID = "alice", g.reqID
 	g.reqID = "00000000deadbeef"
+	delete(g.reqIDs, "alice") // or "alice GETs ... for it" would swap her live id back in
 	return nil
 }
 
@@ -795,6 +796,7 @@ func (g *gl3State) inFlight() error {
 		if m := re.FindStringSubmatch(g.logs.String()[mark:]); m != nil {
 			g.reqIDs["flight"] = m[1]
 			g.lastID = m[1]
+			g.reqID = m[1] // "GETs /generation for it" reads g.reqID: the in-flight id, not a stale one
 			return nil
 		}
 		if time.Now().After(deadline) {

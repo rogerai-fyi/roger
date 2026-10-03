@@ -286,6 +286,12 @@ var sr3AttemptSuffix = regexp.MustCompile(`-\d+$`)
 
 func (s *sr3State) resolveReqID() {
 	s.reqID = ""
+	// The relay names its request id on every response (X-RogerAI-Request-Id, founder ruling
+	// 2026-10-02); the dispatched-job and receipt reads below remain for a response without it.
+	if v := s.lastHdr.Get("X-RogerAI-Request-Id"); v != "" {
+		s.reqID = v
+		return
+	}
 	var ids []string
 	for _, l := range s.dispatchedIDs() {
 		ids = append(ids, l...)
