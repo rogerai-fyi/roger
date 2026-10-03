@@ -202,3 +202,40 @@ func TestReregisterRefreshesPersistedToken(t *testing.T) {
 		t.Errorf("heartbeat with the refreshed token = %d, want 200", c)
 	}
 }
+
+// TestRehydrateSkipsOnlyTheSuffixedOffer: a persisted node carrying one offer whose id ends in
+// a reserved variant suffix (pre-dating the rule) keeps its other offers across a restart;
+// only the unreachable offer is skipped. A node whose every offer is suffixed is dropped.
+func TestRehydrateSkipsOnlyTheSuffixedOffer(t *testing.T) {
+	db := store.NewMem()
+	_, priv, _ := ed25519.GenerateKey(nil)
+	pub := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	now := time.Now().Unix()
+	mixed := protocol.NodeRegistration{NodeID: "n-mixed", PubKey: pub, BridgeToken: "t1",
+		Offers: []protocol.ModelOffer{{Model: "old-model:free"}, {Model: "good-model"}}}
+	only := protocol.NodeRegistration{NodeID: "n-only", PubKey: pub, BridgeToken: "t2",
+		Offers: []protocol.ModelOffer{{Model: "legacy:nitro"}}}
+	for _, reg := range []protocol.NodeRegistration{mixed, only} {
+		if err := db.UpsertNode(store.NodeRecord{NodeID: reg.NodeID, Reg: reg, LastSeen: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := newBroker(db)
+	b.rehydrateNodes()
+	reg, ok := b.nodes["n-mixed"]
+	if !ok {
+		t.Fatal("a node with one valid offer must survive re-hydrate")
+	}
+	if len(reg.Offers) != 1 || reg.Offers[0].Model != "good-model" {
+		t.Fatalf("re-hydrated offers = %+v, want only good-model", reg.Offers)
+	}
+	if !b.onAir("good-model") {
+		t.Fatal("the valid offer must be on air after re-hydrate")
+	}
+	if b.onAir("old-model:free") {
+		t.Fatal("the suffixed offer must not be on air")
+	}
+	if _, ok := b.nodes["n-only"]; ok {
+		t.Fatal("a node whose every offer is suffixed must be dropped")
+	}
+}

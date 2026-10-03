@@ -1285,10 +1285,21 @@ func (b *broker) rehydrateNodes() {
 			continue
 		}
 		// ...and a persisted offer whose model id ends in a variant suffix (pre-dating the
-		// rule): the suffix is consumer sugar now, so the offer could never be reached.
+		// rule): the suffix is consumer sugar now, so that offer could never be reached. Only
+		// the offending offers are skipped; the node is dropped when none remain.
 		if msg := registerModelSuffix(reg.Offers); msg != "" {
-			log.Printf("re-hydrate: dropping node %s (%s)", reg.NodeID, msg)
-			continue
+			kept := make([]protocol.ModelOffer, 0, len(reg.Offers))
+			for _, o := range reg.Offers {
+				if registerModelSuffix([]protocol.ModelOffer{o}) == "" {
+					kept = append(kept, o)
+				}
+			}
+			if len(kept) == 0 {
+				log.Printf("re-hydrate: dropping node %s (%s)", reg.NodeID, msg)
+				continue
+			}
+			log.Printf("re-hydrate: node %s skipping %d offer(s) (%s)", reg.NodeID, len(reg.Offers)-len(kept), msg)
+			reg.Offers = kept
 		}
 		b.nodes[reg.NodeID] = reg
 		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
