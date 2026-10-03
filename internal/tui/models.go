@@ -68,6 +68,7 @@ type modelsState struct {
 	fitsOnly bool
 	ctx      int
 	ask      *modelsAsk
+	set      *settingsChooser // the serving-settings chooser open on SHARE's settings row (§11)
 	says     string
 	frame    int
 }
@@ -103,7 +104,7 @@ func (m model) enterModels() (model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeModels
-	m.mdl.pane, m.mdl.sel, m.mdl.typing, m.mdl.ask, m.mdl.says = modelsDisk, 0, false, nil, ""
+	m.mdl.pane, m.mdl.sel, m.mdl.typing, m.mdl.ask, m.mdl.says, m.mdl.set = modelsDisk, 0, false, nil, "", nil
 	m.status = stDim.Render("MODELS - serve a model here with nothing else installed")
 	return m, tea.Batch(m.modelsLoad(), modelsTick())
 }
@@ -504,8 +505,12 @@ func (m model) modelsView(w int) string {
 			if i > 0 {
 				head = "  AND         "
 			}
+			facts := servingFacts(sv) // first, so 80 columns keep the build and the speed
+			if facts != "" {
+				facts = " · " + facts
+			}
 			line("  " + stLive.Render(head) + stKey.Render("\""+sv.Band+"\"") +
-				stDim.Render(fmt.Sprintf(" · %s · %s · %d context%s", sv.ID, modelsDash(sv.Quant), sv.Ctx, since)))
+				stDim.Render(fmt.Sprintf("%s · %s · %s · %d context%s", facts, sv.ID, modelsDash(sv.Quant), sv.Ctx, since)))
 		}
 	} else {
 		line("  " + stDim.Render("ON THE AIR    nothing - pick a model below and press ⏎"))

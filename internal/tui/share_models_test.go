@@ -68,8 +68,8 @@ func TestModelsAreRowsOfShare(t *testing.T) {
 	if out = stripANSI(m.shareView(130)); !strings.Contains(out, "served by roger itself · acme/Tiny-GGUF:Q4_K_M · Q4_K_M · 8192 context") {
 		t.Errorf("roger's own row does not say so:\n%s", out)
 	}
-	if got, want := m.shareRowCount(), 2+3; got != want {
-		t.Errorf("rows = %d, want %d (2 detected + on disk + download + get)", got, want)
+	if got, want := m.shareRowCount(), 2+4; got != want { // §11 adds the serving-settings row
+		t.Errorf("rows = %d, want %d (2 detected + on disk + download + settings + get)", got, want)
 	}
 }
 

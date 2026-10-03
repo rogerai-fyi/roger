@@ -18,9 +18,10 @@ import (
 type shareExtraKind int
 
 const (
-	extraDisk  shareExtraKind = iota // on this disk, served by nothing
-	extraFetch                       // a download in progress (or one that failed)
-	extraGet                         // + get a model that fits this machine
+	extraDisk     shareExtraKind = iota // on this disk, served by nothing
+	extraFetch                          // a download in progress (or one that failed)
+	extraSettings                       // the owner's serving settings, changeable in place (§11)
+	extraGet                            // + get a model that fits this machine
 )
 
 type shareExtra struct {
@@ -45,7 +46,7 @@ func (m model) shareExtras() []shareExtra {
 	if j := v.Job; j != nil && j.State != "done" {
 		out = append(out, shareExtra{kind: extraFetch})
 	}
-	return append(out, shareExtra{kind: extraGet})
+	return append(out, shareExtra{kind: extraSettings}, shareExtra{kind: extraGet})
 }
 
 // shareRowCount is every row the SHARE cursor can rest on.
@@ -71,6 +72,8 @@ func (m *model) onShareExtraEnter(e shareExtra) (tea.Model, tea.Cmd) {
 	case extraFetch:
 		nm, cmd := m.enterModels()
 		return nm, cmd
+	case extraSettings:
+		return m.onSettingsEnter()
 	}
 	// + get a model: the search and the fit view, inside SHARE, typing at once.
 	nm, cmd := m.enterModels()
@@ -116,6 +119,12 @@ func (m model) shareExtrasView(w, nameW, tableW int) string {
 				info += " · interrupted, fetch again to resume"
 			}
 			plain = fmt.Sprintf("↓ %-*s  %s %s", nameW, truncVisible(strings.TrimSuffix(j.File, ".gguf"), nameW), bar, info)
+		case extraSettings:
+			plain = "  " + settingsLine(v)
+			if m.hooks.Models.Set != nil {
+				plain += "   ⏎ change"
+			}
+			plain = truncVisibleTail(plain, tableW) // cut with an ellipsis, so a narrow terminal reads it as cut
 		case extraGet:
 			mem := "search HuggingFace"
 			if v.Budget > 0 {
@@ -144,6 +153,8 @@ func (m model) shareExtraDetail(e shareExtra) string {
 			return m.mdl.view.Runtime
 		}
 		return e.row.ID + " is on this disk and nothing serves it - ⏎ serves it here with roger itself, in the background"
+	case extraSettings:
+		return m.settingsDetail()
 	case extraFetch:
 		return "a model is being fetched - ⏎ shows it in full; it keeps going while you do anything else"
 	}
@@ -157,7 +168,11 @@ func (m model) servedByRoger(row shareRow) (string, bool) {
 	}
 	for _, sv := range append(append([]modelview.Serving{}, m.mdl.view.Also...), *m.mdl.view.Serving) {
 		if sv.Band == row.model && strings.HasPrefix(row.upstream, strings.TrimSuffix(sv.Address, "/v1")) {
-			return fmt.Sprintf("served by roger itself · %s · %s · %d context", sv.ID, modelsDash(sv.Quant), sv.Ctx), true
+			facts := servingFacts(sv)
+			if facts != "" {
+				facts += " · "
+			}
+			return fmt.Sprintf("served by roger itself · %s%s · %s · %d context", facts, sv.ID, modelsDash(sv.Quant), sv.Ctx), true
 		}
 	}
 	return "", false
@@ -165,6 +180,9 @@ func (m model) servedByRoger(row shareRow) (string, bool) {
 
 // shareAskView is a serve question asked from a SHARE row: y answers, anything else is no.
 func (m model) shareAskView(w int) string {
+	if m.mdl.set != nil {
+		return m.settingsChooserView(w)
+	}
 	a := m.mdl.ask
 	if a == nil {
 		return ""
