@@ -35,6 +35,10 @@ import (
 // TestMain lets this binary act as the fake runtime when asked.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("FAKE_RUNTIME"); mode != "" {
+		if strings.HasPrefix(mode, "load-") {
+			fakeLoad(mode)
+			return
+		}
 		if strings.HasPrefix(mode, "devices-") {
 			fakeDevices(mode)
 			return
@@ -270,6 +274,20 @@ func fakeDevices(mode string) {
 		fmt.Println("Available devices:")
 	default:
 		fmt.Fprintln(os.Stderr, "error while loading shared libraries: libvulkan.so.1: cannot open shared object file")
+		os.Exit(127)
+	}
+}
+
+// fakeLoad answers --version the way a build does, or fails the way the loader does.
+func fakeLoad(mode string) {
+	switch mode {
+	case "load-ok":
+		fmt.Println("version: 11146 (7fe450e19)")
+	case "load-missing":
+		fmt.Fprintln(os.Stderr, "./llama-server: error while loading shared libraries: libgomp.so.1: cannot open shared object file: No such file or directory")
+		os.Exit(127)
+	default:
+		fmt.Fprintln(os.Stderr, "./llama-server: error while loading shared libraries: libweird.so.9: cannot open shared object file: No such file or directory")
 		os.Exit(127)
 	}
 }

@@ -669,6 +669,9 @@ func modelInstalledExe() string {
 
 // modelRuntimeErr says why there is no runtime, and what the machine can still do.
 func modelRuntimeErr(err error) error {
+	if errors.Is(err, runtime.ErrMissingLibrary) {
+		return fmt.Errorf("local serving needs a system package first: %v", err)
+	}
 	if errors.Is(err, runtime.ErrNoRuntime) {
 		return fmt.Errorf("local serving is not available on this machine: %v.\n"+
 			"  it can still join an Edge, relay, and be monitored and controlled from the authority", err)

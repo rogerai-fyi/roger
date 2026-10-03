@@ -187,3 +187,45 @@ func buildWord(b Build) string {
 	}
 	return strings.ToUpper(string(b[:1])) + string(b[1:])
 }
+
+// ErrMissingLibrary is a build this machine cannot load because a system library is missing.
+var ErrMissingLibrary = errors.New("this machine is missing a system library the runtime needs")
+
+// libraryPackage is the Debian / Raspberry Pi OS package that provides a library a build loads.
+var libraryPackage = map[string]string{
+	"libgomp.so.1":   "libgomp1",
+	"libstdc++.so.6": "libstdc++6",
+	"libssl.so.3":    "libssl3",
+	"libcrypto.so.3": "libssl3",
+	"libvulkan.so.1": "libvulkan1",
+	"libgcc_s.so.1":  "libgcc-s1",
+}
+
+var missingLibrary = regexp.MustCompile(`error while loading shared libraries: ([^:\s]+): cannot open shared object file`)
+
+// LoadCheck runs a build's server with --version: it loads every library the build needs and does
+// nothing else. A library the system lacks is said plainly, with the package that provides it.
+func LoadCheck(ctx context.Context, exe string, env map[string]string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "--version")
+	cmd.Env = append(os.Environ(), envPairs(env)...)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	err := cmd.Run()
+	if m := missingLibrary.FindStringSubmatch(out.String()); m != nil {
+		fix := ""
+		if pkg, ok := libraryPackage[m[1]]; ok {
+			fix = fmt.Sprintf(" - on Debian or Raspberry Pi OS: sudo apt install %s", pkg)
+		}
+		return fmt.Errorf("%w: %s%s", ErrMissingLibrary, m[1], fix)
+	}
+	if err != nil {
+		last := strings.TrimSpace(out.String())
+		if i := strings.LastIndex(last, "\n"); i >= 0 {
+			last = last[i+1:]
+		}
+		return fmt.Errorf("the runtime could not start (%v): %s", err, last)
+	}
+	return nil
+}

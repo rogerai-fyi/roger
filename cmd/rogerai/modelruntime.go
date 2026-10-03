@@ -40,6 +40,7 @@ func (rt modelRT) Word() string { return fmt.Sprintf("%s, the %s build", rt.Tag,
 var (
 	modelRuntimeFor  = modelResolveRuntime
 	modelListDevices = runtime.ListDevices
+	modelLoadCheck   = runtime.LoadCheck
 )
 
 // modelRuntime is the build the owner's choice resolves to on this machine.
@@ -123,6 +124,12 @@ func modelResolveRuntime(ctx context.Context, choice string) (modelRT, error) {
 				notes = append(notes, last.Error())
 				continue
 			}
+		}
+		// A build that cannot load here (a system library missing) is never started (§3).
+		if err := modelLoadCheck(ctx, exe, modelServeEnv); err != nil {
+			last = fmt.Errorf("the %s build cannot run here: %w", a.Build, err)
+			notes = append(notes, last.Error())
+			continue
 		}
 		var ds []runtime.Device
 		if a.Offloads && a.Build != runtime.BuildMetal {

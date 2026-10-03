@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -313,4 +314,34 @@ func TestModelAPinnedServeTellsTheRuntimeItsCard(t *testing.T) {
 	b, err := os.ReadFile(argsFile)
 	require.NoError(t, err)
 	require.Contains(t, string(b), "--device CUDA1")
+}
+
+// A build that cannot load here is never started: auto passes a GPU build over saying why, and the
+// CPU build names the package that fixes it (found preparing the Pi test: libgomp1).
+func TestModelABuildThatCannotLoadIsSaidBeforeAServe(t *testing.T) {
+	r, _ := gpuRig(t)
+	dir := r.home.Runtime()
+	placeBuild(t, dir, runtime.BuildCUDA)
+	placeBuild(t, dir, runtime.BuildVulkan)
+	placeBuild(t, dir, runtime.BuildCPU)
+	old := modelLoadCheck
+	t.Cleanup(func() { modelLoadCheck = old })
+	modelLoadCheck = func(ctx context.Context, exe string, env map[string]string) error {
+		if strings.Contains(exe, "ubuntu-x64") {
+			return fmt.Errorf("%w: libgomp.so.1 - on Debian or Raspberry Pi OS: sudo apt install libgomp1", runtime.ErrMissingLibrary)
+		}
+		if strings.Contains(exe, "cuda") {
+			return fmt.Errorf("%w: libcuda.so.1", runtime.ErrMissingLibrary)
+		}
+		return nil
+	}
+	rt, err := modelResolveRuntime(context.Background(), "auto")
+	require.NoError(t, err)
+	require.Equal(t, runtime.BuildVulkan, rt.Build, "the CUDA build cannot load here, Vulkan can")
+	require.Contains(t, strings.Join(rt.Notes, " "), "libcuda.so.1")
+
+	_, err = modelResolveRuntime(context.Background(), "cpu")
+	require.ErrorIs(t, err, runtime.ErrMissingLibrary)
+	require.Contains(t, modelRuntimeErr(err).Error(), "sudo apt install libgomp1")
+	require.NotContains(t, modelRuntimeErr(err).Error(), "could not get the runtime", "it is a missing package, said as one")
 }
