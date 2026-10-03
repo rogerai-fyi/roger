@@ -675,6 +675,11 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
   # 11. THE OWNER'S SERVING SETTINGS LIVE IN SHARE, AND WHAT SERVES IS MEASURED
   #
   # STATUS: APPROVED by the founder 2026-10-02.
+  # BUILD STATUS (2026-10-02, wt/edge-limoni): BUILT - the settings line in SHARE (TUI row with an in-place
+  # chooser; console select/inputs, asked first), the CLI's own sentence for every change, a lowered
+  # budget removing nothing and naming what the next fetch would; measured speed on served rows, in
+  # status and on the member's card, with the build. One honest difference: the idle timeout reaches a
+  # serve that is already running (review 2026-10-01 asked for that), so it does not wait for the next.
   #
   # Two gaps found running §5, §6 and §10 live. (1) The settings that change what roger does with its
   # own models - which build serves, the idle timeout, the disk budget - are set only with `roger model
