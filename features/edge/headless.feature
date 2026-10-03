@@ -1,6 +1,6 @@
 # ROGER EDGE ON A MACHINE WITH NO SCREEN - running headless, and at boot.
 #
-# STATUS: PROPOSED 2026-10-02 - awaiting the founder's approval.
+# STATUS: APPROVED by the founder 2026-10-03.
 #
 # Found preparing the Pi test (2026-10-02): a member answers on its Edge only while roger runs, and
 # the only way to run roger without a terminal is a hidden `__edge-agent` argument the launcher uses.
