@@ -3100,7 +3100,7 @@
       show($("models-disabled"), false);
       renderModels(v);
     }).catch(function (e) {
-      if (e.status === 501) { $("models-disabled").textContent = e.message; show($("models-disabled"), true); modelsStop(); }
+      if (e.status === 501) { $("models-disabled").textContent = e.message; show($("models-disabled"), true); show($("share-settings"), false); modelsStop(); }
     });
   }
 
@@ -3117,6 +3117,7 @@
     var logLines = v.serve_log || [];
     show($("models-servelog"), !v.serving && logLines.length > 0); // the server sends it only for a serve that failed
     $("models-servelog-text").textContent = logLines.join("\n");
+    renderServingSettings(v);
 
     // ROGER'S OWN ROWS, in the SHARE table, in its column grammar.
     var tb = $("share-roger-rows");
@@ -3129,6 +3130,8 @@
       var tr0 = el("tr", "is-serving");
       var c0 = cell(tr0, "col-model mono", one.band);
       c0.appendChild(el("div", "muted small", "served by roger itself \u00b7 " + one.id + " \u00b7 " + one.ctx + " context"));
+      var speed = servedSpeed(one);
+      if (speed) c0.appendChild(el("div", "small", speed));
       cell(tr0, "col-variant mono small", one.quant || "-");
       cell(tr0, "col-status mono", "ROGER");
       cell(tr0, "col-price muted", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-");
@@ -3225,6 +3228,79 @@
     });
   }
 
+  // servedSpeed is a served row's build and speed: measured once its runtime has counted its own
+  // tokens, the server's estimate (marked as one) until then (local_models.feature §11).
+  function servedSpeed(one) {
+    var words = { cpu: "CPU", vulkan: "Vulkan", cuda: "CUDA", metal: "Metal" };
+    var build = one.build ? (words[one.build] || one.build) + " build" : "";
+    var pace = one.measured_tok_s > 0 ? Number(one.measured_tok_s).toFixed(1) + " tok/s measured" : (one.estimate || "");
+    return [build, pace].filter(Boolean).join(" \u00b7 ");
+  }
+
+  // THE SERVING SETTINGS LINE (local_models.feature §11): under roger's rows, always shown when the
+  // models API answers. A poll redraws the words but never what the owner is choosing or typing.
+  function renderServingSettings(v) {
+    var st = v.settings || {};
+    show($("share-settings"), true);
+    $("share-set-runtime-now").textContent = "build: " + (st.runtime || "auto") + " - " + (st.here || "");
+    $("share-set-idle-now").textContent = "idle: " + (st.idle || "off");
+    $("share-set-budget-now").textContent = "disk: " + (st.disk_budget > 0 ? fmtBytes(st.disk_budget) + " budget, " + fmtBytes(v.disk_used) + " used" : "no budget");
+    var sel = $("share-set-runtime");
+    if (document.activeElement === sel) return;
+    var want = (st.choices || []).join(",");
+    if (sel.getAttribute("data-choices") !== want) {
+      sel.textContent = "";
+      (st.choices || []).forEach(function (c) { var o = el("option", null, c); o.value = c; sel.appendChild(o); });
+      sel.setAttribute("data-choices", want);
+    }
+    sel.value = st.runtime || "auto";
+  }
+
+  // modelsSet changes one serving setting, asked first; the answer is the CLI's own sentence.
+  function modelsSet(kind, value, title, body) {
+    askSafe(title, body, "Change").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/set", { confirm: true, kind: kind, value: value }).then(function (d) {
+        toast(d.says);
+        $("share-set-says").textContent = d.says || "";
+        show($("share-set-says"), !!d.says);
+        renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function wireServingSettings() {
+    var sel = $("share-set-runtime");
+    if (!sel) return;
+    sel.addEventListener("change", function () {
+      var c = sel.value;
+      sel.blur();
+      // the select keeps saying the setting in force until the owner's yes changes it
+      if (modelsLast) renderServingSettings(modelsLast);
+      modelsSet("runtime", c, "Change the build?", "Serve with the runtime choice “" + c + "”.\n\n" +
+        "It applies from the next serve; a model already on the air keeps its build. The answer says which build that means on this machine.");
+    });
+    // a typed setting applies on its button or on Enter; an empty field asks nothing
+    var typed = function (id, apply) {
+      var inp = $(id), go = function () {
+        var val = inp.value.trim();
+        if (!val) { toast("type a value first, or off", "err"); return; }
+        inp.value = "";
+        apply(val);
+      };
+      $(id + "-apply").onclick = go;
+      inp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go(); } });
+    };
+    typed("share-set-idle", function (val) {
+      modelsSet("idle", val, "Change the idle timeout?", "Set the idle timeout to “" + val + "”.\n\n" +
+        "With no turn for that long, roger stops serving the model and records why; off keeps it serving. It reaches a model already on the air too.");
+    });
+    typed("share-set-budget", function (val) {
+      modelsSet("budget", val, "Change the disk budget?", "Set the disk budget for models to “" + val + "”.\n\n" +
+        "Setting it removes nothing now. It applies from the next fetch, and the answer says what that fetch would remove.");
+    });
+  }
+
   function modelsSearch(q) {
     var tb = $("models-results");
     tb.textContent = "";
@@ -3313,6 +3389,7 @@
     if (gc) gc.onclick = function () { show($("share-getmodel"), false); };
     var ctx = $("models-ctx");
     if (ctx) ctx.addEventListener("change", function () { if (modelsRepo) modelsOpenRepo(modelsRepo); });
+    wireServingSettings();
   }
   /* end MODELS */
 

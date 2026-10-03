@@ -172,3 +172,16 @@ func TestAMemberServingTwoSaysEach(t *testing.T) {
 		require.Zero(t, s.Ctx, "an impossible context is dropped")
 	}
 }
+
+// local_models.feature §11: a member's card names the build its model runs on and, once it has
+// answered, the speed it measured - the member's own word, bounded like the rest.
+func TestAMembersCardSaysItsBuildAndMeasuredSpeed(t *testing.T) {
+	m := &store.EdgeModel{Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", Ctx: 8192, Build: "cuda", TokPerSec: 63.7}
+	require.Contains(t, edge.ModelLine(m), `serving "tiny" (acme/Tiny-GGUF:Q4_K_M, 8192 context, CUDA build, 63.7 tok/s measured)`)
+	m.TokPerSec = 0
+	require.Contains(t, edge.ModelLine(m), "8192 context, CUDA build)", "no measurement yet, no speed claimed")
+	c := edge.CleanModel(&store.EdgeModel{Band: "x", Build: "\x1b[31mcuda" + strings.Repeat("y", 300), TokPerSec: 1e9})
+	require.NotContains(t, c.Build, "\x1b")
+	require.LessOrEqual(t, len(c.Build), 200)
+	require.Zero(t, c.TokPerSec, "an impossible speed is dropped")
+}

@@ -25,6 +25,7 @@ type modelsFake struct {
 	removed []string
 	stopped int
 	stopIDs []string
+	sets    []string // kind|value, each Hooks.Set call (§11)
 }
 
 func (f *modelsFake) hooks() modelview.Hooks {
@@ -66,6 +67,13 @@ func (f *modelsFake) hooks() modelview.Hooks {
 			return "stopped serving tiny.", nil
 		},
 		Remove: func(id string) (string, error) { f.removed = append(f.removed, id); return "removed " + id, nil },
+		Set: func(kind, value string) (string, error) {
+			f.sets = append(f.sets, kind+"|"+value)
+			if value == "lots" {
+				return "", errors.New("\"lots\" is not a size: off, or a size like 20G")
+			}
+			return kind + " is now " + value + " - it applies from the next serve", nil
+		},
 	}
 }
 

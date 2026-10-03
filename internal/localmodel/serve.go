@@ -39,6 +39,7 @@ type Serving struct {
 	Quant      string    `json:"quant,omitempty"`
 	Ctx        int       `json:"ctx"`
 	Runtime    string    `json:"runtime"`
+	Build      string    `json:"build,omitempty"` // cpu, vulkan, cuda or metal (local_models.feature §10)
 	Started    time.Time `json:"started"`
 }
 
@@ -122,6 +123,7 @@ type ServeOpts struct {
 	Budget      Budget
 	ReadyWithin time.Duration
 	Env         map[string]string // the runtime's environment additions; tests use it
+	Build       string            // what the runtime runs on, recorded with the serve
 	Device      string            // one GPU to serve on ("CUDA2"), when the model fits on one; "" lets the runtime place it
 }
 
@@ -204,7 +206,7 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 	s := Serving{
 		Supervisor: me, RuntimePID: srv.PID, BaseURL: srv.BaseURL, Port: port, Key: key, Band: o.Model.Band,
 		ID: o.Model.ID, File: o.Model.File, SHA256: o.Model.SHA256, Quant: o.Model.Quant, Ctx: o.Ctx,
-		Runtime: o.Tag, Started: srv.Started,
+		Runtime: o.Tag, Build: o.Build, Started: srv.Started,
 	}
 	if err := h.writeServing(s); err != nil {
 		_ = srv.Stop(context.Background())

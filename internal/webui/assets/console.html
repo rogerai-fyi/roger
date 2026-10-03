@@ -156,6 +156,25 @@
             <tbody id="share-roger-rows" class="share-roger"></tbody>
           </table>
         </div>
+        <!-- roger's serving settings (local_models.feature §11): one line under its rows, each
+             changed in place, asked first, the CLI's own sentence back -->
+        <div class="share-settings mono small" id="share-settings" hidden>
+          <div class="set-item">
+            <span class="set-now" id="share-set-runtime-now"></span>
+            <select class="inp small" id="share-set-runtime" aria-label="runtime build choice"></select>
+          </div>
+          <div class="set-item">
+            <span class="set-now" id="share-set-idle-now"></span>
+            <input class="inp small" id="share-set-idle" type="text" maxlength="16" placeholder="2h or off" aria-label="idle timeout">
+            <button class="btn small ghost" type="button" id="share-set-idle-apply">apply</button>
+          </div>
+          <div class="set-item">
+            <span class="set-now" id="share-set-budget-now"></span>
+            <input class="inp small" id="share-set-budget" type="text" maxlength="16" placeholder="20G or off" aria-label="disk budget for models">
+            <button class="btn small ghost" type="button" id="share-set-budget-apply">apply</button>
+          </div>
+          <pre class="set-says" id="share-set-says" hidden></pre>
+        </div>
         <div class="not-configured" id="models-disabled" hidden></div>
         <div class="models-card" id="models-servelog" hidden>
           <div class="models-card-head"><b class="mono">THE LAST SERVE DID NOT COME ON THE AIR</b> <span class="muted small">its last words</span></div>

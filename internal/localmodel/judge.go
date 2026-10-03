@@ -122,7 +122,7 @@ func Judge(s catalog.Shape, b Budget, ctx int) Verdict {
 		return v
 	}
 	v.Fit = catalog.AssessFit(b.Bytes, need.Total)
-	v.Pace = paceOf(s.FileBytes, s.Experts, s.ExpertsUsed, b.BW)
+	v.Pace = paceOf(s.FileBytes, s.Layers, s.Experts, s.ExpertsUsed, b.BW)
 	v.MaxCtx, _ = catalog.MaxCtxFor(s, b.Bytes, 1, catalog.CacheF16, catalog.CacheF16)
 	if s.TrainCtx > 0 && ctx > s.TrainCtx {
 		v.Why = fmt.Sprintf("it was trained for %d tokens of context, not %d", s.TrainCtx, ctx)

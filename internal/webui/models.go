@@ -27,6 +27,8 @@ type (
 	FilesView  = modelview.FilesView
 	FileChoice = modelview.FileChoice
 	ModelHooks = modelview.Hooks
+
+	ServingSettings = modelview.ServingSettings
 )
 
 func (s *Server) modelRoutes() {
@@ -37,6 +39,7 @@ func (s *Server) modelRoutes() {
 	s.mux.HandleFunc("/api/models/serve", s.action(s.handleModelServe))
 	s.mux.HandleFunc("/api/models/stop", s.action(s.handleModelStop))
 	s.mux.HandleFunc("/api/models/remove", s.action(s.handleModelRemove))
+	s.mux.HandleFunc("/api/models/set", s.auth(s.handleModelSet))
 }
 
 const noModels = "this build cannot manage models from the console - use `roger model`"
@@ -222,4 +225,37 @@ func (s *Server) writeModelsSaying(w http.ResponseWriter, says string) {
 		v.Models = []ModelRow{}
 	}
 	writeJSON(w, map[string]any{"says": says, "view": v})
+}
+
+// handleModelSet changes one serving setting (local_models.feature §11) with the CLI's own sentence:
+// a POST carrying the owner's yes, like every other change from this page.
+func (s *Server) handleModelSet(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Models
+	if h.Set == nil {
+		http.Error(w, noModels, http.StatusNotImplemented)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		confirmed
+		Kind  string `json:"kind"`
+		Value string `json:"value"`
+	}
+	if !decode(r, &req) || req.Kind == "" || req.Value == "" {
+		http.Error(w, "a setting and its value are required", http.StatusBadRequest)
+		return
+	}
+	if !req.Confirm {
+		http.Error(w, "changing a setting needs the owner's yes", http.StatusPreconditionRequired)
+		return
+	}
+	says, err := h.Set(req.Kind, req.Value)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.writeModelsSaying(w, says)
 }

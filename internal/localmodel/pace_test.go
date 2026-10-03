@@ -187,3 +187,23 @@ func TestTheRuntimesAnswerWinsOnceTheFileIsOnDisk(t *testing.T) {
 	require.False(t, kept.ByRuntime)
 	require.Contains(t, kept.Line(), "roger's estimate - the runtime's own check could not run")
 }
+
+// Found live 2026-10-02: on a fast card a small model is bound by the work every layer does for every
+// token, not by reading its weights - the estimate said ~2108 tok/s for Qwen3-0.6B where the runtime
+// measured 62 (busy cards) and llama-bench on an idle RTX PRO 6000 gave 538. The per-layer cost is in
+// the sum, so a small model on a fast card is estimated near what such a card really does.
+func TestASmallModelOnAFastCardIsBoundByItsLayers(t *testing.T) {
+	small := catalog.Shape{FileBytes: 397_000_000, Layers: 28, KVHeads: 8, KeyDim: 128, ValueDim: 128, TrainCtx: 40960, Vocab: 151936}
+	card := Budget{Bytes: 96 * gib, Pool: "video memory", BW: Bandwidth{BytesPerSec: 1792 * gbps, From: "spec sheet"}}
+	p := Judge(small, card, 8192).Pace
+	require.InDelta(t, 538, p.TokPerSec, 120, "near what llama-bench measured on that card")
+
+	// A large model on the same card is still bound by reading its weights.
+	big := small
+	big.FileBytes, big.Layers = 40*gib, 64
+	require.InDelta(t, 0.7*1792e9/float64(40*gib), Judge(big, card, 2048).Pace.TokPerSec, 6)
+
+	// The CPU calibration is untouched: measured bandwidth already includes the per-layer work.
+	cpu := Budget{Bytes: 64 * gib, Pool: "system memory", BW: Bandwidth{BytesPerSec: 159.7 * gbps, Measured: true}}
+	require.InDelta(t, 241, Judge(small, cpu, 8192).Pace.TokPerSec, 3)
+}

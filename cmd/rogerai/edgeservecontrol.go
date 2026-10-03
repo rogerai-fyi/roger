@@ -82,6 +82,7 @@ func edgeModelNow() *store.EdgeModel {
 	if lives := h.LiveAll(); len(lives) > 0 {
 		s := lives[len(lives)-1]
 		out.Band, out.ID, out.Quant, out.Ctx, out.Since = s.Band, s.ID, s.Quant, s.Ctx, s.Started.Unix()
+		out.Build, out.TokPerSec = s.Build, modelMeasured(s)
 		for _, o := range lives[:len(lives)-1] {
 			out.Also = append(out.Also, store.EdgeServed{Band: o.Band, ID: o.ID, Quant: o.Quant, Ctx: o.Ctx, Since: o.Started.Unix()})
 		}

@@ -69,7 +69,7 @@ func modelFakeLlama(args []string) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		fmt.Fprint(w, "llamacpp:prompt_tokens_total 9\nllamacpp:tokens_predicted_total 5\nllamacpp:requests_processing 0\n")
+		fmt.Fprint(w, "llamacpp:prompt_tokens_total 9\nllamacpp:tokens_predicted_total 5\nllamacpp:tokens_predicted_seconds_total 0.1\nllamacpp:requests_processing 0\n")
 	})
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+key {

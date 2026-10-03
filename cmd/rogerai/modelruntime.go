@@ -14,12 +14,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/localmodel"
 	"rogerai.fm/roger/v6/internal/provision"
 	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v6/internal/webui"
 )
 
 // modelRT is the runtime that will serve, and what it is.
@@ -223,46 +225,109 @@ func modelReadSettled() (modelSettled, bool) {
 }
 
 // modelRuntimeCmd shows or sets the owner's choice (local_models.feature §10).
-func modelRuntimeCmd(pos []string) error {
+func modelRuntimeCmd(pos []string) error { return modelPrint(modelRuntimeSays(pos)) }
+
+// modelRuntimeSays shows or sets the owner's choice and says what it means on THIS machine.
+func modelRuntimeSays(pos []string) (string, error) {
 	h := modelHome()
 	s, err := h.Settings()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(pos) > 1 {
-		return errors.New("usage: roger model runtime [auto | cpu | gpu | vulkan | cuda]")
+		return "", errors.New("usage: roger model runtime [auto | cpu | gpu | vulkan | cuda]")
 	}
 	if len(pos) == 1 {
 		choice := strings.ToLower(pos[0])
 		if !slices.Contains(runtime.Choices, choice) {
-			return fmt.Errorf("%q is not a runtime choice: auto, cpu, gpu, vulkan or cuda", pos[0])
+			return "", fmt.Errorf("%q is not a runtime choice: auto, cpu, gpu, vulkan or cuda", pos[0])
 		}
 		s.Runtime = choice
 		if err := h.SetSettings(s); err != nil {
-			return err
+			return "", err
 		}
 	}
 	choice := s.Runtime
 	if choice == "" {
 		choice = "auto"
 	}
-	fmt.Fprintf(modelOut, "runtime: %s\n", choice)
-	a, notes, err := modelPredict()
-	if err != nil {
-		fmt.Fprintf(modelOut, "  on this machine it cannot serve here: %s\n", strings.TrimPrefix(err.Error(), runtime.ErrNoRuntime.Error()+": "))
-	} else {
-		state := "not fetched yet"
-		if _, ok := runtime.InstalledBuild(a, h.Runtime()); ok {
-			state = "installed"
-		}
-		fmt.Fprintf(modelOut, "  on this machine: the %s build of llama.cpp %s (%s, %s)\n", a.Build, a.Tag,
-			provision.BytesWord(a.TotalBytes()), state)
-	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "runtime: %s\n", choice)
+	fmt.Fprintf(&b, "  %s\n", modelRuntimeHere())
+	_, notes, _ := modelPredict()
 	for _, n := range notes {
-		fmt.Fprintf(modelOut, "  %s\n", n)
+		fmt.Fprintf(&b, "  %s\n", n)
 	}
-	fmt.Fprintln(modelOut, "  choices: auto (the best this machine can use), cpu, gpu, vulkan, cuda - it applies from the next serve")
-	return nil
+	b.WriteString("  choices: auto (the best this machine can use), cpu, gpu, vulkan, cuda - it applies from the next serve")
+	return b.String(), nil
+}
+
+// modelRuntimeHere is what the owner's choice means on this machine, in one line.
+func modelRuntimeHere() string {
+	a, _, err := modelPredict()
+	if err != nil {
+		return "on this machine it cannot serve here: " + strings.TrimPrefix(err.Error(), runtime.ErrNoRuntime.Error()+": ")
+	}
+	state := "not fetched yet"
+	if _, ok := runtime.InstalledBuild(a, modelHome().Runtime()); ok {
+		state = "installed"
+	}
+	return fmt.Sprintf("on this machine: the %s build of llama.cpp %s (%s, %s)", a.Build, a.Tag, provision.BytesWord(a.TotalBytes()), state)
+}
+
+// modelSetSays changes one serving setting from any surface, with the CLI's own sentence.
+func modelSetSays(kind, value string) (string, error) {
+	switch kind {
+	case "runtime":
+		return modelRuntimeSays([]string{value})
+	case "idle":
+		return modelIdleSays([]string{value})
+	case "budget":
+		return modelBudgetSays([]string{value})
+	}
+	return "", fmt.Errorf("%q is not a serving setting: runtime, idle or budget", kind)
+}
+
+// modelSettingsView is the settings line SHARE shows (local_models.feature §11).
+func modelSettingsView() webui.ServingSettings {
+	s, _ := modelHome().Settings()
+	v := webui.ServingSettings{Runtime: s.Runtime, Here: modelRuntimeHere(), Idle: "off", DiskBudget: s.DiskBudget,
+		Choices: append([]string(nil), runtime.Choices...)}
+	if v.Runtime == "" {
+		v.Runtime = "auto"
+	}
+	if s.IdleAfter > 0 {
+		v.Idle = s.IdleAfter.String()
+	}
+	return v
+}
+
+// modelMeasured is the speed a live serve's runtime measured, or 0 before it has answered.
+func modelMeasured(s localmodel.Serving) float64 {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c, err := localmodel.Counters(ctx, s)
+	if err != nil {
+		return 0
+	}
+	return c.TokPerSec()
+}
+
+// modelEstimate is the speed a live serve is estimated at, for before it has answered.
+func modelEstimate(s localmodel.Serving) string {
+	m, err := modelHome().Find(s.ID)
+	if err != nil {
+		return ""
+	}
+	sh, err := detect.ReadShape(m.Path)
+	if err != nil {
+		return ""
+	}
+	p := localmodel.Judge(sh, modelBudgetFor(s.Build != "" && s.Build != string(runtime.BuildCPU)), s.Ctx).Pace
+	if p.Short() == "" {
+		return ""
+	}
+	return p.Short() + " (estimate)"
 }
 
 // modelBudgetFor is the pool a build serves from.

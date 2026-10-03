@@ -82,21 +82,39 @@ func (w *IdleWatch) Observe(now time.Time, total int64, busy bool) bool {
 	return w.After > 0 && now.Sub(w.Since) >= w.After
 }
 
-// Activity reads the runtime's counters: tokens taken in and written, and whether a request is in
-// flight. It needs the runtime's key, like every other caller.
-func Activity(ctx context.Context, s Serving) (total int64, busy bool, err error) {
+// RuntimeCounters is what the runtime counted itself: tokens taken in and written, the seconds spent
+// writing, and whether a request is in flight.
+type RuntimeCounters struct {
+	Tokens           int64 // taken in and written together: what idleness watches
+	Predicted        int64
+	PredictedSeconds float64
+	Busy             bool
+}
+
+// TokPerSec is the speed the runtime measured writing, or 0 when it has written nothing yet - no
+// measurement, never a zero speed (local_models.feature §11).
+func (c RuntimeCounters) TokPerSec() float64 {
+	if c.Predicted <= 0 || c.PredictedSeconds <= 0 {
+		return 0
+	}
+	return float64(c.Predicted) / c.PredictedSeconds
+}
+
+// Counters reads the runtime's own counters. It needs the runtime's key, like every other caller.
+func Counters(ctx context.Context, s Serving) (RuntimeCounters, error) {
+	var c RuntimeCounters
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(s.BaseURL, "/v1")+"/metrics", nil)
 	if err != nil {
-		return 0, false, err
+		return c, err
 	}
 	req.Header.Set("Authorization", "Bearer "+s.Key)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, false, err
+		return c, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, false, fmt.Errorf("the runtime's counters answered %s", resp.Status)
+		return c, fmt.Errorf("the runtime's counters answered %s", resp.Status)
 	}
 	sc := bufio.NewScanner(resp.Body)
 	found := false
@@ -110,17 +128,29 @@ func Activity(ctx context.Context, s Serving) (total int64, busy bool, err error
 			continue
 		}
 		switch name {
-		case "llamacpp:prompt_tokens_total", "llamacpp:tokens_predicted_total":
-			total += int64(v)
+		case "llamacpp:prompt_tokens_total":
+			c.Tokens += int64(v)
 			found = true
+		case "llamacpp:tokens_predicted_total":
+			c.Tokens += int64(v)
+			c.Predicted = int64(v)
+			found = true
+		case "llamacpp:tokens_predicted_seconds_total":
+			c.PredictedSeconds = v
 		case "llamacpp:requests_processing":
-			busy = v > 0
+			c.Busy = v > 0
 		}
 	}
 	if !found {
-		return 0, false, errors.New("the runtime's counters carried no token totals")
+		return RuntimeCounters{}, errors.New("the runtime's counters carried no token totals")
 	}
-	return total, busy, sc.Err()
+	return c, sc.Err()
+}
+
+// Activity is what idleness watches: every token, and whether a request is in flight.
+func Activity(ctx context.Context, s Serving) (total int64, busy bool, err error) {
+	c, err := Counters(ctx, s)
+	return c.Tokens, c.Busy, err
 }
 
 // Stop is why roger stopped serving a band on its own, kept so the owner and a peer can read it later.

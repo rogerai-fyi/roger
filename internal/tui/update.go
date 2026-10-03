@@ -1255,6 +1255,10 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mdl.ask != nil {
 		return m.onModelsKey(k)
 	}
+	// The serving-settings chooser (share_settings.go) owns every key while it is open.
+	if m.mdl.set != nil {
+		return m.onSettingsKey(k)
+	}
 	if k.String() != "2" {
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
