@@ -949,6 +949,11 @@ func modelStatusOne(s localmodel.Serving) {
 		s.ID, s.File, modelDash(s.Quant), modelDash(s.SHA256), s.Ctx)
 	fmt.Fprintf(modelOut, "  runtime  llama.cpp %s, pid %d, for %s\n  address  %s\n",
 		s.Runtime, s.RuntimePID, edge.Age(time.Since(s.Started)), s.BaseURL)
+	if tps := modelMeasured(s); tps > 0 {
+		fmt.Fprintf(modelOut, "  speed    %.1f tok/s measured\n", tps)
+	} else if est := modelEstimate(s); est != "" {
+		fmt.Fprintf(modelOut, "  speed    %s - nothing answered yet to measure\n", est)
+	}
 }
 
 // modelBeside is what stays on the air when m is added beside it, or why m cannot be: one band

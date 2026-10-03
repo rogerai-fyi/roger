@@ -72,6 +72,8 @@ func TestModelAServedModelShowsItsMeasuredSpeedAndBuild(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, v.Serving)
 		view = localmodelView{build: v.Serving.Build, measured: v.Serving.Measured}
+		st, _ := r.run(t, "status")
+		require.Contains(t, st, "speed    50.0 tok/s measured", "status says the measurement")
 		now := edgeModelNow()
 		require.Equal(t, "cpu", now.Build)
 		require.InDelta(t, 50, now.TokPerSec, 0.5, "the member's card carries the measurement")
