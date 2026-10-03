@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/localmodel"
 	"rogerai.fm/roger/v6/internal/provision"
 	"rogerai.fm/roger/v6/internal/runtime"
@@ -51,23 +53,51 @@ func modelRuntimeChoice() string {
 	return "auto"
 }
 
-// modelThisHost is this machine's runtime facts, GPU ones included: whether there is a GPU, whether
-// it is NVIDIA, and the CUDA version its driver supports, read from nvidia-smi and never guessed.
+// modelThisHost is this machine's runtime facts, GPU ones included. A GPU is found by its driver
+// (nvidia-smi answering with a CUDA version) and its PCI vendor, never by what its name says:
+// nvidia-smi calls cards "Tesla T4" and "Quadro RTX 6000", and an AMD card on Mesa has no rocm-smi.
+// An Intel GPU alone is not taken for one auto should serve on; `roger model runtime vulkan` tries it.
 func modelThisHost() runtime.Host {
 	h := runtime.ThisHost()
 	hw := modelHW()
-	h.GPU = len(hw.GPUs) > 0
-	for _, g := range hw.GPUs {
-		if strings.Contains(strings.ToLower(g.Model), "nvidia") {
-			h.NVIDIA = true
+	if out, ok := hwRun("nvidia-smi"); ok {
+		if maj, minor, ok := runtime.ParseCUDAVersion(out); ok {
+			h.NVIDIA, h.CUDAMajor, h.CUDAMinor = true, maj, minor
 		}
 	}
-	if h.NVIDIA {
-		if out, ok := hwRun("nvidia-smi"); ok {
-			h.CUDAMajor, h.CUDAMinor, _ = runtime.ParseCUDAVersion(out)
+	amd := false
+	for _, v := range modelDRMVendors() {
+		switch v {
+		case "0x10de":
+			h.NVIDIA = true // the card is there even when its driver does not answer
+		case "0x1002":
+			amd = true
 		}
 	}
+	h.GPU = h.NVIDIA || amd || len(hw.GPUs) > 0
 	return h
+}
+
+// modelDRMVendors is the PCI vendor of each display device this machine has, where the OS says
+// (Linux: /sys/class/drm). Elsewhere it is empty, and the hardware report stands alone.
+var modelDRMVendors = func() []string {
+	paths, _ := filepath.Glob("/sys/class/drm/card*/device/vendor")
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range paths {
+		card := filepath.Base(filepath.Dir(filepath.Dir(p)))
+		if strings.Contains(card, "-") {
+			continue // a connector of a card, not a card
+		}
+		if b, err := os.ReadFile(p); err == nil {
+			v := strings.ToLower(strings.TrimSpace(string(b)))
+			if !seen[v] {
+				seen[v] = true
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 // modelResolveRuntime walks the plan for choice: each build is fetched if it must be (its whole size
@@ -84,7 +114,7 @@ func modelResolveRuntime(ctx context.Context, choice string) (modelRT, error) {
 		if !ok {
 			fmt.Fprintf(modelOut, "fetching llama.cpp %s, the %s build (%s), verified before it ever runs.\n",
 				a.Tag, a.Build, provision.BytesWord(a.TotalBytes()))
-			exe, err = runtime.InstallBuild(ctx, a, dir, modelFetcher())
+			exe, err = modelInstallLocked(ctx, a, dir)
 			modelProgressDone()
 			if err != nil {
 				last = fmt.Errorf("the %s build could not be fetched: %w", a.Build, err)
@@ -112,6 +142,36 @@ func modelResolveRuntime(ctx context.Context, choice string) (modelRT, error) {
 		last = runtime.ErrNoRuntime
 	}
 	return modelRT{Notes: notes}, last
+}
+
+// modelInstallLocked installs one build with the runtime directory locked, so two serves started at
+// once (the console and an Edge request) cannot unpack the same build over each other.
+func modelInstallLocked(ctx context.Context, a runtime.Asset, dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	unlock, err := edge.FileLock(filepath.Join(dir, ".install.lock"))
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	if exe, ok := runtime.InstalledBuild(a, dir); ok {
+		return exe, nil // the other one finished it while this one waited
+	}
+	return runtime.InstallBuild(ctx, a, dir, modelFetcher())
+}
+
+// modelFetchFirst says, for a serve that runs in the background, the build it will fetch first and
+// its size, or "" when the build is already here.
+func modelFetchFirst() string {
+	a, _, err := modelPredict()
+	if err != nil {
+		return ""
+	}
+	if _, ok := runtime.InstalledBuild(a, modelHome().Runtime()); ok {
+		return ""
+	}
+	return fmt.Sprintf(" - it fetches the %s build first (%s), verified before it runs", a.Build, provision.BytesWord(a.TotalBytes()))
 }
 
 func modelDriverWord(b runtime.Build) string {
@@ -174,8 +234,8 @@ func modelRuntimeCmd(pos []string) error {
 	}
 	if len(pos) == 1 {
 		choice := strings.ToLower(pos[0])
-		if _, _, err := runtime.Plan(runtime.Host{OS: "linux", Arch: "amd64"}, choice); err != nil && !errors.Is(err, runtime.ErrNoRuntime) {
-			return err // not a choice at all
+		if !slices.Contains(runtime.Choices, choice) {
+			return fmt.Errorf("%q is not a runtime choice: auto, cpu, gpu, vulkan or cuda", pos[0])
 		}
 		s.Runtime = choice
 		if err := h.SetSettings(s); err != nil {
@@ -210,12 +270,8 @@ func modelBudgetFor(offloads bool) localmodel.Budget {
 	return localmodel.BudgetFor(modelHW(), offloads)
 }
 
-// modelCardMargin is what a pinned card keeps free beyond the model's need, as the runtime's own fit
-// keeps by default (--fit-target).
-const modelCardMargin = int64(1024) << 20
-
 // modelPickDevice is the card a model that fits on one should be pinned to: the one with the most free
-// memory, when need and a margin fit there. "" leaves placement to the runtime's own split - for a
+// memory, when need fits there (need already carries roger's reserve). "" leaves placement to the runtime's own split - for a
 // model too big for any one card, or when the need or the devices are not known.
 func modelPickDevice(ds []runtime.Device, need int64) string {
 	if need <= 0 {
@@ -227,7 +283,7 @@ func modelPickDevice(ds []runtime.Device, need int64) string {
 			best = i
 		}
 	}
-	if best < 0 || need+modelCardMargin > int64(ds[best].FreeMiB)<<20 {
+	if best < 0 || need > int64(ds[best].FreeMiB)<<20 {
 		return ""
 	}
 	return ds[best].ID

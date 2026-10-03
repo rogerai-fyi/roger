@@ -145,3 +145,19 @@ func TestABuildIsAskedWhichDevicesItCanUse(t *testing.T) {
 	_, err = runtime.ListDevices(context.Background(), os.Args[0], map[string]string{"FAKE_RUNTIME": "devices-broken"})
 	require.ErrorContains(t, err, "libvulkan.so.1", "the build's last words say what is missing")
 }
+
+// Review 2026-10-02: a refused explicit choice says the real reason, not "not pinned".
+func TestARefusedChoiceSaysTheRealReason(t *testing.T) {
+	old := runtime.Host{OS: "linux", Arch: "amd64", GlibcMajor: 2, GlibcMinor: 35, GlibcKnown: true, GPU: true, NVIDIA: true, CUDAMajor: 13, CUDAMinor: 2}
+	_, _, err := runtime.Plan(old, "cuda")
+	require.ErrorContains(t, err, "glibc 2.38", "the CUDA build needs a newer system, and says so")
+	plan, notes, err := runtime.Plan(old, "auto")
+	require.NoError(t, err)
+	require.Equal(t, []string{"vulkan", "cpu"}, builds(plan))
+	require.NotContains(t, strings.Join(notes, " "), "using Vulkan -", "no claim about Vulkan beyond what is true")
+	older := old
+	older.GlibcMinor = 30
+	_, notes, err = runtime.Plan(older, "auto")
+	require.ErrorIs(t, err, runtime.ErrNoRuntime, "the CPU build cannot load either")
+	_ = notes
+}

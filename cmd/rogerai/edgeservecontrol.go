@@ -200,7 +200,7 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 				recordServeFailure(h, err)
 				return "", "could not start serving: " + err.Error()
 			}
-			return says + " - starting; it serves once proven" + edgeStillServing(h), ""
+			return says + modelFetchFirst() + " - starting; it serves once proven" + edgeStillServing(h), ""
 		}
 	}
 	repo, quant, ok := edge.ExactIndexID(task.Model)
@@ -270,8 +270,8 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 	if err != nil {
 		return "", err.Error()
 	}
-	return fmt.Sprintf("%s - fetching %s (%s); it serves once fetched, checked and proven%s",
-		v.Line(), f.File.Path, provision.BytesWord(f.File.Bytes), edgeStillServing(h)), ""
+	return fmt.Sprintf("%s - fetching %s (%s)%s; it serves once fetched, checked and proven%s",
+		v.Line(), f.File.Path, provision.BytesWord(f.File.Bytes), modelFetchFirst(), edgeStillServing(h)), ""
 }
 
 func edgeStillServing(h localmodel.Home) string {

@@ -216,3 +216,35 @@ func TestABuildsSecondArchiveIsVerifiedAndPlacedBesideTheServer(t *testing.T) {
 	_, statErr := os.Stat(treeFor(dir2, b))
 	require.True(t, os.IsNotExist(statErr), "a build whose runtime failed its digest was installed anyway")
 }
+
+// Review 2026-10-02: the second archive is code roger loads, so flattening it beside the server may
+// never replace a file already there (the server, a library it loads) and never follows a link.
+func TestASecondArchiveCanNeitherReplaceNorLinkOut(t *testing.T) {
+	for name, libs := range map[string][]byte{
+		"a file named like the server": tarGz(t, map[string]string{"cudart-x/llama-server": "evil"}),
+		"two files with one name":      tarGz(t, map[string]string{"cudart-x/a/libx.so": "1", "cudart-x/b/libx.so": "2"}),
+	} {
+		root := t.TempDir()
+		dest := filepath.Join(root, "llama-bX")
+		require.NoError(t, os.MkdirAll(dest, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dest, "llama-server"), []byte("real"), 0o755))
+		archive := filepath.Join(t.TempDir(), "libs.tar.gz")
+		require.NoError(t, os.WriteFile(archive, libs, 0o644))
+		err := placeBeside(archive, root, dest)
+		require.ErrorIs(t, err, ErrUnsafeArchive, name)
+		b, _ := os.ReadFile(filepath.Join(dest, "llama-server"))
+		require.Equal(t, "real", string(b), "%s: the server was not replaced", name)
+	}
+
+	// A link, even one that stays inside its own archive, is not followed into the server's directory.
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "cudart-x/libx.so", Typeflag: tar.TypeSymlink, Linkname: "libx.so.12"}))
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	root := t.TempDir()
+	archive := filepath.Join(t.TempDir(), "libs.tar.gz")
+	require.NoError(t, os.WriteFile(archive, buf.Bytes(), 0o644))
+	require.ErrorIs(t, placeBeside(archive, root, filepath.Join(root, "llama-bX")), ErrUnsafeArchive)
+}

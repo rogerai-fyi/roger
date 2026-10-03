@@ -525,6 +525,14 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		if rt, err = modelRuntimeFor(ctx, "cpu"); err != nil {
 			return modelRuntimeErr(err)
 		}
+		for _, n := range rt.Notes {
+			fmt.Fprintln(modelOut, n)
+		}
+		// The screens say what serves under the owner's choice, and why the GPU build did not.
+		if cpu, _, perr := runtime.Plan(modelHost(), "cpu"); perr == nil {
+			modelRecordSettled(modelSettled{Choice: "auto", Platform: cpu[0].Platform, Tag: cpu[0].Tag,
+				Notes: append([]string{failed.Error()}, rt.Notes...)})
+		}
 		b = modelBudgetFor(false)
 		if ctxLen, says, err = modelPlan(ctx, m, b, a.ctx, rt.Exe, beside...); err != nil {
 			return err
