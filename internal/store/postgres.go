@@ -421,7 +421,34 @@ CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
     usr        TEXT NOT NULL,
     amount     DOUBLE PRECISION NOT NULL,
     placed_at  BIGINT NOT NULL);
-CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);`
+CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);
+-- account keys (ROUTING-EXPRESSION-CONTRACT section 11): a reservation attributed to a key is a
+-- pending hold carrying its key id; key_ts is the request's start, which dates the key spend.
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_id TEXT;
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_ts BIGINT;
+CREATE INDEX IF NOT EXISTS pending_holds_key ON rogerai.pending_holds (key_id) WHERE key_id IS NOT NULL;
+-- account keys: guardrailed bearer credentials an account mints for itself. secret_hash is the
+-- auth lookup key; the secret itself is never stored. A deleted key is kept revoked.
+CREATE TABLE IF NOT EXISTS rogerai.account_keys (
+    id             TEXT PRIMARY KEY,            -- key_<rand>
+    secret_hash    TEXT NOT NULL UNIQUE,        -- sha256(secret)
+    account        TEXT NOT NULL,               -- the minting account's wallet (the payer)
+    name           TEXT NOT NULL DEFAULT '',
+    hint           TEXT NOT NULL DEFAULT '',
+    limit_usd      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    reset          TEXT NOT NULL DEFAULT 'none',
+    anchor         BIGINT NOT NULL DEFAULT 0,
+    expires_at     BIGINT NOT NULL DEFAULT 0,
+    allowed_models JSONB DEFAULT '[]',
+    allowed_nodes  JSONB DEFAULT '[]',
+    disabled       BOOLEAN NOT NULL DEFAULT false,
+    revoked        BOOLEAN NOT NULL DEFAULT false,
+    idem_key       TEXT NOT NULL DEFAULT '',
+    created_at     BIGINT NOT NULL,
+    last_used      BIGINT NOT NULL DEFAULT 0,
+    requests       BIGINT NOT NULL DEFAULT 0,
+    owner_pub      TEXT NOT NULL DEFAULT '');   -- the minting owner key (notice mail)
+CREATE INDEX IF NOT EXISTS account_keys_account ON rogerai.account_keys (account);`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
@@ -1043,8 +1070,16 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		return 0, err
 	}
 	// Capture clears the tracked hold (no-op if untracked) IN THIS TX, so the deploy-orphan
-	// sweep never double-refunds a settled request.
-	if _, err := tx.Exec(`DELETE FROM rogerai.pending_holds WHERE request_id=$1`, rec.RequestID); err != nil {
+	// sweep never double-refunds a settled request. A hold attributed to an account key turns
+	// into that key's spend in the same step.
+	var holdKeyID sql.NullString
+	var holdKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING key_id, key_ts`, rec.RequestID).Scan(&holdKeyID, &holdKeyTS); err {
+	case nil, sql.ErrNoRows:
+	default:
+		return 0, err
+	}
+	if err := keySpendCaptureTx(tx, holdKeyID.String, holdKeyTS.Int64, rec.RequestID, cost); err != nil {
 		return 0, err
 	}
 	// Only the REAL (non-seed) funded portion of this cost earns the operator (P0-1):
@@ -1101,7 +1136,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 	// wrong refund. (The receipt is claimed above, so this no-op path still records the attempt as
 	// settled - correct, because with no reservation there is nothing to bill for it, ever.)
 	var held float64
-	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount`, rec.RequestID).Scan(&held); err {
+	var edgeKeyID sql.NullString
+	var edgeKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount, key_id, key_ts`, rec.RequestID).Scan(&held, &edgeKeyID, &edgeKeyTS); err {
 	case sql.ErrNoRows:
 		return 0, tx.Commit() // no hold: no-op
 	case nil:
@@ -1116,6 +1153,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 		stationShare *= scale
 		towerShare *= scale
 		cost = held
+	}
+	if err := keySpendCaptureTx(tx, edgeKeyID.String, edgeKeyTS.Int64, rec.RequestID, cost); err != nil {
+		return 0, err
 	}
 	var bal float64
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
@@ -2216,6 +2256,9 @@ func (p *Postgres) recoverLineageTx(tx *sql.Tx, id, consumerKind, consumerRefPre
 		return ChargebackResult{}, err
 	}
 	if err := appendLedger(tx, wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix()); err != nil {
+		return ChargebackResult{}, err
+	}
+	if err := keyReverseTx(tx, requestID, amount, now.UnixMilli()); err != nil {
 		return ChargebackResult{}, err
 	}
 	disputeID := id

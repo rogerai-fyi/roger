@@ -413,6 +413,7 @@ type consoleEvent struct {
 	Cost      float64 `json:"cost"`   // consumer $ paid
 	Earned    float64 `json:"earned"` // provider owner-share $ (0 on the consumer view)
 	Success   bool    `json:"success"`
+	KeyID     string  `json:"key_id,omitempty"` // the account key that made the request
 }
 
 // console handles GET /console (alias /activity): the recent lineage activity feed +
@@ -474,11 +475,15 @@ func (b *broker) computeConsole(now time.Time, limit int, wallet string, consume
 	}
 
 	events := make([]consoleEvent, 0, len(recent))
+	var keyOf map[string]string
+	if !provider {
+		keyOf = b.keyRefsOf(wallet)
+	}
 	for _, e := range recent {
 		events = append(events, consoleEvent{
 			RequestID: e.RequestID, TS: e.TS, Model: e.Model, Node: e.Node,
 			TokensIn: int64(e.PromptTokens), TokensOut: int64(e.CompletionTokens),
-			Cost: round6(e.Cost), Earned: round6(e.OwnerShare), Success: true,
+			Cost: round6(e.Cost), Earned: round6(e.OwnerShare), Success: true, KeyID: keyOf[e.RequestID],
 		})
 	}
 

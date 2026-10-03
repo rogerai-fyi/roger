@@ -56,10 +56,11 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     Then moderation runs first, then the pick, then the key-limit check next to the monthly-cap check, then the hold, then dispatch
     And a prompt moderation rejects is 451 with no key-limit check, no hold, and no usage change
 
+  # corrected 2026-10-02 (founder-approved): the $5.00 spent through the key was debited from the $20.00 balance
   Scenario: The key limit is checked before the wallet hold, so a refused request never touches the wallet
     Given "k1" has $5.00 spent this window
     When a priced relay bearing "k1" arrives
-    Then it is 402 before HoldFor is called and the balance stays $20.00
+    Then it is 402 before HoldFor is called and the balance stays $15.00
 
   Scenario: A free ($0) relay bearing a key skips the limit entirely
     Given node "nf" is on air for "gpt-oss-20b" at $0/$0
@@ -390,7 +391,9 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     When a relay bearing "k1" is served
     Then the /console lineage row carries key_id "k1"
 
+  # corrected 2026-10-02 (founder-approved): key_spend_after 1.002 needs $1.00 spent through the key first
   Scenario: /generation shows key_id, and the key state at settle in the consumer view only
+    Given "k1" has $1.00 spent this window
     When a relay bearing "k1" is served
     Then the consumer view of GET /generation?id= carries key_id "k1", key_limit 5, key_spend_after 1.002 (fields absent for non-key requests)
     And the owner view (the station's payout owner) carries key_id only, never key_limit or key_spend_after

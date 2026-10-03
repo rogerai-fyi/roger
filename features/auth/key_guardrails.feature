@@ -568,12 +568,15 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     When a request bearing "k1" PATCHes /account/keys/k1
     Then an audit row "denied" is written with the key id (a key trying to manage keys is worth seeing)
 
+  # corrected 2026-10-02 (founder-approved): the account export is a POST behind a web session
   Scenario: Audit rows are visible in the account export
     Given "acct-a" minted and deleted keys
-    When "acct-a" GETs /account/export
+    When "acct-a" POSTs /account/export
     Then the export lists the key ids, names, and key_event rows, and no secrets or hashes
 
+  # corrected 2026-10-02 (founder-approved): approved account deletion refuses a positive balance, so the account starts at $0
   Scenario: Account deletion revokes every key and anonymizes their audit rows
+    Given "acct-a" has balance $0.00 and monthly cap $0.00
     When "acct-a" POSTs /account/delete
     Then every key of "acct-a" is revoked immediately and its key_event rows are anonymized like the rest of the account
 

@@ -75,6 +75,8 @@ type genRecord struct {
 	LatencyMs      float64       `json:"latency_ms"`
 	Moderation     genModeration `json:"moderation"`
 	KeyID          *string       `json:"key_id"`
+	KeyLimit       *float64      `json:"key_limit,omitempty"`       // consumer view only: the key's limit
+	KeySpendAfter  *float64      `json:"key_spend_after,omitempty"` // consumer view only: window spend after settle
 	Attempts       []genAttempt  `json:"attempts"`
 	Receipt        *string       `json:"receipt"`
 }

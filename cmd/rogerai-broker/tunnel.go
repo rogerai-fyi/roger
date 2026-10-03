@@ -1682,6 +1682,16 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, gerr)
 		return
 	}
+	// Account-key path (acctkeys.go): a `Bearer rog-key_...` is its own authentication too,
+	// resolved before the signature path like a grant; it resolves to the MINTING ACCOUNT's
+	// wallet as payer, and any device signature alongside is ignored (one credential per
+	// request: the bearer wins). A key that is not live is refused here.
+	akey, kok, kref := b.resolveRelayKey(r)
+	if kref != nil {
+		w.Header().Set("X-RogerAI-Cost", "0")
+		jsonErrCode(w, kref.status, kref.code, kref.msg)
+		return
+	}
 
 	var user string   // the signed identity (pubkey-derived; drives self-use + price-lock)
 	var wallet string // the MONEY key: github-scoped when logged in, else == user
@@ -1690,6 +1700,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if gok {
 		user = gc.wallet // "g_<id>" grant-scoped wallet (reservedID-protected)
 		wallet = user
+	} else if kok {
+		// A key request pays from the minting account and is never self-use: self-use $0 needs
+		// the signed device path (ownsNode compares a pubkey-derived id, never a wallet).
+		user, wallet, authed = akey.Account, akey.Account, true
 	} else {
 		var iok bool
 		user, authed, iok = b.identityOf(r, body)
@@ -1731,6 +1745,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	gen.with(func(st *genStored) {
 		st.Wallet = wallet
+		if kok {
+			id := akey.ID
+			st.Rec.KeyID = &id
+		}
 		if gok {
 			st.Wallet, st.GrantID, st.GrantOwner = "", gc.grant.ID, gc.grant.Owner
 		}
@@ -2095,6 +2113,52 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		cands = kept
 	}
+	// A key's allow-lists (acctkeys.go) are checked where a grant's are: after moderation,
+	// before any pick. A model outside allowed_models is skipped; every model denied is a 403.
+	// allowed_nodes narrows the candidate set like provider.only (it is scope, never admission:
+	// a private band still needs its code), and a node the request PINS outside it is a 403.
+	var keyAllow map[string]bool
+	if kok {
+		if len(akey.AllowedModels) > 0 {
+			kept := cands[:0:0]
+			for _, m := range cands {
+				if keyAllowsModel(akey, m.bare) {
+					kept = append(kept, m)
+				}
+			}
+			if len(kept) == 0 {
+				b.stats.keyModelDenials.Add(1)
+				w.Header().Set("X-RogerAI-Cost", "0")
+				jsonErrCode(w, http.StatusForbidden, "key_model_denied", "this key does not allow model "+modelNames(cands))
+				return
+			}
+			cands = kept
+		}
+		if len(akey.AllowedNodes) > 0 {
+			keyAllow = stringSet(akey.AllowedNodes)
+			denied := ""
+			if pinNode != "" && !keyAllow[pinNode] {
+				denied = pinNode
+			} else if noFallbacks && len(orderList) > 0 {
+				var outside []string
+				for _, id := range orderList {
+					if !keyAllow[id] {
+						outside = append(outside, id)
+					}
+				}
+				if len(outside) == len(orderList) {
+					denied = strings.Join(outside, ", ")
+				}
+			}
+			if denied != "" {
+				b.stats.keyNodeDenials.Add(1)
+				w.Header().Set("X-RogerAI-Cost", "0")
+				jsonErrCode(w, http.StatusForbidden, "key_node_denied", "this key does not allow node "+denied)
+				return
+			}
+			allow = intersectAllow(allow, keyAllow)
+		}
+	}
 	// provider.only is the consumer's allow-list: it can only NARROW what a grant or a band
 	// admits (§1b), so it intersects the grant's set here and the band's set below. Node ids
 	// are matched exactly; an id that is not on air simply contributes nothing.
@@ -2352,7 +2416,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		a.edgeConstraints.quants, a.edgeConstraints.needTools, a.edgeConstraints.needVision = rr.quants, rr.needTools, rr.needVision
 		a.edgeConstraints.selfHostedOnly, a.edgeConstraints.freeOnly = rr.selfHostedOnly, rr.freeOnly
 		a.edgeConstraints.sort, a.edgeConstraints.maxPriceIn, a.edgeConstraints.maxPriceOut, a.edgeConstraints.capReq = routeSort, maxPrice, maxPriceOut, capReq
-		a.edgeConstraints.allow, a.edgeConstraints.pin = stringSet(routing.Only), pinNode
+		a.edgeConstraints.allow, a.edgeConstraints.pin = intersectAllow(stringSet(routing.Only), keyAllow), pinNode
 		a.edgeConstraints.netFilters = rr.netFilters
 		if noFallbacks && len(orderList) > 0 {
 			// "never leave the list": a Tower named in the order is admitted, no other Tower is.
@@ -2702,14 +2766,71 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// the monthly cap allow; the pairs it cannot cover are simply not tried (trimPlan), and
 	// the first pick's own cost is the least it ever is.
 	maxCost := plan[0].maxCost
+	// THE KEY LIMIT (acctkeys.go) is checked next to the monthly cap, before the wallet hold,
+	// under a per-key lock held across instances, so the window spend + open reservations +
+	// this hold can never exceed the key's limit (zero overshoot). The reservation IS the hold,
+	// attributed to the key (HoldForKey), so it is released, captured and swept on the hold's
+	// own paths. A $0 request places no hold and consumes no key limit.
+	keyStart := b.now()
+	// A plan that costs the caller nothing (free / self-use, or 0/0 offers whose only hold is
+	// the floor hold) has nothing for a key limit to protect.
+	keyLimited := kok && akey.LimitUSD > 0 && !planCostsNothing(plan, keyStart)
+	if kok {
+		// The key state at settle, for the /generation consumer view (the record is written
+		// after this runs: defers are LIFO and genClose was deferred first).
+		defer func() {
+			if st, err := b.keyLimitState(akey, keyStart); err == nil {
+				lim, after := round6(akey.LimitUSD), st.spend
+				gen.with(func(g *genStored) { g.Rec.KeyLimit, g.Rec.KeySpendAfter = &lim, &after })
+			}
+		}()
+	}
 	if maxCost > 0 {
+		unlockKey := func() {}
+		var keyState keyLimitState
+		keyHold := kok // the hold is the key's reservation
+		if keyLimited {
+			unlock, lerr := b.keyLock(akey.ID)
+			if lerr != nil {
+				w.Header().Set("X-RogerAI-Cost", "0")
+				jsonErrCode(w, http.StatusServiceUnavailable, "key_reserve_failed", "key reserve failed - try again shortly")
+				return
+			}
+			unlockKey = unlock
+			ks, serr := b.keyLimitState(akey, keyStart)
+			if serr != nil {
+				unlockKey()
+				w.Header().Set("X-RogerAI-Cost", "0")
+				jsonErrCode(w, http.StatusServiceUnavailable, "key_reserve_failed", "key reserve failed - try again shortly")
+				return
+			}
+			keyState = ks
+			// A first pick that costs nothing (0/0, whose only hold is the floor hold) is served
+			// even at the limit: the priced fallbacks that do not fit are trimmed with the
+			// ceilings below, and the floor hold is not charged to the key.
+			if !ks.fits(maxCost) && planCostsNothing(plan[:1], keyStart) {
+				keyHold = false
+			} else if !ks.fits(maxCost) {
+				unlockKey()
+				setKeyHeaders(w, ks, true)
+				b.keyAtLimit(ks, keyStart)
+				jsonErr402(w, "key_limit_reached", keyLimitMessage(ks, keyStart), "key_limit", remedyKey(akey.ID))
+				return
+			}
+			setKeyHeaders(w, ks, false)
+			if ks.spend >= acctKeyNearRatio*akey.LimitUSD-1e-9 {
+				from, _, _ := keyWindow(akey, keyStart)
+				b.emailKeyNotice(ks, "80", strconv.FormatInt(from, 10))
+			}
+		}
 		// MONTHLY SPEND CAP (per-account budget limit): reject BEFORE dispatch if this
 		// request's worst-case cost would push the month-to-date captured spend past the
 		// account's cap. Global across every PAID path (this hold gate is the one all of
 		// public use / --freq / grant / agent / chat funnel through). Free/self ($0) skip
 		// the whole block, so they are never blocked. Sets near/at-cap notice headers.
 		if st, msg := b.monthlyCapCheck(w, payer, maxCost, now); st != 0 {
-			jsonErr(w, st, msg)
+			unlockKey()
+			jsonErr402(w, "monthly_cap_reached", msg, "monthly_cap", remedyMonthly)
 			return
 		}
 		// Seed new users so the hold can land (W4: skip the upsert tx for an already-
@@ -2719,20 +2840,29 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// never fall through to HoldFor, where the unseeded wallet would misread as a
 		// 402 "insufficient balance" (features/money/seed_failure.feature).
 		if serr := b.ensureSeeded(payer); serr != nil {
+			unlockKey()
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
 			return
+		}
+		hold := func(amount float64) (bool, error) {
+			if keyHold {
+				return b.db.HoldForKey(payer, requestID, amount, akey.ID, keyStart.UnixMilli())
+			}
+			return b.db.HoldFor(payer, requestID, amount) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 		}
 		held := false
 		// A ceiling is only ATTEMPTED under the cap (monthlyCapFits: no notice headers, no
 		// cap email - a refused ceiling is not a refused request; the first pick was just
 		// checked above and proceeds). Priciest first, so the plan keeps as many pairs as the
-		// wallet covers: a pair it cannot cover is trimmed, a cheaper later pair stays.
+		// wallet covers: a pair it cannot cover is trimmed, a cheaper later pair stays. The
+		// key limit trims the same way.
 		for _, ceiling := range planCeilings(plan) {
-			if !b.monthlyCapFits(payer, ceiling, now) {
+			if !b.monthlyCapFits(payer, ceiling, now) || (keyLimited && !keyState.fits(ceiling)) {
 				continue
 			}
-			ok, herr := b.db.HoldFor(payer, requestID, ceiling) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
+			ok, herr := hold(ceiling)
 			if herr != nil {
+				unlockKey()
 				jsonErr(w, http.StatusInternalServerError, "wallet error")
 				return
 			}
@@ -2742,27 +2872,33 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !held {
-			ok, herr := b.db.HoldFor(payer, requestID, maxCost) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
+			ok, herr := hold(maxCost)
 			if herr != nil {
+				unlockKey()
 				jsonErr(w, http.StatusInternalServerError, "wallet error")
 				return
 			}
 			if !ok {
-				msg := "insufficient balance - add funds"
+				unlockKey()
+				msg, hint := "insufficient balance - add funds", remedyCredits
 				if gok {
 					msg = "top up to keep sponsoring this grant, or make it --free"
 				}
-				w.Header().Set("X-RogerAI-Cost", "0")
-				jsonErrCode(w, http.StatusPaymentRequired, "insufficient_balance", msg)
+				jsonErr402(w, "insufficient_balance", msg, "credits", hint)
 				return
 			}
 		}
+		unlockKey()
 	}
 	plan = trimPlan(plan, maxCost)
 
 	if req.Stream {
-		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
-			pubHex: r.Header.Get(protocol.HeaderPubkey), req: r}, requestID, body, maxCost)
+		bill := streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
+			pubHex: r.Header.Get(protocol.HeaderPubkey), req: r}
+		if kok {
+			bill.keyFields = func() map[string]any { return b.keyChunkFields(akey, keyStart) }
+		}
+		b.relayStream(w, plan, bill, requestID, body, maxCost)
 		return
 	}
 
@@ -3913,6 +4049,11 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				"tokens_in": billedPrompt, "tokens_out": billedCompletion, "tps": streamTPS,
 				"price_in": pin, "price_out": pout, "locked_until": lockedAt,
 				"balance": round6(newBal),
+			}
+			if bill.keyFields != nil {
+				for kf, kv := range bill.keyFields() {
+					chunk[kf] = kv
+				}
 			}
 			comment := ""
 			if settleFailed {

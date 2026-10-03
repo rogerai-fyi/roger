@@ -402,6 +402,38 @@ type Store interface {
 	// (gates account deletion / payout). accountID is the owner pubkey.
 	OpenDisputeCount(accountID string) (int, error)
 
+	// --- account keys (ROUTING-EXPRESSION-CONTRACT section 11; keys.go) ------
+
+	// CreateAccountKey persists a newly minted key (only the secret HASH is stored).
+	CreateAccountKey(k AccountKey) error
+	// AccountKeyByHash is the auth lookup: resolve a key from sha256(secret).
+	AccountKeyByHash(hash string) (AccountKey, bool, error)
+	// AccountKeyByID reads one key by id (the caller compares the owner).
+	AccountKeyByID(id string) (AccountKey, bool, error)
+	// AccountKeysOf lists every key an account minted, revoked ones included.
+	AccountKeysOf(account string) ([]AccountKey, error)
+	// SaveAccountKey writes a key's editable fields (name, limit, reset, anchor, expiry,
+	// allow-lists, disabled, revoked).
+	SaveAccountKey(k AccountKey) error
+	// TouchAccountKey records an authenticated use (last_used; requests when counted).
+	TouchAccountKey(id string, ts int64, request bool) error
+	// HoldForKey is HoldFor whose reservation is attributed to an account key: the key's
+	// reserved amount is the sum of its pending holds, released, captured and swept on the
+	// wallet hold's own paths; capture turns it into key spend dated keyTS.
+	HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64) (bool, error)
+	// KeyReserved sums a key's open reservations.
+	KeyReserved(keyID string) (float64, error)
+	// KeySpend sums a key's settled spend dated in [from, to) (to <= 0 = unbounded), net of
+	// chargeback/refund reversals.
+	KeySpend(keyID string, from, to int64) (float64, error)
+	// KeySpendRefs maps each request ref a key settled to its net cost.
+	KeySpendRefs(keyID string) (map[string]float64, error)
+	// AppendKeyEvent writes a $0 key_event audit row on wallet.
+	AppendKeyEvent(wallet, ref string, ts int64) error
+	// RetireAccountKeys revokes every key of a deleted account and re-keys its key_event rows
+	// to anon (de-identified like the rest of the account).
+	RetireAccountKeys(account, anon string) error
+
 	// --- grant keys (GRANT-KEYS-DESIGN) ------------------------------------
 
 	// CreateGrant persists an owner-issued grant (free or custom-priced private
@@ -875,6 +907,7 @@ type Mem struct {
 	// relay pre-auth hold (HoldFor records it; Finalize/ReleaseHoldFor clear it; the
 	// ReleaseStaleHolds sweep reclaims any left stranded by a SIGKILLed relay). Guarded by mu.
 	pendingHolds map[string]pendingHold
+	acctKeys     map[string]AccountKey    // account keys by id (keys.go); guarded by mu
 	recountHold  map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
 	nodeAcct     map[string]string        // node id -> owner pubkey (TOFU)
 	charges      map[string]charge        // stripe payment_intent/charge id -> checkout mapping
@@ -931,6 +964,8 @@ type pendingHold struct {
 	user     string
 	amount   float64
 	placedAt int64
+	keyID    string // the account key the reservation is attributed to ("" = none)
+	keyTS    int64  // the request's start, which dates the key spend at capture
 }
 
 // charge is a persisted checkout->charge mapping, so a later dispute (which carries
@@ -1458,6 +1493,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 		}
 		m.settled[rec.RequestID] = true
 	}
+	m.keySpendCaptureLocked(m.pendingHolds[rec.RequestID], rec.RequestID, cost)
 	delete(m.pendingHolds, rec.RequestID) // capture clears the tracked hold (no-op if untracked) so the sweep never double-refunds a settled request
 	m.wallet[user] += held - cost         // refund the unused reservation
 	m.spend[user] += cost
@@ -1517,6 +1553,7 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	if rec.RequestID != "" {
 		m.settled[rec.RequestID] = true
 	}
+	m.keySpendCaptureLocked(ph, rec.RequestID, cost)
 	delete(m.pendingHolds, rec.RequestID)
 	m.wallet[user] += held - cost // refund the unused reservation
 	m.spend[user] += cost
@@ -2514,6 +2551,7 @@ func (m *Mem) addRecoveredLocked(chargeRefs []string, amount float64) {
 func (m *Mem) recoverLineageLocked(id, consumerKind, consumerRefPrefix, wallet, requestID string, amount, unspentReclaim float64, now time.Time) ChargebackResult {
 	m.wallet[wallet] -= amount
 	m.appendLedgerLocked(wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix())
+	m.keyReverseLocked(requestID, amount, now.UnixMilli()) // key rows are dated in millis
 
 	// Lineage: target THIS consumer wallet's OWN lots (via the receipts/entries link),
 	// never unrelated operators'. With an explicit requestID we target that one request

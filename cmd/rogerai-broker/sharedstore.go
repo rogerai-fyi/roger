@@ -156,6 +156,9 @@ type sharedStore interface {
 	// non-nil err means the backend was unreachable; the caller must fall back to doing
 	// the underlying (idempotent) work.
 	setIfAbsent(key, val string, ttl time.Duration) (set bool, err error)
+	// counterDel removes a counter / setIfAbsent key (releases a lock taken with setIfAbsent).
+	// A missing key is not an error.
+	counterDel(key string) error
 
 	// healthy reports whether the backend currently looks reachable (best-effort).
 	healthy() bool
@@ -431,6 +434,8 @@ func (m *memStore) counterIncr(string, float64) (float64, error) { return 0, err
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 	return false, errNoSharedStore
 }
+
+func (m *memStore) counterDel(string) error { return errNoSharedStore }
 
 func (m *memStore) healthy() bool { return false }
 func (m *memStore) Close() error  { return nil }
@@ -1791,6 +1796,20 @@ func (v *valkeyStore) counterIncr(key string, delta float64) (float64, error) {
 	}
 	v.setUp(true)
 	return val, nil
+}
+
+func (v *valkeyStore) counterDel(key string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Del(ctx, counterKeyPrefix+key).Err(); err != nil {
+		v.noteErr("counterDel", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
 }
 
 func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, error) {

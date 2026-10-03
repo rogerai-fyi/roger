@@ -70,6 +70,7 @@ func (k *kg5State) kl5Cost(name string, cost float64) {
 }
 
 func (k *kg5State) kl5Claim(name string, p, c int) {
+	k.explicit[name] = true
 	st := k.st(name)
 	k.scripted[name] = true
 	st.set(func(_ int, w http.ResponseWriter, r *http.Request) {
@@ -194,7 +195,8 @@ func (k *kg5State) kl5SpendSigned(acct string, amount float64) error {
 	k.spender()
 	k.spendTok = int(math.Round(amount * 1e4))
 	body, _ := json.Marshal(map[string]any{"model": "kg5-spend", "messages": []map[string]string{{"role": "user", "content": "spend"}}, "max_tokens": k.spendTok})
-	res, err := k.relayRaw(k.b, "", body, map[string]string{"sign": acct})
+	// The spender is priced above the $10/1M default out-cap, so the spend states its cap.
+	res, err := k.relayRaw(k.b, "", body, map[string]string{"sign": acct, "X-Roger-Max-Price-Out": "100"})
 	if err != nil {
 		return err
 	}
@@ -333,8 +335,24 @@ func (k *kg5State) kl5Illegal451() error {
 }
 
 func (k *kg5State) kl5HasSpent(label string, amt float64) error {
-	if err := k.spend(label, amt); err != nil {
-		return err
+	// "has $X spent this window" states the window TOTAL: spend only what is missing, so a
+	// second such Given in one scenario does not stack on the first.
+	have := 0.0
+	if _, ok := k.keys[label]; ok {
+		if e, err := k.entry(label); err == nil {
+			if lim, _ := kg5Num(e["limit_usd"]); lim > 0 {
+				if rem, err := k.fieldNum(e, "limit_remaining"); err == nil {
+					have = lim - rem
+				}
+			} else {
+				have, _ = kg5Num(e["usage"])
+			}
+		}
+	}
+	if d := amt - have; d > 1e-9 {
+		if err := k.spend(label, d); err != nil {
+			return err
+		}
 	}
 	k.snap(label)
 	return nil
@@ -688,6 +706,10 @@ func (k *kg5State) kl5KeyHeadersNotice(limit, spend float64, pct int, notice str
 }
 
 func (k *kg5State) kl5Served(label string) error {
+	if _, ok := k.stations["n1"]; ok && !k.explicit["n1"] {
+		k.kl5Cost("n1", 0.002) // a served relay on n1 settles for $0.002 (under its $0.003 hold)
+		k.explicit["n1"] = false
+	}
 	if err := k.pricedRelay(label); err != nil {
 		return err
 	}
@@ -786,10 +808,12 @@ func (k *kg5State) kl5HeadersBeforeFrame() error {
 }
 
 func (k *kg5State) kl5SpendBefore() error {
+	streamed := k.resp // read the streamed response before kl5Window's GET replaces k.resp
 	spent, _, err := k.kl5Window("k1")
 	if err != nil {
 		return err
 	}
+	k.resp = streamed
 	u, err := kl5Usage(k.resp.body)
 	if err != nil {
 		return err
@@ -871,7 +895,7 @@ func (k *kg5State) kl5SignedServed() error {
 }
 
 func (k *kg5State) kl5HeadersClean() error {
-	if k.resp.code == 0 {
+	if k.resp.code == 0 || k.resp.reqID == "" { // the last response was not a relay (a mint or a read)
 		if err := k.pricedRelay("k1"); err != nil {
 			return err
 		}
@@ -1060,6 +1084,10 @@ func (k *kg5State) kl5RisesOnce() error {
 // ---- concurrency ------------------------------------------------------------------------------------
 
 func (k *kg5State) kl5Concurrent(b []*broker, label string, n int) ([]kg5Resp, error) {
+	// n1 settles at exactly its hold, so a relay that finishes during the burst frees no key
+	// capacity and the count of passes is floor(remaining/hold) whatever the timing (a cheaper
+	// settle would correctly free room for a later relay, making the count timing-dependent).
+	k.kl5Cost("n1", 0.003)
 	body := k.relayBody(k.model, false, nil)
 	pin := map[string]string{"X-Roger-Node": k.st("n1").id}
 	start := make(chan struct{})
@@ -1304,6 +1332,8 @@ func (k *kg5State) kl5StreamAcrossMidnight(label string, before, cost float64) e
 	}
 	k.at(time.Date(2026, 10, 15, 23, 59, 58, 0, time.UTC))
 	k.heldP, k.heldC = 0, int(math.Round(cost*1e6/2))
+	// The stream's worst case must fit the $0.002 left: 40 prompt + 980 out at $1/$2 per 1M.
+	k.promptEst, k.maxTokens = 40, 980
 	if err := k.heldRelay(label, true); err != nil {
 		return err
 	}
@@ -1902,6 +1932,15 @@ func (k *kg5State) kl5EmailOnFile(acct string) error {
 		return err
 	}
 	k.t.Setenv("RESEND_API_KEY", "test")
+	// The broker's mailer was built before the env was set: wire an enabled one whose sends
+	// land in k.mails (the provider request body carries the subject and the text).
+	k.b.mail = enabledMailer(func(r *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(r.Body)
+		k.mailMu.Lock()
+		k.mails = append(k.mails, string(raw))
+		k.mailMu.Unlock()
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"x"}`)), Header: http.Header{}}, nil
+	})
 	return k.db.BindOwner(store.Owner{GitHubID: a.gid, Login: a.who.login, Pubkey: kl5Pub(a), Email: acct + "@example.com"})
 }
 
@@ -1927,6 +1966,7 @@ func (k *kg5State) kl5Crosses(label string) error {
 }
 
 func (k *kg5State) kl5EmailsDeduped(label string) error {
+	time.Sleep(300 * time.Millisecond) // the mailer sends from its own queue goroutine
 	k.mailMu.Lock()
 	mails := append([]string(nil), k.mails...)
 	k.mailMu.Unlock()

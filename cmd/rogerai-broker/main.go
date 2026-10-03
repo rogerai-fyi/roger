@@ -231,6 +231,7 @@ type broker struct {
 	mod          moderation
 	scr          *screener             // off-path content screening (async mode); nil-safe no-op
 	mail         *mailer               // flag-gated (RESEND_API_KEY) transactional email; nil-safe no-op when disabled
+	ak           acctKeyState          // account keys: lookup cache, locks, management limiter (acctkeys.go)
 	towerPending *towerPendingNotifier // admin email on a Tower entering quarantine; nil-safe
 	// canaryVet is the may-Core-dial-this predicate (vetPublicIP in production). A FIELD
 	// so the canary tests - whose hubs rightly live on loopback - can relax it without
@@ -929,6 +930,8 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/auth/logout", b.authLogout)             // web: clear the session cookie
 	mux.HandleFunc("/account", b.account)                    // web: account hub (GET profile+balances, PATCH email)
 	mux.HandleFunc("/account/limit", b.accountLimit)         // GET/PATCH the per-account monthly spend cap (budget limit)
+	mux.HandleFunc("/account/keys", b.accountKeys)           // account keys: mint + list (acctkeys.go)
+	mux.HandleFunc("/account/keys/", b.accountKeys)          // account keys: read / patch / delete by id
 	mux.HandleFunc("/account/export", b.accountExport)       // GDPR/CCPA data dump
 	mux.HandleFunc("/account/delete", b.accountDelete)       // soft-delete + anonymize (retention-safe)
 	mux.HandleFunc("/billing", b.billing)                    // money-in view: balance + top-up history

@@ -117,8 +117,10 @@ type kg5State struct {
 	savedTZ  *time.Location
 	at0      time.Time // a moment a scenario names ("T")
 	bandCode string
-	heldP    int // the held station's claimed prompt tokens (0 = 40)
-	heldC    int // the held station's claimed completion tokens (0 = 20)
+	heldP    int             // the held station's claimed prompt tokens (0 = 40)
+	explicit map[string]bool // stations a scenario scripted a cost or claim for
+	spendReq string          // the request id of the last fixture spend relay
+	heldC    int             // the held station's claimed completion tokens (0 = 20)
 }
 
 func newKG5(t *testing.T) *kg5State {
@@ -135,6 +137,7 @@ func (k *kg5State) reset() error {
 	k.codes, k.promptEst, k.maxTokens, k.spendTok = nil, 0, 0, 0
 	k.gate, k.flight, k.mcounts, k.at0, k.bandCode = nil, nil, [2]int{}, time.Time{}, ""
 	k.heldP, k.heldC = 0, 0
+	k.explicit = map[string]bool{}
 	edgeCoinForTest = nil
 	k.model = "qwen3-32b"
 	return nil
@@ -383,6 +386,10 @@ func (k *kg5State) entry(label string) (map[string]any, error) {
 
 func (k *kg5State) entryOn(b *broker, label string) (map[string]any, error) {
 	owner := k.ownerOfKey(label)
+	// A read for an assertion must not replace the scenario's last response (a later step
+	// reads its status, cost header or request id).
+	prev, prevs, prevReq := k.resp, k.resps, k.lastReq
+	defer func() { k.resp, k.resps, k.lastReq = prev, prevs, prevReq }()
 	res, err := k.call(kg5Req{b: b, as: "acct:" + owner, method: http.MethodGet, path: "/account/keys/" + k.keyID(label)})
 	if err != nil {
 		return nil, err
@@ -591,10 +598,13 @@ func (k *kg5State) spendOn(b *broker, label string, amount float64) error {
 		"messages":   []map[string]string{{"role": "user", "content": "spend"}},
 		"max_tokens": k.spendTok,
 	})
-	res, err := k.relayRaw(b, label, body, nil)
+	// The spender is priced at $100/1M out, above the $10/1M default consumer out-cap a relay
+	// with no cap gets (pricesafety.go), so the spend relay states its cap like a CLI does.
+	res, err := k.relayRaw(b, label, body, map[string]string{"X-Roger-Max-Price-Out": "100"})
 	if err != nil {
 		return err
 	}
+	k.spendReq = res.reqID
 	if res.code != 200 {
 		return fmt.Errorf("spending $%.6f through %s = %d, want 200: %.300s", amount, label, res.code, res.body)
 	}
@@ -607,36 +617,43 @@ func (k *kg5State) spendOn(b *broker, label string, amount float64) error {
 // relayBody is the scenario relay body: model, a prompt padded so the hold estimate is exact
 // when promptEst is set, max_tokens when set, and any extra keys.
 func (k *kg5State) relayBody(model string, stream bool, extra map[string]any) []byte {
-	build := func(n int) []byte {
+	// measured: the body the broker estimates from - the routing object stripped, the stream
+	// usage option merged - so the padding is sized on THAT body, not the one sent.
+	build := func(n int, measured bool) []byte {
 		m := map[string]any{"model": model, "messages": []map[string]string{{"role": "user", "content": strings.Repeat("w", n)}}}
 		if k.maxTokens > 0 {
 			m["max_tokens"] = k.maxTokens
 		}
 		if stream {
 			m["stream"] = true
+			if measured { // the broker merges this into a stream before it estimates (ensureStreamIncludeUsage)
+				m["stream_options"] = map[string]any{"include_usage": true}
+			}
 		}
 		for kk, v := range extra {
-			m[kk] = v
+			if !measured || kk != "provider" {
+				m[kk] = v
+			}
 		}
 		b, _ := json.Marshal(m)
 		return b
 	}
 	if k.promptEst <= 0 {
-		return build(40)
+		return build(40, false)
 	}
 	want := (k.promptEst - 1) * 4
 	n := 1
 	for i := 0; i < 6; i++ {
-		b := build(n)
+		b := build(n, true)
 		if len(b) == want {
-			return b
+			break
 		}
 		n += want - len(b)
 		if n < 1 {
 			n = 1
 		}
 	}
-	return build(n)
+	return build(n, false)
 }
 
 // relayRaw fires one relay on b bearing label ("" = no bearer, signed as the consumer when
@@ -647,9 +664,17 @@ func (k *kg5State) relayRaw(b *broker, label string, body []byte, hdr map[string
 	}
 	k.heartbeat()
 	if k.b2 != nil {
+		k.b.mu.Lock()
+		ids := make([]string, 0, len(k.b.nodes))
 		for id := range k.b.nodes {
+			ids = append(ids, id)
+		}
+		k.b.mu.Unlock()
+		k.b2.mu.Lock() // concurrent relays share this fixture: the heartbeat map needs b2's lock
+		for _, id := range ids {
 			k.b2.lastSeen[id] = time.Now()
 		}
+		k.b2.mu.Unlock()
 	}
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -1391,6 +1416,12 @@ func (k *kg5State) holdsN(acct string, n int) error {
 		if err := k.mint(acct, fmt.Sprintf("bulk%d", i), fmt.Sprintf(`{"name":"bulk%d"}`, i), nil); err != nil {
 			return err
 		}
+		// A Given's N keys are state, not a burst: the management limiter is the subject of
+		// its own scenario, so the setup mints are not charged against it.
+		lim := k.b.ak.mgmt
+		lim.mu.Lock()
+		lim.buckets = map[string]*tokenBucket{}
+		lim.mu.Unlock()
 	}
 	return nil
 }
@@ -1501,7 +1532,15 @@ func (k *kg5State) modelsReadBack201(raw string) error {
 }
 
 func (k *kg5State) relayAsksFor(label, model string) error {
-	k.ensureStation("kg5-"+model, model, 1, 2)
+	// A station is stood up for the model only when the scenario put none on air (a scenario
+	// that names its station, like the $0 "nf", must be served by it, not by a priced extra).
+	onAir := false
+	for _, st := range k.stations {
+		onAir = onAir || st.model == model
+	}
+	if !onAir {
+		k.ensureStation("kg5-"+model, model, 1, 2)
+	}
 	return k.keyRelayOn(k.b, label, model, false, nil, nil)
 }
 
@@ -1753,6 +1792,9 @@ func (k *kg5State) nextServed(label string) error {
 }
 
 func (k *kg5State) patchReset(acct, label, reset string) error {
+	// The fixture clock is frozen, so the PATCH is moved one second past the steps before it
+	// (a Given's spend happened BEFORE the change; the window opens AT the change).
+	k.advance(time.Second)
 	return k.acctPATCHes(acct, label, `{"reset":"`+reset+`"}`)
 }
 
@@ -1949,7 +1991,9 @@ func (k *kg5State) settledThenChargeback(label string) error {
 		return err
 	}
 	wallet, _ := k.walletOf("acct-a")
-	_, err := k.db.Chargeback("dp_"+k.nonce, wallet, k.resp.reqID, 1, time.Now())
+	// The $1.00 spend relay is the disputed request (the spend Given records no scenario
+	// response, so k.resp is not it).
+	_, err := k.db.Chargeback("dp_"+k.nonce, wallet, k.spendReq, 1, time.Now())
 	return err
 }
 
@@ -2440,7 +2484,8 @@ func (k *kg5State) windowZero() error {
 	if err != nil {
 		return err
 	}
-	if c, _ := strconv.ParseFloat(k.resps[len(k.resps)-2].hdr.Get("X-RogerAI-Cost"), 64); !kg5Near(rem, lim-c) {
+	// k.resp is still the relay (an entry read never replaces the scenario response).
+	if c, _ := strconv.ParseFloat(k.resp.hdr.Get("X-RogerAI-Cost"), 64); !kg5Near(rem, lim-c) {
 		return fmt.Errorf("limit_remaining %v; the window opened at $0.00 so it should be %v less this request's $%v", rem, lim, c)
 	}
 	return nil
@@ -3560,7 +3605,7 @@ func (k *kg5State) registerGuardrails(sc *godog.ScenarioContext) {
 	sc.Step(`^a request bearing "([^"]+)" PATCHes /account/keys/(\S+)$`, k.bearerPATCHesNoBody)
 	sc.Step(`^an audit row "denied" is written with the key id \(a key trying to manage keys is worth seeing\)$`, k.deniedAudit)
 	sc.Step(`^"([^"]+)" minted and deleted keys$`, k.mintedAndDeletedKeys)
-	sc.Step(`^"([^"]+)" GETs /account/export$`, k.getsExport)
+	sc.Step(`^"([^"]+)" POSTs /account/export$`, k.getsExport)
 	sc.Step(`^the export lists the key ids, names, and key_event rows, and no secrets or hashes$`, k.exportLists)
 	sc.Step(`^"([^"]+)" POSTs /account/delete$`, k.postsAccountDelete)
 	sc.Step(`^every key of "([^"]+)" is revoked immediately and its key_event rows are anonymized like the rest of the account$`, k.everyKeyRevoked)
