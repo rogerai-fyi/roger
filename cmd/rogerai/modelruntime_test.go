@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/localmodel"
 	"rogerai.fm/roger/v6/internal/provision"
 	"rogerai.fm/roger/v6/internal/runtime"
@@ -222,4 +223,94 @@ func TestModelEachArchiveGetsItsOwnProgressLine(t *testing.T) {
 	out := r.out.String()
 	require.Equal(t, 2, strings.Count(out, "\n"), "one line per archive: %q", out)
 	require.Contains(t, out, "100 B of 100 B")
+}
+
+// Review 2026-10-02: a GPU is found by its driver and its PCI vendor, never by what its name says -
+// nvidia-smi calls cards "Tesla T4" and "Quadro RTX 6000", and an AMD card on Mesa has no rocm-smi.
+func TestModelTheHostSeesGPUsByDriverAndVendorNotName(t *testing.T) {
+	newModelRig(t, 16384)
+	oldRun, oldVendors := hwRun, modelDRMVendors
+	t.Cleanup(func() { hwRun, modelDRMVendors = oldRun, oldVendors })
+	smi := ""
+	hwRun = func(name string, args ...string) (string, bool) {
+		if name == "nvidia-smi" && smi != "" {
+			return smi, true
+		}
+		return "", false
+	}
+	modelHW = func() detect.LocalHW { return detect.LocalHW{RAMKnown: true, RAMTotalMiB: 16384} }
+	for _, c := range []struct {
+		name        string
+		vendors     []string
+		smi         string
+		gpu, nvidia bool
+		cuda        int
+	}{
+		{"a Tesla T4: NVIDIA by its driver, whatever its name", []string{"0x10de"}, "CUDA Version: 12.8", true, true, 12},
+		{"an AMD card with no rocm-smi", []string{"0x1002"}, "", true, false, 0},
+		{"an NVIDIA card whose driver does not answer", []string{"0x10de"}, "", true, true, 0},
+		{"an Intel GPU alone is not taken for one auto should use", []string{"0x8086"}, "", false, false, 0},
+		{"no display adapter at all", nil, "", false, false, 0},
+	} {
+		modelDRMVendors = func() []string { return c.vendors }
+		smi = c.smi
+		h := modelThisHost()
+		require.Equal(t, c.gpu, h.GPU, c.name)
+		require.Equal(t, c.nvidia, h.NVIDIA, c.name)
+		require.Equal(t, c.cuda, h.CUDAMajor, c.name)
+	}
+}
+
+// Review 2026-10-02: after a GPU build could not start a model and auto served it with the CPU build,
+// the screens say the CPU build serves, and why - not the GPU build that failed.
+func TestModelAfterAFallbackTheScreensSayWhatServes(t *testing.T) {
+	r, _ := gpuRig(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	placeBuild(t, r.home.Runtime(), runtime.BuildCPU)
+	modelRuntimeFor = func(ctx context.Context, choice string) (modelRT, error) {
+		if choice == "cpu" {
+			return modelRT{Exe: os.Args[0], Tag: "b11146", Build: runtime.BuildCPU}, nil
+		}
+		return modelRT{Exe: filepath.Join(t.TempDir(), "llama-server"), Tag: "b11146", Build: runtime.BuildCUDA, Offloads: true}, nil
+	}
+	_, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	a, notes, err := modelPredict()
+	require.NoError(t, err)
+	require.Equal(t, runtime.BuildCPU, a.Build, "the build that served")
+	require.Contains(t, strings.Join(notes, " "), "the cuda build could not start it")
+}
+
+// Review 2026-10-02: a serve from the console or an Edge request says the build it will fetch, with
+// its size, before anything moves.
+func TestModelAServeFromTheConsoleSaysWhatItWillFetch(t *testing.T) {
+	r, _ := gpuRig(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	oldSpawn := modelSpawn
+	t.Cleanup(func() { modelSpawn = oldSpawn })
+	modelSpawn = func([]string, string) error { return nil }
+	says, err := modelWebServe("acme/Tiny-GGUF:Q4_K_M", 0, false)
+	require.NoError(t, err)
+	require.Contains(t, says, "fetches the cuda build first (727.9 MiB)")
+}
+
+// Review 2026-10-02: the pin to one card reaches the runtime's own command line.
+func TestModelAPinnedServeTellsTheRuntimeItsCard(t *testing.T) {
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	argsFile := filepath.Join(t.TempDir(), "args")
+	modelServeEnv = map[string]string{"FAKE_LLAMA": "1", "FAKE_ARGS_FILE": argsFile}
+	modelRuntimeFor = func(context.Context, string) (modelRT, error) {
+		return modelRT{Exe: os.Args[0], Tag: "bTEST", Build: runtime.BuildCUDA, Offloads: true,
+			Devices: []runtime.Device{{ID: "CUDA0", FreeMiB: 1000}, {ID: "CUDA1", FreeMiB: 90000}}}, nil
+	}
+	out, err := r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Contains(t, out, "on one card, CUDA1")
+	b, err := os.ReadFile(argsFile)
+	require.NoError(t, err)
+	require.Contains(t, string(b), "--device CUDA1")
 }

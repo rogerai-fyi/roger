@@ -263,7 +263,7 @@ func modelWebServe(id string, ctxLen int, add bool) (string, error) {
 	if err := modelSpawn(args, filepath.Join(h.Dir, "serve.log")); err != nil {
 		return "", fmt.Errorf("could not start serving in the background: %w", err)
 	}
-	return says + " - starting in the background; it is on the air once this page shows it serving.", nil
+	return says + modelFetchFirst() + " - starting in the background; it is on the air once this page shows it serving.", nil
 }
 
 func modelWebRemove(id string) (string, error) {

@@ -14,6 +14,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -142,11 +143,20 @@ func placeBeside(archive, root, dest string) error {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
+	// Flattening is where an archive could reach past its own tree: it may never replace a file
+	// already there (the server, a library it loads), and never carries a link.
 	return filepath.WalkDir(tmp, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		return os.Rename(p, filepath.Join(dest, d.Name()))
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%w: %s is a link, and a runtime's libraries are files", ErrUnsafeArchive, d.Name())
+		}
+		to := filepath.Join(dest, d.Name())
+		if _, err := os.Lstat(to); err == nil {
+			return fmt.Errorf("%w: %s would replace a file the build already has", ErrUnsafeArchive, d.Name())
+		}
+		return os.Rename(p, to)
 	})
 }
 

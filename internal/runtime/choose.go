@@ -50,16 +50,16 @@ func Plan(h Host, choice string) ([]Asset, []string, error) {
 		return []Asset{cpu}, nil, nil
 	}
 	gpus := gpuPlatforms[h.OS+"/"+h.Arch]
-	usable := func(b Build) (Asset, bool) {
-		a, ok := assetFor(gpus[b])
+	// usable is the pinned build b when it can load here; why says why not, when there is one.
+	usable := func(b Build) (a Asset, ok bool, why error) {
+		a, ok = assetFor(gpus[b])
 		if !ok {
-			return Asset{}, false
+			return Asset{}, false, fmt.Errorf("%w: no %s build is pinned for %s/%s", ErrNoRuntime, buildWord(b), h.OS, h.Arch)
 		}
 		if err := a.loadableOn(h); err != nil {
-			notes = append(notes, fmt.Sprintf("the %s build cannot load here: %v", b, err))
-			return Asset{}, false
+			return Asset{}, false, fmt.Errorf("the %s build cannot load here: %w", b, err)
 		}
-		return a, true
+		return a, true, nil
 	}
 	cudaOK := func(a Asset) (bool, string) {
 		switch {
@@ -76,15 +76,15 @@ func Plan(h Host, choice string) ([]Asset, []string, error) {
 
 	switch choice {
 	case "vulkan":
-		a, ok := usable(BuildVulkan)
+		a, ok, why := usable(BuildVulkan)
 		if !ok {
-			return nil, notes, fmt.Errorf("%w: no Vulkan build is pinned for %s/%s", ErrNoRuntime, h.OS, h.Arch)
+			return nil, notes, why
 		}
 		return []Asset{a}, notes, nil
 	case "cuda":
-		a, ok := usable(BuildCUDA)
+		a, ok, why := usable(BuildCUDA)
 		if !ok {
-			return nil, notes, fmt.Errorf("%w: no CUDA build is pinned for %s/%s", ErrNoRuntime, h.OS, h.Arch)
+			return nil, notes, why
 		}
 		if fine, why := cudaOK(a); !fine {
 			return nil, notes, fmt.Errorf("%w: %s", ErrNoRuntime, why)
@@ -94,15 +94,19 @@ func Plan(h Host, choice string) ([]Asset, []string, error) {
 	// auto and gpu: the best GPU build this machine can take, then (auto only) the CPU build.
 	var out []Asset
 	if h.GPU {
-		if a, ok := usable(BuildCUDA); ok && h.NVIDIA {
+		if a, ok, why := usable(BuildCUDA); ok && h.NVIDIA {
 			if fine, why := cudaOK(a); fine {
 				out = append(out, a)
 			} else {
-				notes = append(notes, why+" - using Vulkan")
+				notes = append(notes, why)
 			}
+		} else if h.NVIDIA && why != nil && !errors.Is(why, ErrNoRuntime) {
+			notes = append(notes, why.Error())
 		}
-		if a, ok := usable(BuildVulkan); ok {
+		if a, ok, why := usable(BuildVulkan); ok {
 			out = append(out, a)
+		} else if why != nil && !errors.Is(why, ErrNoRuntime) {
+			notes = append(notes, why.Error())
 		}
 	}
 	if choice == "gpu" {
@@ -176,3 +180,10 @@ func ParseCUDAVersion(out string) (major, minor int, ok bool) {
 
 // ErrNoDevice is a GPU build that runs but lists no device it can use.
 var ErrNoDevice = errors.New("lists no GPU it can use")
+
+func buildWord(b Build) string {
+	if b == BuildCUDA {
+		return "CUDA"
+	}
+	return strings.ToUpper(string(b[:1])) + string(b[1:])
+}

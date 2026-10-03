@@ -45,6 +45,9 @@ func TestMain(m *testing.M) {
 }
 
 func modelFakeLlama(args []string) {
+	if f := os.Getenv("FAKE_ARGS_FILE"); f != "" {
+		_ = os.WriteFile(f, []byte(strings.Join(args, " ")), 0o600) // what the runtime was told, for a test to read
+	}
 	flag := map[string]string{}
 	for i := 0; i+1 < len(args); i++ {
 		if strings.HasPrefix(args[i], "-") {
