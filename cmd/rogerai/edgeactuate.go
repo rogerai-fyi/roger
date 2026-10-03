@@ -40,7 +40,7 @@ func cmdEdgeActuate(cfg config, args []string) error {
 	}
 	cap, declared := edgeActuateCap(n)
 	if !declared {
-		return fmt.Errorf("%s does not declare actuate, so there is nothing to confirm", edge.Label(n.Name, n.ID))
+		return fmt.Errorf("%s does not declare actuate, so there is nothing to confirm", edgeNodeLabel(n))
 	}
 	if cap.State == string(edge.Verified) {
 		// Saying yes twice must not re-record: the FIRST confirmation is the one that licensed it,
@@ -51,11 +51,11 @@ func cmdEdgeActuate(cfg config, args []string) error {
 			who = "somebody"
 		}
 		fmt.Printf("%s is already confirmed to actuate - %s said yes %s ago.\n",
-			edge.Label(n.Name, n.ID), who, edge.Age(time.Since(time.Unix(cap.ConfirmedAt, 0))))
+			edgeNodeLabel(n), who, edge.Age(time.Since(time.Unix(cap.ConfirmedAt, 0))))
 		return nil
 	}
 	if !argv.has("yes") {
-		fmt.Printf("confirm that %s may ACTUATE?\n", edge.Label(n.Name, n.ID))
+		fmt.Printf("confirm that %s may ACTUATE?\n", edgeNodeLabel(n))
 		fmt.Println("  actuate means this node can change the PHYSICAL WORLD: a door, a pump, a relay,")
 		fmt.Println("  a moving machine. Nothing on this Edge infers it and no probe can verify it -")
 		fmt.Println("  it is yours to grant, and your name goes on it.")
@@ -72,7 +72,7 @@ func cmdEdgeActuate(cfg config, args []string) error {
 	if err := st.save(); err != nil {
 		return err
 	}
-	fmt.Printf("%s may actuate. Confirmed by %s, and recorded on the node.\n", edge.Label(n.Name, n.ID), who)
+	fmt.Printf("%s may actuate. Confirmed by %s, and recorded on the node.\n", edgeNodeLabel(n), who)
 	return nil
 }
 

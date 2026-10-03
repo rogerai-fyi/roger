@@ -25,6 +25,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	}
 	res, err := edgeEnrollCore(cfg, name, endpoint, account)
 	if err != nil {
-		return err
+		return edgeEnrollErr(err, name, endpoint)
 	}
 	if res.AlreadyEnrolled {
 		fmt.Println(edgeEnrolledLine(res, edgeStationName()))
@@ -623,8 +624,56 @@ func edgeAllow(userKey string) error {
 		return err
 	}
 	fmt.Printf("that machine may now enroll against this authority.\n")
-	fmt.Printf("  on it, run: roger edge enroll <name> --authority http://<this machine's LAN address>\n")
+	b, err := os.ReadFile(edgeAuthorityPortFile())
+	port := strings.TrimSpace(string(b))
+	ips := edgeLANIPs()
+	if err != nil || port == "" || len(ips) == 0 {
+		fmt.Println("  start roger on this machine so the authority answers on your network; then, on that machine:")
+		fmt.Println("  roger edge enroll <name> --authority http://<this machine's address>:<port in " + edgeAuthorityPortFile() + ">")
+		return nil
+	}
+	fmt.Println("  on it, run (with roger running here, so the authority answers):")
+	for _, ip := range ips {
+		fmt.Printf("    roger edge enroll <name> --authority http://%s\n", net.JoinHostPort(ip, port))
+	}
 	return nil
+}
+
+// edgeLANIPs is this machine's addresses another machine on the LAN could reach it at: IPv4,
+// interfaces that are up, not loopback.
+var edgeLANIPs = func() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, i := range ifaces {
+		if i.Flags&net.FlagUp == 0 || i.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := i.Addrs()
+		for _, a := range addrs {
+			if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && n.IP.IsGlobalUnicast() {
+				out = append(out, n.IP.String())
+			}
+		}
+	}
+	return out
+}
+
+// edgeEnrollErr turns an enroll the authority refused for not knowing this machine into the fix, as
+// the setup wizard says it: the allow command with this machine's key, then the enroll again.
+func edgeEnrollErr(err error, name, endpoint string) error {
+	if !errors.Is(err, edgeauth.ErrUnknownMachine) {
+		return err
+	}
+	retry := "roger edge enroll " + name
+	if endpoint != "" {
+		retry += " --authority " + endpoint
+	}
+	return fmt.Errorf("%w - the authority has not allowed this machine yet.\n"+
+		"  on the AUTHORITY machine, run:  roger edge authority allow %s\n"+
+		"  then here, again:                %s", err, client.UserPubHex(), retry)
 }
 
 // --- forgetting a node, and taking its certificate back -------------------
