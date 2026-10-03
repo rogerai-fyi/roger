@@ -161,3 +161,17 @@ func TestARefusedChoiceSaysTheRealReason(t *testing.T) {
 	require.ErrorIs(t, err, runtime.ErrNoRuntime, "the CPU build cannot load either")
 	_ = notes
 }
+
+// Found preparing the Pi test (2026-10-02): the Linux arm64 build needs libgomp.so.1, which a minimal
+// OS may not ship. A build that cannot load is said plainly, with the package that fixes it, before a
+// serve is attempted - not as a loader error after (local_models.feature §3).
+func TestABuildThatCannotLoadNamesThePackageThatFixesIt(t *testing.T) {
+	require.NoError(t, runtime.LoadCheck(context.Background(), os.Args[0], map[string]string{"FAKE_RUNTIME": "load-ok"}))
+	err := runtime.LoadCheck(context.Background(), os.Args[0], map[string]string{"FAKE_RUNTIME": "load-missing"})
+	require.ErrorIs(t, err, runtime.ErrMissingLibrary)
+	require.ErrorContains(t, err, "libgomp.so.1")
+	require.ErrorContains(t, err, "sudo apt install libgomp1", "the package that fixes it, on Debian and Raspberry Pi OS")
+	err = runtime.LoadCheck(context.Background(), os.Args[0], map[string]string{"FAKE_RUNTIME": "load-odd"})
+	require.ErrorContains(t, err, "libweird.so.9", "an unknown library is still named")
+	require.NotContains(t, err.Error(), "apt install", "and no package is guessed")
+}
