@@ -77,7 +77,7 @@ func TestEveryForgetPathLeavesTheShortRecord(t *testing.T) {
 	require.NoError(t, local.GrantClaim("n_porch", "porch"))
 	out, code = edgeRun(t, "edge", "forget", "porch", "--yes")
 	require.Equal(t, 0, code, out)
-	d, ok, err := edge.FindDeparted(departedNow(t), "porch")
+	d, ok, err := edge.FindDeparted(departedNow(t), "porch", time.Now())
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "n_porch", d.ID)
@@ -89,7 +89,7 @@ func TestEveryForgetPathLeavesTheShortRecord(t *testing.T) {
 	edgeStdin = strings.NewReader("n\n")
 	out, code = edgeRun(t, "edge", "forget", "barn")
 	require.Equal(t, 0, code, out)
-	_, ok, _ = edge.FindDeparted(departedNow(t), "barn")
+	_, ok, _ = edge.FindDeparted(departedNow(t), "barn", time.Now())
 	require.False(t, ok)
 }
 
@@ -250,4 +250,112 @@ func forgetAClaimedPhone(t *testing.T, local *edgeauth.Local) string {
 	_, _, err = local.Forget(id)
 	require.NoError(t, err)
 	return id
+}
+
+// SECURITY (review 2026-10-02): a candidate's name is what a device ANNOUNCES about itself, so a LAN
+// device calling itself "attic" must never be what `roger edge readmit attic` - the very command the
+// list tells the owner to run - re-admits. The forgotten device's record decides, and a different
+// device carrying the name makes the name ambiguous: refused, with the way to pick.
+func TestAnAnnouncingCandidateNamedLikeAForgottenDeviceNeverWins(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	edgeSeed(t, atticPi4("n_attic", "attic"))
+	out, code := edgeRun(t, "edge", "forget", "attic", "--yes")
+	require.Equal(t, 0, code, out)
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	st.candidates = append(st.candidates, store.EdgeNode{ID: "n_impostor", Name: "attic", Kind: "mobile"})
+	require.NoError(t, st.save())
+
+	out, code = edgeRun(t, "edge", "readmit", "attic", "--yes")
+	require.Equal(t, 1, code, out)
+	require.Contains(t, out, `"attic" is also what a device on this network calls itself`)
+	require.Contains(t, out, "a Pi 4 forgotten just now")
+	require.Contains(t, out, "`roger edge readmit n_attic`")
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.False(t, local.ClaimGranted("n_impostor"), "the announcing device was granted a claim")
+	require.False(t, local.ClaimGranted("n_attic"), "an ambiguous name re-admits nothing")
+
+	// The list does not offer the name either: it offers the id, as the argument.
+	out, code = edgeRun(t, "edge", "readmit")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "roger edge readmit n_attic")
+	require.NotContains(t, out, "roger edge readmit attic")
+
+	// Picking it by its id re-admits the forgotten device, under the name it had.
+	out, code = edgeRun(t, "edge", "readmit", "n_attic", "--yes")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "re-admitted attic")
+	require.True(t, local.ClaimGranted("n_attic"))
+	require.False(t, local.ClaimGranted("n_impostor"))
+
+	// The same device announcing its own old name is no conflict.
+	newFacedAuthority(t, "desk")
+	edgeSeed(t, atticPi4("n_attic", "attic"))
+	out, code = edgeRun(t, "edge", "forget", "attic", "--yes")
+	require.Equal(t, 0, code, out)
+	st, err = loadEdgeState()
+	require.NoError(t, err)
+	st.candidates = append(st.candidates, store.EdgeNode{ID: "n_attic", Name: "attic", Kind: "host"})
+	require.NoError(t, st.save())
+	out, code = edgeRun(t, "edge", "readmit", "attic", "--yes")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "re-admitted attic")
+}
+
+// SECURITY (review 2026-10-02): forget A ("attic"), name a new device C "attic": `readmit attic`
+// must never resolve to C and revoke its live certificate.
+func TestAMemberThatTookTheOldNameIsNeverRevokedByReadmit(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	edgeSeed(t, atticPi4("n_attic", "attic"))
+	out, code := edgeRun(t, "edge", "forget", "attic", "--yes")
+	require.Equal(t, 0, code, out)
+
+	// C claims a real certificate and joins as "attic".
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	cID := edgeauth.NodeID(pub)
+	require.NoError(t, local.GrantClaim(cID, "attic"))
+	req := edgeauth.NewClaimRequest("attic", "host", pub, time.Now())
+	req.Sign(priv)
+	resp, err := local.Claim(req, time.Now())
+	require.NoError(t, err)
+	leaf, err := edgeauth.DecodeCert(resp.Cert)
+	require.NoError(t, err)
+	edgeSeed(t, store.EdgeNode{ID: cID, Name: "attic", Kind: "host", Presence: string(edge.PresenceVerified)})
+
+	for _, args := range [][]string{{"edge", "readmit", "attic", "--yes"}, {"edge", "readmit", "attic"}} {
+		out, code = edgeRun(t, args...)
+		require.Equal(t, 1, code, out)
+		require.Contains(t, out, `"attic" is also the name of a member of this Edge now`)
+		require.Contains(t, out, "`roger edge readmit n_attic`")
+		require.NotContains(t, out, cID)
+	}
+	revs, err := local.Revocations()
+	require.NoError(t, err)
+	require.NotContains(t, revs, leaf.SerialNumber.String(), "the member that took the name had its certificate revoked")
+	require.False(t, local.ClaimGranted(cID))
+
+	out, code = edgeRun(t, "edge", "readmit")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "roger edge readmit n_attic")
+	require.NotContains(t, out, "roger edge readmit attic")
+}
+
+// Two forgotten devices that had one name: the refusal says each by what it is and when it left.
+func TestTwoForgottenDevicesWithOneNameAreToldApart(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	require.NoError(t, edgeRecordDeparted(atticPi4("n_attic", "attic")))
+	require.NoError(t, edgeRecordDeparted(store.EdgeNode{ID: "n_attic2", Name: "attic", Kind: "mobile"}))
+	out, code := edgeRun(t, "edge", "readmit", "attic", "--yes")
+	require.Equal(t, 1, code, out)
+	require.Contains(t, out, `"attic" names 2 forgotten devices - re-admit the one you mean: `)
+	require.Contains(t, out, "a Pi 4 forgotten just now (`roger edge readmit n_attic`)")
+	require.Contains(t, out, "a phone forgotten just now (`roger edge readmit n_attic2`)")
+	out, code = edgeRun(t, "edge", "readmit")
+	require.Equal(t, 0, code, out)
+	require.NotContains(t, out, "roger edge readmit attic\n")
+	require.Contains(t, out, "roger edge readmit n_attic2")
 }

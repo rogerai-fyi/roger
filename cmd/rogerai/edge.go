@@ -1657,10 +1657,23 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		return edgeListDeparted(st, departed)
 	}
 	want := argv.pos[0]
-	// Resolve the device the owner means: a re-pinging candidate first, then a fleet member, then a
-	// device this Edge forgot (by the name it had, or its id), then a raw node id this Edge has no
-	// record of. An AMBIGUOUS name is surfaced, never guessed at - re-admitting the wrong device
-	// revokes its certificate. name is what the fresh claim is granted under: never an id.
+	// Resolve the device the owner means. A device this Edge FORGOT is looked for first, by the name
+	// it had or its id: a candidate's name is only what a device announces about itself, so a LAN
+	// device calling itself "attic" must never be what `readmit attic` re-admits, and a member that
+	// has since taken the name must never have its live certificate revoked by it (review
+	// 2026-10-02). When a different device carries that name now, the name is refused as ambiguous
+	// with the way to pick. Then a re-pinging candidate, then a fleet member, then a raw node id this
+	// Edge has no record of. name is what the fresh claim is granted under: never an id.
+	now := time.Now()
+	gone, goneOK, err := edge.FindDeparted(departed, want, now)
+	if err != nil {
+		return err
+	}
+	if goneOK && gone.ID != strings.TrimSpace(want) {
+		if err := edgeReadmitNameClash(st, gone, now); err != nil {
+			return err
+		}
+	}
 	id, name, question, done := "", "", "", ""
 	consequence := "its previous certificate is revoked and it may claim a fresh one to rejoin"
 	after := "its old certificate is revoked; it can claim a fresh one and rejoin."
@@ -1669,7 +1682,7 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		if !edge.LooksLikeID(n.Name) {
 			name = n.Name
 		}
-		if d, ok, _ := edge.FindDeparted(departed, n.ID); ok {
+		if d, ok, _ := edge.FindDeparted(departed, n.ID, time.Now()); ok {
 			// It is a device this Edge forgot: said, and brought back, as it was known.
 			if d.Name != "" {
 				name = d.Name
@@ -1680,11 +1693,19 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		said := edge.UnitName(n, nil)
 		question, done = "re-admit "+said+"?", said
 	}
-	c, cok, cerr := edgeResolve(st.candidates, want)
-	if cerr != nil {
-		return cerr
+	var c store.EdgeNode
+	cok := false
+	if !goneOK {
+		var cerr error
+		c, cok, cerr = edgeResolve(st.candidates, want)
+		if cerr != nil {
+			return cerr
+		}
 	}
-	if cok {
+	if goneOK {
+		id, name = gone.ID, gone.Name
+		question, done = edge.ReAdmitQuestion(gone, now), edgeDepartedSaid(gone)
+	} else if cok {
 		named(c)
 	} else if nodes, lerr := st.list(); lerr == nil {
 		n, nok, nerr := edgeResolve(nodes, want)
@@ -1696,14 +1717,7 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		}
 	}
 	if id == "" {
-		d, ok, err := edge.FindDeparted(departed, want)
-		if err != nil {
-			return err
-		}
 		switch {
-		case ok:
-			id, name = d.ID, d.Name
-			question, done = edge.ReAdmitQuestion(d, time.Now()), edgeDepartedSaid(d)
 		case strings.HasPrefix(want, "n_"):
 			// An id this Edge has no record of: quoted as typed, and the device is given no name.
 			id, name = want, ""
@@ -1731,6 +1745,25 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 	return nil
 }
 
+// edgeReadmitNameClash refuses a forgotten device's old name when a DIFFERENT device carries it now -
+// a member that took it, or a device on the network announcing it - because the name no longer says
+// which device is meant. The refusal says the forgotten one by what it is and when it left, with its
+// id as the argument that picks it; the other device's id is never said.
+func edgeReadmitNameClash(st *edgeState, d edge.Departed, now time.Time) error {
+	members, err := st.list()
+	if err != nil {
+		return err
+	}
+	pick := edge.ReAdmitPick(d, now)
+	if len(edge.NameHeldElsewhere(d, members)) > 0 {
+		return fmt.Errorf("%q is also the name of a member of this Edge now, so it does not say which device you mean - to re-admit the forgotten one, %s", d.Name, pick)
+	}
+	if len(edge.NameHeldElsewhere(d, st.candidates)) > 0 {
+		return fmt.Errorf("%q is also what a device on this network calls itself, so it does not say which device you mean - to re-admit the forgotten one, %s", d.Name, pick)
+	}
+	return nil
+}
+
 // edgeDepartedSaid is how a forgotten device is named in the line that says it was re-admitted.
 func edgeDepartedSaid(d edge.Departed) string {
 	if d.Name != "" {
@@ -1746,6 +1779,8 @@ func edgeListDeparted(st *edgeState, departed []edge.Departed) error {
 		return err
 	}
 	list := edge.NewestDeparted(departed, members)
+	// A name a member or an announcing device carries now is not offered: it would resolve to them.
+	others := append(append([]store.EdgeNode(nil), members...), st.candidates...)
 	if len(list) == 0 {
 		fmt.Println("no forgotten devices on this Edge - nothing to re-admit.")
 		return nil
@@ -1753,7 +1788,7 @@ func edgeListDeparted(st *edgeState, departed []edge.Departed) error {
 	now := time.Now()
 	fmt.Println("forgotten devices that can be re-admitted, newest first:")
 	for _, d := range list {
-		fmt.Printf("  %s    %s\n", edge.DepartedWords(d, now), edge.ReAdmitHow(d))
+		fmt.Printf("  %s    %s\n", edge.DepartedWords(d, now), edge.ReAdmitHow(d, departed, others))
 	}
 	fmt.Println("re-admit one with `roger edge readmit <name>`; it claims a fresh certificate and rejoins under that name.")
 	return nil
