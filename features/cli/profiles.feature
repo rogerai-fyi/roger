@@ -411,6 +411,7 @@ Feature: Named routing profiles resolve to the body object on every client
     When the guest sends {"model": "@profile/loose"}
     Then the broker receives provider.max_price.completion = 2
 
+  @tui
   Scenario: The TUI, CLI and proxy resolve the same profile to the same body object
     Given profile "coding" with every key set
     When the profile is resolved by the CLI, by the TUI's tune, and by the local proxy for a guest
