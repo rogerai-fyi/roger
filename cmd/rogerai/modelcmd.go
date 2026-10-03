@@ -513,7 +513,7 @@ func modelServe(ctx context.Context, a modelArgv) error {
 			fmt.Fprintf(modelOut, "  on one card, %s: it fits there, and one card answers faster than a split\n", dev)
 		}
 	}
-	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Device: dev})
+	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Device: dev, Build: string(rt.Build)})
 	if err != nil && rt.Build != runtime.BuildCPU && rt.Build != runtime.BuildMetal {
 		// A GPU build that cannot start the model is never a silent fallback (§10): auto says so and
 		// serves with the CPU build, judged again in system memory; an explicit choice stops here.
@@ -539,7 +539,7 @@ func modelServe(ctx context.Context, a modelArgv) error {
 		}
 		fmt.Fprintln(modelOut, says)
 		fmt.Fprintf(modelOut, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
-		srv, s, err = h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv})
+		srv, s, err = h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Build: string(rt.Build)})
 	}
 	if err != nil {
 		if hadPrev {
@@ -750,11 +750,23 @@ var modelIdleEvery = time.Minute
 const modelIdleMin = time.Minute
 
 // modelIdle shows or sets the idle timeout (local_models.feature §5): off by default.
-func modelIdle(pos []string) error {
+func modelIdle(pos []string) error { return modelPrint(modelIdleSays(pos)) }
+
+// modelPrint is a setting's sentence on the terminal; every surface shares the sentence itself.
+func modelPrint(says string, err error) error {
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(modelOut, says)
+	return nil
+}
+
+// modelIdleSays shows or sets the idle timeout and says what it is now.
+func modelIdleSays(pos []string) (string, error) {
 	h := modelHome()
 	s, err := h.Settings()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(pos) == 1 {
 		switch v := strings.ToLower(pos[0]); v {
@@ -763,46 +775,59 @@ func modelIdle(pos []string) error {
 		default:
 			d, err := time.ParseDuration(v)
 			if err != nil || d < modelIdleMin {
-				return fmt.Errorf("an idle timeout is a duration of at least %s (30m, 2h) or off, not %q", modelIdleMin, pos[0])
+				return "", fmt.Errorf("an idle timeout is a duration of at least %s (30m, 2h) or off, not %q", modelIdleMin, pos[0])
 			}
 			s.IdleAfter = d
 		}
 		if err := h.SetSettings(s); err != nil {
-			return err
+			return "", err
 		}
 	} else if len(pos) > 1 {
-		return errors.New("usage: roger model idle [<duration> | off]")
+		return "", errors.New("usage: roger model idle [<duration> | off]")
 	}
-	fmt.Fprintln(modelOut, modelIdleLine(s))
-	return nil
+	return modelIdleLine(s), nil
 }
 
 // modelBudgetCmd shows or sets the disk budget for models (local_models.feature §6): none by default.
-func modelBudgetCmd(pos []string) error {
+func modelBudgetCmd(pos []string) error { return modelPrint(modelBudgetSays(pos)) }
+
+// modelBudgetSays shows or sets the disk budget and says what it is now - and, for a budget below
+// what is already on disk, what the next fetch would remove: setting one removes nothing by itself
+// (local_models.feature §11).
+func modelBudgetSays(pos []string) (string, error) {
 	h := modelHome()
 	s, err := h.Settings()
 	if err != nil {
-		return err
+		return "", err
 	}
 	switch {
 	case len(pos) > 1:
-		return errors.New("usage: roger model budget [<size, like 20G> | off]")
+		return "", errors.New("usage: roger model budget [<size, like 20G> | off]")
 	case len(pos) == 1 && strings.EqualFold(pos[0], "off"):
 		s.DiskBudget = 0
 	case len(pos) == 1:
 		n, ok := parseByteSize(pos[0])
 		if !ok || n < 1<<20 {
-			return fmt.Errorf("a budget is a size of at least 1M (500M, 20G, 1T) or off, not %q", pos[0])
+			return "", fmt.Errorf("a budget is a size of at least 1M (500M, 20G, 1T) or off, not %q", pos[0])
 		}
 		s.DiskBudget = n
 	}
 	if len(pos) == 1 {
 		if err := h.SetSettings(s); err != nil {
-			return err
+			return "", err
 		}
 	}
-	fmt.Fprintln(modelOut, modelBudgetWord(s))
-	return nil
+	says := modelBudgetWord(s)
+	if used, _, _ := h.Usage(); s.DiskBudget > 0 && used > s.DiskBudget {
+		says += fmt.Sprintf("\n  %s of models is on disk, past it; nothing is removed now", provision.BytesWord(used))
+		if plan, err := h.RoomFor(0); err == nil && len(plan) > 0 {
+			says += " - " + strings.TrimPrefix(localmodel.RoomLine(plan), "to stay within the budget you set for models, roger removes first, ")
+			says += ", at the next fetch"
+		} else if err != nil {
+			says += " - " + err.Error()
+		}
+	}
+	return says, nil
 }
 
 func modelBudgetWord(s localmodel.Settings) string {

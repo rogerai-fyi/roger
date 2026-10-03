@@ -141,7 +141,14 @@ func ModelLine(m *EdgeModel) string {
 		for _, a := range m.Also {
 			each = append(each, fmt.Sprintf("%q (%s, %d context)", a.Band, a.ID, a.Ctx))
 		}
-		each = append(each, fmt.Sprintf("%q (%s, %d context)", m.Band, m.ID, m.Ctx))
+		last := fmt.Sprintf("%q (%s, %d context", m.Band, m.ID, m.Ctx)
+		if m.Build != "" {
+			last += ", " + BuildWord(m.Build) + " build"
+		}
+		if m.TokPerSec > 0 {
+			last += fmt.Sprintf(", %.1f tok/s measured", m.TokPerSec)
+		}
+		each = append(each, last+")")
 		parts = append(parts, "serving "+strings.Join(each, " and "))
 	case m.CannotServe != "":
 		parts = append(parts, "cannot serve here: "+m.CannotServe)
@@ -194,7 +201,10 @@ func CleanModel(m *EdgeModel) *EdgeModel {
 	}
 	out := &EdgeModel{Band: cleanText(m.Band), ID: cleanText(m.ID), Quant: cleanText(m.Quant), Ctx: m.Ctx,
 		Since: m.Since, CannotServe: cleanText(m.CannotServe), ServeFailed: cleanText(m.ServeFailed),
-		Stopped: cleanText(m.Stopped)}
+		Stopped: cleanText(m.Stopped), Build: cleanText(m.Build), TokPerSec: m.TokPerSec}
+	if out.TokPerSec < 0 || out.TokPerSec > 100000 {
+		out.TokPerSec = 0
+	}
 	if out.Ctx < 0 || out.Ctx > 1<<21 {
 		out.Ctx = 0
 	}
@@ -296,4 +306,17 @@ func ctxShort(n int) string {
 		return fmt.Sprintf("%dK", n/1024)
 	}
 	return fmt.Sprint(n)
+}
+
+// BuildWord is a runtime build as a person reads it: CPU, Vulkan, CUDA, Metal.
+func BuildWord(b string) string {
+	switch b {
+	case "cpu":
+		return "CPU"
+	case "cuda":
+		return "CUDA"
+	case "":
+		return ""
+	}
+	return strings.ToUpper(b[:1]) + b[1:]
 }

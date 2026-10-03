@@ -1,6 +1,9 @@
 package webui
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -89,4 +92,44 @@ func TestTheConsoleServesASecondBesideTheFirst(t *testing.T) {
 	require.Contains(t, js, `"add beside"`)
 	require.Contains(t, js, `modelsServe(m, cur, true)`)
 	require.Contains(t, js, `add: !!add`, "the request says it is an add")
+}
+
+// local_models.feature §11: a serving setting is changed from the console with a POST that carries the
+// owner's yes, and the answer is the CLI's own sentence.
+func TestASettingIsChangedFromTheConsoleWithTheOwnersYes(t *testing.T) {
+	var got []string
+	s := New(testCtrl(), Options{Models: ModelHooks{
+		View: func() (ModelsView, error) { return ModelsView{}, nil },
+		Set: func(kind, value string) (string, error) {
+			got = append(got, kind+"="+value)
+			if kind == "speed" {
+				return "", errors.New(`"speed" is not a serving setting: runtime, idle or budget`)
+			}
+			return "idle timeout: 2h0m0s", nil
+		},
+	}})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	code, _ := call(t, srv, s.Token(), "GET", "/api/models/set", "")
+	require.Equal(t, http.StatusMethodNotAllowed, code)
+	code, _ = call(t, srv, s.Token(), "POST", "/api/models/set", `{"kind":"idle"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	code, _ = call(t, srv, s.Token(), "POST", "/api/models/set", `{"kind":"idle","value":"2h"}`)
+	require.Equal(t, http.StatusPreconditionRequired, code, "no yes, no change")
+	require.Empty(t, got)
+	code, body := call(t, srv, s.Token(), "POST", "/api/models/set", `{"confirm":true,"kind":"idle","value":"2h"}`)
+	require.Equal(t, http.StatusOK, code, body)
+	require.Contains(t, body, "idle timeout: 2h0m0s")
+	code, body = call(t, srv, s.Token(), "POST", "/api/models/set", `{"confirm":true,"kind":"speed","value":"x"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, body, "not a serving setting")
+	code, _ = call(t, srv, "", "POST", "/api/models/set", `{"confirm":true,"kind":"idle","value":"2h"}`)
+	require.NotEqual(t, http.StatusOK, code, "without the console's token, nothing")
+	require.Equal(t, []string{"idle=2h", "speed=x"}, got)
+
+	off := New(testCtrl(), Options{})
+	srv2 := httptest.NewServer(off.Handler())
+	defer srv2.Close()
+	code, _ = call(t, srv2, off.Token(), "POST", "/api/models/set", `{"confirm":true,"kind":"idle","value":"2h"}`)
+	require.Equal(t, http.StatusNotImplemented, code)
 }

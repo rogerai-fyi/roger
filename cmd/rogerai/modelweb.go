@@ -90,6 +90,7 @@ func modelWebHooks() webui.ModelHooks {
 		Fetch:  modelWebFetch,
 		Serve:  modelWebServe,
 		Stop:   modelStopSays,
+		Set:    modelSetSays,
 		Remove: modelWebRemove,
 	}
 }
@@ -113,13 +114,18 @@ func modelWebView() (webui.ModelsView, error) {
 	}
 	for i, live := range lives {
 		sv := webui.Serving{Band: live.Band, ID: live.ID, File: live.File, Quant: live.Quant, SHA256: live.SHA256,
-			Ctx: live.Ctx, Runtime: live.Runtime, Since: live.Started, Address: live.BaseURL}
+			Ctx: live.Ctx, Runtime: live.Runtime, Since: live.Started, Address: live.BaseURL, Build: live.Build,
+			Measured: modelMeasured(live)}
+		if sv.Measured == 0 {
+			sv.Estimate = modelEstimate(live) // a measurement replaces the estimate once there is one
+		}
 		if i == len(lives)-1 {
 			v.Serving = &sv
 		} else {
 			v.Also = append(v.Also, sv)
 		}
 	}
+	v.Settings = modelSettingsView()
 	if j, ok := h.Job(); ok && (j.State != localmodel.JobDone || time.Since(j.Updated) < time.Minute) {
 		v.Job = &webui.FetchJob{Repo: j.Repo, File: j.File, Total: j.Total, Done: j.Done, Rate: j.Rate, RemainingS: j.RemainingS,
 			Resumed: j.Resumed, State: j.State, Err: j.Err, Fix: modelFixFor(j.Reason), ID: j.ID}

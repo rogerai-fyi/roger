@@ -111,3 +111,27 @@ func TestEachBandKeepsItsOwnStop(t *testing.T) {
 	require.Len(t, all, 1)
 	require.Equal(t, "a", all[0].Band, "serving b again clears only b")
 }
+
+// local_models.feature §11: once a model has answered, its speed is the runtime's own measurement -
+// tokens written over seconds spent writing them, from its counters - not an estimate.
+func TestTheRuntimesMeasuredSpeedIsReadFromItsCounters(t *testing.T) {
+	body := "llamacpp:prompt_tokens_total 9\nllamacpp:tokens_predicted_total 300\nllamacpp:tokens_predicted_seconds_total 4.7\nllamacpp:requests_processing 0\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer k" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	s := Serving{BaseURL: srv.URL + "/v1", Key: "k"}
+	c, err := Counters(t.Context(), s)
+	require.NoError(t, err)
+	require.Equal(t, int64(309), c.Tokens)
+	require.InDelta(t, 63.8, c.TokPerSec(), 0.1)
+
+	body = "llamacpp:prompt_tokens_total 0\nllamacpp:tokens_predicted_total 0\nllamacpp:tokens_predicted_seconds_total 0\n"
+	c, err = Counters(t.Context(), s)
+	require.NoError(t, err)
+	require.Zero(t, c.TokPerSec(), "nothing written yet is no measurement, not a zero speed")
+}

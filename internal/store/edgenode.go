@@ -76,6 +76,8 @@ type EdgeModel struct {
 	CannotServe string     `json:"cannot_serve,omitempty"` // why this machine has no runtime, in one sentence
 	ServeFailed string     `json:"serve_failed,omitempty"` // the last serve's own last words, when it never came on the air
 	Stopped     string     `json:"stopped,omitempty"`      // why roger last stopped serving on its own (an idle timeout), in one line
+	Build       string     `json:"build,omitempty"`        // what its model runs on: cpu, vulkan, cuda, metal
+	TokPerSec   float64    `json:"tok_s,omitempty"`        // the speed its runtime measured, once it has answered
 	// Also is what it serves beside Band, in the order they went on the air (two at once,
 	// local_models.feature §5). Band is the latest: the one a switch replaces.
 	Also []EdgeServed `json:"also,omitempty"`
