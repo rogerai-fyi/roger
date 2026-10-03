@@ -381,3 +381,23 @@ func TestACancelledEnrollmentReturnsPromptly(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, time.Since(start), 5*time.Second)
 }
+
+// features/edge/revocation.feature: the authority serves its revocation list signed by its root, and
+// the client returns it for the member to verify; an authority that cannot sign answers 404, so a
+// member falls back to the unsigned list and says so.
+func TestTheSignedRevocationListTravelsWithItsSignature(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "hub")
+	require.NoError(t, err)
+	srv := httptest.NewServer(enrollhttp.Handler(local))
+	defer srv.Close()
+	got, err := enrollhttp.SignedRevocations(context.Background(), srv.URL)
+	require.NoError(t, err)
+	root, _ := edgeauth.DecodeCert(local.RootPEM())
+	require.NoError(t, edgeauth.VerifyRevocations(root, got))
+	require.Positive(t, got.At)
+
+	bare := httptest.NewServer(enrollhttp.Handler(struct{ enrollhttp.Issuer }{local}))
+	defer bare.Close()
+	_, err = enrollhttp.SignedRevocations(context.Background(), bare.URL)
+	require.ErrorIs(t, err, enrollhttp.ErrNotSigned)
+}

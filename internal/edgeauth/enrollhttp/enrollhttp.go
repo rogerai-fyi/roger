@@ -54,6 +54,18 @@ const Path = "/edge/enroll"
 // RevocationsPath is where a node refreshes what this authority has revoked.
 const RevocationsPath = "/edge/revocations"
 
+// SignedRevocationsPath is the same list signed by the Edge's root (features/edge/revocation.feature).
+// A path of its own, so a member from before signing keeps reading the plain one.
+const SignedRevocationsPath = "/edge/revocations/signed"
+
+// RevocationSigner is an authority that signs its revocation list with its root.
+type RevocationSigner interface {
+	SignedRevocations(at time.Time) (edgeauth.SignedRevocationsList, error)
+}
+
+// ErrNotSigned is an authority that answers no signed list (one from before signing).
+var ErrNotSigned = errors.New("this authority publishes no signed revocation list")
+
 // ClaimPath is where an ADOPTED candidate claims its certificate (features/edge/claim.feature).
 const ClaimPath = "/edge/claim"
 
@@ -146,6 +158,20 @@ func Handler(iss Issuer) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(list)
 	})
+	mux.HandleFunc(SignedRevocationsPath, func(w http.ResponseWriter, r *http.Request) {
+		signer, ok := iss.(RevocationSigner)
+		if !ok {
+			http.Error(w, ErrNotSigned.Error(), http.StatusNotFound)
+			return
+		}
+		list, err := signer.SignedRevocations(time.Now())
+		if err != nil {
+			http.Error(w, "the revocation list could not be signed", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(list)
+	})
 	mux.HandleFunc(ClaimPath, func(w http.ResponseWriter, r *http.Request) {
 		claimer, ok := iss.(Claimer)
 		if !ok {
@@ -227,6 +253,31 @@ func Revocations(ctx context.Context, endpoint string) ([]string, error) {
 	var out []string
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("%w: the revocation list could not be read", edgeauth.ErrMalformed)
+	}
+	return out, nil
+}
+
+// SignedRevocations fetches the authority's revocation list with the root's signature, for the
+// caller to verify before using one serial. ErrNotSigned means the authority signs none.
+func SignedRevocations(ctx context.Context, endpoint string) (edgeauth.SignedRevocationsList, error) {
+	var out edgeauth.SignedRevocationsList
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, join(endpoint, SignedRevocationsPath), nil)
+	if err != nil {
+		return out, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return out, ErrNotSigned
+	}
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("the authority answered %s", resp.Status)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&out); err != nil {
+		return out, fmt.Errorf("%w: the signed revocation list could not be read", edgeauth.ErrMalformed)
 	}
 	return out, nil
 }
