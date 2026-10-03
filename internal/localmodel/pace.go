@@ -213,7 +213,13 @@ const (
 )
 
 // paceOf is the sum: bandwidth over the weights, read once per token at the start of a conversation.
-func paceOf(fileBytes int64, experts, used int, bw Bandwidth) Pace {
+// gpuLayerCost is the fixed work each layer does per token on a GPU, beyond reading its weights:
+// measured with llama-bench b11146 on an idle RTX PRO 6000 (Vulkan, Qwen3-0.6B Q4_K_M, 28 layers:
+// 538 tok/s, of which reading the weights explains only a sixth). It is what bounds a small model on a
+// fast card. A measured (CPU) bandwidth already includes it, so it is added to spec-sheet figures only.
+const gpuLayerCost = 55e-6 // seconds per layer per token
+
+func paceOf(fileBytes int64, layers, experts, used int, bw Bandwidth) Pace {
 	p := Pace{BW: bw, PerToken: fileBytes, AtLeast: experts > 0 && used > 0 && used < experts}
 	if bw.BytesPerSec <= 0 || fileBytes <= 0 {
 		return p
@@ -222,7 +228,11 @@ func paceOf(fileBytes int64, experts, used int, bw Bandwidth) Pace {
 	if bw.Measured {
 		eff = achievedMeasured
 	}
-	p.TokPerSec = eff * bw.BytesPerSec / float64(fileBytes)
+	perToken := float64(fileBytes) / (eff * bw.BytesPerSec)
+	if !bw.Measured {
+		perToken += float64(layers) * gpuLayerCost
+	}
+	p.TokPerSec = 1 / perToken
 	switch {
 	case p.TokPerSec >= 10:
 		p.Word = "usable"
