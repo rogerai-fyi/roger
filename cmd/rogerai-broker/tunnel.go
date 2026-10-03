@@ -220,7 +220,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	var reg protocol.NodeRegistration
 	if err := json.Unmarshal(body, &reg); err != nil {
-		jsonErr(w, http.StatusBadRequest, "bad registration")
+		jsonErr(w, http.StatusBadRequest, "bad registration"+regDecodeField(body, err))
 		return
 	}
 	// Proof of possession: the registrant must sign with the private key matching
@@ -259,6 +259,19 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		// a browser table. Harmless only while those fields never reached the wire.
 		reg.Offers[i].Normalize()
 		reg.Offers[i].Capabilities = stripDeclaredTools(reg.Offers[i].Capabilities)
+		// "unknown" is the consumer's word for an UNLABELED offer (contract §5); a station
+		// labelling itself with it would match both ways.
+		if strings.EqualFold(reg.Offers[i].Quant, protocol.QuantUnknown) {
+			jsonErr(w, http.StatusBadRequest, "quant \"unknown\" is reserved: omit the quant label instead")
+			return
+		}
+	}
+	// params_b is a DECLARED attribute (contract §5): when present it must be a finite
+	// positive count of billions no larger than ParamsBMax. Read from the wire, because an
+	// explicit 0 is a bad declaration while an absent key is no declaration at all.
+	if msg := regParamsBError(body); msg != "" {
+		jsonErr(w, http.StatusBadRequest, msg)
+		return
 	}
 	// Price-safety, operator side: a HARD, GLOBAL ceiling on what ANY station may charge -
 	// public, --private, AND confidential ALIKE. It runs UNCONDITIONALLY here (before
@@ -1887,7 +1900,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 
 	// A stated restriction can only be narrowed, never weakened: the header OR the body
 	// form of confidential holds (contract §1a, the narrowing exception).
-	confidentialOnly := r.Header.Get("X-Roger-Confidential") != "" || (routing.Confidential != nil && *routing.Confidential)
+	// trust_min "confidential" is the same restriction as confidential:true; the stricter of
+	// header, body and trust_min wins (§1a).
+	confidentialOnly := r.Header.Get("X-Roger-Confidential") != "" || (routing.Confidential != nil && *routing.Confidential) || routing.TrustConf
 	// Private band tune-in: X-Roger-Freq carries the frequency code. Resolve it with
 	// the SAME constant-work lookup as POST /bands/resolve (always hash, uniform on
 	// any miss - no enumeration oracle). A valid live band yields privateAllow={node},
@@ -1998,7 +2013,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// ctx re-pick, failover plan); only the seed differs per attempt.
 	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, sort: routeSort,
 		needTools: bodyNeedsTools(body), needVision: bodyNeedsVision(body),
-		quants: quantSet(routing.Quantizations)}
+		quants: quantSet(routing.Quantizations), netFilters: routing.Net}
+	if confidentialOnly {
+		// trust_min is a level: confidential (TEE-attested) is above verified, so a request
+		// that is confidential-only by any carrier is not ALSO held to the verified bar.
+		routeReq.trustVerified = false
+	}
 	// Explicit roger.require UNIONS with the implicit rule (it can add a requirement, never
 	// switch one off); require_parameters:true adds tools for a tool_choice or a JSON
 	// response_format.
@@ -2293,6 +2313,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		a.edgeConstraints.selfHostedOnly, a.edgeConstraints.freeOnly = rr.selfHostedOnly, rr.freeOnly
 		a.edgeConstraints.sort, a.edgeConstraints.maxPriceIn, a.edgeConstraints.maxPriceOut, a.edgeConstraints.capReq = routeSort, maxPrice, maxPriceOut, capReq
 		a.edgeConstraints.allow, a.edgeConstraints.pin = stringSet(routing.Only), pinNode
+		a.edgeConstraints.netFilters = rr.netFilters
 		if noFallbacks && len(orderList) > 0 {
 			// "never leave the list": a Tower named in the order is admitted, no other Tower is.
 			a.edgeConstraints.allow = bandAllow(a.edgeConstraints.allow, stringSet(orderList))
@@ -2487,6 +2508,17 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			msg += " with the " + caps + " capability"
 			b.stats.relayNoMatchCapability.Add(1)
 			log.Printf("relay no_match request=%s model=%s: no eligible station has the %s capability", requestID, named, caps)
+		}
+		// The consumer's filters that emptied the pool are named, in a fixed order, so the
+		// consumer knows the model is on air and which constraint to relax (§5).
+		if fs := b.noMatchFilters(cands, routeReq, minTPS); len(fs) > 0 {
+			msg += " under " + strings.Join(fs, ", ")
+			for _, f := range fs {
+				b.stats.noteNoMatchFilter(f)
+				if f == "self_hosted_only" {
+					msg += " (a curated station is available)"
+				}
+			}
 		}
 		if noFallbacks {
 			b.stats.routingNoFallbackRefused.Add(1)
@@ -4127,6 +4159,8 @@ type pickReq struct {
 	// nothingFree is `:free` under a PRICED grant: no offer can cost the caller nothing, so
 	// none is eligible.
 	nothingFree bool
+	// netFilters: params_b, min_ctx, max_ttft_ms, trust_min verified, region (§5, slice 2).
+	netFilters
 }
 
 // capabilityNames is the capability requirement in words ("tools", "vision", "tools and
@@ -4349,6 +4383,9 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 				continue
 			}
 			if req.needVision && !slices.Contains(o.Capabilities, protocol.CapVision) {
+				continue
+			}
+			if req.netFilters.any() && b.netRejectLocked(req.netFilters, n, o, true, now) != "" {
 				continue
 			}
 			// Running min/max of the eligible OUTPUT price - the user's effective range

@@ -405,6 +405,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When a request for "qwen3-32b" with max_tokens 100000 and a 100-token prompt carries roger.min_ctx 32768
     Then "n-c" is a candidate
 
+    # corrected 2026-10-02 (founder-approved): null means absent (§1a), so the null row is dropped
   Scenario Outline: min_ctx validation
     Given node "n-c" is on air for "qwen3-32b" with declared ctx 32768
     When a request for "qwen3-32b" carries roger.min_ctx <value>
@@ -418,7 +419,6 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
       | -1      |
       | 1.5     |
       | "32k"   |
-      | null    |
       | 1e400   |
 
   Scenario: min_ctx above every declared window is a 503 no_match naming min_ctx
@@ -444,16 +444,18 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
       | 0    | 20  | is      |
       | 5    | 0   | is      |
 
-  Scenario: Body min_tps wins over the X-Roger-Min-TPS header
+    # corrected 2026-10-02 (founder-approved): limits compose to the stricter (§1a): the header floor 20 binds
+  Scenario: A body min_tps below the X-Roger-Min-TPS header cannot lower the floor
     Given node "n-t" is on air for "qwen3-32b" with measured tps 15
     When a request for "qwen3-32b" carries roger.min_tps 10 and header "X-Roger-Min-TPS: 20"
-    Then "n-t" is a candidate
+    Then "n-t" is NOT a candidate
 
   Scenario: Header min_tps alone still works
     Given node "n-t" is on air for "qwen3-32b" with measured tps 15
     When a request for "qwen3-32b" carries header "X-Roger-Min-TPS: 20" and no body min_tps
     Then "n-t" is NOT a candidate
 
+    # corrected 2026-10-02 (founder-approved): null means absent (§1a), so the null row is dropped
   Scenario Outline: min_tps validation
     Given node "n-t" is on air for "qwen3-32b" with measured tps 15
     When a request for "qwen3-32b" carries roger.min_tps <value>
@@ -464,7 +466,6 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
       | value |
       | -1    |
       | "20"  |
-      | null  |
       | 1e400 |
 
   Scenario: min_tps 0 is no floor (matches the header's meaning)
@@ -493,6 +494,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When a request for "qwen3-32b" carries header "X-Roger-Max-TTFT: 100" and no body value
     Then "n-l" is a candidate
 
+    # corrected 2026-10-02 (founder-approved): null means absent (§1a), so the null row is dropped
   Scenario Outline: max_ttft_ms validation
     Given node "n-l" is on air for "qwen3-32b" with probe-measured ttft 800 ms
     When a request for "qwen3-32b" carries roger.max_ttft_ms <value>
@@ -505,7 +507,6 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
       | 0      |
       | -100   |
       | "1.5s" |
-      | null   |
       | 1e400  |
 
   Scenario: max_ttft_ms is a filter, and TTFT still feeds speedFit among the survivors
@@ -543,6 +544,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When a request for "qwen3-32b" carries roger.trust_min "verified"
     Then "n-alias" is NOT a candidate
 
+    # corrected 2026-10-02 (founder-approved): the verified window is the probe measurement freshness window (probeConfig.measurementStale, the ceiling) already used for scoring
   Scenario: A verified bit that has aged out no longer satisfies trust_min verified
     Given node "n-old" is on air for "qwen3-32b" whose last passed canary is older than the verified window
     When a request for "qwen3-32b" carries roger.trust_min "verified"
@@ -689,6 +691,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When a request for "gpt-oss-120b" carries no routing object
     Then "n-curated" is a candidate
 
+    # corrected 2026-10-02 (founder-approved): null means absent (§1a), so the null row is dropped
   Scenario Outline: self_hosted_only must be a boolean
     Given node "n-human" is on air for "gpt-oss-120b"
     When a request for "gpt-oss-120b" carries roger.self_hosted_only <value>
@@ -699,7 +702,6 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
       | value  |
       | "true" |
       | 1      |
-      | null   |
 
   Scenario: self_hosted_only composes with the curated economics - a curated station earns nothing from a request it was filtered out of
     Given node "n-human" and curated node "n-curated" are on air for "gpt-oss-120b"
@@ -952,16 +954,17 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When a request for "qwen3-32b" carries roger.trust_min "confidential"
     Then "n-liar" is NOT a candidate
 
-  Scenario: A curated station that re-registers without the flag is a NEW station identity (NEW requirement)
-    # No approval record exists: curated is a self-declared, signature-covered registration flag
-    # (tunnel.go:295-320). The approved rule "human -> curated is a new identity"
-    # (features/curated/curated_identity.feature:61-64) is made SYMMETRIC by this set (contract
-    # §5): a proxy cannot carry its reputation into the self-hosted lane. It IS eligible under
-    # self_hosted_only as a fresh, unproven station; the filter is not a proof of honesty.
+    # corrected 2026-10-02 (founder-approved): today's register refuses a kind flip on the same id (409, tunnel.go register); a fresh id starts with zero reputation
+  Scenario: A curated station cannot re-register its id as self-hosted; a fresh id starts with zero reputation
+    # curated is a self-declared, signature-covered registration flag. Flipping it on the same
+    # node id is refused in either direction (approved features/curated/curated_identity.feature),
+    # so a proxy cannot carry its reputation into the self-hosted lane. A station registered under
+    # a fresh id is eligible under self_hosted_only once proven, with no history behind it.
     Given node "n-curated" registered as curated for "gpt-oss-120b" with verified serving and 500 receipts in its chain
     When the same callsign re-registers with curated false
-    Then the registration is treated as a NEW station identity
-    And the new identity starts with fresh trust state: not verified, never probed, Tier-B until proven
+    Then the re-registration is refused 409 naming "a different kind of station"
+    When a self-hosted station registers under a fresh id for "gpt-oss-120b"
+    Then the new identity starts with fresh trust state: not verified, never probed, Tier-B until proven
     And the old identity's receipts, lineage and success history do not follow it
     And a request for "gpt-oss-120b" carrying roger.self_hosted_only true may find the new identity a candidate once it is proven live
     And a request for "gpt-oss-120b" carrying roger.trust_min "verified" finds the new identity NOT a candidate

@@ -155,6 +155,9 @@ func (s *df2State) addStation(name, model string, row df2Row) {
 	s.b.metricsMu.Unlock()
 	if p := row["params_b"]; p != "" {
 		s.params[name] = p
+		// the declared count rides the offer (protocol.ModelOffer.ParamsB, slice 2)
+		v := df2Float(p)
+		s.setOffer(st.id, func(o *protocol.ModelOffer) { o.ParamsB = v })
 	}
 }
 
@@ -185,6 +188,8 @@ func (s *df2State) nodeOnAir(name, model string) error {
 func (s *df2State) nodeOnAirNoParams(name, model string) error { return s.nodeOnAir(name, model) }
 
 func (s *df2State) nodeOnlyStationNoParams(name, model string) error {
+	// a station arriving mid-scenario: the next read is past the public cache window
+	defer s.df2FlushCache()
 	return s.nodeOnAir(name, model)
 }
 
@@ -351,7 +356,7 @@ func (s *df2State) privateBand(name, model string, row df2Row) error {
 
 func (s *df2State) cacheColdProbingOn() error {
 	s.b.probe = probeConfig{interval: 30 * time.Second, ceiling: 15 * time.Minute}
-	s.mr.FlushAll()
+	s.df2FlushCache()
 	s.b.localCacheMu.Lock()
 	s.b.localCache = map[string]localCacheEntry{}
 	s.b.localCacheMu.Unlock()
@@ -413,11 +418,32 @@ func (s *df2State) allPaid(model string) error {
 	return nil
 }
 
+// df2FlushCache drops the public-read cache only (the shared ":cache:" entries and the
+// in-process ones). Other shared-store records - the first-on-air times, cooldowns, holds -
+// are state, not cache, and survive.
+func (s *df2State) df2FlushCache() {
+	for _, k := range s.mr.Keys() {
+		if strings.Contains(k, ":cache:") {
+			s.mr.Del(k)
+		}
+	}
+	s.b.localCacheMu.Lock()
+	s.b.localCache = map[string]localCacheEntry{}
+	s.b.localCacheMu.Unlock()
+}
+
 func (s *df2State) firstOnAirAt(model string, unixStr string) error {
-	// Contract §8: `created` is the unix time the model FIRST came on air, read from the
-	// SHARED store. No such record exists today (the broker keeps an in-memory first-seen
-	// map, models.go firstSeenModel), so this Given has nothing to write to.
-	return fmt.Errorf("the store has no first-on-air record for a model (%s at %s): store.Store exposes no ModelFirstSeen/RecordModelFirstSeen; /v1/models `created` is an instance-local map (models.go firstSeenModel)", model, unixStr)
+	// Contract §8: `created` is the unix time the model FIRST came on air, a SHARED-store
+	// record. The broker's own writer records it (the first read that sees the model on air
+	// writes it once; later writes never move it).
+	unix, err := strconv.ParseInt(strings.ReplaceAll(unixStr, "_", ""), 10, 64)
+	if err != nil {
+		return err
+	}
+	if got := s.b.firstSeenModel(model, unix); got != unix {
+		return fmt.Errorf("fixture: %q already has a first-on-air time %d", model, got)
+	}
+	return nil
 }
 
 func (s *df2State) twoInstances(a, b string) error {
@@ -563,7 +589,7 @@ func (s *df2State) getsTwiceTenSecondsApart(path string) error {
 	s.bodies = [][]byte{append([]byte(nil), s.body...)}
 	s.advance(10 * time.Second)
 	// the public cache would otherwise hand back the same bytes within publicMarketTTL
-	s.mr.FlushAll()
+	s.df2FlushCache()
 	if err := s.get(path, nil); err != nil {
 		return err
 	}
@@ -1121,7 +1147,12 @@ func (s *df2State) marketShows(model, clause string) error {
 		return err
 	}
 	for _, kv := range df2Pairs(clause) {
-		if !df2ValueEq(row[kv[0]], kv[1]) {
+		got := row[kv[0]]
+		if _, present := row[kv[0]]; !present && kv[0] == "curated_providers" {
+			// curated_providers is omitempty on the approved /market wire: absent reads 0
+			got = 0.0
+		}
+		if !df2ValueEq(got, kv[1]) {
 			return fmt.Errorf("/market %q %s = %v, want %s (row %v)", model, kv[0], row[kv[0]], kv[1], row)
 		}
 	}
@@ -1155,7 +1186,7 @@ func (s *df2State) signalDiffersFromUnfiltered(model string) error {
 		return err
 	}
 	filtered := append([]map[string]any(nil), s.market...)
-	s.mr.FlushAll()
+	s.df2FlushCache()
 	if err := s.get("/market?model="+model, nil); err != nil {
 		return err
 	}
@@ -1177,7 +1208,12 @@ func (s *df2State) priceTierOverSurvivors() error {
 	s.b.metricsMu.Lock()
 	s.b.banned[cur] = true
 	s.b.metricsMu.Unlock()
-	ref := df2List(s.b.computeMarket().(map[string]any)["market"])
+	var refFeed struct {
+		Market []map[string]any `json:"market"`
+	}
+	refBytes, _ := json.Marshal(s.b.computeMarket())
+	_ = json.Unmarshal(refBytes, &refFeed)
+	ref := refFeed.Market
 	s.b.metricsMu.Lock()
 	delete(s.b.banned, cur)
 	s.b.metricsMu.Unlock()

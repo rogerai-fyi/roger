@@ -96,10 +96,19 @@ func (s *nf2State) nf2Up(name, model string) *fstation {
 func (s *nf2State) nf2Offer(id, model string, f func(o *protocol.ModelOffer)) {
 	s.b.mu.Lock()
 	reg := s.b.nodes[id]
+	found := false
 	for i := range reg.Offers {
 		if model == "" || reg.Offers[i].Model == model {
 			f(&reg.Offers[i])
+			found = true
 		}
+	}
+	if !found && model != "" {
+		// A Tower's share node is registered by the fabric helper without offers; a real share
+		// node registers the offer it serves, which is where the bridge reads its attributes.
+		o := protocol.ModelOffer{Model: model, Ctx: 8192}
+		f(&o)
+		reg.Offers = append(reg.Offers, o)
 	}
 	s.b.nodes[id] = reg
 	s.b.mu.Unlock()
@@ -169,6 +178,9 @@ func (s *nf2State) nf2RawRegister(name, model, quant string, offerExtra, topExtr
 	b, _ := json.Marshal(reg)
 	var m map[string]json.RawMessage
 	_ = json.Unmarshal(b, &m)
+	// json.Marshal refuses an invalid RawMessage (NaN, Infinity), so each raw offer value
+	// rides as a quoted placeholder and is spliced into the bytes afterwards, verbatim.
+	raws := map[string]string{}
 	if len(offerExtra) > 0 {
 		var offers []map[string]json.RawMessage
 		_ = json.Unmarshal(m["offers"], &offers)
@@ -178,7 +190,9 @@ func (s *nf2State) nf2RawRegister(name, model, quant string, offerExtra, topExtr
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			offers[0][k] = json.RawMessage(offerExtra[k])
+			ph := strconv.Quote("__nf2raw_" + k + "__")
+			raws[ph] = offerExtra[k]
+			offers[0][k] = json.RawMessage(ph)
 		}
 		ob, _ := json.Marshal(offers)
 		m["offers"] = ob
@@ -187,6 +201,9 @@ func (s *nf2State) nf2RawRegister(name, model, quant string, offerExtra, topExtr
 		m[k] = json.RawMessage(v)
 	}
 	body, _ := json.Marshal(m)
+	for ph, v := range raws {
+		body = bytes.Replace(body, []byte(ph), []byte(v), 1)
+	}
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
 	signReq(r, ownerPriv, body)
 	w := httptest.NewRecorder()
@@ -668,6 +685,10 @@ func (s *nf2State) nf2AdoptRegistered(name string) error {
 		reg.Region, reg.Curated, reg.CuratedProvider = raw.Region, raw.Curated, raw.CuratedProvider
 		reg.Confidential, reg.Attestation = raw.Confidential, raw.Attestation
 	})
+	// and the offer attributes the station declared at the door (normalized by register)
+	s.nf2Offer(st.id, raw.Offers[0].Model, func(o *protocol.ModelOffer) {
+		o.ParamsB, o.Quant = raw.Offers[0].ParamsB, raw.Offers[0].Quant
+	})
 	return nil
 }
 
@@ -776,8 +797,15 @@ func (s *nf2State) onAirAgedVerified(name, model string) error {
 		ps = &probeState{}
 		sched[st.id] = ps
 	}
-	ps.lastMeasured = time.Now().Add(-3 * nodeTTL)
-	ps.lastProbe = time.Now().Add(-3 * nodeTTL)
+	// older than the verified window: the probe measurement freshness ceiling
+	// (probeConfig.measurementStale). The harness broker runs with no probe config, so the
+	// production default ceiling is configured for this scenario.
+	if s.b.probe.ceiling <= 0 {
+		s.b.probe.ceiling = defaultProbeCeiling
+	}
+	aged := time.Now().Add(-s.b.probe.ceiling - time.Minute)
+	ps.lastMeasured = aged
+	ps.lastProbe = aged
 	s.b.metricsMu.Unlock()
 	return nil
 }
@@ -802,6 +830,9 @@ func (s *nf2State) onAirServedNotVerified(name, model string) error {
 
 func (s *nf2State) onAirAttested(name, model string) error {
 	st := s.nf2Up(name, model)
+	// "with a granted attestation" is the canaried TEE node; the unverified one has its own
+	// Given ("... and no passed canary").
+	s.nf2Probe(st.id, probePass, true)
 	s.b.mu.Lock()
 	s.b.confidential[st.id] = true
 	s.b.mu.Unlock()
@@ -1291,7 +1322,9 @@ func (s *nf2State) carryingMayFindNewIdentity(model, tail string) error {
 	}
 	for n, st := range s.stations {
 		if st.id == s.regNodeID {
-			s.nf2Probe(st.id, probePass, true)
+			// proven LIVE: a passed canary that did not complete a counted generation - live
+			// for routing, not yet the verified bit (verifiedServing needs a completion)
+			s.nf2Probe(st.id, probePass, false)
 			q, err := s.shaped(cg1Req{model: model}, tail)
 			if err != nil {
 				return err
@@ -1446,9 +1479,26 @@ func (s *nf2State) feedNoParamsEstimated() error {
 	return nil
 }
 
+// nf2FlushPublicCache drops the public-read cache (the shared entries and the in-process
+// ones), so a read after a re-registration sees the new registration rather than the bytes
+// cached within publicMarketTTL.
+func (s *nf2State) nf2FlushPublicCache() {
+	if s.mr != nil {
+		for _, k := range s.mr.Keys() {
+			if strings.Contains(k, ":cache:") {
+				s.mr.Del(k)
+			}
+		}
+	}
+	s.b.localCacheMu.Lock()
+	s.b.localCache = map[string]localCacheEntry{}
+	s.b.localCacheMu.Unlock()
+}
+
 func (s *nf2State) offerStillParams(want float64) error {
 	for name := range s.stations {
 		s.offers = nil
+		s.nf2FlushPublicCache()
 		return s.feedParamsB(name, want)
 	}
 	return fmt.Errorf("no station")
@@ -1774,6 +1824,28 @@ func (s *nf2State) honestyRulesApply(name string) error {
 	return nil
 }
 
+func (s *nf2State) reregRefused409(fragment string) error {
+	if s.regCode2 != http.StatusConflict {
+		return fmt.Errorf("re-registration answered %d %s, want 409", s.regCode2, strings.TrimSpace(s.regBody2))
+	}
+	if !strings.Contains(s.regBody2, fragment) {
+		return fmt.Errorf("409 body %s does not name %q", strings.TrimSpace(s.regBody2), fragment)
+	}
+	return nil
+}
+
+// freshSelfHostedID stands a new self-hosted station up under its own id. A newly registered id
+// has no trust entry in the broker (register creates none), so the harness's default
+// "proven" trust is removed: this is the fresh, unproven identity the scenario is about.
+func (s *nf2State) freshSelfHostedID(model string) error {
+	st := s.nf2Up("n-fresh-id", model)
+	s.b.mu.Lock()
+	delete(s.b.trust, st.id)
+	s.b.mu.Unlock()
+	s.regCode2, s.regBody2, s.regNodeID = http.StatusOK, "", st.id
+	return nil
+}
+
 func (s *nf2State) newIdentity() error {
 	if s.regCode2 != http.StatusOK {
 		return fmt.Errorf("the re-registration without the curated flag was refused (%d %s); the contract makes it a NEW station identity", s.regCode2, strings.TrimSpace(s.regBody2))
@@ -1934,6 +2006,8 @@ func TestRoutingOpenNetworkFiltersBDD(t *testing.T) {
 			sc.Step(`^node "([^"]*)" is identical to "([^"]*)" except its quant is "([^"]*)"$`, st.identicalExceptQuant)
 			sc.Step(`^node "([^"]*)" registered as curated for "([^"]*)" with verified serving and 500 receipts in its chain$`, st.curatedWithHistory)
 			sc.Step(`^the same callsign re-registers with curated false$`, st.sameCallsignReregistersHuman)
+			sc.Step(`^the re-registration is refused 409 naming "([^"]*)"$`, st.reregRefused409)
+			sc.Step(`^a self-hosted station registers under a fresh id for "([^"]*)"$`, st.freshSelfHostedID)
 			sc.Step(`^node "([^"]*)" registered without the curated flag and proxies a commercial API$`, st.freshProxyWithoutFlag)
 			sc.Step(`^the operator hid curated supply in the TUI$`, func() error { return nil })
 			// Given: bands, grants, consumers, Towers
