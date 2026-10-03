@@ -508,9 +508,15 @@ type UsageReceipt struct {
 	// Relay is the Tower id that carried a BRIDGED answer (features/routing/edge_bridge_parity
 	// .feature): NodeID is then the relay name the broker dispatched to. Absent on a direct
 	// receipt, so a node's signing bytes are unchanged.
-	Relay            string  `json:"relay,omitempty"`
-	User             string  `json:"user"`
-	Model            string  `json:"model"`
+	Relay string `json:"relay,omitempty"`
+	User  string `json:"user"`
+	Model string `json:"model"`
+	// DispatchedModel is BROKER-set when the attempt was dispatched for a different model
+	// than the one the node signed (a mislabelling or multi-model station): billing, the
+	// tokenizer key, the lineage row and X-RogerAI-Model follow the dispatch, while Model
+	// keeps what the node signed so VerifyNode and the chain hash still hold. Zeroed in the
+	// node form like Curated; covered by the broker signature.
+	DispatchedModel  string  `json:"dispatched_model,omitempty"`
 	PromptTokens     int     `json:"prompt_tokens"`
 	CompletionTokens int     `json:"completion_tokens"`
 	PriceIn          float64 `json:"price_in"`
@@ -610,6 +616,7 @@ func (r UsageReceipt) nodeSigningBytes() []byte {
 	// keeps it, so the co-signed receipt still proves the designation.
 	c.Curated = false
 	c.CuratedAtCost = false
+	c.DispatchedModel = "" // broker-set, like Curated
 	// The void audit fields are broker-set on the $0 path after the node signed, so they
 	// are zeroed here like GrantID; brokerSigningBytes keeps them, so a co-signed void
 	// receipt proves WHY nothing was billed and tampering with the reason is detectable.
@@ -636,6 +643,15 @@ func (r UsageReceipt) brokerSigningBytes() []byte {
 func (r UsageReceipt) Hash() string {
 	h := sha256.Sum256(r.nodeSigningBytes())
 	return hex.EncodeToString(h[:])
+}
+
+// ServedModel is the model this receipt bills as: the dispatched model when the broker
+// recorded one, else the model the node signed.
+func (r UsageReceipt) ServedModel() string {
+	if r.DispatchedModel != "" {
+		return r.DispatchedModel
+	}
+	return r.Model
 }
 
 // Cost in credits = (in*price_in + out*price_out) / 1e6.

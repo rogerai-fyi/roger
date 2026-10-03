@@ -114,6 +114,13 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the response is 400 with error code "invalid_routing_value" naming "models"
     And no pick ran, no hold was placed, and no station received anything
 
+  Scenario: a models list of more than 32 entries is refused before any de-duplication
+    # added 2026-10-02 (review fix A1): every list in the object is bounded at 32 raw entries (§1a),
+    # so a long list can never cost unbounded work before moderation
+    When a consumer relays with "model": "a" and "models": ["a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a"]
+    Then the response is 400 with error code "invalid_routing_value" naming "models"
+    And no pick ran, no hold was placed, and no station received anything
+
   Scenario Outline: malformed models values are refused before any pick
     When a consumer relays with "model": "a" and "models": <value>
     Then the response is 400 with error code "<code>" naming "models"
@@ -1033,10 +1040,13 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the response, headers, receipts and ledger rows match the pre-feature single-model failover
 
   @proxy
-  Scenario: the local proxy passes models through untouched
+  Scenario: the local proxy refuses a guest models list that names a model outside the tuned band
+    # corrected 2026-10-02 (founder ruling): guest may only tighten - a guest's models[] would
+    # otherwise reach models the owner never tuned, billed to the owner
     Given the local proxy is tuned to "a" and "b1" serves "b"
     When a guest sends "model": "a" and "models": ["b"] through the proxy
-    Then the broker received "model": "a" and "models": ["b"] (no overwrite)
+    Then the guest receives an OpenAI-shaped 400 naming "b" as outside this session's band
+    And nothing reaches the broker
 
   @proxy
   Scenario: the local proxy still rewrites a bare foreign id when no list is present

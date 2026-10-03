@@ -2233,8 +2233,8 @@ func mf1Givens() []mf1Step {
 			s.behave("a1", mf1429(""))
 			b1 := s.stn("b1", mf1StOpt{})
 			s.b.multiInstance = true
-			s.b.lockedPrice(s.consumerUser(), b1.id, "b", 1, 1) // instance 1 mints the shared quote
-			s.b.multiInstance = false                           // ...and keeps delivering station results to local waiters
+			s.b.quotedPrice(s.consumerUser(), b1.id, "b", 1, 1, true) // instance 1 mints the shared quote
+			s.b.multiInstance = false                                 // ...and keeps delivering station results to local waiters
 			s.offers("b1", func(o *protocol.ModelOffer) { o.PriceIn, o.PriceOut = 2, 2 })
 			b1.priceIn, b1.priceOut = 2, 2
 			b2 := s.instanceB()

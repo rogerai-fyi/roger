@@ -292,6 +292,13 @@ func (s *rpState) ensureTower() error {
 	if err := s.ensureFunded(); err != nil {
 		return err
 	}
+	// A bridged attempt holds the bridge's own grant ceiling (edgeGrantCeiling, ~$2 at $1/1M)
+	// until the Tower's settlement captures it - which this harness never runs - so a batch of
+	// bridged relays needs a ceiling per relay. Top the buyer up so the budget, not the
+	// scenario, is never what refuses a relay.
+	if err := s.fund(190); err != nil {
+		return err
+	}
 	s.edgeConsumer = s.consumerPriv
 	return nil
 }

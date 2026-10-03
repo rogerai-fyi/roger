@@ -539,6 +539,13 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then attempt 1 hit "s1" for "m" and attempt 2 rode "t1" for "m2"
     And X-RogerAI-Model is "m2" and X-RogerAI-Relay is "t1"
 
+  Scenario: an earlier listed model whose only supply is a Tower is tried before a later model's direct station
+    # added 2026-10-02 (review fix A4): §3 moves on only when the current model has no eligible
+    # server on EITHER fabric, so a Tower-only first model is planned ahead of the second model
+    Given "s1" serves "m" only and "t1" hosts "m2" only, and "s1" 429s
+    When a consumer relays with model "m2" and models ["m"]
+    Then X-RogerAI-Model is "m2" and X-RogerAI-Relay is "t1"
+
   Scenario: a models[] entry with no eligible server on either fabric is skipped silently
     Given no station or Tower serves "m0", "s1" serves "m"
     When a consumer relays with model "m0" and models ["m"]
@@ -556,12 +563,20 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then the hold covers 4.00 per 1M
     And on success at "s1" the consumer is charged at 1.00
 
+  Scenario: a bridged pair's hold is never below the bridge's own ceiling, so the Tower operator is never underpaid
+    # added 2026-10-02 (founder ruling): the plan sizes a Tower pair at the larger of its
+    # context-window estimate and the bridge's own grant ceiling (the bound its own hold always
+    # used); the consumer's own caps still bound it
+    Given "s1" serves "m" at out 1.00 and "t1" hosts "m2" at out 4.00
+    When a consumer relays with model "m" and models ["m2"]
+    Then the hold is at least the bridge's own ceiling for "t1"
+
   # ============================================================================
   # what the Tower sees and what the consumer learns
   # ============================================================================
 
   Scenario: the carriers are stripped before the Tower's hub sees the sealed body
-    # corrected 2026-10-02 (fixture): the request requires tools, so the Tower's node must hold a verified tools verdict
+    # corrected 2026-10-02 (founder-approved): the request requires tools, so the Tower's node must hold a verified tools verdict
     Given the node behind "t1-a" has a verified tools verdict
     When a consumer relays with provider.order ["t1"], roger.pref "cheap", roger.require ["tools"], models ["m2"]
     Then the plaintext sealed to "t1-a" has no "provider", "roger" or "models" key

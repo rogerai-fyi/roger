@@ -14,6 +14,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"sort"
@@ -54,11 +55,16 @@ func (b *broker) edgePlanCands(model string, rng *rand.Rand, c edgeConstraints, 
 	return out
 }
 
+// edgeCoinForTest, when set, decides the fan-out coin instead of the request seed. It is nil
+// in production; a BDD step sets it to make "the coin always says edge" a real statement
+// rather than a hope over a batch.
+var edgeCoinForTest func() bool
+
 // edgePlanCand resolves a placed Tower row into a plan candidate: the body the Tower's hub
 // receives (the dispatched model, carriers already stripped), its hold ceiling at the row's
 // price over the joined node's declared window (the same holdCostFor a direct pair uses), and
 // the per-request cap lowering max_tokens to what the cap buys at that price.
-func (b *broker) edgePlanCand(model string, e edgeCand, body []byte, capReq float64, now time.Time) attemptCand {
+func (b *broker) edgePlanCand(model string, e edgeCand, body []byte, capReq float64, promptTokens int, now time.Time) attemptCand {
 	b.mu.Lock()
 	reg := b.nodes[e.row.NodeID]
 	b.mu.Unlock()
@@ -67,16 +73,21 @@ func (b *broker) edgePlanCand(model string, e edgeCand, body []byte, capReq floa
 	pricing := pricingPlan{payer: e.wallet}
 	ec := e
 	c := attemptCand{node: protocol.NodeRegistration{NodeID: e.row.TowerID}, offer: offer, pricing: pricing, model: model, body: body, edge: &ec}
-	c.maxCost = holdCostFor(pricing, offer, body, now)
+	// The larger of the window estimate and the grant's own ceiling (founder ruling
+	// 2026-10-02): the Tower's settlement clamps to the hold, so a hold below the ceiling could
+	// underpay the operator. The consumer's own caps still bound it (capReq below; a pair the
+	// wallet cannot cover is trimmed from the plan like any other).
+	c.maxCost = math.Max(holdCostFor(pricing, offer, body, now), edgeGrantCeiling(e.row.PriceIn, e.row.PriceOut))
 	if capReq > 0 && c.maxCost > capReq {
-		c.body = capBody(body, capReq, offer.PriceIn, offer.PriceOut)
+		buys, _ := capBuys(capReq, promptTokens, offer.PriceIn, offer.PriceOut)
+		c.body = capBody(body, buys)
 		c.maxCost = capReq
 	}
 	return c
 }
 
 // directMetric is what a strict sort ranks a direct candidate by, and whether it sits in
-// Tier A - the same bar pickFor draws (probeFails < 2 and a success rate unmeasured or >= 0.55).
+// Tier A - the same bar pickFor draws (tierAHealthy).
 func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 	ain, aout, _, _ := c.offer.ActivePrice(now)
 	b.mu.Lock()
@@ -86,7 +97,7 @@ func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 	tps := b.tps[c.node.NodeID]
 	sr, sseen := b.success[c.node.NodeID]
 	b.metricsMu.Unlock()
-	return edgeMetric{in: ain, out: aout, tps: tps, ttft: tq.ttftMs}, tq.probeFails < 2 && (!sseen || sr >= 0.55)
+	return edgeMetric{in: ain, out: aout, tps: tps, ttft: tq.ttftMs}, tierAHealthy(tq.probeFails, sr, sseen)
 }
 
 // edgeMetricLess is the strict single-metric ordering of contract §5 over two candidates
@@ -179,19 +190,29 @@ func (b *broker) mergeEdgePlan(plan []attemptCand, models []string, m edgeMerge,
 			sort.SliceStable(merged, func(i, j int) bool { return key(merged[i]) < key(merged[j]) })
 			block = merged
 		case m.sort != sortNone:
+			// Snapshot every candidate's metric once (directMetric takes two locks), then sort
+			// the indices: no lock is taken inside the comparator.
 			merged := append(append([]attemptCand(nil), block...), tws...)
-			metric := func(c attemptCand) edgeMetric {
+			metrics := make([]edgeMetric, len(merged))
+			for i, c := range merged {
 				if c.edge != nil {
-					return c.edge.metric
+					metrics[i] = c.edge.metric
+				} else {
+					metrics[i], _ = b.directMetric(c, now)
 				}
-				mt, _ := b.directMetric(c, now)
-				return mt
 			}
-			sort.SliceStable(merged, func(i, j int) bool {
-				before, decided := edgeMetricLess(m.sort, metric(merged[i]), metric(merged[j]))
+			idx := make([]int, len(merged))
+			for i := range idx {
+				idx[i] = i
+			}
+			sort.SliceStable(idx, func(i, j int) bool {
+				before, decided := edgeMetricLess(m.sort, metrics[idx[i]], metrics[idx[j]])
 				return decided && before
 			})
-			block = merged
+			block = make([]attemptCand, len(merged))
+			for i, k := range idx {
+				block[i] = merged[k]
+			}
 		default:
 			_, directA := b.directMetric(block[0], now)
 			towerA := tws[0].edge.tier == "A"
@@ -286,5 +307,5 @@ func (b *broker) voidEdgeAttempt(payer, user string, c attemptCand, g dispatch.E
 
 // towerFailureBody is the error body a Tower station's failure is answered with.
 func towerFailureBody(status int) []byte {
-	return []byte(fmt.Sprintf(`{"error":{"message":"the station behind the tower replied %d"}}`, status))
+	return errorBody("", fmt.Sprintf("the station behind the tower replied %d", status))
 }

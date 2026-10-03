@@ -962,11 +962,14 @@ func (b *broker) edgeEligibleM(rows []fleet.Station, bannedNode map[string]bool,
 			c.note("max_price", row.TowerID)
 			continue
 		}
-		if c.freeOnly && (row.PriceIn != 0 || row.PriceOut != 0) && !c.freeFor[nodeID] {
+		// :free on the bridge means the ROW costs nothing: owning the node behind a Tower does
+		// not make a bridged attempt self-use (the Tower's price is what the bridge bills), so
+		// the caller's freeFor set - their own direct stations - never applies here.
+		if c.freeOnly && (row.PriceIn != 0 || row.PriceOut != 0) {
 			c.note("free", row.TowerID)
 			continue
 		}
-		if c.capReq > 0 && metrics[i].in > 0 && float64(c.promptTokens)*metrics[i].in/1e6 >= c.capReq {
+		if _, drop := capBuys(c.capReq, c.promptTokens, metrics[i].in, metrics[i].out); c.capReq > 0 && drop {
 			c.note("max_price_request", row.TowerID)
 			continue
 		}

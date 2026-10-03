@@ -536,6 +536,29 @@ changed scenario carries a `# corrected 2026-10-01 (founder-approved)` line):
 12. Every routing refusal carries `X-RogerAI-Cost: 0`, §2.
 13. Tier A before Tier B holds across fabrics, §6.
 
+Rulings from the slice-1 fresh-context review (founder, 2026-10-02):
+- **Deferral tags approved as-is**: scenarios tagged `@slice2` / `@slice3` / `@slice4` run when
+  their slice lands (the tag is removed then); `@later` (multi-station private bands, a
+  Tower-signed bridged receipt) is known open work; `@cli` / `@tui` / `@proxy` / `@harness` /
+  `@docs` / `@unit` belong to another runner.
+- **A guest may only tighten, including `models[]`**: the local proxy refuses (local 400
+  `routing_outside_session`) any `models[]` entry whose bare id is not the tuned band's model;
+  a list naming only that model (sugar included) passes. The proxy does not add the owner's
+  `pref` default when the guest states a sort (it would conflict).
+- **`:free` under a PRICED grant is `no_match`**: nothing the grant can reach costs the caller
+  nothing (§4). Under a FREE grant `:free` admits the grant's stations.
+- **A bridged pair's hold** is the larger of its context-window estimate and the bridge's own
+  grant ceiling (`edgeGrantCeiling`), so a Tower operator is never underpaid; the consumer's
+  caps still bound it. In practice a bridged follower needs a balance of about the ceiling
+  (~$2 at $1/1M), as the bridge's own hold always did.
+- **A receipt keeps what the node signed**: when an attempt was dispatched for a different
+  model, the broker records `dispatched_model` (outside the node signature, inside the
+  broker's); billing, the tokenizer key, the lineage row and `X-RogerAI-Model` follow it.
+- **`models[]` is bounded at 32 raw entries** like every list (§1a), and the effective list
+  stops at the 6th distinct id.
+- **The per-request cap binds every output limit** (`max_tokens` and `max_completion_tokens`);
+  a station the cap buys no output at is dropped, never sent `max_tokens: 1`.
+
 Added during the spec pass (each is pinned by scenarios; flip the scenario if you rule otherwise):
 
 8. `provider.max_price.request` also lowers the station's `max_tokens` to what the cap buys

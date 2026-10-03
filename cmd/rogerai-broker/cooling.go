@@ -126,22 +126,31 @@ type attemptCand struct {
 // C1), with an ESTIMATED context window clamped so a display sentinel can't inflate the
 // pre-auth. A free plan holds nothing.
 func holdCostFor(p pricingPlan, offer protocol.ModelOffer, body []byte, now time.Time) float64 {
-	if p.free {
+	holdIn, holdOut, free := billedPrices(p, offer, now)
+	if free {
 		return 0
-	}
-	holdIn, holdOut := p.in, p.out
-	if !p.fixed {
-		ain, aout, afree, _ := offer.ActivePrice(now)
-		holdIn, holdOut = ain, aout
-		if afree {
-			holdIn, holdOut = 0, 0
-		}
 	}
 	holdCtx := offer.Ctx
 	if offer.CtxEstimated && holdCtx > 32768 {
 		holdCtx = 32768
 	}
 	return estimateMaxCost(body, holdIn, holdOut, holdCtx)
+}
+
+// billedPrices is the per-1M price a pair bills at: $0 for a free plan (free reports it), the
+// plan's fixed price (a grant, a lock), else the offer's active price ($0 in a free window).
+func billedPrices(p pricingPlan, offer protocol.ModelOffer, now time.Time) (in, out float64, free bool) {
+	if p.free {
+		return 0, 0, true
+	}
+	if p.fixed {
+		return p.in, p.out, false
+	}
+	ain, aout, afree, _ := offer.ActivePrice(now)
+	if afree {
+		return 0, 0, false
+	}
+	return ain, aout, false
 }
 
 // anonCannotPay mirrors the relay's login gate for a failover candidate: a signed but
@@ -409,18 +418,6 @@ func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTP
 		}
 	}
 	return soonest, found
-}
-
-// refuseBandCooling answers a request whose every eligible station is cooling: a fast, honest
-// 503 with Retry-After = the soonest expiry - no hold, no receipt, no upstream call. Caller
-// holds b.mu. Returns false when the band is not a cooling-only band.
-func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) bool {
-	until, ok := b.soonestCoolingExpiry(model, confidentialOnly, minTPS, maxPriceIn, maxPriceOut, pin, exclude, allow, privateAllow, req)
-	if !ok {
-		return false
-	}
-	b.answerBandCooling(w, model, until)
-	return true
 }
 
 // answerBandCooling writes the band-cooling 503 for a model whose soonest cooldown expiry is

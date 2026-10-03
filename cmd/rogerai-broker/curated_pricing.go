@@ -77,8 +77,12 @@ func (b *broker) maxDeclaredCtxLocked(model string, scope ...map[string]bool) in
 	for id, reg := range b.nodes {
 		// An admission set (the consumer's allow-list, a grant's or a band's nodes) narrows
 		// "the widest window" to what this request could actually reach.
-		if len(scope) > 0 && scope[0] != nil && !scope[0][id] {
-			continue
+		if len(scope) > 0 && scope[0] != nil {
+			if !scope[0][id] {
+				continue
+			}
+		} else if b.private[id] {
+			continue // a public request cannot reach a private band, so it never learns its window
 		}
 		// liveness: b.nodes retains expired registrations; a window quoted from an
 		// offline node would advise a capacity nobody is serving (audit).

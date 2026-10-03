@@ -1053,16 +1053,12 @@ func isStreamRoute(p string) bool {
 	return strings.HasPrefix(p, "/rc/") && (strings.HasSuffix(p, "/stream") || strings.HasSuffix(p, "/poll"))
 }
 
-// lockedPrice returns the price to BILL for this user+node+model. The first time
+// quotedPrice returns the price to BILL for this user+node+model. The first time
 // a user hits an offer, the current price is quoted and pinned for lockWin (24h).
 // Within that window an owner cannot charge MORE than the quoted price; if they
 // LOWER it, the user gets the lower price (we bill min(quoted, current)). Fair to
 // both: stable/predictable for users, and owners can always cut prices to compete.
-func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time) {
-	return b.quotedPrice(user, node, model, curIn, curOut, true)
-}
-
-// quotedPrice is lockedPrice with the minting made explicit. A VOIDED attempt (mint=false)
+// mint makes the lock explicit: a SERVED attempt passes true; a VOIDED attempt (false)
 // is priced under an existing lock when one is running, else at the current price, and
 // neither creates nor renews a lock: only a served (model, station) pair starts its 24h
 // window, so a station that failed over never leaves a lock behind.

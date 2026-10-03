@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"regexp"
@@ -97,7 +98,6 @@ type edgeConstraints struct {
 	needVision     bool
 	selfHostedOnly bool
 	freeOnly       bool
-	freeFor        map[string]bool
 	sort           sortKey
 	maxPriceIn     float64 // $/1M ceilings, 0 = none (the relay's effective caps)
 	maxPriceOut    float64
@@ -259,10 +259,7 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 	// until something does.
 	ownHold := 0.0
 	if hold.key == nil {
-		ownHold = edgePriceCredits(g.MaxIn, g.MaxOut)
-		if tc := tokenCostCredits(g.MaxTokIn, g.MaxTokOut, row.PriceIn, row.PriceOut); tc > ownHold {
-			ownHold = tc
-		}
+		ownHold = edgeGrantCeiling(row.PriceIn, row.PriceOut)
 		if ownHold > 0 {
 			if hok, herr := b.db.HoldFor(consumerWallet, g.AttemptID, ownHold); herr != nil || !hok {
 				return nil, none, edgeOutcome{refusal: &edgeRefusal{status: http.StatusPaymentRequired, msg: "insufficient balance for this request"}}
@@ -334,14 +331,31 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 // class yields 0, and the caller treats that as a generic failure.
 var upstreamClassRe = regexp.MustCompile(`\(status (\d{3})(?:, retry-after (\d+))?\)`)
 
+// edgeGrantCeiling is the most a bridged attempt can be billed: the larger of the grant's byte
+// bound and its token bound at the row's prices. A bridged attempt's own hold is sized at it,
+// and a plan hold covering a Tower pair is never below it (founder ruling 2026-10-02), so the
+// Tower's settlement - which clamps to the hold - can never underpay the operator.
+func edgeGrantCeiling(priceInMicros, priceOutMicros int64) float64 {
+	return math.Max(edgePriceCredits(edgeMaxBytes, edgeMaxBytes), tokenCostCredits(edgeMaxTokens, edgeMaxTokens, priceInMicros, priceOutMicros))
+}
+
 func upstreamClassStatus(failure string) (status, retryAfter int) {
 	m := upstreamClassRe.FindStringSubmatch(failure)
 	if m == nil {
 		return 0, 0
 	}
 	status, _ = strconv.Atoi(m[1])
+	if status < 400 || status > 599 {
+		// A Tower is a third party: what it reports for the station behind it is accepted
+		// only as a FAILURE. A "200" or a "999" here would answer the consumer an error body
+		// under a success status; it is a bad gateway.
+		status = http.StatusBadGateway
+	}
 	if m[2] != "" {
 		retryAfter, _ = strconv.Atoi(m[2])
+		if maxSecs := int(cooldownMax() / time.Second); retryAfter > maxSecs {
+			retryAfter = maxSecs // never a longer back-off than the broker itself would impose
+		}
 	}
 	return status, retryAfter
 }

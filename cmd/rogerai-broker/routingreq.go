@@ -17,12 +17,11 @@ package main
 //	                          for trust_min must never be routed as if they had not)
 //	unknown_profile           a `@profile/<name>` reference (resolved client-side only, §9)
 //
-// Honoured: roger.pref / confidential / min_tps / freq / self_hosted_only / require,
+// Honoured: models, roger.pref / confidential / min_tps / freq / self_hosted_only / require,
 // provider.only / ignore / order / allow_fallbacks / sort / quantizations /
-// require_parameters / max_price.prompt + completion, and the :free / :floor / :nitro
-// sugar. Recognised and refused: a `models` list naming more than one model,
-// provider.max_price.request / image, roger.params_b / min_ctx / max_ttft_ms / trust_min /
-// region.
+// require_parameters / max_price.prompt + completion + request, and the :free / :floor /
+// :nitro sugar. Recognised and refused (unsupported_routing_key): provider.max_price.image,
+// roger.params_b / min_ctx / max_ttft_ms / trust_min / region / profile.
 //
 // `null` means absent at every level. Limits compose with their header form to the
 // stricter (stricterCap / stricterFloor / freqConflict); only preferences are body-wins.
@@ -305,6 +304,12 @@ func parseRoutingBody(body []byte) (routingBody, error) {
 		var items []json.RawMessage
 		if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '[' || json.Unmarshal(raw, &items) != nil {
 			return rb, invalidRouting("models", "want a list of model ids")
+		}
+		if len(items) > routingListMax {
+			// Counted BEFORE de-duplication, like every list in the object (§1a): the
+			// effective list is at most 5, so a long list is never needed and must never
+			// cost more than a bounded amount of work.
+			return rb, invalidRouting("models", "more than 32 entries")
 		}
 		rb.Models = make([]string, 0, len(items))
 		for _, it := range items {
@@ -616,6 +621,9 @@ func effectiveModels(model string, models []string) (list []routedModel, sugarSo
 				return nil
 			}
 		}
+		if len(list) == routingModelsMax {
+			return invalidRouting("models", "more than 5 models after de-duplication")
+		}
 		list = append(list, e)
 		return nil
 	}
@@ -631,9 +639,6 @@ func effectiveModels(model string, models []string) (list []routedModel, sugarSo
 	}
 	if len(list) == 0 {
 		return nil, sortNone, nil, invalidRouting("model", "model is required")
-	}
-	if len(list) > routingModelsMax {
-		return nil, sortNone, nil, invalidRouting("models", "more than 5 models after de-duplication")
 	}
 	return list, sugarSort, suffixes, nil
 }
@@ -669,29 +674,47 @@ func stripRoutingCarriers(body []byte, rb routingBody, sentModel, model string) 
 	return rewriteBody(body, true, set)
 }
 
-// capBody lowers the max_tokens a station is sent to what a per-request USD cap buys at that
-// station's billed prices, after the prompt's input cost (the same over-estimate the hold is
-// sized with, so the bound is conservative). The request's own max_tokens is kept when it is
-// already within the cap; a free output price needs no bound. Generation stops where the
-// money stops, instead of the operator serving tokens the settle clamp will not pay for.
-func capBody(body []byte, capUSD, in, out float64) []byte {
+// capBuys is what a per-request USD cap buys at one station's billed prices: the output
+// tokens left after the prompt's input cost (promptTokens is the request's one measured
+// estimate, the same number every cap decision uses). drop reports a station the cap buys
+// NO output at - its input cost alone meets the cap - which is never dispatched (sending
+// max_tokens 1 would serve a reply the consumer cannot use). buys is -1 when output is
+// free, which needs no bound.
+func capBuys(capUSD float64, promptTokens int, in, out float64) (buys int, drop bool) {
+	left := capUSD - float64(promptTokens)*in/1e6
 	if out <= 0 {
-		return body
+		return -1, in > 0 && left <= 0
 	}
-	promptEst := len(body)/4 + 1
-	buys := int(math.Floor((capUSD - float64(promptEst)*in/1e6) * 1e6 / out))
-	if buys < 1 {
-		buys = 1
+	buys = int(math.Floor(left*1e6/out + 1e-9)) // the epsilon keeps an exact token from flooring to the one below
+	return buys, buys < 1
+}
+
+// capBody bounds every output limit the station is sent at buys tokens: max_tokens and
+// max_completion_tokens (OpenAI-compatible servers honour either), each lowered when it is
+// above the bound and left alone when it is within it; a body naming neither gains a
+// max_tokens. Generation stops where the money stops, instead of the operator serving
+// tokens the settle clamp will not pay for. buys < 0 (free output) returns the body as given.
+func capBody(body []byte, buys int) []byte {
+	if buys < 0 {
+		return body
 	}
 	var req struct {
-		MaxTokens int `json:"max_tokens"`
+		MaxTokens           *int `json:"max_tokens"`
+		MaxCompletionTokens *int `json:"max_completion_tokens"`
 	}
 	_ = json.Unmarshal(body, &req)
-	if req.MaxTokens > 0 && req.MaxTokens <= buys {
+	v, _ := json.Marshal(buys)
+	set := map[string]json.RawMessage{}
+	if req.MaxCompletionTokens != nil && *req.MaxCompletionTokens > buys {
+		set["max_completion_tokens"] = v
+	}
+	if (req.MaxTokens != nil && *req.MaxTokens > buys) || (req.MaxTokens == nil && req.MaxCompletionTokens == nil) {
+		set["max_tokens"] = v
+	}
+	if len(set) == 0 {
 		return body
 	}
-	v, _ := json.Marshal(buys)
-	return rewriteBody(body, false, map[string]json.RawMessage{"max_tokens": v})
+	return rewriteBody(body, false, set)
 }
 
 // rewriteBody rebuilds a JSON object body member by member, in document order: the routing
@@ -902,4 +925,21 @@ func (b *broker) ownedNodes(r *http.Request, grant bool, user string) map[string
 	}
 	ids, _ := b.db.NodesOfAccount(pub)
 	return stringSet(ids)
+}
+
+// unionSets is a fresh set holding every member of the given sets (none of them is modified).
+func unionSets(sets ...map[string]bool) map[string]bool {
+	n := 0
+	for _, s := range sets {
+		n += len(s)
+	}
+	out := make(map[string]bool, n)
+	for _, s := range sets {
+		for k, v := range s {
+			if v {
+				out[k] = true
+			}
+		}
+	}
+	return out
 }

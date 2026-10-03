@@ -16,8 +16,9 @@ package main
 //
 // HOW THINGS ARE OBSERVED (and the limits of the fabric, stated rather than faked):
 //
-//   - THE COIN. relay() seeds the 50 % fan-out coin from the request id it mints itself; there
-//     is no seam to force it. "N consumers relay ..." fires N real relays and the Then steps
+//   - THE COIN. relay() seeds the 50 % fan-out coin from the request id it mints itself.
+//     "... and the coin always says edge" forces it through edgeCoinForTest (nil in
+//     production). Otherwise "N consumers relay ..." fires N real relays and the Then steps
 //     read the whole batch (both sides of the coin occur). A single relay "with the coin saying
 //     edge" is re-fired (at most eb1CoinTries times) until the hub SAW a submit during that
 //     relay - the only observable sign that the coin said edge and the bridge took it. If no
@@ -687,7 +688,7 @@ func (s *eb1State) eb1Apply(expr string) error {
 		re *regexp.Regexp
 		f  func(m []string) error
 	}{
-		{eb1ReCoinAlways, func([]string) error { return nil }}, // a batch already covers both sides
+		{eb1ReCoinAlways, func([]string) error { edgeCoinForTest = func() bool { return true }; return nil }}, // forced through the production seam
 		{eb1ReCoin, func([]string) error { s.wantEdge = true; return nil }},
 		{eb1ReVia, func(m []string) error { s.wantVia = m[1]; return nil }},
 		{eb1ReThat, func([]string) error { return s.eb1Apply(eb1Stated) }},
@@ -2640,6 +2641,36 @@ func (s *eb1State) eb1HoldCovers(out float64) error {
 	return nil
 }
 
+// eb1HoldAtLeastOwnCeiling: the one hold the plan placed covers the bridge's own grant ceiling
+// for the Tower's row (the larger of the byte and token bounds a bridged attempt's own hold uses).
+func (s *eb1State) eb1HoldAtLeastOwnCeiling(tower string) error {
+	tw, err := s.eb1T(tower)
+	if err != nil {
+		return err
+	}
+	rows, err := s.b.tower.routable.ByTower(tw.rp.id, time.Now())
+	if err != nil || len(rows) == 0 {
+		return fmt.Errorf("no routable row for Tower %q (%v)", tower, err)
+	}
+	want := 0.0
+	for _, row := range rows {
+		bytesBound := edgePriceCredits(edgeMaxBytes, edgeMaxBytes)
+		tokBound := tokenCostCredits(edgeMaxTokens, edgeMaxTokens, row.PriceIn, row.PriceOut)
+		want = math.Max(want, math.Max(bytesBound, tokBound))
+	}
+	holds, err := s.eb1NewHolds()
+	if err != nil {
+		return err
+	}
+	if len(holds) != 1 {
+		return fmt.Errorf("%d hold(s) were placed (%v), want exactly one", len(holds), holds)
+	}
+	if holds[0] < want*(1-1e-9) {
+		return fmt.Errorf("the hold is $%g, below the bridge's own ceiling $%g for %q: a Tower operator could be underpaid", holds[0], want, tower)
+	}
+	return nil
+}
+
 func (s *eb1State) eb1ChargedAt(name string, out float64) error {
 	if err := s.eb1EveryDirect(name); err != nil {
 		return err
@@ -2789,6 +2820,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 				return ctx, st.eb1Reset()
 			})
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				edgeCoinForTest = nil
 				st.eb1Teardown()
 				return ctx, nil
 			})
@@ -2938,6 +2970,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 			sc.Step(`^relays served by "([^"]+)" carried a max_tokens no larger than what \$([0-9.]+) buys at ([0-9.]+)/1M after the input cost$`, st.eb1DirectCapBound)
 			sc.Step(`^every hold placed was \$([0-9.]+)$`, st.eb1EveryHoldWas)
 			sc.Step(`^the hold covers ([0-9.]+) per 1M$`, st.eb1HoldCovers)
+			sc.Step(`^the hold is at least the bridge's own ceiling for "([^"]+)"$`, st.eb1HoldAtLeastOwnCeiling)
 			sc.Step(`^on success at "([^"]+)" the consumer is charged at ([0-9.]+)$`, st.eb1ChargedAt)
 
 			// Then: what the Tower sees and the consumer learns

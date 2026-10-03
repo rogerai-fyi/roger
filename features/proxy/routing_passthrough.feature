@@ -47,13 +47,15 @@ Feature: The local proxy relays the routing body object and folds the owner's li
 
   # --- passthrough ----------------------------------------------------------------------
 
+  # corrected 2026-10-02 (founder ruling): guest may only tighten - the models[] row names only
+  # the tuned band's model; a list reaching other models is refused locally (scenarios below)
   Scenario Outline: A routing carrier in the guest body reaches the broker byte-for-byte
     When a chat request arrives with <carrier>
     Then the broker receives <carrier> unchanged
 
     Examples:
       | carrier                                                     |
-      | "models": ["qwen3-32b-fp8", "llama-3.3-70b"]                |
+      | "models": ["qwen3-32b-fp8"]                                 |
       | "provider": {"only": ["n1"], "sort": "price"}               |
       | "provider": {"order": ["n1","n2"], "allow_fallbacks": false} |
       | "provider": {"quantizations": ["Q8_0"]}                     |
@@ -95,8 +97,9 @@ Feature: The local proxy relays the routing body object and folds the owner's li
       | llama-3.3-70b   | "provider": {}                       |
 
   Scenario: A body with a carrier and NO model gets the band model as the primary
-    When a chat request arrives with no model field and "models": ["llama-3.3-70b"]
-    Then the broker receives model "qwen3-32b-fp8" and models ["llama-3.3-70b"]
+    # corrected 2026-10-02 (founder ruling): guest may only tighten - the list names the band model
+    When a chat request arrives with no model field and "models": ["qwen3-32b-fp8:floor"]
+    Then the broker receives model "qwen3-32b-fp8" and models ["qwen3-32b-fp8:floor"]
 
   Scenario: A @profile/ whose profile names no model gets the band model as the primary (no local 400)
     Given profile "quiet" sets only "roger": {"pref": "reliable"}
@@ -132,7 +135,8 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Then the /discover re-pick matches "llama-3.3-70b", not the band model
 
   Scenario: Failover re-discovery with models[] matches the primary
-    When a chat request arrives with "models": ["llama-3.3-70b"] and model "qwen3-32b-fp8"
+    # corrected 2026-10-02 (founder ruling): guest may only tighten - the list names the band model
+    When a chat request arrives with "models": ["qwen3-32b-fp8:nitro"] and model "qwen3-32b-fp8"
     And the first relay attempt fails with a transport error
     Then the /discover re-pick matches "qwen3-32b-fp8"
 
@@ -236,9 +240,28 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Then the broker receives models = []
     And the primary stays the band model
 
-  Scenario: Without an owner models[] the guest's list passes as given
+  @slice0
+  Scenario: A guest models[] naming a model outside the tuned band is refused locally
+    # corrected 2026-10-02 (founder ruling): guest may only tighten - was "without an owner
+    # models[] the guest's list passes as given"; a guest list could reach models the owner never
+    # tuned, billed to the owner
     When a chat request arrives with "models": ["llama-3.3-70b", "mistral-large"]
-    Then the broker receives models = ["llama-3.3-70b", "mistral-large"]
+    Then the guest receives an OpenAI-shaped 400 "model llama-3.3-70b is outside this session's band"
+    And nothing reaches the broker
+
+  @slice0
+  Scenario: A guest models[] naming only the tuned model passes (sugar on it included)
+    # added 2026-10-02 (founder ruling): the tightening the guest may still express
+    When a chat request arrives with "models": ["qwen3-32b-fp8", "qwen3-32b-fp8:floor"]
+    Then the guest's response carries no error
+    And the broker receives models ["qwen3-32b-fp8", "qwen3-32b-fp8:floor"]
+
+  @slice0
+  Scenario: A guest models[] entry that is not a string is refused locally, never forwarded
+    # added 2026-10-02 (founder ruling): an entry the proxy cannot read cannot be checked
+    When a chat request arrives with "models": [42]
+    Then the guest receives an OpenAI-shaped 400 "models"
+    And nothing reaches the broker
 
   @slice0
   Scenario: The out cap default is always present even when the owner set nothing (headless guard)

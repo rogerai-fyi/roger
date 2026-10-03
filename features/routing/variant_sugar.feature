@@ -490,6 +490,22 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     When the grant holder posts a chat completion for "qwen3-32b:floor"
     Then the served node is "n-mid"
 
+  Scenario: :free under a priced grant is a no_match - nothing the grant can reach costs the caller nothing
+    # added 2026-10-02 (founder ruling): :free means "costs this caller nothing"; a priced grant
+    # bills its own price whichever station serves, so no station can satisfy :free under it
+    Given owner "o-1" owns node "n-free" and minted grant "rog-grant_1" for "qwen3-32b" at price_out $0.50
+    When the grant holder posts a chat completion for "qwen3-32b:free"
+    Then the response is 503
+    And the error code is "no_match"
+    And no station received anything
+
+  Scenario: :free under a free grant is admitted (the grant costs the caller nothing)
+    # added 2026-10-02 (founder ruling, the other side of the line)
+    Given owner "o-1" owns node "n-free" and minted grant "rog-grant_1" for "qwen3-32b"
+    When the grant holder posts a chat completion for "qwen3-32b:free"
+    Then the response is 200
+    And the served node is "n-free"
+
   Scenario: A private-band :nitro request stays inside the band
     Given a private band "band-1" with code "FREQ-1" whose only station is "n-p" on air for "qwen3-32b" at in $0 out $0 with 5 tok/s
     When "u-1" posts a chat completion for "qwen3-32b:nitro" with body `"roger": {"freq": "FREQ-1"}`

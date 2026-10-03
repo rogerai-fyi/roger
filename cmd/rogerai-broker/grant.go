@@ -145,7 +145,7 @@ type streamBill struct {
 	// consumer is the SIGNED consumer identity used as the price-LOCK key, kept distinct
 	// from `user` (the payer wallet): for a logged-in caller the payer is the unified
 	// "u_gh_<id>" wallet while the lock keys on the pubkey-derived signed id, exactly as
-	// the non-stream relay does (lockedPrice(user,...)). Keying the lock on the payer
+	// the non-stream relay does (quotedPrice(user,...)). Keying the lock on the payer
 	// wallet here instead would mint a SEPARATE lock from the non-stream path, so an
 	// owner's mid-engagement price hike would not be held back on the streaming path.
 	consumer string

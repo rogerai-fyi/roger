@@ -378,13 +378,13 @@ func TestMultiInstancePriceLockHolds(t *testing.T) {
 	bInst := newMIBroker(t, brokerPriv, store.NewMem(), mr)
 
 	// User first sees price out=1.0 on instance A -> locked.
-	inA, outA, _ := a.lockedPrice("u1", "n1", "m", 1.0, 1.0)
+	inA, outA, _ := a.quotedPrice("u1", "n1", "m", 1.0, 1.0, true)
 	if outA != 1.0 || inA != 1.0 {
 		t.Fatalf("first quote on A = in %.2f/out %.2f, want 1.0/1.0", inA, outA)
 	}
 	// The owner RAISES the price to 5.0. On instance B the SAME user must still be billed
 	// the locked 1.0, not the new 5.0.
-	inB, outB, _ := bInst.lockedPrice("u1", "n1", "m", 5.0, 5.0)
+	inB, outB, _ := bInst.quotedPrice("u1", "n1", "m", 5.0, 5.0, true)
 	if outB != 1.0 || inB != 1.0 {
 		t.Errorf("locked price on B = in %.2f/out %.2f, want the cross-instance lock 1.0/1.0", inB, outB)
 	}
