@@ -252,6 +252,12 @@ Feature: Discovery filters - /discover and /market answer the question that was 
       | verified     | n-eu-q8,n-cur,n-tee               |
       | confidential | n-tee                             |
 
+  # added 2026-10-02 (founder ruling): /discover and routing agree on what verified means
+  Scenario: trust_min=verified drops a station whose last passed canary is older than the verified window
+    Given "n-eu-q8"'s last passed canary is older than the verified window
+    When a consumer GETs /discover?model=qwen3-32b&trust_min=verified
+    Then the listed node ids are exactly n-cur,n-tee
+
   Scenario: trust_min outside the closed set is a 400
     When a consumer GETs /discover?trust_min=high
     Then the status is 400

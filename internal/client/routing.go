@@ -82,14 +82,26 @@ func (e *RoutingRefusal) Error() string { return e.Msg }
 // must be the tuned band's model, or the proxy refuses locally - a guest's list would
 // otherwise reach models the owner never tuned, billed to the owner. A body with no models
 // key, or a session with no tuned model (legacy single-user), passes.
+//
+// The same rule covers the guest's own `model` (founder ruling 2026-10-02): when the body
+// carries a routing carrier, a model whose bare id is not the tuned band's is refused. Without
+// a carrier a foreign id is simply rewritten to the band model (model_rewrite.feature). An
+// empty model and a client-side `@profile/` reference are left to the rewrite.
 func GuestModelsWithin(body []byte, tuned string) error {
 	if tuned == "" {
 		return nil
 	}
 	var m struct {
+		Model  string          `json:"model"`
 		Models json.RawMessage `json:"models"`
 	}
-	if json.Unmarshal(body, &m) != nil || len(m.Models) == 0 || string(m.Models) == "null" {
+	if json.Unmarshal(body, &m) != nil {
+		return nil
+	}
+	if guestNamesOtherModel(body, m.Model, tuned) {
+		return &RoutingRefusal{Msg: "model " + m.Model + " is outside this session's band"}
+	}
+	if len(m.Models) == 0 || string(m.Models) == "null" {
 		return nil
 	}
 	var entries []any
@@ -132,6 +144,29 @@ func guestStatesSort(m map[string]json.RawMessage, provider map[string]any) bool
 }
 
 // bareModel strips the routing sugar suffixes (contract §4), right to left.
+// hasCarrier reports whether a body carries a non-null routing carrier (models / provider /
+// roger): the signal that the caller is routing explicitly rather than sending a stock body.
+func hasCarrier(body []byte) bool {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return false
+	}
+	for _, k := range []string{"models", "provider", "roger"} {
+		if v, ok := m[k]; ok && string(v) != "null" {
+			return true
+		}
+	}
+	return false
+}
+
+// guestNamesOtherModel: a carrier-bearing body names a model outside the tuned band.
+func guestNamesOtherModel(body []byte, model, tuned string) bool {
+	if model == "" || strings.HasPrefix(model, "@profile/") || bareModel(model) == tuned {
+		return false
+	}
+	return hasCarrier(body)
+}
+
 func bareModel(id string) string {
 	for {
 		trimmed := id

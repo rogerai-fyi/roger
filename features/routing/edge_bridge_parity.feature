@@ -659,9 +659,11 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then relays may be served by either, and each is matched in its own namespace
     And the operator is warned once on /admin/live about the id collision
 
+  # corrected 2026-10-02 (founder-approved): the Background model "m" carries no size the estimator can read, so the contradiction could never fire; the scenario now uses a sized id
   Scenario: a Tower cannot declare attributes it does not have to pass a filter it would fail
-    Given "t1-a" declares quant "Q8_0" and params_b 70 but its known-model table entry says 7B
-    When 40 consumers relay with roger.params_b [60, 80]
+    Given the Tower "t1" also offers "x-7b" through station "t1-a"
+    And "t1-a" declares quant "Q8_0" and params_b 70 but its known-model table entry says 7B
+    When 40 consumers relay for "x-7b" with roger.params_b [60, 80]
     Then the row is flagged params_estimated false with a mismatch on /admin/live
     And the row is ineligible under the filter until the declaration is corrected
 

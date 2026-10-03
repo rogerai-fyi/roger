@@ -169,7 +169,9 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	sr, srSeen := b.success[n.NodeID]
 	quality := tq.score()
 	ttft := tq.ttftMs
-	verified := tq.verifiedServing()
+	// verified means what routing's trust_min=verified means: a passed canary within the
+	// measurement freshness window (verifiedFreshLocked), so the feed and the pick agree.
+	verified := b.verifiedFreshLocked(n.NodeID, tq, now)
 	staleness := b.measurementStalenessLocked(n.NodeID, now)
 	capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
 	radius := 0.0

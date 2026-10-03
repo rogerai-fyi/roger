@@ -362,6 +362,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
   # =====================================================================================
   # min_ctx
   # =====================================================================================
+  # corrected 2026-10-02 (founder-approved): the 1-token row became min 4096 / declared 4096; a 1-token window cannot hold any prompt, so the declared-window gate correctly answered 400
   Scenario Outline: min_ctx admits offers whose DECLARED window is at least the floor
     Given node "n-c" is on air for "qwen3-32b" with declared ctx <ctx>
     When a request for "qwen3-32b" carries roger.min_ctx <min>
@@ -373,7 +374,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
       | 32767  | 32768  | is NOT  |
       | 131072 | 32768  | is      |
       | 8192   | 32768  | is NOT  |
-      | 1      | 1      | is      |
+      | 4096   | 4096   | is      |
 
   Scenario: An ESTIMATED ctx is unknown under min_ctx and the offer is ineligible
     # ctx_estimated is the last-resort default, never a detected window (protocol.go:70-75).

@@ -687,6 +687,12 @@ func rewriteModel(body []byte, target string) (out []byte, model string, ok bool
 		_ = json.Unmarshal(body, &mm)
 		return body, mm.Model, true
 	}
+	// A routing caller that names the tuned model keeps its spelling, variant suffix included
+	// (`band:free`); anything else becomes the band model.
+	var own string
+	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == target && hasCarrier(body) {
+		return body, own, true
+	}
 	enc, _ := json.Marshal(target)
 	m["model"] = enc
 	out, err := json.Marshal(m)
@@ -762,7 +768,7 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		// A guest may only tighten the owner's routing: a models[] list reaching beyond the
 		// tuned band is refused here, before any relay or hold. (Header mode refuses every
 		// models[] itself - an old broker cannot honour one - with its own honest message.)
-		if err := GuestModelsWithin(rewritten, opts.Model); err != nil && !opts.HeaderRouting {
+		if err := GuestModelsWithin(body, opts.Model); err != nil && !opts.HeaderRouting {
 			routingRefused(w, err)
 			return
 		}

@@ -421,6 +421,31 @@ func (s *df2State) allPaid(model string) error {
 // df2FlushCache drops the public-read cache only (the shared ":cache:" entries and the
 // in-process ones). Other shared-store records - the first-on-air times, cooldowns, holds -
 // are state, not cache, and survive.
+// df2AgedVerified ages a verified station's last measurement past the verified window (the
+// probe measurement freshness ceiling routing uses; the harness runs with no probe config, so
+// the production default ceiling is configured, as the routing runner does).
+func (s *df2State) df2AgedVerified(name string) error {
+	st, ok := s.stations[name]
+	if !ok {
+		return fmt.Errorf("no station %q", name)
+	}
+	s.b.metricsMu.Lock()
+	if s.b.probe.ceiling <= 0 {
+		s.b.probe.ceiling = defaultProbeCeiling
+	}
+	sched := s.b.probeSchedLocked()
+	ps := sched[st.id]
+	if ps == nil {
+		ps = &probeState{}
+		sched[st.id] = ps
+	}
+	aged := time.Now().Add(-s.b.probe.ceiling - time.Minute)
+	ps.lastMeasured, ps.lastProbe = aged, aged
+	s.b.metricsMu.Unlock()
+	s.df2FlushCache()
+	return nil
+}
+
 func (s *df2State) df2FlushCache() {
 	for _, k := range s.mr.Keys() {
 		if strings.Contains(k, ":cache:") {
@@ -1697,6 +1722,7 @@ func df2Register(sc *godog.ScenarioContext, st *df2State) {
 	sc.Step(`^every listed offer is for "([^"]*)"$`, st.everyOfferFor)
 	sc.Step(`^they are ordered by price_in ascending$`, st.orderedByPriceIn)
 	sc.Step(`^the listed node ids are exactly ?(.*)$`, st.listedExactly)
+	sc.Step(`^"([^"]+)"'s last passed canary is older than the verified window$`, st.df2AgedVerified)
 	sc.Step(`^the listed node ids are in order "([^"]*)"$`, st.listedInOrder)
 	sc.Step(`^"([^"]*)" is not listed$`, st.nodeNotListed)
 	sc.Step(`^"([^"]*)" is listed with online (true|false)$`, st.nodeListedOnline)

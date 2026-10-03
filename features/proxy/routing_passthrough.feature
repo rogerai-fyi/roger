@@ -83,18 +83,36 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a streaming chat request arrives with "provider": {"sort": "latency"}
     Then the broker receives provider.sort = "latency" and stream = true
 
-  # --- model rewrite: explicit callers keep their model ------------------------------------
+  # --- model rewrite: a guest may name only the tuned model ---------------------------------
 
-  Scenario Outline: A body with a routing carrier keeps its own model
+  # corrected 2026-10-02 (founder ruling): guest may only tighten - was "A body with a routing
+  # carrier keeps its own model"; a guest naming another model could reach models the owner never
+  # tuned, billed to the owner. A bare foreign id with NO carrier is still rewritten to the band
+  # model (model_rewrite.feature, unchanged).
+  @slice0
+  Scenario Outline: A body with a routing carrier cannot switch to another model
     When a chat request arrives with model "<incoming>" and <carrier>
-    Then the broker receives model "<incoming>"
+    Then the guest receives an OpenAI-shaped 400 "model <incoming> is outside this session's band"
+    And nothing reaches the broker
 
     Examples:
       | incoming        | carrier                              |
       | llama-3.3-70b   | "models": ["qwen3-32b-fp8"]          |
-      | qwen3-32b-fp8   | "provider": {"sort": "price"}        |
       | qwen3-30b-a3b   | "roger": {"pref": "cheap"}           |
       | llama-3.3-70b   | "provider": {}                       |
+      | gpt-4o:floor    | "provider": {"sort": "price"}        |
+
+  # added 2026-10-02 (founder ruling): naming exactly the tuned model (sugar stripped) keeps it
+  @slice0
+  Scenario Outline: A body with a routing carrier that names the tuned model keeps it
+    When a chat request arrives with model "<incoming>" and <carrier>
+    Then the guest's response carries no error
+    And the broker receives model "<incoming>"
+
+    Examples:
+      | incoming             | carrier                       |
+      | qwen3-32b-fp8        | "provider": {"sort": "price"} |
+      | qwen3-32b-fp8:free   | "roger": {"pref": "cheap"}    |
 
   Scenario: A body with a carrier and NO model gets the band model as the primary
     # corrected 2026-10-02 (founder ruling): guest may only tighten - the list names the band model
