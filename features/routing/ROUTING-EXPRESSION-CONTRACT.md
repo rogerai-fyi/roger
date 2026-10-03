@@ -591,3 +591,322 @@ Slice 1 part C (2026-10-01):
     the request, never a band code.
 22. The bridged receipt carries the broker signature only; a Tower-key node signature needs a
     hub-side protocol change (tagged `@later`).
+
+---
+
+## 14. Hardening (slice 6, PROPOSED 2026-10-02, awaiting founder approval)
+
+From the product / security / fairness audit of 2026-10-02 and the founder rulings made on it
+(recorded in memory and below). Part A: fairness, abuse, money. Part B: user value, integrity,
+privacy. Reconciliation of the two parts:
+- The pair cooldown key is **(station, payer, model)** everywhere (part B's "(station, payer)"
+  means the same key).
+- The error envelope of part B §14.B6 is the one envelope; part A's consumer-caused 4xx uses it
+  with `error.code "consumer_rejected"` (type `invalid_request_error`), `metadata.station` (omitted
+  under the no-oracle rules), `metadata.raw` (4 KiB cap).
+- `X-RogerAI-Attempts` is defined once (part B, idempotency) and is set on every relay response.
+- "Distinct payer" (part A) is the billing wallet; anonymous and unbound callers count by their
+  per-IP bucket key. Affinity (part B) and idempotency are keyed by the same payer identity.
+
+### 14.A Fairness, abuse and money
+
+#11, #14, #15, #16, #23, #24) and the founder rulings of the same day.
+
+## 14.1 Consumer-caused upstream errors (#1)
+
+- An upstream 400, 401, 404, 413 or 422 is **consumer-caused**: the attempt is voided at $0 with
+  `void_reason: "consumer-rejected"`, recorded as a $0 lineage receipt, answered to the consumer
+  (wrapped: `error.code "consumer_rejected"`, `error.metadata.station`, `error.metadata.raw`),
+  and is never a strike, never counts toward the warn/payout hold, and is never a failover or
+  model-fallback trigger.
+- Exceptions keep their own rules: the recognized context-window 400 (`context-window`, §3) and
+  429 (`upstream-throttled`).
+- Empty-output strikes (2xx-empty, 5xx) are still recorded, each carrying the payer, but count
+  toward the warn step only once at least `ROGERAI_STRIKE_MIN_PAYERS` (default **3**) distinct
+  payers produced them within the strike decay window. A payer is the billing wallet; an
+  anonymous or unbound caller is identified by its per-IP bucket key. `1` restores the old
+  behavior. The zero-doubt impossible-input ban is unaffected.
+
+## 14.2 Cooldowns are per (station, payer) first (#4)
+
+- A 429 cools the **(station, payer, model)** pair for its Retry-After (default and cap as
+  today: `ROGERAI_STATION_COOLDOWN_DEFAULT`, `ROGERAI_STATION_COOLDOWN_MAX`), shared across
+  instances, extend-never-stack.
+- The station cools for **every** payer (today's node-wide, all-models cooldown) only once
+  `ROGERAI_COOLDOWN_MIN_PAYERS` (default **3**) distinct payers got a 429 from it within
+  `ROGERAI_COOLDOWN_PAYER_WINDOW` (default **60 s**).
+- A pair cooldown answers the affected payer with 503 `band_cooling` and that pair's
+  Retry-After when no other candidate exists; it never pages and never counts the station off
+  air. Cooling never touches trust (unchanged).
+- A curated station may declare `tpm` (tokens per minute) on its offer; a human station may
+  not (400 naming `tpm (curated stations only)`). A request whose measured prompt exceeds
+  `ROGERAI_TPM_REQUEST_SHARE` (default **50%**) of that budget is not dispatched to that
+  station: if no other candidate exists, 429 `request_exceeds_station_tpm` with a Retry-After,
+  $0, no cooldown for anyone.
+
+## 14.3 Rate-limit identity (#7)
+
+- An unbound keypair (no account bound) shares the per-IP bucket with anonymous callers
+  (`ROGERAI_ANON_RATE_RPM` / `_BURST`). A keypair bound to an account keeps the account bucket.
+- Free traffic (a `:free` request, or a pick that lands on an offer free right now, excluding
+  self-use and free grants, which have their own limits) is additionally limited per client IP
+  (`ROGERAI_FREE_RATE_RPM`, default **20**) and per (client IP, station)
+  (`ROGERAI_FREE_STATION_RPM`, default **10**); pinning one free station via order/only/pin is
+  capped per caller (`ROGERAI_FREE_PIN_RPM`, default **10**). Refusals: 429 `free_rate_limited`
+  / `free_pin_limited` with Retry-After. Shared across instances.
+
+## 14.4 Sort picks within a band (#8)
+
+- `provider.sort` orders the eligible pool by its metric, then picks among candidates within a
+  band of the best: `ROGERAI_SORT_BAND_PRICE` (default **5%** of the best estimated request cost)
+  for `price`, `ROGERAI_SORT_BAND_SPEED` (default **10%**) for `throughput` and `latency`.
+  Within the band the pick is weighted by spare capacity (1 - in_flight / effective capacity,
+  where effective capacity is the lower of declared capacity and measured concurrency), and
+  ties are broken by the request seed, never by node id. Unmeasured stations stay last.
+- The failover plan is: the band (in seeded order), then the rest in sort order, up to the
+  attempt limit. `allow_fallbacks:false` is one attempt at a band pick. The variant suffixes
+  `:floor` / `:nitro` inherit the band.
+
+## 14.5 Tower share (#15)
+
+- When both heads are Tier A and no sort/order applies, the fabric that goes first is chosen
+  by the request seed with probability proportional to **eligible capacity** on each side (sum
+  of effective capacity of eligible direct stations vs eligible Tower rows, each Tower station
+  counted individually). Sort and order still replace the coin; free and self-use are never
+  diverted to a billed Tower.
+
+## 14.6 Home first, curated as overflow (#16)
+
+- By default home (non-curated) stations rank ahead of curated stations, including Tower rows
+  whose node is curated. Curated stations are used when no eligible home station can take the
+  request (none, all cooling, all busy) and after the home attempts in the failover plan.
+- A consumer opts in to curated on equal terms with `roger.pref "fast"`, any explicit
+  `provider.sort` (or `:floor` / `:nitro`), or naming a curated station in `order`, `only` or
+  the pin header. `cheap`, `balanced`, `reliable` keep home-first. `self_hosted_only` still
+  excludes curated entirely. Among curated stations the ordinary score decides.
+- Supersedes `features/curated/curated_routing.feature:26`.
+
+## 14.7 Price means estimated request cost; default input cap (#3)
+
+- `sort: price`, `:floor` and the default score's price term rank on **estimated request
+  cost** = measured prompt tokens × in price + expected output × out price, where expected
+  output = `max_completion_tokens`, else `max_tokens`, else `ROGERAI_DEFAULT_OUTPUT_TOKENS`
+  (default **4096**), never above the declared window minus the prompt. Free offers still
+  price-tie and never move the scoring range.
+- A server-side default input cap `ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN` (default **$5/1M**)
+  applies when no input cap is stated and composes to the stricter with `X-Roger-Max-Price` and
+  `provider.max_price.prompt` exactly as the out cap does; an explicit cap above the register
+  ceiling is clamped to it.
+- `/v1/models` adds `rogerai.blended_price_per_1m`: the lowest blended price of a single station
+  at `ROGERAI_BLEND_INPUT_RATIO` (default **3:1** input:output), labeled with the ratio.
+
+## 14.8 Dispatch failures fail over (#5)
+
+- A dispatch failure before any work (no poller free, off air, handoff lost, dispatch bus error)
+  is a failover and model-fallback trigger on both stream and non-stream, under the existing
+  hold, deadline (>= 10 s left) and `allow_fallbacks` rules; never a strike.
+- When the whole plan fails this way: 503 `station_busy` (or `station_off_air` when every
+  station was off air) with Retry-After; on a stream, nothing is committed (no empty 200).
+- Supersedes `model_fallback_list.feature:437`. The non-stream 504 timeout is unchanged.
+
+## 14.9 Usage reported once, as billed (#9)
+
+- Non-stream: the response body's `usage` is rewritten to the billed counts (min(claim,
+  recount)), plus `usage.cost` and `usage.rogerai{...}` (as the stream chunk carries).
+- Stream: exactly one chunk with a usage object reaches the consumer, the broker's, whether the
+  broker injected `include_usage` or the consumer asked for it; a station chunk that carries
+  both content and usage is forwarded with its usage object removed.
+
+## 14.10 Bill what was delivered (#11, #14)
+
+- **Client disconnect** (stream or non-stream): the broker sends the station a cancel for the
+  job; the settle bills the prompt plus the completion tokens forwarded to the client before
+  the cancel, recounted by the broker (the station's claim is capped at that recount), clamped
+  to the hold; the operator earns its share; never a strike. A non-stream disconnect before
+  the result bills $0 (nothing was delivered).
+- **Stall after content**: the delivered tokens settle the same way; the chunk says
+  `usage.rogerai.partial: "stall"`; no empty-output strike; the health stall counter
+  increments as today. A stall before any content is a void as today.
+- **Late non-stream result after a 504** within `ROGERAI_LATE_RECEIPT_GRACE` (default **30 s**):
+  DECISION, default Option A: recorded as a $0 lineage receipt (`late-after-timeout`), consumer
+  billed $0, operator unpaid, no strike. After the grace window: discarded as today.
+- Supersedes `stream_receipt_parity.feature:292`, the settle lines of
+  `stream_receipt_parity.feature:312` and `model_fallback_list.feature:431`.
+
+## 14.11 Holds sized to the request (#23)
+
+- The hold reads `max_completion_tokens`, else `max_tokens`; with neither it uses
+  `ROGERAI_DEFAULT_OUTPUT_TOKENS` and the forwarded body carries `max_tokens` set to that
+  budget (bounded by the window left after the prompt).
+- A plan whose Tower pair's hold does not fit the wallet drops the Tower pair and proceeds
+  Tower-free when a direct pair fits; 402 only when nothing fits.
+
+## 14.12 Price lock protects against hikes only (#24)
+
+- Within a lock, billing is min(lock, current) (unchanged). A lock minted under a price that
+  had been posted for less than `ROGERAI_LOCK_MIN_POSTED` (default **1 h**) expires when that
+  price stops being in effect (or at 24 h, whichever is first). The posted-since time is shared
+  across instances. Scheduled (time-of-use) prices are never locked; voided attempts mint no
+  lock (unchanged).
+
+## Knob summary
+
+| Knob | Default |
+|---|---|
+| `ROGERAI_STRIKE_MIN_PAYERS` | 3 |
+| `ROGERAI_COOLDOWN_MIN_PAYERS` | 3 |
+| `ROGERAI_COOLDOWN_PAYER_WINDOW` | 60 s |
+| `ROGERAI_TPM_REQUEST_SHARE` | 50% |
+| `ROGERAI_FREE_RATE_RPM` | 20 |
+| `ROGERAI_FREE_STATION_RPM` | 10 |
+| `ROGERAI_FREE_PIN_RPM` | 10 |
+| `ROGERAI_SORT_BAND_PRICE` | 5% |
+| `ROGERAI_SORT_BAND_SPEED` | 10% |
+| `ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN` | $5/1M |
+| `ROGERAI_DEFAULT_OUTPUT_TOKENS` | 4096 |
+| `ROGERAI_BLEND_INPUT_RATIO` | 3 (3:1) |
+| `ROGERAI_LATE_RECEIPT_GRACE` | 30 s |
+| `ROGERAI_LOCK_MIN_POSTED` | 1 h |
+
+
+### 14.B User value, integrity and privacy
+
+#18, #20, #25 (founder ruling: class aliases + explain + affinity), #2, #12, #13, #19, #21.
+Draft A (the sibling file) covers the fairness, abuse and money items. Each rule below is pinned
+by the feature file named beside it.
+
+## §14.B1 Session affinity (features/routing/session_affinity.feature)
+
+- Carriers: `roger.session` (string) or top-level `session_id` (string); equal = fine; different
+  = 400 conflicting_routing_keys; null = absent. 1..256 printable ASCII bytes, else 400
+  invalid_routing_value.
+- Entry key = (payer, HMAC(broker secret, session id), served bare model); value = the station id
+  or Tower relay id that served the last SERVED turn. Written on serve only (failures and voids do
+  not move it). TTL `ROGERAI_AFFINITY_TTL` default 10m of inactivity, refreshed per served turn.
+- Use: the affine server is tried first when, for THIS request, it is eligible under every
+  constraint, Tier-A, not cooling (station or (station, payer) pair) and in_flight < capacity.
+  Otherwise normal routing, silently, and the entry is re-written to the new server on serve.
+- Explicit order / pin / sort / sort sugar ignore affinity for the head; pref keeps it; `only`
+  keeps it only when the affine server is inside `only`.
+- Head only: the failover plan behind it is built as today.
+- Never crosses payers; never forwarded to stations (both carriers stripped); never logged raw;
+  shared store with a bounded local fallback; counters affinity_hits,
+  affinity_misses{ineligible,cooling,busy,expired,explicit}.
+
+## §14.B2 Idempotency (features/routing/idempotency.feature)
+
+- `Idempotency-Key` header, 1..128 printable ASCII bytes, else 400 invalid_idempotency_key.
+  Scope (payer, key); window `ROGERAI_IDEMPOTENCY_TTL` default 10m from the first request.
+- Fingerprint = sha256(exact body bytes + the X-Roger-* routing headers read).
+- Same scope + fingerprint: finished non-stream (any status) → replay: same status, body bytes,
+  X-RogerAI-* headers, same X-RogerAI-Request-Id, plus `X-RogerAI-Idempotent-Replay: true`; no
+  dispatch, hold, settle, moderation, or relay rate token. In flight → 409 request_in_flight with
+  Retry-After >= 1. A stream that committed its first frame → 409 stream_not_replayable; a stream
+  that failed before any frame is replayed like a non-stream outcome.
+- Same scope, different fingerprint → 422 idempotency_key_reused.
+- Bounds: stored body <= 1 MiB (else retries get 409 response_too_large_to_replay); <= 1000 live
+  keys per payer (oldest evicted early; the request is still served).
+- Shared store; per instance without it (documented).
+- Every relay response carries `X-RogerAI-Attempts: <n>` (station attempts made). The local proxy
+  mints one key per client request (or forwards the client's), reuses it on every retry, and does
+  not re-pick when n > 1.
+
+## §14.B3 Route explain (features/routing/route_explain.feature)
+
+- `roger.dry_run: true` or POST /v1/route/explain (same body). No dispatch, hold, key reserve,
+  moderation, price lock, receipt, /generation record or capacity use. Non-boolean = 400; false /
+  null = absent.
+- Same validation errors as a real request (400/401/403). Money or supply refusals are reported
+  as `would: {status, code, retry_after_s?}` inside a 200.
+- Document: request_id ("dry_" prefix), models, plan [{model, station|tower, price_in, price_out,
+  tier, reason: order|sort:<metric>|score|affinity}], excluded [{station, model, reasons}], hold,
+  cost_estimate {min = prompt tokens × head in price, max = hold}, would.
+- Exclusion reasons: the noMatchFilters vocabulary plus cooling, ignore, only, context_window,
+  capability <name>.
+- Visibility = what a real request by the same caller could reach (bands need their code;
+  anonymous sees /discover stations and no Towers; grants see their owner's stations; another
+  payer's pair-cooling or affinity is never visible).
+- Headers X-RogerAI-Cost: 0, X-RogerAI-Dry-Run: true; own rate bucket, same limits as /market.
+
+## §14.B4 /v1/models OpenRouter-compatible fields (features/discovery/models_openrouter_fields.feature)
+
+- context_length = max DECLARED window over eligible public offers (omitted if all estimated).
+- pricing {prompt, completion} = per-token USD decimal strings from ONE offer: lowest blended
+  cost (in × 3 + out), ties by /discover order; free (incl. an active free window) = "0".
+- supported_parameters = max_tokens, temperature, top_p, stop, seed, stream, plus tools,
+  tool_choice, response_format when some eligible offer is tools-verified.
+- architecture = {input_modalities: text (+ image if some offer declares vision),
+  output_modalities: text}. Voice offers not listed.
+- Same on /v1/models/{id} and filtered reads; rogerai block unchanged; class aliases listed with
+  rogerai.expands_to (omitted when empty).
+
+## §14.B5 Class aliases (features/routing/class_aliases.feature)
+
+- Data table: coding-30b = params_b in [24, 40] and some tools-verified offer; small = params_b
+  <= 9; large = params_b >= 60. params_b = declared or id estimate; neither = never in a size
+  class.
+- Expansion: matching on-air public chat models under the caller's visibility, ordered by
+  cheapest coherent blended cost, ties by bare id, max 5; then exactly a models[] request.
+- Errors: unknown class 400 unknown_model_class (names are exact lowercase); class + models →
+  400 conflicting_routing_keys; class inside models → 400 invalid_routing_value; empty expansion
+  → 503 no_match naming the class. Stations may not register ids starting `@class/`.
+- Sugar on a class: sort sugar request-wide, `:free` per expanded model.
+- X-RogerAI-Class header; /generation lists the expansion; counter class_requests{<name>}.
+
+## §14.B6 Error envelope (features/errors/error_envelope.feature)
+
+- {"error": {code, message, type, metadata}}; code always set; type from OpenAI's set
+  (invalid_request_error, authentication_error, permission_error, not_found_error,
+  rate_limit_error, insufficient_quota, server_error, overloaded_error, timeout_error);
+  metadata only request_id, retry_after_s, station, model, attempts, filters, raw.
+- New codes: station_off_air, station_busy, no_poller (503); station_timeout (504);
+  rate_limited, grant_rate_limited (429); invalid_signature, signature_required,
+  session_expired, login_required (401); band_unavailable (503, one code and one message for
+  every private-band refusal); grant_unavailable (503); content_refused (451, no category);
+  moderation_unavailable (503); upstream_error (upstream status; raw body under metadata.raw,
+  <= 4 KiB, station/model named except on band requests and anonymous Tower naming);
+  invalid_request_id (/generation 400).
+- Every error: X-RogerAI-Cost: 0, X-RogerAI-Request-Id, Retry-After == metadata.retry_after_s
+  when set. Post-commit stream errors: one data frame in the envelope, then usage chunk, then
+  [DONE].
+
+## §14.B7 Integrity (features/security/routing_integrity.feature)
+
+- Probes: pseudonym from the real derivation (no "probe" user); rotating realistic prompts (no
+  fixed sentinel); same request shape as the model's traffic; shadow canaries mirror organic
+  shape. `verified` withdrawn when organic evidence contradicts the probe: K=3 recount strikes or
+  organic success below the Tier-A bar within 1h (knobs), restored after a clean window and a
+  passing canary.
+- Pick budget: `ROGERAI_PICK_BUDGET` default 64 pickFor calls per relay; over → 503
+  routing_budget_exceeded (no hold, no dispatch). Cap drops evaluated inside the pick; body parsed
+  once.
+- Unlinkable job ids: "att_" + hex(HMAC-SHA256(broker secret, request id + ":" + n))[:24];
+  receipts bind to it; the broker maps it back for settlement.
+- /generation owner view drops key_id, models, moderation; /generation has its own rate bucket
+  (same per-identity limits as /console).
+- Tower streams: keepalive comment every 10s after commit while waiting (knob, not content for
+  failover); sort:latency ranks bridged rows on total latency; bridged stream attempts get the
+  direct stream deadline.
+- attribute_sources on /discover offers and the /v1/models rogerai block (region/quant declared;
+  params_b and ctx declared|estimated; tools verified; vision declared; tps/ttft measured).
+  Region contradicted by the station's coarse network bucket (when it maps to a known continent)
+  → ineligible under roger.region, /admin/live region_mismatch, /discover "contradicted"; curated
+  regions (provider names) are never contradicted; addresses never exposed. Docs: region is not
+  data residency.
+
+## Design choices made in this draft (for the founder)
+
+1. Affinity is per (payer, session, served model) and is a HEAD preference only; explicit sort
+   and order override it; `pref` does not.
+2. Idempotent stream retries after commit get 409 (no byte replay); retries of refusals replay the
+   refusal; routing headers are part of the fingerprint.
+3. A dry run does not run moderation and reports money/supply refusals inside a 200 (`would`).
+4. Blended cost uses a 3:1 prompt:completion weighting for /v1/models pricing and class ordering.
+5. Class names: coding-30b [24, 40] + verified tools, small <= 9, large >= 60 (inclusive).
+6. The private-band refusal gets ONE code (band_unavailable) for all three causes.
+7. Upstream bodies are wrapped (metadata.raw, 4 KiB cap) instead of passed through raw: a
+   behavior change for clients that parse a station's own error JSON.
+8. Unlinkable job ids change the job id stations see (receipts bind to it); old stations keep
+   working because they echo whatever id they are given.
+9. Region contradiction only when the network bucket maps to a known continent; otherwise no
+   contradiction is inferred.
