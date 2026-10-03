@@ -362,6 +362,38 @@ func (s *rpNegState) responseDropped(v string) error {
 	return nil
 }
 
+// nothingReachedBroker: the proxy answered locally - no chat attempt was recorded.
+func (s *rpNegState) nothingReachedBroker() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.attempts) > 0 {
+		return fmt.Errorf("%d chat request(s) reached the broker, want none", len(s.attempts))
+	}
+	return nil
+}
+
+// brokerReceivesModels: the body the broker received carries exactly this models list.
+func (s *rpNegState) brokerReceivesModels(list string) error {
+	a, err := s.last()
+	if err != nil {
+		return err
+	}
+	var want []string
+	if err := json.Unmarshal([]byte(list), &want); err != nil {
+		return fmt.Errorf("bad list in the step: %v", err)
+	}
+	var got struct {
+		Models []string `json:"models"`
+	}
+	if err := json.Unmarshal(a.raw, &got); err != nil {
+		return fmt.Errorf("broker body is not JSON: %v", err)
+	}
+	if strings.Join(got.Models, "\x00") != strings.Join(want, "\x00") {
+		return fmt.Errorf("the broker received models %v, want %v", got.Models, want)
+	}
+	return nil
+}
+
 func (s *rpNegState) openAI400(msg string) error {
 	if s.rec.Code != http.StatusBadRequest {
 		return fmt.Errorf("status = %d, want 400; body=%s", s.rec.Code, s.rec.Body.String())
@@ -427,6 +459,8 @@ func TestRoutingPassthroughNegotiation(t *testing.T) {
 			sc.Step(`^the request carries X-Roger-Min-TPS: ([0-9.]+)$`, st.requestCarriesMinTPS)
 			sc.Step(`^the guest's response carries X-Roger-Routing-Dropped: "([^"]*)"$`, st.responseDropped)
 			sc.Step(`^the guest receives an OpenAI-shaped 400 "([^"]*)"$`, st.openAI400)
+			sc.Step(`^nothing reaches the broker$`, st.nothingReachedBroker)
+			sc.Step(`^the broker receives models (\[.*\])$`, st.brokerReceivesModels)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

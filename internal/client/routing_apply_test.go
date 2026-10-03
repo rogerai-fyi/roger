@@ -42,6 +42,22 @@ func TestRoutingApplyOwnerCeiling(t *testing.T) {
 			guest: `{"model":"m","roger":{"confidential":false,"self_hosted_only":false}}`,
 			want:  want{roger: map[string]any{"confidential": true, "self_hosted_only": true}},
 		},
+		"guest states provider.sort: the owner's pref default is not added (sort and pref conflict)": {
+			guest: `{"model":"m","provider":{"sort":"price"}}`,
+			want:  want{roger: map[string]any{"pref": nil}},
+		},
+		"guest model carries a sort suffix: no pref default": {
+			guest: `{"model":"m:floor"}`,
+			want:  want{roger: map[string]any{"pref": nil}},
+		},
+		"guest models[] entry carries a sort suffix: no pref default": {
+			guest: `{"model":"m","models":["m:nitro"]}`,
+			want:  want{roger: map[string]any{"pref": nil}},
+		},
+		":free is not a sort: the owner's pref default stays": {
+			guest: `{"model":"m:free"}`,
+			want:  want{roger: map[string]any{"pref": "cheap"}},
+		},
 		"guest overrides pref: a default, so the guest wins": {
 			guest: `{"model":"m","roger":{"pref":"fast"}}`,
 			want:  want{roger: map[string]any{"pref": "fast"}},
@@ -245,4 +261,35 @@ func equalJSON(a, b any) bool {
 	ab, _ := json.Marshal(a)
 	bb, _ := json.Marshal(b)
 	return string(ab) == string(bb)
+}
+
+// TestGuestModelsWithin: a guest's models[] may name only the tuned band's model (variant
+// sugar allowed); anything else is refused locally (founder ruling 2026-10-02).
+func TestGuestModelsWithin(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body, tuned string
+		refusal     string
+	}{
+		"no models key":                     {`{"model":"m"}`, "m", ""},
+		"null models":                       {`{"model":"m","models":null}`, "m", ""},
+		"only the tuned model":              {`{"models":["m"]}`, "m", ""},
+		"the tuned model with sugar":        {`{"models":["m:floor","m:free:nitro"]}`, "m", ""},
+		"another model":                     {`{"models":["m","x"]}`, "m", "model x is outside this session's band"},
+		"a suffix that is part of an id":    {`{"models":["m:8b"]}`, "m", "model m:8b is outside this session's band"},
+		"a non-string entry":                {`{"models":[42]}`, "m", "models must be a list of model ids"},
+		"not a list":                        {`{"models":"m"}`, "m", "models must be a list of model ids"},
+		"legacy session with no tuned band": {`{"models":["x"]}`, "", ""},
+	} {
+		err := GuestModelsWithin([]byte(tc.body), tc.tuned)
+		if tc.refusal == "" {
+			if err != nil {
+				t.Errorf("%s: refused %v, want accepted", name, err)
+			}
+			continue
+		}
+		var rr *RoutingRefusal
+		if !errors.As(err, &rr) || rr.Msg != tc.refusal {
+			t.Errorf("%s: got %v, want refusal %q", name, err, tc.refusal)
+		}
+	}
 }

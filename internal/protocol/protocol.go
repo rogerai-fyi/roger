@@ -503,10 +503,20 @@ func AttestationReportData(pubHex, nonceHex string) []byte {
 // UsageReceipt is the per-request lineage record. It is hash-chained (PrevHash)
 // per node, signed by the node, then counter-signed by the broker.
 type UsageReceipt struct {
-	RequestID        string  `json:"request_id"`
-	NodeID           string  `json:"node_id"`
-	User             string  `json:"user"`
-	Model            string  `json:"model"`
+	RequestID string `json:"request_id"`
+	NodeID    string `json:"node_id"`
+	// Relay is the Tower id that carried a BRIDGED answer (features/routing/edge_bridge_parity
+	// .feature): NodeID is then the relay name the broker dispatched to. Absent on a direct
+	// receipt, so a node's signing bytes are unchanged.
+	Relay string `json:"relay,omitempty"`
+	User  string `json:"user"`
+	Model string `json:"model"`
+	// DispatchedModel is BROKER-set when the attempt was dispatched for a different model
+	// than the one the node signed (a mislabelling or multi-model station): billing, the
+	// tokenizer key, the lineage row and X-RogerAI-Model follow the dispatch, while Model
+	// keeps what the node signed so VerifyNode and the chain hash still hold. Zeroed in the
+	// node form like Curated; covered by the broker signature.
+	DispatchedModel  string  `json:"dispatched_model,omitempty"`
 	PromptTokens     int     `json:"prompt_tokens"`
 	CompletionTokens int     `json:"completion_tokens"`
 	PriceIn          float64 `json:"price_in"`
@@ -567,6 +577,14 @@ const (
 	VoidUpstreamThrottled = "upstream-throttled" // the provider behind the station said 429: capacity, not misconduct
 	VoidUpstreamError     = "upstream-error"     // any other >= 400 from the station
 	VoidEmptyOutput       = "empty-output"       // a 2xx that carried no usable completion
+	// VoidContextWindow: the upstream refused the prompt as larger than the model's window (a
+	// 400 in the context-overflow vocabulary). It is a fact about the request against that
+	// model, never a strike; with a model list it moves the request on to the next model.
+	VoidContextWindow = "context-window"
+	// VoidSettleFailed: the station served, but the ledger refused the settle. The consumer
+	// is refunded in full and still gets the body; the operator earns nothing and is not
+	// struck (the failure is the broker's store, not the station).
+	VoidSettleFailed = "settle-failed"
 )
 
 // BrokerSigVersion is the current broker-signature canonical form.
@@ -598,6 +616,7 @@ func (r UsageReceipt) nodeSigningBytes() []byte {
 	// keeps it, so the co-signed receipt still proves the designation.
 	c.Curated = false
 	c.CuratedAtCost = false
+	c.DispatchedModel = "" // broker-set, like Curated
 	// The void audit fields are broker-set on the $0 path after the node signed, so they
 	// are zeroed here like GrantID; brokerSigningBytes keeps them, so a co-signed void
 	// receipt proves WHY nothing was billed and tampering with the reason is detectable.
@@ -624,6 +643,15 @@ func (r UsageReceipt) brokerSigningBytes() []byte {
 func (r UsageReceipt) Hash() string {
 	h := sha256.Sum256(r.nodeSigningBytes())
 	return hex.EncodeToString(h[:])
+}
+
+// ServedModel is the model this receipt bills as: the dispatched model when the broker
+// recorded one, else the model the node signed.
+func (r UsageReceipt) ServedModel() string {
+	if r.DispatchedModel != "" {
+		return r.DispatchedModel
+	}
+	return r.Model
 }
 
 // Cost in credits = (in*price_in + out*price_out) / 1e6.

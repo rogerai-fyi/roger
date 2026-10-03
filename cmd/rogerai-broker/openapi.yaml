@@ -394,8 +394,11 @@ paths:
             (`provider.sort` with `roger.pref`, an `order` entry outside `only`, a
             sort suffix against a different `provider.sort`). A 400 is answered
             BEFORE moderation: nothing is screened for a request that cannot
-            route. `unsupported_routing_key` covers `max_price.image` until image
-            pricing exists.
+            route. `unsupported_routing_key` names a contract key this release
+            does not honour yet (see the ChatRequest schema), and `max_price.image`
+            until image pricing exists. `unknown_profile` is a `@profile/<name>`
+            reference that reached the broker unresolved. Every routing refusal
+            carries `X-RogerAI-Cost: 0` and no receipt.
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
         "401": { description: invalid request signature, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         "402": { description: insufficient credits, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
@@ -1132,14 +1135,21 @@ components:
         case-insensitive comparison. Other top-level OpenAI keys pass through to
         the station untouched.
 
-        HONOURED BY THIS RELEASE: `provider.order`, `provider.ignore`,
-        `provider.allow_fallbacks`, `provider.quantizations`,
+        HONOURED BY THIS RELEASE: `provider.order`, `provider.only`,
+        `provider.ignore`, `provider.allow_fallbacks`, `provider.sort`,
+        `provider.quantizations`, `provider.require_parameters`,
         `provider.max_price.prompt`, `provider.max_price.completion`,
-        `roger.pref`, `roger.min_tps`, `roger.confidential`, `roger.freq`,
-        `roger.self_hosted_only`. Every other key below is part of the contract
-        and is RECOGNISED BY NAME but not yet acted on: sending it is a 400
-        `unsupported_routing_key` naming the key (never a silent drop), until
-        the slice that implements it ships.
+        `roger.pref`, `roger.require`, `roger.min_tps`, `roger.confidential`,
+        `roger.freq`, `roger.self_hosted_only`, and the `:free` / `:floor` /
+        `:nitro` sugar on `model`. Every other key below is part of the contract
+        and is RECOGNISED BY NAME, validated, but not yet acted on: a
+        well-formed value for it is a 400 `unsupported_routing_key` naming the
+        key (never a silent drop), until the slice that implements it ships.
+        That covers a `models` list naming more than one model,
+        `provider.max_price.request`, `roger.params_b`, `roger.min_ctx`,
+        `roger.max_ttft_ms`, `roger.trust_min` other than `any`, and
+        `roger.region`. `roger.profile` (and a `@profile/<name>` model) is always
+        a 400 `unknown_profile`: profiles are resolved by the client.
       properties:
         model:
           type: string

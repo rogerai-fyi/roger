@@ -85,9 +85,10 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the effective model list is ["b", "c"]
     And a station serving "b" received the request with body model "b"
 
-  Scenario: neither model nor models is today's 400
+  # corrected 2026-10-01 (founder-approved): no missing-model 400 exists today (a body with no model answers 503 "no node offers "); the 400 is NEW behavior and is named as such.
+  Scenario: neither model nor models is a 400 naming the missing model
     When a consumer relays with no "model" and no "models"
-    Then the response is 400 and the message is today's missing-model message
+    Then the response is 400 with error code "invalid_routing_value" and the message contains "model is required"
     And no station received anything and no hold was placed
 
   Scenario: duplicates are removed keeping the first occurrence
@@ -110,6 +111,13 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
 
   Scenario: a sixth distinct model is refused before any pick
     When a consumer relays with "model": "a" and "models": ["b", "c", "d", "e", "f"]
+    Then the response is 400 with error code "invalid_routing_value" naming "models"
+    And no pick ran, no hold was placed, and no station received anything
+
+  Scenario: a models list of more than 32 entries is refused before any de-duplication
+    # added 2026-10-02 (review fix A1): every list in the object is bounded at 32 raw entries (§1a),
+    # so a long list can never cost unbounded work before moderation
+    When a consumer relays with "model": "a" and "models": ["a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a"]
     Then the response is 400 with error code "invalid_routing_value" naming "models"
     And no pick ran, no hold was placed, and no station received anything
 
@@ -157,9 +165,26 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "model": "x" and "models": ["qwen3-32b"]
     Then the response is 503 with error code "no_match"
 
-  Scenario: a model id longer than the existing model-id limit is refused as today
-    When a consumer relays with "model": "a" and "models" containing a 600-character id
-    Then the response is 400 (the existing model-id length rule applies per entry)
+  # corrected 2026-10-01 (founder-approved): no model-id length rule exists today; the limit is now explicit - 256 characters, in "model" or in any models[] entry.
+  Scenario: a models[] entry longer than 256 characters is a 400 invalid_routing_value
+    When a consumer relays with "model": "a" and "models" containing a 257-character id
+    Then the response is 400 with error code "invalid_routing_value" and the message names the 256-character model id limit
+    And no station received anything and no hold was placed
+
+  Scenario: a "model" longer than 256 characters is a 400 invalid_routing_value
+    When a consumer relays with a 257-character "model"
+    Then the response is 400 with error code "invalid_routing_value" and the message names the 256-character model id limit
+    And no station received anything and no hold was placed
+
+  Scenario: a "model" of exactly 256 characters is accepted
+    Given station "long1" serves a 256-character model id
+    When a consumer relays with that 256-character id as "model"
+    Then the response is 200 from "long1"
+
+  Scenario: a models[] entry of exactly 256 characters is accepted
+    Given station "long1" serves a 256-character model id
+    When a consumer relays with "model": "a" and that 256-character id in "models"
+    Then the response is 200 from "long1"
 
   # ===========================================================================
   # 2. PLAN CONSTRUCTION - stations per model, models in order, one deadline
@@ -244,6 +269,7 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the departed "b1" is skipped (as a departed sibling is today)
     And the response is 429 with a Retry-After
 
+  @unit
   Scenario: the per-attempt seed makes the station choice within a model reproducible (planner-level, unit step)
     # Request ids are minted per request, so this cannot be driven through the relay; the
     # step invokes the planner directly with an injected seed, as router_test.go does.
@@ -271,8 +297,22 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
       | returns 504                          | upstream-error     |
       | is unreachable (station posts 502)   | upstream-error     |
       | returns 200 with an empty completion | empty-output       |
-      | returns 200 with whitespace only     | empty-output       |
-      | returns 200 claiming tokens, no text | empty-output       |
+
+  # corrected 2026-10-01 (founder-approved): a reply that CLAIMS completion tokens is usable output
+  # (producedUsableOutput's usage backstop), so a reasoning or tool-calling node whose text is empty
+  # is never false-struck; these two rows were voids by mistake.
+  Scenario Outline: a reply that claims completion tokens is usable output - served by the first model, no failover
+    Given "a1" serves "a" and its upstream <reply>
+    And "b1" serves "b" and returns a completion
+    When a consumer relays with "model": "a" and "models": ["b"]
+    Then the response is 200 from "a1" with X-RogerAI-Model "a"
+    And "b1" received nothing
+    And "a1"'s receipt is settled, billed on the recounted tokens
+
+    Examples:
+      | reply                                |
+      | returns 200 with whitespace only     |
+      | returns 200 claiming tokens, no text |
 
   Scenario: stations of the same model are exhausted before the next model is tried
     Given "a1" and "a2" serve "a"; "a1" returns 429 and "a2" returns a completion
@@ -385,11 +425,14 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the stream ends as today (partial output, settled per today's mid-stream rule)
     And "b1" received nothing
 
+  # corrected 2026-10-01 (founder-approved): the station finishes the work after the cancel, and
+  # finished work settles today (one spend row, the hold captured for it, the remainder released);
+  # refunding served work on a disconnect would be a new money rule.
   Scenario: a client that disconnects while the first model is being tried ends the plan
     Given "a1" serves "a" slowly and "b1" serves "b"
     When the consumer disconnects during the attempt on "a1" with "models": ["b"] set
     Then no attempt on "b1" is started
-    And the hold is released in full
+    And the finished attempt on "a1" settles: one spend row, the hold captured for it and the remainder released
 
   Scenario: a dispatch failure that is not an upstream verdict is answered as today
     Given "a1" serves "a" but no poller is listening on it, and "b1" serves "b"
@@ -599,11 +642,15 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then the response is 401 "log in to spend on paid models" and no station received anything
     And no hold was placed and X-RogerAI-Cost is "0"
 
-  Scenario: a free first pick admits only free followers across models
+  # corrected 2026-10-01 (founder-approved): the free-only plan belongs to anonymous, free-band and
+  # $0-grant relays; a LOGGED-IN consumer whose first pick is a 0/0 public offer may still get a
+  # paid follower within their caps, and a 0/0 public offer places the 1e-6 floor hold, so the
+  # one hold covers the priciest pair of the plan.
+  Scenario: a free first pick does not make a logged-in consumer's plan free-only
     Given "f1" serves "a" at 0/0 and returns 429; "p1" serves "b" at 1.00/1.00; "f2" serves "c" at 0/0
     When a logged-in consumer relays with "model": "a" and "models": ["b", "c"]
-    Then the plan is ["f1", "f2"] and "p1" is never tried
-    And the response is 200 from "f2" and no hold was placed
+    Then the plan is ["f1", "p1"] and "f2" is never tried
+    And the response is 200 from "p1" and the hold covered "p1"
 
   Scenario: a paid first pick followed by a free station on a later model settles free and returns the hold
     Given "p1" serves "a" at 1.00/1.00 and returns 429; "f1" serves "b" at 0/0
@@ -633,20 +680,34 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When the grant relays with "model": "a" and "models": ["b"]
     Then the request is served for "a" on O's node
 
+  # corrected 2026-10-01 (founder-approved): after a real upstream 429 and no further grant node
+  # for the next model, the LAST upstream error is returned with its Retry-After (contract §3), not
+  # a synthetic 503 no_match.
   Scenario: a grant never leaves its owner's nodes for a later model
     Given a grant on owner O; O's "o1" serves "a" and 429s; a public "x1" serves "b"
     When the grant relays with "model": "a" and "models": ["b"]
     Then "x1" received nothing
-    And the response is 503 "no node of this grant's owner is serving" with error code "no_match"
+    And the response is 429 with a Retry-After
 
   Scenario: a grant's daily token cap is debited once, for the served attempt
     Given a grant with a daily token cap; O's "o1" serves "a" and 429s, O's "o2" serves "b"
     When the grant relays with "model": "a" and "models": ["b"]
     Then the grant's cap is debited once, for "o2"'s served tokens only
 
-  Scenario: a grant's price caps intersect every model in the list
+  # corrected 2026-10-01 (founder-approved): a grant's price_in/price_out is the price the GRANT BILLS AT (resolvePricing), not a cap on station offers; the old expectation that the 2.00-out station is "never planned" was a new rule, not grant semantics.
+  Scenario: a priced grant bills the served pair at the grant's price, whichever model serves
     Given a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and O's "o2" serves "b" at 0.50 out
     When the grant relays with "model": "a" and "models": ["b"]
+    Then the response is 200 from "o1", billed at the grant's 1.00/1.00, and "o2" received nothing
+
+  Scenario: a priced grant bills the grant's price when the fallback model serves too
+    Given a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and 429s, O's "o2" serves "b" at 0.50 out
+    When the grant relays with "model": "a" and "models": ["b"]
+    Then the response is 200 from "o2", billed at the grant's 1.00/1.00, not the station's 0.50
+
+  Scenario: the consumer's own max_price cap still filters station offers under a priced grant
+    Given a sponsored grant with price_out 1.00; O's "o1" serves "a" at 2.00 out and O's "o2" serves "b" at 0.50 out
+    When the grant relays with max_price.completion 1.00 and "model": "a" and "models": ["b"]
     Then "o1" is never planned and the response is 200 from "o2"
 
   Scenario: a private band that denies some listed models serves the allowed one
@@ -690,9 +751,11 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a confidential-only relay is made across ["a", "b"]
     Then the response is 200 from "b1"
 
+  # corrected 2026-10-01 (founder-approved): the request names "model": "a" so the list is [a, b];
+  # without it the list was [b] and the pinned station serves only "a".
   Scenario: a pinned node with a model list is honored as a pin
     Given "a1" serves "a" and returns 429; "b1" serves "b"
-    When a consumer relays with X-Roger-Node "a1" and "models": ["b"]
+    When a consumer relays with X-Roger-Node "a1", "model": "a" and "models": ["b"]
     Then the response is 429 with a Retry-After (no failover of any kind)
     And "b1" received nothing
 
@@ -944,12 +1007,14 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then the 429 response has no X-RogerAI-Model and X-RogerAI-Cost "0"
 
+  @slice3
   Scenario: /generation lists every attempt with its model in order
     Given "a1" 429s, "a2" 500s, "b1" serves
     When a consumer relays across ["a", "b"] and then reads /generation?id=<request id>
     Then attempts are [{1,a1,a,429},{2,a2,a,500},{3,b1,b,200}]
     And served is {node: b1, model: b} and models is ["a", "b"]
 
+  @slice3
   Scenario: /generation is owner-scoped across a model switch too
     Given a request that fell over from "a" to "b"
     When another identity reads /generation?id=<that request id>
@@ -974,11 +1039,16 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "model": "a" and no list
     Then the response, headers, receipts and ledger rows match the pre-feature single-model failover
 
-  Scenario: the local proxy passes models through untouched
+  @proxy
+  Scenario: the local proxy refuses a guest models list that names a model outside the tuned band
+    # corrected 2026-10-02 (founder ruling): guest may only tighten - a guest's models[] would
+    # otherwise reach models the owner never tuned, billed to the owner
     Given the local proxy is tuned to "a" and "b1" serves "b"
     When a guest sends "model": "a" and "models": ["b"] through the proxy
-    Then the broker received "model": "a" and "models": ["b"] (no overwrite)
+    Then the guest receives an OpenAI-shaped 400 naming "b" as outside this session's band
+    And nothing reaches the broker
 
+  @proxy
   Scenario: the local proxy still rewrites a bare foreign id when no list is present
     Given the local proxy is tuned to "a"
     When a guest sends "model": "gpt-4o" and no list
@@ -989,6 +1059,7 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then "b1" received model "b" and served it; the receipt is for "b"
 
-  Scenario: the request-body size limit counts the list
+  # corrected 2026-10-01 (founder-approved): no 413 exists; the reader truncates at 4 MiB, so a SIGNED over-limit body fails the signature check before it is parsed. Pins today's behavior.
+  Scenario: the request-body size limit counts the list - a signed over-limit body is 401 "invalid request signature"
     When a consumer relays with a body at the limit plus a "models" array
-    Then the response is the existing body-limit 413 and no station received anything
+    Then the response is 401 "invalid request signature" and no station received anything

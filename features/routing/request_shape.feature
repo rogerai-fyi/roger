@@ -81,9 +81,11 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
 
   @slice0
+  # corrected 2026-10-01 (founder-approved): an EMPTY roger.freq is absent too (it never replaces a header band); its row moved here from the 400 type/range table.
   Scenario Outline: A null VALUE for any routing key means absent, at every level (§1a), never a 400
     # null is "not stated": the header counterpart or the default applies. A null ELEMENT
-    # inside a list is still a malformed entry (see the type/range table).
+    # inside a list is still a malformed entry (see the type/range table). An empty
+    # roger.freq string is read the same way: no band stated.
     When "u-1" posts a chat completion for "qwen3-32b" with body `<fragment>`
     Then the response is 200
     And the routing pass saw no value for "<path>"
@@ -104,6 +106,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"self_hosted_only": null}                   | roger.self_hosted_only        |
       | "roger": {"region": null}                             | roger.region                  |
       | "roger": {"freq": null}                               | roger.freq                    |
+      | "roger": {"freq": ""}                                 | roger.freq                    |
       | "roger": {"profile": null}                            | roger.profile                 |
 
   @slice0
@@ -165,7 +168,10 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "provider": {"preferred_max_latency": 2}         | provider.preferred_max_latency |
       | "provider": {"max_price": {"images": 1}}         | provider.max_price.images   |
       | "provider": {"max_price": {"audio": 1}}          | provider.max_price.audio    |
-      | "provider": {"sort": {"by": "price", "partition": "none"}} | provider.sort.by  |
+      # corrected 2026-10-01 (founder-approved): the object-form provider.sort row moved to the
+      # invalid-value outline below - it is a wrong-typed value for a known key
+      # (invalid_routing_value naming provider.sort, as node_preference.feature pins), not an
+      # unknown key.
       | "roger": {"foo": 1}                              | roger.foo                   |
       | "roger": {"Pref": "cheap"}                       | roger.Pref                  |
       | "roger": {"max_cost_usd": 0.02}                  | roger.max_cost_usd          |
@@ -259,6 +265,8 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "provider": {"sort": ""}                              | provider.sort                 |
       | "provider": {"sort": 1}                               | provider.sort                 |
       | "provider": {"sort": ["price"]}                       | provider.sort                 |
+      # corrected 2026-10-01 (founder-approved): OpenRouter's object form is a wrong-typed sort
+      | "provider": {"sort": {"by": "price", "partition": "none"}} | provider.sort            |
       | "provider": {"require_parameters": "yes"}             | provider.require_parameters   |
       | "provider": {"require_parameters": 1}                 | provider.require_parameters   |
 
@@ -327,7 +335,6 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"region": ["eu-1"]}                         | roger.region                  |
       | "roger": {"region": [1]}                              | roger.region                  |
       | "roger": {"freq": 1234}                               | roger.freq                    |
-      | "roger": {"freq": ""}                                 | roger.freq                    |
       | "roger": {"freq": ["code"]}                           | roger.freq                    |
       | "roger": {"profile": 1}                               | roger.profile                 |
       | "roger": {"profile": ""}                              | roger.profile                 |
@@ -369,6 +376,10 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | provider.only           |
       | provider.ignore         |
       | provider.quantizations  |
+
+    @slice2
+    Examples: honoured from slice 2 (roger.region is validated now, refused unsupported_routing_key until then)
+      | path                    |
       | roger.region            |
 
   Scenario: Duplicate entries inside a node list are de-duplicated, not rejected
@@ -407,9 +418,11 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the response header X-RogerAI-Model is "qwen3-32b"
 
-  Scenario: A routing object that pushes the body past the 4 MiB limit is truncated by the reader and rejected as malformed, never dispatched
+  # corrected 2026-10-01 (founder-approved): pins today's behavior - the reader truncates at 4 MiB, so a SIGNED caller's truncated body fails the signature check (401), before it is ever parsed; no 413 exists.
+  Scenario: A routing object that pushes a signed body past the 4 MiB limit is truncated by the reader and refused 401 "invalid request signature", never dispatched
     When "u-1" posts a chat completion for "qwen3-32b" whose "roger" object is padded to 5 MiB
-    Then the response is 400
+    Then the response is 401
+    And the error message is "invalid request signature"
     And no hold was placed and no station was dispatched
 
   Scenario: A large but valid routing object under the limit is accepted and does not reach the station
@@ -466,11 +479,15 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-a"
 
+  @slice2
+
   Scenario: roger.confidential true together with roger.trust_min "verified" is accepted and the stricter (confidential) applies
     Given node "n-tee" is on air for "qwen3-32b" at in $0.10 out $0.30 per 1M, confidential-attested, seen just now
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": {"confidential": true, "trust_min": "verified"}`
     Then the response is 200
     And the served node is "n-tee"
+
+  @slice2
 
   Scenario: roger.confidential false together with roger.trust_min "confidential" is not an error - the stricter wins
     # A default (false) can never weaken a stated restriction; the same rule makes a body
@@ -570,9 +587,11 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-c"
 
+  # corrected 2026-10-01 (founder-approved): the Background's "n-c" was unmeasured, so it passed the floor (§5: unmeasured passes) and outscored "n-b"; it is now measured below the floor.
   Scenario: X-Roger-Min-TPS and roger.min_tps agree
     Given node "n-a" has a measured throughput of 10 tok/s
     And node "n-b" has a measured throughput of 50 tok/s
+    And node "n-c" has a measured throughput of 12 tok/s
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "30" and body `"roger": {"min_tps": 30}`
     Then the response is 200
     And the served node is "n-b"
@@ -605,16 +624,20 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-b"
 
+  # corrected 2026-10-01 (founder-approved): the Background's "n-c" was unmeasured, so it passed the floor (§5: unmeasured passes) and outscored "n-b"; it is now measured below the floor.
   Scenario: X-Roger-Min-TPS alone filters exactly as today
     Given node "n-a" has a measured throughput of 10 tok/s
     And node "n-b" has a measured throughput of 50 tok/s
+    And node "n-c" has a measured throughput of 12 tok/s
     When "u-1" posts a chat completion for "qwen3-32b" with header X-Roger-Min-TPS "30" and no routing body
     Then the response is 200
     And the served node is "n-b"
 
+  # corrected 2026-10-01 (founder-approved): the Background's "n-c" was unmeasured, so it passed the floor (§5: unmeasured passes) and outscored "n-b"; it is now measured below the floor.
   Scenario: roger.min_tps alone filters
     Given node "n-a" has a measured throughput of 10 tok/s
     And node "n-b" has a measured throughput of 50 tok/s
+    And node "n-c" has a measured throughput of 12 tok/s
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": {"min_tps": 30}`
     Then the response is 200
     And the served node is "n-b"
@@ -851,7 +874,10 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the station received no top-level key "roger"
     And the station received top-level key "model" with value "qwen3-32b"
 
+  # corrected 2026-10-01 (founder-approved): the body carries a tools array, which the implicit
+  # capability rule routes only to a tools-verified station; the Background has none.
   Scenario: Every other body field survives the strip with its value byte-identical
+    Given node "n-a" earned verified "tools" for "qwen3-32b"
     When "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {"sort": "price"}, "temperature": 0.7, "tools": [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}], "response_format": {"type": "json_object"}, "seed": 42, "stream": false`
     Then the response is 200
     And the station received top-level key "temperature" with value 0.7
@@ -875,6 +901,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the Tower received no top-level key "roger"
     And the Tower received no top-level key "models"
 
+  @harness
   Scenario: The strip happens on the agent-harness relay path
     When the agent harness relays a turn for "qwen3-32b" on behalf of "u-1" with body `"roger": {"pref": "reliable"}`
     Then the station received no top-level key "roger"
@@ -964,10 +991,12 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the error code is "no_match"
     And no hold was placed and no station was dispatched
 
+  # corrected 2026-10-01 (founder-approved): at 20000 tokens n-b's input alone ($0.0040002) MEETS
+  # the cap and is rightly dropped; 19000 tokens ($0.0038 at n-b) keep the intent of the scenario.
   Scenario: A per-request cap is NOT a plan filter - a pricier station stays in the plan with a smaller max_tokens
-    # 20000 prompt tokens cost $0.002 at n-a (in $0.10) and $0.010 at n-c (in $0.50). A $0.004
-    # cap still buys output at n-a and n-b; at n-c the input alone exceeds the cap.
-    When "u-1" posts a chat completion for "qwen3-32b" with a 20000-token prompt, max_tokens 10000 and body `"provider": {"max_price": {"request": 0.004}}`
+    # 19000 prompt tokens cost $0.0019 at n-a (in $0.10), $0.0038 at n-b (in $0.20) and $0.0095 at
+    # n-c (in $0.50). A $0.004 cap still buys output at n-a and n-b; at n-c the input alone exceeds it.
+    When "u-1" posts a chat completion for "qwen3-32b" with a 19000-token prompt, max_tokens 10000 and body `"provider": {"max_price": {"request": 0.004}}`
     Then the failover plan contains "n-a" and "n-b"
     And the failover plan does not contain "n-c"
     And the max_tokens the plan carries for "n-b" is smaller than for "n-a"
@@ -977,19 +1006,23 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the failover plan contains "n-a", "n-b" and "n-c"
     And the hold placed is $0.004
 
+  # corrected 2026-10-01 (founder-approved): $0.01 covered the cheapest station's hold and not the
+  # others', so the seeded pick decided the outcome; $0.001 fits no station's hold.
   Scenario: A wallet that cannot cover even the cheapest pair is a 402 before any dispatch - the hold is never shrunk
-    Given a logged-in consumer "u-poor" with a $0.01 balance
+    Given a logged-in consumer "u-poor" with a $0.001 balance
     When "u-poor" posts a chat completion for "qwen3-32b" with max_tokens 100000 and body `"provider": {"max_price": {"request": 5.00}}`
     Then the response is 402
     And the error code is "insufficient_balance"
     And no hold was placed and no station was dispatched
     And the response carries X-RogerAI-Cost "0"
 
-  Scenario: A per-request cap on a free relay is accepted and irrelevant (no hold)
+  # corrected 2026-10-01 (founder-approved): a 0/0 public offer places the 1e-6 floor hold
+  # (approved features/money/holds.feature:16); the cap is irrelevant, not the hold absent.
+  Scenario: A per-request cap on a free relay is accepted and irrelevant (only the floor hold)
     Given node "n-free" is on air for "free-model" at in $0 out $0 per 1M, seen just now
     When "u-1" posts a chat completion for "free-model" with body `"provider": {"max_price": {"request": 0.000001}}`
     Then the response is 200
-    And no hold was placed
+    And only the floor hold was placed
 
   Scenario: A per-request cap on a grant-funded relay narrows the grant's own hold, never widens it
     Given owner "o-1" owns node "n-a" and minted grant "rog-grant_1" for "qwen3-32b" at price_out $0.30
@@ -1119,6 +1152,7 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the error code is not "unknown_routing_key"
 
   # --- error envelope -------------------------------------------------------------------
+  # corrected 2026-10-01 (founder-approved): kept as written; contract §2 now states that EVERY routing refusal (400s included) carries X-RogerAI-Cost: 0 and no receipt.
   Scenario Outline: Every routing error is the envelope {"error":{"code","message"}} with the code stated
     Given <setup>
     When "u-1" posts a chat completion for "<model>" with body `<fragment>`
@@ -1145,12 +1179,13 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And the error code is "no_match"
     And the error message starts with "no node offers no-such-model"
 
+  # corrected 2026-10-01 (founder-approved): the literal omitted the model name the broker prints today (tunnel.go, the pick-found-nothing grant message).
   Scenario: The grant flavour of the no-station message is preserved
     Given owner "o-1" owns node "n-a" and minted grant "rog-grant_1" for "qwen3-32b"
     And node "n-a" goes off air
     When the grant holder posts a chat completion for "qwen3-32b" with body `"roger": {"pref": "cheap"}`
     Then the response is 503
-    And the error message is "no node of this grant's owner is serving right now"
+    And the error message is "no node of this grant's owner is serving qwen3-32b right now"
 
   Scenario: The confidential flavour of the no-station message is preserved for the body form
     When "u-1" posts a chat completion for "qwen3-32b" with body `"roger": {"confidential": true}`

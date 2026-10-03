@@ -506,8 +506,8 @@ func voidReasonFor(status int) string {
 // recountModel is the model id to tokenize under: prefer the receipt's claimed
 // model (the canonical tokenizer key), fall back to the request model.
 func recountModel(rec protocol.UsageReceipt, reqModel string) string {
-	if rec.Model != "" {
-		return rec.Model
+	if m := rec.ServedModel(); m != "" {
+		return m
 	}
 	return reqModel
 }

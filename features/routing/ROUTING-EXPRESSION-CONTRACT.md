@@ -153,7 +153,11 @@ guest proxy, Tower bridge) accepts three routing carriers. All are optional.
 | every attempt failed upstream | last upstream status | pass-through | yes when 429/503 |
 
 The message text for "no node offers" stays; a `code` is added. 404 is NOT introduced (existing
-clients key on 503). The response body for a 503 carries `X-RogerAI-Cost: 0` and no receipt.
+clients key on 503). EVERY routing refusal carries `X-RogerAI-Cost: 0` and no receipt: the 400
+routing errors (`unknown_routing_key`, `invalid_routing_value`, `conflicting_routing_keys`,
+`unsupported_routing_key`, `unknown_profile`), the 503 `no_match` / `band_cooling` (and the
+uniform band message), and the anonymous 401 "log in to spend". A consumer never has to guess
+whether a refused request cost anything.
 
 Further codes used by this set: 400 `unknown_profile`, `unsupported_routing_key`; discovery 400
 `unknown_query_param` / `invalid_query_param`; 402 `key_limit_reached` / `monthly_cap_reached` /
@@ -169,7 +173,15 @@ money gates (monthly cap, key limit) as today.
 
 - Effective list = `[model] ++ models`, de-duplicated preserving first occurrence, max **5**
   entries after de-dup (6th+ → 400 `invalid_routing_value`). `model` absent and `models`
-  present → the first entry is primary. Both absent → today's 400.
+  present → the first entry is primary. Both absent → 400 `invalid_routing_value` whose
+  message contains "model is required" (NEW behavior: today a body with no model answers 503
+  "no node offers ").
+- A model id longer than **256 characters**, in `model` or in any `models[]` entry, is a 400
+  `invalid_routing_value` naming the limit; exactly 256 is accepted. (No length rule existed
+  before; the bound is explicit so an id can never be used to carry a payload.)
+- A grant's `price_in` / `price_out` is the price the GRANT BILLS AT, never a cap on station
+  offers: a priced grant bills the served (model, station) pair at the grant's price whichever
+  model serves. The consumer's own `max_price` caps still filter station offers under a grant.
 - Each entry may carry variant sugar (§4); sugar applies to that entry only, except a `sort`
   variant, which applies to the whole request (last one wins, as OpenRouter).
 - The plan is built per model in order: up to `ROGERAI_RELAY_ATTEMPTS` stations for the model,
@@ -242,8 +254,12 @@ limit counts bare ids after de-dup of suffixed spellings.
   `quantizations: [<chosen>..., "unknown"]`, so the approved unit test keeps its meaning.
   `CanonicalQuant` is not a closed set, so an unrecognized requested label is a valid request
   that matches nothing (503 `no_match`), not a 400.
-- Node ids and Tower relay ids are distinct namespaces; each `only`/`order`/`ignore` entry is
-  matched in both independently (a collision is logged once on /admin/live, never a 400).
+- Node ids and Tower ids are distinct namespaces. `only`, `order` and a pin match a Tower by its
+  TOWER id only (a row's node id is what the Tower published for the machine behind it, so
+  matching it would let a Tower pose as a direct station the consumer named); `ignore` and
+  `X-Roger-Exclude-Nodes`, the narrowing direction, match both the Tower id and that node id.
+  An id that names both a direct node and a Tower is matched in its own namespace on each side,
+  and /admin/live warns once (`namespace_warning`), never a 400.
 - Capability gating (`roger.require`, `provider.require_parameters`, and the implicit rule):
   - explicit `require` values come from `protocol.knownCapabilities` (`tools`, `vision` today);
     anything else → 400.
@@ -310,6 +326,11 @@ under that filter, same as a direct node. The 50 % coin can only choose between 
 servers, never widen eligibility. `provider.order` / `only` / `ignore` name node ids; a Tower
 is ineligible under `only`/`order` unless its relay id is listed, and ineligible under
 `allow_fallbacks:false` unless listed. Closes the min-tps/exclude/pref bridge defect.
+
+The two-tier health gate holds ACROSS fabrics: a Tier-B (probationary) Tower row is used only
+when no Tier-A candidate exists on EITHER fabric. A healthy direct station is never passed over
+for a probationary Tower, and a healthy Tower is never passed over for a probationary direct
+station.
 
 ## 7. Transparency
 
@@ -490,6 +511,54 @@ Rulings (founder, 2026-09-30 / 10-01):
   Tower bridge (narrow, never widen). Slice 1 replaces the decline with real evaluation (§6).
 - `provider.order: []` is a 400; an empty `ignore` / `quantizations` is "no filter".
 
+Spec corrections approved 2026-10-01 (thirteen, found by the slice-1 RED runners; each
+changed scenario carries a `# corrected 2026-10-01 (founder-approved)` line):
+1. `node_preference`: the four scenarios that assume a private band with several stations are
+   tagged `@later`; a band is one node id today and multi-station bands are not in this set.
+   The slice-1 runners exclude `@later`.
+2. `node_preference`: the two "picked more often" pref scenarios use tps 90 vs 60 (was 90 vs
+   20, where the faster station already took every pick under every pref).
+3. `request_shape`: the three min-tps scenarios measure `n-c` below the floor (it was
+   unmeasured, passed the floor and outscored the expected station).
+4. `request_shape`: the grant no-station message literal carries the model name, as the broker
+   prints it.
+5. `request_shape` + `model_fallback_list`: an over-limit SIGNED body is a 401 "invalid request
+   signature" (the reader truncates at 4 MiB and the signature check fails first); no 413
+   exists.
+6. `variant_sugar`: the near-miss outline row that was literally `qwen3-32b:free` is dropped.
+7. `capability_gating`: the `require_parameters: null` row is dropped (null = absent).
+8. `request_shape`: an empty `roger.freq` is absent, not a 400 (row moved to the null/empty
+   outline).
+9. `model_fallback_list`: "neither model nor models" is a NEW 400 `invalid_routing_value`
+   ("model is required"), §3.
+10. `model_fallback_list`: the model id limit is explicit, 256 characters, §3.
+11. `model_fallback_list`: a grant's price is what the grant bills at, not a cap on offers, §3.
+12. Every routing refusal carries `X-RogerAI-Cost: 0`, §2.
+13. Tier A before Tier B holds across fabrics, §6.
+
+Rulings from the slice-1 fresh-context review (founder, 2026-10-02):
+- **Deferral tags approved as-is**: scenarios tagged `@slice2` / `@slice3` / `@slice4` run when
+  their slice lands (the tag is removed then); `@later` (multi-station private bands, a
+  Tower-signed bridged receipt) is known open work; `@cli` / `@tui` / `@proxy` / `@harness` /
+  `@docs` / `@unit` belong to another runner.
+- **A guest may only tighten, including `models[]`**: the local proxy refuses (local 400
+  `routing_outside_session`) any `models[]` entry whose bare id is not the tuned band's model;
+  a list naming only that model (sugar included) passes. The proxy does not add the owner's
+  `pref` default when the guest states a sort (it would conflict).
+- **`:free` under a PRICED grant is `no_match`**: nothing the grant can reach costs the caller
+  nothing (§4). Under a FREE grant `:free` admits the grant's stations.
+- **A bridged pair's hold** is the larger of its context-window estimate and the bridge's own
+  grant ceiling (`edgeGrantCeiling`), so a Tower operator is never underpaid; the consumer's
+  caps still bound it. In practice a bridged follower needs a balance of about the ceiling
+  (~$2 at $1/1M), as the bridge's own hold always did.
+- **A receipt keeps what the node signed**: when an attempt was dispatched for a different
+  model, the broker records `dispatched_model` (outside the node signature, inside the
+  broker's); billing, the tokenizer key, the lineage row and `X-RogerAI-Model` follow it.
+- **`models[]` is bounded at 32 raw entries** like every list (§1a), and the effective list
+  stops at the 6th distinct id.
+- **The per-request cap binds every output limit** (`max_tokens` and `max_completion_tokens`);
+  a station the cap buys no output at is dropped, never sent `max_tokens: 1`.
+
 Added during the spec pass (each is pinned by scenarios; flip the scenario if you rule otherwise):
 
 8. `provider.max_price.request` also lowers the station's `max_tokens` to what the cap buys
@@ -506,3 +575,19 @@ Added during the spec pass (each is pinned by scenarios; flip the scenario if yo
     the approved `features/proxy/models.feature` and is left for a separate re-ruling (§8).
 17. A defect-6 consequence: the TUI quant rule's "unlabeled passes" is preserved via `unknown`,
     so `TestAbsenceIsReadDifferentlyByRowAndRule` keeps its meaning.
+
+Slice 1 part C (2026-10-01):
+18. Tower rows are candidates IN the plan: ranked by the consumer's order (a Tower id ranks
+    where it was named), by a strict sort across both fabrics (direct first on a tie), else by
+    the tier gate across fabrics, and when the two heads tie on tier by the fan-out coin,
+    consulted once per request for the head model and counted on /admin/live
+    (`edge_coin_flips`). The request's one hold covers the priciest pair including a Tower pair
+    and follows a bridged attempt by rekey to the attempt id the Tower's settlement captures.
+19. `only` / `order` / pin match the Tower id only; `ignore` matches both ids (above).
+20. A bridged attempt's failure is a failover trigger like a direct one (the plan continues);
+    a Tower station's own 429 surfaces with its Retry-After when the bridge is the last word.
+21. Tower rows a consumer constraint declined are counted once per request and constraint
+    (`edge_bridge_declined{<constraint>}`) and logged once per constraint and Tower, naming
+    the request, never a band code.
+22. The bridged receipt carries the broker signature only; a Tower-key node signature needs a
+    hub-side protocol change (tagged `@later`).
