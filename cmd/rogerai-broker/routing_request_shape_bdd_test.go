@@ -746,7 +746,7 @@ func (s *rs1State) nodeAnswersWithExtraReceiptField(name, frag string) error {
 			case <-stop:
 				return
 			case job := <-tun.jobs:
-				resp, err := http.Post(st.up.URL, "application/json", bytes.NewReader(job.Body))
+				resp, err := foPostUpstream(st.up.URL, job)
 				if err != nil {
 					continue
 				}

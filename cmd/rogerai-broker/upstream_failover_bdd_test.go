@@ -112,10 +112,17 @@ func (r *recWriter) Write(p []byte) (int, error) {
 }
 
 type foState struct {
-	t   *testing.T
-	db  store.Store
-	mem *store.Mem
-	pg  *store.Postgres
+	t *testing.T
+
+	// jobLog is every job this scenario's stations received from the broker's tunnels, in
+	// order (station name + job id). Only this broker can enqueue a job, so it is the exact
+	// record of dispatched attempts (an upstream hit count can also see stray traffic that a
+	// leaked goroutine from an earlier test sends to a reused loopback port).
+	jobMu  sync.Mutex
+	jobLog []string
+	db     store.Store
+	mem    *store.Mem
+	pg     *store.Postgres
 
 	b     *broker
 	b2    *broker // "instance B" when a scenario stands one up
@@ -235,6 +242,9 @@ func (s *foState) advance(d time.Duration) {
 func (s *foState) reset() error {
 	s.teardown()
 	s.logs.Reset()
+	s.jobMu.Lock()
+	s.jobLog = nil
+	s.jobMu.Unlock()
 	s.nonce = utNonce()
 	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
 		pg, err := store.NewPostgres(dsn)
@@ -381,6 +391,16 @@ func (s *foState) standUp(name string, o stationOpts) *fstation {
 		}
 	}
 	st.up = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only this scenario's own station loop may reach the upstream: it tags every call with
+		// the job id it is serving. Under the full-module gate, packages run as parallel
+		// processes and a loopback port is reused soon after another test closes it, so a leaked
+		// client elsewhere can land on this server; such stray calls are refused and never
+		// counted as attempts or fed to a scenario's script.
+		if r.Header.Get(foJobHeader) == "" {
+			log.Printf("test station %s: refused a stray upstream call (%s %s from %s) with no job id", name, r.Method, r.URL.Path, r.RemoteAddr)
+			w.WriteHeader(http.StatusMisdirectedRequest)
+			return
+		}
 		st.mu.Lock()
 		st.reqN++
 		n, script := st.reqN, st.script
@@ -416,6 +436,27 @@ func (s *foState) standUp(name string, o stationOpts) *fstation {
 	return st
 }
 
+// foJobHeader tags a station loop's upstream call with the job it serves (see standUp).
+const foJobHeader = "X-Fo-Job"
+
+// foPostUpstream is the station loop's upstream call: the job body, tagged with its job id.
+func foPostUpstream(url string, job protocol.Job) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(job.Body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(foJobHeader, job.ID)
+	return http.DefaultClient.Do(req)
+}
+
+// jobs returns a copy of the dispatched-job log (see jobLog).
+func (s *foState) jobs() []string {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	return append([]string(nil), s.jobLog...)
+}
+
 func (s *foState) st(name string) *fstation {
 	st, ok := s.stations[name]
 	if !ok {
@@ -434,6 +475,9 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case job := <-st.tun.jobs:
+			s.jobMu.Lock()
+			s.jobLog = append(s.jobLog, st.name+" "+job.ID)
+			s.jobMu.Unlock()
 			var req struct {
 				Stream bool `json:"stream"`
 			}
@@ -449,7 +493,7 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 			if unreachable {
 				err = fmt.Errorf("connection refused")
 			} else {
-				resp, err = http.Post(st.up.URL, "application/json", bytes.NewReader(job.Body))
+				resp, err = foPostUpstream(st.up.URL, job)
 			}
 			if err == nil {
 				status = resp.StatusCode
