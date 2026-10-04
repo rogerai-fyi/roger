@@ -637,3 +637,26 @@ func TestADamagedIdentityIsAnErrorNeverAPartialIdentity(t *testing.T) {
 		})
 	}
 }
+
+// enrollment.feature ("the owner enrolls this machine as workshop"; one node per name): the name in
+// an enrollment the authority accepted - signed by a user key it allowed - is remembered, so the
+// fleet can call the member by it when it first sees it. A refused enrollment remembers nothing.
+func TestTheAuthorityRemembersTheNameAMachineEnrolledUnder(t *testing.T) {
+	dir := t.TempDir()
+	local, err := edgeauth.Designate(dir, "hub")
+	require.NoError(t, err)
+	user, node := enrollee(t, local)
+	r := enrollReq(user, node, time.Now())
+	resp, err := local.Issue(r)
+	require.NoError(t, err)
+	require.Equal(t, "workshop", local.EnrolledName(resp.NodeID))
+
+	otherNode, _ := keypair(t)
+	refused := edgeauth.NewRequest(edgeauth.LocalAccount, "imposter", "host", otherNode, time.Now())
+	_, strangerPriv := keypair(t)
+	refused.Sign(strangerPriv)
+	_, err = local.Issue(refused)
+	require.Error(t, err)
+	require.Empty(t, local.EnrolledName(refused.NodeID), "a refused enrollment names nothing")
+	require.Empty(t, local.EnrolledName("n_nobody"))
+}

@@ -236,6 +236,12 @@ func (l *Local) Issue(r Request) (Response, error) {
 		if err := l.recordIssued(r2.NodeID, leaf.SerialNumber.String()); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
+		// Remember the NAME it enrolled under: the request is signed by a key this authority allowed,
+		// so it is the owner's choice, and the fleet calls the member by it when it first sees it
+		// (enrollment.feature). A name it cannot remember does not undo the certificate.
+		if r.Name != "" {
+			_ = l.recordEnrolledName(r2.NodeID, r.Name)
+		}
 		// Remember WHICH user key enrolled this node, so a later forget can drop that (unprotected)
 		// key from the allow-list, de-authorising exactly the forgotten machine.
 		if r.UserKey != "" {
@@ -1041,4 +1047,32 @@ func ReadClaims(edgeDir string) ([]ClaimGrant, error) {
 		return nil, err
 	}
 	return (&Local{dir: dir}).Claims()
+}
+
+// enrolledNamesFile is the name each node enrolled under, as the request carried it.
+const enrolledNamesFile = "enrolled_names.json"
+
+func (l *Local) recordEnrolledName(nodeID, name string) error {
+	m := map[string]string{}
+	if err := l.readJSON(enrolledNamesFile, &m); err != nil {
+		return err
+	}
+	if len(name) > 64 {
+		name = name[:64]
+	}
+	if m[nodeID] == name {
+		return nil
+	}
+	m[nodeID] = name
+	return l.writeJSON(enrolledNamesFile, m)
+}
+
+// EnrolledName is the name a node enrolled under on this authority, or "". The fleet still checks
+// it is a usable name that no other member holds before using it.
+func (l *Local) EnrolledName(nodeID string) string {
+	m := map[string]string{}
+	if err := l.readJSON(enrolledNamesFile, &m); err != nil {
+		return ""
+	}
+	return m[nodeID]
 }
