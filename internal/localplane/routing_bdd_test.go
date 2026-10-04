@@ -789,9 +789,17 @@ func (s *tp4State) onlyPollHanded(id string) error {
 
 func (s *tp4State) pollingGets204(id, model string) error {
 	st := s.stations[id]
-	st.mu.Lock()
-	empty := st.empty
-	st.mu.Unlock()
+	// A long-poll answers 204 only when its window expires, and the scenario's requests can
+	// all finish inside one window, so wait (bounded) for the station's current poll to end.
+	empty := 0
+	for deadline := time.Now().Add(3 * tp4PollTimeout); ; time.Sleep(10 * time.Millisecond) {
+		st.mu.Lock()
+		empty = st.empty
+		st.mu.Unlock()
+		if empty > 0 || time.Now().After(deadline) {
+			break
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, j := range s.jobs {

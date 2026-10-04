@@ -108,6 +108,7 @@ const (
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/discover", s.discover)
+	mux.HandleFunc("/v1/models", s.models)
 	mux.HandleFunc("/v1/chat/completions", s.chatCompletions)
 	mux.HandleFunc("/local/poll", s.localPoll)
 	mux.HandleFunc("/local/complete", s.localComplete)
@@ -257,4 +258,39 @@ func parseTS(s string) int64 {
 		v = v*10 + int64(c-'0')
 	}
 	return v
+}
+
+// models lists the models the attached stations serve, OpenAI-shaped, to an ADMITTED client
+// only (authenticated first, exactly like discover). It also lets a first-party client's
+// tune-time probe tell this plane from a broker that predates the routing body: an unsigned
+// probe gets the uniform 401, never the 404 an old broker answers, so the client keeps
+// sending the body object, which this plane honors (ROUTING-EXPRESSION-CONTRACT §5a, §9).
+func (s *Server) models(w http.ResponseWriter, r *http.Request) {
+	if _, st := s.authClient(r, readBody(r)); st != authOK {
+		writeAuthFailure(w, st)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	stations, err := s.st.Stations()
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+		return
+	}
+	seen := map[string]bool{}
+	data := make([]map[string]any, 0)
+	for _, st := range stations {
+		for _, m := range st.Models {
+			if seen[m] {
+				continue
+			}
+			seen[m] = true
+			data = append(data, map[string]any{"id": m, "object": "model", "owned_by": "local"})
+		}
+	}
+	sort.Slice(data, func(i, j int) bool { return data[i]["id"].(string) < data[j]["id"].(string) })
+	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
 }

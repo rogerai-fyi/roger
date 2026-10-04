@@ -1,5 +1,8 @@
-# BUILD STATUS: NOT BUILT. Approved 2026-09-30 as part of the routing-expression set (slice 4); the
-# local plane still reads only `model` today (internal/localplane/completion.go).
+# BUILD STATUS: PARTIAL (2026-10-04). Built: models[], provider.only / ignore / order /
+# allow_fallbacks over local station ids, evaluated trust_min / confidential, named ignored keys,
+# /v1/models, scripts/localplane-routing-smoke.sh (live-run PASS). Red: "Public identity in a
+# routing body is ignored and never reflected" contradicts the approved "only s9" no_match message
+# (an unattached id cannot be told apart from a public one); awaiting a founder ruling.
 # STANDALONE TOWER - the Core-free local plane and the routing body object (CONTRACT §1, §5, §6).
 #
 # PURPOSE: a client on a private network sends the same body object it would send the public

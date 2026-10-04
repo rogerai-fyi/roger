@@ -25,28 +25,47 @@ type jobResult struct {
 }
 
 type job struct {
-	id      string
-	model   string
-	body    []byte
-	takenBy string         // the station id that polled it; only that station may complete it
-	result  chan jobResult // buffered(1): complete never blocks, even if the consumer gave up
+	id    string
+	model string
+	body  []byte
+	// admit, when set, decides which attached station may claim this job (provider.only /
+	// ignore / allow_fallbacks:false over local ids); nil = any station serving the model.
+	admit func(stationID string) bool
+	// preferred stations (provider.order) alone may claim until preferUntil; after it, any
+	// admitted station serving the model may.
+	preferred   []string
+	preferUntil time.Time
+	takenBy     string         // the station id that polled it; only that station may complete it
+	result      chan jobResult // buffered(1): complete never blocks, even if the consumer gave up
 }
 
 type queue struct {
 	mu       sync.Mutex
 	pending  []*job
 	inflight map[string]*job
-	notify   chan struct{} // a station poll wakes on this when a job arrives
+	// notify is closed (and replaced) whenever the pending set changes, waking EVERY waiting
+	// poller: a job may be claimable only by a particular station (provider.order / only), so
+	// waking a single arbitrary poller could leave the right one asleep past its window.
+	notify chan struct{}
 }
 
 func newQueue() *queue {
-	return &queue{inflight: map[string]*job{}, notify: make(chan struct{}, 1)}
+	return &queue{inflight: map[string]*job{}, notify: make(chan struct{})}
 }
 
 // submit enqueues a job and returns it; the caller waits on job.result. The id is the
 // caller's request id, unique per in-flight request.
 func (q *queue) submit(id, model string, body []byte) *job {
-	j := &job{id: id, model: model, body: body, result: make(chan jobResult, 1)}
+	return q.submitRouted(id, model, body, nil, nil, 0)
+}
+
+// submitRouted is submit with the request's routing: who may claim the job, and which
+// stations are preferred for the first window.
+func (q *queue) submitRouted(id, model string, body []byte, admit func(string) bool, preferred []string, window time.Duration) *job {
+	j := &job{id: id, model: model, body: body, admit: admit, result: make(chan jobResult, 1)}
+	if len(preferred) > 0 && window > 0 {
+		j.preferred, j.preferUntil = preferred, time.Now().Add(window)
+	}
 	q.mu.Lock()
 	q.pending = append(q.pending, j)
 	q.mu.Unlock()
@@ -57,10 +76,17 @@ func (q *queue) submit(id, model string, body []byte) *job {
 // wake signals pollers that the pending set changed, without blocking if one is already
 // pending (the channel is buffered to depth 1 and a poller re-scans the whole set on wake).
 func (q *queue) wake() {
-	select {
-	case q.notify <- struct{}{}:
-	default:
-	}
+	q.mu.Lock()
+	close(q.notify)
+	q.notify = make(chan struct{})
+	q.mu.Unlock()
+}
+
+// waitCh is the channel the next wake closes.
+func (q *queue) waitCh() chan struct{} {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.notify
 }
 
 // take moves the first pending job whose model any of `models` serves into in-flight and
@@ -68,13 +94,21 @@ func (q *queue) wake() {
 func (q *queue) take(stationID string, models []string) (*job, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	now := time.Now()
 	for i, j := range q.pending {
-		if serves(models, j.model) {
-			q.pending = append(q.pending[:i], q.pending[i+1:]...)
-			j.takenBy = stationID
-			q.inflight[j.id] = j
-			return j, true
+		if !serves(models, j.model) {
+			continue
 		}
+		if j.admit != nil && !j.admit(stationID) {
+			continue
+		}
+		if len(j.preferred) > 0 && now.Before(j.preferUntil) && !containsID(j.preferred, stationID) {
+			continue
+		}
+		q.pending = append(q.pending[:i], q.pending[i+1:]...)
+		j.takenBy = stationID
+		q.inflight[j.id] = j
+		return j, true
 	}
 	return nil, false
 }
@@ -83,13 +117,14 @@ func (q *queue) take(stationID string, models []string) (*job, bool) {
 // done. A station calls this to fetch work; the Tower dials nobody.
 func (q *queue) poll(ctx context.Context, stationID string, models []string) (*job, bool) {
 	for {
+		ch := q.waitCh() // taken BEFORE the scan, so a wake between scan and wait is not lost
 		if j, ok := q.take(stationID, models); ok {
 			return j, true
 		}
 		select {
 		case <-ctx.Done():
 			return nil, false
-		case <-q.notify:
+		case <-ch:
 			// A job arrived (or another poller took it); loop and re-scan.
 		case <-time.After(250 * time.Millisecond):
 			// A backstop wake, so a poll that missed a notify race still re-scans promptly.
