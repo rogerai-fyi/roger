@@ -227,7 +227,8 @@ test("A paid station still asks for sign-in before the first send (approved)", (
 
 test("The drawer never shows a balance or spend (founder ruling)", () => {
   const d = needDrawer();
-  assert.ok(!/balance|spend|history/i.test(d), "the drawer renders a balance, spend or history");
+  // whole words: the pref default "balanced" (the spec's own word) is not a wallet balance
+  assert.ok(!/\b(balance|spend|spending|history)\b/i.test(d), "the drawer renders a balance, spend or history");
 });
 
 // ---------- who served -------------------------------------------------------------------------

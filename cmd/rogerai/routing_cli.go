@@ -710,7 +710,7 @@ func cmdUse(cfg config, args []string) error {
 	_, typical := cfg.resolve(bareModelID(t.model))
 	port := f.port
 	if port == 0 {
-		p, err := freePort(4141) // auto-pick + the endpoint line prints the chosen port
+		p, err := useEndpointPort() // auto-pick + the endpoint line prints the chosen port
 		if err != nil {
 			return err
 		}

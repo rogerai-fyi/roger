@@ -349,8 +349,12 @@ test("custom inputs: tools, devices, and guards can be authored without fabricat
   // data. The deck does remember which tape was loaded and which position the dial
   // was on, so assert the payload SHAPE rather than banning storage outright.
   const writes = [...js.matchAll(/localStorage\.setItem\(([^,]+),/g)].map((m) => m[1].trim());
-  assert.deepEqual(writes, ["STORE_KEY"],
-    "the only thing written to storage is the deck's own state key");
+  // The routing drawer's settings persist under their own key (playbox_routing.feature,
+  // approved 2026-09-30): routing choices, never authored input - pinned below.
+  assert.deepEqual(writes, ["STORE_KEY", "ROUTE_KEY"],
+    "the only things written to storage are the deck's state key and the routing drawer's");
+  assert.ok(/localStorage\.setItem\(ROUTE_KEY, JSON\.stringify\(ROUTE\)\)/.test(js),
+    "the routing key stores the drawer's settings object and nothing else");
   const payload = js.match(/localStorage\.setItem\(STORE_KEY, JSON\.stringify\(\{([\s\S]*?)\}\)\)/);
   assert.ok(payload, "the persisted payload must be a literal, so it can be audited here");
   // anchor on the property position, or a ternary's own colon reads as a key
