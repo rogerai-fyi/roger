@@ -167,6 +167,18 @@ Feature: Discovery filters - /discover and /market answer the question that was 
     When a consumer GETs /discover?model=qwen3-32b&quant=Q8_0&quant=BF16
     Then the listed node ids are exactly "n-eu-q8,n-tee,n-cur"
 
+  # added 2026-10-04 (audit fix): quant=unknown admits unlabeled offers, exactly as the relay's
+  # provider.quantizations ["unknown"] does, so /discover and routing agree (contract §5).
+  Scenario Outline: quant=unknown matches unlabeled offers, alone or with labels
+    When a consumer GETs /discover?model=qwen3-32b&<query>
+    Then the listed node ids are exactly <nodes>
+
+    Examples:
+      | query                      | nodes                |
+      | quant=unknown              | n-free               |
+      | quant=UNKNOWN              | n-free               |
+      | quant=Q8_0&quant=unknown   | n-free,n-eu-q8,n-tee |
+
   Scenario Outline: region matches the self-declared token and drops nodes with none
     When a consumer GETs /discover?model=qwen3-32b&region=<region>
     Then the listed node ids are exactly <nodes>

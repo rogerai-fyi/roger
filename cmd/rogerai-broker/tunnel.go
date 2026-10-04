@@ -1792,6 +1792,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	gen.admit() // identified and within its rate limit: from here every outcome is recorded
 	var req struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
