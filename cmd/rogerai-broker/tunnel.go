@@ -3047,8 +3047,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// consumer's wait past the window Cloudflare's proxy cap allows (nonStreamRelayWait).
 	deadline := time.Now().Add(nonStreamRelayWait)
 	requested := requestedList(cands)
+	tried, offAir := 0, 0 // attempts made, and how many found their station off air (§14.8)
 	for i := 0; i < len(plan); i++ {
 		c := plan[i]
+		tried++
 		node, offer, t, pricing = c.node, c.offer, c.t, c.pricing
 		// The (model, station) pair of this attempt: the model it is dispatched for and the
 		// body sent to it. Recount, the price lock and the settle below are keyed on THIS
@@ -3113,7 +3115,20 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		unreg()
 		switch outcome {
 		case dispatchBusy, dispatchBusErr, dispatchOffAir, dispatchLost:
-			b.writeDispatchFailure(w, outcome)
+			// A DISPATCH FAILURE BEFORE ANY WORK (§14.8) is a failover trigger: the station never
+			// saw the job, so nothing is billed, nothing is struck, and the next pair in the plan
+			// is tried under the same hold and deadline rules as any failover.
+			b.genAttemptEndN(requestID, i+1, node.NodeID, http.StatusServiceUnavailable, "dispatch-failed", 1)
+			if outcome == dispatchOffAir {
+				offAir++
+			}
+			if next := b.nextLive(plan, i, "", deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
+				log.Printf("FAILOVER request=%s from=%s (dispatch-failed) to=%s", requestID, node.NodeID, plan[next].node.NodeID)
+				b.countFailover(plan, i, next)
+				i = next - 1
+				continue
+			}
+			b.writeDispatchFailure(w, planDispatchOutcome(outcome, tried, offAir))
 			return
 		case dispatchTimeout:
 			// CLOUDFLARE ~100s PROXY CAP: CF aborts a proxied request that has produced NO
@@ -3380,27 +3395,53 @@ func (b *broker) dispatchErrOutcome(err error) dispatchOutcome {
 	return dispatchBusErr
 }
 
-// writeDispatchFailure answers a request whose dispatch did not reach a result. The queue
-// modes say what happened (off air is not busy; busy means "retry in a moment"); the legacy
-// bus and the single-instance path keep their original wording.
+// writeDispatchFailure answers a request whose dispatch did not reach a result: 503 with a
+// Retry-After and a code (contract §14.8) - station_off_air when the station was not live,
+// station_busy for everything else (no poller free, a lost handoff, a dispatch-plane error),
+// $0. The queue modes say what happened in the message (off air is not busy); the legacy bus
+// and the single-instance path keep their original wording.
 func (b *broker) writeDispatchFailure(w http.ResponseWriter, outcome dispatchOutcome) {
+	status, body := b.dispatchFailure(outcome)
+	w.Header().Set("Retry-After", "1")
+	w.Header().Set("X-RogerAI-Cost", "0")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}
+
+// dispatchFailure is writeDispatchFailure's status and body (the stream path writes them
+// through its uncommitted SSE writer).
+func (b *broker) dispatchFailure(outcome dispatchOutcome) (int, []byte) {
 	queue := b.multiInstance && b.dispatchMode != dispatchViaBus
+	code, msg := "station_busy", "node busy (no poller free)"
 	switch outcome {
 	case dispatchOffAir:
-		jsonErr(w, http.StatusServiceUnavailable, "station off air")
+		code, msg = "station_off_air", "station off air"
 	case dispatchLost:
-		w.Header().Set("Retry-After", "1")
-		jsonErr(w, http.StatusServiceUnavailable, "station handoff failed")
+		msg = "station handoff failed"
 	case dispatchBusErr:
-		jsonErr(w, http.StatusServiceUnavailable, "dispatch bus unavailable")
+		msg = "dispatch bus unavailable"
 	default: // dispatchBusy
 		if queue {
-			w.Header().Set("Retry-After", "1")
-			jsonErr(w, http.StatusServiceUnavailable, "station busy")
-			return
+			msg = "station busy"
 		}
-		jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
 	}
+	return http.StatusServiceUnavailable, errorBody(code, msg)
+}
+
+// planDispatchOutcome is the outcome a plan that ended on a dispatch failure answers with:
+// off air only when every attempt found its station off air, else busy (§14.8).
+func planDispatchOutcome(last dispatchOutcome, tried, offAir int) dispatchOutcome {
+	if last == dispatchOffAir && offAir < tried {
+		return dispatchBusy
+	}
+	return last
+}
+
+// dispatchFailed reports whether an attempt's outcome is a dispatch failure before any work
+// (a failover trigger, §14.8) as opposed to a result or a timeout.
+func dispatchFailed(o dispatchOutcome) bool {
+	return o == dispatchBusy || o == dispatchBusErr || o == dispatchOffAir || o == dispatchLost
 }
 
 // dispatchAwait hands ONE attempt's job to its station - over the Valkey bus when the poller
@@ -3801,8 +3842,10 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 	}
 	grace := time.AfterFunc(streamCommitGrace, lw.commit) // Cloudflare's no-bytes cap: never withhold headers for long
 	defer grace.Stop()
+	tried, offAir := 0, 0 // attempts made, and how many found their station off air (§14.8)
 	for i := 0; i < len(plan); i++ {
 		c := plan[i]
+		tried++
 		// The (model, station) pair of this attempt: its model and the body sent to it (a plan
 		// built without them - one model, one body - uses the request's).
 		abody := body
@@ -3854,7 +3897,28 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			lw.fail(status, res.Body, retry)
 			return
 		}
-		res, voided := b.streamAttempt(lw, c, bill, attemptID(requestID, i+1), abody, maxCost, &settled)
+		res, voided, dout := b.streamAttempt(lw, c, bill, attemptID(requestID, i+1), abody, maxCost, &settled)
+		if dispatchFailed(dout) {
+			// Nothing reached the station (§14.8): fail over before any frame, or answer the
+			// 503 with a code and Retry-After - never an empty 200.
+			b.genAttemptEndN(requestID, i+1, c.node.NodeID, http.StatusServiceUnavailable, "dispatch-failed", 1)
+			if dout == dispatchOffAir {
+				offAir++
+			}
+			if next := b.nextLive(plan, i, "", time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, attemptID(requestID, next+1), maxCost) {
+				log.Printf("FAILOVER request=%s from=%s (dispatch-failed) to=%s", requestID, c.node.NodeID, plan[next].node.NodeID)
+				b.countFailover(plan, i, next)
+				i = next - 1
+				continue
+			}
+			if lw.isCommitted() {
+				lw.finish(b.voidUsageChunk(c.node.NodeID, bill.model, "dispatch-failed"), "")
+				return
+			}
+			status, fbody := b.dispatchFailure(planDispatchOutcome(dout, tried, offAir))
+			lw.fail(status, fbody, 1)
+			return
+		}
 		if !voided {
 			return
 		}
@@ -3885,7 +3949,10 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 // produced no usable output, was voided ($0 receipt), and left the SSE headers uncommitted -
 // the caller decides between failing over and answering with the failure. voided=false means
 // the response is done (served + settled, or ended as a committed stream ends).
-func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobID string, body []byte, maxCost float64, settled *bool) (protocol.JobResult, bool) {
+//
+// dout is the dispatch outcome: a dispatch failure (dispatchFailed) means the job never
+// reached the station and NOTHING was written; the caller fails over or answers it.
+func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobID string, body []byte, maxCost float64, settled *bool) (res protocol.JobResult, voided bool, dout dispatchOutcome) {
 	user, consumer, model, grantID := bill.user, bill.consumer, bill.model, bill.grantID
 	node, offer, t, pricing := c.node, c.offer, c.t, c.pricing
 	bill.screening.setNode(node.NodeID) // the after-the-fact flag names the station this attempt dispatches to (nil-safe)
@@ -3944,15 +4011,14 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 	// empty/short stream and the deferred ReleaseHold refunds the hold (never a
 	// double-charge).
 	var dispatchFailed <-chan struct{} // closed when a dispatched job is withdrawn or lost
+	var dispatchTk *dispatchTicket
 	if b.multiInstance && b.shared != nil {
 		tk, derr := b.dispatchRemote(context.Background(), node.NodeID, job, true)
 		if derr != nil {
-			b.dispatchErrOutcome(derr) // counts it
 			b.exitInflight(node.NodeID, false)
-			lw.commit()
-			lw.finish(b.voidUsageChunk(node.NodeID, model, "dispatch-failed"), "")
-			return protocol.JobResult{}, false // the client gets an empty stream, as before
+			return protocol.JobResult{}, true, b.dispatchErrOutcome(derr)
 		}
+		dispatchTk = tk
 		defer tk.close()
 		if b.dispatchMode == dispatchViaBus {
 			b.stats.busDispatch.Add(1)
@@ -4009,9 +4075,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			b.stats.localDispatch.Add(1)
 		case <-time.After(3 * time.Second):
 			b.exitInflight(node.NodeID, false)
-			lw.commit()
-			lw.finish(b.voidUsageChunk(node.NodeID, model, "dispatch-failed"), "")
-			return protocol.JobResult{}, false // the client just gets an empty stream
+			return protocol.JobResult{}, true, dispatchBusy // no poller free: nothing was sent
 		}
 	}
 	// Idle/void timer: RESETS on every streamed delta (sink.noteActivity), so a long
@@ -4037,13 +4101,11 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			waitPump()
 			lw.commit()
 			lw.finish(b.voidUsageChunk(node.NodeID, model, "stall"), "")
-			return protocol.JobResult{}, false
+			return protocol.JobResult{}, false, dispatchResult
 		case <-dispatchFailed: // withdrawn as busy, or lost in handoff: nothing is coming
 			b.exitInflight(node.NodeID, false)
 			waitPump()
-			lw.commit()
-			lw.finish(b.voidUsageChunk(node.NodeID, model, "dispatch-failed"), "")
-			return protocol.JobResult{}, false
+			return protocol.JobResult{}, true, b.dispatchErrOutcome(dispatchTk.Err())
 		case res := <-resCh:
 			b.exitInflightStatus(node.NodeID, res.Status)
 			rec := res.Receipt
@@ -4060,7 +4122,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				waitPump()
 				lw.commit()
 				lw.finish(b.voidUsageChunk(node.NodeID, model, "receipt-invalid"), "")
-				return res, false
+				return res, false, dispatchResult
 			}
 			b.checkChain(node.NodeID, jobID, rec)
 			b.dispatchedModel(&rec, c) // the receipt's model is the dispatched model (§3)
@@ -4122,9 +4184,9 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				if lw.isCommitted() {
 					waitPump()
 					lw.finish(b.voidUsageChunk(node.NodeID, model, string(rec.VoidReason)), "")
-					return res, false
+					return res, false, dispatchResult
 				}
-				return res, true
+				return res, true, dispatchResult
 			}
 			// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
 			// prompt text is the request body (job.Body), available on this path too, so
@@ -4214,7 +4276,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				b.genServe(reqOf, nOf, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, streamTPS, protocol.EncodeReceipt(rec))
 			}
 			lw.finish(usageChunkJSON(billedPrompt, billedCompletion, cost, chunk), comment)
-			return res, false // the receipt arrived; leave the idle loop
+			return res, false, dispatchResult // the receipt arrived; leave the idle loop
 		}
 	}
 }

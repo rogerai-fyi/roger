@@ -389,17 +389,35 @@ func TestWriteDispatchFailureWording(t *testing.T) {
 		retry bool
 	}{
 		{true, dispatchViaQueueOnly, dispatchBusy, "station busy", true},
-		{true, dispatchViaQueueOnly, dispatchOffAir, "station off air", false},
+		{true, dispatchViaQueueOnly, dispatchOffAir, "station off air", true}, // §14.8: every dispatch failure carries a Retry-After
 		{true, dispatchViaQueueOnly, dispatchLost, "station handoff failed", true},
-		{true, dispatchViaQueueOnly, dispatchBusErr, "dispatch bus unavailable", false},
-		{true, dispatchViaBus, dispatchBusy, "node busy (no poller free)", false},
-		{false, dispatchViaBus, dispatchBusy, "node busy (no poller free)", false},
+		{true, dispatchViaQueueOnly, dispatchBusErr, "dispatch bus unavailable", true},
+		{true, dispatchViaBus, dispatchBusy, "node busy (no poller free)", true},
+		{false, dispatchViaBus, dispatchBusy, "node busy (no poller free)", true},
 	} {
 		b := &broker{multiInstance: tc.multi, dispatchMode: tc.mode}
 		w := httptest.NewRecorder()
 		b.writeDispatchFailure(w, tc.out)
 		if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), tc.body) || (w.Header().Get("Retry-After") != "") != tc.retry {
 			t.Errorf("%+v -> %d %q retry=%q", tc, w.Code, w.Body.String(), w.Header().Get("Retry-After"))
+		}
+		code := `"code":"station_busy"`
+		if tc.out == dispatchOffAir {
+			code = `"code":"station_off_air"`
+		}
+		if !strings.Contains(w.Body.String(), code) || w.Header().Get("X-RogerAI-Cost") != "0" {
+			t.Errorf("%+v -> %q cost=%q, want %s and $0", tc, w.Body.String(), w.Header().Get("X-RogerAI-Cost"), code)
+		}
+	}
+	for _, tc := range []struct {
+		last          dispatchOutcome
+		tried, offAir int
+		want          dispatchOutcome
+	}{
+		{dispatchOffAir, 2, 2, dispatchOffAir}, {dispatchOffAir, 2, 1, dispatchBusy}, {dispatchLost, 1, 0, dispatchLost},
+	} {
+		if got := planDispatchOutcome(tc.last, tc.tried, tc.offAir); got != tc.want {
+			t.Errorf("planDispatchOutcome%+v = %v", tc, got)
 		}
 	}
 	for err, want := range map[error]dispatchOutcome{

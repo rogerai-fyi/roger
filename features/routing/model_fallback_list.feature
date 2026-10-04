@@ -434,11 +434,15 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Then no attempt on "b1" is started
     And the finished attempt on "a1" settles: one spend row, the hold captured for it and the remainder released
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.8 makes a dispatch failure
+  # before any work a failover and model-fallback trigger, so the list moves on to "b".
+  # Old Then: the response is the existing "node busy" 503 (dispatch outcome), not a model
+  # fallback / And the hold is released in full.
   Scenario: a dispatch failure that is not an upstream verdict is answered as today
     Given "a1" serves "a" but no poller is listening on it, and "b1" serves "b"
     When a consumer relays with "model": "a" and "models": ["b"]
-    Then the response is the existing "node busy" 503 (dispatch outcome), not a model fallback
-    And the hold is released in full
+    Then the response is 200 from "b1"
+    And one hold_release and one spend for "b1"'s cost exist
 
   Scenario: the non-stream 504 timeout on the first model is answered, not failed over
     Given "a1" serves "a" and never answers within nonStreamRelayWait, "b1" serves "b"

@@ -13,8 +13,12 @@ package main
 //   - Dispatch failures are built for real where the single-instance broker has the path:
 //     "no poller free" is a station whose job channel nobody drains (the production local
 //     dispatch then answers busy after its 3 s wait). "station off air", "handoff lost" and
-//     "dispatch bus error" exist only on the multi-instance queue / bus planes; the Given
-//     fails naming that rather than faking the outcome.
+//     "dispatch bus error" exist only on the multi-instance queue plane, so those rows run
+//     there (queuePlane): two instances on the scenario's shared miniredis in queue-only
+//     dispatch, every station served by a real long-poll on /agent/poll, and the failure made
+//     real at the moment it matters - the station's liveness expires as its dispatch starts,
+//     the store errors for that one dispatch, or the instance holding the station's only poll
+//     dies between the pop and the handoff (dqAfterPop).
 //   - Disconnects and stalls use a station loop this runner drains (the harness loop cannot be
 //     cancelled): it streams content frames on a timer through /agent/stream and records
 //     whether the broker stopped reading (the job was cancelled) before it finished.
@@ -55,6 +59,7 @@ type mh6State struct {
 	concMu     sync.Mutex
 	fourth     fa6Resp
 	instB      bool
+	undo       []func() // queue-plane scenario state restored at teardown (hooks, knobs, pollers)
 }
 
 func (s *mh6State) reset() error {
@@ -70,6 +75,10 @@ func (s *mh6State) reset() error {
 }
 
 func (s *mh6State) teardown() {
+	for i := len(s.undo) - 1; i >= 0; i-- {
+		s.undo[i]()
+	}
+	s.undo = nil
 	if s.stopLoops != nil {
 		close(s.stopLoops)
 		s.loopWG.Wait()
@@ -473,7 +482,95 @@ func (s *mh6State) dispatchFails(name, outcome string) error {
 		s.landOrder()
 		return nil
 	}
-	return fmt.Errorf("cannot construct %q in the single-instance harness: the local dispatch has only the busy outcome; %q exists on the multi-instance queue/bus plane", outcome, outcome)
+	s.landOrder()
+	return s.queuePlane(st, outcome)
+}
+
+// queuePlane moves the scenario onto the multi-instance queue plane (see the header) and makes
+// `failing`'s dispatch end with outcome.
+func (s *mh6State) queuePlane(failing *fstation, outcome string) error {
+	a, b2 := s.b, s.instanceB()
+	for _, b := range []*broker{a, b2} {
+		b.multiInstance, b.dispatchMode = true, dispatchViaQueueOnly
+		b.instanceID, b.peerInflight = newInstanceID(), map[string]int{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.undo = append(s.undo, func() {
+		dqBeforeDispatch, dqAfterPop = nil, nil
+		s.mr.SetError("")
+		cancel()
+		for _, b := range []*broker{a, b2} {
+			if q := b.dqueue(); q != nil {
+				q.stop()
+			}
+		}
+	})
+	for _, name := range s.order {
+		if st := s.stations[name]; st != failing {
+			s.pollOn(ctx, a, st)
+		}
+	}
+	switch outcome {
+	case "station off air":
+		// The station drops off air between the pick and the dispatch: its liveness expires.
+		dqBeforeDispatch = func(node string) func() {
+			if node == failing.id {
+				a.mu.Lock()
+				a.lastSeen[node] = time.Now().Add(-2 * nodeTTL)
+				a.mu.Unlock()
+			}
+			return nil
+		}
+	case "dispatch bus error":
+		// The shared store fails for this one dispatch.
+		dqBeforeDispatch = func(node string) func() {
+			if node != failing.id {
+				return nil
+			}
+			s.mr.SetError("ERR the dispatch store is unavailable")
+			return func() { s.mr.SetError("") }
+		}
+	case "handoff lost":
+		// The station's only poll is on instance B, which dies between popping the job and
+		// handing it over; the origin declares the handoff lost after the taken grace.
+		prev := dqTakenGrace.get()
+		dqTakenGrace.set(300 * time.Millisecond)
+		s.undo = append(s.undo, func() { dqTakenGrace.set(prev) })
+		victim := b2.instanceID
+		dqAfterPop = func(inst string) bool { return inst == victim }
+		s.pollOn(ctx, b2, failing)
+	default:
+		return fmt.Errorf("unknown dispatch failure %q", outcome)
+	}
+	return nil
+}
+
+// pollOn is a station's real long-poll on instance b: each job it is handed goes to the
+// station's own serving loop (which posts the stream and the signed result back).
+func (s *mh6State) pollOn(ctx context.Context, b *broker, st *fstation) {
+	s.loopWG.Add(1)
+	go func() {
+		defer s.loopWG.Done()
+		for ctx.Err() == nil {
+			r := httptest.NewRequest(http.MethodGet, "/agent/poll?node="+st.id, nil).WithContext(ctx)
+			r.Header.Set("Authorization", "Bearer "+st.tun.token)
+			w := httptest.NewRecorder()
+			b.agentPoll(w, r)
+			var job protocol.Job
+			if w.Code != http.StatusOK || w.Body.Len() == 0 || json.Unmarshal(w.Body.Bytes(), &job) != nil {
+				select {
+				case <-ctx.Done():
+				case <-time.After(10 * time.Millisecond):
+				}
+				continue
+			}
+			select {
+			case st.tun.jobs <- job:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 func (s *mh6State) holdCoveredPlan() error {

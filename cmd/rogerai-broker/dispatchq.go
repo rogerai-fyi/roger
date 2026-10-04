@@ -85,6 +85,11 @@ var (
 	// dqAfterPop is a TEST HOOK run between a poll's pop and its handoff (nil in production);
 	// returning true simulates the process dying at that point.
 	dqAfterPop func(inst string) (crashed bool)
+	// dqBeforeDispatch is a TEST HOOK run as a queue dispatch starts (nil in production): the
+	// dispatch-failure scenarios use it to change REAL state at the one moment that matters
+	// (the station drops off air, the store fails) between the pick and the dispatch. The
+	// returned func, when non-nil, runs as the dispatch call returns.
+	dqBeforeDispatch func(nodeID string) (after func())
 )
 
 var (
@@ -534,6 +539,11 @@ func (b *broker) nodeLive(nodeID string) bool {
 }
 
 func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTicket, error) {
+	if h := dqBeforeDispatch; h != nil {
+		if after := h(nodeID); after != nil {
+			defer after()
+		}
+	}
 	if !q.b.nodeLive(nodeID) {
 		q.b.stats.dqOffAir.Add(1)
 		return nil, errOffAir
