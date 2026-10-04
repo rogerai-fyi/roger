@@ -56,3 +56,21 @@ test("app screenshots on the dark site: dimmed, never inverted, on a warm dark-g
   // the terminal and browser plates are dark captures and stay out of it
   assert.doesNotMatch(c, /\[data-theme="dark"\] \.app-tile img \{[^}]*filter/);
 });
+
+/* ---- the Playbox maker's plate when the broker is out of reach ---------------------- */
+
+// When the broker can't be reached the plate's status reads "couldn't reach the broker
+// just now - retrying". At 390 it was squeezed beside PLAYBOX into a three-line column
+// that ran up against the corner screw. The plate wraps instead: a status that fits stays
+// beside the name, a long one drops to its own line under it (a full line, so it reads
+// from the left), at a reading line-height. (Checked rendered at 390 with the broker request blocked.)
+test("playbox plate: a long status wraps onto its own line instead of squeezing", () => {
+  const c = css("playbox.css");
+  const plate = c.match(/\.pg-bench__plate \{([^}]*)\}/)?.[1] || "";
+  assert.match(plate, /flex-wrap:\s*wrap/, "the plate wraps");
+  assert.match(plate, /row-gap:\s*var\(--s-1\)/, "a small step between its lines");
+  const status = c.match(/\.pg-bench__status \{([^}]*)\}/)?.[1] || "";
+  assert.match(status, /line-height:\s*1\.5/, "the status reads at a body line-height when it wraps");
+  assert.match(status, /align-items:\s*flex-start/, "its lamp keeps to the first line");
+  assert.match(c, /\.pg-bench__status \.livedot \{[^}]*margin-top:\s*calc\(\(1\.5em - var\(--dot-size\)\) \/ 2\)/, "centred on that line");
+});
