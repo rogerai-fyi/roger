@@ -379,16 +379,18 @@
   fetch(BROKER + "/account", { credentials: "include" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (acct) {
-      if (!acct || !(acct.github_login || acct.github_id)) {
+      if (!acct) {
         location.replace("/login.html");
         return;
       }
-      text("who", "@" + (acct.github_login || "you"));
+      text("who", RogerFmt.handle(acct.github_login));
       show("card");
       wireLogout();
       return fetch(BROKER + "/metrics/series?days=" + DAYS, { credentials: "include" })
         .then(function (r) {
-          if (r.status === 401 || r.status === 403) { location.replace("/login.html"); return null; }
+          // NEVER bounce to /login.html from here: /account just said we are signed in, and
+          // login.html sends a signed-in person straight back - an endless refresh loop. A
+          // feed that refuses a valid session is an error to show, not a reason to sign out.
           if (!r.ok) { hide("dashLoading"); show("dashError"); return null; }
           return r.json();
         })

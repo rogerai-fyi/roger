@@ -463,6 +463,17 @@ func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet 
 // session is exactly githubID != 0. An Apple/web session (githubID == 0) never matches
 // an owner row - not even on a colliding login (the literal "apple" a no-email Apple
 // token used to produce vs the real github.com/apple operator).
+// sessionEnrichOwner resolves the owner row behind a session for the account views: the
+// GitHub row by (login, gid) when the session is a GitHub one, else whatever
+// sessionAnyOwner resolves from the request (an Apple sub or a proven email address).
+func (b *broker) sessionEnrichOwner(r *http.Request, login string, gid int64) (store.Owner, bool) {
+	if o, ok := b.sessionGitHubOwner(login, gid); ok {
+		return o, true
+	}
+	_, o, found, _ := b.sessionAnyOwner(r)
+	return o, found
+}
+
 func (b *broker) sessionGitHubOwner(login string, gid int64) (store.Owner, bool) {
 	if gid == 0 {
 		return store.Owner{}, false
@@ -530,7 +541,7 @@ func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string
 	}
 	// Enrich from the owner record if this login is a bound operator account
 	// (GitHub sessions only - the gid gate, A1).
-	if o, ok := b.sessionGitHubOwner(login, gid); ok {
+	if o, ok := b.sessionEnrichOwner(r, login, gid); ok {
 		out["email"] = o.Email
 		out["created_at"] = o.CreatedAt
 		status := o.ConnectStatus

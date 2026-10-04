@@ -54,7 +54,7 @@ func (b *broker) providerModels(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to manage your models")
 		return
 	}
-	if o.GitHubID == 0 || o.Pubkey == "" {
+	if !hasVerifiedIdentity(o) || o.Pubkey == "" {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}

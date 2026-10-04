@@ -169,6 +169,13 @@
     return el;
   };
 
+  // The signed-in name for display. A GitHub username gets the "@"; an email sign-in's
+  // login IS the address and is shown as-is (never "@a@b.com").
+  R.handle = function (login) {
+    var s = login ? String(login) : "you";
+    return s.indexOf("@") !== -1 ? s : "@" + s;
+  };
+
   if (typeof window !== "undefined") window.RogerFmt = R;
   if (typeof module !== "undefined" && module.exports) module.exports = R; // node test
 })();

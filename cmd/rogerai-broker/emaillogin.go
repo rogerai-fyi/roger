@@ -160,6 +160,8 @@ func (b *broker) emailVerify(w http.ResponseWriter, r *http.Request) {
 	// The person holds the address. Resolve what that MEANS - which is this layer's job,
 	// not the state machine's.
 	login, wallet := addr, walletForEmail(addr)
+	var gid int64
+	var appleSub string
 	if o, ok, err := b.db.OwnerByVerifiedEmail(addr); err == nil && ok {
 		// An account already proved it holds this address. Reach THAT account, its wallet
 		// and its balance rather than minting a parallel one - including when the account
@@ -170,13 +172,21 @@ func (b *broker) emailVerify(w http.ResponseWriter, r *http.Request) {
 		if wl, wok := accountWalletForOwner(o); wok {
 			wallet = wl
 		}
+		// Mint the SAME identity the provider's own callback would, not a gid-less session
+		// that merely borrows its handle: every owner-gated route resolves a session by
+		// (gid, login) or by the Apple sub, so a bare handle matched no owner at all and
+		// the account looked unbound everywhere (payouts, stations, device approval).
+		if o.GitHubID != 0 && o.Login != "" {
+			gid = o.GitHubID
+		}
+		appleSub = o.AppleSub
 	}
 
 	if _, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds); seeded {
 		b.invalidateSeedRemaining()
 	}
 	exp := time.Now().Add(24 * time.Hour).Unix()
-	b.setWebSessionWallet(w, login, 0, wallet, exp)
+	b.setWebSessionFull(w, login, gid, wallet, appleSub, exp)
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "next": safeNext(req.Next)})
 }

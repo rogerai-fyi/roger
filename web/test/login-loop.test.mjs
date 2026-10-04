@@ -1,0 +1,101 @@
+// Regression lock for the login <-> dashboard redirect loop.
+//
+// The bug: after an emailed code was accepted, /account said "signed in" but
+// /metrics/series said 401. dashboard.js answered a 401 with location.replace("/login.html"),
+// and login.html (auth.js) answered "signed in" with location.replace("/dashboard.html"):
+// an endless refresh. The broker half is pinned in cmd/rogerai-broker/emaillogin_dashboard_test.go;
+// this pins the page half, so a future broker-side 401 can NEVER loop the browser again.
+//
+// These run the REAL page scripts in a vm against a fake broker, counting navigations.
+// Run: node --test test/login-loop.test.mjs
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+import path from "node:path";
+import { createRequire } from "node:module";
+
+const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
+const src = (p) => readFileSync(path.join(SRC, p), "utf8");
+const require = createRequire(import.meta.url);
+const Fmt = require(path.join(SRC, "js/fmt.js"));
+
+// A page environment: every element is a permissive stub that records hidden/textContent.
+function page(pathname, routes) {
+  const els = {};
+  const el = (id) =>
+    (els[id] ||= new Proxy(
+      { id, hidden: true, textContent: "", style: {}, classList: { add() {}, remove() {}, toggle() {} } },
+      { get: (t, k) => (k in t ? t[k] : () => el(id + "." + String(k))), set: (t, k, v) => ((t[k] = v), true) },
+    ));
+  const navs = [];
+  const location = { pathname, search: "", replace: (u) => navs.push(u), href: "" };
+  const fetched = [];
+  const fetch = (url, opts) => {
+    const u = String(url).replace("https://broker.rogerai.fm", "");
+    fetched.push(u);
+    const key = Object.keys(routes).find((k) => u.startsWith(k));
+    const status = key ? routes[key].status : 404;
+    const body = key ? routes[key].body : {};
+    return Promise.resolve({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
+  };
+  const document = { getElementById: el, querySelector: () => null, querySelectorAll: () => [], createElement: () => el("new"), cookie: "" };
+  const ctx = vm.createContext({ document, location, fetch, URLSearchParams, console, setTimeout, window: {} });
+  ctx.window = ctx;
+  ctx.RogerFmt = Fmt;
+  return { ctx, els, navs, fetched, run: (file) => vm.runInContext(src(file), ctx, { filename: file }) };
+}
+const settle = () => new Promise((r) => setTimeout(r, 20));
+const SIGNED_IN = { status: 200, body: { github_login: "someone@rogerai.fm", github_id: 0 } };
+
+for (const [status, label] of [[401, "401"], [403, "403"]]) {
+  test(`dashboard: a ${label} from /metrics/series shows an error and does NOT bounce to login`, async () => {
+    const p = page("/dashboard.html", { "/account": SIGNED_IN, "/metrics/series": { status, body: {} } });
+    p.run("js/dashboard.js");
+    await settle();
+    assert.deepEqual(p.navs, [], "a signed-in person must never be sent to /login.html by a feed 401/403");
+    assert.equal(p.els.dashError.hidden, false, "the error state is shown instead");
+  });
+
+  test(`console: a ${label} from /console shows an error and does NOT bounce to login`, async () => {
+    const p = page("/console.html", { "/account": SIGNED_IN, "/console": { status, body: {} } });
+    p.run("js/console.js");
+    await settle();
+    assert.deepEqual(p.navs, []);
+    assert.equal(p.els.cnError.hidden, false);
+  });
+}
+
+test("dashboard: a genuinely logged-out visitor (/account 401) still goes to login", async () => {
+  const p = page("/dashboard.html", { "/account": { status: 401, body: {} } });
+  p.run("js/dashboard.js");
+  await settle();
+  assert.deepEqual(p.navs, ["/login.html"]);
+});
+
+test("login <-> dashboard cannot ping-pong when the feed 401s: total navigations stay bounded", async () => {
+  const routes = { "/account": SIGNED_IN, "/metrics/series": { status: 401, body: {} }, "/me": SIGNED_IN };
+  let hops = 0, at = "/login.html";
+  for (; hops < 10; hops++) {
+    const p = page(at, routes);
+    p.run(at.startsWith("/login") ? "js/auth.js" : "js/dashboard.js");
+    await settle();
+    if (!p.navs.length) break;
+    at = p.navs[0];
+  }
+  assert.ok(hops <= 2, `settled after ${hops} navigations (a loop never settles)`);
+});
+
+test("an email address is shown as the address, never '@a@b.com'", () => {
+  assert.equal(Fmt.handle("someone@rogerai.fm"), "someone@rogerai.fm");
+  assert.equal(Fmt.handle("octocat"), "@octocat");
+  assert.equal(Fmt.handle(""), "@you");
+  assert.equal(Fmt.handle(undefined), "@you");
+});
+
+test("every page that shows the signed-in name uses the shared handle formatter", () => {
+  for (const f of ["js/dashboard.js", "js/console.js", "js/account.js", "js/auth.js"]) {
+    assert.doesNotMatch(src(f), /"@" \+ \((?:acct|a|me)\.github_login/, `${f} must not hand-roll "@"+login`);
+  }
+});

@@ -75,7 +75,7 @@
   if (path.endsWith("/dashboard")) {
     get("/me").then(function (me) {
       if (!me) { location.replace("/login.html"); return; }
-      text("who", "@" + (me.github_login || "you"));
+      text("who", RogerFmt.handle(me.github_login));
       text("balance", cr(me.balance));
       text("spend", cr(me.spend));
       renderRecent(me.recent);
@@ -85,7 +85,7 @@
   } else if (path.endsWith("/console")) {
     get("/account").then(function (a) {
       if (!a) { location.replace("/login.html"); return; }
-      text("who", "@" + (a.github_login || "you"));
+      text("who", RogerFmt.handle(a.github_login));
       show("card");
       wireLogout();
       var node = new URLSearchParams(location.search).get("node");

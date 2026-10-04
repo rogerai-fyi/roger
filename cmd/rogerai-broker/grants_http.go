@@ -59,8 +59,8 @@ func (b *broker) grantsOwner(r *http.Request, body []byte) (store.Owner, bool) {
 	// GitHub sessions only (the gid gate, A1): an Apple WEB session must never manage a
 	// GitHub owner's keys through a login collision - Apple owners manage keys via the
 	// SIGNED leg below (their owner row has no login to collide on).
-	if l, gid, _, sok := b.sessionOwner(r); sok {
-		if rec, found := b.sessionGitHubOwner(l, gid); found {
+	if _, rec, found, sok := b.sessionAnyOwner(r); sok {
+		if found {
 			return rec, true
 		}
 		return store.Owner{}, true
@@ -98,8 +98,8 @@ func (b *broker) grants(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - sign in in the app, run `roger login`, or sign in on the web")
 		return
 	}
-	if (owner.GitHubID == 0 && owner.AppleSub == "") || owner.Pubkey == "" {
-		jsonErr(w, http.StatusForbidden, "creating grants requires a linked operator account (GitHub or Apple sign-in)")
+	if !hasVerifiedIdentity(owner) || owner.Pubkey == "" {
+		jsonErr(w, http.StatusForbidden, "creating grants requires a linked operator account (GitHub, Apple or email sign-in)")
 		return
 	}
 	switch r.Method {
@@ -199,8 +199,8 @@ func (b *broker) grantByID(w http.ResponseWriter, r *http.Request, id string) {
 		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - sign in in the app, run `roger login`, or sign in on the web")
 		return
 	}
-	if (owner.GitHubID == 0 && owner.AppleSub == "") || owner.Pubkey == "" {
-		jsonErr(w, http.StatusForbidden, "managing grants requires a linked operator account (GitHub or Apple sign-in)")
+	if !hasVerifiedIdentity(owner) || owner.Pubkey == "" {
+		jsonErr(w, http.StatusForbidden, "managing grants requires a linked operator account (GitHub, Apple or email sign-in)")
 		return
 	}
 	switch r.Method {
