@@ -114,12 +114,13 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     When aider sends {"model": "openai/qwen3-32b-fp8", "provider": {"max_price": {"completion": 1}}, "messages": [...]}
     Then the broker receives provider.max_price.completion = 1
 
-  Scenario: A guest body with a carrier keeps its own model, a guest body without one is rewritten
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - a carrier never lets it switch model
+  Scenario: A guest body without a carrier is rewritten; with a carrier a foreign model is refused locally
     When the guest sends {"model": "gpt-4o", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8"
     When the guest sends {"model": "gpt-4o", "roger": {"pref": "fast"}, "messages": [...]}
-    Then the broker receives model "gpt-4o"
-    And the broker answers 503 no_match if no station serves "gpt-4o", which the guest sees OpenAI-shaped
+    Then the guest receives a local 400 with error.code "routing_outside_session", OpenAI-shaped
+    And that second request never reaches the broker
 
   @broker
   Scenario: OpenRouter provider slugs in order match no node id and fall back to normal scoring

@@ -25,7 +25,11 @@ type Session struct {
 	BaseURL    string // the local proxy base, e.g. http://127.0.0.1:44017/v1
 	SessionKey string // the per-session bearer secret (env-delivered, never written)
 	Model      string // the tuned band's model
-	Workdir    string // the user's confirmed workdir - the child's cwd, NEVER the scratch dir
+	// Profile is the routing profile the DJ chose on the plate ("" = none). When set, the
+	// guest pins "@profile/<Profile>" as its model and the local proxy resolves it per request
+	// (ROUTING-EXPRESSION-CONTRACT §9); Model stays the band (opencode lists both).
+	Profile string
+	Workdir string // the user's confirmed workdir - the child's cwd, NEVER the scratch dir
 	// ScratchRoot overrides where the session scratch dir is minted ("" = os.TempDir()).
 	ScratchRoot string
 }
@@ -132,6 +136,32 @@ const goldenOpencodeTmpl = `{
 }
 `
 
+// profileOpencodeTmpl is goldenOpencodeTmpl with a routing profile pinned: the models block
+// lists the profile reference AND the band model (so opencode's own picker can still name the
+// band), and "model" pins the reference.
+const profileOpencodeTmpl = `{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "roger": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "RogerAI",
+      "options": {
+        "baseURL": "%s",
+        "apiKey": "{env:%s}"
+      },
+      "models": {
+        "%s": { "name": "%s" },
+        "%s": { "name": "%s" }
+      }
+    }
+  },
+  "model": "roger/%s"
+}
+`
+
+// ProfileModel is the model id a guest pins for a chosen profile: "@profile/<name>".
+func ProfileModel(name string) string { return "@profile/" + name }
+
 // goldenHermesTmpl is the KEYED providers schema - the ONE hermes-0.16.0 path that
 // delivers an api_key to a loopback base_url (model_switch.py:900-931 expands ${VAR}
 // from the env). A bare model_aliases entry resolves to "no-key-required" on loopback
@@ -167,9 +197,16 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 	// YAML ": " hazard) would produce a broken - or injectable - config. Broker band
 	// values never contain these; a value that does is corrupt or hostile.
 	for _, v := range []string{s.Model, s.BaseURL} {
-		if !safeConfigValue(v) {
+		if !safeConfigValue(v) && !(v == s.Model && profileModelRef(v)) {
 			return Launch{}, nil, fmt.Errorf("operator: refusing to materialize %s: unsafe characters in model/base URL", g.Name)
 		}
+	}
+	if s.Profile != "" && !profileModelRef(ProfileModel(s.Profile)) {
+		return Launch{}, nil, fmt.Errorf("operator: refusing to materialize %s: invalid profile name", g.Name)
+	}
+	pin := s.Model // what the guest names as its model: the band, or the profile reference
+	if s.Profile != "" {
+		pin = ProfileModel(s.Profile)
 	}
 	noop := func() error { return nil }
 	switch g.Strategy {
@@ -179,7 +216,7 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 		// pin (a guest must never commit to the user's repo on its own);
 		// --no-show-model-warnings suppresses the unknown-model wall for the band's model.
 		return Launch{
-			Argv: []string{g.Bin, "--model", PrefixOpenAI + s.Model, "--no-show-model-warnings", "--no-auto-commits"},
+			Argv: []string{g.Bin, "--model", PrefixOpenAI + pin, "--no-show-model-warnings", "--no-auto-commits"},
 			Env:  []string{"OPENAI_API_BASE=" + s.BaseURL, "OPENAI_API_KEY=" + s.SessionKey},
 		}, noop, nil
 
@@ -199,6 +236,9 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 		case "opencode":
 			cfg := filepath.Join(dir, "opencode.json")
 			body := fmt.Sprintf(goldenOpencodeTmpl, s.BaseURL, SessionKeyEnv, s.Model, s.Model, s.Model)
+			if s.Profile != "" {
+				body = fmt.Sprintf(profileOpencodeTmpl, s.BaseURL, SessionKeyEnv, pin, pin, s.Model, s.Model, pin)
+			}
 			if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 				_ = os.RemoveAll(dir)
 				return Launch{}, nil, err
@@ -207,7 +247,7 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 				// The argv -m pin beats EVERY config layer: a user project's own opencode.json
 				// loads AFTER OPENCODE_CONFIG in 1.17.11 and could otherwise silently re-route
 				// the guest (config_opencode.feature precedence hazard).
-				Argv: []string{g.Bin, "-m", PrefixRoger + s.Model},
+				Argv: []string{g.Bin, "-m", PrefixRoger + pin},
 				Env:  []string{"OPENCODE_CONFIG=" + cfg, SessionKeyEnv + "=" + s.SessionKey},
 				Dir:  dir,
 			}, cleanupFn(dir), nil
@@ -241,7 +281,7 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 				// --provider pins the generated entry by name and --model pins the band's
 				// model, so neither a default provider nor a fuzzy model pattern can pick
 				// something else.
-				Argv: []string{g.Bin, "--provider", piProviderName, "--model", s.Model},
+				Argv: []string{g.Bin, "--provider", piProviderName, "--model", pin},
 				Env:  []string{piAgentDirEnv + "=" + agentDir, SessionKeyEnv + "=" + s.SessionKey},
 				Dir:  dir,
 			}, cleanupFn(dir), nil
@@ -263,13 +303,13 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 			_ = os.RemoveAll(dir)
 			return Launch{}, nil, err
 		}
-		body := fmt.Sprintf(goldenHermesTmpl, s.BaseURL, SessionKeyEnv, s.Model)
+		body := fmt.Sprintf(goldenHermesTmpl, s.BaseURL, SessionKeyEnv, yamlModel(pin))
 		if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(body), 0o600); err != nil {
 			_ = os.RemoveAll(dir)
 			return Launch{}, nil, err
 		}
 		return Launch{
-			Argv: []string{g.Bin, "-m", PrefixRoger + s.Model},
+			Argv: []string{g.Bin, "-m", PrefixRoger + pin},
 			Env:  []string{"HERMES_HOME=" + home, SessionKeyEnv + "=" + s.SessionKey},
 			Dir:  dir,
 		}, cleanupFn(dir), nil
@@ -304,6 +344,36 @@ func safeConfigValue(v string) bool {
 		}
 	}
 	return true
+}
+
+// profileModelRef reports whether v is exactly "@profile/<slug>" (a lowercase slug of
+// a-z 0-9 - _, 1-64 chars): the client-side profile reference the local proxy resolves
+// (ROUTING-EXPRESSION-CONTRACT §9). The slug alphabet carries no quote, backslash, control or
+// YAML-hazard byte, so the reference is as safe to interpolate as a band model id.
+func profileModelRef(v string) bool {
+	rest, ok := strings.CutPrefix(v, "@profile/")
+	if !ok || rest == "" || len(rest) > 64 {
+		return false
+	}
+	if c := rest[0]; !('a' <= c && c <= 'z' || '0' <= c && c <= '9') {
+		return false
+	}
+	for _, r := range rest {
+		if !('a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// yamlModel renders the model for a YAML plain-scalar slot: a "@profile/" reference starts
+// with a YAML reserved indicator, so it is double-quoted; every other (already validated)
+// value is written verbatim, keeping the approved golden artifacts byte-identical.
+func yamlModel(v string) string {
+	if profileModelRef(v) {
+		return `"` + v + `"`
+	}
+	return v
 }
 
 // describeMissing names the empty money-path field(s) for the refusal error.

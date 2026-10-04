@@ -1,7 +1,7 @@
-package operator
+package operator_test
 
 // guest_routing_bdd_test.go makes features/operator/guest_routing.feature EXECUTABLE where
-// its behavior lives: the REAL materializers of this package (Materialize, the byte-exact
+// its behavior lives: the REAL materializers of this package (operator.Materialize, the byte-exact
 // golden artifacts of config_test.go) and the REAL local proxy (client.ProxyHandlerLive over a
 // ProxyOptionsHolder with the plate's ceiling as its budget), in front of a recording httptest
 // broker (the approved seam for proxy specs).
@@ -35,6 +35,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/operator"
 )
 
 type cf4oAttempt struct {
@@ -67,14 +68,14 @@ type cf4oState struct {
 	spent0   float64
 	extra    string // "opencode is configured to add ..."
 	profile  string // the DJ's plate choice ("" = none)
-	launches map[string]Launch
+	launches map[string]operator.Launch
 	lerr     map[string]error
 	cfgDir   string
 	home     string
 }
 
 func (s *cf4oState) reset(t *testing.T) {
-	*s = cf4oState{t: t, launches: map[string]Launch{}, lerr: map[string]error{}}
+	*s = cf4oState{t: t, launches: map[string]operator.Launch{}, lerr: map[string]error{}}
 	s.cfgDir = t.TempDir()
 	s.home = t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", s.cfgDir)
@@ -317,6 +318,11 @@ func cf4oCanon(v any) string {
 }
 
 func (s *cf4oState) brokerReceives(text string) error {
+	if strings.TrimSpace(text) == "roger.freq on each relayed request" {
+		// The band code travels as the X-Roger-Freq header (founder ruling): the step accepts
+		// either carrier, so one registration covers it without an ambiguous second regex.
+		return s.brokerReceivesFreqEach()
+	}
 	a, err := s.last()
 	if err != nil {
 		return err
@@ -403,13 +409,13 @@ func (s *cf4oState) ownerMaxOut(v string) error {
 
 // ── materialization ────────────────────────────────────────────────────────────────────
 
-func (s *cf4oState) guestByName(name string) (Guest, error) {
-	for _, g := range Registry() {
+func (s *cf4oState) guestByName(name string) (operator.Guest, error) {
+	for _, g := range operator.Registry() {
 		if g.Name == name {
 			return g, nil
 		}
 	}
-	return Guest{}, fmt.Errorf("no registered guest %q", name)
+	return operator.Guest{}, fmt.Errorf("no registered guest %q", name)
 }
 
 func (s *cf4oState) pinnedModel() string {
@@ -424,7 +430,7 @@ func (s *cf4oState) materialize(name string) error {
 	if err != nil {
 		return err
 	}
-	l, cleanup, err := Materialize(g, Session{BaseURL: s.baseURL, SessionKey: s.key, Model: s.pinnedModel(), ScratchRoot: s.cfgDir})
+	l, cleanup, err := operator.Materialize(g, operator.Session{BaseURL: s.baseURL, SessionKey: s.key, Model: s.band, Profile: s.profile, ScratchRoot: s.cfgDir})
 	if err != nil {
 		s.lerr[name] = err
 		return fmt.Errorf("materialize %s with model %q: %v", name, s.pinnedModel(), err)
@@ -461,13 +467,13 @@ func (s *cf4oState) openAndHermes() error {
 	return nil
 }
 
-func (s *cf4oState) lastLaunch() (Launch, string, error) {
+func (s *cf4oState) lastLaunch() (operator.Launch, string, error) {
 	for _, n := range []string{"opencode", "hermes", "aider"} {
 		if l, ok := s.launches[n]; ok {
 			return l, n, nil
 		}
 	}
-	return Launch{}, "", fmt.Errorf("no launch was materialized")
+	return operator.Launch{}, "", fmt.Errorf("no launch was materialized")
 }
 
 func (s *cf4oState) argvExactly(want string) error {
@@ -562,7 +568,7 @@ func (s *cf4oState) goldenOpencode() error {
 	if err != nil {
 		return err
 	}
-	if string(raw) != goldenOpencode {
+	if string(raw) != operator.GoldenOpencode {
 		return fmt.Errorf("opencode.json differs from the approved golden:\n%s", raw)
 	}
 	return nil
@@ -620,8 +626,26 @@ func (s *cf4oState) userConfigNeverWritten() error {
 	return nil
 }
 
+// keyInNoFile: the session key is env-delivered by design (operator.Session: "the per-session
+// bearer secret (env-delivered, never written)"), so the claim is about generated FILES only.
 func (s *cf4oState) keyInNoFile() error {
-	return s.codeNowhere(s.key)
+	for name, l := range s.launches {
+		if l.Dir == "" {
+			continue
+		}
+		err := filepath.Walk(l.Dir, func(p string, fi os.FileInfo, err error) error {
+			if err == nil && !fi.IsDir() {
+				if b, _ := os.ReadFile(p); bytes.Contains(b, []byte(s.key)) {
+					return fmt.Errorf("%s writes the session key into %s", name, p)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ── cost meter ─────────────────────────────────────────────────────────────────────────
@@ -819,6 +843,8 @@ func TestGuestRoutingBDD(t *testing.T) {
 			sc.Step(`^the guest's response is OpenAI-shaped exactly as before$`, st.openAIShapedAsBefore)
 			sc.Step(`^the guest receives an OpenAI-shaped 400 "([^"]+)"$`, st.guest400)
 			sc.Step(`^the plate's call counter does not increase$`, st.callCounterSame)
+			sc.Step(`^the guest receives a local 400 with error\.code "([^"]+)", OpenAI-shaped$`, st.guest400Code)
+			sc.Step(`^that second request never reaches the broker$`, st.secondNeverReached)
 			sc.Step("^the guest's `model` is kept as sent because the body carries a routing carrier$", st.keptAsSent)
 			sc.Step(`^the broker answers 503 no_match if no station serves "gpt-4o", which the guest sees OpenAI-shaped$`, st.gpt4oNoMatch)
 			sc.Step(`^the argv is exactly "([^"]+)"$`, st.argvExactly)
@@ -829,7 +855,6 @@ func TestGuestRoutingBDD(t *testing.T) {
 			sc.Step(`^no file is created for aider$`, st.noFileForAider)
 			sc.Step(`^opencode\.json equals the approved golden artifact$`, st.goldenOpencode)
 			sc.Step(`^"([^"]+)" appears in no generated file, no argv, and no env value$`, st.codeNowhere)
-			sc.Step(`^the broker receives roger\.freq on each relayed request$`, st.brokerReceivesFreqEach)
 			sc.Step(`^the user's real ~/\.config/opencode, ~/\.hermes/config\.yaml and aider files are never opened for writing$`, st.userConfigNeverWritten)
 			sc.Step(`^the session key appears in no generated file$`, st.keyInNoFile)
 			sc.Step(`^the broker's final chunk carries usage\.cost = ([0-9.]+) and usage\.rogerai\.receipt$`, st.finalChunkCarries)
@@ -852,4 +877,32 @@ func TestGuestRoutingBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("features/operator/guest_routing.feature: failing scenarios")
 	}
+}
+
+// guest400Code: an OpenAI-shaped local 400 carrying error.code (corrected 2026-10-04: a guest
+// may only tighten, so a foreign model with a carrier is refused by the proxy).
+func (s *cf4oState) guest400Code(code string) error {
+	if s.code != 400 {
+		return fmt.Errorf("guest status %d, want 400: %s", s.code, s.body)
+	}
+	var e struct {
+		Error struct{ Type, Code string } `json:"error"`
+	}
+	if json.Unmarshal(s.body, &e) != nil || e.Error.Type == "" {
+		return fmt.Errorf("the 400 is not OpenAI-shaped: %s", s.body)
+	}
+	if e.Error.Code != code {
+		return fmt.Errorf("error.code %q, want %q", e.Error.Code, code)
+	}
+	return nil
+}
+
+// secondNeverReached: the last guest request added no broker hit.
+func (s *cf4oState) secondNeverReached() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.hits) > s.mark {
+		return fmt.Errorf("%d request(s) reached the broker after the refused send", len(s.hits)-s.mark)
+	}
+	return nil
 }
