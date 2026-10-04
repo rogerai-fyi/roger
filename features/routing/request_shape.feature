@@ -290,13 +290,15 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"trust_min": 2}                             | roger.trust_min               |
       | "roger": {"trust_min": true}                          | roger.trust_min               |
 
+    # corrected 2026-10-04 (founder-approved): 0 is accepted as the LOWER bound meaning no floor ([0, 8] = up to 8B); 0 anywhere else is refused; [0, 70] moved out of this table
     Examples: roger.params_b / min_ctx / min_tps / max_ttft_ms
       | fragment                                              | path                          |
       | "roger": {"params_b": 7}                              | roger.params_b                |
       | "roger": {"params_b": [7]}                            | roger.params_b                |
       | "roger": {"params_b": [7, 70, 100]}                   | roger.params_b                |
       | "roger": {"params_b": [70, 7]}                        | roger.params_b                |
-      | "roger": {"params_b": [0, 70]}                        | roger.params_b                |
+      | "roger": {"params_b": [0, 0]}                         | roger.params_b                |
+      | "roger": {"params_b": [8, 0]}                         | roger.params_b                |
       | "roger": {"params_b": [-1, 70]}                       | roger.params_b                |
       | "roger": {"params_b": ["7", "70"]}                    | roger.params_b                |
       | "roger": {"params_b": ["NaN", 70]}                    | roger.params_b                |

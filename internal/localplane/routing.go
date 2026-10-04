@@ -297,11 +297,13 @@ func (lr localRouting) constraintMiss(stations []stationView, model string) stri
 	}
 	switch {
 	case lr.only != nil:
-		return "no local station matches: only " + strings.Join(sortedSet(lr.only), ",") + " for " + model
+		// The constraint is named, never the requested ids: echoing them would let a caller probe
+		// which ids exist (founder ruling 2026-10-04).
+		return "no local station matches: only for " + model
 	case lr.ignore != nil:
 		return "no local station matches: ignore removed every station for " + model
 	case lr.noFallbacks && len(lr.order) > 0:
-		return "no local station matches: order " + strings.Join(lr.order, ",") + " for " + model
+		return "no local station matches: order for " + model
 	}
 	return "no local station matches for " + model
 }
@@ -334,15 +336,6 @@ func setOf(ids []string) map[string]bool {
 		m[id] = true
 	}
 	return m
-}
-
-func sortedSet(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func containsID(xs []string, x string) bool {

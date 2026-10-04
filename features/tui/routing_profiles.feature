@@ -153,10 +153,11 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     Then the "more above / more below" hints appear and nothing scrolls the alt buffer
     And the detail plate is dropped before any table row when height is short
 
+  # corrected 2026-10-04 (founder-approved): the value being typed is never clipped (TestEditBoxKeepsTheValueAtEveryWidth); the key hints drop first
   Scenario: The plate fits a 60-column terminal without breaking its border
     Given a 60-column terminal
     When the operator focuses "region" with value "eu,us,apac,latam"
-    Then the plate's right border is on screen and the value is truncated with "…" before the keys are dropped
+    Then the plate's right border is on screen, the value is shown whole, and the key hints are dropped before the value is clipped
 
   Scenario: The editor stays mono + red: no new colors, no grids, no glows
     When the operator opens [3] CONFIG with every field set

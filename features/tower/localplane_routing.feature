@@ -1,8 +1,6 @@
-# BUILD STATUS: PARTIAL (2026-10-04). Built: models[], provider.only / ignore / order /
-# allow_fallbacks over local station ids, evaluated trust_min / confidential, named ignored keys,
-# /v1/models, scripts/localplane-routing-smoke.sh (live-run PASS). Red: "Public identity in a
-# routing body is ignored and never reflected" contradicts the approved "only s9" no_match message
-# (an unattached id cannot be told apart from a public one); awaiting a founder ruling.
+# BUILD STATUS: BUILT. 2026-10-04: models[], provider.only / ignore / order / allow_fallbacks
+# over local station ids, evaluated trust_min / confidential, named ignored keys, messages that
+# name the constraint and never the requested ids, /v1/models, scripts/localplane-routing-smoke.sh.
 # STANDALONE TOWER - the Core-free local plane and the routing body object (CONTRACT §1, §5, §6).
 #
 # PURPOSE: a client on a private network sends the same body object it would send the public
@@ -123,7 +121,8 @@ Feature: The standalone Tower honors the routing keys it can evaluate and names 
 
   Scenario: PROPOSED - only with no local match is a 503 no_match that names the constraint
     When "c1" posts {"model": "qwen3-32b", "provider": {"only": ["s9"]}, "messages": [...]}
-    Then the response is 503 with error code "no_match" and message "no local station matches: only s9 for qwen3-32b"
+    # corrected 2026-10-04 (founder-approved): messages name the constraint, never the requested ids (no reflection, no probing)
+    Then the response is 503 with error code "no_match" and message "no local station matches: only for qwen3-32b"
     And the response carries no Retry-After (nothing is cooling on a local plane)
     And nothing is queued
 

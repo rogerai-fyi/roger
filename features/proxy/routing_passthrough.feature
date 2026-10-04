@@ -241,10 +241,13 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Then the broker receives roger.confidential = true
     And one proxy log line says "guest confidential=false ignored: owner requires confidential"
 
-  Scenario: The guest cannot loosen the owner's self-hosted-only, trust or region
+  # corrected 2026-10-04 (founder-approved): a guest region outside the owner's is refused with the local 400 (the scenario below), never clamped; this one covers the knobs that clamp
+  Scenario: The guest cannot loosen the owner's self-hosted-only or trust, and a guest region outside the owner's is refused
     Given the proxy owner tuned with --self-hosted --trust verified --region eu
-    When a chat request arrives with "roger": {"self_hosted_only": false, "trust_min": "any", "region": ["us"]}
+    When a chat request arrives with "roger": {"self_hosted_only": false, "trust_min": "any"}
     Then the broker receives roger.self_hosted_only = true, roger.trust_min = "verified", roger.region = ["eu"]
+    When a chat request arrives with "roger": {"region": ["us"]}
+    Then the guest receives an OpenAI-shaped 400 "region us is outside this session's allowed regions"
 
   Scenario: The guest may narrow the owner's region
     Given the proxy owner tuned with --region eu,us

@@ -564,15 +564,18 @@ func (s *tp4TUI) focusesWithValue(field, value string) error {
 	return nil
 }
 
-func (s *tp4TUI) plateBorderTruncated() error {
+// plateBorderValueWhole: nothing overflows the terminal, and the focused value being typed is
+// on screen whole (TestEditBoxKeepsTheValueAtEveryWidth: the value is never clipped; the key
+// hints are what give way on a narrow terminal).
+func (s *tp4TUI) plateBorderValueWhole() error {
 	v := s.view()
 	for _, ln := range strings.Split(v, "\n") {
 		if lipgloss.Width(ln) > s.m.width {
 			return fmt.Errorf("a line is %d wide on a %d-column terminal: %q", lipgloss.Width(ln), s.m.width, ln)
 		}
 	}
-	if !strings.Contains(v, "…") {
-		return fmt.Errorf("the long region value is not truncated with …:\n%s", v)
+	if !strings.Contains(v, "eu,us,apac,latam") {
+		return fmt.Errorf("the focused region value is not shown whole:\n%s", v)
 	}
 	return nil
 }
@@ -1813,7 +1816,7 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			sc.Step(`^the detail plate is dropped before any table row when height is short$`, func() error { return st.plateDroppedFirst() })
 			sc.Step(`^a (\d+)-column terminal$`, func(w int) error { return st.columns(w) })
 			sc.Step(`^the operator focuses "([^"]*)" with value "([^"]*)"$`, func(a, b string) error { return st.focusesWithValue(a, b) })
-			sc.Step(`^the plate's right border is on screen and the value is truncated with "…" before the keys are dropped$`, func() error { return st.plateBorderTruncated() })
+			sc.Step(`^the plate's right border is on screen, the value is shown whole, and the key hints are dropped before the value is clipped$`, func() error { return st.plateBorderValueWhole() })
 			sc.Step(`^the operator opens \[3\] CONFIG with every field set$`, func() error { return st.everyFieldSet() })
 			sc.Step(`^only the existing styles \(dim, ink, ember, live, brand, selection bar\) are used$`, func() error { return st.onlyExistingStyles() })
 			sc.Step(`^NO_COLOR renders every field legibly$`, func() error { return st.noColorLegible() })

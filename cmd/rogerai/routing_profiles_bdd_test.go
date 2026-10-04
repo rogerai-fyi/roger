@@ -73,9 +73,12 @@ type cf4State struct {
 
 	stationModels map[string]bool
 
-	asserted []string // body keys asserted by "the tune-time body carries" in this scenario
-	tuneBody map[string]any
-	tuneRaw  []byte
+	asserted  []string // body keys asserted by "the tune-time body carries" in this scenario
+	tuneBody  map[string]any
+	tuneRaw   []byte
+	tuneHdr   http.Header
+	bandCode  string // the one band code the front answers /bands/resolve for
+	bandModel string
 
 	resolved    map[string]any // "the body object"
 	resolvedRaw []byte
@@ -147,10 +150,26 @@ func (s *cf4State) ensure() error {
 		s.hitsMu.Lock()
 		s.hits = append(s.hits, cf4Hit{method: r.Method, path: r.URL.Path, body: b})
 		m404 := s.models404
+		code, bandModel := s.bandCode, s.bandModel
 		s.hitsMu.Unlock()
 		if m404 && r.URL.Path == "/v1/models" {
 			http.NotFound(w, r)
 			return
+		}
+		// A private band needs a GitHub-linked owner, which a subprocess harness cannot log in
+		// as; so the band LOOKUP for the one scripted code is answered here (same precedent as
+		// the /v1/models 404 above). The chat itself, and the header under test, still go to the
+		// real broker through the recorder.
+		if code != "" && r.URL.Path == "/bands/resolve" {
+			var q struct {
+				Freq string `json:"freq"`
+			}
+			_ = json.Unmarshal(b, &q)
+			if q.Freq == code {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"offers":[{"node_id":"n-band","model":%q,"price_in":0,"price_out":0,"online":true}],"band":{"display":"private band"}}`, bandModel)
+				return
+			}
 		}
 		rp.ServeHTTP(w, r)
 	}))
@@ -592,7 +611,7 @@ func (s *cf4State) tuneTimeBody() (map[string]any, []byte, error) {
 	if err := json.Unmarshal(h.body, &m); err != nil {
 		return nil, nil, fmt.Errorf("broker-bound body is not JSON: %v", err)
 	}
-	s.tuneBody, s.tuneRaw = m, h.body
+	s.tuneBody, s.tuneRaw, s.tuneHdr = m, h.body, h.header
 	return m, h.body, nil
 }
 
@@ -2301,6 +2320,10 @@ func cf4Register(sc *godog.ScenarioContext, s *cf4State) {
 	// Then: tune-time body
 	sc.Step(`^the tune-time body carries ([a-z_.]+) = (.+)$`, s.tuneCarries)
 	sc.Step(`^the tune-time body carries no ([a-z_.]+) key$`, s.tuneCarriesNo)
+	sc.Step(`^the tune-time request carries the X-Roger-Freq header "([^"]+)"$`, s.tuneFreqHeader)
+	sc.Step(`^a private band with code "([^"]+)" resolves for "([^"]+)"$`, s.privateBandResolves)
+	sc.Step(`^the broker verifies tool calling on its stations$`, s.brokerVerifiesTools)
+	sc.Step(`^the band's station has verified tool calling$`, s.bandStationToolsVerified)
 	sc.Step(`^no other routing key is present beyond the always-present default out-cap \(provider\.max_price\.completion = 10\)$`, s.noOtherKeysAsserted)
 	sc.Step(`^no other routing key is present$`, s.noOtherKeysAtAll)
 	sc.Step(`^no routing key is present in the body beyond the always-present default out-cap$`, s.noRoutingKeyBeyondCap)
@@ -2450,4 +2473,73 @@ func TestRoutingFlagsCLIBDD(t *testing.T) {
 
 func TestRoutingProfilesCLIBDD(t *testing.T) {
 	cf4Suite(t, "features/cli/profiles.feature", "../../features/cli/profiles.feature")
+}
+
+// tuneFreqHeader: the band code rides the X-Roger-Freq header of the tune-time request.
+func (s *cf4State) tuneFreqHeader(want string) error {
+	if _, _, err := s.tuneTimeBody(); err != nil {
+		return err
+	}
+	if got := s.tuneHdr.Get("X-Roger-Freq"); got != want {
+		return fmt.Errorf("tune-time X-Roger-Freq = %q, want %q", got, want)
+	}
+	return nil
+}
+
+// brokerVerifiesTools restarts the (still station-less) broker with a 1 s probe interval and
+// makes every station's upstream answer the liveness and tool-call canaries as a tool-capable
+// model would, so the broker's OWN canary grants the tools capability (it never trusts a
+// declared one).
+func (s *cf4State) brokerVerifiesTools() error {
+	if err := s.ensure(); err != nil {
+		return err
+	}
+	s.toolStations = true
+	s.brokerEnv = append(s.brokerEnv, "ROGERAI_PROBE_INTERVAL=1", "ROGERAI_PROBE_CEILING=2")
+	return s.restartBroker()
+}
+
+// bandStationToolsVerified waits until /discover shows the tools capability on a station.
+func (s *cf4State) bandStationToolsVerified() error {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(s.brokerURL + "/discover")
+		if err == nil {
+			var d struct {
+				Offers []struct {
+					NodeID       string   `json:"node_id"`
+					Capabilities []string `json:"capabilities"`
+				} `json:"offers"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&d)
+			resp.Body.Close()
+			for _, o := range d.Offers {
+				for _, c := range o.Capabilities {
+					if c == "tools" {
+						return nil
+					}
+				}
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("no station earned the tools capability within 30 s (broker log tail: %s)", cf4Tail(s.brokerLog.String(), 600))
+}
+
+func cf4Tail(s string, n int) string {
+	if len(s) > n {
+		return s[len(s)-n:]
+	}
+	return s
+}
+
+// privateBandResolves scripts the band lookup for one code (see the front recorder).
+func (s *cf4State) privateBandResolves(code, model string) error {
+	if err := s.ensure(); err != nil {
+		return err
+	}
+	s.hitsMu.Lock()
+	s.bandCode, s.bandModel = code, model
+	s.hitsMu.Unlock()
+	return nil
 }

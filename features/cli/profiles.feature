@@ -134,12 +134,16 @@ Feature: Named routing profiles resolve to the body object on every client
       | a              | listed                           |
       | 65-char-name…  | rejected as "invalid name"       |
 
-  Scenario: A profile named like a model id is still a profile only behind @profile/
+  # corrected 2026-10-04 (founder-approved): a profile with no model on the standalone path asks for a model (approved); --profile applies it to a named model
+  Scenario: A profile named like a model id is still a profile only behind @profile/ or --profile
     Given profile "qwen3-32b" sets roger.pref = "fast"
     When the user runs "roger use qwen3-32b --yes"
     Then the tune-time body carries no roger.pref key
-    When the user runs "roger use @profile/qwen3-32b --yes"
+    When the user runs "roger use qwen3-32b --profile qwen3-32b --yes"
     Then the tune-time body carries roger.pref = "fast"
+    When the user runs "roger use @profile/qwen3-32b --yes"
+    Then the exit code is non-zero
+    And stderr is exactly one line saying "profile qwen3-32b names no model: roger use <model> --profile qwen3-32b"
 
   Scenario: A profile referencing another profile is refused (no nesting)
     Given profile "base" sets roger.pref = "fast"
@@ -408,9 +412,12 @@ Feature: Named routing profiles resolve to the body object on every client
 
   # --- the proxy resolves profiles for guests ------------------------------------------
 
+  # corrected 2026-10-04 (founder-approved): the broker only routes require tools to a station whose tool calling its own canary verified, so the fixture station is a verified one
   Scenario: A guest naming @profile/ gets the profile's routing without headers
-    Given profile "coding" sets roger.require = ["tools"] and provider.max_price.completion = 2
+    Given the broker verifies tool calling on its stations
+    And profile "coding" sets roger.require = ["tools"] and provider.max_price.completion = 2
     And a live proxy session with band model "qwen3-32b"
+    And the band's station has verified tool calling
     When the guest sends {"model": "@profile/coding", "messages": [...]}
     Then the broker receives model = "qwen3-32b", roger.require = ["tools"], provider.max_price.completion = 2
     And the guest's response is unchanged in shape

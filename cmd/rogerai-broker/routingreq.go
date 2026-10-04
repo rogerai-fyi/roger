@@ -221,6 +221,9 @@ func routingNum(raw json.RawMessage) (float64, bool) {
 	return f, true
 }
 
+// routingNull reports whether raw is the JSON literal null.
+func routingNull(raw json.RawMessage) bool { return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) }
+
 func routingBool(raw json.RawMessage) (bool, bool) {
 	var v bool
 	if t := bytes.TrimSpace(raw); !bytes.Equal(t, []byte("true")) && !bytes.Equal(t, []byte("false")) {
@@ -513,8 +516,12 @@ func (rb *routingBody) readRoger(r map[string]json.RawMessage) *routingError {
 		}
 		lo, okLo := routingNum(pair[0])
 		hi, okHi := routingNum(pair[1])
-		if !okLo || !okHi || lo <= 0 || hi <= 0 || lo > hi {
-			return invalidRouting("roger.params_b", "want two positive numbers, min <= max")
+		if routingNull(pair[0]) || routingNull(pair[1]) {
+			okLo = false // a null bound is not a number (routingNum reads null as 0)
+		}
+		// min 0 means no floor ([0, 8] = up to 8B); 0 is allowed only as the lower bound.
+		if !okLo || !okHi || lo < 0 || hi <= 0 || lo > hi {
+			return invalidRouting("roger.params_b", "want [min, max] with 0 <= min <= max and max > 0")
 		}
 		rb.Net.paramsLo, rb.Net.paramsHi = lo, hi
 	}

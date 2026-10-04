@@ -101,11 +101,11 @@ func TestConstraintMissMessages(t *testing.T) {
 	require.Equal(t, "", lr.constraintMiss(st, "m"))
 	require.Equal(t, "no local station matches for x", lr.constraintMiss(st, "x"))
 	lr = localRouting{only: setOf([]string{"s9", "s8"})}
-	require.Equal(t, "no local station matches: only s8,s9 for m", lr.constraintMiss(st, "m"))
+	require.Equal(t, "no local station matches: only for m", lr.constraintMiss(st, "m")) // never echoes ids (founder ruling 2026-10-04)
 	lr = localRouting{ignore: setOf([]string{"s1", "s2"})}
 	require.Equal(t, "no local station matches: ignore removed every station for m", lr.constraintMiss(st, "m"))
 	lr = localRouting{order: []string{"s7"}, noFallbacks: true}
-	require.Equal(t, "no local station matches: order s7 for m", lr.constraintMiss(st, "m"))
+	require.Equal(t, "no local station matches: order for m", lr.constraintMiss(st, "m"))
 }
 
 func TestModelsEndpoint(t *testing.T) {
