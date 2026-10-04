@@ -1488,7 +1488,7 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(ackHeader, "1") // accepted and changes nothing here (node_ack.feature)
 		}
 		_ = json.NewEncoder(w).Encode(job)
-	case <-time.After(25 * time.Second):
+	case <-time.After(agentPollHold):
 		w.WriteHeader(http.StatusNoContent) // re-poll
 	case <-r.Context().Done(): // the node hung up: free the handler now, not at the hold's end
 	}
@@ -1522,7 +1522,7 @@ func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeT
 		wake = pw.wake
 		defer q.retire(pw)
 	}
-	hold := time.NewTimer(25 * time.Second)
+	hold := time.NewTimer(agentPollHold)
 	defer hold.Stop()
 	advertised := false // only a waker (wakeIdle) takes this poll out of the idle set
 	for {
@@ -3152,6 +3152,12 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 // var (not const) so the error-passthrough BDD's timeout scenario can shorten it for one
 // scenario instead of sleeping the full production window; production never mutates it.
 var nonStreamRelayWait = 90 * time.Second
+
+// agentPollHold is how long an idle /agent/poll is held before the broker answers 204 and
+// the node re-polls. A var (not const) for the same reason as nonStreamRelayWait: the
+// multi-instance harnesses shorten it so a teardown racing a node's re-poll does not wait
+// out the full production hold; production never mutates it.
+var agentPollHold = 25 * time.Second
 
 // errNoPoller is the dispatch sentinel for "no provider is long-polling this node on
 // ANY instance right now" - the cross-instance equivalent of a full local job channel.
