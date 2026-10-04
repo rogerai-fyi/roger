@@ -825,6 +825,7 @@ func TestCapNoticeEmailsBDD(t *testing.T) {
 			sc.Step(`^"([^"]+)" is sent the 80% notice$`, st.sentThe80)
 			sc.Step(`^the message contains no wallet id, no device pubkey and no other address$`, st.noIdentifiersInMessage)
 			sc.Step(`^no log line contains "([^"]+)"$`, st.addrNotLogged)
+			st.registerNoticeRulingSteps(sc)
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{"../../features/ops/cap_notice_emails.feature"},

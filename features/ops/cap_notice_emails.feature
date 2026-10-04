@@ -144,10 +144,46 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
     When a request is attributed to its old wallet
     Then no message is sent to "gh@example.com"
 
-  Scenario: Only a verified address is mailed
-    Given an email-login account whose only address on file is unverified
-    When it crosses 80% of its cap
-    Then no message is sent
+  # corrected 2026-10-04 (founder ruling): an email-login address is proven by code by definition,
+  # so the rule binds provider accounts: a notice goes only to an address proven by an emailed code
+  # or reported by the identity provider, never to one typed into the profile until it is proven.
+  Scenario Outline: A provider account's address typed into its profile is not mailed until it is proven
+    Given a <kind> account "<provider>" with a monthly cap of $10.00
+    And the account has spent $7.90 this month
+    And the account changes its profile email to "typed@example.com"
+    When the account relays a paid request that brings its spend to at least $8.00
+    Then no cap notice is sent to "typed@example.com"
+    And no cap notice is sent to "<provider>"
+
+    Examples:
+      | kind          | provider        |
+      | GitHub-linked | gh@example.com  |
+
+  # added 2026-10-04 (founder ruling)
+  Scenario: A typed address is mailed once the account proves it with an emailed code
+    Given a GitHub-linked account "gh@example.com" with a monthly cap of $10.00
+    And the account has spent $7.90 this month
+    And the account changes its profile email to "typed@example.com"
+    And the account proves "typed@example.com" with an emailed code
+    When the account relays a paid request that brings its spend to at least $8.00
+    Then exactly one "Monthly spend at 80%" message is sent to "typed@example.com"
+
+  # added 2026-10-04 (founder ruling)
+  Scenario: Changing a proven address to a new one withdraws the proof until the new one is proven
+    Given a GitHub-linked with a separate verified email account "both@example.com" with a monthly cap of $10.00
+    And the account has spent $7.90 this month
+    And the account changes its profile email to "typed@example.com"
+    When the account relays a paid request that brings its spend to at least $8.00
+    Then no cap notice is sent to "typed@example.com"
+    And no cap notice is sent to "both@example.com"
+
+  # added 2026-10-04 (founder ruling)
+  Scenario: Re-typing the proven address, in any letter case, keeps it mailable
+    Given a GitHub-linked with a separate verified email account "both@example.com" with a monthly cap of $10.00
+    And the account has spent $7.90 this month
+    And the account changes its profile email to its proven address in upper case
+    When the account relays a paid request that brings its spend to at least $8.00
+    Then exactly one "Monthly spend at 80%" message is sent to "both@example.com"
 
   # --- the notice never costs the relay anything ------------------------------------
 

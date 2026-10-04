@@ -195,8 +195,10 @@ func (b *broker) capNoticeAddress(r *http.Request, holder string) string {
 }
 
 // capNoticeMailable returns the owner's notice address when the owner is a live account that
-// resolves to `holder` and its address on file is verified: proven by an emailed code
-// (EmailVerifiedAt), or reported by the identity provider the account signed in with.
+// resolves to `holder` and its address on file is proven: by an emailed code (EmailVerifiedAt),
+// or reported by the identity provider the account signed in with. An address the account typed
+// into its profile (EmailUnproven) is never mailed until it is proven (founder ruling
+// 2026-10-04).
 func capNoticeMailable(o store.Owner, holder string) string {
 	if o.Anonymized || o.Email == "" {
 		return ""
@@ -204,7 +206,7 @@ func capNoticeMailable(o store.Owner, holder string) string {
 	if w, ok := accountWalletForOwner(o); !ok || w != holder {
 		return ""
 	}
-	if o.EmailVerifiedAt != 0 || o.GitHubID != 0 || o.AppleSub != "" {
+	if o.EmailVerifiedAt != 0 || ((o.GitHubID != 0 || o.AppleSub != "") && !o.EmailUnproven) {
 		return o.Email
 	}
 	return ""
