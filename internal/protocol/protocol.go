@@ -596,6 +596,10 @@ type UsageReceipt struct {
 const (
 	VoidUpstreamThrottled = "upstream-throttled" // the provider behind the station said 429: capacity, not misconduct
 	VoidUpstreamError     = "upstream-error"     // any other >= 400 from the station
+	// VoidConsumerRejected: the station's server refused the REQUEST itself (400, 401, 404,
+	// 413, 422 that is not a context-window overflow): a fact about what the consumer sent,
+	// never evidence about the operator (contract §14.1).
+	VoidConsumerRejected = "consumer-rejected"
 	VoidEmptyOutput       = "empty-output"       // a 2xx that carried no usable completion
 	// VoidContextWindow: the upstream refused the prompt as larger than the model's window (a
 	// 400 in the context-overflow vocabulary). It is a fact about the request against that

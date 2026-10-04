@@ -2313,6 +2313,38 @@ func (s *foState) isStatusUpstreamBody(status string) error {
 	return nil
 }
 
+// isStatusConsumerRejected: a client-caused 4xx is one attempt, voided consumer-rejected at $0,
+// answered with the broker's envelope carrying the station's own body (contract §14.1).
+func (s *foState) isStatusConsumerRejected(status string) error {
+	n, _ := strconv.Atoi(status)
+	if s.lastCode != n {
+		return fmt.Errorf("status %d, want %d (%s)", s.lastCode, n, s.lastBody)
+	}
+	var e struct {
+		Error struct {
+			Code     string         `json:"code"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(s.lastBody, &e); err != nil || e.Error.Code != "consumer_rejected" {
+		return fmt.Errorf("body is not the consumer_rejected envelope: %s", s.lastBody)
+	}
+	if raw, _ := e.Error.Metadata["raw"].(string); !strings.Contains(raw, `"error"`) {
+		return fmt.Errorf("error.metadata.raw does not carry the station's body: %s", s.lastBody)
+	}
+	if s.st("s1").upstreamCount() != 1 {
+		return fmt.Errorf("s1 received %d requests, want 1", s.st("s1").upstreamCount())
+	}
+	vr, _, err := s.voidReasonOf("s1")
+	if err != nil {
+		return err
+	}
+	if vr != protocol.VoidConsumerRejected {
+		return fmt.Errorf("s1 void_reason=%q, want %s", vr, protocol.VoidConsumerRejected)
+	}
+	return s.chargedZero()
+}
+
 func (s *foState) receivedNothing(name string) error {
 	if n := s.st(name).upstreamCount(); n != 0 {
 		return fmt.Errorf("%s received %d request(s), want 0", name, n)
@@ -3096,6 +3128,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^"s1"'s receipt is voided with void_reason "([^"]*)"$`, st.s1VoidReason)
 			sc.Step(`^"s1"'s upstream returns (\d+) with (\{.*\})$`, st.s1StatusBody)
 			sc.Step(`^the response is (\d+) with the upstream body \(one attempt, voided as today\)$`, st.isStatusUpstreamBody)
+			sc.Step(`^the response is (\d+) with the station's body wrapped as consumer_rejected \(one attempt, voided at \$0\)$`, st.isStatusConsumerRejected)
 			sc.Step(`^"([^"]*)"'s upstream received nothing$`, st.receivedNothing)
 			sc.Step(`^stations "s1", "s2", "s3", "s4" serve "m" and all upstreams return 429$`, st.fourAll429)
 			sc.Step(`^a funded consumer relays$`, st.fundedRelay)

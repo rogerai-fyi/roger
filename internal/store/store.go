@@ -695,6 +695,12 @@ type Store interface {
 	// Terminal "ban:*" marker strikes are excluded (they are an audit record of the ban,
 	// not an independent signal). `since`<=0 counts all strikes.
 	OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error)
+	// OwnerStrikePayers returns, for an owner's strikes of one kind at or after since: total,
+	// every such row; payerRows, those that RECORD a payer (evidence "payer"); and payers, the
+	// distinct payers behind all of them, where a row with no payer (written before the payer
+	// floor existed) counts as its own payer. Callers discount only payer-bearing rows, so old
+	// evidence keeps its weight.
+	OwnerStrikePayers(accountID, kind string, since int64) (total, payerRows, payers int, err error)
 	// ThrottledCount is the number of a node's receipts the broker voided as
 	// upstream-throttled (an HTTP 429 from the provider behind the station) with a receipt
 	// ts at or after `since` (unix seconds). A throttle is recorded on the $0 receipt, never

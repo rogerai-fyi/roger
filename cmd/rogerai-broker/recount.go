@@ -496,11 +496,25 @@ func voidReasonFor(status int) string {
 	switch {
 	case status == http.StatusTooManyRequests:
 		return protocol.VoidUpstreamThrottled
+	case consumerCaused(status):
+		return protocol.VoidConsumerRejected
 	case status >= 400:
 		return protocol.VoidUpstreamError
 	default:
 		return protocol.VoidEmptyOutput
 	}
+}
+
+// consumerCaused reports whether an upstream status is the station refusing the request
+// itself (contract §14.1): voided at $0, never a strike, never a failover trigger. The
+// context-window 400 is classified before this (voidReasonOf) and keeps its own rule.
+func consumerCaused(status int) bool {
+	switch status {
+	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
+		http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	}
+	return false
 }
 
 // recountModel is the model id to tokenize under: prefer the receipt's claimed

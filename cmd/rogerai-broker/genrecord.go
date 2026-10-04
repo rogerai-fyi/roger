@@ -216,6 +216,9 @@ func (b *broker) genAttemptEndN(requestID string, n int, node string, status int
 			a.Node = node
 		}
 		a.Status, a.VoidReason, a.RetryAfterS = status, void, retryAfter
+		if void == protocol.VoidConsumerRejected {
+			a.ErrorCode = void // the attempt's error is the request itself (§14.1)
+		}
 		if !a.start.IsZero() {
 			a.DurationMs = time.Since(a.start).Milliseconds()
 		}

@@ -161,6 +161,10 @@ type streamBill struct {
 	screening *screenJob
 	// keyFields is the key state after settle for the usage chunk (nil for a non-key request).
 	keyFields func() map[string]any
+	// payerKey identifies the payer for the empty-output distinct-payer floor (§14.1).
+	payerKey string
+	// privateBand is a band-code request: its errors never name the station (no oracle).
+	privateBand bool
 }
 
 // resolvePricing decides who pays and at what price for one request:

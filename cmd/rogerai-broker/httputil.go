@@ -90,3 +90,28 @@ func allow(w http.ResponseWriter, r *http.Request, method string) bool {
 	}
 	return true
 }
+
+// upstreamRawCap bounds how much of a station's own error body is echoed under
+// error.metadata.raw (contract §14.1).
+const upstreamRawCap = 4 << 10
+
+// consumerRejectedBody wraps a station's refusal of the request itself (an upstream 400,
+// 401, 404, 413 or 422, contract §14.1) in the broker's envelope: the station's own body
+// under metadata.raw (capped), and the station named unless station is "" (the no-oracle
+// rules: a private band never names its station).
+func consumerRejectedBody(station string, raw []byte) []byte {
+	if len(raw) > upstreamRawCap {
+		raw = raw[:upstreamRawCap]
+	}
+	meta := map[string]any{"raw": string(raw)}
+	if station != "" {
+		meta["station"] = station
+	}
+	b, _ := json.Marshal(map[string]any{"error": map[string]any{
+		"code":     "consumer_rejected",
+		"type":     "invalid_request_error",
+		"message":  "the station refused the request itself (a parameter or size it does not accept); not retried elsewhere",
+		"metadata": meta,
+	}})
+	return b
+}

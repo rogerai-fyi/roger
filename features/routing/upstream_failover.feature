@@ -109,11 +109,14 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
       | is unreachable (station posts 502)       | upstream-error     |
       | returns 200 with an empty completion     | empty-output       |
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): a client-caused 4xx is voided as
+  # consumer-rejected and reaches the consumer wrapped (error.code consumer_rejected, the
+  # station's body under error.metadata.raw); still one attempt, still no failover.
   Scenario Outline: client-caused failures do NOT fail over (the next station would fail the same way)
     Given stations "s1" and "s2" serve "m"
     And "s1"'s upstream returns <status> with <body>
     When a funded consumer relays and the pick lands on "s1"
-    Then the response is <status> with the upstream body (one attempt, voided as today)
+    Then the response is <status> with the station's body wrapped as consumer_rejected (one attempt, voided at $0)
     And "s2"'s upstream received nothing
 
     Examples:

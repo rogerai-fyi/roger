@@ -1794,6 +1794,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	gen.admit() // identified and within its rate limit: from here every outcome is recorded
+	payerKey := strikePayerKey(gok, gc, authed, wallet, clientIP(r))
 	var req struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
@@ -2923,7 +2924,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	plan = trimPlan(plan, maxCost)
 
 	if req.Stream {
-		bill := streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
+		bill := streamBill{payerKey: payerKey, privateBand: len(privateAllow) > 0, user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
 			pubHex: r.Header.Get(protocol.HeaderPubkey), req: r}
 		if kok {
 			bill.keyFields = func() map[string]any { return b.keyChunkFields(akey, keyStart) }
@@ -3087,7 +3088,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// pre-auth hold in FULL, and flag the owner for evidence (Part 4). A $0
 		// metering receipt is still recorded so the request is auditable.
 		if !usable {
-			b.settleVoid(payer, user, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), "")
+			b.settleVoid(payer, user, payerKey, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), "")
 			if res.Status == http.StatusTooManyRequests {
 				b.coolStation(node.NodeID, req.Model, res.RetryAfterSec) // learned: the provider behind this station is at its ceiling
 			}
@@ -3100,11 +3101,19 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				i = next - 1 // the loop increment lands on `next`
 				continue
 			}
-			b.flagStuckOverflow(node.NodeID, offer.Model, rec, res, approxPromptTokens(job.Body))
+			b.flagStuckOverflow(node.NodeID, offer.Model, rec, res, approxPromptTokens(job.Body), payerKey)
 			w.Header().Set("X-RogerAI-Cost", "0")
 			b.setRetryAfter(w.Header(), res) // a final 429/503 always tells the consumer when to come back
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(res.Status)
+			if rec.VoidReason == protocol.VoidConsumerRejected {
+				station := node.NodeID
+				if len(privateAllow) > 0 {
+					station = "" // a private band never names its station
+				}
+				_, _ = w.Write(consumerRejectedBody(station, res.Body))
+				return
+			}
 			_, _ = w.Write(res.Body)
 			return
 		}
@@ -3753,10 +3762,17 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			i = next - 1
 			continue
 		}
-		b.flagStuckOverflow(c.node.NodeID, c.offer.Model, res.Receipt, res, approxPromptTokens(abody))
+		b.flagStuckOverflow(c.node.NodeID, c.offer.Model, res.Receipt, res, approxPromptTokens(abody), bill.payerKey)
 		hint := 0
 		if res.Status == http.StatusTooManyRequests || res.Status == http.StatusServiceUnavailable {
 			hint = b.retryAfterHint(res)
+		}
+		if voidReasonOf(res) == protocol.VoidConsumerRejected {
+			station := c.node.NodeID
+			if bill.privateBand {
+				station = ""
+			}
+			res.Body = consumerRejectedBody(station, res.Body)
 		}
 		lw.fail(res.Status, res.Body, hint)
 		return
@@ -3995,7 +4011,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 					waitPump()
 					res.Body = lw.piped()
 				}
-				b.settleVoid(user, user, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), " (stream)")
+				b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), " (stream)")
 				if res.Status == http.StatusTooManyRequests {
 					b.coolStation(node.NodeID, model, res.RetryAfterSec)
 				}
@@ -4109,18 +4125,22 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 // behind the station throttling: voided and refunded exactly like any other void, kept on
 // the receipt for audit, and NEVER a strike (features/safety/upstream_throttle_not_a_strike).
 // The caller keeps settled=false so its deferred ReleaseHold refunds the hold in full.
-func (b *broker) settleVoid(payer, user, nodeID, model string, rec *protocol.UsageReceipt, res protocol.JobResult, approxTokens int, label string) {
+func (b *broker) settleVoid(payer, user, payerKey, nodeID, model string, rec *protocol.UsageReceipt, res protocol.JobResult, approxTokens int, label string) {
 	rec.VoidReason, rec.UpstreamStatus = voidReasonOf(res), res.Status
 	b.genAttemptEnd(rec.RequestID, nodeID, res.Status, rec.VoidReason, res.RetryAfterSec)
 	if rec.VoidReason == protocol.VoidUpstreamThrottled {
 		log.Printf("THROTTLED upstream-429 user=%s node=%s - $0, hold refunded, not a strike", user, nodeID)
+	} else if rec.VoidReason == protocol.VoidConsumerRejected {
+		// The station's server refused the request itself (§14.1): a fact about what the
+		// consumer sent, so it is voided like any other failure but never strikes the operator.
+		log.Printf("VOID consumer-rejected%s user=%s node=%s status=%d - $0, hold refunded, not a strike", label, user, nodeID, res.Status)
 	} else if rec.VoidReason == protocol.VoidContextWindow {
 		// Whether this is evidence about the operator depends on what happens next: a request
 		// that moves on to another model is never a strike (§3); one that is answered with
 		// this 400 keeps the existing overflow guard (flagStuckOverflow).
 		log.Printf("VOID context-window%s user=%s node=%s model=%s - $0, hold refunded", label, user, nodeID, model)
 	} else {
-		b.maybeFlagEmptyOutput(nodeID, model, *rec, res.Status, approxTokens, string(res.Body))
+		b.maybeFlagEmptyOutput(nodeID, model, *rec, res.Status, approxTokens, string(res.Body), payerKey)
 		log.Printf("VOID no-output%s user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 			label, user, nodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 	}
@@ -4148,9 +4168,9 @@ func voidReasonOf(res protocol.JobResult) string {
 // prompt plausibly overflows the station's declared window, exactly as before model lists
 // existed. A void that failed over to another model is never a strike - the station gained
 // nothing by it, and a station that answers so to everything fails its probe canary.
-func (b *broker) flagStuckOverflow(nodeID, model string, rec protocol.UsageReceipt, res protocol.JobResult, approxTokens int) {
+func (b *broker) flagStuckOverflow(nodeID, model string, rec protocol.UsageReceipt, res protocol.JobResult, approxTokens int, payerKey string) {
 	if voidReasonOf(res) == protocol.VoidContextWindow {
-		b.maybeFlagEmptyOutput(nodeID, model, rec, res.Status, approxTokens, string(res.Body))
+		b.maybeFlagEmptyOutput(nodeID, model, rec, res.Status, approxTokens, string(res.Body), payerKey)
 	}
 }
 
@@ -4821,7 +4841,10 @@ func (b *broker) enterInflight(node string) {
 // station, so it leaves the success average untouched in BOTH directions (exactly as
 // recordToolProbe treats a transient) while still returning the in-flight slot.
 func (b *broker) exitInflightStatus(node string, status int) {
-	if status == http.StatusTooManyRequests {
+	// A consumer-caused refusal (§14.1) is a fact about the request, not the station: it
+	// leaves the average untouched too, so a stream of bad parameters can neither sink nor
+	// pad a station's success rate.
+	if status == http.StatusTooManyRequests || consumerCaused(status) {
 		b.metricsMu.Lock()
 		if b.inflight[node] > 0 {
 			b.inflight[node]--
