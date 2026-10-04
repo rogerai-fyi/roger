@@ -186,7 +186,10 @@ Feature: A monthly spend cap is never overshot, however many requests race for i
     When one request from "acct" for "m" is served by "own"
     Then it is dispatched at $0
 
-  Scenario: A free station request is never refused by the cap (unchanged)
+  # Not "unchanged": on origin/main a 0/0 public station's 1e-6 floor hold (approved
+  # features/money/holds.feature) counts as a paid hold, so an account sitting exactly at its cap
+  # is refused 402 for a free request. The fix exempts the floor hold from the cap check.
+  Scenario: A free station request is never refused by the cap, even exactly at the cap
     Given a free station "f1" is on air for "fm"
     And "acct" has spent $1.00 this month
     When one request from "acct" for "fm" arrives
