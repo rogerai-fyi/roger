@@ -96,9 +96,14 @@
 .app-shot--mac img { border-top: 1px solid var(--hairline); border-radius: 0 0 var(--r-md, 6px) var(--r-md, 6px); }
 /* the tune sheet: crop the empty scrim below the sheet so the plate is all signal */
 .app-shot--crop img { aspect-ratio: 780 / 1100; object-fit: cover; object-position: top; }
-/* the shots are light-UI captures; in the dark room, dim the plate properly
-   so the page doesn't glare - the app's red beacon still reads. */
-[data-theme="dark"] .app-shot img { filter: brightness(.84) contrast(1.04) saturate(.95); border-color: var(--hairline); }
+/* the shots are light-UI captures; in the dark room, adapt, don't invert (founder
+   ruling): the light subject stays light, dimmed so the page doesn't glare, the contrast
+   step rising with it so the capture's own text keeps its contrast, warmed a touch toward
+   the ink room, and seated on a warm dark-grey mat - the app's red beacon still reads. */
+[data-theme="dark"] .app-shot img {
+  filter: brightness(.76) contrast(1.12) sepia(.08);
+  padding: 5px; background: var(--paper-3); border-color: var(--hairline-2);
+}
 [data-theme="dark"] .app-shot img,
 [data-theme="dark"] .app-shot--mac::before { border-top-color: var(--ink-900); }
 [data-theme="dark"] .app-hero__phone { box-shadow: 0 18px 44px rgba(0, 0, 0, .5); }
