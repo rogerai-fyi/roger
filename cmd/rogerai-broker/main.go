@@ -508,7 +508,9 @@ type broker struct {
 	// Station COOLDOWN (cooling.go; features/routing/upstream_failover.feature) - routing
 	// state, never trust: cooling is node -> expiry (this instance's own 429s + the merged
 	// shared set), coolModel the band it was cooling on, coolEvents the last hour's
-	// cooldowns for the founder alert. All guarded by metricsMu (pickFor reads cooling on
+	// cooldowns for the founder alert - a cache of the shared per-station record when a
+	// shared store is wired (the alert counts every instance), the record itself only when
+	// none is or it is unreachable (the alert fails open). All guarded by metricsMu (pickFor reads cooling on
 	// the hot path). coolFallbackOnce logs a shared-store failure exactly once.
 	cooling          map[string]time.Time
 	coolModel        map[string]string

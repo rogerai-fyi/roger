@@ -263,6 +263,13 @@ func (b *broker) coolStation(node, model string, retryAfterSec int) time.Time {
 				log.Printf("cooldown: shared store unavailable (%v) - per-instance cooldown only until it returns", err)
 			})
 		}
+		// The alert's hour of cooldowns is the shared record; the local list above is only
+		// the fallback when the store is unreachable (the alert fails open).
+		if evs, err := b.shared.recordCoolEvent(node, model, now, until, coolingAlertWindow); err == nil {
+			b.metricsMu.Lock()
+			b.coolEvents[node] = evs
+			b.metricsMu.Unlock()
+		}
 	}
 	log.Printf("COOLDOWN node=%s model=%s for=%s (retry_after_sec=%d) - routing around it, not a strike", node, model, d, retryAfterSec)
 	return until
@@ -427,7 +434,29 @@ func (b *broker) checkCoolingAlerts(now time.Time) {
 	}
 	var rows []row
 	var quiet []string
+	var shared map[string]coolRecord
+	if b.shared != nil {
+		shared, _ = b.shared.coolEvents(now, coolingAlertWindow) // nil on error: count locally
+	}
 	b.metricsMu.Lock()
+	if shared != nil {
+		// Every instance counts the same shared record. A station this instance tracked that
+		// the record no longer holds is quiet too, so its local alert mirror clears.
+		if b.coolEvents == nil {
+			b.coolEvents, b.coolModel = map[string][]coolEvent{}, map[string]string{}
+		}
+		for node := range b.coolEvents {
+			if _, ok := shared[node]; !ok {
+				b.coolEvents[node] = nil
+			}
+		}
+		for node, rec := range shared {
+			b.coolEvents[node] = rec.events
+			if rec.model != "" {
+				b.coolModel[node] = rec.model
+			}
+		}
+	}
 	for node, evs := range b.coolEvents {
 		evs = pruneCoolEvents(evs, now.Add(-coolingAlertWindow))
 		if len(evs) == 0 {

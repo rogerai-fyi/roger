@@ -381,6 +381,15 @@ type sharedStore interface {
 	// this round.
 	cooling() (map[string]sharedCooling, error)
 
+	// recordCoolEvent appends one cooldown to the station's shared record of the last window
+	// (features/ops/cooling_alert_shared.feature) and returns that record. The cooling time
+	// the event ADDED is computed in the same atomic step against the shared cooldown expiry,
+	// so two instances cooling a station for one 429 window count it once.
+	recordCoolEvent(node, model string, now, until time.Time, window time.Duration) ([]coolEvent, error)
+	// coolEvents returns every station's shared cooldown record inside the window ending at
+	// now, with its band. A station with no event left in the window is returned empty.
+	coolEvents(now time.Time, window time.Duration) (map[string]coolRecord, error)
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
 }
@@ -389,6 +398,12 @@ type sharedStore interface {
 type sharedCooling struct {
 	until time.Time
 	model string
+}
+
+// coolRecord is one station's shared cooldown events and the band it cooled on.
+type coolRecord struct {
+	model  string
+	events []coolEvent
 }
 
 // streamFrame is one message off the per-job stream bus channel: a raw SSE chunk to
@@ -515,6 +530,12 @@ func (m *memStore) markCooling(string, string, time.Time, time.Duration) error {
 	return errNoSharedStore
 }
 func (m *memStore) cooling() (map[string]sharedCooling, error) { return nil, errNoSharedStore }
+func (m *memStore) recordCoolEvent(string, string, time.Time, time.Time, time.Duration) ([]coolEvent, error) {
+	return nil, errNoSharedStore
+}
+func (m *memStore) coolEvents(time.Time, time.Duration) (map[string]coolRecord, error) {
+	return nil, errNoSharedStore
+}
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -1309,6 +1330,102 @@ func (v *valkeyStore) markCooling(node, model string, until time.Time, ttl time.
 	}
 	v.setUp(true)
 	return nil
+}
+
+// The station's events and its shared expiry share one hash tag, so the record script runs
+// on one cluster slot; the index (station -> band) is a separate key read on the check.
+func coolEvKey(node string) string    { return keyPrefix + "coolev:{" + node + "}" }
+func coolUntilKey(node string) string { return keyPrefix + "coolevuntil:{" + node + "}" }
+
+const coolEvIndexKey = keyPrefix + "coolevidx"
+
+// recordCoolEventScript: KEYS[1] the events (score = at ms, member "at|added|nonce"), KEYS[2]
+// the shared expiry; ARGV now ms, until ms, window ms, nonce. Returns the events in the window.
+var recordCoolEventScript = redis.NewScript(`
+local now, untl, window = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+local prev = tonumber(redis.call('GET', KEYS[2]) or '0')
+local added = untl - now
+if prev > now then
+  if untl < prev then untl = prev end
+  added = untl - prev
+end
+redis.call('SET', KEYS[2], untl, 'PX', window)
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+redis.call('ZADD', KEYS[1], now, now .. '|' .. added .. '|' .. ARGV[4])
+redis.call('PEXPIRE', KEYS[1], window)
+return redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. (now - window), '+inf')
+`)
+
+func parseCoolEvents(members []string) []coolEvent {
+	out := make([]coolEvent, 0, len(members))
+	for _, m := range members {
+		parts := strings.SplitN(m, "|", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		at, err1 := strconv.ParseInt(parts[0], 10, 64)
+		added, err2 := strconv.ParseInt(parts[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		out = append(out, coolEvent{at: time.UnixMilli(at), added: time.Duration(added) * time.Millisecond})
+	}
+	return out
+}
+
+func (v *valkeyStore) recordCoolEvent(node, model string, now, until time.Time, window time.Duration) ([]coolEvent, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	members, err := recordCoolEventScript.Run(ctx, v.rdb, []string{coolEvKey(node), coolUntilKey(node)},
+		now.UnixMilli(), until.UnixMilli(), window.Milliseconds(), newInstanceID()).StringSlice()
+	if err == nil {
+		pipe := v.rdb.Pipeline()
+		pipe.HSet(ctx, coolEvIndexKey, node, model)
+		pipe.PExpire(ctx, coolEvIndexKey, 2*window)
+		_, err = pipe.Exec(ctx)
+	}
+	if err != nil {
+		v.noteErr("recordCoolEvent", err)
+		return nil, err
+	}
+	v.setUp(true)
+	return parseCoolEvents(members), nil
+}
+
+func (v *valkeyStore) coolEvents(now time.Time, window time.Duration) (map[string]coolRecord, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	idx, err := v.rdb.HGetAll(ctx, coolEvIndexKey).Result()
+	if err != nil {
+		v.noteErr("coolEvents", err)
+		return nil, err
+	}
+	out := make(map[string]coolRecord, len(idx))
+	if len(idx) == 0 {
+		v.setUp(true)
+		return out, nil
+	}
+	cutoff := "(" + strconv.FormatInt(now.Add(-window).UnixMilli(), 10)
+	pipe := v.rdb.Pipeline()
+	cmds := make(map[string]*redis.StringSliceCmd, len(idx))
+	for node := range idx {
+		cmds[node] = pipe.ZRangeByScore(ctx, coolEvKey(node), &redis.ZRangeBy{Min: cutoff, Max: "+inf"})
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("coolEvents", err)
+		return nil, err
+	}
+	for node, model := range idx {
+		out[node] = coolRecord{model: model, events: parseCoolEvents(cmds[node].Val())}
+	}
+	v.setUp(true)
+	return out, nil
 }
 
 func (v *valkeyStore) cooling() (map[string]sharedCooling, error) {

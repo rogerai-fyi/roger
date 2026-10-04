@@ -204,9 +204,16 @@ func (s *caState) firing(name string) bool {
 	return b.alertFiring["station_cooling:"+s.id()]
 }
 
+// clearedOn: the alert is cleared when the checking instance (B) no longer has it firing AND
+// the shared onset claim is gone, so the next onset pages from any instance. A's local mirror
+// is per-process (alerts.go alertFiring) and clears on A's own next check; no instance can
+// reach into another's memory, so it is not part of what "cleared" means across instances.
 func (s *caState) clearedOn() error {
-	if s.firing("B") || s.firing("A") {
-		return fmt.Errorf("the alert is still firing after an hour without cooldowns")
+	if s.firing("B") {
+		return fmt.Errorf("the alert is still firing on B after an hour without cooldowns")
+	}
+	if s.mr.Exists(alertKeyPrefix + "station_cooling:" + s.id()) {
+		return fmt.Errorf("the shared onset claim for station_cooling is still held after the clear")
 	}
 	return nil
 }
