@@ -7,7 +7,7 @@
 #
 # Pinned by (all green): cmd/rogerai-broker/emaillogin_dashboard_test.go,
 # cmd/rogerai-broker/session_refused_alert_test.go, web/test/login-loop.test.mjs.
-# STATUS: PROPOSED - awaiting founder approval. Not yet wired to godog.
+# STATUS: APPROVED 2026-10-04. Executable: cmd/rogerai-broker/email_session_parity_bdd_test.go.
 
 Feature: An email sign-in is a full account everywhere, and failures never loop the browser
 
