@@ -414,7 +414,6 @@ func relayBroker(db store.Store) *broker {
 		concurrentTPS: map[string]float64{},
 		probeSched:    map[string]*probeState{},
 		streams:       map[string]*streamSink{},
-		quotes:        map[string]priceQuote{},
 		pubOfUser:     map[string]string{},
 		banned:        map[string]bool{},
 		bannedOwners:  map[string]bool{},

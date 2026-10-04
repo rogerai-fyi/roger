@@ -421,7 +421,20 @@ CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
     usr        TEXT NOT NULL,
     amount     DOUBLE PRECISION NOT NULL,
     placed_at  BIGINT NOT NULL);
-CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);`
+CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);
+-- pending_holds_usr: the capped hold (HoldForCapped) sums one wallet's open holds under its row lock.
+CREATE INDEX IF NOT EXISTS pending_holds_usr ON rogerai.pending_holds (usr);
+-- price_quotes: the 24 h price lock (features/money/price_lock_durable.feature). One row per
+-- (payer, station, model); minting is insert-if-absent, an expired row is replaced, so racing
+-- broker instances bill under ONE quote and the promise survives restarts and cache flushes.
+CREATE TABLE IF NOT EXISTS rogerai.price_quotes (
+    usr          TEXT NOT NULL,
+    node         TEXT NOT NULL,
+    model        TEXT NOT NULL,
+    price_in     DOUBLE PRECISION NOT NULL,
+    price_out    DOUBLE PRECISION NOT NULL,
+    locked_until BIGINT NOT NULL,
+    PRIMARY KEY (usr, node, model));`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
@@ -1265,6 +1278,36 @@ func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap floa
 	}
 	res.OK = true
 	return res, tx.Commit()
+}
+
+// QuotePrice returns the live price quote for (user, node, model), minting it from (in, out)
+// with a lock of window when none exists or the existing one has expired. Insert-if-absent:
+// on a conflict with a LIVE row nothing is written and that row is read back, so racing
+// instances all bill under the first quote. See the Store interface.
+func (p *Postgres) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
+	var q PriceQuote
+	until := now.Add(window).UnixNano()
+	err := p.db.QueryRow(`INSERT INTO rogerai.price_quotes(usr,node,model,price_in,price_out,locked_until)
+		VALUES($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (usr,node,model) DO UPDATE SET price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
+			locked_until=EXCLUDED.locked_until
+		WHERE rogerai.price_quotes.locked_until <= $7
+		RETURNING price_in, price_out, locked_until`,
+		user, node, model, in, out, until, now.UnixNano()).Scan(&q.In, &q.Out, &until)
+	switch err {
+	case nil:
+		q.Until = time.Unix(0, until)
+		return q, nil
+	case sql.ErrNoRows: // a live quote already exists: it wins
+		if err := p.db.QueryRow(`SELECT price_in, price_out, locked_until FROM rogerai.price_quotes
+			WHERE usr=$1 AND node=$2 AND model=$3`, user, node, model).Scan(&q.In, &q.Out, &until); err != nil {
+			return q, err
+		}
+		q.Until = time.Unix(0, until)
+		return q, nil
+	default:
+		return q, err
+	}
 }
 
 // ReleaseHoldFor returns a TRACKED reservation idempotently: the atomic DELETE ... RETURNING

@@ -36,7 +36,6 @@ func capBroker(t *testing.T) (*broker, ed25519.PrivateKey, string) {
 		success:      map[string]float64{},
 		trust:        map[string]trustState{},
 		streams:      map[string]*streamSink{},
-		quotes:       map[string]priceQuote{},
 		pubOfUser:    map[string]string{},
 		seedFunds:    100,
 		lockWin:      time.Hour,

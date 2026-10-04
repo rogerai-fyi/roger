@@ -18,7 +18,6 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -85,7 +84,6 @@ type broker struct {
 	localPollAt map[string]time.Time
 	attest      *attestRegistry    // TEE attestation policy + backends + nonce store
 	tps         map[string]float64 // EWMA output tokens/sec per node (measured)
-	quotes      map[string]priceQuote
 	// refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
 	// model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
 	// Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a
@@ -520,13 +518,6 @@ func (b *broker) now() time.Time {
 	return time.Now()
 }
 
-// priceQuote pins the price a user first saw for a (node, model) so an owner's
-// later price change can't surprise them mid-engagement. See lockedPrice.
-type priceQuote struct {
-	in, out float64
-	until   time.Time
-}
-
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7070", "listen address")
 	fee := flag.Float64("fee", defaultFeeRate, "platform take rate")
@@ -703,7 +694,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
 		private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
 		attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, localPollAt: map[string]time.Time{}, attest: loadAttestRegistry(),
-		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
+		streams: map[string]*streamSink{}, db: db,
 		capsules:  newCapsuleStore(),
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
@@ -1052,73 +1043,18 @@ func isStreamRoute(p string) bool {
 // Within that window an owner cannot charge MORE than the quoted price; if they
 // LOWER it, the user gets the lower price (we bill min(quoted, current)). Fair to
 // both: stable/predictable for users, and owners can always cut prices to compete.
-func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	key := user + "|" + node + "|" + model
-	now := time.Now()
-
-	// MULTI-INSTANCE (Stage 2): the 24h price-lock must be honored on ANY instance, so
-	// the quote is shared in Valkey. Read the SHARED quote first (a quote locked on a
-	// peer instance must win here); fall back to the local in-memory quote on a miss or
-	// any bus error (graceful degrade to per-instance locking - never blocks the
-	// request). The in-memory b.quotes stays the authoritative path when the flag is off
-	// (b.shared==nil), so the single-instance behavior is byte-for-byte unchanged.
-	if b.multiInstance && b.shared != nil {
-		if sq, ok := b.sharedQuoteGet(key); ok && now.Before(sq.until) {
-			b.quotes[key] = sq // mirror locally so a later bus outage still honors it
-			return min(sq.in, curIn), min(sq.out, curOut), sq.until
-		}
+//
+// The quote is DURABLE and decided once (store.QuotePrice: insert-if-absent in Postgres),
+// so every broker instance honors it, it survives restarts and shared-store flushes, and
+// racing first requests bill under one quote. The store round trip runs WITHOUT the broker
+// mutex. An error means the lock could not be read: the caller must not bill (an unlocked
+// current price could be a hike) and takes its settle-failure path instead.
+func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time, err error) {
+	q, err := b.db.QuotePrice(user, node, model, curIn, curOut, time.Now(), b.lockWin)
+	if err != nil {
+		return 0, 0, time.Time{}, err
 	}
-
-	q, ok := b.quotes[key]
-	if !ok || now.After(q.until) {
-		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin)}
-		b.quotes[key] = q
-		// Write the new lock through to the shared store so peers honor it. Best-effort:
-		// a failure just means a peer mints its own (equal) quote until the next write.
-		if b.multiInstance && b.shared != nil {
-			b.sharedQuoteSet(key, q)
-		}
-	}
-	return min(q.in, curIn), min(q.out, curOut), q.until
-}
-
-// sharedQuoteKey namespaces a shared price-lock under the cache keyspace (distinct from
-// the market/metrics cache via the "quote:" infix). The quote is small + JSON-encoded.
-func sharedQuoteKey(key string) string { return "quote:" + key }
-
-// sharedQuoteGet reads a cross-instance price-lock. Any miss/bus error returns ok=false
-// so the caller falls back to the local quote (never fails the request).
-func (b *broker) sharedQuoteGet(key string) (priceQuote, bool) {
-	val, found, err := b.shared.cacheGet(sharedQuoteKey(key))
-	if err != nil || !found {
-		return priceQuote{}, false
-	}
-	var w struct {
-		In, Out float64
-		Until   int64
-	}
-	if json.Unmarshal(val, &w) != nil {
-		return priceQuote{}, false
-	}
-	return priceQuote{in: w.In, out: w.Out, until: time.Unix(w.Until, 0)}, true
-}
-
-// sharedQuoteSet write-throughs a price-lock with a TTL == the remaining lock window, so
-// the shared entry expires exactly when the lock would. Best-effort (non-fatal).
-func (b *broker) sharedQuoteSet(key string, q priceQuote) {
-	ttl := time.Until(q.until)
-	if ttl <= 0 {
-		return
-	}
-	w := struct {
-		In, Out float64
-		Until   int64
-	}{q.in, q.out, q.until.Unix()}
-	if body, err := json.Marshal(w); err == nil {
-		_ = b.shared.cacheSet(sharedQuoteKey(key), body, ttl)
-	}
+	return min(q.In, curIn), min(q.Out, curOut), q.Until, nil
 }
 
 // requireBrokerKey mirrors requireLive (see billing.go): when set on the live broker

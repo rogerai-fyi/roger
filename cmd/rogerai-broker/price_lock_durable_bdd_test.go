@@ -12,9 +12,8 @@ package main
 // the station's current price is far above it. Today no durable quote exists, so the probe
 // bills the current price.
 //
-// Two steps cannot be built on origin/main and fail at their Given, naming why: a "slow
-// durable price-lock read" (there is no durable price-lock read to slow down), and "price-
-// lock reads fail on B" (same).
+// The two fault Givens wrap one instance's durable store: "answers price-lock reads after
+// 500 ms" delays QuotePrice, "price-lock reads fail on B" makes it error.
 
 import (
 	"context"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 type plState struct {
@@ -38,6 +38,8 @@ type plState struct {
 	lastCode          int
 	lastHdr           map[string]string
 	freeWindowSet     bool
+	lockErr           map[string]error
+	settleDone        chan struct{}
 }
 
 func (s *plState) plReset() error {
@@ -46,6 +48,7 @@ func (s *plState) plReset() error {
 	}
 	s.priceIn, s.priceOut = 0, 0
 	s.billed, s.untils, s.freeWindowSet = map[string][3]float64{}, map[int64]bool{}, false
+	s.lockErr, s.settleDone = map[string]error{}, nil
 	return nil
 }
 
@@ -61,9 +64,15 @@ func (s *plState) instPL(name string) *broker {
 	return b
 }
 
+// prodLockWin sets the production 24 h lock window (the harness constructors use 1 h).
+func prodLockWin(bs ...*broker) {
+	for _, b := range bs {
+		b.lockWin = 24 * time.Hour
+	}
+}
+
 func (s *plState) twoInstances() error {
-	s.instPL("A")
-	s.instPL("B")
+	prodLockWin(s.instPL("A"), s.instPL("B"))
 	return nil
 }
 
@@ -80,7 +89,11 @@ func (s *plState) serve(c, name string) error {
 		return s.servedFullRelay(c) // the free-window decision lives in the relay, not in lockedPrice
 	}
 	b := s.instPL(name)
-	in, out, until := b.lockedPrice(s.user(c), s.sid(), "m", s.priceIn, s.priceOut)
+	in, out, until, err := b.lockedPrice(s.user(c), s.sid(), "m", s.priceIn, s.priceOut)
+	if err != nil {
+		s.lockErr[c] = err // the settle path bills nothing on a lock error
+		return nil
+	}
 	s.billed[c] = [3]float64{in, out, float64(until.UnixNano())}
 	return nil
 }
@@ -97,7 +110,8 @@ func (s *plState) durableQuote(c string) (float64, float64, time.Time) {
 	probe := s.newBroker()
 	probe.shared = nil
 	probe.multiInstance = false
-	return probe.lockedPrice(s.user(c), s.sid(), "m", 1e6, 1e6)
+	in, out, until, _ := probe.lockedPrice(s.user(c), s.sid(), "m", 1e6, 1e6)
+	return in, out, until
 }
 
 func (s *plState) oneQuoteAt(c string, in, out float64) error {
@@ -129,7 +143,7 @@ func (s *plState) raceAB(c string) error {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, _, until := b.lockedPrice(u, s.sid(), "m", s.priceIn, s.priceOut)
+				_, _, until, _ := b.lockedPrice(u, s.sid(), "m", s.priceIn, s.priceOut)
 				mu.Lock()
 				untils = append(untils, until)
 				mu.Unlock()
@@ -224,20 +238,29 @@ func (s *plState) priceHeader24h() error {
 	return nil
 }
 
-func (s *plState) restartA() error { s.restart(); s.b.multiInstance = true; return nil }
+func (s *plState) restartA() error {
+	s.restart()
+	s.b.multiInstance = true
+	prodLockWin(s.b)
+	return nil
+}
 
 func (s *plState) servedOnFresh(c string) error { return s.serve(c, "A") }
 
 func (s *plState) singleBroker() error {
 	solo := s.newBroker()
 	solo.shared, solo.multiInstance = nil, false
+	prodLockWin(solo)
 	s.b = solo
 	return nil
 }
 
 func (s *plState) servedOnSolo(c string, out float64) error {
 	s.priceOut = out
-	in, o, until := s.b.lockedPrice(s.user(c), s.sid(), "m", s.priceIn, s.priceOut)
+	in, o, until, err := s.b.lockedPrice(s.user(c), s.sid(), "m", s.priceIn, s.priceOut)
+	if err != nil {
+		return err
+	}
 	s.billed[c] = [3]float64{in, o, float64(until.UnixNano())}
 	return nil
 }
@@ -245,24 +268,69 @@ func (s *plState) servedOnSolo(c string, out float64) error {
 func (s *plState) soloRestart() error {
 	solo := s.newBroker()
 	solo.shared, solo.multiInstance = nil, false
+	prodLockWin(solo)
 	s.b = solo
 	return nil
 }
 
 func (s *plState) servedSolo(c string) error {
-	in, o, until := s.b.lockedPrice(s.user(c), s.sid(), "m", s.priceIn, s.priceOut)
+	in, o, until, err := s.b.lockedPrice(s.user(c), s.sid(), "m", s.priceIn, s.priceOut)
+	if err != nil {
+		return err
+	}
 	s.billed[c] = [3]float64{in, o, float64(until.UnixNano())}
 	return nil
 }
 
 func (s *plState) flush() error { s.mr.FlushAll(); return nil }
 
-func (s *plState) slowDurable() error {
-	return fmt.Errorf("cannot construct on origin/main: there is no durable price-lock read to slow down (lockedPrice reads process memory and the evictable cache keyspace, under b.mu)")
+// quoteFaultStore wraps a durable store so price-lock reads are slow or fail.
+type quoteFaultStore struct {
+	store.Store
+	delay time.Duration
+	fail  bool
 }
 
-func (s *plState) settling(string) error { return nil }
-func (s *plState) lockWithin50() error   { return nil }
+func (q quoteFaultStore) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (store.PriceQuote, error) {
+	if q.fail {
+		return store.PriceQuote{}, fmt.Errorf("price lock store unreachable")
+	}
+	time.Sleep(q.delay)
+	return q.Store.QuotePrice(user, node, model, in, out, now, window)
+}
+
+func (s *plState) slowDurable() error {
+	a := s.instPL("A")
+	a.db = quoteFaultStore{Store: a.db, delay: 500 * time.Millisecond}
+	return nil
+}
+
+// settling starts a settle-time price-lock read on A and returns while it is in flight.
+func (s *plState) settling(c string) error {
+	a := s.instPL("A")
+	s.settleDone = make(chan struct{})
+	go func() {
+		defer close(s.settleDone)
+		_, _, _, _ = a.lockedPrice(s.user(c), s.sid(), "m", s.priceIn, s.priceOut)
+	}()
+	time.Sleep(50 * time.Millisecond) // the read is now inside its 500 ms delay
+	return nil
+}
+
+func (s *plState) lockWithin50() error {
+	a := s.instPL("A")
+	start := time.Now()
+	a.mu.Lock()
+	waited := time.Since(start)
+	a.mu.Unlock()
+	if s.settleDone != nil {
+		<-s.settleDone
+	}
+	if waited > 50*time.Millisecond {
+		return fmt.Errorf("the routing lock was held for %s during a price-lock read", waited.Round(time.Millisecond))
+	}
+	return nil
+}
 
 func (s *plState) freeWindow() error {
 	st := s.st("s1")
@@ -305,11 +373,51 @@ func (s *plState) noQuote(c string) error {
 }
 
 func (s *plState) readsFailOnB() error {
-	return fmt.Errorf("cannot construct on origin/main: there is no durable price-lock read that can fail (the quote lives in process memory and the evictable cache keyspace)")
+	b2 := s.instPL("B")
+	b2.db = quoteFaultStore{Store: b2.db, fail: true}
+	return nil
 }
 
-func (s *plState) notAbove(c string, out float64) error { return s.billedOut(c, out) }
-func (s *plState) holdReleased(string) error            { return nil }
+func (s *plState) notAbove(c string, out float64) error {
+	if s.lockErr[c] != nil {
+		return nil // the lock could not be read: nothing is billed at all
+	}
+	return s.billedOut(c, out)
+}
+
+// holdReleased runs a real paid relay on B (whose price-lock reads fail) and checks the
+// ledger: the body is served, nothing is captured, and no hold is left open.
+func (s *plState) holdReleased(string) error {
+	wallet, priv, err := psGitHubConsumer(s.foState)
+	if err != nil {
+		return err
+	}
+	// The harness's stations report results to instance A only, so the real relay runs on A
+	// with A's price-lock reads failing exactly as B's do: the rule is per serving instance.
+	a := s.instPL("A")
+	savedDB := a.db
+	a.db = quoteFaultStore{Store: savedDB, fail: true}
+	a.multiInstance = false
+	defer func() { a.db, a.multiInstance = savedDB, true }()
+	r := s.relayOn(a, priv, "m", false)
+	if r.code != 200 {
+		return fmt.Errorf("relay with failing price-lock reads = %d %s, want the body served", r.code, r.body)
+	}
+	saved := s.wallet
+	s.wallet = wallet
+	holds, releases, spends, voids, _, lerr := s.ledgerRows()
+	s.wallet = saved
+	if lerr != nil {
+		return lerr
+	}
+	if spends != 0 {
+		return fmt.Errorf("%d spend row(s): the consumer was charged with an unreadable price lock", spends)
+	}
+	if open := holds - releases - spends - voids; open != 0 {
+		return fmt.Errorf("%d hold(s) left open", open)
+	}
+	return nil
+}
 
 func TestPriceLockDurableBDD(t *testing.T) {
 	fo := &foState{t: t, logs: &utLog{}}

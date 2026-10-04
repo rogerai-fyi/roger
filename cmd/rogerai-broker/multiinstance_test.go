@@ -52,7 +52,6 @@ func newMIBroker(t *testing.T, brokerPriv ed25519.PrivateKey, db store.Store, mr
 		concurrentTPS: map[string]float64{},
 		probeSched:    map[string]*probeState{},
 		streams:       map[string]*streamSink{},
-		quotes:        map[string]priceQuote{},
 		pubOfUser:     map[string]string{},
 		banned:        map[string]bool{},
 		bannedOwners:  map[string]bool{},
@@ -369,22 +368,24 @@ func TestMultiInstanceInflightMerges(t *testing.T) {
 }
 
 // TestMultiInstancePriceLockHolds: a price quoted+locked on instance A is honored on
-// instance B (the 24h price-lock is shared), so an owner cannot raise a user's price by
+// instance B (the 24h price-lock is durable and shared through the store both instances
+// use, as they share Postgres in production), so an owner cannot raise a user's price by
 // landing them on a different instance.
 func TestMultiInstancePriceLockHolds(t *testing.T) {
 	mr := miniredis.RunT(t)
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)
-	a := newMIBroker(t, brokerPriv, store.NewMem(), mr)
-	bInst := newMIBroker(t, brokerPriv, store.NewMem(), mr)
+	db := store.NewMem()
+	a := newMIBroker(t, brokerPriv, db, mr)
+	bInst := newMIBroker(t, brokerPriv, db, mr)
 
 	// User first sees price out=1.0 on instance A -> locked.
-	inA, outA, _ := a.lockedPrice("u1", "n1", "m", 1.0, 1.0)
+	inA, outA, _, _ := a.lockedPrice("u1", "n1", "m", 1.0, 1.0)
 	if outA != 1.0 || inA != 1.0 {
 		t.Fatalf("first quote on A = in %.2f/out %.2f, want 1.0/1.0", inA, outA)
 	}
 	// The owner RAISES the price to 5.0. On instance B the SAME user must still be billed
 	// the locked 1.0, not the new 5.0.
-	inB, outB, _ := bInst.lockedPrice("u1", "n1", "m", 5.0, 5.0)
+	inB, outB, _, _ := bInst.lockedPrice("u1", "n1", "m", 5.0, 5.0)
 	if outB != 1.0 || inB != 1.0 {
 		t.Errorf("locked price on B = in %.2f/out %.2f, want the cross-instance lock 1.0/1.0", inB, outB)
 	}

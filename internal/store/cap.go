@@ -145,3 +145,26 @@ func (m *Mem) HoldForCapped(user, requestID string, amount, monthlyCap float64, 
 	res.OK = true
 	return res, nil
 }
+
+// PriceQuote is a durable 24 h price lock (see Store.QuotePrice).
+type PriceQuote struct {
+	In, Out float64
+	Until   time.Time
+}
+
+// QuotePrice is the in-memory model of the price_quotes table: insert-if-absent under m.mu,
+// an expired quote replaced. See the Store interface.
+func (m *Mem) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.priceQuotes == nil {
+		m.priceQuotes = map[string]PriceQuote{}
+	}
+	key := user + "|" + node + "|" + model
+	if q, ok := m.priceQuotes[key]; ok && now.Before(q.Until) {
+		return q, nil
+	}
+	q := PriceQuote{In: in, Out: out, Until: now.Add(window)}
+	m.priceQuotes[key] = q
+	return q, nil
+}

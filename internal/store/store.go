@@ -136,6 +136,11 @@ type Store interface {
 	// The result says whether the hold landed, whether the cap refused it, and the spend and
 	// pending totals the decision read (for the at-limit headers).
 	HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error)
+	// QuotePrice returns the live 24 h price quote for (user, node, model): the first caller
+	// mints it from (in, out) locked for window; every later caller, on any broker instance,
+	// reads that same quote until it expires, after which the next caller mints a fresh one.
+	// Durable (survives restarts and shared-store flushes) and decided once (insert-if-absent).
+	QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error)
 	// ReleaseHoldFor returns a TRACKED reservation to the user and clears its pending-hold
 	// row, IDEMPOTENTLY: it refunds (and writes the hold_release ledger row) ONLY if the
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is
@@ -861,7 +866,8 @@ type Mem struct {
 	processed   map[string]bool
 	owners      map[string]Owner // keyed by pubkey
 	policy      PayoutPolicy
-	monthlyCap  map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
+	monthlyCap  map[string]float64    // wallet -> explicit monthly spend cap ($); absent = env default
+	priceQuotes map[string]PriceQuote // (user|node|model) -> the durable 24 h price lock (QuotePrice)
 
 	ledger   []LedgerRow     // append-only money events
 	ledgerID int64           // monotonic ledger id

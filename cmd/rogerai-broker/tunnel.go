@@ -2150,6 +2150,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// mid-engagement.
 		var pin, pout float64
 		var until time.Time
+		var lockErr error // an unreadable price lock fails the settle safe (no charge)
 		if pricing.fixed {
 			pin, pout = pricing.in, pricing.out
 		} else {
@@ -2160,7 +2161,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				pin, pout = curIn, curOut
 			} else {
 				// base price in effect - protect from owner hikes for the lock window
-				pin, pout, until = b.lockedPrice(user, node.NodeID, req.Model, curIn, curOut)
+				pin, pout, until, lockErr = b.lockedPrice(user, node.NodeID, req.Model, curIn, curOut)
 			}
 		}
 		rec.PriceIn, rec.PriceOut = pin, pout
@@ -2211,7 +2212,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// station that over-claims must not bill up to a pricier sibling's reservation);
 		// the held amount still goes to settleRequest so Finalize returns the rest.
 		cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
-		newBal, ferr := b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+		var newBal float64
+		var ferr error
+		if lockErr != nil {
+			// never bill a current price that might be a hike over the consumer's lock
+			ferr = fmt.Errorf("price lock unavailable: %w", lockErr)
+		} else {
+			newBal, ferr = b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+		}
 		if ferr != nil {
 			// Settle failed - leave settled=false so the deferred ReleaseHold
 			// refunds the user in full (fail safe toward the customer) and emit no
@@ -2792,6 +2800,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			}
 			b.checkChain(node.NodeID, jobID, rec)
 			var pin, pout float64
+			var lockErr error // an unreadable price lock fails the settle safe (no charge)
 			if pricing.fixed {
 				pin, pout = pricing.in, pricing.out
 			} else {
@@ -2802,7 +2811,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 					// streaming path shares the SAME 24h price-lock the non-stream relay mints -
 					// otherwise a logged-in user's stream would dodge the lock (different key) and
 					// eat an owner's mid-engagement hike. See streamBill.consumer.
-					pin, pout, _ = b.lockedPrice(consumer, node.NodeID, model, curIn, curOut)
+					pin, pout, _, lockErr = b.lockedPrice(consumer, node.NodeID, model, curIn, curOut)
 				}
 			}
 			rec.PriceIn, rec.PriceOut = pin, pout
@@ -2850,7 +2859,13 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			rec.SignBroker(b.priv)
 			// The serving station's own ceiling clamps the bill (see the relay path).
 			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
-			if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {
+			ferr := lockErr
+			if ferr != nil {
+				ferr = fmt.Errorf("price lock unavailable: %w", ferr) // never bill an unlocked price
+			} else {
+				_, ferr = b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+			}
+			if ferr != nil {
 				// settle failed - leave settled=false so the deferred ReleaseHold refunds
 				log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
 			} else {
