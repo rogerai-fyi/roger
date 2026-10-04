@@ -109,5 +109,6 @@ for (const [file, route, err] of [["js/dashboard.js", "/metrics/series", "dashEr
     await settle();
     assert.deepEqual(p.navs, [], "a signed-in person must not be bounced to /login.html by a script error");
     assert.equal(p.els[err].hidden, false);
+    assert.equal(p.els.card.hidden, false, "the error lives INSIDE #card (hidden until shown): it must be visible, not just un-hidden");
   });
 }

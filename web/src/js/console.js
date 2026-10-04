@@ -406,7 +406,7 @@
     .catch(function () {
       // Only a failed /account says "logged out". Any later script error with a confirmed
       // session is an error to show - redirecting here is the login <-> dashboard loop again.
-      if (signedIn) { hide("cnLoading"); show("cnError"); return; }
+      if (signedIn) { show("card"); hide("cnLoading"); show("cnError"); return; }
       location.replace("/login.html");
     });
 })();
