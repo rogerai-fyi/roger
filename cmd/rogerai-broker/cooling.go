@@ -435,8 +435,8 @@ func (b *broker) checkCoolingAlerts(now time.Time) {
 	var rows []row
 	var quiet []string
 	var shared map[string]coolRecord
-	if b.shared != nil {
-		shared, _ = b.shared.coolEvents(now, coolingAlertWindow) // nil on error: count locally
+	if ss := b.sharedLive(); ss != nil {
+		shared, _ = ss.coolEvents(now, coolingAlertWindow) // nil on error: count locally
 	}
 	b.metricsMu.Lock()
 	if shared != nil {

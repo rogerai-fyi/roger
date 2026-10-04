@@ -561,8 +561,8 @@ func (b *broker) checkHealthAlerts() {
 	}
 
 	// Optional shared state layer (Valkey): only a dependency when wired.
-	if b.shared != nil {
-		if b.shared.healthy() {
+	if ss := b.sharedLive(); ss != nil {
+		if ss.healthy() {
 			b.alertClear("valkey_down")
 		} else {
 			b.adminAlert("valkey_down", "shared state (Valkey) unreachable", "Shared state layer (Valkey) is unreachable",

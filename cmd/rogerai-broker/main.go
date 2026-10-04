@@ -288,6 +288,11 @@ type broker struct {
 	sharedPhase    atomic.Int32
 	sharedQuit     chan struct{}
 	sharedQuitOnce sync.Once
+	// sharedUp is closed by wireShared once the store and everything wired through it is
+	// published (nil when bootShared never entered the retry path). Background loops that
+	// read shared state start only after it (startWhenShared).
+	sharedUp     chan struct{}
+	sharedUpOnce sync.Once
 	// dispatchMode is the multi-instance dispatch rollout switch (ROGERAI_DISPATCH, see
 	// dispatchq.go); dq is this instance's end of the dispatch plane, started on first use.
 	dispatchMode dispatchMode
@@ -608,21 +613,26 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	b := buildBroker(db, priv, fee, seed, lock)
 	mux := b.routes()
 
-	if b.probe.enabled() {
-		go b.proberLoop(stop)
-	}
-	go b.reattestSweep(stop)          // drop verified-confidential status that has lapsed its re-attest cadence
-	go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
-	go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
-	go b.reportRetentionSweep(stop)   // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
-	go b.towerInviteSweep(stop)       // delete expired unredeemed Station invitations (consumed ones answer retries)
-	go b.towerCanarySweep(stop)       // probe each Tower with a data plane; a Tower serving nothing is caught here
-	go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
-	go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
-	go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
-	go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
-	go b.alertCheckerLoop(stop)       // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
-	b.scr.start(b.scr.cfg.workers)    // off-path content screening workers (async mode only; a no-op in sync/off)
+	// Loops that read shared state start once the shared store is published (at once when
+	// the broker is not waiting on one). The alert checker starts now: it must page through
+	// a boot outage, and it reads the shared store only through sharedLive.
+	b.startWhenShared(stop, func() {
+		if b.probe.enabled() {
+			go b.proberLoop(stop)
+		}
+		go b.reattestSweep(stop)          // drop verified-confidential status that has lapsed its re-attest cadence
+		go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
+		go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
+		go b.reportRetentionSweep(stop)   // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
+		go b.towerInviteSweep(stop)       // delete expired unredeemed Station invitations (consumed ones answer retries)
+		go b.towerCanarySweep(stop)       // probe each Tower with a data plane; a Tower serving nothing is caught here
+		go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+		go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
+		go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
+		go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
+	})
+	go b.alertCheckerLoop(stop)    // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
+	b.scr.start(b.scr.cfg.workers) // off-path content screening workers (async mode only; a no-op in sync/off)
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 
@@ -864,6 +874,7 @@ func (b *broker) bootShared() {
 	log.Printf("shared-state: configured but not answering (%v) - NOT READY, retrying with backoff until it answers", err)
 	b.sharedPhase.Store(sharedConnecting)
 	b.sharedQuit = make(chan struct{})
+	b.sharedUp = make(chan struct{})
 	go b.retryShared(tp, sharedRetrySleep, b.sharedQuit)
 }
 
@@ -970,6 +981,41 @@ func (b *broker) wireShared(ss sharedStore) {
 		log.Printf("shared-state: node-registry mirror ON (bus OFF - relay dispatch stays local; set ROGERAI_MULTI_INSTANCE=1 before running more than one instance)")
 	}
 	b.sharedPhase.Store(sharedConnected)
+	b.sharedUpOnce.Do(func() {
+		if b.sharedUp != nil {
+			close(b.sharedUp)
+		}
+	})
+}
+
+// sharedLive is the shared store as seen from a goroutine that may have started before the
+// boot retry wired it (the alert checker runs through an outage). wireShared writes every
+// field it wires BEFORE the atomic phase store, so a goroutine that loads "connected" here
+// sees all of it; before then it gets nil and never touches the field the retry is writing.
+func (b *broker) sharedLive() sharedStore {
+	switch b.sharedPhase.Load() {
+	case sharedConnecting, sharedNotConfigured:
+		return nil
+	}
+	return b.shared
+}
+
+// startWhenShared runs start once the shared store is published, or at once when the
+// broker is not waiting on one (single-instance, or already connected at boot). Loops that
+// read shared state must not start while the boot retry may still be writing it. A broker
+// stopped before the store answers never starts them.
+func (b *broker) startWhenShared(stop <-chan struct{}, start func()) {
+	if b.sharedUp == nil {
+		start()
+		return
+	}
+	go func() {
+		select {
+		case <-b.sharedUp:
+			start()
+		case <-stop:
+		}
+	}()
 }
 
 // readinessGate refuses everything but the probes while a broker configured to share state
