@@ -942,6 +942,10 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then the late result is discarded, no second spend exists, and "a1" earns nothing
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 replaces a non-stream
+  # body's usage member with the billed one (billed counts, cost, rogerai block); every other
+  # byte of the station's completion is still passed through unchanged, and that is what
+  # "exactly" / "byte-for-byte" now checks.
   Scenario: an error body from the first model never leaks into the second model's success
     Given "a1" returns 500 with body {"error":"secret-upstream-detail"} and "b1" serves
     When a consumer relays across ["a", "b"]
@@ -1039,6 +1043,10 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
   # 14. COMPATIBILITY - old clients, headers, the proxy
   # ===========================================================================
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 replaces a non-stream
+  # body's usage member with the billed one (billed counts, cost, rogerai block); every other
+  # byte of the station's completion is still passed through unchanged, and that is what
+  # "exactly" / "byte-for-byte" now checks.
   Scenario: a body without models behaves byte-for-byte as before this feature
     Given "a1" and "a2" serve "a" and "a1" 429s
     When a consumer relays with "model": "a" and no list

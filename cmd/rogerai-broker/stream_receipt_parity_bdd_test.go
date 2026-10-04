@@ -1378,23 +1378,27 @@ func (s *sr3State) doneAfterChunk() error {
 	return nil
 }
 
-func (s *sr3State) stationUsageForwarded() error {
-	if s.stationUsage == "" || !bytes.Contains(s.lastBody, []byte(s.stationUsage+"\n\n")) {
-		return fmt.Errorf("the station's usage frame %q was not forwarded unchanged: %.500s", s.stationUsage, s.lastBody)
+func (s *sr3State) stationUsageNotForwarded() error {
+	if s.stationUsage == "" {
+		return fmt.Errorf("the station sent no usage frame in this scenario")
+	}
+	if bytes.Contains(s.lastBody, []byte(s.stationUsage)) {
+		return fmt.Errorf("the station's usage frame %q was forwarded (§14.9): %.500s", s.stationUsage, s.lastBody)
 	}
 	return nil
 }
 
-func (s *sr3State) brokerChunkFollowsStation() error {
-	ci := s.chunkIndex()
-	si := -1
+// onlyBrokerUsage: exactly one event carries a usage object, and it is the broker's chunk.
+func (s *sr3State) onlyBrokerUsage() error {
+	n, at := 0, -1
 	for i, ev := range sr3Events(s.lastBody) {
-		if ev == s.stationUsage {
-			si = i
+		var m map[string]json.RawMessage
+		if json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(ev, "data:"))), &m) == nil && len(m["usage"]) > 0 && string(m["usage"]) != "null" {
+			n, at = n+1, i
 		}
 	}
-	if si < 0 || ci <= si {
-		return fmt.Errorf("the broker's chunk (event %d) does not follow the station's usage frame (event %d)", ci, si)
+	if n != 1 || at != s.chunkIndex() {
+		return fmt.Errorf("%d event(s) carry a usage object (the last at %d, the broker's chunk at %d), want exactly the broker's", n, at, s.chunkIndex())
 	}
 	return nil
 }
@@ -2280,8 +2284,8 @@ func (s *sr3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit("the consumer receives the three content frames as they arrive"), s.threeAsTheyArrive)
 	sc.Step(lit("the consumer does not receive [DONE] before the broker's usage chunk"), s.noDoneBeforeChunk)
 	sc.Step(lit("the consumer receives [DONE] after it"), s.doneAfterChunk)
-	sc.Step(lit("the station's usage frame is forwarded unchanged"), s.stationUsageForwarded)
-	sc.Step(lit("the broker's usage chunk follows it"), s.brokerChunkFollowsStation)
+	sc.Step(lit("the station's usage frame is not forwarded"), s.stationUsageNotForwarded)
+	sc.Step(lit("the broker's usage chunk is the only event with a usage object"), s.onlyBrokerUsage)
 	sc.Step(lit("only the broker's carries usage.rogerai"), s.exactlyOneRogerai)
 	sc.Step(lit("a comment line `: rogerai-cost=<x>` follows the usage chunk"), s.commentFollowsChunk)
 	sc.Step(lit("<x> equals usage.cost formatted by fmtCostHeader"), s.commentEqualsCost)

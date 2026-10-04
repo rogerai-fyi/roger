@@ -769,6 +769,9 @@ func (s *mh6State) resp504Nothing(msg, other string) error {
 func (s *mh6State) claimsAndRecounts(name, cp, cc, rp, rc string) error {
 	st := s.defaultNode(name, s.lastModel)
 	s.recPrompt, s.recCompletion = atoiMust(rp), atoiMust(rc)
+	// The request must be big enough for the claim to be possible: the byte floor clamps a
+	// prompt claim above the body's byte length before the recount is consulted.
+	s.defPrompt = atoiMust(cp)
 	s.scriptOn(st, func(_ int, w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"%s answer"}}],"usage":{"prompt_tokens":%s,"completion_tokens":%s}}`, fa6CompletionMarker, cp, cc)

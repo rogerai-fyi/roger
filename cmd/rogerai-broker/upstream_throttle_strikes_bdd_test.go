@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -1511,4 +1512,46 @@ func TestUpstreamThrottleNotAStrikeBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("safety/upstream_throttle_not_a_strike scenarios failed (see godog output above)")
 	}
+}
+
+// utCompletionAsBilled checks a non-stream answer is the station's completion byte for byte
+// EXCEPT its usage member, which the broker replaces with the billed one (contract §14.9):
+// the counts X-RogerAI-Tokens-In/Out report, the cost X-RogerAI-Cost reports, and a rogerai
+// block naming the serving node. An answer that settled nothing reports $0 and its void
+// reason instead (settle-failed keeps the billed counts; an unverified receipt reports 0).
+func utCompletionAsBilled(got []byte, station string, hdr http.Header) error {
+	got = bytes.TrimSpace(got)
+	var m struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if json.Unmarshal(got, &m) != nil || len(m.Usage) == 0 {
+		return fmt.Errorf("body has no usage member: %.300s", got)
+	}
+	if want := rewriteBody([]byte(station), false, map[string]json.RawMessage{"usage": m.Usage}); !bytes.Equal(got, want) {
+		return fmt.Errorf("body is not the station's completion apart from usage:\n got %.300s\nwant %.300s", got, want)
+	}
+	var u struct {
+		Prompt     int            `json:"prompt_tokens"`
+		Completion int            `json:"completion_tokens"`
+		Total      int            `json:"total_tokens"`
+		Cost       float64        `json:"cost"`
+		RogerAI    map[string]any `json:"rogerai"`
+	}
+	_ = json.Unmarshal(m.Usage, &u)
+	if u.Total != u.Prompt+u.Completion || u.RogerAI["node"] == nil {
+		return fmt.Errorf("usage is not the billed object: %s", m.Usage)
+	}
+	if hdr.Get("X-RogerAI-Tokens-In") == "" {
+		if u.Cost != 0 || u.Prompt+u.Completion > 0 && u.RogerAI["void_reason"] != protocol.VoidSettleFailed || u.RogerAI["void_reason"] == nil {
+			return fmt.Errorf("an unsettled answer's usage must say $0 and why: %s", m.Usage)
+		}
+		return nil
+	}
+	if strconv.Itoa(u.Prompt) != hdr.Get("X-RogerAI-Tokens-In") || strconv.Itoa(u.Completion) != hdr.Get("X-RogerAI-Tokens-Out") {
+		return fmt.Errorf("usage %d/%d, billed headers %s/%s", u.Prompt, u.Completion, hdr.Get("X-RogerAI-Tokens-In"), hdr.Get("X-RogerAI-Tokens-Out"))
+	}
+	if hc, _ := strconv.ParseFloat(hdr.Get("X-RogerAI-Cost"), 64); math.Abs(hc-u.Cost) > 1e-9 {
+		return fmt.Errorf("usage.cost %v, X-RogerAI-Cost %s", u.Cost, hdr.Get("X-RogerAI-Cost"))
+	}
+	return nil
 }

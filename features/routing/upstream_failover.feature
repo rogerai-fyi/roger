@@ -470,6 +470,10 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     When the same request is replayed on the bus (multi-instance duplicate result)
     Then exactly one spend row exists for the request
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 replaces a non-stream
+  # body's usage member with the billed one (billed counts, cost, rogerai block); every other
+  # byte of the station's completion is still passed through unchanged, and that is what
+  # "exactly" / "byte-for-byte" now checks.
   Scenario: failover cannot leak one station's error body into another's success
     Given "s1" 429s with a body naming "s1" and "s2" serves
     When a funded consumer relays

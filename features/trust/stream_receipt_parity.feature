@@ -120,11 +120,14 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
     And the consumer does not receive [DONE] before the broker's usage chunk
     And the consumer receives [DONE] after it
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 reports usage exactly once,
+  # as billed, so the station's usage-only frame is no longer forwarded. Old Then: the
+  # station's usage frame is forwarded unchanged / And the broker's usage chunk follows it.
   Scenario: The station's own usage chunk (if any) passes through before the broker's
     Given "n-1" streams a final frame with usage {"prompt_tokens":120,"completion_tokens":40}
     When a streaming request for "qwen3-32b" is served
-    Then the station's usage frame is forwarded unchanged
-    And the broker's usage chunk follows it
+    Then the station's usage frame is not forwarded
+    And the broker's usage chunk is the only event with a usage object
     And only the broker's carries usage.rogerai
 
   Scenario: The trailing `: rogerai-cost=` comment is still emitted and agrees with the chunk

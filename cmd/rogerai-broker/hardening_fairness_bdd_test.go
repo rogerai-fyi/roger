@@ -108,6 +108,7 @@ type fa6State struct {
 	towerPool                []*fa6Who // funded edge buyers (a bridged attempt holds ~$2 until settled)
 	mailsMark                int
 	bodies                   map[string][][]byte // every body each scripted upstream received, in order
+	defPrompt                int                 // the prompt size (tokens) a relay sends when its spec names none (0 = 50)
 }
 
 // --- lifecycle -------------------------------------------------------------------------------
@@ -122,6 +123,7 @@ func (s *fa6State) reset() error {
 	s.ipN, s.unbound, s.recPrompt, s.recCompletion = 0, 0, 0, 0
 	s.lastModel, s.towerPool, s.mailsMark = "qwen3-32b", nil, 0
 	s.bodies = map[string][][]byte{}
+	s.defPrompt = 0
 	s.model = "qwen3-32b"
 	s.b.lockWin = 24 * time.Hour
 	// A recount sidecar the scenarios can steer: the prompt and completion counts are
@@ -394,6 +396,9 @@ func (s *fa6State) body(sp fa6Spec) []byte {
 		model = s.lastModel
 	}
 	n := sp.prompt
+	if n == 0 {
+		n = s.defPrompt
+	}
 	if n == 0 {
 		n = 50
 	}

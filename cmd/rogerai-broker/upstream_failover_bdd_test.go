@@ -1961,8 +1961,8 @@ func (s *foState) bodyExactlyS2() error {
 	if s.lastCode != 200 {
 		return fmt.Errorf("status %d", s.lastCode)
 	}
-	if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(`{"choices":[{"message":{"role":"assistant","content":"The answer is 4."}}],"usage":{"prompt_tokens":5000,"completion_tokens":20}}`)) {
-		return fmt.Errorf("body is not exactly s2's completion: %s", s.lastBody)
+	if err := utCompletionAsBilled(s.lastBody, utRealCompletionBody, s.lastHdr); err != nil {
+		return fmt.Errorf("s2: %w", err)
 	}
 	if bytes.Contains(s.lastBody, []byte(s.st("s1").id)) {
 		return fmt.Errorf("s1's error body leaked: %s", s.lastBody)
@@ -2222,8 +2222,8 @@ func (s *foState) is200From(name string) error {
 		if !bytes.Contains(s.lastBody, []byte("from "+name)) {
 			return fmt.Errorf("stream is not %s's: %s", name, s.lastBody)
 		}
-	} else if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(utRealCompletionBody)) {
-		return fmt.Errorf("body is not exactly %s's completion: %s", name, s.lastBody)
+	} else if err := utCompletionAsBilled(s.lastBody, utRealCompletionBody, s.lastHdr); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	if p := s.lastHdr.Get("X-RogerAI-Provider"); p != s.st(name).id {
 		return fmt.Errorf("X-RogerAI-Provider=%q, want %s", p, s.st(name).id)

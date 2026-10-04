@@ -3161,6 +3161,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			recOK = false
 		}
 		if !recOK {
+			if res.Status < 400 {
+				// Nothing settles on an unverified receipt: the usage says $0 and why (§14.9).
+				res.Body = withBilledUsage(res.Body, 0, 0, 0, map[string]any{"node": node.NodeID, "model": req.Model, "void_reason": "receipt-invalid"})
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(res.Status)
 			_, _ = w.Write(res.Body)
@@ -3231,6 +3235,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write(consumerRejectedBody(station, res.Body))
 				return
 			}
+			if res.Status < 400 {
+				// A voided 2xx reports $0 and why, never the station's figures (§14.9).
+				res.Body = withBilledUsage(res.Body, 0, 0, 0, map[string]any{"node": node.NodeID, "model": req.Model, "void_reason": rec.VoidReason})
+			}
 			_, _ = w.Write(res.Body)
 			return
 		}
@@ -3258,6 +3266,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// billing headers; the completion body is still returned below.
 			log.Printf("relay settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
 			b.voidSettleFailed(payer, node.NodeID, rec, res.Status)
+			res.Body = withBilledUsage(res.Body, billedPrompt, billedCompletion, 0, map[string]any{
+				"node": node.NodeID, "model": rec.ServedModel(), "void_reason": protocol.VoidSettleFailed})
 		} else {
 			// A free plan captures nothing, so a hold placed for a paid first pick that
 			// failed over to a self-owned/free station is returned by the deferred release.
@@ -3325,6 +3335,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				lockedUntil = until.Unix()
 			}
 			w.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedUntil))
+			// USAGE AS BILLED (§14.9): the body's usage is the billed counts, the cost and the
+			// same rogerai block the stream's usage chunk carries - never the station's claim.
+			res.Body = withBilledUsage(res.Body, billedPrompt, billedCompletion, cost, map[string]any{
+				"receipt": protocol.EncodeReceipt(rec), "node": node.NodeID, "model": rec.ServedModel(),
+				"tokens_in": billedPrompt, "tokens_out": billedCompletion, "tps": tps,
+				"price_in": pin, "price_out": pout, "locked_until": lockedUntil,
+				"balance": round6(newBal),
+			})
 			w.Header().Set("X-RogerAI-TPS", fmt.Sprintf("%.1f", tps))
 			w.Header().Set("X-RogerAI-Quality", ftoa(round6(b.trustScore(node.NodeID))))
 			b.genServe(requestID, i+1, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, tps, protocol.EncodeReceipt(rec))
@@ -3630,8 +3648,8 @@ func (l *lazySSE) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	l.tail = append([]byte(nil), buf[cut+1:]...)
-	ready := l.stripStationRogerai(l.dropDone(buf[:cut+1]))
-	if len(ready) == 0 {
+	ready, dropped := l.stripStationUsage(l.dropDone(buf[:cut+1]))
+	if len(ready) == 0 && !dropped {
 		return len(p), nil
 	}
 	if l.committed {
@@ -3642,7 +3660,9 @@ func (l *lazySSE) Write(p []byte) (int, error) {
 	// Commit on the first content frame (the stream is this station's now), or when the
 	// buffer hits its cap: a station piping 64 KiB of comments/keepalives is streaming, and
 	// holding more back would buffer without bound.
-	if b := l.pre.Bytes(); bytes.HasPrefix(b, []byte("data:")) || bytes.Contains(b, []byte("\ndata:")) || l.pre.Len() >= lazySSEPreCap {
+	// A usage-only frame the broker dropped is still a data frame: the stream is this
+	// station's, exactly as when that frame was forwarded.
+	if b := l.pre.Bytes(); dropped || bytes.HasPrefix(b, []byte("data:")) || bytes.Contains(b, []byte("\ndata:")) || l.pre.Len() >= lazySSEPreCap {
 		l.commitLocked()
 	}
 	return len(p), nil
@@ -3664,38 +3684,49 @@ func (l *lazySSE) dropDone(ready []byte) []byte {
 	return out
 }
 
-// stripStationRogerai removes a usage.rogerai object a STATION put in one of its frames:
-// only the broker's own usage chunk may carry it (a forged receipt must never reach the
-// consumer looking like the broker's). Logged; the station is not struck for it.
-func (l *lazySSE) stripStationRogerai(ready []byte) []byte {
-	if !bytes.Contains(ready, []byte(`"rogerai"`)) {
-		return ready
+// stripStationUsage keeps the stream's usage reporting the broker's alone (§14.9): exactly
+// one chunk with a usage object reaches the consumer - the broker's, written by finish once
+// the receipt settles - whether the broker injected include_usage or the consumer asked for
+// it. A station frame that is only usage is dropped; one that also carries content is
+// forwarded with its usage object removed. (A forged usage.rogerai is removed with it.)
+// dropped reports a usage-only data frame was removed.
+func (l *lazySSE) stripStationUsage(ready []byte) (out []byte, dropped bool) {
+	if !bytes.Contains(ready, []byte(`"usage"`)) {
+		return ready, false
 	}
-	out := make([]byte, 0, len(ready))
+	out = make([]byte, 0, len(ready))
 	for _, line := range bytes.SplitAfter(ready, []byte("\n")) {
 		t := bytes.TrimSpace(line)
-		if !bytes.HasPrefix(t, []byte("data:")) || !bytes.Contains(t, []byte(`"rogerai"`)) {
+		if !bytes.HasPrefix(t, []byte("data:")) || !bytes.Contains(t, []byte(`"usage"`)) {
 			out = append(out, line...)
 			continue
 		}
-		var ev map[string]any
+		var ev map[string]json.RawMessage
 		if json.Unmarshal(bytes.TrimSpace(t[len("data:"):]), &ev) != nil {
 			out = append(out, line...)
 			continue
 		}
-		u, _ := ev["usage"].(map[string]any)
-		if _, ok := u["rogerai"]; !ok {
+		u, ok := ev["usage"]
+		if !ok || isJSONNull(u) {
 			out = append(out, line...)
 			continue
 		}
-		delete(u, "rogerai")
-		log.Printf("stream station=%s sent a forged rogerai usage object - stripped", l.provider)
+		if bytes.Contains(u, []byte(`"rogerai"`)) {
+			log.Printf("stream station=%s sent a forged rogerai usage object - stripped", l.provider)
+		}
+		var choices []json.RawMessage
+		_ = json.Unmarshal(ev["choices"], &choices)
+		if len(choices) == 0 {
+			dropped = true
+			continue // a usage-only frame: the broker's chunk reports usage
+		}
+		delete(ev, "usage")
 		clean, _ := json.Marshal(ev)
 		out = append(out, "data: "...)
 		out = append(out, clean...)
 		out = append(out, '\n')
 	}
-	return out
+	return out, dropped
 }
 
 // finish closes a committed stream the broker's way: the held partial line, the broker's
@@ -4411,6 +4442,20 @@ func logServedOfList(requestID string, requested []string, model, nodeID string)
 
 // usageChunkJSON is the broker's final SSE data frame for a stream: OpenAI-shaped (empty
 // choices, a usage object) with the RogerAI facts under usage.rogerai.
+// withBilledUsage replaces a non-stream answer's usage object with the billed one: the counts
+// the cost was computed from, the cost, and the rogerai block. Every other member's bytes are
+// untouched; a body that is not a JSON object is returned as given.
+func withBilledUsage(body []byte, promptTokens, completionTokens int, cost float64, rogerai map[string]any) []byte {
+	u, err := json.Marshal(map[string]any{
+		"prompt_tokens": promptTokens, "completion_tokens": completionTokens,
+		"total_tokens": promptTokens + completionTokens, "cost": cost, "rogerai": rogerai,
+	})
+	if err != nil {
+		return body
+	}
+	return rewriteBody(body, false, map[string]json.RawMessage{"usage": u})
+}
+
 func usageChunkJSON(promptTokens, completionTokens int, cost float64, rogerai map[string]any) []byte {
 	out, _ := json.Marshal(map[string]any{
 		"object":  "chat.completion.chunk",

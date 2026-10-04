@@ -1579,10 +1579,7 @@ func aSSEOnly(name string, never ...string) mf1A {
 
 func aBodyIsCompletion() mf1A {
 	return func(s *mf1State) error {
-		if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(utRealCompletionBody)) {
-			return fmt.Errorf("body is not exactly the serving station's completion: %.300s", s.lastBody)
-		}
-		return nil
+		return utCompletionAsBilled(s.lastBody, utRealCompletionBody, s.lastHdr)
 	}
 }
 
