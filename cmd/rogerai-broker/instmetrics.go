@@ -65,6 +65,7 @@ type instStats struct {
 	routingStrictSort        atomic.Int64
 	modelFallbacks           atomic.Int64 // a failover that moved to a LATER model of the list
 	routingNoFallbackRefused atomic.Int64
+	routingBudgetExceeded    atomic.Int64 // 503 routing_budget_exceeded (§14.B #12)
 	variantFree              atomic.Int64
 	variantFloor             atomic.Int64
 	variantNitro             atomic.Int64
@@ -172,6 +173,7 @@ func (s *instStats) routingCounters() map[string]int64 {
 		"routing_strict_order":       s.routingStrictOrder.Load(),
 		"routing_strict_sort":        s.routingStrictSort.Load(),
 		"routing_nofallback_refused": s.routingNoFallbackRefused.Load(),
+		"routing_budget_exceeded":    s.routingBudgetExceeded.Load(),
 		"variant_free":               s.variantFree.Load(),
 		"variant_floor":              s.variantFloor.Load(),
 		"variant_nitro":              s.variantNitro.Load(),

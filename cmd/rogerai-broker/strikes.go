@@ -405,13 +405,18 @@ func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen 
 // prompt tokens), at ~chars/4. Approximate on purpose; both consumers treat it as
 // a coarse gate, never a billing number.
 func approxPromptTokens(body []byte) int {
-	if t := promptText(body); t != "" {
-		return len(t)/4 + 1
+	return promptTokensFrom(promptText(body), len(body))
+}
+
+// promptTokensFrom is approxPromptTokens from an already-extracted prompt text.
+func promptTokensFrom(text string, bodyLen int) int {
+	if text != "" {
+		return len(text)/4 + 1
 	}
 	// promptText parses chat-shaped bodies; a legacy completions {"prompt": ...} or
 	// any other shape yielded 1 and starved speedFit of its size signal (audit).
 	// Those shapes carry no base64 image parts, so raw length is safe for them.
-	return len(body)/4 + 1
+	return bodyLen/4 + 1
 }
 
 // oversizedForNode reports whether a request of approxTokens (approxPromptTokens)

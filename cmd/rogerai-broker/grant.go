@@ -165,6 +165,18 @@ type streamBill struct {
 	payerKey string
 	// privateBand is a band-code request: its errors never name the station (no oracle).
 	privateBand bool
+	// prompt is the request's prompt text, extracted once by the relay (§14.B #12): every
+	// attempt's body carries the same messages, so the settle recount never re-parses one.
+	prompt string
+}
+
+// promptOf is the prompt text of an attempt body: the relay's extraction, or (for a bill
+// built without one) a parse of the body.
+func (s streamBill) promptOf(body []byte) string {
+	if s.prompt != "" {
+		return s.prompt
+	}
+	return promptText(body)
 }
 
 // resolvePricing decides who pays and at what price for one request:

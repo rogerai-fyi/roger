@@ -26,20 +26,7 @@ func defaultOutputTokens() int {
 
 // statedOutputTokens is the output limit the request states: max_completion_tokens, else
 // max_tokens; 0 when it states neither (or a non-positive value).
-func statedOutputTokens(body []byte) int {
-	var req struct {
-		MaxTokens           int `json:"max_tokens"`
-		MaxCompletionTokens int `json:"max_completion_tokens"`
-	}
-	_ = json.Unmarshal(body, &req)
-	if req.MaxCompletionTokens > 0 {
-		return req.MaxCompletionTokens
-	}
-	if req.MaxTokens > 0 {
-		return req.MaxTokens
-	}
-	return 0
-}
+func statedOutputTokens(body []byte) int { return decodeReqDoc(body).outLimits().stated() }
 
 // expectedOutput is the output a request is expected to produce on one offer: what it states,
 // else the default budget, never more than the window left after the prompt and never below 1.
@@ -78,9 +65,14 @@ func withDefaultMaxTokens(body []byte, promptTokens, window int) []byte {
 	if statedOutputTokens(body) > 0 {
 		return body
 	}
+	return rewriteBody(body, false, defaultMaxTokensSet(promptTokens, window))
+}
+
+// defaultMaxTokensSet is the max_tokens member withDefaultMaxTokens writes.
+func defaultMaxTokensSet(promptTokens, window int) map[string]json.RawMessage {
 	if promptTokens > 0 {
 		promptTokens--
 	}
 	v, _ := json.Marshal(expectedOutput(0, promptTokens, window))
-	return rewriteBody(body, false, map[string]json.RawMessage{"max_tokens": v})
+	return map[string]json.RawMessage{"max_tokens": v}
 }

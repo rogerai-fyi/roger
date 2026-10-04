@@ -118,6 +118,9 @@ type attemptCand struct {
 	// bridged through the Tower's sealed hub instead of dispatched to a tunnel (t is nil, and
 	// node carries only the Tower id so the plan's bookkeeping names it).
 	edge *edgeCand
+	// promptTokens and outTokens are the measured prompt and the output limit body carries,
+	// for the estimated request cost a strict price sort ranks on (never a re-parse).
+	promptTokens, outTokens int
 }
 
 // holdCostFor is the upper-bound cost of a request on one candidate, at the price the
@@ -126,11 +129,17 @@ type attemptCand struct {
 // C1), with an ESTIMATED context window clamped so a display sentinel can't inflate the
 // pre-auth. A free plan holds nothing.
 func holdCostFor(p pricingPlan, offer protocol.ModelOffer, body []byte, now time.Time) float64 {
+	return holdCostSized(p, offer, len(body), statedOutputTokens(body), now)
+}
+
+// holdCostSized is holdCostFor from the body's length and stated output limit, so the relay
+// sizes every candidate's hold without parsing its body again.
+func holdCostSized(p pricingPlan, offer protocol.ModelOffer, bodyLen, stated int, now time.Time) float64 {
 	holdIn, holdOut, free := billedPrices(p, offer, now)
 	if free {
 		return 0
 	}
-	return estimateMaxCost(body, holdIn, holdOut, holdWindow(offer))
+	return estimateMaxCostSized(bodyLen, stated, holdIn, holdOut, holdWindow(offer))
 }
 
 // holdWindow is the context window the hold (and the default output budget) assumes for an
@@ -145,12 +154,12 @@ func holdWindow(offer protocol.ModelOffer) int {
 // holdCostWithOutput is the hold for a body the broker gave a default max_tokens (§14.11): the
 // prompt estimate of the consumer's own body plus exactly the outTokens the station is sent,
 // so the hold covers what the station may generate and nothing the broker itself added.
-func holdCostWithOutput(p pricingPlan, offer protocol.ModelOffer, consumerBody []byte, outTokens int, now time.Time) float64 {
+func holdCostWithOutput(p pricingPlan, offer protocol.ModelOffer, consumerBodyLen, outTokens int, now time.Time) float64 {
 	holdIn, holdOut, free := billedPrices(p, offer, now)
 	if free {
 		return 0
 	}
-	c := (float64(len(consumerBody)/4+1)*holdIn + float64(outTokens)*holdOut) / 1e6
+	c := (float64(consumerBodyLen/4+1)*holdIn + float64(outTokens)*holdOut) / 1e6
 	if c < 1e-6 {
 		c = 1e-6 // the same floor estimateMaxCost places
 	}

@@ -64,7 +64,8 @@ var edgeCoinForTest func() bool
 // receives (the dispatched model, carriers already stripped), its hold ceiling at the row's
 // price over the joined node's declared window (the same holdCostFor a direct pair uses), and
 // the per-request cap lowering max_tokens to what the cap buys at that price.
-func (b *broker) edgePlanCand(model string, e edgeCand, body []byte, capReq float64, promptTokens int, now time.Time) attemptCand {
+func (b *broker) edgePlanCand(model string, e edgeCand, d reqDoc, lim outLimits, capReq float64, promptTokens int, now time.Time) attemptCand {
+	body := d.body
 	b.mu.Lock()
 	reg := b.nodes[e.row.NodeID]
 	b.mu.Unlock()
@@ -72,15 +73,18 @@ func (b *broker) edgePlanCand(model string, e edgeCand, body []byte, capReq floa
 	offer := protocol.ModelOffer{Model: model, PriceIn: e.metric.in, PriceOut: e.metric.out, Ctx: joined.Ctx, CtxEstimated: joined.CtxEstimated}
 	pricing := pricingPlan{payer: e.wallet}
 	ec := e
-	c := attemptCand{node: protocol.NodeRegistration{NodeID: e.row.TowerID}, offer: offer, pricing: pricing, model: model, body: body, edge: &ec}
+	c := attemptCand{node: protocol.NodeRegistration{NodeID: e.row.TowerID}, offer: offer, pricing: pricing, model: model, body: body, edge: &ec,
+		promptTokens: promptTokens, outTokens: lim.stated()}
 	// The larger of the window estimate and the grant's own ceiling (founder ruling
 	// 2026-10-02): the Tower's settlement clamps to the hold, so a hold below the ceiling could
 	// underpay the operator. The consumer's own caps still bound it (capReq below; a pair the
 	// wallet cannot cover is trimmed from the plan like any other).
-	c.maxCost = math.Max(holdCostFor(pricing, offer, body, now), edgeGrantCeiling(e.row.PriceIn, e.row.PriceOut))
+	c.maxCost = math.Max(holdCostSized(pricing, offer, len(body), lim.stated(), now), edgeGrantCeiling(e.row.PriceIn, e.row.PriceOut))
 	if capReq > 0 && c.maxCost > capReq {
 		buys, _ := capBuys(capReq, promptTokens, offer.PriceIn, offer.PriceOut)
-		c.body = capBody(body, buys)
+		if set := lim.capSet(buys); set != nil {
+			c.body, c.outTokens = d.rewrite(nil, set).body, lim.apply(set).stated()
+		}
 		c.maxCost = capReq
 	}
 	return c
@@ -97,8 +101,7 @@ func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 	tps := b.tps[c.node.NodeID]
 	sr, sseen := b.success[c.node.NodeID]
 	b.metricsMu.Unlock()
-	prompt := approxPromptTokens(c.body)
-	cost := estRequestCost(prompt, expectedOutput(statedOutputTokens(c.body), prompt, c.offer.Ctx), ain, aout)
+	cost := estRequestCost(c.promptTokens, expectedOutput(c.outTokens, c.promptTokens, c.offer.Ctx), ain, aout)
 	return edgeMetric{in: ain, out: aout, cost: cost, tps: tps, ttft: tq.ttftMs}, tierAHealthy(tq.probeFails, sr, sseen)
 }
 

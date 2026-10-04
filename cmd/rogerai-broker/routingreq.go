@@ -25,7 +25,7 @@ package main
 //
 // `null` means absent at every level. Limits compose with their header form to the
 // stricter (stricterCap / stricterFloor / freqConflict); only preferences are body-wins.
-// The three carriers never leave the broker: stripRoutingCarriers removes them before the
+// The three carriers never leave the broker: stripCarriers removes them before the
 // body reaches a station or the edge bridge.
 
 import (
@@ -36,7 +36,6 @@ import (
 	"math"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/protocol"
@@ -89,7 +88,7 @@ func parseSortKey(s string) (sortKey, bool) {
 // "not stated" (absent or null).
 type routingBody struct {
 	object  bool // the body decoded as a JSON object at all
-	present bool // a carrier was in the body (what stripRoutingCarriers keys on)
+	present bool // a carrier was in the body (what stripCarriers keys on)
 	used    bool // a carrier stated at least one thing (the routing_body_requests counter)
 
 	// provider{}
@@ -305,9 +304,17 @@ const quantLabelMax = 40
 // parseRoutingBody decodes the routing carriers out of an already-read request body. A body
 // without any carrier decodes to the zero routingBody with no error.
 func parseRoutingBody(body []byte) (routingBody, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(body, &top); err != nil {
+	return parseRoutingDoc(decodeReqDoc(body))
+}
+
+// parseRoutingDoc is parseRoutingBody over an already-decoded body (the relay's one decode).
+func parseRoutingDoc(d reqDoc) (routingBody, error) {
+	if !d.ok {
 		return routingBody{}, nil // not an object: relay() answers the plain 400
+	}
+	top := make(map[string]json.RawMessage, len(d.kvs))
+	for _, kv := range d.kvs {
+		top[kv.key] = kv.val // later duplicates win, as map decoding does
 	}
 	rb := routingBody{object: true}
 	for _, k := range routingCarriers {
@@ -712,21 +719,24 @@ func registerModelSuffix(offers []protocol.ModelOffer) string {
 	return ""
 }
 
-// stripRoutingCarriers removes models / provider / roger from the body the station will
+// stripCarriers removes models / provider / roger from the body the station will
 // see and sets `model` to the bare served id. A body that carried no carrier and whose
 // model needs no rewrite is returned untouched (byte-identical), so nothing about today's
 // forwarding changes for callers that never used the routing expression.
-func stripRoutingCarriers(body []byte, rb routingBody, sentModel, model string) []byte {
+func (d reqDoc) stripCarriers(rb routingBody, sentModel, model string) reqDoc {
 	if !rb.present && sentModel == model {
-		return body
+		return d
 	}
 	var set map[string]json.RawMessage
 	if sentModel != model {
 		v, _ := json.Marshal(model)
 		set = map[string]json.RawMessage{"model": v}
 	}
-	return rewriteBody(body, true, set)
+	return d.rewrite(carrierKeys, set)
 }
+
+// carrierKeys are the routing carriers a station never sees.
+var carrierKeys = map[string]bool{"models": true, "provider": true, "roger": true}
 
 // capBuys is what a per-request USD cap buys at one station's billed prices: the output
 // tokens left after the prompt's input cost (promptTokens is the request's one measured
@@ -749,23 +759,8 @@ func capBuys(capUSD float64, promptTokens int, in, out float64) (buys int, drop 
 // max_tokens. Generation stops where the money stops, instead of the operator serving
 // tokens the settle clamp will not pay for. buys < 0 (free output) returns the body as given.
 func capBody(body []byte, buys int) []byte {
-	if buys < 0 {
-		return body
-	}
-	var req struct {
-		MaxTokens           *int `json:"max_tokens"`
-		MaxCompletionTokens *int `json:"max_completion_tokens"`
-	}
-	_ = json.Unmarshal(body, &req)
-	v, _ := json.Marshal(buys)
-	set := map[string]json.RawMessage{}
-	if req.MaxCompletionTokens != nil && *req.MaxCompletionTokens > buys {
-		set["max_completion_tokens"] = v
-	}
-	if (req.MaxTokens != nil && *req.MaxTokens > buys) || (req.MaxTokens == nil && req.MaxCompletionTokens == nil) {
-		set["max_tokens"] = v
-	}
-	if len(set) == 0 {
+	set := decodeReqDoc(body).outLimits().capSet(buys)
+	if set == nil {
 		return body
 	}
 	return rewriteBody(body, false, set)
@@ -780,7 +775,7 @@ func capBody(body []byte, buys int) []byte {
 func rewriteBody(body []byte, dropCarriers bool, set map[string]json.RawMessage) []byte {
 	var drop map[string]bool
 	if dropCarriers {
-		drop = map[string]bool{"models": true, "provider": true, "roger": true}
+		drop = carrierKeys
 	}
 	return rewriteBodyDrop(body, drop, set)
 }
@@ -792,44 +787,7 @@ func rewriteBodyDrop(body []byte, drop map[string]bool, set map[string]json.RawM
 	if !ok {
 		return body
 	}
-	var out bytes.Buffer
-	out.Grow(len(body) + 32)
-	out.WriteByte('{')
-	done := map[string]bool{}
-	emit := func(k string, v json.RawMessage) {
-		if out.Len() > 1 {
-			out.WriteByte(',')
-		}
-		kb, _ := json.Marshal(k)
-		out.Write(kb)
-		out.WriteByte(':')
-		out.Write(v)
-	}
-	for _, kv := range kvs {
-		if drop[kv.key] {
-			continue
-		}
-		if v, replace := set[kv.key]; replace {
-			if !done[kv.key] {
-				emit(kv.key, v)
-				done[kv.key] = true
-			}
-			continue
-		}
-		emit(kv.key, kv.val)
-	}
-	keys := make([]string, 0, len(set))
-	for k := range set {
-		if !done[k] {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		emit(k, set[k])
-	}
-	out.WriteByte('}')
-	return out.Bytes()
+	return encodeKVs(rebuildKVs(kvs, drop, set))
 }
 
 // quantSet lowercases a provider.quantizations list into the case-insensitive set pickFor
@@ -879,54 +837,17 @@ func intersectAllow(a, b map[string]bool) map[string]bool {
 // bodyNeedsTools / bodyNeedsVision are the IMPLICIT capability requirements (§5): a request
 // carrying a non-empty tools array must land on a (node, model) with the VERIFIED tools bit;
 // one carrying any image_url content part must land on an offer that declared vision.
-func bodyNeedsTools(body []byte) bool {
-	var req struct {
-		Tools []json.RawMessage `json:"tools"`
-	}
-	return json.Unmarshal(body, &req) == nil && len(req.Tools) > 0
-}
+func bodyNeedsTools(body []byte) bool { return decodeReqDoc(body).needsTools() }
 
 func bodyNeedsVision(body []byte) bool {
-	var req struct {
-		Messages []struct {
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-	}
-	if json.Unmarshal(body, &req) != nil {
-		return false
-	}
-	for _, m := range req.Messages {
-		var parts []struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(m.Content, &parts) != nil {
-			continue // a string content has no parts
-		}
-		for _, p := range parts {
-			if p.Type == "image_url" {
-				return true
-			}
-		}
-	}
-	return false
+	_, vision := decodeReqDoc(body).promptScan()
+	return vision
 }
 
 // paramsNeedTools is provider.require_parameters:true (§5): a tool_choice requires tools even
 // without a tools array, and a JSON response_format requires a tools-verified station (the
 // only structured-output signal the network verifies today).
-func paramsNeedTools(body []byte) bool {
-	var req struct {
-		ToolChoice     json.RawMessage `json:"tool_choice"`
-		ResponseFormat struct {
-			Type string `json:"type"`
-		} `json:"response_format"`
-	}
-	if json.Unmarshal(body, &req) != nil {
-		return false
-	}
-	return (len(req.ToolChoice) > 0 && !isJSONNull(req.ToolChoice)) ||
-		req.ResponseFormat.Type == "json_object" || req.ResponseFormat.Type == "json_schema"
-}
+func paramsNeedTools(body []byte) bool { return decodeReqDoc(body).paramsNeedTools() }
 
 // A LIMIT stated in a header and in the body composes to the STRICTER of the two; only
 // preferences are body-wins (contract §1a, founder ruling 2026-10-01). A local proxy's owner

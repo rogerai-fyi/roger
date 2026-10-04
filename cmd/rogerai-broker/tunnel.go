@@ -1795,11 +1795,18 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	gen.admit() // identified and within its rate limit: from here every outcome is recorded
 	payerKey := strikePayerKey(gok, gc, authed, wallet, clientIP(r))
+	// THE ONE DECODE of the body's members (§14.B #12): the model, the routing object, the
+	// capabilities and the output limits are all read from it, and every body a station is
+	// sent is rebuilt from it. bodyDecodes counts the relay's whole-body decodes for its
+	// routing-work line: this one and the token estimate (promptScan) below.
+	doc := decodeReqDoc(body)
+	bodyDecodes := 1
 	var req struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
+		Model  string
+		Stream bool
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = doc.field("model", &req.Model)
+	_ = doc.field("stream", &req.Stream)
 	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Streamed = req.Model, req.Stream })
 
 	// THE BODY ROUTING OBJECT (ROUTING-EXPRESSION-CONTRACT §1): decoded once, refused with a
@@ -1812,7 +1819,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-RogerAI-Cost", "0") // §2: every routing refusal bills nothing and says so
 		jsonErrCode(w, http.StatusBadRequest, re.code, re.msg)
 	}
-	routing, rerr := parseRoutingBody(body)
+	routing, rerr := parseRoutingDoc(doc)
 	if rerr != nil {
 		refuse(rerr.(*routingError))
 		return
@@ -1871,7 +1878,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	sentModel := req.Model
 	req.Model = models[0].bare
 	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Models = models[0].bare, bareIDs(models) })
-	body = stripRoutingCarriers(body, routing, sentModel, req.Model)
+	doc = doc.stripCarriers(routing, sentModel, req.Model)
 
 	// Usage backstop: ask the model for a final usage chunk on streaming requests so the
 	// node's receipt carries completion_tokens even when the delta text is an unusual
@@ -1879,22 +1886,33 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// stream_options; the chat messages are unchanged, so the prompt re-count and moderation
 	// screen are unaffected. A no-op for non-streaming requests.
 	if req.Stream {
-		body = ensureStreamIncludeUsage(body)
+		doc = doc.withIncludeUsage()
 	}
+	body = doc.body
+	lim := doc.outLimits() // the output limits the consumer stated (no attempt's rewrite)
 	// THE MODEL LIST (§3): `cands` is the ordered list the request may be served under - the
 	// effective list minus what a grant or a band denies. Each attempt is sent the consumer's
 	// body with `model` set to the model it is dispatched for; nothing else in it changes.
 	cands := models
-	baseModel, baseBody := req.Model, body
-	bodies := map[string][]byte{baseModel: baseBody}
-	bodyOf := func(model string) []byte {
-		if bb, ok := bodies[model]; ok {
-			return bb
+	baseModel := req.Model
+	docs := map[string]reqDoc{baseModel: doc}
+	docOf := func(model string) reqDoc {
+		if d, ok := docs[model]; ok {
+			return d
 		}
 		v, _ := json.Marshal(model)
-		bb := rewriteBody(baseBody, false, map[string]json.RawMessage{"model": v})
-		bodies[model] = bb
-		return bb
+		d := doc.rewrite(nil, map[string]json.RawMessage{"model": v})
+		docs[model] = d
+		return d
+	}
+	bodyOf := func(model string) []byte { return docOf(model).body }
+	// bodyWith is model's body with set written in (an attempt's max_tokens): rebuilt from
+	// the members, never re-parsed.
+	bodyWith := func(model string, set map[string]json.RawMessage) []byte {
+		if len(set) == 0 {
+			return bodyOf(model)
+		}
+		return docOf(model).rewrite(nil, set).body
 	}
 	modelNames := func(l []routedModel) string { return strings.Join(bareIDs(l), ", ") }
 
@@ -1922,7 +1940,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	//   - sync: the legacy in-line gate - an illegal prompt is blocked HERE, before it
 	//     reaches any provider (451 flagged / 503 fail-closed; see moderation.go).
 	//   - off: nothing is screened (submit is a no-op).
-	promptStr := promptText(body)
+	promptStr, bodyVision := doc.promptScan() // the token estimate: the second and last decode
+	bodyDecodes++
 	var screening *screenJob
 	if b.mod.mode == modeSync {
 		screenStart := time.Now()
@@ -2034,7 +2053,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		routePref = prefBalanced // a strict sort replaces the weighted knob (the header pref is ignored)
 	}
 	b.stats.routingPref[routePref].Add(1)
-	promptTokens := approxPromptTokens(body)
+	promptTokens := promptTokensFrom(promptStr, len(body))
 	b.totalReqs.Add(1)
 	// Consumer out-price cap. Defense in depth: even if the client omits the header (a
 	// hand-rolled API caller, not the first-party CLI/TUI which always injects it), the
@@ -2072,9 +2091,25 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	// One pickReq for every routing pass of this request (first pick, band-cooling probe,
 	// ctx re-pick, failover plan); only the seed differs per attempt.
-	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, outTokens: statedOutputTokens(body), sort: routeSort,
-		needTools: bodyNeedsTools(body), needVision: bodyNeedsVision(body),
-		quants: quantSet(routing.Quantizations), netFilters: routing.Net}
+	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, outTokens: lim.stated(), sort: routeSort,
+		needTools: doc.needsTools(), needVision: bodyVision,
+		quants: quantSet(routing.Quantizations), netFilters: routing.Net, budget: newPickBudget()}
+	// The work this relay did, one line per request (§14.B #12's observation point).
+	defer func() {
+		log.Printf("routing-work request=%s picks=%d body_decodes=%d", requestID, routeReq.budget.count(), bodyDecodes)
+	}()
+	// budgetSpent answers 503 routing_budget_exceeded once the pick budget ran out: nothing
+	// was held or dispatched, and nothing is billed.
+	budgetSpent := func() bool {
+		if !routeReq.budget.over() {
+			return false
+		}
+		b.stats.routingBudgetExceeded.Add(1)
+		w.Header().Set("X-RogerAI-Cost", "0")
+		jsonErrCode(w, http.StatusServiceUnavailable, "routing_budget_exceeded",
+			fmt.Sprintf("routing this request needed more than %d station picks - narrow the model list or the routing constraints", pickBudgetLimit()))
+		return true
+	}
 	if confidentialOnly {
 		// trust_min is a level: confidential (TEE-attested) is above verified, so a request
 		// that is confidential-only by any carrier is not ALSO held to the verified bar.
@@ -2087,7 +2122,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		routeReq.needTools = routeReq.needTools || c == protocol.CapTools
 		routeReq.needVision = routeReq.needVision || c == protocol.CapVision
 	}
-	if routing.RequireParams && paramsNeedTools(body) {
+	if routing.RequireParams && doc.paramsNeedTools() {
 		routeReq.needTools = true
 	}
 	if routing.SelfHostedOnly != nil {
@@ -2227,6 +2262,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if routing.MaxRequest != nil {
 		capReq = *routing.MaxRequest
 	}
+	if capReq > 0 {
+		routeReq.cap = capFilter{usd: capReq, prompt: promptTokens}
+		if gok {
+			routeReq.cap.grant = true
+			routeReq.cap.grantIn, routeReq.cap.grantOut = gc.grant.GrantPrice()
+		} else {
+			routeReq.cap.own = ownedSet()
+		}
+	}
 	capDrops := func(p pricingPlan, o protocol.ModelOffer, now time.Time) bool {
 		if capReq <= 0 {
 			return false
@@ -2241,19 +2285,24 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// candFor resolves one (model, station) pair into a plan candidate: its body, and its
 	// hold ceiling - the true upper bound at the billed price, never above the request cap.
 	candFor := func(m string, n protocol.NodeRegistration, o protocol.ModelOffer, nt *nodeTunnel, p pricingPlan, now time.Time) attemptCand {
-		orig := bodyOf(m)
-		c := attemptCand{node: n, offer: o, t: nt, pricing: p, model: m, body: withDefaultMaxTokens(orig, promptTokens, holdWindow(o))}
-		if statedOutputTokens(orig) > 0 {
-			c.maxCost = holdCostFor(p, o, c.body, now)
+		origLen := len(bodyOf(m))
+		c := attemptCand{node: n, offer: o, t: nt, pricing: p, model: m, promptTokens: promptTokens}
+		set := map[string]json.RawMessage{}
+		if lim.stated() > 0 {
+			c.maxCost = holdCostSized(p, o, origLen, lim.stated(), now)
 		} else {
-			c.maxCost = holdCostWithOutput(p, o, orig, statedOutputTokens(c.body), now)
+			set = defaultMaxTokensSet(promptTokens, holdWindow(o))
+			c.maxCost = holdCostWithOutput(p, o, origLen, lim.apply(set).stated(), now)
 		}
 		if capReq > 0 && c.maxCost > capReq {
 			in, out, _ := billedPrices(p, o, now)
 			buys, _ := capBuys(capReq, promptTokens, in, out)
-			c.body = capBody(c.body, buys)
+			for k, v := range lim.apply(set).capSet(buys) {
+				set[k] = v
+			}
 			c.maxCost = capReq
 		}
+		c.body, c.outTokens = bodyWith(m, set), lim.apply(set).stated()
 		return c
 	}
 	// THE FIRST PICK OF ONE MODEL. A station dropped as unpayable is out of every later pass
@@ -2371,6 +2420,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		pk, pkAt = p, i
 		break
 	}
+	if budgetSpent() {
+		return
+	}
 	ok := pkAt >= 0
 	node, offer, t, edgePricing := pk.node, pk.offer, pk.t, pk.pricing
 	pickedFromOrder := pk.fromOrder
@@ -2413,7 +2465,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// exclusions (a Tower id in the set declines that Tower) and the same pref
 			// weights the direct path evaluates. What the bridge cannot evaluate yet keeps
 			// the request direct-only (never a widened pick).
-			edgeConstraints: edgeConstraints{minTPS: minTPS, exclude: exclude, pref: routePref, promptTokens: promptTokens, outTokens: statedOutputTokens(body)},
+			edgeConstraints: edgeConstraints{minTPS: minTPS, exclude: exclude, pref: routePref, promptTokens: promptTokens, outTokens: lim.stated()},
 			namedIDs:        len(orderList) > 0 || routing.Only != nil || pinNode != "",
 		}
 		// The bridge evaluates the consumer's filters on the Tower row itself (edgeEligibleM):
@@ -2486,7 +2538,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 				auth := bridgeAuthFor(rr, false)
 				for _, e := range b.edgePlanCands(m, seededRand(requestID), auth.edgeConstraints, perModelTowers, edgeWallet, auth.pubHex) {
-					towerCands[m] = append(towerCands[m], b.edgePlanCand(m, e, bodyOf(m), capReq, promptTokens, time.Now()))
+					towerCands[m] = append(towerCands[m], b.edgePlanCand(m, e, docOf(m), lim, capReq, promptTokens, time.Now()))
 				}
 			}
 		}
@@ -2536,6 +2588,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		b.mu.Unlock()
+		if budgetSpent() {
+			return
+		}
 		if coolModel != "" {
 			b.answerBandCooling(w, coolModel, soonest)
 			return
@@ -2631,6 +2686,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					msg += " (a curated station is available)"
 				}
 			}
+		}
+		if budgetSpent() {
+			return
 		}
 		if noFallbacks {
 			b.stats.routingNoFallbackRefused.Add(1)
@@ -2755,6 +2813,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			},
 			towers: towerCands,
 		}, now)
+	}
+	if budgetSpent() {
+		return
 	}
 	if len(plan) == 0 {
 		w.Header().Set("X-RogerAI-Cost", "0")
@@ -2965,7 +3026,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	plan = trimPlan(plan, maxCost)
 
 	if req.Stream {
-		bill := streamBill{payerKey: payerKey, privateBand: len(privateAllow) > 0, user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
+		bill := streamBill{payerKey: payerKey, prompt: promptStr, privateBand: len(privateAllow) > 0, user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
 			pubHex: r.Header.Get(protocol.HeaderPubkey), req: r}
 		if kok {
 			bill.keyFields = func() map[string]any { return b.keyChunkFields(akey, keyStart) }
@@ -3129,7 +3190,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// pre-auth hold in FULL, and flag the owner for evidence (Part 4). A $0
 		// metering receipt is still recorded so the request is auditable.
 		if !usable {
-			b.settleVoid(payer, user, payerKey, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), "")
+			b.settleVoid(payer, user, payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(promptStr, len(job.Body)), "")
 			if res.Status == http.StatusTooManyRequests {
 				b.coolStation(node.NodeID, req.Model, res.RetryAfterSec) // learned: the provider behind this station is at its ceiling
 			}
@@ -3142,7 +3203,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				i = next - 1 // the loop increment lands on `next`
 				continue
 			}
-			b.flagStuckOverflow(node.NodeID, offer.Model, rec, res, approxPromptTokens(job.Body), payerKey)
+			b.flagStuckOverflow(node.NodeID, offer.Model, rec, res, promptTokensFrom(promptStr, len(job.Body)), payerKey)
 			w.Header().Set("X-RogerAI-Cost", "0")
 			b.setRetryAfter(w.Header(), res) // a final 429/503 always tells the consumer when to come back
 			w.Header().Set("Content-Type", "application/json")
@@ -3164,7 +3225,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// a hard fail-closed byte floor (claimed prompt tokens > body bytes is
 		// impossible -> clamp + strike). The node-signed receipt is left intact; we
 		// only change the BILLED counts (via CostWith2 + the Broker*Tokens fields).
-		billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, req.Model), promptText(body), rec.PromptTokens, len(body))
+		billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, req.Model), promptStr, rec.PromptTokens, len(body))
 		billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, req.Model), completion, rec.CompletionTokens)
 		rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
 		// SignBroker is called AFTER the broker counts are assigned so the broker
@@ -3803,7 +3864,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			i = next - 1
 			continue
 		}
-		b.flagStuckOverflow(c.node.NodeID, c.offer.Model, res.Receipt, res, approxPromptTokens(abody), bill.payerKey)
+		b.flagStuckOverflow(c.node.NodeID, c.offer.Model, res.Receipt, res, promptTokensFrom(bill.promptOf(abody), len(abody)), bill.payerKey)
 		hint := 0
 		if res.Status == http.StatusTooManyRequests || res.Status == http.StatusServiceUnavailable {
 			hint = b.retryAfterHint(res)
@@ -4052,7 +4113,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 					waitPump()
 					res.Body = lw.piped()
 				}
-				b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), " (stream)")
+				b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(bill.promptOf(job.Body), len(job.Body)), " (stream)")
 				if res.Status == http.StatusTooManyRequests {
 					b.coolStation(node.NodeID, model, res.RetryAfterSec)
 				}
@@ -4068,7 +4129,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
 			// prompt text is the request body (job.Body), available on this path too, so
 			// the input byte-floor + recount apply identically to the relay path.
-			billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, model), promptText(job.Body), rec.PromptTokens, len(job.Body))
+			billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, model), bill.promptOf(job.Body), rec.PromptTokens, len(job.Body))
 			billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, rec.CompletionTokens)
 			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
 			// SignBroker AFTER the broker counts are assigned (covers them).
@@ -4314,10 +4375,15 @@ func (b *broker) voidUsageChunk(nodeID, model, reason string) []byte {
 // model's ctx); the prompt is over-estimated from the body size. At the offer's
 // active price, so the actual capture on settle is always <= this.
 func estimateMaxCost(body []byte, in, out float64, ctx int) float64 {
+	return estimateMaxCostSized(len(body), statedOutputTokens(body), in, out, ctx)
+}
+
+// estimateMaxCostSized is estimateMaxCost from the body's length and stated output limit.
+func estimateMaxCostSized(bodyLen, stated int, in, out float64, ctx int) float64 {
 	// Output is the request's expected output (§14.11): its stated limit (max_completion_tokens,
 	// else max_tokens), else the default budget, bounded by the window left after the prompt.
-	maxOut := expectedOutput(statedOutputTokens(body), len(body)/4, ctx)
-	promptEst := len(body)/4 + 1 // ~chars/4 → tokens; body JSON over-estimates (safe)
+	maxOut := expectedOutput(stated, bodyLen/4, ctx)
+	promptEst := bodyLen/4 + 1 // ~chars/4 → tokens; body JSON over-estimates (safe)
 	c := (float64(promptEst)*in + float64(maxOut)*out) / 1e6
 	if c < 1e-6 {
 		c = 1e-6 // floor so a hold is always placed
@@ -4529,6 +4595,11 @@ type pickReq struct {
 	nothingFree bool
 	// netFilters: params_b, min_ctx, max_ttft_ms, trust_min verified, region (§5, slice 2).
 	netFilters
+	// cap: provider.max_price.request evaluated inside the pick; budget: the request's pick
+	// budget, shared by every copy of this pickReq (§14.B #12). nil budget = unbounded (the
+	// non-relay callers: audio, probes).
+	cap    capFilter
+	budget *pickBudget
 }
 
 // capabilityNames is the capability requirement in words ("tools", "vision", "tools and
@@ -4598,6 +4669,9 @@ func (b *broker) bannedOwnerNodeSet() map[string]bool {
 }
 
 func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
+	if !req.budget.take() {
+		return protocol.NodeRegistration{}, protocol.ModelOffer{}, false
+	}
 	now := time.Now()
 	w := req.pref.weights()
 
@@ -4726,6 +4800,9 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 				continue
 			}
 			if maxPriceOut > 0 && out > maxPriceOut {
+				continue
+			}
+			if req.cap.drops(n.NodeID, in, out, afree) {
 				continue
 			}
 			// THE DECLARED-WINDOW GATE (live catch 2026-09-05): a request the broker
@@ -5166,33 +5243,7 @@ func sseDelta(line []byte) string {
 // body so the model emits a final usage chunk (the usage backstop that lets the broker trust
 // completion_tokens when no delta text was captured). Existing keys + any existing
 // stream_options are preserved; a non-streaming or unparseable body is returned unchanged.
-func ensureStreamIncludeUsage(body []byte) []byte {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
-		return body
-	}
-	if _, ok := m["stream"]; !ok {
-		return body // only rewrite streaming requests
-	}
-	so := map[string]json.RawMessage{}
-	if raw, ok := m["stream_options"]; ok {
-		_ = json.Unmarshal(raw, &so) // preserve existing options; ignore a non-object
-	}
-	if _, set := so["include_usage"]; set {
-		return body // respect an explicit client choice (true OR false); do not override
-	}
-	so["include_usage"] = json.RawMessage("true")
-	sob, err := json.Marshal(so)
-	if err != nil {
-		return body
-	}
-	m["stream_options"] = sob
-	out, err := json.Marshal(m)
-	if err != nil {
-		return body
-	}
-	return out
-}
+func ensureStreamIncludeUsage(body []byte) []byte { return decodeReqDoc(body).withIncludeUsage().body }
 
 // parseNodeSet parses a comma-separated node-id list (X-Roger-Exclude-Nodes) into
 // a set, ignoring empty entries. Returns nil for an empty header (no exclusions).
