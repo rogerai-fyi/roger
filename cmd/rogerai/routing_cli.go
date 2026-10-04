@@ -124,108 +124,12 @@ type paramsFlag struct{ v []float64 }
 
 func (p *paramsFlag) String() string { return fmt.Sprint(p.v) }
 func (p *paramsFlag) Set(v string) error {
-	r, err := parseParams(v)
+	r, err := client.ParseParams(v)
 	if err != nil {
 		return err
 	}
 	p.v = r
 	return nil
-}
-
-// paramsOpenMax is the upper bound an open range ("30-") sends: above any real model.
-const paramsOpenMax = 10000
-
-func parseParams(v string) ([]float64, error) {
-	bad := fmt.Errorf("%q is not a size range in billions (7-70, 30, 30-, -8)", v)
-	num := func(s string) (float64, bool) {
-		s = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), "b")
-		f, err := strconv.ParseFloat(s, 64)
-		return f, err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) && f >= 0
-	}
-	lo, hi, ranged := strings.Cut(strings.TrimSpace(v), "-")
-	switch {
-	case !ranged:
-		f, ok := num(lo)
-		if !ok || f <= 0 {
-			return nil, bad
-		}
-		return []float64{f, f}, nil
-	case lo == "" && hi == "":
-		return nil, bad
-	case lo == "":
-		f, ok := num(hi)
-		if !ok || f <= 0 {
-			return nil, bad
-		}
-		return []float64{0, f}, nil
-	case hi == "":
-		f, ok := num(lo)
-		if !ok || f <= 0 {
-			return nil, bad
-		}
-		return []float64{f, paramsOpenMax}, nil
-	}
-	a, okA := num(lo)
-	b, okB := num(hi)
-	if !okA || !okB || b <= 0 || a > b {
-		return nil, bad
-	}
-	return []float64{a, b}, nil
-}
-
-var ctxRE = regexp.MustCompile(`^([0-9]+)([kK]?)$`)
-
-// parseCtx reads a context size in tokens: 8192, or 32k = 32768.
-func parseCtx(v string) (int, error) {
-	m := ctxRE.FindStringSubmatch(strings.TrimSpace(v))
-	if m == nil {
-		return 0, fmt.Errorf("%q is not a token count (8192 or 32k)", v)
-	}
-	n, err := strconv.Atoi(m[1])
-	if m[2] != "" {
-		n *= 1024
-	}
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("%q is not a positive token count", v)
-	}
-	return n, nil
-}
-
-// parseTTFT reads a first-token ceiling: bare milliseconds (800) or a duration (1.5s).
-func parseTTFT(v string) (int, error) {
-	t := strings.TrimSpace(v)
-	if n, err := strconv.Atoi(t); err == nil {
-		if n <= 0 {
-			return 0, fmt.Errorf("%q is not a positive duration", v)
-		}
-		return n, nil
-	}
-	d, err := time.ParseDuration(t)
-	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("%q is not a duration (1500ms, 1.5s or bare ms)", v)
-	}
-	ms := int(d / time.Millisecond)
-	if ms <= 0 {
-		return 0, fmt.Errorf("%q is under a millisecond", v)
-	}
-	return ms, nil
-}
-
-var regionRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,7}$`)
-
-func normRegion(s string) (string, error) {
-	if !regionRE.MatchString(s) {
-		return "", fmt.Errorf("%q is not a lowercase region (eu, us-west)", s)
-	}
-	return s, nil
-}
-
-func normRequire(s string) (string, error) {
-	s = strings.ToLower(s)
-	if s != "tools" && s != "vision" {
-		return "", fmt.Errorf("%q is not a capability (tools, vision)", s)
-	}
-	return s, nil
 }
 
 // useFlags is one parsed `roger use` command line.
@@ -318,10 +222,10 @@ func parseUseFlags(args []string) (f *useFlags, help bool, err error) {
 		order:   listFlag{max: maxListIDs},
 		exclude: listFlag{max: maxListIDs},
 		quant:   listFlag{fold: true},
-		require: listFlag{norm: normRequire},
-		region:  listFlag{norm: normRegion},
-		minCtx:  intFlag{parse: parseCtx},
-		maxTTFT: intFlag{parse: parseTTFT},
+		require: listFlag{norm: client.NormRequire},
+		region:  listFlag{norm: client.NormRegion},
+		minCtx:  intFlag{parse: client.ParseCtx},
+		maxTTFT: intFlag{parse: client.ParseTTFT},
 	}
 	rest := args
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -737,84 +641,8 @@ func useOptions(b map[string]any) client.UseOptions {
 
 // ── the effective routing line ──────────────────────────────────────────────────────────
 
-// routingItems renders the body's routing keys in a fixed order, one short phrase each, with
-// the dotted key it came from. A band code is never rendered.
-func routingItems(b map[string]any) [][2]string {
-	var out [][2]string
-	add := func(key, text string) { out = append(out, [2]string{key, text}) }
-	ids := func(p string) string {
-		v, _ := rfGetPath(b, p)
-		l := strList(v)
-		if len(l) > 3 {
-			return strings.Join(l[:3], ",") + fmt.Sprintf(" +%d", len(l)-3)
-		}
-		return strings.Join(l, ",")
-	}
-	has := func(p string) bool { v, ok := rfGetPath(b, p); return ok && v != nil }
-	get := func(p string) any { v, _ := rfGetPath(b, p); return v }
-	if has("roger.pref") {
-		add("roger.pref", fmt.Sprint(get("roger.pref")))
-	}
-	if has("provider.sort") {
-		add("provider.sort", fmt.Sprint(get("provider.sort")))
-	}
-	for _, k := range []struct{ key, word string }{
-		{"models", "models"}, {"provider.only", "only"}, {"provider.order", "order"}, {"provider.ignore", "exclude"},
-	} {
-		if has(k.key) {
-			add(k.key, k.word+" "+ids(k.key))
-		}
-	}
-	if v, ok := get("provider.allow_fallbacks").(bool); ok && !v {
-		add("provider.allow_fallbacks", "no fallbacks")
-	}
-	if has("roger.require") {
-		add("roger.require", "require "+ids("roger.require"))
-	}
-	if a, _ := get("roger.params_b").([]any); len(a) == 2 {
-		add("roger.params_b", fmt.Sprintf("%g-%gB", a[0], a[1]))
-	}
-	if has("roger.min_ctx") {
-		add("roger.min_ctx", fmt.Sprintf("ctx ≥ %g", get("roger.min_ctx")))
-	}
-	if has("roger.max_ttft_ms") {
-		add("roger.max_ttft_ms", fmt.Sprintf("ttft ≤ %gms", get("roger.max_ttft_ms")))
-	}
-	if has("roger.trust_min") {
-		add("roger.trust_min", fmt.Sprint("trust ", get("roger.trust_min")))
-	}
-	if v, _ := get("roger.self_hosted_only").(bool); v {
-		add("roger.self_hosted_only", "self-hosted")
-	}
-	if has("roger.region") {
-		add("roger.region", "region "+ids("roger.region"))
-	}
-	if has("provider.quantizations") {
-		add("provider.quantizations", "quant "+ids("provider.quantizations"))
-	}
-	if v, _ := get("provider.require_parameters").(bool); v {
-		add("provider.require_parameters", "require params")
-	}
-	if v, _ := get("roger.confidential").(bool); v {
-		add("roger.confidential", "confidential")
-	}
-	if has("roger.min_tps") {
-		add("roger.min_tps", fmt.Sprintf("≥%g t/s", get("roger.min_tps")))
-	}
-	if has("provider.max_price.prompt") {
-		add("provider.max_price.prompt", fmt.Sprintf("in ≤ $%g/1M", get("provider.max_price.prompt")))
-	}
-	if has("provider.max_price.completion") {
-		add("provider.max_price.completion", fmt.Sprintf("out ≤ $%g/1M", get("provider.max_price.completion")))
-	}
-	if has("provider.max_price.request") {
-		add("provider.max_price.request", fmt.Sprintf("cost ≤ $%g", get("provider.max_price.request")))
-	}
-	if has("roger.freq") {
-		add("roger.freq", "private freq")
-	}
-	return out
-}
+// routingItems renders the body's routing keys in a fixed order (client.RoutingPhrases).
+func routingItems(b map[string]any) [][2]string { return client.RoutingPhrases(b) }
 
 // sourceWord is how the routing line names a source.
 func sourceWord(src string) string {
@@ -990,7 +818,7 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("require", "", func(v string) error {
-		l := listFlag{norm: normRequire}
+		l := listFlag{norm: client.NormRequire}
 		if err := l.Set(v); err != nil {
 			return err
 		}
@@ -999,7 +827,7 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("params", "", func(v string) error {
-		r, err := parseParams(v)
+		r, err := client.ParseParams(v)
 		if err != nil {
 			return err
 		}
@@ -1008,7 +836,7 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("min-ctx", "", func(v string) error {
-		n, err := parseCtx(v)
+		n, err := client.ParseCtx(v)
 		if err != nil {
 			return err
 		}
@@ -1017,7 +845,7 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("max-ttft", "", func(v string) error {
-		n, err := parseTTFT(v)
+		n, err := client.ParseTTFT(v)
 		if err != nil {
 			return err
 		}
@@ -1044,7 +872,7 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("region", "", func(v string) error {
-		l := listFlag{norm: normRegion}
+		l := listFlag{norm: client.NormRegion}
 		if err := l.Set(v); err != nil {
 			return err
 		}

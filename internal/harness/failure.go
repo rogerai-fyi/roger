@@ -47,6 +47,11 @@ func ShortFailure(raw, model string) string {
 			return "the conversation outgrew " + model + "'s context window"
 		}
 		return "the conversation outgrew this model's context window"
+	// A no_match that names the routing constraint which excluded every station keeps the
+	// broker's words: the fix is the operator's own rule (U, a quant rule, a region), and
+	// "no station is serving X" would send them to the market instead.
+	case namesRoutingConstraint(low):
+		return clipFailure(s)
 	case strings.Contains(low, "no station") || strings.Contains(low, "no node") || strings.Contains(low, "not on air") || strings.Contains(low, "no model is tuned in"):
 		return NoStationServing(model) + StatusSuffix(s)
 	case strings.Contains(low, "no reply") || strings.Contains(low, "within ") && strings.Contains(low, "slow or offline"):
@@ -107,4 +112,21 @@ func clipFailure(s string) string {
 		return s[:max] + "…"
 	}
 	return s
+}
+
+// routingConstraintWords are the contract keys (and the broker's phrasing of them) a no_match
+// names when a routing constraint, not an empty market, excluded every station.
+var routingConstraintWords = []string{"self_hosted_only", "quantizations", "capability", "trust_min", "region",
+	"params_b", "min_ctx", "max_ttft", "max_price", "provider.only", "provider.ignore", "confidential node"}
+
+func namesRoutingConstraint(low string) bool {
+	if !strings.Contains(low, "no node") && !strings.Contains(low, "no station") {
+		return false
+	}
+	for _, w := range routingConstraintWords {
+		if strings.Contains(low, w) {
+			return true
+		}
+	}
+	return false
 }

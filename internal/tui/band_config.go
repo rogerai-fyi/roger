@@ -564,7 +564,8 @@ func (m model) cfgEditLimit(field int) (tea.Model, tea.Cmd) {
 			continue
 		}
 		m.limCursor = i
-		m.editField = field
+		m.editField, m.limField = field, field
+		m.editTyped = true // the card hands over a live value: ⏎ saves it as shown
 		m.editBuf = ""
 		if lim := m.limits.resolve(m.cfgModel); field == 0 && lim.MaxOut > 0 {
 			m.editBuf = trimZero(lim.MaxOut)

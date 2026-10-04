@@ -105,6 +105,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// / numeric editors, where plain m is a literal character. Plain m still toggles compact on
 	// the nav screens via presetForKey; alt+m (and /compact) make it reachable "from anywhere".
 	if k.String() == "alt+m" {
+		if m.mode == modeLimits {
+			// Collapsing mid-edit discards the draft: nothing half-typed is ever saved.
+			m.editField, m.editBuf, m.editTyped = -1, "", false
+		}
 		return m.toggleCompact(), nil
 	}
 	switch m.mode {
@@ -351,7 +355,22 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case modeConnectConfirm:
 		switch k.String() {
+		case "p":
+			// p cycles the profile to tune under (r is taken: it re-scans).
+			if len(m.profiles().Names()) > 0 {
+				m.confirmProfile = m.nextProfile(m.confirmProfile)
+				m.q.limit = m.confirmLimit(m.q.b.model)
+			}
+			return m, nil
+		case "r":
+			m.status = stDim.Render("re-scanning the band…")
+			m.scanErr, m.scanned = false, false
+			return m, fetchOffers(m.broker)
 		case "enter", "y", "Y":
+			if why := m.quantRuleRefusal(m.q.b.model, m.q.b.quant); why != "" {
+				m.status = stEmber.Render(why)
+				return m, nil // accepting is not offered for a row outside the rule
+			}
 			return m.openChannel()
 		case "d", "D": // toggle the detail block (default screen stays minimal)
 			m.showDetail = !m.showDetail
@@ -1828,12 +1847,14 @@ func (m *model) enterLimits() {
 		}
 	}
 	sort.Strings(models)
-	m.limModels = models
-	if m.limCursor >= len(models) {
+	// The default row edits limits.default with the same fields (always last).
+	m.limModels = append(models, defaultLimitRow)
+	if m.limCursor >= len(m.limModels) {
 		m.limCursor = 0
 	}
 	m.editBuf = ""
 	m.editField = -1 // not editing yet
+	m.limField, m.editTyped = 0, false
 	m.mode = modeLimits
 }
 
@@ -1897,6 +1918,15 @@ func (m *model) commitBudgetEdit() (tea.Model, tea.Cmd) {
 // onLimitsKey drives the per-model limits view (3.4): up/down move, enter edits
 // (Tab between out-price and min-tps), d clears, esc done.
 func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	out, cmd := m.limitsKey(k)
+	// An edit to the connected band's rule binds the live proxy's next turn at once.
+	if mm, ok := out.(*model); ok {
+		mm.refreshLiveRouting()
+	}
+	return out, cmd
+}
+
+func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// THE BUDGET EDITOR takes the keys while it is open. Kept apart from the band-field
 	// editor below: it commits to the BROKER (an account setting), not to the local store.
 	if m.limEditBudget {
@@ -1917,7 +1947,64 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// `a` ADDS A ROW: the model name is typed into the edit buffer; enter adds and selects
+	// it (the rule is stored once a field is set), esc cancels.
+	if m.limAdding {
+		switch k.String() {
+		case "esc":
+			m.limAdding, m.editBuf = false, ""
+		case "enter":
+			name := strings.TrimSpace(m.editBuf)
+			m.limAdding, m.editBuf = false, ""
+			if name == "" {
+				return m, nil
+			}
+			if !containsFold(m.limModels, name) {
+				m.limModels = append(m.limModels[:len(m.limModels)-1:len(m.limModels)-1], name, defaultLimitRow)
+			}
+			for i, r := range m.limModels {
+				if r == name {
+					m.limCursor, m.limOnBudget = i, false
+				}
+			}
+		case "backspace":
+			if len(m.editBuf) > 0 {
+				m.editBuf = m.editBuf[:len(m.editBuf)-1]
+			}
+		default:
+			if k.Type == tea.KeyRunes {
+				m.editBuf += string(k.Runes)
+			}
+		}
+		return m, nil
+	}
 	editing := m.editField >= 0
+	// ctrl+p is perms everywhere: tool approvals live in the AGENT.
+	if k.String() == "ctrl+p" {
+		m.status = stDim.Render("tool approvals live in the AGENT - shift+tab opens it, then ctrl+p cycles /perms")
+		return m, nil
+	}
+	if !editing && !m.limOnBudget && m.limCursor < len(m.limModels) {
+		row := m.limModels[m.limCursor]
+		switch k.String() {
+		case "tab":
+			m.focusLimitField(m.limField + 1)
+			return m, nil
+		case "shift+tab":
+			m.focusLimitField(m.limField - 1)
+			return m, nil
+		case " ":
+			if limFieldDefs[m.limField].kind == fkChoice {
+				m.putRowLimit(row, m.cycleField(row, m.rowLimit(row), m.limField))
+				return m, nil
+			}
+		case "t", "v":
+			if m.limField == lfRequire {
+				m.putRowLimit(row, toggleRequire(m.rowLimit(row), map[string]string{"t": "tools", "v": "vision"}[k.String()]))
+				return m, nil
+			}
+		}
+	}
 	if !editing {
 		// Preset bank jumps (only when NOT editing a numeric field, so a typed digit in
 		// the editor is never stolen). 3 CONFIG is the current screen -> no-op.
@@ -1936,6 +2023,10 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mode = m.limReturn
 				m.limReturn, m.limReturnSet = 0, false
 			}
+			return m, nil
+		case "a":
+			m.limAdding, m.editBuf = true, ""
+			m.status = stDim.Render("type a model id · ⏎ add · esc cancel")
 			return m, nil
 		case "b", "B":
 			// THE BAND CARD: everything about the band under the cursor, in one place.
@@ -1956,14 +2047,19 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.limOnBudget {
 				m.limOnBudget = false
-			} else if m.limCursor < len(m.limModels)-1 {
-				m.limCursor++
+			} else if m.limCursor < len(m.limModels)+len(m.profileRowNames())-1 {
+				m.limCursor++ // below the band rows: the profile rows
+				m.limProfileOpen = false
 			}
 		case "d":
 			// Same rule as b: from the budget row, d must not clear the limits of the
 			// un-highlighted band still under limCursor.
 			if !m.limOnBudget && m.limCursor < len(m.limModels) {
-				m.limits.clear(m.limModels[m.limCursor])
+				if row := m.limModels[m.limCursor]; row == defaultLimitRow {
+					m.putRowLimit(row, Limit{})
+				} else {
+					m.limits.clear(row)
+				}
 				m.enterLimits()
 			}
 		case "p":
@@ -1973,10 +2069,10 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// editor for the knob (the table's pref column shows it).
 			if !m.limOnBudget && m.limCursor < len(m.limModels) {
 				mdl := m.limModels[m.limCursor]
-				lim := m.limits.resolve(mdl)
-				lim.Pref = nextPref(lim.Pref, true)
-				m.limits.set(mdl, lim)
-				m.status = stDim.Render("pref for ") + stKey.Render(mdl) + stDim.Render(": "+prefLabel(lim.Pref))
+				lim := m.rowLimit(mdl)
+				lim.Pref = nextIn(prefRing, lim.Pref)
+				m.putRowLimit(mdl, lim)
+				m.status = stKey.Render(mdl) + stDim.Render(" · pref "+fieldShown(lim, lfPref))
 			}
 		case "enter":
 			if m.limOnBudget {
@@ -1994,31 +2090,55 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.limCursor < len(m.limModels) {
-				lim := m.limits.resolve(m.limModels[m.limCursor])
 				m.editField = 0
-				m.editBuf = trimZero(lim.MaxOut)
+				m.focusLimitField(m.limField)
+			} else if m.onProfileRow() != "" {
+				m.limProfileOpen = !m.limProfileOpen // read-only: the resolved keys
 			}
 		}
 		return m, nil
 	}
 	// editing a field
+	row := ""
+	if m.limCursor < len(m.limModels) {
+		row = m.limModels[m.limCursor]
+	}
+	kind := limFieldDefs[m.editField].kind
 	switch k.String() {
 	case "esc":
 		m.editField = -1
+		m.editBuf = ""
 		return m, nil
-	case "tab":
-		m.commitLimitField()
-		m.editField = (m.editField + 1) % 2
-		lim := m.limits.resolve(m.limModels[m.limCursor])
-		if m.editField == 0 {
-			m.editBuf = trimZero(lim.MaxOut)
-		} else {
-			m.editBuf = trimZero(lim.MinTPS)
+	case "tab", "shift+tab":
+		if !m.commitLimitField() {
+			return m, nil
 		}
+		step := 1
+		if k.String() == "shift+tab" {
+			step = -1
+		}
+		m.focusLimitField(m.limField + step)
 		return m, nil
+	case " ":
+		if kind == fkChoice {
+			m.putRowLimit(row, m.cycleField(row, m.rowLimit(row), m.editField))
+			return m, nil
+		}
 	case "enter":
-		m.commitLimitField()
+		if kind == fkChoice {
+			m.putRowLimit(row, m.cycleField(row, m.rowLimit(row), m.editField))
+			return m, nil
+		}
+		// A freshly focused field: enter begins typing a new value.
+		if kind != fkToggle && !m.editTyped {
+			m.editTyped, m.editBuf = true, ""
+			return m, nil
+		}
+		if !m.commitLimitField() {
+			return m, nil // the plate shows why; the draft is theirs to fix
+		}
 		m.editField = -1
+		m.editBuf = ""
 		// A card-initiated edit is DONE when the field is saved: the operator came to
 		// change one number, not to browse the table.
 		if m.limReturnSet {
@@ -2026,6 +2146,31 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.limReturn, m.limReturnSet = 0, false
 		}
 		return m, nil
+	}
+	if kind == fkToggle {
+		if s := k.String(); s == "t" || s == "v" {
+			m.putRowLimit(row, toggleRequire(m.rowLimit(row), map[string]string{"t": "tools", "v": "vision"}[s]))
+		}
+		return m, nil
+	}
+	if kind == fkChoice {
+		return m, nil
+	}
+	if kind == fkText {
+		switch k.String() {
+		case "backspace":
+			if len(m.editBuf) > 0 {
+				m.editBuf = m.editBuf[:len(m.editBuf)-1]
+			}
+		default:
+			if r := k.Runes; len(r) > 0 && k.Type == tea.KeyRunes {
+				m.editBuf += string(r)
+				m.editTyped = true
+			}
+		}
+		return m, nil
+	}
+	switch k.String() {
 	case "up", "down":
 		// NUDGE THE VALUE (founder 2026-08-21). Up and down did nothing while editing,
 		// so setting a price meant typing every digit - and up/down are the first thing
@@ -2035,16 +2180,19 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// actually denominated in, and a step that moves by a unit is the one nobody has
 		// to think about. DOWN FLOORS AT ZERO rather than going negative - a negative
 		// cap is not a smaller cap, it is a nonsense the commit would have to reject.
-		m.editBuf = nudgeLimit(m.editBuf, m.editField == 0, k.String() == "up")
+		m.editBuf = nudgeLimit(m.editBuf, m.editField != lfMinTPS, k.String() == "up")
+		m.editTyped = true
 		return m, nil
 	case "backspace":
 		if len(m.editBuf) > 0 {
 			m.editBuf = m.editBuf[:len(m.editBuf)-1]
 		}
+		m.editTyped = true
 		return m, nil
 	default:
 		if d := digitsDot(k.String()); d != "" {
 			m.editBuf += d
+			m.editTyped = true
 		}
 		return m, nil
 	}

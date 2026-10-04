@@ -32,6 +32,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -43,6 +45,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 type tp4TUI struct {
@@ -81,16 +84,10 @@ var tp4Fields = []string{"max $/1M out", "min t/s", "max $/1M in", "max $/reques
 	"require", "params (B)", "min ctx", "max ttft", "trust", "self-hosted", "region"}
 
 func (s *tp4TUI) fieldNow() string {
-	if s.m.mode != modeLimits || s.m.editField < 0 {
-		return "(no field focused)"
+	if got := s.m.limFocusLabel(); got != "" {
+		return got
 	}
-	switch s.m.editField {
-	case 0:
-		return "max $/1M out"
-	case 1:
-		return "min t/s"
-	}
-	return fmt.Sprintf("(field %d)", s.m.editField)
+	return "(no field focused)"
 }
 
 // tp4LimitField maps a config key to the Limit struct field the editor would have to persist it
@@ -610,7 +607,9 @@ func (s *tp4TUI) onlyExistingStyles() error {
 	defer lipgloss.SetColorProfile(prev)
 	sgr := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	allowed := map[string]bool{"\x1b[0m": true, "\x1b[m": true}
-	for _, st := range []lipgloss.Style{stBrand, stTag, stDim, stLive, stEmber, stGold, stSelBar, stSelText, stHeadRule, stKey, stPrompt, stRed, stRowSel, stPreset, stPresetOn} {
+	// ink (the spec names it) has no st* var: the table's row names render it directly.
+	ink := lipgloss.NewStyle().Foreground(cInk)
+	for _, st := range []lipgloss.Style{stBrand, stTag, stDim, ink, stLive, stEmber, stGold, stSelBar, stSelText, stHeadRule, stKey, stPrompt, stRed, stRowSel, stPreset, stPresetOn} {
 		for _, c := range sgr.FindAllString(st.Render("x"), -1) {
 			allowed[c] = true
 		}
@@ -658,28 +657,50 @@ func (s *tp4TUI) otherKeysUntouched() error {
 
 // --- profiles in the booth ------------------------------------------------------------------
 
-// tp4ProfileStore finds where the booth would hold named profiles: a LimitStore.Profiles or a
-// model.profiles field. None exists yet, so every profile Given fails naming that.
+// profileStore finds where the booth holds named profiles: LimitStore.Profiles.
 func (s *tp4TUI) profileStore() (reflect.Value, error) {
 	if s.m.limits != nil {
 		if f := reflect.ValueOf(s.m.limits).Elem().FieldByName("Profiles"); f.IsValid() {
 			return f, nil
 		}
 	}
-	if f := reflect.ValueOf(&s.m).Elem().FieldByName("profiles"); f.IsValid() {
-		return f, nil
-	}
-	return reflect.Value{}, fmt.Errorf("the TUI has no profile store (no LimitStore.Profiles or model.profiles)")
+	return reflect.Value{}, fmt.Errorf("the TUI has no profile store (no LimitStore.Profiles)")
 }
 
-func (s *tp4TUI) profilesExist(a, b string) error {
+// tp4Profiles are the bodies the scenarios mean by each profile name.
+var tp4Profiles = map[string]map[string]any{
+	"coding": {"roger": map[string]any{"require": []any{"tools"}, "pref": "fast"}},
+	"cheap":  {"roger": map[string]any{"pref": "cheap"}},
+	"home":   {"roger": map[string]any{"freq": "147.520 MHz 8F3K-9M2Q"}},
+}
+
+// writeProfiles points the booth's profile store at a temp config.json holding the named
+// profiles (the same file `roger profile set` writes).
+func (s *tp4TUI) writeProfiles(bodies map[string]map[string]any) error {
 	if _, err := s.profileStore(); err != nil {
 		return err
 	}
-	return fmt.Errorf("profiles %q and %q cannot be created: the store's shape is not defined yet", a, b)
+	path := filepath.Join(s.t.TempDir(), "config.json")
+	b, _ := json.Marshal(map[string]any{"profiles": bodies})
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return err
+	}
+	s.m.limits.Profiles = client.NewProfileStore(path)
+	return nil
 }
 
-func (s *tp4TUI) profileExists(name string) error { return s.profilesExist(name, name) }
+func (s *tp4TUI) profilesExist(a, b string) error {
+	return s.writeProfiles(map[string]map[string]any{a: tp4Profiles[a], b: tp4Profiles[b]})
+}
+
+func (s *tp4TUI) profileExists(name string) error {
+	body := tp4Profiles[name]
+	if name == "coding" {
+		// enter on a profile shows a band code as "(set, hidden)": coding carries one.
+		body = map[string]any{"roger": map[string]any{"require": []any{"tools"}, "pref": "fast", "freq": "147.520 MHz 8F3K-9M2Q"}}
+	}
+	return s.writeProfiles(map[string]map[string]any{name: body})
+}
 
 func (s *tp4TUI) profilesSection(list string) error {
 	v := s.view()
@@ -695,7 +716,15 @@ func (s *tp4TUI) profilesSection(list string) error {
 }
 
 func (s *tp4TUI) selectsProfile(name string) error {
-	return fmt.Errorf("[3] CONFIG has no profile row %q to select", name)
+	s.m.enterLimits()
+	for i, n := range s.m.profileRowNames() {
+		if n == name {
+			s.m.limCursor = len(s.m.limModels) + i
+			s.press("enter")
+			return nil
+		}
+	}
+	return fmt.Errorf("[3] CONFIG has no profile row %q to select (rows %v)", name, s.m.profileRowNames())
 }
 
 func (s *tp4TUI) plateResolvedKeys() error {
@@ -751,15 +780,57 @@ func (s *tp4TUI) rStillRescans() error {
 	return nil
 }
 
+// acceptingTunesProfile accepts the confirm and reads the next turn's body.
 func (s *tp4TUI) acceptingTunesProfile(name string) error {
-	return fmt.Errorf("the confirm offers no profile %q to accept", name)
+	s.tuneMark = len(s.requests())
+	out, _ := s.m.openChannel()
+	s.m = asModel(out)
+	if s.m.tunedProfile != name {
+		return fmt.Errorf("accepting tuned under profile %q, want %q", s.m.tunedProfile, name)
+	}
+	return s.eachTurnCarriesProfile(name)
+}
+
+// eachTurnCarriesProfile sends a chat turn and checks the profile's keys ride it.
+func (s *tp4TUI) eachTurnCarriesProfile(name string) error {
+	if err := s.sendChatTurn(""); err != nil {
+		return err
+	}
+	r, err := s.last()
+	if err != nil {
+		return err
+	}
+	if v, _ := bodyPath(r.body, "roger.pref"); v != tp4Profiles[name]["roger"].(map[string]any)["pref"] {
+		return fmt.Errorf("the turn tuned under %q carries roger.pref = %v (%s)", name, v, describeRouting(r))
+	}
+	return nil
+}
+
+// tuneUnder tunes mdl through the confirm with profile `name` chosen by p.
+func (s *tp4TUI) tuneUnder(mdl, name string) error {
+	if err := s.tunesAndConfirm(mdl); err != nil {
+		return err
+	}
+	for i := 0; i < 8 && s.m.confirmProfile != name; i++ {
+		s.press("p")
+	}
+	if s.m.confirmProfile != name {
+		return fmt.Errorf("p never offered profile %q on the confirm", name)
+	}
+	return nil
 }
 
 func (s *tp4TUI) tunedUnderProfile(mdl, name string) error {
-	if _, err := s.profileStore(); err != nil {
+	if err := s.profileExists(name); err != nil {
 		return err
 	}
-	return fmt.Errorf("cannot tune %q under profile %q: no profile resolution in the booth", mdl, name)
+	if err := s.tuneUnder(mdl, name); err != nil {
+		return err
+	}
+	out, _ := s.m.openChannel()
+	s.m = asModel(out)
+	s.tuneMark = len(s.requests())
+	return nil
 }
 
 func (s *tp4TUI) allThreePathsGoOut() error {
@@ -791,11 +862,11 @@ func (s *tp4TUI) eachCarriesRequirePref() error {
 	return nil
 }
 
-func (s *tp4TUI) profileSetsMaxPrice(name string, _ int) error { return s.profileExists(name) }
-
-func (s *tp4TUI) tunesUnder(name string) error {
-	return fmt.Errorf("cannot tune under profile %q: no profile resolution in the booth", name)
+func (s *tp4TUI) profileSetsMaxPrice(name string, n int) error {
+	return s.writeProfiles(map[string]map[string]any{name: {"provider": map[string]any{"max_price": map[string]any{"completion": float64(n)}}}})
 }
+
+func (s *tp4TUI) tunesUnder(name string) error { return s.tuneUnder("qwen3-32b", name) }
 
 func (s *tp4TUI) estCostAgainstOne() error {
 	v := s.view()
@@ -1174,6 +1245,30 @@ func (s *tp4TUI) tuneBodyFreq() error {
 	return nil
 }
 
+// tuneFreqHeader / tuneBodyNoFreq: the band code travels only as the X-Roger-Freq header
+// (corrected 2026-10-04), never in the body.
+func (s *tp4TUI) tuneFreqHeader() error {
+	r, err := s.tuneBody()
+	if err != nil {
+		return err
+	}
+	if got := r.headers.Get("X-Roger-Freq"); got != s.freqCode && !strings.Contains(got, "8F3K-9M2Q") {
+		return fmt.Errorf("the tune-time request carries X-Roger-Freq %q, want the code %q", got, s.freqCode)
+	}
+	return nil
+}
+
+func (s *tp4TUI) tuneBodyNoFreq() error {
+	r, err := s.tuneBody()
+	if err != nil {
+		return err
+	}
+	if v, ok := bodyPath(r.body, "roger.freq"); ok {
+		return fmt.Errorf("the tune-time body carries roger.freq = %v", v)
+	}
+	return nil
+}
+
 func (s *tp4TUI) headerPrivateNoCode() error {
 	v := s.view()
 	if !strings.Contains(v, "PRIVATE FREQ") {
@@ -1311,10 +1406,10 @@ func (s *tp4TUI) ladderUnchanged() error {
 }
 
 func (s *tp4TUI) noProfileApplied() error {
-	if _, err := s.profileStore(); err == nil {
-		return fmt.Errorf("a profile store exists but this check does not read it yet")
+	if s.m.tunedProfile != "" || s.m.confirmProfile != "" {
+		return fmt.Errorf("the auto-tune applied profile %q/%q", s.m.tunedProfile, s.m.confirmProfile)
 	}
-	return nil // no profile store exists, so no profile can be applied
+	return nil
 }
 
 // --- windowshade --------------------------------------------------------------------------------
@@ -1776,6 +1871,8 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			sc.Step(`^the operator enters a valid code at ~ and tunes$`, func() error { return st.entersCodeAndTunes() })
 			sc.Step(`^the tune-time body carries roger\.freq = the code$`, func() error { return st.tuneBodyFreq() })
 			sc.Step(`^the header reads PRIVATE FREQ without the code$`, func() error { return st.headerPrivateNoCode() })
+			sc.Step(`^the tune-time request carries the X-Roger-Freq header = the code$`, func() error { return st.tuneFreqHeader() })
+			sc.Step(`^the tune-time body carries no roger\.freq$`, func() error { return st.tuneBodyNoFreq() })
 			sc.Step(`^U and Q filters are on$`, func() error { return st.uAndQOn() })
 			sc.Step(`^the AGENT \[0\] (?:silent )?auto-tune runs$`, func() error { return st.autoTuneRuns() })
 			sc.Step(`^it picks only from visibleBands$`, func() error { return st.picksFromVisible() })

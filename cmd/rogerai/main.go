@@ -587,10 +587,24 @@ func agentSlugStation(s string) string { return agent.SlugStation(s) }
 
 // tuiLimits builds the TUI spend-limit store from the config, with a Save
 // callback that persists edits back to config.json (the TUI owns no I/O).
+// toTUILimit / fromTUILimit carry EVERY key of a limit across the TUI boundary: a key left
+// out here is erased from config.json by the next [3] CONFIG edit.
+func toTUILimit(l Limit) tui.Limit {
+	return tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants, Pref: l.Pref,
+		MaxCost: l.MaxCost, Require: l.Require, ParamsB: l.ParamsB, MinCtx: l.MinCtx, MaxTTFTMs: l.MaxTTFTMs,
+		TrustMin: l.TrustMin, SelfHosted: l.SelfHosted, Region: l.Region}
+}
+
+func fromTUILimit(l tui.Limit) Limit {
+	return Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants, Pref: l.Pref,
+		MaxCost: l.MaxCost, Require: l.Require, ParamsB: l.ParamsB, MinCtx: l.MinCtx, MaxTTFTMs: l.MaxTTFTMs,
+		TrustMin: l.TrustMin, SelfHosted: l.SelfHosted, Region: l.Region}
+}
+
 func tuiLimits(cfg config) *tui.LimitStore {
 	models := map[string]tui.Limit{}
 	for m, l := range cfg.Limits.Models {
-		models[m] = tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
+		models[m] = toTUILimit(l)
 	}
 	typ := cfg.Limits.TypicalOutTok
 	if typ <= 0 {
@@ -598,17 +612,16 @@ func tuiLimits(cfg config) *tui.LimitStore {
 	}
 	return &tui.LimitStore{
 		Models:     models,
-		Default:    tui.Limit{MaxIn: cfg.Limits.Default.MaxIn, MaxOut: cfg.Limits.Default.MaxOut, MinTPS: cfg.Limits.Default.MinTPS},
+		Default:    toTUILimit(cfg.Limits.Default),
 		TypicalOut: typ,
+		Profiles:   client.NewProfileStore(""), // config.json's profiles, re-read on change
 		Save: func(tm map[string]tui.Limit, def tui.Limit) {
 			c := loadConfig()
 			c.Limits.Models = map[string]Limit{}
 			for m, l := range tm {
-				c.Limits.Models[m] = Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
+				c.Limits.Models[m] = fromTUILimit(l)
 			}
-			// Quants carried too: a default rule that survived a save without its quant
-			// list would silently stop binding on the next launch.
-			c.Limits.Default = Limit{MaxIn: def.MaxIn, MaxOut: def.MaxOut, MinTPS: def.MinTPS, Quants: def.Quants}
+			c.Limits.Default = fromTUILimit(def)
 			_ = saveConfig(c)
 		},
 	}

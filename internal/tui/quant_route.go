@@ -40,20 +40,31 @@ func (m model) quantRuleRefusal(model, rowQuant string) string {
 	if rowQuant == "" || len(lim.Quants) == 0 || lim.acceptsQuant(rowQuant) {
 		return ""
 	}
-	return "the tuned " + rowQuant + " row is outside your quant rule for " + model +
-		" (" + strings.Join(lim.Quants, ", ") + ") - tune an accepted row or change the rule in [3] CONFIG"
+	return rowQuant + " is outside your quant rule (" + strings.Join(lim.Quants, ", ") +
+		") - edit it in [3] CONFIG or pick another row"
 }
 
 // routing is the consumer routing object every in-booth path sends for `model`: the
 // standing pref, the confidential toggle, hidden curated supply, and the quant choice.
+// It carries every key of the band's [3] CONFIG rule and the dial filters that bind: F as
+// `:free`, C as roger.confidential, U as roger.self_hosted_only.
 func (m model) routing(model, rowQuant string) client.Routing {
-	return client.Routing{
-		Pref:           m.limits.resolve(model).Pref,
-		Confidential:   m.confidentialOnly,
-		SelfHostedOnly: m.fNoCurated,
+	lim := m.limits.resolve(model)
+	return (client.Routing{
+		Pref:           lim.Pref,
+		Confidential:   m.confidentialOnly || m.fConf,
+		SelfHostedOnly: m.fNoCurated || lim.SelfHosted,
 		Quantizations:  m.quantList(model, rowQuant),
+		MaxReq:         lim.MaxCost,
+		Require:        lim.Require,
+		ParamsB:        lim.ParamsB,
+		MinCtx:         lim.MinCtx,
+		MaxTTFT:        lim.MaxTTFTMs,
+		TrustMin:       lim.TrustMin,
+		Region:         lim.Region,
+		FreeOnly:       m.fFree,
 		HeaderMode:     m.headerRouting,
-	}
+	}).Overlay(m.profileFor(model)) // the profile tuned under, for the connected band
 }
 
 // tunedQuant is the quant of the row the operator is connected to for `model`, or "" when

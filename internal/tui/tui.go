@@ -601,7 +601,9 @@ func (s *LimitStore) Update(model string, f func(cur Limit) Limit) {
 // limitIsUnset reports whether a cap says nothing at all - every knob at/below zero and no
 // quant rule - in which case storing it would clear the entry rather than record a cap.
 func limitIsUnset(l Limit) bool {
-	return l.MaxOut <= 0 && l.MinTPS <= 0 && l.MaxIn <= 0 && len(l.Quants) == 0
+	return l.MaxOut <= 0 && l.MinTPS <= 0 && l.MaxIn <= 0 && len(l.Quants) == 0 && l.Pref == "" &&
+		l.MaxCost <= 0 && len(l.Require) == 0 && len(l.ParamsB) == 0 && l.MinCtx <= 0 && l.MaxTTFTMs <= 0 &&
+		l.TrustMin == "" && !l.SelfHosted && len(l.Region) == 0
 }
 
 // Snapshot returns a COPY of the per-model caps, safe to hand to another front-end to
@@ -862,18 +864,26 @@ type model struct {
 	loadedOnce bool   // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
 	q          quote  // the in-flight connect quote (confirm / over-limit)
 	editBuf    string // inline numeric edit buffer (over-limit + limits edit)
-	editField  int    // which field is focused in the limits editor (0=out,1=tps)
-	limCursor  int    // cursor in the limits view
-	limModels  []string
-	watching   string    // band we are "wait & notify" watching (stub label)
-	detailBand band      // the band whose expanded per-station view (modeBandDetail) is showing
-	showDetail bool      // [d] expands the connect-confirm screen; default off (simple)
-	relaying   bool      // a chat request is in flight (drives Ping's transmit line)
-	relayStart time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
-	scanErr    bool      // last band scan failed (broker unreachable) -> Ping "...static"
-	scanned    bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
-	emptyScans int       // consecutive EMPTY /discover scans; debounces a transient empty (a rescan that load-balanced onto a still-syncing broker instance) so a populated list doesn't flicker to "no stations". See the offersMsg handler.
-	minimized  bool      // header toggle: thin one-line bar vs the full lockup
+	editField  int    // the limits editor field being EDITED (-1 = browsing the table)
+	limField   int    // the [3] CONFIG field the cursor is on (config_fields.go limFieldDefs)
+	editTyped  bool   // the edit buffer was typed into since the field was focused
+	limAdding  bool   // [3] CONFIG `a`: typing the model name of a new row into editBuf
+	// limProfileOpen shows the selected profile row's resolved keys (enter toggles).
+	limProfileOpen bool
+	// confirmProfile is the profile the TUNE IN confirm will tune under ("" = default);
+	// tunedProfile is the one the connected band was tuned under.
+	confirmProfile, tunedProfile string
+	limCursor                    int // cursor in the limits view
+	limModels                    []string
+	watching                     string    // band we are "wait & notify" watching (stub label)
+	detailBand                   band      // the band whose expanded per-station view (modeBandDetail) is showing
+	showDetail                   bool      // [d] expands the connect-confirm screen; default off (simple)
+	relaying                     bool      // a chat request is in flight (drives Ping's transmit line)
+	relayStart                   time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
+	scanErr                      bool      // last band scan failed (broker unreachable) -> Ping "...static"
+	scanned                      bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
+	emptyScans                   int       // consecutive EMPTY /discover scans; debounces a transient empty (a rescan that load-balanced onto a still-syncing broker instance) so a populated list doesn't flicker to "no stations". See the offersMsg handler.
+	minimized                    bool      // header toggle: thin one-line bar vs the full lockup
 	// compact is the "windowshade" mode (XMMS/Winamp collapse): a calm, dense,
 	// animation-free alternate view toggled by [m] in every non-text-entry context.
 	// When set the header drops to one strip, all motion freezes (carrier beat, Ping,
@@ -2007,6 +2017,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.upg = upgDone
 		}
 		return m, nil
+	case agentServedMsg:
+		model := ""
+		if m.agent != nil {
+			model = m.agent.model
+		}
+		if ln := servedLine(harness.Served(msg), model); ln != "" {
+			m.agentLines = append(m.agentLines, ln)
+		}
+		return m, m.waitAgentEvent()
 	case agentCostMsg:
 		m.agentCost += msg.cost
 		m.agentTokensIn += msg.tokensIn // running ↑ billed tokens (broker re-count)
@@ -2734,15 +2753,17 @@ func freqLabelShort(display string) string {
 // model (the proxy rewrites incoming models to it). Budget stays 0 (the interactive TUI is a
 // single-user, hands-on flow; the guest-operator launch is where DefaultSessionBudget applies).
 func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
+	// The tuned row IS a quant, and the [3] CONFIG rules are rules: they ride the request
+	// body so the broker filters on them - the same routing every in-booth path sends.
+	rt := m.routing(o.Model, o.Quant)
 	return client.ProxyOptions{
 		Broker: m.broker, User: m.user, Model: o.Model, SessionKey: m.proxyKey,
-		Confidential: m.confidentialOnly,
+		Confidential: rt.Confidential,
 		MaxPriceIn:   m.q.limit.MaxIn, MaxPriceOut: m.q.limit.MaxOut, MinTPS: m.q.limit.MinTPS,
 		Freq: m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
-		// The tuned row IS a quant, and the [3] CONFIG rules are rules: they ride the
-		// request body so the broker filters on them. See quant_route.go.
-		Pref: m.q.limit.Pref, SelfHostedOnly: m.fNoCurated,
-		Quantizations: m.quantList(o.Model, o.Quant),
+		Pref: rt.Pref, SelfHostedOnly: rt.SelfHostedOnly, Quantizations: rt.Quantizations,
+		MaxCost: rt.MaxReq, Require: rt.Require, ParamsB: rt.ParamsB, MinCtx: rt.MinCtx, MaxTTFT: rt.MaxTTFT,
+		TrustMin: rt.TrustMin, Region: rt.Region, FreeOnly: rt.FreeOnly,
 		HeaderRouting: m.headerRouting, // negotiated once per tune in bindChannel
 		// ROGERAI_REASONING_RAW is a global session knob: honor it in the TUI booth too, not just
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
@@ -2812,6 +2833,7 @@ func (m *model) bindChannel(o offer) (warm bool, err error) {
 func (m model) openChannel() (tea.Model, tea.Cmd) {
 	q := m.q
 	o := *q.b.cheapest
+	m.tunedProfile = m.confirmProfile // the profile accepted on the confirm
 	// WARM RECONNECT: a band we have tuned in to before this session skips the staged
 	// scan/lock/handshake animation and drops straight into the open channel - only a
 	// FIRST (cold) tune-in plays the full sequence. The endpoint is already bound, so a
@@ -2822,6 +2844,7 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
 		return m, nil
 	}
+	m.refreshLiveRouting() // now that the band is connected, its tuned profile binds the proxy too
 	if warm {
 		m.mode = modeConnecting
 		m.connectStage = connectStageDone
@@ -2956,20 +2979,48 @@ func nudgeLimit(buf string, price, up bool) string {
 
 // commitLimitField writes the current edit buffer into the focused field of the
 // selected model's limit and persists it.
-func (m *model) commitLimitField() {
-	if m.limCursor >= len(m.limModels) {
+// commitLimitField writes the edit buffer into the focused field of the selected row's rule.
+// A value the contract refuses stays on the plate in ember and nothing is persisted.
+func (m *model) commitLimitField() bool {
+	if m.limCursor >= len(m.limModels) || m.editField < 0 || limFieldDefs[m.editField].kind == fkChoice ||
+		limFieldDefs[m.editField].kind == fkToggle {
+		return true
+	}
+	row := m.limModels[m.limCursor]
+	cur := m.rowLimit(row)
+	next, err := applyField(cur, m.editField, m.editBuf)
+	if err != nil {
+		m.status = stEmber.Render(err.Error())
+		return false
+	}
+	m.putRowLimit(row, next)
+	return true
+}
+
+// refreshLiveRouting re-points the live proxy at the connected band's CURRENT rule, so a
+// [3] CONFIG edit binds the next guest turn without a re-tune (the endpoint and bearer key
+// are unchanged: SetBand keeps them).
+func (m *model) refreshLiveRouting() {
+	if m.connected == nil || m.proxyHolder == nil {
 		return
 	}
-	mdl := m.limModels[m.limCursor]
-	lim := m.limits.resolve(mdl)
-	v, _ := strconv.ParseFloat(strings.TrimSpace(m.editBuf), 64)
-	switch m.editField {
-	case 0:
-		lim.MaxOut = v
-	case 1:
-		lim.MinTPS = v
+	m.q.limit = m.limits.resolve(m.connected.Model)
+	m.proxyHolder.SetBand(m.liveProxyOpts(*m.connected, m.alert))
+}
+
+// focusLimitField moves the CONFIG cursor to field f (wrapping) and, while editing, starts its
+// buffer from the stored value.
+func (m *model) focusLimitField(f int) {
+	n := len(limFieldDefs)
+	m.limField = ((f % n) + n) % n
+	if m.editField >= 0 {
+		m.editField = m.limField
+		m.editTyped = false
+		m.editBuf = ""
+		if m.limCursor < len(m.limModels) {
+			m.editBuf = fieldBuf(m.rowLimit(m.limModels[m.limCursor]), m.limField)
+		}
 	}
-	m.limits.set(mdl, lim)
 }
 
 // nextPref walks the pref knob: unset -> cheap -> balanced -> fast -> reliable -> unset

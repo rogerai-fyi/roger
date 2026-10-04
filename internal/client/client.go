@@ -447,6 +447,7 @@ type ProxyOptions struct {
 	MinCtx        int
 	MaxTTFT       int
 	RequireParams bool
+	FreeOnly      bool // Routing.FreeOnly: the model carries `:free`
 	// Profiles resolves a guest's "@profile/<name>" against config.json, re-read on change.
 	// nil = the handler builds one for ConfigPath().
 	Profiles *ProfileStore
@@ -984,7 +985,7 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			TrustMin: opts.TrustMin, Region: opts.Region, Only: opts.Only, Models: opts.Models,
 			Sort: opts.Sort, Prefer: opts.Prefer, NoFallbacks: opts.NoFallbacks, Require: opts.Require,
 			ParamsB: opts.ParamsB, MinCtx: opts.MinCtx, MaxTTFT: opts.MaxTTFT, RequireParams: opts.RequireParams,
-			HeaderMode: opts.HeaderRouting,
+			FreeOnly: opts.FreeOnly, HeaderMode: opts.HeaderRouting,
 		}
 		if lifted.Pref != "" {
 			rt.Pref = lifted.Pref

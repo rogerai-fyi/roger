@@ -50,7 +50,8 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("this band is paid - ") + stKey.Render("type /login") + stDim.Render(" to use your wallet (free bands work without an account)")
 		return m, nil
 	}
-	lim := m.limits.resolve(bd.model)
+	m.confirmProfile = "" // every confirm starts on the default; p cycles
+	lim := m.confirmLimit(bd.model)
 	typ := m.limits.typical()
 	q := quote{b: bd, limit: lim, typical: typ, estReply: bd.minOut * float64(typ) / 1e6}
 	if lim.MaxOut > 0 && bd.minOut > lim.MaxOut {
@@ -97,10 +98,25 @@ func (m model) confirmView(w int) string {
 			pad(bd.model, 22), pad("@"+st.NodeID, 12), pad(tpsPlain(st.TPS, st.Online), 10), plainBandBadge(bd, m.limits, false)),
 		w-4) + "\n\n")
 
+	// A row that contradicts the standing quant rule is refused HERE, before anything is
+	// accepted: the confirm names the rule and offers no accept (routing_profiles.feature).
+	if why := m.quantRuleRefusal(bd.model, bd.quant); why != "" {
+		b.WriteString("    " + stEmber.Render(why) + "\n")
+		b.WriteString("    " + stDim.Render("esc back") + "\n")
+		return b.String()
+	}
+
 	// One glanceable line: what you pay, that it's under your cap, est cost.
 	cap := ""
 	if q.limit.MaxOut > 0 {
 		cap = stDim.Render("   ·   ") + stLive.Render("under your "+money(q.limit.MaxOut)+" cap")
+		if m.confirmProfile != "" {
+			cap = stDim.Render("   ·   ") + stLive.Render(fmt.Sprintf("under your $%g/1M cap", q.limit.MaxOut)) +
+				stDim.Render(" (profile "+m.confirmProfile+")")
+		}
+	}
+	if line := m.confirmRoutingLine(); line != "" {
+		b.WriteString("    " + line + "\n")
 	}
 	b.WriteString("    " + stEmber.Render(money(bd.minOut)) + stDim.Render(" $/1M out") + bandTierSuffix(bd) + cap +
 		stDim.Render("   ·   ~"+dollars(q.estReply)+" / reply") + "\n")

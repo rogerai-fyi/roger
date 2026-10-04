@@ -61,6 +61,9 @@ type Routing struct {
 	MinCtx        int
 	MaxTTFT       int
 	RequireParams bool
+	// FreeOnly is the booth's F filter: the model carries the `:free` variant, so only a
+	// station free right now may serve (re-checked by the broker on every turn).
+	FreeOnly bool
 	// HeaderMode speaks the pre-body wire (X-Roger-* headers) to a broker whose GET
 	// /v1/models answered 404 at tune time. Keys with no header form are dropped (Dropped).
 	HeaderMode bool
@@ -392,6 +395,12 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			provider["max_price"] = mp
 		}
 	}
+	if r.FreeOnly {
+		var model string
+		if json.Unmarshal(m["model"], &model) == nil && model != "" && !strings.HasSuffix(model, ":free") {
+			m["model"], _ = json.Marshal(model + ":free")
+		}
+	}
 	putObject(m, "roger", roger)
 	putObject(m, "provider", provider)
 	return json.Marshal(m)
@@ -514,7 +523,7 @@ func (r Routing) Dropped() []string {
 		{"provider.require_parameters", r.RequireParams}, {"provider.max_price.request", r.MaxReq > 0},
 		{"roger.require", len(r.Require) > 0}, {"roger.params_b", len(r.ParamsB) == 2},
 		{"roger.min_ctx", r.MinCtx > 0}, {"roger.max_ttft_ms", r.MaxTTFT > 0},
-		{"roger.trust_min", r.TrustMin != ""}, {"roger.region", len(r.Region) > 0},
+		{"roger.trust_min", r.TrustMin != ""}, {"roger.region", len(r.Region) > 0}, {"model:free", r.FreeOnly},
 	} {
 		if k.on {
 			d = append(d, k.key)

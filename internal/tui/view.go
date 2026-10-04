@@ -975,6 +975,20 @@ func (m model) helpView() string {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", g[0])) + stDim.Render(g[1]) + "\n")
 	}
 
+	// [3] CONFIG's own keys: they live only inside that screen and never shadow a global.
+	config := [][2]string{
+		{"tab · shift+tab", "walk the selected band's routing fields"},
+		{"enter", "edit the focused field (type, enter saves, esc cancels)"},
+		{"space", "cycle a choice field: quant, pref, trust, self-hosted"},
+		{"p", "cycle the band's pref (balanced, cheap, fast, reliable)"},
+		{"t · v", "require: toggle tools / vision"},
+		{"a · d", "add a band row · clear the row's rule"},
+	}
+	b.WriteString("\n" + stBrand.Render("  [3] CONFIG") + stDim.Render("  (your routing rules, per band and default)") + "\n\n")
+	for _, c := range config {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", c[0])) + stDim.Render(c[1]) + "\n")
+	}
+
 	lockup := "rogerai"
 	if helpVersion != "" {
 		lockup += " " + helpVersion
