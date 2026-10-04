@@ -133,3 +133,13 @@ func TestABeatRefreshesTheSoftwareRecord(t *testing.T) {
 	}
 	t.Fatal("the beating instance is not in the household")
 }
+
+// A simulated machine names itself (tools/edgesim): ROGERAI_EDGE_MACHINE stands in for the device
+// tree a container cannot have. A machine's model is already its own word, so this trusts nothing new.
+func TestASimulatedMachineNamesItsOwnModel(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(envEdgeMachine, "Raspberry Pi 5 Model B Rev 1.0")
+	require.Equal(t, "Raspberry Pi 5 Model B Rev 1.0", edgeReadSoftwareFrom(root, "6.9.0").Machine)
+	t.Setenv(envEdgeMachine, "")
+	require.Empty(t, edgeReadSoftwareFrom(root, "6.9.0").Machine, "unset, the machine's own files decide")
+}

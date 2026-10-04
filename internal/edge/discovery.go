@@ -160,6 +160,9 @@ type Options struct {
 	// AdvertiseIPs overrides the addresses the A records answer with. Nil derives them
 	// from Interfaces, which is what a node does when nobody has told it otherwise.
 	AdvertiseIPs []net.IP
+	// advertiseLive is set when AdvertiseIPs was derived rather than given: the addresses are then
+	// read fresh for every answer, since an interface that comes back may hold a new one.
+	advertiseLive bool
 	// Dial is how a peer is checked (nil means DialTLS).
 	Dial DialFunc
 	// Probe is the serving probe run against a just-verified peer's instances whose serve is still
@@ -214,10 +217,11 @@ func New(o Options) *Discovery {
 		}
 	}
 	if o.Plane == nil {
-		o.Plane = func() (Transport, error) { return NewMulticastTransport(o.Interfaces()) }
+		o.Plane = func() (Transport, error) { return NewRejoiningMulticastTransport(o.Interfaces) }
 	}
 	if o.AdvertiseIPs == nil {
 		o.AdvertiseIPs = AdvertiseAddrs(InterfaceAddrs(o.Interfaces()))
+		o.advertiseLive = true
 	}
 	if o.Config.Service == "" {
 		o.Config = ConfigFromEnv(nil)
@@ -308,7 +312,14 @@ func (d *Discovery) Start(ctx context.Context) error {
 	d.advertising, d.browsing = advertising, true
 	d.mu.Unlock()
 	if advertising {
-		d.resp = NewResponder(d.ap, d.cfg.Service, d.opts.Self, d.opts.AdvertiseIPs)
+		if d.opts.advertiseLive {
+			ifaces := d.opts.Interfaces
+			d.resp = NewLiveResponder(d.ap, d.cfg.Service, d.opts.Self, func() []net.IP {
+				return AdvertiseAddrs(InterfaceAddrs(ifaces()))
+			})
+		} else {
+			d.resp = NewResponder(d.ap, d.cfg.Service, d.opts.Self, d.opts.AdvertiseIPs)
+		}
 		d.wg.Add(1)
 		go func() { defer d.wg.Done(); _ = d.resp.Serve(ctx) }()
 	}

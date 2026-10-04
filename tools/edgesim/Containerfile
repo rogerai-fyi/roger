@@ -1,0 +1,10 @@
+# A simulated Raspberry Pi for tools/edgesim: Debian Trixie (what Raspberry Pi OS Trixie is built on),
+# with roger. It runs the x86_64 build, so it is a stand-in for a Pi's ROLE on an Edge - joining,
+# being seen, monitored and controlled - not for its CPU. ROGERAI_EDGE_MACHINE names the board.
+FROM docker.io/library/debian:trixie-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libgomp1 procps iproute2 \
+ && rm -rf /var/lib/apt/lists/*
+COPY roger /usr/local/bin/roger
+COPY entrypoint.sh /usr/local/bin/edgesim-entrypoint
+ENTRYPOINT ["/usr/local/bin/edgesim-entrypoint"]

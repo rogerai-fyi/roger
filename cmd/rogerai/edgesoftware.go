@@ -19,6 +19,10 @@ import (
 	"rogerai.fm/roger/v6/internal/store"
 )
 
+// envEdgeMachine names this machine's hardware model where it has no device tree to read - a
+// container standing in for a Raspberry Pi (tools/edgesim).
+const envEdgeMachine = "ROGERAI_EDGE_MACHINE"
+
 // edgeReadSoftware is this process's software facts, from the live machine.
 func edgeReadSoftware() *store.EdgeSoftware { return edgeReadSoftwareFrom("/", Version) }
 
@@ -43,7 +47,9 @@ func edgeReadSoftwareFrom(root, version string) *store.EdgeSoftware {
 	}
 	sw.Kernel = read("proc/sys/kernel/osrelease")
 	sw.Hostname = read("proc/sys/kernel/hostname")
-	if m := read("proc/device-tree/model"); m != "" {
+	if m := strings.TrimSpace(os.Getenv(envEdgeMachine)); m != "" {
+		sw.Machine = m // a simulated machine (tools/edgesim) names itself; a model is the machine's own word anyway
+	} else if m := read("proc/device-tree/model"); m != "" {
 		sw.Machine = m
 	} else if p := read("sys/class/dmi/id/product_name"); p != "" && !edgeDMIFiller(p) {
 		if v := read("sys/class/dmi/id/sys_vendor"); v != "" && !edgeDMIFiller(v) && !strings.HasPrefix(strings.ToLower(p), strings.ToLower(v)) {

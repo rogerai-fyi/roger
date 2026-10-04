@@ -3,15 +3,19 @@ package main
 // Found rehearsing the Pi join (2026-10-02): the steps a person follows must print what they need.
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -69,4 +73,37 @@ func TestAnEnrollThatIsNotAllowedSaysHowToAllowIt(t *testing.T) {
 	require.Contains(t, err.Error(), "roger edge enroll pi --authority http://192.168.1.20:39009")
 	other := fmt.Errorf("connection refused")
 	require.Equal(t, other, edgeEnrollErr(other, "pi", ""), "any other error is left alone")
+}
+
+// Found with tools/edgesim (2026-10-04): a machine enrolled as "pi-1" was listed as "Pi 5 39f2" -
+// discovery rightly never trusts the name a device announces, but the name in an enrollment this
+// authority accepted is the owner's own choice (enrollment.feature). It is the name the member is
+// first seen under, unless another member already holds it.
+func TestAMemberIsFirstSeenUnderTheNameItEnrolledAs(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	local, isAuth, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, isAuth)
+	enroll := func(name string) string {
+		userPub, userPriv, _ := ed25519.GenerateKey(nil)
+		nodePub, _, _ := ed25519.GenerateKey(nil)
+		require.NoError(t, local.Allow(hex.EncodeToString(userPub)))
+		r := edgeauth.NewRequest(edgeauth.LocalAccount, name, "host", nodePub, time.Now())
+		r.Sign(userPriv)
+		resp, err := local.Issue(r)
+		require.NoError(t, err)
+		return resp.NodeID
+	}
+	pi := enroll("pi")
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	n, err := st.fleet.Observe(pi, edge.Observation{Name: pi, Kind: "host", Addr: "192.168.1.50:44100", Fingerprint: "ab"})
+	require.NoError(t, err)
+	require.Equal(t, "pi", n.Name, "seen first under the name it enrolled as")
+
+	// A second machine enrolled as "desk" (this authority's own name) keeps its id-name: one name, one node.
+	dup := enroll("desk")
+	n, err = st.fleet.Observe(dup, edge.Observation{Name: dup, Kind: "host", Addr: "192.168.1.51:44100", Fingerprint: "cd"})
+	require.NoError(t, err)
+	require.NotEqual(t, "desk", n.Name)
 }

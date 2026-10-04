@@ -268,10 +268,11 @@ func TestMulticastTransportMovesRealPackets(t *testing.T) {
 	require.NoError(t, err)
 
 	tp := &multicastTransport{
-		conns: []*net.UDPConn{src},
-		group: dst.LocalAddr().(*net.UDPAddr),
-		recv:  make(chan packet, 4),
-		done:  make(chan struct{}),
+		conns:    map[string]*net.UDPConn{"lo#1": src},
+		lastScan: time.Now().Add(time.Hour), // no rescan in this test: it drives one fixed socket
+		group:    dst.LocalAddr().(*net.UDPAddr),
+		recv:     make(chan packet, 4),
+		done:     make(chan struct{}),
 	}
 	go tp.pump(src)
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -83,11 +84,18 @@ func edgeRecordDeparted(n store.EdgeNode) error {
 
 // edgeReturningName is the name a re-admitted device comes back under: the one it had.
 func edgeReturningName(id string) string {
-	list, err := edgeLoadDeparted()
-	if err != nil {
-		return ""
+	if list, err := edgeLoadDeparted(); err == nil {
+		if name := edge.DepartedName(list, id); name != "" {
+			return name
+		}
 	}
-	return edge.DepartedName(list, id)
+	// A member this authority enrolled is first seen under the name it enrolled as: the request was
+	// signed by a key the owner allowed, so the name is the owner's choice (enrollment.feature). The
+	// fleet still refuses one that is unusable or held by another member.
+	if local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir()); err == nil && isAuthority {
+		return local.EnrolledName(id)
+	}
+	return ""
 }
 
 // edgeDepartedLabel is how a device not in the fleet is said, and the argument that re-admits it:
