@@ -158,10 +158,11 @@ Feature: What the consumer pays and the operator earns are right in every routin
     Then the "qwen3-32b" entry's rogerai.blended_price_per_1m is 0.30
     And the entry labels the blend ratio "3:1 input:output"
 
+  # corrected 2026-10-04 (founder-approved): at 3:1, s1 blends to 0.825 and s2 to 0.875; the lowest single-station blend is 0.825
   Scenario: A blended price never mixes the in price of one station with the out price of another
     Given "s1" at in $0.10 out $3.00 and "s2" at in $1.00 out $0.50 serve "m"
     When a consumer GETs /v1/models
-    Then rogerai.blended_price_per_1m is the lowest blended price of a single station (0.875)
+    Then rogerai.blended_price_per_1m is the lowest blended price of a single station (0.825)
 
   # --- #5: a dispatch failure before any work fails over -------------------------------
 

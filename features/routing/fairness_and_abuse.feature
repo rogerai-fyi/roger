@@ -285,8 +285,9 @@ Feature: Nobody can hurt an honest party on the network cheaply
       | 3 | 60     | 2      | 30     | is NOT cooling  |
       | 3 | 10     | 3      | 30     | is NOT cooling  |
 
+  # corrected 2026-10-04 (founder-approved): five 120 s cooldowns reach the approved 10-minute cumulative alert threshold
   Scenario: The station-wide cooldown still never touches trust and still pages only as today
-    Given "n-1" cooled for every payer three times in the alert window
+    Given "n-1" cooled for every payer five times in the alert window
     Then "n-1"'s trust state is unchanged
     And the founder is paged once, as the approved cooling alert says
 

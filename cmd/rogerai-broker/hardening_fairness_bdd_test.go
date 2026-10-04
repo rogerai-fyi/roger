@@ -1379,12 +1379,13 @@ func (s *fa6State) coolingState(name, state string) error {
 // cooledThreeTimes drives three station-wide cooldowns at the cap (each behind real demand
 // from three distinct payers) and runs the production alert check, as the approved
 // "a station that keeps cooling pages the founder once" fixture does.
-func (s *fa6State) cooledThreeTimes(name string) error {
+func (s *fa6State) cooledNTimes(name, times string) error {
+	rounds := map[string]int{"three": 3, "five": 5}[times]
 	st := s.ensureNode(name)
 	s.trustSnp[name] = s.trustOf(st)
 	s.b.adminEmails = []string{"founder@example.com"}
 	s.mailsMark = len(s.mails)
-	for round := 0; round < 3; round++ {
+	for round := 0; round < rounds; round++ {
 		s.answerFrom(st, true, 429, utDefaultBody(429), map[string]string{"Retry-After": "120"})
 		for _, who := range []string{"alice", "bob", "carol"} {
 			s.do(fa6Spec{who: who, model: st.model, extra: map[string]any{"provider": map[string]any{"only": []string{st.id}}}})
@@ -2833,7 +2834,7 @@ func fa6Register(sc *godog.ScenarioContext, st *fa6State) {
 	sc.Step(`^they count as one payer toward the station threshold$`, st.countAsOnePayer)
 	sc.Step(`^(\d+) distinct consumers relay once each within (\d+) seconds$`, st.distinctRelayWithin)
 	sc.Step(`^"([^"]+)" (is cooling|is NOT cooling) for every payer$`, st.coolingState)
-	sc.Step(`^"([^"]+)" cooled for every payer three times in the alert window$`, st.cooledThreeTimes)
+	sc.Step(`^"([^"]+)" cooled for every payer (three|five) times in the alert window$`, st.cooledNTimes)
 	sc.Step(`^"([^"]+)"'s trust state is unchanged$`, st.trustUnchanged)
 	sc.Step(`^the founder is paged once, as the approved cooling alert says$`, st.pagedOnce)
 	sc.Step(`^only "([^"]+)"'s pair on the only station is cooling$`, st.onlyPairCooling)
