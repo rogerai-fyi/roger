@@ -3,6 +3,7 @@ name: claude-review
 # Inert until the repository secret CLAUDE_CODE_OAUTH_TOKEN exists (create it with
 # `claude setup-token`; it bills the Claude subscription's remote credits). It never runs
 # for a PR from a fork: this repo is public and a fork PR must not reach the secret.
+# Uses GITHUB_TOKEN, so the Claude GitHub App is not required.
 # Advisory by design - it comments, it is not a required check.
 on:
   pull_request:
@@ -10,7 +11,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -34,6 +34,8 @@ jobs:
         if: env.CLAUDE_TOKEN != ''
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The built-in token (not the Claude GitHub App): reviews post as the Actions bot.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             Review pull request #${{ github.event.pull_request.number }} of ${{ github.repository }}: the diff is
             `git diff origin/${{ github.event.pull_request.base.ref }}...HEAD`. Act as an adversarial senior
