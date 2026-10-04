@@ -86,6 +86,7 @@ type edgeConstraints struct {
 	exclude      map[string]bool
 	pref         pref
 	promptTokens int
+	outTokens    int // the stated output limit (0 = none), for the estimated request cost
 	// PARITY, slice 1 part C (contract §6): every hard filter pickFor applies, evaluated on
 	// the Tower row - attributes the row does not carry (quant, capabilities, ctx, curated)
 	// are read from the registration of the node behind it, exactly where the broker keeps
@@ -126,6 +127,7 @@ func (c edgeConstraints) note(reason, towerID string) {
 // station by.
 type edgeMetric struct {
 	in, out float64 // $/1M
+	cost    float64 // estimated request cost, USD (§14.7); price ranks on it first
 	tps     float64 // 0 = unmeasured (sorts last)
 	ttft    float64 // ms, 0 = unmeasured (sorts last)
 }

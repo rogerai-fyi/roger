@@ -1752,6 +1752,10 @@ func (k *kg5State) streamUnderLimit(label string, limit float64) error {
 	if err := k.mintWith("acct-a", label, fmt.Sprintf("limit_usd %v", limit)); err != nil {
 		return err
 	}
+	// Price the held station so the NEXT request's hold (contract §14 #23: the default 4096
+	// output tokens, not the whole window) is above the $0.01 the scenario lowers the limit
+	// to: 4096 x $4/1M = $0.016. The in-flight stream itself only spends cents of a cent.
+	k.ensureStation("kg5-slow", k.model, 1, 4)
 	return k.heldRelay(label, true)
 }
 

@@ -96,6 +96,7 @@ type utState struct {
 	funded       bool
 	start        float64 // balance before the relays
 	maxTokens    int     // when > 0, the relay body carries max_tokens (hold sizing)
+	restoreEnv   func()  // undoes a scenario-scoped env knob at teardown
 
 	// station bookkeeping
 	stationStop chan struct{}
@@ -222,6 +223,10 @@ func (s *utState) reset() error {
 }
 
 func (s *utState) teardown() {
+	if s.restoreEnv != nil {
+		s.restoreEnv()
+		s.restoreEnv = nil
+	}
 	if s.stationStop != nil {
 		close(s.stationStop)
 		s.stationWG.Wait()
@@ -610,6 +615,18 @@ func (s *utState) fundedConsumerWithHold(v, hold string) error {
 	h, err := feParseFloat(hold)
 	if err != nil {
 		return err
+	}
+	// This scenario is about refund accounting, not the consumer default INPUT cap: the
+	// derived price_in sits far above $5/1M, so switch that cap off for the run.
+	// Scoped to the scenario (teardown restores it), not the whole runner.
+	prevCap, hadCap := os.LookupEnv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN")
+	_ = os.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0")
+	s.restoreEnv = func() {
+		if hadCap {
+			_ = os.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", prevCap)
+		} else {
+			_ = os.Unsetenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN")
+		}
 	}
 	// Size the pre-auth exactly on the prompt side: estimateMaxCost = promptEst * price_in
 	// / 1e6 when price_out is 0 (an out-price large enough to reserve 0.3 on its own would

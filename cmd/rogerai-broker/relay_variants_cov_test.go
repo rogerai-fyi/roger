@@ -20,6 +20,7 @@ import (
 // dispatches to the owner's node, and settles a FREE grant ($0, metering-only): the
 // completion is returned, cost is 0, and no money lot mints.
 func TestRelayGrantFreeRoundTrip(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 
@@ -109,6 +110,7 @@ func TestRelayInvalidSignature(t *testing.T) {
 // whose funded balance is below the worst-case cost is rejected with 402 BEFORE any job is
 // dispatched (the node goroutine must never be reached).
 func TestRelayInsufficientBalance(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 
@@ -159,6 +161,7 @@ func TestRelayInsufficientBalance(t *testing.T) {
 // full, $0 is charged, NO earning lot mints, and the (empty) completion is still returned.
 // This is the non-vacuous twin of the higher-priced void case (those nodes never pick).
 func TestRelayPaidVoidNoOutputRoundTrip(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 
@@ -220,6 +223,7 @@ func TestRelayPaidVoidNoOutputRoundTrip(t *testing.T) {
 // returns a valid completion, the consumer's wallet is DEBITED, an earning lot is minted
 // for the owner, and the receipt/cost/balance headers are emitted.
 func TestRelayPaidSettlesRoundTrip(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 

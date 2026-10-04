@@ -2015,7 +2015,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	// A cap above what any station may charge is clamped to the register ceiling, not
 	// rejected - on both axes (the out cap is clamped by effectiveRelayMaxOut below).
-	maxPrice = math.Min(maxPrice, maxPriceInCeiling())
+	maxPrice = effectiveRelayMaxIn(maxPrice)
 	// Smart-router v2 request shape: the user-preference knob (cheap/balanced/fast/
 	// reliable; default balanced), and a prompt-size estimate that makes speedFit
 	// request-size-aware (a long prompt evicts weak hardware). totalReqs feeds the UCB
@@ -2072,7 +2072,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	// One pickReq for every routing pass of this request (first pick, band-cooling probe,
 	// ctx re-pick, failover plan); only the seed differs per attempt.
-	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, sort: routeSort,
+	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, outTokens: statedOutputTokens(body), sort: routeSort,
 		needTools: bodyNeedsTools(body), needVision: bodyNeedsVision(body),
 		quants: quantSet(routing.Quantizations), netFilters: routing.Net}
 	if confidentialOnly {
@@ -2241,8 +2241,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// candFor resolves one (model, station) pair into a plan candidate: its body, and its
 	// hold ceiling - the true upper bound at the billed price, never above the request cap.
 	candFor := func(m string, n protocol.NodeRegistration, o protocol.ModelOffer, nt *nodeTunnel, p pricingPlan, now time.Time) attemptCand {
-		c := attemptCand{node: n, offer: o, t: nt, pricing: p, model: m, body: bodyOf(m)}
-		c.maxCost = holdCostFor(p, o, c.body, now)
+		orig := bodyOf(m)
+		c := attemptCand{node: n, offer: o, t: nt, pricing: p, model: m, body: withDefaultMaxTokens(orig, promptTokens, holdWindow(o))}
+		if statedOutputTokens(orig) > 0 {
+			c.maxCost = holdCostFor(p, o, c.body, now)
+		} else {
+			c.maxCost = holdCostWithOutput(p, o, orig, statedOutputTokens(c.body), now)
+		}
 		if capReq > 0 && c.maxCost > capReq {
 			in, out, _ := billedPrices(p, o, now)
 			buys, _ := capBuys(capReq, promptTokens, in, out)
@@ -2408,7 +2413,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// exclusions (a Tower id in the set declines that Tower) and the same pref
 			// weights the direct path evaluates. What the bridge cannot evaluate yet keeps
 			// the request direct-only (never a widened pick).
-			edgeConstraints: edgeConstraints{minTPS: minTPS, exclude: exclude, pref: routePref, promptTokens: promptTokens},
+			edgeConstraints: edgeConstraints{minTPS: minTPS, exclude: exclude, pref: routePref, promptTokens: promptTokens, outTokens: statedOutputTokens(body)},
 			namedIDs:        len(orderList) > 0 || routing.Only != nil || pinNode != "",
 		}
 		// The bridge evaluates the consumer's filters on the Tower row itself (edgeEligibleM):
@@ -2880,44 +2885,80 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// checked above and proceeds). Priciest first, so the plan keeps as many pairs as the
 		// wallet covers: a pair it cannot cover is trimmed, a cheaper later pair stays. The
 		// key limit trims the same way.
-		for _, ceiling := range planCeilings(plan) {
-			if !b.monthlyCapFits(payer, ceiling, now) || (keyLimited && !keyState.fits(ceiling)) {
-				continue
+		tryCeilings := func() bool {
+			for _, ceiling := range planCeilings(plan) {
+				if !b.monthlyCapFits(payer, ceiling, now) || (keyLimited && !keyState.fits(ceiling)) {
+					continue
+				}
+				ok, herr := hold(ceiling)
+				if errors.Is(herr, store.ErrKeyLimit) {
+					continue // the key cannot cover this ceiling: trim it, as the pre-check does
+				}
+				if herr != nil {
+					unlockKey()
+					jsonErr(w, http.StatusInternalServerError, "wallet error")
+					return false
+				}
+				if ok {
+					held, maxCost = true, ceiling
+					break
+				}
 			}
-			ok, herr := hold(ceiling)
-			if errors.Is(herr, store.ErrKeyLimit) {
-				continue // the key cannot cover this ceiling: trim it, as the pre-check does
-			}
-			if herr != nil {
-				unlockKey()
-				jsonErr(w, http.StatusInternalServerError, "wallet error")
-				return
-			}
-			if ok {
-				held, maxCost = true, ceiling
-				break
-			}
+			return true
 		}
-		if !held {
+		// tryHead holds the plan's first pair at its own cost: ok=false is a wallet that
+		// cannot cover it; done=true means an error was already answered.
+		tryHead := func() (ok, done bool) {
 			ok, herr := hold(maxCost)
 			if errors.Is(herr, store.ErrKeyLimit) {
 				refuseKeyLimit()
-				return
+				return false, true
 			}
 			if herr != nil {
 				unlockKey()
 				jsonErr(w, http.StatusInternalServerError, "wallet error")
+				return false, true
+			}
+			return ok, false
+		}
+		if !tryCeilings() {
+			return
+		}
+		if !held {
+			ok, done := tryHead()
+			if done {
 				return
 			}
-			if !ok {
-				unlockKey()
-				msg, hint := "insufficient balance - add funds", remedyCredits
-				if gok {
-					msg = "top up to keep sponsoring this grant, or make it --free"
+			held = ok
+		}
+		// A Tower pair the wallet cannot cover is dropped and the plan proceeds Tower-free
+		// when a direct pair fits (§14.11): a bridged hold is sized never to underpay the Tower
+		// operator, so it is often the priciest pair, and it must not turn a request a direct
+		// station can serve into a 402. Tried only after the plan as built did not fit.
+		if !held {
+			if direct := towerFreePlan(plan); len(direct) > 0 && len(direct) < len(plan) {
+				plan, maxCost = direct, direct[0].maxCost
+				log.Printf("hold request=%s: the plan's Tower pair did not fit the wallet - planning Tower-free", requestID)
+				if !tryCeilings() {
+					return
 				}
-				jsonErr402(w, "insufficient_balance", msg, "credits", hint)
-				return
+				if !held {
+					ok, done := tryHead()
+					if done {
+						return
+					}
+					held = ok
+				}
 			}
+		}
+		if !held {
+			unlockKey()
+			msg, hint := "insufficient balance - add funds", remedyCredits
+			if gok {
+				msg = "top up to keep sponsoring this grant, or make it --free"
+			}
+			jsonErr402(w, "insufficient_balance", msg, "credits", hint)
+			return
 		}
 		unlockKey()
 	}
@@ -4273,18 +4314,9 @@ func (b *broker) voidUsageChunk(nodeID, model, reason string) []byte {
 // model's ctx); the prompt is over-estimated from the body size. At the offer's
 // active price, so the actual capture on settle is always <= this.
 func estimateMaxCost(body []byte, in, out float64, ctx int) float64 {
-	var req struct {
-		MaxTokens int `json:"max_tokens"`
-	}
-	_ = json.Unmarshal(body, &req)
-	capTok := ctx
-	if capTok <= 0 {
-		capTok = 8192
-	}
-	maxOut := req.MaxTokens
-	if maxOut <= 0 || maxOut > capTok {
-		maxOut = capTok
-	}
+	// Output is the request's expected output (§14.11): its stated limit (max_completion_tokens,
+	// else max_tokens), else the default budget, bounded by the window left after the prompt.
+	maxOut := expectedOutput(statedOutputTokens(body), len(body)/4, ctx)
 	promptEst := len(body)/4 + 1 // ~chars/4 → tokens; body JSON over-estimates (safe)
 	c := (float64(promptEst)*in + float64(maxOut)*out) / 1e6
 	if c < 1e-6 {
@@ -4465,6 +4497,7 @@ func tierAHealthy(probeFails int, successRate float64, successSeen bool) bool {
 type pickReq struct {
 	pref         pref
 	promptTokens int
+	outTokens    int        // the output limit the request states (0 = none): with promptTokens, the estimated request cost price ranks on (§14.7)
 	rng          *rand.Rand // nil => deterministic top-1 (no P2C spread)
 	modality     string     // "" / "chat" match chat offers; "tts" / "stt" match voice offers
 	// allowCooling lifts the station-cooldown filter (a station whose upstream said 429 is
@@ -4580,6 +4613,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		node     protocol.NodeRegistration
 		offer    protocol.ModelOffer
 		in, out  float64 // the active (time-of-use) price right now
+		estCost  float64 // estimated request cost at those prices, USD (§14.7): what price ranks on
 		tps      float64 // measured throughput (0 = unmeasured)
 		ttft     float64 // measured time to first token, ms (0 = unmeasured)
 		inflight int
@@ -4726,14 +4760,17 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			// Running min/max of the eligible OUTPUT price - the user's effective range
 			// for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
 			// the market input-price min). Free (out<=0) offers don't move the min/max.
-			rangeMin, rangeMax, haveRange = extendOutRange(out, rangeMin, rangeMax, haveRange)
+			// Price ranks on the ESTIMATED REQUEST COST (§14.7): measured prompt × in + expected
+			// output × out, so an outsized input price cannot hide behind a tiny output price.
+			estCost := estRequestCost(req.promptTokens, expectedOutput(req.outTokens, req.promptTokens, o.Ctx), in, out)
+			rangeMin, rangeMax, haveRange = extendOutRange(estCost, rangeMin, rangeMax, haveRange)
 			// Capacity-aware load is THIS instance's exact local inflight PLUS the merged
 			// peer-instance load (Stage 2). peerInflight is the in-memory cross-instance
 			// snapshot refreshed on the background loop; it is empty (adds 0) when
 			// multi-instance is off, so the single-instance load factor is unchanged.
 			inflight := b.inflight[n.NodeID] + b.peerInflight[n.NodeID]
 			cands = append(cands, cand{
-				node: n, offer: o, in: in, out: out, tps: tps, ttft: tq.ttftMs, inflight: inflight,
+				node: n, offer: o, in: in, out: out, estCost: estCost, tps: tps, ttft: tq.ttftMs, inflight: inflight,
 				capacity: cap, rel: rel, fit: fit, radius: radius, tierA: tierA,
 			})
 		}
@@ -4758,12 +4795,17 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	}
 	// User price cap (when given) widens the range ceiling so "I'll pay up to X but
 	// reward me below it" is expressible; else the eligible max is the ceiling.
-	rmax := priceCeiling(rangeMax, maxPriceOut)
+	// Both are in estimated-request-cost units: the caps are converted at this request's shape.
+	capCost := 0.0
+	if maxPriceOut > 0 {
+		capCost = estRequestCost(req.promptTokens, expectedOutput(req.outTokens, req.promptTokens, 0), maxPriceIn, maxPriceOut)
+	}
+	rmax := priceCeiling(rangeMax, capCost)
 
 	// Score each candidate; partition into Tier A (eligible) and Tier B (probation).
 	var tierA, tierB []scoredCand
 	for i, c := range cands {
-		pm := priceMod(c.out, rangeMin, rmax, w.kPrice, w.priceExp)
+		pm := priceMod(c.estCost, rangeMin, rmax, w.kPrice, w.priceExp)
 		s := ucb(c.rel*c.fit*pm, c.radius) * loadFactor(c.inflight, c.capacity)
 		load := float64(c.inflight) / float64(maxInt(c.capacity, 1))
 		if req.sort != sortNone {
@@ -4791,7 +4833,9 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		// provider.sort: a STRICT ordering of the pool by one metric - no power-of-two-choices
 		// spread (the consumer said what they want). Ties fall to the score, then the stable
 		// candidate order. Unmeasured stations rank last under throughput / latency.
-		metric := func(c cand) edgeMetric { return edgeMetric{in: c.in, out: c.out, tps: c.tps, ttft: c.ttft} }
+		metric := func(c cand) edgeMetric {
+			return edgeMetric{in: c.in, out: c.out, cost: c.estCost, tps: c.tps, ttft: c.ttft}
+		}
 		best := pool[0]
 		for _, sc := range pool[1:] {
 			before, decided := edgeMetricLess(req.sort, metric(cands[sc.idx]), metric(cands[best.idx])) // the one §5 ordering, shared with the bridge

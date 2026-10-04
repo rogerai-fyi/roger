@@ -97,7 +97,9 @@ func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 	tps := b.tps[c.node.NodeID]
 	sr, sseen := b.success[c.node.NodeID]
 	b.metricsMu.Unlock()
-	return edgeMetric{in: ain, out: aout, tps: tps, ttft: tq.ttftMs}, tierAHealthy(tq.probeFails, sr, sseen)
+	prompt := approxPromptTokens(c.body)
+	cost := estRequestCost(prompt, expectedOutput(statedOutputTokens(c.body), prompt, c.offer.Ctx), ain, aout)
+	return edgeMetric{in: ain, out: aout, cost: cost, tps: tps, ttft: tq.ttftMs}, tierAHealthy(tq.probeFails, sr, sseen)
 }
 
 // edgeMetricLess is the strict single-metric ordering of contract §5 over two candidates
@@ -106,6 +108,9 @@ func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 func edgeMetricLess(key sortKey, a, b edgeMetric) (before, decided bool) {
 	switch key {
 	case sortPrice:
+		if a.cost != b.cost {
+			return a.cost < b.cost, true // estimated request cost (§14.7); a free offer costs 0
+		}
 		if a.out != b.out {
 			return a.out < b.out, true
 		}

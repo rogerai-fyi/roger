@@ -939,7 +939,9 @@ func (b *broker) edgeEligibleM(rows []fleet.Station, bannedNode map[string]bool,
 		// The same min-tps floor pickFor applies: measured and too slow is out; unmeasured
 		// passes (a floor on a measurement cannot judge what was never measured).
 		tps := b.tps[nodeID]
-		metrics[i] = edgeMetric{in: edgeRowPrice(row.PriceIn), out: edgeRowPrice(row.PriceOut), tps: tps, ttft: tq.ttftMs}
+		rin, rout := edgeRowPrice(row.PriceIn), edgeRowPrice(row.PriceOut)
+		metrics[i] = edgeMetric{in: rin, out: rout, tps: tps, ttft: tq.ttftMs,
+			cost: estRequestCost(c.promptTokens, expectedOutput(c.outTokens, c.promptTokens, 0), rin, rout)}
 		if c.minTPS > 0 && tps > 0 && tps < c.minTPS {
 			c.note("min_tps", row.TowerID)
 			continue

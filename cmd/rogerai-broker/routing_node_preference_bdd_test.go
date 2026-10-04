@@ -1860,6 +1860,23 @@ func (s *np1State) np1BodyOtherwiseIdentical(name string) error {
 	return nil
 }
 
+// np1BodyIdenticalButMax: the station's body minus the default max_tokens the broker adds to a
+// body that states no output limit (contract §14.11) is the consumer's body without carriers.
+func (s *np1State) np1BodyIdenticalButMax(name string) error {
+	body, err := s.np1StationBody(name)
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(body, []byte(`"max_tokens"`)) {
+		return fmt.Errorf("%q received no default max_tokens: %s", name, body)
+	}
+	got := rewriteBodyDrop(body, map[string]bool{"max_tokens": true}, nil)
+	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(s.np1Base)) {
+		return fmt.Errorf("%q received\n%s\nwant the consumer's body without the carriers (plus max_tokens)\n%s", name, body, s.np1Base)
+	}
+	return nil
+}
+
 func (s *np1State) np1ShowsCounters(order, srt, refused string) error {
 	for key, want := range map[string]string{"routing_strict_order": order, "routing_strict_sort": srt, "routing_nofallback_refused": refused} {
 		w, _ := strconv.Atoi(want)
@@ -2299,6 +2316,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^no error is returned$`, st.np1NoErrorReturned)
 			sc.Step(`^the body "([^"]*)" received has no "provider", "roger" or "models" key$`, st.np1BodyHasNoCarriers)
 			sc.Step(`^the body "([^"]*)" received is otherwise byte-identical to what the consumer sent$`, st.np1BodyOtherwiseIdentical)
+			sc.Step(`^the body "([^"]*)" received is otherwise byte-identical to what the consumer sent, apart from the default max_tokens$`, st.np1BodyIdenticalButMax)
 			sc.Step(`^it shows routing_strict_order (\d+), routing_strict_sort (\d+), routing_nofallback_refused (\d+)$`, st.np1ShowsCounters)
 			sc.Step(`^exactly one log line names the request, "([^"]*)", and "([^"]*)"$`, st.np1OneLogLine)
 			sc.Step(`^no log line contains the band code$`, st.np1NoBandCodeInLogs)

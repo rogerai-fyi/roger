@@ -130,11 +130,31 @@ func holdCostFor(p pricingPlan, offer protocol.ModelOffer, body []byte, now time
 	if free {
 		return 0
 	}
-	holdCtx := offer.Ctx
-	if offer.CtxEstimated && holdCtx > 32768 {
-		holdCtx = 32768
+	return estimateMaxCost(body, holdIn, holdOut, holdWindow(offer))
+}
+
+// holdWindow is the context window the hold (and the default output budget) assumes for an
+// offer: its declared window, an estimated one capped at 32768.
+func holdWindow(offer protocol.ModelOffer) int {
+	if offer.CtxEstimated && offer.Ctx > 32768 {
+		return 32768
 	}
-	return estimateMaxCost(body, holdIn, holdOut, holdCtx)
+	return offer.Ctx
+}
+
+// holdCostWithOutput is the hold for a body the broker gave a default max_tokens (§14.11): the
+// prompt estimate of the consumer's own body plus exactly the outTokens the station is sent,
+// so the hold covers what the station may generate and nothing the broker itself added.
+func holdCostWithOutput(p pricingPlan, offer protocol.ModelOffer, consumerBody []byte, outTokens int, now time.Time) float64 {
+	holdIn, holdOut, free := billedPrices(p, offer, now)
+	if free {
+		return 0
+	}
+	c := (float64(len(consumerBody)/4+1)*holdIn + float64(outTokens)*holdOut) / 1e6
+	if c < 1e-6 {
+		c = 1e-6 // the same floor estimateMaxCost places
+	}
+	return c
 }
 
 // billedPrices is the per-1M price a pair bills at: $0 for a free plan (free reports it), the
@@ -195,6 +215,17 @@ func planCeilings(plan []attemptCand) []float64 {
 		}
 	}
 	return out[:n]
+}
+
+// towerFreePlan is the plan without its Tower pairs, in order (§14.11).
+func towerFreePlan(plan []attemptCand) []attemptCand {
+	var out []attemptCand
+	for _, a := range plan {
+		if a.edge == nil {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // trimPlan drops the candidates the placed hold cannot cover (their attempt would settle

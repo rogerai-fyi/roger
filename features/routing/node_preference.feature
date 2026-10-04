@@ -1181,7 +1181,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   Scenario: the station receives no provider or roger object
     When a funded consumer relays with provider.order ["s1"], provider.ignore ["s3"], roger.pref "cheap"
     Then the body "s1" received has no "provider", "roger" or "models" key
-    And the body "s1" received is otherwise byte-identical to what the consumer sent
+    # superseded 2026-10-04 by contract §14 (founder-approved): apart from the default max_tokens (§14.11)
+    And the body "s1" received is otherwise byte-identical to what the consumer sent, apart from the default max_tokens
 
   # ============================================================================
   # telemetry and logs

@@ -9,7 +9,9 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -86,7 +88,7 @@ func (b *broker) catalogCreated() func(string) int64 {
 // modelAgg accumulates one model's rogerai block over its on-air chat offers.
 type modelAgg struct {
 	providers, curated                int
-	minIn, minOut, bestTPS            float64
+	minIn, minOut, bestTPS, blend     float64 // blend: the lowest single-station blended price
 	priced                            bool
 	ctxMax                            int
 	declared, estimated               []float64
@@ -113,6 +115,9 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 			a.curated++
 		} else {
 			a.providers++
+		}
+		if bl := blendedPrice(o.In, o.Out); !a.priced || bl < a.blend {
+			a.blend = bl // one station's in AND out, never one's in with another's out
 		}
 		if !a.priced || o.In < a.minIn {
 			a.minIn = o.In
@@ -156,6 +161,7 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 		block := map[string]any{
 			"providers": a.providers, "curated": a.curated,
 			"min_price_in": a.minIn, "min_price_out": a.minOut, "best_tps": a.bestTPS,
+			"blended_price_per_1m": a.blend, "blend_ratio": blendLabel(),
 			"free_now": a.free, "confidential": a.confidential, "verified": a.verified,
 			"quants": sortedKeys(a.quants), "cooling": a.all,
 		}
@@ -186,6 +192,23 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 	}
 	return data
 }
+
+// blendRatio is ROGERAI_BLEND_INPUT_RATIO (input tokens per output token, default 3), read
+// per call like the other pricing knobs.
+func blendRatio() float64 {
+	if v, err := strconv.ParseFloat(os.Getenv("ROGERAI_BLEND_INPUT_RATIO"), 64); err == nil && v > 0 && !math.IsInf(v, 0) {
+		return v
+	}
+	return 3
+}
+
+// blendedPrice is one offer's $/1M at the blend ratio: (r*in + out) / (r+1).
+func blendedPrice(in, out float64) float64 {
+	r := blendRatio()
+	return (r*in + out) / (r + 1)
+}
+
+func blendLabel() string { return strconv.FormatFloat(blendRatio(), 'g', -1, 64) + ":1 input:output" }
 
 // firstSeenModel is the unix time a model FIRST came on air: a shared-store record (the same
 // on every broker instance), written once and read back; the in-memory map serves a

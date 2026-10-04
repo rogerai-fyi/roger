@@ -113,6 +113,7 @@ func TestPlayboxRelaySessionCookieChatsFree(t *testing.T) {
 }
 
 func TestPlayboxRelaySessionSpendsTheOneWallet(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := pbBroker(t, db)
 	pbStation(b, db, "paid-stn", "owner-b", "big-model", 9)
@@ -218,6 +219,7 @@ func TestPlayboxRelaySpoofedOriginLegacyIDStaysAnon(t *testing.T) {
 }
 
 func TestPlayboxRelayAnonBrowserPaidModelSignIn(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := pbBroker(t, db)
 	pbStation(b, db, "paid-stn", "owner-b", "big-model", 9)

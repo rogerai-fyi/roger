@@ -51,10 +51,14 @@ Feature: Known-vulnerability regression guards
       And the hold is never floored to ~1e-6 for a priced model
 
       Examples:
-        | price | ctx  | maxtok | hold     |
-        | 0.5   | 8192 | 8192   | 0.004096 |
-        | 1.0   | 8192 | 4096   | 0.004096 |
-        | 2.0   | 4096 | 4096   | 0.008192 |
+      # superseded 2026-10-04 by contract §14 (founder-approved): the output side is bounded by
+      # what fits in the window (ctx minus the prompt), so rows 1 and 3 hold (ctx - 7 prompt
+      # tokens) x price_out instead of max_tokens x price_out. Still the true upper bound.
+      # Old rows: | 0.5 | 8192 | 8192 | 0.004096 | and | 2.0 | 4096 | 4096 | 0.008192 |
+        | price | ctx  | maxtok | hold      |
+        | 0.5   | 8192 | 8192   | 0.0040925 |
+        | 1.0   | 8192 | 4096   | 0.004096  |
+        | 2.0   | 4096 | 4096   | 0.008178  |
 
     @c1
     Scenario: A genuinely FREE model still places no hold (the floor is not abused either way)

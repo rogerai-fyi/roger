@@ -2613,17 +2613,28 @@ func mf1Thens() []mf1Step {
 			}
 			return fmt.Errorf("no station serving \"b\" received the request (response %d %.160s)", s.lastCode, s.lastBody)
 		}),
-		T(`"b1"'s job User is the pseudonym for (user, "b1") and the messages and max_tokens are byte-identical to the consumer's`, func(s *mf1State) error {
+		T(`"b1"'s job User is the pseudonym for (user, "b1"), the messages are byte-identical to the consumer's, and max_tokens is the default output budget`, func(s *mf1State) error {
 			got, err := s.lastBodyOf("b1")
 			if err != nil {
 				return err
 			}
 			var sent map[string]json.RawMessage
 			_ = json.Unmarshal(s.reqBody, &sent)
-			for _, k := range []string{"messages", "max_tokens"} {
-				if !bytes.Equal(got[k], sent[k]) {
-					return fmt.Errorf("b1 received %s %.80s, the consumer sent %.80s", k, got[k], sent[k])
-				}
+			if !bytes.Equal(got["messages"], sent["messages"]) {
+				return fmt.Errorf("b1 received messages %.80s, the consumer sent %.80s", got["messages"], sent["messages"])
+			}
+			if sent["max_tokens"] != nil {
+				return fmt.Errorf("the scenario's consumer must state no max_tokens")
+			}
+			prompt := approxPromptTokens(s.reqBody)
+			s.b.mu.Lock()
+			reg := s.b.nodes[s.st("b1").id]
+			s.b.mu.Unlock()
+			if len(reg.Offers) == 0 {
+				return fmt.Errorf("b1 has no registered offer")
+			}
+			if want := fmt.Sprint(expectedOutput(0, prompt-1, holdWindow(reg.Offers[0]))); string(got["max_tokens"]) != want {
+				return fmt.Errorf("b1 received max_tokens %s, want the default output budget %s", got["max_tokens"], want)
 			}
 			_, rec, err := s.voidReason("b1")
 			if err != nil {

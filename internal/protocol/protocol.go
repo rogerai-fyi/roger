@@ -600,7 +600,7 @@ const (
 	// 413, 422 that is not a context-window overflow): a fact about what the consumer sent,
 	// never evidence about the operator (contract §14.1).
 	VoidConsumerRejected = "consumer-rejected"
-	VoidEmptyOutput       = "empty-output"       // a 2xx that carried no usable completion
+	VoidEmptyOutput      = "empty-output" // a 2xx that carried no usable completion
 	// VoidContextWindow: the upstream refused the prompt as larger than the model's window (a
 	// 400 in the context-overflow vocabulary). It is a fact about the request against that
 	// model, never a strike; with a model list it moves the request on to the next model.

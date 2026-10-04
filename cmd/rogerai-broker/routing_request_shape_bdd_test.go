@@ -1958,6 +1958,20 @@ func (s *rs1State) stationOnlyKeys(a, b string) error {
 	return nil
 }
 
+// stationOnlyKeysDefaultMax: the two consumer keys plus the default max_tokens the broker adds
+// to a body that states no output limit (contract §14.11), a positive integer.
+func (s *rs1State) stationOnlyKeysDefaultMax(a, b string) error {
+	m, body, err := s.upstreamBody()
+	if err != nil {
+		return err
+	}
+	var mt int
+	if len(m) != 3 || m[a] == nil || m[b] == nil || json.Unmarshal(m["max_tokens"], &mt) != nil || mt <= 0 {
+		return fmt.Errorf("the station received keys other than %q, %q and a default max_tokens: %s", a, b, body)
+	}
+	return nil
+}
+
 func (s *rs1State) stationNoKey(key string) error {
 	m, body, err := s.upstreamBody()
 	if err != nil {
@@ -2774,6 +2788,7 @@ func rs1Steps(sc *godog.ScenarioContext, st *rs1State) {
 
 	// Then: what the station / Tower / bus received
 	sc.Step(`^the station received a body whose only top-level keys are "([^"]*)", "([^"]*)"$`, st.stationOnlyKeys)
+	sc.Step(`^the station received a body whose only top-level keys are "([^"]*)", "([^"]*)" and the default "max_tokens"$`, st.stationOnlyKeysDefaultMax)
 	sc.Step(`^the station received no top-level key "([^"]*)"$`, st.stationNoKey)
 	sc.Step(`^the station received top-level key "([^"]*)" with value (.+)$`, st.stationReceivedKey)
 	sc.Step(`^the station received top-level key "([^"]*)" byte-identical to what was sent$`, st.stationKeyByteIdentical)

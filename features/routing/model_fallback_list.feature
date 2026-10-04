@@ -953,10 +953,11 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "model": "a" and "models": ["b"]
     Then "b1" received a body with model "b"
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): a body that states no output limit is sent the default max_tokens the hold was sized for (§14.11)
   Scenario: rewriting model for the station does not change the pseudonym, the prompt or max_tokens
     Given "b1" serves "b" and no station serves "a"
     When a consumer relays with "model": "a" and "models": ["b"]
-    Then "b1"'s job User is the pseudonym for (user, "b1") and the messages and max_tokens are byte-identical to the consumer's
+    Then "b1"'s job User is the pseudonym for (user, "b1"), the messages are byte-identical to the consumer's, and max_tokens is the default output budget
 
   Scenario: a five-model list cannot be used to hold five stations' capacity at once
     Given five models each with one healthy station

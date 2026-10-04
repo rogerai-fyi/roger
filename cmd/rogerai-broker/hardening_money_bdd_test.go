@@ -211,12 +211,22 @@ func (s *mh6State) estimateUses(n string) error {
 		return fmt.Errorf("relay = %d: %.300s", s.last.code, s.last.body)
 	}
 	name := s.served(s.last)
-	st := s.st(name)
 	_, held := s.holdsSince(s.last.who)
 	prompt := approxPromptTokens(s.lastBodyOf(name))
-	want := (float64(prompt)*st.priceIn + float64(atoiMust(n))*st.priceOut) / 1e6
+	// The one hold covers the priciest pair of the failover plan (contract §1b), and every
+	// on-air station of the model is in that plan here: the estimate is n output tokens at
+	// the priciest of them, not at the station that happened to serve.
+	want, at := 0.0, ""
+	for nm, st := range s.stations {
+		if st.model != s.lastModel {
+			continue
+		}
+		if c := (float64(prompt)*st.priceIn + float64(atoiMust(n))*st.priceOut) / 1e6; c > want {
+			want, at = c, nm
+		}
+	}
 	if math.Abs(held-want) > want*0.05+1e-9 {
-		return fmt.Errorf("the hold was %.6f, want ~%.6f (prompt %d + %s output tokens at %s's prices)", held, want, prompt, n, name)
+		return fmt.Errorf("the hold was %.6f, want ~%.6f (prompt %d + %s output tokens at the plan's priciest station %s)", held, want, prompt, n, at)
 	}
 	return nil
 }
@@ -1534,7 +1544,15 @@ func (s *mh6State) holdsEachDirect(who, amount, each string) error {
 	if err := s.holds(who, amount); err != nil {
 		return err
 	}
-	p := mh6DirectPrice(atofMust(each))
+	// Price the station so the hold for THIS request is exactly the stated amount: the hold's
+	// prompt estimate counts the whole forwarded body (JSON and the default max_tokens it
+	// gains), not only the 50-token prompt text mh6DirectPrice assumes.
+	body := s.body(fa6Spec{who: who, model: s.lastModel})
+	sent := withDefaultMaxTokens(body, approxPromptTokens(body), 0)
+	// 0.1% under the stated amount: the relay's rewritten body can differ from this estimate by
+	// a token, and three holds of exactly $0.01 against exactly $0.03 would turn that into a 402.
+	// A 4th request still cannot fit (4 x 0.00999 > 0.03).
+	p := atofMust(each) * 0.999 * 1e6 / float64(len(sent)/4+1+statedOutputTokens(sent))
 	st := s.node("direct", s.lastModel, p, p)
 	s.scriptOn(st, func(_ int, w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(800 * time.Millisecond)
@@ -1582,7 +1600,11 @@ func (s *mh6State) allServed(n string) error {
 		}
 	}
 	if ok != atoiMust(n) {
-		return fmt.Errorf("%d of %d concurrent requests were served", ok, len(s.conc))
+		codes := []string{}
+		for _, r := range s.conc {
+			codes = append(codes, fmt.Sprintf("%d %.160s", r.code, r.body))
+		}
+		return fmt.Errorf("%d of %d concurrent requests were served: %v", ok, len(s.conc), codes)
 	}
 	return nil
 }
