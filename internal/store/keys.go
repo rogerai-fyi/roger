@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"strings"
 	"time"
 )
@@ -135,12 +136,30 @@ func (m *Mem) TouchAccountKey(id string, ts int64, request bool) error {
 	return nil
 }
 
+// KeyLimit asks HoldForKey to enforce a key's spend limit inside the hold's own transaction:
+// the key's spend dated in [From, To) (To <= 0 = unbounded) plus its open reservations plus the
+// new hold must stay within USD. USD <= 0 = no limit check.
+type KeyLimit struct {
+	USD      float64
+	From, To int64
+}
+
+// ErrKeyLimit: the hold would take the key past its limit; no hold was placed.
+var ErrKeyLimit = errors.New("store: key limit reached")
+
+func (l KeyLimit) fits(spend, reserved, amount float64) bool {
+	return spend+reserved+amount <= l.USD+1e-9
+}
+
 // HoldForKey is HoldFor whose reservation is attributed to an account key: the key's reserved
 // amount is the sum of its pending holds, so the reservation is released, captured and swept on
 // exactly the wallet hold's paths. keyTS dates the eventual key spend (the request's start).
-func (m *Mem) HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64) (bool, error) {
+func (m *Mem) HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64, lim KeyLimit) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if lim.USD > 0 && !lim.fits(m.keySpendLocked(keyID, lim.From, lim.To), m.keyReservedLocked(keyID, requestID), amount) {
+		return false, ErrKeyLimit
+	}
 	if !m.holdRefLocked(user, amount, requestID) {
 		return false, nil
 	}
@@ -151,13 +170,19 @@ func (m *Mem) HoldForKey(user, requestID string, amount float64, keyID string, k
 func (m *Mem) KeyReserved(keyID string) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.keyReservedLocked(keyID, ""), nil
+}
+
+// keyReservedLocked sums keyID's open holds, except the hold for skipRequest (a re-placed hold
+// for the same request replaces itself). Caller holds m.mu.
+func (m *Mem) keyReservedLocked(keyID, skipRequest string) float64 {
 	sum := 0.0
-	for _, ph := range m.pendingHolds {
-		if ph.keyID == keyID {
+	for rid, ph := range m.pendingHolds {
+		if ph.keyID == keyID && rid != skipRequest {
 			sum += ph.amount
 		}
 	}
-	return sum, nil
+	return sum
 }
 
 // KeySpend sums a key's settled spend dated in [from, to) (to <= 0 = no upper bound), net of
@@ -165,6 +190,11 @@ func (m *Mem) KeyReserved(keyID string) (float64, error) {
 func (m *Mem) KeySpend(keyID string, from, to int64) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.keySpendLocked(keyID, from, to), nil
+}
+
+// keySpendLocked is KeySpend for a caller holding m.mu.
+func (m *Mem) keySpendLocked(keyID string, from, to int64) float64 {
 	sum := 0.0
 	for _, r := range m.ledger {
 		v, ok := keySpendRow(r, keyID)
@@ -172,7 +202,7 @@ func (m *Mem) KeySpend(keyID string, from, to int64) (float64, error) {
 			sum += v
 		}
 	}
-	return sum, nil
+	return sum
 }
 
 // KeySpendRefs maps every request ref a key settled to its net cost (for attributing spend in

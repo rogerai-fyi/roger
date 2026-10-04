@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -2845,9 +2846,30 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
 			return
 		}
+		if keyLimited && keyHoldGapForTest != nil {
+			keyHoldGapForTest(b)
+		}
+		var keyLim store.KeyLimit
+		if keyLimited && keyHold {
+			from, until, _ := keyWindow(akey, keyStart)
+			keyLim = store.KeyLimit{USD: akey.LimitUSD, From: from, To: until}
+		}
+		// refuseKeyLimit answers a hold the store refused for the key's limit exactly as the
+		// pre-check does (the pre-check passed on a read another instance has since overtaken).
+		refuseKeyLimit := func() {
+			unlockKey()
+			ks, serr := b.keyLimitState(akey, keyStart)
+			if serr != nil {
+				ks = keyState
+			}
+			w.Header().Set("X-RogerAI-Cost", "0")
+			setKeyHeaders(w, ks, true)
+			b.keyAtLimit(ks, keyStart)
+			jsonErr402(w, "key_limit_reached", keyLimitMessage(ks, keyStart), "key_limit", remedyKey(akey.ID))
+		}
 		hold := func(amount float64) (bool, error) {
 			if keyHold {
-				return b.db.HoldForKey(payer, requestID, amount, akey.ID, keyStart.UnixMilli())
+				return b.db.HoldForKey(payer, requestID, amount, akey.ID, keyStart.UnixMilli(), keyLim)
 			}
 			return b.db.HoldFor(payer, requestID, amount) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 		}
@@ -2862,6 +2884,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			ok, herr := hold(ceiling)
+			if errors.Is(herr, store.ErrKeyLimit) {
+				continue // the key cannot cover this ceiling: trim it, as the pre-check does
+			}
 			if herr != nil {
 				unlockKey()
 				jsonErr(w, http.StatusInternalServerError, "wallet error")
@@ -2874,6 +2899,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		if !held {
 			ok, herr := hold(maxCost)
+			if errors.Is(herr, store.ErrKeyLimit) {
+				refuseKeyLimit()
+				return
+			}
 			if herr != nil {
 				unlockKey()
 				jsonErr(w, http.StatusInternalServerError, "wallet error")

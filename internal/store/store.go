@@ -419,8 +419,11 @@ type Store interface {
 	TouchAccountKey(id string, ts int64, request bool) error
 	// HoldForKey is HoldFor whose reservation is attributed to an account key: the key's
 	// reserved amount is the sum of its pending holds, released, captured and swept on the
-	// wallet hold's own paths; capture turns it into key spend dated keyTS.
-	HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64) (bool, error)
+	// wallet hold's own paths; capture turns it into key spend dated keyTS. With lim.USD > 0
+	// the key's limit is enforced INSIDE the hold's transaction (window spend + open
+	// reservations + amount within lim.USD), so no lock elsewhere is needed for correctness;
+	// a refusal returns (false, ErrKeyLimit) and leaves no hold.
+	HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64, lim KeyLimit) (bool, error)
 	// KeyReserved sums a key's open reservations.
 	KeyReserved(keyID string) (float64, error)
 	// KeySpend sums a key's settled spend dated in [from, to) (to <= 0 = unbounded), net of

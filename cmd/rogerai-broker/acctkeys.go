@@ -55,7 +55,6 @@ const (
 	acctKeyEpochKey  = "acctkeys:epoch"
 	acctKeyCacheTTL  = 60 * time.Second
 	acctKeyIdemTTL   = 10 * time.Minute
-	acctKeyLockTTL   = 5 * time.Second
 	acctKeyLockWait  = 20 * time.Second
 	acctKeyNearRatio = 0.8
 )
@@ -345,6 +344,16 @@ func (b *broker) keyAtLimit(s keyLimitState, now time.Time) {
 	b.emailKeyNotice(s, "100", win)
 }
 
+// acctKeyLockTTL bounds how long a crashed holder can block a key's check-and-hold. The lock
+// only reduces contention: correctness comes from the hold transaction's own re-check
+// (store.HoldForKey with a KeyLimit), so a lock that lapses can never overshoot. A var so a
+// test can make it lapse.
+var acctKeyLockTTL = 5 * time.Second
+
+// keyHoldGapForTest, when set (tests only), runs after a request passes its key-limit
+// pre-check and before it places its hold: the window in which another instance can act.
+var keyHoldGapForTest func(b *broker)
+
 // keyLock serializes a key's check-and-hold across every instance (a lock in the shared store;
 // a local mutex when the instance is alone). A shared store that cannot answer fails closed.
 func (b *broker) keyLock(id string) (func(), error) {
@@ -360,7 +369,8 @@ func (b *broker) keyLock(id string) (func(), error) {
 				return nil, err
 			}
 			if set {
-				return func() { _ = b.shared.counterDel("acctkeylock:" + id) }, nil
+				// Release only if the lock is still ours: after a lapse another holder owns it.
+				return func() { _ = b.shared.delIfEqual("acctkeylock:"+id, tok) }, nil
 			}
 			if time.Now().After(deadline) {
 				return nil, errors.New("key lock wait exceeded")

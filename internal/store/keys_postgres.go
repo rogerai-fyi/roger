@@ -92,12 +92,35 @@ func (p *Postgres) TouchAccountKey(id string, ts int64, request bool) error {
 
 // HoldForKey: HoldFor whose pending_holds row carries the key id and the request start (the
 // date of the eventual key spend). See the Mem twin.
-func (p *Postgres) HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64) (bool, error) {
+func (p *Postgres) HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64, lim KeyLimit) (bool, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
+	if lim.USD > 0 {
+		// The key row lock serializes every limited hold on this key across instances; the
+		// reservations and the window spend are then read in ONE statement (one snapshot), so a
+		// capture committing in between can neither be counted twice nor missed.
+		if _, err := tx.Exec(`SELECT 1 FROM rogerai.account_keys WHERE id=$1 FOR UPDATE`, keyID); err != nil {
+			return false, err
+		}
+		to := lim.To
+		if to <= 0 {
+			to = 1 << 62
+		}
+		var reserved, spend float64
+		if err := tx.QueryRow(`SELECT
+			(SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE key_id=$1 AND request_id<>$2),
+			(SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+				WHERE holder=$1 AND kind IN ($3,$4) AND state<>'reversed' AND ts>=$5 AND ts<$6)`,
+			keyID, requestID, KindKeySpend, KindKeyReversal, lim.From, to).Scan(&reserved, &spend); err != nil {
+			return false, err
+		}
+		if !lim.fits(spend, reserved, amount) {
+			return false, ErrKeyLimit
+		}
+	}
 	res, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 AND balance>=$2`, user, amount)
 	if err != nil {
 		return false, err
