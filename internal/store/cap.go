@@ -96,3 +96,52 @@ func (m *Mem) MonthSpendOf(holder string, now time.Time) (float64, error) {
 	}
 	return sum, nil
 }
+
+// CappedHold is the outcome of HoldForCapped.
+type CappedHold struct {
+	OK      bool    // the hold landed
+	OverCap bool    // the monthly cap refused it (nothing reserved)
+	Spend   float64 // month-to-date captured spend the decision read
+	Pending float64 // the wallet's open pending holds the decision read (before this hold)
+}
+
+// capEpsilon absorbs float noise so a request that exactly fits the cap is allowed
+// ($0.90 + $0.10 against $1.00) while any real excess ($0.9000001 + $0.10) is refused.
+const capEpsilon = 1e-9
+
+// overCap reports whether spend + pending + amount exceeds a positive cap.
+func overCap(spend, pending, amount, cap float64) bool {
+	return cap > 0 && spend+pending+amount > cap+capEpsilon
+}
+
+// HoldForCapped is HoldFor under the monthly cap, decided under m.mu: the month spend and
+// the open pending holds are read and the hold placed in the same critical section, so two
+// concurrent requests can never both fit a cap that has room for one. See the Store interface.
+func (m *Mem) HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res CappedHold
+	if monthlyCap > 0 {
+		start, end := monthRange(now)
+		for _, r := range m.ledger {
+			if r.Holder == user && r.Kind == KindSpend && r.State != StateReversed && r.TS >= start && r.TS < end {
+				res.Spend += -r.Amount
+			}
+		}
+		for _, h := range m.pendingHolds {
+			if h.user == user {
+				res.Pending += h.amount
+			}
+		}
+		if overCap(res.Spend, res.Pending, amount, monthlyCap) {
+			res.OverCap = true
+			return res, nil
+		}
+	}
+	if !m.holdLocked(user, amount) {
+		return res, nil
+	}
+	m.pendingHolds[requestID] = pendingHold{user: user, amount: amount, placedAt: time.Now().Unix()}
+	res.OK = true
+	return res, nil
+}

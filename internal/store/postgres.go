@@ -1215,6 +1215,58 @@ func (p *Postgres) HoldFor(user, requestID string, amount float64) (bool, error)
 	return true, tx.Commit()
 }
 
+// HoldForCapped is HoldFor under the monthly cap. The wallet row is locked FOR UPDATE first,
+// so every capped hold, settle and release of this wallet serializes on it; the month spend
+// and the open pending holds are then read inside the same transaction and the hold placed
+// only if spend + pending + amount fits the cap. See the Store interface.
+func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error) {
+	var res CappedHold
+	tx, err := p.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback()
+	var bal float64
+	switch err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1 FOR UPDATE`, user).Scan(&bal); err {
+	case sql.ErrNoRows:
+		return res, nil // no wallet row: the balance can't cover it
+	case nil:
+	default:
+		return res, err
+	}
+	if monthlyCap > 0 {
+		start, end := monthRange(now)
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+			WHERE holder=$1 AND kind=$2 AND state<>'reversed' AND ts>=$3 AND ts<$4`,
+			user, KindSpend, start, end).Scan(&res.Spend); err != nil {
+			return res, err
+		}
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE usr=$1`, user).Scan(&res.Pending); err != nil {
+			return res, err
+		}
+		if overCap(res.Spend, res.Pending, amount, monthlyCap) {
+			res.OverCap = true
+			return res, nil
+		}
+	}
+	if bal < amount {
+		return res, nil
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1`, user, amount); err != nil {
+		return res, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindHold, -amount, "", StatePending, "", 0); err != nil {
+		return res, err
+	}
+	if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at) VALUES($1,$2,$3,$4)
+		ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at`,
+		requestID, user, amount, time.Now().Unix()); err != nil {
+		return res, err
+	}
+	res.OK = true
+	return res, tx.Commit()
+}
+
 // ReleaseHoldFor returns a TRACKED reservation idempotently: the atomic DELETE ... RETURNING
 // is the claim - it refunds the EXACT recorded amount and writes the hold_release row ONLY
 // if it won the row; otherwise (already captured / released / swept) it is a no-op, so a

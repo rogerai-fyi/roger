@@ -411,9 +411,13 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
 			return
 		}
-		held, herr := b.db.HoldFor(payer, requestID, cost)
+		held, capStatus, capMsg, herr := b.holdUnderCap(w, payer, requestID, cost, time.Now())
 		if herr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
+			return
+		}
+		if capStatus != 0 {
+			jsonErr(w, capStatus, capMsg)
 			return
 		}
 		if !held {

@@ -1948,6 +1948,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// unaffected: this fires only for a public, priced offer billed to an anon wallet.
 	now := time.Now()
 	if anonCannotPay(gok, pricing, payer, offer, now) {
+		// A signed-in caller resolves to an anonymous wallet when the durable store cannot
+		// answer the account lookup. Telling them to log in would be wrong: an unreachable
+		// store is a retryable 503, never a skipped money check.
+		if herr := b.db.Healthy(); herr != nil {
+			w.Header().Set("Retry-After", "5")
+			jsonErr(w, http.StatusServiceUnavailable, "the account store is unavailable - retry shortly")
+			return
+		}
 		jsonErr(w, http.StatusUnauthorized, "log in to spend on paid models - run `roger login` (free models and grant keys work without an account)")
 		return
 	}
@@ -2008,9 +2016,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// account's cap. Global across every PAID path (this hold gate is the one all of
 		// public use / --freq / grant / agent / chat funnel through). Free/self ($0) skip
 		// the whole block, so they are never blocked. Sets near/at-cap notice headers.
-		if st, msg := b.monthlyCapCheck(w, payer, maxCost, now); st != 0 {
-			jsonErr(w, st, msg)
-			return
+		// A floor-only hold (a $0 offer) is never refused by the cap: free stations bypass it.
+		if maxCost > freeFloorHold {
+			if st, msg := b.monthlyCapCheck(w, payer, maxCost, now); st != 0 {
+				jsonErr(w, st, msg)
+				return
+			}
 		}
 		// Seed new users so the hold can land (W4: skip the upsert tx for an already-
 		// seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT stays the real
@@ -2023,25 +2034,28 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		held := false
-		// The ceiling is only ATTEMPTED under the cap (monthlyCapFits: no notice headers, no
-		// cap email - a refused ceiling is not a refused request; the first pick was just
-		// checked above and proceeds).
-		if ceiling := planCeiling(plan); ceiling > maxCost && b.monthlyCapFits(payer, ceiling, now) {
-			{
-				ok, herr := b.db.HoldFor(payer, requestID, ceiling) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
-				if herr != nil {
-					jsonErr(w, http.StatusInternalServerError, "wallet error")
-					return
-				}
-				if ok {
-					held, maxCost = true, ceiling
-				}
+		// The ceiling is only ATTEMPTED under the cap, decided in the hold transaction (no
+		// notice headers, no cap email - a refused ceiling is not a refused request; the
+		// first pick is held below under the same transactional cap).
+		if ceiling := planCeiling(plan); ceiling > maxCost {
+			monthlyCap, _ := b.db.MonthlyCapOf(payer)
+			res, herr := b.db.HoldForCapped(payer, requestID, ceiling, monthlyCap, now) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
+			if herr != nil {
+				jsonErr(w, http.StatusInternalServerError, "wallet error")
+				return
+			}
+			if res.OK {
+				held, maxCost = true, ceiling
 			}
 		}
 		if !held {
-			ok, herr := b.db.HoldFor(payer, requestID, maxCost) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
+			ok, capStatus, capMsg, herr := b.holdUnderCap(w, payer, requestID, maxCost, now) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 			if herr != nil {
 				jsonErr(w, http.StatusInternalServerError, "wallet error")
+				return
+			}
+			if capStatus != 0 {
+				jsonErr(w, capStatus, capMsg)
 				return
 			}
 			if !ok {

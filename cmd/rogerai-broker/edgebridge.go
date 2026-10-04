@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/link"
@@ -234,9 +235,31 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 			maxCost = tc
 		}
 		if maxCost > 0 {
-			if hok, herr := b.db.HoldFor(consumerWallet, g.AttemptID, maxCost); herr != nil || !hok {
+			// Under the monthly cap like every paid path, decided in the hold transaction. In
+			// soft mode a refusal hands the request back to the direct path (which applies the
+			// same cap itself), so nothing is written here.
+			var hok bool
+			var capStatus int
+			var capMsg string
+			var herr error
+			if soft {
+				monthlyCap := 0.0
+				if maxCost > freeFloorHold {
+					monthlyCap, _ = b.db.MonthlyCapOf(consumerWallet)
+				}
+				var res store.CappedHold
+				res, herr = b.db.HoldForCapped(consumerWallet, g.AttemptID, maxCost, monthlyCap, time.Now())
+				hok = res.OK
+			} else {
+				hok, capStatus, capMsg, herr = b.holdUnderCap(w, consumerWallet, g.AttemptID, maxCost, time.Now())
+			}
+			if herr != nil || !hok {
 				if soft {
 					return false
+				}
+				if capStatus != 0 {
+					jsonErr(w, capStatus, capMsg)
+					return true
 				}
 				jsonErr(w, http.StatusPaymentRequired, "insufficient balance for this request")
 				return true

@@ -418,7 +418,12 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		maxCost = tc
 	}
 	if maxCost > 0 {
-		if ok, herr := b.db.HoldFor(consumerWallet, g.AttemptID, maxCost); herr != nil || !ok {
+		ok, capStatus, capMsg, herr := b.holdUnderCap(w, consumerWallet, g.AttemptID, maxCost, time.Now())
+		if capStatus != 0 {
+			jsonErr(w, capStatus, capMsg)
+			return
+		}
+		if herr != nil || !ok {
 			jsonErr(w, http.StatusPaymentRequired, "insufficient balance for this request")
 			return
 		}

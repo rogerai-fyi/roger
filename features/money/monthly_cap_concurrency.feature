@@ -186,6 +186,7 @@ Feature: A monthly spend cap is never overshot, however many requests race for i
     When one request from "acct" for "m" is served by "own"
     Then it is dispatched at $0
 
+  # corrected 2026-10-04 (founder ruling): free stations bypass the monthly cap
   # Not "unchanged": on origin/main a 0/0 public station's 1e-6 floor hold (approved
   # features/money/holds.feature) counts as a paid hold, so an account sitting exactly at its cap
   # is refused 402 for a free request. The fix exempts the floor hold from the cap check.

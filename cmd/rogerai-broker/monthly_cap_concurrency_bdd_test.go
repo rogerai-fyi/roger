@@ -11,11 +11,9 @@ package main
 // are the ledger's hold rows (foState.ledgerRows). Requests that "hold while in flight" run
 // against a station whose upstream blocks on a gate until the step releases it.
 //
-// One step cannot be made deterministic without a production seam: "instance B's whole
-// request runs between instance A's cap read and A's hold". Today the cap check reads
-// CAPTURED spend only, so two racing requests both pass it regardless of interleaving, which
-// makes the RED deterministic; GREEN needs a hold-gap seam (as slice 5's keyHoldGapForTest)
-// to prove the transactional re-check under the exact interleaving.
+// "instance B's whole request runs between instance A's cap read and A's hold" uses the
+// capHoldGapForTest seam (nil in production): A's request pauses after its cap pre-check,
+// B's request runs to a station (or a refusal), then A places its capped hold.
 
 import (
 	"context"
@@ -58,6 +56,7 @@ type mcState struct {
 	voiceCalls    int
 	bridgeSubmits int
 	durableBroken bool
+	interleave    bool
 }
 
 func (s *mcState) mcReset() error {
@@ -67,6 +66,7 @@ func (s *mcState) mcReset() error {
 	s.cap, s.results, s.last, s.lastSent, s.dispatched = 0, nil, psResult{}, false, false
 	s.holdBefore, s.mismatches, s.stationName, s.bridgeModel, s.voice = 0, nil, "", "", false
 	s.voiceTun, s.voiceKey, s.voiceNode, s.voiceCalls, s.bridgeSubmits, s.durableBroken = nil, nil, "", 0, 0, false
+	s.interleave, capHoldGapForTest = false, nil
 	s.acctPriv, s.acctWallet = s.consumerPriv, s.wallet
 	return nil
 }
@@ -192,8 +192,51 @@ func (s *mcState) burst(nA, nB int) error {
 
 func (s *mcState) tenHold(n int) error                 { return s.burst(n, 0) }
 func (s *mcState) splitHold(a, b int) error            { return s.burst(a, b) }
-func (s *mcState) oneEach() error                      { return s.burst(1, 1) }
-func (s *mcState) interleaveBetweenReadAndHold() error { return nil } // see file header
+func (s *mcState) interleaveBetweenReadAndHold() error { s.interleave = true; return nil }
+
+// oneEach runs one request on each instance: at the same moment, or (interleave) with B's
+// whole request inside A's gap between its cap read and its hold.
+func (s *mcState) oneEach() error {
+	if !s.interleave {
+		return s.burst(1, 1)
+	}
+	s.holding = true
+	b2 := s.instB()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var once sync.Once
+	capHoldGapForTest = func() {
+		once.Do(func() {
+			before := s.totalUpstream()
+			s.fire(b2, false, &wg, &mu)
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				mu.Lock()
+				done := len(s.results)
+				mu.Unlock()
+				if done > 0 || s.totalUpstream() > before {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+	defer func() { capHoldGapForTest = nil }()
+	s.fire(s.b, false, &wg, &mu)
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		done := len(s.results)
+		mu.Unlock()
+		if done+s.totalUpstream() >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.release()
+	wg.Wait()
+	return nil
+}
 
 func (s *mcState) inFlightHolding() error {
 	s.holding = true

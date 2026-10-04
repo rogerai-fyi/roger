@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -156,24 +157,36 @@ func (b *broker) monthSpend(holder string, now time.Time) float64 {
 	if val, found, err := b.shared.counterGet(capSpendKey(holder, now)); err == nil && found {
 		return val // fast-path hit
 	}
-	// Miss / expiry / error => reconcile from the authoritative ledger SUM and re-seed
-	// the counter with that truth (so subsequent requests hit the fast path). A failed
-	// re-seed is non-fatal: the next read just reconciles again. NEVER return $0 here.
+	// Miss / expiry / error => reconcile from the authoritative ledger SUM and seed the
+	// counter with that truth (so subsequent requests hit the fast path). The seed is
+	// set-if-absent (never overwriting a peer's value), and a settle INVALIDATES the counter
+	// after its ledger commit (recordMonthSpend) rather than incrementing it, so a settle
+	// racing this reconcile can be neither lost nor counted twice: after seeding, the ledger
+	// is read again and a seed that turned out stale is withdrawn with a compare-and-delete;
+	// a settle that commits later deletes the seed itself. The counter is therefore exact or
+	// absent, never wrong. NEVER return $0 here.
+	key := capSpendKey(holder, now)
 	truth := authoritative()
-	_ = b.shared.counterSet(capSpendKey(holder, now), truth, capCounterTTL)
+	if set, err := b.shared.setIfAbsent(key, strconv.FormatFloat(truth, 'f', -1, 64), capCounterTTL); err == nil && set {
+		if again := authoritative(); again != truth {
+			_, _ = b.shared.counterDelIfEqual(key, truth)
+			return again
+		}
+	}
 	return truth
 }
 
-// recordMonthSpend bumps the month-to-date fast-path counter by a CAPTURED spend amount
-// at Finalize, keeping the accelerator current. It is best-effort: a failed/absent
-// increment only means the next monthSpend read reconciles the true SUM from the ledger
-// (fail-closed), so the cap is never under-enforced for long. cost<=0 (free/self) and
-// flag-off are no-ops. The ledger row written by Finalize remains the source of truth.
+// recordMonthSpend keeps the month-to-date fast-path counter honest after a CAPTURED spend
+// is committed (Finalize): it invalidates the counter so the next read reconciles the exact
+// ledger SUM (see monthSpend for why invalidation, not an increment). Best-effort: a failed
+// delete only leaves a counter that under-reads by this spend, and the counter is a pre-check
+// only - the capped hold (store.HoldForCapped) is what enforces the cap. cost<=0
+// (free/self) and flag-off are no-ops. The ledger row written by Finalize is the truth.
 func (b *broker) recordMonthSpend(holder string, cost float64, now time.Time) {
 	if b.shared == nil || cost <= 0 || holder == "" {
 		return
 	}
-	_, _ = b.shared.counterIncr(capSpendKey(holder, now), cost)
+	_ = b.shared.counterDel(capSpendKey(holder, now))
 }
 
 // --- W4: seeded-flag fast-path (skip the per-request seed upsert tx) ---------

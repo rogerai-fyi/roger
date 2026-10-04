@@ -129,6 +129,13 @@ type Store interface {
 	// in-flight request). The relay path uses HoldFor; Hold stays for the unit/parity
 	// callers that don't need tracking.
 	HoldFor(user, requestID string, amount float64) (ok bool, err error)
+	// HoldForCapped is HoldFor under the wallet's monthly spend cap, decided where the money
+	// is reserved: in ONE transaction under the wallet row lock (Postgres) / the store mutex
+	// (in-memory) it places the hold only if month-to-date captured spend + the wallet's
+	// open pending holds + amount <= monthlyCap. monthlyCap <= 0 means no cap (plain HoldFor).
+	// The result says whether the hold landed, whether the cap refused it, and the spend and
+	// pending totals the decision read (for the at-limit headers).
+	HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error)
 	// ReleaseHoldFor returns a TRACKED reservation to the user and clears its pending-hold
 	// row, IDEMPOTENTLY: it refunds (and writes the hold_release ledger row) ONLY if the
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is

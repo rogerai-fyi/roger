@@ -145,6 +145,16 @@ type sharedStore interface {
 	// authoritative without a reconcile path).
 	counterIncr(key string, delta float64) (val float64, err error)
 
+	// counterDel removes a counter (invalidation). A money fast-path that is rebuilt from
+	// Postgres on a miss is invalidated after each committed write instead of incremented, so
+	// a write racing a reconcile can never be counted twice.
+	counterDel(key string) error
+
+	// counterDelIfEqual deletes the counter only while it still holds exactly val (compare-
+	// and-delete). A reconcile uses it to withdraw a value that turned out stale without
+	// destroying a peer's later increment.
+	counterDelIfEqual(key string, val float64) (deleted bool, err error)
+
 	// setIfAbsent sets key=val only if it does not already exist (SETNX), with a TTL, and
 	// reports whether THIS call set it (set==true) or it already existed (set==false). It
 	// backs idempotent fast-path flags (e.g. "seeded:<wallet>") whose REAL guard is a
@@ -419,7 +429,9 @@ func (m *memStore) counterGet(string) (float64, bool, error) { return 0, false, 
 func (m *memStore) counterSet(string, float64, time.Duration) error {
 	return errNoSharedStore
 }
-func (m *memStore) counterIncr(string, float64) (float64, error) { return 0, errNoSharedStore }
+func (m *memStore) counterIncr(string, float64) (float64, error)    { return 0, errNoSharedStore }
+func (m *memStore) counterDel(string) error                         { return errNoSharedStore }
+func (m *memStore) counterDelIfEqual(string, float64) (bool, error) { return false, errNoSharedStore }
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 	return false, errNoSharedStore
 }
@@ -1744,6 +1756,45 @@ func (v *valkeyStore) counterIncr(key string, delta float64) (float64, error) {
 	}
 	v.setUp(true)
 	return val, nil
+}
+
+// counterDelIfEqualScript: DEL only while the stored number equals ARGV[1]; returns 1 if deleted.
+var counterDelIfEqualScript = redis.NewScript(`
+local v = redis.call('GET', KEYS[1])
+if v and tonumber(v) == tonumber(ARGV[1]) then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+return 0
+`)
+
+func (v *valkeyStore) counterDel(key string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Del(ctx, counterKeyPrefix+key).Err(); err != nil {
+		v.noteErr("counterDel", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) counterDelIfEqual(key string, val float64) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	n, err := counterDelIfEqualScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key}, strconv.FormatFloat(val, 'f', -1, 64)).Int()
+	if err != nil {
+		v.noteErr("counterDelIfEqual", err)
+		return false, err
+	}
+	v.setUp(true)
+	return n == 1, nil
 }
 
 func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, error) {

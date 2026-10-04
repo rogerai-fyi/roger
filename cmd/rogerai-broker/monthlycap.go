@@ -62,16 +62,14 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	// Reject when even this request's worst-case (the hold amount) would exceed the cap.
 	// Using the upper-bound cost mirrors the hold: we never authorize spend we couldn't
 	// also have to capture. A request that exactly fits is allowed.
+	// This read is a PRE-CHECK only (the counter is a cache, never the authority): it refuses
+	// early when captured spend alone already leaves no room; the decision that authorizes is
+	// the capped hold (holdUnderCap), which also counts open holds. The relay does not call
+	// it for a floor-only (free) hold.
 	if spend+maxCost > cap {
 		// Surface the at-limit headers on the rejection too, so a client shows the same
 		// "$X of $Y" line whether it was warned or hard-stopped.
-		setCapHeaders(w, capState{cap: cap, spend: spend, pct: spend / cap, atLimit: true})
-		// Flag-gated transactional notice (async, de-duped per holder/month). No-op
-		// when RESEND_API_KEY is unset or no email on file.
-		b.emailCapNotice(holder, "100", spend, cap, now)
-		return http.StatusPaymentRequired, fmt.Sprintf(
-			"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
-			round6(spend), round6(cap))
+		return b.capRefusal(w, holder, spend, cap, now)
 	}
 	// Allowed: emit the near/at notice headers from the cap + spend we ALREADY read
 	// (W2a) - monthlyCapState would re-query both, doubling the work; capStateFrom
@@ -84,17 +82,6 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 		b.emailCapNotice(holder, "80", spend, cap, now)
 	}
 	return 0, ""
-}
-
-// monthlyCapFits reports whether a worst-case amount fits under the holder's monthly cap
-// WITHOUT the notice headers or the cap email: the relay uses it to decide whether to size
-// its hold for a pricier failover candidate - a refused ceiling is not a refused request.
-func (b *broker) monthlyCapFits(holder string, amount float64, now time.Time) bool {
-	cap, _ := b.db.MonthlyCapOf(holder)
-	if cap <= 0 {
-		return true
-	}
-	return b.monthSpend(holder, now)+amount <= cap
 }
 
 // setCapHeaders writes the monthly-budget notice headers. They are always safe to send
@@ -114,4 +101,49 @@ func setCapHeaders(w http.ResponseWriter, s capState) {
 	case s.near:
 		h.Set("X-RogerAI-Monthly-Notice", fmt.Sprintf("you've used $%.2f of your $%.2f monthly limit (%.0f%%)", round6(s.spend), round6(s.cap), s.pct*100))
 	}
+}
+
+// freeFloorHold is the hold a $0 offer still places (estimateMaxCost's floor): a request
+// whose hold is only this floor costs nothing and is never refused by the monthly cap
+// (founder ruling 2026-10-04: free stations bypass the cap).
+const freeFloorHold = 1e-6
+
+// capHoldGapForTest, when set, runs between the cap pre-check and the capped hold. Tests
+// use it to interleave another instance's whole request there; nil in production.
+var capHoldGapForTest func()
+
+// holdUnderCap places a TRACKED hold of amount for holder under the monthly cap, decided in
+// the hold transaction (store.HoldForCapped: captured spend + open holds + amount <= cap
+// under the wallet row lock), so concurrent requests on any instance can never overshoot.
+// A floor-only hold is exempt. On a cap refusal it writes nothing itself and returns the
+// same 402 status and message as monthlyCapCheck, having set the at-limit headers,
+// X-RogerAI-Cost: 0 and the 100% notice; the caller answers with them.
+func (b *broker) holdUnderCap(w http.ResponseWriter, holder, requestID string, amount float64, now time.Time) (held bool, status int, msg string, err error) {
+	cap := 0.0
+	if amount > freeFloorHold {
+		cap, _ = b.db.MonthlyCapOf(holder)
+	}
+	if capHoldGapForTest != nil {
+		capHoldGapForTest()
+	}
+	res, err := b.db.HoldForCapped(holder, requestID, amount, cap, now)
+	if err != nil {
+		return false, 0, "", err
+	}
+	if res.OverCap {
+		status, msg = b.capRefusal(w, holder, res.Spend, cap, now)
+		return false, status, msg, nil
+	}
+	return res.OK, 0, "", nil
+}
+
+// capRefusal sets the at-limit headers, X-RogerAI-Cost: 0 and the 100% notice, and returns
+// the approved 402 for a request the monthly cap refuses.
+func (b *broker) capRefusal(w http.ResponseWriter, holder string, spend, cap float64, now time.Time) (int, string) {
+	setCapHeaders(w, capState{cap: cap, spend: spend, pct: spend / cap, atLimit: true})
+	w.Header().Set("X-RogerAI-Cost", "0")
+	b.emailCapNotice(holder, "100", spend, cap, now)
+	return http.StatusPaymentRequired, fmt.Sprintf(
+		"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
+		round6(spend), round6(cap))
 }
