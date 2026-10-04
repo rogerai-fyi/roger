@@ -1311,6 +1311,7 @@ func reservedID(s string) bool {
 	return looksLikeDerivedID(s) ||
 		strings.HasPrefix(s, "u_gh_") ||
 		strings.HasPrefix(s, "u_apple_") || // an Apple account wallet is guessable from a sub - same leak guard as u_gh_
+		isEmailWallet(s) || // an email account wallet is a hash of the address - guessable the same way
 		strings.HasPrefix(s, "g_")
 }
 
@@ -1373,11 +1374,13 @@ func (b *broker) mergeDualLinkWallet(o store.Owner) {
 	}
 }
 
-// isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub
-// or Apple), versus an anonymous pubkey-derived id (no balance by design). Gates the spend
-// path (loggedInWallet) and the dashboard balance (walletLoggedIn).
+// isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub,
+// Apple, or a first-party email account), versus an anonymous pubkey-derived id (no balance by
+// design). Gates the spend path (anonCannotPay) and every account surface (walletLoggedIn).
+// The three namespaces are exactly the ones accountWalletForOwner resolves to, so an account
+// the resolver recognizes is an account everywhere (features/money/email_account_spending).
 func isAccountWallet(w string) bool {
-	return strings.HasPrefix(w, "u_gh_") || strings.HasPrefix(w, "u_apple_")
+	return strings.HasPrefix(w, "u_gh_") || strings.HasPrefix(w, "u_apple_") || isEmailWallet(w)
 }
 
 // bindUserPub records the first pubkey seen for a verified user id (TOFU). Because

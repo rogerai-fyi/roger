@@ -72,6 +72,8 @@ Feature: An email-login account spends, reads and limits its wallet like any acc
       | a CLI device key bound to the account by device approval  |
       | a second device key bound to the same account             |
 
+  # the 402 error code / the stream usage chunk arrive with routing slice 0 (PR #125), not on main yet
+  @needs-pr125
   Scenario: The same account with an empty wallet gets 402, never 401
     Given "erin@example.com"'s account wallet holds $0.00
     When the account relays a chat completion for "qwen3-32b" pinned to "n-1"
@@ -79,6 +81,8 @@ Feature: An email-login account spends, reads and limits its wallet like any acc
     And the response is not 401
     And X-RogerAI-Cost is "0"
 
+  # the 402 error code / the stream usage chunk arrive with routing slice 0 (PR #125), not on main yet
+  @needs-pr125
   Scenario: A funded email account is served on a stream too, and the usage chunk settles
     When the account relays a streaming chat completion for "qwen3-32b" pinned to "n-1"
     Then the stream ends with the broker's usage chunk carrying the receipt

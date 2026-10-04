@@ -102,7 +102,7 @@ func (b *broker) accountLimit(w http.ResponseWriter, r *http.Request) {
 }
 
 // walletLoggedIn reports whether a resolved wallet id belongs to a logged-in
-// account (the "u_gh_" / "u_apple_" namespaces, which back a real balance) versus
+// account (the "u_gh_" / "u_apple_" / "u_email_" namespaces, which back a real balance) versus
 // an anonymous pubkey-derived id (no wallet by design). This gates the dashboard
 // balance path; grant keys authenticate on the relay path, not this dashboard.
 func walletLoggedIn(wallet string) bool {
