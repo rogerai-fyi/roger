@@ -9,6 +9,8 @@
 #   edgesim cut <pi>      take a Pi off the network;  edgesim heal <pi> puts it back
 #   edgesim sh <name>     a shell on the hub or a Pi
 #   edgesim roger <name> <args...>   run roger there
+#   edgesim seed <pi> [<models dir>]   copy the CPU llama.cpp runtime and models into a Pi,
+#                         for when the simulated network has no internet
 #   edgesim down          stop and remove everything (volumes too)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -29,7 +31,11 @@ build() {
 }
 
 run_node() { # name role model
+	# A Pi 5's resources (EDGESIM_MEMORY / EDGESIM_CPUS), and none of the host's GPUs: a simulated
+	# Pi must not see the cards of the machine it runs on.
 	podman run -d --name "edgesim-$1" --hostname "$1" --network "$NET" \
+		--memory "${EDGESIM_MEMORY:-8g}" --cpus "${EDGESIM_CPUS:-4}" \
+		--security-opt mask=/sys/class/drm \
 		-v "edgesim-$1:/root/.config" \
 		-e ROGERAI_EDGE_MACHINE="$3" -e EDGESIM_NAME="$1" \
 		-e ROGERAI_EDGE_BIND=:44100 -e ROGERAI_EDGE_AUTHORITY_BIND=:39009 \
@@ -41,7 +47,13 @@ r() { local n="$1"; shift; podman exec "edgesim-$n" roger "$@"; }
 up() {
 	local n="${1:-3}"
 	build
-	podman network exists "$NET" || podman network create "$NET" >/dev/null
+	if ! podman network exists "$NET"; then
+		# The network's own DNS answers container names (edgesim-hub); its upstream for everything
+		# else is the host's own resolver, so a simulated Pi can reach the internet the way the host does.
+		local dns=()
+		for ns in $(awk '$1 == "nameserver" && $2 !~ /^127\./ && $2 !~ /:/ {print $2}' /etc/resolv.conf); do dns+=(--dns "$ns"); done
+		podman network create "${dns[@]}" "$NET" >/dev/null
+	fi
 	if ! podman container exists "$HUB"; then
 		say "starting the hub (the authority)"
 		run_node hub hub "$MODEL"
@@ -69,6 +81,18 @@ cut) podman network disconnect "$NET" "edgesim-$2" && say "$2 is off the network
 heal) podman network connect "$NET" "edgesim-$2" && say "$2 is back on the network" ;;
 sh) podman exec -it "edgesim-$2" bash ;;
 roger) n="$2"; shift 2; r "$n" "$@" ;;
+seed)
+	pi="$2"; LOCAL="${EDGESIM_SEED_FROM:-$HOME/.cache/gotmp/modeltry/rogerai/local}"
+	models="${3:-$LOCAL/models}"
+	# Only the CPU build: a simulated Pi has no GPU, and the CUDA build is a gigabyte.
+	cpu="$(ls -d "$LOCAL"/runtime/*/ubuntu-x64 2>/dev/null | head -1)"
+	[ -n "$cpu" ] || { say "no CPU runtime under $LOCAL/runtime - serve a model there once to fetch it"; exit 1; }
+	tag="$(basename "$(dirname "$cpu")")"
+	podman exec "edgesim-$pi" mkdir -p "/root/.config/rogerai/local/runtime/$tag"
+	podman cp "$cpu" "edgesim-$pi:/root/.config/rogerai/local/runtime/$tag/ubuntu-x64"
+	podman cp "$models" "edgesim-$pi:/root/.config/rogerai/local/models"
+	say "$pi has the runtime and models from $LOCAL"
+	;;
 down)
 	for c in $(podman ps -a --format '{{.Names}}' | grep '^edgesim-' || true); do podman rm -f "$c" >/dev/null; done
 	for v in $(podman volume ls --format '{{.Name}}' | grep '^edgesim-' || true); do podman volume rm -f "$v" >/dev/null; done

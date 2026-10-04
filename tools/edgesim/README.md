@@ -21,14 +21,22 @@ tools/edgesim/edgesim roger pi-1 model status
 tools/edgesim/edgesim down            # remove everything, volumes too
 ```
 
-`EDGESIM_MODEL` sets the board name (default `Raspberry Pi 5 Model B Rev 1.0`).
+`EDGESIM_MODEL` sets the board name (default `Raspberry Pi 5 Model B Rev 1.0`). Each Pi is held to a Pi 5's
+resources - `EDGESIM_MEMORY` (default `8g`) and `EDGESIM_CPUS` (default `4`) - and cannot see the host's GPUs.
 
-What it found the first time it ran (both fixed):
+The simulated network may have no internet (rootless networks share one namespace whose outbound path
+podman chose itself). `edgesim seed <pi>` copies this machine's CPU llama.cpp runtime and its models into
+a Pi, so serving and switching models can be exercised anyway.
+
+What it found (all fixed):
 
 - A machine enrolled as `pi-1` was listed under its hardware word. The name in an enrollment the
   authority accepted is now the name the member is first seen under.
 - A member whose network interface went away and came back never reappeared until roger restarted.
   Discovery now rejoins changed interfaces and advertises the addresses a machine has now.
+- roger judged a model against the host's memory inside a container held to far less; a container's
+  memory limit is now the RAM a model can use.
+- Asked from afar, roger ran the fit tool of a GPU build that was not installed.
 
 The simulated Edge is self-contained: rootless containers live on a network the host cannot see, so
 they do not join an Edge rooted on the host. Joining real and simulated machines on one Edge needs a
