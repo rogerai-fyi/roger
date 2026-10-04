@@ -4,8 +4,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/detect"
@@ -72,6 +75,15 @@ func detectLocalHW() detect.LocalHW {
 	}
 	if !hw.RAMKnown {
 		hw.Note("system RAM: /proc/meminfo could not be read (a container with /proc masked does this)")
+	}
+	// A container's memory limit. /proc/meminfo is the HOST's memory; a container may be held to far
+	// less, and the limit is what a model can actually use (found with tools/edgesim).
+	if hw.RAMKnown {
+		if limit, ok := hwMemoryLimitMiB(); ok && limit < hw.RAMTotalMiB {
+			hw.Note(fmt.Sprintf("system RAM: this machine runs under a memory limit of %d MiB (its cgroup), "+
+				"less than the %d MiB the host has - the limit is what a model can use", limit, hw.RAMTotalMiB))
+			hw.RAMTotalMiB = limit
+		}
 	}
 
 	// Free disk, on the filesystem holding the home directory, with the path reported so
@@ -140,4 +152,25 @@ func runHW(name string, args ...string) (string, bool) {
 		return "", false
 	}
 	return string(out), true
+}
+
+// hwMemoryLimitMiB is this process's cgroup memory limit (v2, then v1), when there is one. "max" and
+// v1's near-2^63 "unlimited" are no limit.
+func hwMemoryLimitMiB() (int, bool) {
+	for _, p := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
+		b, err := hwReadFile(p)
+		if err != nil {
+			continue
+		}
+		v := strings.TrimSpace(string(b))
+		if v == "max" {
+			return 0, false
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 || n >= 1<<60 {
+			return 0, false
+		}
+		return int(n >> 20), true
+	}
+	return 0, false
 }
