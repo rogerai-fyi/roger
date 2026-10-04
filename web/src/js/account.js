@@ -78,20 +78,34 @@
   if (path.endsWith("/account")) {
     get("/account").then(function (a) {
       if (!a) { location.replace("/login.html"); return; }
-      text("who", RogerFmt.handle(a.github_login));
-      text("handle", RogerFmt.handle(a.github_login));
+      text("who", RogerFmt.who(a));
+      text("handle", RogerFmt.who(a));
       text("balance", cr(a.balance));
-      text("ghid", a.github_id || "-");
+      text("signin", { github: "GitHub", apple: "Apple", email: "Email" }[a.provider] || (a.github_id ? "GitHub" : "-"));
+      // Whether any machine is linked to THIS sign-in; absent on an older broker.
+      if (typeof a.operator === "boolean") text("machines", a.operator ? "Linked" : "None linked to this sign-in");
       text("connect", (a.connect && a.connect.status) || "none");
       text("since", a.created_at ? when(a.created_at) : "-");
       var em = document.getElementById("email");
       if (em && a.email) em.value = a.email;
+      if (a.provider === "email" && em) { // the address IS the sign-in: show it, never edit it here
+        em.readOnly = true;
+        hide("saveEmail");
+      }
       show("card");
       wireLogout();
       on("saveEmail", "click", function () {
         var email = (document.getElementById("email") || {}).value || "";
-        api("/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) })
-          .then(function (r) { text("saveMsg", r ? " saved" : " could not save"); });
+        // Fetch directly so a refusal can say WHY (the broker's own message), not a bare failure.
+        fetch(BROKER + "/account", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) })
+          .then(function (r) {
+            if (r.ok) { text("saveMsg", " saved"); return; }
+            return r.json().catch(function () { return {}; }).then(function (j) {
+              var m = j && j.error && j.error.message;
+              text("saveMsg", " " + (m || "could not save"));
+            });
+          })
+          .catch(function () { text("saveMsg", " could not reach RogerAI"); });
       });
       on("export", "click", function () {
         // POST then download the JSON the browser receives.

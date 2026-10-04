@@ -13,6 +13,16 @@
     <p class="ds-state" id="stLoading">Loading your stations...</p>
     <p class="ds-state" id="stError" hidden>Could not load your stations. Try again shortly.</p>
 
+    <section class="acct-state tint-panel" id="stNoOperator" hidden>
+      <h2>You are not sharing from this sign-in</h2>
+      <p>Stations belong to the account that put them on air, and nothing is registered to the account you are signed in with.</p>
+      <p><b>Already sharing?</b> Sign in with the same account you used for <code>roger login</code> (GitHub or Apple) and your stations will be here.</p>
+      <p><b>Not sharing yet?</b> Put a GPU on air from this account:</p>
+      <pre class="cmd">roger login
+roger share</pre>
+      <p class="fine"><a href="/login.html">Switch sign-in</a> &middot; <a href="/account.html">Account</a></p>
+    </section>
+
     <section class="acct-state tint-panel" id="stEmpty" hidden>
       <h2>No stations yet</h2>
       <p>Nothing is registered to your account. Put a GPU on air and it will appear here with its status, usage and earnings.</p>
@@ -56,6 +66,8 @@
         your earnings or standing.
       </p>
     </section>
+
+    <!-- include: accountnav.html current=stations -->
   </main>
   </div>
   <!-- include: footer.html -->

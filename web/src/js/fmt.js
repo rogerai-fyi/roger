@@ -176,6 +176,19 @@
     return s.indexOf("@") !== -1 ? s : "@" + s;
   };
 
+  // Provider-aware "who is signed in" from a /account body. Falls back to the plain handle
+  // for an older broker that sends no `provider`.
+  R.who = function (a) {
+    if (!a) return "your account";
+    var login = a.github_login || a.login || "";
+    switch (a.provider) {
+      case "github": return R.handle(login) + " (GitHub)";
+      case "apple": return login.indexOf("@") !== -1 ? login + " (Apple)" : "your Apple account";
+      case "email": return login || "your account";
+    }
+    return login ? R.handle(login) : "your account";
+  };
+
   if (typeof window !== "undefined") window.RogerFmt = R;
   if (typeof module !== "undefined" && module.exports) module.exports = R; // node test
 })();

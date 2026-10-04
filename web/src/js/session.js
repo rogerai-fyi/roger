@@ -109,15 +109,17 @@
     menu.setAttribute("role", "menu");
     menu.hidden = true;
 
-    // Order MUST match the account-page footer sub-nav (accountnav.html). API keys
-    // is intentionally omitted here - it already has its own slot in the top nav.
+    // Order MUST match the account-page footer sub-nav (accountnav.html), which omits only
+    // Base Station (test/account-nav.test.mjs pins it).
     [
       { label: "Dashboard", href: "/dashboard.html" },
       { label: "Console", href: "/console.html" },
+      { label: "Stations", href: "/stations.html" },
       { label: "Base Station", href: "/private.html" },
       { label: "Metrics", href: "/usage.html" },
       { label: "Billing", href: "/billing.html" },
       { label: "Payouts", href: "/payouts.html" },
+      { label: "API keys", href: "/keys.html" },
       { label: "Account", href: "/account.html" }
     ].forEach(function (item) {
       var a = document.createElement("a");

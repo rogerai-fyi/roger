@@ -354,7 +354,7 @@
           }
           renderCharges(c);
         } else {
-          text("spendToday", cr(0));
+          text("spendToday", "-"); // the feed failed: unavailable, not a real $0.00
         }
       });
     });

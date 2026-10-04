@@ -163,6 +163,16 @@
 
   get("/account").then(function (a) {
     if (!a) { location.replace("/login.html"); return; }
+    // A signed-in person with no operator account (a consumer, or a sign-in whose machines
+    // belong to another identity) gets an explanation, and the page makes none of the
+    // operator-only requests that would all 403. `operator` absent = an older broker: show all.
+    if (a.operator === false) {
+      show("card");
+      show("poNoOperator");
+      wireLogout();
+      return;
+    }
+    show("poBody");
     var e = a.earnings || {};
     text("held", cr(e.held || 0));
     text("payable", cr(e.payable || 0));

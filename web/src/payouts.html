@@ -10,6 +10,16 @@
     <h1>Payouts</h1>
     <p class="sub">Exactly what you earned, when it clears, and where it came from.</p>
 
+    <section class="acct-state tint-panel" id="poNoOperator" hidden>
+      <h2>Payouts are for people who serve models</h2>
+      <p>You earn when your machines serve other people's requests, and this page shows what you earned, when it clears and where it came from. Nothing is registered to the account you are signed in with.</p>
+      <p><b>Already sharing?</b> Sign in with the account you used for <code>roger login</code> (GitHub or Apple). <b>Not yet?</b></p>
+      <pre class="cmd">roger login
+roger share</pre>
+      <p class="fine"><a href="/login.html">Switch sign-in</a> &middot; <a href="/account.html">Account</a></p>
+    </section>
+
+    <div id="poBody" hidden>
     <!-- ============ THE SPLIT: held -> payable -> paid ============ -->
     <section class="panel">
       <h2>Earnings</h2>
@@ -151,6 +161,8 @@
       <ul class="recent po-ledger" id="ledger"></ul>
       <p class="fine" id="ledgerEmpty" hidden>No entries yet.</p>
     </section>
+
+    </div>
 
     <!-- include: accountnav.html current=payouts -->
     <button id="logout" class="ghost">Sign out</button>

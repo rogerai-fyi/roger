@@ -93,8 +93,10 @@
   function loadBands() {
     api("/bands").then(function (r) {
       if (r.ok) { return r.json(); }
-      throw new Error(r.status === 401 || r.status === 403
+      throw new Error(r.status === 401
         ? "sign in to see your private bands"
+        : r.status === 403 // signed in, but no machine is linked to this sign-in: not "sign in"
+        ? "private bands belong to an account with a machine on air - none is linked to this sign-in (run roger login, then roger share)"
         : "could not load your private bands (" + r.status + ")");
     })
       .then(function (data) { renderBands((data && data.bands) || []); })
