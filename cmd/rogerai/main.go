@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -77,13 +76,25 @@ type Limit struct {
 	// Pref is the routing profile the broker scores with (cheap / balanced / fast /
 	// reliable; empty = balanced). Sent as roger.pref; a scoring knob, never a filter.
 	Pref string `json:"pref,omitempty"`
+	// The rest of the routing body object a limit may hold (roger config set-limit; contract
+	// §10): each maps to one body key, exactly as the matching `roger use` flag does.
+	Require    []string  `json:"require,omitempty"`     // roger.require
+	ParamsB    []float64 `json:"params_b,omitempty"`    // roger.params_b [min, max]
+	MinCtx     int       `json:"min_ctx,omitempty"`     // roger.min_ctx
+	MaxTTFTMs  int       `json:"max_ttft_ms,omitempty"` // roger.max_ttft_ms
+	TrustMin   string    `json:"trust_min,omitempty"`   // roger.trust_min
+	SelfHosted bool      `json:"self_hosted,omitempty"` // roger.self_hosted_only
+	Region     []string  `json:"region,omitempty"`      // roger.region
+	MaxCost    float64   `json:"max_cost,omitempty"`    // provider.max_price.request
 }
 
 // unset reports whether nothing at all is configured. It replaces a `== Limit{}` compare,
 // which stopped compiling once the struct held a slice - and a hand-written check is the
 // honest fix, because equality on a slice field was never going to mean what it read like.
 func (l Limit) unset() bool {
-	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0 && l.Pref == ""
+	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0 && l.Pref == "" &&
+		len(l.Require) == 0 && len(l.ParamsB) == 0 && l.MinCtx == 0 && l.MaxTTFTMs == 0 && l.TrustMin == "" &&
+		!l.SelfHosted && len(l.Region) == 0 && l.MaxCost == 0
 }
 
 // Limits is the optional, backward-compatible spend-limits section of the config:
@@ -214,20 +225,56 @@ func (c config) shareMaxOnAir() int {
 	return defaultShareMaxOnAir
 }
 
-// resolve returns the effective limit for model m: the per-model limit if set,
-// else the Default. typicalOut is the configured reply size, or 800.
+// resolve returns the effective limit for model m: the Default with each field the per-model
+// limit sets laid over it (a shallow merge per key, contract §10). typicalOut is the
+// configured reply size, or 800.
 func (c config) resolve(m string) (Limit, int) {
 	typ := c.Limits.TypicalOutTok
 	if typ <= 0 {
 		typ = 800
 	}
-	if l, ok := c.Limits.Models[m]; ok {
-		if l.Pref == "" {
-			l.Pref = c.Limits.Default.Pref // the pref knob falls through to the default
-		}
-		return l, typ
+	l := c.Limits.Default
+	if o, ok := c.Limits.Models[m]; ok {
+		l = overLimit(l, o)
 	}
-	return c.Limits.Default, typ
+	return l, typ
+}
+
+// overLimit lays every field o sets over base.
+func overLimit(base, o Limit) Limit {
+	pick := func(a, b float64) float64 {
+		if b != 0 {
+			return b
+		}
+		return a
+	}
+	base.MaxIn, base.MaxOut, base.MinTPS, base.MaxCost = pick(base.MaxIn, o.MaxIn), pick(base.MaxOut, o.MaxOut), pick(base.MinTPS, o.MinTPS), pick(base.MaxCost, o.MaxCost)
+	if len(o.Quants) > 0 {
+		base.Quants = o.Quants
+	}
+	if o.Pref != "" {
+		base.Pref = o.Pref
+	}
+	if len(o.Require) > 0 {
+		base.Require = o.Require
+	}
+	if len(o.ParamsB) > 0 {
+		base.ParamsB = o.ParamsB
+	}
+	if o.MinCtx != 0 {
+		base.MinCtx = o.MinCtx
+	}
+	if o.MaxTTFTMs != 0 {
+		base.MaxTTFTMs = o.MaxTTFTMs
+	}
+	if o.TrustMin != "" {
+		base.TrustMin = o.TrustMin
+	}
+	base.SelfHosted = base.SelfHosted || o.SelfHosted
+	if len(o.Region) > 0 {
+		base.Region = o.Region
+	}
+	return base
 }
 
 // prefFlag is the --pref flag value: one of client.RoutingPrefs, refused at parse time with
@@ -269,7 +316,7 @@ func (m *maxOutFlag) Set(raw string) error {
 }
 
 // maxOutHelp is the one description both `roger use` and `roger config set-limit` print.
-const maxOutHelp = "--max-out: skip stations above this $/1M OUTPUT price (the headline cap); 0 = the default $10/1M cap; unlimited = the network ceiling"
+const maxOutHelp = "skip stations above this $/1M OUTPUT price (the headline cap); 0 = the default $10/1M consumer cap; unlimited = the network ceiling"
 
 func configPath() string {
 	d, _ := os.UserConfigDir()
@@ -952,6 +999,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdPerms(cfg, args[1:])
 	case "limits":
 		return cmdConfig(append([]string{"limits"}, args[1:]...))
+	case "profile", "profiles":
+		return cmdProfile(args[1:])
 	case "limit":
 		return cmdLimit(cfg, args[1:])
 	case "payout", "payouts", "cashout":
@@ -1026,88 +1075,6 @@ func cmdSupport() error {
 	fmt.Println("  (if your browser didn't open, paste the URL above)")
 	tui.OpenURL(supportURL)
 	return nil
-}
-
-func cmdUse(cfg config, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
-	}
-	// The model is the first positional; flags follow it. (Go's flag package stops
-	// at the first non-flag arg, so we pull the model out before parsing.) A leading flag
-	// (`roger use -h`, `roger use --pref turbo`) is parsed as flags with no model, so the
-	// help and the flag refusals work without a model name.
-	model, rest := "", args
-	if !strings.HasPrefix(args[0], "-") {
-		model, rest = args[0], args[1:]
-	}
-	fs := flag.NewFlagSet("use", flag.ExitOnError)
-	// The headline cap, in everyone's face.
-	var maxOut maxOutFlag
-	fs.Var(&maxOut, "max-out", maxOutHelp)
-	var pref prefFlag
-	fs.Var(&pref, "pref", "routing profile: cheap, balanced, fast or reliable (a scoring knob, never a filter)")
-	selfHosted := fs.Bool("self-hosted", false, "route only to self-hosted stations (never a curated commercial proxy)")
-	quant := fs.String("quant", "", "accept only these quant labels this session, comma-separated (e.g. Q8_0,BF16); overrides the stored rule")
-	// Advanced - defaulted and tucked away (CLI-SIMPLICITY-AUDIT C7). --port 0 =
-	// auto-pick a free port; --max-in is the rare input-heavy cap (C1 drops the
-	// --max-price alias entirely).
-	advanced := fs.Bool("advanced", false, "show advanced flags (--port --max-in --min-tps --confidential --yes --raw)")
-	port := fs.Int("port", 0, "local endpoint port (0 = auto-pick a free one)")
-	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
-	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
-	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
-	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
-	freq := fs.String("freq", "", "tune in to a PRIVATE band by its frequency code, e.g. \"147.520 MHz 8F3K-9M2Q\" (the code is what matters; cosmetic part optional)")
-	// --raw disables the reasoning->content fallback for this session (raw provider body).
-	// Default off = fallback ON (an empty-content reasoning reply is surfaced as content).
-	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
-	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
-	fs.Parse(rest)
-	if model == "" {
-		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
-	}
-	if *advanced {
-		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")
-	}
-	// Start from the resolved per-model limit (or Default), then let flags override
-	// it for this session. -1 sentinel = flag not passed (keep the stored limit).
-	lim, typical := cfg.resolve(model)
-	if *maxIn >= 0 {
-		lim.MaxIn = *maxIn
-	}
-	if maxOut.set {
-		lim.MaxOut = maxOut.v
-		if maxOut.v > client.ConsumerCeilingMaxOut {
-			// Sent as given (the broker clamps it); said once so the number on screen is honest.
-			fmt.Printf("  max-out %g is above what any station may charge - capped at the network ceiling $%.0f/1M\n", maxOut.v, client.ConsumerCeilingMaxOut)
-		}
-	}
-	if *minTPS >= 0 {
-		lim.MinTPS = *minTPS
-	}
-	if pref.v != "" {
-		lim.Pref = pref.v
-	}
-	// The quant label set for this session: --quant names its labels only; the standing
-	// rule (config) names its labels plus "unknown" so an unlabeled station keeps passing.
-	quants := client.RuleQuantizations(lim.Quants)
-	if *quant != "" {
-		quants = splitCSV(*quant)
-	}
-	useport := *port
-	if useport == 0 {
-		p, err := freePort(4141) // auto-pick + the endpoint line prints the chosen port
-		if err != nil {
-			return err
-		}
-		useport = p
-	}
-	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
-		Port: useport, Confidential: *confidential,
-		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
-		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
-		Pref: lim.Pref, SelfHostedOnly: *selfHosted, Quantizations: quants,
-	})
 }
 
 // shareModelArg pulls an optional LEADING positional model token out of `share`'s
@@ -2246,6 +2213,8 @@ func cmdConfig(args []string) error {
 		return nil
 	case "set-limit":
 		return cmdSetLimit(args[1:])
+	case "show":
+		return cmdConfigShow(args[1:])
 	case "clear-limit":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: roger config clear-limit <model>")
@@ -2333,110 +2302,6 @@ func cmdConfig(args []string) error {
 		fmt.Printf("set %s = %s\n", args[1], args[2])
 	}
 	return nil
-}
-
-// cmdSetLimit handles `roger config set-limit <model> [--max-in P] [--max-out P]
-// [--min-tps N]`. Use "default" as the model to set the fallback limit. Only the
-// flags passed are changed (the rest of that model's limit is preserved).
-func cmdSetLimit(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: roger config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
-	}
-	// The model is the first positional; flags follow it. (Go's flag package stops
-	// at the first non-flag arg, so we pull the model out before parsing.)
-	model, rest := "", args
-	if !strings.HasPrefix(args[0], "-") {
-		model, rest = args[0], args[1:]
-	}
-	fs := flag.NewFlagSet("set-limit", flag.ExitOnError)
-	maxIn := fs.Float64("max-in", -1, "$/1M input price cap (0 = no cap)")
-	var maxOut maxOutFlag
-	fs.Var(&maxOut, "max-out", maxOutHelp)
-	minTPS := fs.Float64("min-tps", -1, "min throughput floor in tok/s (0 = no floor)")
-	var pref prefFlag
-	fs.Var(&pref, "pref", "routing profile: cheap, balanced, fast or reliable")
-	fs.Parse(rest)
-	if model == "" {
-		return fmt.Errorf("usage: roger config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N] [--pref P]")
-	}
-	c := loadConfig()
-	var cur Limit
-	if model == "default" {
-		cur = c.Limits.Default
-	} else if c.Limits.Models != nil {
-		cur = c.Limits.Models[model]
-	}
-	if *maxIn >= 0 {
-		cur.MaxIn = *maxIn
-	}
-	if maxOut.set {
-		cur.MaxOut = maxOut.v
-	}
-	if *minTPS >= 0 {
-		cur.MinTPS = *minTPS
-	}
-	if pref.v != "" {
-		cur.Pref = pref.v
-	}
-	if model == "default" {
-		c.Limits.Default = cur
-	} else {
-		if c.Limits.Models == nil {
-			c.Limits.Models = map[string]Limit{}
-		}
-		c.Limits.Models[model] = cur
-	}
-	if err := saveConfig(c); err != nil {
-		return err
-	}
-	fmt.Printf("set limit for %s: %s\n", model, limitStr(cur))
-	return nil
-}
-
-// limitStr renders a Limit as a compact human line.
-func limitStr(l Limit) string {
-	parts := []string{}
-	if l.MaxOut >= client.ConsumerCeilingMaxOut {
-		parts = append(parts, fmt.Sprintf("max-out=$%.0f/1M (network ceiling)", client.ConsumerCeilingMaxOut))
-	} else if l.MaxOut > 0 {
-		parts = append(parts, fmt.Sprintf("max-out=%g", l.MaxOut))
-	}
-	if l.MaxIn > 0 {
-		parts = append(parts, fmt.Sprintf("max-in=%g", l.MaxIn))
-	}
-	if l.MinTPS > 0 {
-		parts = append(parts, fmt.Sprintf("min-tps=%g", l.MinTPS))
-	}
-	if l.Pref != "" {
-		parts = append(parts, "pref="+l.Pref)
-	}
-	if len(parts) == 0 {
-		return "no caps"
-	}
-	return strings.Join(parts, "  ")
-}
-
-// printLimits shows the spend-limits section (the static 3.4 view) on the CLI.
-func printLimits(c config) {
-	d := c.Limits.Default
-	typ := c.Limits.TypicalOutTok
-	if typ <= 0 {
-		typ = 800
-	}
-	fmt.Printf("limits (typical reply ~%d out tokens):\n", typ)
-	if len(c.Limits.Models) == 0 && d.unset() {
-		fmt.Println("  (none set - no caps; `roger config set-limit <model> --max-out P`)")
-		return
-	}
-	models := make([]string, 0, len(c.Limits.Models))
-	for m := range c.Limits.Models {
-		models = append(models, m)
-	}
-	sort.Strings(models)
-	for _, m := range models {
-		fmt.Printf("  %-22s %s\n", m, limitStr(c.Limits.Models[m]))
-	}
-	fmt.Printf("  %-22s %s\n", "· default (any other)", limitStr(d))
 }
 
 // sameEndpoint reports whether two upstream URLs point at the same server, comparing

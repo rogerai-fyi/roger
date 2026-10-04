@@ -87,7 +87,8 @@ func TestMaxOutFlag(t *testing.T) {
 }
 
 func TestMaxOutHelpSaysWhatZeroMeans(t *testing.T) {
-	require.Contains(t, maxOutHelp, "0 = the default $10/1M cap")
+	// routing_flags.feature: the help reads "0 = the default $10/1M consumer cap".
+	require.Contains(t, maxOutHelp, "0 = the default $10/1M consumer cap")
 	require.NotContains(t, strings.ToLower(maxOutHelp), "no cap")
 	require.Contains(t, maxOutHelp, "unlimited")
 }
@@ -115,20 +116,26 @@ func TestResolvePrefFallsThroughToDefault(t *testing.T) {
 	require.Equal(t, 1200, typ)
 }
 
-func TestLimitStr(t *testing.T) {
+// TestLimitSummary pins the `roger limits` row in the routing-line vocabulary
+// (routing_flags.feature: the row shows "out ≤ $3/1M", "fast", "Q8_0", "self-hosted").
+func TestLimitSummary(t *testing.T) {
 	for _, tc := range []struct {
 		l    Limit
 		want string
 	}{
 		{Limit{}, "no caps"},
-		{Limit{MaxOut: 2}, "max-out=2"},
-		{Limit{MaxOut: client.ConsumerCeilingMaxOut}, "max-out=$100/1M (network ceiling)"},
-		{Limit{MaxOut: 250}, "max-out=$100/1M (network ceiling)"}, // at or above the ceiling reads as the ceiling
-		{Limit{MaxIn: 0.5, MinTPS: 30}, "max-in=0.5  min-tps=30"},
+		{Limit{MaxOut: 2}, "out ≤ $2/1M"},
+		{Limit{MaxOut: client.ConsumerCeilingMaxOut}, "out ≤ $100/1M (network ceiling)"},
+		{Limit{MaxOut: 250}, "out ≤ $100/1M (network ceiling)"}, // at or above the ceiling reads as the ceiling
+		{Limit{MaxIn: 0.5, MinTPS: 30}, "≥30 t/s · in ≤ $0.5/1M"},
 		{Limit{Pref: "reliable"}, "pref=reliable"},
-		{Limit{MaxOut: 1, MaxIn: 0.2, MinTPS: 20, Pref: "fast"}, "max-out=1  max-in=0.2  min-tps=20  pref=fast"},
+		{Limit{MaxOut: 1, MaxIn: 0.2, MinTPS: 20, Pref: "fast"}, "pref=fast · ≥20 t/s · in ≤ $0.2/1M · out ≤ $1/1M"},
+		{Limit{MaxOut: 3, Pref: "fast", Quants: []string{"Q8_0"}, SelfHosted: true}, "pref=fast · self-hosted · quant Q8_0 · out ≤ $3/1M"},
+		{Limit{Require: []string{"tools"}, ParamsB: []float64{7, 70}, MinCtx: 32768, MaxTTFTMs: 1500, TrustMin: "verified",
+			Region: []string{"eu"}, MaxCost: 0.02},
+			"require tools · 7-70B · ctx ≥ 32768 · ttft ≤ 1500ms · trust verified · region eu · cost ≤ $0.02"},
 	} {
-		require.Equal(t, tc.want, limitStr(tc.l))
+		require.Equal(t, tc.want, limitSummary(tc.l))
 	}
 }
 

@@ -53,6 +53,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // ── front recorder ─────────────────────────────────────────────────────────────────────
@@ -114,6 +115,12 @@ func (s *cf4State) reset(t *testing.T) {
 	s.cfgBaseline, s.cfgInode, s.profilesSnap = nil, 0, nil
 	s.lastSetPath, s.lastSetValue, s.goodPref, s.lastNaming = "", nil, "", nil
 }
+
+// configUnchanged / noRequestReachedBroker shadow the rfState methods so a step registered
+// as s.configUnchanged resolves s.rfState when it RUNS: reset installs a fresh rfState per
+// scenario, and a promoted method value would stay bound to the first one.
+func (s *cf4State) configUnchanged() error        { return s.rfState.configUnchanged() }
+func (s *cf4State) noRequestReachedBroker() error { return s.rfState.noRequestReachedBroker() }
 
 func (s *cf4State) teardown() {
 	s.rfState.teardown()
@@ -959,10 +966,97 @@ func (s *cf4State) brokerReceives(text string) error {
 	if strings.HasPrefix(text, "the last good ") {
 		return s.brokerReceivesLastGood()
 	}
+	if m := regexp.MustCompile(`^the X-Roger-Freq header for "([^"]+)"$`).FindStringSubmatch(text); m != nil {
+		return s.brokerFreqHeader(m[1])
+	}
+	if text == "the tuned band's model, as for any carrier-less foreign id" {
+		return s.brokerTunedModel()
+	}
 	if s.resolved == nil {
 		return fmt.Errorf("nothing reached the broker (guest got %d: %s)", s.guestCode, s.guestBody)
 	}
 	return cf4Check(s.resolved, s.resolvedRaw, text)
+}
+
+// guestModelsResolved: a guest names a profile and its own models[] (corrected 2026-10-04).
+func (s *cf4State) guestModelsResolved(model, models string) error {
+	b, _ := json.Marshal(map[string]any{"model": model, "models": cf4Value(models)})
+	return s.guestSend(string(b))
+}
+
+// guestFreqResolved: a guest names a profile and its own roger.freq.
+func (s *cf4State) guestFreqResolved(model, freq string) error {
+	b, _ := json.Marshal(map[string]any{"model": model, "roger": map[string]any{"freq": freq}})
+	return s.guestSend(string(b))
+}
+
+func (s *cf4State) guestLocal400Code(code string) error {
+	if s.guestCode != http.StatusBadRequest {
+		return fmt.Errorf("guest status %d, want a local 400: %s", s.guestCode, s.guestBody)
+	}
+	var e struct {
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if json.Unmarshal(s.guestBody, &e) != nil || e.Error.Message == "" {
+		return fmt.Errorf("guest 400 is not OpenAI-shaped: %s", s.guestBody)
+	}
+	if e.Error.Code != code {
+		return fmt.Errorf("guest 400 error.code %q, want %q: %s", e.Error.Code, code, s.guestBody)
+	}
+	return nil
+}
+
+// lastHopSinceGuest is the broker-bound hop the last guest request produced.
+func (s *cf4State) lastHopSinceGuest() (rfHop, error) {
+	hops := s.rec.chatHops()
+	if len(hops) <= s.hopsMark {
+		return rfHop{}, fmt.Errorf("nothing reached the broker (guest got %d: %s)", s.guestCode, s.guestBody)
+	}
+	return hops[len(hops)-1], nil
+}
+
+func (s *cf4State) brokerFreqHeader(want string) error {
+	h, err := s.lastHopSinceGuest()
+	if err != nil {
+		return err
+	}
+	if got := h.header.Get("X-Roger-Freq"); got != want {
+		return fmt.Errorf("X-Roger-Freq = %q, want %q", got, want)
+	}
+	return nil
+}
+
+func (s *cf4State) bodyNoFreq() error {
+	h, err := s.lastHopSinceGuest()
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	_ = json.Unmarshal(h.body, &m)
+	if _, ok := rfWalk(m, "roger.freq"); ok {
+		return fmt.Errorf("the broker-bound body carries roger.freq: %s", h.body)
+	}
+	return nil
+}
+
+func (s *cf4State) notResolvedAsProfile() error {
+	if s.guestCode >= 400 && strings.Contains(string(s.guestBody), "profile") {
+		return fmt.Errorf("the proxy treated it as a profile reference: %d %s", s.guestCode, s.guestBody)
+	}
+	return nil
+}
+
+func (s *cf4State) brokerTunedModel() error {
+	h, err := s.lastHopSinceGuest()
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	_ = json.Unmarshal(h.body, &m)
+	if got, _ := m["model"].(string); got != "qwen3-32b" {
+		return fmt.Errorf("the broker received model %q, want the tuned band's \"qwen3-32b\": %s", got, h.body)
+	}
+	return nil
 }
 
 func (s *cf4State) brokerReceivesLastGood() error {
@@ -1046,7 +1140,12 @@ func (s *cf4State) handRolledToBroker(body string) error {
 	_ = json.Unmarshal([]byte(cf4Messages), &msgs)
 	obj["messages"] = msgs
 	b, _ := json.Marshal(obj)
-	resp, err := http.Post(s.brokerURL+"/v1/chat/completions", "application/json", bytes.NewReader(b))
+	// A hand-rolled caller is still a signed one (any real client signs): the broker answers
+	// an unsigned spend with 401 before it reads the body, which is not this scenario.
+	req, _ := http.NewRequest(http.MethodPost, s.brokerURL+"/v1/chat/completions", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	client.SignRequest(req, b)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -1550,6 +1649,14 @@ func (s *cf4State) stdoutJSONBlock() error {
 	if err := dec.Decode(&shown); err != nil {
 		return fmt.Errorf("stdout's JSON block does not parse: %v\n%s", err, out)
 	}
+	// The comparison runs `roger use`, which would replace the show output the next step
+	// reads: keep the show command's output as "the last command" afterwards.
+	showOut, showErr, showCode := s.lastOut, s.lastErr, s.lastCode
+	defer func() {
+		s.stopUse()
+		s.lastExitWasUse = false
+		s.lastOut, s.lastErr, s.lastCode = showOut, showErr, showCode
+	}()
 	if err := s.profileResolvedFor("coding", "qwen3-32b"); err != nil {
 		return err
 	}
@@ -2213,6 +2320,11 @@ func cf4Register(sc *godog.ScenarioContext, s *cf4State) {
 	sc.Step(`^the message says which came from the profile$`, s.failureSaysProfile)
 	sc.Step(`^the broker receives (.+)$`, s.brokerReceives)
 	sc.Step(`^the guest receives an OpenAI-shaped 400 "([^"]+)"$`, s.guest400)
+	sc.Step(`^the guest receives a local 400 with error\.code "([^"]+)"$`, s.guestLocal400Code)
+	sc.Step(`^a guest request with model "([^"]+)" and models (\[.*\]) is resolved by the local proxy$`, s.guestModelsResolved)
+	sc.Step(`^a guest request with model "([^"]+)" and roger\.freq "([^"]+)" is resolved by the local proxy$`, s.guestFreqResolved)
+	sc.Step(`^the body carries no roger\.freq$`, s.bodyNoFreq)
+	sc.Step(`^the local proxy does not resolve it as a profile$`, s.notResolvedAsProfile)
 	sc.Step(`^nothing reaches the broker$`, s.nothingReached)
 	sc.Step(`^the local proxy treats it as a plain model id \(which no station serves\)$`, s.treatedAsPlain)
 	sc.Step(`^the broker answers 400 with error\.code "([^"]+)"$`, s.brokerAnswers400Code)

@@ -47,6 +47,20 @@ type Routing struct {
 	Region   []string
 	Only     []string
 	Models   []string
+	// The owner's remaining routing (roger use --sort --order/--node --no-fallbacks --require
+	// --params --min-ctx --max-ttft, or a profile): a guest may restate each only toward
+	// stricter. Sort is a default (set when the guest states neither a sort nor a pref);
+	// Prefer is the owner's provider.order (the failover's Order wins on a re-pick); the
+	// requirement list is unioned, the params range intersected, the context floor raised,
+	// the first-token ceiling lowered, and the two booleans forced.
+	Sort          string
+	Prefer        []string
+	NoFallbacks   bool
+	Require       []string
+	ParamsB       []float64 // [min, max] billions; nil = none
+	MinCtx        int
+	MaxTTFT       int
+	RequireParams bool
 	// HeaderMode speaks the pre-body wire (X-Roger-* headers) to a broker whose GET
 	// /v1/models answered 404 at tune time. Keys with no header form are dropped (Dropped).
 	HeaderMode bool
@@ -321,6 +335,45 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	}
 	if len(r.Order) > 0 {
 		provider["order"] = r.Order
+	} else if len(r.Prefer) > 0 {
+		setDefault(provider, "order", r.Prefer)
+	}
+	if r.Sort != "" && !guestStatesSort(m, provider) && roger["pref"] == nil {
+		provider["sort"] = r.Sort
+	}
+	if r.NoFallbacks {
+		provider["allow_fallbacks"] = false
+	}
+	if r.RequireParams {
+		provider["require_parameters"] = true
+	}
+	if len(r.Require) > 0 {
+		roger["require"] = unionStrings(stringsOf(roger["require"]), r.Require)
+	}
+	if len(r.ParamsB) == 2 {
+		lo, hi := r.ParamsB[0], r.ParamsB[1]
+		if g, isArr := roger["params_b"].([]any); isArr && len(g) == 2 {
+			if a, ok := g[0].(float64); ok && a > lo {
+				lo = a
+			}
+			if b, ok := g[1].(float64); ok && b < hi {
+				hi = b
+			}
+			if lo > hi {
+				return nil, &RoutingRefusal{Msg: "params_b is outside this session's allowed range"}
+			}
+		}
+		roger["params_b"] = []float64{lo, hi}
+	}
+	if r.MinCtx > 0 {
+		if g, ok := roger["min_ctx"].(float64); !ok || g < float64(r.MinCtx) {
+			roger["min_ctx"] = r.MinCtx
+		}
+	}
+	if r.MaxTTFT > 0 {
+		if g, ok := roger["max_ttft_ms"].(float64); !ok || g <= 0 || g > float64(r.MaxTTFT) {
+			roger["max_ttft_ms"] = r.MaxTTFT
+		}
 	}
 	if len(r.Ignore) > 0 {
 		provider["ignore"] = unionStrings(stringsOf(provider["ignore"]), r.Ignore)
@@ -452,7 +505,36 @@ func (r Routing) Dropped() []string {
 	if len(r.Quantizations) > 0 {
 		d = append(d, "provider.quantizations")
 	}
+	for _, k := range []struct {
+		key string
+		on  bool
+	}{
+		{"models", len(r.Models) > 0}, {"provider.only", len(r.Only) > 0}, {"provider.order", len(r.Prefer) > 0},
+		{"provider.allow_fallbacks", r.NoFallbacks}, {"provider.sort", r.Sort != ""},
+		{"provider.require_parameters", r.RequireParams}, {"provider.max_price.request", r.MaxReq > 0},
+		{"roger.require", len(r.Require) > 0}, {"roger.params_b", len(r.ParamsB) == 2},
+		{"roger.min_ctx", r.MinCtx > 0}, {"roger.max_ttft_ms", r.MaxTTFT > 0},
+		{"roger.trust_min", r.TrustMin != ""}, {"roger.region", len(r.Region) > 0},
+	} {
+		if k.on {
+			d = append(d, k.key)
+		}
+	}
 	return d
+}
+
+// RoutingFlag names the `roger use` flag that sets a routing body key ("" when none does).
+func RoutingFlag(key string) string {
+	return map[string]string{
+		"models": "--models", "provider.only": "--only", "provider.order": "--order",
+		"provider.ignore": "--exclude", "provider.allow_fallbacks": "--no-fallbacks", "provider.sort": "--sort",
+		"provider.quantizations": "--quant", "provider.max_price.prompt": "--max-in",
+		"provider.max_price.completion": "--max-out", "provider.max_price.request": "--max-cost",
+		"roger.pref": "--pref", "roger.require": "--require", "roger.params_b": "--params",
+		"roger.min_ctx": "--min-ctx", "roger.max_ttft_ms": "--max-ttft", "roger.trust_min": "--trust",
+		"roger.self_hosted_only": "--self-hosted", "roger.region": "--region", "roger.min_tps": "--min-tps",
+		"roger.confidential": "--confidential", "roger.freq": "--freq",
+	}[key]
 }
 
 // SetHeaders writes the pre-body wire form onto req (HeaderMode). The failover's preferred

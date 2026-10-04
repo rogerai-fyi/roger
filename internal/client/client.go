@@ -437,6 +437,16 @@ type ProxyOptions struct {
 	Region   []string // roger.region allow-list
 	Only     []string // provider.only allow-list
 	Models   []string // the owner's model fallback list (models[]); bounds a guest's list
+	// The owner's remaining routing (Routing.Sort .. RequireParams): roger use --sort --order
+	// --node --no-fallbacks --require --params --min-ctx --max-ttft, or a profile.
+	Sort          string
+	Prefer        []string
+	NoFallbacks   bool
+	Require       []string
+	ParamsB       []float64
+	MinCtx        int
+	MaxTTFT       int
+	RequireParams bool
 	// Profiles resolves a guest's "@profile/<name>" against config.json, re-read on change.
 	// nil = the handler builds one for ConfigPath().
 	Profiles *ProfileStore
@@ -972,6 +982,8 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			SelfHostedOnly: opts.SelfHostedOnly, Quantizations: opts.Quantizations,
 			Order: order, Ignore: unionStrings(keysOf(failed), opts.ExcludeNodes, lifted.Ignore),
 			TrustMin: opts.TrustMin, Region: opts.Region, Only: opts.Only, Models: opts.Models,
+			Sort: opts.Sort, Prefer: opts.Prefer, NoFallbacks: opts.NoFallbacks, Require: opts.Require,
+			ParamsB: opts.ParamsB, MinCtx: opts.MinCtx, MaxTTFT: opts.MaxTTFT, RequireParams: opts.RequireParams,
 			HeaderMode: opts.HeaderRouting,
 		}
 		if lifted.Pref != "" {
@@ -1670,6 +1682,17 @@ type UseOptions struct {
 	Only         []string
 	ExcludeNodes []string
 	Models       []string
+	// The rest of the routing body object (ProxyOptions.Sort .. RequireParams).
+	Sort          string
+	Prefer        []string
+	NoFallbacks   bool
+	Require       []string
+	ParamsB       []float64
+	MinCtx        int
+	MaxTTFT       int
+	RequireParams bool
+	// RoutingLine is the one effective-routing line the connect plate prints ("" = none).
+	RoutingLine string
 }
 
 // limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
@@ -1720,6 +1743,12 @@ func Use(broker, user, model string, opt UseOptions) error {
 	in := useStdin
 	var locked BandRange // the station we resolve + confirm (used for the staged lock)
 	_ = defaultedCap
+	// A variant suffix on the positional (`qwen3-32b:free`) rides to the broker in the body;
+	// discovery and the plate read the bare band and name the mark.
+	band, mark := bareModel(model), sugarMark(model)
+	if opt.RoutingLine != "" {
+		fmt.Printf("\n  %s\n", opt.RoutingLine)
+	}
 
 	// Private band tune-in (--freq): resolve the frequency code against the broker's
 	// PUBLIC constant-work resolver (no login), then open the channel routed via
@@ -1730,9 +1759,9 @@ func Use(broker, user, model string, opt UseOptions) error {
 	}
 
 	for {
-		br, ok := BandRangeFor(broker, model)
+		br, ok := BandRangeFor(broker, band)
 		if !ok {
-			fmt.Printf("no station on air for %q right now - try `roger search` or come back.\n", model)
+			fmt.Printf("no station on air for %q right now - try `roger search` or come back.\n", band)
 			return nil
 		}
 		locked = br
@@ -1764,7 +1793,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 			continue // re-check with the new max
 		}
 		// Within limits (or no cap): show the deal and confirm.
-		fmt.Printf("\n  tune in to  %s\n", model)
+		fmt.Printf("\n  tune in to  %s%s\n", band, mark)
 		if br.Stations == 1 {
 			fmt.Printf("    price now      %.2f $/1M out   ·   %.2f $/1M in\n", br.Min, br.CheapIn)
 		} else {
@@ -1842,11 +1871,48 @@ func Use(broker, user, model string, opt UseOptions) error {
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
 		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
+		Sort: opt.Sort, Prefer: opt.Prefer, NoFallbacks: opt.NoFallbacks, Require: opt.Require, ParamsB: opt.ParamsB,
+		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams,
 		HeaderRouting:        NegotiateRouting(broker), // tune time: body carriers, or headers for an old broker
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
 		}}
+	warnOldBroker(opts)
 	return useServe(addr, newProxyHandler(opts))
+}
+
+// warnOldBroker says once, at tune time, which of the session's routing flags an old broker
+// (header mode) cannot carry, so a dropped constraint is never silent.
+func warnOldBroker(o ProxyOptions) {
+	if !o.HeaderRouting {
+		return
+	}
+	r := Routing{SelfHostedOnly: o.SelfHostedOnly, Quantizations: o.Quantizations, Models: o.Models, Only: o.Only,
+		Prefer: o.Prefer, NoFallbacks: o.NoFallbacks, Sort: o.Sort, RequireParams: o.RequireParams, MaxReq: o.MaxCost,
+		Require: o.Require, ParamsB: o.ParamsB, MinCtx: o.MinCtx, MaxTTFT: o.MaxTTFT, TrustMin: o.TrustMin, Region: o.Region}
+	var flags []string
+	for _, k := range r.Dropped() {
+		if f := RoutingFlag(k); f != "" {
+			k = f // a key a profile set with no flag of its own is named as the key
+		}
+		flags = append(flags, k)
+	}
+	if len(flags) > 0 {
+		fmt.Printf("  old broker: routing flags with no header form are dropped: %s\n", strings.Join(flags, " "))
+	}
+}
+
+// sugarMark names a model id's variant suffix for the connect plate ("" when it has none).
+func sugarMark(model string) string {
+	switch {
+	case strings.HasSuffix(model, ":free"):
+		return "  (free only)"
+	case strings.HasSuffix(model, ":floor"):
+		return "  (cheapest first)"
+	case strings.HasSuffix(model, ":nitro"):
+		return "  (fastest first)"
+	}
+	return ""
 }
 
 // useStdin / useServe are seams over the two side effects Use can't run in a test: the
@@ -1947,13 +2013,16 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("  %-9s %s\n", "FREQ", display)
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
 		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
+		Sort: opt.Sort, Prefer: opt.Prefer, NoFallbacks: opt.NoFallbacks, Require: opt.Require, ParamsB: opt.ParamsB,
+		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams,
 		HeaderRouting:        NegotiateRouting(broker),
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
 		}}
+	warnOldBroker(opts)
 	return useServe(addr, newProxyHandler(opts))
 }
 
