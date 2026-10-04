@@ -15,7 +15,7 @@ fail=0
 check() { # name, expected, actual
   if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: want $2 got $3"; fail=1; fi
 }
-code() { curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$@"; }
+code() { curl -s -o /dev/null -w '%{http_code}' --max-time 15 --retry 2 --retry-connrefused --retry-delay 3 "$@"; }
 
 check "login page serves"               200 "$(code "$WEB/login.html")"
 body="$(curl -s --max-time 15 "$WEB/login.html")"

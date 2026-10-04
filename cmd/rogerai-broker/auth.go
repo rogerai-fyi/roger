@@ -542,8 +542,8 @@ func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string
 		"balance":      round6(bal),
 		"connect":      map[string]any{"status": "none"},
 	}
-	// Enrich from the owner record if this login is a bound operator account
-	// (GitHub sessions only - the gid gate, A1).
+	// Enrich from the owner record if this session resolves to a bound account, per
+	// provider (the gid gate, A1: never by a bare login string).
 	if o, ok := b.sessionEnrichOwner(r, login, gid); ok {
 		out["email"] = o.Email
 		out["created_at"] = o.CreatedAt

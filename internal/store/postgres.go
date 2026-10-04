@@ -1413,7 +1413,12 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 }
 
 func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
-	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2 WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
+	// A changed address drops the verified stamp (the proof was for the old one); SET
+	// expressions read the OLD row, so the comparison sees the previous email.
+	res, err := p.db.Exec(`UPDATE rogerai.owners
+		SET email_verified_at = CASE WHEN email IS NOT DISTINCT FROM $2 THEN email_verified_at ELSE NULL END,
+		    email=$2
+		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
 	if err != nil {
 		return Owner{}, false, err
 	}

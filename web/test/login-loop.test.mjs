@@ -22,7 +22,7 @@ const require = createRequire(import.meta.url);
 const Fmt = require(path.join(SRC, "js/fmt.js"));
 
 // A page environment: every element is a permissive stub that records hidden/textContent.
-function page(pathname, routes) {
+function page(pathname, routes, opts = {}) {
   const els = {};
   const el = (id) =>
     (els[id] ||= new Proxy(
@@ -43,7 +43,7 @@ function page(pathname, routes) {
   const document = { getElementById: el, querySelector: () => null, querySelectorAll: () => [], createElement: () => el("new"), cookie: "" };
   const ctx = vm.createContext({ document, location, fetch, URLSearchParams, console, setTimeout, window: {} });
   ctx.window = ctx;
-  ctx.RogerFmt = Fmt;
+  if (!opts.noFmt) ctx.RogerFmt = Fmt;
   return { ctx, els, navs, fetched, run: (file) => vm.runInContext(src(file), ctx, { filename: file }) };
 }
 const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -99,3 +99,15 @@ test("every page that shows the signed-in name uses the shared handle formatter"
     assert.doesNotMatch(src(f), /"@" \+ \((?:acct|a|me)\.github_login/, `${f} must not hand-roll "@"+login`);
   }
 });
+
+// A script error AFTER /account confirmed the session (a missing helper, a render bug) used to
+// land in the outer catch, which redirected to /login.html: the same loop by another route.
+for (const [file, route, err] of [["js/dashboard.js", "/metrics/series", "dashError"], ["js/console.js", "/console", "cnError"]]) {
+  test(`${file}: a script error after the session is confirmed shows an error, never a redirect`, async () => {
+    const p = page("/x.html", { "/account": SIGNED_IN, [route]: { status: 200, body: {} } }, { noFmt: true });
+    p.run(file);
+    await settle();
+    assert.deepEqual(p.navs, [], "a signed-in person must not be bounced to /login.html by a script error");
+    assert.equal(p.els[err].hidden, false);
+  });
+}

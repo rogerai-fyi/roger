@@ -36,8 +36,9 @@ func (b *broker) accountExport(w http.ResponseWriter, r *http.Request) {
 		"github_id":    gid,
 		"wallet":       wallet,
 	}
-	// Operator enrichment is GitHub-session-only (the gid gate, A1): an Apple/web
-	// session's login must never pull another owner's ledger/payouts into its export.
+	// Operator enrichment resolves the owner per provider (GitHub: login+gid, Apple: the
+	// sub, email: the proven address), so a session's login string can never pull another
+	// owner's ledger/payouts into its export (the gid gate, A1).
 	if o, found := b.sessionEnrichOwner(r, login, gid); found {
 		dump["email"] = o.Email
 		dump["created_at"] = o.CreatedAt

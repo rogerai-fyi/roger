@@ -1803,6 +1803,9 @@ func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {
 	defer m.mu.Unlock()
 	for pk, o := range m.owners {
 		if o.Login == login && !o.Anonymized {
+			if o.Email != email { // the proof was for the old address
+				o.EmailVerifiedAt = 0
+			}
 			o.Email = email
 			m.owners[pk] = o
 			return o, true, nil

@@ -376,6 +376,7 @@
   }
 
   // ---- boot: confirm session, then load /console. ----
+  var signedIn = false;
   fetch(BROKER + "/account", { credentials: "include" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (acct) {
@@ -383,6 +384,7 @@
         location.replace("/login.html");
         return;
       }
+      signedIn = true;
       text("who", RogerFmt.handle(acct.github_login));
       show("card");
       wireLogout();
@@ -401,5 +403,10 @@
         })
         .catch(function () { hide("cnLoading"); show("cnError"); });
     })
-    .catch(function () { location.replace("/login.html"); });
+    .catch(function () {
+      // Only a failed /account says "logged out". Any later script error with a confirmed
+      // session is an error to show - redirecting here is the login <-> dashboard loop again.
+      if (signedIn) { hide("cnLoading"); show("cnError"); return; }
+      location.replace("/login.html");
+    });
 })();
