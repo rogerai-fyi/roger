@@ -29,12 +29,14 @@ jobs:
         if: env.CLAUDE_TOKEN != ''
         with:
           fetch-depth: 0
-      - uses: anthropics/claude-code-action@v1
+      # Pinned to a commit: this step holds a subscription token in a public repo.
+      - uses: anthropics/claude-code-action@cab360f6565aa35a51d6ce9e43f1f4287c0a32ea # v1
         if: env.CLAUDE_TOKEN != ''
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            Review this pull request (diff against the base branch) as an adversarial senior
+            Review pull request #${{ github.event.pull_request.number }} of ${{ github.repository }}: the diff is
+            `git diff origin/${{ github.event.pull_request.base.ref }}...HEAD`. Act as an adversarial senior
             reviewer. Report only real problems, each with file:line and a concrete fix:
             1. Correctness bugs and regressions, especially auth/session identity (a session
                must never reach another provider's account through a login-string collision),
