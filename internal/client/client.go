@@ -430,6 +430,16 @@ type ProxyOptions struct {
 	// to one station, so the first failure is a dead turn, while an exclusion preserves
 	// failover WITHIN the chosen quant.
 	ExcludeNodes []string
+	// The session OWNER's further ceilings (roger use --max-cost --trust --region --only
+	// --models): a guest may only tighten them (Routing.Apply).
+	MaxCost  float64  // provider.max_price.request cap in USD per request (0 = none)
+	TrustMin string   // roger.trust_min floor (any | verified | confidential; "" = any)
+	Region   []string // roger.region allow-list
+	Only     []string // provider.only allow-list
+	Models   []string // the owner's model fallback list (models[]); bounds a guest's list
+	// Profiles resolves a guest's "@profile/<name>" against config.json, re-read on change.
+	// nil = the handler builds one for ConfigPath().
+	Profiles *ProfileStore
 	// Model is the TUNED band's model. It is the /v1/models identity AND the rewrite
 	// target: every incoming request's `model` field is rewritten to this before relay,
 	// so an agent's arbitrary default ("gpt-4o", "sonnet") just works. Empty = legacy
@@ -755,6 +765,7 @@ func ProxyHandler(opts ProxyOptions) http.Handler {
 func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 	httpClient := newRelayClient()
 	policy := defaultPolicy()
+	defaultProfiles := NewProfileStore("")
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
@@ -797,18 +808,40 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			openAIError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request_too_large", "request body exceeds the 4 MiB limit")
 			return
 		}
+		// A guest may only tighten the owner's routing: a models[] list (or, with a routing
+		// carrier, a model) reaching beyond the tuned band is refused here, before any relay or
+		// hold - checked on the guest's OWN keys, before a profile reference is resolved (a
+		// profile is the owner's config, so its models are the owner's choice). With an owner
+		// --models list the guest's list is filtered to it instead (Routing.Apply). Header mode
+		// refuses every models[] itself - an old broker cannot honour one.
+		if err := GuestModelsWithin(body, opts.Model); err != nil && !opts.HeaderRouting && !(len(opts.Models) > 0 && !guestNamesOtherModelOf(body, opts.Model)) {
+			routingRefused(w, err)
+			return
+		}
+		// A "@profile/<name>" reference (model or roger.profile) resolves against config.json
+		// (re-read when it changes); the broker never sees "@profile/".
+		profiles := opts.Profiles
+		if profiles == nil {
+			profiles = defaultProfiles
+		}
+		// A guest's own roger.freq is never taken (the owner's band stands), so it is dropped
+		// before the merge; a band code in the OWNER's profile is the owner's choice and
+		// travels as the X-Roger-Freq header for this request, never in the body.
+		if resolved, did, perr := ResolveProfileBody(dropGuestFreq(body), profiles.Get()); perr != nil {
+			routingRefused(w, perr)
+			return
+		} else if did {
+			var freq string
+			body, freq = takeFreq(resolved)
+			if freq != "" && opts.Freq == "" {
+				opts.Freq = freq
+			}
+		}
 		// Model rewrite + malformed-body guard (ruling 2): rewrite `model` to the band's, keep
 		// every other field; a non-object body is a 400 before any relay/hold.
 		rewritten, model, ok := rewriteModel(body, opts.Model)
 		if !ok {
 			openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")
-			return
-		}
-		// A guest may only tighten the owner's routing: a models[] list reaching beyond the
-		// tuned band is refused here, before any relay or hold. (Header mode refuses every
-		// models[] itself - an old broker cannot honour one - with its own honest message.)
-		if err := GuestModelsWithin(body, opts.Model); err != nil && !opts.HeaderRouting {
-			routingRefused(w, err)
 			return
 		}
 		crit := Criteria{Model: model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
@@ -880,6 +913,10 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		ctx = context.Background()
 	}
 	failed := map[string]bool{}
+	origBody := body // the caller's body as it arrived (for the defaults header)
+	// The re-pick honors every routing key the caller's body states, not only Criteria's
+	// original fields, and a caller's own allow_fallbacks:false forbids the proxy's re-pick.
+	noRepick := callerRoutingCriteria(body, &crit)
 	var order []string // the failover's preferred alternative ("" = let the broker choose)
 	var lastErr error
 	var lastStatus int
@@ -893,13 +930,13 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	// them is clamped, never honored (the broker composes header and body to the stricter as
 	// well, but an old broker reads only the header).
 	lifted := Routing{MinTPS: opts.MinTPS, Quantizations: opts.Quantizations,
-		MaxOut: effectiveMaxOut(opts.MaxPriceOut), MaxIn: opts.MaxPriceIn}
+		MaxOut: effectiveMaxOut(opts.MaxPriceOut), MaxIn: opts.MaxPriceIn, MaxReq: opts.MaxCost}
 	var dropped []string
 	if !opts.HeaderRouting {
 		// Body mode: fold the caps into the body ONCE, here, so a clamp is logged once per
 		// request however many attempts the failover makes (each attempt re-applies the rest
 		// of the session's routing to this already-capped body).
-		capped, cerr := (Routing{MaxOut: lifted.MaxOut, MaxIn: lifted.MaxIn}).Apply(body)
+		capped, cerr := (Routing{MaxOut: lifted.MaxOut, MaxIn: lifted.MaxIn, MaxReq: lifted.MaxReq}).Apply(body)
 		if cerr != nil {
 			routingRefused(w, cerr)
 			onServed(0)
@@ -934,6 +971,7 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			Pref: opts.Pref, MinTPS: lifted.MinTPS, Confidential: opts.Confidential || lifted.Confidential,
 			SelfHostedOnly: opts.SelfHostedOnly, Quantizations: opts.Quantizations,
 			Order: order, Ignore: unionStrings(keysOf(failed), opts.ExcludeNodes, lifted.Ignore),
+			TrustMin: opts.TrustMin, Region: opts.Region, Only: opts.Only, Models: opts.Models,
 			HeaderMode: opts.HeaderRouting,
 		}
 		if lifted.Pref != "" {
@@ -982,6 +1020,13 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		if d := unionStrings(rt.Dropped(), dropped); rt.HeaderMode && len(d) > 0 {
 			w.Header().Set("X-Roger-Routing-Dropped", strings.Join(d, ", "))
 		}
+		// The keys the proxy added on the caller's behalf (the owner's defaults), so a guest can
+		// see why the broker routed as it did.
+		if attempt == 0 && !rt.HeaderMode {
+			if added := RoutingKeysAdded(origBody, sent); len(added) > 0 {
+				w.Header().Set("X-Roger-Routing-Defaults", strings.Join(added, ","))
+			}
+		}
 
 		resp, err := httpClient.Do(req)
 		if err == nil && !retryable(resp.StatusCode, nil) {
@@ -1017,6 +1062,12 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// with its Retry-After so the caller can decide.
 			raw, wait, cooling := bandCooling(resp)
 			resp.Body.Close()
+			// no_match: nothing on air satisfies the request; a retry changes nothing.
+			if resp.StatusCode == http.StatusServiceUnavailable && errorCodeOf(raw) == "no_match" {
+				onServed(0)
+				passThrough(w, resp, raw)
+				return
+			}
 			if cooling {
 				if waited || wait > bandCoolingWait {
 					onServed(0)
@@ -1043,6 +1094,9 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			failed[o] = true
 		}
 		order = nil
+		if noRepick {
+			break // the caller said allow_fallbacks:false: never re-pick on its behalf
+		}
 		if opts.Freq != "" {
 			continue // a private band has no public alternative; the broker re-picks within it
 		}
@@ -1135,7 +1189,9 @@ func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFall
 	// Deny-by-default allowlist: the safe meter headers plus Retry-After (so a 429'd agent can
 	// back off - ruling 7). Hop-by-hop / connection-scoped / cookie / server headers are NEVER
 	// forwarded (RFC 7230 §6.1); keep this list tight.
-	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Model", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After"} {
+	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Model", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After",
+		// a standalone Tower's free-plane meter and the routing keys it ignored (names only)
+		"X-Roger-Cost", "X-Roger-Local", "X-Roger-Curated", "X-Roger-Routing-Ignored"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}
@@ -1607,6 +1663,13 @@ type UseOptions struct {
 	Pref           string
 	SelfHostedOnly bool
 	Quantizations  []string
+	// Owner ceilings a guest may only tighten (contract §10 flags).
+	MaxCost      float64
+	Trust        string
+	Region       []string
+	Only         []string
+	ExcludeNodes []string
+	Models       []string
 }
 
 // limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
@@ -1778,6 +1841,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
+		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
 		HeaderRouting:        NegotiateRouting(broker), // tune time: body carriers, or headers for an old broker
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
@@ -1885,6 +1949,7 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
+		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
 		HeaderRouting:        NegotiateRouting(broker),
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)

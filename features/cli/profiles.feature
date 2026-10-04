@@ -195,7 +195,6 @@ Feature: Named routing profiles resolve to the body object on every client
 
     Examples:
       | profileKey                    | profileValue        | requestKey                    | requestValue |
-      | models                        | ["a","b"]           | models                        | ["c"]        |
       | provider.only                 | ["n1","n2"]         | provider.only                 | ["n3"]       |
       | provider.order                | ["n1"]              | provider.order                | ["n2","n3"]  |
       | provider.ignore               | ["n9"]              | provider.ignore               | ["n8"]       |
@@ -216,7 +215,21 @@ Feature: Named routing profiles resolve to the body object on every client
       | roger.self_hosted_only        | true                | roger.self_hosted_only        | false        |
       | roger.confidential            | true                | roger.confidential            | false        |
       | roger.region                  | ["eu"]              | roger.region                  | ["us"]       |
-      | roger.freq                    | "147.520 MHz AAAA"  | roger.freq                    | "147.520 MHz BBBB" |
+
+  # corrected 2026-10-04 (founder-approved): the models and roger.freq rows moved out of the outline - a guest may only tighten
+  Scenario: A guest request naming a model outside the tuned band is refused even when a profile lists it
+    Given profile "p" sets models = ["a","b"]
+    And the local proxy is tuned to "a"
+    When a guest request with model "@profile/p" and models ["c"] is resolved by the local proxy
+    Then the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
+
+  # corrected 2026-10-04 (founder-approved): a guest's band code is never taken - the owner's band stands
+  Scenario: A guest's roger.freq never replaces the profile's or the session's band
+    Given profile "p" sets roger.freq = "147.520 MHz AAAA"
+    When a guest request with model "@profile/p" and roger.freq "147.520 MHz BBBB" is resolved by the local proxy
+    Then the broker receives the X-Roger-Freq header for "147.520 MHz AAAA"
+    And the body carries no roger.freq
 
   Scenario: max_price merges per sub-key (prompt from the profile, completion from the request)
     Given profile "p" sets provider.max_price = {"prompt": 1, "completion": 2}
@@ -276,10 +289,12 @@ Feature: Named routing profiles resolve to the body object on every client
     Then the broker answers 400 with error.code "unknown_profile"
     And no hold is placed
 
+  # corrected 2026-10-04 (founder-approved): a carrier-less foreign id is rewritten to the band model (approved rewrite rule)
   Scenario: @profile/ is case-sensitive and exact
     Given profile "coding" exists
     When the request names "@Profile/coding"
-    Then the local proxy treats it as a plain model id (which no station serves)
+    Then the local proxy does not resolve it as a profile
+    And the broker receives the tuned band's model, as for any carrier-less foreign id
 
   Scenario: A profile with no model or models takes the tuned band's model through the proxy (no local 400)
     Given profile "p" sets only roger.pref = "fast"

@@ -36,6 +36,17 @@ type Routing struct {
 	// (always the owner's EFFECTIVE out cap on the proxy path, so never 0 there) and
 	// provider.max_price.prompt (0 = the owner set none). A caller may only tighten them.
 	MaxOut, MaxIn float64
+	// MaxReq is the owner's per-request USD cap (provider.max_price.request; 0 = none): a
+	// ceiling a caller may only lower.
+	MaxReq float64
+	// TrustMin / Region / Only / Models are the owner's ceilings (roger use --trust --region
+	// --only --models). A caller may only tighten them: a lower trust is raised to the owner's,
+	// a region or an order outside the owner's set is refused, an only list is intersected, and
+	// a models[] list is filtered to the owner's.
+	TrustMin string
+	Region   []string
+	Only     []string
+	Models   []string
 	// HeaderMode speaks the pre-body wire (X-Roger-* headers) to a broker whose GET
 	// /v1/models answered 404 at tune time. Keys with no header form are dropped (Dropped).
 	HeaderMode bool
@@ -214,6 +225,13 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
 		return nil, fmt.Errorf("request body is not a JSON object")
 	}
+	// A carrier that is present but not an object is the caller's malformed request: it is
+	// forwarded untouched for the broker's 400 invalid_routing_value, never repaired around.
+	for _, k := range []string{"roger", "provider"} {
+		if raw, ok := m[k]; ok && string(raw) != "null" && !rawObjectOK(raw) {
+			return body, nil
+		}
+	}
 	roger, provider := rawObject(m["roger"]), rawObject(m["provider"])
 	// The owner's pref is a DEFAULT, and a sort the guest stated (provider.sort, or a :floor /
 	// :nitro suffix on any model id) excludes pref (§1a), so adding it would earn the guest a
@@ -227,7 +245,26 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 	}
 	if r.Confidential {
+		if v, ok := roger["confidential"].(bool); ok && !v {
+			log.Printf("guest confidential=false ignored: owner requires confidential")
+		}
 		roger["confidential"] = true
+	}
+	if r.TrustMin != "" {
+		if g, _ := roger["trust_min"].(string); trustRank(g) < trustRank(r.TrustMin) {
+			roger["trust_min"] = r.TrustMin
+		}
+	}
+	if len(r.Region) > 0 {
+		if got := stringsOf(roger["region"]); len(got) > 0 {
+			for _, x := range got {
+				if !hasFold(r.Region, x) {
+					return nil, &RoutingRefusal{Msg: "region " + x + " is outside this session's allowed regions"}
+				}
+			}
+		} else {
+			roger["region"] = r.Region
+		}
 	}
 	delete(roger, "freq") // the owner's band stands; a guest cannot drop or swap it
 	if r.SelfHostedOnly {
@@ -244,13 +281,51 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			provider["quantizations"] = r.Quantizations
 		}
 	}
+	if len(r.Only) > 0 {
+		for _, x := range stringsOf(provider["order"]) {
+			if !hasFold(r.Only, x) {
+				return nil, &RoutingRefusal{Msg: "order names " + x + ", outside this session's allowed stations"}
+			}
+		}
+		if got := stringsOf(provider["only"]); len(got) > 0 {
+			kept := []string{}
+			for _, x := range got {
+				if hasFold(r.Only, x) {
+					kept = append(kept, x)
+				}
+			}
+			if len(kept) == 0 {
+				return nil, &RoutingRefusal{Msg: "only names no station inside this session's allowed stations"}
+			}
+			provider["only"] = kept
+		} else {
+			provider["only"] = r.Only
+		}
+	}
+	if len(r.Models) > 0 {
+		if _, present := m["models"]; present && string(m["models"]) != "null" {
+			var ids []string
+			_ = json.Unmarshal(m["models"], &ids)
+			kept := []string{}
+			for _, id := range ids {
+				if hasFold(r.Models, bareModel(id)) {
+					kept = append(kept, id)
+				}
+			}
+			enc, _ := json.Marshal(kept)
+			m["models"] = enc
+		} else {
+			enc, _ := json.Marshal(r.Models)
+			m["models"] = enc
+		}
+	}
 	if len(r.Order) > 0 {
 		provider["order"] = r.Order
 	}
 	if len(r.Ignore) > 0 {
 		provider["ignore"] = unionStrings(stringsOf(provider["ignore"]), r.Ignore)
 	}
-	if r.MaxOut > 0 || r.MaxIn > 0 {
+	if r.MaxOut > 0 || r.MaxIn > 0 || r.MaxReq > 0 {
 		// The owner's price caps are the ceiling. A max_price that is not an object is left
 		// for the broker to refuse (never silently repaired).
 		mp, isObj := provider["max_price"].(map[string]any)
@@ -260,6 +335,7 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		if isObj {
 			capPrice(mp, "completion", r.MaxOut)
 			capPrice(mp, "prompt", r.MaxIn)
+			capPrice(mp, "request", r.MaxReq)
 			provider["max_price"] = mp
 		}
 	}
@@ -302,6 +378,55 @@ func liftPrice(v any, axis string, owner float64) float64 {
 		return owner
 	}
 	return g
+}
+
+// trustRank orders roger.trust_min values: any < verified < confidential ("" = any).
+func trustRank(t string) int {
+	switch t {
+	case "verified":
+		return 1
+	case "confidential":
+		return 2
+	}
+	return 0
+}
+
+// RoutingKeysAdded names the routing keys present in sent but absent from orig (the proxy's
+// own defaults), dotted and sorted: "provider.max_price.completion", "roger.min_tps", ... The
+// failover's own provider.order hint is never a default.
+func RoutingKeysAdded(orig, sent []byte) []string {
+	flat := func(b []byte) map[string]bool {
+		out := map[string]bool{}
+		var m map[string]any
+		if json.Unmarshal(b, &m) != nil {
+			return out
+		}
+		if _, ok := m["models"]; ok {
+			out["models"] = true
+		}
+		for _, top := range []string{"provider", "roger"} {
+			obj, _ := m[top].(map[string]any)
+			for k, v := range obj {
+				if mp, isObj := v.(map[string]any); isObj && k == "max_price" {
+					for sk := range mp {
+						out[top+"."+k+"."+sk] = true
+					}
+					continue
+				}
+				out[top+"."+k] = true
+			}
+		}
+		return out
+	}
+	o, s := flat(orig), flat(sent)
+	var added []string
+	for k := range s {
+		if !o[k] && k != "provider.order" {
+			added = append(added, k)
+		}
+	}
+	sort.Strings(added)
+	return added
 }
 
 // hasFold reports whether list contains s, comparing case-insensitively (quant labels are
@@ -571,4 +696,21 @@ func (r *Routing) foldCallerCarriers(body []byte) (out []byte, dropped []string,
 	sort.Strings(dropped)
 	out, err = json.Marshal(m)
 	return out, dropped, hasModels, err
+}
+
+// guestNamesOtherModelOf is guestNamesOtherModel reading the body's own model.
+func guestNamesOtherModelOf(body []byte, tuned string) bool {
+	var m struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(body, &m) != nil {
+		return false
+	}
+	return guestNamesOtherModel(body, m.Model, tuned)
+}
+
+// rawObjectOK reports whether raw JSON is an object.
+func rawObjectOK(raw json.RawMessage) bool {
+	var m map[string]json.RawMessage
+	return json.Unmarshal(raw, &m) == nil && m != nil
 }

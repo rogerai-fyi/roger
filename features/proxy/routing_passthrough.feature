@@ -165,19 +165,29 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with model "gpt-4o" and no routing carrier
     Then the broker receives model "qwen3-32b-fp8"
 
-  Scenario: An empty carrier object still counts as explicit
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - a carrier never lets it switch model
+  Scenario: An empty carrier object still counts as explicit, so a foreign model is refused locally
     When a chat request arrives with model "gpt-4o" and "roger": {}
-    Then the broker receives model "gpt-4o"
+    Then the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
 
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - the tuned model with a malformed carrier goes to the broker for its 400
   Scenario: A carrier of the wrong type is forwarded for the broker's 400, not rewritten around
-    When a chat request arrives with model "gpt-4o" and "provider": "openai"
-    Then the broker receives model "gpt-4o" and provider "openai"
+    When a chat request arrives with model "qwen3-32b-fp8" and "provider": "openai"
+    Then the broker receives model "qwen3-32b-fp8" and provider "openai"
     And the broker's 400 is returned to the guest
 
+  # added 2026-10-04 (founder-approved): the same malformed carrier on a foreign model is refused locally first
+  Scenario: A carrier of the wrong type on a foreign model is refused locally
+    When a chat request arrives with model "gpt-4o" and "provider": "openai"
+    Then the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
+
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - the model the broker sees is the tuned model
   Scenario: Failover re-discovery uses the model the broker will see
-    When a chat request arrives with model "llama-3.3-70b" and "roger": {"pref": "fast"}
+    When a chat request arrives with model "roger/qwen3-32b-fp8" and "roger": {"pref": "fast"}
     And the first relay attempt fails with a transport error
-    Then the /discover re-pick matches "llama-3.3-70b", not the band model
+    Then the /discover re-pick matches "qwen3-32b-fp8"
 
   Scenario: Failover re-discovery with models[] matches the primary
     # corrected 2026-10-02 (founder ruling): guest may only tighten - the list names the band model
@@ -220,9 +230,10 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with "provider": {"max_price": {"request": 1}}
     Then the broker receives provider.max_price.request = 0.02
 
-  Scenario: The guest may loosen a non-money knob the owner set as a default
+  # corrected 2026-10-04 (founder-approved): min_tps = max(owner, guest); a guest may only tighten
+  Scenario: The guest cannot loosen the owner's min_tps floor
     When a chat request arrives with "roger": {"min_tps": 0}
-    Then the broker receives roger.min_tps = 0
+    Then the broker receives roger.min_tps = 10
 
   Scenario: The guest cannot loosen the owner's confidential requirement
     Given the proxy owner tuned with --confidential

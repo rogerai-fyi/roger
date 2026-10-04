@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -23,6 +24,14 @@ type Criteria struct {
 	// balanced). It reshapes the composite SCORE (the bounded price modifier strength),
 	// never the hard filters - mirroring the broker so failover and normal routing agree.
 	Pref string
+	// The caller body's own routing keys (callerRoutingCriteria): hard filters the re-pick
+	// honors so it never prefers a station the broker would refuse.
+	Require        []string // roger.require (+ implicit tools when the body sends tools)
+	SelfHostedOnly bool
+	Quantizations  []string
+	Only           []string
+	Region         []string
+	TrustMin       string
 }
 
 // Offer is one discoverable provider offer (a subset of the broker's /discover
@@ -51,6 +60,11 @@ type Offer struct {
 	// when TPS==0, so it is the alignment key failover ranks on - the SAME composite
 	// the broker's pick uses, so normal + failover routing agree on "best".
 	Signal int `json:"signal"`
+	// Capabilities (tools / vision), Curated and Quant mirror /discover so the re-pick honors
+	// roger.require, roger.self_hosted_only and provider.quantizations.
+	Capabilities []string `json:"capabilities,omitempty"`
+	Curated      bool     `json:"curated,omitempty"`
+	Quant        string   `json:"quant,omitempty"`
 	// Smart-router v2 selection fields surfaced from /discover so failover mirrors the
 	// broker's capacity-aware load factor (0 = unset, treated as neutral). InFlight is
 	// the node's current load; Capacity is its concurrency capacity (under-load TPS or
@@ -139,6 +153,9 @@ func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (strin
 		// Only exclude nodes MEASURED as too slow; unmeasured (tps==0) get a
 		// chance so new providers aren't permanently passed over (mirrors broker).
 		if c.MinTPS > 0 && o.TPS > 0 && o.TPS < c.MinTPS {
+			continue
+		}
+		if !offerMeetsBody(o, c) {
 			continue
 		}
 		eligible = append(eligible, o)
@@ -445,4 +462,93 @@ func discover(broker string) ([]Offer, error) {
 		return nil, err
 	}
 	return d.Offers, nil
+}
+
+// offerMeetsBody applies the caller body's own hard filters (Criteria's body fields) to one
+// offer: required capabilities, self-hosted only, quant labels ("unknown" admits an unlabeled
+// offer), the only list, regions, and the verified trust floor.
+func offerMeetsBody(o Offer, c Criteria) bool {
+	for _, need := range c.Require {
+		has := false
+		for _, cp := range o.Capabilities {
+			has = has || strings.EqualFold(cp, need)
+		}
+		if !has {
+			return false
+		}
+	}
+	if c.SelfHostedOnly && o.Curated {
+		return false
+	}
+	if len(c.Quantizations) > 0 {
+		q := o.Quant
+		if q == "" {
+			q = QuantUnknown
+		}
+		if !hasFold(c.Quantizations, q) {
+			return false
+		}
+	}
+	if len(c.Only) > 0 && !hasFold(c.Only, o.NodeID) {
+		return false
+	}
+	if len(c.Region) > 0 && !hasFold(c.Region, o.Region) {
+		return false
+	}
+	if c.TrustMin == "verified" && !o.Verified {
+		return false
+	}
+	if c.TrustMin == "confidential" && !o.Confidential {
+		return false
+	}
+	return true
+}
+
+// callerRoutingCriteria folds a caller body's own routing keys into c (the re-pick's filters)
+// and reports whether the caller set provider.allow_fallbacks:false (the proxy must not
+// re-pick on its behalf).
+func callerRoutingCriteria(body []byte, c *Criteria) (noRepick bool) {
+	var m map[string]any
+	if json.Unmarshal(body, &m) != nil {
+		return false
+	}
+	r, _ := m["roger"].(map[string]any)
+	p, _ := m["provider"].(map[string]any)
+	c.Require = append(c.Require, stringsOf(r["require"])...)
+	if tools, ok := m["tools"].([]any); ok && len(tools) > 0 {
+		c.Require = append(c.Require, "tools")
+	}
+	if v, ok := r["self_hosted_only"].(bool); ok && v {
+		c.SelfHostedOnly = true
+	}
+	if v, ok := r["confidential"].(bool); ok && v {
+		c.Confidential = true
+	}
+	if q := stringsOf(p["quantizations"]); len(q) > 0 {
+		c.Quantizations = q
+	}
+	if o := stringsOf(p["only"]); len(o) > 0 {
+		c.Only = o
+	}
+	if g := stringsOf(r["region"]); len(g) > 0 {
+		c.Region = g
+	}
+	if t, ok := r["trust_min"].(string); ok {
+		c.TrustMin = t
+	}
+	if v, ok := p["allow_fallbacks"].(bool); ok && !v {
+		noRepick = true
+	}
+	return noRepick
+}
+
+// errorCodeOf reads error.code from an error body ("" when absent).
+func errorCodeOf(raw []byte) string {
+	var e struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &e)
+	return e.Error.Code
 }

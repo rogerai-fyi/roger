@@ -1486,6 +1486,7 @@ func TestRoutingPassthroughFullBDD(t *testing.T) {
 			sc.Step(`^one proxy log line says "([^"]*)"$`, st.logLineSays)
 			sc.Step(`^the guest receives an OpenAI-shaped 400 "([^"]*)"$`, st.guest400)
 			sc.Step(`^nothing reaches the broker$`, st.nothingReached)
+			sc.Step(`^the guest receives a local 400 with error\.code "([^"]*)"$`, st.guest400Code)
 			sc.Step(`^the primary stays the band model$`, st.primaryStaysBand)
 			sc.Step(`^the guest's code is never logged$`, st.guestCodeNeverLogged)
 			sc.Step(`^the proxy never sends provider\.quantizations = \[\]$`, st.neverEmptyQuant)
@@ -1529,4 +1530,25 @@ func TestRoutingPassthroughFullBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("features/proxy/routing_passthrough.feature (full): failing scenarios")
 	}
+}
+
+// guest400Code: an OpenAI-shaped local 400 carrying error.code (corrected 2026-10-04: a guest
+// may only tighten, so a foreign model with a carrier is refused before the broker).
+func (s *cf4pState) guest400Code(code string) error {
+	if err := s.ensureChatted(); err != nil {
+		return err
+	}
+	if s.rec.Code != http.StatusBadRequest {
+		return fmt.Errorf("status = %d, want 400; body=%s", s.rec.Code, s.rec.Body.String())
+	}
+	var e struct {
+		Error struct{ Type, Code, Message string } `json:"error"`
+	}
+	if json.Unmarshal(s.rec.Body.Bytes(), &e) != nil || e.Error.Type == "" {
+		return fmt.Errorf("400 body is not OpenAI-shaped: %s", s.rec.Body.String())
+	}
+	if e.Error.Code != code {
+		return fmt.Errorf("error.code = %q, want %q", e.Error.Code, code)
+	}
+	return nil
 }

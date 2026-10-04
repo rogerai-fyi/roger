@@ -266,9 +266,11 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     Given the operator toggled O on and tuned "qwen3-32b"
     Then the tune-time body carries no key derived from O
 
-  Scenario: ~ private freq tunes with roger.freq and the code is never on screen after entry
+  # corrected 2026-10-04 (founder-approved): the band code travels only as the X-Roger-Freq header, never in the body
+  Scenario: ~ private freq tunes with the X-Roger-Freq header and the code is never on screen after entry
     When the operator enters a valid code at ~ and tunes
-    Then the tune-time body carries roger.freq = the code
+    Then the tune-time request carries the X-Roger-Freq header = the code
+    And the tune-time body carries no roger.freq
     And the header reads PRIVATE FREQ without the code
 
   Scenario: Filters bound pickAutoBand exactly as approved (auto_tune.feature), unchanged
