@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"sort"
@@ -152,7 +153,7 @@ func loadProbe() probeConfig {
 	}
 	minCap := defaultProbeMinCap
 	if v := os.Getenv("ROGERAI_PROBE_MIN_CAP"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && int64(n) <= int64(math.MaxInt64/time.Second) {
 			minCap = time.Duration(n) * time.Second
 		}
 	}
@@ -197,10 +198,12 @@ func (st *probeState) probeMinHold(now time.Time) bool {
 // probeMinLapsedLocked is the COST of declaring a minimum: verification is not extended to
 // cover the longer gap. A node on that lane whose last positive evidence (a passed probe or
 // a real served request, both stamped on lastMeasured) is older than window reads as not
-// currently verified. Nodes that declared nothing are untouched. Caller holds metricsMu.
+// currently verified. Nodes that declared nothing are untouched, and so is a minimum at or
+// under the ceiling: such a node is probed inside the normal window anyway, and lapsing it
+// would only flap the mark on result-arrival jitter. Caller holds metricsMu.
 func (b *broker) probeMinLapsedLocked(nodeID string, now time.Time, window time.Duration) bool {
 	st := b.probeSched[nodeID]
-	if st == nil || st.probeMin <= 0 {
+	if st == nil || st.probeMin <= b.probe.ceiling {
 		return false
 	}
 	return st.lastMeasured.IsZero() || now.Sub(st.lastMeasured) > window

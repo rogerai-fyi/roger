@@ -94,6 +94,7 @@ func TestLoadProbeMinCap(t *testing.T) {
 		{"0", 0},
 		{"-5", 24 * time.Hour},
 		{"six hours", 24 * time.Hour},
+		{"99999999999999999", 24 * time.Hour}, // would overflow time.Duration: ignored
 	} {
 		t.Run("env="+tc.env, func(t *testing.T) {
 			t.Setenv("ROGERAI_PROBE_INTERVAL", "30")
@@ -265,6 +266,9 @@ func TestProbeMinVerifiedLapsesOnTheNormalWindow(t *testing.T) {
 		{"declared, hours later", sixHours, 5 * time.Hour, false, false},
 		{"declared, real traffic refreshes it as today", sixHours, 5 * time.Hour, true, true},
 		{"undeclared node keeps today's behaviour", 0, 5 * time.Hour, false, true},
+		// A minimum at or under the ceiling is probed inside the normal window anyway, so the
+		// result-arrival jitter must not cost it the mark every cycle.
+		{"declared at the ceiling does not flap", 900, 16 * time.Minute, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := probeMinBroker()

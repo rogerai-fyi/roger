@@ -14,6 +14,14 @@
 #   - the broker clamps it to [0, ROGERAI_PROBE_MIN_CAP], default 24h
 #   - verification is never extended: past the normal window the node reads as not
 #     currently verified, and the staleness discount ranks it below fresh nodes
+#
+# KNOWN LIMIT (disclosed, same as the curated lane): the schedule is per broker process.
+# After a broker restart or deploy each instance probes a held node once at first sight,
+# and with N broker instances a node can see up to N probes per declared window. A shared
+# schedule would close this; it is a follow-up, not part of this change.
+# A minimum at or under the probe ceiling never lapses the mark (it is probed inside the
+# normal window anyway). A curated station that also declares a minimum gives up the
+# curated lane's long-lived mark for the same lapse rule.
 
 Feature: An operator can declare a minimum probe interval, and pays for it in verification
   As an operator whose upstream bills real money for every request

@@ -31,6 +31,8 @@ func TestShareProbeMinReachesTheAgent(t *testing.T) {
 		{name: "an explicit flag wins over the saved value", saved: "6h", flags: []string{"--probe-min", "90m"}, want: 90 * time.Minute},
 		{name: "an explicit zero turns a saved value off", saved: "6h", flags: []string{"--probe-min", "0"}, want: 0},
 		{name: "a negative flag is refused", flags: []string{"--probe-min", "-1h"}, wantErr: "--probe-min"},
+		{name: "a sub-second flag is refused, not silently dropped", flags: []string{"--probe-min", "500ms"}, wantErr: "--probe-min"},
+		{name: "a sub-second saved value is refused", saved: "500ms", wantErr: "probe_min"},
 		{name: "an unparsable saved value is refused", saved: "six hours", wantErr: "probe_min"},
 		{name: "a negative saved value is refused", saved: "-5m", wantErr: "probe_min"},
 	} {
@@ -83,4 +85,5 @@ func TestShareProbeMinHelpDisclosesTheTrade(t *testing.T) {
 	for _, want := range []string{"capped at 24h", "verification lapses between probes"} {
 		require.Contains(t, probeMinUsage, want)
 	}
+	require.NotContains(t, probeMinUsage, "Saved per model", "the flag does not save anything")
 }

@@ -1084,19 +1084,27 @@ func validateCuratedShare(curated, upstream string, upIn, upOut float64, atCost 
 
 // probeMinUsage is the --probe-min help, and the disclosure an operator reads before opting
 // in: the cap, and what the longer interval costs them.
-const probeMinUsage = "minimum time between the broker's verification probes, as a duration (e.g. 6h), for an upstream that bills every request; capped at 24h by the broker. The cost: verification lapses between probes, so the band shows as not currently verified and ranks below freshly probed bands. Saved per model as share_prices.<model>.probe_min"
+const probeMinUsage = "minimum time between the broker's verification probes, as a duration (e.g. 6h), for an upstream that bills every request; capped at 24h by the broker. The cost: verification lapses between probes, so the band shows as not currently verified and ranks below freshly probed bands. Can also be set per model as share_prices.<model>.probe_min in config.json"
 
 // parseProbeMin reads a saved share_prices probe_min: empty is undeclared, anything else
-// must be a non-negative Go duration.
+// must be zero or a Go duration of at least one second (the wire carries whole seconds, so
+// a sub-second value would silently register as undeclared).
 func parseProbeMin(s string) (time.Duration, error) {
 	if s == "" {
 		return 0, nil
 	}
 	d, err := time.ParseDuration(s)
-	if err == nil && d < 0 {
-		err = fmt.Errorf("negative")
+	if err == nil {
+		err = checkProbeMin(d)
 	}
 	return d, err
+}
+
+func checkProbeMin(d time.Duration) error {
+	if d < 0 || (d > 0 && d < time.Second) {
+		return fmt.Errorf("must be 0 or at least 1s")
+	}
+	return nil
 }
 
 func cmdShare(cfg config, args []string) error {
@@ -1206,8 +1214,8 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	if err := validateCuratedShare(strings.TrimSpace(*curated), strings.TrimSpace(*upstream), *upIn, *upOut, *atCost); err != nil {
 		return err
 	}
-	if *probeMin < 0 {
-		return fmt.Errorf("--probe-min cannot be negative")
+	if err := checkProbeMin(*probeMin); err != nil {
+		return fmt.Errorf("--probe-min %s: %v", *probeMin, err)
 	}
 	if *advanced {
 		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min")
