@@ -82,6 +82,7 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
     And usage.rogerai has no key "void_reason"
     And usage.rogerai has none of the keys key_id, key_limit, key_spend, key_pct, key_reset_at
 
+  @slice5
   Scenario: A key-funded stream carries the key state after settle in the chunk
     # features/relay/key_limits.feature owns the semantics; this pins the parity shape.
     Given the caller holds key "key_a1" with limit_usd 5.00 reset monthly and $1.00 already spent this window
@@ -138,6 +139,7 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
     Then every station comment is forwarded as it arrives
     And the broker's usage chunk still comes last before [DONE]
 
+  @proxy
   Scenario: The reasoning-to-content fallback in the proxy never touches the usage chunk
     Given the proxy's reasoning fallback is on
     And "n-1" streams reasoning deltas then a content delta
@@ -337,6 +339,7 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
 
   # --- the bridge / Tower path ------------------------------------------------------
 
+  @later
   Scenario: A stream served through a Tower carries the same chunk with relay set
     Given no direct node is on air for "gemma-3-27b"
     And an approved Tower "tw-1" serves "gemma-3-27b" via its hub
@@ -361,49 +364,58 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
 
   # --- the local proxy and the meters ----------------------------------------------
 
+  @proxy
   Scenario: The local proxy forwards the usage chunk untouched
     When a streaming request goes through the local proxy and is served by "n-1"
     Then the guest receives the broker's usage chunk byte-identical
     And the guest receives [DONE] after it
 
+  @proxy
   Scenario: The proxy budget meters a stream once, from the chunk or the comment, never both
     Given the proxy session has a budget of $1.00
     When a streaming request goes through the local proxy and settles at $0.000420
     Then the session spend increases by exactly $0.000420
 
+  @proxy
   Scenario: A stream with a chunk but no comment (a future broker) still meters
     Given the broker omits the `: rogerai-cost=` comment
     When a streaming request goes through the local proxy and settles at $0.000420
     Then the session spend increases by exactly $0.000420
 
+  @proxy
   Scenario: A stream with a comment but no chunk (an old broker) still meters (unchanged)
     Given the broker writes only the `: rogerai-cost=0.000420` comment
     When a streaming request goes through the local proxy
     Then the session spend increases by exactly $0.000420
 
+  @proxy
   Scenario: A stream with neither meters nothing and does not error (unchanged)
     Given the broker writes neither a chunk nor a comment
     When a streaming request goes through the local proxy
     Then the session spend is unchanged
     And the guest sees a complete stream
 
+  @proxy
   Scenario: The proxy never trusts a station-shaped usage frame for the meter
     Given "n-1" streams a frame with usage {"cost": 0.000001} and no rogerai object
     And the broker's chunk says usage.cost 0.000420
     When a streaming request goes through the local proxy
     Then the session spend increases by exactly $0.000420
 
+  @proxy
   Scenario: The proxy still forwards only the safe header allowlist on a stream (invariant)
     When a streaming request goes through the local proxy
     Then the guest sees X-RogerAI-Provider and X-RogerAI-Model
     And the guest does not see hop-by-hop or Set-Cookie headers
 
+  @tui
   Scenario: The TUI cost meter reads the chunk
     Given the TUI is tuned to "qwen3-32b"
     When a streamed chat turn settles at $0.000420 with 120 in and 40 out
     Then the TUI meter shows the cost, the in and out tokens and the tps from the chunk
     And it shows them without waiting for a separate lookup
 
+  @harness
   Scenario: The agent harness meter reads the chunk for streamed turns
     When a streamed agent turn settles
     Then the harness's per-turn meter shows the in/out tokens and cost from the chunk
@@ -416,11 +428,12 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
 
   # --- adversarial -------------------------------------------------------------------
 
+  # corrected 2026-10-02 (founder-approved): billing is min(claim, re-count) (recount_billing.feature); an under-claim is billed as claimed
   Scenario: A station cannot alter the billed cost by emitting usage figures
     Given "n-1" streams a usage frame claiming completion_tokens 1 for a 150-token completion
     And "n-1"'s receipt claims 1 completion token
     When a streaming request for "qwen3-32b" is served
-    Then the broker's chunk bills the re-counted 150 where the re-count applies
+    Then the broker's chunk bills min(claim, re-count) = 1 completion token
     And the ledger debit follows the broker's chunk, not the station's frame
 
   Scenario: A station cannot inflate the billed cost by emitting usage figures

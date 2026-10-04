@@ -1662,6 +1662,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	// The request id is minted first and set on EVERY response (served or refused), so a
+	// caller can look its own record up on /generation whatever the outcome.
+	requestID := protocol.NewRequestID()
+	w.Header().Set("X-RogerAI-Request-Id", requestID)
+	// The /generation record: assembled as the relay runs, written once when it returns.
+	gw := &genWriter{ResponseWriter: w}
+	w = gw
+	gen := b.genOpen(requestID, time.Now())
+	defer b.genClose(gen, gw, r)
 	corsCreds(w, r)
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 
@@ -1720,6 +1729,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	gen.with(func(st *genStored) {
+		st.Wallet = wallet
+		if gok {
+			st.Wallet, st.GrantID, st.GrantOwner = "", gc.grant.ID, gc.grant.Owner
+		}
+	})
 	// Per-caller rate limit: smooth bursts + cap sustained rate so one caller can't
 	// flood the broker or a provider. Checked before the costly moderation/pick. A
 	// grant uses its own bucket map keyed by grant id, with the grant's rpm/burst.
@@ -1764,6 +1779,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		Stream bool   `json:"stream"`
 	}
 	_ = json.Unmarshal(body, &req)
+	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Streamed = req.Model, req.Stream })
 
 	// THE BODY ROUTING OBJECT (ROUTING-EXPRESSION-CONTRACT §1): decoded once, refused with a
 	// 400 naming the key BEFORE moderation (a request that cannot route is not screened),
@@ -1833,6 +1849,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	b.stats.countVariants(suffixes) // per suffix, per request; never a model id
 	sentModel := req.Model
 	req.Model = models[0].bare
+	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Models = models[0].bare, bareIDs(models) })
 	body = stripRoutingCarriers(body, routing, sentModel, req.Model)
 
 	// Usage backstop: ask the model for a final usage chunk on streaming requests so the
@@ -1871,7 +1888,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// Request id is minted up front: it seeds the routing PRNG (deterministic
 	// power-of-two-choices spread per request) and keys the relayed job AND the off-path
 	// screening job, so an after-the-fact flag can name the request.
-	requestID := protocol.NewRequestID()
+	// (requestID, minted at the top of relay(), seeds the routing PRNG and keys the relayed
+	// job AND the off-path screening job.)
 
 	// Content screen. Grants do NOT bypass it (owner's legal exposure on shared access);
 	// it covers streaming too (this is before the branch). WHERE the verdict is applied is
@@ -1886,7 +1904,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	promptStr := promptText(body)
 	var screening *screenJob
 	if b.mod.mode == modeSync {
-		if res := b.mod.screen(promptStr); !res.allow() {
+		screenStart := time.Now()
+		res := b.mod.screen(promptStr)
+		gen.with(func(st *genStored) {
+			st.Rec.Moderation.Verdict, st.Rec.Moderation.LatencyMs = "passed", time.Since(screenStart).Milliseconds()
+			if !res.allow() {
+				st.Rec.Moderation.Verdict = "rejected"
+			}
+		})
+		if !res.allow() {
 			log.Printf("moderation reject model=%s status=%d: %s", req.Model, res.status, res.msg)
 			// CSAM (child-exploitation) hit: do NOT discard. PRESERVE the offending request
 			// (access-controlled, retention-limited) and QUEUE a CyberTipline report
@@ -1904,6 +1930,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// relayBroker) or with a zero moderation (mode "") takes this branch and screens
 		// NOTHING; a test that expects the in-line 451/503 must set mode: modeSync.
 		screening = b.scr.submit(requestID, user, clientIP(r), req.Model, body, promptStr)
+		if screening != nil {
+			gen.with(func(st *genStored) { st.Rec.Moderation.Verdict = "pending" })
+		}
 	}
 	// On exit the job knows the station that served (the last attempt named below); a verdict
 	// that beat the relay is recorded then, off the response path. Nil-safe.
@@ -2764,9 +2793,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// attempt id the Tower's settlement captures); a Tower failure is a failover trigger
 			// like a direct one, and the plan continues; a bridge gate (rate, slot, balance) moves
 			// to the next candidate or stands as the answer.
+			b.genAttemptStart(requestID, i+1, "", c.model)
 			answer, g, out := b.planEdgeAttempt(r, c, payer, &holdKey, maxCost, i+1 < len(plan), deadline)
 			if len(answer) > 0 {
-				b.writeBridgedAnswer(w, g, c.edge.row, c.edge.pubHex, answer, false)
+				brec, bcost := b.writeBridgedAnswer(w, g, c.edge.row, c.edge.pubHex, answer, false)
+				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, bcost, brec.PromptTokens, brec.CompletionTokens, 0, protocol.EncodeReceipt(brec))
 				settled = true // the hold rides the attempt id the Tower's settlement captures
 				return
 			}
@@ -2785,6 +2816,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				status = http.StatusBadGateway
 			}
 			b.voidEdgeAttempt(payer, user, c, g, status)
+			b.genAttemptEndN(requestID, i+1, g.RelayName, status, voidReasonFor(status), 0)
 			if next := b.nextAttempt(plan, i, status, deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
 				log.Printf("FAILOVER request=%s from=%s (%s) to=%s", requestID, c.node.NodeID, voidReasonFor(status), plan[next].node.NodeID)
 				b.countFailover(plan, i, next)
@@ -2807,6 +2839,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		job := protocol.Job{ID: jobID, User: b.pseudonym(user, node.NodeID), Body: body}
 		resCh, unreg := t.await(jobID)
 		start := time.Now()
+		b.genAttemptStart(requestID, i+1, node.NodeID, req.Model)
 		res, concurrentAtDispatch, outcome := b.dispatchAwait(r.Context(), t, node.NodeID, job, resCh, deadline)
 		unreg()
 		switch outcome {
@@ -3002,6 +3035,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedUntil))
 			w.Header().Set("X-RogerAI-TPS", fmt.Sprintf("%.1f", tps))
 			w.Header().Set("X-RogerAI-Quality", ftoa(round6(b.trustScore(node.NodeID))))
+			b.genServe(requestID, i+1, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, tps, protocol.EncodeReceipt(rec))
 			log.Printf("relay user=%s node=%s model=%s in=%d/%d out=%d/%d (billed/claim) price=%.3f/%.3f cost=%.6f tps=%.1f", user, node.NodeID, req.Model, billedPrompt, rec.PromptTokens, billedCompletion, rec.CompletionTokens, pin, pout, cost, tps)
 			logServedOfList(requestID, requested, req.Model, node.NodeID)
 			// The L1 re-count (trust scoring + the P0-2 promotion-hold flag) already
@@ -3224,8 +3258,11 @@ type lazySSE struct {
 	mu        sync.Mutex
 	committed bool
 	provider  string
-	model     string       // the served model, X-RogerAI-Model on commit
-	pre       bytes.Buffer // bytes the current attempt sent before its first data frame
+	model     string          // the served model, X-RogerAI-Model on commit
+	id        string          // the request id, the usage chunk's top-level "id"
+	ctx       context.Context // the consumer's request: gone = nothing more is written
+	onCommit  func()          // called once when the headers go out (the first frame)
+	pre       bytes.Buffer    // bytes the current attempt sent before its first data frame
 	// THE BROKER OWNS [DONE] (features/trust/stream_receipt_parity.feature): the station's
 	// own `data: [DONE]` frame is swallowed so the broker's usage chunk - written once the
 	// receipt has settled, which is after the station's last frame - can be the last data
@@ -3275,7 +3312,7 @@ func (l *lazySSE) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	l.tail = append([]byte(nil), buf[cut+1:]...)
-	ready := l.dropDone(buf[:cut+1])
+	ready := l.stripStationRogerai(l.dropDone(buf[:cut+1]))
 	if len(ready) == 0 {
 		return len(p), nil
 	}
@@ -3309,14 +3346,48 @@ func (l *lazySSE) dropDone(ready []byte) []byte {
 	return out
 }
 
+// stripStationRogerai removes a usage.rogerai object a STATION put in one of its frames:
+// only the broker's own usage chunk may carry it (a forged receipt must never reach the
+// consumer looking like the broker's). Logged; the station is not struck for it.
+func (l *lazySSE) stripStationRogerai(ready []byte) []byte {
+	if !bytes.Contains(ready, []byte(`"rogerai"`)) {
+		return ready
+	}
+	out := make([]byte, 0, len(ready))
+	for _, line := range bytes.SplitAfter(ready, []byte("\n")) {
+		t := bytes.TrimSpace(line)
+		if !bytes.HasPrefix(t, []byte("data:")) || !bytes.Contains(t, []byte(`"rogerai"`)) {
+			out = append(out, line...)
+			continue
+		}
+		var ev map[string]any
+		if json.Unmarshal(bytes.TrimSpace(t[len("data:"):]), &ev) != nil {
+			out = append(out, line...)
+			continue
+		}
+		u, _ := ev["usage"].(map[string]any)
+		if _, ok := u["rogerai"]; !ok {
+			out = append(out, line...)
+			continue
+		}
+		delete(u, "rogerai")
+		log.Printf("stream station=%s sent a forged rogerai usage object - stripped", l.provider)
+		clean, _ := json.Marshal(ev)
+		out = append(out, "data: "...)
+		out = append(out, clean...)
+		out = append(out, '\n')
+	}
+	return out
+}
+
 // finish closes a committed stream the broker's way: the held partial line, the broker's
 // usage chunk (nil = none), the deprecated `: rogerai-cost=` comment (empty = none), then
 // the broker's own [DONE]. A no-op on an uncommitted stream (nothing is on the wire).
 func (l *lazySSE) finish(chunk []byte, comment string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.committed {
-		return
+	if !l.committed || (l.ctx != nil && l.ctx.Err() != nil) {
+		return // nothing on the wire, or nobody left to read it (the settle has already run)
 	}
 	if len(l.tail) > 0 {
 		_, _ = l.w.Write(l.tail)
@@ -3324,6 +3395,7 @@ func (l *lazySSE) finish(chunk []byte, comment string) {
 		l.tail = nil
 	}
 	if chunk != nil {
+		chunk = l.stamp(chunk)
 		_, _ = fmt.Fprintf(l.w, "data: %s\n\n", chunk)
 	}
 	if comment != "" {
@@ -3333,11 +3405,34 @@ func (l *lazySSE) finish(chunk []byte, comment string) {
 	l.flusher.Flush()
 }
 
+// stamp gives the broker's usage chunk its OpenAI top-level "id" (the request id) and
+// "model" (the served bare id).
+func (l *lazySSE) stamp(chunk []byte) []byte {
+	var m map[string]any
+	if json.Unmarshal(chunk, &m) != nil {
+		return chunk
+	}
+	if l.id != "" {
+		m["id"] = l.id
+	}
+	if l.model != "" {
+		m["model"] = l.model
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return chunk
+	}
+	return out
+}
+
 func (l *lazySSE) commitLocked() {
 	if l.committed {
 		return
 	}
 	l.committed = true
+	if l.onCommit != nil {
+		l.onCommit()
+	}
 	h := l.w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
@@ -3420,7 +3515,13 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 		jsonErr(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	lw := &lazySSE{w: w, flusher: flusher, model: bill.model}
+	lw := &lazySSE{w: w, flusher: flusher, model: bill.model, id: requestID,
+		onCommit: func() {
+			b.genLiveOf(requestID).with2(func(g *genLive) { g.firstFrame = time.Now() })
+		}}
+	if bill.req != nil {
+		lw.ctx = bill.req.Context()
+	}
 	grace := time.AfterFunc(streamCommitGrace, lw.commit) // Cloudflare's no-bytes cap: never withhold headers for long
 	defer grace.Stop()
 	for i := 0; i < len(plan); i++ {
@@ -3435,9 +3536,11 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			// A bridged attempt on the streaming path: the hub answers whole, so a served answer
 			// goes out as one delta frame, the broker's usage chunk and [DONE] through the same
 			// lazy SSE writer (headers the bridge sets are committed with the first frame).
+			b.genAttemptStart(requestID, i+1, "", c.model)
 			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, i+1 < len(plan), time.Time{})
 			if len(answer) > 0 {
 				rec, cost := b.bridgedReceipt(g, c.edge.row, c.edge.pubHex, answer)
+				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, cost, rec.PromptTokens, rec.CompletionTokens, 0, protocol.EncodeReceipt(rec))
 				lw.begin(g.RelayName)
 				lw.setModel(g.Model)
 				setBridgedHeaders(lw.Header(), g, rec, cost)
@@ -3458,6 +3561,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 					status, retry = out.status, out.retryAfter
 				}
 				b.voidEdgeAttempt(bill.user, bill.consumer, c, g, status)
+				b.genAttemptEndN(requestID, i+1, g.RelayName, status, voidReasonFor(status), 0)
 				failBody = towerFailureBody(status)
 			}
 			res := protocol.JobResult{Status: status, Body: failBody, RetryAfterSec: retry}
@@ -3506,6 +3610,25 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 	defer unreg()
 	lw.begin(node.NodeID)
 	lw.setModel(model) // X-RogerAI-Model on commit names the model of THIS attempt
+	reqOf, nOf := splitAttemptID(jobID)
+	b.genAttemptStart(reqOf, nOf, node.NodeID, model)
+	// X-RogerAI-Price is known before dispatch, so it rides the committed headers (a peek:
+	// the lock itself is minted only when the stream settles).
+	{
+		pin, pout, until := pricing.in, pricing.out, time.Time{}
+		if !pricing.fixed {
+			curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
+			pin, pout = curIn, curOut
+			if !scheduled {
+				pin, pout, until = b.quotedPrice(consumer, node.NodeID, model, curIn, curOut, false)
+			}
+		}
+		lockedAt := int64(0)
+		if !until.IsZero() {
+			lockedAt = until.Unix()
+		}
+		lw.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedAt))
+	}
 	start := time.Now()
 	sink := &streamSink{w: lw, flush: lw.flush, nodeID: node.NodeID, start: start, activity: make(chan struct{}, 1)}
 	if b.recount.enabled() {
@@ -3798,6 +3921,9 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			} else if *settled {
 				comment = "rogerai-cost=" + fmtCostHeader(cost)
 			}
+			if !settleFailed {
+				b.genServe(reqOf, nOf, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, streamTPS, protocol.EncodeReceipt(rec))
+			}
 			lw.finish(usageChunkJSON(billedPrompt, billedCompletion, cost, chunk), comment)
 			return res, false // the receipt arrived; leave the idle loop
 		}
@@ -3814,6 +3940,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 // The caller keeps settled=false so its deferred ReleaseHold refunds the hold in full.
 func (b *broker) settleVoid(payer, user, nodeID, model string, rec *protocol.UsageReceipt, res protocol.JobResult, approxTokens int, label string) {
 	rec.VoidReason, rec.UpstreamStatus = voidReasonOf(res), res.Status
+	b.genAttemptEnd(rec.RequestID, nodeID, res.Status, rec.VoidReason, res.RetryAfterSec)
 	if rec.VoidReason == protocol.VoidUpstreamThrottled {
 		log.Printf("THROTTLED upstream-429 user=%s node=%s - $0, hold refunded, not a strike", user, nodeID)
 	} else if rec.VoidReason == protocol.VoidContextWindow {
