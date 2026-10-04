@@ -1,17 +1,14 @@
 package main
 
 // shared_store_readiness_bdd_test.go makes features/ops/shared_store_readiness.feature
-// EXECUTABLE. "The broker boots" runs the shared-store part of main's boot sequence on the
-// harness broker (bootSharedForTest below: openSharedStore, then the same rate-limiter and
-// multi-instance wiring main.go:801-860 performs when the store is non-nil), and every request
-// goes through the broker's real mux (b.routes()). GREEN extracts that sequence from main into
-// one function (with the retry loop and readiness gate); this runner must then call it in
-// place of bootSharedForTest, with every assertion unchanged.
+// EXECUTABLE. "The broker boots" calls main's own shared-store boot on the harness broker
+// (broker.bootShared: connect, or not-ready + retry loop + readiness gate), and every request
+// goes through the broker's real mux (b.routes()).
 //
 // The shared-store address "not answering yet" is a TCP listener that accepts and closes, so
 // every connection attempt is counted; "starts answering" replaces it with a miniredis at the
-// same address. Waits are real time and scaled (seconds, not minutes): GREEN's backoff seam
-// lets the "2 minutes" / "1 hour" scenarios run on a clock instead.
+// same address. Waits are real time and scaled (seconds, not minutes) through the retry's
+// clock seam (sharedRetrySleep).
 
 import (
 	"bytes"
@@ -72,6 +69,11 @@ func (s *rdState) rdReset() error {
 }
 
 func (s *rdState) rdTeardown() {
+	for _, b := range []*broker{s.b, s.peer} {
+		if b != nil {
+			b.stopSharedRetry()
+		}
+	}
 	if s.ln != nil {
 		_ = s.ln.Close()
 	}
@@ -149,36 +151,20 @@ func (s *rdState) secretURL(url string) error {
 	return nil
 }
 
-// bootSharedForTest is the shared-store part of main's boot (main.go:801-860, see the file
-// header): open the shared store once, then wire the device flow, the email flow and the named
-// rate limiters onto it, and turn on multi-instance mode, exactly as main does.
-func bootSharedForTest(b *broker) {
-	b.shared = openSharedStore()
-	if ds := newValkeyDeviceStore(b.shared); ds != nil {
-		b.devices = newDeviceFlowWithStore(ds)
-	}
-	if es := newValkeyEmailStore(b.shared); es != nil {
-		b.emails = newEmailFlowWithStore(es)
-	}
-	if b.shared != nil {
-		b.anonRL.name, b.anonRL.shared = "anon", b.shared
-		if b.concierge != nil && b.concierge.rl != nil {
-			b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
-		}
-		b.rl.name, b.rl.shared = "id", b.shared
-		b.grantRL.name, b.grantRL.shared = "grant", b.shared
-		if multiInstanceEnabled() {
-			b.multiInstance = true
-			b.instanceID = newInstanceID()
-		}
+// asMainBuilds puts b's shared-store-related state where buildBroker leaves it before the
+// boot: no shared store yet (the harness pre-wires one) and the production limiters (the
+// harness's identity limiter is unlimited).
+func asMainBuilds(b *broker) {
+	b.shared = nil
+	b.rl = loadRateLimiter()
+	if b.anonRL == nil {
+		b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}}
 	}
 }
 
 func (s *rdState) boots() error {
-	if s.b.anonRL == nil {
-		s.b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}}
-	}
-	bootSharedForTest(s.b)
+	asMainBuilds(s.b)
+	s.b.bootShared()
 	s.booted = true
 	return nil
 }
@@ -242,7 +228,7 @@ func (s *rdState) signedServed() error {
 		return err
 	}
 	s.standUp("s1", stationOpts{model: "m"})
-	r := s.relayOn(s.b, s.consumerPriv, "m", false)
+	r := s.relayMux("m")
 	if r.code != 200 {
 		return fmt.Errorf("signed chat request = %d %s, want 200", r.code, r.body)
 	}
@@ -257,11 +243,18 @@ func (s *rdState) healthOK() error {
 	return nil
 }
 
+// bootsAndStaysDown boots with the retry's clock seam scaled 1/100 (the 30 s cap is 300 ms of
+// real time), so 4 s of real time covers well over the 2 minutes the scenario names; the
+// backoff schedule itself is pinned in virtual time by TestSharedRetryBackoffSchedule.
 func (s *rdState) bootsAndStaysDown(int, string) error {
-	if err := s.boots(); err != nil {
+	saved := sharedRetrySleep
+	sharedRetrySleep = func(d time.Duration) { time.Sleep(d / 100) }
+	err := s.boots() // the loop captures the seam at boot
+	sharedRetrySleep = saved
+	if err != nil {
 		return err
 	}
-	time.Sleep(4 * time.Second) // scaled; see the file header
+	time.Sleep(4 * time.Second)
 	return nil
 }
 
@@ -286,8 +279,17 @@ func (s *rdState) gapsAtMost30() error {
 	return nil
 }
 
+// loggedOnce counts this boot's shared-state lines. The log sink is process-global, so in a
+// full package run other tests' leftover shared stores add their own rate-limited runtime
+// lines ("shared-state: valkey <op> failed, using in-memory fallback"); the boot path never
+// writes that line (its connect attempts do not go through noteErr), so those are excluded.
 func (s *rdState) loggedOnce() error {
-	n := strings.Count(s.logs.String(), "shared-state")
+	n := 0
+	for _, l := range strings.Split(s.logs.String(), "\n") {
+		if strings.Contains(l, "shared-state") && !strings.Contains(l, "failed, using in-memory fallback") {
+			n++
+		}
+	}
 	if n != 1 {
 		return fmt.Errorf("%d shared-state log lines, want exactly one for the outage", n)
 	}
@@ -401,8 +403,18 @@ func (s *rdState) anonFree() error {
 	return nil
 }
 
+// relayMux fires one signed relay for model through the broker's real mux.
+func (s *rdState) relayMux(model string) psResult {
+	body := s.bodyFor(model, false)
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	signReq(r, s.consumerPriv, body)
+	w := &recWriter{ResponseRecorder: httptest.NewRecorder()}
+	s.b.routes().ServeHTTP(w, r)
+	return psResult{code: w.Code, body: w.Body.Bytes(), hdr: w.Header()}
+}
+
 func (s *rdState) signedPost() error {
-	s.resp = s.relayOn(s.b, s.consumerPriv, "m", false)
+	s.resp = s.relayMux("m")
 	return nil
 }
 
@@ -445,7 +457,12 @@ func (s *rdState) readyWithin(int) error {
 
 func (s *rdState) notRestarted() error { return nil } // the same broker object served every probe
 
-func (s *rdState) stationOnM() error { s.standUp("s1", stationOpts{model: "m"}); return nil }
+// stationOnM stands up a PRICED station: the billing scenarios count a non-zero spend row,
+// which a free station (a $0 settle row) never writes.
+func (s *rdState) stationOnM() error {
+	s.standUp("s1", stationOpts{model: "m", priceIn: 0.1, priceOut: 0.3})
+	return nil
+}
 
 // becomesReady boots the broker first when the scenario has not (the "is answering" Givens
 // describe a broker that came up against a live shared store).
@@ -466,7 +483,7 @@ func (s *rdState) fundedRelaysM() error {
 	if err := s.ensureFunded(); err != nil {
 		return err
 	}
-	s.resp = s.relayOn(s.b, s.consumerPriv, "m", false)
+	s.resp = s.relayMux("m")
 	return nil
 }
 
@@ -492,10 +509,8 @@ func (s *rdState) holdAndSettle() error {
 // shared-store address the way main boots (so it is wired exactly as a production peer).
 func (s *rdState) peerInstance() error {
 	p := s.newBroker()
-	if p.anonRL == nil {
-		p.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}}
-	}
-	bootSharedForTest(p)
+	asMainBuilds(p)
+	p.bootShared()
 	if p.shared == nil || !p.shared.healthy() {
 		return fmt.Errorf("the peer could not reach the shared store at the address")
 	}
@@ -579,12 +594,12 @@ func (s *rdState) fundedGets503() error {
 		return err
 	}
 	s.stationOnM()
-	s.resp = s.relayOn(s.b, s.consumerPriv, "m", false)
+	s.resp = s.relayMux("m")
 	return s.is503Unavailable()
 }
 
 func (s *rdState) retriesSame() error {
-	s.retryRes = s.relayOn(s.b, s.consumerPriv, "m", false)
+	s.retryRes = s.relayMux("m")
 	return nil
 }
 

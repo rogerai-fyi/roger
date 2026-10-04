@@ -55,9 +55,10 @@ func (b *broker) versionInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // ready reports broker readiness as JSON. Healthy => 200 {"ready":true,...}; a failed
-// dependency => 503 {"ready":false,...} naming which dependency is down. The shared
-// store is OPTIONAL (nil when ROGERAI_REDIS_URL is unset), so it is only checked when
-// wired - an unconfigured shared layer never fails readiness.
+// dependency => 503 {"ready":false,...} naming which dependency is down. A broker not
+// configured to share state never fails readiness on the shared store; one that is
+// configured is not ready until the store has answered once ("connecting" /
+// "not_configured", see bootShared), and after that a runtime outage is "degraded" only.
 func (b *broker) ready(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
@@ -84,6 +85,22 @@ func (b *broker) ready(w http.ResponseWriter, r *http.Request) {
 	// in-memory path is authoritative and the broker still serves correctly without it
 	// (it only degrades cross-instance rate-limit/liveness sharing). Report it so an
 	// operator can see the degradation.
+	switch b.sharedPhase.Load() {
+	case sharedConnecting:
+		status["ready"], status["shared"] = false, "connecting"
+		code = http.StatusServiceUnavailable
+	case sharedNotConfigured:
+		status["ready"], status["shared"] = false, "not_configured"
+		code = http.StatusServiceUnavailable
+	default:
+		b.sharedHealth(status)
+	}
+
+	writeJSON(w, code, status)
+}
+
+// sharedHealth reports a wired shared store (absent when none is configured).
+func (b *broker) sharedHealth(status map[string]any) {
 	if b.shared != nil {
 		if b.shared.healthy() {
 			status["shared"] = "ok"
@@ -91,6 +108,4 @@ func (b *broker) ready(w http.ResponseWriter, r *http.Request) {
 			status["shared"] = "degraded"
 		}
 	}
-
-	writeJSON(w, code, status)
 }

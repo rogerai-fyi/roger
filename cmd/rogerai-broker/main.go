@@ -283,6 +283,11 @@ type broker struct {
 	// Finalize are unchanged (already durable/shared) - the bus only carries the
 	// transient handoff, and a bus error fails the request cleanly (never double-charge).
 	multiInstance bool
+	// sharedPhase is the shared-store readiness phase (bootShared); sharedQuit stops a boot
+	// retry loop that is still running.
+	sharedPhase    atomic.Int32
+	sharedQuit     chan struct{}
+	sharedQuitOnce sync.Once
 	// dispatchMode is the multi-instance dispatch rollout switch (ROGERAI_DISPATCH, see
 	// dispatchq.go); dq is this instance's end of the dispatch plane, started on first use.
 	dispatchMode dispatchMode
@@ -798,12 +803,112 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	}
 	b.tower = tower
 
-	b.shared = openSharedStore()
+	b.bootShared()
+	// Bind the concierge's serving paths to this broker (grant dogfood, then a free
+	// station, then Groq). Stored as fields so tests can stub each branch
+	// independently. grantDogfoodFn stays nil (path disabled) unless CONCIERGE_GRANT_KEY
+	// is set, so the handler skips it cleanly when there is no grant key.
+	if b.concierge.grantKey != "" {
+		b.concierge.grantDogfoodFn = b.dogfoodGrantRelay
+	}
+	b.concierge.dogfoodFn = b.dogfoodRelay
+	b.concierge.groqFn = b.groqCall
+	log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
+	return b
+}
+
+// Shared-store readiness phases (features/ops/shared_store_readiness.feature). The zero value
+// is "not configured to share": ready, unchanged single-instance behavior.
+const (
+	sharedUnconfigured  int32 = iota
+	sharedConnecting          // configured, not answering yet: not ready, retrying
+	sharedNotConfigured       // ROGERAI_MULTI_INSTANCE=1 with no shared-store address
+	sharedConnected           // wired; later outages keep today's degraded behavior
+)
+
+// sharedRetrySleep is the boot retry's clock seam (time.Sleep in production).
+var sharedRetrySleep = time.Sleep
+
+// sharedRetryBackoff is the wait before the next connect attempt: within 1 s first, then
+// doubling, capped at 30 s.
+func sharedRetryBackoff(prev time.Duration) time.Duration {
+	if prev <= 0 {
+		return 500 * time.Millisecond
+	}
+	return min(2*prev, 30*time.Second)
+}
+
+// bootShared is main's shared-store boot. A broker configured to share state (a shared-store
+// address, or ROGERAI_MULTI_INSTANCE=1) that cannot reach the store is NOT READY: /ready says
+// "connecting", every other endpoint answers 503 shared_store_unavailable (readinessGate), and
+// it retries with capped backoff for as long as it runs, wiring the shared state the moment
+// the store answers. With no sharing configured nothing changes.
+func (b *broker) bootShared() {
+	tp, topo := valkeyTopologyFromEnv()
+	if !topo {
+		if multiInstanceEnabled() {
+			b.sharedPhase.Store(sharedNotConfigured)
+			log.Printf("multi-instance: ROGERAI_MULTI_INSTANCE set but no shared-store address (ROGERAI_REDIS_URL / _RING / _CLUSTER) - NOT READY until one is configured")
+		}
+		return
+	}
+	vs, err := newValkeyStoreTopology(tp)
+	if err == nil {
+		log.Printf("shared-state: valkey connected (keys namespaced under %q) - sharing anon/concierge rate limits + node liveness across instances", keyPrefix)
+		b.wireShared(vs)
+		return
+	}
+	if vs != nil {
+		_ = vs.Close()
+	}
+	log.Printf("shared-state: configured but not answering (%v) - NOT READY, retrying with backoff until it answers", err)
+	b.sharedPhase.Store(sharedConnecting)
+	b.sharedQuit = make(chan struct{})
+	go b.retryShared(tp, sharedRetrySleep, b.sharedQuit)
+}
+
+// retryShared connects with capped backoff until the store answers or quit closes. It logs
+// nothing per attempt: the outage was logged once at boot.
+func (b *broker) retryShared(tp valkeyTopology, sleep func(time.Duration), quit <-chan struct{}) {
+	for d := time.Duration(0); ; {
+		d = sharedRetryBackoff(d)
+		sleep(d)
+		select {
+		case <-quit:
+			return
+		default:
+		}
+		vs, err := newValkeyStoreTopology(tp)
+		if err == nil {
+			b.wireShared(vs)
+			log.Printf("shared-state: valkey answering - READY")
+			return
+		}
+		if vs != nil {
+			_ = vs.Close()
+		}
+	}
+}
+
+// stopSharedRetry ends a boot retry loop that is still running (tests; shutdown).
+func (b *broker) stopSharedRetry() {
+	b.sharedQuitOnce.Do(func() {
+		if b.sharedQuit != nil {
+			close(b.sharedQuit)
+		}
+	})
+}
+
+// wireShared attaches a connected shared store and everything that shares through it. It
+// runs once: a later outage does not undo it. The phase flips to connected LAST, so the
+// readiness gate never lets a request see half the wiring.
+func (b *broker) wireShared(ss sharedStore) {
+	b.shared = ss
 	// A pending device login is authoritative state, not an accelerator: the CLI polls one
 	// instance while the human approves on another, so the record has to live outside both
 	// or the flow cannot complete at all. Rebuild the flow over the shared store now that
-	// it exists - buildBroker ran before openSharedStore, so the flow it made is in-process
-	// only, and no login can have been issued yet.
+	// it exists - buildBroker made it before the shared store was reachable, so it is in-process
+	// only, and no login can have been issued yet (requests are refused until now).
 	if ds := newValkeyDeviceStore(b.shared); ds != nil {
 		b.devices = newDeviceFlowWithStore(ds)
 		log.Printf("device login: pending logins are shared across instances")
@@ -816,71 +921,70 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		b.emails = newEmailFlowWithStore(es)
 		log.Printf("email login: outstanding codes and their budgets are shared across instances")
 	}
-	if b.shared != nil {
-		// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
-		// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
-		// rpm/burst. ALL request limiters get the shared bucket: anon + concierge (per-IP),
-		// AND the per-identity (b.rl) + per-grant (b.grantRL) limiters — otherwise a signed
-		// user / grant key gets ~2x its configured RPM at the 2-instance cap (each instance
-		// enforced its own private bucket). rateAllow degrades to the local bucket on any
-		// Valkey error, so a cache outage never blocks a request.
-		b.anonRL.name, b.anonRL.shared = "anon", b.shared
+	// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
+	// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
+	// rpm/burst. ALL request limiters get the shared bucket: anon + concierge (per-IP),
+	// AND the per-identity (b.rl) + per-grant (b.grantRL) limiters — otherwise a signed
+	// user / grant key gets ~2x its configured RPM at the 2-instance cap (each instance
+	// enforced its own private bucket). rateAllow degrades to the local bucket on any
+	// Valkey error, so a cache outage never blocks a request.
+	b.anonRL.name, b.anonRL.shared = "anon", b.shared
+	if b.concierge != nil && b.concierge.rl != nil {
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
-		b.rl.name, b.rl.shared = "id", b.shared
-		b.grantRL.name, b.grantRL.shared = "grant", b.shared
-		go b.syncLiveness(nil)
-		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
-		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
-		// Valkey backend (the only place jobs/results/chunks can rendezvous across
-		// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
-		// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
-		// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
-		if multiInstanceEnabled() {
-			b.multiInstance = true
-			b.dispatchMode = dispatchModeFromEnv()
-			if vs, ok := b.shared.(*valkeyStore); ok && b.dispatchMode != dispatchViaBus {
-				vs.livenessHashOnly.Store(true) // every instance runs code that writes the fleet hash
-			}
-			b.instanceID = newInstanceID()
-			b.peerInflight = map[string]int{}
-			b.peerEdgeLoad = map[string]int{}
-			// Announce this instance's presence immediately so the ops panel counts the full
-			// live fleet from the first read (before the first sync tick refreshes it).
-			// Best-effort: a shared-store hiccup just defers presence to the next tick.
-			_ = b.shared.markInstance(b.instanceID, time.Now())
-			// Tag EVERY log line with this instance's id so logs from the 2+ instances
-			// (interleaved in the aggregated DO log stream) are attributable at a glance -
-			// the team no longer has to guess which instance emitted a relay/bus line. This
-			// is gated on multi-instance, so the single-instance log format is unchanged.
-			log.SetPrefix("[" + b.instanceID + "] ")
-			go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
-			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s, ROGERAI_DISPATCH=%s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID, [...]string{"bus", "queue", "queue-only"}[b.dispatchMode])
-		} else {
-			// The registry mirror + lazy-learn run whenever the shared backend is wired
-			// (task #52: registration state travels with liveness state under both flag
-			// values, so a second process can never 404 a live node into a re-register
-			// storm). Only job/result/stream DISPATCH needs the bus flag - say so, so the
-			// posture is legible during an incident.
-			log.Printf("shared-state: node-registry mirror ON (bus OFF - relay dispatch stays local; set ROGERAI_MULTI_INSTANCE=1 before running more than one instance)")
+	}
+	b.rl.name, b.rl.shared = "id", b.shared
+	b.grantRL.name, b.grantRL.shared = "grant", b.shared
+	go b.syncLiveness(nil)
+	// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
+	// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
+	// Valkey backend (the only place jobs/results/chunks can rendezvous across
+	// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
+	// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
+	// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
+	if multiInstanceEnabled() {
+		b.multiInstance = true
+		b.dispatchMode = dispatchModeFromEnv()
+		if vs, ok := b.shared.(*valkeyStore); ok && b.dispatchMode != dispatchViaBus {
+			vs.livenessHashOnly.Store(true) // every instance runs code that writes the fleet hash
 		}
-	} else if multiInstanceEnabled() {
-		// Fail SAFE, not closed: the flag was set but there is no shared backend to
-		// rendezvous over, so we CANNOT do cross-instance handoff. Stay single-instance
-		// in-memory (the correct behavior for one instance) and warn loudly rather than
-		// half-enabling a broken bus. This keeps a misconfig from silently dropping jobs.
-		log.Printf("multi-instance: ROGERAI_MULTI_INSTANCE set but ROGERAI_REDIS_URL is not wired - staying single-instance in-memory (set ROGERAI_REDIS_URL to enable the cross-instance bus)")
+		b.instanceID = newInstanceID()
+		b.peerInflight = map[string]int{}
+		b.peerEdgeLoad = map[string]int{}
+		// Announce this instance's presence immediately so the ops panel counts the full
+		// live fleet from the first read (before the first sync tick refreshes it).
+		// Best-effort: a shared-store hiccup just defers presence to the next tick.
+		_ = b.shared.markInstance(b.instanceID, time.Now())
+		// Tag EVERY log line with this instance's id so logs from the 2+ instances
+		// (interleaved in the aggregated DO log stream) are attributable at a glance -
+		// the team no longer has to guess which instance emitted a relay/bus line. This
+		// is gated on multi-instance, so the single-instance log format is unchanged.
+		log.SetPrefix("[" + b.instanceID + "] ")
+		go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
+		log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s, ROGERAI_DISPATCH=%s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID, [...]string{"bus", "queue", "queue-only"}[b.dispatchMode])
+	} else {
+		// The registry mirror + lazy-learn run whenever the shared backend is wired
+		// (task #52: registration state travels with liveness state under both flag
+		// values, so a second process can never 404 a live node into a re-register
+		// storm). Only job/result/stream DISPATCH needs the bus flag - say so, so the
+		// posture is legible during an incident.
+		log.Printf("shared-state: node-registry mirror ON (bus OFF - relay dispatch stays local; set ROGERAI_MULTI_INSTANCE=1 before running more than one instance)")
 	}
-	// Bind the concierge's serving paths to this broker (grant dogfood, then a free
-	// station, then Groq). Stored as fields so tests can stub each branch
-	// independently. grantDogfoodFn stays nil (path disabled) unless CONCIERGE_GRANT_KEY
-	// is set, so the handler skips it cleanly when there is no grant key.
-	if b.concierge.grantKey != "" {
-		b.concierge.grantDogfoodFn = b.dogfoodGrantRelay
-	}
-	b.concierge.dogfoodFn = b.dogfoodRelay
-	b.concierge.groqFn = b.groqCall
-	log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
-	return b
+	b.sharedPhase.Store(sharedConnected)
+}
+
+// readinessGate refuses everything but the probes while a broker configured to share state
+// is not connected, so it never serves on per-instance state (R4).
+func (b *broker) readinessGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch b.sharedPhase.Load() {
+		case sharedConnecting, sharedNotConfigured:
+			if r.URL.Path != "/ready" && r.URL.Path != "/health" {
+				sharedUnavailable(w)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // routes builds the broker's HTTP mux. Split out of main() so the full route table is
@@ -974,7 +1078,9 @@ func (b *broker) routes() *http.ServeMux {
 		_, _ = w.Write([]byte(openapiSpec))
 	})
 	mux.HandleFunc("/", b.root) // service descriptor - the broker is API-only (no website)
-	return mux
+	gated := http.NewServeMux()
+	gated.Handle("/", b.readinessGate(mux))
+	return gated
 }
 
 // streamRoutes are the paths that MUST keep a long-lived response open and therefore
