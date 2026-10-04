@@ -385,9 +385,9 @@
         return;
       }
       signedIn = true;
-      text("who", RogerFmt.handle(acct.github_login));
       show("card");
-      wireLogout();
+      wireLogout(); // before anything that can throw: a visible card always has a working logout
+      text("who", RogerFmt.handle(acct.github_login));
       return fetch(BROKER + "/console", { credentials: "include" })
         .then(function (r) {
           // NEVER bounce to /login.html from here: /account just said we are signed in, and

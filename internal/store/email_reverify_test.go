@@ -27,6 +27,13 @@ func TestChangingTheProfileEmailDropsItsVerification(t *testing.T) {
 			_, found, _ = db.OwnerByVerifiedEmail("proved@x.com")
 			require.True(t, found, "an unchanged address stays verified")
 
+			// A case-only edit is the same address (lookups are case-insensitive): keep the proof.
+			_, ok, err = db.UpdateAccount("verified-user", "Proved@X.com")
+			require.NoError(t, err)
+			require.True(t, ok)
+			_, found, _ = db.OwnerByVerifiedEmail("proved@x.com")
+			require.True(t, found, "a case-only change is not a different address")
+
 			// Changing it does not.
 			_, ok, err = db.UpdateAccount("verified-user", "other@x.com")
 			require.NoError(t, err)
