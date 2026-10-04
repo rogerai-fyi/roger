@@ -71,7 +71,7 @@ func (b *broker) stations(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view your stations")
 		return
 	}
-	if o.GitHubID == 0 {
+	if !hasVerifiedIdentity(o) {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}

@@ -78,8 +78,8 @@
   if (path.endsWith("/account")) {
     get("/account").then(function (a) {
       if (!a) { location.replace("/login.html"); return; }
-      text("who", "@" + (a.github_login || "you"));
-      text("handle", "@" + (a.github_login || "you"));
+      text("who", RogerFmt.handle(a.github_login));
+      text("handle", RogerFmt.handle(a.github_login));
       text("balance", cr(a.balance));
       text("ghid", a.github_id || "-");
       text("connect", (a.connect && a.connect.status) || "none");

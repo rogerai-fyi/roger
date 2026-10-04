@@ -36,9 +36,10 @@ func (b *broker) accountExport(w http.ResponseWriter, r *http.Request) {
 		"github_id":    gid,
 		"wallet":       wallet,
 	}
-	// Operator enrichment is GitHub-session-only (the gid gate, A1): an Apple/web
-	// session's login must never pull another owner's ledger/payouts into its export.
-	if o, found := b.sessionGitHubOwner(login, gid); found {
+	// Operator enrichment resolves the owner per provider (GitHub: login+gid, Apple: the
+	// sub, email: the proven address), so a session's login string can never pull another
+	// owner's ledger/payouts into its export (the gid gate, A1).
+	if o, found := b.sessionEnrichOwner(r, login, gid); found {
 		dump["email"] = o.Email
 		dump["created_at"] = o.CreatedAt
 		dump["connect_status"] = o.ConnectStatus
@@ -146,6 +147,15 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 // lets the native app delete with the device key instead of only the browser session.
 func (b *broker) deleteIdentity(r *http.Request, body []byte) (login, wallet string, ok bool) {
 	if l, gid, w, sok := b.sessionOwner(r); sok {
+		if gid == 0 && isEmailWallet(w) {
+			// An email account: key the delete by the OWNER ROW's own login (resolved from
+			// the proven address), never by the session string. No row: nothing to delete, so
+			// the empty login routes to the existing "no account row" answer.
+			if _, o, found, _ := b.sessionAnyOwner(r); found && o.Login != "" {
+				return o.Login, w, true
+			}
+			return "", w, true
+		}
 		if gid == 0 {
 			// An Apple/web session's login must never key DeleteAccount (A1 write leg) - a
 			// colliding login would delete a GitHub owner. Blank it; the caller's empty-login

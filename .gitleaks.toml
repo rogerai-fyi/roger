@@ -50,4 +50,10 @@ regexes = [
   # literal following a variable named `auth`. Nothing to rotate; the shape will recur,
   # so tighten the rule rather than grow this list if it does.
   '''v1/no/leading/slash''',
+  # AUDITED 2026-10-04. NOT a secret: an environment-variable NAME followed by "=" in the
+  # routing CLI test (cmd/rogerai/routing_flags_bdd_test.go, 825045af): the test builds a
+  # child process env as `"ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT="+s.ceiling`, and the
+  # generic-api-key rule reads the name as KEY=value (same shape as ROGERAI_RECOUNT_TOLERANCE
+  # above). The values beside it are runtime-generated test inputs, never committed.
+  '''ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT=''',
 ]

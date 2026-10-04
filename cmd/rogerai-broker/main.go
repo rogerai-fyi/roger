@@ -509,6 +509,7 @@ type broker struct {
 	cooling          map[string]time.Time
 	coolModel        map[string]string
 	coolEvents       map[string][]coolEvent
+	sessRefused      []time.Time // valid sessions refused as logged-out (guarded by metricsMu)
 	coolFallbackOnce sync.Once
 }
 
@@ -1311,6 +1312,7 @@ func reservedID(s string) bool {
 	return looksLikeDerivedID(s) ||
 		strings.HasPrefix(s, "u_gh_") ||
 		strings.HasPrefix(s, "u_apple_") || // an Apple account wallet is guessable from a sub - same leak guard as u_gh_
+		strings.HasPrefix(s, "u_email_") || // an email account wallet is guessable from an address - same leak guard
 		strings.HasPrefix(s, "g_")
 }
 
@@ -1373,11 +1375,11 @@ func (b *broker) mergeDualLinkWallet(o store.Owner) {
 	}
 }
 
-// isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub
-// or Apple), versus an anonymous pubkey-derived id (no balance by design). Gates the spend
+// isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub,
+// Apple, or email), versus an anonymous pubkey-derived id (no balance by design). Gates the spend
 // path (loggedInWallet) and the dashboard balance (walletLoggedIn).
 func isAccountWallet(w string) bool {
-	return strings.HasPrefix(w, "u_gh_") || strings.HasPrefix(w, "u_apple_")
+	return strings.HasPrefix(w, "u_gh_") || strings.HasPrefix(w, "u_apple_") || isEmailWallet(w)
 }
 
 // bindUserPub records the first pubkey seen for a verified user id (TOFU). Because

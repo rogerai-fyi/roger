@@ -457,6 +457,17 @@ func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet 
 	return login, gid, wallet, true
 }
 
+// sessionEnrichOwner resolves the owner row behind a session for the account views: the
+// GitHub row by (login, gid) when the session is a GitHub one, else whatever
+// sessionAnyOwner resolves from the request (an Apple sub or a proven email address).
+func (b *broker) sessionEnrichOwner(r *http.Request, login string, gid int64) (store.Owner, bool) {
+	if o, ok := b.sessionGitHubOwner(login, gid); ok {
+		return o, true
+	}
+	_, o, found, _ := b.sessionAnyOwner(r)
+	return o, found
+}
+
 // sessionGitHubOwner resolves a session's login to its GitHub owner row, enforcing the
 // root invariant of features/security/apple_session_isolation.feature (audit finding #3):
 // a session login may resolve a GitHub owner ONLY for a GitHub session, and a GitHub
@@ -468,6 +479,9 @@ func (b *broker) sessionGitHubOwner(login string, gid int64) (store.Owner, bool)
 		return store.Owner{}, false
 	}
 	o, found, _ := b.db.OwnerByLogin(login)
+	if found && o.GitHubID != gid { // a renamed/reused login must not reach the old row
+		return store.Owner{}, false
+	}
 	return o, found
 }
 
@@ -528,9 +542,9 @@ func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string
 		"balance":      round6(bal),
 		"connect":      map[string]any{"status": "none"},
 	}
-	// Enrich from the owner record if this login is a bound operator account
-	// (GitHub sessions only - the gid gate, A1).
-	if o, ok := b.sessionGitHubOwner(login, gid); ok {
+	// Enrich from the owner record if this session resolves to a bound account, per
+	// provider (the gid gate, A1: never by a bare login string).
+	if o, ok := b.sessionEnrichOwner(r, login, gid); ok {
 		out["email"] = o.Email
 		out["created_at"] = o.CreatedAt
 		status := o.ConnectStatus

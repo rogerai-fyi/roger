@@ -541,6 +541,7 @@ func (b *broker) alertCheckOnce(now time.Time) {
 	b.retryPendingClears()
 	b.heartbeatClaims()
 	b.checkCoolingAlerts(now)
+	b.checkSessionRefusedAlert(now)
 }
 
 // checkHealthAlerts pages when the durable store (Postgres) or the optional shared state
