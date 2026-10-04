@@ -30,7 +30,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Range twin | `[data-range-twin]` -> `.range-twin` | `range-twin.js` | Pricing |
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
 | Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
-| Figure | `.figure` (`--plate`, `--phone`, `--chart`) | - | the articles |
+| Figure | `.figure` (`--plate`, `--phone`, `--chart`, `--mono`) | - | the articles |
 | Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial, Wave family, Hardware ladder and Research scope diagrams |
 | Data table | `.data-table` | - | articles, manual, Integrations, Hardware, Wave family |
 | Code block | `.code-block` | `site.js` (adds the copy button) | the manual, Integrations, 3 articles |
@@ -413,7 +413,9 @@ screen-only control adds it to the hide list; `test/print.test.mjs` checks the r
 Promoted from the articles. The figure and its direct `img`/`video`/`svg` never outgrow
 the column (a 1600px asset used to push a page sideways). `--plate` sets it on a calm
 tinted inset panel (theme tokens: it recedes on the dark theme). `--phone` centres a
-portrait screenshot at 440px. `--chart` is an inline SVG chart: heading ink (the chart
+portrait screenshot at 440px. `--mono` shows a still drawn in colour in the article heroes'
+greys (`filter: grayscale(1)`; the master PNG, the social card, stays as drawn: the DeepSeek
+hero). `--chart` is an inline SVG chart: heading ink (the chart
 draws in `currentColor`), its drawing in `.scroll-box--diagram`; on a phone it keeps 820px,
 where every article chart's smallest label reads at 11px or more, and scrolls inside that
 box instead of shrinking its words (on a desktop the 640px article column holds it whole,

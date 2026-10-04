@@ -706,7 +706,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 
 
 /* ---- component: figure (added by research rollout) --------------------------------
-   <figure class="figure [figure--plate|figure--phone|figure--chart]">
+   <figure class="figure [figure--plate|figure--phone|figure--chart] [figure--mono]">
      <img|video|svg ...> <figcaption class="fig">FIG. n - ...</figcaption></figure>
    Promoted from the articles (broadcasts.css). The figure and its media never outgrow
    the column, whatever the asset's natural size. --plate sets it on a calm tinted
@@ -721,6 +721,8 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .figure > figcaption { margin: var(--s-3) 2px 0; }
 .figure--plate { padding: var(--s-4); }   /* on the tinted ground (the .tint-panel rule) */
 .figure--phone > img { max-width: 440px; margin-inline: auto; }
+/* a still drawn in colour, shown in the article heroes' greys (the master stays as drawn) */
+.figure--mono > :is(img, video) { filter: grayscale(1); }
 /* a chart's drawing sits in .scroll-box--diagram (the caption outside it): on a phone it
    keeps 820px, where every article chart's smallest label reads at 11px or more (11 x 820 /
    11), and scrolls; a desktop article column (640px) holds it whole, its labels at
