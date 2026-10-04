@@ -21,11 +21,14 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
+
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 type eaState struct {
@@ -255,21 +258,43 @@ func (s *eaState) towerAndDirect() error {
 	return nil
 }
 
+// holdCount counts the holds placed for Tower attempts (a Tower grant's attempt id is the
+// hold's request id and always starts "att-", dispatch.go); a direct relay's hold is not a
+// Tower attempt, so the soft-bridge scenario can be served directly and still assert none.
 func (s *eaState) holdCount() int {
-	saved := s.wallet
-	s.wallet = s.acct
-	defer func() { s.wallet = saved }()
-	h, _, _, _, _, _ := s.ledgerRows()
-	return h
+	rows, err := s.db.LedgerOf(s.acct, []string{store.KindHold}, 5000)
+	if err != nil {
+		s.t.Fatalf("ledger of %s: %v", s.acct, err)
+	}
+	n := 0
+	for _, r := range rows {
+		if strings.HasPrefix(r.Ref, "att-") {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *eaState) relaysOn(model, name string, n int) error {
 	s.holdsAt = s.holdCount()
 	s.relays = nil
 	for i := 0; i < n; i++ {
+		s.heartbeat(s.inst(name))
 		s.relays = append(s.relays, s.relayOn(s.inst(name), s.consumer, model, false))
 	}
 	return nil
+}
+
+// heartbeat marks every registered station seen now, as its heartbeat would. The harness
+// registers stations once; with the shared store unreachable each relay pays its op timeout,
+// so twenty relays outlast nodeTTL and the direct station would age out for a reason that has
+// nothing to do with the cap.
+func (s *eaState) heartbeat(b *broker) {
+	b.mu.Lock()
+	for id := range b.lastSeen {
+		b.lastSeen[id] = time.Now()
+	}
+	b.mu.Unlock()
 }
 
 func (s *eaState) relaysTmOn(name string) error { return s.relaysOn("tm", name, 1) }

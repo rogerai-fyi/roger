@@ -313,7 +313,11 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// rather than an orphaned grant. It is released on every path that abandons the attempt,
 	// and handed to edgeEnterInflight - which owns it from then until settle or expiry - on the
 	// one path that does not.
-	if !b.edgeAccountReserve(consumerWallet) {
+	if ok, rerr := b.edgeAccountReserveErr(consumerWallet); !ok {
+		if rerr != nil {
+			sharedUnavailable(w) // the cap cannot be checked: fail closed
+			return
+		}
 		w.Header().Set("Retry-After", "5")
 		jsonErr(w, http.StatusTooManyRequests,
 			"too many edge attempts open on this account at once - finish or abandon some before opening more")
@@ -1169,13 +1173,48 @@ const maxOpenEdgeAttemptsPerAccount = 32
 // account is holding the slot.
 type edgeAttemptLoad struct{ nodeID, account string }
 
+// edgeReserveTTL bounds a reservation that has not yet become an attempt (the authorize
+// between reserve and edgeEnterInflight). A process that dies in that window leaks the slot
+// for at most this long.
+const edgeReserveTTL = 2 * time.Minute
+
 // edgeAccountReserve claims one of an account's simultaneous-attempt slots, or reports that it
-// is at its cap. Every successful reserve must be matched by exactly one release - either
-// edgeAccountRelease on a path that abandons the attempt, or edgeEnterInflight, which takes
-// ownership of the slot and hands it to edgeExitInflight.
+// is at its cap (or that the cap cannot be checked). Every successful reserve must be matched
+// by exactly one release - either edgeAccountRelease on a path that abandons the attempt, or
+// edgeEnterInflight, which takes ownership of the slot and hands it to edgeExitInflight.
 func (b *broker) edgeAccountReserve(account string) bool {
+	ok, _ := b.edgeAccountReserveErr(account)
+	return ok
+}
+
+// edgeAccountReserveErr is edgeAccountReserve with the reason for a refusal: a nil error is
+// the cap, a non-nil one an unreachable shared store. With a shared store configured the
+// slots are one set per account across every instance (sharedStore.edgeSlotReserve), and an
+// outage fails CLOSED: this is an abuse limit, and counting locally would hand out a fresh
+// 32 per instance. Only a broker with no shared store keeps the in-process count.
+func (b *broker) edgeAccountReserveErr(account string) (bool, error) {
 	if account == "" {
-		return true // unattributable traffic is refused before it gets here; nothing to cap
+		return true, nil // unattributable traffic is refused before it gets here; nothing to cap
+	}
+	if b.shared != nil {
+		now := time.Now()
+		token := "r:" + newInstanceID()
+		ok, err := b.shared.edgeSlotReserve(account, token, now.Add(edgeReserveTTL), now, maxOpenEdgeAttemptsPerAccount)
+		if err == nil {
+			if ok {
+				b.metricsMu.Lock()
+				if b.edgeSlotTokens == nil {
+					b.edgeSlotTokens = map[string][]string{}
+				}
+				b.edgeSlotTokens[account] = append(b.edgeSlotTokens[account], token)
+				b.metricsMu.Unlock()
+			}
+			return ok, nil
+		}
+		if !errors.Is(err, errNoSharedStore) {
+			log.Printf("edge attempt cap: shared store unreachable, refusing (fail closed): %v", err)
+			return false, err
+		}
 	}
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
@@ -1183,15 +1222,38 @@ func (b *broker) edgeAccountReserve(account string) bool {
 		b.edgeOpenByAccount = map[string]int{}
 	}
 	if b.edgeOpenByAccount[account] >= maxOpenEdgeAttemptsPerAccount {
-		return false
+		return false, nil
 	}
 	b.edgeOpenByAccount[account]++
-	return true
+	return true, nil
+}
+
+// takeSlotToken pops one shared reservation this instance holds for account ("" if none).
+func (b *broker) takeSlotToken(account string) string {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	toks := b.edgeSlotTokens[account]
+	if len(toks) == 0 {
+		return ""
+	}
+	tok := toks[len(toks)-1]
+	if len(toks) == 1 {
+		delete(b.edgeSlotTokens, account)
+	} else {
+		b.edgeSlotTokens[account] = toks[:len(toks)-1]
+	}
+	return tok
 }
 
 // edgeAccountRelease hands a reserved slot back. Idempotent below zero.
 func (b *broker) edgeAccountRelease(account string) {
 	if account == "" {
+		return
+	}
+	if tok := b.takeSlotToken(account); tok != "" {
+		if err := b.shared.edgeSlotDrop(account, tok); err != nil {
+			log.Printf("edge attempt cap: could not drop reservation (lapses in %s): %v", edgeReserveTTL, err)
+		}
 		return
 	}
 	b.metricsMu.Lock()
@@ -1253,6 +1315,12 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 	b.edgeInflight[attemptID] = edgeAttemptLoad{nodeID: nodeID, account: account}
 	b.edgeLoad[nodeID]++
 	b.metricsMu.Unlock()
+	// The shared slot becomes the attempt, so whichever instance sees it end can free it.
+	if tok := b.takeSlotToken(account); tok != "" {
+		if err := b.shared.edgeSlotPromote(account, tok, attemptID, until); err != nil {
+			log.Printf("edge attempt cap: could not bind attempt %s to its slot (lapses in %s): %v", attemptID, edgeReserveTTL, err)
+		}
+	}
 	// Publish OUTSIDE the lock, exactly as exitInflight does for the classic counter: metricsMu
 	// is held on the hot placement path and a shared-store round trip must never be taken under
 	// it. The publisher re-reads the count under that lock itself, so nothing is carried across
@@ -1272,18 +1340,21 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 // instance never opened (the ordinary multi-instance case) is a no-op rather than a
 // decrement of somebody else's count.
 //
-// That last case is also the one honest gap left here: authorize-on-A, settle-on-B leaves A
-// counting until the timer fires. The timer is now the grant's execution deadline rather than
-// the settlement ceiling, so the worst case is bounded by the same window the work itself had,
-// and the count it holds is the edge-only one - it no longer reaches the paid router or the
-// prober. Closing it properly wants the attempt ledger to carry the placement, which is M3-shaped
-// work (the relay binding moves to dispatch), not something to bolt on here.
+// The per-account SLOT is not part of that: with a shared store it is freed here on any
+// instance (sharedStore.edgeSlotFree), opener or not, so authorize-on-A, settle-on-B frees it
+// at once. Only the edge LOAD counter above stays with the opening instance until its timer.
 //
 // Deliberately NOT folded into the success EWMA the way exitInflight does it. That EWMA gates
 // Tier A on the classic path, and an edge attempt that expired unsettled is not evidence the
 // node is unhealthy - a consumer closing a laptop looks identical. Marking a good node down
 // on the fabric it is not even being judged on would be a worse error than the one this fixes.
 func (b *broker) edgeExitInflight(attemptID string) {
+	// The shared slot is freed by whichever instance sees the attempt end, opener or not.
+	if b.shared != nil && attemptID != "" {
+		if err := b.shared.edgeSlotFree(attemptID); err != nil && !errors.Is(err, errNoSharedStore) {
+			log.Printf("edge attempt cap: could not free the slot of %s (it lapses at its deadline): %v", attemptID, err)
+		}
+	}
 	b.metricsMu.Lock()
 	entry, open := b.edgeInflight[attemptID]
 	if !open {

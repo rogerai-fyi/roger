@@ -129,8 +129,14 @@ type broker struct {
 	// reserves a real station for the grant's lifetime, so without a cap one account can hold
 	// the whole routable fleet at maximum apparent load for the price of nothing. Guarded by
 	// metricsMu; keyed by the consumer's account wallet, the same identity the hold is placed
-	// against. See maxOpenEdgeAttemptsPerAccount.
+	// against. See maxOpenEdgeAttemptsPerAccount. This is the single-instance path only:
+	// with a shared store configured the count is the shared set (edgeAccountReserveErr).
 	edgeOpenByAccount map[string]int
+	// edgeSlotTokens is NOT a count: it pairs a shared-set reservation with the attempt this
+	// instance's request turns it into (account -> reservation ids this process placed and has
+	// not yet promoted or dropped). Losing it (a restart) only lets those reservations lapse
+	// at edgeReserveTTL. Guarded by metricsMu.
+	edgeSlotTokens map[string][]string
 	// edgeCanary is what the TOWER canaries found out about each STATION, keyed by station id
 	// and guarded by metricsMu. It is deliberately not folded into trust below: that map is the
 	// classic fabric's record, and a Tower operator who black-holed traffic could otherwise

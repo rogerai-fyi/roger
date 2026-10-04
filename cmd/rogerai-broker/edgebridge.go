@@ -125,9 +125,13 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
 		return true
 	}
-	if !b.edgeAccountReserve(consumerWallet) {
+	if ok, rerr := b.edgeAccountReserveErr(consumerWallet); !ok {
 		if soft {
 			return false
+		}
+		if rerr != nil {
+			sharedUnavailable(w) // the cap cannot be checked: fail closed
+			return true
 		}
 		w.Header().Set("Retry-After", "5")
 		jsonErr(w, http.StatusTooManyRequests,

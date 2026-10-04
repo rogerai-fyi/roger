@@ -155,6 +155,21 @@ type sharedStore interface {
 	// destroying a peer's later increment.
 	counterDelIfEqual(key string, val float64) (deleted bool, err error)
 
+	// edgeSlotReserve is the per-account open-attempt cap shared by every instance: one
+	// sorted set per account (member = slot id, score = its deadline in unix ms). In ONE
+	// atomic step it trims members whose deadline has passed, counts the rest, and adds
+	// member with deadline when fewer than limit are open. ok=false at the cap.
+	edgeSlotReserve(account, member string, deadline, now time.Time, limit int) (ok bool, err error)
+	// edgeSlotPromote turns a reservation into the attempt it became: it swaps member token
+	// for attemptID (score = the attempt's deadline) and records attemptID -> account so the
+	// instance that sees the attempt end, whichever it is, can free the slot.
+	edgeSlotPromote(account, token, attemptID string, deadline time.Time) error
+	// edgeSlotDrop frees a reservation that never became an attempt.
+	edgeSlotDrop(account, token string) error
+	// edgeSlotFree frees the slot an attempt holds. Idempotent: an unknown or already-freed
+	// attempt id frees nothing.
+	edgeSlotFree(attemptID string) error
+
 	// setIfAbsent sets key=val only if it does not already exist (SETNX), with a TTL, and
 	// reports whether THIS call set it (set==true) or it already existed (set==false). It
 	// backs idempotent fast-path flags (e.g. "seeded:<wallet>") whose REAL guard is a
@@ -432,6 +447,12 @@ func (m *memStore) counterSet(string, float64, time.Duration) error {
 func (m *memStore) counterIncr(string, float64) (float64, error)    { return 0, errNoSharedStore }
 func (m *memStore) counterDel(string) error                         { return errNoSharedStore }
 func (m *memStore) counterDelIfEqual(string, float64) (bool, error) { return false, errNoSharedStore }
+func (m *memStore) edgeSlotReserve(string, string, time.Time, time.Time, int) (bool, error) {
+	return false, errNoSharedStore
+}
+func (m *memStore) edgeSlotPromote(string, string, string, time.Time) error { return errNoSharedStore }
+func (m *memStore) edgeSlotDrop(string, string) error                       { return errNoSharedStore }
+func (m *memStore) edgeSlotFree(string) error                               { return errNoSharedStore }
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 	return false, errNoSharedStore
 }
@@ -1795,6 +1816,118 @@ func (v *valkeyStore) counterDelIfEqual(key string, val float64) (bool, error) {
 	}
 	v.setUp(true)
 	return n == 1, nil
+}
+
+// Every script below touches ONE key, so the set works unchanged on a cluster topology.
+const (
+	edgeSlotsPrefix = keyPrefix + "edgeslots:" // + account: sorted set of open slots
+	edgeAttPrefix   = keyPrefix + "edgeatt:"   // + attempt id: the account whose slot it holds
+)
+
+// edgeSlotReserveScript: KEYS[1] the account's set; ARGV now ms, limit, member, deadline ms.
+// Returns 1 when the member was added, 0 at the cap.
+var edgeSlotReserveScript = redis.NewScript(`
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[4], ARGV[3])
+local ttl = tonumber(ARGV[4]) - tonumber(ARGV[1])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+// edgeSlotSwapScript: KEYS[1] the account's set; ARGV token, attempt id, deadline ms, now ms.
+// A reservation that already lapsed (trimmed) is not resurrected: returns 0.
+var edgeSlotSwapScript = redis.NewScript(`
+if redis.call('ZREM', KEYS[1], ARGV[1]) == 0 then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[2])
+local ttl = tonumber(ARGV[3]) - tonumber(ARGV[4])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+func (v *valkeyStore) edgeSlotReserve(account, member string, deadline, now time.Time, limit int) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	n, err := edgeSlotReserveScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+		now.UnixMilli(), limit, member, deadline.UnixMilli()).Int()
+	if err != nil {
+		v.noteErr("edgeSlotReserve", err)
+		return false, err
+	}
+	v.setUp(true)
+	return n == 1, nil
+}
+
+// edgeSlotPromote records the attempt's account FIRST, then swaps the member: a free that
+// races the swap finds the account and removes the attempt id (or nothing, harmlessly).
+func (v *valkeyStore) edgeSlotPromote(account, token, attemptID string, deadline time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	now := time.Now()
+	ttl := max(deadline.Sub(now), time.Millisecond)
+	err := v.rdb.Set(ctx, edgeAttPrefix+attemptID, account, ttl).Err()
+	if err == nil {
+		err = edgeSlotSwapScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+			token, attemptID, deadline.UnixMilli(), now.UnixMilli()).Err()
+	}
+	if err != nil {
+		v.noteErr("edgeSlotPromote", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) edgeSlotDrop(account, token string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.ZRem(ctx, edgeSlotsPrefix+account, token).Err(); err != nil {
+		v.noteErr("edgeSlotDrop", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// edgeSlotFree takes the attempt's account with GETDEL, so of two concurrent frees exactly
+// one finds it and the other frees nothing.
+func (v *valkeyStore) edgeSlotFree(attemptID string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	acct, err := v.rdb.GetDel(ctx, edgeAttPrefix+attemptID).Result()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil
+	}
+	if err == nil {
+		err = v.rdb.ZRem(ctx, edgeSlotsPrefix+acct, attemptID).Err()
+	}
+	if err != nil {
+		v.noteErr("edgeSlotFree", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
 }
 
 func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, error) {
