@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,10 +30,20 @@ type Transport interface {
 }
 
 // multicastTransport is the real thing: one socket per usable interface, joined to the
-// mDNS group, sending to 224.0.0.251:5353.
+// mDNS group, sending to 224.0.0.251:5353. It REJOINS: interfaces come and go (a container
+// reconnected, a USB Ethernet adapter re-enumerating, a network stack restarted), and a socket on a
+// vanished interface only ever answers "no such device" - so a send rescans, at most every
+// rejoinEvery, and at once after a failed write.
 type multicastTransport struct {
-	conns []*net.UDPConn
 	group *net.UDPAddr
+
+	list   func() []net.Interface
+	listen func(*net.Interface) (*net.UDPConn, error)
+	usable func(net.Interface) bool
+
+	cmu      sync.Mutex
+	conns    map[string]*net.UDPConn // by interface name#index: a re-created interface is a new one
+	lastScan time.Time
 
 	mu   sync.Mutex
 	recv chan packet
@@ -40,6 +51,9 @@ type multicastTransport struct {
 	once sync.Once
 	dl   time.Time
 }
+
+// rejoinEvery bounds how often a send rescans the interfaces.
+const rejoinEvery = 10 * time.Second
 
 type packet struct {
 	b    []byte
@@ -50,32 +64,88 @@ type packet struct {
 // interface. It returns ErrNoLAN when there is none: a machine with only loopback has
 // no LAN to discover on, and saying so once beats browsing nothing forever.
 func NewMulticastTransport(ifaces []net.Interface) (Transport, error) {
+	return NewRejoiningMulticastTransport(func() []net.Interface { return ifaces })
+}
+
+// NewRejoiningMulticastTransport is NewMulticastTransport over a live interface list, rejoining as
+// interfaces come and go.
+func NewRejoiningMulticastTransport(list func() []net.Interface) (Transport, error) {
 	group := &net.UDPAddr{IP: net.ParseIP(mdnsGroupV4), Port: mdnsPort}
+	listen := func(ifi *net.Interface) (*net.UDPConn, error) { return net.ListenMulticastUDP("udp4", ifi, group) }
+	usable := func(ifi net.Interface) bool {
+		return ifi.Flags&net.FlagUp != 0 && ifi.Flags&net.FlagMulticast != 0 && HasLAN(InterfaceAddrs([]net.Interface{ifi}))
+	}
+	return newRejoiningTransport(list, listen, usable, group)
+}
+
+func newRejoiningTransport(list func() []net.Interface, listen func(*net.Interface) (*net.UDPConn, error),
+	usable func(net.Interface) bool, group *net.UDPAddr) (*multicastTransport, error) {
 	t := &multicastTransport{
-		group: group,
+		group: group, list: list, listen: listen, usable: usable,
+		conns: map[string]*net.UDPConn{},
 		recv:  make(chan packet, 256),
 		done:  make(chan struct{}),
 	}
-	for i := range ifaces {
-		ifi := ifaces[i]
-		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagMulticast == 0 {
-			continue
-		}
-		if !HasLAN(InterfaceAddrs([]net.Interface{ifi})) {
-			continue
-		}
-		c, err := net.ListenMulticastUDP("udp4", &ifi, group)
-		if err != nil {
-			continue // an interface that will not join is skipped, not fatal
-		}
-		t.conns = append(t.conns, c)
-		go t.pump(c)
-	}
-	if len(t.conns) == 0 {
+	t.cmu.Lock()
+	t.rejoinLocked()
+	n := len(t.conns)
+	t.cmu.Unlock()
+	if n == 0 {
 		close(t.done)
 		return nil, ErrNoLAN
 	}
 	return t, nil
+}
+
+// rejoinLocked joins every usable interface not yet joined and drops every socket whose interface is
+// gone. An interface that will not join is skipped, not fatal. Callers hold cmu.
+func (t *multicastTransport) rejoinLocked() {
+	t.lastScan = time.Now()
+	want := map[string]net.Interface{}
+	for _, ifi := range t.list() {
+		if t.usable(ifi) {
+			want[fmt.Sprintf("%s#%d", ifi.Name, ifi.Index)] = ifi
+		}
+	}
+	for key, c := range t.conns {
+		if _, ok := want[key]; !ok {
+			_ = c.Close()
+			delete(t.conns, key)
+		}
+	}
+	for key, ifi := range want {
+		if _, ok := t.conns[key]; ok {
+			continue
+		}
+		ifi := ifi
+		c, err := t.listen(&ifi)
+		if err != nil {
+			continue
+		}
+		t.conns[key] = c
+		go t.pump(c)
+	}
+}
+
+// joined is the interfaces joined now, for a test to read.
+func (t *multicastTransport) joined() []string {
+	t.cmu.Lock()
+	defer t.cmu.Unlock()
+	out := make([]string, 0, len(t.conns))
+	for k := range t.conns {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// closeAll closes every socket without forgetting them - a test's vanished devices.
+func (t *multicastTransport) closeAll() {
+	t.cmu.Lock()
+	defer t.cmu.Unlock()
+	for _, c := range t.conns {
+		_ = c.Close()
+	}
 }
 
 // pump moves one socket's packets onto the shared channel, so Recv is a single read
@@ -97,11 +167,45 @@ func (t *multicastTransport) pump(c *net.UDPConn) {
 }
 
 func (t *multicastTransport) Send(b []byte) error {
+	select {
+	case <-t.done:
+		return net.ErrClosed // closed is closed: nothing to rejoin
+	default:
+	}
+	t.cmu.Lock()
+	defer t.cmu.Unlock()
+	if time.Since(t.lastScan) >= rejoinEvery {
+		t.rejoinLocked()
+	}
+	if err := t.sendLocked(b); err == nil {
+		return nil
+	}
+	// A failed write is usually a vanished interface: rejoin now and try once more. A socket that
+	// failed is replaced even when its interface still reads the same (its device was re-created).
+	for key, c := range t.conns {
+		_ = c.Close()
+		delete(t.conns, key)
+	}
+	t.rejoinLocked()
+	return t.sendLocked(b)
+}
+
+// sendLocked writes to every joined interface; it fails only when no write succeeded.
+func (t *multicastTransport) sendLocked(b []byte) error {
 	var last error
+	sent := false
 	for _, c := range t.conns {
 		if _, err := c.WriteTo(b, t.group); err != nil {
 			last = err
+			continue
 		}
+		sent = true
+	}
+	if sent {
+		return nil
+	}
+	if last == nil {
+		last = ErrNoLAN
 	}
 	return last
 }
@@ -114,6 +218,17 @@ func (t *multicastTransport) SetReadDeadline(dl time.Time) error {
 }
 
 func (t *multicastTransport) Recv(b []byte) (int, net.Addr, error) {
+	// A side that only listens (the responder) never sends until it hears a query, and cannot hear
+	// one on a vanished interface: it rejoins here too, once the rescan is due.
+	select {
+	case <-t.done:
+	default:
+		t.cmu.Lock()
+		if time.Since(t.lastScan) >= rejoinEvery {
+			t.rejoinLocked()
+		}
+		t.cmu.Unlock()
+	}
 	t.mu.Lock()
 	dl := t.dl
 	t.mu.Unlock()
@@ -135,8 +250,11 @@ func (t *multicastTransport) Recv(b []byte) (int, net.Addr, error) {
 
 func (t *multicastTransport) Close() error {
 	t.once.Do(func() { close(t.done) })
-	for _, c := range t.conns {
+	t.cmu.Lock()
+	defer t.cmu.Unlock()
+	for key, c := range t.conns {
 		_ = c.Close()
+		delete(t.conns, key)
 	}
 	return nil
 }
@@ -165,6 +283,7 @@ type Responder struct {
 	service string
 	host    string
 	ips     []net.IP
+	liveIPs func() []net.IP // when set, the addresses are read fresh for every answer
 
 	mu sync.Mutex
 	ad Advert
@@ -176,13 +295,23 @@ func NewResponder(tp Transport, service string, ad Advert, ips []net.IP) *Respon
 	return &Responder{tp: tp, service: service, host: ad.NodeID, ips: ips, ad: ad}
 }
 
+// NewLiveResponder is NewResponder with the addresses read fresh for every answer: a member whose
+// network came back with a new address says the new one, not the one it had at start.
+func NewLiveResponder(tp Transport, service string, ad Advert, ips func() []net.IP) *Responder {
+	return &Responder{tp: tp, service: service, host: ad.NodeID, liveIPs: ips, ad: ad}
+}
+
 // Packet renders the advertisement exactly as it goes on the wire. Exported so the
 // advertising rules can be asserted against real bytes rather than against a struct.
 func (r *Responder) Packet() ([]byte, error) {
 	r.mu.Lock()
 	ad := r.ad
 	r.mu.Unlock()
-	return buildResponse(r.service, ad.NodeID, r.host, uint16(ad.Port), ad.TXT(), r.ips)
+	ips := r.ips
+	if r.liveIPs != nil {
+		ips = r.liveIPs()
+	}
+	return buildResponse(r.service, ad.NodeID, r.host, uint16(ad.Port), ad.TXT(), ips)
 }
 
 // Serve answers browse queries until ctx is done.
