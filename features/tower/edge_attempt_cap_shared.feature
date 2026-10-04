@@ -1,4 +1,4 @@
-# BUILD STATUS: NOT BUILT. Specified 2026-10-04 (persistent-state audit); the cap is per-instance on main.
+# BUILD STATUS: BUILT. Specified 2026-10-04 (persistent-state audit); the cap is one shared set per account across instances.
 # EDGE ATTEMPT CAP ACROSS INSTANCES: an account can hold at most 32 open Tower attempts at once,
 # counted across every broker instance, surviving restarts, and freed by whichever instance sees
 # the attempt end.
