@@ -256,8 +256,8 @@ func TestTouchpointFailureDoesNotFailOperation(t *testing.T) {
 	b.emailDisputeOpened("op@example.com", 1, "dp")
 	b.emailAccountWarning("op@example.com", "empty_output", `{"x":1}`, 3, 5)
 	b.emailAccountBanned("op@example.com", "impossible_input", `{"x":1}`)
-	b.emailCapNotice("ownerpk", "80", 8, 10, time.Now())
-	b.emailCapNotice("ownerpk", "100", 10, 10, time.Now())
+	b.emailCapNotice("op@example.com", "u_gh_7", "80", 8, 10, time.Now())
+	b.emailCapNotice("op@example.com", "u_gh_7", "100", 10, 10, time.Now())
 	time.Sleep(100 * time.Millisecond) // let the goroutines run; they must not panic
 }
 
@@ -266,10 +266,10 @@ func TestTouchpointFailureDoesNotFailOperation(t *testing.T) {
 func TestCapNoticeDeduped(t *testing.T) {
 	b, sends := brokerWithMailer(t, "op@example.com")
 	now := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
-	b.emailCapNotice("ownerpk", "80", 8, 10, now)
-	b.emailCapNotice("ownerpk", "80", 9, 10, now)                  // same threshold+month: deduped
-	b.emailCapNotice("ownerpk", "100", 10, 10, now)                // distinct threshold: sends
-	b.emailCapNotice("ownerpk", "80", 8, 10, now.AddDate(0, 1, 0)) // next month: sends
+	b.emailCapNotice("op@example.com", "u_gh_7", "80", 8, 10, now)
+	b.emailCapNotice("op@example.com", "u_gh_7", "80", 9, 10, now)                  // same threshold+month: deduped
+	b.emailCapNotice("op@example.com", "u_gh_7", "100", 10, 10, now)                // distinct threshold: sends
+	b.emailCapNotice("op@example.com", "u_gh_7", "80", 8, 10, now.AddDate(0, 1, 0)) // next month: sends
 
 	got := drain(sends, 200*time.Millisecond)
 	if got != 3 {
@@ -292,8 +292,8 @@ func TestTouchpointHTMLIsBrandedAndHasCTA(t *testing.T) {
 		{"dispute-opened", func(b *broker) { b.emailDisputeOpened("op@example.com", 5, "dp_2") }, "rogerai.fm/account.html"},
 		{"account-warning", func(b *broker) { b.emailAccountWarning("op@example.com", "empty_output", `{"x":1}`, 3, 5) }, "rogerai.fm/account.html"},
 		{"account-banned", func(b *broker) { b.emailAccountBanned("op@example.com", "impossible_input", `{"x":1}`) }, "rogerai.fm/account.html"},
-		{"cap-80", func(b *broker) { b.emailCapNotice("ownerpk", "80", 8, 10, time.Now()) }, "rogerai.fm/billing.html"},
-		{"cap-100", func(b *broker) { b.emailCapNotice("ownerpk", "100", 10, 10, time.Now()) }, "rogerai.fm/billing.html"},
+		{"cap-80", func(b *broker) { b.emailCapNotice("op@example.com", "u_gh_7", "80", 8, 10, time.Now()) }, "rogerai.fm/billing.html"},
+		{"cap-100", func(b *broker) { b.emailCapNotice("op@example.com", "u_gh_7", "100", 10, 10, time.Now()) }, "rogerai.fm/billing.html"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

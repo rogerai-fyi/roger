@@ -2008,7 +2008,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// account's cap. Global across every PAID path (this hold gate is the one all of
 		// public use / --freq / grant / agent / chat funnel through). Free/self ($0) skip
 		// the whole block, so they are never blocked. Sets near/at-cap notice headers.
-		if st, msg := b.monthlyCapCheck(w, payer, maxCost, now); st != 0 {
+		if st, msg := b.monthlyCapCheckFor(w, r, payer, maxCost, now); st != 0 {
 			jsonErr(w, st, msg)
 			return
 		}
@@ -2057,7 +2057,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	plan = trimPlan(plan, maxCost)
 
 	if req.Stream {
-		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening}, requestID, body, maxCost)
+		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, req: r}, requestID, body, maxCost)
 		return
 	}
 
@@ -2207,6 +2207,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// A free plan captures nothing, so a hold placed for a paid first pick that
 			// failed over to a self-owned/free station is returned by the deferred release.
 			settled = !pricing.free || maxCost == 0
+			if cost > 0 && !pricing.free {
+				b.capNoticeAfterSettle(w, r, payer, time.Now())
+			}
 			// THE CAPACITY SIGNAL IS MEASURED ON THE COUNT THE BROKER VERIFIED, NOT ON THE
 			// NODE'S CLAIM - and the clamp it uses is the one computed three lines above
 			// for billing.
@@ -2843,6 +2846,10 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				// A free plan captures nothing: a hold placed for a paid first pick that failed
 				// over to a free station is returned by the deferred release.
 				*settled = !pricing.free || maxCost == 0
+				if cost > 0 && !pricing.free {
+					// headers are committed on a stream: notify only
+					b.capNoticeAfterSettle(nil, bill.req, user, time.Now())
+				}
 			}
 			// THE SAME CLAMP AS THE RELAY PATH, for the same reason and off the same
 			// figure. A capacity input that is verified on one path and self-declared on

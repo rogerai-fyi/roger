@@ -401,7 +401,7 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 	// Hold the exact unit cost before dispatch (hold == finalize; count known up front).
 	settled := false
 	if cost > 0 {
-		if st, msg := b.monthlyCapCheck(w, payer, cost, time.Now()); st != 0 {
+		if st, msg := b.monthlyCapCheckFor(w, r, payer, cost, time.Now()); st != 0 {
 			jsonErr(w, st, msg)
 			return
 		}
@@ -515,6 +515,7 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 					return 0
 				}
 				settled = true
+				b.capNoticeAfterSettle(nil, r, payer, time.Now())
 				return nb
 			}
 			if b.db != nil { // free path: record a $0 metering receipt for lineage (as chat does)

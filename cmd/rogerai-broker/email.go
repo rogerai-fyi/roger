@@ -272,7 +272,7 @@ func (m *mailer) capNoticeOnce(holder, threshold string, now time.Time) bool {
 	if !m.enabled() {
 		return false
 	}
-	key := holder + "|" + threshold + "|" + now.Format("2006-01")
+	key := holder + "|" + threshold + "|" + now.UTC().Format("2006-01")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sentCaps[key] {

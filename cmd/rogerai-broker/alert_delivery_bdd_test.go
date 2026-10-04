@@ -870,7 +870,7 @@ func (s *adState) kindEnqueued(kind string) error {
 	case "top-up receipt":
 		b.mail.sendEmail("op@example.com", "Top-up receipt", "<p>$10.00</p>", "$10.00")
 	case "cap notice":
-		b.emailCapNotice("ownerpk", "80", 8, 10, s.clock.Now())
+		b.emailCapNotice("op@example.com", "u_gh_7", "80", 8, 10, s.clock.Now())
 	case "operator warning":
 		b.emailAccountWarning("op@example.com", "empty_output", `{"x":1}`, 3, 5)
 	case "operator ban notice":
