@@ -40,6 +40,24 @@
         <figcaption class="fig mono">FIG. 1 &middot; THE SECOND CARRIER</figcaption>
       </figure>
 
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE 2 TOK/S MYSTERY</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">SATURATION</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">THE HIDDEN LEVER</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">THE MISSING MTP</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">THE BUILD</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">THE ECONOMICS</span></a></li>
+          <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">THE ENDING</span></a></li>
+          <li><a class="toc-tuner__st" href="#s8"><b>§8</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
       <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> DeepSeek-V4 ships a multi-token-prediction (MTP) head llama.cpp
         can use for speculative decoding, but every public GGUF strips it. We patched the
@@ -55,7 +73,7 @@
           trade. One weekend, one Threadripper, four RTX PRO 4500s, three mysteries, one story.
         </p>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; The 2 tok/s mystery</span>
           <h2>Why did a 284B model decode at 2 tokens per second?</h2>
           <p>
@@ -69,7 +87,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; Saturation</span>
           <h2>How do you benchmark models that all score perfect?</h2>
           <p>
@@ -89,7 +107,7 @@
           </ul>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; The hidden lever</span>
           <h2>What precision are your experts?</h2>
           <p>
@@ -104,7 +122,7 @@
           <p>The menu said: smart or fast. The rest of this broadcast rejects the menu.</p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; The missing MTP</span>
           <h2>What is MTP, and why does no DeepSeek GGUF have it?</h2>
           <p>
@@ -120,7 +138,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; The build</span>
           <h2>How do you give llama.cpp the missing MTP?</h2>
           <figure class="figure figure--plate" data-reveal>
@@ -139,7 +157,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; The economics</span>
           <h2>When does speculative decoding pay for itself?</h2>
           <p>
@@ -164,7 +182,7 @@
           </figure>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s7" data-reveal>
           <span class="bc-sec__no">&sect;7 &middot; The ending</span>
           <h2>Why was the best file the master all along?</h2>
           <p>
@@ -199,7 +217,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s8" data-reveal>
           <span class="bc-sec__no">&sect;8 &middot; FAQ</span>
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">

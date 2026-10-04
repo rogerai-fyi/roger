@@ -38,6 +38,23 @@
         <figcaption class="fig mono">FIG. 1 &middot; MANY OPERATORS, ONE OPEN FREQUENCY</figcaption>
       </figure>
 
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">WATCH THE DIAL</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">THE GATE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">THE SCORE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">THE CHOICE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">FAILURE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">THE NETWORK EFFECT</span></a></li>
+          <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
       <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> RogerAI first removes stations that cannot satisfy the request.
         It then scores the healthy remainder by reliability, request-aware speed, price,
@@ -53,7 +70,7 @@
           one OpenAI-compatible endpoint. The interesting work happens between those two facts.
         </p>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; Watch the dial</span>
           <h2>What happens when requests arrive together?</h2>
           <p>
@@ -134,7 +151,7 @@
           </figure>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; The gate</span>
           <h2>Does every station enter the race?</h2>
           <p>
@@ -154,7 +171,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; The score</span>
           <h2>What does “best signal” actually mean?</h2>
           <p>
@@ -177,7 +194,7 @@
           </dl>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; The choice</span>
           <h2>Why not always pick the number-one station?</h2>
           <p>
@@ -194,7 +211,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; Failure</span>
           <h2>What if the chosen station fails mid-request?</h2>
           <p>
@@ -223,7 +240,7 @@
           </figure>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; The network effect</span>
           <h2>What changes when a model gains ten operators?</h2>
           <p>
@@ -239,7 +256,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s7" data-reveal>
           <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">

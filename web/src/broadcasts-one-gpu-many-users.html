@@ -33,6 +33,23 @@
         </p>
       </header>
 
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">WHY IS THE SINGLE-STREAM BENCHMARK MISLEADING?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">WHAT HAPPENS WHEN YOU SERVE MORE THAN ONE PERSON?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">WHY DOES TOTAL THROUGHPUT GO UP WHILE EACH USER SLOWS DOWN?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">IS A SINGLE-USER HOME RIG WASTEFUL, THEN?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">WHEN DOES THE BATCHING TRADE MAKE SENSE?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">HOW DO YOU GET MORE REQUESTS THAN ONE PERSON CAN GENERATE?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
       <blockquote class="bc-answer" data-reveal>
         Quick answer: on our bench, one GPU running gpt-oss-120b went from ~160 tokens/sec at a
         single user to ~310 at eight users. That is nearly double the total work from the same
@@ -49,7 +66,7 @@
         time, the picture changes completely - and almost nobody measures that. So we did.
       </p>
 
-      <section class="bc-sec" data-reveal>
+      <section class="bc-sec" id="s1" data-reveal>
         <span class="bc-sec__no">&sect;1</span>
         <h2>Why is the single-stream benchmark misleading?</h2>
         <p>
@@ -60,7 +77,7 @@
         </p>
       </section>
 
-      <section class="bc-sec" data-reveal>
+      <section class="bc-sec" id="s2" data-reveal>
         <span class="bc-sec__no">&sect;2</span>
         <h2>What happens when you serve more than one person?</h2>
         <p>
@@ -76,7 +93,7 @@
         <p>That is the whole trade in two lines: more total tokens, a slower turn for everyone.</p>
       </section>
 
-      <section class="bc-sec" data-reveal>
+      <section class="bc-sec" id="s3" data-reveal>
         <span class="bc-sec__no">&sect;3</span>
         <h2>Why does total throughput go up while each user slows down?</h2>
         <p>
@@ -88,7 +105,7 @@
         </p>
       </section>
 
-      <section class="bc-sec" data-reveal>
+      <section class="bc-sec" id="s4" data-reveal>
         <span class="bc-sec__no">&sect;4</span>
         <h2>Is a single-user home rig wasteful, then?</h2>
         <p>
@@ -100,7 +117,7 @@
         </p>
       </section>
 
-      <section class="bc-sec" data-reveal>
+      <section class="bc-sec" id="s5" data-reveal>
         <span class="bc-sec__no">&sect;5</span>
         <h2>When does the batching trade make sense?</h2>
         <p>
@@ -112,7 +129,7 @@
         </p>
       </section>
 
-      <section class="bc-sec" data-reveal>
+      <section class="bc-sec" id="s6" data-reveal>
         <span class="bc-sec__no">&sect;6</span>
         <h2>How do you get more requests than one person can generate?</h2>
         <p>
@@ -127,7 +144,7 @@
         </p>
       </section>
 
-      <section class="bc-sec" data-reveal>
+      <section class="bc-sec" id="s7" data-reveal>
         <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
         <h2>Frequently asked questions</h2>
         <dl class="bc-faq">

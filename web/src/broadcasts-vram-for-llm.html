@@ -39,6 +39,22 @@
         <figcaption class="fig mono">FIG. 1 - THE VRAM GAUGE</figcaption>
       </figure>
 
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE CHART</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">THE MATH</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">QUANTIZATION</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">BUYING</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">WHEN IT WON'T FIT</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
       <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> A 4-bit (Q4) model needs roughly <b>0.6&nbsp;GB of VRAM per billion
         parameters</b>, plus a few GB for context. So an 8&nbsp;GB card runs a 7-8B model, 12-16&nbsp;GB
@@ -55,7 +71,7 @@
           number, then the reasoning.
         </p>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; The chart</span>
           <h2>How much VRAM does each model size need?</h2>
           <p>
@@ -102,7 +118,7 @@
           </figure>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; The math</span>
           <h2>What actually fills your VRAM?</h2>
           <p>
@@ -114,7 +130,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; Quantization</span>
           <h2>Does quantization hurt quality?</h2>
           <figure class="figure figure--plate" data-reveal>
@@ -130,7 +146,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; Buying</span>
           <h2>Which GPU should you get for local LLMs?</h2>
           <ul class="bc-dial">
@@ -146,7 +162,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; When it won't fit</span>
           <h2>What if the model is bigger than your GPU?</h2>
           <p>
@@ -161,7 +177,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">

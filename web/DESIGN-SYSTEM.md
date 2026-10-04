@@ -25,7 +25,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Wave bar | `.wave-bar` (in a tier `<li>`) | - | Company, homepage |
 | Step path | `.steps` | - | Careers |
 | Page index | `.page-index` | - | FAQ, legal pages |
-| TOC tuner | `.toc-tuner` | `tuner.js` `[data-tuner]` | 16 pages |
+| TOC tuner | `.toc-tuner` | `tuner.js` `[data-tuner]` | 26 pages |
 | Scrubber | `[data-scrub]` -> `.scrub` | `scrub.js` | homepage, Company, Pricing |
 | Range twin | `[data-range-twin]` -> `.range-twin` | `range-twin.js` | Pricing |
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
@@ -485,7 +485,7 @@ section mark red), `.bc-answer` for a Quick Answer (prose face, 2px red rule), t
 `<dl class="bc-faq">` (its `<dt><b>` mirrors the FAQPage JSON-LD, tested), a sign-off
 `<aside class="tint-panel bc-signoff">` whose closing install command is the
 install-box partial (`id=signoffInstall`), `.bc-table` for a data table in a
-`.figure > .scroll-box`, and the shared `.figure`/`.code-block`. Long pieces carry the
+`.figure > .scroll-box`, and the shared `.figure`/`.code-block`. Every piece with 4+ numbered sections carries the
 toc-tuner above the body, one station per numbered `.bc-sec` (`id="sN"`). No inline
 style and no colour literal in an article (guarded).
 
