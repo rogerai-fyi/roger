@@ -80,6 +80,7 @@ type np1State struct {
 	// what was sent / observed
 	np1Base, np1Sent []byte     // the body before the routing fragment, and as sent
 	np1Attempts      []int      // upstream hits each relay of the current batch made
+	np1AttemptHits   [][]string // the stations each relay of the current batch hit, in order
 	np1Prev          []rpResult // the batch before the current one
 	np1All           []rpResult // every response of the scenario, in order
 	np1LogSpans      [][2]int   // captured-log offsets [before, after] of each relay
@@ -109,6 +110,7 @@ func (s *np1State) np1Reset() error {
 	}
 	s.np1Grant, s.np1PrefHdr, s.np1Caller, s.np1Stream, s.np1Pref = false, "", nil, false, ""
 	s.np1Base, s.np1Sent, s.np1Attempts, s.np1Prev, s.np1All, s.np1LogSpans = nil, nil, nil, nil, nil, nil
+	s.np1AttemptHits = nil
 	s.np1Snapped, s.np1Before, s.np1LogMark = false, np1Snap{}, 0
 	s.np1RA, s.np1TPS, s.np1BannedOps = map[string]string{}, map[string]float64{}, map[string]bool{}
 	s.np1Later, s.np1BResults, s.np1Collision, s.np1PoseTower = nil, nil, "", ""
@@ -356,7 +358,7 @@ func (s *np1State) np1Generic(text string) error {
 	if len(s.batch) > 0 {
 		s.np1Prev = s.batch
 	}
-	s.batch, s.np1Attempts = nil, nil
+	s.batch, s.np1Attempts, s.np1AttemptHits = nil, nil, nil
 	if count >= 20 && s.np1Shares == nil {
 		s.np1Shares = map[string]map[string]float64{}
 		for _, pref := range []string{"", "balanced", "cheap", "fast", "reliable"} {
@@ -480,7 +482,7 @@ func (s *np1State) np1Fire() error {
 	if s.np1PrefHdr != "" {
 		r.Header.Set("X-Roger-Pref", s.np1PrefHdr)
 	}
-	hitsBefore, logBefore := len(s.hitList()), len(s.logs.String())
+	hitsBefore, jobsBefore, logBefore := len(s.hitList()), len(s.jobs()), len(s.logs.String())
 	w := &recWriter{ResponseRecorder: httptest.NewRecorder()}
 	s.relayStart = time.Now()
 	s.b.relay(w, r)
@@ -488,7 +490,19 @@ func (s *np1State) np1Fire() error {
 	res := rpResult{code: w.Code, hdr: w.Header(), body: w.Body.Bytes()}
 	s.batch = append(s.batch, res)
 	s.np1All = append(s.np1All, res)
-	s.np1Attempts = append(s.np1Attempts, len(s.hitList())-hitsBefore)
+	// Attempts are counted from the jobs this broker dispatched during the relay (exact), not
+	// from upstream hits, which can also include stray traffic from a leaked goroutine of an
+	// earlier test whose old upstream port the OS reused for one of this scenario's stations.
+	jobs := s.jobs()
+	var mine []string
+	if jobsBefore <= len(jobs) {
+		mine = jobs[jobsBefore:]
+	}
+	s.np1Attempts = append(s.np1Attempts, len(mine))
+	s.np1AttemptHits = append(s.np1AttemptHits, mine)
+	if hits := len(s.hitList()) - hitsBefore; hits != len(mine) {
+		s.t.Logf("np1: relay %d: %d upstream hit(s) for %d dispatched job(s) %v: stray upstream traffic", len(s.batch), hits, len(mine), mine)
+	}
 	s.np1LogSpans = append(s.np1LogSpans, [2]int{logBefore, len(s.logs.String())})
 	s.lastCode, s.lastBody, s.lastHdr, s.lastRec = w.Code, w.Body.Bytes(), w.Header(), w
 	return nil
@@ -511,7 +525,7 @@ func (s *np1State) np1SecondConsumer() (ed25519.PrivateKey, error) {
 // np1RelayThenLater: relay with no routing object until the echoing station has served once
 // (so its echoed body really came back through the broker), then relay 30 more times.
 func (s *np1State) np1RelayThenLater() error {
-	s.bodyFrag, s.batch, s.np1Attempts = "", nil, nil
+	s.bodyFrag, s.batch, s.np1Attempts, s.np1AttemptHits = "", nil, nil, nil
 	served := false
 	for i := 0; i < 40 && !served; i++ {
 		if err := s.np1Fire(); err != nil {
@@ -522,7 +536,7 @@ func (s *np1State) np1RelayThenLater() error {
 	if !served {
 		return fmt.Errorf("the echoing station never served in 40 relays (last %d %s)", s.lastCode, s.lastBody)
 	}
-	s.batch, s.np1Attempts = nil, nil
+	s.batch, s.np1Attempts, s.np1AttemptHits = nil, nil, nil
 	for i := 0; i < 30; i++ {
 		if err := s.np1Fire(); err != nil {
 			return err
@@ -1495,14 +1509,24 @@ func (s *np1State) np1DistributionsMatch() error {
 	if err := s.np1AllOK(s.batch); err != nil {
 		return fmt.Errorf("second batch: %w", err)
 	}
-	a, b := s.np1Hist(s.np1Prev), s.np1Hist(s.batch)
-	for n := range s.stations {
-		pa, pb := float64(a[n])/float64(len(s.np1Prev)), float64(b[n])/float64(len(s.batch))
-		if math.Abs(pa-pb) > 0.15 {
-			return fmt.Errorf("%q share %.2f with no routing object vs %.2f under balanced (%v vs %v)", n, pa, pb, a, b)
+	// The two batches cannot be compared pick-for-pick: they run one after the other, and every
+	// served relay re-measures its station's tps, success and load, so the second batch scores a
+	// different fleet than the first (an empirical share gap here measures that drift, not the
+	// pref). The claim is proved exactly instead, in two parts:
+	//  1. on the REAL relay path, every relay of BOTH batches ran the balanced profile (the
+	//     broker's per-pass counter: the no-routing-object batch is counted as balanced, and no
+	//     other profile ran at all);
+	//  2. the scoring function under "no pref" and under "balanced" is the same function: 2000
+	//     seeded pickFor draws, same seeds, at the frozen Given state, give identical shares.
+	total := len(s.np1Prev) + len(s.batch)
+	if v, ok := s.np1Counter("routing_pref_balanced"); !ok || int(v) != total {
+		return fmt.Errorf("/admin/live routing_pref_balanced = %v (present %v), want exactly %d: both batches must run the balanced profile", v, ok, total)
+	}
+	for _, other := range []string{"cheap", "fast", "reliable"} {
+		if v, ok := s.np1Counter("routing_pref_" + other); ok && v != 0 {
+			return fmt.Errorf("/admin/live routing_pref_%s = %v, want 0: a relay with no routing object ran another profile", other, v)
 		}
 	}
-	// and the scoring function itself is the same function under both (shares at the Given state)
 	none, bal := s.np1Shares[""], s.np1Shares["balanced"]
 	for n := range s.stations {
 		if math.Abs(none[n]-bal[n]) > 1e-9 {
@@ -1639,7 +1663,11 @@ func (s *np1State) np1EveryRelayOneAttempt() error {
 	for i, n := range s.np1Attempts {
 		if n != 1 {
 			r := s.batch[i]
-			return fmt.Errorf("relay %d made %d attempt(s), want exactly one (status %d %s)", i+1, n, r.code, r.body)
+			var who []string
+			if i < len(s.np1AttemptHits) {
+				who = s.np1AttemptHits[i]
+			}
+			return fmt.Errorf("relay %d made %d attempt(s), want exactly one (status %d %s; jobs %v)", i+1, n, r.code, r.body, who)
 		}
 	}
 	return nil

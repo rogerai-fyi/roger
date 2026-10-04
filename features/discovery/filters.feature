@@ -252,6 +252,12 @@ Feature: Discovery filters - /discover and /market answer the question that was 
       | verified     | n-eu-q8,n-cur,n-tee               |
       | confidential | n-tee                             |
 
+  # added 2026-10-02 (founder ruling): /discover and routing agree on what verified means
+  Scenario: trust_min=verified drops a station whose last passed canary is older than the verified window
+    Given "n-eu-q8"'s last passed canary is older than the verified window
+    When a consumer GETs /discover?model=qwen3-32b&trust_min=verified
+    Then the listed node ids are exactly n-cur,n-tee
+
   Scenario: trust_min outside the closed set is a 400
     When a consumer GETs /discover?trust_min=high
     Then the status is 400
@@ -412,6 +418,7 @@ Feature: Discovery filters - /discover and /market answer the question that was 
     Then the band's offer view carries params_b 32.8 and params_estimated false
 
   # --- documentation ---------------------------------------------------------------------------
+  @docs
   Scenario: OpenAPI documents every /discover and /market filter param with its type and rule
     When the OpenAPI document is read
     Then /discover documents model, min_tps, max_ttft_ms, max_price_in, max_price_out, params_min, params_max, min_ctx, region, quant, capability, self_hosted, confidential, free, trust_min

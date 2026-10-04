@@ -20,7 +20,11 @@ import (
 // too far apart to ever be a streak. A node polled a dead address forever and nothing tripped.
 // See hubFailureQuiet in internal/agent/tower.go, which is now DERIVED from this and from the
 // poll timeout rather than guessed alongside them.
-const PollBackoff = 2 * time.Second
+//
+// A var (not const) only so test harnesses that stand up a fabric per scenario can shorten it;
+// production never mutates it. internal/agent's hubFailureQuiet is derived from it once at
+// start-up, so shortening it in a test never shrinks that quiet window.
+var PollBackoff = 2 * time.Second
 
 // emptyPollFloor is the minimum time an empty-poll cycle may take, a guard against a fast or
 // misbehaving tower returning 204 immediately (which would otherwise busy-spin the worker). A

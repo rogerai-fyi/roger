@@ -333,6 +333,7 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
   # This spec does NOT change the proxy. It pins today's behavior and records that a guest can
   # still SEND "@profile/<name>" as the model without it being listed. Listing profiles needs a
   # re-ruling on that approved scenario.
+  @proxy
   Scenario: The local proxy's /v1/models is unchanged - one entry, the tuned band
     Given a tuned band whose model is "qwen3-32b" and the local proxy bound to it
     And the consumer's config defines profiles "coding" and "cheap"
@@ -341,6 +342,7 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     And data[0].id is "qwen3-32b"
     And no "@profile/" entry is listed
 
+  @proxy
   Scenario: A guest can name a profile as the model through the local proxy even though it is not listed
     Given a tuned band whose model is "qwen3-32b" and the local proxy bound to it
     And the consumer's config defines profile "coding"
@@ -348,12 +350,14 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     Then the proxy resolves the profile into the body before relaying
     And the broker receives no "@profile/" string
 
+  @proxy
   Scenario: The local proxy does not forward GET /v1/models to the broker
     Given a tuned band whose model is "qwen3-32b" and the local proxy bound to it
     When an agent sends GET "/v1/models" with the session key
     Then the broker's /v1/models was not called
 
   # --- documentation -----------------------------------------------------------------------------
+  @docs
   Scenario: OpenAPI documents GET /v1/models and GET /v1/models/{id} with the rogerai block schema
     When the OpenAPI document is read
     Then it documents /v1/models and /v1/models/{id} as public GET reads

@@ -1139,17 +1139,16 @@ components:
         `provider.ignore`, `provider.allow_fallbacks`, `provider.sort`,
         `provider.quantizations`, `provider.require_parameters`,
         `provider.max_price.prompt`, `provider.max_price.completion`,
+        `provider.max_price.request`, `models`,
         `roger.pref`, `roger.require`, `roger.min_tps`, `roger.confidential`,
-        `roger.freq`, `roger.self_hosted_only`, and the `:free` / `:floor` /
-        `:nitro` sugar on `model`. Every other key below is part of the contract
-        and is RECOGNISED BY NAME, validated, but not yet acted on: a
-        well-formed value for it is a 400 `unsupported_routing_key` naming the
-        key (never a silent drop), until the slice that implements it ships.
-        That covers a `models` list naming more than one model,
-        `provider.max_price.request`, `roger.params_b`, `roger.min_ctx`,
-        `roger.max_ttft_ms`, `roger.trust_min` other than `any`, and
-        `roger.region`. `roger.profile` (and a `@profile/<name>` model) is always
-        a 400 `unknown_profile`: profiles are resolved by the client.
+        `roger.freq`, `roger.self_hosted_only`, `roger.params_b`,
+        `roger.min_ctx`, `roger.max_ttft_ms`, `roger.trust_min`,
+        `roger.region`, and the `:free` / `:floor` / `:nitro` sugar on `model`.
+        A declared attribute an offer does not declare (params_b with no
+        estimate, a declared context window, a region) leaves it ineligible
+        under that filter; a measured one never measured (ttft) passes.
+        `roger.profile` (and a `@profile/<name>` model) is always a 400
+        `unknown_profile`: profiles are resolved by the client.
       properties:
         model:
           type: string
@@ -1293,6 +1292,15 @@ components:
         price_in: { type: number, description: credits per 1M input tokens (base/fallback) }
         price_out: { type: number, description: credits per 1M output tokens (base/fallback) }
         ctx: { type: integer }
+        params_b:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 10000
+          description: >-
+            Parameter count in billions, DECLARED by the station (never measured or
+            verified). Optional; when present it must be above 0 and at most 10000.
+            On the feed, an offer whose station declared none carries the broker's
+            estimate read from the model id, marked by params_estimated.
         schedule: { type: array, items: { $ref: '#/components/schemas/PriceWindow' } }
     Offer:
       allOf:
@@ -1302,6 +1310,12 @@ components:
             node_id: { type: string }
             region: { type: string }
             hw: { type: string }
+            params_estimated:
+              type: boolean
+              description: >-
+                false = params_b is the station's declaration; true = the broker
+                filled params_b from the model id (an estimate). Omitted with
+                params_b when neither exists.
             online: { type: boolean }
             confidential: { type: boolean }
             free_now: { type: boolean }

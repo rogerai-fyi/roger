@@ -377,7 +377,6 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | provider.ignore         |
       | provider.quantizations  |
 
-    @slice2
     Examples: honoured from slice 2 (roger.region is validated now, refused unsupported_routing_key until then)
       | path                    |
       | roger.region            |
@@ -479,7 +478,6 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-a"
 
-  @slice2
 
   Scenario: roger.confidential true together with roger.trust_min "verified" is accepted and the stricter (confidential) applies
     Given node "n-tee" is on air for "qwen3-32b" at in $0.10 out $0.30 per 1M, confidential-attested, seen just now
@@ -487,7 +485,6 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     Then the response is 200
     And the served node is "n-tee"
 
-  @slice2
 
   Scenario: roger.confidential false together with roger.trust_min "confidential" is not an error - the stricter wins
     # A default (false) can never weaken a stated restriction; the same rule makes a body

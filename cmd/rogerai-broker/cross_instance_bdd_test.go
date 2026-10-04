@@ -119,15 +119,20 @@ type xiNode struct {
 
 	hc *http.Client
 
-	mu       sync.Mutex
-	beats    []int
-	reregs   int
-	pollWG   sync.WaitGroup
-	pollErr  error
-	polled   *protocol.Job // the job the poller received (nil = none)
-	pollCode int
-	resCode  int // the /agent/result POST status (0 = not posted)
-	strmCode int // the /agent/stream POST status (0 = not posted)
+	mu     sync.Mutex
+	beats  []int
+	reregs int
+	pollWG sync.WaitGroup
+	// pollCtx is cancelled at scenario cleanup so an idle long-poll hangs up instead of
+	// holding teardown for the broker's full 25 s poll hold (the broker frees the handler
+	// the moment the node hangs up).
+	pollCtx    context.Context
+	pollCancel context.CancelFunc
+	pollErr    error
+	polled     *protocol.Job // the job the poller received (nil = none)
+	pollCode   int
+	resCode    int // the /agent/result POST status (0 = not posted)
+	strmCode   int // the /agent/stream POST status (0 = not posted)
 }
 
 // register signs and POSTs the node's registration to inst; ownerSigned adds the
@@ -199,19 +204,37 @@ func brokerForgotXI(status int) bool {
 // signed result to resInst. Runs in the background; join with pollWG.Wait().
 func (n *xiNode) pollServe(t *testing.T, pollInst, resInst, strmInst *xiInst, delay time.Duration, chunks []string, completion string) {
 	t.Helper()
+	n.mu.Lock()
+	if n.pollCtx == nil {
+		n.pollCtx, n.pollCancel = context.WithCancel(context.Background())
+	}
+	ctx := n.pollCtx
+	n.mu.Unlock()
 	n.pollWG.Add(1)
 	go func() {
 		defer n.pollWG.Done()
-		req, _ := http.NewRequest(http.MethodGet, pollInst.url()+"/agent/poll?node="+n.id, nil)
-		req.Header.Set("Authorization", "Bearer "+n.token)
 		hc := &http.Client{Timeout: 35 * time.Second}
-		resp, err := hc.Do(req)
-		if err != nil {
-			n.pollErr = err
-			return
+		// Like a real node: an idle poll answered 204 (the hold expired with no job) is
+		// re-polled until a job arrives or the scenario ends (ctx cancelled at cleanup).
+		var resp *http.Response
+		var body []byte
+		for {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, pollInst.url()+"/agent/poll?node="+n.id, nil)
+			req.Header.Set("Authorization", "Bearer "+n.token)
+			r, err := hc.Do(req)
+			if err != nil {
+				if ctx.Err() == nil {
+					n.pollErr = err
+				}
+				return
+			}
+			body, _ = io.ReadAll(r.Body)
+			r.Body.Close()
+			resp = r
+			if r.StatusCode != http.StatusNoContent || ctx.Err() != nil {
+				break
+			}
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
 		n.mu.Lock()
 		n.pollCode = resp.StatusCode
 		n.mu.Unlock()
@@ -305,6 +328,7 @@ type xiState struct {
 	relayDone    chan struct{}
 
 	prevRelayWait time.Duration
+	prevPollHold  time.Duration
 }
 
 func (s *xiState) reset(t *testing.T) {
@@ -328,10 +352,20 @@ func (s *xiState) reset(t *testing.T) {
 	// every completing scenario finishes far inside it. Restored in the After hook.
 	s.prevRelayWait = nonStreamRelayWait
 	nonStreamRelayWait = 5 * time.Second
+	// An idle poll re-polls after 2 s instead of 25 s: no scenario waits on the hold
+	// itself, and a teardown that races a node's re-poll then waits at most this long.
+	s.prevPollHold = agentPollHold
+	agentPollHold = 2 * time.Second
 }
 
 func (s *xiState) cleanup() {
 	if s.node != nil {
+		s.node.mu.Lock()
+		cancel := s.node.pollCancel
+		s.node.mu.Unlock()
+		if cancel != nil {
+			cancel() // an idle long-poll hangs up now; a delivered job has already been handled
+		}
 		s.node.pollWG.Wait()
 	}
 	for _, i := range s.inst {
@@ -346,6 +380,7 @@ func (s *xiState) cleanup() {
 		_ = c.Close()
 	}
 	nonStreamRelayWait = s.prevRelayWait
+	agentPollHold = s.prevPollHold
 }
 
 // newInstance builds one broker instance on the shared db + valkey, running the full

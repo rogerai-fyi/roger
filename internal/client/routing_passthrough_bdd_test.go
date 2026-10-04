@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -180,15 +181,44 @@ func (s *rpNegState) chat(body string) error {
 	return nil
 }
 
+// chatWithCarrier sends a guest body. By default the guest names the tuned band's model (a
+// guest naming any other model with a carrier is refused: guest may only tighten); the form
+// `model "X" and <carrier>` names X explicitly.
 func (s *rpNegState) chatWithCarrier(carrier string) error {
 	if carrier == "no routing carrier" {
 		return s.plainChat()
 	}
-	return s.chat(`{"model":"anything","messages":[{"role":"user","content":"hi"}],` + carrier + `}`)
+	model := s.model
+	if m := rpNegModelAnd.FindStringSubmatch(carrier); m != nil {
+		model, carrier = m[1], m[2]
+	}
+	enc, _ := json.Marshal(model)
+	return s.chat(`{"model":` + string(enc) + `,"messages":[{"role":"user","content":"hi"}],` + carrier + `}`)
 }
 
+var rpNegModelAnd = regexp.MustCompile(`^model "([^"]+)" and (.+)$`)
+
+// plainChat sends a body with NO carrier and a foreign model id, which the proxy rewrites to
+// the band model (model_rewrite.feature).
 func (s *rpNegState) plainChat() error {
 	return s.chat(`{"model":"anything","messages":[{"role":"user","content":"hi"}]}`)
+}
+
+func (s *rpNegState) brokerReceivesModel(want string) error {
+	a, err := s.last()
+	if err != nil {
+		return err
+	}
+	var got struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(a.raw, &got); err != nil {
+		return fmt.Errorf("broker body is not JSON: %v", err)
+	}
+	if got.Model != want {
+		return fmt.Errorf("the broker received model %q, want %q", got.Model, want)
+	}
+	return nil
 }
 
 func (s *rpNegState) last() (rpAttempt, error) {
@@ -461,6 +491,13 @@ func TestRoutingPassthroughNegotiation(t *testing.T) {
 			sc.Step(`^the guest receives an OpenAI-shaped 400 "([^"]*)"$`, st.openAI400)
 			sc.Step(`^nothing reaches the broker$`, st.nothingReachedBroker)
 			sc.Step(`^the broker receives models (\[.*\])$`, st.brokerReceivesModels)
+			sc.Step(`^the broker receives model "([^"]+)"$`, st.brokerReceivesModel)
+			sc.Step(`^the broker receives model "([^"]+)" and models (\[.*\])$`, func(model, models string) error {
+				if err := st.brokerReceivesModel(model); err != nil {
+					return err
+				}
+				return st.brokerReceivesModels(models)
+			})
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

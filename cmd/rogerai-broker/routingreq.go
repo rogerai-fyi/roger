@@ -31,6 +31,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"regexp"
@@ -108,7 +110,9 @@ type routingBody struct {
 	SelfHostedOnly *bool
 	Confidential   *bool
 	Freq           *string
-	Require        []string // de-duplicated, closed set
+	Require        []string   // de-duplicated, closed set
+	Net            netFilters // params_b, min_ctx, max_ttft_ms, trust_min verified, region (slice 2)
+	TrustConf      bool       // trust_min "confidential": the same as confidential:true
 
 	// models[] as sent (every entry a non-empty string); the effective list is built by
 	// effectiveModels once the primary model is known.
@@ -260,6 +264,44 @@ func routingList(path string, raw json.RawMessage) ([]string, *routingError) {
 	return out, nil
 }
 
+// quantList reads provider.quantizations: a list of labels canonicalized by the SAME rule a
+// station's label is (protocol.CanonicalQuant: trimmed, control characters stripped), so a
+// requested label compares like the one it names. A label longer than the canonical bound
+// is refused rather than truncated into a different name.
+func quantList(raw json.RawMessage) ([]string, *routingError) {
+	const path = "provider.quantizations"
+	var items []json.RawMessage
+	if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '[' || json.Unmarshal(raw, &items) != nil {
+		return nil, invalidRouting(path, "want a list of strings")
+	}
+	if len(items) > routingListMax {
+		return nil, invalidRouting(path, "more than 32 entries")
+	}
+	out := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, it := range items {
+		s, ok := routingString(it)
+		if !ok {
+			return nil, invalidRouting(path, "every entry must be a non-empty string")
+		}
+		if len([]rune(strings.TrimSpace(s))) > quantLabelMax {
+			return nil, invalidRouting(path, "a label is longer than 40 characters")
+		}
+		c := strings.ToLower(protocol.CanonicalQuant(s))
+		if c == "" {
+			return nil, invalidRouting(path, "every entry must be a non-empty string")
+		}
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// quantLabelMax is the canonical label bound (protocol variantTextMax).
+const quantLabelMax = 40
+
 // parseRoutingBody decodes the routing carriers out of an already-read request body. A body
 // without any carrier decodes to the zero routingBody with no error.
 func parseRoutingBody(body []byte) (routingBody, error) {
@@ -343,7 +385,7 @@ func (rb *routingBody) readProvider(p, maxPrice map[string]json.RawMessage) *rou
 	for _, l := range []struct {
 		key  string
 		into *[]string
-	}{{"order", &rb.Order}, {"only", &rb.Only}, {"ignore", &rb.Ignore}, {"quantizations", &rb.Quantizations}} {
+	}{{"order", &rb.Order}, {"only", &rb.Only}, {"ignore", &rb.Ignore}} {
 		raw, ok := p[l.key]
 		if !ok {
 			continue
@@ -353,6 +395,13 @@ func (rb *routingBody) readProvider(p, maxPrice map[string]json.RawMessage) *rou
 			return err
 		}
 		*l.into = list
+	}
+	if raw, ok := p["quantizations"]; ok {
+		list, err := quantList(raw)
+		if err != nil {
+			return err
+		}
+		rb.Quantizations = list
 	}
 	// An EMPTY order / only is a malformed preference ("nothing" is not a priority and not an
 	// allow-list); an empty ignore / quantizations means "nothing to deny / no filter".
@@ -467,14 +516,19 @@ func (rb *routingBody) readRoger(r map[string]json.RawMessage) *routingError {
 		if !okLo || !okHi || lo <= 0 || hi <= 0 || lo > hi {
 			return invalidRouting("roger.params_b", "want two positive numbers, min <= max")
 		}
-		rb.notYet("roger.params_b")
+		rb.Net.paramsLo, rb.Net.paramsHi = lo, hi
 	}
 	for _, key := range []string{"min_ctx", "max_ttft_ms"} {
 		if raw, ok := r[key]; ok {
-			if v, ok := routingNum(raw); !ok || v <= 0 || v != math.Trunc(v) {
+			v, ok := routingNum(raw)
+			if !ok || v <= 0 || v != math.Trunc(v) || v > math.MaxInt32 {
 				return invalidRouting("roger."+key, "want a positive integer")
 			}
-			rb.notYet("roger." + key)
+			if key == "min_ctx" {
+				rb.Net.minCtx = int(v)
+			} else {
+				rb.Net.maxTTFT = v
+			}
 		}
 	}
 	if raw, ok := r["trust_min"]; ok {
@@ -482,9 +536,9 @@ func (rb *routingBody) readRoger(r map[string]json.RawMessage) *routingError {
 		if !isStr || (s != "any" && s != "verified" && s != "confidential") {
 			return invalidRouting("roger.trust_min", "want any, verified or confidential")
 		}
-		if s != "any" { // "any" is the default: it states no restriction
-			rb.notYet("roger.trust_min")
-		}
+		// "any" is the default: it states no restriction.
+		rb.Net.trustVerified = s == "verified"
+		rb.TrustConf = s == "confidential"
 	}
 	if raw, ok := r["region"]; ok {
 		list, err := routingList("roger.region", raw)
@@ -497,7 +551,7 @@ func (rb *routingBody) readRoger(r map[string]json.RawMessage) *routingError {
 			}
 		}
 		if len(list) > 0 {
-			rb.notYet("roger.region")
+			rb.Net.regions = stringSet(list)
 		}
 	}
 	if raw, ok := r["profile"]; ok {
@@ -942,4 +996,48 @@ func unionSets(sets ...map[string]bool) map[string]bool {
 		}
 	}
 	return out
+}
+
+// regDecodeField names the field a registration body failed to decode at, so a refusal says
+// which declaration was wrong (": invalid params_b"); "" when it cannot tell.
+func regDecodeField(body []byte, err error) string {
+	var te *json.UnmarshalTypeError
+	if errors.As(err, &te) && te.Field != "" {
+		f := te.Field
+		if i := strings.LastIndexByte(f, '.'); i >= 0 {
+			f = f[i+1:]
+		}
+		return ": invalid " + f
+	}
+	var se *json.SyntaxError
+	if errors.As(err, &se) && se.Offset > 0 && int(se.Offset) <= len(body) {
+		if m := lastJSONKeyRe.FindAllSubmatch(body[:se.Offset], -1); len(m) > 0 {
+			return ": invalid " + string(m[len(m)-1][1])
+		}
+	}
+	return ""
+}
+
+var lastJSONKeyRe = regexp.MustCompile(`"([A-Za-z0-9_]+)"\s*:`)
+
+// regParamsBError checks every offer's params_b as sent: present means a JSON number that
+// protocol.ValidParamsB accepts. "" = acceptable (including absent).
+func regParamsBError(body []byte) string {
+	var raw struct {
+		Offers []map[string]json.RawMessage `json:"offers"`
+	}
+	if json.Unmarshal(body, &raw) != nil {
+		return ""
+	}
+	for _, o := range raw.Offers {
+		v, ok := o["params_b"]
+		if !ok || isJSONNull(v) {
+			continue
+		}
+		f, isNum := routingNum(v)
+		if !isNum || !protocol.ValidParamsB(f) {
+			return fmt.Sprintf("invalid params_b: want a number of billions above 0 and at most %d", protocol.ParamsBMax)
+		}
+	}
+	return ""
 }

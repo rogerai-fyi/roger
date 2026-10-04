@@ -1,19 +1,17 @@
 package main
 
 // models.go serves GET /v1/models (and /v1/models/{id}): the OpenAI-shaped catalog every SDK
-// probes at startup, one entry per distinct model id with a public offer ON AIR
+// probes at startup, one entry per distinct CHAT model id with a public offer ON AIR
 // (features/discovery/models_endpoint.feature, ROUTING-EXPRESSION-CONTRACT §8). It is a
-// collapse of the same computeDiscover view /discover serves - the same liveness, ban and
-// private-band rules by construction - so nothing enumerable here is hidden there or vice
-// versa. Public read: the same CORS + cache posture as /market, no per-IP gate.
-//
-// Slice 0 carries the OpenAI fields plus the routing facts the pins need (cooling); the full
-// `rogerai` block and the filter params are slice 2's (their scenarios stay untagged).
+// collapse of the same cached /discover feed - the same liveness, ban and private-band rules
+// by construction - and it honors the same filter params, applied after the cache. Public
+// read: the same CORS + cache posture as /market, no per-IP gate.
 
 import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,61 +32,173 @@ func (b *broker) models(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cors(w)
-	if id := strings.TrimPrefix(r.URL.Path, "/v1/models/"); id != "" && id != r.URL.Path {
-		// One entry, filtered out of the SAME cached list (never a per-hit recompute of the
-		// discover view on an ungated public path).
-		var list struct {
-			Data []modelEntry `json:"data"`
-		}
-		_ = json.Unmarshal(b.cachedJSON("models", publicMarketTTL, b.computeModels), &list)
-		for _, e := range list.Data {
-			if e.ID == id {
-				writeJSON(w, http.StatusOK, e)
-				return
-			}
-		}
-		jsonErr(w, http.StatusNotFound, "not found")
+	f, ok := readFilter(w, r)
+	if !ok {
 		return
 	}
-	b.serveCachedJSON(w, "models", publicMarketTTL, b.computeModels)
+	id, one := strings.CutPrefix(r.URL.Path, "/v1/models/")
+	if !one && !f.set {
+		b.serveCachedJSON(w, "models", publicMarketTTL, b.computeModels)
+		return
+	}
+	// A filter, or one id: collapsed from the cached feed (filtered), with each model's
+	// created read off the cached catalog - never a per-hit recompute of the discover view.
+	data := b.collapseModels(f.filterOffers(b.cachedOffers()), b.catalogCreated())
+	if !one {
+		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
+		return
+	}
+	for _, e := range data {
+		if e.ID == id {
+			writeJSON(w, http.StatusOK, e)
+			return
+		}
+	}
+	jsonErrCode(w, http.StatusNotFound, "model_not_found", "no public station is on air for that model")
 }
 
-// computeModels collapses the live /discover offers by model id: listed iff at least one
-// public offer is on air (stale, banned and private nodes are already out of that view).
+// computeModels is the unfiltered catalog (the cached "models" entry).
 func (b *broker) computeModels() any {
 	offers, _ := b.computeDiscover().(map[string]any)["offers"].([]offerView)
 	now := time.Now().Unix()
-	byID := map[string]*modelEntry{}
+	return map[string]any{"object": "list", "data": b.collapseModels(offers, func(id string) int64 { return b.firstSeenModel(id, now) })}
+}
+
+// catalogCreated reads each model's created off the cached unfiltered catalog.
+func (b *broker) catalogCreated() func(string) int64 {
+	var list struct {
+		Data []modelEntry `json:"data"`
+	}
+	_ = json.Unmarshal(b.cachedJSON("models", publicMarketTTL, b.computeModels), &list)
+	created := make(map[string]int64, len(list.Data))
+	for _, e := range list.Data {
+		created[e.ID] = e.Created
+	}
+	now := time.Now().Unix()
+	return func(id string) int64 {
+		if t, ok := created[id]; ok {
+			return t
+		}
+		return b.firstSeenModel(id, now)
+	}
+}
+
+// modelAgg accumulates one model's rogerai block over its on-air chat offers.
+type modelAgg struct {
+	providers, curated                int
+	minIn, minOut, bestTPS            float64
+	priced                            bool
+	ctxMax                            int
+	declared, estimated               []float64
+	caps, quants                      map[string]bool
+	free, confidential, verified, all bool // all: every offer cooling
+	coolUntil                         int64
+}
+
+// collapseModels collapses offers into catalog entries, sorted by id.
+func (b *broker) collapseModels(offers []offerView, created func(string) int64) []modelEntry {
+	byID := map[string]*modelAgg{}
+	var ids []string
 	for _, o := range offers {
-		if !o.Online {
-			continue
+		if !o.Online || o.Modality != "chat" {
+			continue // a voice offer is not a chat model
 		}
-		e := byID[o.Model]
-		if e == nil {
-			e = &modelEntry{ID: o.Model, Object: "model", OwnedBy: "rogerai", Created: b.firstSeenModel(o.Model, now),
-				RogerAI: map[string]any{"cooling": true}}
-			byID[o.Model] = e
+		a := byID[o.Model]
+		if a == nil {
+			a = &modelAgg{caps: map[string]bool{}, quants: map[string]bool{}, all: true}
+			byID[o.Model] = a
+			ids = append(ids, o.Model)
 		}
-		// cooling: every on-air station of the model is in an upstream-429 cooldown; the
-		// soonest expiry is when routing resumes.
+		if o.Curated {
+			a.curated++
+		} else {
+			a.providers++
+		}
+		if !a.priced || o.In < a.minIn {
+			a.minIn = o.In
+		}
+		if !a.priced || o.Out < a.minOut {
+			a.minOut = o.Out
+		}
+		a.priced = true
+		if o.TPS > a.bestTPS {
+			a.bestTPS = o.TPS
+		}
+		if !o.CtxEstimated && o.Ctx > a.ctxMax {
+			a.ctxMax = o.Ctx
+		}
+		if o.ParamsEstimated != nil {
+			if *o.ParamsEstimated {
+				a.estimated = append(a.estimated, o.ParamsB)
+			} else {
+				a.declared = append(a.declared, o.ParamsB)
+			}
+		}
+		for _, c := range o.Capabilities {
+			a.caps[c] = true
+		}
+		if o.Quant != "" {
+			a.quants[o.Quant] = true
+		}
+		a.free = a.free || o.FreeNow || (o.In == 0 && o.Out == 0)
+		a.confidential = a.confidential || o.Confidential
+		a.verified = a.verified || o.Verified
 		if o.CoolingUntil == 0 {
-			e.RogerAI["cooling"] = false
-			delete(e.RogerAI, "cooling_until")
-		} else if e.RogerAI["cooling"] == true {
-			if cur, _ := e.RogerAI["cooling_until"].(int64); cur == 0 || o.CoolingUntil < cur {
-				e.RogerAI["cooling_until"] = o.CoolingUntil
+			a.all = false
+		} else if a.coolUntil == 0 || o.CoolingUntil < a.coolUntil {
+			a.coolUntil = o.CoolingUntil
+		}
+	}
+	sort.Strings(ids)
+	data := make([]modelEntry, 0, len(ids))
+	for _, id := range ids {
+		a := byID[id]
+		block := map[string]any{
+			"providers": a.providers, "curated": a.curated,
+			"min_price_in": a.minIn, "min_price_out": a.minOut, "best_tps": a.bestTPS,
+			"free_now": a.free, "confidential": a.confidential, "verified": a.verified,
+			"quants": sortedKeys(a.quants), "cooling": a.all,
+		}
+		if a.all {
+			block["cooling_until"] = a.coolUntil
+		}
+		if a.ctxMax > 0 {
+			block["ctx_max"] = a.ctxMax // DECLARED windows only
+		}
+		// params_b: the stations' declarations when any declares one, else the estimate.
+		if vals, est := a.declared, false; len(vals) > 0 || len(a.estimated) > 0 {
+			if len(vals) == 0 {
+				vals, est = a.estimated, true
+			}
+			lo, hi := vals[0], vals[0]
+			for _, v := range vals {
+				lo, hi = min(lo, v), max(hi, v)
+			}
+			block["params_b"], block["params_estimated"] = hi, est
+			if lo != hi {
+				block["params_b_min"], block["params_b_max"] = lo, hi
+			}
+		}
+		if len(a.caps) > 0 {
+			block["capabilities"] = sortedKeys(a.caps)
+		}
+		data = append(data, modelEntry{ID: id, Object: "model", OwnedBy: "rogerai", Created: created(id), RogerAI: block})
+	}
+	return data
+}
+
+// firstSeenModel is the unix time a model FIRST came on air: a shared-store record (the same
+// on every broker instance), written once and read back; the in-memory map serves a
+// single-instance broker without a shared store, or one whose store is unreachable.
+func (b *broker) firstSeenModel(id string, now int64) int64 {
+	if b.shared != nil {
+		key := "model_first_seen:" + id
+		if _, err := b.shared.setIfAbsent(key, strconv.FormatInt(now, 10), 0); err == nil {
+			if v, found, err := b.shared.counterGet(key); err == nil && found {
+				return int64(v)
 			}
 		}
 	}
-	data := make([]modelEntry, 0, len(byID))
-	for _, e := range byID {
-		data = append(data, *e)
-	}
-	sort.Slice(data, func(i, j int) bool { return data[i].ID < data[j].ID })
-	return map[string]any{"object": "list", "data": data}
-}
-
-func (b *broker) firstSeenModel(id string, now int64) int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if t, ok := b.modelFirstSeen[id]; ok {
