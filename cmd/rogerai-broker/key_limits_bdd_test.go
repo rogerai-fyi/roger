@@ -2460,6 +2460,11 @@ func (k *kg5State) registerLimits(sc *godog.ScenarioContext) {
 
 	// lineage, generation, telemetry
 	sc.Step(`^the /console lineage row carries key_id "([^"]+)"$`, k.kl5ConsoleKeyID)
+	sc.Step(`^"([^"]+)" also runs station "([^"]+)" for "([^"]+)" that served one relay for another account$`, k.kl5OwnStationServed)
+	sc.Step(`^/console for "([^"]+)" has role "([^"]+)" and an operator event served by "([^"]+)"$`, k.kl5BothViewsOwner)
+	sc.Step(`^its consumer events list the relay made with "([^"]+)", carrying key_id "[^"]+" and its cost$`, k.kl5BothViewsConsumer)
+	sc.Step(`^its consumer counters count that relay in spend_today$`, k.kl5BothViewsSpend)
+	sc.Step(`^no consumer event is the relay "[^"]+" served for the other account$`, k.kl5BothViewsNoLeak)
 	sc.Step(`^the consumer view of GET /generation\?id= carries key_id "([^"]+)", key_limit ([0-9.]+), key_spend_after ([0-9.]+) \(fields absent for non-key requests\)$`, k.kl5GenConsumer)
 	sc.Step(`^the owner view \(the station's payout owner\) carries key_id only, never key_limit or key_spend_after$`, k.kl5GenOwner)
 	sc.Step(`^"([^"]+)" GETs /usage\?by=key$`, k.kl5UsageByKey)
@@ -2502,4 +2507,121 @@ func TestKeyLimitsBDD(t *testing.T) {
 	kg5Run(t, "key_limits", "../../features/relay/key_limits.feature", func(k *kg5State, sc *godog.ScenarioContext) {
 		k.registerLimits(sc)
 	})
+}
+
+// ---- /console both views (founder ruling 2026-10-04) --------------------------------------
+
+type kl5OwnServed struct {
+	station string // the station acct-a runs
+	reqID   string // the relay it served for another account
+}
+
+func (k *kg5State) kl5OwnStationServed(acct, name, model string) error {
+	a, err := k.acct(acct)
+	if err != nil {
+		return err
+	}
+	if err := k.account("acct-other", "u_gh_other", 5); err != nil {
+		return err
+	}
+	st := k.standUp(name, stationOpts{model: model, priceIn: 1, priceOut: 2, ownerPriv: a.who.priv})
+	k.b.mu.Lock()
+	k.b.trust[st.id] = trustState{probed: true, probeOK: true, ttftMs: 200}
+	k.b.mu.Unlock()
+	k.scriptJSON(name, 20, "", 0)
+	res, err := k.relayRaw(k.b, "", k.relayBody(model, false, nil), map[string]string{"sign": "acct-other"})
+	if err != nil {
+		return err
+	}
+	if res.code != 200 || res.hdr.Get("X-RogerAI-Provider") != st.id {
+		return fmt.Errorf("the other account's relay to %s = %d via %q, want 200 via %s: %.300s", name, res.code, res.hdr.Get("X-RogerAI-Provider"), st.id, res.body)
+	}
+	k.ownServed = &kl5OwnServed{station: st.id, reqID: res.reqID}
+	return nil
+}
+
+func (k *kg5State) kl5Console(acct string) (map[string]any, error) {
+	k.consoleRelayID = k.resp.reqID // k.call below replaces k.resp with the /console response
+	res, err := k.call(kg5Req{as: "acct:" + acct, method: http.MethodGet, path: "/console"})
+	if err != nil {
+		return nil, err
+	}
+	if res.code != 200 {
+		return nil, fmt.Errorf("GET /console as %s = %d: %.300s", acct, res.code, res.body)
+	}
+	k.consoleJS = res.js
+	return res.js, nil
+}
+
+func kl5Events(js map[string]any, field string) []map[string]any {
+	raw, _ := js[field].([]any)
+	out := make([]map[string]any, 0, len(raw))
+	for _, e := range raw {
+		if m, ok := e.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func (k *kg5State) kl5BothViewsOwner(acct, role, station string) error {
+	js, err := k.kl5Console(acct)
+	if err != nil {
+		return err
+	}
+	if js["role"] != role {
+		return fmt.Errorf("/console role %v, want %q", js["role"], role)
+	}
+	if k.ownServed == nil {
+		return fmt.Errorf("no relay was served by %s in this scenario", station)
+	}
+	for _, e := range kl5Events(js, "events") {
+		if e["request_id"] == k.ownServed.reqID && e["node"] == k.ownServed.station {
+			return nil
+		}
+	}
+	return fmt.Errorf("the operator events do not list the relay %s served by %s: %v", k.ownServed.reqID, station, js["events"])
+}
+
+func (k *kg5State) kl5BothViewsConsumer(label string) error {
+	js := k.consoleJS
+	want := k.keyID(label)
+	for _, e := range kl5Events(js, "consumer_events") {
+		if e["request_id"] == k.consoleRelayID {
+			if e["key_id"] != want {
+				return fmt.Errorf("the consumer event for %s carries key_id %v, want %s", k.consoleRelayID, e["key_id"], want)
+			}
+			if c, _ := kg5Num(e["cost"]); c <= 0 {
+				return fmt.Errorf("the consumer event for %s carries cost %v, want the billed cost", k.consoleRelayID, e["cost"])
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("consumer_events does not list the relay %s made with %s: %v", k.consoleRelayID, label, js["consumer_events"])
+}
+
+func (k *kg5State) kl5BothViewsSpend() error {
+	cc, ok := k.consoleJS["consumer_counters"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("/console carries no consumer_counters: %v", k.consoleJS)
+	}
+	if v, _ := kg5Num(cc["spend_today"]); v <= 0 {
+		return fmt.Errorf("consumer_counters.spend_today %v, want the relay's cost counted", cc["spend_today"])
+	}
+	if v, _ := kg5Num(cc["requests_today"]); v < 1 {
+		return fmt.Errorf("consumer_counters.requests_today %v, want >= 1", cc["requests_today"])
+	}
+	return nil
+}
+
+func (k *kg5State) kl5BothViewsNoLeak() error {
+	if k.ownServed == nil {
+		return fmt.Errorf("no relay was served by the account's own station")
+	}
+	for _, e := range kl5Events(k.consoleJS, "consumer_events") {
+		if e["request_id"] == k.ownServed.reqID {
+			return fmt.Errorf("the other account's relay %s appears among acct-a's consumer events", k.ownServed.reqID)
+		}
+	}
+	return nil
 }

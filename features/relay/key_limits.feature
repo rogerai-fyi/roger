@@ -391,6 +391,17 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     When a relay bearing "k1" is served
     Then the /console lineage row carries key_id "k1"
 
+  # added 2026-10-04 (founder ruling): an account that runs stations AND buys inference sees both
+  # views on /console - the operator view (what its stations served, unchanged) and, separately,
+  # its own consumer requests (with key_id when key-funded) and its own spend today.
+  Scenario: An account that runs stations and buys inference sees both views on /console
+    Given "acct-a" also runs station "n-own" for "own-model" that served one relay for another account
+    When a relay bearing "k1" is served
+    Then /console for "acct-a" has role "owner" and an operator event served by "n-own"
+    And its consumer events list the relay made with "k1", carrying key_id "k1" and its cost
+    And its consumer counters count that relay in spend_today
+    And no consumer event is the relay "n-own" served for the other account
+
   # corrected 2026-10-02 (founder-approved): key_spend_after 1.002 needs $1.00 spent through the key first
   Scenario: /generation shows key_id, and the key state at settle in the consumer view only
     Given "k1" has $1.00 spent this window

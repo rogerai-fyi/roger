@@ -92,6 +92,9 @@ type kg5Req struct {
 }
 
 type kg5State struct {
+	ownServed      *kl5OwnServed  // /console both views: the relay acct-a's own station served
+	consoleJS      map[string]any // the last /console payload read
+	consoleRelayID string         // the relay request id captured before reading /console
 	*gl3State
 
 	accts   map[string]*kg5Acct
@@ -137,6 +140,7 @@ func (k *kg5State) reset() error {
 	k.codes, k.promptEst, k.maxTokens, k.spendTok = nil, 0, 0, 0
 	k.gate, k.flight, k.mcounts, k.at0, k.bandCode = nil, nil, [2]int{}, time.Time{}, ""
 	k.heldP, k.heldC = 0, 0
+	k.ownServed, k.consoleJS, k.consoleRelayID = nil, nil, ""
 	k.explicit = map[string]bool{}
 	edgeCoinForTest = nil
 	k.model = "qwen3-32b"
