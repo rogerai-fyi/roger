@@ -4,6 +4,8 @@ package main
 
 import (
 	"errors"
+	"github.com/stretchr/testify/require"
+	"os"
 	"strings"
 	"testing"
 
@@ -170,4 +172,39 @@ func TestCoreCountSeam(t *testing.T) {
 	if p := detect.Assess(detectLocalHW()); p.Verdict != detect.VerdictBelow {
 		t.Errorf("a 2-core CPU-only box is %q, want %q", p.Verdict, detect.VerdictBelow)
 	}
+}
+
+// Found with tools/edgesim (2026-10-04): in a container, /proc/meminfo is the HOST's memory, while
+// the container may be held to far less. The limit is what a model can actually use, so it is the
+// RAM roger judges a fit against - and it says so.
+func TestAContainersMemoryLimitIsTheRAMAModelCanUse(t *testing.T) {
+	files := map[string]string{}
+	origRun, origRead, origDisk := hwRun, hwReadFile, hwDiskFreeMiB
+	t.Cleanup(func() { hwRun, hwReadFile, hwDiskFreeMiB = origRun, origRead, origDisk })
+	hwRun = noTools
+	hwDiskFreeMiB = func(string) (int, bool) { return 100000, true }
+	hwReadFile = func(p string) ([]byte, error) {
+		if v, ok := files[p]; ok {
+			return []byte(v), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	files["/proc/meminfo"] = "MemTotal: 131072000 kB\n" // 125 GiB on the host
+	files["/sys/fs/cgroup/memory.max"] = "8589934592\n"
+	hw := detectLocalHW()
+	require.Equal(t, 8192, hw.RAMTotalMiB, "an 8 GiB limit is the RAM a model can use")
+	require.Contains(t, strings.Join(hw.Undetermined, " "), "memory limit")
+
+	files["/sys/fs/cgroup/memory.max"] = "max\n"
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB, "no limit: the host's RAM")
+
+	delete(files, "/sys/fs/cgroup/memory.max")
+	files["/sys/fs/cgroup/memory/memory.limit_in_bytes"] = "9223372036854771712\n" // cgroup v1 "unlimited"
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB)
+	files["/sys/fs/cgroup/memory/memory.limit_in_bytes"] = "4294967296\n"
+	require.Equal(t, 4096, detectLocalHW().RAMTotalMiB, "a cgroup v1 limit counts too")
+
+	files["/sys/fs/cgroup/memory.max"] = "274877906944\n" // a limit above the host's RAM is no limit
+	delete(files, "/sys/fs/cgroup/memory/memory.limit_in_bytes")
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB)
 }
