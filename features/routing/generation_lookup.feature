@@ -174,11 +174,12 @@ Feature: GET /generation returns one request's full routing and billing history 
     When "alice" GETs /generation for it
     Then status is 402 and attempts is [] and cost is 0
 
+  # corrected 2026-10-02 (founder-approved): $0.000100 is not billable at the Background's $0.60/1M; 200 tokens = $0.000120
   Scenario: A cancelled stream shows cancelled true and the settled cost
-    Given "alice" disconnects mid-stream and the settle still bills $0.000100
+    Given "alice" disconnects mid-stream and the settle still bills $0.000120
     When "alice" GETs /generation for it
     Then cancelled is true
-    And cost is 0.000100
+    And cost is 0.000120
     And receipt is present
 
   Scenario: A voided attempt names its void_reason and upstream status
