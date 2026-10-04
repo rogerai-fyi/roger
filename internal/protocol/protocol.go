@@ -93,6 +93,10 @@ type ModelOffer struct {
 	// of the registration (regSigningBytes excludes only Sig and the display fields).
 	UpstreamIn  float64 `json:"upstream_in,omitempty"`
 	UpstreamOut float64 `json:"upstream_out,omitempty"`
+	// TPM is a CURATED station's declared tokens-per-minute budget at its provider (0 = none
+	// declared). The broker never dispatches one request whose measured prompt exceeds
+	// ROGERAI_TPM_REQUEST_SHARE of it (contract §14.2); a human station may not declare one.
+	TPM int `json:"tpm,omitempty"`
 	// Voice metadata (optional; set only for voice offers) — surfaced by GET /voices for the app
 	// picker (BROKER-VOICE-API.md). Passive display labels ONLY; a node address is never here.
 	Name      string `json:"name,omitempty"`

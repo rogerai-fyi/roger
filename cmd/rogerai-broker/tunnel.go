@@ -247,6 +247,12 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// (shared-registry mirror, lazy learn, DB re-hydrate) still cannot leak an unproven "tools".
 	// See features/trust/toolcall_probe.feature ("A node CANNOT earn 'tools' merely by declaring it").
 	for i := range reg.Offers {
+		// tpm is a curated station's provider budget (§14.2): a human station has no
+		// provider to declare one for, and a negative budget is no budget.
+		if t := reg.Offers[i].TPM; t < 0 || (t != 0 && !reg.Curated) {
+			jsonErr(w, http.StatusBadRequest, fmt.Sprintf("offer %q declares tpm %d: tpm (curated stations only) must be a positive tokens-per-minute budget", reg.Offers[i].Model, t))
+			return
+		}
 		// A HUMAN node has no upstream list: zero any supplied values, or arbitrary
 		// upstream_* numbers ride a human registration straight onto the public feed and
 		// dress it in curated pricing it does not have.
@@ -2093,7 +2099,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// ctx re-pick, failover plan); only the seed differs per attempt.
 	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, outTokens: lim.stated(), sort: routeSort,
 		needTools: doc.needsTools(), needVision: bodyVision,
-		quants: quantSet(routing.Quantizations), netFilters: routing.Net, budget: newPickBudget()}
+		quants: quantSet(routing.Quantizations), netFilters: routing.Net, budget: newPickBudget(),
+		pairCool: b.payerCooling(payerKey)}
 	// The work this relay did, one line per request (§14.B #12's observation point).
 	defer func() {
 		log.Printf("routing-work request=%s picks=%d body_decodes=%d", requestID, routeReq.budget.count(), bodyDecodes)
@@ -2593,6 +2600,34 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		if coolModel != "" {
 			b.answerBandCooling(w, coolModel, soonest)
+			return
+		}
+		// TOO BIG FOR A CURATED STATION'S TPM, NOT MISSING (§14.2): the pick found nothing
+		// because the only stations are curated ones whose declared tokens-per-minute share
+		// this one request exceeds. 429 with a Retry-After, nothing dispatched, $0, and no
+		// cooldown for anyone (the station said nothing; the request is the problem).
+		b.mu.Lock()
+		tpmOnly := false
+		for _, p := range picks {
+			if p.ok {
+				continue
+			}
+			rr := p.rr
+			rr.ignoreTPM = true
+			if _, _, hit := b.pickFor(p.m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow, rr.seeded(nil)); hit {
+				tpmOnly = true
+				break
+			}
+		}
+		b.mu.Unlock()
+		if budgetSpent() {
+			return
+		}
+		if tpmOnly {
+			b.stats.tpmRefusals.Add(1)
+			w.Header().Set("Retry-After", "60")
+			jsonErrCode(w, http.StatusTooManyRequests, "request_exceeds_station_tpm",
+				fmt.Sprintf("~%d prompt tokens is more than %.0f%% of the tokens-per-minute budget of every station serving %s - shorten the prompt or retry later", promptTokens, tpmRequestShare()*100, modelNames(cands)))
 			return
 		}
 		// CTX-GATED, NOT MISSING (the audit's compaction catch): if a re-pick with
@@ -3211,7 +3246,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if !usable {
 			b.settleVoid(payer, user, payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(promptStr, len(job.Body)), "")
 			if res.Status == http.StatusTooManyRequests {
-				b.coolStation(node.NodeID, req.Model, res.RetryAfterSec) // learned: the provider behind this station is at its ceiling
+				b.coolPair(node.NodeID, req.Model, payerKey, res.RetryAfterSec) // learned: the provider behind this station is at its ceiling (for this payer first, §14.2)
 			}
 			// FAILOVER BEFORE THE ERROR REACHES THE CONSUMER: a no-output failure with a
 			// sibling left in the plan (and enough deadline) is re-dispatched; the voided
@@ -4208,7 +4243,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				}
 				b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(bill.promptOf(job.Body), len(job.Body)), " (stream)")
 				if res.Status == http.StatusTooManyRequests {
-					b.coolStation(node.NodeID, model, res.RetryAfterSec)
+					b.coolPair(node.NodeID, model, bill.payerKey, res.RetryAfterSec)
 				}
 				// Nothing of this station reached the consumer yet: the caller may fail over.
 				// Once content has streamed the stream ends with the voided chunk + [DONE].
@@ -4707,6 +4742,11 @@ type pickReq struct {
 	// non-relay callers: audio, probes).
 	cap    capFilter
 	budget *pickBudget
+	// pairCool is the caller's own (station, model) cooldowns (§14.2), read once per request
+	// from the shared store; lifted with allowCooling like the station cooldown. ignoreTPM
+	// lifts the curated per-request TPM guard (the refusal path asks "was it only that?").
+	pairCool  map[string]time.Time
+	ignoreTPM bool
 }
 
 // capabilityNames is the capability requirement in words ("tools", "vision", "tools and
@@ -4896,6 +4936,14 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			// chat request only to chat — never cross-modality (empty = chat, back-compat).
 			if offerModality(o.Modality) != offerModality(req.modality) {
 				continue
+			}
+			if !req.allowCooling {
+				if pu, ok := pairUntil(req.pairCool, n.NodeID, o.Model); ok && coolNow.Before(pu) {
+					continue // this caller's pair is cooling (§14.2); the station is not
+				}
+			}
+			if !req.ignoreTPM && n.Curated && overTPMShare(o.TPM, req.promptTokens) {
+				continue // one request bigger than the curated station's per-request TPM share
 			}
 			in, out, afree, _ := o.ActivePrice(now)
 			// `:free`: only what costs this caller nothing right now (a zero out price with a

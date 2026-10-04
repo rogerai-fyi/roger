@@ -296,6 +296,17 @@ Feature: Nobody can hurt an honest party on the network cheaply
     Then no cooling alert is raised
     And the market still counts the station on air
 
+  # added 2026-10-04 (founder directive on shared state): pair cooldowns and the payer window
+  # live in the shared store; an outage fails the routing preference OPEN.
+  Scenario: A shared-store outage fails a pair cooldown open
+    Given nodes "n-1" and "n-2" are on air for "qwen3-32b"
+    And the shared store is unreachable
+    And "n-1" answers "alice"'s next request with 429 and Retry-After 30
+    When "alice" relays to "qwen3-32b"
+    Then the response is 200 served by "n-2"
+    And "n-1" is a candidate for "alice"
+    And "n-1" is a candidate for "bob"
+
   # --- #4: the per-request TPM guard on a curated station -----------------------------
 
   Scenario: A curated station may declare a tokens-per-minute budget

@@ -51,8 +51,10 @@ type offerView struct {
 	// instead of one folded number.
 	UpstreamIn  float64 `json:"upstream_in,omitempty"`
 	UpstreamOut float64 `json:"upstream_out,omitempty"`
-	In          float64 `json:"price_in"`  // active (time-of-use) price right now
-	Out         float64 `json:"price_out"` // active price right now
+	// TPM is a curated station's declared tokens-per-minute budget (§14.2), 0 = none.
+	TPM int     `json:"tpm,omitempty"`
+	In  float64 `json:"price_in"`  // active (time-of-use) price right now
+	Out float64 `json:"price_out"` // active price right now
 	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
 	// graded vs the same-model external reference (preferred) or the live per-model
 	// median. Computed server-side (assignPriceTiers) so every surface renders alike.
@@ -212,7 +214,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			ParamsB: params, ParamsEstimated: paramsEst,
 			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
 			Curated: n.Curated, CuratedProvider: n.CuratedProvider,
-			UpstreamIn: o.UpstreamIn, UpstreamOut: o.UpstreamOut,
+			UpstreamIn: o.UpstreamIn, UpstreamOut: o.UpstreamOut, TPM: o.TPM,
 			// canonicalized at read, never raw wire. The VERIFIED "tools" bit is unioned in from the
 			// probe verdict (toolsOK snapshot of toolsVerifiedForLocked): a node-declared "tools" was
 			// stripped at registration, so only a passing canary (this instance's own verdict, or the

@@ -1482,17 +1482,10 @@ func (s *fa6State) registerCurated(model, tpm string, curated bool) error {
 	} else {
 		offer.PriceIn, offer.PriceOut = 0.10, 0.30
 	}
+	offer.TPM = atoiMust(tpm) // a signed field of the offer, like every other
 	reg.Offers = []protocol.ModelOffer{offer}
 	reg.SignRegistration(priv)
-	raw, _ := json.Marshal(reg)
-	var m map[string]json.RawMessage
-	_ = json.Unmarshal(raw, &m)
-	var offers []map[string]json.RawMessage
-	_ = json.Unmarshal(m["offers"], &offers)
-	offers[0]["tpm"] = json.RawMessage(tpm)
-	ob, _ := json.Marshal(offers)
-	m["offers"] = ob
-	body, _ := json.Marshal(m)
+	body, _ := json.Marshal(reg)
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
 	signReq(r, ownerPriv, body)
 	w := httptest.NewRecorder()
@@ -2827,6 +2820,7 @@ func fa6Register(sc *godog.ScenarioContext, st *fa6State) {
 	sc.Step(`^the response is 503 with error code "([^"]+)" and Retry-After (\d+)$`, st.resp503CodeRA)
 	sc.Step(`^no attempt was dispatched$`, st.noAttempt)
 	sc.Step(`^two broker instances share one store$`, st.twoInstances)
+	sc.Step(`^the shared store is unreachable$`, func() error { s := st; s.mr.Close(); return nil })
 	sc.Step(`^"([^"]+)" answered "([^"]+)" with 429 and Retry-After (\d+) on instance A$`, st.answeredOnA)
 	sc.Step(`^"([^"]+)" relays to "([^"]+)" on instance B$`, st.relaysOnB)
 	sc.Step(`^"([^"]+)" is NOT a candidate for "([^"]+)" on instance B$`, st.notCandidateOnB)

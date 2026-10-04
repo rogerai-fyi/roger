@@ -876,6 +876,9 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then "a1" is not cooling and its success EWMA is graded down as today
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): a 429 cools the (station, payer)
+  # pair first; the station-wide cooldown this scenario pins needs ROGERAI_COOLDOWN_MIN_PAYERS
+  # distinct payers, so this runner uses the threshold 1 (one consumer is enough).
   Scenario: a 429 on the first model cools that station for its Retry-After
     Given "a1" returns 429 with Retry-After 30 and "b1" serves
     When a consumer relays across ["a", "b"]

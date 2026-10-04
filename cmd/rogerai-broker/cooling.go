@@ -435,7 +435,7 @@ func (b *broker) applyCooling(shared map[string]sharedCooling) {
 // no-provider band). Caller holds b.mu.
 func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (time.Time, bool) {
 	b.metricsMu.Lock()
-	none := len(b.cooling) == 0
+	none := len(b.cooling) == 0 && len(req.pairCool) == 0
 	b.metricsMu.Unlock()
 	if none {
 		return time.Time{}, false
@@ -453,7 +453,15 @@ func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTP
 			break
 		}
 		seen[n.NodeID] = true
-		if until, cooling := b.coolingUntil(n.NodeID); cooling && (!found || until.Before(soonest)) {
+		until, cooling := b.coolingUntil(n.NodeID)
+		if pu, ok := pairUntil(req.pairCool, n.NodeID, model); ok && b.now().Before(pu) {
+			// The caller's own pair cooldown (§14.2): available again once both have lapsed.
+			if !cooling || pu.After(until) {
+				until = pu
+			}
+			cooling = true
+		}
+		if cooling && (!found || until.Before(soonest)) {
 			soonest, found = until, true
 		}
 	}
@@ -569,7 +577,7 @@ func (b *broker) checkCoolingAlerts(now time.Time) {
 		b.alertClear("station_cooling:" + node)
 	}
 	for _, r := range rows {
-		if r.total <= coolingAlertThreshold {
+		if r.total < coolingAlertThreshold { // reaching the threshold pages (five 120 s cooldowns = 10 min, fairness_and_abuse.feature, founder-approved 2026-10-04)
 			continue
 		}
 		b.adminAlert("station_cooling:"+r.node, "station "+r.node+" keeps cooling on band "+r.model,

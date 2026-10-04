@@ -50,6 +50,15 @@ const keyPrefix = "rogerai:"
 // returns an error, and EVERY call site is required to fall back to the in-memory
 // path on a non-nil error. A connection failure NEVER propagates as a broker error.
 type sharedStore interface {
+	// Pair cooldowns (paircool.go, contract §14.2): pairCoolExtend raises one (node|model)
+	// field of a payer's cooldown hash to untilMs - atomically, never lowering it - and keeps
+	// the hash alive at least ttl; pairCooling reads a payer's whole hash; coolPayerNote
+	// records payer in node's 429 window (scores are unix-ms, entries older than window are
+	// dropped) and returns the distinct payers left. All shared across instances.
+	pairCoolExtend(payer, field string, untilMs int64, ttl time.Duration) (int64, error)
+	pairCooling(payer string) (map[string]int64, error)
+	coolPayerNote(node, payer string, nowMs int64, window time.Duration) (int, error)
+
 	// rateAllow is the shared token-bucket: it consumes one token for key under the
 	// given rpm/burst and reports whether the caller may proceed (mirrors
 	// rateLimiter.allowAt semantics). retryAfter is a seconds hint when denied. A

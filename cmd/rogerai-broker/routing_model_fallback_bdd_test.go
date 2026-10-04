@@ -3479,6 +3479,8 @@ func (s *mf1State) register(sc *godog.ScenarioContext) {
 }
 
 func TestRoutingModelFallbackBDD(t *testing.T) {
+	// One consumer triggers the station-wide cooldown (model_fallback_list.feature:879's note).
+	t.Setenv("ROGERAI_COOLDOWN_MIN_PAYERS", "1")
 	st := &mf1State{rpState: &rpState{foState: &foState{t: t, logs: &utLog{}}}}
 	prev := log.Writer()
 	log.SetOutput(st.logs)

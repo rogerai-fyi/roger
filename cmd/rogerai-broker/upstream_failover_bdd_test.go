@@ -900,8 +900,13 @@ func (s *foState) pickOK(pin string, exclude, allow map[string]bool, b *broker) 
 	return n, ok
 }
 
+// isCooling: the station is not pickable, pinned, for its OWN model (a station that serves
+// another model than the scenario default must be asked about that one).
 func (s *foState) isCooling(name string) bool {
-	_, ok := s.pickOK(s.st(name).id, nil, nil, s.b)
+	st := s.st(name)
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	_, _, ok := s.b.pickFor(st.model, false, 0, 0, 0, st.id, nil, nil, nil, pickReq{rng: seededRand("fo-" + utNonce())})
 	return !ok
 }
 
@@ -3095,6 +3100,9 @@ func (s *foState) noRA() error {
 }
 
 func TestUpstreamFailoverBDD(t *testing.T) {
+	// The station-wide cooldown mechanics, with one payer enough to trigger it (the file's
+	// header: ROGERAI_COOLDOWN_MIN_PAYERS 1 is the pre-§14.2 rule).
+	t.Setenv("ROGERAI_COOLDOWN_MIN_PAYERS", "1")
 	st := &foState{t: t, logs: &utLog{}}
 	prev := log.Writer()
 	log.SetOutput(st.logs)

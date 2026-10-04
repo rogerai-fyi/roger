@@ -517,6 +517,11 @@ type broker struct {
 	coolModel        map[string]string
 	coolEvents       map[string][]coolEvent
 	coolFallbackOnce sync.Once
+	// Pair cooldowns + the station payer window (paircool.go): the SINGLE-INSTANCE fallback
+	// only, used when no shared store is configured; with one, the shared store is the only
+	// source of truth. Guarded by metricsMu.
+	pairCoolLocal   map[string]map[string]time.Time // payer -> node|model -> expiry
+	coolPayersLocal map[string]map[string]time.Time // node -> payer -> last 429
 }
 
 // now is the broker's clock for cooldown/alert windows (nowFn when set, else time.Now).

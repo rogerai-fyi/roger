@@ -1,5 +1,13 @@
 # ROUTING - UPSTREAM FAILOVER AND COOLDOWN ("route around the provider that said no").
 #
+# superseded 2026-10-04 by contract §14 (founder-approved): since §14.2 a 429 cools the
+# (station, payer, model) pair first and the station cools for EVERY payer only once
+# ROGERAI_COOLDOWN_MIN_PAYERS distinct payers got a 429 within the window
+# (features/routing/fairness_and_abuse.feature). The scenarios below pin the station-wide
+# cooldown's own mechanics (duration, cap, sharing, outage fallback, market marking, alerts)
+# with one consumer, so this file runs with that threshold at 1 - one payer is enough, the
+# pre-§14.2 rule - and each "a 429 cools the station" reads "once the threshold is met".
+#
 # THE INCIDENT (verified, prod 2026-09-07 18:02-18:24 UTC): the house Cerebras station
 # house-cb-qwen-3-8-27b forwarded 400K-770K input tokens per minute from ONE consumer to a
 # provider whose pay-as-you-go tier allows 150K uncached / 450K total tokens per minute. Cerebras
