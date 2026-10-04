@@ -131,7 +131,7 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 	// seeded-looking 0. A logged-in caller reads the github-scoped wallet.
 	if !walletLoggedIn(user) {
 		if login != "" { // a valid web session that reads as anonymous: see session_refused_alert.go
-			b.noteSessionRefused("me", time.Now())
+			b.noteSessionRefused(time.Now())
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"user": user, "logged_in": false, "recent": []store.Entry{},

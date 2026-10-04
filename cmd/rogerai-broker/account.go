@@ -148,12 +148,12 @@ func (b *broker) deleteIdentity(r *http.Request, body []byte) (login, wallet str
 	if l, gid, w, sok := b.sessionOwner(r); sok {
 		if gid == 0 && isEmailWallet(w) {
 			// An email account: key the delete by the OWNER ROW's own login (resolved from
-			// the proven address), never by the session string. No row means nothing but a
-			// wallet to delete, and the verified address cannot collide with a GitHub login.
+			// the proven address), never by the session string. No row: nothing to delete, so
+			// the empty login routes to the existing "no account row" answer.
 			if _, o, found, _ := b.sessionAnyOwner(r); found && o.Login != "" {
 				return o.Login, w, true
 			}
-			return l, w, true
+			return "", w, true
 		}
 		if gid == 0 {
 			// An Apple/web session's login must never key DeleteAccount (A1 write leg) - a

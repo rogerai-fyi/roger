@@ -202,7 +202,7 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 	provider := ownerOK && owner.Pubkey != "" && hasVerifiedIdentity(owner)
 
 	if !consumer && !provider {
-		b.refuseSession(w, r, "metrics_series", "not logged in - run `roger login` to view your metrics")
+		b.refuseSession(w, r, "not logged in - run `roger login` to view your metrics")
 		return
 	}
 
@@ -437,7 +437,7 @@ func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 	provider := ownerOK && owner.Pubkey != "" && hasVerifiedIdentity(owner)
 
 	if !consumer && !provider {
-		b.refuseSession(w, r, "console", "not logged in - run `roger login` to view your console")
+		b.refuseSession(w, r, "not logged in - run `roger login` to view your console")
 		return
 	}
 

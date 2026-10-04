@@ -457,12 +457,6 @@ func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet 
 	return login, gid, wallet, true
 }
 
-// sessionGitHubOwner resolves a session's login to its GitHub owner row, enforcing the
-// root invariant of features/security/apple_session_isolation.feature (audit finding #3):
-// a session login may resolve a GitHub owner ONLY for a GitHub session, and a GitHub
-// session is exactly githubID != 0. An Apple/web session (githubID == 0) never matches
-// an owner row - not even on a colliding login (the literal "apple" a no-email Apple
-// token used to produce vs the real github.com/apple operator).
 // sessionEnrichOwner resolves the owner row behind a session for the account views: the
 // GitHub row by (login, gid) when the session is a GitHub one, else whatever
 // sessionAnyOwner resolves from the request (an Apple sub or a proven email address).
@@ -474,11 +468,20 @@ func (b *broker) sessionEnrichOwner(r *http.Request, login string, gid int64) (s
 	return o, found
 }
 
+// sessionGitHubOwner resolves a session's login to its GitHub owner row, enforcing the
+// root invariant of features/security/apple_session_isolation.feature (audit finding #3):
+// a session login may resolve a GitHub owner ONLY for a GitHub session, and a GitHub
+// session is exactly githubID != 0. An Apple/web session (githubID == 0) never matches
+// an owner row - not even on a colliding login (the literal "apple" a no-email Apple
+// token used to produce vs the real github.com/apple operator).
 func (b *broker) sessionGitHubOwner(login string, gid int64) (store.Owner, bool) {
 	if gid == 0 {
 		return store.Owner{}, false
 	}
 	o, found, _ := b.db.OwnerByLogin(login)
+	if found && o.GitHubID != gid { // a renamed/reused login must not reach the old row
+		return store.Owner{}, false
+	}
 	return o, found
 }
 

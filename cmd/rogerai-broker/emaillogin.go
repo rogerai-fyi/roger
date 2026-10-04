@@ -180,6 +180,12 @@ func (b *broker) emailVerify(w http.ResponseWriter, r *http.Request) {
 			gid = o.GitHubID
 		}
 		appleSub = o.AppleSub
+		// A session with neither a GitHub id nor an Apple sub is resolved by its login AS the
+		// proven address (sessionAnyOwner), so that is what it must carry - never an older
+		// row's handle. An address contains "@", so it cannot collide with a GitHub login.
+		if gid == 0 && appleSub == "" {
+			login = addr
+		}
 	}
 
 	if _, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds); seeded {

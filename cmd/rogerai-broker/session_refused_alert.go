@@ -19,17 +19,20 @@ const (
 )
 
 // refuseSession answers 401 and, when the request carried a valid session, counts it.
-func (b *broker) refuseSession(w http.ResponseWriter, r *http.Request, route, msg string) {
+func (b *broker) refuseSession(w http.ResponseWriter, r *http.Request, msg string) {
 	if _, _, _, ok := b.sessionOwner(r); ok {
-		b.noteSessionRefused(route, time.Now())
+		b.noteSessionRefused(time.Now())
 	}
 	jsonErr(w, http.StatusUnauthorized, msg)
 }
 
-func (b *broker) noteSessionRefused(route string, now time.Time) {
+func (b *broker) noteSessionRefused(now time.Time) {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	b.sessRefused = append(pruneTimes(b.sessRefused, now.Add(-sessionRefusedWindow)), now)
+	if max := sessionRefusedThreshold * 4; len(b.sessRefused) > max { // only the count matters
+		b.sessRefused = b.sessRefused[len(b.sessRefused)-max:]
+	}
 }
 
 func (b *broker) sessionRefusedCount(now time.Time) int {

@@ -201,7 +201,7 @@ func TestEmailSessionParityBDD(t *testing.T) {
 				s.b, s.sends = alertBroker(s.t, "ops@example.com")
 				now := time.Now()
 				for i := 0; i < sessionRefusedThreshold; i++ {
-					s.b.noteSessionRefused("metrics_series", now)
+					s.b.noteSessionRefused(now)
 				}
 				s.b.checkSessionRefusedAlert(now)
 				return nil

@@ -49,16 +49,16 @@ func secretHash(secret string) string {
 // OR a signed request whose pubkey is bound to ANY non-anonymized account owner — GitHub OR
 // Apple, exactly the set accountWalletForOwner resolves (founder contract, roger-ios
 // docs/EXTERNAL-READINESS.md §2 / features/grants/apple_owner_management.feature). Grant
-// management needs a funded ACCOUNT, not payout-grade KYC — payoutOwner (GitHub-only) is
-// deliberately untouched and still gates actual payouts. NOTE: an Apple-bound owner must
+// management needs a funded ACCOUNT, not payout-grade KYC — payout-grade KYC is
+// still enforced separately at Stripe Connect and gates actual payouts. NOTE: an Apple-bound owner must
 // never be told to "just link GitHub" — accountWalletForOwner is GitHub-wins, so linking
 // would flip a funded u_apple_ wallet to u_gh_ and strand the Apple balance.
 func (b *broker) grantsOwner(r *http.Request, body []byte) (store.Owner, bool) {
 	// 1) Web session cookie (browser). Mirrors payoutOwner's web leg: a valid session whose
 	// login is not (yet) a bound operator still returns ok so the handler emits its 403.
-	// GitHub sessions only (the gid gate, A1): an Apple WEB session must never manage a
-	// GitHub owner's keys through a login collision - Apple owners manage keys via the
-	// SIGNED leg below (their owner row has no login to collide on).
+	// sessionAnyOwner resolves each provider by its own unique key (GitHub: login+gid gate,
+	// Apple: the sub, email: the proven address), so no session can reach another provider's
+	// owner through a login collision (the A1 invariant).
 	if _, rec, found, sok := b.sessionAnyOwner(r); sok {
 		if found {
 			return rec, true

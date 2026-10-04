@@ -20,12 +20,12 @@ func TestRepeatedRefusalOfAValidSessionPagesTheFounder(t *testing.T) {
 	now := time.Now()
 
 	for i := 0; i < sessionRefusedThreshold-1; i++ {
-		b.noteSessionRefused("metrics_series", now)
+		b.noteSessionRefused(now)
 	}
 	b.checkSessionRefusedAlert(now)
 	noAlert(t, sends) // under the threshold: a stale tab, not an incident
 
-	b.noteSessionRefused("metrics_series", now)
+	b.noteSessionRefused(now)
 	b.checkSessionRefusedAlert(now)
 	p := firstAlert(t, sends)
 	require.Contains(t, p["subject"], "signed-in")
@@ -35,7 +35,7 @@ func TestTheSessionRefusedPageClearsOnceItStops(t *testing.T) {
 	b, sends := alertBroker(t, "ops@example.com")
 	now := time.Now()
 	for i := 0; i < sessionRefusedThreshold; i++ {
-		b.noteSessionRefused("me", now)
+		b.noteSessionRefused(now)
 	}
 	b.checkSessionRefusedAlert(now)
 	firstAlert(t, sends)
