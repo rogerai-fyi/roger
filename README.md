@@ -67,7 +67,9 @@ dependency. Behind any NAT, one command:
 ```
 roger share                                    # auto-detects your local model, starts earning
 # options: --price-in/--price-out, --free-window 03:00-03:30, --schedule '<time-of-use JSON>',
-#          --confidential (TEE-attested), --upstream <your OpenAI endpoint>
+#          --confidential (TEE-attested), --upstream <your OpenAI endpoint>,
+#          --probe-min 6h (an expensive upstream: probe me at most every 6h, capped at 24h;
+#                         verification lapses between probes)
 ```
 
 **Bring your preferred model host.** Compatibility is determined by the served API, not the
