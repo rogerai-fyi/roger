@@ -345,3 +345,14 @@ func TestModelABuildThatCannotLoadIsSaidBeforeAServe(t *testing.T) {
 	require.Contains(t, modelRuntimeErr(err).Error(), "sudo apt install libgomp1")
 	require.NotContains(t, modelRuntimeErr(err).Error(), "could not get the runtime", "it is a missing package, said as one")
 }
+
+// Found with tools/edgesim: asked from afar, roger ran the fit tool of a GPU build that was not
+// installed ("fork/exec .../ubuntu-vulkan-x64/...: no such file"). The build the choice predicts is
+// only used for a fit check when it is really here.
+func TestModelOnlyAnInstalledBuildIsAskedToFit(t *testing.T) {
+	r, _ := gpuRig(t)
+	placeBuild(t, r.home.Runtime(), runtime.BuildCPU)
+	require.Empty(t, modelInstalledExe(), "auto predicts CUDA here, and CUDA is not installed")
+	placeBuild(t, r.home.Runtime(), runtime.BuildCUDA)
+	require.Contains(t, modelInstalledExe(), "ubuntu-cuda-12.8-x64", "once it is, its server is the one asked")
+}

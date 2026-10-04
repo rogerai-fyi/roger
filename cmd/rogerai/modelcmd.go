@@ -663,7 +663,10 @@ func modelInstalledExe() string {
 	if err != nil {
 		return ""
 	}
-	exe, _ := runtime.InstalledBuild(a, modelHome().Runtime())
+	exe, ok := runtime.InstalledBuild(a, modelHome().Runtime())
+	if !ok {
+		return "" // not here yet: roger's estimate stands, and says so
+	}
 	return exe
 }
 
