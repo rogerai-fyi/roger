@@ -160,6 +160,14 @@
       <p class="mx-state" id="keysLoading">Loading your keys...</p>
       <p class="mx-state" id="keysEmpty" hidden>No keys yet. Mint one above, or run
         <code>roger grant create --name my-bots</code>.</p>
+      <section class="mx-state" id="keysNoOperator" hidden>
+        <h2>Keys come from a machine on air</h2>
+        <p>An API key lets someone use the models your machines serve, so it is minted by an account that has put one on air. Nothing is registered to the account you are signed in with.</p>
+        <p><b>Already sharing?</b> Sign in with the account you used for <code>roger login</code> (GitHub or Apple). <b>Not yet?</b></p>
+        <pre class="cmd">roger login
+roger share</pre>
+        <p class="fine"><a href="/login.html">Switch sign-in</a> &middot; <a href="/account.html">Account</a></p>
+      </section>
       <p class="mx-state" id="keysError" hidden>Could not load your keys. Try again shortly.</p>
     </section>
 

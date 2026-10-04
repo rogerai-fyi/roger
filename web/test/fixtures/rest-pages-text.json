@@ -111,37 +111,45 @@
   ]
  },
  "account.html": {
-  "text": "AccountSignedinas-Walletbalance-Availabletospendacrosseverymodelandgrantkey.Addmoneyorreadtheledger.ProfileHandle-GitHubid-Payoutstatus-Membersince-ContactemailoptionalUsedonlyforpayoutandaccountnotices.Nevershared.SaveemailAPIkeysGrantkeys(rog-grant_...)arethehomeforprogrammaticaccess-labeledbearerkeysyourbots,scriptsandheadlessboxesuse,withtheirowncaps.ManageAPIkeysYourstationsEverymachineyouhaveputonair,withitsstatus,whatithasservedandearned,andanyevidencerecordedagainstyouraccount.ViewyourstationsYourdataDownloadaportablecopyofyourprofile,ledgerandreceiptsasJSON,anytime.ExportmydataDeleteaccountThisclearseveryidentifierweholdforyou-youremail,yourGitHublink,yourApplelink,andyourname-andrevokesyoursessions.Financialrecordsareretained,de-identified,forthelegalretentionwindow.Deletionisblockedwhileyouholdabalance,unpaidearnings,oropendisputes.DeletemyaccountDashboardConsoleMetricsBillingPayoutsSignout",
+  "text": "AccountSignedinas-Walletbalance-Availabletospendacrosseverymodelandgrantkey.Addmoneyorreadtheledger.ProfileHandle-Sign-in-Machines-Payoutstatus-Membersince-Yourmachines,earningsandAPIkeysbelongtothesign-inthatranrogerlogin.Ifyousignedinanotherwayandseenoneofthemhere,signinwiththatoneinstead:switchsign-in.Linkingtwosign-instogetherfromthispageisnotavailableyet.ContactemailoptionalUsedonlyforpayoutandaccountnotices.Nevershared.SaveemailAPIkeysGrantkeys(rog-grant_...)arethehomeforprogrammaticaccess-labeledbearerkeysyourbots,scriptsandheadlessboxesuse,withtheirowncaps.ManageAPIkeysYourstationsEverymachineyouhaveputonair,withitsstatus,whatithasservedandearned,andanyevidencerecordedagainstyouraccount.ViewyourstationsYourdataDownloadaportablecopyofyourprofile,ledgerandreceiptsasJSON,anytime.ExportmydataDeleteaccountThisclearseveryidentifierweholdforyou-youremail,yourGitHublink,yourApplelink,andyourname-andrevokesyoursessions.Financialrecordsareretained,de-identified,forthelegalretentionwindow.Deletionisblockedwhileyouholdabalance,unpaidearnings,oropendisputes.DeletemyaccountDashboardConsoleStationsMetricsBillingPayoutsAPIkeysSignout",
   "hrefs": [
    "/billing.html",
+   "/login.html",
    "/keys.html",
    "/stations.html",
    "/dashboard.html",
    "/console.html",
+   "/stations.html",
    "/usage.html",
    "/billing.html",
-   "/payouts.html"
+   "/payouts.html",
+   "/keys.html"
   ]
  },
  "billing.html": {
-  "text": "BillingAddmoney,watchitgofurther.Yourwallet,yourspend,andwhatRogerAIsavesyouagainstthename-brandlabs.Savedvsfrontierlabs-savedsofarYoupaid-Frontierestimate--Wallet?Balance-Spenttoday-Verified-\"Verified\"re-derivesyourbalancefromtheappend-onlyledger-itshouldalwaysmatch.HowthemoneyworksMonthlyspendlimitsecondguardrailOneaccount-wideceilingoneverythingyoupayforthiscalendarmonth-yourowntune-instopaidmodelsandanysponsoredgrantkeys,together.Per-keytokencapslimitasinglekey;thisboundsyourwholeaccount.Managekeys.-of-Nolimitset-allpaidusage(yourownandsponsoredkeys)billstoyourwalletwithoutamonthlyceiling.Setamonthlyspendlimit(USD)$/mo0orblank=nolimit.Atthecap,paidrequestspauseuntilnextmonthoruntilyouraiseit.SavelimitRemovelimitLoadingyourlimit...Couldnotloadyourmonthlylimit.Tryagainshortly.Spendvelocity-AddmoneyTopupyourwalletwithacard.Stripehandlesthepaymentendtoend;yourcarddetailsneverreachourservers.$5$20$50$100Oracustomamount(USD)$AddmoneySecuredbyStripe.Carddetailsnevertouchourservers,andnocardisstoredafteratop-up.Top-upsarenotenabledonthisbrokeryet.-Recenttop-upsNotop-upsyet.RecentchargesNochargesyet.Freemodelscostnothing.DashboardConsoleMetricsPayoutsAccountSignout",
+  "text": "BillingAddmoney,watchitgofurther.Yourwallet,yourspend,andwhatRogerAIsavesyouagainstthename-brandlabs.Savedvsfrontierlabs-savedsofarYoupaid-Frontierestimate--Wallet?Balance-Spenttoday-Verified-\"Verified\"re-derivesyourbalancefromtheappend-onlyledger-itshouldalwaysmatch.HowthemoneyworksMonthlyspendlimitsecondguardrailOneaccount-wideceilingoneverythingyoupayforthiscalendarmonth-yourowntune-instopaidmodelsandanysponsoredgrantkeys,together.Per-keytokencapslimitasinglekey;thisboundsyourwholeaccount.Managekeys.-of-Nolimitset-allpaidusage(yourownandsponsoredkeys)billstoyourwalletwithoutamonthlyceiling.Setamonthlyspendlimit(USD)$/mo0orblank=nolimit.Atthecap,paidrequestspauseuntilnextmonthoruntilyouraiseit.SavelimitRemovelimitLoadingyourlimit...Couldnotloadyourmonthlylimit.Tryagainshortly.Spendvelocity-AddmoneyTopupyourwalletwithacard.Stripehandlesthepaymentendtoend;yourcarddetailsneverreachourservers.$5$20$50$100Oracustomamount(USD)$AddmoneySecuredbyStripe.Carddetailsnevertouchourservers,andnocardisstoredafteratop-up.Top-upsarenotenabledonthisbrokeryet.-Recenttop-upsNotop-upsyet.RecentchargesNochargesyet.Freemodelscostnothing.DashboardConsoleStationsMetricsPayoutsAPIkeysAccountSignout",
   "hrefs": [
    "/keys.html",
    "/dashboard.html",
    "/console.html",
+   "/stations.html",
    "/usage.html",
    "/payouts.html",
+   "/keys.html",
    "/account.html"
   ]
  },
  "keys.html": {
-  "text": "APIkeysGrantkeys-private,labeledbearerkeys(rog-grant_...)yourbots,family,friends,oryourownheadlessboxesuseastheirAPIkey,withnologinoftheirown.Theyrouteonlytoyournodes,freeoratapriceyousponsor,underthecapsyouset.Seethemanual.MintakeyThesecretisshownonce,atcreate.Onlyitshashisstored,soitcanneverbere-displayed-copyitthen.NameAlabelonlyyousee,onyourdashboard.FreekeyCostsnobody.Yournodesserveitat$0.Turnofftosponsororscopeit.AdvancedBillingFreeSelf($0)SponsoredFree-costsnobody.Yournodesserveitat$0.Priceout($/1Mtokens)$Yousponsorit:usagebillstoyourownwalletatthisrate.ExpiryNever30days90daysPickadate...Dailycap(tokens)0=unlimited.Defaultself-limitsaleakedkey.Monthlycap(tokens)0=unlimited.NodescopeAllmynodesPicknodesThekeyworksoneverynodeyouputonair.ModelscopeAnymodelPickmodelsThekeycancallanymodelyourin-scopenodesserve.MintkeyshownonceSavethisnow.Youwillnotseeitagain.rog-grant_...CopyUseitasanOpenAIkey,nologin:Headlesssetup,aworkedbotexample,rotationandcapsareinthemanual&sect;5.YourkeysNamePriceExpiryDailycapUsed(day/mo)StatusActionsLoadingyourkeys...Nokeysyet.Mintoneabove,orrunrogergrantcreate--namemy-bots.Couldnotloadyourkeys.Tryagainshortly.secondguardrailPer-keycapslimitonekey.Asingleaccount-widemonthlyspendcapboundswhateverysponsoredkeycancostyoutogether-setitonBilling.DashboardConsoleMetricsBillingPayoutsAccountSignoutAPIkeysLogintomintandmanageyourgrantkeys.SignedoutGrantkeysareowner-issued:yousigninonce-withGitHub,Apple,oranemailedcode-thenmintprivatebearerkeysforyourbots,family,oryourownheadlessboxes.Eachkeyisshownonlyonce.Login",
+  "text": "APIkeysGrantkeys-private,labeledbearerkeys(rog-grant_...)yourbots,family,friends,oryourownheadlessboxesuseastheirAPIkey,withnologinoftheirown.Theyrouteonlytoyournodes,freeoratapriceyousponsor,underthecapsyouset.Seethemanual.MintakeyThesecretisshownonce,atcreate.Onlyitshashisstored,soitcanneverbere-displayed-copyitthen.NameAlabelonlyyousee,onyourdashboard.FreekeyCostsnobody.Yournodesserveitat$0.Turnofftosponsororscopeit.AdvancedBillingFreeSelf($0)SponsoredFree-costsnobody.Yournodesserveitat$0.Priceout($/1Mtokens)$Yousponsorit:usagebillstoyourownwalletatthisrate.ExpiryNever30days90daysPickadate...Dailycap(tokens)0=unlimited.Defaultself-limitsaleakedkey.Monthlycap(tokens)0=unlimited.NodescopeAllmynodesPicknodesThekeyworksoneverynodeyouputonair.ModelscopeAnymodelPickmodelsThekeycancallanymodelyourin-scopenodesserve.MintkeyshownonceSavethisnow.Youwillnotseeitagain.rog-grant_...CopyUseitasanOpenAIkey,nologin:Headlesssetup,aworkedbotexample,rotationandcapsareinthemanual&sect;5.YourkeysNamePriceExpiryDailycapUsed(day/mo)StatusActionsLoadingyourkeys...Nokeysyet.Mintoneabove,orrunrogergrantcreate--namemy-bots.KeyscomefromamachineonairAnAPIkeyletssomeoneusethemodelsyourmachinesserve,soitismintedbyanaccountthathasputoneonair.Nothingisregisteredtotheaccountyouaresignedinwith.Alreadysharing?Signinwiththeaccountyouusedforrogerlogin(GitHuborApple).Notyet?rogerloginrogershareSwitchsign-in&middot;AccountCouldnotloadyourkeys.Tryagainshortly.secondguardrailPer-keycapslimitonekey.Asingleaccount-widemonthlyspendcapboundswhateverysponsoredkeycancostyoutogether-setitonBilling.DashboardConsoleStationsMetricsBillingPayoutsAccountSignoutAPIkeysLogintomintandmanageyourgrantkeys.SignedoutGrantkeysareowner-issued:yousigninonce-withGitHub,Apple,oranemailedcode-thenmintprivatebearerkeysforyourbots,family,oryourownheadlessboxes.Eachkeyisshownonlyonce.Login",
   "hrefs": [
    "/manual.html#s5",
    "/manual.html#s5",
+   "/login.html",
+   "/account.html",
    "/billing.html",
    "/dashboard.html",
    "/console.html",
+   "/stations.html",
    "/usage.html",
    "/billing.html",
    "/payouts.html",
@@ -150,24 +158,31 @@
   ]
  },
  "console.html": {
-  "text": "ConsoleSignedinas-&middot;liveactivityTuningin...Couldnotreachtheconsole.Tryagainshortly.Requeststoday-Today-Activenodes-Activebands-RecentactivityModelNodeTokensin/outCostReceiptWhenEachrowisasettledreceipt:model,nodecallsign,tokens,theledgeramount,itsreceiptidandhowlongago.Newestfirst.Norequestsyet.Tuneinwithrogeruse&lt;model&gt;andyourlineagelandshere.Norequestsservedyet.PutaGPUonairwithrogershareandthetrafficitservesshowshere,receiptbyreceipt.Models&amp;pricingSetwhateachmodelyouservechargespermilliontokens,andaddtime-of-usewindows(acheapernightrate,afreedailywindow).Changespublishimmediatelyandsurvivethenodereconnecting-theyonlyeversetfutureprices,neverwhatwasalreadybilled.Readingyourmodels...Couldnotloadyourmodels.Tryagainshortly.Nomodelsonairyet.Runrogershareonaboxandthemodelsitservesshowupheretoprice.PutaGPUonaircurl-fsSLhttps://rogerai.fm/install.sh|shrogerloginrogershareDashboardMetricsBillingPayoutsAccountSignout",
+  "text": "ConsoleSignedinas-&middot;liveactivityTuningin...Couldnotreachtheconsole.Tryagainshortly.Requeststoday-Today-Activenodes-Activebands-RecentactivityModelNodeTokensin/outCostReceiptWhenEachrowisasettledreceipt:model,nodecallsign,tokens,theledgeramount,itsreceiptidandhowlongago.Newestfirst.Norequestsyet.Tuneinwithrogeruse&lt;model&gt;andyourlineagelandshere.Norequestsservedyet.PutaGPUonairwithrogershareandthetrafficitservesshowshere,receiptbyreceipt.Models&amp;pricingSetwhateachmodelyouservechargespermilliontokens,andaddtime-of-usewindows(acheapernightrate,afreedailywindow).Changespublishimmediatelyandsurvivethenodereconnecting-theyonlyeversetfutureprices,neverwhatwasalreadybilled.Readingyourmodels...Couldnotloadyourmodels.Tryagainshortly.Nomodelsonairyet.Runrogershareonaboxandthemodelsitservesshowupheretoprice.PutaGPUonaircurl-fsSLhttps://rogerai.fm/install.sh|shrogerloginrogershareDashboardStationsMetricsBillingPayoutsAPIkeysAccountSignout",
   "hrefs": [
    "/dashboard.html",
+   "/stations.html",
    "/usage.html",
    "/billing.html",
    "/payouts.html",
+   "/keys.html",
    "/account.html"
   ]
  },
  "dashboard.html": {
-  "text": "DashboardSignedinas-&middot;last30daysLoadingyournumbers...Couldnotloadyourdashboard.Tryagainshortly.NotrafficyetNothinghasmovedthroughyouraccountinthelast30days.Tuneintoamodelandyourtokens,spendandsavingswillcharthere.rogeruse&lt;model&gt;OrputaGPUonairwithrogersharetostartearning.Youhavesaved-vsgpt-4olistprice&middot;youpaid-whereafrontierlabwouldhavebilled-Youhaveearned-ownershareacrossyournodes,last30daysRequests-Tokens-Spend-Earned-SavingsperdayEstimated$savedvsfrontiersavedEstimateonly:publishedlistprices,notaliveorcontractualquote.TokensovertimeTokensoutperdayMoneyovertimePerdayRequestsovertimeRequestsperdayBymodelTokensbymodelFullper-modelmetricsEarnPutaGPUonairandearnpertoken.Install,thenlinkthisaccountonthebox:curl-fsSLhttps://rogerai.fm/install.sh|shrogerloginrogershareOnceanodeservesunderyouraccount,itsactivityshowsontheconsole.ConsoleMetricsBillingPayoutsAccountSignout",
+  "text": "DashboardSignedinas-&middot;last30daysLoadingyournumbers...Couldnotloadyourdashboard.Tryagainshortly.NotrafficyetNothinghasmovedthroughyouraccountinthelast30days.Tuneintoamodelandyourtokens,spendandsavingswillcharthere.Balance-&middot;Addcredit&middot;MakeanAPIkey&middot;Yourstationsrogeruse&lt;model&gt;OrputaGPUonairwithrogersharetostartearning.Youhavesaved-vsgpt-4olistprice&middot;youpaid-whereafrontierlabwouldhavebilled-Youhaveearned-ownershareacrossyournodes,last30daysRequests-Tokens-Spend-Earned-SavingsperdayEstimated$savedvsfrontiersavedEstimateonly:publishedlistprices,notaliveorcontractualquote.TokensovertimeTokensoutperdayMoneyovertimePerdayRequestsovertimeRequestsperdayBymodelTokensbymodelFullper-modelmetricsEarnPutaGPUonairandearnpertoken.Install,thenlinkthisaccountonthebox:curl-fsSLhttps://rogerai.fm/install.sh|shrogerloginrogershareOnceanodeservesunderyouraccount,itsactivityshowsontheconsole.ConsoleStationsMetricsBillingPayoutsAPIkeysAccountSignout",
   "hrefs": [
+   "/billing.html",
+   "/keys.html",
+   "/stations.html",
    "/usage.html",
    "/console.html",
    "/console.html",
+   "/stations.html",
    "/usage.html",
    "/billing.html",
    "/payouts.html",
+   "/keys.html",
    "/account.html"
   ]
  },
@@ -178,31 +193,46 @@
   ]
  },
  "stations.html": {
-  "text": "YourstationsSignedinas-&middot;everystationregisteredtoyouraccountLoadingyourstations...Couldnotloadyourstations.Tryagainshortly.NostationsyetNothingisregisteredtoyouraccount.PutaGPUonairanditwillappearherewithitsstatus,usageandearnings.rogershareAstationisamachineservingamodelthroughthenetwork.Registrationbindsittothisaccount,soonlyyoucanseeitsnumbers.Stations-Onair-Earned-Recentrequests-StationsAccountevidenceMarksrecordedagainstyouraccount,eachwiththeevidencethatproducedit.Theseareshowntoyouinfullbecausetheycanaffectpayouts-ifyouthinkoneiswrong,youcanappealit.Accountsettings&middot;PayoutsAboutthereceiptchainEveryrequestyourstationservesproducesasignedreceipt,andeachreceiptlinkstotheonebeforeit.Thenetworkrecordswhereyourstation'schainwas,soagapisvisibleratherthansilent.Abreakisanauditsignal,notapenalty.Restartingyourstationstartsanewchain,whichreadsasabreaktoday-thatisexpectedanddoesnotaffectyourearningsorstanding.",
+  "text": "YourstationsSignedinas-&middot;everystationregisteredtoyouraccountLoadingyourstations...Couldnotloadyourstations.Tryagainshortly.Youarenotsharingfromthissign-inStationsbelongtotheaccountthatputthemonair,andnothingisregisteredtotheaccountyouaresignedinwith.Alreadysharing?Signinwiththesameaccountyouusedforrogerlogin(GitHuborApple)andyourstationswillbehere.Notsharingyet?PutaGPUonairfromthisaccount:rogerloginrogershareSwitchsign-in&middot;AccountNostationsyetNothingisregisteredtoyouraccount.PutaGPUonairanditwillappearherewithitsstatus,usageandearnings.rogershareAstationisamachineservingamodelthroughthenetwork.Registrationbindsittothisaccount,soonlyyoucanseeitsnumbers.Stations-Onair-Earned-Recentrequests-StationsAccountevidenceMarksrecordedagainstyouraccount,eachwiththeevidencethatproducedit.Theseareshowntoyouinfullbecausetheycanaffectpayouts-ifyouthinkoneiswrong,youcanappealit.Accountsettings&middot;PayoutsAboutthereceiptchainEveryrequestyourstationservesproducesasignedreceipt,andeachreceiptlinkstotheonebeforeit.Thenetworkrecordswhereyourstation'schainwas,soagapisvisibleratherthansilent.Abreakisanauditsignal,notapenalty.Restartingyourstationstartsanewchain,whichreadsasabreaktoday-thatisexpectedanddoesnotaffectyourearningsorstanding.DashboardConsoleMetricsBillingPayoutsAPIkeysAccount",
   "hrefs": [
+   "/login.html",
    "/account.html",
-   "/payouts.html"
-  ]
- },
- "payouts.html": {
-  "text": "PayoutsExactlywhatyouearned,whenitclears,andwhereitcamefrom.EarningsHeld-insidetheholdwindowPayable-cleared,readytowithdrawPaid-lifetime,transferredoutEarningsroundtowholecentsandneeda$25.00minimumpayablebeforecashout.HoldtimelineEachearning'sprincipalisheldfor30daysthenbecomespayable;a10%reserveslicestaysbackuntilday90tocoverthedisputetail.Earnedarequestyouserved,split90/10HeldintheholdwindowPayableholdcleared,withdrawablePaidtransferredtoyourbankviaStripeNoearningsyet-thetimelinefillsinasyouserve.UpcomingreleasesBymodelandnodeEarningsoverthelast30days,bywhatyouserved.Noservedtrafficinthiswindowyet.Towers&amp;relayYourTowersandthesealedworktheycarry.Everysettledrequestsplits90%totheservingnode,5%toyou,5%totheplatform.Relayearningsareheld,releasedandcashedoutexactlylikeservingearnings-thetotalsbelowarealreadypartofyourbalanceabove,splitoutheresoyoucanseewhichstreamearnedwhat.RunaTower&rarr;Fromserving-yourStationsranthemodelFromrelaying-yourTowerscarriedthetrafficYourTowersNoTowersonthenetworkrightnow.RunaToweronaLinuxmachinetorelaytraffictoStations.GetpaidYoumustfinishStripeConnectonboarding(KYC)beforeanywithdrawal.Payoutsaremanualandbatchedmonthly.Payoutstatus:-Setuppayouts(Stripe)RequestpayoutPayouthistoryNopayoutsyet.LedgerTheaccountingentriesbehindeverypayout,clawbackandadjustment-yourreceipts.Noentriesyet.DashboardConsoleMetricsBillingAccountSignout",
-  "hrefs": [
-   "/manual.html#sTower",
-   "/manual.html#sTower",
+   "/account.html",
+   "/payouts.html",
    "/dashboard.html",
    "/console.html",
    "/usage.html",
    "/billing.html",
+   "/payouts.html",
+   "/keys.html",
+   "/account.html"
+  ]
+ },
+ "payouts.html": {
+  "text": "PayoutsExactlywhatyouearned,whenitclears,andwhereitcamefrom.PayoutsareforpeoplewhoservemodelsYouearnwhenyourmachinesserveotherpeople'srequests,andthispageshowswhatyouearned,whenitclearsandwhereitcamefrom.Nothingisregisteredtotheaccountyouaresignedinwith.Alreadysharing?Signinwiththeaccountyouusedforrogerlogin(GitHuborApple).Notyet?rogerloginrogershareSwitchsign-in&middot;AccountEarningsHeld-insidetheholdwindowPayable-cleared,readytowithdrawPaid-lifetime,transferredoutEarningsroundtowholecentsandneeda$25.00minimumpayablebeforecashout.HoldtimelineEachearning'sprincipalisheldfor30daysthenbecomespayable;a10%reserveslicestaysbackuntilday90tocoverthedisputetail.Earnedarequestyouserved,split90/10HeldintheholdwindowPayableholdcleared,withdrawablePaidtransferredtoyourbankviaStripeNoearningsyet-thetimelinefillsinasyouserve.UpcomingreleasesBymodelandnodeEarningsoverthelast30days,bywhatyouserved.Noservedtrafficinthiswindowyet.Towers&amp;relayYourTowersandthesealedworktheycarry.Everysettledrequestsplits90%totheservingnode,5%toyou,5%totheplatform.Relayearningsareheld,releasedandcashedoutexactlylikeservingearnings-thetotalsbelowarealreadypartofyourbalanceabove,splitoutheresoyoucanseewhichstreamearnedwhat.RunaTower&rarr;Fromserving-yourStationsranthemodelFromrelaying-yourTowerscarriedthetrafficYourTowersNoTowersonthenetworkrightnow.RunaToweronaLinuxmachinetorelaytraffictoStations.GetpaidYoumustfinishStripeConnectonboarding(KYC)beforeanywithdrawal.Payoutsaremanualandbatchedmonthly.Payoutstatus:-Setuppayouts(Stripe)RequestpayoutPayouthistoryNopayoutsyet.LedgerTheaccountingentriesbehindeverypayout,clawbackandadjustment-yourreceipts.Noentriesyet.DashboardConsoleStationsMetricsBillingAPIkeysAccountSignout",
+  "hrefs": [
+   "/login.html",
+   "/account.html",
+   "/manual.html#sTower",
+   "/manual.html#sTower",
+   "/dashboard.html",
+   "/console.html",
+   "/stations.html",
+   "/usage.html",
+   "/billing.html",
+   "/keys.html",
    "/account.html"
   ]
  },
  "usage.html": {
-  "text": "MetricsAnexplorable,time-awareviewofwhatyouhostandearn,andwhatyouconsumeandspend-overtimeandpermodel.Range7d30d90dProvidermetricsTokensyouservedandearningsaccruedacrossthemodelsonyournodes.Requests-Tokensout-Earned-EarnedovertimeTokensservedovertimeoutinRequestsovertimeTokensoutbymodelModelRequestsTokensoutEarnedLoadingprovidermetrics...Noactivityinthisrange.PutaGPUonairwithrogersharetostartearning.Couldnotloadprovidermetrics.Tryagainshortly.YourusageTokensyouconsumedandwhattheycostacrossthemodelsyoutunedin.Requests-Tokens-Spend-SpendovertimeTokensconsumedovertimeoutinRequestsovertimeTokensbymodelModelRequestsTokensSpendLoadingyourusage...Nousageinthisrange.Tuneinwithrogeruse&lt;model&gt;.Couldnotloadyourusage.Tryagainshortly.RecentrequestsBandRoutingTokensCostLoadingmetrics...Couldnotloadmetrics.Tryagainshortly.DashboardConsoleBillingPayoutsAccountSignoutMetricsLogintoseeyourproviderearningsandusage.SignedoutSignintoviewper-modeltokensovertime,earningsandspend.Login",
+  "text": "MetricsAnexplorable,time-awareviewofwhatyouhostandearn,andwhatyouconsumeandspend-overtimeandpermodel.Range7d30d90dProvidermetricsTokensyouservedandearningsaccruedacrossthemodelsonyournodes.Requests-Tokensout-Earned-EarnedovertimeTokensservedovertimeoutinRequestsovertimeTokensoutbymodelModelRequestsTokensoutEarnedLoadingprovidermetrics...Noactivityinthisrange.PutaGPUonairwithrogersharetostartearning.Couldnotloadprovidermetrics.Tryagainshortly.YourusageTokensyouconsumedandwhattheycostacrossthemodelsyoutunedin.Requests-Tokens-Spend-SpendovertimeTokensconsumedovertimeoutinRequestsovertimeTokensbymodelModelRequestsTokensSpendLoadingyourusage...Nousageinthisrange.Tuneinwithrogeruse&lt;model&gt;.Couldnotloadyourusage.Tryagainshortly.RecentrequestsBandRoutingTokensCostLoadingmetrics...Couldnotloadmetrics.Tryagainshortly.DashboardConsoleStationsBillingPayoutsAPIkeysAccountSignoutMetricsLogintoseeyourproviderearningsandusage.SignedoutSignintoviewper-modeltokensovertime,earningsandspend.Login",
   "hrefs": [
    "/dashboard.html",
    "/console.html",
+   "/stations.html",
    "/billing.html",
    "/payouts.html",
+   "/keys.html",
    "/account.html",
    "/login.html"
   ]

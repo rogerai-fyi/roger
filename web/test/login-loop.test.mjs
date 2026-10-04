@@ -10,43 +10,8 @@
 // Run: node --test test/login-loop.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import vm from "node:vm";
-import path from "node:path";
-import { createRequire } from "node:module";
+import { page, settle, Fmt, src } from "./_pagevm.mjs";
 
-const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-const src = (p) => readFileSync(path.join(SRC, p), "utf8");
-const require = createRequire(import.meta.url);
-const Fmt = require(path.join(SRC, "js/fmt.js"));
-
-// A page environment: every element is a permissive stub that records hidden/textContent.
-function page(pathname, routes, opts = {}) {
-  const els = {};
-  const el = (id) =>
-    (els[id] ||= new Proxy(
-      { id, hidden: true, textContent: "", style: {}, classList: { add() {}, remove() {}, toggle() {} } },
-      { get: (t, k) => (k in t ? t[k] : () => el(id + "." + String(k))), set: (t, k, v) => ((t[k] = v), true) },
-    ));
-  const navs = [];
-  const location = { pathname, search: "", replace: (u) => navs.push(u), href: "" };
-  const fetched = [];
-  const fetch = (url, opts) => {
-    const u = String(url).replace("https://broker.rogerai.fm", "");
-    fetched.push(u);
-    const key = Object.keys(routes).find((k) => u.startsWith(k));
-    const status = key ? routes[key].status : 404;
-    const body = key ? routes[key].body : {};
-    return Promise.resolve({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
-  };
-  const document = { getElementById: el, querySelector: () => null, querySelectorAll: () => [], createElement: () => el("new"), cookie: "" };
-  const ctx = vm.createContext({ document, location, fetch, URLSearchParams, console, setTimeout, window: {} });
-  ctx.window = ctx;
-  if (!opts.noFmt) ctx.RogerFmt = Fmt;
-  return { ctx, els, navs, fetched, run: (file) => vm.runInContext(src(file), ctx, { filename: file }) };
-}
-const settle = () => new Promise((r) => setTimeout(r, 20));
 const SIGNED_IN = { status: 200, body: { github_login: "someone@rogerai.fm", github_id: 0 } };
 
 for (const [status, label] of [[401, "401"], [403, "403"]]) {

@@ -496,7 +496,9 @@
   function fetchSeries(days) {
     var url = BROKER + "/metrics/series?days=" + encodeURIComponent(days);
     return fetch(url, { credentials: "include" }).then(function (r) {
-      if (r.status === 401 || r.status === 403) return { ok: false, auth: false };
+      // 401 = the session is really gone (the gate). A 403 for a person /account just
+      // confirmed is a fault to show, never "you are signed out".
+      if (r.status === 401) return { ok: false, auth: false };
       if (!r.ok) return { ok: false };
       return r.json().then(function (d) { return { ok: true, data: d }; })
         .catch(function () { return { ok: false }; });

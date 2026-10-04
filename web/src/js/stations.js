@@ -8,10 +8,14 @@
 (function () {
   var BROKER = "https://broker.rogerai.fm";
 
+  // Resolves { status, data }: the page must tell a 403 ("no operator account", the normal
+  // state for a consumer) from a real fault, so it needs the status, not just null.
   function get(path) {
     return fetch(BROKER + path, { credentials: "include" }).then(function (r) {
-      return r.ok ? r.json() : null;
-    }).catch(function () { return null; });
+      return (r.ok ? r.json() : Promise.resolve(null)).then(function (data) {
+        return { status: r.status, data: data };
+      });
+    }).catch(function () { return { status: 0, data: null }; });
   }
   function el(id) { return document.getElementById(id); }
   function text(id, v) { var e = el(id); if (e) e.textContent = v; }
@@ -107,7 +111,7 @@
   function render(data) {
     hide("stLoading");
     show("card");
-    text("who", data.github_login || "your account");
+    text("who", data.github_login ? RogerFmt.handle(data.github_login) : "your account");
 
     var list = data.stations || [];
     if (!list.length) {
@@ -138,13 +142,26 @@
     }
   }
 
-  get("/stations").then(function (data) {
-    if (!data) {
+  get("/stations").then(function (res) {
+    if (res.status === 401) { // not signed in: sign in, then come straight back
+      location.replace("/login.html?next=" + encodeURIComponent("/stations.html"));
+      return;
+    }
+    if (res.status === 403) { // signed in, but no operator account behind this sign-in
+      hide("stLoading");
+      show("card");
+      show("stNoOperator");
+      get("/account").then(function (a) {
+        text("who", a.data && a.data.github_login ? RogerFmt.handle(a.data.github_login) : "your account");
+      });
+      return;
+    }
+    if (!res.data) { // a real fault (5xx / network)
       hide("stLoading");
       show("card");
       show("stError");
       return;
     }
-    render(data);
+    render(res.data);
   });
 })();

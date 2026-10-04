@@ -296,7 +296,11 @@
     var totalTokens = tot.tokens_in + tot.tokens_out;
     var hasData = daily.length > 0 && (totalTokens > 0 || tot.requests > 0);
 
-    if (!hasData) { show("dashEmpty"); return; }
+    if (!hasData) {
+      show("dashEmpty");
+      if (!isProvider) show("earnCta"); // a new person is told how to earn too
+      return;
+    }
 
     // ---- HEADLINE: savings vs frontier (consumer); else earned banner. ----
     if (isConsumer && n0(sv.savings_est) > 0) {
@@ -387,7 +391,8 @@
       signedIn = true;
       show("card");
       wireLogout(); // before anything that can throw: a visible card always has a working logout
-      text("who", RogerFmt.handle(acct.github_login));
+      text("who", RogerFmt.who(acct));
+      text("emptyBalance", cr(acct.balance)); // already in hand; shown only on the empty state
       return fetch(BROKER + "/metrics/series?days=" + DAYS, { credentials: "include" })
         .then(function (r) {
           // NEVER bounce to /login.html from here: /account just said we are signed in, and

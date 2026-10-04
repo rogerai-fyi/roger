@@ -534,6 +534,20 @@ func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, 
 	return l, store.Owner{}, false, true
 }
 
+// sessionProvider names the sign-in behind a session from its wallet namespace (each
+// provider's wallet is derived from its own unique key), falling back to the GitHub id.
+func sessionProvider(wallet string, gid int64) string {
+	switch {
+	case strings.HasPrefix(wallet, "u_gh_"), gid != 0:
+		return "github"
+	case strings.HasPrefix(wallet, "u_apple_"):
+		return "apple"
+	case isEmailWallet(wallet):
+		return "email"
+	}
+	return "unknown"
+}
+
 func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) {
 	bal, _ := b.db.BalanceOf(wallet, b.seedFunds)
 	out := map[string]any{
@@ -541,11 +555,23 @@ func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string
 		"github_id":    gid,
 		"balance":      round6(bal),
 		"connect":      map[string]any{"status": "none"},
+		// Who is signed in, so every page can say so and tell a consumer from an operator
+		// instead of showing "-" / "could not load". All of it is already in hand.
+		"login":          login,
+		"provider":       sessionProvider(wallet, gid),
+		"email_verified": false,
+		"operator":       false,
+	}
+	if sessionProvider(wallet, gid) == "email" {
+		out["email"] = login // the proven address IS the login of an email-only session
+		out["email_verified"] = true
 	}
 	// Enrich from the owner record if this session resolves to a bound account, per
 	// provider (the gid gate, A1: never by a bare login string).
 	if o, ok := b.sessionEnrichOwner(r, login, gid); ok {
 		out["email"] = o.Email
+		out["email_verified"] = o.EmailVerifiedAt != 0
+		out["operator"] = o.Pubkey != "" && hasVerifiedIdentity(o)
 		out["created_at"] = o.CreatedAt
 		status := o.ConnectStatus
 		if status == "" {
