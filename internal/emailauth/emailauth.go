@@ -76,6 +76,10 @@ type Config struct {
 	// SubmitsPerSource bounds code guessing from one sender across different addresses.
 	SubmitsPerSource int
 	Window           time.Duration
+	// Namespace separates this flow's records from any other flow over the same store (a
+	// code mailed for one purpose can never satisfy another). Empty = the default flow, whose
+	// hashes are unchanged so records already at rest keep working.
+	Namespace string
 }
 
 func (c *Config) withDefaults() {
@@ -180,6 +184,15 @@ func ValidAddress(addr string) bool {
 	return true
 }
 
+// scoped is the identity a record is keyed on: the address, qualified by the flow's
+// Namespace. The default (empty) namespace leaves the address untouched.
+func (f *Flow) scoped(addr string) string {
+	if f.cfg.Namespace == "" {
+		return addr
+	}
+	return f.cfg.Namespace + "|" + addr
+}
+
 func hashAddr(addr string) string { return sha256hex("addr:" + addr) }
 func hashCode(addr, code string) string {
 	// The address is mixed in so a code is only ever valid for the address it was mailed
@@ -210,7 +223,7 @@ func (f *Flow) Request(addr, source string) (string, error) {
 	if !ValidAddress(addr) {
 		return "", ErrInvalidAddress
 	}
-	ah := hashAddr(addr)
+	ah := hashAddr(f.scoped(addr))
 
 	ok, err := f.store.AllowRequest(ah, source, f.cfg.RequestsPerAddress, f.cfg.RequestsPerSource, f.cfg.Window, f.now())
 	if err != nil {
@@ -230,7 +243,7 @@ func (f *Flow) Request(addr, source string) (string, error) {
 	// live spare credential sitting in their inbox.
 	rec := Record{
 		AddrHash: ah,
-		CodeHash: hashCode(addr, code),
+		CodeHash: hashCode(f.scoped(addr), code),
 		Issued:   now,
 		Expires:  now.Add(f.cfg.TTL),
 	}
@@ -249,7 +262,7 @@ func (f *Flow) Submit(addr, code, source string) (string, error) {
 		// valid one that has no code.
 		return "", ErrRejected
 	}
-	ah := hashAddr(addr)
+	ah := hashAddr(f.scoped(addr))
 
 	// The per-source submission budget is spent FIRST, so walking an address list costs
 	// the attacker whether or not any of the addresses exist.
@@ -272,7 +285,7 @@ func (f *Flow) Submit(addr, code, source string) (string, error) {
 	// Constant time: an early return on the first differing digit leaks how much of the
 	// code a guess got right, which turns a million-possibility space into six
 	// ten-possibility ones.
-	if subtle.ConstantTimeCompare([]byte(rec.CodeHash), []byte(hashCode(addr, code))) != 1 {
+	if subtle.ConstantTimeCompare([]byte(rec.CodeHash), []byte(hashCode(f.scoped(addr), code))) != 1 {
 		if _, err := f.store.Penalize(ah, f.cfg.TTL); err != nil {
 			return "", unavailable(err)
 		}

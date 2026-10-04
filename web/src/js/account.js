@@ -73,6 +73,53 @@
   // Strip a trailing slash AND a ".html" suffix so the branch matches whether the
   // page is served at the clean path (/billing) or the static file (/billing.html) -
   // the static host serves /billing.html, so matching only "/billing" left it blank.
+  // ---- add a verified email to a GitHub/Apple account (features/auth/email_link.feature) ----
+  // The session proves who is adding; the mailed code proves the address is theirs; the token
+  // the broker hands back ties the code to this account. Nothing is stored in the page.
+  function initLink(a) {
+    if (a.provider !== "github" && a.provider !== "apple") return; // an email sign-in already IS its address
+    show("linkPanel");
+    if (a.email_verified && a.email) text("linkCurrent", "Verified: " + a.email + ". Adding another replaces it.");
+    if (a.operator === false) { hide("linkForm"); show("linkNeedsLogin"); return; }
+    show("linkForm");
+    var token = "", addr = "";
+    function say(m) { text("linkMsg", m); }
+    function fail(r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        say((j && j.error && j.error.message) || "that did not work - try again");
+      });
+    }
+    function post(path, body) {
+      return fetch(BROKER + path, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    }
+    on("linkSend", "click", function () {
+      addr = ((document.getElementById("linkEmail") || {}).value || "").trim();
+      if (!addr) return;
+      say("Sending...");
+      post("/auth/email/link/start", { email: addr }).then(function (r) {
+        if (!r.ok) return fail(r);
+        return r.json().then(function (j) {
+          token = j.token || "";
+          show("linkStep2");
+          say("If that address can receive mail, a code is on its way.");
+        });
+      }).catch(function () { say("Could not reach RogerAI. Check your connection and try again."); });
+    });
+    on("linkVerify", "click", function () {
+      var code = ((document.getElementById("linkCode") || {}).value || "").trim();
+      if (!code) return;
+      post("/auth/email/link/verify", { email: addr, code: code, token: token }).then(function (r) {
+        if (!r.ok) return fail(r);
+        return r.json().then(function (j) {
+          var done = (j && j.email) || addr;
+          hide("linkStep2");
+          say(done + " is added and verified. Signing in with an emailed code now reaches this account.");
+          text("linkCurrent", "Verified: " + done);
+        });
+      }).catch(function () { say("Could not reach RogerAI. Check your connection and try again."); });
+    });
+  }
+
   var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   var qs = new URLSearchParams(location.search);
   if (path.endsWith("/account")) {
@@ -88,6 +135,7 @@
       text("since", a.created_at ? when(a.created_at) : "-");
       var em = document.getElementById("email");
       if (em && a.email) em.value = a.email;
+      initLink(a);
       if (a.provider === "email" && em) { // the address IS the sign-in: show it, never edit it here
         em.readOnly = true;
         hide("saveEmail");

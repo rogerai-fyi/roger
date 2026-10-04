@@ -1,0 +1,286 @@
+package main
+
+// features/auth/email_link.feature: a signed-in provider account adds a VERIFIED email.
+// The session proves who is adding; the emailed code proves the address is theirs; a signed
+// token (not server memory) ties the code to the account that asked, so it holds across
+// broker instances.
+
+import (
+	"bytes"
+	"encoding/json"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/emailauth"
+	"rogerai.fm/roger/v6/internal/store"
+)
+
+func postWithSession(t *testing.T, h http.HandlerFunc, path string, in any, c *http.Cookie, origin string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(in)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	if c != nil {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	return rec
+}
+
+func ghCookie(b *broker, login string, gid int64) *http.Cookie {
+	return &http.Cookie{Name: sessionCookie, Value: b.signSession(login, gid, time.Now().Add(time.Hour).Unix())}
+}
+
+// linkFixture: an operator account (GitHub 7, "octocat") with a bound CLI key.
+func linkFixture(t *testing.T) (*broker, *capturedMail, *http.Cookie) {
+	b, cap := emailTestBroker(t)
+	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: "pk-1", GitHubID: 7, Login: "octocat"}))
+	return b, cap, ghCookie(b, "octocat", 7)
+}
+
+func linkStart(t *testing.T, b *broker, c *http.Cookie, addr string) (*httptest.ResponseRecorder, string) {
+	rec := postWithSession(t, b.emailLinkStart, "/auth/email/link/start", map[string]string{"email": addr}, c, testWebOrigin)
+	var out struct{ Token string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out.Token
+}
+
+func linkVerify(t *testing.T, b *broker, c *http.Cookie, addr, code, token string) *httptest.ResponseRecorder {
+	return postWithSession(t, b.emailLinkVerify, "/auth/email/link/verify", map[string]string{"email": addr, "code": code, "token": token}, c, testWebOrigin)
+}
+
+func addAndVerify(t *testing.T, b *broker, cap *capturedMail, c *http.Cookie, addr string) *httptest.ResponseRecorder {
+	n := len(cap.all())
+	rec, token := linkStart(t, b, c, addr)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	waitForMail(t, cap, n+1)
+	return linkVerify(t, b, c, addr, codeFromMail(t, cap), token)
+}
+
+func TestLinkRequiresASignedInSessionAndMailsNothingWithout(t *testing.T) {
+	b, cap, _ := linkFixture(t)
+	rec, _ := linkStart(t, b, nil, "me@example.com")
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	rec = linkVerify(t, b, nil, "me@example.com", "123456", "x")
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	time.Sleep(100 * time.Millisecond)
+	require.Empty(t, cap.all(), "nothing is mailed to an unauthenticated caller")
+}
+
+func TestLinkRequiresTheWebOrigin(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	rec := postWithSession(t, b.emailLinkStart, "/auth/email/link/start", map[string]string{"email": "me@example.com"}, c, "https://evil.example")
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	rec = postWithSession(t, b.emailLinkStart, "/auth/email/link/start", map[string]string{"email": "me@example.com"}, c, "")
+	require.Equal(t, http.StatusForbidden, rec.Code, "no Origin at all is refused too")
+	time.Sleep(100 * time.Millisecond)
+	require.Empty(t, cap.all())
+}
+
+func TestAddingAnAddressRecordsItVerifiedOnThisAccountOnly(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	rec := addAndVerify(t, b, cap, c, "me@example.com")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	o, ok, _ := b.db.OwnerByVerifiedEmail("me@example.com")
+	require.True(t, ok)
+	require.Equal(t, "pk-1", o.Pubkey)
+	require.Equal(t, "octocat", o.Login, "login unchanged")
+	require.Equal(t, int64(7), o.GitHubID)
+}
+
+func TestAfterAddingTheEmailedCodeReachesTheSameAccount(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "me@example.com").Code)
+
+	sess := signInByEmail(t, b, cap, "me@example.com")
+	_, gid, wallet, _, ok := b.verifySessionFull(sess.Value)
+	require.True(t, ok)
+	require.Equal(t, int64(7), gid, "the emailed code now reaches the GitHub account")
+	require.Equal(t, "u_gh_7", wallet)
+	require.Equal(t, http.StatusOK, getWithSession(b.stations, "/stations", sess).Code, "with its stations")
+}
+
+func TestAnAddressVerifiedOnAnotherAccountIsRefusedWithoutNamingIt(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: "pk-2", GitHubID: 8, Login: "other", Email: "taken@example.com", EmailVerifiedAt: time.Now().Unix()}))
+
+	rec := addAndVerify(t, b, cap, c, "taken@example.com")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Body.String(), "cannot be added")
+	require.NotContains(t, rec.Body.String(), "other", "the other account is not named")
+	require.NotContains(t, rec.Body.String(), "pk-2")
+	o, _, _ := b.db.OwnerByVerifiedEmail("taken@example.com")
+	require.Equal(t, "pk-2", o.Pubkey, "the other account is untouched")
+	mine, _, _ := b.db.OwnerByPubkey("pk-1")
+	require.Zero(t, mine.EmailVerifiedAt)
+}
+
+func TestAddingTheSameAddressAgainIsIdempotent(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "me@example.com").Code)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "me@example.com").Code)
+	o, ok, _ := b.db.OwnerByVerifiedEmail("me@example.com")
+	require.True(t, ok)
+	require.Equal(t, "pk-1", o.Pubkey)
+}
+
+func TestReplacingTheAddressDropsTheOldProof(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "old@example.com").Code)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "new@example.com").Code)
+	_, found, _ := b.db.OwnerByVerifiedEmail("old@example.com")
+	require.False(t, found)
+	o, found, _ := b.db.OwnerByVerifiedEmail("new@example.com")
+	require.True(t, found)
+	require.Equal(t, "pk-1", o.Pubkey)
+}
+
+func TestAWrongSpentOrExpiredCodeIsRefusedUniformlyAndNothingIsRecorded(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	rec, token := linkStart(t, b, c, "me@example.com")
+	require.Equal(t, http.StatusOK, rec.Code)
+	waitForMail(t, cap, 1)
+	code := codeFromMail(t, cap)
+
+	wrong := linkVerify(t, b, c, "me@example.com", "000000", token)
+	require.Equal(t, http.StatusBadRequest, wrong.Code)
+	msg := wrong.Body.String()
+
+	require.Equal(t, http.StatusOK, linkVerify(t, b, c, "me@example.com", code, token).Code)
+	spent := linkVerify(t, b, c, "me@example.com", code, token)
+	require.Equal(t, http.StatusBadRequest, spent.Code)
+	require.Equal(t, msg, spent.Body.String(), "a wrong and a spent code look identical")
+
+	// a code past its TTL is refused (a tiny-TTL flow, so no sleeping through real windows)
+	b.emailLinks = emailauth.New(emailauth.Config{TTL: 30 * time.Millisecond})
+	rec2, token2 := linkStart(t, b, c, "late@example.com")
+	require.Equal(t, http.StatusOK, rec2.Code)
+	waitForMail(t, cap, 2)
+	code2 := codeFromMail(t, cap)
+	time.Sleep(80 * time.Millisecond)
+	late := linkVerify(t, b, c, "late@example.com", code2, token2)
+	require.Equal(t, http.StatusBadRequest, late.Code)
+	require.Equal(t, msg, late.Body.String())
+	_, found, _ := b.db.OwnerByVerifiedEmail("late@example.com")
+	require.False(t, found)
+}
+
+// The signed token carries its own expiry, so a stolen-and-held token does not outlive the code.
+func TestAnExpiredTokenIsRefused(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	rec, token := linkStart(t, b, c, "me@example.com")
+	require.Equal(t, http.StatusOK, rec.Code)
+	waitForMail(t, cap, 1)
+	code := codeFromMail(t, cap)
+	b.linkClock = func() time.Time { return time.Now().Add(emailCodeTTL + time.Minute) }
+	require.Equal(t, http.StatusBadRequest, linkVerify(t, b, c, "me@example.com", code, token).Code)
+}
+
+func TestATokenFromAnotherAccountOrForAnotherAddressOrTamperedIsRefused(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: "pk-2", GitHubID: 8, Login: "mallory"}))
+	mallory := ghCookie(b, "mallory", 8)
+
+	_, token := linkStart(t, b, c, "me@example.com")
+	waitForMail(t, cap, 1)
+	code := codeFromMail(t, cap)
+
+	// another account's session cannot redeem it (even with the real code)
+	require.Equal(t, http.StatusBadRequest, linkVerify(t, b, mallory, "me@example.com", code, token).Code)
+	// a different address with the same token
+	require.Equal(t, http.StatusBadRequest, linkVerify(t, b, c, "else@example.com", code, token).Code)
+	// a tampered token
+	require.Equal(t, http.StatusBadRequest, linkVerify(t, b, c, "me@example.com", code, token+"x").Code)
+	require.Equal(t, http.StatusBadRequest, linkVerify(t, b, c, "me@example.com", code, "").Code)
+	_, found, _ := b.db.OwnerByVerifiedEmail("me@example.com")
+	require.False(t, found, "nothing was recorded by any refused attempt")
+	// and the real holder can STILL redeem it: the refused attempts did not burn the code
+	require.Equal(t, http.StatusOK, linkVerify(t, b, c, "me@example.com", code, token).Code)
+}
+
+func TestASessionWithNoOwnerRowCannotLinkAndNothingIsMailed(t *testing.T) {
+	b, cap := emailTestBroker(t)
+	rec, _ := linkStart(t, b, ghCookie(b, "newbie", 99), "me@example.com")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Body.String(), "roger login")
+	time.Sleep(100 * time.Millisecond)
+	require.Empty(t, cap.all())
+}
+
+func TestADeletedAccountCannotLink(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	b.seedFunds = 0
+	ok, err := b.db.DeleteAccount("octocat")
+	require.NoError(t, err)
+	require.True(t, ok)
+	rec, _ := linkStart(t, b, c, "me@example.com")
+	require.GreaterOrEqual(t, rec.Code, 400)
+	time.Sleep(100 * time.Millisecond)
+	require.Empty(t, cap.all())
+}
+
+func TestAnEmailSessionCannotAddAnotherAddress(t *testing.T) {
+	b, cap := emailTestBroker(t)
+	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: "pk-e", Login: "op@example.com", Email: "op@example.com", EmailVerifiedAt: time.Now().Unix()}))
+	sess := signInByEmail(t, b, cap, "op@example.com")
+	n := len(cap.all())
+	rec, _ := linkStart(t, b, sess, "second@example.com")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Body.String(), "sign-in address")
+	time.Sleep(100 * time.Millisecond)
+	require.Len(t, cap.all(), n, "no further mail")
+}
+
+func TestLinkRequestsAreRateLimited(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	var limited bool
+	for i := 0; i < 20; i++ {
+		rec, _ := linkStart(t, b, c, "me@example.com")
+		if rec.Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	require.True(t, limited, "requests for one address are eventually refused")
+	time.Sleep(100 * time.Millisecond)
+	require.Less(t, len(cap.all()), 20, "no further mail once limited")
+}
+
+func TestLinkNeverLogsTheAddressOrTheCode(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(nopWriter{})
+	b, cap, c := linkFixture(t)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "private.person@example.com").Code)
+	code := codeFromMail(t, cap)
+	require.NotContains(t, buf.String(), "private.person", "the address is never logged in the clear")
+	require.NotContains(t, buf.String(), code)
+}
+
+type nopWriter struct{}
+
+func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+func TestLinkingNeverMergesWalletsOrBalances(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	b.seedFunds = 5
+	// a separate email-only account exists for the same address, with its own balance
+	_, _ = b.db.AddCredits(walletForEmail("me@example.com"), 3)
+	_, _ = b.db.AddCredits("u_gh_7", 2)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "me@example.com").Code)
+	a, _ := b.db.BalanceOf(walletForEmail("me@example.com"), 0)
+	g, _ := b.db.BalanceOf("u_gh_7", 0)
+	require.InDelta(t, 3, a, 0.0001, "the email wallet is untouched")
+	require.InDelta(t, 2, g, 0.0001, "the GitHub wallet is untouched")
+}
