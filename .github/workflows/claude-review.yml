@@ -56,6 +56,8 @@ jobs:
             `gh pr comment ${{ github.event.pull_request.number }} --body "<summary>"`: list the
             real problems (file:line, fix) or write "No blocking issues found." - always post it,
             so a clean review is visible. Keep it under 2000 characters.
+            Write it as a plain reviewer note: do NOT sign it, and do NOT mention Claude, Anthropic,
+            AI, or that it was generated. No footer, no attribution line.
           claude_args: |
             --max-turns 20
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(gh pr comment:*),mcp__github_inline_comment__create_inline_comment"
