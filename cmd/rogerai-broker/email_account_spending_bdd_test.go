@@ -65,6 +65,14 @@ type eaState struct {
 
 	topupWallet string
 
+	// several devices / provider-uniqueness scenarios (2026-10-04 ruling)
+	devKeys     []ed25519.PrivateKey
+	approveErrs []error
+	provA       store.Owner
+	provB       store.Owner
+	linkErr     error
+	sharedAddr  string
+
 	// outcomes
 	resp     *httptest.ResponseRecorder
 	resps    []*httptest.ResponseRecorder
@@ -99,6 +107,7 @@ func (s *eaState) reset() error {
 	s.key, s.key2, s.unboundKey, s.pendingKey = nil, nil, nil, nil
 	s.ginaWallet, s.ginaSession, s.newSession, s.newWallet = "", "", "", ""
 	s.topupWallet = ""
+	s.devKeys, s.approveErrs, s.provA, s.provB, s.linkErr, s.sharedAddr = nil, nil, store.Owner{}, store.Owner{}, nil, ""
 	s.resp, s.resps, s.dashBody = nil, nil, nil
 	s.rcvdStart = map[string]int{}
 	return nil
@@ -140,13 +149,13 @@ func (s *eaState) codeAfter(mark int) (string, error) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		s.mailMu.Lock()
-		if len(s.mails) > mark {
-			last := s.mails[len(s.mails)-1]
-			s.mailMu.Unlock()
-			if m := eaSixDigits.FindStringSubmatch(strings.ReplaceAll(last, `\n`, " ")); m != nil {
+		// Scan every message mailed since the mark, newest first: another message (a welcome
+		// email an address edit triggers) can land after the code.
+		for i := len(s.mails) - 1; i >= mark && i >= 0; i-- {
+			if m := eaSixDigits.FindStringSubmatch(strings.ReplaceAll(s.mails[i], `\n`, " ")); m != nil {
+				s.mailMu.Unlock()
 				return m[1], nil
 			}
-			return "", fmt.Errorf("no code in the mailed message")
 		}
 		s.mailMu.Unlock()
 		time.Sleep(10 * time.Millisecond)
@@ -173,13 +182,20 @@ func (s *eaState) postWeb(h http.HandlerFunc, path string, in any, session strin
 // approves it, binding the key to the account.
 func (s *eaState) approveDevice(session string) (ed25519.PrivateKey, error) {
 	_, priv, _ := ed25519.GenerateKey(nil)
+	return priv, s.approveKey(session, priv)
+}
+
+// approveKey runs the REAL device login for an existing key: the key starts it (signed), the
+// session approves it. Used for a second approval of the same device and for linking a proven
+// address onto a key that already belongs to a provider account.
+func (s *eaState) approveKey(session string, priv ed25519.PrivateKey) error {
 	body := []byte(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/auth/device/start", bytes.NewReader(body))
 	signReq(req, priv, body)
 	rec := httptest.NewRecorder()
 	s.b.deviceStart(rec, req)
 	if rec.Code != http.StatusOK {
-		return nil, fmt.Errorf("/auth/device/start = %d %s", rec.Code, rec.Body.String())
+		return fmt.Errorf("/auth/device/start = %d %s", rec.Code, rec.Body.String())
 	}
 	var start struct {
 		UserCode string `json:"user_code"`
@@ -187,9 +203,9 @@ func (s *eaState) approveDevice(session string) (ed25519.PrivateKey, error) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &start)
 	ap := s.postWeb(s.b.deviceApprove, "/auth/device/approve", map[string]any{"user_code": start.UserCode}, session)
 	if ap.Code != http.StatusOK {
-		return nil, fmt.Errorf("/auth/device/approve = %d %s", ap.Code, ap.Body.String())
+		return fmt.Errorf("/auth/device/approve = %d %s", ap.Code, ap.Body.String())
 	}
-	return priv, nil
+	return nil
 }
 
 func (s *eaState) setBalance(wallet string, want float64) error {
@@ -1183,6 +1199,7 @@ func TestEmailAccountSpendingBDD(t *testing.T) {
 			sc.Step(`^the request is not served from the old wallet$`, st.notServedFromOldWallet)
 			sc.Step(`^an owner row carries "([^"]+)" with no verification time$`, st.unverifiedOwnerRow)
 			sc.Step(`^a key bound to that owner relays a paid request$`, st.keyBoundRelaysPaid)
+			st.registerDeviceRulingSteps(sc)
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{"../../features/money/email_account_spending.feature"},

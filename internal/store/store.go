@@ -818,11 +818,15 @@ type Owner struct {
 	// can type an address into their profile claim the account that address belongs to -
 	// including one holding a wallet balance. Only a verified address is an identity, and
 	// only a verified address may auto-link to an account a provider created.
-	EmailVerifiedAt int64  `json:"email_verified_at,omitempty"`
-	ConnectID       string `json:"stripe_connect_id,omitempty"`
-	ConnectStatus   string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
-	DeletedAt       int64  `json:"deleted_at,omitempty"`
-	Anonymized      bool   `json:"anonymized,omitempty"`
+	EmailVerifiedAt int64 `json:"email_verified_at,omitempty"`
+	// EmailUnproven marks an address the account TYPED into its profile (PATCH /account): not
+	// proven by a code and not reported by the identity provider. Cap notices skip it until it
+	// is proven (founder ruling 2026-10-04).
+	EmailUnproven bool   `json:"email_unproven,omitempty"`
+	ConnectID     string `json:"stripe_connect_id,omitempty"`
+	ConnectStatus string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
+	DeletedAt     int64  `json:"deleted_at,omitempty"`
+	Anonymized    bool   `json:"anonymized,omitempty"`
 }
 
 // NodeRecord is a persisted node registration - the durable copy of the broker's
@@ -1724,6 +1728,8 @@ func (m *Mem) BindOwner(o Owner) error {
 		if o.EmailVerifiedAt == 0 {
 			o.EmailVerifiedAt = existing.EmailVerifiedAt
 		}
+		// A typed, unproven address stays unproven until a proof lands on the row.
+		o.EmailUnproven = existing.EmailUnproven && !(existing.EmailVerifiedAt == 0 && o.EmailVerifiedAt != 0)
 		// Name: same fill-if-empty so a once-captured display name is stable across
 		// logins (and a later GitHub name change doesn't silently overwrite it).
 		if existing.Name != "" {
@@ -1736,7 +1742,33 @@ func (m *Mem) BindOwner(o Owner) error {
 		o.DeletedAt = existing.DeletedAt
 		o.Anonymized = existing.Anonymized
 	}
+	if err := m.verifiedProviderEmailTakenLocked(o); err != nil {
+		return err
+	}
 	m.owners[o.Pubkey] = o
+	return nil
+}
+
+// ErrVerifiedEmailTaken is the in-memory store's form of the Postgres partial unique index
+// owners_verified_provider_email_uniq: one verified address belongs to at most one live
+// PROVIDER-linked owner row. Provider-less rows (an email account's devices) are exempt, exactly
+// as the index's WHERE clause exempts them, so a gap between the stores cannot hide again.
+var ErrVerifiedEmailTaken = errors.New("store: this verified address already belongs to another account")
+
+func providerLinked(o Owner) bool { return o.GitHubID != 0 || o.AppleSub != "" }
+
+func (m *Mem) verifiedProviderEmailTakenLocked(o Owner) error {
+	if o.EmailVerifiedAt == 0 || o.Anonymized || o.Email == "" || !providerLinked(o) {
+		return nil
+	}
+	for pk, other := range m.owners {
+		if pk == o.Pubkey || other.EmailVerifiedAt == 0 || other.Anonymized || !providerLinked(other) {
+			continue
+		}
+		if strings.EqualFold(other.Email, o.Email) {
+			return ErrVerifiedEmailTaken
+		}
+	}
 	return nil
 }
 
@@ -1803,7 +1835,13 @@ func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {
 	defer m.mu.Unlock()
 	for pk, o := range m.owners {
 		if o.Login == login && !o.Anonymized {
-			o.Email = email
+			// Mirrors Postgres.UpdateAccount: a typed address is unproven and withdraws the
+			// previous address's proof; re-typing the same address (any case) changes nothing.
+			if !strings.EqualFold(o.Email, email) {
+				o.Email = email
+				o.EmailVerifiedAt = 0
+				o.EmailUnproven = email != ""
+			}
 			m.owners[pk] = o
 			return o, true, nil
 		}
@@ -1852,6 +1890,7 @@ func (m *Mem) DeleteAccount(login string) (bool, error) {
 			// nothing downstream misses them.
 			o.Email = ""
 			o.EmailVerifiedAt = 0
+			o.EmailUnproven = false
 			o.Name = ""
 			o.GitHubID = 0
 			o.AppleSub = ""

@@ -214,3 +214,38 @@ Feature: An email-login account spends, reads and limits its wallet like any acc
     Given an owner row carries "unverified@example.com" with no verification time
     When a key bound to that owner relays a paid request
     Then the response is 401 "log in to spend on paid models"
+
+  # --- several devices, one email account -------------------------------------------------
+  # added 2026-10-04 (founder ruling): the one-account-per-verified-address rule applies only to
+  # GitHub- and Apple-linked accounts. Provider-less owner rows that share a verified address are
+  # the same email account: one row per approved device, all resolving to one wallet. Before this
+  # ruling the second approval failed on Postgres ("could not link this device to your account")
+  # while the in-memory store accepted it.
+
+  Scenario: An email account approves a second and a third device, and every device spends from the one wallet
+    When "erin@example.com" approves 3 devices
+    Then every approval succeeds
+    And a paid request from each device is served from "erin@example.com"'s account wallet
+
+  Scenario: Re-approving the same device for an email account is idempotent
+    When "erin@example.com" approves the same device twice
+    Then both approvals succeed
+    And the device spends from "erin@example.com"'s account wallet
+
+  Scenario Outline: Two provider accounts can never hold the same verified address
+    Given a <first> account holds the verified address "shared@example.com"
+    When a different <second> account proves the address "shared@example.com"
+    Then the second link is refused
+    And "shared@example.com" still resolves to the <first> account
+
+    Examples:
+      | first        | second       |
+      | GitHub-linked | GitHub-linked |
+      | GitHub-linked | Apple-linked  |
+      | Apple-linked  | GitHub-linked |
+
+  Scenario: A deleted provider account frees its verified address for a new provider account (unchanged)
+    Given a GitHub-linked account holds the verified address "shared@example.com"
+    And that account has been deleted and anonymized
+    When a different GitHub-linked account proves the address "shared@example.com"
+    Then the link succeeds
