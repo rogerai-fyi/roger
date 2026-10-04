@@ -326,6 +326,9 @@ Feature: A conversation keeps its station while it can, so the prompt cache is r
     When "u-1" relays twice for "m" with roger.session "conv-42"
     Then both responses are 200
 
+  # tagged @later 2026-10-04 (RED runner): the bound is unnamed in contract §14.B1, so a test cannot set it;
+  # filling 100000 entries through the relay is minutes per run.
+  @later
   Scenario: The affinity map is bounded per instance
     Given 100000 distinct sessions have been recorded on one instance without a shared store
     When "u-1" relays for "m" with roger.session "conv-new"

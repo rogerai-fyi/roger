@@ -79,6 +79,8 @@ Feature: A dry run explains where a request would go and what it would cost, spe
     And no receipt exists for the dry-run request id
     And GET /generation for the dry-run request id is 404
 
+  # tagged @later 2026-10-04 (RED runner): needs the slice-5 key object, which is not on this branch
+  @later
   Scenario: A dry run places no key reserve and counts no spend
     Given "u-1" relays through key "k1" with roger.dry_run true
     Then key "k1" spend is unchanged

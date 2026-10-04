@@ -146,6 +146,7 @@ Feature: What the consumer pays and the operator earns are right in every routin
     When "alice" relays with no caps stated
     Then "s" is a candidate
 
+  @proxy
   Scenario: The local proxy owner's input cap is a ceiling for guests (unchanged rule)
     Given the proxy owner tuned with --max-in 1
     When a guest sends provider.max_price.prompt 4
