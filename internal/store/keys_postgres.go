@@ -25,16 +25,45 @@ func scanAcctKey(row interface{ Scan(...any) error }) (AccountKey, error) {
 	return k, nil
 }
 
-func (p *Postgres) CreateAccountKey(k AccountKey) error {
-	if k.CreatedAt == 0 {
-		k.CreatedAt = time.Now().UnixNano()
+func (p *Postgres) CreateAccountKey(k AccountKey, r MintKeyRules) (AccountKey, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return AccountKey{}, err
 	}
-	_, err := p.db.Exec(`INSERT INTO rogerai.account_keys (`+acctKeyCols+`)
+	defer tx.Rollback()
+	// One account's mints serialize on a transaction-scoped advisory lock, so the rules read
+	// below and the insert are one decision across every instance.
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended('rogerai.account_keys:' || $1, 0))`, k.Account); err != nil {
+		return AccountKey{}, err
+	}
+	rows, err := tx.Query(`SELECT id,idem_key,created_at,revoked FROM rogerai.account_keys WHERE account=$1`, k.Account)
+	if err != nil {
+		return AccountKey{}, err
+	}
+	var existing []AccountKey
+	for rows.Next() {
+		var x AccountKey
+		if err := rows.Scan(&x.ID, &x.IdemKey, &x.CreatedAt, &x.Revoked); err != nil {
+			rows.Close()
+			return AccountKey{}, err
+		}
+		existing = append(existing, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return AccountKey{}, err
+	}
+	if k, err = r.admit(k, existing); err != nil {
+		return AccountKey{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO rogerai.account_keys (`+acctKeyCols+`)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		k.ID, k.SecretHash, k.Account, k.Name, k.Hint, k.LimitUSD, k.Reset, k.Anchor, k.ExpiresAt,
 		jsonStrSlice(k.AllowedModels), jsonStrSlice(k.AllowedNodes), k.Disabled, k.Revoked, k.IdemKey,
-		k.CreatedAt, k.LastUsed, k.Requests, k.OwnerPub)
-	return err
+		k.CreatedAt, k.LastUsed, k.Requests, k.OwnerPub); err != nil {
+		return AccountKey{}, err
+	}
+	return k, tx.Commit()
 }
 
 func (p *Postgres) acctKeyWhere(where string, arg any) (AccountKey, bool, error) {

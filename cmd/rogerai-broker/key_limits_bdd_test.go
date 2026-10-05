@@ -1934,14 +1934,20 @@ func (k *kg5State) kl5EmailOnFile(acct string) error {
 	k.t.Setenv("RESEND_API_KEY", "test")
 	// The broker's mailer was built before the env was set: wire an enabled one whose sends
 	// land in k.mails (the provider request body carries the subject and the text).
-	k.b.mail = enabledMailer(func(r *http.Request) (*http.Response, error) {
+	k.b.mail = k.kl5CaptureMailer()
+	return k.db.BindOwner(store.Owner{GitHubID: a.gid, Login: a.who.login, Pubkey: kl5Pub(a), Email: acct + "@example.com"})
+}
+
+// kl5CaptureMailer is a NEW enabled mailer whose sends land in k.mails. Each instance gets its
+// own, so nothing a mailer remembers in process can de-duplicate across instances.
+func (k *kg5State) kl5CaptureMailer() *mailer {
+	return enabledMailer(func(r *http.Request) (*http.Response, error) {
 		raw, _ := io.ReadAll(r.Body)
 		k.mailMu.Lock()
 		k.mails = append(k.mails, string(raw))
 		k.mailMu.Unlock()
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"x"}`)), Header: http.Header{}}, nil
 	})
-	return k.db.BindOwner(store.Owner{GitHubID: a.gid, Login: a.who.login, Pubkey: kl5Pub(a), Email: acct + "@example.com"})
 }
 
 func (k *kg5State) kl5Crosses(label string) error {

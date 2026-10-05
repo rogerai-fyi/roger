@@ -404,8 +404,10 @@ type Store interface {
 
 	// --- account keys (ROUTING-EXPRESSION-CONTRACT section 11; keys.go) ------
 
-	// CreateAccountKey persists a newly minted key (only the secret HASH is stored).
-	CreateAccountKey(k AccountKey) error
+	// CreateAccountKey persists a newly minted key (only the secret HASH is stored), enforcing
+	// the per-account MintKeyRules inside the same write (ErrKeyCount, *KeyReplayError). It
+	// returns the key as stored: CreatedAt is moved past the account's newest key if needed.
+	CreateAccountKey(k AccountKey, r MintKeyRules) (AccountKey, error)
 	// AccountKeyByHash is the auth lookup: resolve a key from sha256(secret).
 	AccountKeyByHash(hash string) (AccountKey, bool, error)
 	// AccountKeyByID reads one key by id (the caller compares the owner).

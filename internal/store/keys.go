@@ -71,14 +71,24 @@ func keyRefMatches(ref, requestID string) bool {
 
 // --- in-memory store ---------------------------------------------------------------------------
 
-func (m *Mem) CreateAccountKey(k AccountKey) error {
+func (m *Mem) CreateAccountKey(k AccountKey, r MintKeyRules) (AccountKey, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.acctKeys == nil {
 		m.acctKeys = map[string]AccountKey{}
 	}
+	var mine []AccountKey
+	for _, x := range m.acctKeys {
+		if x.Account == k.Account {
+			mine = append(mine, x)
+		}
+	}
+	k, err := r.admit(k, mine)
+	if err != nil {
+		return AccountKey{}, err
+	}
 	m.acctKeys[k.ID] = k
-	return nil
+	return k, nil
 }
 
 func (m *Mem) AccountKeyByHash(hash string) (AccountKey, bool, error) {
@@ -142,6 +152,50 @@ func (m *Mem) TouchAccountKey(id string, ts int64, request bool) error {
 type KeyLimit struct {
 	USD      float64
 	From, To int64
+}
+
+// MintKeyRules are the per-account rules CreateAccountKey enforces inside its own write, so
+// mints racing on several instances cannot pass them. Zero values switch a rule off.
+type MintKeyRules struct {
+	MaxLive   int   // live (non-revoked) keys an account may hold
+	IdemSince int64 // a key with the same IdemKey created at or after this (unix nanos) is a replay
+}
+
+// ErrKeyCount: the account already holds MaxLive live keys; nothing was written.
+var ErrKeyCount = errors.New("store: account key count limit")
+
+// KeyReplayError: a key was already minted under this Idempotency-Key (ID); nothing was written.
+type KeyReplayError struct{ ID string }
+
+func (e *KeyReplayError) Error() string { return "store: key already minted as " + e.ID }
+
+// admit applies the rules to k against the account's existing keys (replay first, then the cap)
+// and dates k strictly after the newest of them, so mint order never ties.
+func (r MintKeyRules) admit(k AccountKey, existing []AccountKey) (AccountKey, error) {
+	if k.CreatedAt == 0 {
+		k.CreatedAt = time.Now().UnixNano()
+	}
+	live := 0
+	var replay *AccountKey
+	for i, x := range existing {
+		if k.IdemKey != "" && r.IdemSince > 0 && x.IdemKey == k.IdemKey && x.CreatedAt >= r.IdemSince &&
+			(replay == nil || x.CreatedAt < replay.CreatedAt) {
+			replay = &existing[i]
+		}
+		if !x.Revoked {
+			live++
+		}
+		if x.CreatedAt >= k.CreatedAt {
+			k.CreatedAt = x.CreatedAt + 1
+		}
+	}
+	if replay != nil {
+		return AccountKey{}, &KeyReplayError{ID: replay.ID}
+	}
+	if r.MaxLive > 0 && live >= r.MaxLive {
+		return AccountKey{}, ErrKeyCount
+	}
+	return k, nil
 }
 
 // ErrKeyLimit: the hold would take the key past its limit; no hold was placed.

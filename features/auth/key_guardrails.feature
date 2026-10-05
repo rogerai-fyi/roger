@@ -545,6 +545,33 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     When "acct-a" mints "k1" on A
     Then a relay bearing "k1" on B authenticates
 
+  # state audit 2026-10-05: the per-account rules hold across instances, not per instance.
+  Scenario: Two instances minting at once cannot take an account past 32 live keys
+    Given "acct-a" holds 31 non-deleted keys
+    When "acct-a" mints on A and on B at the same moment
+    Then exactly one mint is 201 and the other is 400 "key_limit_count"
+    And "acct-a" holds exactly 32 live keys
+
+  # state audit 2026-10-05
+  Scenario: A mint replayed on another instance at the same moment does not mint twice
+    When "acct-a" mints with "Idempotency-Key: abc" on A and on B at the same moment
+    Then exactly one mint is 201 and the other is 409 "already_minted" naming the first key's id
+    And "acct-a" holds exactly 1 live key
+
+  # state audit 2026-10-05
+  Scenario: The management limiter is one limit across instances
+    When "acct-a" POSTs /account/keys 14 times in one minute, alternating between A and B
+    Then the requests past the management limiter are 429 with Retry-After and no key is created for them
+    And at most 10 keys were created across both instances
+
+  # state audit 2026-10-05
+  Scenario: A key revoked elsewhere stops working even while the shared store is down
+    Given "acct-a" mints "k1" on A
+    And a relay bearing "k1" on B authenticates
+    And "acct-a" DELETEs "k1" on instance A
+    When the shared store goes down
+    Then the next relay bearing "k1" on B is 401 "key_revoked" (never served from a stale cache)
+
   Scenario: The shared store being unreachable fails closed for key auth
     Given the shared store is down and the key is not in the local cache
     When a request bearing "k1" arrives

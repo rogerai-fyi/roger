@@ -1422,10 +1422,17 @@ func (k *kg5State) holdsN(acct string, n int) error {
 		}
 		// A Given's N keys are state, not a burst: the management limiter is the subject of
 		// its own scenario, so the setup mints are not charged against it.
-		lim := k.b.ak.mgmt
+		lim := k.b.keyMgmtLimiter()
 		lim.mu.Lock()
 		lim.buckets = map[string]*tokenBucket{}
 		lim.mu.Unlock()
+		if !k.mrClosed { // and the shared bucket every instance draws from
+			for _, key := range k.mr.Keys() {
+				if strings.HasPrefix(key, keyPrefix+"rl:acctkeys:") {
+					k.mr.Del(key)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -3392,6 +3399,7 @@ func (k *kg5State) docString(acct string, doc *godog.DocString) error {
 func (k *kg5State) registerCommon(sc *godog.ScenarioContext) {
 	sc.Step(`^a broker with the money store and the shared store wired$`, k.wired)
 	sc.Step(`^account "([^"]+)" is logged in \(wallet "([^"]+)"\) with balance \$([0-9.]+)$`, k.loggedIn)
+	k.registerStateAudit(sc)
 }
 
 func (k *kg5State) registerGuardrails(sc *godog.ScenarioContext) {
