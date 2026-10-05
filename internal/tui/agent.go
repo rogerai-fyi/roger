@@ -33,6 +33,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/glyphs"
 	"rogerai.fm/roger/v6/internal/harness"
 )
@@ -45,6 +46,14 @@ import (
 // agentRuntime owns the live harness loop + the channels that bridge the blocking
 // loop goroutine to the Bubble Tea event loop. It is stored by pointer on the model
 // so it survives Bubble Tea's by-value model copies.
+// agentTurnRoute is one turn's routing: what the live booth asks for the runtime's model.
+type agentTurnRoute struct {
+	model        string
+	route        client.Routing
+	freq         string
+	confidential bool
+}
+
 type agentRuntime struct {
 	loop  *harness.Loop
 	model string // the TUNED-IN channel model the agent runs on ("" = nothing tuned in)
@@ -56,6 +65,11 @@ type agentRuntime struct {
 	// to a local server under a broker model's name.
 	localChat string
 	localKey  string
+	// turnRoute is the routing a turn runs on, taken from the LIVE booth state on the UI
+	// goroutine when the turn starts (startAgentTurn). The completer is built once per
+	// runtime, so reading the model value it closed over would freeze the F/C/U toggles and
+	// the tuned profile at the moment the runtime was created.
+	turnRoute atomic.Pointer[agentTurnRoute]
 	// events carries streamed steps of the in-flight turn (assistant text, tool calls,
 	// results, the final answer, errors). Buffered so the loop goroutine never blocks
 	// on a slow UI frame.
@@ -698,7 +712,10 @@ func (m model) newAgentRuntime() *agentRuntime {
 		// Carry the user's explicit out-price cap for the live model (0 -> the default
 		// consumer cap applies broker-side); the agent relay is bounded like `use`/chat.
 		// The band's cap composed with the tuned profile's, the stricter way (routing).
-		route := m.routing(rt.model, m.tunedQuant(rt.model))
+		route, freq, conf := m.routing(rt.model, m.tunedQuant(rt.model)), m.agentFreqFor(rt.model), m.confidentialOnly
+		if tr := rt.turnRoute.Load(); tr != nil && tr.model == rt.model {
+			route, freq, conf = tr.route, tr.freq, tr.confidential
+		}
 		// Calls are unlimited by default. A configured duration restores the soft-cap
 		// choice: tab extends it, esc stops it, and the grace window bounds unattended
 		// calls. Either way the parent context keeps esc cancellation immediate.
@@ -730,12 +747,12 @@ func (m model) newAgentRuntime() *agentRuntime {
 		}
 		return harness.BrokerCompleterRoute(harness.BrokerRoute{
 			Broker: m.broker, User: m.user, Model: rt.model,
-			Confidential: m.confidentialOnly, MaxOut: route.MaxOut, OnCost: costFn,
+			Confidential: conf, MaxOut: route.MaxOut, OnCost: costFn,
 			// The tuned PRIVATE band's code, when this turn's model is the one that band
 			// serves. Without it the broker refuses to route to a hidden node and the turn
 			// dies with "no station is serving <model>" on a band the operator is
 			// demonstrably tuned to.
-			Freq: m.agentFreqFor(rt.model),
+			Freq: freq,
 			// The operator's STANDING rules (pref, quant set, hidden curated supply) ride
 			// the request body. An agent turn is exactly the case the [3] CONFIG rules
 			// exist for - nobody is watching a dial, so the filter cannot help and only a
@@ -2063,6 +2080,8 @@ func (m model) startAgentTurn(prompt string) tea.Cmd {
 	rt.turnDone = done
 	rt.turnCtx.Store(ctx)
 	rt.turnGen.Add(1)
+	rt.turnRoute.Store(&agentTurnRoute{model: rt.model, route: m.routing(rt.model, m.tunedQuant(rt.model)),
+		freq: m.agentFreqFor(rt.model), confidential: m.confidentialOnly})
 	return func() tea.Msg {
 		go func() {
 			_, _ = rt.loop.Send(ctx, prompt, func(e harness.Event) {

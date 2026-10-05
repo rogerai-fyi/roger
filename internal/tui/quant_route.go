@@ -49,7 +49,7 @@ func (m model) quantRuleRefusal(model, rowQuant string) string {
 // It carries every key of the band's [3] CONFIG rule and the dial filters that bind: F as
 // `:free`, C as roger.confidential, U as roger.self_hosted_only.
 //
-// The band's price caps and min-tps floor compose with the tuned profile's the STRICTER way
+// The band's price caps (out, in, per request) and min-tps floor compose with the tuned profile's the STRICTER way
 // (the lower cap, the higher floor), as the broker composes a header with a body. Every other
 // key the profile states (trust, region, require, min ctx, params, quantizations) replaces
 // the band's: both are the owner's own choices, and the profile was picked on the confirm.
@@ -71,6 +71,7 @@ func (m model) routing(model, rowQuant string) client.Routing {
 		HeaderMode:     m.headerRouting,
 	}).Overlay(m.profileFor(model)) // the profile tuned under, for the connected band
 	rt.MaxOut, rt.MaxIn = stricterCap(lim.MaxOut, rt.MaxOut), stricterCap(lim.MaxIn, rt.MaxIn)
+	rt.MaxReq = stricterCap(lim.MaxCost, rt.MaxReq)
 	rt.MinTPS = max(lim.MinTPS, rt.MinTPS)
 	return rt
 }
