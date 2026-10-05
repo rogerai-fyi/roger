@@ -34,17 +34,18 @@ const organicRing = 50 // shapes kept per model
 
 type organicShape struct {
 	tools        bool
+	stream       bool
 	promptTokens int
 }
 
 // noteOrganic records one served-path request's shape for its model.
-func (b *broker) noteOrganic(model string, tools bool, promptTokens int) {
+func (b *broker) noteOrganic(model string, tools, stream bool, promptTokens int) {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	if b.organic == nil {
 		b.organic = map[string][]organicShape{}
 	}
-	ring := append(b.organic[model], organicShape{tools: tools, promptTokens: promptTokens})
+	ring := append(b.organic[model], organicShape{tools: tools, stream: stream, promptTokens: promptTokens})
 	if len(ring) > organicRing {
 		ring = ring[len(ring)-organicRing:]
 	}
@@ -69,6 +70,35 @@ func (b *broker) shadowShape(model string) (organicShape, bool) {
 		return organicShape{}, false
 	}
 	return ring[rand.Intn(len(ring))], true
+}
+
+// canaryStream reports whether the next canary for model is sent as a stream. Canaries take
+// the organic stream share of the model's recent traffic (§14.B7 #2): the share is carried as
+// a running debt, so the canaries track it exactly over time and a model whose traffic mostly
+// streams has its very next canary streamed. No organic sample: never a stream.
+func (b *broker) canaryStream(model string) bool {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	ring := b.organic[model]
+	if len(ring) == 0 {
+		return false
+	}
+	streamed := 0
+	for _, s := range ring {
+		if s.stream {
+			streamed++
+		}
+	}
+	if b.canaryStreamDebt == nil {
+		b.canaryStreamDebt = map[string]float64{}
+	}
+	debt := b.canaryStreamDebt[model] + float64(streamed)/float64(len(ring))
+	stream := debt >= 0.5
+	if stream {
+		debt--
+	}
+	b.canaryStreamDebt[model] = debt
+	return stream
 }
 
 // shadowTools is a realistic function definition a shadow canary carries (with tool_choice

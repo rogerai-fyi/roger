@@ -104,6 +104,15 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     When the probe sends its canary to "s1"
     Then the canary job's body has stream true
 
+  # founder ruling 2026-10-05: a streamed canary is read through the stream and graded like a
+  # plain one, so a station whose traffic streams is never failed for streaming its answer.
+  Scenario: A station that answers a streamed canary earns verified from it
+    Given 90% of recent organic traffic for "m" was stream:true
+    And "s1" has not been verified yet
+    When the probe sends its canary to "s1"
+    Then the canary job's body has stream true
+    And "s1" earned verified from that canary
+
   Scenario: Shadow canaries mirror the shape of organic traffic
     Given recent organic traffic for "m" carries tools in 60% of requests with prompts of 2000 to 8000 tokens
     When the probe sends 50 canaries to "s1"

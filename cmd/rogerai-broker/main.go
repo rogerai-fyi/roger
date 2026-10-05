@@ -174,6 +174,9 @@ type broker struct {
 	// organic is the recent request SHAPES per model (shadowcanary.go): a sampling hint for
 	// shadow canaries, guarded by metricsMu.
 	organic map[string][]organicShape
+	// canaryStreamDebt carries each model's running gap between the organic stream share and
+	// the canaries sent as streams (shadowcanary.go), guarded by metricsMu.
+	canaryStreamDebt map[string]float64
 	// idemLocal holds replayable outcomes when the shared store is down (idempotency.go);
 	// the claim itself always lives in the store.
 	idemLocal idemLocal

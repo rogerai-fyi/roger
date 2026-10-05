@@ -307,6 +307,24 @@ func (s *ri6State) organicStream(pct, model string) error {
 	return nil
 }
 
+func (s *ri6State) notVerifiedYet(name string) error {
+	st := s.st(name)
+	s.b.metricsMu.Lock()
+	delete(s.b.trust, st.id)
+	s.b.metricsMu.Unlock()
+	if s.verifiedNow(st) {
+		return fmt.Errorf("precondition: %q is still verified", name)
+	}
+	return nil
+}
+
+func (s *ri6State) earnedVerified(name string) error {
+	if !s.verifiedNow(s.st(name)) {
+		return fmt.Errorf("%q did not earn verified from the streamed canary", name)
+	}
+	return nil
+}
+
 func (s *ri6State) canaryStreams() error {
 	bs := s.newBodies("s1", false)
 	if len(bs) == 0 {
@@ -1549,6 +1567,8 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^no prompt contains a fixed marker string shared by all of them$`, st.noSharedMarker)
 	sc.Step(`^(\d+)% of recent organic traffic for "([^"]+)" was stream:true$`, st.organicStream)
 	sc.Step(`^the canary job's body has stream true$`, st.canaryStreams)
+	sc.Step(`^"([^"]+)" has not been verified yet$`, st.notVerifiedYet)
+	sc.Step(`^"([^"]+)" earned verified from that canary$`, st.earnedVerified)
 	sc.Step(`^recent organic traffic for "([^"]+)" carries tools in (\d+)% of requests with prompts of (\d+) to (\d+) tokens$`, st.organicTools)
 	sc.Step(`^some canaries carry a tools array$`, st.someTools)
 	sc.Step(`^some canary prompts fall in the (\d+) to (\d+) token band$`, st.somePromptsInBand)

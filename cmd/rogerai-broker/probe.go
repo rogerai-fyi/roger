@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -711,9 +714,17 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	for k, v := range extra {
 		doc[k] = v
 	}
+	stream := b.canaryStream(model) // the model's organic stream share (§14.B7 #2)
+	if stream {
+		doc["stream"] = true
+	}
 	body, _ := json.Marshal(doc)
 	// The pseudonym real users get (§14.B7): a canary is indistinguishable from a customer.
 	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: body}
+	if stream {
+		b.probeStreamed(node, t, mi, job, model, fp)
+		return
+	}
 	start := time.Now()
 
 	if mi {
@@ -783,6 +794,139 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	case <-time.After(30 * time.Second):
 		b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 	}
+}
+
+// probeStreamed runs a canary sent as a stream: the station pipes its SSE into a stream sink
+// exactly as for a customer (locally, or over the bus pump from a peer instance), the wait is
+// the streaming relay's idle window (reset by every delta), and the collected frames are
+// rebuilt into the non-stream answer shape evalCanary grades.
+func (b *broker) probeStreamed(node protocol.NodeRegistration, t *nodeTunnel, mi bool, job protocol.Job, model string, fp canaryFingerprint) {
+	out := &canaryStreamWriter{}
+	sink := &streamSink{w: out, flush: func() {}, nodeID: node.NodeID, activity: make(chan struct{}, 1)}
+	b.streamMu.Lock()
+	b.streams[job.ID] = sink
+	b.streamMu.Unlock()
+	defer func() { b.streamMu.Lock(); delete(b.streams, job.ID); b.streamMu.Unlock() }()
+
+	resCh := make(chan protocol.JobResult, 1)
+	pumpDone := make(chan struct{})
+	start := time.Now()
+	if mi {
+		tk, derr := b.dispatchRemote(context.Background(), node.NodeID, job, true)
+		if derr != nil {
+			return // never reached the node: not evidence about it (see probeNode)
+		}
+		defer tk.close()
+		go func() {
+			defer close(pumpDone)
+			for {
+				select {
+				case fr := <-tk.frames:
+					if fr.isDone {
+						return
+					}
+					_, _ = sink.w.Write(fr.payload)
+					sink.noteActivity()
+				case <-tk.done:
+					return
+				case <-tk.closed:
+					return
+				}
+			}
+		}()
+		tk.forward(resCh)
+	} else {
+		close(pumpDone) // agentStream writes the sink itself, before the node posts its result
+		t.mu.Lock()
+		t.waiters[job.ID] = resCh
+		t.mu.Unlock()
+		defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
+		select {
+		case t.jobs <- job:
+		case <-time.After(3 * time.Second):
+			b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
+			return
+		}
+	}
+	idle := time.NewTimer(b.streamIdle())
+	defer idle.Stop()
+	for {
+		select {
+		case res := <-resCh:
+			select {
+			case <-pumpDone:
+			case <-time.After(2 * time.Second):
+			}
+			if text := out.answer(); len(text) > 0 {
+				res.Body = text
+			}
+			elapsed := time.Since(start)
+			outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp, model)
+			b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched, completed)
+			return
+		case <-sink.activity:
+			if !idle.Stop() {
+				<-idle.C
+			}
+			idle.Reset(b.streamIdle())
+		case <-idle.C:
+			b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
+			return
+		}
+	}
+}
+
+// canaryStreamWriter collects a streamed canary's SSE (bounded like the re-count capture).
+type canaryStreamWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *canaryStreamWriter) Header() http.Header { return http.Header{} }
+func (c *canaryStreamWriter) WriteHeader(int)     {}
+func (c *canaryStreamWriter) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.buf.Len() < maxRecountCapture {
+		c.buf.Write(p)
+	}
+	return len(p), nil
+}
+
+// answer rebuilds the streamed deltas as a non-stream completion, content and reasoning kept
+// apart as a non-stream reply carries them (nil when no delta arrived).
+func (c *canaryStreamWriter) answer() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var content, reasoning strings.Builder
+	for _, line := range bytes.Split(c.buf.Bytes(), []byte{'\n'}) {
+		i := bytes.IndexByte(line, '{')
+		if i < 0 {
+			continue
+		}
+		var d struct {
+			Choices []struct {
+				Delta struct {
+					Content          string `json:"content"`
+					Reasoning        string `json:"reasoning"`
+					ReasoningContent string `json:"reasoning_content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal(line[i:], &d) != nil {
+			continue
+		}
+		for _, ch := range d.Choices {
+			content.WriteString(ch.Delta.Content)
+			reasoning.WriteString(ch.Delta.Reasoning + ch.Delta.ReasoningContent)
+		}
+	}
+	if content.Len() == 0 && reasoning.Len() == 0 {
+		return nil
+	}
+	out, _ := json.Marshal(map[string]any{"choices": []map[string]any{{"message": map[string]string{
+		"content": content.String(), "reasoning": reasoning.String()}}}})
+	return out
 }
 
 // probeOutcome is the trichotomy evalCanary resolves a probe into. The key fix
