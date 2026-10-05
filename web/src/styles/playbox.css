@@ -970,6 +970,7 @@
   color: var(--ink-500); text-decoration: underline; cursor: pointer;
   font-size: var(--t-xs); letter-spacing: var(--tracking-label);
 }
+.dk-route__toggle[hidden] { display: none; }
 .dk-route:not([hidden]) { animation: dk-route-open var(--d-1) var(--ease-standard); }
 @keyframes dk-route-open { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {

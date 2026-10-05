@@ -340,3 +340,23 @@ test("The quiet band and unreachable broker states are unchanged", () => {
   needDrawer();
   assert.match(flat(js + html), /quiet/i, "the quiet-band state is gone");
 });
+
+// ---------- slice-4 pre-push audit regressions ----------------------------------------------
+
+test("The routing toggle stays hidden with no live tape (its display rule respects [hidden])", () => {
+  assert.match(html, /class="dk-route__toggle[^"]*"[^>]*\bhidden\b/, "the toggle no longer starts hidden");
+  assert.match(flat(css), /\.dk-route__toggle\[hidden\]\s*\{\s*display:\s*none;?\s*\}/,
+    ".dk-route__toggle { display:block } overrides the hidden attribute");
+});
+
+test("A repaint clears a stale refusal, so a fixed drawer never keeps holding the turn", () => {
+  const paint = js.match(/function paintRoute\(\) \{[\s\S]*?\n  \}/);
+  assert.ok(paint, "paintRoute is gone");
+  assert.match(paint[0], /routeBad = ""/, "paintRoute keeps a stale routeBad");
+});
+
+test("Stored drawer state is validated on load and can never throw at init", () => {
+  assert.match(js, /function routeClean\(/, "no validator for the stored drawer state");
+  assert.match(flat(js), /var ROUTE = \(function \(\) \{ try \{ return routeClean\(JSON\.parse\(/,
+    "the stored state is used without validation");
+});

@@ -1261,8 +1261,25 @@
     quantizations: "quant", params_b: "size", region: "region", pref: "prefer", sort: "sort by",
     trust_min: "trust", min_ctx: "min ctx", max_ttft_ms: "max first token"
   };
+  // stored state is untrusted (an old version, a hand edit): keep only well-formed fields
+  function routeClean(o) {
+    var r = {};
+    if (!o || typeof o !== "object" || Array.isArray(o)) return r;
+    function num(v) { return typeof v === "number" && isFinite(v) && v >= 0 ? v : null; }
+    function str(v) { return typeof v === "string" ? v : ""; }
+    if (Array.isArray(o.models)) {
+      r.models = o.models.filter(function (x) { return typeof x === "string" && x.trim(); }).slice(0, ROUTE_MAX_FALLBACKS);
+    }
+    ["out", "in", "turn", "tps"].forEach(function (k) { r[k] = num(o[k]); });
+    ["ctx", "ttft"].forEach(function (k) { r[k] = num(o[k]) || null; });
+    ["selfHosted", "confidential", "tools", "vision"].forEach(function (k) { r[k] = o[k] === true; });
+    ["quant", "region", "pref", "sort", "trust"].forEach(function (k) { r[k] = str(o[k]); });
+    var z = o.size;
+    r.size = Array.isArray(z) && z.length === 2 && num(z[0]) !== null && num(z[1]) !== null && z[0] <= z[1] && z[1] > 0 ? z : null;
+    return r;
+  }
   var ROUTE = (function () {
-    try { return JSON.parse(localStorage.getItem(ROUTE_KEY) || "null") || {}; }
+    try { return routeClean(JSON.parse(localStorage.getItem(ROUTE_KEY) || "null")); }
     catch (e) { return {}; }
   })();
   var routeBad = "";        // a field the contract refuses: the turn waits until it is fixed
@@ -1337,6 +1354,7 @@
   // write ROUTE back into the fields
   function paintRoute() {
     var r = ROUTE;
+    routeBad = ""; // the fields now hold ROUTE, which is valid: a stale refusal no longer applies
     function set(id, v) { var e = $(id); if (e) e.value = v == null ? "" : v; }
     function tick(id, v) { var e = $(id); if (e) e.checked = !!v; }
     set("dkRtModels", (r.models || []).join(", "));
