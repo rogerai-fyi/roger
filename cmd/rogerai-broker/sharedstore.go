@@ -821,6 +821,40 @@ func (v *valkeyStore) noteErr(op string, err error) {
 	}
 }
 
+// noteReply is noteErr for an error REPLY (redis.Error). The store answered, so a refusal
+// on one key (WRONGTYPE and the like) is counted and logged without tripping the outage
+// path. A reply that says the server is not serving (unavailableReply) is an outage signal
+// and goes to noteErr.
+func (v *valkeyStore) noteReply(op string, err error) {
+	if unavailableReply(err) {
+		v.noteErr(op, err)
+		return
+	}
+	v.opErrors.Add(1)
+	v.mu.Lock()
+	v.markLocked(true)
+	logNow := time.Since(v.lastLog) > 30*time.Second
+	if logNow {
+		v.lastLog = time.Now()
+	}
+	v.mu.Unlock()
+	if logNow {
+		log.Printf("shared-state: valkey %s refused: %v", op, err)
+	}
+}
+
+// unavailableReply reports whether an error reply means the server cannot serve right now
+// (still loading, a replica, no primary, cluster down) rather than refusing one command.
+func unavailableReply(err error) bool {
+	msg := err.Error()
+	for _, p := range []string{"LOADING ", "READONLY ", "MASTERDOWN ", "CLUSTERDOWN ", "TRYAGAIN "} {
+		if strings.HasPrefix(msg, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func (v *valkeyStore) Close() error {
 	if v == nil || v.rdb == nil {
 		return nil

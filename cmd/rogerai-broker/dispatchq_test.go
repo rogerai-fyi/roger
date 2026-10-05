@@ -11,9 +11,12 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -604,6 +607,9 @@ func TestQueueRefusedPushFailsFast(t *testing.T) {
 
 	_, userPriv, _ := ed25519.GenerateKey(nil)
 	w := httptest.NewRecorder()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
 	start := time.Now()
 	a.relay(w, miSignedRelayReq(t, userPriv, []byte(`{"model":"free-m","max_tokens":8}`), nil))
 	if w.Code != http.StatusServiceUnavailable {
@@ -614,6 +620,11 @@ func TestQueueRefusedPushFailsFast(t *testing.T) {
 	}
 	if el := time.Since(start); el > time.Second {
 		t.Errorf("answered after %s, want fast (well before the 3 s queue wait)", el)
+	}
+	// The store answered, so it is reachable: an error reply on one key never trips the
+	// shared-store outage path.
+	if strings.Contains(logs.String(), "in-memory fallback") {
+		t.Errorf("a refused push marked the shared store down: %s", logs.String())
 	}
 }
 
@@ -639,5 +650,23 @@ func TestQueueAmbiguousPushWaitsOutTheQueue(t *testing.T) {
 	}
 	if el := time.Since(start); el < 250*time.Millisecond {
 		t.Errorf("answered after %s, want after the 300 ms queue wait (the push may have landed)", el)
+	}
+}
+
+// An error reply that says the server cannot serve is still an outage signal; a refusal of
+// one command is not.
+func TestUnavailableReply(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"LOADING Redis is loading the dataset in memory":                    true,
+		"READONLY You can't write against a read only replica.":             true,
+		"MASTERDOWN Link with MASTER is down":                               true,
+		"CLUSTERDOWN The cluster is down":                                   true,
+		"TRYAGAIN Multiple keys request during rehashing of slot":           true,
+		"WRONGTYPE Operation against a key holding the wrong kind of value": false,
+		"ERR unknown command":                                               false,
+	} {
+		if got := unavailableReply(errors.New(msg)); got != want {
+			t.Errorf("unavailableReply(%q) = %v, want %v", msg, got, want)
+		}
 	}
 }

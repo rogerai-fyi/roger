@@ -216,6 +216,14 @@ func (q *dispatchQueue) noteErr(op string, err error) {
 	}
 }
 
+// noteReply records an error REPLY: the store answered, so it is counted and logged but is
+// not marked down, unless the reply says the server cannot serve (see unavailableReply).
+func (q *dispatchQueue) noteReply(op string, err error) {
+	if vs, ok := q.b.shared.(*valkeyStore); ok {
+		vs.noteReply(op, err)
+	}
+}
+
 // run is the ONE inbox reader: a blocking XREAD from the last id seen, then a trim of what
 // was consumed so the stream holds only unread messages.
 func (q *dispatchQueue) run() {
@@ -613,7 +621,7 @@ func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTick
 	if err != nil && errors.As(err, &refused) {
 		// The store answered "no" (an error reply): the push did not land, so nothing can
 		// deliver this job. Fail fast rather than wait out the queue for a job not queued.
-		q.noteErr("dq push", err)
+		q.noteReply("dq push", err)
 		return abort(err)
 	}
 	if err != nil {
