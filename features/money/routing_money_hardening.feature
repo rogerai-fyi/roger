@@ -310,8 +310,11 @@ Feature: What the consumer pays and the operator earns are right in every routin
     When the receipt arrives
     Then the settle bills the prompt tokens and 0 completion tokens
 
+  # extended 2026-10-05 (founder ruling): the cancel travels over the negotiated cancel protocol
+  # (features/multinode/job_cancel.feature); a station that never advertised it is not cancelled.
   Scenario: A disconnect on a non-stream request cancels and bills nothing delivered
-    Given "alice"'s non-stream request is being served by "n-1"
+    Given "n-1" advertises cancel support
+    And "alice"'s non-stream request is being served by "n-1"
     When "alice" disconnects before the result arrives
     Then the broker cancels "n-1"'s job
     And "alice" is billed $0 because nothing was delivered
