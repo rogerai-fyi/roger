@@ -164,6 +164,10 @@ type broker struct {
 	// a peer reads the cross-instance union via toolsMerged. It is the emission source only
 	// single-instance. See probe.go / toolcall.go and features/trust/toolcall_probe.feature.
 	toolsOK map[string]bool
+	// modelFirstSeen is when this broker first listed a model id on /v1/models (unix
+	// seconds, the OpenAI `created` field). Lazily built under mu; slice 2 moves it to the
+	// shared store so every instance answers alike.
+	modelFirstSeen map[string]int64
 	// toolProbeAt is when the tool-call canary last RAN for a (node,model), used to throttle
 	// RE-verification of a model that already holds the bit. It is deliberately separate from
 	// the verdict itself: the verdict says what we believe, this says when we last checked.
@@ -901,7 +905,9 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/agent/ack", b.agentAck)       // node confirms it received a job (node_ack.feature)
 	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
-	mux.HandleFunc("/voices", b.voices) // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
+	mux.HandleFunc("/v1/models", b.models)  // PUBLIC: OpenAI-shaped catalog of models on air
+	mux.HandleFunc("/v1/models/", b.models) // one entry by id, 404 when not on air
+	mux.HandleFunc("/voices", b.voices)     // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
 	mux.HandleFunc("/balance", b.balance)
 	mux.HandleFunc("/me", b.me)                                        // consumer dashboard: balance, spend, recent
 	mux.HandleFunc("/earnings", b.earnings)                            // owner dashboard: accrued earnings, recent

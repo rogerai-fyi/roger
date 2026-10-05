@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,8 +119,23 @@ func (s *proxyState) startBroker() {
 		}
 		s.gotFreq = r.Header.Get("X-Roger-Freq")
 		s.gotMaxOut = r.Header.Get("X-Roger-Max-Price-Out")
+		// The confidential constraint and the failover's preferred station travel in the
+		// BODY (roger.confidential / provider.order, the approved carrier per
+		// regression_pins.feature defect 8 and contract §1); the headers are the old-broker
+		// form. The stand-in reads whichever the session spoke.
 		s.gotConfidential = r.Header.Get("X-Roger-Confidential")
+		if rg, _ := m["roger"].(map[string]any); rg != nil {
+			if c, _ := rg["confidential"].(bool); c {
+				s.gotConfidential = "1"
+			}
+		}
 		s.gotNode = r.Header.Get("X-Roger-Node")
+		if pv, _ := m["provider"].(map[string]any); pv != nil {
+			if order, _ := pv["order"].([]any); len(order) > 0 {
+				s.gotNode, _ = order[0].(string)
+			}
+		}
+		unpinned := s.gotNode == ""
 		s.mu.Unlock()
 
 		if s.chatSleep > 0 { // never writes a header -> ResponseHeaderTimeout fires client-side
@@ -131,7 +147,7 @@ func (s *proxyState) startBroker() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		if s.failFirstUnpinned && r.Header.Get("X-Roger-Node") == "" {
+		if s.failFirstUnpinned && unpinned {
 			w.Header().Set("X-RogerAI-Provider", "nodeA")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
@@ -589,7 +605,7 @@ func (s *proxyState) failoverRediscoversModel(model string) error {
 		return fmt.Errorf("re-discovered/relayed model = %q, want the band model %q", s.gotModel, model)
 	}
 	if s.gotNode != "nodeB" {
-		return fmt.Errorf("failover did not pin the re-discovered station nodeB (got %q)", s.gotNode)
+		return fmt.Errorf("failover did not prefer the re-discovered station nodeB (got %q)", s.gotNode)
 	}
 	return nil
 }
@@ -1483,7 +1499,7 @@ func (s *proxyState) relayCarriesConfidential(v string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.gotConfidential != v {
-		return fmt.Errorf("relay carried X-Roger-Confidential %q, want %q", s.gotConfidential, v)
+		return fmt.Errorf("relay carried the confidential constraint %q (body roger.confidential or X-Roger-Confidential), want %q", s.gotConfidential, v)
 	}
 	return nil
 }
@@ -2054,6 +2070,7 @@ func TestProxyBDD(t *testing.T) {
 			sc.Step(`^it does NOT carry band A's "([^"]*)"$`, st.notBandAValue)
 			sc.Step(`^an agent probes GET "/v1/models"$`, st.probeModels)
 			sc.Step(`^the relay carries X-Roger-Confidential "([^"]*)"$`, st.relayCarriesConfidential)
+			sc.Step(`^the relay carries the confidential constraint \(body roger\.confidential true, or the X-Roger-Confidential header in header mode\)$`, func() error { return st.relayCarriesConfidential("1") })
 			sc.Step(`^the local endpoint address is unchanged$`, st.endpointAddressUnchanged)
 			sc.Step(`^the per-session bearer key is unchanged$`, st.bearerKeyUnchanged)
 			sc.Step(`^the user disconnects and no band is tuned$`, st.disconnectNoBand)
@@ -2065,8 +2082,11 @@ func TestProxyBDD(t *testing.T) {
 			sc.Step(`^no request ever sees a half-updated mix of A and B options$`, st.noHalfUpdatedMix)
 		},
 		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/proxy"},
+			Format: "pretty",
+			// Every proxy spec except routing_passthrough.feature (the routing-expression
+			// set), which routing_passthrough_bdd_test.go drives slice by slice. A glob, so a
+			// new proxy spec can never silently go unrun.
+			Paths:    proxyFeaturePaths(t),
 			TestingT: t,
 			Strict:   true,
 		},
@@ -2074,4 +2094,20 @@ func TestProxyBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("proxy behavior scenarios failed (see godog output above)")
 	}
+}
+
+// proxyFeaturePaths globs features/proxy minus the file another runner owns (the same
+// pattern as internal/tui's operatorFeaturePaths).
+func proxyFeaturePaths(t *testing.T) []string {
+	all, err := filepath.Glob("../../features/proxy/*.feature")
+	if err != nil || len(all) == 0 {
+		t.Fatalf("no proxy specs found: %v", err)
+	}
+	var paths []string
+	for _, p := range all {
+		if filepath.Base(p) != "routing_passthrough.feature" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }

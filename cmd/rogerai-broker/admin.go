@@ -179,7 +179,7 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 	if b.db != nil {
 		seeded, seedLimit, seedRemaining, _ = b.db.SeedStatus()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	live := map[string]any{
 		"now":              now.Unix(),
 		"health":           health,
 		"infra":            b.infra(),
@@ -192,5 +192,13 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 		"stripe_mode":      b.stripeMode(),
 		"email":            b.mail.emailStats(), // the paced send queue: counters + depth per lane
 		"alerts":           b.alertStats(),      // coalesced / deduped / muted onsets
-	})
+	}
+	// One counter per routing profile, bumped once per routing pass with the EFFECTIVE pref
+	// (header or body), under the spec-literal flat name (regression_pins.feature: "the
+	// /admin/live routing_pref_<value> counter"): the observation point for "the routing
+	// pass ran with X".
+	for _, p := range []pref{prefBalanced, prefCheap, prefFast, prefReliable} {
+		live["routing_pref_"+p.String()] = b.stats.routingPref[p].Load()
+	}
+	writeJSON(w, http.StatusOK, live)
 }

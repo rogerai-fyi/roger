@@ -63,6 +63,26 @@ type edgeBridgeAuth struct {
 	pinNode          string
 	freqBand         bool // a private-band (X-Roger-Freq) tune-in: never diverts to a public Tower
 	freeOrSelf       bool // the direct pick resolved to $0 (grant-free or self-use): never billed on a Tower
+	// PARITY WITH THE DIRECT PATH (regression_pins defect 4): the bridge evaluates the
+	// same min-tps floor, the same exclusion set (a Tower id or its node id in the set
+	// declines that Tower) and ranks Towers with the same pref weights.
+	edgeConstraints
+	// directOnly: the request carries a constraint the bridge cannot evaluate yet - a body
+	// provider.order (names direct stations), allow_fallbacks:false, a quantization list,
+	// an implicit tools/vision requirement, self_hosted_only. The coin may never WIDEN
+	// eligibility (contract §6), so such a request is direct-only until the bridge learns
+	// the filter.
+	directOnly bool
+}
+
+// edgeConstraints is the consumer's routing shape as the edge placement sees it: the
+// hard filters and the scoring profile the direct path's pickFor applies. The zero value
+// is "no constraint, balanced", which is what the authorize endpoint and the canary pass.
+type edgeConstraints struct {
+	minTPS       float64
+	exclude      map[string]bool
+	pref         pref
+	promptTokens int
 }
 
 // soft is the both-fabrics mode: a direct node stands ready behind this call, so any
@@ -77,7 +97,7 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 	}
 	// A cheap eligibility probe before any consumer gating: if no eligible Tower hosts the
 	// model there is nothing to say, and the caller's "no node offers" stays the answer.
-	if _, _, ok := b.edgeTargetFor(model, rng, nil); !ok {
+	if _, _, ok := b.edgeTargetForC(model, rng, nil, auth.edgeConstraints); !ok {
 		return false
 	}
 
@@ -147,8 +167,9 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		return false
 	}
 	// A pinned node names a specific direct station - a different namespace than a Tower -
-	// so honour it by declining the bridge.
-	if auth.pinNode != "" {
+	// so honour it by declining the bridge; so does any constraint the bridge cannot
+	// evaluate (directOnly), because the coin never widens eligibility.
+	if auth.pinNode != "" || auth.directOnly {
 		return false
 	}
 	// A PRIVATE-BAND tune-in (X-Roger-Freq) is scoped to that band's own stations. Diverting
@@ -164,15 +185,16 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 	if auth.freeOrSelf {
 		return false
 	}
-	// The client's failover exclusions are DIRECT node ids, a different namespace from a
-	// Tower id, so they are not applied here - documented rather than silently mismatched.
+	// Towers already tried within this bridged request. The consumer's own exclusions ride
+	// in auth (edgeConstraints) and are judged per row against BOTH the Tower id and the
+	// node id behind it - the two namespaces are matched independently.
 	exclude := map[string]bool{}
 	tries := edgeBridgeMaxTowers
 	if soft {
 		tries = 1 // a direct node is ready; do not spend the full budget on failing towers
 	}
 	for attempt := 0; attempt < tries; attempt++ {
-		target, row, ok := b.edgeTargetFor(model, rng, exclude)
+		target, row, ok := b.edgeTargetForC(model, rng, exclude, auth.edgeConstraints)
 		if !ok {
 			break
 		}
@@ -343,6 +365,7 @@ func writeBridgedAnswer(w http.ResponseWriter, g dispatch.EdgeGrant, answer []by
 	cost := float64(usage.Usage.PromptTokens)*float64(g.PriceInMicros)/1e12 +
 		float64(usage.Usage.CompletionTokens)*float64(g.PriceOutMicros)/1e12
 	w.Header().Set("X-RogerAI-Provider", g.RelayName)
+	w.Header().Set("X-RogerAI-Model", g.Model)
 	w.Header().Set("X-RogerAI-Relay", g.TowerID)
 	w.Header().Set("X-RogerAI-Cost", fmtCostHeader(cost))
 	w.Header().Set("X-RogerAI-Tokens-In", fmt.Sprintf("%d", usage.Usage.PromptTokens))
