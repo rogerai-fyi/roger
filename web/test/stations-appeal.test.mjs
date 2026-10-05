@@ -77,3 +77,24 @@ test("a refusal re-enables the button so the person can retry", async () => {
   await p.fire("appealSend", "click"); await settle();
   assert.equal(p.els.appealSend.disabled, false);
 });
+
+test("existing appeals are listed on load, so a reload does not look like nothing was filed", async () => {
+  const p = appealPage(WITH_STRIKE, { status: 200, body: {} });
+  const base = p.ctx.fetch;
+  p.ctx.fetch = (url, opts) => String(url).endsWith("/owner/appeal") && !(opts && opts.method === "POST")
+    ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ appeals: [{ id: 5, state: "open", reason: "mine", created_at: 1 }], count: 1 }) })
+    : base(url, opts);
+  p.run("js/stations.js"); await settle();
+  assert.equal(p.els.appealHistory.hidden, false);
+  assert.match(p.els.appealHistory.innerHTML, /#5/);
+  assert.match(p.els.appealHistory.innerHTML, /open/);
+});
+
+test("an expired session on the appeal POST says to sign in again, not 'run roger login'", async () => {
+  const p = appealPage(WITH_STRIKE, { status: 401, body: { error: { message: "not logged in - run `roger login` to link GitHub" } } });
+  p.run("js/stations.js"); await settle();
+  p.els.appealReason.value = "mistake";
+  await p.fire("appealSend", "click"); await settle();
+  assert.match(p.els.appealMsg.textContent, /sign in again/i);
+  assert.doesNotMatch(p.els.appealMsg.textContent, /roger login/);
+});

@@ -15,6 +15,14 @@
     }).catch(function () { return null; });
   }
   function get(path) { return api(path); }
+  // Boot read: keeps the STATUS, because only a 401 means "signed out". A 5xx or a dropped
+  // connection is a fault to show - sending a signed-in person to login would bounce them to
+  // the dashboard and lose their place.
+  function bootGet(path) {
+    return fetch(BROKER + path, { credentials: "include" }).then(function (r) {
+      return (r.ok ? r.json() : Promise.resolve(null)).then(function (data) { return { status: r.status, data: data }; });
+    }).catch(function () { return { status: 0, data: null }; });
+  }
 
   function text(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
   function show(id) { var el = document.getElementById(id); if (el) el.hidden = false; }
@@ -161,8 +169,10 @@
     return k || "entry";
   }
 
-  get("/account").then(function (a) {
-    if (!a) { location.replace("/login.html"); return; }
+  bootGet("/account").then(function (res) {
+    if (res.status === 401) { location.replace("/login.html"); return; }
+    if (!res.data) { show("card"); show("pageError"); wireLogout(); return; }
+    var a = res.data;
     // A signed-in person with no operator account (a consumer, or a sign-in whose machines
     // belong to another identity) gets an explanation, and the page makes none of the
     // operator-only requests that would all 403. `operator` absent = an older broker: show all.

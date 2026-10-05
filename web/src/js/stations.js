@@ -146,6 +146,21 @@
     show("stEvidence");
     show("stAppeal");
     wireAppeal();
+    loadAppeals();
+  }
+
+  // Appeals already filed, so a reload does not look like nothing was sent. One read, only
+  // when the account has marks (the only time this section shows).
+  function loadAppeals() {
+    get("/owner/appeal").then(function (res) {
+      var list = (res.data && res.data.appeals) || [];
+      if (!list.length) return;
+      el("appealHistory").innerHTML =
+        "<h3>Your appeals</h3>" + list.map(function (a) {
+          return '<p class="fine">#' + esc(a.id) + " &middot; " + esc(a.state) + (a.reason ? " &middot; " + esc(String(a.reason).slice(0, 120)) : "") + "</p>";
+        }).join("");
+      show("appealHistory");
+    });
   }
 
   // Appeal: posts the reason to the existing owner-scoped route. The account is never sent -
@@ -171,7 +186,9 @@
             text("appealMsg", "Appeal " + (j.appeal_id ? "#" + j.appeal_id + " " : "") + "sent. A person will review it with the evidence above.");
           } else {
             btn.disabled = false; // a refusal can be retried
-            text("appealMsg", (j && j.error && j.error.message) || "That did not go through - try again.");
+            text("appealMsg", r.status === 401
+              ? "Your session expired - sign in again, then send the appeal."
+              : (j && j.error && j.error.message) || "That did not go through - try again.");
           }
         });
       }).catch(function () { btn.disabled = false; text("appealMsg", "Could not reach RogerAI. Check your connection and try again."); });
