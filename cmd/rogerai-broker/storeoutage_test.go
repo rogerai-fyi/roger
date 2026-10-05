@@ -5,6 +5,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -35,4 +36,16 @@ func TestDispatchTreatsOnlyASustainedFailureAsAnOutage(t *testing.T) {
 
 	_, _, _ = vs.cacheGet("probe") // recovery
 	require.False(t, b.dispatchStoreDown(), "the first success ends the outage")
+}
+
+// TestMayHaveLandedSurvivesWrapping: a bus publish whose reply was lost stays marked as
+// may-have-landed through the dispatch path's wrapping, so it is never retried in memory, while
+// a store error raised before the job left is still eligible for the local handoff.
+func TestMayHaveLandedSurvivesWrapping(t *testing.T) {
+	lost := landedErr{errors.New("i/o timeout")}
+	require.True(t, mayHaveLanded(lost))
+	require.True(t, mayHaveLanded(fmt.Errorf("dispatch store: %w", lost)))
+	require.Equal(t, "i/o timeout", lost.Error())
+	require.False(t, mayHaveLanded(errors.New("subscribe refused")))
+	require.False(t, mayHaveLanded(nil))
 }
