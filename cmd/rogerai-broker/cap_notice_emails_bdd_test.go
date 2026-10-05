@@ -40,11 +40,12 @@ import (
 type cnState struct {
 	*eaState
 
-	acctWallet string
-	acctAddr   string
-	acctKey    ed25519.PrivateKey
-	acctSess   string
-	acctOwner  store.Owner
+	acctWallet  string
+	acctAddr    string
+	acctKey     ed25519.PrivateKey
+	acctSess    string
+	acctOwner   store.Owner
+	grantSecret string
 
 	sceneNow time.Time
 
@@ -779,6 +780,13 @@ func TestCapNoticeEmailsBDD(t *testing.T) {
 			sc.Step(`^(the account's browser session|a CLI device key bound to the account|a second device key bound to the same account) relays a paid request that crosses 80%$`, st.identityRelaysCrossing)
 			sc.Step(`^a GitHub-linked account "([^"]+)" with a monthly cap of \$([0-9.]+) and \$([0-9.]+) spent$`, st.githubCapSpent)
 			sc.Step(`^a paid voice station "([^"]+)" on air for "([^"]+)"$`, st.paidVoiceOnAir)
+			sc.Step(`^a GitHub-linked station owner "([^"]+)" with a monthly cap of \$([0-9.]+) and \$([0-9.]+) spent$`, st.stationOwnerCapSpent)
+			sc.Step(`^the owner issued a (custom-priced|free) grant$`, st.issueGrant)
+			sc.Step(`^a bot relays a paid request with the grant that brings the owner's spend past \$[0-9.]+$`, func() error { return st.botRelaysWithGrant(true) })
+			sc.Step(`^a bot relays a request with the grant$`, func() error { return st.botRelaysWithGrant(false) })
+			sc.Step(`^a (GitHub-linked|Apple-linked) account "([^"]+)" whose address predates typed-address tracking, with a monthly cap of \$([0-9.]+) and \$([0-9.]+) spent$`, st.legacyAccountCapSpent)
+			sc.Step(`^the account signs in with (GitHub|Apple) and the provider reports "([^"]+)"$`, st.signsInWith)
+			sc.Step(`^the account signs in with (GitHub|Apple) and the provider reports no address$`, func(p string) error { return st.signsInWith(p, "") })
 			sc.Step(`^the account requests speech that brings its spend past \$([0-9.]+)$`, func(string) error { return st.speechCrossing() })
 
 			sc.Step(`^the account relays (\d+) more paid requests this month$`, st.relaysNMore)

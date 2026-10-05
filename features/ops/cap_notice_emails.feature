@@ -210,3 +210,72 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
   Scenario: The account address is not written to logs when a notice is sent
     When "gh@example.com" is sent the 80% notice
     Then no log line contains "gh@example.com"
+
+  # --- sponsored grants notify the account that pays -------------------------------------
+
+  # added 2026-10-04 (audit fix): a sponsored grant's spend is charged to the grant owner's
+  # wallet and counts against the owner's cap, so the owner is the account notified; the
+  # grantee (a bot holding only the grant secret) has no address and is never mailed
+  Scenario: A sponsored grant's spend that crosses the owner's cap notifies the grant owner
+    Given a GitHub-linked station owner "owner@example.com" with a monthly cap of $10.00 and $7.90 spent
+    And the owner issued a custom-priced grant
+    When a bot relays a paid request with the grant that brings the owner's spend past $8.00
+    Then exactly one "Monthly spend at 80%" message is sent to "owner@example.com"
+
+  # added 2026-10-04 (audit fix)
+  Scenario: A free grant spends nothing and never notifies (unchanged)
+    Given a GitHub-linked station owner "owner@example.com" with a monthly cap of $10.00 and $7.90 spent
+    And the owner issued a free grant
+    When a bot relays a request with the grant
+    Then no cap notice is sent
+
+  # --- existing provider addresses are re-checked at the next sign-in --------------------
+
+  # added 2026-10-04 (founder ruling): an address stored on a GitHub or Apple account before
+  # typed addresses were tracked stays mailable; the next GitHub or Apple sign-in compares it
+  # with the address the provider reports and marks a mismatch unproven, unless the address
+  # was proven with an emailed code
+  Scenario: An existing provider-account address stays mailable before any new sign-in
+    Given a GitHub-linked account "legacy@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "legacy@example.com"
+
+  # added 2026-10-04 (founder ruling)
+  Scenario Outline: The next provider sign-in marks a stored address that differs from the provider's as unproven
+    Given a <kind> account "typed@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with <provider> and the provider reports "real@example.com"
+    And the account relays a paid request that crosses 80%
+    Then no cap notice is sent to "typed@example.com"
+    And no cap notice is sent to "real@example.com"
+
+    Examples:
+      | kind          | provider |
+      | GitHub-linked | GitHub   |
+      | Apple-linked  | Apple    |
+
+  # added 2026-10-04 (founder ruling)
+  Scenario Outline: A provider sign-in reporting the same address keeps it mailable
+    Given a <kind> account "same@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with <provider> and the provider reports "SAME@example.com"
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "same@example.com"
+
+    Examples:
+      | kind          | provider |
+      | GitHub-linked | GitHub   |
+      | Apple-linked  | Apple    |
+
+  # added 2026-10-04 (founder ruling)
+  Scenario: A provider sign-in never withdraws an address proven with an emailed code
+    Given a GitHub-linked with a separate verified email account "proven@example.com" with a monthly cap of $10.00
+    And the account has spent $7.90 this month
+    When the account signs in with GitHub and the provider reports "other@example.com"
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "proven@example.com"
+
+  # added 2026-10-04 (founder ruling)
+  Scenario: A provider sign-in that reports no address leaves the stored one as it was
+    Given a GitHub-linked account "kept@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub and the provider reports no address
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "kept@example.com"
