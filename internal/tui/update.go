@@ -2076,8 +2076,8 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.enterLimits()
 			}
 		case "p":
-			// CYCLE THE PREF of the band under the cursor: unset -> cheap -> balanced ->
-			// fast -> reliable -> unset. One keypress, no input box, like Q on the dial: a
+			// CYCLE THE PREF of the band under the cursor: unset (balanced) -> cheap ->
+			// fast -> reliable -> unset (features/tui/routing_profiles.feature). One keypress, no input box, like Q on the dial: a
 			// scoring knob with four values does not need a text field - this is the ONE
 			// editor for the knob (the table's pref column shows it).
 			if !m.limOnBudget && m.limCursor < len(m.limModels) {

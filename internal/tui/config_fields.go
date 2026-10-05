@@ -202,7 +202,7 @@ func containsFold(xs []string, x string) bool {
 
 // prefRing / trustRing are the choice cycles; "" is the unset default (balanced / any).
 var (
-	prefRing  = []string{"", "cheap", "balanced", "fast", "reliable"}
+	prefRing  = []string{"", "cheap", "fast", "reliable"}
 	trustRing = []string{"", "verified", "confidential"}
 )
 

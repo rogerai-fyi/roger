@@ -90,16 +90,3 @@ func TestBandCardRefusedOnTheDefaultRow(t *testing.T) {
 	out, _ = m.Update(keyMsg("b"))
 	require.NotEqual(t, modeBandConfig, asModel(out).mode)
 }
-
-// TestPrefCycleReachesBalanced: the pref cycle offers balanced, so a band can state it over a
-// default that prefers something else.
-func TestPrefCycleReachesBalanced(t *testing.T) {
-	seen := map[string]bool{}
-	cur := ""
-	for i := 0; i < 6; i++ {
-		cur = nextIn(prefRing, cur)
-		seen[cur] = true
-	}
-	require.True(t, seen["balanced"])
-	require.Equal(t, "balanced", nextIn(prefRing, "cheap"), "unset -> cheap -> balanced -> fast -> reliable")
-}
