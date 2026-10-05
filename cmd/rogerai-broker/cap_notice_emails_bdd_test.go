@@ -55,6 +55,12 @@ type cnState struct {
 
 	relayDur time.Duration
 	logMark  int
+
+	// mailGen is this scenario's capture generation. A mailer built for an earlier scenario can
+	// still be delivering (its queue runs off the relay path and retries), and its sends must
+	// never land in a later scenario's capture: they are tagged with the generation the mailer
+	// was built in and dropped once the scenario has moved on.
+	mailGen int64
 }
 
 type cnMail struct{ to, subject, text string }
@@ -70,6 +76,7 @@ func (s *cnState) reset() error {
 	atomic.StoreInt64(&s.posts, 0)
 	s.relayDur = 0
 	s.logMark = len(s.logs.String())
+	atomic.AddInt64(&s.mailGen, 1)
 	s.b.mail = s.capturingMailer()
 	// a prompt large enough that the station's 5000-token claim is billed in full (the byte
 	// floor never clamps it), so one relay costs about $0.20 at the Background's $40/1M in
@@ -86,6 +93,7 @@ func (s *cnState) capturingMailer() *mailer {
 }
 
 func (s *cnState) capturingMailerRaw() *mailer {
+	gen := atomic.LoadInt64(&s.mailGen)
 	return enabledMailer(func(r *http.Request) (*http.Response, error) {
 		atomic.AddInt64(&s.posts, 1)
 		if d := s.mailDelay; d > 0 {
@@ -96,10 +104,24 @@ func (s *cnState) capturingMailerRaw() *mailer {
 			return &http.Response{StatusCode: s.mailStatus, Body: http.NoBody, Header: http.Header{}}, nil
 		}
 		s.mailMu.Lock()
-		s.mails = append(s.mails, string(body))
+		if atomic.LoadInt64(&s.mailGen) == gen {
+			s.mails = append(s.mails, string(body))
+		}
 		s.mailMu.Unlock()
 		return &http.Response{StatusCode: 200, Body: http.NoBody, Header: http.Header{}}, nil
 	})
+}
+
+// drainMail waits (bounded) for the scenario's mailer to finish what it queued, so a slow
+// delivery is counted by the scenario that caused it rather than leaking into the next one.
+func (s *cnState) drainMail() {
+	if s.b == nil || s.b.mail == nil {
+		return
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && !s.b.mail.idle() {
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (s *cnState) sent() []cnMail {
@@ -762,6 +784,7 @@ func TestCapNoticeEmailsBDD(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, st.reset() })
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				st.drainMail()
 				st.teardown()
 				return ctx, nil
 			})
