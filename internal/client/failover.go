@@ -542,6 +542,52 @@ func callerRoutingCriteria(body []byte, c *Criteria) (noRepick bool) {
 	return noRepick
 }
 
+// ownerRoutingCriteria folds the session OWNER's routing into the re-pick criteria, so the
+// proxy's failover never prefers a station the owner's own constraints exclude. A caller's
+// `only` is narrowed to the owner's (the intersection); the owner's other filters apply when
+// the caller stated none (the caller may only tighten, so its own value is already within
+// them). It reports true when the owner forbids a re-pick (--no-fallbacks, or --node, which
+// sets NoFallbacks with a one-station Prefer).
+func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
+	if len(opts.Only) > 0 {
+		if len(c.Only) == 0 {
+			c.Only = append([]string(nil), opts.Only...)
+		} else {
+			var both []string
+			for _, id := range c.Only {
+				if hasFold(opts.Only, id) {
+					both = append(both, id)
+				}
+			}
+			c.Only = both
+			if len(c.Only) == 0 {
+				c.Only = []string{"\x00no-station"} // an empty intersection admits nothing
+			}
+		}
+	}
+	if opts.SelfHostedOnly {
+		c.SelfHostedOnly = true
+	}
+	if opts.Confidential {
+		c.Confidential = true
+	}
+	if len(c.Quantizations) == 0 && len(opts.Quantizations) > 0 {
+		c.Quantizations = append([]string(nil), opts.Quantizations...)
+	}
+	if len(c.Region) == 0 && len(opts.Region) > 0 {
+		c.Region = append([]string(nil), opts.Region...)
+	}
+	if c.TrustMin == "" {
+		c.TrustMin = opts.TrustMin
+	}
+	for _, r := range opts.Require {
+		if !hasFold(c.Require, r) {
+			c.Require = append(c.Require, r)
+		}
+	}
+	return opts.NoFallbacks
+}
+
 // errorCodeOf reads error.code from an error body ("" when absent).
 func errorCodeOf(raw []byte) string {
 	var e struct {

@@ -121,6 +121,8 @@ func GuestModelsWithin(body []byte, tuned string) error {
 	if tuned == "" {
 		return nil
 	}
+	// The band may carry a variant suffix (`roger use m:free`); a guest names the bare id.
+	tuned = bareModel(tuned)
 	var m struct {
 		Model  string          `json:"model"`
 		Models json.RawMessage `json:"models"`
@@ -192,7 +194,7 @@ func hasCarrier(body []byte) bool {
 
 // guestNamesOtherModel: a carrier-bearing body names a model outside the tuned band.
 func guestNamesOtherModel(body []byte, model, tuned string) bool {
-	if model == "" || strings.HasPrefix(model, "@profile/") || bareModel(model) == tuned {
+	if model == "" || strings.HasPrefix(model, "@profile/") || bareModel(model) == bareModel(tuned) {
 		return false
 	}
 	return hasCarrier(body)

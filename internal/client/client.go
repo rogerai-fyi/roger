@@ -928,6 +928,12 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	// The re-pick honors every routing key the caller's body states, not only Criteria's
 	// original fields, and a caller's own allow_fallbacks:false forbids the proxy's re-pick.
 	noRepick := callerRoutingCriteria(body, &crit)
+	// The OWNER's routing bounds the re-pick too: an alternative outside the owner's only set
+	// (or ignoring their quant / region / trust / self-hosted / capability rules) would be
+	// refused by the broker, and an owner --node / --no-fallbacks session is never re-picked.
+	if ownerRoutingCriteria(opts, &crit) {
+		noRepick = true
+	}
 	var order []string // the failover's preferred alternative ("" = let the broker choose)
 	var lastErr error
 	var lastStatus int

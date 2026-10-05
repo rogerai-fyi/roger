@@ -328,8 +328,9 @@ func validateRoger(r map[string]any) error {
 		}
 		a, okA := arr[0].(float64)
 		b, okB := arr[1].(float64)
-		if !okA || !okB || a <= 0 || b <= 0 || a > b {
-			return fmt.Errorf("roger.params_b must be [min, max] with 0 < min <= max")
+		// 0 is allowed only as the lower bound: [0, N] means "up to N" (founder ruling 2026-10-04).
+		if !okA || !okB || a < 0 || b <= 0 || a > b {
+			return fmt.Errorf("roger.params_b must be [min, max] with 0 <= min <= max and max > 0")
 		}
 	}
 	for _, k := range []string{"min_ctx", "max_ttft_ms"} {
