@@ -13,6 +13,7 @@ package node
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -103,6 +104,8 @@ type ShareRow struct {
 	Quant   string
 	Weights string
 	Variant string
+	// Capabilities are the detected chat sub-capabilities (["vision"]); nil = undetermined.
+	Capabilities []string
 }
 
 // VoiceConfig is the SHARE VOICE BOOTH's result for one tts model: the on-air DJ identity the
@@ -373,6 +376,8 @@ func (c *Controller) loadRows(found []detect.Found, persist bool) {
 				Model: mdl, Modality: srv.Modality[mdl], Ctx: ctxLen, CtxEstimated: ctxEst,
 				Upstream: up, UpstreamKey: srv.Key,
 				Quant: srv.Quant[mdl], Weights: srv.Weights[mdl], Variant: srv.Variant[mdl],
+				// A copy: the row must not alias the detector's slice.
+				Capabilities: slices.Clone(srv.Capabilities[mdl]),
 			})
 		}
 	}
@@ -608,7 +613,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node, Station: c.station,
 		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
-		Quant: row.Quant, Weights: row.Weights, Variant: row.Variant,
+		Quant: row.Quant, Weights: row.Weights, Variant: row.Variant, Capabilities: row.Capabilities,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
 		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language, SampleURL: vc.SampleURL,
 	})
