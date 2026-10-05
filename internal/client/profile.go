@@ -64,6 +64,22 @@ var (
 	regionTokenRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{1,7}$`)
 )
 
+// KnownRoutingKey reports whether sub (dotted, below top "provider" or "roger") is a routing
+// key a profile may hold, e.g. ("provider", "max_price.request").
+func KnownRoutingKey(top, sub string) bool {
+	head, rest, nested := strings.Cut(sub, ".")
+	switch top {
+	case "provider":
+		if head == "max_price" && nested {
+			return profileMaxPriceKeys[rest]
+		}
+		return !nested && profileProviderKeys[head]
+	case "roger":
+		return !nested && profileRogerKeys[head]
+	}
+	return false
+}
+
 // ParseProfiles reads the "profiles" section of a config.json document. A missing section is
 // an empty set; a corrupt document is an error (the caller keeps its own fallback).
 func ParseProfiles(doc []byte) (*Profiles, error) {
@@ -653,7 +669,7 @@ func (s *ProfileStore) Get() *Profiles {
 // body names a profile; any other body is returned unchanged.
 func dropGuestFreq(body []byte) []byte {
 	var m map[string]any
-	if json.Unmarshal(body, &m) != nil || m == nil {
+	if decodeNumbers(body, &m) != nil || m == nil {
 		return body
 	}
 	if name, _, err := profileRefOf(m); err != nil || name == "" {
@@ -677,11 +693,19 @@ func dropGuestFreq(body []byte) []byte {
 	return out
 }
 
+// decodeNumbers decodes a JSON object keeping numbers as json.Number, so a re-encode never
+// rounds a large integer.
+func decodeNumbers(body []byte, m *map[string]any) error {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	return dec.Decode(m)
+}
+
 // takeFreq removes roger.freq from a resolved body and returns it: a profile's band code is
 // sent as the X-Roger-Freq header, never in the body.
 func takeFreq(body []byte) ([]byte, string) {
 	var m map[string]any
-	if json.Unmarshal(body, &m) != nil || m == nil {
+	if decodeNumbers(body, &m) != nil || m == nil {
 		return body, ""
 	}
 	r, ok := m["roger"].(map[string]any)

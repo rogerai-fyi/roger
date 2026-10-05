@@ -847,6 +847,9 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			if freq != "" && opts.Freq == "" {
 				opts.Freq = freq
 			}
+			// The band rewrite below replaces model; a profile primary that is not the band
+			// is kept as the first fallback so it is still tried (as the CLI sends it).
+			body = keepPrimaryBeforeRewrite(body, opts.Model)
 		}
 		// Model rewrite + malformed-body guard (ruling 2): rewrite `model` to the band's, keep
 		// every other field; a non-object body is a 400 before any relay/hold.
@@ -890,6 +893,29 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		openAIError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "unknown url: "+r.URL.Path)
 	})
 	return mux
+}
+
+// keepPrimaryBeforeRewrite moves a body's model to the front of its models[] when it is not
+// the band's (by bare id), so rewriting model to band does not drop it. Any other body is
+// returned unchanged.
+func keepPrimaryBeforeRewrite(body []byte, band string) []byte {
+	var m map[string]json.RawMessage
+	var primary string
+	if band == "" || json.Unmarshal(body, &m) != nil || json.Unmarshal(m["model"], &primary) != nil ||
+		primary == "" || bareModel(primary) == bareModel(band) {
+		return body
+	}
+	var list []json.RawMessage
+	if raw, ok := m["models"]; ok && json.Unmarshal(raw, &list) != nil {
+		return body
+	}
+	enc, _ := json.Marshal(primary)
+	m["models"], _ = json.Marshal(append([]json.RawMessage{enc}, list...))
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // readCappedBody reads up to limit+1 bytes; if the extra byte is present the body EXCEEDED the
