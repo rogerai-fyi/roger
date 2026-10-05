@@ -46,12 +46,34 @@ function sendBody() {
   const j = js.indexOf("\n  }\n", i);
   return js.slice(i, j > i ? j : i + 4000);
 }
-function needInSend(fragment, what) {
-  const fn = sendBody();
-  // the send path either names the key itself or calls a routing builder that does
-  const builder = (fn.match(/\b(\w*[Rr]outing\w*)\(/) || [])[1];
-  const where = builder ? fn + js.slice(js.indexOf("function " + builder)) : fn;
-  assert.ok(where.includes(fragment), `the turn's body never carries ${what} (${fragment} is absent from the send path)`);
+// The send path's wiring: stationSend builds its body through routingBody, which hands the
+// drawer state to PlayboxRoute.body (web/src/js/playbox-route.js). What that body contains is
+// asserted by EXECUTING the module below, not by reading source.
+function needSendWiring() {
+  assert.match(sendBody(), /routingBody\(model,/, "stationSend does not build its body through routingBody");
+  const i = js.indexOf("function routingBody(");
+  assert.ok(i >= 0, "playbox.js has no routingBody");
+  assert.match(js.slice(i, i + 600), /PlayboxRoute\.body\(ROUTE, model, body, \{ loggedIn: STATE\.loggedIn, routed:/,
+    "routingBody does not hand the drawer state to PlayboxRoute.body");
+  const at = html.indexOf('src="js/playbox-route.js"');
+  assert.ok(at >= 0 && at < html.indexOf('src="js/playbox.js"'), "playbox.html does not load playbox-route.js before playbox.js");
+}
+const routeSrc = read("src/js/playbox-route.js");
+const routeMod = { exports: {} };
+new Function("module", "window", routeSrc)(routeMod, undefined);
+const PR = routeMod.exports;
+const BASE = () => ({ model: "m", stream: true, max_tokens: 1024, messages: [] });
+// the routing keys a body carries beyond the base turn, as dotted paths
+function routingKeys(b) {
+  const out = [];
+  if (b.models) out.push("models");
+  for (const top of ["provider", "roger"]) {
+    for (const [k, v] of Object.entries(b[top] || {})) {
+      if (k === "max_price") for (const mk of Object.keys(v)) out.push(`provider.max_price.${mk}`);
+      else out.push(`${top}.${k}`);
+    }
+  }
+  return out;
 }
 const needText = (s, what) => assert.ok(flat(js + html).includes(s), `${what}: "${s}" appears nowhere in playbox.js / playbox.html`);
 
@@ -72,49 +94,50 @@ test("The drawer opens from one control on the j-card and is a named group", () 
 });
 
 const FIELDS = [
-  ["also try", "llama-3.3-70b", "models", '"models"'],
-  ["max $/1M out", "2", "provider.max_price.completion", "completion"],
-  ["max $/1M in", "0.5", "provider.max_price.prompt", "prompt"],
-  ["max $/turn", "0.02", "provider.max_price.request", "request"],
-  ["min t/s", "30", "roger.min_tps", "min_tps"],
-  ["self-hosted", "on", "roger.self_hosted_only", "self_hosted_only"],
-  ["confidential", "on", "roger.confidential", "confidential"],
-  ["needs tools", "on", "roger.require", "require"],
-  ["needs vision", "on", "roger.require", "require"],
-  ["quant", "Q8_0", "provider.quantizations", "quantizations"],
-  ["size", "7-70B", "roger.params_b", "params_b"],
-  ["region", "eu", "roger.region", "region"],
-  ["prefer", "fast", "roger.pref", "pref"],
-  ["sort by", "price", "provider.sort", "sort"],
-  ["trust", "verified", "roger.trust_min", "trust_min"],
-  ["min ctx", "32k", "roger.min_ctx", "min_ctx"],
-  ["max first token", "1.5s", "roger.max_ttft_ms", "max_ttft_ms"],
+  ["also try", "llama-3.3-70b", "models", { models: ["llama-3.3-70b"] }],
+  ["max $/1M out", "2", "provider.max_price.completion", { out: 2 }],
+  ["max $/1M in", "0.5", "provider.max_price.prompt", { in: 0.5 }],
+  ["max $/turn", "0.02", "provider.max_price.request", { turn: 0.02 }],
+  ["min t/s", "30", "roger.min_tps", { tps: 30 }],
+  ["self-hosted", "on", "roger.self_hosted_only", { selfHosted: true }],
+  ["confidential", "on", "roger.confidential", { confidential: true }],
+  ["needs tools", "on", "roger.require", { tools: true }],
+  ["needs vision", "on", "roger.require", { vision: true }],
+  ["quant", "Q8_0", "provider.quantizations", { quant: "Q8_0" }],
+  ["size", "7-70B", "roger.params_b", { size: [7, 70] }],
+  ["region", "eu", "roger.region", { region: "eu" }],
+  ["prefer", "fast", "roger.pref", { pref: "fast" }],
+  ["sort by", "price", "provider.sort", { sort: "price" }],
+  ["trust", "verified", "roger.trust_min", { trust: "verified" }],
+  ["min ctx", "32k", "roger.min_ctx", { ctx: 32768 }],
+  ["max first token", "1.5s", "roger.max_ttft_ms", { ttft: 1500 }],
 ];
-for (const [field, value, key, frag] of FIELDS) {
+for (const [field, value, key, route] of FIELDS) {
   test(`Each drawer field maps to exactly one body key: ${field} = ${value} -> ${key}`, () => {
     const d = needDrawer();
     assert.ok(flat(d).toLowerCase().includes(field.toLowerCase()), `the drawer has no "${field}" field`);
-    needInSend(frag, key);
+    needSendWiring();
+    const b = PR.body(PR.clean(route), "m", BASE(), { loggedIn: true, routed: true });
+    assert.deepEqual(routingKeys(b), [key], `${field} = ${value} must add exactly ${key}`);
   });
 }
 
 test("With nothing set the body is exactly today's body", () => {
   const fn = sendBody();
   assert.match(fn, /model:\s*model[\s\S]*stream:\s*true[\s\S]*max_tokens:\s*1024[\s\S]*messages:/, "the base body changed");
-  // nothing set must add nothing: any routing object is merged only when a field is set
-  const builder = (fn.match(/\b(\w*[Rr]outing\w*)\(/) || [])[1];
-  if (builder) {
-    assert.match(js.slice(js.indexOf("function " + builder), js.indexOf("function " + builder) + 3000),
-      /if\s*\(/, "the routing builder must add keys only for fields that are set");
-  }
+  needSendWiring();
+  // nothing set adds nothing: the body PlayboxRoute builds equals the base turn
+  assert.deepEqual(PR.body(PR.clean({}), "m", BASE(), { loggedIn: true, routed: true }), BASE());
+  assert.deepEqual(PR.body(PR.clean(null), "m", BASE(), { loggedIn: true, routed: true }), BASE());
 });
 
 test("Routing is sent in the body only, never as headers", () => {
   const fn = sendBody();
   assert.ok(!/X-Roger-/.test(fn), "the turn sends an X-Roger-* header");
   assert.match(fn, /headers:\s*\{\s*"Content-Type":\s*"application\/json"\s*\}/, "the turn's headers changed");
-  needInSend("min_tps", "roger.min_tps");
-  needInSend("confidential", "roger.confidential");
+  needSendWiring();
+  const b = PR.body(PR.clean({ tps: 30, confidential: true }), "m", BASE(), { loggedIn: true, routed: true });
+  assert.deepEqual(b.roger, { min_tps: 30, confidential: true });
 });
 
 test("prefer and sort by are exclusive in the UI, so the broker's 400 cannot happen from here", () => {
@@ -211,7 +234,10 @@ test("Anonymous visitors see money fields disabled with the reason", () => {
 });
 
 test("Anonymous turns send :free sugar so a paid station is never planned", () => {
-  needInSend(":free", "the :free sugar on an anonymous turn");
+  needSendWiring();
+  const b = PR.body(PR.clean({ models: ["b"] }), "m", BASE(), { loggedIn: false, routed: true });
+  assert.equal(b.model, "m:free");
+  assert.deepEqual(b.models, ["b:free"], "every fallback is asked for free too");
 });
 
 test("Signing in enables the money fields without a reload", () => {

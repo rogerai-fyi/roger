@@ -1253,7 +1253,7 @@
      makes them session-only.
      ===================================================================== */
   var ROUTE_KEY = "roger-playbox-routing-v1";
-  var ROUTE_MAX_FALLBACKS = 4;
+  var ROUTE_MAX_FALLBACKS = window.PlayboxRoute.MAX_FALLBACKS;
   // the drawer's label for each contract key, so a 400 names the field to fix
   var ROUTE_LABELS = {
     models: "also try", completion: "max $/1M out", prompt: "max $/1M in", request: "max $/turn",
@@ -1261,23 +1261,9 @@
     quantizations: "quant", params_b: "size", region: "region", pref: "prefer", sort: "sort by",
     trust_min: "trust", min_ctx: "min ctx", max_ttft_ms: "max first token"
   };
-  // stored state is untrusted (an old version, a hand edit): keep only well-formed fields
-  function routeClean(o) {
-    var r = {};
-    if (!o || typeof o !== "object" || Array.isArray(o)) return r;
-    function num(v) { return typeof v === "number" && isFinite(v) && v >= 0 ? v : null; }
-    function str(v) { return typeof v === "string" ? v : ""; }
-    if (Array.isArray(o.models)) {
-      r.models = o.models.filter(function (x) { return typeof x === "string" && x.trim(); }).slice(0, ROUTE_MAX_FALLBACKS);
-    }
-    ["out", "in", "turn", "tps"].forEach(function (k) { r[k] = num(o[k]); });
-    ["ctx", "ttft"].forEach(function (k) { r[k] = num(o[k]) || null; });
-    ["selfHosted", "confidential", "tools", "vision"].forEach(function (k) { r[k] = o[k] === true; });
-    ["quant", "region", "pref", "sort", "trust"].forEach(function (k) { r[k] = str(o[k]); });
-    var z = o.size;
-    r.size = Array.isArray(z) && z.length === 2 && num(z[0]) !== null && num(z[1]) !== null && z[0] <= z[1] && z[1] > 0 ? z : null;
-    return r;
-  }
+  // stored state is untrusted (an old version, a hand edit): PlayboxRoute keeps only
+  // well-formed fields and the values the drawer offers
+  function routeClean(o) { return window.PlayboxRoute.clean(o); }
   var ROUTE = (function () {
     try { return routeClean(JSON.parse(localStorage.getItem(ROUTE_KEY) || "null")); }
     catch (e) { return {}; }
@@ -1409,55 +1395,15 @@
     paintRoute();
   }
 
-  // routingBody adds the drawer's keys to a turn's body - only for fields that are set
+  // routingBody adds the drawer's keys to a turn's body - only for fields that are set, and
+  // only on the routed tape's model (another turn, like the own-image vision turn, carries
+  // just the signed-out free rule)
   function routingBody(model, body) {
-    var r = ROUTE, p = {}, g = {}, mp = {};
-    if (!STATE.loggedIn) body.model = model + ":free";   // signed out: free stations only, never a paid plan
-    if (r.models && r.models.length) body["models"] = r.models.slice(0, ROUTE_MAX_FALLBACKS);
-    if (STATE.loggedIn) {
-      if (r.out != null) mp.completion = r.out;
-      if (r.in != null) mp.prompt = r.in;
-      if (r.turn != null) mp.request = r.turn;
-    }
-    if (Object.keys(mp).length) p.max_price = mp;
-    if (r.quant) p.quantizations = [r.quant];
-    if (r.sort && (STATE.loggedIn || r.sort !== "price")) p.sort = r.sort;
-    if (r.pref && !p.sort) g.pref = r.pref;
-    if (r.tps) g.min_tps = r.tps;
-    if (r.selfHosted) g.self_hosted_only = true;
-    if (r.confidential) g.confidential = true;
-    var need = []; if (r.tools) need.push("tools"); if (r.vision) need.push("vision");
-    if (need.length) g.require = need;
-    if (r.size) g.params_b = r.size;
-    if (r.region) g.region = [r.region];
-    if (r.trust) g.trust_min = r.trust;
-    if (r.ctx) g.min_ctx = r.ctx;
-    if (r.ttft) g.max_ttft_ms = r.ttft;
-    if (Object.keys(p).length) body.provider = p;
-    if (Object.keys(g).length) body.roger = g;
-    return body;
+    return window.PlayboxRoute.body(ROUTE, model, body, { loggedIn: STATE.loggedIn, routed: model === routeTapeModel });
   }
 
   // the one dim summary line a routed turn shows above its reply (none when nothing is set)
-  function routeSummary() {
-    var r = ROUTE, parts = [];
-    if (r.sort) parts.push(r.sort); else if (r.pref) parts.push(r.pref);
-    if (r.models && r.models.length) parts.push("also " + r.models.join(","));
-    if (r.tools || r.vision) parts.push("needs " + [r.tools && "tools", r.vision && "vision"].filter(Boolean).join(","));
-    if (r.size) parts.push(r.size[0] + "-" + r.size[1] + "B");
-    if (r.ctx) parts.push("ctx ≥ " + r.ctx);
-    if (r.ttft) parts.push("first token ≤ " + r.ttft + "ms");
-    if (r.trust) parts.push("trust " + r.trust);
-    if (r.selfHosted) parts.push("self-hosted");
-    if (r.region) parts.push("region " + r.region);
-    if (r.quant) parts.push("quant " + r.quant);
-    if (r.confidential) parts.push("confidential");
-    if (r.tps) parts.push("≥" + r.tps + " t/s");
-    if (STATE.loggedIn && r.in != null) parts.push("in ≤ $" + r.in + "/1M");
-    if (STATE.loggedIn && r.out != null) parts.push("out ≤ $" + r.out + "/1M");
-    if (STATE.loggedIn && r.turn != null) parts.push("turn ≤ $" + r.turn);
-    return parts.join(" · ");
-  }
+  function routeSummary() { return window.PlayboxRoute.summary(ROUTE, STATE.loggedIn); }
 
   (function wireRoute() {
     var btn = $("dkRouteBtn"), drawer = $("dkRoute");
