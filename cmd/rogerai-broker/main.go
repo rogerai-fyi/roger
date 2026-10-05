@@ -645,7 +645,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	// with http.TimeoutHandler (streamSafeHandler) so a stuck non-stream handler can
 	// never pin a connection, while the streaming/poll routes keep their long windows.
 	srv := &http.Server{
-		Handler:           streamSafeHandler(mux),
+		Handler:           csrfGuard(streamSafeHandler(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
