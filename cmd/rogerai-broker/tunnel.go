@@ -4169,6 +4169,41 @@ func (l *lazySSE) commitLocked() {
 	l.flusher.Flush()
 }
 
+// keepalive writes an SSE comment every interval until the returned stop is called: a bridged
+// attempt answers whole, and an idle connection must not look dead meanwhile. A comment is not
+// content: it commits headers but never counts as output for failover.
+func (l *lazySSE) keepalive(every time.Duration) (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				l.mu.Lock()
+				if l.ctx == nil || l.ctx.Err() == nil {
+					l.commitLocked()
+					_, _ = l.w.Write([]byte(": rogerai keepalive\n\n"))
+					l.flusher.Flush()
+				}
+				l.mu.Unlock()
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// bridgeKeepalive is ROGERAI_BRIDGE_KEEPALIVE (a Go duration, default 10s).
+func bridgeKeepalive() time.Duration {
+	if d, err := time.ParseDuration(os.Getenv("ROGERAI_BRIDGE_KEEPALIVE")); err == nil && d > 0 {
+		return d
+	}
+	return 10 * time.Second
+}
+
 // commit forces the SSE headers out (the grace timer; today's empty-stream exits).
 func (l *lazySSE) commit() { l.mu.Lock(); l.commitLocked(); l.mu.Unlock() }
 
@@ -4268,7 +4303,18 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			// goes out as one delta frame, the broker's usage chunk and [DONE] through the same
 			// lazy SSE writer (headers the bridge sets are committed with the first frame).
 			b.genAttemptStart(requestID, i+1, "", c.model)
-			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, i+1 < len(plan), time.Time{})
+			// The bridged attempt gets a direct stream attempt's window (§14.B7: never the soft
+			// cut-off, never no deadline), and while the hub works the consumer gets a keepalive
+			// comment every bridgeKeepalive once headers are out. The Tower is named up front so a
+			// header committed by a keepalive or the grace timer already says who is answering.
+			lw.Header().Set("X-RogerAI-Relay", c.edge.row.TowerID)
+			stopKA := lw.keepalive(bridgeKeepalive())
+			log.Printf("bridge stream attempt request=%s tower=%s window_s=%d", requestID, c.edge.row.TowerID, int(b.streamIdle().Seconds()))
+			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, false, time.Now().Add(b.streamIdle()))
+			stopKA()
+			if len(answer) == 0 {
+				lw.Header().Del("X-RogerAI-Relay")
+			}
 			if len(answer) > 0 {
 				rec, cost := b.bridgedReceipt(g, c.edge.row, c.edge.pubHex, answer)
 				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, cost, rec.PromptTokens, rec.CompletionTokens, 0, protocol.EncodeReceipt(rec))

@@ -1165,8 +1165,17 @@ func (s *ri6State) servedThroughTower(name string) error {
 	return nil
 }
 
+// bridgedDeadline reads the window the relay logged for the bridged stream attempt
+// ("window_s=N") and compares it with a direct stream attempt's (the stream idle window).
 func (s *ri6State) bridgedDeadline() error {
-	return fmt.Errorf("cannot observe: the bridged attempt's deadline is internal to the relay (no record, header or log carries it)")
+	got, err := s.logCount("window_s")
+	if err != nil {
+		return err
+	}
+	if want := int(s.b.streamIdle().Seconds()); got != want {
+		return fmt.Errorf("the bridged attempt's window is %ds, a direct stream attempt's is %ds", got, want)
+	}
+	return nil
 }
 
 // --- #21 attribute sources ---------------------------------------------------------------------
