@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/store"
@@ -144,5 +143,3 @@ func (s *cnState) signsInWith(provider, reported string) error {
 	}
 	return nil
 }
-
-var _ = strconv.Itoa
