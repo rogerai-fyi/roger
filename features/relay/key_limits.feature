@@ -409,7 +409,9 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     Given "k1" has $1.00 spent this window
     When a relay bearing "k1" is served
     Then the consumer view of GET /generation?id= carries key_id "k1", key_limit 5, key_spend_after 1.002 (fields absent for non-key requests)
-    And the owner view (the station's payout owner) carries key_id only, never key_limit or key_spend_after
+    # superseded 2026-10-05 by contract §14 (founder-approved): the owner view drops key_id too
+    # (§14.B7); was "carries key_id only, never key_limit or key_spend_after".
+    And the owner view (the station's payout owner) carries no key_id, key_limit or key_spend_after
 
   Scenario: /usage can group by key
     When "acct-a" GETs /usage?by=key
