@@ -12,6 +12,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -153,7 +154,84 @@ func (s *rsoState) startPolling(st *rsoStation, pollInst, resultInst int) {
 
 // ---- Background ---------------------------------------------------------------------------
 
-func (s *rsoState) twoInstances() error { return s.dq.twoInstancesOneValkey() }
+// rsoDefaultMode is the dispatch mode a scenario runs in unless it names one (set per subtest).
+var rsoDefaultMode = "queue-only"
+
+// rsoDebounce is the outage debounce the runner uses (production is 2 s): short, so "has
+// noticed" is quick, while the blip scenario sets the production value explicitly.
+const rsoDebounce = 200 * time.Millisecond
+
+func (s *rsoState) twoInstances() error {
+	if err := s.dq.twoInstancesOneValkey(); err != nil {
+		return err
+	}
+	return s.dispatchIn(rsoDefaultMode)
+}
+
+// dispatchIn switches both instances to a dispatch mode before any station polls.
+func (s *rsoState) dispatchIn(mode string) error {
+	for _, b := range s.dq.inst {
+		switch mode {
+		case "bus":
+			b.dispatchMode = dispatchViaBus
+		case "queue":
+			b.dispatchMode = dispatchViaQueue
+		case "queue-only":
+			b.dispatchMode = dispatchViaQueueOnly
+		case "single-instance":
+			b.multiInstance = false
+		default:
+			return fmt.Errorf("unknown dispatch mode %q", mode)
+		}
+	}
+	return nil
+}
+
+func (s *rsoState) debounceSeconds(n int) error {
+	storeOutageDebounce = time.Duration(n) * time.Second
+	return nil
+}
+
+// oneOpFailed fails ONE shared-store operation on instance 1 at the worst moment: just before
+// its next dispatch decision, with no success in between (a concurrent request's blip).
+func (s *rsoState) oneOpFailed() error {
+	var fired atomic.Bool
+	inst1 := s.dq.inst[0]
+	dispatchCheckForTest = func(b *broker, vs *valkeyStore) {
+		if b == inst1 && fired.CompareAndSwap(false, true) {
+			vs.noteErr("blip", errors.New("simulated blip"))
+		}
+	}
+	return nil
+}
+
+func (s *rsoState) alsoPolledHere(name string) error {
+	st := s.stations[name]
+	if st == nil {
+		return fmt.Errorf("no station %q", name)
+	}
+	rsoBackdate(s.dq.inst[0], st.id, time.Now())
+	return nil
+}
+
+func (s *rsoState) pushReplyLost() error {
+	var fired atomic.Bool
+	dqPushReplyLostForTest = func(string) bool { return fired.CompareAndSwap(false, true) }
+	return nil
+}
+
+func (s *rsoState) handedExactlyOne(name string) error {
+	st := s.stations[name]
+	if st == nil {
+		return fmt.Errorf("no station %q", name)
+	}
+	// Give a duplicate delivery time to show up before counting.
+	time.Sleep(500 * time.Millisecond)
+	if n := st.handed.Load(); n != 1 {
+		return fmt.Errorf("%q was handed %d jobs, want exactly 1", name, n)
+	}
+	return nil
+}
 
 func (s *rsoState) fundedConsumer() error {
 	if err := s.dq.fundConsumer(); err != nil {
@@ -221,7 +299,24 @@ func (s *rsoState) storeDown() error {
 	for _, mr := range s.dq.servers {
 		mr.Close()
 	}
-	return s.waitHealthy(0, false)
+	if err := s.waitHealthy(0, false); err != nil {
+		return err
+	}
+	if !s.dq.inst[0].multiInstance {
+		return nil // a single instance never dispatches through the store
+	}
+	// "Has noticed": the outage has lasted past the debounce, so dispatch treats it as down.
+	b := s.dq.inst[0]
+	vs := b.shared.(*valkeyStore)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		_, _, _ = vs.cacheGet("rso:probe")
+		if b.dispatchStoreDown() {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("instance 1 never treated the store as down for dispatch")
 }
 
 func (s *rsoState) storeBack() error {
@@ -241,6 +336,22 @@ func (s *rsoState) storeBack() error {
 	}
 	if err := s.waitHealthy(1, true); err != nil {
 		return err
+	}
+	// On the legacy bus a station is reachable only through its poll's SUBSCRIBE, which the
+	// client library re-establishes on its own reconnect after the restart. The store has
+	// answered again for a station once that subscription is back.
+	if s.dq.inst[0].dispatchMode != dispatchViaBus {
+		return nil
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for _, st := range s.stations {
+		ch := busJobPrefix + st.id
+		for s.dq.servers[0].PubSubNumSub(ch)[ch] == 0 {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("station %s never re-subscribed to the bus", st.id)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 	return nil
 }
@@ -429,13 +540,25 @@ func rsoInit(t *testing.T) func(*godog.ScenarioContext) {
 	return func(sc *godog.ScenarioContext) {
 		s := &rsoState{}
 		sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+			storeOutageDebounce = rsoDebounce
+			dqPushReplyLostForTest = nil
+			dispatchCheckForTest = nil
 			s.reset(t)
 			return ctx, nil
 		})
 		sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 			s.cleanup()
+			storeOutageDebounce = 2 * time.Second
+			dqPushReplyLostForTest = nil
+			dispatchCheckForTest = nil
 			return ctx, nil
 		})
+		sc.Step(`^the instances dispatch in (bus|queue|queue-only|single-instance) mode$`, s.dispatchIn)
+		sc.Step(`^instance 1 treats the store as down only after (\d+) seconds of sustained failure$`, s.debounceSeconds)
+		sc.Step(`^instance 1 just saw one shared-store operation fail$`, s.oneOpFailed)
+		sc.Step(`^station "([^"]+)" also long-polled instance 1 a moment ago$`, s.alsoPolledHere)
+		sc.Step(`^instance 1's next queue push lands but its reply is lost$`, s.pushReplyLost)
+		sc.Step(`^"([^"]+)" was handed exactly one job$`, s.handedExactlyOne)
 		sc.Step(`^a multi-instance broker of two instances sharing one Valkey$`, s.twoInstances)
 		sc.Step(`^a funded consumer$`, s.fundedConsumer)
 		sc.Step(`^station "([^"]+)" long-polls instance (\d) and posts its results to instance (\d)$`, s.pollsAndPostsHere)
@@ -461,21 +584,30 @@ func rsoInit(t *testing.T) func(*godog.ScenarioContext) {
 	}
 }
 
+// TestRuntimeStoreOutageBDD runs the feature in every multi-instance dispatch mode: the legacy
+// bus (the code default), the queue with the bus kept, and queue only (production). Scenarios
+// that name a mode run in that mode in each pass.
 func TestRuntimeStoreOutageBDD(t *testing.T) {
 	t.Setenv("ROGERAI_RATE_BURST", "1000")
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
-	suite := godog.TestSuite{
-		ScenarioInitializer: rsoInit(t),
-		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/multinode/runtime_store_outage.feature"},
-			TestingT: t,
-			Strict:   true,
-		},
-	}
-	if suite.Run() != 0 {
-		t.Fatal("multinode/runtime_store_outage scenarios failed (see godog output above)")
+	for _, mode := range []string{"queue-only", "queue", "bus"} {
+		t.Run(mode, func(t *testing.T) {
+			rsoDefaultMode = mode
+			defer func() { rsoDefaultMode = "queue-only" }()
+			suite := godog.TestSuite{
+				ScenarioInitializer: rsoInit(t),
+				Options: &godog.Options{
+					Format:   "pretty",
+					Paths:    []string{"../../features/multinode/runtime_store_outage.feature"},
+					TestingT: t,
+					Strict:   true,
+				},
+			}
+			if suite.Run() != 0 {
+				t.Fatalf("multinode/runtime_store_outage scenarios failed in %s dispatch (see godog output above)", mode)
+			}
+		})
 	}
 }
 

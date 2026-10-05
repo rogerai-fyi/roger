@@ -111,6 +111,67 @@ Feature: A ready broker keeps serving through a runtime shared-store outage
     When the consumer relays through instance 1
     Then the response is 200 served by "far"
 
+  # --- every dispatch mode (added 2026-10-05, audit fix) ----------------------------------
+  # The in-memory handoff must work whichever way this deployment dispatches: the legacy bus
+  # (the code default), the queue with the bus kept for mixed fleets, queue only (production),
+  # and a single instance (where the outage never touched dispatch).
+
+  # added 2026-10-05 (audit fix)
+  Scenario Outline: A station polling this instance serves through the outage in <mode> dispatch
+    Given the instances dispatch in <mode> mode
+    And station "near" long-polls instance 1 and posts its results to instance 1
+    And the shared store stops answering and instance 1 has noticed
+    When the consumer relays through instance 1
+    Then the response is 200 served by "near"
+    When the consumer streams through instance 1
+    Then the stream carries the station's content and ends with [DONE]
+
+    Examples:
+      | mode            |
+      | bus             |
+      | queue           |
+      | queue-only      |
+      | single-instance |
+
+  # added 2026-10-05 (audit fix)
+  Scenario Outline: A station polling only the peer is skipped through the outage in <mode> dispatch
+    Given the instances dispatch in <mode> mode
+    And station "near" long-polls instance 1 and posts its results to instance 1
+    And station "far" long-polls only instance 2
+    And "far" is the better-scored station
+    And the shared store stops answering and instance 1 has noticed
+    When the consumer relays through instance 1 3 times
+    Then every response is 200 served by "near"
+    And "far" was never handed a job
+
+    Examples:
+      | mode       |
+      | bus        |
+      | queue      |
+      | queue-only |
+
+  # --- a blip is not an outage (added 2026-10-05, audit fix) ------------------------------
+
+  # added 2026-10-05 (audit fix): only a sustained failure switches the instance to outage mode
+  Scenario: One failed shared-store operation does not switch the instance to outage mode
+    Given station "far" long-polls only instance 2
+    And instance 1 treats the store as down only after 2 seconds of sustained failure
+    And instance 1 just saw one shared-store operation fail
+    When the consumer relays through instance 1
+    Then the response is 200 served by "far"
+
+  # --- a dispatch that may have left this instance (added 2026-10-05, audit fix) ----------
+
+  # added 2026-10-05 (audit fix): a job that may already be queued is never also handed over in memory
+  Scenario: A queue push whose reply is lost is not retried in memory
+    Given the instances dispatch in queue-only mode
+    And station "far" long-polls only instance 2
+    And station "far" also long-polled instance 1 a moment ago
+    And instance 1's next queue push lands but its reply is lost
+    When the consumer relays through instance 1
+    Then the response is 200 served by "far"
+    And "far" was handed exactly one job
+
   # --- unchanged ---------------------------------------------------------------------------
 
   Scenario: With the shared store up, a station polling only the peer is served across instances (unchanged)

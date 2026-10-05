@@ -1465,6 +1465,7 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeTunnel, node string) {
 	ctx := r.Context()
 	var legacy <-chan []byte
+	var resub <-chan busSub
 	if b.dispatchMode != dispatchViaQueueOnly {
 		ch, cancel, err := b.shared.busSubscribeJobs(ctx, node)
 		switch {
@@ -1472,8 +1473,13 @@ func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeT
 			defer cancel()
 			legacy = ch
 		case b.dispatchMode == dispatchViaBus:
-			w.WriteHeader(http.StatusNoContent) // bus unavailable: re-poll (the dispatcher saw 0 subscribers)
-			return
+			// Bus unavailable: no peer can reach this poll, but a job handed over IN MEMORY on
+			// this instance (a shared-store outage, storeoutage.go) still can, so hold the poll
+			// and keep re-subscribing in the background: peers reach it again the moment the
+			// store answers, not at the next re-poll.
+			subCtx, stop := context.WithCancel(ctx)
+			defer stop()
+			resub = b.resubscribeJobs(subCtx, node)
 		}
 	}
 	q := b.dqueue()
@@ -1514,6 +1520,9 @@ func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeT
 		case job := <-t.jobs: // drain any in-memory job (mixed-mode safety)
 			_ = json.NewEncoder(w).Encode(job)
 			return
+		case sub := <-resub: // the bus answers again: peers can reach this poll from now on
+			defer sub.cancel()
+			legacy, resub = sub.ch, nil
 		case raw, ok := <-legacy:
 			if !ok {
 				if b.dispatchMode == dispatchViaBus {
@@ -1545,6 +1554,44 @@ func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeT
 			return
 		}
 	}
+}
+
+// busSub is a confirmed job-channel subscription handed to a poll by resubscribeJobs.
+type busSub struct {
+	ch     <-chan []byte
+	cancel func()
+}
+
+// busResubscribeEvery paces resubscribeJobs. Each attempt fails fast while the store is
+// marked down (one attempt, busSubscribe), so this is the recovery latency, not a hot loop.
+const busResubscribeEvery = 50 * time.Millisecond
+
+// resubscribeJobs retries the node's job-channel subscription until it succeeds or ctx ends,
+// delivering the live subscription once. One that lands after the poll has gone is released.
+func (b *broker) resubscribeJobs(ctx context.Context, node string) <-chan busSub {
+	out := make(chan busSub)
+	go func() {
+		tick := time.NewTicker(busResubscribeEvery)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+			ch, cancel, err := b.shared.busSubscribeJobs(ctx, node)
+			if err != nil {
+				continue
+			}
+			select {
+			case out <- busSub{ch, cancel}:
+			case <-ctx.Done():
+				cancel()
+			}
+			return
+		}
+	}()
+	return out
 }
 
 // agentResult handles POST /agent/result?node=<id>: the node returns a served
