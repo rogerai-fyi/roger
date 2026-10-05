@@ -57,6 +57,7 @@ type mcState struct {
 	bridgeSubmits int
 	durableBroken bool
 	interleave    bool
+	notices       []string
 }
 
 func (s *mcState) mcReset() error {
@@ -64,6 +65,7 @@ func (s *mcState) mcReset() error {
 		return err
 	}
 	s.cap, s.results, s.last, s.lastSent, s.dispatched = 0, nil, psResult{}, false, false
+	s.notices, capNoticeHookForTest = nil, nil
 	s.holdBefore, s.mismatches, s.stationName, s.bridgeModel, s.voice = 0, nil, "", "", false
 	s.voiceTun, s.voiceKey, s.voiceNode, s.voiceCalls, s.bridgeSubmits, s.durableBroken = nil, nil, "", 0, 0, false
 	s.interleave, capHoldGapForTest = false, nil
@@ -725,6 +727,12 @@ func TestMonthlyCapConcurrencyBDD(t *testing.T) {
 			sc.Step(`^one request from "acct" held \$0\.10 and then failed before any work, releasing the hold$`, st.heldThenReleased)
 			sc.Step(`^one request from "acct" held \$([0-9.]+) and settled at \$([0-9.]+)$`, st.heldThenSettled)
 			sc.Step(`^it is dispatched$`, st.itDispatched)
+			sc.Step(`^the refusal message names \$0\.10 held by requests still in progress$`, st.refusalNamesPending)
+			sc.Step(`^the response carries X-RogerAI-Monthly-Pending "([^"]+)"$`, st.pendingHeader)
+			sc.Step(`^the response carries no X-RogerAI-Monthly-Pending header$`, st.noPendingHeader)
+			sc.Step(`^"acct" has a verified email for notices$`, st.recordNotices)
+			sc.Step(`^no 100% cap notice was sent for "acct"$`, func() error { return st.noticeSent(false) })
+			sc.Step(`^a 100% cap notice was sent for "acct"$`, func() error { return st.noticeSent(true) })
 			sc.Step(`^one request from "acct" for "m" arrives$`, st.arrivesM)
 			sc.Step(`^the response carries X-RogerAI-Monthly-Cap "1" and X-RogerAI-Monthly-Notice$`, st.atLimitHeaders)
 			sc.Step(`^the response carries X-RogerAI-Cost "0"$`, st.costZero)
@@ -765,4 +773,56 @@ func TestMonthlyCapConcurrencyBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("monthly_cap_concurrency.feature failed")
 	}
+}
+
+// --- audit fix 2026-10-04: refusals caused by open holds -----------------------------------
+
+func (s *mcState) refusalNamesPending() error {
+	if !bodyHas(s.last.body, "$0.10 held by requests still in progress") {
+		return fmt.Errorf("refusal %s does not name the $0.10 held by requests still in progress", s.last.body)
+	}
+	return nil
+}
+
+func (s *mcState) pendingHeader(want string) error {
+	if got := s.last.hdr.Get("X-RogerAI-Monthly-Pending"); got != want {
+		return fmt.Errorf("X-RogerAI-Monthly-Pending %q, want %q", got, want)
+	}
+	return nil
+}
+
+func (s *mcState) noPendingHeader() error {
+	if got := s.last.hdr.Get("X-RogerAI-Monthly-Pending"); got != "" {
+		return fmt.Errorf("X-RogerAI-Monthly-Pending %q on a refusal at the cap on captured spend alone", got)
+	}
+	return nil
+}
+
+// recordNotices observes the broker's notice DECISION. Delivery (resolving the account's
+// address) is covered by features/ops/cap_notice_emails.feature; here it only matters
+// whether the 100% notice was asked for.
+func (s *mcState) recordNotices() error {
+	var mu sync.Mutex
+	s.notices = nil
+	capNoticeHookForTest = func(holder, threshold string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if holder == s.acctWallet {
+			s.notices = append(s.notices, threshold)
+		}
+	}
+	return nil
+}
+
+func (s *mcState) noticeSent(want bool) error {
+	got := false
+	for _, th := range s.notices {
+		if th == "100" {
+			got = true
+		}
+	}
+	if got != want {
+		return fmt.Errorf("100%% cap notice sent=%v, want %v (notices %v)", got, want, s.notices)
+	}
+	return nil
 }

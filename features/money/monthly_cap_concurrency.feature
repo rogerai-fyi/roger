@@ -82,6 +82,33 @@ Feature: A monthly spend cap is never overshot, however many requests race for i
     When another request from "acct" for "m" arrives
     Then it is refused 402 "monthly spend limit reached"
 
+  # added 2026-10-04 (audit fix): a refusal caused by open holds says so, and does not spend the 100% notice
+  Scenario: A refusal caused by requests still in progress names the held amount
+    Given "acct" has spent $0.85 this month
+    And one request from "acct" is in flight holding $0.10
+    When another request from "acct" for "m" arrives
+    Then it is refused 402 "monthly spend limit reached"
+    And the refusal message names $0.10 held by requests still in progress
+    And the response carries X-RogerAI-Monthly-Pending "0.1"
+
+  # added 2026-10-04 (audit fix)
+  Scenario: A refusal caused by requests still in progress does not send the 100% notice
+    Given "acct" has spent $0.85 this month
+    And "acct" has a verified email for notices
+    And one request from "acct" is in flight holding $0.10
+    When another request from "acct" for "m" arrives
+    Then it is refused 402 "monthly spend limit reached"
+    And no 100% cap notice was sent for "acct"
+
+  # added 2026-10-04 (audit fix)
+  Scenario: A refusal at the cap on captured spend alone still sends the 100% notice once
+    Given "acct" has spent $1.00 this month
+    And "acct" has a verified email for notices
+    When another request from "acct" for "m" arrives
+    Then it is refused 402 "monthly spend limit reached"
+    And a 100% cap notice was sent for "acct"
+    And the response carries no X-RogerAI-Monthly-Pending header
+
   Scenario: A released hold frees its share of the cap
     Given "acct" has spent $0.85 this month
     And one request from "acct" held $0.10 and then failed before any work, releasing the hold

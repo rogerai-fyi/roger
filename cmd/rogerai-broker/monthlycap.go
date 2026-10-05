@@ -69,7 +69,7 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	if spend+maxCost > cap {
 		// Surface the at-limit headers on the rejection too, so a client shows the same
 		// "$X of $Y" line whether it was warned or hard-stopped.
-		return b.capRefusal(w, holder, spend, cap, now)
+		return b.capRefusal(w, holder, spend, 0, cap, now)
 	}
 	// Allowed: emit the near/at notice headers from the cap + spend we ALREADY read
 	// (W2a) - monthlyCapState would re-query both, doubling the work; capStateFrom
@@ -131,17 +131,26 @@ func (b *broker) holdUnderCap(w http.ResponseWriter, holder, requestID string, a
 		return false, 0, "", err
 	}
 	if res.OverCap {
-		status, msg = b.capRefusal(w, holder, res.Spend, cap, now)
+		status, msg = b.capRefusal(w, holder, res.Spend, res.Pending, cap, now)
 		return false, status, msg, nil
 	}
 	return res.OK, 0, "", nil
 }
 
 // capRefusal sets the at-limit headers, X-RogerAI-Cost: 0 and the 100% notice, and returns
-// the approved 402 for a request the monthly cap refuses.
-func (b *broker) capRefusal(w http.ResponseWriter, holder string, spend, cap float64, now time.Time) (int, string) {
+// the approved 402 for a request the monthly cap refuses. pending is the wallet's open holds
+// the decision counted: when captured spend alone is below the cap the refusal says the rest
+// is held by requests still in progress (X-RogerAI-Monthly-Pending), and the once-a-month
+// 100% notice is kept for spend that has actually reached the cap.
+func (b *broker) capRefusal(w http.ResponseWriter, holder string, spend, pending, cap float64, now time.Time) (int, string) {
 	setCapHeaders(w, capState{cap: cap, spend: spend, pct: spend / cap, atLimit: true})
 	w.Header().Set("X-RogerAI-Cost", "0")
+	if spend < cap && pending > 0 {
+		w.Header().Set("X-RogerAI-Monthly-Pending", ftoa(round6(pending)))
+		return http.StatusPaymentRequired, fmt.Sprintf(
+			"monthly spend limit reached: $%.2f spent and $%.2f held by requests still in progress, of $%.2f this month - retry when they finish, raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
+			round6(spend), round6(pending), round6(cap))
+	}
 	b.emailCapNotice(holder, "100", spend, cap, now)
 	return http.StatusPaymentRequired, fmt.Sprintf(
 		"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
