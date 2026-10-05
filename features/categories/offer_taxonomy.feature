@@ -381,6 +381,26 @@ Feature: Offers carry an optional, normalized, unverified model taxonomy
     When the broker normalizes the offer twice
     Then the second result equals the first
 
+  # Regression (slice 2): the category a voice modality DERIVES is the broker's, not a claim.
+  # Re-normalizing at emission once read it as a claim and stamped source "declared" on a
+  # voice station that declared nothing.
+  Scenario Outline: A voice offer that declared nothing has no claim source, however often it is normalized
+    Given an offer with modality "<modality>", category "" and subcategory ""
+    When the broker normalizes the offer twice
+    Then the second result equals the first
+    And the offer has no tuning, base model, content policy, license or claim source
+
+    Examples:
+      | modality |
+      | tts      |
+      | stt      |
+
+  Scenario: A voice offer with a real claim keeps its claim source
+    Given an offer with modality "tts", category "" and subcategory ""
+    And the offer also declares content policy "aligned" with claim source "inferred"
+    When the broker normalizes the offer twice
+    Then the offer claim source is "inferred"
+
   # ---------------------------------------------------------------- signing (rollout safety)
   # Same rule as capabilities/quant/variant: display fields are excluded from the possession
   # proof and omitted when empty, so mixed-version nodes and brokers never 401 each other.

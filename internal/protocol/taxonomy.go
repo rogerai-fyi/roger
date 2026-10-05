@@ -27,21 +27,61 @@ type Taxonomy struct {
 
 // Claim sources. Only these two can arrive from a node.
 const (
-	sourceDeclared = "declared"
-	sourceInferred = "inferred"
+	SourceDeclared = "declared"
+	SourceInferred = "inferred"
 )
 
-// categories is the v1 CLOSED category -> subcategory list. A category groups browse and
-// routing, so an unknown one is dropped (like an unknown capability) rather than becoming a
-// new aisle on the dial for every typo. Growth goes into tags; a new entry here is a
-// versioned, spec'd change.
-var categories = map[string][]string{
-	"language":   {"chat", "code", "reasoning", "summarize", "translate", "extraction", "classification", "creative"},
-	"vision":     {"vlm", "ocr", "document", "detection", "segmentation", "classification"},
-	"audio":      {"tts", "stt", "audio-classification"},
-	"retrieval":  {"embeddings", "rerank"},
-	"generation": {"image", "video", "music"},
-	"signals":    {"time-series", "anomaly", "tabular"},
+// TaxonomyVersion is the version of the category list below; bump it with any change to it.
+const TaxonomyVersion = 1
+
+// CategoryDef is one category and its subcategories, in display order.
+type CategoryDef struct {
+	Name          string
+	Subcategories []string
+}
+
+// categories is the v1 CLOSED category -> subcategory list, in canonical display order. A
+// category groups browse and routing, so an unknown one is dropped (like an unknown
+// capability) rather than becoming a new aisle on the dial for every typo. Growth goes into
+// tags; a new entry here is a versioned, spec'd change.
+var categories = []CategoryDef{
+	{"language", []string{"chat", "code", "reasoning", "summarize", "translate", "extraction", "classification", "creative"}},
+	{"vision", []string{"vlm", "ocr", "document", "detection", "segmentation", "classification"}},
+	{"audio", []string{"tts", "stt", "audio-classification"}},
+	{"retrieval", []string{"embeddings", "rerank"}},
+	{"generation", []string{"image", "video", "music"}},
+	{"signals", []string{"time-series", "anomaly", "tabular"}},
+}
+
+// Categories returns a copy of the category list, so no importer can widen the closed set.
+func Categories() []CategoryDef {
+	out := make([]CategoryDef, len(categories))
+	for i, c := range categories {
+		out[i] = CategoryDef{c.Name, slices.Clone(c.Subcategories)}
+	}
+	return out
+}
+
+func subcategoriesOf(cat string) ([]string, bool) {
+	for _, c := range categories {
+		if c.Name == cat {
+			return c.Subcategories, true
+		}
+	}
+	return nil, false
+}
+
+// KnownCategory reports whether cat (canonical form) is in the list.
+func KnownCategory(cat string) bool { _, ok := subcategoriesOf(cat); return ok }
+
+// KnownSubcategory reports whether sub belongs to cat, or to any category when cat is "".
+func KnownSubcategory(cat, sub string) bool {
+	for _, c := range categories {
+		if (cat == "" || c.Name == cat) && slices.Contains(c.Subcategories, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 var knownTunings = map[string]bool{
@@ -64,7 +104,7 @@ var reservedTags = map[string]bool{
 }
 
 const (
-	maxTags       = 8
+	MaxTags       = 8
 	tagMax        = 32
 	baseModelMax  = 128
 	licenseTextMx = 64
@@ -72,13 +112,30 @@ const (
 
 func normWord(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
+// Canonical returns a normalized copy, for offers that reach a view without passing
+// registration (shared-registry mirror, lazy learn, DB re-hydrate).
+func (t Taxonomy) Canonical(modality string) Taxonomy {
+	t.normalize(modality) // t is a copy; canonicalTags builds a fresh slice
+	return t
+}
+
+// CanonicalTag canonicalizes one tag as an offer's tags are; ok is false when it is invalid
+// or reserved.
+func CanonicalTag(raw string) (string, bool) {
+	tag, ok := canonicalTag(raw)
+	return tag, ok && !reservedTags[tag]
+}
+
+// CanonicalContentPolicy returns the grade for a spelling, "" when it is unknown.
+func CanonicalContentPolicy(s string) string { return contentPolicies[normWord(s)] }
+
 // normalize canonicalizes the taxonomy in place. modality is the offer's (already
 // normalized) modality, which always wins over a declared category: it decides billing and
 // routing, so a category can never contradict it.
 func (t *Taxonomy) normalize(modality string) {
 	t.Category = normWord(t.Category)
 	t.Subcategory = normWord(t.Subcategory)
-	if subs, ok := categories[t.Category]; !ok {
+	if subs, ok := subcategoriesOf(t.Category); !ok {
 		t.Category, t.Subcategory = "", ""
 	} else if !slices.Contains(subs, t.Subcategory) {
 		t.Subcategory = ""
@@ -88,27 +145,26 @@ func (t *Taxonomy) normalize(modality string) {
 		t.Tuning = ""
 	}
 	t.BaseModel = boundedText(t.BaseModel, baseModelMax)
-	t.ContentPolicy = contentPolicies[normWord(t.ContentPolicy)]
+	t.ContentPolicy = CanonicalContentPolicy(t.ContentPolicy)
 	t.License = boundedText(t.License, licenseTextMx)
 
-	// Who made the claim is only meaningful when a claim survived; read before the modality
-	// fix below, which is the broker's own derivation and not anyone's claim.
-	if t.Category == "" && len(t.Tags) == 0 && t.Tuning == "" && t.BaseModel == "" &&
+	// Who made the claim is only meaningful when a claim survived. A voice offer's category is
+	// always the broker's own derivation from its modality (below), never anyone's claim - also
+	// on a re-normalize, where the derived category is already set.
+	voice := modality == ModalityTTS || modality == ModalitySTT
+	if (t.Category == "" || voice) && len(t.Tags) == 0 && t.Tuning == "" && t.BaseModel == "" &&
 		t.ContentPolicy == "" && t.License == "" {
 		t.TaxonomySource = ""
-	} else if src := normWord(t.TaxonomySource); src == sourceInferred {
-		t.TaxonomySource = sourceInferred
+	} else if src := normWord(t.TaxonomySource); src == SourceInferred {
+		t.TaxonomySource = SourceInferred
 	} else {
-		t.TaxonomySource = sourceDeclared
+		t.TaxonomySource = SourceDeclared
 	}
 
-	switch modality {
-	case ModalityTTS, ModalitySTT:
+	if voice {
 		t.Category, t.Subcategory = "audio", modality
-	default:
-		if t.Subcategory == ModalityTTS || t.Subcategory == ModalitySTT {
-			t.Subcategory = ""
-		}
+	} else if t.Subcategory == ModalityTTS || t.Subcategory == ModalitySTT {
+		t.Subcategory = ""
 	}
 }
 
@@ -120,7 +176,7 @@ func canonicalTags(in []string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, raw := range in {
-		if len(out) == maxTags {
+		if len(out) == MaxTags {
 			break
 		}
 		tag, ok := canonicalTag(raw)

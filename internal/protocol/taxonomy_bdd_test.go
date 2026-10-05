@@ -116,6 +116,10 @@ func (s *taxonomyState) noTaxonomySource(src string) error {
 	s.o = ModelOffer{Model: "m", Taxonomy: Taxonomy{TaxonomySource: src}}
 	return nil
 }
+func (s *taxonomyState) alsoPolicySource(policy, src string) error {
+	s.o.ContentPolicy, s.o.TaxonomySource = policy, src
+	return nil
+}
 func (s *taxonomyState) messy(cat, sub, tags, tuning, policy, src string) error {
 	s.o = ModelOffer{Model: "m", Taxonomy: Taxonomy{
 		Category: cat, Subcategory: sub, Tags: splitTags(tags), Tuning: tuning,
@@ -343,6 +347,7 @@ func TestOfferTaxonomyBDD(t *testing.T) {
 			sc.Step(`^an offer with no taxonomy fields and claim source `+q+`$`, st.noTaxonomySource)
 			sc.Step(`^an offer with category `+q+`, subcategory `+q+`, tags `+q+`, tuning `+q+`, content policy `+q+` and claim source `+q+`$`, st.messy)
 
+			sc.Step(`^the offer also declares content policy `+q+` with claim source `+q+`$`, st.alsoPolicySource)
 			sc.Step(`^the broker normalizes the offer$`, st.normalize)
 			sc.Step(`^the broker normalizes the offer twice$`, st.normalizeTwice)
 			sc.Step(`^the offer is marshalled to JSON$`, st.marshal)
