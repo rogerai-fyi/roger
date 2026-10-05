@@ -273,6 +273,39 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
     And the account relays a paid request that crosses 80%
     Then exactly one "Monthly spend at 80%" message is sent to "proven@example.com"
 
+  # added 2026-10-05 (audit fix): an account linked to BOTH GitHub and Apple keeps the address
+  # each provider last reported; Apple's Hide My Email relay address never withdraws the address
+  # GitHub reports, and a stored address is unproven only when it matches neither provider
+  Scenario: An Apple relay address does not withdraw the GitHub address of a dual-linked account
+    Given a GitHub-and-Apple-linked account "gh@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub and the provider reports "gh@example.com"
+    And the account signs in with Apple and the provider reports "relay@privaterelay.appleid.com"
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "gh@example.com"
+
+  # added 2026-10-05 (audit fix)
+  Scenario: An Apple sign-in alone does not withdraw a dual-linked address GitHub has not re-reported yet
+    Given a GitHub-and-Apple-linked account "gh@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with Apple and the provider reports "relay@privaterelay.appleid.com"
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "gh@example.com"
+
+  # added 2026-10-05 (audit fix)
+  Scenario: A dual-linked address that matches neither provider's report is unproven
+    Given a GitHub-and-Apple-linked account "typed@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub and the provider reports "gh@example.com"
+    And the account signs in with Apple and the provider reports "relay@privaterelay.appleid.com"
+    And the account relays a paid request that crosses 80%
+    Then no cap notice is sent to "typed@example.com"
+
+  # added 2026-10-05 (audit fix)
+  Scenario: The GitHub report matching the stored address makes it mailable again after an Apple mismatch
+    Given a GitHub-and-Apple-linked account "gh@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with Apple and the provider reports "relay@privaterelay.appleid.com"
+    And the account signs in with GitHub and the provider reports "GH@example.com"
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "gh@example.com"
+
   # added 2026-10-04 (founder ruling)
   Scenario: A provider sign-in that reports no address leaves the stored one as it was
     Given a GitHub-linked account "kept@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent

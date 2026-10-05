@@ -102,6 +102,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS owners_verified_provider_email_uniq
 -- to a proven or provider-reported address (founder ruling 2026-10-04). Additive, default false,
 -- so every existing address keeps its current standing.
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email_unproven BOOLEAN NOT NULL DEFAULT false;
+-- The address each provider reported at its last sign-in (NULL = not reported since tracking
+-- began), so an account linked to BOTH GitHub and Apple is judged against both reports and an
+-- Apple relay address never withdraws the GitHub one (audit fix 2026-10-05). Additive.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS github_reported_email TEXT;
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS apple_reported_email TEXT;
 -- node -> operator account (owner pubkey) binding, so a node's earnings attribute
 -- to an account at payout/Connect time. TOFU: first account to bind a node wins.
 CREATE TABLE IF NOT EXISTS rogerai.node_owner (
@@ -1391,21 +1396,39 @@ func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, email)
 }
 
-// OwnerByAppleSub resolves the account linked to this Apple identity. apple_sub is
-// Apple's stable per-account key, so the match is exact and cannot be spoofed by a login
-// string - the property that keeps Apple sessions isolated from GitHub accounts.
+// ReconcileProviderEmail records the address a provider reported at sign-in on every live row
+// of that identity, then re-judges each row whose address was not proven by code against the
+// last report of every provider the row is linked to (see the Store interface): mailable on
+// any match, unproven when all linked providers have reported and none matches, otherwise left
+// as it was. One statement, so the record and the judgement can never disagree.
 func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported string) error {
 	if reported == "" || (githubID == 0 && appleSub == "") {
 		return nil
 	}
-	_, err := p.db.Exec(`UPDATE rogerai.owners
-		SET email_unproven = (lower(email) <> lower($3))
-		WHERE ((github_id = $1 AND $1 <> 0) OR (apple_sub = NULLIF($2,'')))
-		  AND email_verified_at IS NULL AND COALESCE(email,'') <> ''
-		  AND NOT COALESCE(anonymized,false)`, githubID, appleSub, reported)
+	_, err := p.db.Exec(`WITH r AS (
+		  SELECT pubkey,
+		         CASE WHEN github_id = $1 AND $1 <> 0 THEN $3 ELSE github_reported_email END AS gh,
+		         CASE WHEN apple_sub = NULLIF($2,'') THEN $3 ELSE apple_reported_email END AS ap
+		  FROM rogerai.owners
+		  WHERE ((github_id = $1 AND $1 <> 0) OR apple_sub = NULLIF($2,''))
+		    AND NOT COALESCE(anonymized,false))
+		UPDATE rogerai.owners o SET
+		  github_reported_email = r.gh,
+		  apple_reported_email = r.ap,
+		  email_unproven = CASE
+		    WHEN o.email_verified_at IS NOT NULL OR COALESCE(o.email,'') = '' THEN o.email_unproven
+		    WHEN (r.gh IS NOT NULL AND lower(o.email) = lower(r.gh))
+		      OR (r.ap IS NOT NULL AND lower(o.email) = lower(r.ap)) THEN false
+		    WHEN (o.github_id = 0 OR r.gh IS NOT NULL)
+		     AND (COALESCE(o.apple_sub,'') = '' OR r.ap IS NOT NULL) THEN true
+		    ELSE o.email_unproven END
+		FROM r WHERE o.pubkey = r.pubkey`, githubID, appleSub, reported)
 	return err
 }
 
+// OwnerByAppleSub resolves the account linked to this Apple identity. apple_sub is
+// Apple's stable per-account key, so the match is exact and cannot be spoofed by a login
+// string - the property that keeps Apple sessions isolated from GitHub accounts.
 func (p *Postgres) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	if sub == "" {
 		return Owner{}, false, nil

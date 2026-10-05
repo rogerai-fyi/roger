@@ -179,6 +179,8 @@ func (s *cnState) makeAccount(kind, addr string) error {
 		s.acctOwner = store.Owner{GitHubID: gid, Login: "gh-" + s.nonce, Pubkey: ph, Email: addr}
 	case "Apple-linked":
 		s.acctOwner = store.Owner{AppleSub: "apple-" + s.nonce, Pubkey: ph, Email: addr}
+	case "GitHub-and-Apple-linked":
+		s.acctOwner = store.Owner{GitHubID: gid, Login: "gha-" + s.nonce, AppleSub: "apple-" + s.nonce, Pubkey: ph, Email: addr}
 	case "GitHub-linked with a separate verified email":
 		s.acctOwner = store.Owner{GitHubID: gid, Login: "gh2-" + s.nonce, Pubkey: ph, Email: addr, EmailVerifiedAt: time.Now().Unix()}
 	case "email-login":
@@ -807,7 +809,7 @@ func TestCapNoticeEmailsBDD(t *testing.T) {
 			sc.Step(`^the owner issued a (custom-priced|free) grant$`, st.issueGrant)
 			sc.Step(`^a bot relays a paid request with the grant that brings the owner's spend past \$[0-9.]+$`, func() error { return st.botRelaysWithGrant(true) })
 			sc.Step(`^a bot relays a request with the grant$`, func() error { return st.botRelaysWithGrant(false) })
-			sc.Step(`^a (GitHub-linked|Apple-linked) account "([^"]+)" whose address predates typed-address tracking, with a monthly cap of \$([0-9.]+) and \$([0-9.]+) spent$`, st.legacyAccountCapSpent)
+			sc.Step(`^a (GitHub-linked|Apple-linked|GitHub-and-Apple-linked) account "([^"]+)" whose address predates typed-address tracking, with a monthly cap of \$([0-9.]+) and \$([0-9.]+) spent$`, st.legacyAccountCapSpent)
 			sc.Step(`^the account signs in with (GitHub|Apple) and the provider reports "([^"]+)"$`, st.signsInWith)
 			sc.Step(`^the account signs in with (GitHub|Apple) and the provider reports no address$`, func(p string) error { return st.signsInWith(p, "") })
 			sc.Step(`^the account requests speech that brings its spend past \$([0-9.]+)$`, func(string) error { return st.speechCrossing() })
