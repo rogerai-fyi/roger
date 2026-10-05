@@ -121,7 +121,7 @@ test("the tuner sits right after the hero, on every page long enough to need one
   const bad = [];
   for (const page of PAGES) {
     const html = strip(read(page));
-    const sections = (html.match(/class="sectionno"/g) || []).length;
+    const sections = (html.match(/class="sectionno"|class="bc-sec__no[^"]*">(?:&sect;|§)\d/g) || []).length;
     const tuner = html.lastIndexOf("<", html.indexOf('class="toc-tuner"'));
     if (html.indexOf('class="toc-tuner"') < 0) {
       if (sections >= 4 && !NO_TUNER[page]) bad.push(`${page}: ${sections} numbered sections and no tuner`);

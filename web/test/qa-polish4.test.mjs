@@ -1,0 +1,199 @@
+// Polish round 4 (2026-10): the interaction-feel pass. One keyboard focus ring sitewide,
+// one motion vocabulary (the --d-N durations), and form fields whose words fit. Static
+// checks on the sheets; the rendered checks (focus rings on every page, placeholder fit at
+// 390) were run with Playwright by hand, see the round's QA report.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const STYLES = path.join(WEB, "src/styles");
+const css = (f) => readFileSync(path.join(STYLES, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+// the Playbox games keep their own palettes and their own motion (DESIGN-SYSTEM.md)
+const GAMES = new Set(["playbox.css", "wave-patch.css", "wave-factory.css"]);
+const SHEETS = readdirSync(STYLES).filter((f) => f.endsWith(".css") && !GAMES.has(f)).sort();
+// innermost rules: [selector, body] (an @media prelude never sits in the selector)
+const rules = (src) => [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim().replace(/\s+/g, " "), m[2]]);
+
+/* ---- one focus ring ---------------------------------------------------------------- */
+
+// Before: buttons showed a 2px red ring, nav and footer links the browser's own black ring
+// (no base rule), and the chrome's icon buttons a soft 3-4px pink halo. One ring now.
+test("focus: one ring token, applied to everything by base.css", () => {
+  const t = css("tokens.css");
+  assert.match(t, /--focus-ring:\s*2px solid var\(--live\);/, "the ring is 2px of the live red");
+  assert.match(t, /--focus-offset:\s*2px;/);
+  assert.match(css("base.css"), /:where\(:focus-visible\)\s*\{\s*outline:\s*var\(--focus-ring\);\s*outline-offset:\s*var\(--focus-offset\);\s*\}/,
+    "a zero-specificity base ring every control inherits; components may still place their own");
+});
+
+test("focus: no soft halo (a glow, wash or volt-glow box-shadow) on a focused control", () => {
+  const halos = [];
+  for (const f of SHEETS) for (const [sel, body] of rules(css(f))) {
+    if (!/:focus(-visible|-within)?\b/.test(sel)) continue;
+    const bs = body.match(/box-shadow:([^;]*)/);
+    if (bs && /--(live-glow|volt-glow|live-wash)\b/.test(bs[1])) halos.push(`${f}: ${sel}`);
+  }
+  assert.deepEqual(halos, [], `ring it (var(--focus-ring)), or for a field the 1px inset red edge:\n  ${halos.join("\n  ")}`);
+});
+
+test("focus: a rule that removes the outline puts a visible mark in its place", () => {
+  const bare = [];
+  for (const f of SHEETS) {
+    const all = rules(css(f));
+    for (const [sel, body] of all) {
+    if (!/:focus-visible\b/.test(sel) || !/outline:\s*none/.test(body)) continue;
+    // the mark may sit on a child (the homepage book link rings its cover)
+    if (all.some(([s, b]) => s.startsWith(sel + " ") && /outline:\s*(?!\s|none)/.test(b))) continue;
+    if (/box-shadow|border-(bottom-|left-|top-)?color|background|text-decoration|outline:\s*(?!\s|none)/.test(body)) continue;
+    bare.push(`${f}: ${sel}`);
+    }
+  }
+  assert.deepEqual(bare, [], `a colour change alone is not a focus mark:\n  ${bare.join("\n  ")}`);
+});
+
+/* ---- one motion vocabulary ------------------------------------------------------- */
+
+// An interaction transition (hover, press, open, select) takes its duration from the token
+// scale (--d-1 120ms ... --d-5 820ms), so every control answers in the same time. Named
+// exceptions are motions with their own approved timing.
+const OWN_TIMING = {
+  "components.css .toc-tuner__hint": "the tuner hint's 250ms fade (approved spec, tuner-drag test)",
+  "components.css .toc-tuner__needle": "the needle's 0.6s spring swing (approved spec)",
+  "components.css .toc-tuner__name": "a station name coming into tune, 0.5s (text motion)",
+  "base.css .nav__app-word": "the nav's cycling App word, 0.26s (text motion)",
+};
+test("motion: interaction transitions use the --d-N duration tokens", () => {
+  const loose = [];
+  for (const f of SHEETS) for (const [sel, body] of rules(css(f))) {
+    for (const m of body.matchAll(/(?:^|;)\s*transition(?:-duration)?:([^;]*)/g)) {
+      // drop token fallbacks (var(--d-2, .18s)) before looking for a literal time
+      const v = m[1].replace(/var\(--d-\d,\s*[^)]*\)/g, "var(--d)");
+      if (!/(^|[\s,])\.?\d*\.?\d+m?s\b/.test(v.replace(/\b0s\b/g, ""))) continue;
+      if (OWN_TIMING[`${f} ${sel}`]) continue;
+      loose.push(`${f}: ${sel} { transition:${m[1]} }`);
+    }
+  }
+  assert.deepEqual(loose, [], `use var(--d-1..5) (or list a motion with its own timing):\n  ${loose.join("\n  ")}`);
+});
+
+/* ---- fields whose words fit ------------------------------------------------------ */
+
+test("pricing: the empty market-rate field is wide enough for its placeholder", () => {
+  // "set a rate" was clipped to "set a" in the 8ch rate fields, at every width
+  assert.match(css("pricing.css"), /\.calc__field input\[type="number"\]\[placeholder\]\s*\{[^}]*width:\s*1[2-9]ch/);
+});
+
+test("models: the search placeholder steps down a size on a phone instead of being clipped", () => {
+  // the field keeps 16px (no iOS focus zoom); only the placeholder text gets smaller
+  assert.match(css("models.css"), /@media \(max-width: 480px\)\s*\{\s*\.tuner__input::placeholder\s*\{\s*font-size:\s*var\(--t-sm\);\s*\}\s*\}/);
+});
+
+/* ---- the install line breaks before its pipe ------------------------------------- */
+
+test("install pill: the pipe and what it feeds stay together on a phone", () => {
+  // at 390 the pill wrapped "... install.sh |" and left "sh" alone on the last line; the
+  // pipe segment is one unbreakable token now, so a narrow pill breaks before the pipe
+  const PAGES = readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html"));
+  let n = 0;
+  for (const p of PAGES) {
+    for (const m of readFileSync(path.join(WEB, "src", p), "utf8").matchAll(/include: install-box\.html[^>]*cmd='([^']*)'/g)) {
+      if (!m[1].includes("|")) continue;
+      // app.html's own spec (app-page.test.mjs) pins its command as one plain run of text
+      if (p === "app.html") continue;
+      n++;
+      assert.match(m[1], /<span class="tok">\| [^<]*<\/span>$/, `${p}: ${m[1]}`);
+    }
+  }
+  assert.ok(n >= 13, `every piped install line (${n})`);
+});
+
+/* ---- one press, one hover for the chrome's buttons ------------------------------- */
+
+// The page's buttons answer the same way (components.css: hover fills --live-text, a press
+// sinks 1px). The chrome's three solid/copy buttons had drifted: the promo strip's CTA rose
+// 1px and brightened on hover (lighter red under a paper label), the Let's talk Send filled
+// the beacon red with no press, and the footer's upgrade command ringed in ink where every
+// other copy pill rings in red.
+test("chrome buttons: hover and press match the page's buttons", () => {
+  const b = css("base.css");
+  const rule = (sel) => (b.match(new RegExp(sel.replace(/[.()]/g, "\\$&") + "\\s*\\{([^}]*)\\}")) || [, ""])[1];
+  assert.match(rule(".promo__cta:hover"), /background:\s*var\(--live-text\)/, "the CTA deepens to the text red on hover");
+  assert.doesNotMatch(rule(".promo__cta:hover"), /translateY\(-|brightness/, "it neither rises nor brightens");
+  assert.match(b, /\.lt-modal__send:hover, \.lt-modal__send:focus-visible \{[^}]*background: var\(--live-text\);[^}]*border-color: var\(--live-text\)/);
+  assert.match(rule(".upgrade__cmd:hover"), /border-color:\s*var\(--live\)/, "a copy pill rings red on hover, as the install pill does");
+  assert.match(b, /:is\(\.promo__cta, \.upgrade__cmd, \.lt-modal__send\):active \{ transform: translateY\(1px\); \}/, "a press sinks 1px");
+  assert.match(b, /@media \(prefers-reduced-motion: reduce\) \{[^@]*:is\(\.promo__cta, \.upgrade__cmd, \.lt-modal__send\):active \{ transform: none; \}/);
+  assert.match(rule(".lt-modal__send"), /transition:[^;]*var\(--d-2\)/, "Send eases like the other buttons");
+});
+
+/* ---- the tuner finds its way home after a jump ----------------------------------- */
+
+// Found by the full-page captures: scroll to the foot of a page, then jump straight back to
+// the top (Home, a tap on a phone's status bar) and the needle stayed on the LAST station.
+// No section crosses the in-view band on a jump, so no observer reports; the needle now
+// re-reads where the sections are once the scroll settles.
+import vm from "node:vm";
+test("tuner: when a scroll settles, the needle rests on the section in view", () => {
+  const TUNER = readFileSync(path.join(WEB, "src/js/tuner.js"), "utf8");
+  const on = (el) => { el.listeners = {}; el.addEventListener = (t, f) => { (el.listeners[t] ||= []).push(f); }; return el; };
+  const style = {};
+  const ids = ["s1", "s2", "s3"];
+  const tops = { s1: 900, s2: 1800, s3: 2700 };            // page top: every section below the band
+  const links = ids.map((id) => ({ attrs: {}, cls: new Set(), getAttribute: (a) => (a === "href" ? "#" + id : null),
+    setAttribute(a, v) { this.attrs[a] = v; }, addEventListener() {}, classList: { toggle() {} } }));
+  const nav = on({ style: { setProperty: (k, v) => { style[k] = String(v); }, removeProperty() {} },
+    querySelectorAll: (q) => (q === "a" ? links : []), querySelector: () => null, classList: { add() {}, remove() {}, toggle() {}, contains: () => false } });
+  let ioCb = null;
+  const timers = [];
+  const win = on({ innerHeight: 1000, innerWidth: 1440,
+    matchMedia: () => ({ matches: false }), getComputedStyle: () => ({ display: "block" }),
+    setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout: (id) => { timers[id - 1] = null; },
+    IntersectionObserver: function (cb) { ioCb = cb; this.observe = () => {}; } });
+  win.window = win;
+  win.document = on({ querySelectorAll: (q) => (q === "[data-tuner]" ? [nav] : []),
+    getElementById: (id) => ({ id, getBoundingClientRect: () => ({ top: tops[id] }) }), createElement: () => on({ setAttribute() {} }) });
+  vm.createContext(win);
+  vm.runInContext(TUNER, win);
+  // read down to the last section: the observer reports it in view
+  Object.assign(tops, { s1: -1800, s2: -900, s3: 350 });
+  ioCb([{ target: { id: "s3" }, isIntersecting: true, boundingClientRect: { top: 350 } }]);
+  assert.equal(style["--cur"], "2");
+  // Home: straight back to the top; nothing crosses the band, nothing reports
+  Object.assign(tops, { s1: 900, s2: 1800, s3: 2700 });
+  for (const f of win.listeners.scroll || []) f({});
+  for (const f of timers.splice(0)) if (f) f();
+  assert.equal(style["--cur"], "0", "back in the hero, the needle rests on the first station");
+});
+
+/* ---- closing sections read left on a phone --------------------------------------- */
+
+// The shell's closing section (research, industrial, pricing, FAQ, careers, Tower,
+// Integrations) is centred. At 390 that set six to eight ragged centred lines of body
+// text and left a lone wrapped button floating mid-row; on a phone it reads left, like
+// every other section and every other action row.
+test("closing section: centred on a wide screen, left-set on a phone", () => {
+  const r = css("research.css");
+  assert.match(r, /\.research-closing \{ text-align: center; \}/);
+  assert.match(r, /@media \(max-width: 640px\) \{\s*\.research-closing \{ text-align: left; \}\s*\.research-closing p \{ margin-inline: 0; \}\s*\.research-closing \.research-actions \{ justify-content: flex-start; \}\s*\}/);
+});
+
+test("closing section: the lede sits a step under its heading, whichever markup it uses", () => {
+  // four closings set the lede straight after the h2 (margin 0, flush under it), three
+  // inside .section__head (16px, lead size): one gap and one size now, the section head's
+  assert.match(css("research.css"), /\.research-closing h2 \+ p \{ margin-top: var\(--s-4\); font-size: var\(--t-lead\); \}/);
+});
+
+test("careers: on a phone the role chips keep a clear gap once their rules drop", () => {
+  // under 480px the hairline between chips goes (a wrapped chip must not start with one), and
+  // "ORANGE COUNTY OR REMOTE  FULL-TIME" read as one phrase across a 12px gap
+  assert.match(css("careers.css"), /@media \(max-width: 480px\) \{\s*\.role__meta \{ column-gap: var\(--s-6\); \}\s*\.role__meta span \+ span \{ padding-left: 0; border-left: 0; \}/);
+});
+
+test("research split: the lede sits a step under its heading", () => {
+  // "Claims follow measurements." / "Engineering without lock-in." set their lede flush under
+  // the h2 (no gap), unlike every section head
+  assert.match(css("research.css"), /\.research-split h2 \+ p \{ margin-top: var\(--s-4\); \}/);
+});

@@ -87,6 +87,12 @@ code, pre { font-family: var(--font-mono); }
   .theme-anim, .theme-anim *::before, .theme-anim *::after, .theme-anim * { transition: none; }
 }
 
+/* ---------- keyboard focus: one ring -----------------------------------
+   Every control shows the same 2px live-red ring on keyboard focus (tokens:
+   --focus-ring, --focus-offset). Zero specificity, so a component that places its
+   own mark (a field's red edge, an inset ring) still wins; nothing glows. */
+:where(:focus-visible) { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
 .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding-inline: var(--gutter); }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero;
   font-feature-settings: "tnum" 1, "zero" 1, "ss01" 1; letter-spacing: -0.01em; }
@@ -192,7 +198,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .ping-mark__eye { animation: ping-blink 5s steps(1, end) infinite; transform-origin: 32px 17px; }
 /* ping-eye.js turns the eye toward the pointer (the `translate` property,
    separate from the blink and pulse transforms); a click blinks it */
-.ping-mark__eye, .ping-mark__glow { translate: var(--eye-x, 0) var(--eye-y, 0); transition: translate 0.2s var(--ease-out-quint); }
+.ping-mark__eye, .ping-mark__glow { translate: var(--eye-x, 0) var(--eye-y, 0); transition: translate var(--d-2) var(--ease-out-quint); }
 .tube-ping__mark.is-blink .ping-mark__eye { scale: 1 0.15; }
 @keyframes ping-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } 98% { transform: scaleY(1); } }
 .ping-mark__wave { transform-origin: 32px 6px; animation: ping-wave 2.4s ease-out infinite; }
@@ -304,10 +310,11 @@ html.promo-early .promo[hidden] { display: block; }
   text-transform: uppercase; letter-spacing: var(--tracking-label);
   color: var(--paper); background: var(--live);
   padding: 5px 12px; border-radius: var(--r-pill); text-decoration: none;
-  transition: filter var(--d-2) var(--ease-standard), transform var(--d-2) var(--ease-standard);
+  transition: background var(--d-2) var(--ease-standard), transform var(--d-2) var(--ease-standard);
 }
-.promo__cta:hover { filter: brightness(1.06); transform: translateY(-1px); }
-.promo__cta:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--live-wash); }
+/* the page buttons' contract: hover deepens to the text red (paper on it 5.5:1), a press sinks */
+.promo__cta:hover { background: var(--live-text); }
+.promo__cta:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .promo__close {
   flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0; margin-right: -6px;
@@ -316,10 +323,9 @@ html.promo-early .promo[hidden] { display: block; }
   transition: color var(--d-2) var(--ease-standard), background var(--d-2) var(--ease-standard);
 }
 .promo__close:hover { color: var(--ink-900); background: var(--live-wash); }
-.promo__close:focus-visible { outline: none; color: var(--ink-900); box-shadow: 0 0 0 3px var(--live-wash); }
+.promo__close:focus-visible { color: var(--ink-900); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 @media (prefers-reduced-motion: reduce) {
   .promo__dot { animation: none; box-shadow: 0 0 0 3px var(--live-wash); }
-  .promo__cta:hover { transform: none; }
 }
 /* narrow: trim to the essentials, keep the CTA + close reachable */
 @media (max-width: 560px) {
@@ -384,7 +390,7 @@ html.promo-early .promo[hidden] { display: block; }
   transition: color var(--d-2), border-color var(--d-2), background var(--d-2), transform var(--d-2) var(--ease-out-quint);
 }
 .theme-toggle:hover { color: var(--volt); border-color: var(--volt); transform: translateY(-1px); }
-.theme-toggle:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.theme-toggle:focus-visible { border-color: var(--volt); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .theme-toggle svg { width: 18px; height: 18px; overflow: visible; }
 /* the icon rays/beams animate gently when settling on a theme */
 .theme-toggle__rays line {
@@ -445,7 +451,7 @@ html.promo-early .promo[hidden] { display: block; }
   transition: border-color var(--d-2), color var(--d-2), box-shadow var(--d-2);
 }
 .acctmenu__btn:hover { border-color: var(--volt); color: var(--volt); }
-.acctmenu__btn:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.acctmenu__btn:focus-visible { border-color: var(--volt); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .acctmenu__avatar {
   width: 24px; height: 24px; border-radius: 50%; display: block;
   background: var(--paper-3); object-fit: cover; flex-shrink: 0;
@@ -493,7 +499,7 @@ html.promo-early .promo[hidden] { display: block; }
   transition: border-color var(--d-2), color var(--d-2);
 }
 .nav__burger:hover { border-color: var(--volt); color: var(--volt); }
-.nav__burger:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.nav__burger:focus-visible { border-color: var(--volt); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .nav__burger-lines { display: grid; gap: 4px; width: 18px; }
 .nav__burger-lines i { height: 2px; width: 100%; background: currentColor; border-radius: 2px;
   transition: transform var(--d-3) var(--ease-out-quint), opacity var(--d-2); }
@@ -670,7 +676,7 @@ html.promo-early .promo[hidden] { display: block; }
   transition: color var(--d-2);
 }
 .upgrade__toggle:hover { color: var(--volt); }
-.upgrade__toggle:focus-visible { outline: none; color: var(--volt); }
+.upgrade__toggle:focus-visible { color: var(--volt); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .upgrade__caret {
   width: 6px; height: 6px; flex-shrink: 0;
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
@@ -688,8 +694,8 @@ html.promo-early .promo[hidden] { display: block; }
   font: inherit; text-align: left;
   transition: border-color var(--d-2), background var(--d-2);
 }
-.upgrade__cmd:hover { border-color: var(--volt); }
-.upgrade__cmd:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.upgrade__cmd:hover { border-color: var(--live); }
+.upgrade__cmd:focus-visible { border-color: var(--volt); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .upgrade__cmd code { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-900); }
 .upgrade__prompt { color: var(--volt); font-family: var(--font-mono); font-weight: var(--weight-semi); }
 .upgrade__copy { margin-left: auto; font-size: var(--t-xs); color: var(--ink-400); font-family: var(--font-mono); }
@@ -754,7 +760,7 @@ html.promo-early .promo[hidden] { display: block; }
 .beacon__dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--ink-300); vertical-align: middle; margin: 0 1px;
-  transition: background .3s ease, box-shadow .3s ease;
+  transition: background var(--d-3) var(--ease-standard), box-shadow var(--d-3) var(--ease-standard);
 }
 [data-onair="live"] .beacon__dot {
   background: var(--live); box-shadow: 0 0 0 3px var(--live-tint);
@@ -846,7 +852,7 @@ p > a:not([class]),
 li > a:not([class]),
 .tlink {
   border-bottom: 1px solid color-mix(in srgb, var(--live) 55%, transparent);
-  transition: color .15s ease, border-color .15s ease;
+  transition: color var(--d-2) var(--ease-standard), border-color var(--d-2) var(--ease-standard);
 }
 p > a:not([class]):hover,
 li > a:not([class]):hover,
@@ -976,7 +982,7 @@ li > a:not([class]):focus-visible,
    correct - the parent is already open, so its arrow reads "close", while
    this one still reads "open". Two controls in opposite states point
    opposite ways. */
-.nav__more--sub svg { transition: transform .18s ease; }
+.nav__more--sub svg { transition: transform var(--d-2) var(--ease-standard); }
 .nav__more--sub[aria-expanded="true"] svg { transform: rotate(180deg); }
 .nav__decks[hidden] { display: none !important; }
 .nav__panel a.nav__sub {
@@ -1076,8 +1082,14 @@ li > a:not([class]):focus-visible,
   font: inherit; cursor: pointer; padding: 10px 22px;
   background: var(--ink-900); color: var(--paper); border: 1px solid var(--ink-900);
   border-radius: var(--r-sm);
+  transition: background var(--d-2) var(--ease-standard), border-color var(--d-2) var(--ease-standard), transform var(--d-2) var(--ease-standard);
 }
-.lt-modal__send:hover, .lt-modal__send:focus-visible { background: var(--live); border-color: var(--live); }
+.lt-modal__send:hover, .lt-modal__send:focus-visible { background: var(--live-text); border-color: var(--live-text); }
+/* the chrome's buttons press like the page's (components.css: a 1px sink while held) */
+:is(.promo__cta, .upgrade__cmd, .lt-modal__send):active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  :is(.promo__cta, .upgrade__cmd, .lt-modal__send):active { transform: none; }
+}
 .lt-open { overflow: hidden; }
 @media (max-width: 700px) { .lt-modal__form { grid-template-columns: 1fr; } }
 

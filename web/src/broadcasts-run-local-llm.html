@@ -34,6 +34,22 @@
         </p>
       </header>
 
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE BASICS</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">THE FREE PATH</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">SIZING</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">WIRING IT UP</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">WHEN YOURS ISN'T ENOUGH</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
       <!-- QUICK ANSWER: 40-60 words, answered directly. AI engines pull this near-verbatim. -->
       <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> To run a local LLM on your own GPU, install a runtime (Ollama,
@@ -50,7 +66,7 @@
           gaming GPU, you can be chatting with an open model in a few minutes.
         </p>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; The basics</span>
           <h2>What do you need to run a local LLM?</h2>
           <p>
@@ -65,7 +81,7 @@
           </ul>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; The free path</span>
           <h2>How do you run a local LLM for free?</h2>
           <p>
@@ -82,7 +98,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; Sizing</span>
           <h2>Which models can your GPU actually run?</h2>
           <p>
@@ -94,7 +110,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; Wiring it up</span>
           <h2>How do you use your local model from other apps?</h2>
           <p>
@@ -106,7 +122,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; When yours isn't enough</span>
           <h2>What if your GPU is too small - or you have one to spare?</h2>
           <p>
@@ -120,7 +136,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">
@@ -143,7 +159,7 @@
           <span class="tint-panel__tag">roger that</span>
           <p>Skip the setup or share your local model - install the set and tune in:</p>
           <div class="install">
-            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span>' -->
           </div>
         </aside>
 

@@ -41,6 +41,22 @@
         <figcaption class="fig mono">FIG. 1 - MANY SERVICES, ONE PATCH INTO THE BAND</figcaption>
       </figure>
 
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE TWO-LINE CHANGE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">KEYS</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">TWO BASE URLS</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">FEATURES</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">BEFORE YOU SHIP</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
       <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> RogerAI is OpenAI-compatible, so any OpenAI-SDK bot connects by changing
         two lines - a base URL and a key. On the bot's own machine, <code>roger use &lt;model&gt;</code>
@@ -58,7 +74,7 @@
           make to switch between any two OpenAI-compatible providers.
         </p>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; The two-line change</span>
           <h2>How do I point a bot at RogerAI?</h2>
           <p>
@@ -123,7 +139,7 @@ resp = client.chat.completions.create(
           </figure>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; Keys</span>
           <h2>How do I get an API key?</h2>
           <p>
@@ -136,7 +152,7 @@ resp = client.chat.completions.create(
           </ul>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; Two base URLs</span>
           <h2>Hosted endpoint or local proxy - and which reaches whose band?</h2>
           <p>
@@ -165,7 +181,7 @@ resp = client.chat.completions.create(
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; Features</span>
           <h2>Does streaming, tool calling, and vision work?</h2>
           <p>
@@ -180,7 +196,7 @@ resp = client.chat.completions.create(
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; Before you ship</span>
           <h2>What should I know before shipping a bot?</h2>
           <ul class="bc-dial">
@@ -191,7 +207,7 @@ resp = client.chat.completions.create(
           </ul>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">
@@ -216,7 +232,7 @@ resp = client.chat.completions.create(
           <span class="tint-panel__tag">roger that</span>
           <p>Mint a key and repatch your bot - install the set:</p>
           <div class="install">
-            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span>' -->
           </div>
         </aside>
 

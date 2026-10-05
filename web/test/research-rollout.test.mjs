@@ -162,10 +162,18 @@ test("index: the founder telegram folds on a phone and stays whole without JS", 
 
 /* ---- contents tuners on the long pages ----------------------------------------------- */
 
-const LONG = ["research.html", "research-wave-family.html", "research-hardware.html",
+const NUMBERED = (html) => [...mainOf(html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)/g)].map((m) => "§" + m[1]);
+// Every research-section page with four or more numbered sections is long (the "one role,
+// one pattern" rule), so that part of the list is derived, not hand-kept; the hand list
+// holds pages that carry one anyway (Hardware has three sections and a tuner).
+const LONG = [...new Set(["research.html", "research-wave-family.html", "research-hardware.html",
   "broadcasts-run-a-tower.html", "broadcasts-what-a-million-tokens-costs.html",
   "broadcasts-agent-governance-identity.html", "broadcasts-sharing-your-gpu-is-safe.html",
-  "broadcasts-jev-vs-wave.html"];
+  "broadcasts-jev-vs-wave.html", ...PAGES.filter((p) => NUMBERED(src(p)).length >= 4)])];
+test("every broadcast with four or more numbered sections counts as long", () => {
+  for (const p of ARTICLES) if (NUMBERED(src(p)).length >= 4) assert.ok(LONG.includes(p), p);
+  assert.ok(LONG.includes("broadcasts-deepseek-mtp-gguf.html") && LONG.includes("broadcasts-run-local-llm.html"));
+});
 
 test("long pages carry the shared contents tuner, one station per numbered section, never pinned", () => {
   for (const page of LONG) {
@@ -174,8 +182,14 @@ test("long pages carry the shared contents tuner, one station per numbered secti
     assert.ok(tuner, `${page} has a toc-tuner`);
     assert.match(tuner, /<div class="wrap toc-tuner__band">/, `${page}: the band carries .wrap (the component contract)`);
     const stations = [...tuner.matchAll(/<a class="toc-tuner__st" href="#([\w-]+)"><b>(§\d+)<\/b>/g)].map((m) => m[2]);
-    const sections = [...mainOf(html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)/g)].map((m) => "§" + m[1]);
+    const sections = NUMBERED(html);
     assert.deepEqual(stations, sections, `${page}: one station per numbered section, in order`);
+    // each station lands on its own numbered section: the first label after that id is its
+    for (const [, href, no] of tuner.matchAll(/<a class="toc-tuner__st" href="#([\w-]+)"><b>§(\d+)<\/b>/g)) {
+      const at = html.indexOf(`id="${href}"`);
+      const first = html.slice(at).match(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)/);
+      assert.ok(at > 0 && first && first[1] === no, `${page}: station §${no} points at the §${no} section`);
+    }
   }
   for (const f of ["broadcasts.css", "research.css"]) assert.doesNotMatch(css(f), /position:\s*(sticky|fixed)/, `${f}: nothing pinned`);
 });
