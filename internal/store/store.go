@@ -1954,6 +1954,8 @@ func (m *Mem) DeleteAccount(login string) (bool, error) {
 			o.Email = ""
 			o.EmailVerifiedAt = 0
 			o.EmailUnproven = false
+			o.GitHubReportedEmail = ""
+			o.AppleReportedEmail = ""
 			o.Name = ""
 			o.GitHubID = 0
 			o.AppleSub = ""

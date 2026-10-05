@@ -117,3 +117,55 @@ func TestReconcileProviderEmailRecordsOnProvenRows(t *testing.T) {
 		})
 	}
 }
+
+// reportedEmails reads the two provider-reported addresses straight from the store: the
+// Postgres columns (they are not loaded on Owner reads) or the in-memory row.
+func reportedEmails(t *testing.T, db Store, pub string) (gh, apple string) {
+	t.Helper()
+	switch s := db.(type) {
+	case *Postgres:
+		var g, a *string
+		if err := s.db.QueryRow(`SELECT github_reported_email, apple_reported_email FROM rogerai.owners WHERE pubkey=$1`, pub).Scan(&g, &a); err != nil {
+			t.Fatalf("read reported emails: %v", err)
+		}
+		if g != nil {
+			gh = *g
+		}
+		if a != nil {
+			apple = *a
+		}
+	case *Mem:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		o := s.owners[pub]
+		gh, apple = o.GitHubReportedEmail, o.AppleReportedEmail
+	default:
+		t.Fatalf("unknown store %T", db)
+	}
+	return gh, apple
+}
+
+// TestDeleteAccountClearsReportedEmails: account deletion anonymizes the row, and the
+// provider-reported addresses are personal data too, so they go with the rest.
+func TestDeleteAccountClearsReportedEmails(t *testing.T) {
+	for name, db := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			rpeOwner(t, db, Owner{Pubkey: "gone1", GitHubID: 9201, Login: "gone1", AppleSub: "as-gone1", Email: "gh@gone.com"})
+			if err := db.ReconcileProviderEmail(9201, "", "gh@gone.com"); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.ReconcileProviderEmail(0, "as-gone1", "relay@privaterelay.appleid.com"); err != nil {
+				t.Fatal(err)
+			}
+			if gh, ap := reportedEmails(t, db, "gone1"); gh == "" || ap == "" {
+				t.Fatalf("fixture: reported emails not recorded (gh=%q apple=%q)", gh, ap)
+			}
+			if ok, err := db.DeleteAccount("gone1"); err != nil || !ok {
+				t.Fatalf("delete account: ok=%v err=%v", ok, err)
+			}
+			if gh, ap := reportedEmails(t, db, "gone1"); gh != "" || ap != "" {
+				t.Errorf("a deleted account kept provider-reported emails: github=%q apple=%q", gh, ap)
+			}
+		})
+	}
+}

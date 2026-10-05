@@ -1523,7 +1523,7 @@ func (p *Postgres) DeleteAccount(login string) (bool, error) {
 	// not a lookup key at all here, apple_sub and the verified email are, and both are
 	// gated on NOT anonymized. github_id is NOT NULL, hence 0 rather than NULL.
 	res, err := p.db.Exec(`UPDATE rogerai.owners
-		SET email=NULL, email_verified_at=NULL, email_unproven=false, name=NULL, github_id=0, apple_sub=NULL,
+		SET email=NULL, email_verified_at=NULL, email_unproven=false, github_reported_email=NULL, apple_reported_email=NULL, name=NULL, github_id=0, apple_sub=NULL,
 		    login='deleted_'||left(md5(pubkey),8), anonymized=true, deleted_at=now()
 		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
 	if err != nil {
