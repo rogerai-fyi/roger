@@ -100,6 +100,10 @@ func (b *broker) authAppleWebCallback(w http.ResponseWriter, r *http.Request) {
 	if _, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds); seeded {
 		b.invalidateSeedRemaining()
 	}
+	// Re-check a stored address against the one the provider reports (founder ruling
+	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
+	// Best-effort: a failure never fails the sign-in.
+	_ = b.db.ReconcileProviderEmail(0, claims.Sub, claims.Email)
 	login := appleWebLogin(claims.Email, claims.Sub)
 	exp := time.Now().Add(24 * time.Hour).Unix()
 	// Carry the sub: it is what lets this browser session approve a CLI device login,

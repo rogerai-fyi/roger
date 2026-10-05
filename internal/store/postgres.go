@@ -85,6 +85,13 @@ ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPT
 -- Migration: the first version of this index (owners_verified_email_uniq) covered every row and
 -- refused an email account's second device. Dropped by name, then the scoped index is created
 -- under a new name; both statements are idempotent, so this runs safely on every start.
+--
+-- ROLLBACK HAZARD: a broker binary from BEFORE this change re-runs its own startup DDL, which
+-- recreates owners_verified_email_uniq over EVERY row. Once any email account has approved a
+-- second device (two live rows sharing one verified address), that CREATE UNIQUE INDEX fails
+-- and the old binary cannot start (dropping the index by hand does not help: the old binary
+-- recreates it on every start). Do not roll back past this change. A rollback is only possible
+-- after making the old index creatable again, i.e. no two live verified rows share an address.
 DROP INDEX IF EXISTS rogerai.owners_verified_email_uniq;
 CREATE UNIQUE INDEX IF NOT EXISTS owners_verified_provider_email_uniq
     ON rogerai.owners (lower(email))
@@ -1387,6 +1394,18 @@ func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 // OwnerByAppleSub resolves the account linked to this Apple identity. apple_sub is
 // Apple's stable per-account key, so the match is exact and cannot be spoofed by a login
 // string - the property that keeps Apple sessions isolated from GitHub accounts.
+func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported string) error {
+	if reported == "" || (githubID == 0 && appleSub == "") {
+		return nil
+	}
+	_, err := p.db.Exec(`UPDATE rogerai.owners
+		SET email_unproven = (lower(email) <> lower($3))
+		WHERE ((github_id = $1 AND $1 <> 0) OR (apple_sub = NULLIF($2,'')))
+		  AND email_verified_at IS NULL AND COALESCE(email,'') <> ''
+		  AND NOT COALESCE(anonymized,false)`, githubID, appleSub, reported)
+	return err
+}
+
 func (p *Postgres) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	if sub == "" {
 		return Owner{}, false, nil

@@ -239,6 +239,12 @@ type Store interface {
 	// reaching a GitHub account by name collision (features/security/apple_session_isolation).
 	// An anonymized (deleted) account never resolves.
 	OwnerByAppleSub(sub string) (Owner, bool, error)
+	// ReconcileProviderEmail runs at a GitHub or Apple sign-in with the address the provider
+	// reports (founder ruling 2026-10-04): on every live row of that provider identity whose
+	// address was NOT proven with an emailed code, the stored address is marked unproven when
+	// it differs (case-insensitively) from the reported one, and mailable again when it
+	// matches. A code-proven address is never touched, and an empty report changes nothing.
+	ReconcileProviderEmail(githubID int64, appleSub, reported string) error
 	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
 	// returning whether THIS call claimed it. It is the once-only guard for the welcome
 	// email: a true result means the caller (and only the caller) should send it.
@@ -1828,6 +1834,24 @@ func (m *Mem) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	return canonicalOwner(m.owners, func(o Owner) bool {
 		return o.AppleSub == sub && !o.Anonymized
 	})
+}
+
+func (m *Mem) ReconcileProviderEmail(githubID int64, appleSub, reported string) error {
+	if reported == "" || (githubID == 0 && appleSub == "") {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for pk, o := range m.owners {
+		if o.Anonymized || o.EmailVerifiedAt != 0 || o.Email == "" {
+			continue
+		}
+		if (githubID != 0 && o.GitHubID == githubID) || (appleSub != "" && o.AppleSub == appleSub) {
+			o.EmailUnproven = !strings.EqualFold(o.Email, reported)
+			m.owners[pk] = o
+		}
+	}
+	return nil
 }
 
 func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {

@@ -93,6 +93,10 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "could not bind owner")
 		return
 	}
+	// Re-check a stored address against the one the provider reports (founder ruling
+	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
+	// Best-effort: a failure never fails the sign-in.
+	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email)
 	// W1: a (re)login can change the pubkey->wallet binding, so drop the cached mapping
 	// for this pubkey now rather than waiting out the TTL.
 	b.invalidateOwnerWallet(pubkey)
@@ -368,6 +372,10 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, loginURL()+"?error=user", http.StatusFound)
 		return
 	}
+	// Re-check a stored address against the one the provider reports (founder ruling
+	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
+	// Best-effort: a failure never fails the sign-in.
+	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email)
 	exp := time.Now().Add(24 * time.Hour).Unix()
 	// SameSite=None so the browser sends this cookie on the dashboard's cross-ORIGIN
 	// XHR to the broker. For the default deploy (rogerai.fm <-> broker.rogerai.fm,
