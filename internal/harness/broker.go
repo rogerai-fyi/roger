@@ -186,7 +186,10 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 				return Message{}, err
 			}
 			if onCost != nil {
-				tps, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-TPS"), 64)
+				tps := st.tps
+				if tps == 0 { // an older broker set the header on a stream
+					tps, _ = strconv.ParseFloat(resp.Header.Get("X-RogerAI-TPS"), 64)
+				}
 				if st.cost > 0 || st.in > 0 || st.out > 0 || tps > 0 {
 					onCost(st.cost, st.in, st.out, tps)
 				}

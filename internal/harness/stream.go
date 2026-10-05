@@ -27,6 +27,7 @@ type streamed struct {
 	msg       Message
 	cost      float64
 	in, out   int
+	tps       float64 // usage.rogerai.tps: a stream carries no X-RogerAI-TPS header
 	served    Served
 	errText   string
 	sawChoice bool
@@ -98,6 +99,7 @@ func readStream(r io.Reader) streamed {
 					Node        string          `json:"node"`
 					Model       string          `json:"model"`
 					LockedUntil json.RawMessage `json:"locked_until"`
+					TPS         float64         `json:"tps"`
 				} `json:"rogerai"`
 			} `json:"usage"`
 			Error struct {
@@ -140,7 +142,7 @@ func readStream(r io.Reader) streamed {
 			}
 		}
 		if u := ch.Usage; u != nil {
-			st.in, st.out = u.PromptTokens, u.CompletionTokens
+			st.in, st.out, st.tps = u.PromptTokens, u.CompletionTokens, u.RogerAI.TPS
 			if u.Cost != nil {
 				chunkCost = *u.Cost
 			}
