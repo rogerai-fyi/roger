@@ -109,6 +109,15 @@ Feature: A monthly spend cap is never overshot, however many requests race for i
     And a 100% cap notice was sent for "acct"
     And the response carries no X-RogerAI-Monthly-Pending header
 
+  # audit 2026-10-05: the 100% notice is for spend that has reached the cap
+  Scenario: A request too large for the room left does not send the 100% notice
+    Given "acct" has spent $0.95 this month
+    And "acct" has a verified email for notices
+    When another request from "acct" for "m" arrives
+    Then it is refused 402 "monthly spend limit reached"
+    And no 100% cap notice was sent for "acct"
+    And the response carries no X-RogerAI-Monthly-Pending header
+
   Scenario: A released hold frees its share of the cap
     Given "acct" has spent $0.85 this month
     And one request from "acct" held $0.10 and then failed before any work, releasing the hold

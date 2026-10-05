@@ -105,13 +105,13 @@ type CappedHold struct {
 	Pending float64 // the wallet's open pending holds the decision read (before this hold)
 }
 
-// capEpsilon absorbs float noise so a request that exactly fits the cap is allowed
+// CapEpsilon absorbs float noise so a request that exactly fits the cap is allowed
 // ($0.90 + $0.10 against $1.00) while any real excess ($0.9000001 + $0.10) is refused.
-const capEpsilon = 1e-9
+const CapEpsilon = 1e-9
 
 // overCap reports whether spend + pending + amount exceeds a positive cap.
 func overCap(spend, pending, amount, cap float64) bool {
-	return cap > 0 && spend+pending+amount > cap+capEpsilon
+	return cap > 0 && spend+pending+amount > cap+CapEpsilon
 }
 
 // HoldForCapped is HoldFor under the monthly cap, decided under m.mu: the month spend and
