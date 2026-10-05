@@ -138,6 +138,12 @@ Feature: A consumer's 24-hour price lock is durable, decided once, and kept by e
     When "c" is served "m" by "s1" on "A"
     Then no price quote exists for ("c", "s1", "m")
 
+  # added 2026-10-04 (audit fix): a base price of 0/0 is free, so it is never locked (like a free window)
+  Scenario: A request to a station priced in $0 out $0 mints no quote
+    Given "s1" is priced at in $0 out $0
+    When "c" is served "m" by "s1" on "A"
+    Then no price quote exists for ("c", "s1", "m")
+
   # --- L7: outage ------------------------------------------------------------------------------
 
   Scenario: An unreadable quote at settle never bills an unlocked price

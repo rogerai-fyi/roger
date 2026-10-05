@@ -141,6 +141,9 @@ type Store interface {
 	// reads that same quote until it expires, after which the next caller mints a fresh one.
 	// Durable (survives restarts and shared-store flushes) and decided once (insert-if-absent).
 	QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error)
+	// PruneExpiredPriceQuotes deletes up to limit price quotes that expired at or before now
+	// and returns how many it deleted; a live quote is never touched.
+	PruneExpiredPriceQuotes(now time.Time, limit int) (int, error)
 	// ReleaseHoldFor returns a TRACKED reservation to the user and clears its pending-hold
 	// row, IDEMPOTENTLY: it refunds (and writes the hold_release ledger row) ONLY if the
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is

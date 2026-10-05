@@ -1310,6 +1310,18 @@ func (p *Postgres) QuotePrice(user, node, model string, in, out float64, now tim
 	}
 }
 
+// PruneExpiredPriceQuotes deletes up to limit quotes whose lock ended at or before now, in one
+// bounded statement. See the Store interface.
+func (p *Postgres) PruneExpiredPriceQuotes(now time.Time, limit int) (int, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.price_quotes WHERE ctid IN (
+		SELECT ctid FROM rogerai.price_quotes WHERE locked_until <= $1 LIMIT $2)`, now.UnixNano(), limit)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
 // ReleaseHoldFor returns a TRACKED reservation idempotently: the atomic DELETE ... RETURNING
 // is the claim - it refunds the EXACT recorded amount and writes the hold_release row ONLY
 // if it won the row; otherwise (already captured / released / swept) it is a no-op, so a

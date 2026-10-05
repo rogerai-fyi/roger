@@ -168,3 +168,20 @@ func (m *Mem) QuotePrice(user, node, model string, in, out float64, now time.Tim
 	m.priceQuotes[key] = q
 	return q, nil
 }
+
+// PruneExpiredPriceQuotes is the in-memory model of the bounded expired-quote delete.
+func (m *Mem) PruneExpiredPriceQuotes(now time.Time, limit int) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for k, q := range m.priceQuotes {
+		if n >= limit {
+			break
+		}
+		if !now.Before(q.Until) {
+			delete(m.priceQuotes, k)
+			n++
+		}
+	}
+	return n, nil
+}

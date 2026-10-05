@@ -470,6 +470,7 @@ func TestPriceLockDurableBDD(t *testing.T) {
 			sc.Step(`^"([^"]+)" is being settled on "A"$`, st.settling)
 			sc.Step(`^another request on "A" can take the broker's routing lock within 50 ms$`, st.lockWithin50)
 			sc.Step(`^"s1" publishes a free window that is active now$`, st.freeWindow)
+			sc.Step(`^"s1" is priced at in \$0 out \$0$`, func() error { st.priceIn, st.priceOut = 0, 0; return nil })
 			sc.Step(`^no price quote exists for \("([^"]+)", "s1", "m"\)$`, st.noQuote)
 			sc.Step(`^price-lock reads fail on "B"$`, st.readsFailOnB)
 			sc.Step(`^"([^"]+)" is not charged above out \$([0-9.]+)$`, st.notAbove)

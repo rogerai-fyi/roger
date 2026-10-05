@@ -1210,6 +1210,11 @@ func isStreamRoute(p string) bool {
 // mutex. An error means the lock could not be read: the caller must not bill (an unlocked
 // current price could be a hike) and takes its settle-failure path instead.
 func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time, err error) {
+	if curIn == 0 && curOut == 0 {
+		// A 0/0 base price is free: billed as-is and never locked, like a free window (a $0
+		// lock would also hold this consumer at $0 for 24h after the operator starts charging).
+		return 0, 0, time.Time{}, nil
+	}
 	q, err := b.db.QuotePrice(user, node, model, curIn, curOut, time.Now(), b.lockWin)
 	if err != nil {
 		return 0, 0, time.Time{}, err
