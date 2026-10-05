@@ -116,6 +116,7 @@
     var list = data.stations || [];
     if (!list.length) {
       show("stEmpty");
+      renderStrikes(data); // an account with marks and no live station is who most needs the appeal
       return;
     }
 
@@ -135,11 +136,41 @@
     show("stList");
     show("stChainHelp");
 
+    renderStrikes(data);
+  }
+
+  function renderStrikes(data) {
     var strikes = data.strikes || [];
-    if (strikes.length) {
-      el("stStrikes").innerHTML = strikes.map(renderStrike).join("");
-      show("stEvidence");
-    }
+    if (!strikes.length) return;
+    el("stStrikes").innerHTML = strikes.map(renderStrike).join("");
+    show("stEvidence");
+    show("stAppeal");
+    wireAppeal();
+  }
+
+  // Appeal: posts the reason to the existing owner-scoped route. The account is never sent -
+  // the broker takes it from the session, so an appeal can only be filed for the caller.
+  function wireAppeal() {
+    var btn = el("appealSend");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var reason = ((el("appealReason") || {}).value || "").trim();
+      if (!reason) { text("appealMsg", "Write a short reason first."); return; }
+      text("appealMsg", "Sending...");
+      fetch(BROKER + "/owner/appeal", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason }),
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.ok) {
+            text("appealMsg", "Appeal " + (j.appeal_id ? "#" + j.appeal_id + " " : "") + "sent. A person will review it with the evidence above.");
+          } else {
+            text("appealMsg", (j && j.error && j.error.message) || "That did not go through - try again.");
+          }
+        });
+      }).catch(function () { text("appealMsg", "Could not reach RogerAI. Check your connection and try again."); });
+    });
   }
 
   get("/stations").then(function (res) {

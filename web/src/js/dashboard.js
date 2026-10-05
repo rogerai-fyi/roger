@@ -279,6 +279,8 @@
     });
   }
 
+  var account = null; // the /account body, kept for the balance / payable tiles
+
   function render(d) {
     var daily = (d && d.daily) || [];
     var sv = (d && d.savings) || {};
@@ -324,6 +326,12 @@
     bindNum("statTok", totalTokens);
     if (isConsumer) { bindNum("statSpend", tot.spend, { usd: true }); show("tileSpend"); }
     if (isProvider) { bindNum("statEarn", tot.earned, { usd: true }); show("tileEarn"); }
+    // Already in the /account response this page fetched: no extra request.
+    if (account && typeof account.balance === "number") { bindNum("statBalance", account.balance, { usd: true }); show("tileBalance"); }
+    if (account && account.operator && account.earnings && typeof account.earnings.payable === "number") {
+      bindNum("statPayable", account.earnings.payable, { usd: true });
+      show("tilePayable");
+    }
     show("stats");
 
     // ---- TIME-SERIES CHARTS ----
@@ -389,6 +397,7 @@
         return;
       }
       signedIn = true;
+      account = acct;
       show("card");
       wireLogout(); // before anything that can throw: a visible card always has a working logout
       text("who", RogerFmt.who(acct));
