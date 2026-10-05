@@ -98,3 +98,16 @@ test("an expired session on the appeal POST says to sign in again, not 'run roge
   assert.match(p.els.appealMsg.textContent, /sign in again/i);
   assert.doesNotMatch(p.els.appealMsg.textContent, /roger login/);
 });
+
+test("a newly filed appeal appears in the list without a reload", async () => {
+  const p = appealPage(WITH_STRIKE, { status: 200, body: { ok: true, appeal_id: 9, state: "open" } });
+  let calls = 0;
+  const base = p.ctx.fetch;
+  p.ctx.fetch = (url, opts) => String(url).endsWith("/owner/appeal") && !(opts && opts.method === "POST")
+    ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ appeals: calls++ === 0 ? [] : [{ id: 9, state: "open", reason: "mistake" }] }) })
+    : base(url, opts);
+  p.run("js/stations.js"); await settle();
+  p.els.appealReason.value = "mistake";
+  await p.fire("appealSend", "click"); await settle();
+  assert.match(p.els.appealHistory.innerHTML, /#9/);
+});

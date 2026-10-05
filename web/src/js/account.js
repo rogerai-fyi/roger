@@ -138,7 +138,7 @@
   if (path.endsWith("/account")) {
     bootGet("/account").then(function (res) {
       if (res.status === 401) { location.replace("/login.html"); return; }
-      if (!res.data) { show("card"); show("pageError"); wireLogout(); return; }
+      if (!res.data) { show("card"); show("pageError"); document.getElementById("card").classList.add("is-fault"); wireLogout(); return; }
       var a = res.data;
       text("who", RogerFmt.who(a));
       text("handle", RogerFmt.who(a));

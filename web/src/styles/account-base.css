@@ -441,3 +441,7 @@ body.auth {
 @media (prefers-reduced-motion: reduce) {
   :is(.primary, .ghost, .gh):active:not(:disabled) { transform: none; }
 }
+
+/* Fault state (a feed failed with a 5xx/network drop): show only the title, the error, sign-out
+   and the page nav, so no control that cannot work looks live. */
+.card.is-fault > *:not(h1):not(.sub):not(#pageError):not(#logout):not(.acctsubnav) { display: none; }

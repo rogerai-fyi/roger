@@ -184,6 +184,7 @@
           if (r.ok) {
             // stays disabled: the appeal is filed, and a repeat would file another
             text("appealMsg", "Appeal " + (j.appeal_id ? "#" + j.appeal_id + " " : "") + "sent. A person will review it with the evidence above.");
+            loadAppeals(); // show it in the list now, not after a reload
           } else {
             btn.disabled = false; // a refusal can be retried
             text("appealMsg", r.status === 401

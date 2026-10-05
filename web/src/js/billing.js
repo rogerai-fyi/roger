@@ -329,7 +329,7 @@
   if (path.endsWith("/billing")) {
     bootGet("/billing").then(function (res) {
       if (res.status === 401) { location.replace("/login.html"); return; }
-      if (!res.data) { show("card"); show("pageError"); wireLogout(); return; }
+      if (!res.data) { show("card"); show("pageError"); document.getElementById("card").classList.add("is-fault"); wireLogout(); return; }
       var d = res.data;
       text("balance", cr(d.balance));
       text("derived", cr(d.derived));

@@ -171,7 +171,7 @@
 
   bootGet("/account").then(function (res) {
     if (res.status === 401) { location.replace("/login.html"); return; }
-    if (!res.data) { show("card"); show("pageError"); wireLogout(); return; }
+    if (!res.data) { show("card"); show("pageError"); document.getElementById("card").classList.add("is-fault"); wireLogout(); return; }
     var a = res.data;
     // A signed-in person with no operator account (a consumer, or a sign-in whose machines
     // belong to another identity) gets an explanation, and the page makes none of the

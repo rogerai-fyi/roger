@@ -24,6 +24,8 @@ for (const pg of PAGES) {
       assert.deepEqual(p.navs, [], "a fault is not a sign-out");
       assert.equal(p.els.card.hidden, false);
       assert.equal(p.els.pageError.hidden, false);
+      assert.ok((p.els.logout._l.click || []).length > 0, "logout is wired in the fault state");
+      assert.equal(p.els.card.classList.has("is-fault"), true, "the dead controls are hidden by the fault state");
     });
   }
   test(`${pg.name}: a network failure shows the error, no redirect`, async () => {
