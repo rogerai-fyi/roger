@@ -171,6 +171,9 @@ type broker struct {
 	// affLocal is the session-affinity fallback when the shared store is absent or down
 	// (affinity.go): bounded, best effort; the shared store is the source of truth.
 	affLocal affinityLocal
+	// organic is the recent request SHAPES per model (shadowcanary.go): a sampling hint for
+	// shadow canaries, guarded by metricsMu.
+	organic map[string][]organicShape
 	// idemLocal holds replayable outcomes when the shared store is down (idempotency.go);
 	// the claim itself always lives in the store.
 	idemLocal idemLocal

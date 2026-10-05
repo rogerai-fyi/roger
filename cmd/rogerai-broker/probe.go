@@ -687,9 +687,18 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 		return
 	}
 
-	body, _ := json.Marshal(map[string]any{
+	prompt := fp.prompt
+	extra := map[string]any{}
+	if shape, ok := b.shadowShape(model); ok {
+		// A SHADOW canary (§14.B7): the shape of a recent customer request for this model.
+		prompt = shadowPrompt(prompt, shape.promptTokens)
+		if shape.tools {
+			extra["tools"], extra["tool_choice"] = shadowTools, "none"
+		}
+	}
+	doc := map[string]any{
 		"model":       model,
-		"messages":    []map[string]string{{"role": "user", "content": fp.prompt}},
+		"messages":    []map[string]string{{"role": "user", "content": prompt}},
 		"temperature": 0,
 		// canaryMaxTokens leaves room for a REASONING model (gpt-oss, deepseek, ...)
 		// to emit its reasoning/harmony channel AND a short answer. A tiny budget
@@ -698,8 +707,13 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 		// depends on the fingerprint landing, but the larger budget gives reasoning
 		// models a fair shot at producing the literal answer (the strong signal).
 		"max_tokens": canaryMaxTokens,
-	})
-	job := protocol.Job{ID: protocol.NewRequestID(), User: "probe", Body: body}
+	}
+	for k, v := range extra {
+		doc[k] = v
+	}
+	body, _ := json.Marshal(doc)
+	// The pseudonym real users get (§14.B7): a canary is indistinguishable from a customer.
+	job := protocol.Job{ID: protocol.NewRequestID(), User: b.probePseudonym(node.NodeID), Body: body}
 	start := time.Now()
 
 	if mi {
