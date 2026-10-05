@@ -8,7 +8,6 @@ package main
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/alicebob/miniredis/v2"
 )
@@ -57,5 +56,4 @@ func TestValkeyDownClearsOnceTheBootRetryConnects(t *testing.T) {
 	if firing {
 		t.Fatal("valkey_down still firing after the store connected and is healthy")
 	}
-	_ = time.Second
 }
