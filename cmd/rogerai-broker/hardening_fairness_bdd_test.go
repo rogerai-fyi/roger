@@ -347,6 +347,25 @@ func (s *fa6State) setCapacity(st *fstation, capacity, busy int) {
 	})
 }
 
+// standUpTower holds the Tower's stated tok/s like a direct station's (see fa6State.held):
+// the Tower path is a real agent behind a real hub, so its measured figures move with load.
+func (s *fa6State) standUpTower(name, model string, priceIn, priceOut, tps float64) (*rpTower, error) {
+	tw, err := s.rpState.standUpTower(name, model, priceIn, priceOut, tps)
+	if err == nil && tps > 0 {
+		s.setTPS(tw.nodeID, tps)
+	}
+	return tw, err
+}
+
+// holdTowerCapacity states the Tower row's capacity and holds it (see fa6State.held).
+func (s *fa6State) holdTowerCapacity(tw *rpTower, capacity int) {
+	s.hold("cap:"+tw.nodeID, func() {
+		s.b.metricsMu.Lock()
+		s.b.concurrentTPS[tw.nodeID] = float64(capacity) * tpsPerSlot
+		s.b.metricsMu.Unlock()
+	})
+}
+
 func (s *fa6State) setTTFT(st *fstation, ms int) {
 	s.hold("ttft:"+st.id, func() {
 		s.b.mu.Lock()
@@ -2290,9 +2309,7 @@ func (s *fa6State) directsAndTower(n, dcap, tcap, model string) error {
 	if err != nil {
 		return err
 	}
-	s.b.metricsMu.Lock()
-	s.b.concurrentTPS[tw.nodeID] = float64(atoiMust(tcap)) * tpsPerSlot
-	s.b.metricsMu.Unlock()
+	s.holdTowerCapacity(tw, atoiMust(tcap))
 	return nil
 }
 
@@ -2305,6 +2322,27 @@ func (s *fa6State) everyTierA() error {
 		s.b.trust[tw.nodeID] = trustState{probed: true, probeOK: true, ttftMs: 200}
 	}
 	s.b.mu.Unlock()
+	// Tier A rests on a TTFT the served relays would otherwise re-measure, so hold it (a TTFT
+	// a Given already holds keeps winning, as it did before).
+	ids := make([]string, 0, len(s.stations)+len(s.towers))
+	for _, st := range s.stations {
+		ids = append(ids, st.id)
+	}
+	for _, tw := range s.towers {
+		ids = append(ids, tw.nodeID)
+	}
+	for _, id := range ids {
+		if _, held := s.held["ttft:"+id]; held {
+			continue
+		}
+		s.hold("ttft:"+id, func() {
+			s.b.mu.Lock()
+			tq := s.b.trust[id]
+			tq.ttftMs = 200
+			s.b.trust[id] = tq
+			s.b.mu.Unlock()
+		})
+	}
 	return nil
 }
 
@@ -2352,9 +2390,7 @@ func (s *fa6State) capacityEachSide(dcap, tcap, model string) error {
 	if err != nil {
 		return err
 	}
-	s.b.metricsMu.Lock()
-	s.b.concurrentTPS[tw.nodeID] = float64(atoiMust(tcap)) * tpsPerSlot
-	s.b.metricsMu.Unlock()
+	s.holdTowerCapacity(tw, atoiMust(tcap))
 	return s.everyTierA()
 }
 
@@ -2413,9 +2449,7 @@ func (s *fa6State) towerCapEligible(tcap string) error {
 	if !ok {
 		return fmt.Errorf("the Tower row's node %s has no registration to declare a quant on", tw.nodeID)
 	}
-	s.b.metricsMu.Lock()
-	s.b.concurrentTPS[tw.nodeID] = float64(atoiMust(tcap)) * tpsPerSlot
-	s.b.metricsMu.Unlock()
+	s.holdTowerCapacity(tw, atoiMust(tcap))
 	return s.everyTierA()
 }
 
@@ -2531,9 +2565,7 @@ func (s *fa6State) towerStationCap(model, capacity string) error {
 	if err != nil {
 		return err
 	}
-	s.b.metricsMu.Lock()
-	s.b.concurrentTPS[tw.nodeID] = float64(atoiMust(capacity)) * tpsPerSlot
-	s.b.metricsMu.Unlock()
+	s.holdTowerCapacity(tw, atoiMust(capacity))
 	return nil
 }
 
