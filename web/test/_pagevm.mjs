@@ -16,7 +16,7 @@ export function page(pathname, routes, opts = {}) {
   const els = {};
   const el = (id) =>
     (els[id] ||= new Proxy(
-      { id, hidden: true, disabled: false, __wired: false, textContent: "", style: {}, classList: { add() {}, remove() {}, toggle() {} }, _l: {} },
+      { id, hidden: true, disabled: false, __wired: false, textContent: "", style: {}, classList: (() => { const set = new Set(); return { add: (c) => set.add(c), remove: (c) => set.delete(c), toggle: (c) => (set.has(c) ? set.delete(c) : set.add(c)), has: (c) => set.has(c) }; })(), _l: {} },
       {
         get: (t, k) =>
           k === "addEventListener" ? (ev, fn) => { (t._l[ev] ||= []).push(fn); }

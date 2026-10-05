@@ -23,6 +23,14 @@
     }).catch(function () { return null; });
   }
   function get(path) { return api(path); }
+  // Boot read: keeps the STATUS, because only a 401 means "signed out". A 5xx or a dropped
+  // connection is a fault to show - sending a signed-in person to login would bounce them to
+  // the dashboard and lose their place.
+  function bootGet(path) {
+    return fetch(BROKER + path, { credentials: "include" }).then(function (r) {
+      return (r.ok ? r.json() : Promise.resolve(null)).then(function (data) { return { status: r.status, data: data }; });
+    }).catch(function () { return { status: 0, data: null }; });
+  }
 
   // apiReason is api() for a call whose FAILURE text matters. It resolves
   // {error: "<broker message>"} on a refusal instead of null, so the caller can show
@@ -319,8 +327,10 @@
   // the static host serves /billing.html, so matching only "/billing" left it blank.
   var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   if (path.endsWith("/billing")) {
-    get("/billing").then(function (d) {
-      if (!d) { location.replace("/login.html"); return; }
+    bootGet("/billing").then(function (res) {
+      if (res.status === 401) { location.replace("/login.html"); return; }
+      if (!res.data) { show("card"); show("pageError"); document.getElementById("card").classList.add("is-fault"); wireLogout(); return; }
+      var d = res.data;
       text("balance", cr(d.balance));
       text("derived", cr(d.derived));
       if (d.checkout_ready) {
