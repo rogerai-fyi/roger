@@ -2043,7 +2043,9 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// THE BAND CARD: everything about the band under the cursor, in one place.
 			// Not from the budget row - the cursor is not on a band there, and acting on
 			// limCursor would open a card the operator is not looking at (audit round 5).
-			if !m.limOnBudget && m.limCursor < len(m.limModels) {
+			// Nor from the default row: it is the rule every band inherits, not a band, and a
+			// card for it would store a limits entry named "default".
+			if !m.limOnBudget && m.limCursor < len(m.limModels) && m.limModels[m.limCursor] != defaultLimitRow {
 				return m.openBandConfig(m.limModels[m.limCursor], modeLimits)
 			}
 		case "up", "k":

@@ -61,3 +61,45 @@ func TestRoutingProfileMaxCostComposesStricter(t *testing.T) {
 	m.limits.Models = map[string]Limit{"m": {MaxCost: 5}}
 	require.InDelta(t, 1.0, m.routing("m", "").MaxReq, 1e-12, "the profile's tighter max cost holds")
 }
+
+// TestBandCardLimitEditDoesNotFreezeTheDefault: opening the band card's spend editor on a
+// band with no entry of its own and pressing enter stores nothing from the default.
+func TestBandCardLimitEditDoesNotFreezeTheDefault(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.limits.Default = Limit{MaxOut: 5}
+	m.bands = []band{{model: "m"}}
+	m.cfgModel = "m"
+	out, _ := m.cfgEditLimit(0)
+	m = asModel(out)
+	require.Equal(t, modeLimits, m.mode, "the band has a spend row")
+	require.Empty(t, m.editBuf, "the editor starts from the band's own entry, not the default's cap")
+	out, _ = m.Update(keyMsg("enter"))
+	require.Zero(t, asModel(out).limits.own("m").MaxOut, "the default's cap is not written into the band")
+}
+
+// TestBandCardRefusedOnTheDefaultRow: b on the default row opens no band card (it would
+// write a limits entry named "default").
+func TestBandCardRefusedOnTheDefaultRow(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.mode = modeLimits
+	m.limModels = []string{"m", defaultLimitRow}
+	m.editField = -1
+	out, _ := m.Update(keyMsg("b"))
+	require.Equal(t, modeBandConfig, asModel(out).mode, "b on a band row opens its card")
+	m.limCursor = 1
+	out, _ = m.Update(keyMsg("b"))
+	require.NotEqual(t, modeBandConfig, asModel(out).mode)
+}
+
+// TestPrefCycleReachesBalanced: the pref cycle offers balanced, so a band can state it over a
+// default that prefers something else.
+func TestPrefCycleReachesBalanced(t *testing.T) {
+	seen := map[string]bool{}
+	cur := ""
+	for i := 0; i < 6; i++ {
+		cur = nextIn(prefRing, cur)
+		seen[cur] = true
+	}
+	require.True(t, seen["balanced"])
+	require.Equal(t, "balanced", nextIn(prefRing, "cheap"), "unset -> cheap -> balanced -> fast -> reliable")
+}

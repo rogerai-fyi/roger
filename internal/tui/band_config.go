@@ -567,7 +567,9 @@ func (m model) cfgEditLimit(field int) (tea.Model, tea.Cmd) {
 		m.editField, m.limField = field, field
 		m.editTyped = true // the card hands over a live value: ⏎ saves it as shown
 		m.editBuf = ""
-		if lim := m.limits.resolve(m.cfgModel); field == 0 && lim.MaxOut > 0 {
+		// The band's OWN entry: seeding from the merged rule would save the default's cap
+		// into the band on enter, so a later default edit no longer reached it.
+		if lim := m.limits.own(m.cfgModel); field == 0 && lim.MaxOut > 0 {
 			m.editBuf = trimZero(lim.MaxOut)
 		} else if field == 1 && lim.MinTPS > 0 {
 			m.editBuf = trimZero(lim.MinTPS)
