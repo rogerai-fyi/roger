@@ -584,3 +584,60 @@ func TestQueueWriteFailureToAckingPollIsRedelivered(t *testing.T) {
 		t.Fatal("the re-delivered job is not back in the node's queue")
 	}
 }
+
+// A queue push the store definitely REFUSED (it answered with an error reply) cannot have
+// landed, so the relay fails fast instead of sitting out the queue wait for a job that is not
+// queued. An ambiguous push error (no reply) keeps the at-most-once wait: see
+// TestQueueAmbiguousPushWaitsOutTheQueue and the runtime-store-outage lost-reply scenario.
+func TestQueueRefusedPushFailsFast(t *testing.T) {
+	defer func(d time.Duration) { queueWaitChat = d }(queueWaitChat)
+	queueWaitChat = 3 * time.Second
+	mr := miniredis.RunT(t)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	a := newQBroker(t, priv, store.NewMem(), mr, dispatchViaQueueOnly)
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	miRegisterNode(a, "n1", hex.EncodeToString(nodePub), "tok", []protocol.ModelOffer{{Model: "free-m"}})
+	// The node's list key holds a string: RPUSH answers WRONGTYPE, a definite refusal.
+	if err := mr.Set(dqListPrefix+"n1", "not-a-list"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	w := httptest.NewRecorder()
+	start := time.Now()
+	a.relay(w, miSignedRelayReq(t, userPriv, []byte(`{"model":"free-m","max_tokens":8}`), nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("relay = %d %q, want 503", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "handoff failed") {
+		t.Errorf("a refused push is not a lost handoff: %q", w.Body.String())
+	}
+	if el := time.Since(start); el > time.Second {
+		t.Errorf("answered after %s, want fast (well before the 3 s queue wait)", el)
+	}
+}
+
+// An ambiguous push error (the push may have landed) is never failed fast: the job stays
+// dispatched for the queue wait so it is served at most once, then reported lost.
+func TestQueueAmbiguousPushWaitsOutTheQueue(t *testing.T) {
+	defer func(d time.Duration) { queueWaitChat = d }(queueWaitChat)
+	queueWaitChat = 300 * time.Millisecond
+	defer func() { dqPushReplyLostForTest = nil }()
+	dqPushReplyLostForTest = func(string) bool { return true }
+	mr := miniredis.RunT(t)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	a := newQBroker(t, priv, store.NewMem(), mr, dispatchViaQueueOnly)
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	miRegisterNode(a, "n1", hex.EncodeToString(nodePub), "tok", []protocol.ModelOffer{{Model: "free-m"}})
+
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	w := httptest.NewRecorder()
+	start := time.Now()
+	a.relay(w, miSignedRelayReq(t, userPriv, []byte(`{"model":"free-m","max_tokens":8}`), nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("relay = %d %q, want 503", w.Code, w.Body.String())
+	}
+	if el := time.Since(start); el < 250*time.Millisecond {
+		t.Errorf("answered after %s, want after the 300 ms queue wait (the push may have landed)", el)
+	}
+}

@@ -609,8 +609,15 @@ func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTick
 	if err == nil && dqPushReplyLostForTest != nil && dqPushReplyLostForTest(nodeID) {
 		err = context.DeadlineExceeded // the push landed; its reply did not
 	}
+	var refused redis.Error
+	if err != nil && errors.As(err, &refused) {
+		// The store answered "no" (an error reply): the push did not land, so nothing can
+		// deliver this job. Fail fast rather than wait out the queue for a job not queued.
+		q.noteErr("dq push", err)
+		return abort(err)
+	}
 	if err != nil {
-		// The push may have landed (a lost reply looks the same as a refused push), so this job
+		// No answer: the push may have landed, so this job
 		// stays dispatched rather than being retried in memory: only the queue can deliver it,
 		// so it is served at most once. The watch withdraws it if nobody takes it, or reports
 		// the handoff lost when the store cannot be reached to withdraw it.
