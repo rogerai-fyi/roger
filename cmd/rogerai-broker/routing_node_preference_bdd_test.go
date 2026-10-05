@@ -365,22 +365,9 @@ func (s *np1State) np1Generic(text string) error {
 			s.np1Shares[pref] = s.np1Share(pref, nil)
 		}
 	}
-	// A long batch on a loaded machine can outlast nodeTTL; keep the stations that were live
-	// when it started live (never reviving one a scenario aged out on purpose).
-	s.b.mu.Lock()
-	live := map[string]bool{}
-	for _, st := range s.stations {
-		if t, ok := s.b.lastSeen[st.id]; ok && time.Since(t) < nodeTTL {
-			live[st.id] = true
-		}
-	}
-	s.b.mu.Unlock()
+	refresh := s.keepLive() // a long batch on a loaded machine can outlast nodeTTL
 	for i := 0; i < count; i++ {
-		s.b.mu.Lock()
-		for id := range live {
-			s.b.lastSeen[id] = time.Now()
-		}
-		s.b.mu.Unlock()
+		refresh()
 		if err := s.np1Fire(); err != nil {
 			return err
 		}
