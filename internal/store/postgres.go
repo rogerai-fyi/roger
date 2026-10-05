@@ -1282,34 +1282,34 @@ func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap floa
 	return res, tx.Commit()
 }
 
+// quoteReadBackGapForTest, when set, runs right after QuotePrice's statement, where a two-step
+// read-back once let a concurrent prune delete the live quote in between. Nil in production.
+var quoteReadBackGapForTest func()
+
 // QuotePrice returns the live price quote for (user, node, model), minting it from (in, out)
-// with a lock of window when none exists or the existing one has expired. Insert-if-absent:
-// on a conflict with a LIVE row nothing is written and that row is read back, so racing
-// instances all bill under the first quote. See the Store interface.
+// with a lock of window when none exists or the existing one has expired. ONE statement: on a
+// conflict with a LIVE row the update keeps that row's values and RETURNING reads them under
+// the same row lock, so racing instances all bill under the first quote and no prune can
+// remove the row between deciding and reading it back. See the Store interface.
 func (p *Postgres) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
 	var q PriceQuote
 	until := now.Add(window).UnixNano()
-	err := p.db.QueryRow(`INSERT INTO rogerai.price_quotes(usr,node,model,price_in,price_out,locked_until)
+	err := p.db.QueryRow(`INSERT INTO rogerai.price_quotes AS pq (usr,node,model,price_in,price_out,locked_until)
 		VALUES($1,$2,$3,$4,$5,$6)
-		ON CONFLICT (usr,node,model) DO UPDATE SET price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
-			locked_until=EXCLUDED.locked_until
-		WHERE rogerai.price_quotes.locked_until <= $7
+		ON CONFLICT (usr,node,model) DO UPDATE SET
+			price_in     = CASE WHEN pq.locked_until <= $7 THEN EXCLUDED.price_in ELSE pq.price_in END,
+			price_out    = CASE WHEN pq.locked_until <= $7 THEN EXCLUDED.price_out ELSE pq.price_out END,
+			locked_until = CASE WHEN pq.locked_until <= $7 THEN EXCLUDED.locked_until ELSE pq.locked_until END
 		RETURNING price_in, price_out, locked_until`,
 		user, node, model, in, out, until, now.UnixNano()).Scan(&q.In, &q.Out, &until)
-	switch err {
-	case nil:
-		q.Until = time.Unix(0, until)
-		return q, nil
-	case sql.ErrNoRows: // a live quote already exists: it wins
-		if err := p.db.QueryRow(`SELECT price_in, price_out, locked_until FROM rogerai.price_quotes
-			WHERE usr=$1 AND node=$2 AND model=$3`, user, node, model).Scan(&q.In, &q.Out, &until); err != nil {
-			return q, err
-		}
-		q.Until = time.Unix(0, until)
-		return q, nil
-	default:
+	if quoteReadBackGapForTest != nil {
+		quoteReadBackGapForTest()
+	}
+	if err != nil {
 		return q, err
 	}
+	q.Until = time.Unix(0, until)
+	return q, nil
 }
 
 // PruneExpiredPriceQuotes deletes up to limit quotes whose lock ended at or before now, in one
