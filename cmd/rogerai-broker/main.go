@@ -522,6 +522,8 @@ type broker struct {
 	// source of truth. Guarded by metricsMu.
 	pairCoolLocal   map[string]map[string]time.Time // payer -> node|model -> expiry
 	coolPayersLocal map[string]map[string]time.Time // node -> payer -> last 429
+	// freeRL: the free-traffic limiters (freelimit.go), built on first use over b.shared.
+	freeRL freeLimiters
 }
 
 // now is the broker's clock for cooldown/alert windows (nowFn when set, else time.Now).

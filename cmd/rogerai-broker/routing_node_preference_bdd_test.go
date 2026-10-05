@@ -2126,6 +2126,11 @@ func (s *np1State) np1HoldCovers(name, price string) error {
 }
 
 func TestRoutingNodePreferenceBDD(t *testing.T) {
+	// These scenarios measure ranking over many free relays from one client IP; the free-traffic
+	// limits (§14.3) are pinned in fairness_and_abuse.feature, so they are off here.
+	for _, k := range []string{"ROGERAI_FREE_RATE_RPM", "ROGERAI_FREE_STATION_RPM", "ROGERAI_FREE_PIN_RPM"} {
+		t.Setenv(k, "0")
+	}
 	st := &np1State{s0State: &s0State{rpState: &rpState{foState: &foState{t: t, logs: &utLog{}}}}}
 	prev := log.Writer()
 	log.SetOutput(st.logs)

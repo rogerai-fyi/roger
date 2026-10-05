@@ -1778,7 +1778,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// already 401s a bare unsigned request, so this is the defense for any no-auth
 		// relay path AND keeps the per-IP discipline uniform with /discover + concierge.
 		// See loadAnonRateLimiter.
-		if user == "anon" {
+		// An UNBOUND keypair (no account) shares that per-IP bucket too (§14.3): a keypair
+		// costs nothing to mint, so it must never mint a fresh bucket.
+		if user == "anon" || !(authed && walletLoggedIn(wallet)) {
 			if ok, retry := b.anonRL.allow(clientIP(r)); !ok {
 				w.Header().Set("Retry-After", strconv.Itoa(retry))
 				jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
@@ -2437,6 +2439,17 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		routeReq = pk.rr
 		req.Model = pk.m.bare
 		body = bodyOf(req.Model)
+	}
+	// FREE TRAFFIC LIMITS (§14.3): a pick that lands on an offer free right now - a `:free`
+	// request or a free station - draws on the free-traffic buckets; self-use and free grants
+	// have their own limits.
+	if ok && !gok && !ownedSet()[node.NodeID] {
+		if in, out, afree, _ := offer.ActivePrice(time.Now()); afree || (in == 0 && out == 0) {
+			pinned := pinNode == node.NodeID || containsString(orderList, node.NodeID) || containsString(routing.Only, node.NodeID)
+			if b.freeTrafficRefused(w, clientIP(r), node.NodeID, payerKey, pinned) {
+				return
+			}
+		}
 	}
 	// TELEMETRY (never a node id, a price or a band code on /admin/live): one count per
 	// request that used a strict order / a strict sort.

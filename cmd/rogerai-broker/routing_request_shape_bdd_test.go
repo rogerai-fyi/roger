@@ -2880,5 +2880,10 @@ func TestRoutingRequestShapeBDD(t *testing.T) {
 }
 
 func TestRoutingVariantSugarBDD(t *testing.T) {
+	// These scenarios measure ranking over many free relays from one client IP; the free-traffic
+	// limits (§14.3) are pinned in fairness_and_abuse.feature, so they are off here.
+	for _, k := range []string{"ROGERAI_FREE_RATE_RPM", "ROGERAI_FREE_STATION_RPM", "ROGERAI_FREE_PIN_RPM"} {
+		t.Setenv(k, "0")
+	}
 	rs1Run(t, "../../features/routing/variant_sugar.feature")
 }

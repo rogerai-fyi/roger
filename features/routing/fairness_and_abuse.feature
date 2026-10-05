@@ -398,6 +398,15 @@ Feature: Nobody can hurt an honest party on the network cheaply
     When one client IP sends 15 free requests to each instance within a minute
     Then the per-IP free limit is applied to the 30 together
 
+  # added 2026-10-04 (founder directive on shared state): an abuse limit is never lifted by an
+  # outage - it is enforced on each instance's own bucket until the store returns.
+  Scenario: A shared-store outage keeps the free limits enforced per instance
+    Given the free-traffic per-IP limit is 20 rpm
+    And node "n-free" is free for "qwen3-32b"
+    And the shared store is unreachable
+    When one client IP sends 30 requests to "qwen3-32b:free" within a minute
+    Then at most 20 are dispatched and the rest are 429 with error code "free_rate_limited"
+
   # --- #8: sort picks within a band of the best ------------------------------------------
 
   Scenario: Sort price spreads across stations within 5% of the cheapest estimated cost

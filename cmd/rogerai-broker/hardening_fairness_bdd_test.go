@@ -1669,8 +1669,10 @@ func (s *fa6State) keypairBound(who string) error { s.consumer(who); return nil 
 
 func (s *fa6State) sendsFromOneIP(who, n string) error {
 	s.realLimiters()
-	s.freeStationFor(s.lastModel)
-	_ = s.fundWho(who, 0)
+	// A PAID station and funded accounts: these scenarios are about the identity buckets, and
+	// free traffic has its own per-IP limits since §14.3 (which would answer first).
+	s.node("p-1", s.lastModel, 0.10, 0.30)
+	_ = s.fundWho(who, 10)
 	s.snapshot()
 	for i := 0; i < atoiMust(n); i++ {
 		s.do(fa6Spec{who: who, model: s.lastModel})
@@ -1696,7 +1698,10 @@ func (s *fa6State) behindOneIP(a, b string) error {
 
 func (s *fa6State) eachSends(n string) error {
 	s.realLimiters()
-	s.freeStationFor(s.lastModel)
+	// A PAID station and funded accounts: these scenarios are about the identity buckets, and
+	// free traffic has its own per-IP limits since §14.3 (which would answer first).
+	s.node("p-1", s.lastModel, 0.10, 0.30)
+	_, _ = s.fundWho("alice", 10), s.fundWho("bob", 10)
 	s.snapshot()
 	for i := 0; i < atoiMust(n); i++ {
 		for _, who := range []string{"alice", "bob"} {
@@ -1731,9 +1736,13 @@ func (s *fa6State) oneIPSends(n, model string) error {
 	s.realLimiters()
 	s.snapshot()
 	ip := s.nextIP()
-	w := s.unboundKey(ip)
+	// The caller is a bound account at that IP: the free limits are per client IP whatever the
+	// identity, and an unbound keypair would first meet the anonymous per-IP bucket (§14.3).
+	caller := s.consumer(fmt.Sprintf("ip-caller-%d", s.ipN))
+	caller.ip = ip
 	for i := 0; i < atoiMust(n); i++ {
-		s.do(fa6Spec{priv: w.priv, ip: ip, model: model})
+		s.heartbeat() // the station stays on air (an outage slows each relay past one heartbeat)
+		s.do(fa6Spec{who: caller.name, ip: ip, model: model})
 	}
 	return nil
 }
@@ -1772,9 +1781,12 @@ func (s *fa6State) oneIPPinned(n, name string) error {
 	s.snapshot()
 	st := s.ensureNode(name)
 	ip := s.nextIP()
-	w := s.unboundKey(ip)
+	// The caller is a bound account at that IP: the free limits are per client IP whatever the
+	// identity, and an unbound keypair would first meet the anonymous per-IP bucket (§14.3).
+	caller := s.consumer(fmt.Sprintf("ip-caller-%d", s.ipN))
+	caller.ip = ip
 	for i := 0; i < atoiMust(n); i++ {
-		s.do(fa6Spec{priv: w.priv, ip: ip, model: st.model, extra: map[string]any{"provider": fa6Order(st.id)}})
+		s.do(fa6Spec{who: caller.name, ip: ip, model: st.model, extra: map[string]any{"provider": fa6Order(st.id)}})
 	}
 	return nil
 }
@@ -1884,10 +1896,13 @@ func (s *fa6State) freeToEachInstance(n string) error {
 	s.b2.rl, s.b2.anonRL = loadRateLimiter(), loadAnonRateLimiter()
 	s.snapshot()
 	ip := s.nextIP()
-	w := s.unboundKey(ip)
+	// The caller is a bound account at that IP: the free limits are per client IP whatever the
+	// identity, and an unbound keypair would first meet the anonymous per-IP bucket (§14.3).
+	caller := s.consumer(fmt.Sprintf("ip-caller-%d", s.ipN))
+	caller.ip = ip
 	for _, b := range []*broker{s.b, s.b2} {
 		for i := 0; i < atoiMust(n); i++ {
-			s.do(fa6Spec{priv: w.priv, ip: ip, model: st.model, b: b})
+			s.do(fa6Spec{who: caller.name, ip: ip, model: st.model, b: b})
 		}
 	}
 	return nil
@@ -2820,7 +2835,9 @@ func fa6Register(sc *godog.ScenarioContext, st *fa6State) {
 	sc.Step(`^the response is 503 with error code "([^"]+)" and Retry-After (\d+)$`, st.resp503CodeRA)
 	sc.Step(`^no attempt was dispatched$`, st.noAttempt)
 	sc.Step(`^two broker instances share one store$`, st.twoInstances)
-	sc.Step(`^the shared store is unreachable$`, func() error { s := st; s.mr.Close(); return nil })
+	// Every store command errors at once (a down store answering errors fast, so a run of
+	// relays stays inside the minute its limits are about); reset builds a fresh one.
+	sc.Step(`^the shared store is unreachable$`, func() error { st.mr.SetError("ERR the shared store is unavailable"); return nil })
 	sc.Step(`^"([^"]+)" answered "([^"]+)" with 429 and Retry-After (\d+) on instance A$`, st.answeredOnA)
 	sc.Step(`^"([^"]+)" relays to "([^"]+)" on instance B$`, st.relaysOnB)
 	sc.Step(`^"([^"]+)" is NOT a candidate for "([^"]+)" on instance B$`, st.notCandidateOnB)
