@@ -723,7 +723,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:414:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:445:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:475:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:486:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:505:			rcPoll				74.4%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:505:			rcPoll				79.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:581:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:608:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:652:			rcStream			76.6%
@@ -963,7 +963,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1734:		counterIncr			90.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1749:		setIfAbsent			90.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1810:		busPublishJob			90.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1832:		busClaimJob			70.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1853:		busSubscribe			97.2%
+rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1853:		busSubscribe			94.4%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1917:		busSubscribeJobs		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1921:		busPublishResult		88.9%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1935:		busSubscribeResult		100.0%
@@ -3841,7 +3841,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1325:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1392:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1403:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1415:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1434:				update				83.9%
+rogerai.fm/roger/v6/internal/tui/tui.go:1434:				update				83.6%
 rogerai.fm/roger/v6/internal/tui/tui.go:2144:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2148:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2153:				textareaCanMoveDown		100.0%
