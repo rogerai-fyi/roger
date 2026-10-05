@@ -2764,7 +2764,12 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		Pref: rt.Pref, SelfHostedOnly: rt.SelfHostedOnly, Quantizations: rt.Quantizations,
 		MaxCost: rt.MaxReq, Require: rt.Require, ParamsB: rt.ParamsB, MinCtx: rt.MinCtx, MaxTTFT: rt.MaxTTFT,
 		TrustMin: rt.TrustMin, Region: rt.Region, FreeOnly: rt.FreeOnly,
-		HeaderRouting: m.headerRouting, // negotiated once per tune in bindChannel
+		// The tuned profile's provider keys and model list ride the live proxy too, exactly as
+		// they ride a chat or agent turn: the owner's routing binds every caller on the band.
+		Sort: rt.Sort, Models: rt.Models, Only: rt.Only, Prefer: rt.Prefer, ExcludeNodes: rt.Ignore,
+		NoFallbacks: rt.NoFallbacks, RequireParams: rt.RequireParams,
+		HeaderRouting: m.headerRouting,  // negotiated once per tune in bindChannel
+		Profiles:      m.profileStore(), // a guest's @profile/ resolves against the booth's store
 		// ROGERAI_REASONING_RAW is a global session knob: honor it in the TUI booth too, not just
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
 		ReasoningFallbackOff: client.RawReasoningEnv(),

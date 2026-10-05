@@ -146,3 +146,11 @@ func (m model) confirmLimit(model string) Limit {
 	}
 	return lim
 }
+
+// profileStore is the booth's profile store, or nil (the proxy then reads config.json itself).
+func (m model) profileStore() *client.ProfileStore {
+	if m.limits == nil {
+		return nil
+	}
+	return m.limits.Profiles
+}

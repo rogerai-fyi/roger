@@ -360,6 +360,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(m.profiles().Names()) > 0 {
 				m.confirmProfile = m.nextProfile(m.confirmProfile)
 				m.q.limit = m.confirmLimit(m.q.b.model)
+				// The new profile's cap is re-checked here, as connect() checks the band's.
+				m.q.overLimit = m.q.limit.MaxOut > 0 && m.q.b.minOut > m.q.limit.MaxOut
 			}
 			return m, nil
 		case "r":
@@ -370,6 +372,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if why := m.quantRuleRefusal(m.q.b.model, m.q.b.quant); why != "" {
 				m.status = stEmber.Render(why)
 				return m, nil // accepting is not offered for a row outside the rule
+			}
+			if m.q.overLimit {
+				m.status = stEmber.Render("over profile " + m.confirmProfile + "'s cap - p for another profile, or esc")
+				return m, nil
 			}
 			return m.openChannel()
 		case "d", "D": // toggle the detail block (default screen stays minimal)
@@ -572,11 +578,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// quick toggle: only bands with a FREE-now station.
 			m.fFree = !m.fFree
 			m.clampBrowse()
+			m.refreshLiveRouting() // F binds `:free`: the live proxy follows at once
 			return m, nil
 		case "C":
 			// quick toggle: only confidential / verified (lineage) bands.
 			m.fConf = !m.fConf
 			m.clampBrowse()
+			m.refreshLiveRouting()
 			return m, nil
 		case "O":
 			// quick toggle: only bands with a station on air.
@@ -589,6 +597,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// (founder ruling); while hidden, nothing may silently route to a proxy.
 			m.fNoCurated = !m.fNoCurated
 			m.clampBrowse()
+			m.refreshLiveRouting()
 			// The ambient footer is a tick-time snapshot; refresh it NOW or the count line
 			// still advertises the supply the operator just hid, until the next tick.
 			m.status = m.ambientStatus()
@@ -772,6 +781,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "confidential", "conf":
 		m.confidentialOnly = !m.confidentialOnly
+		m.refreshLiveRouting()
 		if m.confidentialOnly {
 			sysLine("confidential-only ON · routing only to TEE-attested nodes")
 		} else {
@@ -903,6 +913,7 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("broker %s · user %s  (roger config set broker <url>)", m.broker, m.user)
 	case "confidential", "conf":
 		m.confidentialOnly = !m.confidentialOnly
+		m.refreshLiveRouting()
 		if m.confidentialOnly {
 			m.status = stGold.Render("◆ confidential-only ON") + " - routing only to TEE-attested nodes"
 		} else {
