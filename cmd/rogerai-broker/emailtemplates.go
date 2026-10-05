@@ -446,14 +446,14 @@ func evidenceText(evidence string) string {
 
 // ---- Touchpoint: monthly spend-cap 80% / 100% ---------------------------------
 
-// emailCapNotice notifies the holder that they crossed a monthly-budget threshold
-// ("80" near, "100" at limit). De-duped per (holder, threshold, month) so the hot
-// relay path emits at most one email per threshold per month. No-op when disabled or
-// no email.
 // capNoticeHookForTest, when set, observes every cap-notice decision (holder, threshold)
 // before delivery. Nil in production.
 var capNoticeHookForTest func(holder, threshold string)
 
+// emailCapNotice notifies the holder that they crossed a monthly-budget threshold
+// ("80" near, "100" at limit). De-duped per (holder, threshold, month) so the hot
+// relay path emits at most one email per threshold per month. No-op when disabled or
+// no email.
 func (b *broker) emailCapNotice(holder string, threshold string, spend, cap float64, now time.Time) {
 	if capNoticeHookForTest != nil {
 		capNoticeHookForTest(holder, threshold)
