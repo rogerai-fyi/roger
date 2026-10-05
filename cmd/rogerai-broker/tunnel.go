@@ -2467,7 +2467,9 @@ func (b *broker) awaitRemote(ctx context.Context, nodeID string, job protocol.Jo
 	tk, derr := b.dispatchRemote(ctx, nodeID, job, false)
 	if derr != nil {
 		outcome = b.dispatchErrOutcome(derr)
-		if outcome == dispatchBusErr && b.polledHere(nodeID) {
+		// In memory only when the job certainly never left: a dispatch that may have landed
+		// could otherwise be served twice (once from the store, once from here).
+		if outcome == dispatchBusErr && !mayHaveLanded(derr) && b.polledHere(nodeID) {
 			return protocol.JobResult{}, outcome, true
 		}
 		b.exitInflight(nodeID, false)
@@ -2523,7 +2525,7 @@ func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol
 	delivered, perr := b.shared.busPublishJob(nodeID, raw)
 	if perr != nil {
 		cancel()
-		return nil, nil, perr
+		return nil, nil, landedErr{perr} // the PUBLISH may have reached a poller
 	}
 	if delivered == 0 {
 		cancel()
@@ -2757,7 +2759,8 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 		tk, derr = b.dispatchRemote(context.Background(), node.NodeID, job, true)
 		if derr != nil {
 			outcome = b.dispatchErrOutcome(derr) // counts it
-			local = outcome == dispatchBusErr && b.polledHere(node.NodeID)
+			// In memory only when the job certainly never left (see awaitRemote).
+			local = outcome == dispatchBusErr && !mayHaveLanded(derr) && b.polledHere(node.NodeID)
 		}
 	}
 	if b.multiInstance && b.shared != nil && !local && outcome != dispatchResult {

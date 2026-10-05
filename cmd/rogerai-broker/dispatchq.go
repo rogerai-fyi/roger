@@ -454,6 +454,25 @@ func (t *dispatchTicket) forward(resCh chan protocol.JobResult) {
 	}()
 }
 
+// landedErr wraps a dispatch-store error raised after the job may already have left this
+// instance (a bus publish whose reply was lost: a refused publish and a delivered one with a
+// lost reply look the same). Such a dispatch is never retried in memory, or the station could
+// serve the job twice.
+type landedErr struct{ err error }
+
+func (e landedErr) Error() string { return e.err.Error() }
+func (e landedErr) Unwrap() error { return e.err }
+
+// mayHaveLanded reports whether a dispatch error came after the job may have left this instance.
+func mayHaveLanded(err error) bool {
+	var l landedErr
+	return errors.As(err, &l)
+}
+
+// dqPushReplyLostForTest, when set, makes a queue push that DID land report an error, the way a
+// reply lost to a timeout does. Nil in production.
+var dqPushReplyLostForTest func(node string) bool
+
 // ---- dispatch (origin) --------------------------------------------------------------------
 
 // dispatchRemote hands a job to one of the node's pollers on any instance and returns the
@@ -462,7 +481,7 @@ func (b *broker) dispatchRemote(ctx context.Context, nodeID string, job protocol
 	if b.dispatchMode == dispatchViaBus {
 		tk, err := b.legacyTicket(ctx, nodeID, job, stream)
 		if errors.Is(err, context.DeadlineExceeded) {
-			err = fmt.Errorf("dispatch store: %v", err) // a store timeout, not the station's
+			err = fmt.Errorf("dispatch store: %w", err) // a store timeout, not the station's
 		}
 		return tk, err
 	}
@@ -582,13 +601,23 @@ func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTick
 	tk.setElem(elem)
 	lkey := dqListPrefix + nodeID
 	var n *redis.IntCmd
-	if _, err := q.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+	_, err = q.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		n = p.RPush(ctx, lkey, elem)
 		p.Expire(ctx, lkey, dqKeyTTL)
 		return nil
-	}); err != nil {
+	})
+	if err == nil && dqPushReplyLostForTest != nil && dqPushReplyLostForTest(nodeID) {
+		err = context.DeadlineExceeded // the push landed; its reply did not
+	}
+	if err != nil {
+		// The push may have landed (a lost reply looks the same as a refused push), so this job
+		// stays dispatched rather than being retried in memory: only the queue can deliver it,
+		// so it is served at most once. The watch withdraws it if nobody takes it, or reports
+		// the handoff lost when the store cannot be reached to withdraw it.
 		q.noteErr("dq push", err)
-		return abort(err)
+		q.nudge(tk)
+		go q.watch(tk, wait)
+		return tk, nil
 	}
 	// Admission: a queue that could not drain within the queue wait would only expire.
 	if q.tooDeep(nodeID, n.Val(), wait) {
