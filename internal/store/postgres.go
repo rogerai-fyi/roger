@@ -434,7 +434,9 @@ CREATE TABLE IF NOT EXISTS rogerai.price_quotes (
     price_in     DOUBLE PRECISION NOT NULL,
     price_out    DOUBLE PRECISION NOT NULL,
     locked_until BIGINT NOT NULL,
-    PRIMARY KEY (usr, node, model));`
+    PRIMARY KEY (usr, node, model));
+-- price_quotes_locked_until: the hold sweep prunes expired quotes (PruneExpiredPriceQuotes).
+CREATE INDEX IF NOT EXISTS price_quotes_locked_until ON rogerai.price_quotes (locked_until);`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
