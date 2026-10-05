@@ -407,7 +407,7 @@ func TestProfileWritesAreSerialized(t *testing.T) {
 		wg.Add(1)
 		go func(n string) {
 			defer wg.Done()
-			require.NoError(t, profileWrite(n, func(p map[string]any) error {
+			require.NoError(t, profileWrite(n, true, func(p map[string]any) error {
 				rfSetPath(p, "roger.pref", "fast")
 				return nil
 			}, ""))

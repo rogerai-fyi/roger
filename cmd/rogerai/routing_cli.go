@@ -766,6 +766,9 @@ func cmdSetLimit(args []string) error {
 	var changes []change
 	note := func(name, raw string) { changes = append(changes, change{name, raw}) }
 	var maxOutCleared bool
+	// One list per flag, so a repeated --quant / --require / --region adds to the list (as
+	// on roger use) instead of the last one replacing the rest.
+	quantL, requireL, regionL := listFlag{fold: true}, listFlag{norm: client.NormRequire}, listFlag{norm: client.NormRegion}
 
 	fs := flag.NewFlagSet("set-limit", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -800,11 +803,10 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("quant", "", func(v string) error {
-		l := listFlag{fold: true}
-		if err := l.Set(v); err != nil {
+		if err := quantL.Set(v); err != nil {
 			return err
 		}
-		cur.Quants = l.items
+		cur.Quants = quantL.items
 		note("quants", v)
 		return nil
 	})
@@ -818,11 +820,10 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("require", "", func(v string) error {
-		l := listFlag{norm: client.NormRequire}
-		if err := l.Set(v); err != nil {
+		if err := requireL.Set(v); err != nil {
 			return err
 		}
-		cur.Require = l.items
+		cur.Require = requireL.items
 		note("require", v)
 		return nil
 	})
@@ -872,11 +873,10 @@ func cmdSetLimit(args []string) error {
 		return nil
 	})
 	fs.Func("region", "", func(v string) error {
-		l := listFlag{norm: client.NormRegion}
-		if err := l.Set(v); err != nil {
+		if err := regionL.Set(v); err != nil {
 			return err
 		}
-		cur.Region = l.items
+		cur.Region = regionL.items
 		note("region", v)
 		return nil
 	})
@@ -1051,7 +1051,7 @@ func cmdProfile(args []string) error {
 		if len(args) != 4 {
 			return fmt.Errorf("usage: roger profile set <name> <key> <value>  (e.g. roger.pref fast)")
 		}
-		return profileWrite(args[1], func(p map[string]any) error {
+		return profileWrite(args[1], true, func(p map[string]any) error {
 			if err := profileKeyOK(args[2]); err != nil {
 				return err
 			}
@@ -1066,7 +1066,7 @@ func cmdProfile(args []string) error {
 		if len(args) != 3 {
 			return fmt.Errorf("usage: roger profile unset <name> <key>")
 		}
-		return profileWrite(args[1], func(p map[string]any) error {
+		return profileWrite(args[1], false, func(p map[string]any) error {
 			rfDelPath(p, args[2])
 			return nil
 		}, fmt.Sprintf("unset profile %s %s", args[1], args[2]))
@@ -1077,15 +1077,18 @@ func cmdProfile(args []string) error {
 		if args[1] == client.DefaultProfileName {
 			return fmt.Errorf("default is built from limits.*; use roger config clear-limit default")
 		}
-		return editConfigRaw(func(doc map[string]any) error {
+		err := editConfigRaw(func(doc map[string]any) error {
 			profs, _ := doc["profiles"].(map[string]any)
 			if _, ok := profs[args[1]]; !ok {
 				return fmt.Errorf("no profile named %s", args[1])
 			}
 			delete(profs, args[1])
-			fmt.Printf("removed profile %s\n", args[1])
 			return nil
 		})
+		if err == nil {
+			fmt.Printf("removed profile %s\n", args[1])
+		}
+		return err
 	}
 	return fmt.Errorf(profileUsage)
 }
@@ -1103,21 +1106,25 @@ func profileKeyOK(key string) error {
 }
 
 // profileWrite edits one profile under the config lock and refuses a result that does not
-// validate (the file is then unchanged).
-func profileWrite(name string, edit func(map[string]any) error, done string) error {
+// validate (the file is then unchanged). create=false refuses a profile that does not exist
+// (unset never invents one). done is printed only once the write has landed.
+func profileWrite(name string, create bool, edit func(map[string]any) error, done string) error {
 	if name == client.DefaultProfileName {
 		return fmt.Errorf("profile default is reserved (it is built from limits.*): use roger config set-limit default")
 	}
 	if !client.ValidProfileName(name) {
 		return fmt.Errorf("profile %q: invalid name (lowercase letters, digits, - and _)", name)
 	}
-	return editConfigRaw(func(doc map[string]any) error {
+	err := editConfigRaw(func(doc map[string]any) error {
 		profs, _ := doc["profiles"].(map[string]any)
 		if profs == nil {
 			profs = map[string]any{}
 		}
 		p, _ := profs[name].(map[string]any)
 		if p == nil {
+			if !create {
+				return fmt.Errorf("no profile named %s", name)
+			}
 			p = map[string]any{}
 		}
 		if err := edit(p); err != nil {
@@ -1133,9 +1140,12 @@ func profileWrite(name string, edit func(map[string]any) error, done string) err
 		}
 		profs[name] = p
 		doc["profiles"] = profs
-		fmt.Println(done)
 		return nil
 	})
+	if err == nil {
+		fmt.Println(done)
+	}
+	return err
 }
 
 // editConfigRaw is a read-modify-write of config.json as raw JSON under an exclusive lock
@@ -1156,6 +1166,9 @@ func editConfigRaw(edit func(map[string]any) error) error {
 		if json.Unmarshal(b, &doc) != nil || doc == nil {
 			return fmt.Errorf("%s is not valid JSON; fix or remove it first", path)
 		}
+	} else if !errors.Is(rerr, os.ErrNotExist) {
+		// Only a missing file starts empty: rewriting an unreadable one would drop every key.
+		return fmt.Errorf("read %s: %w", path, rerr)
 	}
 	if err := edit(doc); err != nil {
 		return err
