@@ -185,7 +185,7 @@ var (
 	maxPriceKeys = map[string]bool{"prompt": true, "completion": true, "request": true, "image": true}
 	rogerKeys    = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "trust_min": true, "self_hosted_only": true, "confidential": true, "region": true,
-		"freq": true, "profile": true, "session": true}
+		"freq": true, "profile": true, "session": true, "dry_run": true}
 	regionToken = regexp.MustCompile(`^[a-z]{2,8}$`)
 )
 
@@ -377,6 +377,11 @@ func parseRoutingDoc(d reqDoc) (routingBody, error) {
 	}
 	if err := rb.readRoger(roger); err != nil {
 		return rb, err
+	}
+	if raw, ok := roger["dry_run"]; ok {
+		if _, isBool := routingBool(raw); !isBool {
+			return rb, invalidRouting("roger.dry_run", "want true or false")
+		}
 	}
 	if raw, ok := roger["session"]; ok {
 		s, err := sessionID("roger.session", raw)

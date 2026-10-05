@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1774,10 +1776,34 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			st.Wallet, st.GrantID, st.GrantOwner = "", gc.grant.ID, gc.grant.Owner
 		}
 	})
+	// THE ONE DECODE of the body's members (§14.B #12): the model, the routing object, the
+	// capabilities and the output limits are all read from it, and every body a station is
+	// sent is rebuilt from it. bodyDecodes counts the relay's whole-body decodes for its
+	// routing-work line: this one and the token estimate (promptScan) below.
+	doc := decodeReqDoc(body)
+	// ROUTE EXPLAIN (§14.B3): a dry run is the real relay up to the plan, answered with an
+	// explain document; it is known here, before any rate token, so it can take its own bucket.
+	dry := r.URL.Path == "/v1/route/explain" || dryRunOf(doc)
+	var dw *dryWriter
+	if dry {
+		requestID = "dry_" + requestID
+		w.Header().Set("X-RogerAI-Request-Id", requestID)
+		dw = &dryWriter{ResponseWriter: w, header: w.Header().Clone()}
+		w = dw
+		defer dw.finish()
+	}
+	// The routing PRNG's seed: the request id, so a real request's spread is per request. A dry
+	// run seeds from the caller instead, so the same caller's dry runs explain one stable plan
+	// (roger.dry_run and POST /v1/route/explain of one body agree).
+	routeSeed := requestID
+	if dry {
+		h := sha256.Sum256([]byte("dry\x00" + user + "\x00" + wallet))
+		routeSeed = hex.EncodeToString(h[:8])
+	}
 	// IDEMPOTENCY (§14.B2): claimed before any rate token, moderation, hold or dispatch, so a
 	// retry is answered from the first outcome and can never cost twice. Scope: the paying
 	// identity; an anonymous or unbound caller is scoped to its address as well.
-	if _, has := r.Header["Idempotency-Key"]; has {
+	if _, has := r.Header["Idempotency-Key"]; has && !dry {
 		scope := wallet
 		if !gok && !kok && (user == "anon" || !(authed && walletLoggedIn(wallet))) {
 			scope = user + "|" + clientIP(r)
@@ -1793,7 +1819,19 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// Per-caller rate limit: smooth bursts + cap sustained rate so one caller can't
 	// flood the broker or a provider. Checked before the costly moderation/pick. A
 	// grant uses its own bucket map keyed by grant id, with the grant's rpm/burst.
-	if gok {
+	if dry {
+		// A dry run spends nothing a relay token protects: its own bucket (per identity, per
+		// address when the caller is anonymous or unbound), at public-read limits.
+		key := wallet
+		if user == "anon" || !(authed && walletLoggedIn(wallet)) {
+			key = user + "|" + clientIP(r)
+		}
+		if ok, retry := b.dryLimiter().allow(key); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+			return
+		}
+	} else if gok {
 		if ok, retry := b.grantRL.allowAt(gc.grant.ID, gc.grant.RPM, gc.grant.Burst); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(retry))
 			jsonErr(w, http.StatusTooManyRequests, "grant rate limit exceeded - slow down")
@@ -1831,13 +1869,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	gen.admit() // identified and within its rate limit: from here every outcome is recorded
+	if !dry {
+		gen.admit() // identified and within its rate limit: from here every outcome is recorded
+	}
 	payerKey := strikePayerKey(gok, gc, authed, wallet, clientIP(r))
-	// THE ONE DECODE of the body's members (§14.B #12): the model, the routing object, the
-	// capabilities and the output limits are all read from it, and every body a station is
-	// sent is rebuilt from it. bodyDecodes counts the relay's whole-body decodes for its
-	// routing-work line: this one and the token estimate (promptScan) below.
-	doc := decodeReqDoc(body)
 	bodyDecodes := 1
 	var req struct {
 		Model  string
@@ -1958,7 +1993,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			var served *genServed
 			gen.with(func(st *genStored) { served = st.Rec.Served })
-			if served != nil && served.Relay == "" && served.Node != "" {
+			switch {
+			case served == nil:
+			case served.Relay != "":
+				b.affinitySet(b.affinityKey(user, routing.Session, served.Model), affinityTowerPrefix+served.Relay)
+			case served.Node != "":
 				b.affinitySet(b.affinityKey(user, routing.Session, served.Model), served.Node)
 			}
 		}()
@@ -2028,7 +2067,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	promptStr, bodyVision := doc.promptScan() // the token estimate: the second and last decode
 	bodyDecodes++
 	var screening *screenJob
-	if b.mod.mode == modeSync {
+	if dry {
+		// A dry run never sends the prompt anywhere, the classifier included.
+	} else if b.mod.mode == modeSync {
 		screenStart := time.Now()
 		res := b.mod.screen(promptStr)
 		gen.with(func(st *genStored) {
@@ -2137,9 +2178,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if routeSort != sortNone {
 		routePref = prefBalanced // a strict sort replaces the weighted knob (the header pref is ignored)
 	}
-	b.stats.routingPref[routePref].Add(1)
 	promptTokens := promptTokensFrom(promptStr, len(body))
-	b.totalReqs.Add(1)
+	if !dry { // a dry run is not traffic: it moves no counter the scored pick reads
+		b.stats.routingPref[routePref].Add(1)
+		b.totalReqs.Add(1)
+	}
 	// Consumer out-price cap. Defense in depth: even if the client omits the header (a
 	// hand-rolled API caller, not the first-party CLI/TUI which always injects it), the
 	// broker applies the DEFAULT consumer out-cap server-side so no consume path can
@@ -2317,6 +2360,17 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// the store, so it runs OUTSIDE b.mu and the walk re-enters past the unpayable station.
 	// The same gate applies to every STRICT request (order / only / sort, or the sugar that
 	// means a sort): what the consumer named is ranked within what the caller can pay for.
+	if dry {
+		dw.base = func() *explainDoc {
+			f := explainFilter{ignore: routing.Ignore, only: routing.Only, onlySet: routing.Only != nil, maxIn: maxPrice, maxOut: maxPriceOut,
+				minTPS: minTPS, req: routeReq, confidentialOnly: confidentialOnly,
+				visible: func(id string) bool { // the caller's visibility (b.mu is held by the caller)
+					return (!b.private[id] || privateAllow[id]) && (!gok || gc.nodeAllow[id]) && (keyAllow == nil || keyAllow[id])
+				}}
+			return &explainDoc{RequestID: requestID, Models: bareIDs(cands), Plan: []explainPlanEntry{},
+				Excluded: b.explainExclusions(bareIDs(cands), f, dw.inPlan), CostEstimate: map[string]float64{"min": 0, "max": 0}}
+		}
+	}
 	strict := len(orderList) > 0 || routing.Only != nil || routeSort != sortNone
 	// `:free` on a list entry admits only offers that cost THIS caller nothing right now
 	// (§4): priced 0/0 at the active price, or a station the caller owns (self-use is $0). A
@@ -2412,6 +2466,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		eligCap   map[string]int  // capacity of each node in the eligible direct pool (§14.5)
 		offAir    bool            // nothing picked, but a station was passed over for having no tunnel here
 	}
+	affHit := ""   // the station session affinity made the head (route explain names it)
+	affTower := "" // the Tower whose row served the session's last turn (§14.B1)
 	pickModel := func(m routedModel) modelPick {
 		rr := rrFor(m)
 		unpayable := map[string]bool{}
@@ -2433,6 +2489,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					b.stats.noteAffinityMiss("explicit")
 				case routing.Only != nil && !containsString(routing.Only, n):
 					b.stats.noteAffinityMiss("ineligible")
+				case strings.HasPrefix(n, affinityTowerPrefix):
+					affTower = strings.TrimPrefix(n, affinityTowerPrefix) // a Tower row: the edge merge heads with it
 				default:
 					affNode = n
 				}
@@ -2453,6 +2511,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				if why := b.affineGateLocked(affNode, m.bare, hit && !skip[affNode], rr); why == "" {
 					node, offer, ok = n, o, true
 					b.stats.affinityHits.Add(1)
+					affHit = affNode
 				} else {
 					b.stats.noteAffinityMiss(why)
 				}
@@ -2471,7 +2530,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if !ok && !(noFallbacks && len(orderList) > 0) {
-				hr := rr.seeded(seededRand(requestID))
+				hr := rr.seeded(seededRand(routeSeed))
 				hr.capOf = eligCap
 				node, offer, ok = b.pickFor(m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, skip, allow, privateAllow, hr)
 			}
@@ -2652,7 +2711,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// have an eligible Tower, the honest answer is the bridge's refusal (the approved
 			// edge_fanout "told the truth" 403), not a "no node offers" that hides on-air supply.
 			for _, p := range picks {
-				if _, _, has := b.edgeTargetForC(p.m.bare, seededRand(requestID), nil, bridgeAuthFor(p.rr, false).edgeConstraints); has {
+				if _, _, has := b.edgeTargetForC(p.m.bare, seededRand(routeSeed), nil, bridgeAuthFor(p.rr, false).edgeConstraints); has {
 					edgeRefusal = refusal
 					break
 				}
@@ -2680,7 +2739,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				auth := bridgeAuthFor(rr, false)
-				for _, e := range b.edgePlanCands(m, seededRand(requestID), auth.edgeConstraints, perModelTowers, edgeWallet, auth.pubHex) {
+				for _, e := range b.edgePlanCands(m, seededRand(routeSeed), auth.edgeConstraints, perModelTowers, edgeWallet, auth.pubHex) {
 					towerCands[m] = append(towerCands[m], b.edgePlanCand(m, e, docOf(m), lim, capReq, promptTokens, time.Now()))
 				}
 			}
@@ -2726,7 +2785,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if until, cooling := b.soonestCoolingExpiry(p.m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
-				p.rr.seeded(seededRand(requestID))); cooling && (coolModel == "" || until.Before(soonest)) {
+				p.rr.seeded(seededRand(routeSeed))); cooling && (coolModel == "" || until.Before(soonest)) {
 				soonest, coolModel = until, p.m.bare
 			}
 		}
@@ -2816,7 +2875,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				if _, _, bigOK := b.pickFor(p.m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, skip, allow, privateAllow,
-					noSize.seeded(seededRand(requestID))); bigOK {
+					noSize.seeded(seededRand(routeSeed))); bigOK {
 					if c := b.maxDeclaredCtxLocked(p.m.bare, allow); widestModel == "" || c > widest { // the widest window in scope
 						widest, widestModel = c, p.m.bare
 					}
@@ -2966,7 +3025,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 				if !ok && (!noFallbacks || routing.Only != nil || (n == 0 && len(orderList) == 0)) {
 					cn, co, ok = b.pickFor(m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, "", tried, failAllow, privateAllow,
-						rr.seeded(seededRand(attemptID(requestID, len(plan)+1))))
+						rr.seeded(seededRand(attemptID(routeSeed, len(plan)+1))))
 				}
 				nt := b.tunnels[cn.NodeID]
 				b.mu.Unlock()
@@ -2997,8 +3056,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			headModel, directCap = pk.m.bare, pk.eligCap
 		}
+		mergeOrder := orderList
+		if len(mergeOrder) == 0 && affTower != "" {
+			mergeOrder = []string{affTower} // the session's Tower heads, as if named (a preference: an ineligible row is simply absent)
+		}
 		plan = b.mergeEdgePlan(plan, modelList, edgeMerge{
-			order: orderList, sort: routeSort, onePerModel: noFallbacks && !listBound, headModel: headModel,
+			order: mergeOrder, sort: routeSort, onePerModel: noFallbacks && !listBound, headModel: headModel,
 			curatedEqual: routeReq.curatedEqual,
 			coinEdge: func() bool {
 				b.stats.edgeCoinFlips.Add(1)
@@ -3006,7 +3069,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					return edgeCoinForTest()
 				}
 				d, t := edgeSideCapacity(directCap, towerCands[headModel], b.edgeRowCapacity)
-				return edgeCoin(requestID, d, t)
+				return edgeCoin(routeSeed, d, t)
 			},
 			towers: towerCands,
 		}, now)
@@ -3021,6 +3084,38 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	// The head names the request's model and body (a Tower head too).
 	req.Model, body = plan[0].model, plan[0].body
+	if dry {
+		// THE DRY RUN STOPS HERE (§14.B3): the plan as the real request would walk it, the hold
+		// it would place, and the refusal it would earn - nothing held, locked or dispatched.
+		dw.inPlan = map[string]bool{}
+		for _, c := range plan {
+			dw.inPlan[c.node.NodeID+"\x00"+c.model] = true
+		}
+		d := dw.base()
+		for i, c := range plan {
+			e := explainPlanEntry{Model: c.model, Tier: b.explainTier(c), Reason: "score"}
+			if c.edge != nil {
+				e.Tower = c.node.NodeID
+			} else {
+				e.Station = c.node.NodeID
+			}
+			e.PriceIn, e.PriceOut, _ = billedPrices(c.pricing, c.offer, now)
+			switch {
+			case containsString(orderList, c.node.NodeID):
+				e.Reason = "order"
+			case routeSort != sortNone:
+				e.Reason = "sort:" + routeSort.String()
+			case i == 0 && affHit != "" && affHit == c.node.NodeID:
+				e.Reason = "affinity"
+			}
+			d.Plan = append(d.Plan, e)
+		}
+		hold, would := b.dryHold(payer, plan, now)
+		d.Hold, d.Would = hold, would
+		d.CostEstimate = map[string]float64{"min": float64(promptTokens) * d.Plan[0].PriceIn / 1e6, "max": hold}
+		dw.doc = d
+		return
+	}
 
 	// Pre-authorize an upper-bound cost (a "hold") BEFORE doing any work, so
 	// concurrent requests can never drive a wallet negative (free inference). The

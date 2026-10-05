@@ -164,6 +164,14 @@ func (s *rx6State) badSigPosts(model, with string) error {
 
 func (s *rx6State) explainEndpoint(user string) error {
 	s.as(user)
+	if s.prevDoc == nil {
+		// "the same body": the scenario's dry run of "m", posted first so the explain endpoint's
+		// document has the dry_run one to be compared with.
+		if err := s.send(sa6Spec{user: user, caller: "user", model: "m", hdr: map[string]string{}, roger: []sa6KV{{"dry_run", "true"}}}); err != nil {
+			return err
+		}
+		s.prevDoc = append([]byte(nil), s.lastBody...)
+	}
 	q := s.lastSpec
 	var r []sa6KV
 	for _, kv := range q.roger {

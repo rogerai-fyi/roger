@@ -29,6 +29,9 @@ func affinityTTL() time.Duration {
 	return 10 * time.Minute
 }
 
+// affinityTowerPrefix marks an entry whose server is a Tower row (its Tower id), not a station.
+const affinityTowerPrefix = "tower:"
+
 // affinityLocalMax bounds the no-shared-store fallback map.
 const affinityLocalMax = 10000
 

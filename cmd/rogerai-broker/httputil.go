@@ -162,6 +162,7 @@ var legacyErrCodes = []struct{ prefix, code string }{
 	{"spending requires a signed request", "signature_required"},
 	{"session expired or invalid", "session_expired"},
 	{"log in to spend", "login_required"},
+	{"tower inference requires a signed-in account", "login_required"},
 	{"grant rate limit exceeded", "grant_rate_limited"},
 	{"rate limit exceeded", "rate_limited"},
 	{"node timed out", "station_timeout"},

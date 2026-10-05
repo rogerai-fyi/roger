@@ -407,6 +407,11 @@ func (b *broker) generation(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	b.stats.generationLookups.Add(1)
 	id := r.URL.Query().Get("id")
+	if dryID, ok := strings.CutPrefix(id, "dry_"); ok && requestIDPattern.MatchString(dryID) {
+		// A dry run's id is a request id that never has a record (§14.B3).
+		jsonErrCode(w, http.StatusNotFound, "not_found", "no generation record for that id")
+		return
+	}
 	if !requestIDPattern.MatchString(id) {
 		jsonErrCode(w, http.StatusBadRequest, "invalid_request_id", "id must be a request id: 16 lowercase hex characters")
 		return

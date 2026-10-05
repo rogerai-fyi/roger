@@ -175,6 +175,9 @@ type broker struct {
 	// the claim itself always lives in the store.
 	idemLocal idemLocal
 	idemRL    *rateLimiter // the Idempotency-Key lookup bucket, per scope (nil = unlimited)
+	// dryRL is the route-explain dry runs' own bucket (explain.go), built on first use.
+	dryOnce sync.Once
+	dryRL   *rateLimiter
 	// toolProbeAt is when the tool-call canary last RAN for a (node,model), used to throttle
 	// RE-verification of a model that already holds the bit. It is deliberately separate from
 	// the verdict itself: the verdict says what we believe, this says when we last checked.
@@ -988,6 +991,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/bands/", b.bandsByID)                   // /bands/{id} revoke; /bands/resolve = public freq lookup
 	mux.HandleFunc("/bands/resolve", b.bandResolve)          // PUBLIC: resolve a frequency code -> offers (constant-work)
 	mux.HandleFunc("/v1/chat/completions", b.relay)
+	mux.HandleFunc("/v1/route/explain", b.relay)                                                      // a dry run of the same body (explain.go, §14.B3)
 	mux.HandleFunc("/v1/audio/speech", b.audioRelay)                                                  // TTS relay: metered by input chars; tts nodes only
 	mux.HandleFunc("/v1/audio/transcriptions", b.transcribeRelay)                                     // STT relay: metered by uploaded bytes; stt nodes only
 	mux.HandleFunc("/concierge", b.conciergeHandler)                                                  // "Ping" homepage chatbot (public)
