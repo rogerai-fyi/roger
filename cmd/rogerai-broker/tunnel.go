@@ -1622,7 +1622,7 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 	// when it happens to be local), so this is the single delivery path - no
 	// double-serve. A bus publish error is surfaced to the node (the relay's own timeout
 	// is the backstop: it fails the request cleanly and refunds the hold).
-	if b.multiInstance && b.shared != nil && !isLocalJob(res.ID) {
+	if b.multiInstance && b.shared != nil && !b.isLocalJob(res.ID) {
 		// A queue-dispatched job names its origin; send the result to that instance's inbox.
 		// (A job handed over in memory during a store outage skips this: its relay waits on
 		// this instance's tunnel, below.)
@@ -2474,8 +2474,8 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 			b.exitInflight(nodeID, false)
 			return protocol.JobResult{}, concurrentAtDispatch, outcome
 		}
-		markLocalJob(job.ID) // its result is read back in memory, not routed through the store
-		defer unmarkLocalJob(job.ID)
+		b.markLocalJob(job.ID) // its result is read back in memory, not routed through the store
+		defer b.unmarkLocalJob(job.ID)
 	}
 	select {
 	case t.jobs <- job:
@@ -2817,8 +2817,8 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 		return protocol.JobResult{}, false // the client gets an empty stream, as before
 	}
 	if local {
-		markLocalJob(job.ID)
-		defer unmarkLocalJob(job.ID)
+		b.markLocalJob(job.ID)
+		defer b.unmarkLocalJob(job.ID)
 	}
 	if tk != nil {
 		defer tk.close()
@@ -3124,7 +3124,7 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	// (regardless of co-location), so the bus is the single ordered path - writing both
 	// would double-deliver. A bus publish error ends the forward; the relay's stream
 	// timeout is the backstop (it fails/closes the client stream cleanly).
-	if b.multiInstance && b.shared != nil && !isLocalJob(jobID) {
+	if b.multiInstance && b.shared != nil && !b.isLocalJob(jobID) {
 		// A queue-dispatched job streams to its origin's inbox (ordered: one sender, one
 		// stream); a legacy-dispatched job to its per-job bus channel. (A job handed over in
 		// memory during a store outage writes this instance's sink directly, below.)

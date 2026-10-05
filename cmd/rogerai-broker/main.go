@@ -82,8 +82,13 @@ type broker struct {
 	// OFFLINE on the peer (the residual multi-instance /discover flicker after the registry
 	// union). Guarded by b.mu. See enrichOffersForNode + features/multinode/discover_liveness.
 	localPollAt map[string]time.Time
-	attest      *attestRegistry    // TEE attestation policy + backends + nonce store
-	tps         map[string]float64 // EWMA output tokens/sec per node (measured)
+	// localJobs marks the jobs THIS instance handed to a local poller because the shared store
+	// was down, so their result and stream chunks are read back in memory rather than routed
+	// through the store (storeoutage.go). Per-request and per-instance by nature: the job never
+	// left this process. job id -> struct{}; the zero value is ready to use.
+	localJobs sync.Map
+	attest    *attestRegistry    // TEE attestation policy + backends + nonce store
+	tps       map[string]float64 // EWMA output tokens/sec per node (measured)
 	// refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
 	// model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
 	// Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a

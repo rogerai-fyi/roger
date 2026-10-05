@@ -4,13 +4,18 @@ package main
 // treats the store as down only after it has been failing continuously for the debounce.
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 func TestDispatchTreatsOnlyASustainedFailureAsAnOutage(t *testing.T) {
@@ -48,4 +53,27 @@ func TestMayHaveLandedSurvivesWrapping(t *testing.T) {
 	require.Equal(t, "i/o timeout", lost.Error())
 	require.False(t, mayHaveLanded(errors.New("subscribe refused")))
 	require.False(t, mayHaveLanded(nil))
+}
+
+// A job one instance handed over in memory is local to THAT instance only. A result for it
+// posted to a peer (which never held it) still routes through the shared store to the job's
+// origin, so two instances in one process (the two-instance tests) behave as two processes.
+func TestLocalJobIsLocalToTheInstanceThatHandedItOver(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	a := newQBroker(t, priv, db, mr, dispatchViaQueueOnly)
+	b := newQBroker(t, priv, db, mr, dispatchViaQueueOnly)
+	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
+	miRegisterNode(b, "n1", hex.EncodeToString(nodePub), "tok", []protocol.ModelOffer{{Model: "free-m"}})
+
+	a.markLocalJob("j1")
+	defer a.unmarkLocalJob("j1")
+	require.True(t, a.isLocalJob("j1"))
+	require.False(t, b.isLocalJob("j1"), "the peer never handed j1 over")
+
+	// The result reaches the peer: it routes it to the origin's inbox, not its own memory.
+	require.NoError(t, mr.Set(dqOriginPrefix+"j1", "origin-x"))
+	require.Equal(t, http.StatusOK, qPostResult(t, b, "n1", "tok", "free-m", protocol.Job{ID: "j1"}, nodePriv))
+	require.True(t, mr.Exists(dqInboxPrefix+"origin-x"), "the result was routed to the origin's inbox")
 }

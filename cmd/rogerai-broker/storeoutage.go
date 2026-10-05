@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -19,11 +18,6 @@ var localPollFresh = 30 * time.Second
 // storeOutageDebounce is how long the shared store must have been failing, continuously, before
 // this instance treats it as down for dispatch: one failed operation is a blip, not an outage.
 var storeOutageDebounce = 2 * time.Second
-
-// localJobs marks the jobs this instance handed to a local poller because the shared store was
-// down, so their result and stream chunks are read back in memory rather than routed through
-// the store. Per-request and per-instance by nature (the job never left this process).
-var localJobs sync.Map // job id -> struct{}
 
 // dispatchStoreDown reports whether this multi-instance broker sees its shared store as down
 // for dispatch: failing continuously, with no success in between, for at least
@@ -65,10 +59,10 @@ func (b *broker) outageSkipLocked(node string, now time.Time) bool {
 }
 
 // markLocalJob / isLocalJob / unmarkLocalJob track a job handed over in memory.
-func markLocalJob(id string)   { localJobs.Store(id, struct{}{}) }
-func unmarkLocalJob(id string) { localJobs.Delete(id) }
-func isLocalJob(id string) bool {
-	_, ok := localJobs.Load(id)
+func (b *broker) markLocalJob(id string)   { b.localJobs.Store(id, struct{}{}) }
+func (b *broker) unmarkLocalJob(id string) { b.localJobs.Delete(id) }
+func (b *broker) isLocalJob(id string) bool {
+	_, ok := b.localJobs.Load(id)
 	return ok
 }
 
