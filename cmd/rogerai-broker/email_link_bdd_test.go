@@ -32,6 +32,10 @@ var linkTests = map[string]func(*testing.T){
 	"TestAnEmailSessionCannotAddAnotherAddress":                          TestAnEmailSessionCannotAddAnotherAddress,
 	"TestLinkRequestsAreRateLimited":                                     TestLinkRequestsAreRateLimited,
 	"TestLinkNeverLogsTheAddressOrTheCode":                               TestLinkNeverLogsTheAddressOrTheCode,
+	"TestLinkTellsTheOwnerWhenASeparateEmailWalletHoldsAFunds":           TestLinkTellsTheOwnerWhenASeparateEmailWalletHoldsAFunds,
+	"TestLinkSaysNothingAboutMergingWhenThereIsNoSeparateWallet":         TestLinkSaysNothingAboutMergingWhenThereIsNoSeparateWallet,
+	"TestAnAddressWithAPipeCanBeLinked":                                  TestAnAddressWithAPipeCanBeLinked,
+	"TestTheLinkBudgetIsPerAccountNotPerIP":                              TestTheLinkBudgetIsPerAccountNotPerIP,
 	"TestLinkingNeverMergesWalletsOrBalances":                            TestLinkingNeverMergesWalletsOrBalances,
 }
 

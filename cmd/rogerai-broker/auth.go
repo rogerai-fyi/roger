@@ -513,7 +513,7 @@ func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, 
 	if err != nil || c.Value == "" {
 		return "", store.Owner{}, false, false
 	}
-	l, gid, _, appleSub, vok := b.verifySessionFull(c.Value)
+	l, gid, sessWallet, appleSub, vok := b.verifySessionFull(c.Value)
 	if !vok {
 		return "", store.Owner{}, false, false
 	}
@@ -527,8 +527,14 @@ func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, 
 			return l, rec, true, true
 		}
 	default: // email session: gid==0 and no Apple sub. login is the proven address.
+		// The owner's own wallet must be the one this session carries. An email session that was
+		// live when its address was linked to a GitHub/Apple account still carries the OLD email
+		// wallet: resolving the linked owner for it would be a mixed identity (that account's
+		// data, a different wallet). It resolves nothing until the person signs in again.
 		if rec, f, _ := b.db.OwnerByVerifiedEmail(l); f {
-			return l, rec, true, true
+			if w, wok := accountWalletForOwner(rec); wok && w == sessWallet {
+				return l, rec, true, true
+			}
 		}
 	}
 	return l, store.Owner{}, false, true

@@ -1354,12 +1354,6 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
-// OwnerByVerifiedEmail resolves the account that PROVED it holds this address.
-//
-// The email_verified_at guard is the security boundary: owners.email alone is
-// user-editable profile text, so matching on it would let anyone who can type an address
-// claim the account it belongs to. lower() matches the partial unique index, so the
-// lookup uses it rather than scanning.
 // LinkVerifiedEmail: the partial unique index owners_verified_email_uniq is the arbiter of
 // "one live account per verified address", so a concurrent pair of links cannot both win.
 func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
@@ -1377,6 +1371,12 @@ func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
 	return nil
 }
 
+// OwnerByVerifiedEmail resolves the account that PROVED it holds this address.
+//
+// The email_verified_at guard is the security boundary: owners.email alone is
+// user-editable profile text, so matching on it would let anyone who can type an address
+// claim the account it belongs to. lower() matches the partial unique index, so the
+// lookup uses it rather than scanning.
 func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
 		FROM rogerai.owners WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)

@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -259,18 +260,15 @@ func TestLinkRequestsAreRateLimited(t *testing.T) {
 
 func TestLinkNeverLogsTheAddressOrTheCode(t *testing.T) {
 	var buf bytes.Buffer
+	prev := log.Writer()
 	log.SetOutput(&buf)
-	defer log.SetOutput(nopWriter{})
+	defer log.SetOutput(prev)
 	b, cap, c := linkFixture(t)
 	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "private.person@example.com").Code)
 	code := codeFromMail(t, cap)
 	require.NotContains(t, buf.String(), "private.person", "the address is never logged in the clear")
 	require.NotContains(t, buf.String(), code)
 }
-
-type nopWriter struct{}
-
-func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 func TestLinkingNeverMergesWalletsOrBalances(t *testing.T) {
 	b, cap, c := linkFixture(t)
@@ -283,4 +281,73 @@ func TestLinkingNeverMergesWalletsOrBalances(t *testing.T) {
 	g, _ := b.db.BalanceOf("u_gh_7", 0)
 	require.InDelta(t, 3, a, 0.0001, "the email wallet is untouched")
 	require.InDelta(t, 2, g, 0.0001, "the GitHub wallet is untouched")
+}
+
+// Spec: "Linking never merges wallets ... the person is told how to have them merged
+// deliberately". When a separate email-only account for the address holds a balance, the
+// success reply says so (it is stranded, not lost) and nothing moves.
+func TestLinkTellsTheOwnerWhenASeparateEmailWalletHoldsAFunds(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	_, _ = b.db.AddCredits(walletForEmail("me@example.com"), 3)
+	rec := addAndVerify(t, b, cap, c, "me@example.com")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.InDelta(t, 3, out["separate_email_balance"], 0.0001, "the stranded balance is reported")
+	require.Contains(t, out["merge_note"], "merge", "and the person is told it can be merged deliberately")
+	bal, _ := b.db.BalanceOf(walletForEmail("me@example.com"), 0)
+	require.InDelta(t, 3, bal, 0.0001, "nothing moved")
+}
+
+func TestLinkSaysNothingAboutMergingWhenThereIsNoSeparateWallet(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	b.seedFunds = 0
+	rec := addAndVerify(t, b, cap, c, "fresh@example.com")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotContains(t, rec.Body.String(), "separate_email_balance")
+	require.NotContains(t, rec.Body.String(), "merge_note")
+}
+
+// '|' is a legal character in an email local part; the signed token must not be confused by it.
+func TestAnAddressWithAPipeCanBeLinked(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "a|b@example.com").Code)
+	_, found, _ := b.db.OwnerByVerifiedEmail("a|b@example.com")
+	require.True(t, found)
+}
+
+// The request budget is per ACCOUNT (the spec says per session), not per IP: one account
+// spraying addresses must not lock out another account behind the same address (a campus or
+// office NAT), and an account cannot dodge its budget by changing IP.
+func TestTheLinkBudgetIsPerAccountNotPerIP(t *testing.T) {
+	b, cap, a := linkFixture(t)
+	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: "pk-2", GitHubID: 8, Login: "neighbour"}))
+	other := ghCookie(b, "neighbour", 8)
+
+	limited := false
+	for i := 0; i < 40; i++ {
+		rec, _ := linkStart(t, b, a, fmt.Sprintf("spray%d@example.com", i))
+		if rec.Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	require.True(t, limited, "one account is eventually limited across addresses")
+	rec, _ := linkStart(t, b, other, "neighbour@example.com")
+	require.Equal(t, http.StatusOK, rec.Code, "a different account on the same IP is unaffected")
+	_ = cap
+}
+
+// An email session that was already live when its address got linked to a GitHub account must
+// not read that account's data while still carrying the old email wallet (a mixed identity).
+// It resolves no owner until it signs in again, and a fresh sign-in is the full account.
+func TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked(t *testing.T) {
+	b, cap, gh := linkFixture(t)
+	oldEmailSession := signInByEmail(t, b, cap, "me@example.com") // a separate email account, signed in
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, gh, "me@example.com").Code)
+
+	require.Equal(t, http.StatusForbidden, getWithSession(b.stations, "/stations", oldEmailSession).Code,
+		"the stale session does not read the GitHub account's stations with the email wallet")
+	fresh := signInByEmail(t, b, cap, "me@example.com")
+	require.Equal(t, http.StatusOK, getWithSession(b.stations, "/stations", fresh).Code, "a fresh sign-in is the full account")
 }

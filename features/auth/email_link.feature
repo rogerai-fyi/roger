@@ -24,7 +24,7 @@ Feature: A signed-in person adds a verified email to their account
     When they ask to add "me@example.com"
     Then a code is mailed to "me@example.com"
     And the response does not reveal whether the address is known to RogerAI
-    # test: TestAddingAnAddressRecordsItVerifiedOnThisAccountOnly
+    # test: TestAddingAnAddressRecordsItVerifiedOnThisAccountOnly,TestAnAddressWithAPipeCanBeLinked
 
   Scenario: Accepting the code records the address as verified on THIS account
     Given they asked to add "me@example.com" and received the code
@@ -100,7 +100,7 @@ Feature: A signed-in person adds a verified email to their account
   Scenario: Requests are rate limited per session and per address
     When more than the allowed number of codes are requested
     Then further requests are refused and no further mail is sent
-    # test: TestLinkRequestsAreRateLimited
+    # test: TestLinkRequestsAreRateLimited,TestTheLinkBudgetIsPerAccountNotPerIP
 
   Scenario: No log line or mail carries the code outside the recipient's message
     When a code is requested
@@ -111,7 +111,7 @@ Feature: A signed-in person adds a verified email to their account
     Given an email account with a balance exists for "me@example.com"
     When the GitHub account adds "me@example.com"
     Then the two wallets stay separate and the person is told how to have them merged deliberately
-    # test: TestLinkingNeverMergesWalletsOrBalances
+    # test: TestLinkingNeverMergesWalletsOrBalances,TestLinkTellsTheOwnerWhenASeparateEmailWalletHoldsAFunds,TestLinkSaysNothingAboutMergingWhenThereIsNoSeparateWallet
 
   Scenario: The account page shows which sign-ins are linked and offers to add one
     Then the account page lists GitHub / Apple / email as linked or not

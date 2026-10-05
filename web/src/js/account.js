@@ -113,7 +113,8 @@
         return r.json().then(function (j) {
           var done = (j && j.email) || addr;
           hide("linkStep2");
-          say(done + " is added and verified. Signing in with an emailed code now reaches this account.");
+          say(done + " is added and verified. Signing in with an emailed code now reaches this account." +
+            (j && j.merge_note ? " " + j.merge_note : ""));
           text("linkCurrent", "Verified: " + done);
         });
       }).catch(function () { say("Could not reach RogerAI. Check your connection and try again."); });

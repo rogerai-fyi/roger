@@ -92,3 +92,18 @@ test("an already-verified address is shown as the sign-in email", async () => {
   await settle();
   assert.match(p.els.linkCurrent.textContent, /me@example\.com/);
 });
+
+test("when a separate email wallet holds funds, the merge note is shown with the success message", async () => {
+  const p = linkPage(GH, {
+    "/auth/email/link/start": { status: 200, body: { ok: true, token: "T" } },
+    "/auth/email/link/verify": { status: 200, body: { ok: true, email: "me@example.com", separate_email_balance: 3, merge_note: "A separate email-only account for this address holds funds. Nothing was merged; write to labs@rogerai.fm to have the two accounts merged deliberately." } },
+  });
+  p.run("js/account.js");
+  await settle();
+  p.els.linkEmail.value = "me@example.com";
+  await p.fire("linkSend", "click"); await settle();
+  p.els.linkCode.value = "123456";
+  await p.fire("linkVerify", "click"); await settle();
+  assert.match(p.els.linkMsg.textContent, /me@example\.com is added and verified/);
+  assert.match(p.els.linkMsg.textContent, /merged deliberately/, "the person is told how to have the wallets merged");
+});

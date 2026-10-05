@@ -50,6 +50,11 @@ func newLinkFlowWithStore(st emailauth.Store) *emailauth.Flow {
 	return emailauth.NewWithStore(cfg, st)
 }
 
+// linkSource is what the flow budgets requests and code guesses against: the signed-in
+// ACCOUNT. One account spraying addresses cannot lock out a neighbour behind the same IP, and
+// an account cannot dodge its budget by changing IP.
+func linkSource(o store.Owner) string { return "acct:" + o.Pubkey }
+
 func (b *broker) linkNow() time.Time {
 	if b.linkClock != nil {
 		return b.linkClock()
@@ -60,7 +65,7 @@ func (b *broker) linkNow() time.Time {
 // mintLinkToken binds (owner, address, expiry) with the session key. It is a bearer proof that
 // THIS account asked to add THIS address recently; it is useless without the mailed code.
 func (b *broker) mintLinkToken(ownerPub, addr string, exp int64) string {
-	payload := ownerPub + "|" + addr + "|" + strconv.FormatInt(exp, 10)
+	payload := ownerPub + "\x00" + addr + "\x00" + strconv.FormatInt(exp, 10) // NUL: never in a valid address (a "|" is)
 	mac := hmac.New(sha256.New, b.sessionKey())
 	mac.Write([]byte("link|" + payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
@@ -84,7 +89,7 @@ func (b *broker) linkTokenOK(token, ownerPub, addr string) bool {
 	if !hmac.Equal(sig, mac.Sum(nil)) {
 		return false
 	}
-	f := strings.Split(string(raw), "|")
+	f := strings.Split(string(raw), "\x00")
 	if len(f) != 3 || f[0] != ownerPub || f[1] != addr {
 		return false
 	}
@@ -139,7 +144,7 @@ func (b *broker) emailLinkStart(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "email required")
 		return
 	}
-	code, err := b.emailLinkFlow().Request(req.Email, clientIP(r))
+	code, err := b.emailLinkFlow().Request(req.Email, linkSource(o)) // budgeted per ACCOUNT, not per IP
 	switch {
 	case errors.Is(err, emailauth.ErrInvalidAddress):
 		jsonErr(w, http.StatusBadRequest, "that does not look like an email address we can reach")
@@ -190,7 +195,7 @@ func (b *broker) emailLinkVerify(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "that code is not valid")
 		return
 	}
-	if _, err := b.emailLinkFlow().Submit(req.Email, req.Code, clientIP(r)); err != nil {
+	if _, err := b.emailLinkFlow().Submit(req.Email, req.Code, linkSource(o)); err != nil {
 		if errors.Is(err, emailauth.ErrUnavailable) {
 			jsonErr(w, http.StatusServiceUnavailable, "temporarily unavailable - try again in a moment")
 			return
@@ -209,7 +214,14 @@ func (b *broker) emailLinkVerify(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "store error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": addr})
+	out := map[string]any{"ok": true, "email": addr}
+	// Linking never merges wallets. If a separate email-only account for this address holds
+	// funds, say so: they are stranded (not lost) and can be merged deliberately.
+	if bal, err := b.db.BalanceOf(walletForEmail(addr), 0); err == nil && bal > 1e-6 {
+		out["separate_email_balance"] = round6(bal)
+		out["merge_note"] = "A separate email-only account for this address holds funds. Nothing was merged; write to labs@rogerai.fm to have the two accounts merged deliberately."
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // sendLinkCode mails the add-an-address code. Like sendSignInCode: text only, no link to
