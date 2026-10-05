@@ -741,7 +741,13 @@
               <code>roger share --advanced</code> reveals <code>--node</code>,
               <code>--region</code>, <code>--parallel</code>, <code>--upstream</code>,
               <code>--ctx</code>, <code>--confidential</code>, <code>--free-window</code>,
-              and <code>--schedule</code>.</p>
+              <code>--schedule</code>, and <code>--probe-min</code>.</p>
+            <p>If every request to your upstream costs real money, <code>--probe-min 6h</code>
+              (or <code>"probe_min": "6h"</code> under the model in <code>share_prices</code>)
+              tells the broker to send its verification probes at most that often, capped at
+              24h. The trade is on your side of the dial: verification lapses between probes,
+              so the band shows as not currently verified and ranks below freshly probed
+              bands until the next probe or a real request refreshes it.</p>
           </section>
 
           <!-- ============== §T RUN A TOWER ============== -->
@@ -1420,7 +1426,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code> · <code>--raw</code> (keep raw model output; skip the reasoning-as-answer fallback)</td></tr>
                   <tr><td><code>balance</code></td><td>wallet balance ($). Topping up is <code>topup [usd]</code>; <code>balance --topup [usd]</code> and <code>balance topup [usd]</code> are retained aliases</td></tr>
                   <tr><td><code>topup [usd]</code></td><td>add funds (opens Stripe Checkout); bare <code>topup</code> is $10, minimum $1, whole cents only</td></tr>
-                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> (real TEE hardware required). With no local server it runs a guided "no model found" fallback</td></tr>
+                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> (real TEE hardware required) · <code>--probe-min &lt;duration&gt;</code> (probe at most this often, capped at 24h; verification lapses between probes). With no local server it runs a guided "no model found" fallback</td></tr>
                   <tr><td><code>limits</code></td><td>print your per-model spend limits (mirrors the in-app <code>/limits</code>; edit with <code>config set-limit</code>)</td></tr>
                   <tr><td><code>grant</code></td><td>private access keys for your bots/family: <code>create --name &lt;n&gt;</code> · <code>list</code> · <code>show</code> · <code>revoke</code> (aliases <code>new</code> / <code>ls</code> / <code>rm</code>)</td></tr>
                   <tr><td><code>payout</code></td><td>cash out provider earnings (login + KYC gated): <code>status</code> (default) · <code>onboard</code> (Stripe Connect KYC) · <code>request</code> (pays your payable balance) · <code>history</code> (aliases: <code>payouts</code> / <code>cashout</code>; <code>withdraw</code> for <code>request</code>)</td></tr>

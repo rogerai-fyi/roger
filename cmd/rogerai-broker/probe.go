@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"sort"
@@ -114,6 +116,9 @@ type probeConfig struct {
 	round    uint64 // monotonic round counter (rotates the canary + the per-owner sample)
 	// curatedEvery is the curated slow lane's fixed cadence (see defaultProbeCuratedEvery).
 	curatedEvery time.Duration
+	// minCap bounds an operator-declared minimum probe interval (probe_min_s), see
+	// effectiveProbeMin. ROGERAI_PROBE_MIN_CAP seconds; default 24h; 0 turns the lane off.
+	minCap time.Duration
 }
 
 // loadProbe reads the active-probe config. ON by default (30s floor -> 15m ceiling);
@@ -146,7 +151,13 @@ func loadProbe() probeConfig {
 			curatedEvery = time.Duration(n) * time.Second // 0 = curated probes OFF
 		}
 	}
-	c := probeConfig{interval: interval, ceiling: ceiling, perOwner: perOwner, curatedEvery: curatedEvery}
+	minCap := defaultProbeMinCap
+	if v := os.Getenv("ROGERAI_PROBE_MIN_CAP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && int64(n) <= int64(math.MaxInt64/time.Second) {
+			minCap = time.Duration(n) * time.Second
+		}
+	}
+	c := probeConfig{interval: interval, ceiling: ceiling, perOwner: perOwner, curatedEvery: curatedEvery, minCap: minCap}
 	if c.enabled() {
 		log.Printf("active probe: ENABLED (adaptive %s floor -> %s ceiling, doubling while idle; canary + TTFT + clean tok/s, unbilled; per-owner cap %d/round)", c.interval, c.ceiling, c.perOwner)
 	} else {
@@ -156,6 +167,47 @@ func loadProbe() probeConfig {
 }
 
 func (c probeConfig) enabled() bool { return c.interval > 0 }
+
+// defaultProbeMinCap is ROGERAI_PROBE_MIN_CAP's default: the longest minimum probe interval
+// an operator may declare. Past it a node is probed anyway, so "declare a huge number and
+// never be checked again" is not on the menu.
+const defaultProbeMinCap = 24 * time.Hour
+
+// effectiveProbeMin turns a registration's declared probe_min_s into the interval the
+// broker honours: negative reads as 0 (undeclared) and anything above minCap is clamped to
+// it (clamped reports that, so the caller can log it). The comparison runs in seconds so a
+// huge declaration cannot overflow time.Duration on the way in.
+func (c probeConfig) effectiveProbeMin(declared int) (time.Duration, bool) {
+	if declared <= 0 {
+		return 0, false
+	}
+	if capS := int64(c.minCap / time.Second); int64(declared) > capS {
+		return c.minCap, true
+	}
+	return time.Duration(declared) * time.Second, false
+}
+
+// probeMinHold reports whether the node's operator-declared minimum interval holds it back
+// from probing right now. Unlike the curated lane it does not wait for a PASSED probe: the
+// operator asked not to be probed more often than this, and a failed canary costs them the
+// same as a passed one. First sight (no probe yet) is never held.
+func (st *probeState) probeMinHold(now time.Time) bool {
+	return st.probeMin > 0 && !st.lastProbe.IsZero() && now.Before(st.lastProbe.Add(st.probeMin))
+}
+
+// probeMinLapsedLocked is the COST of declaring a minimum: verification is not extended to
+// cover the longer gap. A node on that lane whose last positive evidence (a passed probe or
+// a real served request, both stamped on lastMeasured) is older than window reads as not
+// currently verified. Nodes that declared nothing are untouched, and so is a minimum at or
+// under the ceiling: such a node is probed inside the normal window anyway, and lapsing it
+// would only flap the mark on result-arrival jitter. Caller holds metricsMu.
+func (b *broker) probeMinLapsedLocked(nodeID string, now time.Time, window time.Duration) bool {
+	st := b.probeSched[nodeID]
+	if st == nil || st.probeMin <= b.probe.ceiling {
+		return false
+	}
+	return st.lastMeasured.IsZero() || now.Sub(st.lastMeasured) > window
+}
 
 // curatedHold reports whether the curated slow lane HOLDS a station back from
 // probing right now. The lane engages only after a PASSED probe (verified=true):
@@ -250,6 +302,11 @@ type probeState struct {
 	// traffic could defer forever and never refresh its tool-call verdict (which only
 	// a probe round asserts - real traffic never does).
 	lastProbe time.Time
+	// probeMin is the node's effective operator-declared minimum probe interval (the
+	// registration's probe_min_s through effectiveProbeMin), stamped each round under b.mu
+	// like curated. probeMinWarned keeps the over-the-cap log line to once per node.
+	probeMin       time.Duration
+	probeMinWarned bool
 }
 
 // probeSched returns the per-node schedule map, lazily initialised. Caller holds
@@ -369,6 +426,14 @@ func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) {
 		}
 		return
 	}
+	// The operator-declared minimum holds under demand too: browsing is exactly the
+	// traffic that probed an expensive upstream every 30s with nobody ever routing to it.
+	if st.probeMinHold(now) {
+		if earliest := st.lastProbe.Add(st.probeMin); st.nextDue.Before(earliest) {
+			st.nextDue = earliest
+		}
+		return
+	}
 	st.backoff = 0
 	if st.nextDue.IsZero() || st.nextDue.After(now) {
 		st.nextDue = now // eligible on the next round (floor resolution)
@@ -479,6 +544,7 @@ func (b *broker) probeOnce() {
 	// flushed after (network I/O).
 	type refreshPair struct{ node, model string }
 	var curatedToolRefresh []refreshPair
+	var clampLogs []string
 	b.mu.Lock()
 	b.metricsMu.Lock()
 	sched := b.probeSchedLocked()
@@ -500,6 +566,12 @@ func (b *broker) probeOnce() {
 			sched[n.NodeID] = st
 		}
 		st.curated = n.Curated // stamped under b.mu; read by the metricsMu-held demand hook
+		var clamped bool
+		st.probeMin, clamped = b.probe.effectiveProbeMin(n.ProbeMinSeconds)
+		if clamped && !st.probeMinWarned {
+			st.probeMinWarned = true
+			clampLogs = append(clampLogs, fmt.Sprintf("active probe: node=%s probe_min_s=%d clamped to %s (ROGERAI_PROBE_MIN_CAP)", n.NodeID, n.ProbeMinSeconds, st.probeMin))
+		}
 		// THE CURATED SLOW LANE: a canary against a metered commercial API is the
 		// operator's cash. First sight is ALWAYS probed - that is what earns the ✓ -
 		// then, once a probe has PASSED, only the weekly recheck (never the 30s..15m
@@ -527,6 +599,9 @@ func (b *broker) probeOnce() {
 				b.lastToolMark[n.NodeID] = now
 			}
 			continue
+		}
+		if st.probeMinHold(now) {
+			continue // the operator's declared minimum: no path probes sooner
 		}
 		if !st.nextDue.IsZero() && st.nextDue.After(now) {
 			continue // backed off: not due yet this round
@@ -558,6 +633,9 @@ func (b *broker) probeOnce() {
 
 	for _, r := range curatedToolRefresh {
 		_ = b.shared.markToolsVerified(r.node, r.model, toolsVerifiedTTL)
+	}
+	for _, l := range clampLogs {
+		log.Print(l)
 	}
 
 	// Resolve each candidate's owner via the cached binding OUTSIDE metricsMu/mu: a
@@ -623,7 +701,7 @@ func (b *broker) probeOnce() {
 			sched[t.node.NodeID] = st
 		}
 		st.lastProbe = now
-		st.nextDue = now.Add(b.probe.backoffInterval(st.backoff))
+		st.nextDue = now.Add(max(b.probe.backoffInterval(st.backoff), st.probeMin))
 		if st.backoff < 64 { // cap the level (backoffInterval already clamps to ceiling)
 			st.backoff++
 		}
