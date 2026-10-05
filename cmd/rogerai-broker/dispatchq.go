@@ -287,7 +287,10 @@ func (q *dispatchQueue) handle(m dqMsg) {
 	tk := q.tickets[m.job]
 	q.mu.Unlock()
 	if tk == nil {
-		return // the relay already finished (a late result is absorbed, as before)
+		if m.kind == "res" {
+			go q.b.lateResultRaw(m.node, m.data) // a result after its 504 is recorded at $0 (§14.10)
+		}
+		return // the relay already finished
 	}
 	switch m.kind {
 	case "bounce":

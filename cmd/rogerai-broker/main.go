@@ -524,6 +524,8 @@ type broker struct {
 	coolPayersLocal map[string]map[string]time.Time // node -> payer -> last 429
 	// freeRL: the free-traffic limiters (freelimit.go), built on first use over b.shared.
 	freeRL freeLimiters
+	// lateLocal: late-receipt expectations when the shared store is absent (latereceipt.go).
+	lateLocal lateLocal
 }
 
 // now is the broker's clock for cooldown/alert windows (nowFn when set, else time.Now).

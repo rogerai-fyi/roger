@@ -604,6 +604,10 @@ const (
 	// 413, 422 that is not a context-window overflow): a fact about what the consumer sent,
 	// never evidence about the operator (contract §14.1).
 	VoidConsumerRejected = "consumer-rejected"
+	// VoidLateAfterTimeout: a non-stream result that arrived after the consumer was answered
+	// 504, within the late-receipt grace (contract §14.10): recorded for lineage at $0, the
+	// consumer billed nothing, the operator unpaid, never a strike.
+	VoidLateAfterTimeout = "late-after-timeout"
 	VoidEmptyOutput      = "empty-output" // a 2xx that carried no usable completion
 	// VoidContextWindow: the upstream refused the prompt as larger than the model's window (a
 	// 400 in the context-overflow vocabulary). It is a fact about the request against that

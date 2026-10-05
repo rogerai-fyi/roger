@@ -428,11 +428,15 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
   # corrected 2026-10-01 (founder-approved): the station finishes the work after the cancel, and
   # finished work settles today (one spend row, the hold captured for it, the remainder released);
   # refunding served work on a disconnect would be a new money rule.
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.10 bills a non-stream
+  # disconnect before the result $0 (nothing was delivered). Old Then (second line): the
+  # finished attempt on "a1" settles: one spend row, the hold captured for it and the
+  # remainder released.
   Scenario: a client that disconnects while the first model is being tried ends the plan
     Given "a1" serves "a" slowly and "b1" serves "b"
     When the consumer disconnects during the attempt on "a1" with "models": ["b"] set
     Then no attempt on "b1" is started
-    And the finished attempt on "a1" settles: one spend row, the hold captured for it and the remainder released
+    And the hold is released in full
 
   # superseded 2026-10-04 by contract §14 (founder-approved): §14.8 makes a dispatch failure
   # before any work a failover and model-fallback trigger, so the list moves on to "b".

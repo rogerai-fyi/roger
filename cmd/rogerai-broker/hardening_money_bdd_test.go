@@ -988,7 +988,8 @@ func (s *mh6State) usageCostZeroVoid(reason string) error {
 // streams `frames` content frames, `gap` apart, through the REAL /agent/stream, each frame one
 // recountable token of text; when the broker stops reading (returns from agentStream before the
 // last frame) the loop records the cancel and stops generating. `silentAfter` > 0 sends that
-// many frames then goes silent (a stall). The receipt claims `claim` completion tokens.
+// many frames then goes silent (a stall); < 0 is silent before the first frame. The receipt
+// claims `claim` completion tokens.
 func (s *mh6State) streamLoop(st *fstation, frames int, gap time.Duration, silentAfter int, claim int) {
 	tun := &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: st.tun.token}
 	s.b.mu.Lock()
@@ -1015,7 +1016,7 @@ func (s *mh6State) streamLoop(st *fstation, frames int, gap time.Duration, silen
 				written := 0
 			loop:
 				for i := 0; i < frames; i++ {
-					if silentAfter > 0 && i >= silentAfter {
+					if (silentAfter > 0 && i >= silentAfter) || silentAfter < 0 {
 						select {
 						case <-done:
 						case <-stop:
@@ -1396,7 +1397,7 @@ func (s *mh6State) noContentSilent(name string) error {
 	st := s.defaultNode(name, s.lastModel)
 	s.b.streamIdleTimeout = 400 * time.Millisecond
 	s.streamLoop(st, 10, 5*time.Millisecond, 0, 0)
-	s.streamLoop(st, 10, 5*time.Millisecond, 1, 0) // replaces: silent before its first frame
+	s.streamLoop(st, 10, 5*time.Millisecond, -1, 0) // replaces: silent before its first frame
 	s.st(name)
 	return nil
 }

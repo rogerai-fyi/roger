@@ -2139,6 +2139,23 @@ func (s *sr3State) withheldUntilIdle() error {
 	return s.doneAfterChunk()
 }
 
+// partialStallChunk: the stream's last usage chunk bills what was delivered before the stall
+// (a positive cost and completion count, no void_reason, partial "stall"), then [DONE].
+func (s *sr3State) partialStallChunk() error {
+	ch, err := s.chunk()
+	if err != nil {
+		return err
+	}
+	u, _ := ch["usage"].(map[string]any)
+	rb, _ := u["rogerai"].(map[string]any)
+	cost, _ := u["cost"].(float64)
+	ct, _ := u["completion_tokens"].(float64)
+	if _, voided := rb["void_reason"]; voided || rb["partial"] != "stall" || !(cost > 0) || !(ct > 0) {
+		return fmt.Errorf("the chunk is not a delivered-content partial: %v", u)
+	}
+	return s.doneAfterChunk()
+}
+
 func (s *sr3State) voidedChunkThenDone() error {
 	if err := s.chunkCostZero(); err != nil {
 		return err
@@ -2335,6 +2352,7 @@ func (s *sr3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit("[DONE] follows the chunk"), s.doneAfterChunk)
 	sc.Step(lit("the stream ends with a usage chunk whose usage.cost is 0"), s.chunkCostZero)
 	sc.Step(lit("usage.rogerai.void_reason names the stall"), s.voidNamesStall)
+	sc.Step(lit(`the stream ends with a usage chunk billing the delivered content, marked partial "stall"`), s.partialStallChunk)
 	sc.Step(lit("the usage chunk has usage.completion_tokens 0 and usage.cost 0"), s.completionZeroCostZero)
 	sc.Step(lit("usage.rogerai.void_reason is present"), s.voidPresent)
 	sc.Step(lit("the hold is released in full"), s.holdReleasedFull)

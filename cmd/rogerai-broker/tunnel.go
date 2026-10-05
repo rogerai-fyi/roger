@@ -180,8 +180,11 @@ const maxRecountCapture = 256 << 10 // 256 KiB
 // chunks so the broker can run its L1 token re-count at stream end (off the hot
 // path). Guarded by capMu since agentStream writes it while relayStream reads it.
 type streamSink struct {
-	w      http.ResponseWriter
-	flush  func()
+	w     http.ResponseWriter
+	flush func()
+	// gone reports the consumer has disconnected (nil = never): agentStream then stops
+	// reading, which ends the station's stream POST - the broker's cancel (§14.10).
+	gone   func() bool
 	capMu  sync.Mutex
 	cap    *bytes.Buffer
 	capRaw bytes.Buffer // carry for SSE lines split across reads
@@ -1652,6 +1655,8 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 		case ch <- res:
 		default:
 		}
+	} else {
+		b.lateResult(node, res) // nobody waiting: a result after its 504, or discarded
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -3178,6 +3183,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 			b.writeDispatchFailure(w, planDispatchOutcome(outcome, tried, offAir))
 			return
+		case dispatchGone:
+			b.genAttemptEndN(requestID, i+1, node.NodeID, 499, "client-disconnected", 0)
+			log.Printf("relay request=%s node=%s: the consumer disconnected before the result - billed $0", requestID, node.NodeID)
+			return // the deferred release refunds the hold in full
 		case dispatchTimeout:
 			// CLOUDFLARE ~100s PROXY CAP: CF aborts a proxied request that has produced NO
 			// response bytes after ~100s with an opaque 524 the client cannot retry on
@@ -3191,6 +3200,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// straight from the logs.
 			log.Printf("relay TIMEOUT user=%s node=%s model=%s - no result in %s (node slow/unresponsive); 504 - the client may fail over via X-Roger-Exclude-Nodes",
 				user, node.NodeID, req.Model, nonStreamRelayWait)
+			b.expectLate(jobID, lateTicket{Node: node.NodeID, Payer: payer, Model: req.Model})
 			jsonErr(w, http.StatusGatewayTimeout, "node timed out (use stream:true for slow models)")
 			return
 		}
@@ -3440,6 +3450,7 @@ const (
 	dispatchTimeout                        // no result before the deadline
 	dispatchOffAir                         // the node is not live: refused at once (queue modes)
 	dispatchLost                           // a poller took the job but never handed it over
+	dispatchGone                           // the consumer disconnected before the result
 )
 
 // dispatchErrOutcome maps a dispatch-plane error to its outcome (counting it).
@@ -3555,6 +3566,11 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 	case res := <-resCh:
 		b.exitInflightStatus(nodeID, res.Status)
 		return res, concurrentAtDispatch, dispatchResult
+	case <-ctx.Done():
+		// The consumer left before the result (§14.10): nothing was delivered, nothing is
+		// billed; the station's late result finds no waiter.
+		b.exitInflight(nodeID, false)
+		return protocol.JobResult{}, concurrentAtDispatch, dispatchGone
 	case <-time.After(time.Until(deadline)):
 		b.exitInflight(nodeID, false)
 		return protocol.JobResult{}, concurrentAtDispatch, dispatchTimeout
@@ -4060,7 +4076,8 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 		lw.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedAt))
 	}
 	start := time.Now()
-	sink := &streamSink{w: lw, flush: lw.flush, nodeID: node.NodeID, start: start, activity: make(chan struct{}, 1)}
+	sink := &streamSink{w: lw, flush: lw.flush, nodeID: node.NodeID, start: start, activity: make(chan struct{}, 1),
+		gone: func() bool { return lw.ctx != nil && lw.ctx.Err() != nil }}
 	if b.recount.enabled() {
 		sink.cap = &bytes.Buffer{} // capture completion text for the L1 re-count
 	}
@@ -4161,6 +4178,207 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 	// reasoning think never trips a false stall - only genuine silence for the whole window
 	// aborts. This is the timer, not a total-stream deadline (founder ruling: reset on ANY
 	// delta, content or reasoning).
+	// onResult settles the attempt from a receipt: the station's (partial == ""), or the
+	// broker's own receipt of what was DELIVERED when the stream stalled after content
+	// (partial == "stall", contract §14.10) - the forwarded text recounted, clamped to the
+	// hold, the operator paid its share, never a strike.
+	onResult := func(res protocol.JobResult, partial string) (protocol.JobResult, bool, dispatchOutcome) {
+		rec := res.Receipt
+		// Same binding gate as the non-stream relay: a signature-valid receipt that
+		// names another (or no) request would settle against the wrong hold row. A partial
+		// settle carries the broker's own receipt of what was delivered (no node signature).
+		recOK := partial != "" || rec.VerifyNode(node.PubKey)
+		if recOK && !rec.BindsTo(jobID, node.NodeID) {
+			log.Printf("stream receipt does not bind to dispatched job node=%s want_req=%s got_req=%s got_node=%s",
+				node.NodeID, jobID, rec.RequestID, rec.NodeID)
+			b.strikeUnboundReceipt(node.NodeID, jobID, rec)
+			recOK = false
+		}
+		if !recOK {
+			b.exitInflightStatus(node.NodeID, res.Status)
+			waitPump()
+			lw.commit()
+			lw.finish(b.voidUsageChunk(node.NodeID, model, "receipt-invalid"), "")
+			return res, false, dispatchResult
+		}
+		if partial == "" {
+			b.exitInflightStatus(node.NodeID, res.Status)
+			b.checkChain(node.NodeID, jobID, rec)
+		}
+		b.dispatchedModel(&rec, c) // the receipt's model is the dispatched model (§3)
+		// The stream has finished (the receipt arrived), so the captured completion
+		// text is complete. (cap is non-nil only when the L1 re-count is enabled; on
+		// a no-recount broker we fall back to the receipt's token count for the void
+		// + reward signals.)
+		completion := ""
+		if sink.cap != nil {
+			sink.capMu.Lock()
+			completion = sink.cap.String()
+			sink.capMu.Unlock()
+		}
+		// VOID-ON-NO-OUTPUT (P0), stream path. When capture is enabled we know the
+		// stream was empty if the captured text is blank; without capture we fall
+		// back to the receipt's claimed completion tokens + status. An errored or
+		// no-output stream charges $0, mints no earning, and the deferred ReleaseHold
+		// refunds the consumer's hold in full.
+		var producedOutput bool
+		if sink.cap != nil {
+			// Capture on: use the same predicate as the relay path off the captured text.
+			producedOutput = producedUsableOutput(res.Status, completion, rec.CompletionTokens)
+		} else {
+			// No capture: fall back to status + the receipt's claimed completion tokens.
+			producedOutput = res.Status < 400 && rec.CompletionTokens > 0
+		}
+		if !producedOutput && res.Status < 400 && sink.gone() {
+			// The CONSUMER left before any content (§14.10): the station processed the prompt
+			// for a request the consumer abandoned - bill what it did (the prompt, and the
+			// forwarded recount, here none), never an empty-output void against the operator.
+			producedOutput = true
+		}
+		var pin, pout float64
+		var lockedUntil time.Time
+		if pricing.fixed {
+			pin, pout = pricing.in, pricing.out
+		} else {
+			curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
+			pin, pout = curIn, curOut
+			if !scheduled {
+				// Lock keyed on the SIGNED consumer identity (not the payer wallet) so the
+				// streaming path shares the SAME 24h price-lock the non-stream relay mints -
+				// otherwise a logged-in user's stream would dodge the lock (different key) and
+				// eat an owner's mid-engagement hike. See streamBill.consumer. Only a SERVED
+				// stream mints it (quotedPrice).
+				pin, pout, lockedUntil = b.quotedPrice(consumer, node.NodeID, model, curIn, curOut, producedOutput)
+			}
+		}
+		rec.PriceIn, rec.PriceOut = pin, pout
+		rec.GrantID = grantID
+		if !producedOutput {
+			if len(res.Body) == 0 && !lw.isCommitted() {
+				// An errored stream's body arrives through the stream pipe, not the result:
+				// what the station piped before failing is the upstream's answer (it is what
+				// lw.fail would send), and the void reason is read from it.
+				waitPump()
+				res.Body = lw.piped()
+			}
+			b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(bill.promptOf(job.Body), len(job.Body)), " (stream)")
+			if res.Status == http.StatusTooManyRequests {
+				b.coolPair(node.NodeID, model, bill.payerKey, res.RetryAfterSec)
+			}
+			// Nothing of this station reached the consumer yet: the caller may fail over.
+			// Once content has streamed the stream ends with the voided chunk + [DONE].
+			if lw.isCommitted() {
+				waitPump()
+				lw.finish(b.voidUsageChunk(node.NodeID, model, string(rec.VoidReason)), "")
+				return res, false, dispatchResult
+			}
+			return res, true, dispatchResult
+		}
+		// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
+		// prompt text is the request body (job.Body), available on this path too, so
+		// the input byte-floor + recount apply identically to the relay path.
+		claimP, claimC := rec.PromptTokens, rec.CompletionTokens
+		if sink.gone() {
+			// The consumer left and the station's stream was cut (§14.10): it could not count
+			// what it generated, so the bill is what was FORWARDED, recounted - the claim never
+			// raises it (the recount caps it), and a short claim does not erase delivered text.
+			if est := len(completion)/4 + 1; completion != "" && claimC < est {
+				claimC = est
+			}
+			if claimP == 0 {
+				claimP = promptTokensFrom(bill.promptOf(job.Body), len(job.Body))
+			}
+		}
+		billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, model), bill.promptOf(job.Body), claimP, len(job.Body))
+		billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, claimC)
+		rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
+		// SignBroker AFTER the broker counts are assigned (covers them).
+		rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
+		rec.SignBroker(b.priv)
+		// The serving station's own ceiling clamps the bill (see the relay path).
+		cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
+		newBal, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+		settleFailed := ferr != nil
+		if settleFailed {
+			// settle failed - leave settled=false so the deferred ReleaseHold refunds
+			log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
+			b.voidSettleFailed(user, node.NodeID, rec, res.Status)
+		} else {
+			// A free plan captures nothing: a hold placed for a paid first pick that failed
+			// over to a free station is returned by the deferred release.
+			*settled = !pricing.free || maxCost == 0
+		}
+		// THE SAME CLAMP AS THE RELAY PATH, for the same reason and off the same
+		// figure. A capacity input that is verified on one path and self-declared on
+		// the other is not a fixed capacity input - it is one with a `"stream":true`
+		// bypass, and streaming is the path most real traffic takes. See the note in
+		// the relay path above for what the unclamped claim was worth as a placement
+		// lever.
+		streamTPS := 0.0
+		if billedCompletion > 0 {
+			if el := time.Since(start).Seconds(); el > 0 {
+				streamTPS = float64(billedCompletion) / el
+				b.updateTPS(node.NodeID, streamTPS)
+			}
+		}
+		// Smart-router v2 reward + capacity evidence (streamed). This block only runs
+		// when producedOutput is true (an errored/empty stream returned above), so a
+		// leech can never shrink its UCB radius off a no-output stream. When CAPTURE is
+		// on (sink.cap != nil) an empty captured completion is NOT a quality success - we
+		// have proof it produced no text - so the usage backstop keeps it un-struck but
+		// grants it no serving reward either. Capture OFF (sink.cap == nil) has no text to
+		// judge, so it falls back to the claimed-tokens signal as before.
+		qOK := rec.CompletionTokens > 0 && (sink.cap == nil || qualityOKText(completion))
+		b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
+		// Free measurement off real (streamed) traffic: reset the probe backoff so
+		// an actively-used node is barely probed and reads as freshly verified.
+		b.markMeasured(node.NodeID)
+		log.Printf("stream user=%s node=%s model=%s out=%d cost=%.6f", user, node.NodeID, model, rec.CompletionTokens, cost)
+		logServedOfList(strings.SplitN(jobID, "-", 2)[0], bill.requested, model, node.NodeID)
+		// SSE COST METER (founder ruling 2026-07-07, "SSE meter comment"): a stream's
+		// headers were flushed before any output, so the billed cost cannot ride
+		// X-RogerAI-Cost. Emit it as a spec-compliant SSE COMMENT line at stream end -
+		// parsers ignore comment lines by spec, so no client breaks - which the local
+		// proxy reads to meter per-session spend for streamed traffic. It lands after the
+		// node's [DONE] has streamed through (settle only happens once the receipt
+		// arrives, which follows the node's final chunk). Only a SETTLED stream is
+		// metered: a failed settle refunds the hold and must not report a spend.
+		// THE BROKER'S USAGE CHUNK (contract §7): the last data frame before [DONE], carrying
+		// the settled numbers and the co-signed receipt - the stream's X-RogerAI-* headers.
+		// The comment is metered only for a SETTLED stream, exactly as before.
+		waitPump() // never write w while the multi-instance pump may still be writing
+		lw.commit()
+		lockedAt := int64(0)
+		if !lockedUntil.IsZero() {
+			lockedAt = lockedUntil.Unix()
+		}
+		chunk := map[string]any{
+			"receipt": protocol.EncodeReceipt(rec), "node": node.NodeID, "model": rec.ServedModel(),
+			"tokens_in": billedPrompt, "tokens_out": billedCompletion, "tps": streamTPS,
+			"price_in": pin, "price_out": pout, "locked_until": lockedAt,
+			"balance": round6(newBal),
+		}
+		if partial != "" {
+			chunk["partial"] = partial // what was delivered before the stream stalled (§14.10)
+		}
+		if bill.keyFields != nil {
+			for kf, kv := range bill.keyFields() {
+				chunk[kf] = kv
+			}
+		}
+		comment := ""
+		if settleFailed {
+			cost = 0
+			chunk["void_reason"] = protocol.VoidSettleFailed
+		} else if *settled {
+			comment = "rogerai-cost=" + fmtCostHeader(cost)
+		}
+		if !settleFailed {
+			b.genServe(reqOf, nOf, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, streamTPS, protocol.EncodeReceipt(rec))
+		}
+		lw.finish(usageChunkJSON(billedPrompt, billedCompletion, cost, chunk), comment)
+		return res, false, dispatchResult // the receipt arrived; leave the idle loop
+	}
 	idle := b.streamIdle()
 	idleTimer := time.NewTimer(idle)
 	defer idleTimer.Stop()
@@ -4176,8 +4394,24 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			idleTimer.Reset(idle)
 			continue
 		case <-idleTimer.C:
-			b.exitInflight(node.NodeID, false)
+			b.exitInflight(node.NodeID, false) // the stall still marks the station's health signal
 			waitPump()
+			delivered := ""
+			if sink.cap != nil {
+				sink.capMu.Lock()
+				delivered = sink.cap.String()
+				sink.capMu.Unlock()
+			}
+			if strings.TrimSpace(delivered) != "" {
+				// BILL WHAT WAS DELIVERED (§14.10): the content forwarded before the stall settles.
+				// The broker's receipt claims the request's measured prompt and the forwarded text
+				// at ~chars/4; the recount below bills min(that, the exact count).
+				return onResult(protocol.JobResult{ID: jobID, Status: http.StatusOK, Receipt: protocol.UsageReceipt{
+					RequestID: jobID, NodeID: node.NodeID, User: job.User, Model: model,
+					PromptTokens: promptTokensFrom(bill.promptOf(job.Body), len(job.Body)), CompletionTokens: len(delivered)/4 + 1,
+					TS: time.Now().Unix(), LineageMethod: "broker-delivered-stall",
+				}}, "stall")
+			}
 			lw.commit()
 			lw.finish(b.voidUsageChunk(node.NodeID, model, "stall"), "")
 			return protocol.JobResult{}, false, dispatchResult
@@ -4186,176 +4420,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			waitPump()
 			return protocol.JobResult{}, true, b.dispatchErrOutcome(dispatchTk.Err())
 		case res := <-resCh:
-			b.exitInflightStatus(node.NodeID, res.Status)
-			rec := res.Receipt
-			// Same binding gate as the non-stream relay: a signature-valid receipt that
-			// names another (or no) request would settle against the wrong hold row.
-			recOK := rec.VerifyNode(node.PubKey)
-			if recOK && !rec.BindsTo(jobID, node.NodeID) {
-				log.Printf("stream receipt does not bind to dispatched job node=%s want_req=%s got_req=%s got_node=%s",
-					node.NodeID, jobID, rec.RequestID, rec.NodeID)
-				b.strikeUnboundReceipt(node.NodeID, jobID, rec)
-				recOK = false
-			}
-			if !recOK {
-				waitPump()
-				lw.commit()
-				lw.finish(b.voidUsageChunk(node.NodeID, model, "receipt-invalid"), "")
-				return res, false, dispatchResult
-			}
-			b.checkChain(node.NodeID, jobID, rec)
-			b.dispatchedModel(&rec, c) // the receipt's model is the dispatched model (§3)
-			// The stream has finished (the receipt arrived), so the captured completion
-			// text is complete. (cap is non-nil only when the L1 re-count is enabled; on
-			// a no-recount broker we fall back to the receipt's token count for the void
-			// + reward signals.)
-			completion := ""
-			if sink.cap != nil {
-				sink.capMu.Lock()
-				completion = sink.cap.String()
-				sink.capMu.Unlock()
-			}
-			// VOID-ON-NO-OUTPUT (P0), stream path. When capture is enabled we know the
-			// stream was empty if the captured text is blank; without capture we fall
-			// back to the receipt's claimed completion tokens + status. An errored or
-			// no-output stream charges $0, mints no earning, and the deferred ReleaseHold
-			// refunds the consumer's hold in full.
-			var producedOutput bool
-			if sink.cap != nil {
-				// Capture on: use the same predicate as the relay path off the captured text.
-				producedOutput = producedUsableOutput(res.Status, completion, rec.CompletionTokens)
-			} else {
-				// No capture: fall back to status + the receipt's claimed completion tokens.
-				producedOutput = res.Status < 400 && rec.CompletionTokens > 0
-			}
-			var pin, pout float64
-			var lockedUntil time.Time
-			if pricing.fixed {
-				pin, pout = pricing.in, pricing.out
-			} else {
-				curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
-				pin, pout = curIn, curOut
-				if !scheduled {
-					// Lock keyed on the SIGNED consumer identity (not the payer wallet) so the
-					// streaming path shares the SAME 24h price-lock the non-stream relay mints -
-					// otherwise a logged-in user's stream would dodge the lock (different key) and
-					// eat an owner's mid-engagement hike. See streamBill.consumer. Only a SERVED
-					// stream mints it (quotedPrice).
-					pin, pout, lockedUntil = b.quotedPrice(consumer, node.NodeID, model, curIn, curOut, producedOutput)
-				}
-			}
-			rec.PriceIn, rec.PriceOut = pin, pout
-			rec.GrantID = grantID
-			if !producedOutput {
-				if len(res.Body) == 0 && !lw.isCommitted() {
-					// An errored stream's body arrives through the stream pipe, not the result:
-					// what the station piped before failing is the upstream's answer (it is what
-					// lw.fail would send), and the void reason is read from it.
-					waitPump()
-					res.Body = lw.piped()
-				}
-				b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(bill.promptOf(job.Body), len(job.Body)), " (stream)")
-				if res.Status == http.StatusTooManyRequests {
-					b.coolPair(node.NodeID, model, bill.payerKey, res.RetryAfterSec)
-				}
-				// Nothing of this station reached the consumer yet: the caller may fail over.
-				// Once content has streamed the stream ends with the voided chunk + [DONE].
-				if lw.isCommitted() {
-					waitPump()
-					lw.finish(b.voidUsageChunk(node.NodeID, model, string(rec.VoidReason)), "")
-					return res, false, dispatchResult
-				}
-				return res, true, dispatchResult
-			}
-			// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
-			// prompt text is the request body (job.Body), available on this path too, so
-			// the input byte-floor + recount apply identically to the relay path.
-			billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, model), bill.promptOf(job.Body), rec.PromptTokens, len(job.Body))
-			billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, rec.CompletionTokens)
-			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
-			// SignBroker AFTER the broker counts are assigned (covers them).
-			rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
-			rec.SignBroker(b.priv)
-			// The serving station's own ceiling clamps the bill (see the relay path).
-			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
-			newBal, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
-			settleFailed := ferr != nil
-			if settleFailed {
-				// settle failed - leave settled=false so the deferred ReleaseHold refunds
-				log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
-				b.voidSettleFailed(user, node.NodeID, rec, res.Status)
-			} else {
-				// A free plan captures nothing: a hold placed for a paid first pick that failed
-				// over to a free station is returned by the deferred release.
-				*settled = !pricing.free || maxCost == 0
-			}
-			// THE SAME CLAMP AS THE RELAY PATH, for the same reason and off the same
-			// figure. A capacity input that is verified on one path and self-declared on
-			// the other is not a fixed capacity input - it is one with a `"stream":true`
-			// bypass, and streaming is the path most real traffic takes. See the note in
-			// the relay path above for what the unclamped claim was worth as a placement
-			// lever.
-			streamTPS := 0.0
-			if billedCompletion > 0 {
-				if el := time.Since(start).Seconds(); el > 0 {
-					streamTPS = float64(billedCompletion) / el
-					b.updateTPS(node.NodeID, streamTPS)
-				}
-			}
-			// Smart-router v2 reward + capacity evidence (streamed). This block only runs
-			// when producedOutput is true (an errored/empty stream returned above), so a
-			// leech can never shrink its UCB radius off a no-output stream. When CAPTURE is
-			// on (sink.cap != nil) an empty captured completion is NOT a quality success - we
-			// have proof it produced no text - so the usage backstop keeps it un-struck but
-			// grants it no serving reward either. Capture OFF (sink.cap == nil) has no text to
-			// judge, so it falls back to the claimed-tokens signal as before.
-			qOK := rec.CompletionTokens > 0 && (sink.cap == nil || qualityOKText(completion))
-			b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
-			// Free measurement off real (streamed) traffic: reset the probe backoff so
-			// an actively-used node is barely probed and reads as freshly verified.
-			b.markMeasured(node.NodeID)
-			log.Printf("stream user=%s node=%s model=%s out=%d cost=%.6f", user, node.NodeID, model, rec.CompletionTokens, cost)
-			logServedOfList(strings.SplitN(jobID, "-", 2)[0], bill.requested, model, node.NodeID)
-			// SSE COST METER (founder ruling 2026-07-07, "SSE meter comment"): a stream's
-			// headers were flushed before any output, so the billed cost cannot ride
-			// X-RogerAI-Cost. Emit it as a spec-compliant SSE COMMENT line at stream end -
-			// parsers ignore comment lines by spec, so no client breaks - which the local
-			// proxy reads to meter per-session spend for streamed traffic. It lands after the
-			// node's [DONE] has streamed through (settle only happens once the receipt
-			// arrives, which follows the node's final chunk). Only a SETTLED stream is
-			// metered: a failed settle refunds the hold and must not report a spend.
-			// THE BROKER'S USAGE CHUNK (contract §7): the last data frame before [DONE], carrying
-			// the settled numbers and the co-signed receipt - the stream's X-RogerAI-* headers.
-			// The comment is metered only for a SETTLED stream, exactly as before.
-			waitPump() // never write w while the multi-instance pump may still be writing
-			lw.commit()
-			lockedAt := int64(0)
-			if !lockedUntil.IsZero() {
-				lockedAt = lockedUntil.Unix()
-			}
-			chunk := map[string]any{
-				"receipt": protocol.EncodeReceipt(rec), "node": node.NodeID, "model": rec.ServedModel(),
-				"tokens_in": billedPrompt, "tokens_out": billedCompletion, "tps": streamTPS,
-				"price_in": pin, "price_out": pout, "locked_until": lockedAt,
-				"balance": round6(newBal),
-			}
-			if bill.keyFields != nil {
-				for kf, kv := range bill.keyFields() {
-					chunk[kf] = kv
-				}
-			}
-			comment := ""
-			if settleFailed {
-				cost = 0
-				chunk["void_reason"] = protocol.VoidSettleFailed
-			} else if *settled {
-				comment = "rogerai-cost=" + fmtCostHeader(cost)
-			}
-			if !settleFailed {
-				b.genServe(reqOf, nOf, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, streamTPS, protocol.EncodeReceipt(rec))
-			}
-			lw.finish(usageChunkJSON(billedPrompt, billedCompletion, cost, chunk), comment)
-			return res, false, dispatchResult // the receipt arrived; leave the idle loop
+			return onResult(res, "")
 		}
 	}
 }
@@ -4615,6 +4680,12 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	}
 	buf := make([]byte, 8192)
 	for {
+		if sink.gone != nil && sink.gone() {
+			// THE CONSUMER LEFT (§14.10): stop reading, so the station's stream POST ends and
+			// it stops generating; what was forwarded is what the settle bills.
+			jsonErr(w, http.StatusGone, "the consumer disconnected - stop generating")
+			return
+		}
 		n, err := r.Body.Read(buf)
 		if n > 0 {
 			sink.w.Write(buf[:n])
