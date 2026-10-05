@@ -234,6 +234,8 @@ func TestResolveProfileBody(t *testing.T) {
 		{"roger.profile only key is dropped", `{"model":"x","roger":{"profile":"@profile/one"}}`,
 			`{"model":"x","models":["a"]}`, ""},
 		{"same profile twice is one", `{"model":"@profile/one","roger":{"profile":"@profile/one"}}`, `{"model":"a"}`, ""},
+		{"a guest provider prefix on the reference", `{"model":"roger/@profile/one"}`, `{"model":"a"}`, ""},
+		{"the openai prefix too", `{"model":"openai/@profile/one"}`, `{"model":"a"}`, ""},
 		{"case-sensitive prefix is not a reference", `{"model":"@Profile/coding"}`, `{"model":"@Profile/coding"}`, ""},
 		{"unknown profile", `{"model":"@profile/nope"}`, "", "unknown profile nope"},
 		{"profile with a load error", `{"model":"@profile/bad"}`, "", "profile bad: roger.min_ctx must be a positive integer"},
@@ -330,4 +332,15 @@ func compact(t *testing.T, s string) string {
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
 	return string(b)
+}
+
+// TestResolveProfileBodyKeepsLargeIntegers: the merge never rounds a request's integers
+// through float64 (a seed above 2^53 reaches the station exactly as sent).
+func TestResolveProfileBodyKeepsLargeIntegers(t *testing.T) {
+	ps, err := ParseProfiles([]byte(`{"profiles":{"one":{"models":["a"]}}}`))
+	require.NoError(t, err)
+	out, resolved, err := ResolveProfileBody([]byte(`{"model":"@profile/one","seed":9007199254740993}`), ps)
+	require.NoError(t, err)
+	require.True(t, resolved)
+	require.Contains(t, string(out), `"seed":9007199254740993`)
 }

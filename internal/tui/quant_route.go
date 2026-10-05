@@ -50,8 +50,9 @@ func (m model) quantRuleRefusal(model, rowQuant string) string {
 // `:free`, C as roger.confidential, U as roger.self_hosted_only.
 //
 // The band's price caps and min-tps floor compose with the tuned profile's the STRICTER way
-// (the lower cap, the higher floor), as the broker composes a header with a body: a profile
-// can tighten the owner's band rule, never loosen it.
+// (the lower cap, the higher floor), as the broker composes a header with a body. Every other
+// key the profile states (trust, region, require, min ctx, params, quantizations) replaces
+// the band's: both are the owner's own choices, and the profile was picked on the confirm.
 func (m model) routing(model, rowQuant string) client.Routing {
 	lim := m.limits.resolve(model)
 	rt := (client.Routing{

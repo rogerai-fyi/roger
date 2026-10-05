@@ -315,9 +315,16 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			return nil, &RoutingRefusal{Msg: "models must be a list of model ids"}
 		}
 		if len(ids) > 0 {
+			// The band's own model (the request's model) is always routable, so it counts as
+			// inside the owner's set.
+			allowed := r.Models
+			var band string
+			if json.Unmarshal(m["model"], &band) == nil && band != "" {
+				allowed = append(append([]string(nil), r.Models...), bareModel(band))
+			}
 			kept := []string{}
 			for _, id := range ids {
-				if hasFold(r.Models, bareModel(id)) {
+				if hasFold(allowed, bareModel(id)) {
 					kept = append(kept, id)
 				}
 			}
@@ -399,9 +406,23 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 	}
 	if r.FreeOnly {
+		// The broker applies :free per entry, so every models[] fallback carries it too.
+		free := func(id string) string {
+			if id == "" || strings.HasSuffix(id, ":free") {
+				return id
+			}
+			return id + ":free"
+		}
 		var model string
-		if json.Unmarshal(m["model"], &model) == nil && model != "" && !strings.HasSuffix(model, ":free") {
-			m["model"], _ = json.Marshal(model + ":free")
+		if json.Unmarshal(m["model"], &model) == nil {
+			m["model"], _ = json.Marshal(free(model))
+		}
+		var ids []string
+		if json.Unmarshal(m["models"], &ids) == nil && len(ids) > 0 {
+			for i, id := range ids {
+				ids[i] = free(id)
+			}
+			m["models"], _ = json.Marshal(ids)
 		}
 	}
 	putObject(m, "roger", roger)

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -135,4 +136,40 @@ func TestOwnerRoutingCriteriaKeepsTheStricterTrust(t *testing.T) {
 		ownerRoutingCriteria(ProxyOptions{TrustMin: tc.owner}, &c)
 		require.Equal(t, tc.want, c.TrustMin, "caller %q, owner %q", tc.caller, tc.owner)
 	}
+}
+
+// TestFreeOnlyCoversEveryModelsEntry: the booth's F filter binds free-only to the whole
+// request, so every models[] fallback (the owner's list or a guest's) carries :free too; the
+// broker applies the variant per entry, and a bare entry could reach a paid station.
+func TestFreeOnlyCoversEveryModelsEntry(t *testing.T) {
+	for _, tc := range []struct{ name, guest, want string }{
+		{"the owner's list", `{"model":"a"}`, `["a:free","b:free"]`},
+		{"a guest list inside it", `{"model":"a","models":["b","a:free"]}`, `["b:free","a:free"]`},
+	} {
+		out, err := Routing{FreeOnly: true, Models: []string{"a", "b"}}.Apply([]byte(tc.guest))
+		require.NoError(t, err, tc.name)
+		var got struct {
+			Model  string          `json:"model"`
+			Models json.RawMessage `json:"models"`
+		}
+		require.NoError(t, json.Unmarshal(out, &got))
+		require.Equal(t, "a:free", got.Model, tc.name)
+		require.JSONEq(t, tc.want, string(got.Models), tc.name)
+	}
+}
+
+// TestGuestModelsMayNameTheBandModel: the band's own model is always routable, so a guest
+// models[] naming it (sugar included) is never refused when the owner's list omits it.
+func TestGuestModelsMayNameTheBandModel(t *testing.T) {
+	out, err := Routing{Models: []string{"x"}}.Apply([]byte(`{"model":"band","models":["band:nitro","x","y"]}`))
+	require.NoError(t, err)
+	var got struct {
+		Models []string `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(out, &got))
+	require.Equal(t, []string{"band:nitro", "x"}, got.Models, "the band model and the owner's are kept, y is dropped")
+
+	_, err = Routing{Models: []string{"x"}}.Apply([]byte(`{"model":"band","models":["y"]}`))
+	var rr *RoutingRefusal
+	require.ErrorAs(t, err, &rr, "a list with neither is still refused")
 }

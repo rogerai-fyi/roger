@@ -11,6 +11,7 @@ package client
 // profile only, naming the profile and the key.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -478,10 +479,12 @@ func deepCopy(v any) any {
 	return v
 }
 
-// profileRefOf reports the profile a body names, from model "@profile/<n>" or roger.profile.
-// Case-sensitive: "@Profile/x" is not a reference. A sugar suffix on the reference is an error.
+// profileRefOf reports the profile a body names, from model "@profile/<n>" (a guest provider
+// prefix such as roger/ is stripped first) or roger.profile. Case-sensitive: "@Profile/x" is
+// not a reference. A sugar suffix on the reference is an error.
 func profileRefOf(m map[string]any) (name string, fromModel bool, err error) {
 	model, _ := m["model"].(string)
+	model = guestModelID(model)
 	var a, b string
 	if strings.HasPrefix(model, ProfileRef) {
 		a = strings.TrimPrefix(model, ProfileRef)
@@ -514,8 +517,12 @@ func profileRefOf(m map[string]any) (name string, fromModel bool, err error) {
 // resolved=false. An unknown profile, two profiles, sugar on the reference or a merge conflict
 // is a *RoutingRefusal.
 func ResolveProfileBody(body []byte, profs *Profiles) (out []byte, resolved bool, err error) {
+	// UseNumber: the request is re-encoded after the merge, and float64 would round its
+	// large integers (a seed above 2^53).
 	var m map[string]any
-	if json.Unmarshal(body, &m) != nil || m == nil {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if !json.Valid(body) || dec.Decode(&m) != nil || m == nil {
 		return body, false, nil
 	}
 	name, fromModel, err := profileRefOf(m)
