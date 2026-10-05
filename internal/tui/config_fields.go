@@ -75,7 +75,7 @@ func (m model) rowLimit(row string) Limit {
 		defer m.limits.mu.Unlock()
 		return m.limits.Default
 	}
-	return m.limits.resolve(row)
+	return m.limits.own(row)
 }
 
 func (m model) putRowLimit(row string, l Limit) {
@@ -123,11 +123,22 @@ func fieldBuf(l Limit, f int) string {
 	return ""
 }
 
-// applyField parses a typed value into field f of l. An empty value leaves the field as it was
-// (clearing a rule is d, or typing 0); a value the contract refuses is an error for the plate.
+// applyField parses a typed value into field f of l. An empty value clears a text field
+// (params, min ctx, max ttft, region) and leaves a number as it was (a number clears by typing
+// 0, the whole rule by d); a value the contract refuses is an error for the plate.
 func applyField(l Limit, f int, raw string) (Limit, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
+		switch f {
+		case lfParams:
+			l.ParamsB = nil
+		case lfMinCtx:
+			l.MinCtx = 0
+		case lfMaxTTFT:
+			l.MaxTTFTMs = 0
+		case lfRegion:
+			l.Region = nil
+		}
 		return l, nil
 	}
 	num := func() (float64, error) {

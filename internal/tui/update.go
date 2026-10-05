@@ -1822,7 +1822,7 @@ func (m *model) onOverLimitKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// persist the new per-model max, then re-run the connect check.
-		lim := m.limits.resolve(m.q.b.model)
+		lim := m.limits.own(m.q.b.model)
 		lim.MaxOut = nv
 		m.limits.set(m.q.b.model, lim)
 		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))

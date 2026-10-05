@@ -684,7 +684,7 @@ func (m model) checkedQuants() []string {
 // the picker and the typed path, so the status copy can never drift apart.
 func (m model) saveQuantRule(qs []string) (tea.Model, tea.Cmd) {
 	m.mode = modeBandConfig
-	lim := m.limits.resolve(m.cfgModel)
+	lim := m.limits.own(m.cfgModel)
 	lim.Quants = qs
 	m.limits.Set(m.cfgModel, lim)
 	if len(qs) == 0 {

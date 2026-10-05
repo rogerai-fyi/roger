@@ -207,3 +207,44 @@ func TestProfileHelpersWithoutAStore(t *testing.T) {
 	require.Equal(t, "", m.confirmRoutingLine())
 	require.Equal(t, "", m.onProfileRow())
 }
+
+// TestEditingABandKeepsItsOwnRuleOnly: a band's rule inherits the default per key when it
+// RESOLVES, but an edit writes back only what the band itself sets - the default's keys are
+// never frozen into the band entry (so a later default edit still reaches the band).
+func TestEditingABandKeepsItsOwnRuleOnly(t *testing.T) {
+	m, _ := configModel(t)
+	m.limits.Default = Limit{MinTPS: 10, Region: []string{"eu"}}
+	m.limits.Models["q"] = Limit{MaxOut: 2}
+	m.limCursor, m.editField, m.editBuf = 0, lfMaxOut, "3"
+	require.True(t, m.commitLimitField())
+	require.Equal(t, Limit{MaxOut: 3}, m.limits.Models["q"], "the plate edit")
+
+	m.cfgModel = "q"
+	m.saveQuantRule([]string{"Q8_0"})
+	require.Equal(t, Limit{MaxOut: 3, Quants: []string{"Q8_0"}}, m.limits.Models["q"], "the quant picker")
+	require.Equal(t, Limit{MaxOut: 3, MinTPS: 10, Region: []string{"eu"}, Quants: []string{"Q8_0"}}, m.limits.Resolve("q"),
+		"and the band still resolves with the default's keys under its own")
+}
+
+// TestEmptyInputClearsATextField: params, min ctx, max ttft and region are cleared one at a
+// time by committing an empty value; the other keys of the rule are untouched.
+func TestEmptyInputClearsATextField(t *testing.T) {
+	full := Limit{MaxOut: 2, ParamsB: []float64{7, 70}, MinCtx: 32768, MaxTTFTMs: 1500, Region: []string{"eu"}}
+	for f, want := range map[int]Limit{
+		lfParams:  {MaxOut: 2, MinCtx: 32768, MaxTTFTMs: 1500, Region: []string{"eu"}},
+		lfMinCtx:  {MaxOut: 2, ParamsB: []float64{7, 70}, MaxTTFTMs: 1500, Region: []string{"eu"}},
+		lfMaxTTFT: {MaxOut: 2, ParamsB: []float64{7, 70}, MinCtx: 32768, Region: []string{"eu"}},
+		lfRegion:  {MaxOut: 2, ParamsB: []float64{7, 70}, MinCtx: 32768, MaxTTFTMs: 1500},
+	} {
+		got, err := applyField(full, f, "  ")
+		require.NoError(t, err, limFieldDefs[f].label)
+		require.Equal(t, want, got, limFieldDefs[f].label)
+
+		// and through the editor: the cleared key is persisted
+		m, _ := configModel(t)
+		m.limits.Models["q"] = full
+		m.limCursor, m.editField, m.editBuf = 0, f, ""
+		require.True(t, m.commitLimitField())
+		require.Equal(t, want, m.limits.Models["q"], limFieldDefs[f].label+" via the editor")
+	}
+}

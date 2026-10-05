@@ -512,6 +512,21 @@ func (l Limit) acceptsQuant(q string) bool {
 	return false
 }
 
+// own is the rule an EDIT of `model` starts from: the band's own stored entry, else the
+// default. Writing back the merged view (resolve) would freeze the default's keys into the
+// band, so a later default edit would no longer reach it.
+func (s *LimitStore) own(model string) Limit {
+	if s == nil {
+		return Limit{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if l, ok := s.Models[model]; ok {
+		return l
+	}
+	return s.Default
+}
+
 // Resolve is the band rule the booth applies to `model` (see resolve).
 func (s *LimitStore) Resolve(model string) Limit { return s.resolve(model) }
 
