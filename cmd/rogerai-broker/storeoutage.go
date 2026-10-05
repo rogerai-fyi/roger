@@ -16,20 +16,32 @@ import (
 // here while the shared store is down: one 25 s poll hold plus margin.
 var localPollFresh = 30 * time.Second
 
+// storeOutageDebounce is how long the shared store must have been failing, continuously, before
+// this instance treats it as down for dispatch: one failed operation is a blip, not an outage.
+var storeOutageDebounce = 2 * time.Second
+
 // localJobs marks the jobs this instance handed to a local poller because the shared store was
 // down, so their result and stream chunks are read back in memory rather than routed through
 // the store. Per-request and per-instance by nature (the job never left this process).
 var localJobs sync.Map // job id -> struct{}
 
-// dispatchStoreDown reports whether this multi-instance broker currently sees its shared store
-// as unreachable (the same signal /ready reports as shared "degraded").
+// dispatchStoreDown reports whether this multi-instance broker sees its shared store as down
+// for dispatch: failing continuously, with no success in between, for at least
+// storeOutageDebounce. One failed operation (a blip) does not switch dispatch to outage mode.
 func (b *broker) dispatchStoreDown() bool {
 	if !b.multiInstance {
 		return false
 	}
 	vs, ok := b.shared.(*valkeyStore)
-	return ok && vs != nil && !vs.healthy()
+	if ok && vs != nil && dispatchCheckForTest != nil {
+		dispatchCheckForTest(b, vs)
+	}
+	return ok && vs != nil && !vs.healthy() && vs.downFor() >= storeOutageDebounce
 }
+
+// dispatchCheckForTest, when set, runs just before dispatchStoreDown reads the store's health,
+// so a test can fail one operation at exactly that moment. Nil in production.
+var dispatchCheckForTest func(b *broker, vs *valkeyStore)
 
 // polledHereLocked reports whether node long-polled this instance within localPollFresh.
 // Caller holds b.mu (localPollAt is guarded by it).

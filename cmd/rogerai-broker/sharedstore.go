@@ -573,9 +573,12 @@ type valkeyStore struct {
 	// still running older code heartbeats only into the per-node keys, so both are read.
 	livenessHashOnly atomic.Bool
 
-	mu      sync.Mutex
-	up      bool // last observed reachability (for healthy())
-	lastLog time.Time
+	mu sync.Mutex
+	up bool // last observed reachability (for healthy())
+	// downSince is when the current run of failures began (zero while up): dispatch treats
+	// the store as down only once that run has lasted storeOutageDebounce (downFor).
+	downSince time.Time
+	lastLog   time.Time
 
 	// opErrors is a monotonic count of EVERY failed Valkey op (publish/subscribe/get/set/
 	// script/...), funneled through noteErr. It is an atomic so the (rare) error path adds
@@ -766,8 +769,30 @@ func newValkeyStoreTopology(tp valkeyTopology) (*valkeyStore, error) {
 
 func (v *valkeyStore) setUp(up bool) {
 	v.mu.Lock()
-	v.up = up
+	v.markLocked(up)
 	v.mu.Unlock()
+}
+
+// markLocked records reachability and starts or ends the current run of failures. Caller holds mu.
+func (v *valkeyStore) markLocked(up bool) {
+	switch {
+	case up:
+		v.downSince = time.Time{}
+	case v.downSince.IsZero():
+		v.downSince = time.Now()
+	}
+	v.up = up
+}
+
+// downFor is how long the store has been failing without a single success in between (zero
+// while it answers).
+func (v *valkeyStore) downFor() time.Duration {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.up || v.downSince.IsZero() {
+		return 0
+	}
+	return time.Since(v.downSince)
 }
 
 func (v *valkeyStore) healthy() bool {
@@ -785,7 +810,7 @@ func (v *valkeyStore) noteErr(op string, err error) {
 	}
 	v.opErrors.Add(1)
 	v.mu.Lock()
-	v.up = false
+	v.markLocked(false)
 	logNow := time.Since(v.lastLog) > 30*time.Second
 	if logNow {
 		v.lastLog = time.Now()
