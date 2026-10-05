@@ -1318,7 +1318,10 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 	// The shared slot becomes the attempt, so whichever instance sees it end can free it.
 	if tok := b.takeSlotToken(account); tok != "" {
 		if err := b.shared.edgeSlotPromote(account, tok, attemptID, until); err != nil {
-			log.Printf("edge attempt cap: could not bind attempt %s to its slot (lapses in %s): %v", attemptID, edgeReserveTTL, err)
+			// Never leave an open attempt uncounted: keep trying to count it (adopt works
+			// even after the reservation lapsed) until it lands or the attempt is over.
+			log.Printf("edge attempt cap: could not bind attempt %s to its slot, retrying: %v", attemptID, err)
+			go b.adoptSlotUntilCounted(account, tok, attemptID, until)
 		}
 	}
 	// Publish OUTSIDE the lock, exactly as exitInflight does for the classic counter: metricsMu
@@ -1331,6 +1334,27 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 		time.AfterFunc(d, func() { b.edgeExitInflight(attemptID) })
 	} else {
 		b.edgeExitInflight(attemptID)
+	}
+}
+
+// edgeSlotAdoptBackoff is the first retry wait of adoptSlotUntilCounted (doubling, capped at 5 s).
+var edgeSlotAdoptBackoff = 100 * time.Millisecond
+
+// adoptSlotUntilCounted retries counting an open attempt in the shared per-account cap after
+// its promotion failed, until it lands, the attempt closes on this instance, or its deadline
+// passes. Counting a just-closed attempt is harmless: the closing instance frees it by id.
+func (b *broker) adoptSlotUntilCounted(account, token, attemptID string, until time.Time) {
+	for d := edgeSlotAdoptBackoff; time.Now().Before(until); d = min(2*d, 5*time.Second) {
+		time.Sleep(d)
+		b.metricsMu.Lock()
+		_, open := b.edgeInflight[attemptID]
+		b.metricsMu.Unlock()
+		if !open {
+			return
+		}
+		if err := b.shared.edgeSlotAdopt(account, token, attemptID, until); err == nil {
+			return
+		}
 	}
 }
 

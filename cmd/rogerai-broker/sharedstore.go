@@ -167,6 +167,10 @@ type sharedStore interface {
 	// for attemptID (score = the attempt's deadline) and records attemptID -> account so the
 	// instance that sees the attempt end, whichever it is, can free the slot.
 	edgeSlotPromote(account, token, attemptID string, deadline time.Time) error
+	// edgeSlotAdopt counts attemptID in the account's set whether or not its reservation token
+	// is still there (it may have lapsed while a promotion kept failing): it records the
+	// attempt's account, removes the token if present and adds the attempt with its deadline.
+	edgeSlotAdopt(account, token, attemptID string, deadline time.Time) error
 	// edgeSlotDrop frees a reservation that never became an attempt.
 	edgeSlotDrop(account, token string) error
 	// edgeSlotFree frees the slot an attempt holds. Idempotent: an unknown or already-freed
@@ -470,6 +474,7 @@ func (m *memStore) edgeSlotReserve(string, string, time.Time, time.Time, int) (b
 	return false, errNoSharedStore
 }
 func (m *memStore) edgeSlotPromote(string, string, string, time.Time) error { return errNoSharedStore }
+func (m *memStore) edgeSlotAdopt(string, string, string, time.Time) error   { return errNoSharedStore }
 func (m *memStore) edgeSlotDrop(string, string) error                       { return errNoSharedStore }
 func (m *memStore) edgeSlotFree(string) error                               { return errNoSharedStore }
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
@@ -2033,6 +2038,38 @@ func (v *valkeyStore) edgeSlotPromote(account, token, attemptID string, deadline
 	}
 	if err != nil {
 		v.noteErr("edgeSlotPromote", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// edgeSlotAdoptScript: KEYS[1] the account's set; ARGV token, attempt id, deadline ms, now ms.
+var edgeSlotAdoptScript = redis.NewScript(`
+redis.call('ZREM', KEYS[1], ARGV[1])
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[2])
+local ttl = tonumber(ARGV[3]) - tonumber(ARGV[4])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+func (v *valkeyStore) edgeSlotAdopt(account, token, attemptID string, deadline time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	now := time.Now()
+	ttl := max(deadline.Sub(now), time.Millisecond)
+	err := v.rdb.Set(ctx, edgeAttPrefix+attemptID, account, ttl).Err()
+	if err == nil {
+		err = edgeSlotAdoptScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+			token, attemptID, deadline.UnixMilli(), now.UnixMilli()).Err()
+	}
+	if err != nil {
+		v.noteErr("edgeSlotAdopt", err)
 		return err
 	}
 	v.setUp(true)
