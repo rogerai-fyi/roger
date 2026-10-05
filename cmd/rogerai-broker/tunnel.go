@@ -1684,9 +1684,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-RogerAI-Request-Id", requestID)
 	// The /generation record: assembled as the relay runs, written once when it returns.
 	gw := &genWriter{ResponseWriter: w}
-	w = gw
 	gen := b.genOpen(requestID, time.Now())
 	defer b.genClose(gen, gw, r)
+	// Every relay response says how many station attempts it made (§14.B2).
+	rw := &relayWriter{ResponseWriter: gw, attempts: func() (n int) {
+		gen.with(func(st *genStored) { n = len(st.Rec.Attempts) })
+		return n
+	}}
+	w = rw
 	corsCreds(w, r)
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 
@@ -1769,6 +1774,22 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			st.Wallet, st.GrantID, st.GrantOwner = "", gc.grant.ID, gc.grant.Owner
 		}
 	})
+	// IDEMPOTENCY (§14.B2): claimed before any rate token, moderation, hold or dispatch, so a
+	// retry is answered from the first outcome and can never cost twice. Scope: the paying
+	// identity; an anonymous or unbound caller is scoped to its address as well.
+	if _, has := r.Header["Idempotency-Key"]; has {
+		scope := wallet
+		if !gok && !kok && (user == "anon" || !(authed && walletLoggedIn(wallet))) {
+			scope = user + "|" + clientIP(r)
+		}
+		finish, done := b.idemBegin(w, r, rw, body, scope, requestID)
+		if done {
+			return
+		}
+		if finish != nil {
+			defer finish()
+		}
+	}
 	// Per-caller rate limit: smooth bursts + cap sustained rate so one caller can't
 	// flood the broker or a provider. Checked before the costly moderation/pick. A
 	// grant uses its own bucket map keyed by grant id, with the grant's rpm/burst.

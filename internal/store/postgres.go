@@ -448,7 +448,19 @@ CREATE TABLE IF NOT EXISTS rogerai.account_keys (
     last_used      BIGINT NOT NULL DEFAULT 0,
     requests       BIGINT NOT NULL DEFAULT 0,
     owner_pub      TEXT NOT NULL DEFAULT '');   -- the minting owner key (notice mail)
-CREATE INDEX IF NOT EXISTS account_keys_account ON rogerai.account_keys (account);`
+CREATE INDEX IF NOT EXISTS account_keys_account ON rogerai.account_keys (account);
+-- Idempotency-Key claims (contract 14.B2): one row per (payer, key); the first insert wins, so a
+-- retry never starts a second job, hold or settle. Rows past the window are taken over.
+CREATE TABLE IF NOT EXISTS rogerai.idempotency_claims (
+    payer       TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    request_id  TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    deadline    BIGINT NOT NULL DEFAULT 0,
+    created     BIGINT NOT NULL,
+    seq         BIGSERIAL,                   -- claim order: breaks a tie on created for eviction
+    PRIMARY KEY (payer, key));`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on

@@ -171,6 +171,10 @@ type broker struct {
 	// affLocal is the session-affinity fallback when the shared store is absent or down
 	// (affinity.go): bounded, best effort; the shared store is the source of truth.
 	affLocal affinityLocal
+	// idemLocal holds replayable outcomes when the shared store is down (idempotency.go);
+	// the claim itself always lives in the store.
+	idemLocal idemLocal
+	idemRL    *rateLimiter // the Idempotency-Key lookup bucket, per scope (nil = unlimited)
 	// toolProbeAt is when the tool-call canary last RAN for a (node,model), used to throttle
 	// RE-verification of a model that already holds the bit. It is deliberately separate from
 	// the verdict itself: the verdict says what we believe, this says when we last checked.
@@ -808,7 +812,8 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		}
 	})
 	b.rl = loadRateLimiter()
-	b.grantRL = loadRateLimiter() // independent bucket map keyed by grant id
+	b.grantRL = loadRateLimiter()                               // independent bucket map keyed by grant id
+	b.idemRL = &rateLimiter{buckets: map[string]*tokenBucket{}} // the Idempotency-Key lookup bucket (idempotency.go)
 	b.anonRL = loadAnonRateLimiter()
 	b.recount = loadRecount()
 	b.probe = loadProbe()

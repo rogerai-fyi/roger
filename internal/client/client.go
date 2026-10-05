@@ -836,7 +836,7 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		// cost arrives as the `: rogerai-cost=` SSE comment at stream END, accumulated after
 		// the budget slot was already released (the ceiling's crossing stream completes; the
 		// NEXT call sees the updated spend and gets the 402).
-		relayWithFailover(r.Context(), w, opts, crit, rewritten, httpClient, policy, onServed, h.addSpend)
+		relayWithFailover(withIdempotencyKey(r.Context(), r.Header.Get("Idempotency-Key")), w, opts, crit, rewritten, httpClient, policy, onServed, h.addSpend)
 	})
 
 	// Catch-all: every other route (/, /v1/embeddings, /v1/responses, /healthz, …) is an
@@ -884,6 +884,9 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	var lastErr error
 	var lastStatus int
 	waited := false // the one band-cooling wait this request gets
+	// ONE Idempotency-Key per client request (§14.B2): the client's own, else one minted here,
+	// carried by every attempt so the broker never runs the request twice.
+	idemKey := idempotencyKeyOf(ctx)
 	// An OLD broker (header mode) cannot read the caller's own carriers: lift what has a
 	// header form, drop and name the rest, and refuse a models[] list honestly rather than
 	// silently serving the primary alone.
@@ -952,6 +955,7 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		req.Body = io.NopCloser(bytes.NewReader(sent))
 		req.ContentLength = int64(len(sent))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", idemKey)
 		// Sign the request with the local user key: the broker derives the spending
 		// wallet from the verified pubkey (X-Roger-User is sent only as a legacy,
 		// unauthenticated hint). This is the P0 security fix - a header alone can no
@@ -1036,6 +1040,12 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			}
 			if p := resp.Header.Get("X-RogerAI-Provider"); p != "" {
 				failed[p] = true
+			}
+			// The broker already walked its own plan (more than one station attempt): a
+			// re-pick here would only repeat that, so the retry goes back unchanged.
+			if n, _ := strconv.Atoi(resp.Header.Get("X-RogerAI-Attempts")); n > 1 {
+				order = nil
+				continue
 			}
 		}
 		// The preferred alternative failed too (or was skipped) - never prefer it again.

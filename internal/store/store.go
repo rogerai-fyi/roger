@@ -437,6 +437,15 @@ type Store interface {
 	// to anon (de-identified like the rest of the account).
 	RetireAccountKeys(account, anon string) error
 
+	// --- Idempotency-Key claims (contract §14.B2; idem.go) --------------------
+
+	// ClaimIdempotency claims (c.Payer, c.Key) for c.RequestID unless a claim created at or
+	// after since holds it; it returns the live claim (claimed=false) or c (claimed=true).
+	// Claiming keeps at most maxPerPayer keys per payer, evicting the oldest.
+	ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemClaim, bool, error)
+	// FinishIdempotency sets the state of the claim requestID holds (no-op otherwise).
+	FinishIdempotency(payer, key, requestID, state string) error
+
 	// --- grant keys (GRANT-KEYS-DESIGN) ------------------------------------
 
 	// CreateGrant persists an owner-issued grant (free or custom-priced private
@@ -884,6 +893,9 @@ type NodeRecord struct {
 // Mem is the in-memory implementation (single-process, non-durable).
 type Mem struct {
 	mu          sync.Mutex
+	idemClaims  map[string]IdemClaim // Idempotency-Key claims by payer\x00key (idem.go)
+	idemSeq     map[string]int64     // claim order of each (tie-break for eviction)
+	idemN       int64
 	chainHead   map[string]string // nodeID -> last recorded receipt-chain head
 	chainBreaks map[string]int64
 	chainSeen   map[string]int64
