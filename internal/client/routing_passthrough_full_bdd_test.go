@@ -685,6 +685,12 @@ func (s *cf4pState) ownerTunedWith(flags string) error {
 			s.ownerExtra[cf4pFieldOf[name]] = f
 		case "--trust":
 			s.ownerExtra[cf4pFieldOf[name]] = val
+		case "--node":
+			s.ownerExtra["Prefer"], s.ownerExtra["NoFallbacks"] = []string{val}, true
+		case "--order":
+			s.ownerExtra["Prefer"] = strings.Split(val, ",")
+		case "--no-fallbacks":
+			s.ownerExtra["NoFallbacks"] = true
 		case "--region", "--only", "--exclude", "--models":
 			s.ownerExtra[cf4pFieldOf[name]] = strings.Split(val, ",")
 		default:

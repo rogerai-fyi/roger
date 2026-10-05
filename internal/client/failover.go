@@ -577,7 +577,7 @@ func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
 	if len(c.Region) == 0 && len(opts.Region) > 0 {
 		c.Region = append([]string(nil), opts.Region...)
 	}
-	if c.TrustMin == "" {
+	if trustRank(opts.TrustMin) > trustRank(c.TrustMin) {
 		c.TrustMin = opts.TrustMin
 	}
 	for _, r := range opts.Require {

@@ -301,23 +301,11 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 	}
 	if len(r.Only) > 0 {
-		for _, x := range stringsOf(provider["order"]) {
-			if !hasFold(r.Only, x) {
-				return nil, &RoutingRefusal{Msg: "order names " + x + ", outside this session's allowed stations"}
-			}
+		guestOnly := len(stringsOf(provider["only"])) > 0
+		if err := capStations(provider, r.Only, "allowed"); err != nil {
+			return nil, err
 		}
-		if got := stringsOf(provider["only"]); len(got) > 0 {
-			kept := []string{}
-			for _, x := range got {
-				if hasFold(r.Only, x) {
-					kept = append(kept, x)
-				}
-			}
-			if len(kept) == 0 {
-				return nil, &RoutingRefusal{Msg: "only names no station inside this session's allowed stations"}
-			}
-			provider["only"] = kept
-		} else {
+		if !guestOnly {
 			provider["only"] = r.Only
 		}
 	}
@@ -343,6 +331,12 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		} else {
 			enc, _ := json.Marshal(r.Models)
 			m["models"] = enc
+		}
+	}
+	if r.NoFallbacks && len(r.Prefer) > 0 {
+		// With no fallbacks the owner's order is the whole routable set: a ceiling like --only.
+		if err := capStations(provider, r.Prefer, "pinned"); err != nil {
+			return nil, err
 		}
 	}
 	if len(r.Order) > 0 {
@@ -813,4 +807,30 @@ func guestNamesOtherModelOf(body []byte, tuned string) bool {
 func rawObjectOK(raw json.RawMessage) bool {
 	var m map[string]json.RawMessage
 	return json.Unmarshal(raw, &m) == nil && m != nil
+}
+
+// capStations holds a guest's provider.order and provider.only inside the owner's station
+// set: an order naming a station outside it is refused, an only list is intersected with it
+// (and refused when nothing is left, since an empty list would read as no filter).
+func capStations(provider map[string]any, set []string, kind string) *RoutingRefusal {
+	for _, x := range stringsOf(provider["order"]) {
+		if !hasFold(set, x) {
+			return &RoutingRefusal{Msg: "order names " + x + ", outside this session's " + kind + " stations"}
+		}
+	}
+	got := stringsOf(provider["only"])
+	if len(got) == 0 {
+		return nil
+	}
+	kept := []string{}
+	for _, x := range got {
+		if hasFold(set, x) {
+			kept = append(kept, x)
+		}
+	}
+	if len(kept) == 0 {
+		return &RoutingRefusal{Msg: "only names no station inside this session's " + kind + " stations"}
+	}
+	provider["only"] = kept
+	return nil
 }

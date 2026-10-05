@@ -18,9 +18,9 @@ func TestApplyOwnerRoutingKeys(t *testing.T) {
 		{"absent keys take the owner's", `{"model":"m"}`,
 			`{"model":"m","provider":{"sort":"price","order":["n1"],"allow_fallbacks":false,"require_parameters":true},
 			  "roger":{"require":["tools"],"params_b":[7,70],"min_ctx":8192,"max_ttft_ms":1500}}`, ""},
-		{"a guest may only tighten", `{"model":"m","provider":{"order":["n2"],"allow_fallbacks":true,"require_parameters":false},
+		{"a guest may only tighten", `{"model":"m","provider":{"order":["n1"],"allow_fallbacks":true,"require_parameters":false},
 			"roger":{"require":["vision"],"params_b":[30,100],"min_ctx":32768,"max_ttft_ms":900}}`,
-			`{"model":"m","provider":{"sort":"price","order":["n2"],"allow_fallbacks":false,"require_parameters":true},
+			`{"model":"m","provider":{"sort":"price","order":["n1"],"allow_fallbacks":false,"require_parameters":true},
 			  "roger":{"require":["tools","vision"],"params_b":[30,70],"min_ctx":32768,"max_ttft_ms":900}}`, ""},
 		{"a guest loosening is raised back", `{"model":"m","roger":{"params_b":[1,7],"min_ctx":1024,"max_ttft_ms":5000}}`,
 			`{"model":"m","provider":{"sort":"price","order":["n1"],"allow_fallbacks":false,"require_parameters":true},
@@ -28,6 +28,12 @@ func TestApplyOwnerRoutingKeys(t *testing.T) {
 		{"a guest pref keeps the owner's sort out", `{"model":"m","roger":{"pref":"fast"}}`,
 			`{"model":"m","provider":{"order":["n1"],"allow_fallbacks":false,"require_parameters":true},
 			  "roger":{"pref":"fast","require":["tools"],"params_b":[7,70],"min_ctx":8192,"max_ttft_ms":1500}}`, ""},
+		// With no fallbacks the owner's order is the ceiling (contract §9): a guest order or
+		// only outside it never replaces the owner's pin.
+		{"a guest order outside a no-fallback pin is refused", `{"model":"m","provider":{"order":["n2"]}}`, "",
+			"order names n2, outside this session's pinned stations"},
+		{"a guest only outside a no-fallback pin is refused", `{"model":"m","provider":{"only":["n2"]}}`, "",
+			"only names no station inside this session's pinned stations"},
 		{"a disjoint params range is refused", `{"model":"m","roger":{"params_b":[100,200]}}`, "",
 			"params_b is outside this session's allowed range"},
 	}
@@ -113,4 +119,20 @@ func captureOut(t *testing.T, fn func()) string {
 	fn()
 	_ = w.Close()
 	return <-done
+}
+
+// TestOwnerRoutingCriteriaKeepsTheStricterTrust pins that the re-pick never runs below the
+// owner's trust floor: a caller's lower trust_min ("any") is raised to the owner's, and a
+// caller's higher one stands, so failover never prefers a station the broker will refuse.
+func TestOwnerRoutingCriteriaKeepsTheStricterTrust(t *testing.T) {
+	for _, tc := range []struct{ caller, owner, want string }{
+		{"any", "verified", "verified"},
+		{"", "verified", "verified"},
+		{"confidential", "verified", "confidential"},
+		{"verified", "", "verified"},
+	} {
+		c := Criteria{TrustMin: tc.caller}
+		ownerRoutingCriteria(ProxyOptions{TrustMin: tc.owner}, &c)
+		require.Equal(t, tc.want, c.TrustMin, "caller %q, owner %q", tc.caller, tc.owner)
+	}
 }

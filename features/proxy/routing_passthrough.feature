@@ -267,6 +267,25 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with "provider": {"order": ["n3"]}
     Then the guest receives an OpenAI-shaped 400 "order names n3, outside this session's allowed stations"
 
+  # regression 2026-10-05: audit finding, contract §9
+  Scenario: An owner's no-fallback pin is the ceiling for the guest's order and only
+    Given the proxy owner tuned with --node n1
+    When a chat request arrives with "provider": {"order": ["n9"]}
+    Then the guest receives an OpenAI-shaped 400 "order names n9, outside this session's pinned stations"
+    And nothing reaches the broker
+    When a chat request arrives with "provider": {"only": ["n1","n9"]}
+    Then the broker receives provider.only = ["n1"]
+    When a chat request arrives with "provider": {"only": ["n9"]}
+    Then the guest receives an OpenAI-shaped 400 "only names no station inside this session's pinned stations"
+
+  # regression 2026-10-05: audit finding, contract §9
+  Scenario: An owner's --order with --no-fallbacks lets the guest narrow the order, never leave it
+    Given the proxy owner tuned with --order n1,n2 --no-fallbacks
+    When a chat request arrives with "provider": {"order": ["n2"]}
+    Then the broker receives provider.order = ["n2"]
+    When a chat request arrives with "provider": {"order": ["n2","n3"]}
+    Then the guest receives an OpenAI-shaped 400 "order names n3, outside this session's pinned stations"
+
   Scenario: The owner's --exclude is unioned with the guest's ignore
     Given the proxy owner tuned with --exclude n9
     When a chat request arrives with "provider": {"ignore": ["n8"]}
