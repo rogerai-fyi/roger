@@ -439,3 +439,24 @@ func TestPatchingAVerifiedAddressIsRefused(t *testing.T) {
 	require.Equal(t, http.StatusOK, patch("me@example.com").Code, "re-saving the same address is fine")
 	require.Equal(t, http.StatusOK, patch("ME@example.com").Code, "case-only is the same address")
 }
+
+// The guard must hold for an EMPTY address and a malformed body too: both used to reach the
+// store, which nulls the verification when the address changes.
+func TestPatchingAVerifiedAddressToEmptyOrGarbageDoesNotDropIt(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "me@example.com").Code)
+	send := func(raw string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPatch, "/account", strings.NewReader(raw))
+		req.Header.Set("Origin", testWebOrigin)
+		req.AddCookie(c)
+		rec := httptest.NewRecorder()
+		b.account(rec, req)
+		return rec
+	}
+	require.Equal(t, http.StatusConflict, send(`{"email":""}`).Code, "clearing a verified address is refused")
+	require.Equal(t, http.StatusBadRequest, send(`{not json`).Code, "a malformed body is refused, not treated as empty")
+	require.Equal(t, http.StatusConflict, send(`{}`).Code, "an absent email is an empty one")
+	o, found, _ := b.db.OwnerByVerifiedEmail("me@example.com")
+	require.True(t, found, "the verification survived every attempt")
+	require.Equal(t, "pk-1", o.Pubkey)
+}

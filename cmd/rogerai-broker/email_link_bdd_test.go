@@ -38,6 +38,7 @@ var linkTests = map[string]func(*testing.T){
 	"TestASessionWithAnUnparseableGitHubIdIsRejected":                    TestASessionWithAnUnparseableGitHubIdIsRejected,
 	"TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked":    TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked,
 	"TestPatchingAVerifiedAddressIsRefused":                              TestPatchingAVerifiedAddressIsRefused,
+	"TestPatchingAVerifiedAddressToEmptyOrGarbageDoesNotDropIt":          TestPatchingAVerifiedAddressToEmptyOrGarbageDoesNotDropIt,
 	"TestTheMergeCheckHasNoSideEffect":                                   TestTheMergeCheckHasNoSideEffect,
 	"TestAnAddressWithAPipeCanBeLinked":                                  TestAnAddressWithAPipeCanBeLinked,
 	"TestTheLinkBudgetIsPerAccountNotPerIP":                              TestTheLinkBudgetIsPerAccountNotPerIP,

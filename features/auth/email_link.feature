@@ -135,7 +135,7 @@ Feature: A signed-in person adds a verified email to their account
     When the contact email is patched to a different address
     Then the server refuses it, so the verification is never silently dropped
     And re-saving the same address (any case) is fine, and the page locks the field at once
-    # test: TestPatchingAVerifiedAddressIsRefused,web/test/account-link.test.mjs
+    # test: TestPatchingAVerifiedAddressIsRefused,TestPatchingAVerifiedAddressToEmptyOrGarbageDoesNotDropIt,web/test/account-link.test.mjs
 
   Scenario: Flow namespaces cannot collide through an address that contains a pipe
     Given "|" is legal in an address
