@@ -2504,6 +2504,7 @@ func (b *broker) outageLocalDispatch(nodeID string) (local bool, outcome dispatc
 	if b.polledHere(nodeID) {
 		return true, dispatchResult
 	}
+	b.stats.busDispatchErr.Add(1) // a dispatch the dead bus refused (dispatch.feature)
 	return false, dispatchBusErr
 }
 
