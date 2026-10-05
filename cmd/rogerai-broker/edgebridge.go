@@ -129,7 +129,7 @@ type edgeMetric struct {
 	in, out float64 // $/1M
 	cost    float64 // estimated request cost, USD (§14.7); price ranks on it first
 	tps     float64 // 0 = unmeasured (sorts last)
-	ttft    float64 // ms, 0 = unmeasured (sorts last)
+	latency float64 // ms: total latency, else TTFT; 0 = unmeasured (sorts last)
 }
 
 // edgeRefusal is a consumer-facing refusal a bridge gate produced (not a Tower failure):

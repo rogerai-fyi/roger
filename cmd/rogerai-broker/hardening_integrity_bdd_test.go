@@ -1217,16 +1217,34 @@ func (s *ri6State) towerTTFTTotal(name, model, ttft, total string) error {
 	tq.ttftMs = atofMust(ttft)
 	s.b.trust[tw.nodeID] = tq
 	s.b.mu.Unlock()
-	// No measurement surface holds a total latency today; the scenario's figure is kept so a
-	// GREEN seam can feed it.
-	s.scen["total:"+name] = atoiMust(total)
+	s.setTotalLatency(tw.nodeID, total)
 	return nil
 }
 
 func (s *ri6State) directTTFTTotal(name, ttft, total string) error {
-	s.setTTFT(s.ensureNode(name), atoiMust(ttft))
-	s.scen["total:"+name] = atoiMust(total)
+	st := s.ensureNode(name)
+	s.setTTFT(st, atoiMust(ttft))
+	s.setTotalLatency(st.id, total)
 	return nil
+}
+
+func (s *ri6State) directTTFTNoTotal(name, ttft string) error {
+	st := s.ensureNode(name)
+	s.setTTFT(st, atoiMust(ttft))
+	s.b.metricsMu.Lock()
+	delete(s.b.totalLat, st.id)
+	s.b.metricsMu.Unlock()
+	return nil
+}
+
+// setTotalLatency states a node's measured total latency (seconds) on the broker's own figure.
+func (s *ri6State) setTotalLatency(nodeID, secs string) {
+	s.b.metricsMu.Lock()
+	if s.b.totalLat == nil {
+		s.b.totalLat = map[string]float64{}
+	}
+	s.b.totalLat[nodeID] = float64(atoiMust(secs)) * 1000
+	s.b.metricsMu.Unlock()
 }
 
 func (s *ri6State) relaySort(who, model, sortBy string) error {
@@ -1640,6 +1658,7 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^the stream fails over to "([^"]+)" before any content frame$`, st.failsOverBeforeContent)
 	sc.Step(`^an approved Tower "([^"]+)" serves "([^"]+)" with TTFT (\d+) ms and total latency (\d+) s$`, st.towerTTFTTotal)
 	sc.Step(`^direct station "([^"]+)" has TTFT (\d+) ms and total latency (\d+) s$`, st.directTTFTTotal)
+	sc.Step(`^direct station "([^"]+)" has TTFT (\d+) ms and no total latency$`, st.directTTFTNoTotal)
 	sc.Step(`^"([^"]+)" relays for "([^"]+)" with provider\.sort "([^"]+)"$`, st.relaySort)
 	sc.Step(`^the plan head is "([^"]+)"$`, st.planHead)
 	sc.Step(`^an approved Tower "([^"]+)" serves "([^"]+)" and answers in (\d+) seconds$`, st.towerSlow)

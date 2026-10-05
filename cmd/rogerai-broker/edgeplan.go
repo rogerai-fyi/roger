@@ -102,7 +102,7 @@ func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 	sr, sseen := b.success[c.node.NodeID]
 	b.metricsMu.Unlock()
 	cost := estRequestCost(c.promptTokens, expectedOutput(c.outTokens, c.promptTokens, c.offer.Ctx), ain, aout)
-	return edgeMetric{in: ain, out: aout, cost: cost, tps: tps, ttft: tq.ttftMs}, tierAHealthy(tq.probeFails, sr, sseen)
+	return edgeMetric{in: ain, out: aout, cost: cost, tps: tps, latency: b.latencyRank(c.node.NodeID, tq.ttftMs)}, tierAHealthy(tq.probeFails, sr, sseen)
 }
 
 // edgeMetricLess is the strict single-metric ordering of contract §5 over two candidates
@@ -128,11 +128,11 @@ func edgeMetricLess(key sortKey, a, b edgeMetric) (before, decided bool) {
 			return a.tps > b.tps, true
 		}
 	case sortLatency:
-		if am, bm := a.ttft > 0, b.ttft > 0; am != bm {
+		if am, bm := a.latency > 0, b.latency > 0; am != bm {
 			return am, true
 		}
-		if a.ttft != b.ttft {
-			return a.ttft < b.ttft, true
+		if a.latency != b.latency {
+			return a.latency < b.latency, true
 		}
 	}
 	return false, false

@@ -107,6 +107,11 @@ type sharedStore interface {
 	// keeps the last merged view). Keyed by node+"\x00"+model.
 	toolsVerified(ttl time.Duration) (map[string]bool, error)
 
+	// Total latency per node (totallatency.go): setTotalLatency writes a node's EWMA through,
+	// totalLatencies reads every node's figure for the sync loop's merge.
+	setTotalLatency(node string, ms float64) error
+	totalLatencies() (map[string]float64, error)
+
 	// cacheGet returns the cached bytes for key (found == true) or a miss
 	// (found == false). It is a READ-ONLY accelerator for the hot, expensive read
 	// paths (/discover + /market, /metrics/series + /console): NEVER a money/mutating

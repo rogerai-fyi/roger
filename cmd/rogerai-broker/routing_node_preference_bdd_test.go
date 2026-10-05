@@ -70,6 +70,11 @@ type np1Snap struct {
 type np1State struct {
 	*s0State
 
+	// np1TTFTOnly: the scenario stated TTFT figures, so every relay starts with no total
+	// latency measured (the stub answers in microseconds, and the broker's own measurement of a
+	// served relay would otherwise outrank the stated figures from the second relay on).
+	np1TTFTOnly bool
+
 	// request shaping beyond what the slice-0 runner carries
 	np1Grant   bool               // relay as the grant holder (bearer token, no signature)
 	np1PrefHdr string             // X-Roger-Pref
@@ -114,7 +119,7 @@ func (s *np1State) np1Reset() error {
 	s.np1Snapped, s.np1Before, s.np1LogMark = false, np1Snap{}, 0
 	s.np1RA, s.np1TPS, s.np1BannedOps = map[string]string{}, map[string]float64{}, map[string]bool{}
 	s.np1Later, s.np1BResults, s.np1Collision, s.np1PoseTower = nil, nil, "", ""
-	s.np1Shares = nil
+	s.np1Shares, s.np1TTFTOnly = nil, false
 	return nil
 }
 
@@ -444,6 +449,11 @@ func (s *np1State) np1Snapshot() error {
 // np1Fire is one REAL relay with the current shaping: the slice-0 fire plus the grant bearer,
 // the X-Roger-Pref header, a second consumer and streaming.
 func (s *np1State) np1Fire() error {
+	if s.np1TTFTOnly {
+		s.b.metricsMu.Lock()
+		clear(s.b.totalLat)
+		s.b.metricsMu.Unlock()
+	}
 	if err := s.np1Snapshot(); err != nil {
 		return err
 	}
@@ -741,6 +751,7 @@ var (
 )
 
 func (s *np1State) np1SetTTFT(name string, ms float64) {
+	s.np1TTFTOnly = true
 	s.b.mu.Lock()
 	tq := s.b.trust[s.st(name).id]
 	tq.ttftMs = ms
@@ -1900,15 +1911,9 @@ func (s *np1State) np1OneLogLine(reason, name string) error {
 	if s.lastCode != 200 {
 		return fmt.Errorf("status %d, want 200 (%s)", s.lastCode, s.lastBody)
 	}
-	rec, err := protocol.DecodeReceipt(s.lastHdr.Get("X-RogerAI-Receipt"))
-	if err != nil {
-		return fmt.Errorf("no receipt to read the request id from: %v", err)
-	}
-	req := rec.RequestID
-	if i := strings.LastIndex(req, "-"); i > 0 {
-		if _, aerr := strconv.Atoi(req[i+1:]); aerr == nil {
-			req = req[:i] // the attempt suffix; the line names the request
-		}
+	req := s.lastHdr.Get("X-RogerAI-Request-Id") // the line names the request, never an attempt
+	if req == "" {
+		return fmt.Errorf("the response names no request id")
 	}
 	id, n := s.idOf(name), 0
 	for _, line := range strings.Split(s.np1LogsSince(s.np1LogMark), "\n") {

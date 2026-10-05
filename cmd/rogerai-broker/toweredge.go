@@ -940,7 +940,7 @@ func (b *broker) edgeEligibleM(rows []fleet.Station, bannedNode map[string]bool,
 		// passes (a floor on a measurement cannot judge what was never measured).
 		tps := b.tps[nodeID]
 		rin, rout := edgeRowPrice(row.PriceIn), edgeRowPrice(row.PriceOut)
-		metrics[i] = edgeMetric{in: rin, out: rout, tps: tps, ttft: tq.ttftMs,
+		metrics[i] = edgeMetric{in: rin, out: rout, tps: tps, latency: b.latencyRankLocked(nodeID, tq.ttftMs),
 			cost: estRequestCost(c.promptTokens, expectedOutput(c.outTokens, c.promptTokens, 0), rin, rout)}
 		if c.minTPS > 0 && tps > 0 && tps < c.minTPS {
 			c.note("min_tps", row.TowerID)

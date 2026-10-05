@@ -35,10 +35,10 @@ func inSortBand(key sortKey, best, c edgeMetric, band float64) bool {
 		}
 		return c.tps > 0 && c.tps >= best.tps*(1-band)
 	case sortLatency:
-		if best.ttft <= 0 {
-			return c.ttft <= 0
+		if best.latency <= 0 {
+			return c.latency <= 0
 		}
-		return c.ttft > 0 && c.ttft <= best.ttft*(1+band)
+		return c.latency > 0 && c.latency <= best.latency*(1+band)
 	}
 	return false
 }

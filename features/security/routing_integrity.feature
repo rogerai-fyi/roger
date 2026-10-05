@@ -274,6 +274,22 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     When "u-1" relays for "m" with provider.sort "latency"
     Then the plan head is "s1"
 
+  # founder ruling 2026-10-05: sort:latency means total latency for every row, direct ones too
+  Scenario: sort latency ranks direct stations on total latency, not first token
+    Given station "s2" is on air for "m"
+    And direct station "s1" has TTFT 100 ms and total latency 9 s
+    And direct station "s2" has TTFT 400 ms and total latency 2 s
+    When "u-1" relays for "m" with provider.sort "latency"
+    Then the plan head is "s2"
+
+  # founder ruling 2026-10-05: with no total latency measured yet, TTFT stands in
+  Scenario: sort latency falls back to first token where no total latency is measured
+    Given station "s2" is on air for "m"
+    And direct station "s1" has TTFT 100 ms and no total latency
+    And direct station "s2" has TTFT 400 ms and no total latency
+    When "u-1" relays for "m" with provider.sort "latency"
+    Then the plan head is "s1"
+
   Scenario: A bridged stream attempt gets the same deadline as a direct stream attempt
     Given an approved Tower "t1" serves "m" and answers in 30 seconds
     When "u-1" streams for "m" with provider.order ["t1"]

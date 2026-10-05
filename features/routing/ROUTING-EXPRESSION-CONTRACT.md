@@ -592,6 +592,25 @@ Slice 1 part C (2026-10-01):
 22. The bridged receipt carries the broker signature only; a Tower-key node signature needs a
     hub-side protocol change (tagged `@later`).
 
+Rulings on the slice-6 open items (founder, 2026-10-05):
+23. Job ids (§14.B7 #13): the keyed per-attempt id, with the key derived from the broker signing
+    key under its own label, so every instance agrees and no mapping table exists. A receipt
+    names the attempt, not the request: responses carry `X-RogerAI-Attempt-Id` (the attempt the
+    receipt names), and the consumer's own ledger rows and /console consumer events carry
+    `relay_request_id` beside it (Postgres: a `relay_request_id` column on receipts). A station
+    owner's rows never carry it. No station protocol change.
+24. Region (§14.B7 #21): the network-to-continent table is operator-supplied by configuration;
+    the public code ships only the loader and names no dataset. With no table configured, region
+    stays declared only (today's behavior) and `attribute_sources.region` says "declared".
+25. Probe shape (§14.B7 #2): canaries take the organic stream share of the model's recent
+    traffic; a streamed canary is read through a stream sink like a customer's, waits on the
+    stream idle window, and is graded on the rebuilt answer.
+26. Latency (§14.B7 #19): `sort: latency` means TOTAL latency (time to the whole answer) for
+    every row, direct and bridged, measured per node as an EWMA at settle and kept in the shared
+    store; where no total is measured yet it falls back to TTFT; unmeasured ranks last.
+27. Route explain: the `self_hosted_only` exclusion is pinned with a curated station of its own
+    (the outline row that named a never-curated station is replaced).
+
 ---
 
 ## 14. Hardening (slice 6, PROPOSED 2026-10-02, awaiting founder approval)
@@ -881,12 +900,14 @@ by the feature file named beside it.
   routing_budget_exceeded (no hold, no dispatch). Cap drops evaluated inside the pick; body parsed
   once.
 - Unlinkable job ids: "att_" + hex(HMAC-SHA256(broker secret, request id + ":" + n))[:24];
-  receipts bind to it; the broker maps it back for settlement.
+  receipts bind to it and name it; `X-RogerAI-Attempt-Id` names the served attempt; the
+  consumer's own ledger rows carry `relay_request_id` (§13 ruling 23).
 - /generation owner view drops key_id, models, moderation; /generation has its own rate bucket
   (same per-identity limits as /console).
 - Tower streams: keepalive comment every 10s after commit while waiting (knob, not content for
-  failover); sort:latency ranks bridged rows on total latency; bridged stream attempts get the
-  direct stream deadline.
+  failover); sort:latency ranks EVERY row (direct and bridged) on total latency, falling back to
+  TTFT where none is measured (§13 ruling 26); bridged stream attempts get the direct stream
+  deadline.
 - attribute_sources on /discover offers and the /v1/models rogerai block (region/quant declared;
   params_b and ctx declared|estimated; tools verified; vision declared; tps/ttft measured).
   Region contradicted by the station's coarse network bucket (when it maps to a known continent)

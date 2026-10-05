@@ -979,6 +979,7 @@ func (b *broker) syncLivenessOnce() {
 	// instance routes around a cooling station. All three arrive by the change log, or by a
 	// full snapshot at boot, on a gap, or on the reconcile interval (changelog.go).
 	b.syncChanges()
+	b.syncTotalLatency() // the shared total-latency figures sort:latency ranks on
 	snap, err := b.shared.liveness()
 	if err != nil || len(snap) == 0 {
 		return
@@ -3358,8 +3359,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// like a direct one, and the plan continues; a bridge gate (rate, slot, balance) moves
 			// to the next candidate or stands as the answer.
 			b.genAttemptStart(requestID, i+1, "", c.model)
+			edgeStart := time.Now()
 			answer, g, out := b.planEdgeAttempt(r, c, payer, &holdKey, maxCost, i+1 < len(plan), deadline)
 			if len(answer) > 0 {
+				b.observeTotalLatency(c.edge.row.NodeID, float64(time.Since(edgeStart).Milliseconds()))
 				brec, bcost := b.writeBridgedAnswer(w, g, c.edge.row, c.edge.pubHex, answer, false)
 				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, bcost, brec.PromptTokens, brec.CompletionTokens, 0, protocol.EncodeReceipt(brec))
 				settled = true // the hold rides the attempt id the Tower's settlement captures
@@ -3623,6 +3626,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// estimate. A 200-with-empty-body does NOT count.
 			qOK := res.Status < 500 && rec.CompletionTokens > 0 && qualityOK(res.Body)
 			b.recordServed(node.NodeID, qOK, tps, concurrentAtDispatch)
+			b.observeTotalLatency(node.NodeID, float64(time.Since(start).Milliseconds()))
 			// We just measured this node for FREE off real traffic: reset its probe
 			// backoff + push the next probe out, so an actively-used node is barely
 			// probed (and reads as freshly verified, not stale).
@@ -4312,8 +4316,12 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			lw.Header().Set("X-RogerAI-Relay", c.edge.row.TowerID)
 			stopKA := lw.keepalive(bridgeKeepalive())
 			log.Printf("bridge stream attempt request=%s tower=%s window_s=%d", requestID, c.edge.row.TowerID, int(b.streamIdle().Seconds()))
+			edgeStart := time.Now()
 			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, false, time.Now().Add(b.streamIdle()))
 			stopKA()
+			if len(answer) > 0 {
+				b.observeTotalLatency(c.edge.row.NodeID, float64(time.Since(edgeStart).Milliseconds()))
+			}
 			if len(answer) == 0 {
 				lw.Header().Del("X-RogerAI-Relay")
 			}
@@ -4714,6 +4722,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 		// judge, so it falls back to the claimed-tokens signal as before.
 		qOK := rec.CompletionTokens > 0 && (sink.cap == nil || qualityOKText(completion))
 		b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
+		b.observeTotalLatency(node.NodeID, float64(time.Since(start).Milliseconds()))
 		// Free measurement off real (streamed) traffic: reset the probe backoff so
 		// an actively-used node is barely probed and reads as freshly verified.
 		b.markMeasured(node.NodeID)
@@ -5313,7 +5322,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		in, out  float64 // the active (time-of-use) price right now
 		estCost  float64 // estimated request cost at those prices, USD (§14.7): what price ranks on
 		tps      float64 // measured throughput (0 = unmeasured)
-		ttft     float64 // measured time to first token, ms (0 = unmeasured)
+		latency  float64 // what sort:latency ranks on: total latency, else TTFT, ms (0 = unmeasured)
 		inflight int
 		capacity int
 		rel      float64 // reliability spine
@@ -5479,7 +5488,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			// multi-instance is off, so the single-instance load factor is unchanged.
 			inflight := b.inflight[n.NodeID] + b.peerInflight[n.NodeID]
 			cands = append(cands, cand{
-				node: n, offer: o, in: in, out: out, estCost: estCost, tps: tps, ttft: tq.ttftMs, inflight: inflight,
+				node: n, offer: o, in: in, out: out, estCost: estCost, tps: tps, latency: b.latencyRankLocked(n.NodeID, tq.ttftMs), inflight: inflight,
 				capacity: cap, rel: rel, fit: fit, radius: radius, tierA: tierA,
 			})
 		}
@@ -5571,7 +5580,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		// spread (the consumer said what they want). Ties fall to the score, then the stable
 		// candidate order. Unmeasured stations rank last under throughput / latency.
 		metric := func(c cand) edgeMetric {
-			return edgeMetric{in: c.in, out: c.out, cost: c.estCost, tps: c.tps, ttft: c.ttft}
+			return edgeMetric{in: c.in, out: c.out, cost: c.estCost, tps: c.tps, latency: c.latency}
 		}
 		best := pool[0]
 		for _, sc := range pool[1:] {
@@ -5596,7 +5605,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		chosen = best.idx
 		// With no measurement at the top of a speed sort there is nothing to band on: the
 		// strict sort falls back to the score (node_preference.feature), as before.
-		unmeasured := (req.sort == sortThroughput && bm.tps <= 0) || (req.sort == sortLatency && bm.ttft <= 0)
+		unmeasured := (req.sort == sortThroughput && bm.tps <= 0) || (req.sort == sortLatency && bm.latency <= 0)
 		if len(band) > 1 && !unmeasured {
 			chosen = band[spareWeightedPick(weights, req.rng)]
 		}
