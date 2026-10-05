@@ -63,3 +63,16 @@ Feature: Signed-in pages are honest about identity and empty states
   Scenario: /account reports provider, email, verification and operator state
     Then every sign-in shape reports who it is and whether it is an operator
     # test: cmd/rogerai-broker/account_identity_test.go
+
+  Scenario: An operator with marks on the account can appeal from the stations page
+    Given an account has evidence recorded against it, with or without live stations
+    When they write a reason and send the appeal
+    Then it posts only the reason (the account comes from the session) and shows the appeal id
+    And an empty reason is not sent and a refusal is shown, never claimed as filed
+    # test: web/test/stations-appeal.test.mjs
+
+  Scenario: The dashboard shows balance, and what is payable to an operator, at no extra cost
+    When a customer with traffic opens the dashboard
+    Then a balance tile shows from the account response already fetched
+    And an operator also sees payable now, and a consumer does not
+    # test: web/test/dashboard-states.test.mjs
