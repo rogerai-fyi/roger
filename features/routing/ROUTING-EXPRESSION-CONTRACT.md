@@ -910,8 +910,11 @@ by the feature file named beside it.
   deadline.
 - attribute_sources on /discover offers and the /v1/models rogerai block (region/quant declared;
   params_b and ctx declared|estimated; tools verified; vision declared; tps/ttft measured).
-  Region contradicted by the station's coarse network bucket (when it maps to a known continent)
-  → ineligible under roger.region, /admin/live region_mismatch, /discover "contradicted"; curated
+  Region contradicted by the station's network (when the operator's network-to-continent table,
+  `ROGERAI_NET_CONTINENTS`, maps its connecting address to a continent other than the declared
+  region's) → ineligible under roger.region, /admin/live region_mismatch, /discover
+  attribute_sources.region "contradicted"; no table configured = declared only (§13 ruling 24);
+  the continent is stamped on the registration and travels with the shared registry; curated
   regions (provider names) are never contradicted; addresses never exposed. Docs: region is not
   data residency.
 

@@ -146,7 +146,7 @@ func (b *broker) netRejectLocked(f netFilters, reg protocol.NodeRegistration, o 
 	if f.trustVerified && !b.verifiedFreshLocked(reg.NodeID, tq, now) {
 		return "trust_min"
 	}
-	if f.regions != nil && (reg.Region == "" || !f.regions[strings.ToLower(strings.TrimSpace(reg.Region))]) {
+	if f.regions != nil && (reg.Region == "" || !f.regions[strings.ToLower(strings.TrimSpace(reg.Region))] || regionContradicted(reg)) {
 		return "region"
 	}
 	return ""

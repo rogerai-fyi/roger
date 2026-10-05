@@ -63,7 +63,7 @@ func (s *ri6State) reset() error {
 	s.resMark, s.bodyMark, s.logMark, s.jobUsers = map[string]int{}, map[string]int{}, 0, nil
 	s.genCode, s.genBody, s.discover, s.admin = 0, nil, nil, nil
 	s.lastModel = "m"
-	return nil
+	return s.loadTable()
 }
 
 // --- marks ---------------------------------------------------------------------------------
@@ -1381,15 +1381,35 @@ const (
 	ri6Unknown = "203.0.113.5"
 )
 
+// setAddr is the station connecting from ip: the broker stamps its registration through the same
+// call register makes, under the operator table the scenario runs with (ri6Table, or none).
 func (s *ri6State) setAddr(name, ip string) {
 	st := s.ensureNode(name)
 	s.b.mu.Lock()
-	if s.b.netBucket == nil {
-		s.b.netBucket = map[string]string{}
-	}
-	s.b.netBucket[st.id] = coarseNetBucket(ip)
+	reg := s.b.nodes[st.id]
+	s.b.stampNetContinent(&reg, ip)
+	s.b.nodes[st.id] = reg
 	s.b.mu.Unlock()
 	s.scen["ip:"+name] = ip
+}
+
+// ri6Table is the operator table the region scenarios run with (testdata/net_continents.txt).
+func (s *ri6State) loadTable() error {
+	t, err := loadNetTable("testdata/net_continents.txt")
+	s.b.netTable = t
+	return err
+}
+
+func (s *ri6State) noTable() error { s.b.netTable = nil; return nil }
+
+func (s *ri6State) adminNoMismatch() error {
+	if err := s.readAdminLive(); err != nil {
+		return err
+	}
+	if v, ok := ri6Find(s.adminResp, "region_mismatch"); ok && fmt.Sprint(v) != "[]" {
+		return fmt.Errorf("/admin/live region_mismatch lists %v, want none", v)
+	}
+	return nil
 }
 
 func (s *ri6State) declaresRegion(name, region string) error {
@@ -1687,4 +1707,6 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^"([^"]+)"'s region is not marked "contradicted"$`, st.notMarkedContradicted)
 	sc.Step(`^a consumer GETs /discover and /admin/live$`, st.discoverAndAdmin)
 	sc.Step(`^neither shows "([^"]+)"'s IP address or network bucket$`, st.noAddressShown)
+	sc.Step(`^no network table is configured$`, st.noTable)
+	sc.Step(`^/admin/live region_mismatch lists no station$`, st.adminNoMismatch)
 }

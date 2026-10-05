@@ -180,6 +180,8 @@ type broker struct {
 	// totalLat is each node's total-latency EWMA in ms (totallatency.go), guarded by metricsMu;
 	// merged from the shared store on the sync loop when one is wired.
 	totalLat map[string]float64
+	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.
+	netTable *netTable
 	// idemLocal holds replayable outcomes when the shared store is down (idempotency.go);
 	// the claim itself always lives in the store.
 	idemLocal idemLocal
@@ -766,6 +768,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		probeSched:   map[string]*probeState{},
 		lastPersist:  map[string]time.Time{},
 		priv:         priv, feeRate: fee, seedFunds: seed, lockWin: lock,
+		netTable:    loadNetTableFromEnv(),
 		ttsMaxChars: audioTTSMaxChars(), audioSem: newAudioSem(),
 		banned:                 map[string]bool{},
 		reportEjectAt:          reportEjectThreshold(),

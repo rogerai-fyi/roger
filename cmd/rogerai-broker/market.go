@@ -13,8 +13,11 @@ import (
 type offerView struct {
 	NodeID string `json:"node_id"`
 	Region string `json:"region"`
-	HW     string `json:"hw"`
-	Model  string `json:"model"`
+	// regionContradicted: the station's network contradicts its declared region (§14.B7 #21);
+	// surfaced only as attribute_sources.region "contradicted".
+	regionContradicted bool
+	HW                 string `json:"hw"`
+	Model              string `json:"model"`
 	// Quant / Weights / Variant tell two offers of the SAME model id apart, so a consumer
 	// can pick the compression and the build rather than trusting that one "qwen3-8b" is
 	// interchangeable with another. Carried VERBATIM from the offer, never bucketed.
@@ -217,7 +220,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		}
 		out = append(out, offerView{
 			ParamsB: params, ParamsEstimated: paramsEst,
-			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
+			NodeID: n.NodeID, Region: n.Region, regionContradicted: regionContradicted(n), HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
 			Curated: n.Curated, CuratedProvider: n.CuratedProvider,
 			UpstreamIn: o.UpstreamIn, UpstreamOut: o.UpstreamOut, TPM: o.TPM,
 			// canonicalized at read, never raw wire. The VERIFIED "tools" bit is unioned in from the
@@ -253,6 +256,9 @@ func attributeSources(v offerView) map[string]string {
 	src := map[string]string{"tps": "measured", "ttft": "measured"}
 	if v.Region != "" {
 		src["region"] = "declared"
+		if v.regionContradicted {
+			src["region"] = "contradicted"
+		}
 	}
 	if v.Quant != "" {
 		src["quant"] = "declared"

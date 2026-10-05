@@ -588,6 +588,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := time.Now()
+	b.stampNetContinent(&reg, clientIP(r)) // §14.B7 #21: rides the registration (and its mirror)
 	b.nodes[reg.NodeID] = reg
 	b.lastSeen[reg.NodeID] = now
 	go b.notePostedPrices(reg) // when each price was first posted (§14.12): shared-store I/O, off the lock

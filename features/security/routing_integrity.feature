@@ -325,6 +325,17 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     And /admin/live region_mismatch lists "s1"
     And /discover marks "s1"'s region "contradicted"
 
+  # founder ruling 2026-10-05: the network table is operator-supplied; with none configured the
+  # check fails open and region stays declared only.
+  Scenario: With no network table configured a declared region is never contradicted
+    Given no network table is configured
+    And "s1" declares region "eu"
+    And "s1"'s address falls in a network bucket that maps to North America
+    When "u-1" relays for "m" with roger.region ["eu"]
+    Then "s1" is a candidate
+    And "s1"'s region is not marked "contradicted"
+    And /admin/live region_mismatch lists no station
+
   Scenario: A region consistent with the network stays eligible
     Given "s1" declares region "eu" and its address maps to Europe
     When "u-1" relays for "m" with roger.region ["eu"]

@@ -374,10 +374,14 @@ type NodeRegistration struct {
 	// BridgeToken is a shared secret the broker presents (Bearer) when relaying
 	// to the node's bridge. It secures the PUBLIC tunnel URL so only the broker
 	// can use it - randoms who discover the *.trycloudflare.com URL can't.
-	BridgeToken string       `json:"bridge_token"`
-	Region      string       `json:"region"`
-	HW          string       `json:"hw"`
-	Offers      []ModelOffer `json:"offers"`
+	BridgeToken string `json:"bridge_token"`
+	Region      string `json:"region"`
+	// NetContinent is BROKER-set at register: the continent the node's connecting address falls
+	// in under the operator's network table ("" = none). It is outside the node's signed bytes
+	// (regSigningBytes), rides the shared registry mirror, and is never emitted to consumers.
+	NetContinent string       `json:"net_continent,omitempty"`
+	HW           string       `json:"hw"`
+	Offers       []ModelOffer `json:"offers"`
 	// Confidential: node claims it runs inference in a TEE/confidential VM where
 	// the owner cannot read memory; Attestation is the (to-be-verified) hardware
 	// quote. The broker only surfaces `confidential ◆` after CRYPTOGRAPHICALLY
@@ -457,6 +461,7 @@ type NodeRegistration struct {
 func (r NodeRegistration) regSigningBytes() []byte {
 	c := r
 	c.Sig = ""
+	c.NetContinent = "" // broker-set after the node signs
 	if len(c.Offers) > 0 {
 		offers := make([]ModelOffer, len(c.Offers))
 		copy(offers, c.Offers)
