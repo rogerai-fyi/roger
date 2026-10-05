@@ -123,7 +123,7 @@ Feature: A signed-in person adds a verified email to their account
     When they re-encode the token as a session cookie naming a victim's wallet
     Then it is not a session, because link tokens are signed with their own derived key
     And a session whose numeric fields do not parse is not a session either
-    # test: TestALinkTokenCanNeverBeReplayedAsASessionCookie,TestASessionWithAnUnparseableGitHubIdIsRejected
+    # test: TestALinkTokenCanNeverBeReplayedAsASessionCookie,TestASessionWithAnUnparseableGitHubIdIsRejected,TestALinkTokenSignedWithTheSessionKeyIsRefused
 
   Scenario: A session that was live before its address was linked is not a mixed identity
     Given an email session was live when its address was linked to a GitHub account

@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -459,4 +460,23 @@ func TestPatchingAVerifiedAddressToEmptyOrGarbageDoesNotDropIt(t *testing.T) {
 	o, found, _ := b.db.OwnerByVerifiedEmail("me@example.com")
 	require.True(t, found, "the verification survived every attempt")
 	require.Equal(t, "pk-1", o.Pubkey)
+}
+
+// Pins the DERIVED key itself: a token signed with the raw session key (the vulnerable design)
+// must be refused, while a genuinely minted one is accepted. Reverting linkKey() to
+// sessionKey() makes the first assertion fail.
+func TestALinkTokenSignedWithTheSessionKeyIsRefused(t *testing.T) {
+	b, _, _ := linkFixture(t)
+	exp := time.Now().Add(time.Hour).Unix()
+
+	good := b.mintLinkToken("pk-1", "me@example.com", exp)
+	require.True(t, b.linkTokenOK(good, "pk-1", "me@example.com"), "control: a minted token verifies")
+
+	raw := "pk-1\x00me@example.com\x00" + strconv.FormatInt(exp, 10)
+	for _, signed := range []string{raw, "link|" + raw} { // either way the old design could have signed it
+		mac := hmac.New(sha256.New, b.sessionKey())
+		mac.Write([]byte(signed))
+		forged := base64.RawURLEncoding.EncodeToString([]byte(raw)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+		require.False(t, b.linkTokenOK(forged, "pk-1", "me@example.com"), "a token signed with the session key is not a link token")
+	}
 }
