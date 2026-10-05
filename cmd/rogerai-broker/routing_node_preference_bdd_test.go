@@ -447,6 +447,14 @@ func (s *np1State) np1Fire() error {
 	if err := s.np1Snapshot(); err != nil {
 		return err
 	}
+	// The stated tok/s hold across the batch: the stub upstream answers in microseconds, so
+	// the broker's own measurement of a served relay would otherwise overwrite them after the
+	// first serve (a band pick, §14.4, is sensitive to exactly that).
+	for n, v := range s.np1TPS {
+		if st, ok := s.stations[n]; ok {
+			s.setTPS(st.id, v)
+		}
+	}
 	var priv ed25519.PrivateKey
 	switch {
 	case s.np1Grant:

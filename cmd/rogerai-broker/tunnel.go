@@ -5250,7 +5250,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			}
 		}
 		chosen = best.idx
-		if len(band) > 1 {
+		// With no measurement at the top of a speed sort there is nothing to band on: the
+		// strict sort falls back to the score (node_preference.feature), as before.
+		unmeasured := (req.sort == sortThroughput && bm.tps <= 0) || (req.sort == sortLatency && bm.ttft <= 0)
+		if len(band) > 1 && !unmeasured {
 			chosen = band[spareWeightedPick(weights, req.rng)]
 		}
 	}

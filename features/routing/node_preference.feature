@@ -839,10 +839,13 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 20 funded consumers relay with provider.sort "throughput"
     Then the picks follow the score order
 
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # a tps tie is inside the 10% speed band and broken by the request seed.
+  # Old Then: every pick is "s1".
   Scenario: sort throughput breaks a tps tie on score
     Given measured tps "s1" 40 and "s2" 40, and "s1" has the better reliability
     When 20 funded consumers relay with provider.sort "throughput"
-    Then every pick is "s1"
+    Then both "s1" and "s2" are picked
 
   Scenario: sort throughput with min_tps filters first, then sorts
     Given measured tps "s1" 20, "s2" 60, "s3" 40
