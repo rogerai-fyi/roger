@@ -1991,6 +1991,7 @@ func (g *gl3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit("attempts and cost are present"), g.attemptsAndCostPresent)
 	sc.Step(lit("the record has no receipt"), g.noReceipt)
 	sc.Step(lit("the record has no key_limit and no key_spend_after"), g.noKeyState)
+	sc.Step(lit("the record has no key_id"), func() error { return g.absent("key_id") })
 	sc.Step(`^attempts has exactly one entry, ([a-z]+)'s: \{ (.+) \}$`, g.ownerOneAttempt)
 	sc.Step(lit("served is absent from the body"), g.servedAbsent)
 	sc.Step(`^the body does not contain "([^"]*)"$`, g.bodyLacksName)

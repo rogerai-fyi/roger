@@ -443,7 +443,9 @@ func (b *broker) generation(w http.ResponseWriter, r *http.Request) {
 	if grantID != "" {
 		limitKey = "gen-grant:" + grantID
 	}
-	if ok, retry := b.rl.allow(limitKey); !ok {
+	// Its own bucket (§14.B7), never the relay's: reading records cannot starve relays, and a
+	// caller at its relay limit can still look its requests up.
+	if ok, retry := b.genLimiter().allow(limitKey); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(retry))
 		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
 		return
@@ -498,10 +500,12 @@ func (b *broker) genOwnerView(st genStored, ownerPub string, found bool) any {
 	if !found || (!minted && len(attempts) == 0) {
 		return nil
 	}
+	// Lean (§14.B7): no key id, no model list and no moderation verdict - the consumer's
+	// choices and screening are not a station owner's business.
 	view := map[string]any{
-		"id": rec.ID, "created_at": rec.CreatedAt, "model_requested": rec.ModelRequested, "models": rec.Models,
+		"id": rec.ID, "created_at": rec.CreatedAt, "model_requested": rec.ModelRequested,
 		"streamed": rec.Streamed, "cancelled": rec.Cancelled, "status": rec.Status, "error_code": rec.ErrorCode,
-		"moderation": rec.Moderation, "key_id": rec.KeyID, "attempts": attempts,
+		"attempts": attempts,
 	}
 	if rec.Served != nil && (minted || mine(rec.Served.Node)) {
 		view["served"] = rec.Served
@@ -509,6 +513,18 @@ func (b *broker) genOwnerView(st genStored, ownerPub string, found bool) any {
 		view["ttft_ms"], view["latency_ms"] = rec.TTFTMs, rec.LatencyMs
 	}
 	return view
+}
+
+// genLimiter is /generation's own bucket, at the relay's per-identity limits
+// (ROGERAI_RATE_RPM / _BURST, as /console), built on first use.
+func (b *broker) genLimiter() *rateLimiter {
+	b.genRLOnce.Do(func() {
+		b.genRL = loadRateLimiter()
+		if b.rl != nil {
+			b.genRL.rpm, b.genRL.burst = b.rl.rpm, b.rl.burst
+		}
+	})
+	return b.genRL
 }
 
 // msOf is a duration in milliseconds with microsecond resolution (a fast local relay is

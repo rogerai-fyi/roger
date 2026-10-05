@@ -1222,12 +1222,9 @@ func (s *ri6State) onAirNoParams(name, model string) error {
 func (s *ri6State) toolsVision(name, model string) error {
 	st := s.ensureNode(name)
 	s.mutateReg(name, func(r *protocol.NodeRegistration) { r.Offers[0].Capabilities = []string{"vision"} })
-	s.b.metricsMu.Lock()
-	if s.b.toolsOK == nil {
-		s.b.toolsOK = map[string]bool{}
-	}
-	s.b.toolsOK[toolKey(st.id, model)] = true
-	s.b.metricsMu.Unlock()
+	// Earned the real way: a passing tool-call canary verdict, mirrored to the shared store
+	// like production's (writing toolsOK alone skips the shared verdict multi-instance reads).
+	s.b.recordToolProbe(st.id, model, true, false, true)
 	return nil
 }
 

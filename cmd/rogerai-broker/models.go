@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 type modelEntry struct {
@@ -201,6 +203,24 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 		if len(a.caps) > 0 {
 			block["capabilities"] = sortedKeys(a.caps)
 		}
+		// Where the block's attributes come from (§14.B7), as on each /discover offer.
+		src := map[string]string{"tps": "measured", "ttft": "measured"}
+		if len(a.quants) > 0 {
+			src["quant"] = "declared"
+		}
+		if est, ok := block["params_estimated"].(bool); ok {
+			src["params_b"] = map[bool]string{true: "estimated", false: "declared"}[est]
+		}
+		if a.ctxMax > 0 {
+			src["ctx"] = "declared"
+		}
+		if a.caps[protocol.CapTools] {
+			src["tools"] = "verified"
+		}
+		if a.caps[protocol.CapVision] {
+			src["vision"] = "declared"
+		}
+		block["attribute_sources"] = src
 		params := []string{"max_tokens", "temperature", "top_p", "stop", "seed", "stream"}
 		if a.caps["tools"] { // the canary-verified bit only (a declared "tools" is stripped at register)
 			params = append(params, "tools", "tool_choice", "response_format")

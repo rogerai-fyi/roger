@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -94,6 +95,10 @@ type offerView struct {
 	// still ON AIR (online is unchanged), just not routed to until this passes. The dial
 	// marks it; omitted when the station is not cooling.
 	CoolingUntil int64 `json:"cooling_until,omitempty"`
+	// AttributeSources says where each attribute comes from (contract §14.B7): "declared" by
+	// the station, "estimated" by the broker, "verified" by a broker canary, "measured" by the
+	// broker on traffic - so a consumer can weigh a self-declared filter as one.
+	AttributeSources map[string]string `json:"attribute_sources,omitempty"`
 }
 
 // enrichOffersForNode builds the fully-enriched offerView list for ONE node, with
@@ -238,8 +243,33 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			InFlight: inflight, Capacity: capacity, Radius: round6(radius),
 			CoolingUntil: coolingUntil,
 		})
+		out[len(out)-1].AttributeSources = attributeSources(out[len(out)-1])
 	}
 	return out
+}
+
+// attributeSources labels an offer's attributes by where they come from (§14.B7).
+func attributeSources(v offerView) map[string]string {
+	src := map[string]string{"tps": "measured", "ttft": "measured"}
+	if v.Region != "" {
+		src["region"] = "declared"
+	}
+	if v.Quant != "" {
+		src["quant"] = "declared"
+	}
+	if v.ParamsEstimated != nil {
+		src["params_b"] = map[bool]string{true: "estimated", false: "declared"}[*v.ParamsEstimated]
+	}
+	if v.Ctx > 0 {
+		src["ctx"] = map[bool]string{true: "estimated", false: "declared"}[v.CtxEstimated]
+	}
+	if slices.Contains(v.Capabilities, protocol.CapTools) {
+		src["tools"] = "verified"
+	}
+	if slices.Contains(v.Capabilities, protocol.CapVision) {
+		src["vision"] = "declared"
+	}
+	return src
 }
 
 // discover handles GET /discover: all model offers with live status, measured

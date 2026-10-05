@@ -177,7 +177,10 @@ type broker struct {
 	idemRL    *rateLimiter // the Idempotency-Key lookup bucket, per scope (nil = unlimited)
 	// dryRL is the route-explain dry runs' own bucket (explain.go), built on first use.
 	dryOnce sync.Once
-	dryRL   *rateLimiter
+	// genRL is /generation's own bucket (genrecord.go), built on first use.
+	genRLOnce sync.Once
+	genRL     *rateLimiter
+	dryRL     *rateLimiter
 	// toolProbeAt is when the tool-call canary last RAN for a (node,model), used to throttle
 	// RE-verification of a model that already holds the bit. It is deliberately separate from
 	// the verdict itself: the verdict says what we believe, this says when we last checked.

@@ -534,8 +534,9 @@ func (s *mo6State) singleEqualsList() error {
 func (s *mo6State) itsPricingFrom(name string) error { return s.stillReflects(s.lastNamed, name) }
 
 // mo6RogeraiFields is the rogerai block as it stood before §14.B4, including the blended-price
-// pair slice 6 part A added (db745146, §14.7) after this runner's ground-truth snapshot.
-var mo6RogeraiFields = map[string]bool{"blended_price_per_1m": true, "blend_ratio": true, "providers": true, "min_price_in": true, "min_price_out": true, "best_tps": true,
+// pair slice 6 part A added (db745146, §14.7) after this runner's ground-truth snapshot, and the
+// attribute_sources labels §14.B7 adds (features/security/routing_integrity.feature).
+var mo6RogeraiFields = map[string]bool{"blended_price_per_1m": true, "blend_ratio": true, "attribute_sources": true, "providers": true, "min_price_in": true, "min_price_out": true, "best_tps": true,
 	"ctx_max": true, "params_b": true, "params_b_min": true, "params_b_max": true, "params_estimated": true, "quants": true,
 	"capabilities": true, "verified": true, "free_now": true, "confidential": true, "curated": true, "cooling": true, "cooling_until": true}
 
