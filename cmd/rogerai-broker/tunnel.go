@@ -1575,8 +1575,10 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 	// when it happens to be local), so this is the single delivery path - no
 	// double-serve. A bus publish error is surfaced to the node (the relay's own timeout
 	// is the backstop: it fails the request cleanly and refunds the hold).
-	if b.multiInstance && b.shared != nil {
+	if b.multiInstance && b.shared != nil && !isLocalJob(res.ID) {
 		// A queue-dispatched job names its origin; send the result to that instance's inbox.
+		// (A job handed over in memory during a store outage skips this: its relay waits on
+		// this instance's tunnel, below.)
 		if q := b.dqueue(); q != nil {
 			origin, err := q.originOf(res.ID)
 			if err != nil {
@@ -1918,6 +1920,20 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				jsonErr(w, http.StatusBadRequest, fmt.Sprintf(
 					"request exceeds the context window: ~%d prompt tokens, but the widest window advertised on %s right now is %d - reduce the prompt and retry",
 					promptTokens, req.Model, maxCtx))
+				return
+			}
+		}
+		// STORE DOWN, NOT MISSING: the pick skipped every station only because none polls this
+		// instance while the shared store is down (runtime_store_outage.feature). Say so, with
+		// a Retry-After, rather than "no node offers".
+		if !ok && b.dispatchStoreDown() {
+			b.mu.Lock()
+			_, _, reachable := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
+				pickReq{pref: routePref, promptTokens: promptTokens, rng: seededRand(requestID), allowUnreachable: true})
+			b.mu.Unlock()
+			if reachable {
+				b.stats.busDispatchErr.Add(1) // a dispatch the dead bus refused (dispatch.feature)
+				dispatchBusUnavailable(w)
 				return
 			}
 		}
@@ -2371,6 +2387,10 @@ func (b *broker) writeDispatchFailure(w http.ResponseWriter, outcome dispatchOut
 		w.Header().Set("Retry-After", "1")
 		jsonErr(w, http.StatusServiceUnavailable, "station handoff failed")
 	case dispatchBusErr:
+		if b.dispatchStoreDown() {
+			dispatchBusUnavailable(w) // runtime store outage: no station reachable from here
+			return
+		}
 		jsonErr(w, http.StatusServiceUnavailable, "dispatch bus unavailable")
 	default: // dispatchBusy
 		if queue {
@@ -2393,28 +2413,22 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 	// measurement (concurrentTPS is only sampled when this is >= 2).
 	concurrentAtDispatch := b.inflightOf(nodeID)
 	if b.multiInstance && b.shared != nil {
-		// MULTI-INSTANCE: the poller for this node may be on a PEER instance. Any failure
-		// fails the request cleanly (the caller's deferred ReleaseHold refunds the hold).
-		tk, derr := b.dispatchRemote(ctx, nodeID, job, false)
-		if derr != nil {
+		local, outcome := b.outageLocalDispatch(nodeID)
+		if !local && outcome == dispatchResult {
+			// MULTI-INSTANCE: the poller for this node may be on a PEER instance. Any failure
+			// fails the request cleanly (the caller's deferred ReleaseHold refunds the hold).
+			res, outcome, retryLocal := b.awaitRemote(ctx, nodeID, job, deadline)
+			if !retryLocal {
+				return res, concurrentAtDispatch, outcome
+			}
+			local = true // the dispatch store just failed: serve the local poller in memory
+		}
+		if !local {
 			b.exitInflight(nodeID, false)
-			return protocol.JobResult{}, concurrentAtDispatch, b.dispatchErrOutcome(derr)
+			return protocol.JobResult{}, concurrentAtDispatch, outcome
 		}
-		defer tk.close()
-		if b.dispatchMode == dispatchViaBus {
-			b.stats.busDispatch.Add(1)
-		}
-		raw, werr := tk.awaitResult(deadline)
-		var res protocol.JobResult
-		if werr == nil && json.Unmarshal(raw, &res) != nil {
-			werr = errBadResult
-		}
-		if werr != nil {
-			b.exitInflight(nodeID, false)
-			return protocol.JobResult{}, concurrentAtDispatch, b.dispatchErrOutcome(werr)
-		}
-		b.exitInflightStatus(nodeID, res.Status)
-		return res, concurrentAtDispatch, dispatchResult
+		markLocalJob(job.ID) // its result is read back in memory, not routed through the store
+		defer unmarkLocalJob(job.ID)
 	}
 	select {
 	case t.jobs <- job:
@@ -2431,6 +2445,48 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 		b.exitInflight(nodeID, false)
 		return protocol.JobResult{}, concurrentAtDispatch, dispatchTimeout
 	}
+}
+
+// outageLocalDispatch decides, for a multi-instance dispatch, whether the shared store is
+// down: then a station polling this instance is served in memory (local=true) and any other
+// is unreachable (dispatchBusErr). With the store up it returns (false, dispatchResult).
+func (b *broker) outageLocalDispatch(nodeID string) (local bool, outcome dispatchOutcome) {
+	if !b.dispatchStoreDown() {
+		return false, dispatchResult
+	}
+	if b.polledHere(nodeID) {
+		return true, dispatchResult
+	}
+	return false, dispatchBusErr
+}
+
+// awaitRemote is the cross-instance dispatch + wait. retryLocal reports that the dispatch
+// store failed before the job left this instance while the station polls here, so the caller
+// should hand it over in memory instead (in-flight accounting is still open in that case).
+func (b *broker) awaitRemote(ctx context.Context, nodeID string, job protocol.Job, deadline time.Time) (res protocol.JobResult, outcome dispatchOutcome, retryLocal bool) {
+	tk, derr := b.dispatchRemote(ctx, nodeID, job, false)
+	if derr != nil {
+		outcome = b.dispatchErrOutcome(derr)
+		if outcome == dispatchBusErr && b.polledHere(nodeID) {
+			return protocol.JobResult{}, outcome, true
+		}
+		b.exitInflight(nodeID, false)
+		return protocol.JobResult{}, outcome, false
+	}
+	defer tk.close()
+	if b.dispatchMode == dispatchViaBus {
+		b.stats.busDispatch.Add(1)
+	}
+	raw, werr := tk.awaitResult(deadline)
+	if werr == nil && json.Unmarshal(raw, &res) != nil {
+		werr = errBadResult
+	}
+	if werr != nil {
+		b.exitInflight(nodeID, false)
+		return protocol.JobResult{}, b.dispatchErrOutcome(werr), false
+	}
+	b.exitInflightStatus(nodeID, res.Status)
+	return res, dispatchResult, false
 }
 
 // nonStreamRelayWait bounds how long the NON-stream relay waits for a provider result
@@ -2688,14 +2744,32 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 	// empty/short stream and the deferred ReleaseHold refunds the hold (never a
 	// double-charge).
 	var dispatchFailed <-chan struct{} // closed when a dispatched job is withdrawn or lost
+	// RUNTIME STORE OUTAGE: a station polling this instance is handed the stream job in memory
+	// (its chunks and result come back to this instance's sink and tunnel); any other station
+	// is unreachable from here.
+	local, outcome := false, dispatchResult
 	if b.multiInstance && b.shared != nil {
-		tk, derr := b.dispatchRemote(context.Background(), node.NodeID, job, true)
+		local, outcome = b.outageLocalDispatch(node.NodeID)
+	}
+	var tk *dispatchTicket
+	if b.multiInstance && b.shared != nil && !local && outcome == dispatchResult {
+		var derr error
+		tk, derr = b.dispatchRemote(context.Background(), node.NodeID, job, true)
 		if derr != nil {
-			b.dispatchErrOutcome(derr) // counts it
-			b.exitInflight(node.NodeID, false)
-			lw.commit()
-			return protocol.JobResult{}, false // the client gets an empty stream, as before
+			outcome = b.dispatchErrOutcome(derr) // counts it
+			local = outcome == dispatchBusErr && b.polledHere(node.NodeID)
 		}
+	}
+	if b.multiInstance && b.shared != nil && !local && outcome != dispatchResult {
+		b.exitInflight(node.NodeID, false)
+		lw.commit()
+		return protocol.JobResult{}, false // the client gets an empty stream, as before
+	}
+	if local {
+		markLocalJob(job.ID)
+		defer unmarkLocalJob(job.ID)
+	}
+	if tk != nil {
 		defer tk.close()
 		if b.dispatchMode == dispatchViaBus {
 			b.stats.busDispatch.Add(1)
@@ -2999,9 +3073,10 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	// (regardless of co-location), so the bus is the single ordered path - writing both
 	// would double-deliver. A bus publish error ends the forward; the relay's stream
 	// timeout is the backstop (it fails/closes the client stream cleanly).
-	if b.multiInstance && b.shared != nil {
+	if b.multiInstance && b.shared != nil && !isLocalJob(jobID) {
 		// A queue-dispatched job streams to its origin's inbox (ordered: one sender, one
-		// stream); a legacy-dispatched job to its per-job bus channel.
+		// stream); a legacy-dispatched job to its per-job bus channel. (A job handed over in
+		// memory during a store outage writes this instance's sink directly, below.)
 		publish := b.shared.busPublishStreamChunk
 		finish := func() { _ = b.shared.busPublishStreamDone(jobID) }
 		if q := b.dqueue(); q != nil {
@@ -3141,6 +3216,10 @@ type pickReq struct {
 	// skipped while it cools). Probes never use pickFor; the relay sets it only to ask
 	// "is every eligible station cooling?" (soonestCoolingExpiry) after a pick found nothing.
 	allowCooling bool
+	// allowUnreachable lifts the runtime-store-outage filter (a station that does not poll this
+	// instance is skipped while the shared store is down); the relay sets it only to ask "would a
+	// station serve if the store were up?" after a pick found nothing.
+	allowUnreachable bool
 }
 
 // pickFor is the smart-router v2 selection (the winning spec). For each ELIGIBLE
@@ -3229,6 +3308,9 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
+		}
+		if !req.allowUnreachable && b.outageSkipLocked(n.NodeID, now) {
+			continue // shared store down: a station not polling THIS instance cannot be reached
 		}
 		// --- HARD FILTERS (unchanged): banned, private/freq, pin, exclude, allow,
 		// confidential, min-tps. None of these are score-able; they gate eligibility. ---

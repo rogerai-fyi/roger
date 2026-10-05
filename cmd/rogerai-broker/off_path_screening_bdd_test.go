@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -32,6 +31,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
@@ -303,6 +303,7 @@ type opsState struct {
 	cfg       screenerConfig
 	paused    bool
 	multi     bool
+	mr        *miniredis.Miniredis // the multi-instance scenario's shared store
 	built     bool
 
 	nodePriv ed25519.PrivateKey
@@ -406,7 +407,17 @@ func (s *opsState) build() {
 	b.mod = s.moderationFor(mode)
 	b.multiInstance = s.multi
 	if s.multi {
-		b.shared = openSharedStore() // the real boot path: unreachable -> nil + a logged fallback
+		// A ready multi-instance broker: queue-only dispatch (as production runs) over a REAL
+		// shared store that answers at boot; the scenario takes it down afterwards.
+		s.mr = miniredis.RunT(s.t)
+		vs, err := newValkeyStore("redis://" + s.mr.Addr())
+		if err != nil {
+			s.t.Fatalf("valkey: %v", err)
+		}
+		b.shared = vs
+		b.dispatchMode = dispatchViaQueueOnly
+		b.instanceID = newInstanceID()
+		b.peerInflight = map[string]int{}
 	}
 	s.b = b
 
@@ -935,17 +946,32 @@ func (s *opsState) atMostConns(n int) error {
 	return nil
 }
 func (s *opsState) multiSharedDown() error {
-	// A REAL dead address: a listener that is closed before the broker dials it. The broker's
-	// own openSharedStore runs (ping fails -> in-memory fallback + the warning line), exactly
-	// the production boot against an unreachable Valkey; multi-instance stays on.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
+	s.multi = true // the broker is built (ready, store answering) by the next step
+	return nil
+}
+
+// n1PollsHere builds the ready broker, takes its shared store down for real (the miniredis
+// server is closed) until the instance notices, and records that station n1 long-polls this
+// instance (the harness station reads its tunnel directly instead of holding real polls).
+func (s *opsState) n1PollsHere(name string) error {
+	s.build()
+	if s.mr == nil {
+		return fmtErr("the multi-instance broker has no shared store to take down")
 	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	s.t.Setenv("ROGERAI_REDIS_URL", "redis://"+addr)
-	s.multi = true
+	s.mr.Close()
+	vs := s.b.shared.(*valkeyStore)
+	deadline := time.Now().Add(10 * time.Second)
+	for vs.healthy() {
+		if time.Now().After(deadline) {
+			return fmtErr("the instance never noticed the shared store going down")
+		}
+		_, _, _ = vs.cacheGet("ops:probe")
+		time.Sleep(20 * time.Millisecond)
+	}
+	if rsoBackdate == nil {
+		return fmtErr("the broker records no time of a station's last poll on this instance")
+	}
+	rsoBackdate(s.b, name, time.Now())
 	return nil
 }
 func (s *opsState) enqueuedAndScreened() error {
@@ -955,8 +981,8 @@ func (s *opsState) enqueuedAndScreened() error {
 	if s.stub.count() != 1 || s.scr.snapshot().Screened != 1 {
 		return fmtErr("want 1 screened job via the in-process queue, stub calls=%d snapshot=%+v", s.stub.count(), s.scr.snapshot())
 	}
-	if !strings.Contains(s.logs.String(), "shared-state: ROGERAI_REDIS_URL set but connect failed") {
-		return fmtErr("the shared store was not actually unreachable (no fallback line logged)")
+	if vs, ok := s.b.shared.(*valkeyStore); !ok || vs.healthy() {
+		return fmtErr("the shared store was not actually down during the relay")
 	}
 	return nil
 }
@@ -1961,7 +1987,8 @@ func TestOffPathScreeningBDD(t *testing.T) {
 			sc.Step(`^another funded consumer relays a prompt$`, st.anotherRelays)
 			sc.Step(`^it completes within 2 seconds of the station's response time$`, st.completesFast)
 			sc.Step(`^at most (\d+) classifier connections are open at any time \(the worker count\)$`, st.atMostConns)
-			sc.Step(`^the broker runs multi-instance and the shared store is unreachable$`, st.multiSharedDown)
+			sc.Step(`^the broker runs multi-instance, became ready, and the shared store then stopped answering$`, st.multiSharedDown)
+			sc.Step(`^station "([^"]+)" long-polls this instance$`, st.n1PollsHere)
 			sc.Step(`^the screening job was enqueued in-process and screened$`, st.enqueuedAndScreened)
 			sc.Step(`^(\d+) screening jobs are queued and the classifier answers in (\d+)ms$`, st.queuedWithLatency)
 			sc.Step(`^the broker receives a stop signal with a (\d+) second drain budget$`, st.stopWithBudget)
