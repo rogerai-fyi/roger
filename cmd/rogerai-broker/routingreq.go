@@ -610,9 +610,10 @@ func containsString(l []string, s string) bool {
 // routedModel is one model of the request with its sugar resolved: the BARE id everything
 // downstream sees, whether the entry is free-only, and the sort its suffixes named.
 type routedModel struct {
-	bare string
-	free bool
-	sort sortKey
+	bare  string
+	free  bool
+	sort  sortKey
+	class string // a `@class/<name>` entry before its expansion (§14.B5); "" for a model id
 }
 
 // parseModelSugar splits the variant sugar off a model id. Suffixes are recognised only
@@ -628,6 +629,9 @@ func parseModelSugar(key, id string) (routedModel, []string, *routingError) {
 			return routedModel{}, nil, invalidRouting(key, "a profile reference takes no suffix")
 		}
 		return routedModel{}, nil, &routingError{code: "unknown_profile", msg: "unknown profile " + id + " (profiles are resolved by the client)"}
+	}
+	if strings.HasPrefix(id, classPrefix) && key == "models" {
+		return routedModel{}, nil, invalidRouting(key, "a class is a list of models, not an entry")
 	}
 	e := routedModel{bare: id}
 	var used []string
@@ -660,6 +664,13 @@ func parseModelSugar(key, id string) (routedModel, []string, *routingError) {
 	if strings.Contains(id, ":") && (e.bare == "" || strings.HasPrefix(e.bare, ":") || strings.HasSuffix(e.bare, ":") || strings.Contains(e.bare, "::")) {
 		return routedModel{}, nil, invalidRouting(key, "an empty variant suffix")
 	}
+	if strings.HasPrefix(e.bare, classPrefix) {
+		name, err := className(e.bare)
+		if err != nil {
+			return routedModel{}, nil, err
+		}
+		e.class = name
+	}
 	return e, used, nil
 }
 
@@ -688,6 +699,9 @@ func effectiveModels(model string, models []string) (list []routedModel, sugarSo
 		list = append(list, e)
 		return nil
 	}
+	if strings.HasPrefix(model, classPrefix) && len(models) > 0 {
+		return nil, sortNone, nil, conflictRouting("a model class is already a models list: send @class/... without models")
+	}
 	if model != "" {
 		if err := add("model", model); err != nil {
 			return nil, sortNone, nil, err
@@ -710,6 +724,9 @@ func effectiveModels(model string, models []string) (list []routedModel, sugarSo
 // Ollama-style tag (`llama3:8b`) is not a sugar word.
 func registerModelSuffix(offers []protocol.ModelOffer) string {
 	for _, o := range offers {
+		if strings.HasPrefix(o.Model, classPrefix) {
+			return "model id " + o.Model + " starts with the reserved class prefix " + classPrefix + " (consumer routing alias)"
+		}
 		for _, sfx := range []string{":free", ":floor", ":nitro"} {
 			if strings.HasSuffix(o.Model, sfx) {
 				return "model id " + o.Model + " ends in the reserved variant suffix " + sfx + " (consumer routing sugar) - register the model under its bare id"

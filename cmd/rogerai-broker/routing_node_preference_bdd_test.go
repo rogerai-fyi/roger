@@ -2071,9 +2071,7 @@ func (s *np1State) np1BothNoMatchIdentical() error {
 			return fmt.Errorf("response %d: %d %s, want 503 no_match", i+1, r.code, r.body)
 		}
 	}
-	// Each error carries its own metadata.request_id (§14.B6); every other byte is identical.
-	rid := regexp.MustCompile(`"request_id":"[^"]*"`)
-	if !bytes.Equal(rid.ReplaceAll(a.body, nil), rid.ReplaceAll(b.body, nil)) {
+	if !sameApartFromRequestID(a.body, b.body) {
 		return fmt.Errorf("bodies differ:\n%s\n%s", a.body, b.body)
 	}
 	return nil

@@ -2708,7 +2708,7 @@ func (s *eb1State) eb1IdenticalToUnknown(cost, list string) error {
 	if hdrCost != cost || otherCost != cost {
 		return fmt.Errorf("X-RogerAI-Cost = %q (a Tower id) and %q (an unknown id), want %q on both", hdrCost, otherCost, cost)
 	}
-	if !bytes.Equal(body, other) {
+	if !sameApartFromRequestID(body, other) {
 		return fmt.Errorf("naming a Tower answers %.200s but naming an unknown id answers %.200s: the difference discloses which ids are Towers", body, other)
 	}
 	return nil

@@ -212,10 +212,12 @@ Feature: What the consumer pays and the operator earns are right in every routin
     When "alice" relays with "model": "a" and "models": ["b"]
     Then the response is 200 served as "b"
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): a hand-off no poller took while the station had a
+  # free slot is no_poller (§14.B6); station_busy is a full station.
   Scenario: A dispatch failure respects allow_fallbacks false
     Given nodes "n-1" and "n-2" are on air and dispatching to "n-1" fails with "no poller free"
     When "alice" relays with provider.order ["n-1"] and provider.allow_fallbacks false
-    Then the response status is 503 with error code "station_busy"
+    Then the response status is 503 with error code "no_poller"
     And "n-2" received nothing
 
   Scenario: A dispatch failure respects the deadline rule for a new attempt

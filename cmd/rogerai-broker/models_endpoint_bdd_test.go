@@ -179,9 +179,13 @@ func (s *meState) everyEntryShaped() error {
 	return nil
 }
 
+// ids are the MODEL entries' ids: class alias entries (@class/..., §14.B4) are not models.
 func (s *meState) ids() []string {
 	var out []string
 	for _, e := range s.decoded.Data {
+		if strings.HasPrefix(e.ID, classPrefix) {
+			continue
+		}
 		out = append(out, e.ID)
 	}
 	return out
@@ -233,8 +237,14 @@ func (s *meState) sdkDecodes(n int) error {
 	if err := json.Unmarshal(s.body, &sdk); err != nil {
 		return fmt.Errorf("the SDK cannot decode the list: %v", err)
 	}
-	if len(sdk.Data) != n {
-		return fmt.Errorf("the SDK decoded %d models, want %d", len(sdk.Data), n)
+	models := 0
+	for _, e := range sdk.Data {
+		if !strings.HasPrefix(e.ID, classPrefix) {
+			models++
+		}
+	}
+	if models != n {
+		return fmt.Errorf("the SDK decoded %d models, want %d", models, n)
 	}
 	return nil
 }

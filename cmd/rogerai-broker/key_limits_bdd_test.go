@@ -604,16 +604,16 @@ func (k *kg5State) kl5RefusedBecause(source string) error {
 func (k *kg5State) kl5BodyIs(want string) error {
 	want = strings.ReplaceAll(want, "key_x", k.keyID("k1"))
 	var w, g any
-	if err := json.Unmarshal([]byte(want), &w); err != nil {
+	// `...` stands for a value that varies per request (the request id), as in the discovery
+	// runner's literals; every other member must match exactly and no member may be extra.
+	if err := json.Unmarshal([]byte(strings.ReplaceAll(want, "...", `"__any__"`)), &w); err != nil {
 		return fmt.Errorf("the expected body is not JSON: %v", err)
 	}
 	if err := json.Unmarshal(k.resp.body, &g); err != nil {
 		return fmt.Errorf("the 402 body is not JSON: %.300s", k.resp.body)
 	}
-	wj, _ := json.Marshal(w)
-	gj, _ := json.Marshal(g)
-	if string(wj) != string(gj) {
-		return fmt.Errorf("body %s, want %s", gj, wj)
+	if !df2Match(w, g) {
+		return fmt.Errorf("body %s, want %s", k.resp.body, want)
 	}
 	return nil
 }
@@ -1507,7 +1507,7 @@ func (k *kg5State) kl5PinsBoth(label, node, _ string) error {
 	if err := k.keyRelay(label, false, map[string]any{"provider": map[string]any{"order": []string{id}, "allow_fallbacks": false}}, nil); err != nil {
 		return err
 	}
-	if first.code != k.resp.code || !bytes.Equal(first.body, k.resp.body) {
+	if first.code != k.resp.code || !sameApartFromRequestID(first.body, k.resp.body) {
 		return fmt.Errorf("the header pin answered %d %q, the body order %d %q", first.code, first.body, k.resp.code, k.resp.body)
 	}
 	return nil

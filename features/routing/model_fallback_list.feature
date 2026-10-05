@@ -500,10 +500,12 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "stream": true across ["a", "b"]
     Then the SSE stream carries only "b1"'s chunks
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the last station's body arrives wrapped as
+  # error.code upstream_error under error.metadata.raw (§14.B6), no longer raw.
   Scenario: every listed model failing on a stream returns the last error with Retry-After
     Given "a1" returns 429 with Retry-After 7 and "b1" returns 503 with Retry-After 20
     When a consumer relays with "stream": true across ["a", "b"]
-    Then the response is 503 with Retry-After "20" and "b1"'s body
+    Then the response is 503 with Retry-After "20" and "b1"'s body wrapped as upstream_error under error.metadata.raw
     And the consumer was charged 0 and both receipts are voided
 
   Scenario: a streaming 5xx on the last model is answered without a Retry-After
@@ -727,7 +729,9 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Given private band B on "s1" allows models ["z"]
     When a band-B relay is made with "model": "a" and "models": ["b"]
     Then the response is 503 "no station on that frequency (it may be off air) - check the code"
-    And the body carries no error code that distinguishes model-denied from off-air
+    # superseded 2026-10-05 by contract §14 (founder-approved): every band refusal carries the one
+    # generic code band_unavailable (§14.B6), which still distinguishes nothing.
+    And the body carries only the generic band code band_unavailable, which distinguishes nothing
 
   Scenario: a band request never leaves the band for a later model
     Given "s1" is the only station on band B, serves "a" and 429s; a public "x1" serves "b"

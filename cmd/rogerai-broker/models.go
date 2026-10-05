@@ -217,6 +217,8 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 			Architecture:        map[string][]string{"input_modalities": input, "output_modalities": {"text"}},
 		})
 	}
+	data = append(data, classEntries(offers, data)...)
+	sort.Slice(data, func(i, j int) bool { return data[i].ID < data[j].ID })
 	return data
 }
 

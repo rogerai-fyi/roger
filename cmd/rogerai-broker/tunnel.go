@@ -1862,6 +1862,42 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		refuse(merr)
 		return
 	}
+	// A MODEL CLASS (§14.B5) expands here into exactly a models[] request, under the caller's
+	// own visibility: a grant's owner's stations, a band's station, else the public market.
+	modelRequested := models[0].bare
+	if cls := models[0].class; cls != "" {
+		var scope map[string]bool
+		if gok {
+			scope = gc.nodeAllow
+		}
+		freq := r.Header.Get("X-Roger-Freq")
+		if freq == "" && routing.Freq != nil {
+			freq = *routing.Freq
+		}
+		if freq != "" {
+			pa, _, _ := b.resolveFreqAllow(freq, time.Now())
+			scope = bandAllow(scope, pa)
+			if len(pa) == 0 {
+				scope = map[string]bool{} // an unresolvable code reaches nothing, never the public market
+			}
+		}
+		ids := b.expandClass(cls, scope)
+		b.stats.noteClassRequest(cls)
+		w.Header().Set("X-RogerAI-Class", cls)
+		if len(ids) == 0 {
+			if freq != "" {
+				jsonErr(w, http.StatusServiceUnavailable, "no station on that frequency (it may be off air) - check the code")
+				return
+			}
+			jsonErrCode(w, http.StatusServiceUnavailable, "no_match", "no model of "+modelRequested+" is on air right now")
+			return
+		}
+		expanded := make([]routedModel, len(ids))
+		for i, id := range ids {
+			expanded[i] = routedModel{bare: id, free: models[0].free, sort: models[0].sort}
+		}
+		models = expanded
+	}
 	// The pin header survives a body with no order (§1a); a kept pin outside the body's
 	// allow-list is the same conflict as an order outside only.
 	if pin := r.Header.Get("X-Roger-Node"); pin != "" && routing.Only != nil && len(routing.Order) == 0 && !containsString(routing.Only, pin) {
@@ -1894,7 +1930,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	b.stats.countVariants(suffixes) // per suffix, per request; never a model id
 	sentModel := req.Model
 	req.Model = models[0].bare
-	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Models = models[0].bare, bareIDs(models) })
+	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Models = modelRequested, bareIDs(models) })
 	doc = doc.stripCarriers(routing, sentModel, req.Model)
 
 	// Usage backstop: ask the model for a final usage chunk on streaming requests so the
@@ -2781,9 +2817,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			b.stats.routingNoFallbackRefused.Add(1)
 		}
 		nmCode := "no_match"
-		if gok && routing.Only == nil && len(routing.Ignore) == 0 && len(orderList) == 0 && pinNode == "" {
-			// Contract §14.B6: the grant's owner is not serving. A station preference that
-			// filtered the owner's nodes out stays the caller's own no_match.
+		if gok && !b.anyLive(gc.nodeAllow) {
+			// Contract §14.B6: the grant's owner is not serving at all. An owner who is on air
+			// but filtered out (a preference, a capability, :free, the model) is no_match.
 			nmCode = "grant_unavailable"
 		}
 		var nmMeta map[string]any
@@ -3566,6 +3602,18 @@ func (b *broker) dispatchFailure(outcome dispatchOutcome) (int, []byte) {
 		}
 	}
 	return http.StatusServiceUnavailable, errorBody(http.StatusServiceUnavailable, code, msg)
+}
+
+// anyLive reports whether any node in ids is on air (heartbeat-fresh).
+func (b *broker) anyLive(ids map[string]bool) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id := range ids {
+		if time.Since(b.lastSeen[id]) < nodeTTL {
+			return true
+		}
+	}
+	return false
 }
 
 // stationFull reports whether a station's in-flight count (this instance plus its peers)

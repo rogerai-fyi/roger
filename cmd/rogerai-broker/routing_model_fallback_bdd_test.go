@@ -2730,9 +2730,17 @@ func mf1Thens() []mf1Step {
 		T(`the response is 503 with error code "no_match"`, aCode(503), aErrCode("no_match")),
 		T(`the response is 503 with error code "no_match" and no hold was placed`, aCode(503), aErrCode("no_match"), aNoHold()),
 		T(`the response is 503 with error code "band_cooling" and Retry-After "12"`, aCode(503), aErrCode("band_cooling"), aHdr("Retry-After", "12")),
-		T(`the response is 503 with Retry-After "20" and "b1"'s body`, aCode(503), aHdr("Retry-After", "20"), func(s *mf1State) error {
-			if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(utDefaultBody(503))) {
-				return fmt.Errorf("body %.200s, want b1's upstream body", s.lastBody)
+		T(`the response is 503 with Retry-After "20" and "b1"'s body wrapped as upstream_error under error.metadata.raw`, aCode(503), aHdr("Retry-After", "20"), aErrCode("upstream_error"), func(s *mf1State) error {
+			var env struct {
+				Error struct {
+					Metadata struct {
+						Raw string `json:"raw"`
+					} `json:"metadata"`
+				} `json:"error"`
+			}
+			_ = json.Unmarshal(s.lastBody, &env)
+			if strings.TrimSpace(env.Error.Metadata.Raw) != strings.TrimSpace(utDefaultBody(503)) {
+				return fmt.Errorf("body %.200s, want b1's upstream body under error.metadata.raw", s.lastBody)
 			}
 			return aRecvN("b1", 1)(s)
 		}),
@@ -2748,12 +2756,7 @@ func mf1Thens() []mf1Step {
 		}),
 		T(`the response is 503 "no node of this grant's owner is serving" with error code "no_match"`, aCode(503), aMsgHas("no node of this grant's owner is serving"), aErrCode("no_match")),
 		T(`the response is 503 "no station on that frequency (it may be off air) - check the code"`, aCode(503), aMsgHas("no station on that frequency (it may be off air) - check the code")),
-		T(`the body carries no error code that distinguishes model-denied from off-air`, func(s *mf1State) error {
-			if code, _ := s.errObj(); code != "" {
-				return fmt.Errorf("the band refusal carries error code %q", code)
-			}
-			return nil
-		}),
+		T(`the body carries only the generic band code band_unavailable, which distinguishes nothing`, aErrCode("band_unavailable")),
 		T(`the response is 403 with error code "grant_model_denied"`, aCode(403), aErrCode("grant_model_denied")),
 		T(`the message names the denied models and no station received anything`, aMsgHas("a", "b", "c"), aErrCode("grant_model_denied"), aNoStation()),
 		T(`the message names "a, b, c"`, aMsgHas("a, b, c")),

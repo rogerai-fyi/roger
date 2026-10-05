@@ -642,7 +642,13 @@ func (s *mh6State) usageNames(name string) error {
 func (s *mh6State) everyBusy(model string) error {
 	s.lastModel = model
 	for _, n := range []string{"n-1", "n-2"} {
-		s.stall(s.defaultNode(n, model))
+		st := s.defaultNode(n, model)
+		s.stall(st)
+		// Busy means every slot taken (§14.B6: a hand-off nobody took at capacity is
+		// station_busy; one with a free slot is no_poller).
+		s.b.metricsMu.Lock()
+		s.b.inflight[st.id] = 1 << 20
+		s.b.metricsMu.Unlock()
 	}
 	return nil
 }

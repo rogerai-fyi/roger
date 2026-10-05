@@ -48,12 +48,16 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     And the body has object "list" and a data array
     And every data entry has object "model", a string id, an integer created and owned_by "rogerai"
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): /v1/models also lists each non-empty
+  # class alias (@class/<name>, §14.B4/§14.B5); the model-id statements here are over model entries.
   @slice0
   Scenario: One entry per distinct model id with a public offer on air
     When a consumer GETs /v1/models
     Then the data ids are exactly "qwen3-32b", "gpt-oss-120b", "llama-3.3-70b"
     And no id appears twice
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): /v1/models also lists each non-empty
+  # class alias (@class/<name>, §14.B4/§14.B5); the model-id statements here are over model entries.
   @slice0
   Scenario: Entries are ordered by id ascending for a stable catalog
     When a consumer GETs /v1/models
@@ -127,6 +131,8 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     When a consumer GETs /v1/models
     Then the "llama-3.3-70b" entry's rogerai block has free_now true
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): /v1/models also lists each non-empty
+  # class alias (@class/<name>, §14.B4/§14.B5); the model-id statements here are over model entries.
   @slice0
   Scenario: An OpenAI client that ignores the rogerai block still parses the list
     When an OpenAI SDK lists models against the broker
@@ -189,6 +195,8 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     And the body is {"object":"list","data":[]}
 
   # --- filters ------------------------------------------------------------------------------------
+  # superseded 2026-10-05 by contract §14 (founder-approved): /v1/models also lists each non-empty
+  # class alias (@class/<name>, §14.B4/§14.B5); the model-id statements here are over model entries.
   Scenario Outline: /v1/models honors the same filter params as /discover and lists models with at least one surviving offer
     When a consumer GETs /v1/models?<query>
     Then the data ids are exactly <ids>
@@ -225,10 +233,11 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     Then the status is 200
     And the body is one model object with id "qwen3-32b", object "model", owned_by "rogerai" and a rogerai block
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the one envelope adds error.type and error.metadata (§14.B6).
   Scenario: An id with no public offer on air is a 404 in the OpenAI error shape
     When a consumer GETs /v1/models/nobody-serves-this
     Then the status is 404
-    And the body is {"error":{"code":"model_not_found","message":...}}
+    And the body is {"error":{"code":"model_not_found","message":...,"type":"not_found_error","metadata":...}}
 
   Scenario: The id lookup is exact and case-sensitive
     When a consumer GETs /v1/models/QWEN3-32B
@@ -297,6 +306,8 @@ Feature: GET /v1/models on the broker - an OpenAI-shaped catalog of what is on a
     Then the catalog was computed at most once
 
   # --- consistency with the other views ----------------------------------------------------------
+  # superseded 2026-10-05 by contract §14 (founder-approved): /v1/models also lists each non-empty
+  # class alias (@class/<name>, §14.B4/§14.B5); the model-id statements here are over model entries.
   Scenario: /v1/models, /market and /discover agree on the set of models on air
     When a consumer GETs /v1/models, /market and /discover in the same cache window
     Then the /v1/models ids equal the /market model set

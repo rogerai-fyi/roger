@@ -739,3 +739,11 @@ func TestErrorEnvelopeBDD(t *testing.T) {
 }
 
 var _ = ed25519.GenerateKey
+
+// sameApartFromRequestID compares two refusal bodies the way the no-oracle rules need since the
+// envelope (§14.B6): every error carries its own metadata.request_id, every other byte must match.
+func sameApartFromRequestID(a, b []byte) bool {
+	return bytes.Equal(envRequestID.ReplaceAll(bytes.TrimSpace(a), nil), envRequestID.ReplaceAll(bytes.TrimSpace(b), nil))
+}
+
+var envRequestID = regexp.MustCompile(`"request_id":"[^"]*"`)

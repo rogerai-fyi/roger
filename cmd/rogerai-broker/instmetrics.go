@@ -92,6 +92,8 @@ type instStats struct {
 	// noMatchFilter counts no_match refusals by each filter that emptied the pool
 	// (relay_no_match_<filter>, contract §5). Guarded by edgeMu.
 	noMatchFilter map[string]int64
+	// classRequests counts relays per model class (class_requests_<name>, §14.B5). edgeMu.
+	classRequests map[string]int64
 	collisions    map[string]bool
 	// paramsMismatch: node ids whose declared params_b the model id contradicts (§5).
 	paramsMismatch map[string]bool
@@ -194,8 +196,20 @@ func (s *instStats) routingCounters() map[string]int64 {
 	for f, n := range s.noMatchFilter {
 		m["relay_no_match_"+f] = n
 	}
+	for c, n := range s.classRequests {
+		m["class_requests_"+c] = n
+	}
 	s.edgeMu.Unlock()
 	return m
+}
+
+func (s *instStats) noteClassRequest(c string) {
+	s.edgeMu.Lock()
+	if s.classRequests == nil {
+		s.classRequests = map[string]int64{}
+	}
+	s.classRequests[c]++
+	s.edgeMu.Unlock()
 }
 
 func (s *instStats) noteNoMatchFilter(f string) {

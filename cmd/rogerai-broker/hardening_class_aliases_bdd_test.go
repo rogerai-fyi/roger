@@ -14,8 +14,11 @@ package main
 //     replayed with every station answering 429 once, in upstream-hit order.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
@@ -75,6 +78,14 @@ func (s *ca6State) effectiveOf(sh rs1Shot) ([]string, string, error) {
 		return nil, "", fmt.Errorf("the request answered %d %.300s", sh.code, sh.body)
 	}
 	code, body, _ := s.get(s.b, "/generation?id="+id)
+	if s.lastSpec.caller == "grant" {
+		// A grant request's record is read with the grant token, as its holder would read it.
+		r := httptest.NewRequest(http.MethodGet, "/generation?id="+id, nil)
+		r.Header.Set("Authorization", "Bearer "+s.grantSecret)
+		rr := httptest.NewRecorder()
+		s.b.routes().ServeHTTP(rr, r)
+		code, body = rr.Code, rr.Body.Bytes()
+	}
 	if code != 200 {
 		return nil, "", fmt.Errorf("GET /generation = %d %.200s", code, body)
 	}
@@ -156,13 +167,20 @@ func (s *ca6State) fiveCheapest() error {
 	if err != nil {
 		return err
 	}
+	// Every small-class model competes, the Background's two (phi-4-mini 3.8B, llama-3.1-8b 8B)
+	// included: the class is over the whole market, not only the models this Given added.
 	var all []string
 	for n := range s.stations {
-		if strings.HasPrefix(n, "tiny-") {
+		if strings.HasPrefix(n, "tiny-") || n == "phi-4-mini" || n == "llama-3.1-8b" {
 			all = append(all, n)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return s.blended(all[i]) < s.blended(all[j]) })
+	sort.Slice(all, func(i, j int) bool {
+		if s.blended(all[i]) != s.blended(all[j]) {
+			return s.blended(all[i]) < s.blended(all[j])
+		}
+		return all[i] < all[j]
+	})
 	if strings.Join(got, ",") != strings.Join(all[:5], ",") {
 		return fmt.Errorf("effective models %v, want the 5 cheapest %v", got, all[:5])
 	}
@@ -274,6 +292,17 @@ func (s *ca6State) priciestPair() error {
 			priciest = m
 		}
 	}
+	// The broker prices the body it would forward to the priciest pair (model = that pair's
+	// model): the class id never appears in a priced or forwarded body.
+	var doc struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(s.shot.base, &doc); err != nil {
+		return err
+	}
+	from, _ := json.Marshal(doc.Model)
+	to, _ := json.Marshal(priciest)
+	s.shot.base = bytes.Replace(s.shot.base, from, to, 1)
 	return s.holdEqualsPriciest(priciest)
 }
 
