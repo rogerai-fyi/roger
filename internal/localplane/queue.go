@@ -73,8 +73,9 @@ func (q *queue) submitRouted(id, model string, body []byte, admit func(string) b
 	return j
 }
 
-// wake signals pollers that the pending set changed, without blocking if one is already
-// pending (the channel is buffered to depth 1 and a poller re-scans the whole set on wake).
+// wake signals every waiting poller that the pending set changed: it closes the current
+// notify channel (releasing all waiters at once, never blocking) and replaces it for the next
+// wait. A woken poller re-scans the whole set.
 func (q *queue) wake() {
 	q.mu.Lock()
 	close(q.notify)
