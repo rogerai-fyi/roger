@@ -35,6 +35,7 @@ var linkTests = map[string]func(*testing.T){
 	"TestLinkTellsTheOwnerWhenASeparateEmailWalletHoldsAFunds":           TestLinkTellsTheOwnerWhenASeparateEmailWalletHoldsAFunds,
 	"TestLinkSaysNothingAboutMergingWhenThereIsNoSeparateWallet":         TestLinkSaysNothingAboutMergingWhenThereIsNoSeparateWallet,
 	"TestALinkTokenCanNeverBeReplayedAsASessionCookie":                   TestALinkTokenCanNeverBeReplayedAsASessionCookie,
+	"TestALinkTokenSignedWithTheSessionKeyIsRefused":                     TestALinkTokenSignedWithTheSessionKeyIsRefused,
 	"TestASessionWithAnUnparseableGitHubIdIsRejected":                    TestASessionWithAnUnparseableGitHubIdIsRejected,
 	"TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked":    TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked,
 	"TestPatchingAVerifiedAddressIsRefused":                              TestPatchingAVerifiedAddressIsRefused,
