@@ -54,7 +54,10 @@ type instStats struct {
 	// re-dispatched to a sibling after a no-output failure, stations cooled by an upstream
 	// 429, and consumer requests refused fast with the band-cooling 503.
 	relayFailovers atomic.Int64
-	routingPref    [4]atomic.Int64 // per-profile routing passes, indexed by pref
+	// Session affinity (§14.B1): heads served by the affine station, and the reasons it was not.
+	affinityHits   atomic.Int64
+	affinityMisses map[string]int64 // guarded by edgeMu
+	routingPref    [4]atomic.Int64  // per-profile routing passes, indexed by pref
 	// The routing expression (features/routing/ROUTING-EXPRESSION-CONTRACT.md): requests
 	// that carried a routing body / were refused with a routing 400, requests that used a
 	// strict order / a strict sort, no-fallback requests refused no_match, the variant sugar
@@ -199,8 +202,24 @@ func (s *instStats) routingCounters() map[string]int64 {
 	for c, n := range s.classRequests {
 		m["class_requests_"+c] = n
 	}
+	m["affinity_hits"] = s.affinityHits.Load()
+	total := int64(0)
+	for _, r := range []string{"ineligible", "cooling", "busy", "expired", "explicit"} {
+		m["affinity_misses_"+r] = s.affinityMisses[r]
+		total += s.affinityMisses[r]
+	}
+	m["affinity_misses"] = total
 	s.edgeMu.Unlock()
 	return m
+}
+
+func (s *instStats) noteAffinityMiss(reason string) {
+	s.edgeMu.Lock()
+	if s.affinityMisses == nil {
+		s.affinityMisses = map[string]int64{}
+	}
+	s.affinityMisses[reason]++
+	s.edgeMu.Unlock()
 }
 
 func (s *instStats) noteClassRequest(c string) {

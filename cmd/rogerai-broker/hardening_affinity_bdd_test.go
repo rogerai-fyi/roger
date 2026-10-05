@@ -1051,13 +1051,20 @@ func (s *sa6State) alsoServes(name, model string) error {
 }
 
 func (s *sa6State) independent(user, other string) error {
-	// u-2's first relay was not an affinity hit, and it did not inherit u-1's server: across
-	// the batch u-2 landed on more than one station before any session of its own formed.
-	return s.counterStill("affinity_hits")
+	// u-2's first relay was not an affinity hit (it did not inherit u-1's entry); every later
+	// relay of the batch is u-2's OWN session sticking, which the contract requires.
+	return s.firstNotForced(user, other)
 }
 
 func (s *sa6State) firstNotForced(user, _ string) error {
-	return s.counterStill("affinity_hits")
+	d, err := s.counterDelta("affinity_hits")
+	if err != nil {
+		return err
+	}
+	if n := len(s.batchOK); int(d) != n-1 {
+		return fmt.Errorf("affinity_hits moved by %v over %d relays, want %d: the first relay is never a hit, every later one is u-2's own session", d, n, n-1)
+	}
+	return nil
 }
 
 func (s *sa6State) pseudonymOf(station, user, node string) error {
@@ -1194,6 +1201,9 @@ func (s *sa6State) servesAtZero(name string) error {
 
 func (s *sa6H) secondInstance(string) error {
 	b2 := s.instanceB()
+	// Instances of one broker share its identity key, as production's do (receipts carry one
+	// broker signature); the affinity key is an HMAC under it (§14.B1).
+	b2.priv = s.b.priv
 	s.b.mu.Lock()
 	for id, tq := range s.b.trust {
 		b2.trust[id] = tq
@@ -1226,6 +1236,14 @@ func (s *sa6State) billingUnchanged() error {
 	// The hold of a session request equals the hold of the same request with no session.
 	withHold := s.shot.holdAmt
 	q := s.lastSpec
+	// The comparison request is not the scenario's turn: the turn's shot is restored after it,
+	// so the next step ("the settle bills ...") reads the session request, not the comparison.
+	keepShot, keepSpec := s.shot, s.lastSpec
+	keepCode, keepBody, keepHdr := s.lastCode, s.lastBody, s.lastHdr
+	defer func() {
+		s.shot, s.lastSpec = keepShot, keepSpec
+		s.lastCode, s.lastBody, s.lastHdr = keepCode, keepBody, keepHdr
+	}()
 	var r []sa6KV
 	for _, kv := range q.roger {
 		if kv.k != "session" {

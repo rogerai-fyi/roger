@@ -112,6 +112,9 @@ type routingBody struct {
 	Require        []string   // de-duplicated, closed set
 	Net            netFilters // params_b, min_ctx, max_ttft_ms, trust_min verified, region (slice 2)
 	TrustConf      bool       // trust_min "confidential": the same as confidential:true
+	// Session is roger.session or the top-level session_id (§14.B1): the conversation whose
+	// previous turn's station is preferred as the head. Never forwarded, never logged raw.
+	Session string
 
 	// models[] as sent (every entry a non-empty string); the effective list is built by
 	// effectiveModels once the primary model is known.
@@ -142,7 +145,7 @@ func conflictRouting(msg string) *routingError {
 	return &routingError{code: "conflicting_routing_keys", msg: msg}
 }
 
-var routingCarriers = [...]string{"models", "provider", "roger"}
+var routingCarriers = [...]string{"models", "provider", "roger", "session_id"}
 
 func isJSONNull(raw json.RawMessage) bool { return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) }
 
@@ -182,7 +185,7 @@ var (
 	maxPriceKeys = map[string]bool{"prompt": true, "completion": true, "request": true, "image": true}
 	rogerKeys    = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "trust_min": true, "self_hosted_only": true, "confidential": true, "region": true,
-		"freq": true, "profile": true}
+		"freq": true, "profile": true, "session": true}
 	regionToken = regexp.MustCompile(`^[a-z]{2,8}$`)
 )
 
@@ -375,11 +378,42 @@ func parseRoutingDoc(d reqDoc) (routingBody, error) {
 	if err := rb.readRoger(roger); err != nil {
 		return rb, err
 	}
-	rb.used = len(provider) > 0 || len(roger) > 0 || len(rb.Models) > 0
+	if raw, ok := roger["session"]; ok {
+		s, err := sessionID("roger.session", raw)
+		if err != nil {
+			return rb, err
+		}
+		rb.Session = s
+	}
+	if raw, ok := top["session_id"]; ok && !isJSONNull(raw) {
+		s, err := sessionID("session_id", raw)
+		if err != nil {
+			return rb, err
+		}
+		if rb.Session != "" && rb.Session != s {
+			return rb, conflictRouting("roger.session and session_id name different sessions")
+		}
+		rb.Session = s
+	}
+	rb.used = len(provider) > 0 || len(roger) > 0 || len(rb.Models) > 0 || rb.Session != ""
 	if err := rb.conflicts(); err != nil {
 		return rb, err
 	}
 	return rb, nil
+}
+
+// sessionID reads a session id: a string of 1..256 printable ASCII bytes (§14.B1).
+func sessionID(key string, raw json.RawMessage) (string, *routingError) {
+	s, ok := routingString(raw)
+	if !ok || s == "" || len(s) > 256 {
+		return "", invalidRouting(key, "want a string of 1 to 256 printable ASCII characters")
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] > 0x7e {
+			return "", invalidRouting(key, "want a string of 1 to 256 printable ASCII characters")
+		}
+	}
+	return s, nil
 }
 
 func (rb *routingBody) notYet(key string) {
@@ -753,7 +787,7 @@ func (d reqDoc) stripCarriers(rb routingBody, sentModel, model string) reqDoc {
 }
 
 // carrierKeys are the routing carriers a station never sees.
-var carrierKeys = map[string]bool{"models": true, "provider": true, "roger": true}
+var carrierKeys = map[string]bool{"models": true, "provider": true, "roger": true, "session_id": true}
 
 // capBuys is what a per-request USD cap buys at one station's billed prices: the output
 // tokens left after the prompt's input cost (promptTokens is the request's one measured

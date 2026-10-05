@@ -1931,6 +1931,17 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	sentModel := req.Model
 	req.Model = models[0].bare
 	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Models = modelRequested, bareIDs(models) })
+	if routing.Session != "" && user != "anon" {
+		// A SERVED turn (never a failure or a void) makes its station the session's affine
+		// server for the model that actually served (§14.B1).
+		defer func() {
+			var served *genServed
+			gen.with(func(st *genStored) { served = st.Rec.Served })
+			if served != nil && served.Relay == "" && served.Node != "" {
+				b.affinitySet(b.affinityKey(user, routing.Session, served.Model), served.Node)
+			}
+		}()
+	}
 	doc = doc.stripCarriers(routing, sentModel, req.Model)
 
 	// Usage backstop: ask the model for a final usage chunk on streaming requests so the
@@ -2389,6 +2400,23 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		var droppedOffer protocol.ModelOffer
 		dropped := false
 		eligCap := map[string]int{}
+		// SESSION AFFINITY (§14.B1): the station that served this session's last turn of this
+		// model is tried first, unless the request routes explicitly or the entry has expired.
+		affNode := ""
+		if routing.Session != "" && user != "anon" {
+			if n, fresh, found := b.affinityGet(b.affinityKey(user, routing.Session, m.bare)); found {
+				switch {
+				case !fresh:
+					b.stats.noteAffinityMiss("expired")
+				case len(orderList) > 0 || pinNode != "" || routeSort != sortNone:
+					b.stats.noteAffinityMiss("explicit")
+				case routing.Only != nil && !containsString(routing.Only, n):
+					b.stats.noteAffinityMiss("ineligible")
+				default:
+					affNode = n
+				}
+			}
+		}
 		for {
 			fromOrder := false
 			skip := exclude
@@ -2399,7 +2427,20 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			var offer protocol.ModelOffer
 			ok := false
 			b.mu.Lock()
+			if affNode != "" {
+				n, o, hit := b.pickFor(m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, affNode, skip, allow, privateAllow, rr.seeded(nil))
+				if why := b.affineGateLocked(affNode, m.bare, hit && !skip[affNode], rr); why == "" {
+					node, offer, ok = n, o, true
+					b.stats.affinityHits.Add(1)
+				} else {
+					b.stats.noteAffinityMiss(why)
+				}
+				affNode = "" // tried once: a re-entry of this walk routes normally
+			}
 			for _, id := range orderList {
+				if ok {
+					break
+				}
 				if skip[id] {
 					continue
 				}

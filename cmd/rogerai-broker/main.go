@@ -168,6 +168,9 @@ type broker struct {
 	// seconds, the OpenAI `created` field). Lazily built under mu; slice 2 moves it to the
 	// shared store so every instance answers alike.
 	modelFirstSeen map[string]int64
+	// affLocal is the session-affinity fallback when the shared store is absent or down
+	// (affinity.go): bounded, best effort; the shared store is the source of truth.
+	affLocal affinityLocal
 	// toolProbeAt is when the tool-call canary last RAN for a (node,model), used to throttle
 	// RE-verification of a model that already holds the bit. It is deliberately separate from
 	// the verdict itself: the verdict says what we believe, this says when we last checked.
