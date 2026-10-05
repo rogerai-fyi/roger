@@ -2146,6 +2146,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if routing.SelfHostedOnly != nil {
 		routeReq.selfHostedOnly = *routing.SelfHostedOnly
 	}
+	// Home first (§14.6): curated is overflow unless the consumer opted in to it.
+	routeReq.curatedEqual = routePref == prefFast || routeSort != sortNone ||
+		b.namesCurated(orderList) || b.namesCurated(routing.Only) || b.namesCurated([]string{pinNode})
 	// A grant confines routing to the issuing owner's nodes (intersected with the
 	// grant's node/model allow-lists) - it can never reach another owner's hardware.
 	var allow map[string]bool
@@ -2338,19 +2341,22 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		ok        bool
 		fromOrder bool            // the pick came from the ordered list (a strict pick)
 		capOut    map[string]bool // stations the per-request cap left no output budget for
+		eligCap   map[string]int  // capacity of each node in the eligible direct pool (§14.5)
 	}
 	pickModel := func(m routedModel) modelPick {
 		rr := rrFor(m)
 		unpayable := map[string]bool{}
-		capOut := map[string]bool{} // input cost alone meets the per-request cap: never restored
+		capOut := map[string]bool{}   // input cost alone meets the per-request cap: never restored
+		noTunnel := map[string]bool{} // registered here but not serving here (no tunnel): re-picked past
 		var droppedNode protocol.NodeRegistration
 		var droppedOffer protocol.ModelOffer
 		dropped := false
+		eligCap := map[string]int{}
 		for {
 			fromOrder := false
 			skip := exclude
-			if len(unpayable)+len(capOut) > 0 {
-				skip = unionSets(exclude, unpayable, capOut)
+			if len(unpayable)+len(capOut)+len(noTunnel) > 0 {
+				skip = unionSets(exclude, unpayable, capOut, noTunnel)
 			}
 			var node protocol.NodeRegistration
 			var offer protocol.ModelOffer
@@ -2366,7 +2372,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if !ok && !(noFallbacks && len(orderList) > 0) {
-				node, offer, ok = b.pickFor(m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, skip, allow, privateAllow, rr.seeded(seededRand(requestID)))
+				hr := rr.seeded(seededRand(requestID))
+				hr.capOf = eligCap
+				node, offer, ok = b.pickFor(m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, skip, allow, privateAllow, hr)
 			}
 			if !ok && dropped {
 				node, offer, ok = droppedNode, droppedOffer, true
@@ -2378,6 +2386,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			restored := ok && unpayable[node.NodeID]
 			t := b.tunnels[node.NodeID]
 			b.mu.Unlock()
+			if ok && t == nil && !restored {
+				// A station with no tunnel here (a Tower-joined node that declared its offer to
+				// this broker) cannot take the direct head: pick again past it rather than
+				// leaving the model without a direct head.
+				noTunnel[node.NodeID] = true
+				continue
+			}
 			// The pricing plan is resolved HERE, before the fan-out coin, because free/self-use
 			// traffic ($0) must never be diverted to a billed Tower - the coin has to know.
 			pricing := b.resolvePricing(gc, gok, user, wallet, node, offer)
@@ -2415,7 +2430,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			return modelPick{m: m, rr: rr, node: node, offer: offer, t: t, pricing: pricing, ok: ok, fromOrder: fromOrder, capOut: capOut}
+			return modelPick{m: m, rr: rr, node: node, offer: offer, t: t, pricing: pricing, ok: ok, fromOrder: fromOrder, capOut: capOut, eligCap: eligCap}
 		}
 	}
 	// THE LIST IS WALKED IN ORDER (§3): the first model with a station this caller can be
@@ -2855,18 +2870,20 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// The Tower candidates take their places in the plan (contract §6). A free head plans no
 	// paid pair, so a self-use or free relay never gains a Tower follower.
 	if haveTowers && (len(plan) == 0 || plan[0].maxCost > 0) {
-		headModel := ""
+		headModel, directCap := "", map[string]int(nil)
 		if ok {
-			headModel = pk.m.bare
+			headModel, directCap = pk.m.bare, pk.eligCap
 		}
 		plan = b.mergeEdgePlan(plan, modelList, edgeMerge{
 			order: orderList, sort: routeSort, onePerModel: noFallbacks && !listBound, headModel: headModel,
+			curatedEqual: routeReq.curatedEqual,
 			coinEdge: func() bool {
 				b.stats.edgeCoinFlips.Add(1)
 				if edgeCoinForTest != nil {
 					return edgeCoinForTest()
 				}
-				return seededRand(requestID).Intn(2) == 0
+				d, t := edgeSideCapacity(directCap, towerCands[headModel], b.edgeRowCapacity)
+				return edgeCoin(requestID, d, t)
 			},
 			towers: towerCands,
 		}, now)
@@ -4857,6 +4874,12 @@ type pickReq struct {
 	// lifts the curated per-request TPM guard (the refusal path asks "was it only that?").
 	pairCool  map[string]time.Time
 	ignoreTPM bool
+	// curatedEqual lifts home-first (§14.6): the consumer opted in to curated on equal terms
+	// (pref fast, an explicit sort, or a curated station named in order / only / the pin).
+	curatedEqual bool
+	// capOf, when set, receives the capacity of each node in the eligible pool (§14.5: the
+	// Tower coin is weighted by eligible capacity on each side).
+	capOf map[string]int
 }
 
 // capabilityNames is the capability requirement in words ("tools", "vision", "tools and
@@ -5168,6 +5191,34 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	if len(pool) == 0 {
 		pool = tierB
 	}
+	if req.capOf != nil {
+		clear(req.capOf)
+		for _, sc := range pool {
+			c := cands[sc.idx]
+			req.capOf[c.node.NodeID] = c.capacity
+		}
+	}
+	// HOME FIRST (§14.6): unless the consumer opted in to curated, a curated station serves only
+	// when no home station in the pool has room (none eligible, all cooling, all busy).
+	if !req.curatedEqual {
+		var home, curated []scoredCand
+		roomAtHome := false
+		for _, sc := range pool {
+			c := cands[sc.idx]
+			if c.node.Curated {
+				curated = append(curated, sc)
+				continue
+			}
+			home = append(home, sc)
+			roomAtHome = roomAtHome || c.inflight < c.capacity
+		}
+		switch {
+		case roomAtHome:
+			pool = home
+		case len(curated) > 0:
+			pool = curated
+		}
+	}
 	chosen := -1
 	if req.sort == sortNone {
 		chosen = selectP2C(pool, w.beta, req.rng)
@@ -5185,7 +5236,23 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 				best = sc
 			}
 		}
+		// THE BAND (§14.4): every candidate within the band of the best competes, weighted by
+		// spare capacity and drawn from the request seed - a fractional undercut or a lucky
+		// node id no longer captures the pool. Excluding each pick in turn, the failover plan
+		// walks the band first, then the rest in sort order.
+		bm, width := metric(cands[best.idx]), sortBandOf(req.sort)
+		var band []int
+		var weights []float64
+		for _, sc := range pool {
+			if c := cands[sc.idx]; inSortBand(req.sort, bm, metric(c), width) {
+				band = append(band, sc.idx)
+				weights = append(weights, spareSlots(c.capacity, c.inflight))
+			}
+		}
 		chosen = best.idx
+		if len(band) > 1 {
+			chosen = band[spareWeightedPick(weights, req.rng)]
+		}
 	}
 	if chosen < 0 {
 		b.metricsMu.Unlock()

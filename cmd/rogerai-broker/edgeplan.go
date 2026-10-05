@@ -140,12 +140,15 @@ func edgeMetricLess(key sortKey, a, b edgeMetric) (before, decided bool) {
 
 // edgeMerge is how the Tower candidates of a request join the direct plan, per model.
 type edgeMerge struct {
-	order       []string                 // provider.order: the listed portion ranks first, in list order
-	sort        sortKey                  // provider.sort: one metric across both fabrics, direct first on a tie
-	onePerModel bool                     // allow_fallbacks:false: the head of each model only
-	headModel   string                   // the model the request's first pick is for (the coin is flipped there)
-	coinEdge    func() bool              // the fan-out coin, counted once when consulted; true = the Tower head goes first
-	towers      map[string][]attemptCand // per model, in placement order
+	order       []string    // provider.order: the listed portion ranks first, in list order
+	sort        sortKey     // provider.sort: one metric across both fabrics, direct first on a tie
+	onePerModel bool        // allow_fallbacks:false: the head of each model only
+	headModel   string      // the model the request's first pick is for (the coin is flipped there)
+	coinEdge    func() bool // the fan-out coin, counted once when consulted; true = the Tower head goes first
+	// curatedEqual lifts home-first (§14.6); without it a Tower row behind a curated node follows
+	// a home direct station, and a home Tower row leads a curated direct one.
+	curatedEqual bool
+	towers       map[string][]attemptCand // per model, in placement order
 }
 
 // mergeEdgePlan returns the plan with the Tower candidates inserted. Direct candidates keep
@@ -230,6 +233,8 @@ func (b *broker) mergeEdgePlan(plan []attemptCand, models []string, m edgeMerge,
 				towerFirst = true
 			case !towerA && directA:
 				towerFirst = false
+			case !m.curatedEqual && b.nodeCurated(block[0].node.NodeID) != b.nodeCurated(tws[0].edge.row.NodeID):
+				towerFirst = b.nodeCurated(block[0].node.NodeID) // the home side goes first
 			case model == m.headModel && m.coinEdge != nil:
 				towerFirst = m.coinEdge()
 			}

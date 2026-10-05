@@ -23,10 +23,14 @@ Feature: Curated traffic rides the existing relay
     And metered, receipted and held like any request
 
 
+  # superseded 2026-10-05 by contract §14.6 (founder-approved, fairness_and_abuse.feature #16):
+  # home stations rank first and curated is overflow unless the consumer opts in; with an
+  # opt-in, neither kind gets a thumb on the scale. Old Then: the router picks by the same
+  # price, health and signal rules it always uses / And no preference for either kind is hard-coded.
   Scenario: Routing judges curated by the same terms as any station
     Given a human and a curated station on one band
-    Then the router picks by the same price, health and signal rules it always uses
-    And no preference for either kind is hard-coded
+    Then by default the human station is picked while it has room
+    And with an opt-in to curated no preference for either kind is hard-coded
     # founder 2026-09-01: "not sure" on preferring humans - so neither side gets a thumb
     # on the scale until a ruling says otherwise
 
@@ -49,7 +53,10 @@ Feature: Curated traffic rides the existing relay
     When a funded consumer relays with body roger.self_hosted_only true twelve times
     Then every one of those relays is served by the human station
     And the curated station serves none of them
-    And without the key the same consumer can still be served by the curated station
+    # superseded 2026-10-05 by contract §14.6 (founder-approved, fairness_and_abuse.feature #16):
+    # curated is overflow without an opt-in. Old line: And without the key the same consumer
+    # can still be served by the curated station.
+    And without the key the same consumer is served by the curated station once the human station has no room
     # neutrality above still holds for everyone who does not ask; the key only narrows
 
 

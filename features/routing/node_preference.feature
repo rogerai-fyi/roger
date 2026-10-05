@@ -768,15 +768,21 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then every pick is "s1"
     # strict: P2C is disabled; the consumer asked for the floor
 
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # both estimated request costs fall within 5% of the best, so both are in the band and the
+  # pick between them is seeded, weighted by spare capacity. Old Then: every pick is "s2".
   Scenario: sort price breaks an out-price tie on in-price
     Given "s1" and "s2" both price out 1.00, "s1" prices in 0.50, "s2" prices in 0.20
     When 20 funded consumers relay with provider.sort "price"
-    Then every pick is "s2"
+    Then both "s1" and "s2" are picked
 
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # a tie inside the band is broken by the request seed, never by score or node id.
+  # Old Then: every pick is "s2".
   Scenario: sort price breaks a full price tie on score
     Given "s1" and "s2" price identically and "s2" has the better reliability
     When 20 funded consumers relay with provider.sort "price"
-    Then every pick is "s2"
+    Then both "s1" and "s2" are picked
 
   Scenario: sort price puts free (0/0) offers first
     Given "f1" serves "m" free (0/0)
@@ -866,10 +872,13 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 20 funded consumers relay with provider.sort "latency"
     Then every pick is "s3"
 
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # a TTFT tie is inside the 10% speed band and broken by the request seed.
+  # Old Then: every pick is "s3".
   Scenario: sort latency breaks a TTFT tie on score
     Given measured ttft "s1" 400ms and "s3" 400ms, and "s3" has the better reliability
     When 20 funded consumers relay with provider.sort "latency"
-    Then every pick is "s3"
+    Then both "s1" and "s3" are picked
 
 
   Scenario: sort latency with max_ttft_ms filters first, then sorts

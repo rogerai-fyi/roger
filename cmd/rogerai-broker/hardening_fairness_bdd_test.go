@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,11 @@ type fa6Spec struct {
 type fa6State struct {
 	*rpState
 
+	// held re-applies the measurements a Given states (capacity, in flight, tok/s, TTFT) before
+	// every relay: the stub upstream answers in microseconds, so the broker's own measurement of
+	// a served request would otherwise overwrite the stated figure after the first serve.
+	held map[string]func()
+
 	who                      map[string]*fa6Who
 	ops                      map[string]string // owner alias ("op1") -> station name
 	resps                    []fa6Resp
@@ -118,6 +124,7 @@ func (s *fa6State) reset() error {
 		return err
 	}
 	s.who, s.ops = map[string]*fa6Who{}, map[string]string{}
+	s.held = map[string]func(){}
 	s.resps, s.last, s.mark, s.hits = nil, fa6Resp{}, map[string]int{}, nil
 	s.succSnap, s.trustSnp, s.coolSeen, s.scen = map[string]float64{}, map[string]trustState{}, map[string]bool{}, map[string]any{}
 	s.ipN, s.unbound, s.recPrompt, s.recCompletion = 0, 0, 0, 0
@@ -332,18 +339,34 @@ func (s *fa6State) curate(st *fstation, provider string) {
 }
 
 func (s *fa6State) setCapacity(st *fstation, capacity, busy int) {
-	s.b.metricsMu.Lock()
-	s.b.concurrentTPS[st.id] = float64(capacity) * tpsPerSlot
-	s.b.inflight[st.id] = busy
-	s.b.metricsMu.Unlock()
+	s.hold("cap:"+st.id, func() {
+		s.b.metricsMu.Lock()
+		s.b.concurrentTPS[st.id] = float64(capacity) * tpsPerSlot
+		s.b.inflight[st.id] = busy
+		s.b.metricsMu.Unlock()
+	})
 }
 
 func (s *fa6State) setTTFT(st *fstation, ms int) {
-	s.b.mu.Lock()
-	tq := s.b.trust[st.id]
-	tq.ttftMs = float64(ms)
-	s.b.trust[st.id] = tq
-	s.b.mu.Unlock()
+	s.hold("ttft:"+st.id, func() {
+		s.b.mu.Lock()
+		tq := s.b.trust[st.id]
+		tq.ttftMs = float64(ms)
+		s.b.trust[st.id] = tq
+		s.b.mu.Unlock()
+	})
+}
+
+func (s *fa6State) setTPS(id string, tps float64) {
+	s.hold("tps:"+id, func() { s.rpState.setTPS(id, tps) })
+}
+
+// hold applies f now and again before every relay of the scenario (see fa6State.held).
+func (s *fa6State) hold(key string, f func()) {
+	f()
+	if s.held != nil {
+		s.held[key] = f
+	}
 }
 
 // setOfferField sets a field on the station's (first) offer through reflection, failing with
@@ -419,6 +442,9 @@ func (s *fa6State) body(sp fa6Spec) []byte {
 
 // do fires ONE real relay and records the outcome.
 func (s *fa6State) do(sp fa6Spec) fa6Resp {
+	for _, f := range s.held {
+		f()
+	}
 	body := s.body(sp)
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -2210,9 +2236,11 @@ func (s *fa6State) declaresCapacityMeasured(name, declared, measured string) err
 	reg.HW = "declared-capacity-" + declared
 	s.b.nodes[st.id] = reg
 	s.b.mu.Unlock()
-	s.b.metricsMu.Lock()
-	s.b.concurrentTPS[st.id] = float64(atoiMust(measured)) * tpsPerSlot
-	s.b.metricsMu.Unlock()
+	s.hold("cap:"+st.id, func() {
+		s.b.metricsMu.Lock()
+		s.b.concurrentTPS[st.id] = float64(atoiMust(measured)) * tpsPerSlot
+		s.b.metricsMu.Unlock()
+	})
 	return nil
 }
 
@@ -2405,18 +2433,39 @@ func (s *fa6State) consumersWithFilters(n, model string) error {
 }
 
 func (s *fa6State) capacityFor(dcap, tcap, model string) error {
+	s.scen["coinCaps"] = [2]int{atoiMust(dcap), atoiMust(tcap)}
 	return s.capacityEachSide(dcap, tcap, model)
 }
 
-// sameIDTwice cannot be built at the wire: the broker mints the request id that seeds the coin,
-// and a client cannot replay one (an Idempotency-Key replay returns the stored outcome without
-// a second routing pass). Reported as unconstructable.
+// sameIDTwice: the broker mints the request id that seeds the coin and a client cannot replay
+// one, so the claim is read through the production coin (edgeCoin, the function the relay's
+// coinEdge calls) with the production seed derivation, for one id, twice - and across many ids
+// the coin must not be constant (it is the seed that decides, at the weighted odds).
 func (s *fa6State) sameIDTwice() error {
-	return fmt.Errorf("cannot construct: the request id that seeds the coin is minted by the broker; a client cannot relay the same id twice")
+	caps := s.scen["coinCaps"].([2]int)
+	id := "fa6-coin-" + s.nonce
+	s.scen["coinTwice"] = [2]bool{edgeCoin(id, caps[0], caps[1]), edgeCoin(id, caps[0], caps[1])}
+	towers := 0
+	for i := 0; i < 4000; i++ {
+		if edgeCoin(fmt.Sprintf("%s-%d", id, i), caps[0], caps[1]) {
+			towers++
+		}
+	}
+	s.scen["coinTowerShare"] = float64(towers) / 4000
+	return nil
 }
 
 func (s *fa6State) sameFabricFirst() error {
-	return fmt.Errorf("cannot observe: see the When (the request id is not client-settable)")
+	twice := s.scen["coinTwice"].([2]bool)
+	if twice[0] != twice[1] {
+		return fmt.Errorf("the same request id sent the Tower first %v then %v", twice[0], twice[1])
+	}
+	caps := s.scen["coinCaps"].([2]int)
+	want := float64(caps[1]) / float64(caps[0]+caps[1])
+	if got := s.scen["coinTowerShare"].(float64); math.Abs(got-want) > 0.03 {
+		return fmt.Errorf("over 4000 request ids the Tower went first %.3f of the time, want %.3f (capacity-weighted)", got, want)
+	}
+	return nil
 }
 
 func (s *fa6State) directCheaper() error {
