@@ -2403,13 +2403,19 @@ const (
 	dispatchLost                           // a poller took the job but never handed it over
 )
 
-// dispatchErrOutcome maps a dispatch-plane error to its outcome (counting it).
+// dispatchErrOutcome maps a dispatch-plane error to its outcome, counting it as a request that
+// failed for that reason.
 func (b *broker) dispatchErrOutcome(err error) dispatchOutcome {
+	outcome := dispatchOutcomeOf(err)
+	b.countDispatchFailure(err, outcome)
+	return outcome
+}
+
+// dispatchOutcomeOf maps a dispatch-plane error to its outcome without counting it, for a
+// caller that may still serve the job in memory (see awaitRemote).
+func dispatchOutcomeOf(err error) dispatchOutcome {
 	switch err {
-	case errNoPoller:
-		b.stats.busNoPoller.Add(1)
-		return dispatchBusy
-	case errStationBusy:
+	case errNoPoller, errStationBusy:
 		return dispatchBusy
 	case errOffAir:
 		return dispatchOffAir
@@ -2418,8 +2424,17 @@ func (b *broker) dispatchErrOutcome(err error) dispatchOutcome {
 	case context.DeadlineExceeded:
 		return dispatchTimeout
 	}
-	b.stats.busDispatchErr.Add(1)
 	return dispatchBusErr
+}
+
+// countDispatchFailure counts a request that failed with err (classified as outcome).
+func (b *broker) countDispatchFailure(err error, outcome dispatchOutcome) {
+	switch {
+	case err == errNoPoller:
+		b.stats.busNoPoller.Add(1)
+	case outcome == dispatchBusErr:
+		b.stats.busDispatchErr.Add(1)
+	}
 }
 
 // writeDispatchFailure answers a request whose dispatch did not reach a result. The queue
@@ -2514,12 +2529,14 @@ func (b *broker) outageLocalDispatch(nodeID string) (local bool, outcome dispatc
 func (b *broker) awaitRemote(ctx context.Context, nodeID string, job protocol.Job, deadline time.Time) (res protocol.JobResult, outcome dispatchOutcome, retryLocal bool) {
 	tk, derr := b.dispatchRemote(ctx, nodeID, job, false)
 	if derr != nil {
-		outcome = b.dispatchErrOutcome(derr)
+		outcome = dispatchOutcomeOf(derr)
 		// In memory only when the job certainly never left: a dispatch that may have landed
-		// could otherwise be served twice (once from the store, once from here).
+		// could otherwise be served twice (once from the store, once from here). Served that
+		// way, the request has not failed, so the error is not counted.
 		if outcome == dispatchBusErr && !mayHaveLanded(derr) && b.polledHere(nodeID) {
 			return protocol.JobResult{}, outcome, true
 		}
+		b.countDispatchFailure(derr, outcome)
 		b.exitInflight(nodeID, false)
 		return protocol.JobResult{}, outcome, false
 	}
@@ -2806,9 +2823,13 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 		var derr error
 		tk, derr = b.dispatchRemote(context.Background(), node.NodeID, job, true)
 		if derr != nil {
-			outcome = b.dispatchErrOutcome(derr) // counts it
-			// In memory only when the job certainly never left (see awaitRemote).
+			outcome = dispatchOutcomeOf(derr)
+			// In memory only when the job certainly never left (see awaitRemote); counted only
+			// when the request then fails for it.
 			local = outcome == dispatchBusErr && !mayHaveLanded(derr) && b.polledHere(node.NodeID)
+			if !local {
+				b.countDispatchFailure(derr, outcome)
+			}
 		}
 	}
 	if b.multiInstance && b.shared != nil && !local && outcome != dispatchResult {

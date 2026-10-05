@@ -77,3 +77,39 @@ func TestLocalJobIsLocalToTheInstanceThatHandedItOver(t *testing.T) {
 	require.Equal(t, http.StatusOK, qPostResult(t, b, "n1", "tok", "free-m", protocol.Job{ID: "j1"}, nodePriv))
 	require.True(t, mr.Exists(dqInboxPrefix+"origin-x"), "the result was routed to the origin's inbox")
 }
+
+// A dispatch whose store step fails before the job left this instance, for a station polling
+// here, is served in memory: the request did NOT fail for the bus, so busDispatchErr (the
+// "dispatch refused by the bus" counter) stays put and the in-memory handoff is what counts.
+// Plain and streamed relays alike.
+func TestBusDispatchErrNotCountedWhenServedInMemory(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			prev := storeOutageDebounce
+			storeOutageDebounce = time.Hour // the store just failed: not (yet) an outage
+			defer func() { storeOutageDebounce = prev }()
+			s := &rsoState{}
+			s.reset(t)
+			defer s.cleanup()
+			require.NoError(t, s.twoInstances())
+			require.NoError(t, s.dispatchIn("queue-only"))
+			require.NoError(t, s.fundedConsumer())
+			require.NoError(t, s.pollsAndPostsHere("near", 1, 1))
+			a := s.dq.inst[0]
+			require.Eventually(t, func() bool { return a.polledHere(s.stations["near"].id) }, 5*time.Second, 10*time.Millisecond)
+			for _, mr := range s.dq.servers {
+				mr.Close()
+			}
+			require.False(t, a.dispatchStoreDown(), "inside the debounce: dispatch still tries the store")
+
+			if stream {
+				require.NoError(t, s.streamsThrough(1))
+			} else {
+				require.NoError(t, s.relaysThrough(1))
+			}
+			require.NoError(t, s.servedBy("near"))
+			require.Zero(t, a.stats.busDispatchErr.Load(), "served in memory: not a bus dispatch failure")
+			require.EqualValues(t, 1, a.stats.localDispatch.Load())
+		})
+	}
+}
