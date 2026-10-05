@@ -300,6 +300,16 @@ func (lr localRouting) admits(stationID string) bool {
 	return true
 }
 
+// offered reports whether any attached station serves model, admitted or not.
+func offered(stations []stationView, model string) bool {
+	for _, st := range stations {
+		if serves(st.models, model) {
+			return true
+		}
+	}
+	return false
+}
+
 // constraintMiss names why no attached station serving model is admitted, or "" when one is.
 func (lr localRouting) constraintMiss(stations []stationView, model string) string {
 	any := false

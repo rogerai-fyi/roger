@@ -26,7 +26,8 @@
 #     The console spend setting (v6.2.0 data-loss fix) is unrelated to consumer routing.
 #
 # DECISIONS (state, not ask):
-#   HONORED locally: `models[]` (first model any local station serves, in order), `provider.only`,
+#   HONORED locally: `models[]` (first model with an ELIGIBLE local station, in order), `provider.only`,
+#   # corrected 2026-10-05 (founder ruling): per-model eligibility, as the broker (CONTRACT §3)
 #   `provider.ignore`, `provider.order`, `provider.allow_fallbacks` over LOCAL station ids.
 #   EVALUATED, never ignored (CONTRACT §5a, "a default can never weaken a stated restriction"):
 #   roger.confidential and roger.trust_min. The attach registry records no attestation, so a
@@ -84,6 +85,12 @@ Feature: The standalone Tower honors the routing keys it can evaluate and names 
     When "c1" posts {"model": "gpt-4o", "models": ["claude-3", "llama-3.3-70b", "qwen3-32b"], "messages": [...]}
     Then the job is submitted for "llama-3.3-70b"
     And the response carries X-RogerAI-Model: llama-3.3-70b
+
+  Scenario: models[] skips a model whose only local station the constraints remove
+    # corrected 2026-10-05 (founder ruling): per-model eligibility, as the broker (CONTRACT §3)
+    When "c1" posts {"model": "mistral-7b", "models": ["qwen3-32b"], "provider": {"ignore": ["s3"]}, "messages": [...]}
+    Then the job is submitted for "qwen3-32b"
+    And the response carries X-RogerAI-Model: qwen3-32b
 
   Scenario: The primary model is tried before the list
     When "c1" posts {"model": "qwen3-32b", "models": ["llama-3.3-70b"], "messages": [...]}

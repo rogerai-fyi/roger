@@ -145,17 +145,21 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 		return
 	}
-	model := ""
+	// Per-model eligibility, as the broker (contract §3): the first model with a station the
+	// request's constraints admit serves; a model with none is skipped silently. With no
+	// eligible model at all, the constraint miss below names the first model that IS served.
+	model, served := "", ""
 	for _, m := range lr.models {
-		for _, st := range stations {
-			if serves(st.models, m) {
-				model = m
-				break
-			}
+		if served == "" && offered(stations, m) {
+			served = m
 		}
-		if model != "" {
+		if lr.constraintMiss(stations, m) == "" {
+			model = m
 			break
 		}
+	}
+	if model == "" {
+		model = served
 	}
 	if model == "" {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "model not offered by any local station: " + strings.Join(lr.models, ", ")})
