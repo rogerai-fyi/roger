@@ -1290,8 +1290,8 @@ func (g *gl3State) receiptIsSecond() error {
 	if err != nil {
 		return err
 	}
-	if rec.RequestID != g.reqID+"-2" {
-		return fmt.Errorf("the record's receipt is %s's, want the second attempt %s-2", rec.RequestID, g.reqID)
+	if want := g.b.attemptID(g.reqID, 2); rec.RequestID != want {
+		return fmt.Errorf("the record's receipt is %s's, want the second attempt %s", rec.RequestID, want)
 	}
 	return nil
 }

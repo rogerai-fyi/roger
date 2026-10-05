@@ -151,10 +151,12 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
 
   # --- equality with the non-stream headers ---------------------------------------
 
+  # superseded 2026-10-05 by founder ruling (contract §14.B7 #13): a receipt names the
+  # per-attempt id, the one X-RogerAI-Attempt-Id carries, never the request id itself.
   Scenario: The receipt in the chunk is the same encoding X-RogerAI-Receipt would carry
     When a streaming request for "qwen3-32b" is served by "n-1"
     Then usage.rogerai.receipt decodes with DecodeReceipt
-    And the decoded receipt names the request id, "n-1" and "qwen3-32b"
+    And the decoded receipt names the attempt id, "n-1" and "qwen3-32b"
 
   Scenario: The receipt in the chunk verifies under the current broker signature version
     When a streaming request for "qwen3-32b" is served by "n-1"

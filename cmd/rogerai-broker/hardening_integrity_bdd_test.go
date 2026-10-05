@@ -799,7 +799,7 @@ func (s *ri6State) notDerivable() error {
 }
 
 func (s *ri6State) deriveTwice() error {
-	s.scen["d1"], s.scen["d2"] = attemptID("R", 2), attemptID("R", 2)
+	s.scen["d1"], s.scen["d2"] = s.b.attemptID("R", 2), s.b.attemptID("R", 2)
 	return nil
 }
 
@@ -835,6 +835,79 @@ func (s *ri6State) settleRecordsR() error {
 		return fmt.Errorf("GET /generation for the request id %q = %d %.200s", r, s.genCode, s.genBody)
 	}
 	return nil
+}
+
+// --- founder ruling 2026-10-05: X-RogerAI-Attempt-Id and the consumer's lineage row ---------------
+
+func (s *ri6State) streamsFor(who, model string) error {
+	s.mark()
+	s.heartbeat()
+	s.do(fa6Spec{who: who, model: model, stream: true})
+	return nil
+}
+
+func (s *ri6State) attemptHeaderIs(name string) error {
+	id, err := s.jobIDOf(name)
+	if err != nil {
+		return err
+	}
+	got := s.last.hdr.Get("X-RogerAI-Attempt-Id")
+	if got != id {
+		return fmt.Errorf("X-RogerAI-Attempt-Id = %q, want the job id %q %s received (%d)", got, id, name, s.last.code)
+	}
+	s.scen["attempt"] = id
+	return nil
+}
+
+func (s *ri6State) receiptNamesAttempt() error {
+	rec, err := protocol.DecodeReceipt(s.last.hdr.Get("X-RogerAI-Receipt"))
+	if err != nil {
+		return fmt.Errorf("X-RogerAI-Receipt does not decode: %v", err)
+	}
+	if want, _ := s.scen["attempt"].(string); rec.RequestID != want {
+		return fmt.Errorf("the receipt names %q, want the attempt id %q", rec.RequestID, want)
+	}
+	return nil
+}
+
+func (s *ri6State) consumerRowCarries(name string) error {
+	id, err := s.jobIDOf(name)
+	if err != nil {
+		return err
+	}
+	s.scen["attempt"], s.scen["attemptNode"] = id, s.st(name).id
+	r, _ := s.scen["R"].(string)
+	es, err := s.db.RecentByUser(s.consumer("u-1").wallet, 500)
+	if err != nil {
+		return err
+	}
+	for _, e := range es {
+		if e.RequestID == id {
+			if e.RelayRequestID != r {
+				return fmt.Errorf("the consumer's row for %q carries request id %q, want %q", id, e.RelayRequestID, r)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the consumer has no lineage row for the attempt %q", id)
+}
+
+func (s *ri6State) ownerRowCarriesNone() error {
+	id, _ := s.scen["attempt"].(string)
+	node, _ := s.scen["attemptNode"].(string)
+	es, err := s.db.RecentByNode(node, 500)
+	if err != nil {
+		return err
+	}
+	for _, e := range es {
+		if e.RequestID == id {
+			if e.RelayRequestID != "" {
+				return fmt.Errorf("the owner's row for %q carries the request id %q", id, e.RelayRequestID)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the owner has no lineage row for the attempt %q", id)
 }
 
 // --- /generation --------------------------------------------------------------------------------
@@ -1518,6 +1591,11 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^the job ids received by "([^"]+)" and "([^"]+)" share no common prefix longer than "att_"$`, st.noCommonPrefix)
 	sc.Step(`^neither job id is derivable from the other without the broker secret$`, st.notDerivable)
 	sc.Step(`^the broker derives the job id for request "R" attempt 2 twice$`, st.deriveTwice)
+	sc.Step(`^the response's X-RogerAI-Attempt-Id is the job id "([^"]+)" received$`, st.attemptHeaderIs)
+	sc.Step(`^the receipt in X-RogerAI-Receipt names that attempt id$`, st.receiptNamesAttempt)
+	sc.Step(`^"([^"]+)" streams for "([^"]+)"$`, st.streamsFor)
+	sc.Step(`^the consumer's lineage row for the job id "([^"]+)" received carries request id "R"$`, st.consumerRowCarries)
+	sc.Step(`^the owner's lineage row for that job id carries no request id$`, st.ownerRowCarriesNone)
 	sc.Step(`^both derivations are equal$`, st.derivationsEqual)
 	sc.Step(`^the receipt binds to the per-attempt job id "([^"]+)" received$`, st.receiptBinds)
 	sc.Step(`^the settle records the request id "R" for the consumer$`, st.settleRecordsR)

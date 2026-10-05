@@ -816,7 +816,7 @@ func (k *kg5State) settledOK(res kg5Resp, wallet string) error {
 		return err
 	}
 	for _, e := range es {
-		if e.RequestID != "" && strings.HasPrefix(e.RequestID, res.reqID) && res.reqID != "" {
+		if res.reqID != "" && e.RelayRequestID == res.reqID {
 			return nil
 		}
 	}
@@ -830,7 +830,7 @@ func (k *kg5State) settledOn(wallet, reqID string) (bool, error) {
 		return false, err
 	}
 	for _, e := range es {
-		if reqID != "" && strings.HasPrefix(e.RequestID, reqID) {
+		if reqID != "" && e.RelayRequestID == reqID {
 			return true, nil
 		}
 	}
@@ -2000,8 +2000,21 @@ func (k *kg5State) settledThenChargeback(label string) error {
 	}
 	wallet, _ := k.walletOf("acct-a")
 	// The $1.00 spend relay is the disputed request (the spend Given records no scenario
-	// response, so k.resp is not it).
-	_, err := k.db.Chargeback("dp_"+k.nonce, wallet, k.spendReq, 1, time.Now())
+	// response, so k.resp is not it). Its rows are keyed on the attempt that settled it.
+	es, err := k.db.RecentByUser(wallet, 2000)
+	if err != nil {
+		return err
+	}
+	disputed := ""
+	for _, e := range es {
+		if e.RelayRequestID == k.spendReq {
+			disputed = e.RequestID
+		}
+	}
+	if disputed == "" {
+		return fmt.Errorf("the $1.00 spend (request %q) settled no row on %s", k.spendReq, wallet)
+	}
+	_, err = k.db.Chargeback("dp_"+k.nonce, wallet, disputed, 1, time.Now())
 	return err
 }
 

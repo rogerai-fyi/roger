@@ -189,6 +189,32 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     Then the job ids received by "s1" and "s2" share no common prefix longer than "att_"
     And neither job id is derivable from the other without the broker secret
 
+  # founder ruling 2026-10-05: the receipt names the attempt, and the response says which
+  # attempt that is, so a consumer can tie its receipt to its X-RogerAI-Request-Id.
+  Scenario: The response names the attempt that served in X-RogerAI-Attempt-Id
+    When "u-1" relays for "m" and the response carries X-RogerAI-Request-Id "R"
+    Then the response's X-RogerAI-Attempt-Id is the job id "s1" received
+    And the receipt in X-RogerAI-Receipt names that attempt id
+
+  # founder ruling 2026-10-05
+  Scenario: After a failover the response names the attempt that served
+    Given station "s2" is on air for "m"
+    And "s1" answers the next request with an upstream 429
+    When "u-1" relays for "m" and "s2" serves
+    Then the response's X-RogerAI-Attempt-Id is the job id "s2" received
+
+  # founder ruling 2026-10-05
+  Scenario: A streamed response names the attempt that served
+    When "u-1" streams for "m"
+    Then the response's X-RogerAI-Attempt-Id is the job id "s1" received
+
+  # founder ruling 2026-10-05: the consumer's ledger ties each attempt back to its request; a
+  # station owner's never does (that would re-link the attempts the per-attempt id separates).
+  Scenario: The consumer's lineage row carries the request id beside the attempt id
+    When "u-1" relays for "m" and the response carries X-RogerAI-Request-Id "R"
+    Then the consumer's lineage row for the job id "s1" received carries request id "R"
+    And the owner's lineage row for that job id carries no request id
+
   Scenario: The per-attempt id is stable for the same request and attempt
     When the broker derives the job id for request "R" attempt 2 twice
     Then both derivations are equal

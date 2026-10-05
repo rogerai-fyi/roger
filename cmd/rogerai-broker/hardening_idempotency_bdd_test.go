@@ -216,19 +216,19 @@ func (s *id6State) oneSettleOneReceipt() error {
 	}
 	n := 0
 	for _, r := range rows {
-		if strings.HasPrefix(r.Ref, id) {
+		if isAttemptOf(s.b, r.Ref, id) {
 			n++
 		}
 	}
 	if n != 1 {
 		return fmt.Errorf("%d spend row(s) for request %s, want exactly 1", n, id)
 	}
-	if _, _, err := s.storedReceipt(id + "-1"); err != nil {
-		if _, _, err2 := s.storedReceipt(id); err2 != nil {
-			return fmt.Errorf("no stored receipt for %s: %v", id, err)
+	for _, a := range attemptIDsOf(s.b, id) {
+		if _, _, err := s.storedReceipt(a); err == nil {
+			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("no stored receipt for any attempt of %s", id)
 }
 
 func (s *id6State) spendRows() (int, error) {

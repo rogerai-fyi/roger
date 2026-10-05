@@ -880,29 +880,7 @@ func (s *foState) entriesOf(name string) ([]store.Entry, error) {
 }
 
 func (s *foState) storedReceipt(reqID string) (protocol.UsageReceipt, map[string]any, error) {
-	var raw []byte
-	if s.pg != nil {
-		var txt string
-		if err := s.pg.DB().QueryRow(`SELECT receipt::text FROM rogerai.receipts WHERE request_id=$1`, reqID).Scan(&txt); err != nil {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("receipt %s: %w", reqID, err)
-		}
-		raw = []byte(txt)
-	} else {
-		rec, ok := s.mem.ReceiptOf(reqID)
-		if !ok {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("no stored receipt for %s", reqID)
-		}
-		raw, _ = json.Marshal(rec)
-	}
-	var rec protocol.UsageReceipt
-	var keys map[string]any
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return rec, nil, err
-	}
-	if err := json.Unmarshal(raw, &keys); err != nil {
-		return rec, nil, err
-	}
-	return rec, keys, nil
+	return storedReceiptOf(s.b, s.pg, s.mem, reqID)
 }
 
 func (s *foState) voidReasonOf(name string) (string, string, error) {
@@ -2776,14 +2754,11 @@ func (s *foState) lineage123() error {
 		}
 		ids[n] = es[0].RequestID
 	}
-	base := ids["s1"]
-	if !strings.HasPrefix(ids["s2"], base+"-") || !strings.HasPrefix(ids["s3"], base+"-") {
-		return fmt.Errorf("attempt ids %v do not share the request lineage %s", ids, base)
+	mine, err := s.entries()
+	if err != nil {
+		return err
 	}
-	if ids["s2"] != base+"-2" || ids["s3"] != base+"-3" {
-		return fmt.Errorf("attempt ids %v, want %s-2 and %s-3", ids, base, base)
-	}
-	return nil
+	return attemptLineage(s.b, mine, []string{ids["s1"], ids["s2"], ids["s3"]})
 }
 
 func (s *foState) ownerNoEarnNoStrike(name string) error {

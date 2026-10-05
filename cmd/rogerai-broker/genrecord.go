@@ -174,16 +174,6 @@ func (g *genLive) with(f func(st *genStored)) {
 	g.mu.Unlock()
 }
 
-// splitAttemptID maps an attempt id ("<id>" or "<id>-n") to its request id and n.
-func splitAttemptID(attempt string) (string, int) {
-	if i := strings.LastIndexByte(attempt, '-'); i > 0 {
-		if n, err := strconv.Atoi(attempt[i+1:]); err == nil {
-			return attempt[:i], n
-		}
-	}
-	return attempt, 1
-}
-
 // attemptOf returns attempt n of the record, appending it if absent.
 func (st *genStored) attemptOf(n int) *genAttempt {
 	for i := range st.Rec.Attempts {
@@ -201,12 +191,6 @@ func (b *broker) genAttemptStart(requestID string, n int, node, model string) {
 		a := st.attemptOf(n)
 		a.Node, a.Model, a.start = node, model, time.Now()
 	})
-}
-
-// genAttemptEnd records how attempt (by its attempt id) ended without serving.
-func (b *broker) genAttemptEnd(attempt, node string, status int, void string, retryAfter int) {
-	id, n := splitAttemptID(attempt)
-	b.genAttemptEndN(id, n, node, status, void, retryAfter)
 }
 
 func (b *broker) genAttemptEndN(requestID string, n int, node string, status int, void string, retryAfter int) {

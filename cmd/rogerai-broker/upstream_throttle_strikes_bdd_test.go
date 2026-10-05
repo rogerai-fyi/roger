@@ -460,29 +460,7 @@ func (s *utState) entryFor(reqID string) (store.Entry, bool, error) {
 // storedReceipt reads the receipt the broker stored for a request: the JSONB column on
 // Postgres, the retained receipt on the in-memory store.
 func (s *utState) storedReceipt(reqID string) (protocol.UsageReceipt, map[string]any, error) {
-	var raw []byte
-	if s.pg != nil {
-		var txt string
-		if err := s.pg.DB().QueryRow(`SELECT receipt::text FROM rogerai.receipts WHERE request_id=$1`, reqID).Scan(&txt); err != nil {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("receipt %s: %w", reqID, err)
-		}
-		raw = []byte(txt)
-	} else {
-		rec, ok := s.mem.ReceiptOf(reqID)
-		if !ok {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("no stored receipt for %s", reqID)
-		}
-		raw, _ = json.Marshal(rec)
-	}
-	var rec protocol.UsageReceipt
-	var keys map[string]any
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return rec, nil, err
-	}
-	if err := json.Unmarshal(raw, &keys); err != nil {
-		return rec, nil, err
-	}
-	return rec, keys, nil
+	return storedReceiptOf(s.b, s.pg, s.mem, reqID)
 }
 
 func (s *utState) strikes() ([]store.Strike, error) { return s.db.StrikesByOwner(s.acct, 0) }

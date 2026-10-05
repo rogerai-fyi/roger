@@ -32,6 +32,8 @@ type lateTicket struct {
 	Payer string `json:"payer"`
 	Model string `json:"model"`
 	Until int64  `json:"until"` // unix ms: the grace's end
+	// Request is the consumer-facing request id the timed-out attempt belongs to.
+	Request string `json:"request,omitempty"`
 }
 
 type lateLocal struct {
@@ -98,6 +100,7 @@ func (b *broker) lateResult(node string, res protocol.JobResult) {
 	reg := b.nodes[node]
 	b.mu.Unlock()
 	rec := res.Receipt
+	rec.RelayRequestID = t.Request
 	if !rec.VerifyNode(reg.PubKey) || !rec.BindsTo(res.ID, node) {
 		return
 	}

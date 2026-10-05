@@ -45,7 +45,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -282,40 +281,11 @@ func (s *sr3State) dispatchedIDs() map[string][]string {
 	return out
 }
 
-var sr3AttemptSuffix = regexp.MustCompile(`-\d+$`)
-
+// resolveReqID reads the request id the relay names on every response (X-RogerAI-Request-Id,
+// founder ruling 2026-10-02). Receipts and dispatched jobs carry per-attempt ids, which never
+// lead back to it.
 func (s *sr3State) resolveReqID() {
-	s.reqID = ""
-	// The relay names its request id on every response (X-RogerAI-Request-Id, founder ruling
-	// 2026-10-02); the dispatched-job and receipt reads below remain for a response without it.
-	if v := s.lastHdr.Get("X-RogerAI-Request-Id"); v != "" {
-		s.reqID = v
-		return
-	}
-	var ids []string
-	for _, l := range s.dispatchedIDs() {
-		ids = append(ids, l...)
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		return len(ids[i]) < len(ids[j]) || (len(ids[i]) == len(ids[j]) && ids[i] < ids[j])
-	})
-	if len(ids) > 0 {
-		s.reqID = sr3AttemptSuffix.ReplaceAllString(ids[0], "")
-		return
-	}
-	// The bridge path dispatches no direct station: read the request id off the receipt the
-	// answer carries (the X-RogerAI-Receipt header, or the stream chunk's).
-	if enc := s.lastHdr.Get("X-RogerAI-Receipt"); enc != "" {
-		if rec, err := protocol.DecodeReceipt(enc); err == nil {
-			s.reqID = sr3AttemptSuffix.ReplaceAllString(rec.RequestID, "")
-			return
-		}
-	}
-	if ch, err := s.chunk(); err == nil {
-		if rec, err := s.chunkReceipt(ch); err == nil {
-			s.reqID = sr3AttemptSuffix.ReplaceAllString(rec.RequestID, "")
-		}
-	}
+	s.reqID = s.lastHdr.Get("X-RogerAI-Request-Id")
 }
 
 // send fires one real relay with the scenario's shaping (rpState.requestBody + headers) through
@@ -1095,7 +1065,7 @@ func (s *sr3State) debit() (float64, int, error) {
 	}
 	total, n := 0.0, 0
 	for _, e := range es {
-		if e.RequestID == s.reqID || strings.HasPrefix(e.RequestID, s.reqID+"-") {
+		if e.RelayRequestID == s.reqID || isAttemptOf(s.b, e.RequestID, s.reqID) {
 			total += e.Cost
 			if e.Cost > 0 {
 				n++
@@ -1482,8 +1452,9 @@ func (s *sr3State) receiptNames(name, model string) error {
 	if err != nil {
 		return err
 	}
-	if sr3AttemptSuffix.ReplaceAllString(rec.RequestID, "") != s.reqID || rec.NodeID != s.nameID(name) || rec.Model != model {
-		return fmt.Errorf("receipt names request %q node %q model %q, want %q %q %q", rec.RequestID, rec.NodeID, rec.Model, s.reqID, s.nameID(name), model)
+	attempt := s.lastHdr.Get("X-RogerAI-Attempt-Id")
+	if attempt == "" || rec.RequestID != attempt || rec.NodeID != s.nameID(name) || rec.Model != model {
+		return fmt.Errorf("receipt names attempt %q node %q model %q, want %q %q %q", rec.RequestID, rec.NodeID, rec.Model, attempt, s.nameID(name), model)
 	}
 	return nil
 }
@@ -1757,8 +1728,8 @@ func (s *sr3State) receiptNamesSecondAttempt(name string) error {
 	if err != nil {
 		return err
 	}
-	if rec.NodeID != s.nameID(name) || rec.RequestID != s.reqID+"-2" {
-		return fmt.Errorf("chunk receipt names %q/%q, want %s/%s", rec.NodeID, rec.RequestID, s.nameID(name), s.reqID+"-2")
+	if want := s.b.attemptID(s.reqID, 2); rec.NodeID != s.nameID(name) || rec.RequestID != want {
+		return fmt.Errorf("chunk receipt names %q/%q, want %s/%s", rec.NodeID, rec.RequestID, s.nameID(name), want)
 	}
 	return nil
 }
@@ -2312,7 +2283,7 @@ func (s *sr3State) register(sc *godog.ScenarioContext) {
 
 	// Then: receipts and equality
 	sc.Step(lit("usage.rogerai.receipt decodes with DecodeReceipt"), s.receiptDecodes)
-	sc.Step(`^the decoded receipt names the request id, "([^"]*)" and "([^"]*)"$`, s.receiptNames)
+	sc.Step(`^the decoded receipt names the attempt id, "([^"]*)" and "([^"]*)"$`, s.receiptNames)
 	sc.Step(`^the decoded receipt carries broker signature version (\d+)$`, s.receiptSigVersion)
 	sc.Step(lit("VerifyBroker verifies it over the broker canonical form"), s.receiptVerifyBroker)
 	sc.Step(lit("the coverage report says the billed counts are covered"), s.coverageCovered)

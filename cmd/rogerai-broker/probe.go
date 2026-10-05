@@ -713,7 +713,7 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	}
 	body, _ := json.Marshal(doc)
 	// The pseudonym real users get (§14.B7): a canary is indistinguishable from a customer.
-	job := protocol.Job{ID: protocol.NewRequestID(), User: b.probePseudonym(node.NodeID), Body: body}
+	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: body}
 	start := time.Now()
 
 	if mi {

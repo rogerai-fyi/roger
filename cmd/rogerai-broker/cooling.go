@@ -11,6 +11,9 @@ package main
 // with a Retry-After, and the Retry-After travels end to end. Probes never consult the filter.
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math"
@@ -91,13 +94,25 @@ func failoverable(status int) bool {
 	return status == http.StatusTooManyRequests || status >= 500 || status < 400
 }
 
-// attemptID names attempt n of a request: the request id itself for the first, "<id>-n" for a
-// failover attempt, so every attempt's receipt is its own row and the lineage is readable.
-func attemptID(requestID string, n int) string {
-	if n <= 1 {
-		return requestID
+// attemptID names attempt n of a request as the station sees it (contract §14.B7 #13):
+// "att_" + 24 hex of HMAC-SHA256(key, "<request id>:<n>"). Every attempt's receipt is its own
+// row, the same (request, attempt) always derives the same id on every instance, and neither
+// the request id nor a sibling attempt's id can be recovered from it without the key.
+func (b *broker) attemptID(requestID string, n int) string {
+	if n < 1 {
+		n = 1
 	}
-	return fmt.Sprintf("%s-%d", requestID, n)
+	mac := hmac.New(sha256.New, b.attemptKey())
+	fmt.Fprintf(mac, "%s:%d", requestID, n)
+	return "att_" + hex.EncodeToString(mac.Sum(nil))[:24]
+}
+
+// attemptKey is the attempt-id secret: derived from the broker signing key under its own
+// label, so every instance of one broker agrees on it with no extra configuration.
+func (b *broker) attemptKey() []byte {
+	mac := hmac.New(sha256.New, b.priv.Seed())
+	mac.Write([]byte("rogerai attempt-id v1"))
+	return mac.Sum(nil)
 }
 
 // attemptCand is one station the relay may try for a request, with its billing plan and its

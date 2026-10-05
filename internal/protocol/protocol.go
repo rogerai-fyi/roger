@@ -594,6 +594,10 @@ type UsageReceipt struct {
 	SigVersion int    `json:"sig_version,omitempty"`
 	NodeSig    string `json:"node_sig,omitempty"`
 	BrokerSig  string `json:"broker_sig,omitempty"`
+	// RelayRequestID is the consumer-facing request id (X-RogerAI-Request-Id) this attempt
+	// belongs to. Broker-internal: never serialized, so it is in neither signed form, never
+	// reaches a station, and travels only to the store's consumer-side ledger row.
+	RelayRequestID string `json:"-"`
 }
 
 // Void reasons a broker stamps on a $0 receipt (UsageReceipt.VoidReason).

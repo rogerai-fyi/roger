@@ -59,7 +59,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2271,12 +2270,7 @@ func (s *mf1State) requestID() string {
 	if err != nil || len(es) == 0 {
 		return ""
 	}
-	ids := make([]string, 0, len(es))
-	for _, e := range es {
-		ids = append(ids, e.RequestID)
-	}
-	sort.Slice(ids, func(i, j int) bool { return len(ids[i]) < len(ids[j]) })
-	return ids[0]
+	return es[0].RelayRequestID // every attempt's row ties back to the one request id
 }
 
 // --- When ---------------------------------------------------------------------------
@@ -2978,11 +2972,11 @@ func mf1Thens() []mf1Step {
 				}
 				ids[n] = es[0].RequestID
 			}
-			base := ids["a1"]
-			if ids["a2"] != base+"-2" || ids["b1"] != base+"-3" {
-				return fmt.Errorf("attempt ids %v, want %s, %s-2, %s-3", ids, base, base, base)
+			mine, err := s.db.RecentByUser(s.payerWallet(), 2000)
+			if err != nil {
+				return err
 			}
-			return nil
+			return attemptLineage(s.b, mine, []string{ids["a1"], ids["a2"], ids["b1"]})
 		}),
 		T(`the settled row is keyed on model "b" and the recount uses "b"'s tokenizer`, aFrom("b1"), func(s *mf1State) error {
 			es, err := s.entriesFor("b1")

@@ -3026,7 +3026,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 				if !ok && (!noFallbacks || routing.Only != nil || (n == 0 && len(orderList) == 0)) {
 					cn, co, ok = b.pickFor(m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, "", tried, failAllow, privateAllow,
-						rr.seeded(seededRand(attemptID(routeSeed, len(plan)+1))))
+						rr.seeded(seededRand(b.attemptID(routeSeed, len(plan)+1))))
 				}
 				nt := b.tunnels[cn.NodeID]
 				b.mu.Unlock()
@@ -3229,9 +3229,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		hold := func(amount float64) (bool, error) {
 			if keyHold {
-				return b.db.HoldForKey(payer, requestID, amount, akey.ID, keyStart.UnixMilli(), keyLim)
+				return b.db.HoldForKey(payer, b.attemptID(requestID, 1), amount, akey.ID, keyStart.UnixMilli(), keyLim)
 			}
-			return b.db.HoldFor(payer, requestID, amount) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
+			return b.db.HoldFor(payer, b.attemptID(requestID, 1), amount) // keyed on the first attempt; tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 		}
 		held := false
 		// A ceiling is only ATTEMPTED under the cap (monthlyCapFits: no notice headers, no
@@ -3329,7 +3329,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settled := false
-	holdKey := requestID // the pending-hold row follows the attempt that settles (rekeyHold)
+	holdKey := b.attemptID(requestID, 1) // the pending-hold row follows the attempt that settles (rekeyHold)
 	defer func() {
 		if !settled && maxCost > 0 {
 			b.db.ReleaseHoldFor(payer, holdKey) // refund + clear the tracked hold if we never captured it (idempotent vs the sweep)
@@ -3366,7 +3366,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if out.refusal != nil {
-				if next := b.nextLive(plan, i, "", deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
+				if next := b.nextLive(plan, i, "", deadline); next >= 0 && b.rekeyHold(payer, &holdKey, b.attemptID(requestID, next+1), maxCost) {
 					i = next - 1
 					continue
 				}
@@ -3381,7 +3381,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 			b.voidEdgeAttempt(payer, user, c, g, status)
 			b.genAttemptEndN(requestID, i+1, g.RelayName, status, voidReasonFor(status), 0)
-			if next := b.nextAttempt(plan, i, status, deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
+			if next := b.nextAttempt(plan, i, status, deadline); next >= 0 && b.rekeyHold(payer, &holdKey, b.attemptID(requestID, next+1), maxCost) {
 				log.Printf("FAILOVER request=%s from=%s (%s) to=%s", requestID, c.node.NodeID, voidReasonFor(status), plan[next].node.NodeID)
 				b.countFailover(plan, i, next)
 				i = next - 1
@@ -3396,11 +3396,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			writeTowerFailure(w, edgeOutcome{status: status, retryAfter: out.retryAfter})
 			return
 		}
-		jobID := attemptID(requestID, i+1)
+		jobID := b.attemptID(requestID, i+1)
 		// The provider never sees the real user identity - only a pseudonym that is
 		// stable per (user, node) so the owner can count repeat customers but cannot
 		// link a person, nor correlate the same user across different providers.
 		job := protocol.Job{ID: jobID, User: b.pseudonym(user, node.NodeID), Body: body}
+		w.Header().Set("X-RogerAI-Attempt-Id", jobID) // the attempt the receipt names (§14.B7 #13)
 		resCh, unreg := t.await(jobID)
 		start := time.Now()
 		b.genAttemptStart(requestID, i+1, node.NodeID, req.Model)
@@ -3415,7 +3416,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			if outcome == dispatchOffAir {
 				offAir++
 			}
-			if next := b.nextLive(plan, i, "", deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
+			if next := b.nextLive(plan, i, "", deadline); next >= 0 && b.rekeyHold(payer, &holdKey, b.attemptID(requestID, next+1), maxCost) {
 				log.Printf("FAILOVER request=%s from=%s (dispatch-failed) to=%s", requestID, node.NodeID, plan[next].node.NodeID)
 				b.countFailover(plan, i, next)
 				i = next - 1
@@ -3440,12 +3441,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// straight from the logs.
 			log.Printf("relay TIMEOUT user=%s node=%s model=%s - no result in %s (node slow/unresponsive); 504 - the client may fail over via X-Roger-Exclude-Nodes",
 				user, node.NodeID, req.Model, nonStreamRelayWait)
-			b.expectLate(jobID, lateTicket{Node: node.NodeID, Payer: payer, Model: req.Model})
+			b.expectLate(jobID, lateTicket{Node: node.NodeID, Payer: payer, Model: req.Model, Request: requestID})
 			jsonErr(w, http.StatusGatewayTimeout, "node timed out (use stream:true for slow models)")
 			return
 		}
 
 		rec := res.Receipt
+		rec.RelayRequestID = requestID // the consumer's ledger row ties the attempt back to its request
 		// A valid signature does not prove the receipt is FOR this job. Settlement
 		// claims the hold keyed on rec.RequestID, so an unbound receipt would clear the
 		// wrong row and strand this request's hold (later swept back to the payer, i.e.
@@ -3514,14 +3516,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// pre-auth hold in FULL, and flag the owner for evidence (Part 4). A $0
 		// metering receipt is still recorded so the request is auditable.
 		if !usable {
-			b.settleVoid(payer, user, payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(promptStr, len(job.Body)), "")
+			b.settleVoid(payer, user, payerKey, node.NodeID, offer.Model, &rec, i+1, res, promptTokensFrom(promptStr, len(job.Body)), "")
 			if res.Status == http.StatusTooManyRequests {
 				b.coolPair(node.NodeID, req.Model, payerKey, res.RetryAfterSec) // learned: the provider behind this station is at its ceiling (for this payer first, §14.2)
 			}
 			// FAILOVER BEFORE THE ERROR REACHES THE CONSUMER: a no-output failure with a
 			// sibling left in the plan (and enough deadline) is re-dispatched; the voided
 			// attempt above keeps the lineage complete and the hold follows the new attempt.
-			if next := b.nextAfterVoid(plan, i, rec.VoidReason, res.Status, deadline); next >= 0 && b.rekeyHold(payer, &holdKey, attemptID(requestID, next+1), maxCost) {
+			if next := b.nextAfterVoid(plan, i, rec.VoidReason, res.Status, deadline); next >= 0 && b.rekeyHold(payer, &holdKey, b.attemptID(requestID, next+1), maxCost) {
 				log.Printf("FAILOVER request=%s from=%s (%s) to=%s", requestID, node.NodeID, rec.VoidReason, plan[next].node.NodeID)
 				b.countFailover(plan, i, next)
 				i = next - 1 // the loop increment lands on `next`
@@ -4268,7 +4270,7 @@ func (l *lazySSE) fail(status int, body []byte, retryAfterSec int) {
 // ruling 2026-07-07).
 func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill streamBill, requestID string, body []byte, maxCost float64) {
 	settled := false
-	holdKey := requestID
+	holdKey := b.attemptID(requestID, 1)
 	defer func() {
 		if !settled && maxCost > 0 {
 			b.db.ReleaseHoldFor(bill.user, holdKey) // refund + clear the tracked hold if we never captured it (idempotent vs the sweep)
@@ -4342,7 +4344,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 				failBody = towerFailureBody(status)
 			}
 			res := protocol.JobResult{Status: status, Body: failBody, RetryAfterSec: retry}
-			if next := b.nextAfterVoid(plan, i, voidReasonOf(res), status, time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, attemptID(requestID, next+1), maxCost) {
+			if next := b.nextAfterVoid(plan, i, voidReasonOf(res), status, time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, b.attemptID(requestID, next+1), maxCost) {
 				log.Printf("FAILOVER request=%s from=%s (%s) to=%s", requestID, c.node.NodeID, voidReasonOf(res), plan[next].node.NodeID)
 				b.countFailover(plan, i, next)
 				i = next - 1
@@ -4354,7 +4356,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			lw.fail(status, res.Body, retry)
 			return
 		}
-		res, voided, dout := b.streamAttempt(lw, c, bill, attemptID(requestID, i+1), abody, maxCost, &settled)
+		res, voided, dout := b.streamAttempt(lw, c, bill, requestID, i+1, abody, maxCost, &settled)
 		if dispatchFailed(dout) {
 			// Nothing reached the station (§14.8): fail over before any frame, or answer the
 			// 503 with a code and Retry-After - never an empty 200.
@@ -4362,7 +4364,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			if dout == dispatchOffAir {
 				offAir++
 			}
-			if next := b.nextLive(plan, i, "", time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, attemptID(requestID, next+1), maxCost) {
+			if next := b.nextLive(plan, i, "", time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, b.attemptID(requestID, next+1), maxCost) {
 				log.Printf("FAILOVER request=%s from=%s (dispatch-failed) to=%s", requestID, c.node.NodeID, plan[next].node.NodeID)
 				b.countFailover(plan, i, next)
 				i = next - 1
@@ -4379,7 +4381,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 		if !voided {
 			return
 		}
-		if next := b.nextAfterVoid(plan, i, voidReasonOf(res), res.Status, time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, attemptID(requestID, next+1), maxCost) {
+		if next := b.nextAfterVoid(plan, i, voidReasonOf(res), res.Status, time.Time{}); next >= 0 && b.rekeyHold(bill.user, &holdKey, b.attemptID(requestID, next+1), maxCost) {
 			log.Printf("FAILOVER request=%s from=%s (%s) to=%s", requestID, c.node.NodeID, voidReasonOf(res), plan[next].node.NodeID)
 			b.countFailover(plan, i, next)
 			i = next - 1
@@ -4409,7 +4411,8 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 //
 // dout is the dispatch outcome: a dispatch failure (dispatchFailed) means the job never
 // reached the station and NOTHING was written; the caller fails over or answers it.
-func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobID string, body []byte, maxCost float64, settled *bool) (res protocol.JobResult, voided bool, dout dispatchOutcome) {
+func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requestID string, n int, body []byte, maxCost float64, settled *bool) (res protocol.JobResult, voided bool, dout dispatchOutcome) {
+	jobID := b.attemptID(requestID, n)
 	user, consumer, model, grantID := bill.user, bill.consumer, bill.model, bill.grantID
 	node, offer, t, pricing := c.node, c.offer, c.t, c.pricing
 	bill.screening.setNode(node.NodeID) // the after-the-fact flag names the station this attempt dispatches to (nil-safe)
@@ -4417,9 +4420,9 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 	resCh, unreg := t.await(jobID)
 	defer unreg()
 	lw.begin(node.NodeID)
-	lw.setModel(model) // X-RogerAI-Model on commit names the model of THIS attempt
-	reqOf, nOf := splitAttemptID(jobID)
-	b.genAttemptStart(reqOf, nOf, node.NodeID, model)
+	lw.Header().Set("X-RogerAI-Attempt-Id", jobID) // the attempt the receipt names (§14.B7 #13)
+	lw.setModel(model)                             // X-RogerAI-Model on commit names the model of THIS attempt
+	b.genAttemptStart(requestID, n, node.NodeID, model)
 	// X-RogerAI-Price is known before dispatch, so it rides the committed headers (a peek:
 	// the lock itself is minted only when the stream settles).
 	{
@@ -4564,6 +4567,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 	// hold, the operator paid its share, never a strike.
 	onResult := func(res protocol.JobResult, partial string) (protocol.JobResult, bool, dispatchOutcome) {
 		rec := res.Receipt
+		rec.RelayRequestID = requestID // the consumer's ledger row ties the attempt back to its request
 		// Same binding gate as the non-stream relay: a signature-valid receipt that
 		// names another (or no) request would settle against the wrong hold row. A partial
 		// settle carries the broker's own receipt of what was delivered (no node signature).
@@ -4641,7 +4645,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				waitPump()
 				res.Body = lw.piped()
 			}
-			b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, res, promptTokensFrom(bill.promptOf(job.Body), len(job.Body)), " (stream)")
+			b.settleVoid(user, user, bill.payerKey, node.NodeID, offer.Model, &rec, n, res, promptTokensFrom(bill.promptOf(job.Body), len(job.Body)), " (stream)")
 			if res.Status == http.StatusTooManyRequests {
 				b.coolPair(node.NodeID, model, bill.payerKey, res.RetryAfterSec)
 			}
@@ -4754,7 +4758,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			comment = "rogerai-cost=" + fmtCostHeader(cost)
 		}
 		if !settleFailed {
-			b.genServe(reqOf, nOf, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, streamTPS, protocol.EncodeReceipt(rec))
+			b.genServe(requestID, n, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, streamTPS, protocol.EncodeReceipt(rec))
 		}
 		lw.finish(usageChunkJSON(billedPrompt, billedCompletion, cost, chunk), comment)
 		return res, false, dispatchResult // the receipt arrived; leave the idle loop
@@ -4813,9 +4817,9 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 // behind the station throttling: voided and refunded exactly like any other void, kept on
 // the receipt for audit, and NEVER a strike (features/safety/upstream_throttle_not_a_strike).
 // The caller keeps settled=false so its deferred ReleaseHold refunds the hold in full.
-func (b *broker) settleVoid(payer, user, payerKey, nodeID, model string, rec *protocol.UsageReceipt, res protocol.JobResult, approxTokens int, label string) {
+func (b *broker) settleVoid(payer, user, payerKey, nodeID, model string, rec *protocol.UsageReceipt, n int, res protocol.JobResult, approxTokens int, label string) {
 	rec.VoidReason, rec.UpstreamStatus = voidReasonOf(res), res.Status
-	b.genAttemptEnd(rec.RequestID, nodeID, res.Status, rec.VoidReason, res.RetryAfterSec)
+	b.genAttemptEndN(rec.RelayRequestID, n, nodeID, res.Status, rec.VoidReason, res.RetryAfterSec)
 	if rec.VoidReason == protocol.VoidUpstreamThrottled {
 		log.Printf("THROTTLED upstream-429 user=%s node=%s - $0, hold refunded, not a strike", user, nodeID)
 	} else if rec.VoidReason == protocol.VoidConsumerRejected {

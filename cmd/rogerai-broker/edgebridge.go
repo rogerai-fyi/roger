@@ -501,6 +501,7 @@ func (b *broker) writeBridgedAnswer(w http.ResponseWriter, g dispatch.EdgeGrant,
 
 func setBridgedHeaders(h http.Header, g dispatch.EdgeGrant, rec protocol.UsageReceipt, cost float64) {
 	h.Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
+	h.Set("X-RogerAI-Attempt-Id", rec.RequestID)
 	h.Set("X-RogerAI-Provider", g.RelayName)
 	h.Set("X-RogerAI-Model", g.Model)
 	h.Set("X-RogerAI-Relay", g.TowerID)

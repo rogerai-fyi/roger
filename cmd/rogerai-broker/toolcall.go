@@ -388,7 +388,7 @@ func (b *broker) probeToolCall(node protocol.NodeRegistration, model string, aut
 		return
 	}
 	nonce := newToolNonce() // fresh per probe: the model must echo it, defeating a canned reply
-	job := protocol.Job{ID: protocol.NewRequestID(), User: b.probePseudonym(node.NodeID), Body: toolCanaryBody(model, nonce)}
+	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: toolCanaryBody(model, nonce)}
 
 	if mi {
 		ctx, cancel := context.WithCancel(context.Background())

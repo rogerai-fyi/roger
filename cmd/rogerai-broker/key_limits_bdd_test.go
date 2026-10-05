@@ -142,7 +142,7 @@ func (k *kg5State) kl5HoldFor(reqID string) (float64, error) {
 	}
 	sum := 0.0
 	for _, r := range rows {
-		if reqID != "" && strings.HasPrefix(r.Ref, reqID) {
+		if isAttemptOf(k.b, r.Ref, reqID) {
 			sum += -r.Amount
 		}
 	}
@@ -2576,7 +2576,7 @@ func (k *kg5State) kl5BothViewsOwner(acct, role, station string) error {
 		return fmt.Errorf("no relay was served by %s in this scenario", station)
 	}
 	for _, e := range kl5Events(js, "events") {
-		if e["request_id"] == k.ownServed.reqID && e["node"] == k.ownServed.station {
+		if isAttemptOf(k.b, fmt.Sprint(e["request_id"]), k.ownServed.reqID) && e["node"] == k.ownServed.station {
 			return nil
 		}
 	}
@@ -2587,7 +2587,7 @@ func (k *kg5State) kl5BothViewsConsumer(label string) error {
 	js := k.consoleJS
 	want := k.keyID(label)
 	for _, e := range kl5Events(js, "consumer_events") {
-		if e["request_id"] == k.consoleRelayID {
+		if e["relay_request_id"] == k.consoleRelayID {
 			if e["key_id"] != want {
 				return fmt.Errorf("the consumer event for %s carries key_id %v, want %s", k.consoleRelayID, e["key_id"], want)
 			}

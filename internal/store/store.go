@@ -28,6 +28,9 @@ type Entry struct {
 	Cost             float64 `json:"cost"`        // credits the consumer paid
 	OwnerShare       float64 `json:"owner_share"` // credits credited to the node owner
 	TS               int64   `json:"ts"`
+	// RelayRequestID is the request id the attempt (RequestID) belongs to: set on the
+	// consumer's rows only (RecentByUser), never on a station owner's.
+	RelayRequestID string `json:"relay_request_id,omitempty"`
 }
 
 type Store interface {
@@ -904,6 +907,7 @@ type Mem struct {
 	earnings    map[string]float64
 	spend       map[string]float64
 	entries     []Entry
+	relayReq    map[string]string // attempt id -> its request id; joined into the consumer's rows only
 	processed   map[string]bool
 	owners      map[string]Owner // keyed by pubkey
 	policy      PayoutPolicy
@@ -1379,6 +1383,7 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
@@ -1529,6 +1534,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	// Capture the hold into ledger: release the full reservation, then debit the
 	// actual spend. Net wallet delta == held-cost, matching the cache above.
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
@@ -1590,6 +1596,7 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: stationEarn, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
@@ -1628,7 +1635,25 @@ func (m *Mem) SpendOf(user string) (float64, error) {
 }
 
 func (m *Mem) RecentByUser(user string, limit int) ([]Entry, error) {
-	return m.recent(func(e Entry) bool { return e.User == user }, limit), nil
+	out := m.recent(func(e Entry) bool { return e.User == user }, limit)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range out {
+		out[i].RelayRequestID = m.relayReq[out[i].RequestID]
+	}
+	return out, nil
+}
+
+// noteRelayReqLocked keeps the attempt's request id beside the ledger row, where only the
+// consumer's view joins it in (an owner's never does: it would re-link the attempts).
+func (m *Mem) noteRelayReqLocked(rec protocol.UsageReceipt) {
+	if rec.RequestID == "" || rec.RelayRequestID == "" {
+		return
+	}
+	if m.relayReq == nil {
+		m.relayReq = map[string]string{}
+	}
+	m.relayReq[rec.RequestID] = rec.RelayRequestID
 }
 
 func (m *Mem) RecentByNode(node string, limit int) ([]Entry, error) {

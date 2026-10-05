@@ -404,16 +404,19 @@ func buildSeries(cons, prov []store.Entry, keyFn func(int64) string, table []fro
 // hostname-free in this system). success is always true here: only SETTLED receipts
 // reach the store, so a present receipt is a successful request.
 type consoleEvent struct {
-	RequestID string  `json:"request_id"` // the receipt / chain id
-	TS        int64   `json:"ts"`
-	Model     string  `json:"model"`
-	Node      string  `json:"node"` // node callsign (hostname-free node id)
-	TokensIn  int64   `json:"tokens_in"`
-	TokensOut int64   `json:"tokens_out"`
-	Cost      float64 `json:"cost"`   // consumer $ paid
-	Earned    float64 `json:"earned"` // provider owner-share $ (0 on the consumer view)
-	Success   bool    `json:"success"`
-	KeyID     string  `json:"key_id,omitempty"` // the account key that made the request
+	RequestID string `json:"request_id"` // the receipt / chain id (the per-attempt id)
+	// RelayRequestID is the X-RogerAI-Request-Id the attempt belongs to: the consumer's own
+	// rows only (store.Entry carries it nowhere else).
+	RelayRequestID string  `json:"relay_request_id,omitempty"`
+	TS             int64   `json:"ts"`
+	Model          string  `json:"model"`
+	Node           string  `json:"node"` // node callsign (hostname-free node id)
+	TokensIn       int64   `json:"tokens_in"`
+	TokensOut      int64   `json:"tokens_out"`
+	Cost           float64 `json:"cost"`   // consumer $ paid
+	Earned         float64 `json:"earned"` // provider owner-share $ (0 on the consumer view)
+	Success        bool    `json:"success"`
+	KeyID          string  `json:"key_id,omitempty"` // the account key that made the request
 }
 
 // console handles GET /console (alias /activity): the recent lineage activity feed +
@@ -534,7 +537,7 @@ func consoleEvents(entries []store.Entry, keyOf map[string]string, withKey bool)
 	events := make([]consoleEvent, 0, len(entries))
 	for _, e := range entries {
 		ev := consoleEvent{
-			RequestID: e.RequestID, TS: e.TS, Model: e.Model, Node: e.Node,
+			RequestID: e.RequestID, RelayRequestID: e.RelayRequestID, TS: e.TS, Model: e.Model, Node: e.Node,
 			TokensIn: int64(e.PromptTokens), TokensOut: int64(e.CompletionTokens),
 			Cost: round6(e.Cost), Earned: round6(e.OwnerShare), Success: true,
 		}
