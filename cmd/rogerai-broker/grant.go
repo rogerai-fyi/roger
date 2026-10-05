@@ -153,6 +153,9 @@ type streamBill struct {
 	// req is the relay request, carried so a settle that crosses the monthly-cap threshold can
 	// resolve the account's notice address from its authenticated identity.
 	req *http.Request
+	// cap is the monthly cap the relay's pre-hold check read (capUnknown when it did not run),
+	// so the settle-time notice does not read it again.
+	cap float64
 	// screening is the off-path screening job for this request (nil when nothing was
 	// queued); each streaming attempt names its station on it so an after-the-fact flag
 	// records the station that served, not the first pick.

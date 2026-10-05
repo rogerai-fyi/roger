@@ -268,6 +268,14 @@ func maskAddr(to string) string {
 // the per-request hot-path cap crossings into at most one email per threshold per
 // month. threshold is "80" or "100". It is a no-op-safe guard: when disabled it still
 // returns false so callers short-circuit. Concurrency-safe.
+// capNoticeSeen reports, without recording, whether capNoticeOnce already fired for the key.
+func (m *mailer) capNoticeSeen(holder, threshold string, now time.Time) bool {
+	key := holder + "|" + threshold + "|" + now.UTC().Format("2006-01")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sentCaps[key]
+}
+
 func (m *mailer) capNoticeOnce(holder, threshold string, now time.Time) bool {
 	if !m.enabled() {
 		return false

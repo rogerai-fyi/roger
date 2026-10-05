@@ -2002,16 +2002,21 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// balance and the monthly cap allow it; otherwise it covers the first pick alone and
 	// the pricier candidates are simply not tried (trimPlan).
 	maxCost := plan[0].maxCost
+	// knownCap is the monthly cap the pre-hold check read, reused by the settle-time notice so a
+	// paid request reads the cap once (capUnknown when the check did not run).
+	knownCap := capUnknown
 	if maxCost > 0 {
 		// MONTHLY SPEND CAP (per-account budget limit): reject BEFORE dispatch if this
 		// request's worst-case cost would push the month-to-date captured spend past the
 		// account's cap. Global across every PAID path (this hold gate is the one all of
 		// public use / --freq / grant / agent / chat funnel through). Free/self ($0) skip
 		// the whole block, so they are never blocked. Sets near/at-cap notice headers.
-		if st, msg := b.monthlyCapCheckFor(w, r, payer, maxCost, now); st != 0 {
+		st, msg, capRead := b.monthlyCapCheckCap(w, r, payer, maxCost, now)
+		if st != 0 {
 			jsonErr(w, st, msg)
 			return
 		}
+		knownCap = capRead
 		// Seed new users so the hold can land (W4: skip the upsert tx for an already-
 		// seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT stays the real
 		// guard, so a lost flag just re-runs the harmless no-op upsert). A seed-tx
@@ -2057,7 +2062,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	plan = trimPlan(plan, maxCost)
 
 	if req.Stream {
-		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, req: r}, requestID, body, maxCost)
+		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, req: r, cap: knownCap}, requestID, body, maxCost)
 		return
 	}
 
@@ -2208,7 +2213,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// failed over to a self-owned/free station is returned by the deferred release.
 			settled = !pricing.free || maxCost == 0
 			if cost > 0 && !pricing.free {
-				b.capNoticeAfterSettle(w, r, payer, time.Now())
+				b.capNoticeAfterSettle(w, r, payer, knownCap, time.Now())
 			}
 			// THE CAPACITY SIGNAL IS MEASURED ON THE COUNT THE BROKER VERIFIED, NOT ON THE
 			// NODE'S CLAIM - and the clamp it uses is the one computed three lines above
@@ -2848,7 +2853,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 				*settled = !pricing.free || maxCost == 0
 				if cost > 0 && !pricing.free {
 					// headers are committed on a stream: notify only
-					b.capNoticeAfterSettle(nil, bill.req, user, time.Now())
+					b.capNoticeAfterSettle(nil, bill.req, user, bill.cap, time.Now())
 				}
 			}
 			// THE SAME CLAMP AS THE RELAY PATH, for the same reason and off the same
