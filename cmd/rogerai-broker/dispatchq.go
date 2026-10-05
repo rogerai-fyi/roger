@@ -433,11 +433,22 @@ func (t *dispatchTicket) close() {
 
 // awaitResult waits for the result, a terminal failure, or the deadline.
 func (t *dispatchTicket) awaitResult(deadline time.Time) ([]byte, error) {
+	return t.awaitResultCtx(context.Background(), deadline)
+}
+
+// errConsumerGone ends a wait whose consumer disconnected (job_cancel.feature).
+var errConsumerGone = errors.New("the consumer disconnected")
+
+// awaitResultCtx is awaitResult that also ends when ctx (the consumer's request) is done, so a
+// multi-instance relay notices a disconnect exactly as the local path does.
+func (t *dispatchTicket) awaitResultCtx(ctx context.Context, deadline time.Time) ([]byte, error) {
 	select {
 	case raw := <-t.res:
 		return raw, nil
 	case <-t.done:
 		return nil, t.err
+	case <-ctx.Done():
+		return nil, errConsumerGone
 	case <-time.After(time.Until(deadline)):
 		return nil, context.DeadlineExceeded
 	}

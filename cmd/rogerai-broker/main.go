@@ -83,9 +83,11 @@ type broker struct {
 	// OFFLINE on the peer (the residual multi-instance /discover flicker after the registry
 	// union). Guarded by b.mu. See enrichOffersForNode + features/multinode/discover_liveness.
 	localPollAt map[string]time.Time
-	attest      *attestRegistry    // TEE attestation policy + backends + nonce store
-	tps         map[string]float64 // EWMA output tokens/sec per node (measured)
-	quotes      map[string]priceQuote
+	// cancels is the job-cancel fallback used ONLY without a shared store (jobcancel.go).
+	cancels cancelLocal
+	attest  *attestRegistry    // TEE attestation policy + backends + nonce store
+	tps     map[string]float64 // EWMA output tokens/sec per node (measured)
+	quotes  map[string]priceQuote
 	// refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
 	// model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
 	// Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a
@@ -917,10 +919,11 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/nodes/register", b.register)
 	mux.HandleFunc("/nodes/challenge", b.attestChallenge) // TEE attestation nonce (anti-replay binding)
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
-	mux.HandleFunc("/agent/poll", b.agentPoll)     // node dials out, long-polls for jobs
-	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
-	mux.HandleFunc("/agent/ack", b.agentAck)       // node confirms it received a job (node_ack.feature)
-	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
+	mux.HandleFunc("/agent/cancels", b.agentCancels) // cancel-capable nodes long-poll for jobs to stop
+	mux.HandleFunc("/agent/poll", b.agentPoll)       // node dials out, long-polls for jobs
+	mux.HandleFunc("/agent/result", b.agentResult)   // node posts the served result
+	mux.HandleFunc("/agent/ack", b.agentAck)         // node confirms it received a job (node_ack.feature)
+	mux.HandleFunc("/agent/stream", b.agentStream)   // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
 	mux.HandleFunc("/v1/models", b.models)  // PUBLIC: OpenAI-shaped catalog of models on air
 	mux.HandleFunc("/v1/models/", b.models) // one entry by id, 404 when not on air
@@ -1033,6 +1036,7 @@ func (b *broker) routes() *http.ServeMux {
 // Every OTHER route is non-streaming and gets bounded by http.TimeoutHandler.
 var streamRoutes = map[string]bool{
 	"/agent/poll":              true,
+	"/agent/cancels":           true,
 	"/agent/stream":            true,
 	"/agent/result":            true,
 	"/v1/chat/completions":     true,

@@ -50,6 +50,14 @@ const keyPrefix = "rogerai:"
 // returns an error, and EVERY call site is required to fall back to the in-memory
 // path on a non-nil error. A connection failure NEVER propagates as a broker error.
 type sharedStore interface {
+	// Job cancels (jobcancel.go, features/multinode/job_cancel.feature): a node's cancel
+	// capability (until-ms value) and the per-node cancel delivery (pub/sub + short buffer).
+	cancelCapSet(node string, untilMs int64, ttl time.Duration) error
+	cancelCapGet(node string) (untilMs int64, err error)
+	cancelPush(node string, entry []byte, ttl time.Duration) error
+	cancelDrain(node string) ([][]byte, error)
+	cancelSubscribe(ctx context.Context, node string) (<-chan []byte, func(), error)
+
 	// Pair cooldowns (paircool.go, contract §14.2): pairCoolExtend raises one (node|model)
 	// field of a payer's cooldown hash to untilMs - atomically, never lowering it - and keeps
 	// the hash alive at least ttl; pairCooling reads a payer's whole hash; coolPayerNote

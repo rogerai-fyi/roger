@@ -1264,6 +1264,13 @@ func (s *mh6State) billsPromptZero() error {
 	return nil
 }
 
+// advertisesCancel makes the station speak the negotiated cancel protocol
+// (features/multinode/job_cancel.feature): it advertises support and holds a real cancel poll.
+func (s *mh6State) advertisesCancel(name string) error {
+	s.cancelCapable(s.ensureNode(name))
+	return nil
+}
+
 func (s *mh6State) nonStreamBeingServed(who, name string) error {
 	st := s.defaultNode(name, s.lastModel)
 	s.scriptOn(st, func(_ int, w http.ResponseWriter, r *http.Request) {
@@ -2088,6 +2095,7 @@ func mh6Register(sc *godog.ScenarioContext, st *mh6State) {
 	sc.Step(`^"([^"]+)" disconnects before any content frame was forwarded$`, st.disconnectsBeforeContent)
 	sc.Step(`^node "([^"]+)" had processed the prompt$`, st.processedPrompt)
 	sc.Step(`^the settle bills the prompt tokens and 0 completion tokens$`, st.billsPromptZero)
+	sc.Step(`^"([^"]+)" advertises cancel support$`, st.advertisesCancel)
 	sc.Step(`^"([^"]+)"'s non-stream request is being served by "([^"]+)"$`, st.nonStreamBeingServed)
 	sc.Step(`^"([^"]+)" disconnects before the result arrives$`, st.disconnectsBeforeResult)
 	sc.Step(`^the broker cancels "([^"]+)"'s job$`, st.cancelsJob)

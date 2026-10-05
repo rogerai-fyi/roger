@@ -46,6 +46,7 @@ type instStats struct {
 	dqOffAir  atomic.Int64
 	// dqRedeliver counts jobs put back because an ack-capable node never acked them.
 	dqRedeliver atomic.Int64
+	cancelsSent atomic.Int64 // job cancels queued for a cancel-capable node (job_cancel.feature)
 	// rcFrames counts remote-control frames this instance received for its viewers.
 	rcFrames atomic.Int64
 

@@ -1476,6 +1476,9 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.markSeen(node)
+	if r.Header.Get(cancelHeader) == "1" {
+		b.noteCancelCapable(node) // job_cancel.feature: this node stops a job when told to
+	}
 	// Record that THIS instance now hosts the node's live poll, so it is the node's
 	// AUTHORITATIVE prober: only the poll host applies the probe-dead veto on /discover. A
 	// PEER that merely mirrors the node (shared registry/liveness) must NOT flicker a live
@@ -3544,10 +3547,15 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 		if b.dispatchMode == dispatchViaBus {
 			b.stats.busDispatch.Add(1)
 		}
-		raw, werr := tk.awaitResult(deadline)
+		raw, werr := tk.awaitResultCtx(ctx, deadline)
 		var res protocol.JobResult
 		if werr == nil && json.Unmarshal(raw, &res) != nil {
 			werr = errBadResult
+		}
+		if werr == errConsumerGone {
+			b.exitInflight(nodeID, false)
+			b.sendCancel(nodeID, job.ID) // the station stops too, when it can (job_cancel.feature)
+			return protocol.JobResult{}, concurrentAtDispatch, dispatchGone
 		}
 		if werr != nil {
 			b.exitInflight(nodeID, false)
@@ -3569,8 +3577,10 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 		return res, concurrentAtDispatch, dispatchResult
 	case <-ctx.Done():
 		// The consumer left before the result (§14.10): nothing was delivered, nothing is
-		// billed; the station's late result finds no waiter.
+		// billed; the station's late result finds no waiter, and a cancel-capable station is
+		// told to stop (job_cancel.feature).
 		b.exitInflight(nodeID, false)
+		b.sendCancel(nodeID, job.ID)
 		return protocol.JobResult{}, concurrentAtDispatch, dispatchGone
 	case <-time.After(time.Until(deadline)):
 		b.exitInflight(nodeID, false)
@@ -4089,6 +4099,21 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 
 	b.enterInflight(node.NodeID)
 	concurrentAtDispatch := b.inflightOf(node.NodeID)
+
+	// A consumer that leaves mid-stream also tells a cancel-capable station to stop
+	// (job_cancel.feature): on the local path the stream POST already ends, but a station
+	// on a PEER instance, or the real agent's upstream, would otherwise keep generating.
+	if lw.ctx != nil {
+		streamOver := make(chan struct{})
+		defer close(streamOver)
+		go func() {
+			select {
+			case <-lw.ctx.Done():
+				b.sendCancel(node.NodeID, job.ID)
+			case <-streamOver:
+			}
+		}()
+	}
 
 	// waitPump blocks until no OTHER goroutine can still be writing this client's
 	// ResponseWriter: a no-op on the local path (agentStream's last write happens-before the

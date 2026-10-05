@@ -1,9 +1,9 @@
-# BUILD STATUS: PROPOSED. added 2026-10-05 (founder ruling): build the non-stream cancel with
+# BUILD STATUS: BUILT (wt/routing-slice6). added 2026-10-05 (founder ruling): build the non-stream cancel with
 # capability negotiation. Contract §14 "bill what was delivered" (§14.10) already bills a
 # non-stream disconnect $0; this spec makes the STATION stop generating too, so a home GPU slot
 # is freed the moment the consumer leaves instead of finishing a job nobody will read.
 #
-# TODAY (wt/routing-slice6 6e3e698c): on a non-stream disconnect relay() returns dispatchGone
+# BEFORE (wt/routing-slice6 6e3e698c): on a non-stream disconnect relay() returns dispatchGone
 # (cmd/rogerai-broker/tunnel.go ~3186) and the station's late result finds no waiter; the station
 # keeps generating to the end. On a stream disconnect the broker stops reading the station's
 # /agent/stream body, which ends the stream for a station on the SAME instance only.
@@ -34,9 +34,10 @@
 #   C4  A cancel cannot name another node's job, and an unknown or finished job id is a no-op.
 #   C5  Old nodes and old brokers behave exactly as today.
 #
-# ENFORCED BY: cmd/rogerai-broker/job_cancel_bdd_test.go (real broker handlers, two instances over
-# one shared store) and internal/agent/cancel_test.go (the real agent against real broker
-# handlers, including an older broker without /agent/cancels).
+# ENFORCED BY: cmd/rogerai-broker/job_cancel_bdd_test.go (two real broker instances over one shared
+# store, the REAL node agent behind a load-balancing proxy, raw pollers for old nodes) and
+# internal/agent/cancel_test.go (the @agent scenarios: the real agent loop against a scripted
+# broker, the agent package's established seam, as in ack_test.go).
 
 Feature: A consumer who leaves stops the station's work
 
@@ -116,6 +117,7 @@ Feature: A consumer who leaves stops the station's work
 
   # --- the node side (internal/agent against real broker handlers) ----------------------
 
+  @agent
   Scenario: The agent stops its upstream request when its job is cancelled
     Given a cancel-capable agent serving "qwen3-32b" from an upstream that takes 5 seconds
     And "alice"'s non-stream request is dispatched to it as job J
@@ -124,11 +126,13 @@ Feature: A consumer who leaves stops the station's work
     And the agent posts a result for J with status 499 and no completion
     And the agent keeps serving the next job normally
 
+  @agent
   Scenario: The agent advertises cancel support on every poll
     Given a cancel-capable agent
     When it polls the broker
     Then the poll carries X-Roger-Cancel "1"
 
+  @agent
   Scenario: An agent on a broker without /agent/cancels keeps serving and never re-registers for it
     Given an agent connected to a broker that answers 404 on /agent/cancels
     When the agent opens its cancel poll
@@ -136,6 +140,7 @@ Feature: A consumer who leaves stops the station's work
     And it does not re-register
     And it serves jobs normally
 
+  @agent
   Scenario: A cancel for a job the agent already finished is a no-op
     Given a cancel-capable agent that finished job J
     When a cancel for J arrives

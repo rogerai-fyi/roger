@@ -67,6 +67,7 @@ type fstation struct {
 	forgeRetryAfter *int             // when set, the station posts retry_after_sec = *forgeRetryAfter
 	tun             *nodeTunnel
 	unreachable     bool
+	jobCancels      map[string]context.CancelFunc // in-flight upstream calls by job id (cancel-capable stations)
 }
 
 // statusWriter records the status an upstream script answered with (rejected counting).
@@ -442,7 +443,12 @@ const foJobHeader = "X-Fo-Job"
 
 // foPostUpstream is the station loop's upstream call: the job body, tagged with its job id.
 func foPostUpstream(url string, job protocol.Job) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(job.Body))
+	return foPostUpstreamCtx(context.Background(), url, job)
+}
+
+// foPostUpstreamCtx is foPostUpstream bound to ctx (a cancel-capable station aborts it on a cancel).
+func foPostUpstreamCtx(ctx context.Context, url string, job protocol.Job) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(job.Body))
 	if err != nil {
 		return nil, err
 	}
@@ -491,10 +497,18 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 			st.mu.Unlock()
 			var resp *http.Response
 			var err error
+			jcancel := context.CancelFunc(func() {})
 			if unreachable {
 				err = fmt.Errorf("connection refused")
 			} else {
-				resp, err = foPostUpstream(st.up.URL, job)
+				var jctx context.Context
+				jctx, jcancel = context.WithCancel(context.Background())
+				st.mu.Lock()
+				if st.jobCancels != nil {
+					st.jobCancels[job.ID] = jcancel
+				}
+				st.mu.Unlock()
+				resp, err = foPostUpstreamCtx(jctx, st.up.URL, job)
 			}
 			if err == nil {
 				status = resp.StatusCode
@@ -543,6 +557,10 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 				}
 				resp.Body.Close()
 			}
+			jcancel()
+			st.mu.Lock()
+			delete(st.jobCancels, job.ID)
+			st.mu.Unlock()
 			rec := protocol.UsageReceipt{
 				RequestID: job.ID, NodeID: st.id, User: job.User, Model: st.model,
 				PromptTokens: pt, CompletionTokens: ct, PriceIn: st.priceIn, PriceOut: st.priceOut,
@@ -572,6 +590,51 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 			s.deliverRaw(st, wire)
 		}
 	}
+}
+
+// cancelCapable makes st speak the job-cancel protocol (features/multinode/job_cancel.feature) the
+// way internal/agent does: it advertises X-Roger-Cancel (noted exactly as the broker's poll handler
+// notes it) and keeps a long-poll on the REAL GET /agent/cancels handler, aborting the upstream
+// call of each cancelled job.
+func (s *foState) cancelCapable(st *fstation) {
+	st.mu.Lock()
+	if st.jobCancels == nil {
+		st.jobCancels = map[string]context.CancelFunc{}
+	}
+	st.mu.Unlock()
+	s.b.noteCancelCapable(st.id)
+	stop := s.stationStop
+	s.stationWG.Add(1)
+	go func() {
+		defer s.stationWG.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			r := httptest.NewRequest(http.MethodGet, "/agent/cancels?node="+st.id, nil).WithContext(ctx)
+			r.Header.Set("Authorization", "Bearer "+st.tun.token)
+			w := httptest.NewRecorder()
+			s.b.agentCancels(w, r)
+			cancel()
+			if w.Code != http.StatusOK {
+				continue
+			}
+			var out struct {
+				IDs []string `json:"ids"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &out)
+			st.mu.Lock()
+			for _, id := range out.IDs {
+				if c := st.jobCancels[id]; c != nil {
+					c()
+				}
+			}
+			st.mu.Unlock()
+		}
+	}()
 }
 
 func (s *foState) deliverRaw(st *fstation, wire []byte) {
