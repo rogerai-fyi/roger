@@ -70,9 +70,6 @@
     });
   }
 
-  // Strip a trailing slash AND a ".html" suffix so the branch matches whether the
-  // page is served at the clean path (/billing) or the static file (/billing.html) -
-  // the static host serves /billing.html, so matching only "/billing" left it blank.
   // ---- add a verified email to a GitHub/Apple account (features/auth/email_link.feature) ----
   // The session proves who is adding; the mailed code proves the address is theirs; the token
   // the broker hands back ties the code to this account. Nothing is stored in the page.
@@ -121,6 +118,9 @@
     });
   }
 
+  // Strip a trailing slash AND a ".html" suffix so the branch matches whether the
+  // page is served at the clean path (/billing) or the static file (/billing.html) -
+  // the static host serves /billing.html, so matching only "/billing" left it blank.
   var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   var qs = new URLSearchParams(location.search);
   if (path.endsWith("/account")) {
@@ -137,7 +137,10 @@
       var em = document.getElementById("email");
       if (em && a.email) em.value = a.email;
       initLink(a);
-      if (a.provider === "email" && em) { // the address IS the sign-in: show it, never edit it here
+      // A verified address (an email sign-in, or one added with "Sign in with email too") is a
+      // sign-in credential: show it, never edit it here - editing it would silently drop the
+      // verification, and the next emailed sign-in would create a separate account.
+      if ((a.provider === "email" || a.email_verified) && em) {
         em.readOnly = true;
         hide("saveEmail");
       }

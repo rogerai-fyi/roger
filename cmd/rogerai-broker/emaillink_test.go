@@ -7,6 +7,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -350,4 +353,51 @@ func TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked(t *testing.
 		"the stale session does not read the GitHub account's stations with the email wallet")
 	fresh := signInByEmail(t, b, cap, "me@example.com")
 	require.Equal(t, http.StatusOK, getWithSession(b.stations, "/stations", fresh).Code, "a fresh sign-in is the full account")
+}
+
+// SECURITY: the link token is signed with a key derived from the session key, and must never
+// be interchangeable with a session cookie. A '|' is legal in an email local part, so an
+// attacker chooses an address that makes the token's signed payload parse as a session
+// ("login|gid|wallet|exp|sub") naming a VICTIM's wallet. With one shared key, re-encoding the
+// token's payload as a cookie forged that session.
+func TestALinkTokenCanNeverBeReplayedAsASessionCookie(t *testing.T) {
+	b, _, c := linkFixture(t)
+	evil := "a|u_gh_999|9999999999|s@example.com" // wallet "u_gh_999" (the victim), far-future expiry
+	rec, token := linkStart(t, b, c, evil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	parts := strings.SplitN(token, ".", 2)
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	require.NoError(t, err)
+	// the forgery: the signed text of the token ("link|"+payload) re-encoded as a session cookie
+	forged := base64.RawURLEncoding.EncodeToString([]byte("link|"+string(raw))) + "." + parts[1]
+
+	_, _, wallet, _, ok := b.verifySessionFull(forged)
+	require.False(t, ok, "a link token is never a session (resolved wallet %q)", wallet)
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	req.Header.Set("Origin", testWebOrigin)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: forged})
+	w := httptest.NewRecorder()
+	b.me(w, req)
+	require.NotContains(t, w.Body.String(), "u_gh_999", "the victim's wallet is not reachable with a forged cookie")
+}
+
+// A session payload whose numeric fields do not parse is not a session (defense in depth: the
+// old reader ignored the parse error and used 0).
+func TestASessionWithAnUnparseableGitHubIdIsRejected(t *testing.T) {
+	b, _, _ := linkFixture(t)
+	payload := "octocat|not-a-number|u_gh_7|9999999999"
+	mac := hmac.New(sha256.New, b.sessionKey())
+	mac.Write([]byte(payload))
+	val := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	_, _, _, _, ok := b.verifySessionFull(val)
+	require.False(t, ok)
+
+	payload = "octocat|7|u_gh_7|not-a-time"
+	mac = hmac.New(sha256.New, b.sessionKey())
+	mac.Write([]byte(payload))
+	val = base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	_, _, _, _, ok = b.verifySessionFull(val)
+	require.False(t, ok, "an unparseable expiry is not a session either")
 }

@@ -107,3 +107,18 @@ test("when a separate email wallet holds funds, the merge note is shown with the
   assert.match(p.els.linkMsg.textContent, /me@example\.com is added and verified/);
   assert.match(p.els.linkMsg.textContent, /merged deliberately/, "the person is told how to have the wallets merged");
 });
+
+test("a verified address is not editable as the contact email (editing would silently drop the link)", async () => {
+  const p = linkPage({ ...GH, email: "me@example.com", email_verified: true }, {});
+  p.run("js/account.js");
+  await settle();
+  assert.equal(p.els.email.readOnly, true);
+  assert.equal(p.els.saveEmail.hidden, true);
+});
+
+test("an unverified contact email stays editable", async () => {
+  const p = linkPage({ ...GH, email: "me@example.com", email_verified: false }, {});
+  p.run("js/account.js");
+  await settle();
+  assert.notEqual(p.els.email.readOnly, true);
+});

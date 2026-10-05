@@ -304,8 +304,13 @@ func (b *broker) verifySessionFull(val string) (login string, githubID int64, wa
 	if len(f) != 4 && len(f) != 5 {
 		return "", 0, "", "", false
 	}
-	gid, _ := strconv.ParseInt(f[1], 10, 64)
-	exp, _ := strconv.ParseInt(f[3], 10, 64)
+	// Strict: a field that does not parse is not a session. (This used to ignore the error and
+	// read 0, so a signed string of the right shape but wrong content still decoded.)
+	gid, gerr := strconv.ParseInt(f[1], 10, 64)
+	exp, eerr := strconv.ParseInt(f[3], 10, 64)
+	if gerr != nil || eerr != nil {
+		return "", 0, "", "", false
+	}
 	if time.Now().Unix() > exp {
 		return "", 0, "", "", false
 	}

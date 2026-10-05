@@ -117,3 +117,15 @@ Feature: A signed-in person adds a verified email to their account
     Then the account page lists GitHub / Apple / email as linked or not
     And offers "Add an email" only to a provider session
     # test: web/test/account-link.test.mjs
+
+  Scenario: A link token can never be replayed as a session cookie
+    Given an attacker who can sign in chooses an address containing "|" to shape the token's payload
+    When they re-encode the token as a session cookie naming a victim's wallet
+    Then it is not a session, because link tokens are signed with their own derived key
+    And a session whose numeric fields do not parse is not a session either
+    # test: TestALinkTokenCanNeverBeReplayedAsASessionCookie,TestASessionWithAnUnparseableGitHubIdIsRejected
+
+  Scenario: A session that was live before its address was linked is not a mixed identity
+    Given an email session was live when its address was linked to a GitHub account
+    Then it resolves no owner until it signs in again, and a fresh sign-in is the full account
+    # test: TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked

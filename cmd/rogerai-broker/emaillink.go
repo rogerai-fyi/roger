@@ -62,12 +62,23 @@ func (b *broker) linkNow() time.Time {
 	return time.Now()
 }
 
+// linkKey is the MAC key for link tokens: DERIVED from the session key with a purpose label,
+// so a token's signature can never be valid as a session cookie's (and vice versa) however its
+// payload is shaped. A '|' is legal in an email local part, and with one shared key an attacker
+// could choose an address that makes the signed token text parse as a session naming a
+// victim's wallet.
+func (b *broker) linkKey() []byte {
+	mac := hmac.New(sha256.New, b.sessionKey())
+	mac.Write([]byte("rogerai/email-link-token/v1"))
+	return mac.Sum(nil)
+}
+
 // mintLinkToken binds (owner, address, expiry) with the session key. It is a bearer proof that
 // THIS account asked to add THIS address recently; it is useless without the mailed code.
 func (b *broker) mintLinkToken(ownerPub, addr string, exp int64) string {
 	payload := ownerPub + "\x00" + addr + "\x00" + strconv.FormatInt(exp, 10) // NUL: never in a valid address (a "|" is)
-	mac := hmac.New(sha256.New, b.sessionKey())
-	mac.Write([]byte("link|" + payload))
+	mac := hmac.New(sha256.New, b.linkKey())
+	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
@@ -84,8 +95,8 @@ func (b *broker) linkTokenOK(token, ownerPub, addr string) bool {
 	if err != nil {
 		return false
 	}
-	mac := hmac.New(sha256.New, b.sessionKey())
-	mac.Write([]byte("link|" + string(raw)))
+	mac := hmac.New(sha256.New, b.linkKey())
+	mac.Write(raw)
 	if !hmac.Equal(sig, mac.Sum(nil)) {
 		return false
 	}
