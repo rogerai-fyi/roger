@@ -424,6 +424,7 @@ func (s *foState) standUp(name string, o stationOpts) *fstation {
 		Offers: []protocol.ModelOffer{{Model: o.model, PriceIn: o.priceIn, PriceOut: o.priceOut, Ctx: o.ctx}},
 	}
 	s.b.lastSeen[st.id] = time.Now()
+	s.b.notePostedPrices(s.b.nodes[st.id]) // the registration records when each price was posted
 	st.tun = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: "tok-" + st.id}
 	s.b.tunnels[st.id] = st.tun
 	if err := s.db.BindNode(st.id, st.acct); err != nil {

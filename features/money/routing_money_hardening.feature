@@ -442,6 +442,16 @@ Feature: What the consumer pays and the operator earns are right in every routin
     When "alice" is served on instance B
     Then the lock minted on instance B lasts the full window
 
+  # added 2026-10-04 (founder directive on shared state): the posted-since time lives in the
+  # shared store; when it cannot be read the full lock is minted (today's consumer-protective rule).
+  Scenario: A shared-store outage mints the full lock
+    Given station "s1" normally charges out $0.60/1M
+    And the owner posts $0.10 for 10 minutes
+    And the shared store is unreachable
+    And "alice" is served during the promo (a lock is minted at $0.10)
+    When the owner restores $0.60 and "alice" relays an hour later
+    Then "alice" is billed at $0.10
+
   Scenario: A scheduled (time-of-use) price is never locked (unchanged rule)
     Given station "s1" publishes a free window from 02:00 to 04:00
     When "alice" is served at 03:00

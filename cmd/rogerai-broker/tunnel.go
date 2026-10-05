@@ -588,6 +588,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	b.nodes[reg.NodeID] = reg
 	b.lastSeen[reg.NodeID] = now
+	go b.notePostedPrices(reg) // when each price was first posted (§14.12): shared-store I/O, off the lock
 	b.confidential[reg.NodeID] = confidential
 	// COLLECT THE ONE LOCALITY SIGNAL WE HAVE NEVER KEPT (M2 groundwork,
 	// docs/relay-selection-design.md). Nothing routes on it - see nodeNetBucket.

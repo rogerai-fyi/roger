@@ -526,6 +526,8 @@ type broker struct {
 	freeRL freeLimiters
 	// lateLocal: late-receipt expectations when the shared store is absent (latereceipt.go).
 	lateLocal lateLocal
+	// postedLocal: posted-since times when no shared store is configured (pricelock.go).
+	postedLocal postedLocal
 }
 
 // now is the broker's clock for cooldown/alert windows (nowFn when set, else time.Now).
@@ -541,6 +543,13 @@ func (b *broker) now() time.Time {
 type priceQuote struct {
 	in, out float64
 	until   time.Time
+	promo   bool // minted under a price posted < ROGERAI_LOCK_MIN_POSTED: ends with that price (§14.12)
+}
+
+// live reports whether the lock still applies at now against the current price: inside its
+// window, and - for a promo lock - only while the price it was minted under is in effect.
+func (q priceQuote) live(now time.Time, curIn, curOut float64) bool {
+	return now.Before(q.until) && (!q.promo || (q.in == curIn && q.out == curOut))
 }
 
 func main() {
@@ -1078,6 +1087,10 @@ func isStreamRoute(p string) bool {
 // neither creates nor renews a lock: only a served (model, station) pair starts its 24h
 // window, so a station that failed over never leaves a lock behind.
 func (b *broker) quotedPrice(user, node, model string, curIn, curOut float64, mint bool) (in, out float64, until time.Time) {
+	promo := false
+	if mint {
+		promo = b.promoLock(node, model, curIn, curOut) // shared-store I/O: before the lock
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	key := user + "|" + node + "|" + model
@@ -1090,18 +1103,18 @@ func (b *broker) quotedPrice(user, node, model string, curIn, curOut float64, mi
 	// request). The in-memory b.quotes stays the authoritative path when the flag is off
 	// (b.shared==nil), so the single-instance behavior is byte-for-byte unchanged.
 	if b.multiInstance && b.shared != nil {
-		if sq, ok := b.sharedQuoteGet(key); ok && now.Before(sq.until) {
+		if sq, ok := b.sharedQuoteGet(key); ok && sq.live(now, curIn, curOut) {
 			b.quotes[key] = sq // mirror locally so a later bus outage still honors it
 			return min(sq.in, curIn), min(sq.out, curOut), sq.until
 		}
 	}
 
 	q, ok := b.quotes[key]
-	if (!ok || now.After(q.until)) && !mint {
+	if (!ok || !q.live(now, curIn, curOut)) && !mint {
 		return curIn, curOut, time.Time{}
 	}
-	if !ok || now.After(q.until) {
-		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin)}
+	if !ok || !q.live(now, curIn, curOut) {
+		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin), promo: promo}
 		b.quotes[key] = q
 		// Write the new lock through to the shared store so peers honor it. Best-effort:
 		// a failure just means a peer mints its own (equal) quote until the next write.
@@ -1126,11 +1139,12 @@ func (b *broker) sharedQuoteGet(key string) (priceQuote, bool) {
 	var w struct {
 		In, Out float64
 		Until   int64
+		Promo   bool
 	}
 	if json.Unmarshal(val, &w) != nil {
 		return priceQuote{}, false
 	}
-	return priceQuote{in: w.In, out: w.Out, until: time.Unix(w.Until, 0)}, true
+	return priceQuote{in: w.In, out: w.Out, until: time.Unix(w.Until, 0), promo: w.Promo}, true
 }
 
 // sharedQuoteSet write-throughs a price-lock with a TTL == the remaining lock window, so
@@ -1143,7 +1157,8 @@ func (b *broker) sharedQuoteSet(key string, q priceQuote) {
 	w := struct {
 		In, Out float64
 		Until   int64
-	}{q.in, q.out, q.until.Unix()}
+		Promo   bool
+	}{q.in, q.out, q.until.Unix(), q.promo}
 	if body, err := json.Marshal(w); err == nil {
 		_ = b.shared.cacheSet(sharedQuoteKey(key), body, ttl)
 	}

@@ -1729,6 +1729,7 @@ func (s *mh6State) setPrice(name string, out float64) {
 	s.b.nodes[st.id] = reg
 	s.b.mu.Unlock()
 	st.priceOut = out
+	s.b.notePostedPrices(reg) // a price change arrives as a registration, which records it
 }
 
 func (s *mh6State) billedOut() (float64, error) {
@@ -1976,6 +1977,7 @@ func TestMoneyHardeningBDD(t *testing.T) {
 
 func mh6Register(sc *godog.ScenarioContext, st *mh6State) {
 	sc.Step(`^a broker with an empty in-memory node registry$`, st.emptyRegistry)
+	sc.Step(`^the shared store is unreachable$`, func() error { st.mr.SetError("ERR the shared store is unavailable"); return nil })
 	sc.Step(`^the fee rate is 30%$`, st.feeRate30)
 	sc.Step(`^the consumer default out-cap is \$10/1M$`, st.defaultOutCap10)
 	sc.Step(`^the consumer default in-cap is \$5/1M$`, st.defaultInCap)
