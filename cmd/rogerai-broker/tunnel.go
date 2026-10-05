@@ -5117,8 +5117,11 @@ func offerModality(m string) string {
 // failures and a success rate that is unmeasured or at least 0.55. One definition for the
 // direct pick and the cross-fabric plan.
 func tierAHealthy(probeFails int, successRate float64, successSeen bool) bool {
-	return probeFails < 2 && (!successSeen || successRate >= 0.55)
+	return probeFails < 2 && (!successSeen || successRate >= tierASuccessBar)
 }
+
+// tierASuccessBar is the organic success rate below which a station is out of Tier A.
+const tierASuccessBar = 0.55
 
 type pickReq struct {
 	pref         pref

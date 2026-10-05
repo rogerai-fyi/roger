@@ -7,6 +7,8 @@ package main
 // offer ineligible under their filter; measured ones (ttft) that were not measured pass.
 
 import (
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,7 +57,7 @@ func paramsContradicted(o protocol.ModelOffer) bool {
 // uses (probeConfig.measurementStale, the probe ceiling). With no ceiling there is no window.
 // Callers hold b.metricsMu.
 func (b *broker) verifiedFreshLocked(nodeID string, tq trustState, now time.Time) bool {
-	if !tq.verifiedServing() {
+	if !tq.verifiedServing() || b.organicContradictsLocked(nodeID, tq) {
 		return false
 	}
 	if b.probe.ceiling <= 0 {
@@ -63,6 +65,62 @@ func (b *broker) verifiedFreshLocked(nodeID string, tq trustState, now time.Time
 	}
 	st := b.probeSchedLocked()[nodeID]
 	return st != nil && !b.probe.measurementStale(st.lastMeasured, now)
+}
+
+// verifiedStrikes / verifiedWindow are ROGERAI_VERIFIED_STRIKES (default 3) and
+// ROGERAI_VERIFIED_WINDOW (default 1h): K organic recount strikes inside the window withdraw
+// `verified` whatever the probe says (§14.B7).
+func verifiedStrikes() int {
+	if n, err := strconv.Atoi(os.Getenv("ROGERAI_VERIFIED_STRIKES")); err == nil && n > 0 {
+		return n
+	}
+	return 3
+}
+
+func verifiedWindow() time.Duration {
+	if d, err := time.ParseDuration(os.Getenv("ROGERAI_VERIFIED_WINDOW")); err == nil && d > 0 {
+		return d
+	}
+	return time.Hour
+}
+
+// organicContradictsLocked reports organic evidence against a station the probe calls
+// verified: K recount strikes from customers' relays inside the window, or an organic success
+// rate below the Tier-A bar. Once the strikes age out and the success recovers, the next
+// passing canary restores `verified`. Caller holds metricsMu.
+func (b *broker) organicContradictsLocked(nodeID string, tq trustState) bool {
+	since := b.now().Add(-verifiedWindow()).UnixMilli()
+	n := 0
+	for _, at := range tq.organicStrikes {
+		if at >= since {
+			n++
+		}
+	}
+	if n >= verifiedStrikes() {
+		return true
+	}
+	sr, seen := b.success[nodeID]
+	return seen && sr < tierASuccessBar
+}
+
+// noteOrganicStrike records a recount strike from an organic relay against nodeID (pruned to
+// the window).
+func (b *broker) noteOrganicStrike(nodeID string) {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.trust == nil {
+		return
+	}
+	tq := b.trust[nodeID]
+	since := b.now().Add(-verifiedWindow()).UnixMilli()
+	kept := tq.organicStrikes[:0]
+	for _, at := range tq.organicStrikes {
+		if at >= since {
+			kept = append(kept, at)
+		}
+	}
+	tq.organicStrikes = append(kept, b.now().UnixMilli())
+	b.trust[nodeID] = tq
 }
 
 // netReject names the first slice-2 filter an offer fails ("" = passes), in the fixed order

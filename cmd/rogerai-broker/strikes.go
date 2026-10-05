@@ -515,6 +515,7 @@ func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, statu
 // flagRecountOver is the recount over-report signal: the node's claimed token count
 // materially exceeded the broker's independent re-count past tolerance. Accumulates.
 func (b *broker) flagRecountOver(nodeID, requestID, axis string, claimed, recounted int) {
+	b.noteOrganicStrike(nodeID)
 	b.strike(nodeID, store.StrikeRecountDiscrepancy, "recount:"+axis+":"+requestID, false, map[string]any{
 		"request_id":     requestID,
 		"axis":           axis,

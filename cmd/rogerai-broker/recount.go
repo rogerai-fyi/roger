@@ -322,6 +322,9 @@ type trustState struct {
 	// skips a stall-after-first-token node from the FIRST pick instead of burning the relay wait.
 	ttftMs   float64 // EWMA time-to-first-token (ms) from probes
 	probeTPS float64 // EWMA clean tok/s from probes
+	// organicStrikes are the unix-ms times of recount strikes from ORGANIC relays: evidence
+	// from customers that can withdraw `verified` while the probe still passes (§14.B7).
+	organicStrikes []int64
 }
 
 // trustScore is a 0..1 quality signal for a node: starts optimistic, knocked
