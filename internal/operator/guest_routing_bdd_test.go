@@ -468,7 +468,7 @@ func (s *cf4oState) openAndHermes() error {
 }
 
 func (s *cf4oState) lastLaunch() (operator.Launch, string, error) {
-	for _, n := range []string{"opencode", "hermes", "aider"} {
+	for _, n := range []string{"opencode", "hermes", "aider", "pi"} {
 		if l, ok := s.launches[n]; ok {
 			return l, n, nil
 		}
@@ -532,6 +532,39 @@ func (s *cf4oState) opencodeModelsList(a, b string) error {
 	for _, id := range []string{a, b} {
 		if _, ok := mm[id]; !ok {
 			return fmt.Errorf("opencode.json's models block lacks %q: %s", id, raw)
+		}
+	}
+	return nil
+}
+
+func (s *cf4oState) piModelsList(a, b string) error {
+	l, ok := s.launches["pi"]
+	if !ok {
+		return fmt.Errorf("no pi launch")
+	}
+	raw, err := os.ReadFile(filepath.Join(l.Dir, "pi-agent", "models.json"))
+	if err != nil {
+		return err
+	}
+	var cfg struct {
+		Providers map[string]struct {
+			Models []struct {
+				ID string `json:"id"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return err
+	}
+	ids := map[string]bool{}
+	for _, p := range cfg.Providers {
+		for _, m := range p.Models {
+			ids[m.ID] = true
+		}
+	}
+	for _, id := range []string{a, b} {
+		if !ids[id] {
+			return fmt.Errorf("pi's models.json lacks %q: %s", id, raw)
 		}
 	}
 	return nil
@@ -830,7 +863,7 @@ func TestGuestRoutingBDD(t *testing.T) {
 			sc.Step(`^the guest sends (\{.*\})$`, st.guestSends)
 			sc.Step(`^(opencode|hermes|aider) sends (\{.*\})$`, st.namedGuestSends)
 			sc.Step(`^opencode sends a chat request with that body$`, st.opencodeSendsThat)
-			sc.Step(`^the (opencode|hermes|aider) launch is materialized$`, st.launchMaterialized)
+			sc.Step(`^the (opencode|hermes|aider|pi) launch is materialized$`, st.launchMaterialized)
 			sc.Step(`^the (opencode|hermes|aider) launch is materialized with no profile chosen$`, st.launchNoProfile)
 			sc.Step(`^each guest launch is materialized$`, st.eachLaunch)
 			sc.Step(`^any guest launch is materialized$`, st.eachLaunch)
@@ -852,6 +885,7 @@ func TestGuestRoutingBDD(t *testing.T) {
 			sc.Step(`^opencode\.json's "model" is "([^"]+)"$`, st.opencodeModelIs)
 			sc.Step(`^opencode\.json's models block lists "([^"]+)" alongside "([^"]+)"$`, st.opencodeModelsList)
 			sc.Step(`^config\.yaml's model\.default is "([^"]+)"$`, st.hermesDefault)
+			sc.Step(`^pi's models\.json lists "([^"]+)" alongside "([^"]+)"$`, st.piModelsList)
 			sc.Step(`^no file is created for aider$`, st.noFileForAider)
 			sc.Step(`^opencode\.json equals the approved golden artifact$`, st.goldenOpencode)
 			sc.Step(`^"([^"]+)" appears in no generated file, no argv, and no env value$`, st.codeNowhere)

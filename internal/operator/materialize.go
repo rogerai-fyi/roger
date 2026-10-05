@@ -88,14 +88,18 @@ type piModel struct {
 
 // piConfigJSON builds the catalog for one band. Returns an error rather than a
 // best-effort document: a config that cannot be represented must not be written.
-func piConfigJSON(baseURL, sessionKey, model string) ([]byte, error) {
+func piConfigJSON(baseURL, sessionKey, model string, pins ...string) ([]byte, error) {
+	models := []piModel{}
+	for _, id := range append(pins, model) {
+		models = append(models, piModel{ID: id, Name: id})
+	}
 	cfg := piModelsConfig{Providers: map[string]piProvider{
 		piProviderName: {
 			Name:    "RogerAI",
 			API:     "openai-completions",
 			BaseURL: baseURL,
 			APIKey:  sessionKey,
-			Models:  []piModel{{ID: model, Name: model}},
+			Models:  models,
 		},
 	}}
 	return json.MarshalIndent(cfg, "", "  ")
@@ -268,7 +272,13 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 				return Launch{}, nil, err
 			}
 			cfg := filepath.Join(agentDir, "models.json")
-			body, err := piConfigJSON(s.BaseURL, s.SessionKey, s.Model)
+			// The argv pins a profile reference when one was chosen, so the catalog lists it
+			// beside the band (as opencode's does).
+			var pins []string
+			if pin != s.Model {
+				pins = append(pins, pin)
+			}
+			body, err := piConfigJSON(s.BaseURL, s.SessionKey, s.Model, pins...)
 			if err != nil {
 				_ = os.RemoveAll(dir)
 				return Launch{}, nil, fmt.Errorf("operator: cannot build pi config: %w", err)

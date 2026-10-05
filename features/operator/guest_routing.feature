@@ -70,6 +70,13 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     Then the argv pins "--model openai/@profile/coding"
     And no file is created for aider
 
+  # regression 2026-10-05: audit finding, contract §9 (pi's catalog lists the pin it is launched with)
+  Scenario: pi pins the profile and lists it beside the band in its catalog
+    Given the DJ chose profile "coding" on the plate
+    When the pi launch is materialized
+    Then the argv is exactly "pi --provider rogerai --model @profile/coding"
+    And pi's models.json lists "@profile/coding" alongside "qwen3-32b-fp8"
+
   Scenario: The proxy resolves the guest's @profile/ per request
     Given profile "coding" sets models = ["qwen3-32b-fp8", "llama-3.3-70b"] and roger.require = ["tools"]
     When the guest sends {"model": "@profile/coding", "messages": [...]}
