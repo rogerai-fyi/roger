@@ -834,6 +834,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then every pick is "s3"
     And "s2" is planned after "s1"
 
+  # restored 2026-10-05 (founder ruling): with no station measured, a strict sort falls back to the routing score
   Scenario: sort throughput with every station unmeasured falls back to score
     Given no station has a tps measurement
     When 20 funded consumers relay with provider.sort "throughput"
