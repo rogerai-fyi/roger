@@ -141,7 +141,15 @@ Feature: A dry run explains where a request would go and what it would cost, spe
       | provider.max_price.prompt 0.15            | s2      | max_price_in   |
       | provider.ignore ["s1"]                    | s1      | ignore         |
       | provider.only ["s2"]                      | s1      | only           |
-      | roger.self_hosted_only true               | s3      | self_hosted_only |
+
+  # founder ruling 2026-10-05: replaces the outline row that expected the never-curated "s3" to
+  # be excluded for self_hosted_only (only a curated station is), with a station of its own so no
+  # other scenario's Background changes.
+  Scenario: A curated station is excluded for "self_hosted_only"
+    Given station "s4" is a curated station on air for "m" at in $0.05 out $0.10 per 1M, Tier-A, tps 40, quant "Q8_0", region "eu"
+    When "u-1" posts a chat completion for "m" with roger.dry_run true and roger.self_hosted_only true
+    Then "s4" is excluded with reason "self_hosted_only"
+    And the excluded station does not appear in the plan
 
   Scenario: A station failing two filters lists both reasons
     When "u-1" posts a chat completion for "m" with roger.dry_run true and roger.region ["us"] and roger.min_tps 20

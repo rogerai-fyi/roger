@@ -310,6 +310,18 @@ func (s *rx6State) stationFull(name, model, in, out, tps, quant, region string) 
 	return nil
 }
 
+func (s *rx6State) curatedStationFull(name, model, in, out, tps, quant, region string) error {
+	if err := s.stationFull(name, model, in, out, tps, quant, region); err != nil {
+		return err
+	}
+	s.b.mu.Lock()
+	reg := s.b.nodes[s.st(name).id]
+	reg.Curated = true
+	s.b.nodes[reg.NodeID] = reg
+	s.b.mu.Unlock()
+	return nil
+}
+
 func (s *rx6State) syncMod() error { s.b.mod.mode = modeSync; return nil }
 
 func (s *rx6State) capacityOne(name string) error {
@@ -895,6 +907,7 @@ func TestRouteExplainBDD(t *testing.T) {
 	sa6Run(t, "../../features/routing/route_explain.feature", func(sc *godog.ScenarioContext, h *sa6H) {
 		s := &rx6State{sa6H: h}
 		sc.Step(`^station "([^"]+)" is on air for "([^"]+)" at in \$([0-9.]+) out \$([0-9.]+) per 1M, Tier-A, tps (\d+), quant "([^"]+)", region "([^"]+)"$`, s.stationFull)
+		sc.Step(`^station "([^"]+)" is a curated station on air for "([^"]+)" at in \$([0-9.]+) out \$([0-9.]+) per 1M, Tier-A, tps (\d+), quant "([^"]+)", region "([^"]+)"$`, s.curatedStationFull)
 		sc.Step(`^"([^"]+)" posts a chat completion for "([^"]+)" with ((?s).+)$`, s.posts)
 		sc.Step(`^"([^"]+)" posts the same body to /v1/route/explain$`, s.explainEndpoint)
 		sc.Step(`^"([^"]+)" then sends the same request without dry_run$`, s.thenReal)
