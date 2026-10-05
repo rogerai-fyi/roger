@@ -613,6 +613,14 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `roger login` on a node first)")
 		return
 	}
+	// A VERIFIED address is a sign-in credential, not a contact-email field: changing it here
+	// would silently drop the verification (the next emailed sign-in would mint a separate
+	// account). Replace it with the add-an-address flow instead.
+	if cur, found := b.sessionGitHubOwner(login, gid); found && cur.EmailVerifiedAt != 0 &&
+		req.Email != "" && !strings.EqualFold(req.Email, cur.Email) {
+		jsonErr(w, http.StatusConflict, "that is your verified sign-in address - use \"Sign in with email too\" to replace it")
+		return
+	}
 	o, ok, err := b.db.UpdateAccount(login, req.Email)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")

@@ -122,3 +122,19 @@ test("an unverified contact email stays editable", async () => {
   await settle();
   assert.notEqual(p.els.email.readOnly, true);
 });
+
+test("after adding an address in-page, the contact field becomes read-only without a reload", async () => {
+  const p = linkPage(GH, {
+    "/auth/email/link/start": { status: 200, body: { ok: true, token: "T" } },
+    "/auth/email/link/verify": { status: 200, body: { ok: true, email: "me@example.com" } },
+  });
+  p.run("js/account.js");
+  await settle();
+  p.els.linkEmail.value = "me@example.com";
+  await p.fire("linkSend", "click"); await settle();
+  p.els.linkCode.value = "123456";
+  await p.fire("linkVerify", "click"); await settle();
+  assert.equal(p.els.email.readOnly, true);
+  assert.equal(p.els.saveEmail.hidden, true);
+  assert.equal(p.els.email.value, "me@example.com");
+});

@@ -129,3 +129,16 @@ Feature: A signed-in person adds a verified email to their account
     Given an email session was live when its address was linked to a GitHub account
     Then it resolves no owner until it signs in again, and a fresh sign-in is the full account
     # test: TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked
+
+  Scenario: A verified address is a credential, not a contact-email field
+    Given an address is verified on an account
+    When the contact email is patched to a different address
+    Then the server refuses it, so the verification is never silently dropped
+    And re-saving the same address (any case) is fine, and the page locks the field at once
+    # test: TestPatchingAVerifiedAddressIsRefused,web/test/account-link.test.mjs
+
+  Scenario: Flow namespaces cannot collide through an address that contains a pipe
+    Given "|" is legal in an address
+    When a sign-in code exists for "link|me@x" and a link code for "me@x"
+    Then neither redeems as the other, and checking for a separate wallet creates none
+    # test: TestTheMergeCheckHasNoSideEffect

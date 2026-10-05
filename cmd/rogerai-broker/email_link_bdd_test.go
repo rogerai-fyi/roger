@@ -37,6 +37,8 @@ var linkTests = map[string]func(*testing.T){
 	"TestALinkTokenCanNeverBeReplayedAsASessionCookie":                   TestALinkTokenCanNeverBeReplayedAsASessionCookie,
 	"TestASessionWithAnUnparseableGitHubIdIsRejected":                    TestASessionWithAnUnparseableGitHubIdIsRejected,
 	"TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked":    TestALiveEmailSessionIsNotAMixedIdentityAfterTheAddressIsLinked,
+	"TestPatchingAVerifiedAddressIsRefused":                              TestPatchingAVerifiedAddressIsRefused,
+	"TestTheMergeCheckHasNoSideEffect":                                   TestTheMergeCheckHasNoSideEffect,
 	"TestAnAddressWithAPipeCanBeLinked":                                  TestAnAddressWithAPipeCanBeLinked,
 	"TestTheLinkBudgetIsPerAccountNotPerIP":                              TestTheLinkBudgetIsPerAccountNotPerIP,
 	"TestLinkingNeverMergesWalletsOrBalances":                            TestLinkingNeverMergesWalletsOrBalances,

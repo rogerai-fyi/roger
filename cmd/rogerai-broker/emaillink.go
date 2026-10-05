@@ -228,7 +228,7 @@ func (b *broker) emailLinkVerify(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"ok": true, "email": addr}
 	// Linking never merges wallets. If a separate email-only account for this address holds
 	// funds, say so: they are stranded (not lost) and can be merged deliberately.
-	if bal, err := b.db.BalanceOf(walletForEmail(addr), 0); err == nil && bal > 1e-6 {
+	if bal, err := b.db.DeriveBalance(walletForEmail(addr)); err == nil && bal > 1e-6 { // read-only: BalanceOf would mint a wallet row
 		out["separate_email_balance"] = round6(bal)
 		out["merge_note"] = "A separate email-only account for this address holds funds. Nothing was merged; write to labs@rogerai.fm to have the two accounts merged deliberately."
 	}

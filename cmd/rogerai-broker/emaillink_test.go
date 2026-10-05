@@ -401,3 +401,41 @@ func TestASessionWithAnUnparseableGitHubIdIsRejected(t *testing.T) {
 	_, _, _, _, ok = b.verifySessionFull(val)
 	require.False(t, ok, "an unparseable expiry is not a session either")
 }
+
+// Reading "is there a separate email wallet" must not create one for an address that never had it.
+func TestTheMergeCheckHasNoSideEffect(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	b.seedFunds = 0
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "never-signed-in@example.com").Code)
+	bal, err := b.db.DeriveBalance(walletForEmail("never-signed-in@example.com"))
+	require.NoError(t, err)
+	require.Zero(t, bal)
+	// a wallet row would show up as an owner of a seeded balance on a later read; assert none was minted
+	_, seeded, _ := b.db.SeedOnce(walletForEmail("never-signed-in@example.com"), 7)
+	require.True(t, seeded, "no wallet row existed, so the later first sign-in still gets its seed")
+}
+
+// The server enforces "a verified address is not a contact-email field": a PATCH that would
+// change it is refused (it used to change it and silently drop the verification).
+func TestPatchingAVerifiedAddressIsRefused(t *testing.T) {
+	b, cap, c := linkFixture(t)
+	require.Equal(t, http.StatusOK, addAndVerify(t, b, cap, c, "me@example.com").Code)
+
+	patch := func(email string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"email": email})
+		req := httptest.NewRequest(http.MethodPatch, "/account", strings.NewReader(string(body)))
+		req.Header.Set("Origin", testWebOrigin)
+		req.AddCookie(c)
+		rec := httptest.NewRecorder()
+		b.account(rec, req)
+		return rec
+	}
+	rec := patch("someone-else@example.com")
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	o, found, _ := b.db.OwnerByVerifiedEmail("me@example.com")
+	require.True(t, found, "the verified address is intact")
+	require.Equal(t, "pk-1", o.Pubkey)
+
+	require.Equal(t, http.StatusOK, patch("me@example.com").Code, "re-saving the same address is fine")
+	require.Equal(t, http.StatusOK, patch("ME@example.com").Code, "case-only is the same address")
+}

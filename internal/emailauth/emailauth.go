@@ -190,7 +190,9 @@ func (f *Flow) scoped(addr string) string {
 	if f.cfg.Namespace == "" {
 		return addr
 	}
-	return f.cfg.Namespace + "|" + addr
+	// NUL, never "|": '|' is legal in an email local part, so "link|me@x" would collide with
+	// the address "me@x" under namespace "link". A valid address never contains NUL.
+	return f.cfg.Namespace + "\x00" + addr
 }
 
 func hashAddr(addr string) string { return sha256hex("addr:" + addr) }

@@ -110,6 +110,10 @@
         return r.json().then(function (j) {
           var done = (j && j.email) || addr;
           hide("linkStep2");
+          // the address is now a sign-in credential: lock the contact field without a reload
+          var emEl = document.getElementById("email");
+          if (emEl) { emEl.value = done; emEl.readOnly = true; }
+          hide("saveEmail");
           say(done + " is added and verified. Signing in with an emailed code now reaches this account." +
             (j && j.merge_note ? " " + j.merge_note : ""));
           text("linkCurrent", "Verified: " + done);

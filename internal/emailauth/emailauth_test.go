@@ -350,3 +350,24 @@ func TestNamespacedFlowsOverOneStoreNeverSatisfyEachOther(t *testing.T) {
 	_, err = link.Submit("me@rogerai.fm", linkCode, "1.2.3.4")
 	require.NoError(t, err)
 }
+
+// '|' is legal in an address, so a namespace joined with it can collide: the default flow's
+// record for "link|me@rogerai.fm" must NOT be the link flow's record for "me@rogerai.fm".
+func TestANamespaceCannotCollideWithAnAddressContainingThePipe(t *testing.T) {
+	st := NewMemStore()
+	login := NewWithStore(Config{}, st)
+	link := NewWithStore(Config{Namespace: "link"}, st)
+
+	// a sign-in code for the pipe-address...
+	code, err := login.Request("link|me@rogerai.fm", "1.2.3.4")
+	require.NoError(t, err)
+	// ...must not redeem as a link code for the plain address
+	_, err = link.Submit("me@rogerai.fm", code, "5.6.7.8")
+	require.ErrorIs(t, err, ErrRejected)
+
+	// and the reverse
+	lcode, err := link.Request("me@rogerai.fm", "1.2.3.4")
+	require.NoError(t, err)
+	_, err = login.Submit("link|me@rogerai.fm", lcode, "5.6.7.8")
+	require.ErrorIs(t, err, ErrRejected)
+}
