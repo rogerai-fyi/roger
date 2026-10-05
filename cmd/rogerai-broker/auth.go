@@ -304,8 +304,13 @@ func (b *broker) verifySessionFull(val string) (login string, githubID int64, wa
 	if len(f) != 4 && len(f) != 5 {
 		return "", 0, "", "", false
 	}
-	gid, _ := strconv.ParseInt(f[1], 10, 64)
-	exp, _ := strconv.ParseInt(f[3], 10, 64)
+	// Strict: a field that does not parse is not a session. (This used to ignore the error and
+	// read 0, so a signed string of the right shape but wrong content still decoded.)
+	gid, gerr := strconv.ParseInt(f[1], 10, 64)
+	exp, eerr := strconv.ParseInt(f[3], 10, 64)
+	if gerr != nil || eerr != nil {
+		return "", 0, "", "", false
+	}
 	if time.Now().Unix() > exp {
 		return "", 0, "", "", false
 	}
@@ -513,7 +518,7 @@ func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, 
 	if err != nil || c.Value == "" {
 		return "", store.Owner{}, false, false
 	}
-	l, gid, _, appleSub, vok := b.verifySessionFull(c.Value)
+	l, gid, sessWallet, appleSub, vok := b.verifySessionFull(c.Value)
 	if !vok {
 		return "", store.Owner{}, false, false
 	}
@@ -527,8 +532,14 @@ func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, 
 			return l, rec, true, true
 		}
 	default: // email session: gid==0 and no Apple sub. login is the proven address.
+		// The owner's own wallet must be the one this session carries. An email session that was
+		// live when its address was linked to a GitHub/Apple account still carries the OLD email
+		// wallet: resolving the linked owner for it would be a mixed identity (that account's
+		// data, a different wallet). It resolves nothing until the person signs in again.
 		if rec, f, _ := b.db.OwnerByVerifiedEmail(l); f {
-			return l, rec, true, true
+			if w, wok := accountWalletForOwner(rec); wok && w == sessWallet {
+				return l, rec, true, true
+			}
 		}
 	}
 	return l, store.Owner{}, false, true
@@ -591,7 +602,10 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 	var req struct {
 		Email string `json:"email"`
 	}
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil { // not "an empty email": nothing is changed on garbage
+		jsonErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 	if req.Email != "" && !strings.Contains(req.Email, "@") {
 		jsonErr(w, http.StatusBadRequest, "invalid email")
 		return
@@ -600,6 +614,16 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 	// write an owner row through a login collision (A1 write leg).
 	if gid == 0 {
 		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `roger login` on a node first)")
+		return
+	}
+	// A VERIFIED address is a sign-in credential, not a contact-email field: changing it here
+	// would silently drop the verification (the next emailed sign-in would mint a separate
+	// account). Replace it with the add-an-address flow instead.
+	// ANY change counts, including clearing it: UpdateAccount nulls the verification whenever the
+	// address differs, and an empty or absent email differs from a verified one.
+	if cur, found := b.sessionGitHubOwner(login, gid); found && cur.EmailVerifiedAt != 0 &&
+		!strings.EqualFold(req.Email, cur.Email) {
+		jsonErr(w, http.StatusConflict, "that is your verified sign-in address - use \"Sign in with email too\" to replace it")
 		return
 	}
 	o, ok, err := b.db.UpdateAccount(login, req.Email)

@@ -232,6 +232,13 @@ type Store interface {
 	// resurrecting the old one. The caller passes an already-normalized address; the
 	// comparison is case-insensitive so a stray spelling cannot mint a second account.
 	OwnerByVerifiedEmail(email string) (Owner, bool, error)
+	// LinkVerifiedEmail records an address AND the proof of it on the account identified by
+	// pubkey, atomically: the caller has just verified a mailed code for it. It REPLACES any
+	// address already on the account (the old proof does not follow the row). At most one
+	// live account may hold a verified address: ErrEmailTaken if another does (the address
+	// is compared case-insensitively; a deleted account holds nothing), ErrNoOwner if
+	// pubkey is unknown or the account is deleted. Idempotent for the same address.
+	LinkVerifiedEmail(pubkey, email string, at int64) error
 	// OwnerByAppleSub returns the owner linked to this Apple identity (the stable
 	// "sub" claim Apple issues per account), ok=false if none. The sub is Apple's
 	// unique account key, so this resolves the correct account without any reliance on
@@ -1413,6 +1420,12 @@ func (m *Mem) ReleaseHoldFor(user, requestID string) (float64, error) {
 // payer (captured, released, or swept already).
 var ErrNoPendingHold = errors.New("no pending hold to rekey")
 
+// ErrEmailTaken: another live account already holds this verified address.
+var ErrEmailTaken = errors.New("that address is verified on another account")
+
+// ErrNoOwner: no live account row for the given key (unknown or deleted).
+var ErrNoOwner = errors.New("no account for this key")
+
 // RekeyHold moves the tracked reservation to the failover attempt's id (no wallet/ledger
 // change). See the Store interface.
 func (m *Mem) RekeyHold(user, from, to string) error {
@@ -1777,6 +1790,23 @@ func canonicalOwner(owners map[string]Owner, match func(Owner) bool) (Owner, boo
 		}
 	}
 	return best, found, nil
+}
+
+func (m *Mem) LinkVerifiedEmail(pubkey, email string, at int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o, ok := m.owners[pubkey]
+	if !ok || o.Anonymized {
+		return ErrNoOwner
+	}
+	for pk, other := range m.owners {
+		if pk != pubkey && !other.Anonymized && other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
+			return ErrEmailTaken
+		}
+	}
+	o.Email, o.EmailVerifiedAt = email, at
+	m.owners[pubkey] = o
+	return nil
 }
 
 func (m *Mem) OwnerByVerifiedEmail(email string) (Owner, bool, error) {

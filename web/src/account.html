@@ -38,7 +38,7 @@
 
       <p class="fine" id="identityHelp">Your machines, earnings and API keys belong to the sign-in that ran
         <code>roger login</code>. If you signed in another way and see none of them here, sign in with that one
-        instead: <a href="/login.html">switch sign-in</a>. Linking two sign-ins together from this page is not available yet.</p>
+        instead: <a href="/login.html">switch sign-in</a>.</p>
 
       <div class="ac-field">
         <label class="ac-field__k" for="email">Contact email <span class="ac-field__opt">optional</span></label>
@@ -48,6 +48,28 @@
           <button id="saveEmail" class="ghost">Save email</button>
           <span class="fine" id="saveMsg"></span>
         </div>
+      </div>
+    </section>
+
+    <section class="panel" id="linkPanel" hidden>
+      <h2>Sign in with email too</h2>
+      <p>Add an email address to this account. Afterwards, signing in with an emailed code reaches these same
+        machines, earnings and keys. Nothing is merged: balances stay where they are.</p>
+      <p class="fine" id="linkCurrent"></p>
+      <p class="fine" id="linkNeedsLogin" hidden>This sign-in has no machines linked yet. Run <code>roger login</code>
+        on a machine with this account first, then come back.</p>
+      <div id="linkForm">
+        <div class="ac-field" id="linkStep1">
+          <label class="ac-field__k" for="linkEmail">Email address</label>
+          <input id="linkEmail" class="ac-field__in" type="email" placeholder="you@example.com" autocomplete="email" />
+          <div class="ac-field__act"><button id="linkSend" class="ghost" type="button">Send code</button></div>
+        </div>
+        <div class="ac-field" id="linkStep2" hidden>
+          <label class="ac-field__k" for="linkCode">Code from the email</label>
+          <input id="linkCode" class="ac-field__in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+          <div class="ac-field__act"><button id="linkVerify" class="ghost" type="button">Add address</button></div>
+        </div>
+        <p class="fine" id="linkMsg" role="status"></p>
       </div>
     </section>
 

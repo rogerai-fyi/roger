@@ -21,8 +21,9 @@ import (
 // signInByEmail runs the real start+verify routes and returns the session cookie.
 func signInByEmail(t *testing.T, b *broker, cap *capturedMail, addr string) *http.Cookie {
 	t.Helper()
+	n := len(cap.all())
 	require.Equal(t, http.StatusOK, postJSON(t, b.emailStart, "/auth/email/start", map[string]string{"email": addr}).Code)
-	waitForMail(t, cap, 1)
+	waitForMail(t, cap, n+1)
 	verify := postJSON(t, b.emailVerify, "/auth/email/verify", map[string]string{"email": addr, "code": codeFromMail(t, cap)})
 	require.Equal(t, http.StatusOK, verify.Code)
 	for _, c := range verify.Result().Cookies() {
