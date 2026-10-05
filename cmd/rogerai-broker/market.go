@@ -288,6 +288,10 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 // short window. The only side effect is demand-probe scheduling, which is a best-effort
 // hint and still fires on every cache miss.
 func (b *broker) computeDiscover() any {
+	// The verified-tools bits come from the shared store, read once per cache miss, so a
+	// verdict that aged out of the store is gone from the feed (and /v1/models) at once
+	// rather than on the next sync tick (contract §14.B4: an expired verdict removes tools).
+	b.syncToolsVerified()
 	b.mu.Lock()
 	now := time.Now()
 	var out []offerView

@@ -16,6 +16,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -276,9 +277,13 @@ func (s *mo6State) noExponent() error {
 	return nil
 }
 
+// perToken is the expected per-token string, computed exactly: the $/1M figure's shortest
+// decimal divided by 1e6 as a rational (a float division adds noise such as
+// 0.1/1e6 = "0.00000010000000000000001", which the literal scenarios rule out).
 func perToken(v float64) string {
-	s := strconv.FormatFloat(v/1e6, 'f', -1, 64)
-	return s
+	r, _ := new(big.Rat).SetString(strconv.FormatFloat(v, 'f', -1, 64))
+	s := strings.TrimRight(r.Quo(r, big.NewRat(1_000_000, 1)).FloatString(30), "0")
+	return strings.TrimSuffix(s, ".")
 }
 
 func (s *mo6State) reflects(id, name string) (bool, error) {
@@ -528,7 +533,9 @@ func (s *mo6State) singleEqualsList() error {
 
 func (s *mo6State) itsPricingFrom(name string) error { return s.stillReflects(s.lastNamed, name) }
 
-var mo6RogeraiFields = map[string]bool{"providers": true, "min_price_in": true, "min_price_out": true, "best_tps": true,
+// mo6RogeraiFields is the rogerai block as it stood before §14.B4, including the blended-price
+// pair slice 6 part A added (db745146, §14.7) after this runner's ground-truth snapshot.
+var mo6RogeraiFields = map[string]bool{"blended_price_per_1m": true, "blend_ratio": true, "providers": true, "min_price_in": true, "min_price_out": true, "best_tps": true,
 	"ctx_max": true, "params_b": true, "params_b_min": true, "params_b_max": true, "params_estimated": true, "quants": true,
 	"capabilities": true, "verified": true, "free_now": true, "confidential": true, "curated": true, "cooling": true, "cooling_until": true}
 
