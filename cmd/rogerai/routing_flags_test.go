@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 func TestPrefFlag(t *testing.T) {
@@ -201,4 +202,19 @@ func TestCmdUseRoutingFlagBranches(t *testing.T) {
 	err := cmdUse(cfg, []string{"--pref", "fast"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "usage: roger use <model>")
+}
+
+// TestCLIAndTUIResolveLimitsByOneRule: `roger use` and the booth resolve a band's rule with
+// the same per-key merge - held to the one shared table, through both real paths.
+func TestCLIAndTUIResolveLimitsByOneRule(t *testing.T) {
+	for _, tc := range tui.LimitMergeCases() {
+		t.Run(tc.Name, func(t *testing.T) {
+			var c config
+			c.Limits.Default = fromTUILimit(tc.Default)
+			c.Limits.Models = map[string]Limit{"m": fromTUILimit(tc.Model)}
+			cli, _ := c.resolve("m")
+			require.Equal(t, fromTUILimit(tc.Want), cli, "CLI")
+			require.Equal(t, tc.Want, tuiLimits(c).Resolve("m"), "TUI")
+		})
+	}
 }

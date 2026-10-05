@@ -105,3 +105,61 @@ func TestProfileSwitchReRunsTheOverLimitCheck(t *testing.T) {
 	require.Empty(t, m.confirmProfile)
 	require.False(t, m.q.overLimit)
 }
+
+// TestTunedProfileCapsComposeWithTheBandLimit: the tuned profile's price caps and min-tps
+// floor reach the live proxy and the chat/agent routing object, composed with the band's
+// own rule the stricter way (the lower cap, the higher floor) - and opening a channel
+// (refreshLiveRouting) does not drop them back to the band limit.
+func TestTunedProfileCapsComposeWithTheBandLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		bandOut, bandIn, bandTPS float64
+		profOut, profIn, profTPS float64
+		wantOut, wantIn, wantTPS float64
+	}{
+		{"profile stricter", 5, 1, 10, 2, 0.5, 30, 2, 0.5, 30},
+		{"band stricter", 2, 0.5, 30, 5, 1, 10, 2, 0.5, 30},
+		{"profile only", 0, 0, 0, 3, 0.4, 25, 3, 0.4, 25},
+		{"band only", 4, 0.3, 15, 0, 0, 0, 4, 0.3, 15},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prof := map[string]any{"roger": map[string]any{}, "provider": map[string]any{"max_price": map[string]any{}}}
+			mp := prof["provider"].(map[string]any)["max_price"].(map[string]any)
+			if tc.profOut > 0 {
+				mp["completion"] = tc.profOut
+			}
+			if tc.profIn > 0 {
+				mp["prompt"] = tc.profIn
+			}
+			if tc.profTPS > 0 {
+				prof["roger"].(map[string]any)["min_tps"] = tc.profTPS
+			}
+			m := auditProfileModel(t, prof)
+			m.limits.Models = map[string]Limit{"m": {MaxOut: tc.bandOut, MaxIn: tc.bandIn, MinTPS: tc.bandTPS}}
+			m.proxyHolder = client.NewProxyOptionsHolder(m.liveProxyOpts(*m.connected, m.alert))
+			m.refreshLiveRouting() // what openChannel does
+
+			o := m.proxyHolder.Get()
+			require.Equal(t, tc.wantOut, o.MaxPriceOut, "live proxy out cap")
+			require.Equal(t, tc.wantIn, o.MaxPriceIn, "live proxy in cap")
+			require.Equal(t, tc.wantTPS, o.MinTPS, "live proxy min-tps floor")
+
+			rt := m.routing("m", "")
+			require.Equal(t, tc.wantOut, rt.MaxOut, "chat/agent routing out cap")
+			require.Equal(t, tc.wantIn, rt.MaxIn, "chat/agent routing in cap")
+			require.Equal(t, tc.wantTPS, rt.MinTPS, "chat/agent routing min-tps floor")
+		})
+	}
+}
+
+// TestTUIResolvesLimitsByThePerKeyMerge: the TUI resolves a band's rule exactly as the CLI
+// does - the Default with each key the band sets laid over it - so a default rule key the
+// band leaves unset still binds in the booth.
+func TestTUIResolvesLimitsByThePerKeyMerge(t *testing.T) {
+	for _, tc := range LimitMergeCases() {
+		t.Run(tc.Name, func(t *testing.T) {
+			s := &LimitStore{Default: tc.Default, Models: map[string]Limit{"m": tc.Model}}
+			require.Equal(t, tc.Want, s.Resolve("m"))
+		})
+	}
+}

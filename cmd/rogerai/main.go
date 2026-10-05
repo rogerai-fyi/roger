@@ -240,41 +240,10 @@ func (c config) resolve(m string) (Limit, int) {
 	return l, typ
 }
 
-// overLimit lays every field o sets over base.
+// overLimit lays every field o sets over base, by the one rule the booth uses too
+// (tui.MergeLimit), so `roger use` and the TUI can never resolve a band differently.
 func overLimit(base, o Limit) Limit {
-	pick := func(a, b float64) float64 {
-		if b != 0 {
-			return b
-		}
-		return a
-	}
-	base.MaxIn, base.MaxOut, base.MinTPS, base.MaxCost = pick(base.MaxIn, o.MaxIn), pick(base.MaxOut, o.MaxOut), pick(base.MinTPS, o.MinTPS), pick(base.MaxCost, o.MaxCost)
-	if len(o.Quants) > 0 {
-		base.Quants = o.Quants
-	}
-	if o.Pref != "" {
-		base.Pref = o.Pref
-	}
-	if len(o.Require) > 0 {
-		base.Require = o.Require
-	}
-	if len(o.ParamsB) > 0 {
-		base.ParamsB = o.ParamsB
-	}
-	if o.MinCtx != 0 {
-		base.MinCtx = o.MinCtx
-	}
-	if o.MaxTTFTMs != 0 {
-		base.MaxTTFTMs = o.MaxTTFTMs
-	}
-	if o.TrustMin != "" {
-		base.TrustMin = o.TrustMin
-	}
-	base.SelfHosted = base.SelfHosted || o.SelfHosted
-	if len(o.Region) > 0 {
-		base.Region = o.Region
-	}
-	return base
+	return fromTUILimit(tui.MergeLimit(toTUILimit(base), toTUILimit(o)))
 }
 
 // prefFlag is the --pref flag value: one of client.RoutingPrefs, refused at parse time with

@@ -697,7 +697,8 @@ func (m model) newAgentRuntime() *agentRuntime {
 		}
 		// Carry the user's explicit out-price cap for the live model (0 -> the default
 		// consumer cap applies broker-side); the agent relay is bounded like `use`/chat.
-		maxOut := m.limits.resolve(rt.model).MaxOut
+		// The band's cap composed with the tuned profile's, the stricter way (routing).
+		route := m.routing(rt.model, m.tunedQuant(rt.model))
 		// Calls are unlimited by default. A configured duration restores the soft-cap
 		// choice: tab extends it, esc stops it, and the grace window bounds unattended
 		// calls. Either way the parent context keeps esc cancellation immediate.
@@ -729,7 +730,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 		}
 		return harness.BrokerCompleterRoute(harness.BrokerRoute{
 			Broker: m.broker, User: m.user, Model: rt.model,
-			Confidential: m.confidentialOnly, MaxOut: maxOut, OnCost: costFn,
+			Confidential: m.confidentialOnly, MaxOut: route.MaxOut, OnCost: costFn,
 			// The tuned PRIVATE band's code, when this turn's model is the one that band
 			// serves. Without it the broker refuses to route to a hidden node and the turn
 			// dies with "no station is serving <model>" on a band the operator is
@@ -739,7 +740,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 			// the request body. An agent turn is exactly the case the [3] CONFIG rules
 			// exist for - nobody is watching a dial, so the filter cannot help and only a
 			// rule can.
-			Routing: m.routing(rt.model, m.tunedQuant(rt.model)),
+			Routing: route,
 			OnServed: func(sv harness.Served) {
 				b, _ := json.Marshal(sv)
 				select {

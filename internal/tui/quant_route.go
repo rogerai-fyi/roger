@@ -48,9 +48,13 @@ func (m model) quantRuleRefusal(model, rowQuant string) string {
 // standing pref, the confidential toggle, hidden curated supply, and the quant choice.
 // It carries every key of the band's [3] CONFIG rule and the dial filters that bind: F as
 // `:free`, C as roger.confidential, U as roger.self_hosted_only.
+//
+// The band's price caps and min-tps floor compose with the tuned profile's the STRICTER way
+// (the lower cap, the higher floor), as the broker composes a header with a body: a profile
+// can tighten the owner's band rule, never loosen it.
 func (m model) routing(model, rowQuant string) client.Routing {
 	lim := m.limits.resolve(model)
-	return (client.Routing{
+	rt := (client.Routing{
 		Pref:           lim.Pref,
 		Confidential:   m.confidentialOnly || m.fConf,
 		SelfHostedOnly: m.fNoCurated || lim.SelfHosted,
@@ -65,6 +69,17 @@ func (m model) routing(model, rowQuant string) client.Routing {
 		FreeOnly:       m.fFree,
 		HeaderMode:     m.headerRouting,
 	}).Overlay(m.profileFor(model)) // the profile tuned under, for the connected band
+	rt.MaxOut, rt.MaxIn = stricterCap(lim.MaxOut, rt.MaxOut), stricterCap(lim.MaxIn, rt.MaxIn)
+	rt.MinTPS = max(lim.MinTPS, rt.MinTPS)
+	return rt
+}
+
+// stricterCap is the lower of two price caps, where 0 means "no cap of my own".
+func stricterCap(a, b float64) float64 {
+	if a <= 0 || (b > 0 && b < a) {
+		return b
+	}
+	return a
 }
 
 // tunedQuant is the quant of the row the operator is connected to for `model`, or "" when

@@ -313,7 +313,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			rt := m.routing(m.connected.Model, m.connected.Quant)
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.limits.resolve(m.connected.Model).MaxOut, rt, m.tuneFreq, hist)
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, rt.MaxOut, rt, m.tuneFreq, hist)
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
