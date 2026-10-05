@@ -351,13 +351,11 @@ func TestMonthSpendCounterFastPath(t *testing.T) {
 		if _, err := cs.Settle(holder, "paid", c, 0, protocol.UsageReceipt{RequestID: fmt.Sprintf("fp%d", i), TS: now.Unix()}); err != nil {
 			t.Fatal(err)
 		}
-		b.recordMonthSpend(holder, c, now) // the Finalize-time hook: invalidates
+		b.recordMonthSpend(holder, c, now) // the Finalize-time hook: post-commit total, set if greater
 	}
-	if len(mr.Keys()) != 0 {
-		t.Fatalf("a settle must invalidate the counter, keys %v", mr.Keys())
-	}
+	_ = mr // the counter is written by the settles themselves (post-commit total, set if greater)
 	if got := b.monthSpend(holder, now); got != 5.0 {
-		t.Errorf("month spend after reconcile = %v, want 5.0", got)
+		t.Errorf("month spend after two settles = %v, want 5.0", got)
 	}
 	ms1, _, _, _, _ := cs.counts()
 	for i := 0; i < 3; i++ {
@@ -368,7 +366,7 @@ func TestMonthSpendCounterFastPath(t *testing.T) {
 	if ms, _, _, _, _ := cs.counts(); ms != ms1 {
 		t.Errorf("a counter HIT must not run the ledger SUM: %d SUMs after the reconcile, want %d", ms, ms1)
 	}
-	// A later settle invalidates the seeded counter, so the next read is exact again.
+	// A later settle raises the counter to the new total, so the next read is exact again.
 	if _, err := cs.Settle(holder, "paid", 1.0, 0, protocol.UsageReceipt{RequestID: "fp9", TS: now.Unix()}); err != nil {
 		t.Fatal(err)
 	}
@@ -499,5 +497,63 @@ func TestPromoUnlimited(t *testing.T) {
 	rem, unlimited, active := b.promoStatus()
 	if rem != -1 || !unlimited || !active {
 		t.Errorf("unlimited promoStatus = (%d,%v,%v), want (-1,true,true)", rem, unlimited, active)
+	}
+}
+
+// TestMonthSpendCounterStaysWarmAcrossSettles (audit fix 2026-10-04): a settle writes the
+// post-commit ledger total into the counter (set only if greater), so the next paid request
+// reads it without a ledger SUM, and the value is exact.
+func TestMonthSpendCounterStaysWarmAcrossSettles(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	cs := &countingStore{Store: store.NewMem()}
+	b := &broker{db: cs, shared: vs}
+	now := time.Now()
+	holder := "u_gh_7"
+
+	for i, c := range []float64{2.0, 0.5} {
+		if _, err := cs.Settle(holder, "paid", c, 0, protocol.UsageReceipt{RequestID: fmt.Sprintf("w%d", i), TS: now.Unix()}); err != nil {
+			t.Fatal(err)
+		}
+		b.recordMonthSpend(holder, c, now)
+	}
+	ms1, _, _, _, _ := cs.counts()
+	if got := b.monthSpend(holder, now); got != 2.5 {
+		t.Fatalf("after two settles the warm counter = %v, want 2.5", got)
+	}
+	if ms, _, _, _, _ := cs.counts(); ms != ms1 {
+		t.Fatalf("the read after a settle ran the ledger SUM (%d SUMs, want %d): the counter went cold", ms, ms1)
+	}
+	// A late writer carrying an older total can never move the counter backwards.
+	if err := vs.counterSetIfGreater(capSpendKey(holder, now), 2.0, capCounterTTL); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.monthSpend(holder, now); got != 2.5 {
+		t.Fatalf("an older total moved the counter backwards: %v, want 2.5", got)
+	}
+}
+
+// TestCapPreCheckConfirmsAnOverReadingCounterWithTheLedger (audit fix 2026-10-04): the
+// counter is a cache and may over-read (a settle that committed before a reconcile's ledger
+// read but added itself after the seed). The pre-check never refuses on the counter alone:
+// a counter that says "over" is confirmed against the ledger before any 402.
+func TestCapPreCheckConfirmsAnOverReadingCounterWithTheLedger(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	cs := &countingStore{Store: store.NewMem()}
+	b := &broker{db: cs, shared: vs}
+	now := time.Now()
+	holder := "u_gh_7"
+	if err := cs.SetMonthlyCap(holder, 10.0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.Settle(holder, "paid", 5.0, 0, protocol.UsageReceipt{RequestID: "o1", TS: now.Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	// The counter over-reads: it says $9.50 while the ledger holds $5.00.
+	if err := vs.counterSet(capSpendKey(holder, now), 9.5, capCounterTTL); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	if st, msg := b.monthlyCapCheck(w, holder, 1.0, now); st != 0 {
+		t.Fatalf("a $1 request with $5 of real spend under a $10 cap was refused on an over-reading counter: %d %s", st, msg)
 	}
 }

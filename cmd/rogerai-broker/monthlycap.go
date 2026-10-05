@@ -67,6 +67,16 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	// the capped hold (holdUnderCap), which also counts open holds. The relay does not call
 	// it for a floor-only (free) hold.
 	if spend+maxCost > cap {
+		// The counter is a cache that can over-read: confirm against the ledger before
+		// refusing, and reseed the counter with the truth.
+		if truth, err := b.db.MonthSpendOf(holder, now); err == nil && truth < spend {
+			spend = truth
+			if b.shared != nil {
+				_ = b.shared.counterSet(capSpendKey(holder, now), truth, capCounterTTL)
+			}
+		}
+	}
+	if spend+maxCost > cap {
 		// Surface the at-limit headers on the rejection too, so a client shows the same
 		// "$X of $Y" line whether it was warned or hard-stopped.
 		return b.capRefusal(w, holder, spend, 0, cap, now)

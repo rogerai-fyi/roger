@@ -154,6 +154,9 @@ type sharedStore interface {
 	// and-delete). A reconcile uses it to withdraw a value that turned out stale without
 	// destroying a peer's later increment.
 	counterDelIfEqual(key string, val float64) (deleted bool, err error)
+	// counterSetIfGreater stores val (with ttl) only when the counter is absent or holds less
+	// than val, atomically; a monotonic month-to-date total can then never move backwards.
+	counterSetIfGreater(key string, val float64, ttl time.Duration) error
 
 	// edgeSlotReserve is the per-account open-attempt cap shared by every instance: one
 	// sorted set per account (member = slot id, score = its deadline in unix ms). In ONE
@@ -459,9 +462,10 @@ func (m *memStore) counterGet(string) (float64, bool, error) { return 0, false, 
 func (m *memStore) counterSet(string, float64, time.Duration) error {
 	return errNoSharedStore
 }
-func (m *memStore) counterIncr(string, float64) (float64, error)    { return 0, errNoSharedStore }
-func (m *memStore) counterDel(string) error                         { return errNoSharedStore }
-func (m *memStore) counterDelIfEqual(string, float64) (bool, error) { return false, errNoSharedStore }
+func (m *memStore) counterIncr(string, float64) (float64, error)             { return 0, errNoSharedStore }
+func (m *memStore) counterDel(string) error                                  { return errNoSharedStore }
+func (m *memStore) counterDelIfEqual(string, float64) (bool, error)          { return false, errNoSharedStore }
+func (m *memStore) counterSetIfGreater(string, float64, time.Duration) error { return errNoSharedStore }
 func (m *memStore) edgeSlotReserve(string, string, time.Time, time.Time, int) (bool, error) {
 	return false, errNoSharedStore
 }
@@ -1894,6 +1898,32 @@ func (v *valkeyStore) counterIncr(key string, delta float64) (float64, error) {
 	}
 	v.setUp(true)
 	return val, nil
+}
+
+// counterSetIfGreaterScript: SET (with PX ARGV[2]) only when the key is absent or holds a
+// smaller number than ARGV[1]; returns 1 if it wrote.
+var counterSetIfGreaterScript = redis.NewScript(`
+local cur = redis.call('GET', KEYS[1])
+if (not cur) or tonumber(cur) < tonumber(ARGV[1]) then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+  return 1
+end
+return 0
+`)
+
+func (v *valkeyStore) counterSetIfGreater(key string, val float64, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := counterSetIfGreaterScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key},
+		strconv.FormatFloat(val, 'f', -1, 64), ttl.Milliseconds()).Err(); err != nil {
+		v.noteErr("counterSetIfGreater", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
 }
 
 // counterDelIfEqualScript: DEL only while the stored number equals ARGV[1]; returns 1 if deleted.
