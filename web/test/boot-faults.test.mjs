@@ -42,3 +42,10 @@ for (const pg of PAGES) {
     assert.equal(p.els.card.hidden, false);
   });
 }
+
+test("the fault state hides the 'Signed in as -' subtitle (nothing to name when the feed failed)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../src/styles/account-base.css", import.meta.url), "utf8");
+  const rule = css.match(/\.card\.is-fault > [^{]+\{[^}]*\}/)[0];
+  assert.doesNotMatch(rule, /:not\(\.sub\)/, "the .sub line is not exempt from the fault-state hiding");
+});
