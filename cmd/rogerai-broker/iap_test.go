@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,13 +115,17 @@ func TestVerifyStoreKitJWS(t *testing.T) {
 	if _, ok := verifyStoreKitJWS(makeJWS(t, leafKey, chain, goodTxn(), "RS256"), root, now); ok {
 		t.Error("non-ES256 alg header must be rejected")
 	}
-	// tampered signature -> false
-	bad := jws[:len(jws)-2] + func() string {
-		if jws[len(jws)-1] == 'A' {
-			return "BB"
-		}
-		return "AA"
-	}()
+	// tampered signature -> false. Flip a byte of the DECODED signature: swapping the last
+	// base64 characters is not enough, because the final character of a 64-byte signature
+	// carries only 2 significant bits and the decoder ignores the rest, so a text change
+	// could decode to the identical signature (this made the test intermittent).
+	dot := strings.LastIndexByte(jws, '.')
+	sigBytes, err := base64.RawURLEncoding.DecodeString(jws[dot+1:])
+	if err != nil {
+		t.Fatalf("decode signature: %v", err)
+	}
+	sigBytes[0] ^= 0xFF
+	bad := jws[:dot+1] + base64.RawURLEncoding.EncodeToString(sigBytes)
 	if _, ok := verifyStoreKitJWS(bad, root, now); ok {
 		t.Error("tampered signature must be rejected")
 	}
