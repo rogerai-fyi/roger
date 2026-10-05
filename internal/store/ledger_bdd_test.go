@@ -11,6 +11,7 @@ package store
 // Skipped (like every Postgres path here) when ROGERAI_TEST_DATABASE_URL is unset.
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -40,10 +41,12 @@ func freshLedgerPG(dsn string) (*Postgres, error) {
 		rogerai.banned_nodes, rogerai.banned_owners, rogerai.owner_strikes,
 		rogerai.checkout_charges, rogerai.offer_overrides, rogerai.private_bands
 		RESTART IDENTITY CASCADE`); err != nil {
+		_ = pg.Close()
 		return nil, fmt.Errorf("truncate: %w", err)
 	}
 	if _, err := pg.db.Exec(`INSERT INTO rogerai.seed_counter(id,count) VALUES(1,0)
 		ON CONFLICT (id) DO UPDATE SET count=0`); err != nil {
+		_ = pg.Close()
 		return nil, fmt.Errorf("reset seed_counter: %w", err)
 	}
 	return pg, nil
@@ -380,6 +383,14 @@ func TestLedgerBDD(t *testing.T) {
 			// No Before hook: the Background "a fresh Postgres-backed store" step opens + TRUNCATEs
 			// once per scenario (a Before would double the NewPostgres pool + truncate).
 			sc.Step(`^a fresh Postgres-backed store$`, st.freshPGStore)
+			// Give the scenario's pool back (NewPostgres opens up to 8 connections). Without
+			// this every scenario leaked a pool for the rest of the test binary.
+			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				if st.pg != nil {
+					_ = st.pg.Close()
+				}
+				return ctx, nil
+			})
 			sc.Step(`^the platform fee rate is (\d+)%$`, st.feePct)
 			sc.Step(`^wallet "([^"]*)" has ([\d.]+) in real credits$`, st.walletReal)
 			sc.Step(`^wallet "([^"]*)" has ([\d.]+) in FREE seed credits$`, st.walletSeed)

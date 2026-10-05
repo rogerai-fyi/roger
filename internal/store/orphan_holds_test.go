@@ -160,6 +160,7 @@ func TestReleaseStaleHoldsCrossInstancePostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second instance: %v", err)
 	}
+	t.Cleanup(func() { _ = inst2.Close() })
 	if _, err := inst1.AddCredits("alice", 10); err != nil {
 		t.Fatal(err)
 	}
