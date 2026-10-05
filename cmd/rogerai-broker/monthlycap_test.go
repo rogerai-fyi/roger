@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -258,5 +259,46 @@ func TestMonthlyCapState(t *testing.T) {
 	seedMonthSpend(t, b, wallet, 2, "s2") // 110%
 	if st := b.monthlyCapState(wallet, now); !st.atLimit {
 		t.Errorf("at 110%%: atLimit=%v, want true", st.atLimit)
+	}
+}
+
+// The "held by requests in progress" refusal (retry when they finish) is only true when this
+// request would fit on captured spend alone and the open holds are what push it over. A
+// request too large for the cap even with nothing in flight gets the plain limit refusal:
+// waiting for the in-flight requests would never let it through.
+func TestCapRefusalInProgressOnlyWhenHoldsAreTheReason(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name       string
+		amount     float64
+		inProgress bool
+	}{
+		{"fits on spend alone, the open hold pushes it over", 0.10, true},
+		{"over the cap on spend alone", 0.30, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, _, wallet := capBroker(t)
+			require.NoError(t, b.db.SetMonthlyCap(wallet, 1))
+			seedMonthSpend(t, b, wallet, 0.85, "spent")
+			open, err := b.db.HoldForCapped(wallet, "in-flight", 0.10, 1, now)
+			require.NoError(t, err)
+			require.True(t, open.OK, "the in-flight hold fits")
+
+			w := httptest.NewRecorder()
+			held, status, msg, err := b.holdUnderCap(w, wallet, "next", tc.amount, now)
+			require.NoError(t, err)
+			require.False(t, held)
+			require.Equal(t, http.StatusPaymentRequired, status)
+			require.Contains(t, msg, "monthly spend limit reached")
+			if tc.inProgress {
+				require.Contains(t, msg, "held by requests still in progress")
+				require.Contains(t, msg, "retry when they finish")
+				require.Equal(t, "0.1", w.Header().Get("X-RogerAI-Monthly-Pending"))
+				return
+			}
+			require.NotContains(t, msg, "in progress")
+			require.NotContains(t, msg, "retry when they finish")
+			require.Empty(t, w.Header().Get("X-RogerAI-Monthly-Pending"))
+		})
 	}
 }
