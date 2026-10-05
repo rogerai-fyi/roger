@@ -75,3 +75,56 @@ func TestBrokerCompleterReadsAStreamedTurn(t *testing.T) {
 		t.Errorf("served = %+v", served)
 	}
 }
+
+// The broker's usage chunk carries locked_until as a unix-seconds INTEGER (tunnel.go, the
+// usage chunk's rogerai block); an older shape sent a string. Both must decode, so the chunk
+// is never dropped (which would zero the token counts and skip OnServed).
+func TestReadStreamDecodesTheBrokersIntegerLockedUntil(t *testing.T) {
+	sse := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"cost\":0.01,\"rogerai\":{\"node\":\"n1\",\"model\":\"m\",\"locked_until\":1790000000}}}\n" +
+		"data: [DONE]\n"
+	st := readStream(strings.NewReader(sse))
+	if st.in != 7 || st.out != 3 || st.cost != 0.01 {
+		t.Fatalf("the integer locked_until dropped the usage chunk: in=%d out=%d cost=%v", st.in, st.out, st.cost)
+	}
+	if st.served.Node != "n1" || st.served.LockedUntil != "2026-09-21T14:13:20Z" {
+		t.Errorf("served = %+v, want node n1 and the lock as RFC 3339", st.served)
+	}
+	st = readStream(strings.NewReader(strings.Replace(sse, "1790000000", "0", 1)))
+	if st.served.LockedUntil != "" || st.in != 7 {
+		t.Errorf("a zero lock is no lock: %+v", st.served)
+	}
+}
+
+// A stream that ends without [DONE] or a finish_reason was cut (cancelled, reset, or the
+// reader's size cap): its partial content must never pass as a successful turn.
+func TestReadStreamRejectsATruncatedStream(t *testing.T) {
+	cut := "data: {\"choices\":[{\"delta\":{\"content\":\"half an ans\",\"tool_calls\":[{\"index\":0,\"id\":\"c\",\"function\":{\"name\":\"write\",\"arguments\":\"{\\\"p\\\":\"}}]}}]}\n"
+	if err := readStream(strings.NewReader(cut)).streamError(); err == nil {
+		t.Fatal("a stream cut before [DONE] or a finish_reason passed as a successful turn")
+	}
+	done := cut + "data: [DONE]\n"
+	if err := readStream(strings.NewReader(done)).streamError(); err != nil {
+		t.Errorf("a stream that ends with [DONE] is complete: %v", err)
+	}
+	finished := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n"
+	if err := readStream(strings.NewReader(finished)).streamError(); err != nil {
+		t.Errorf("a finish_reason marks the reply complete: %v", err)
+	}
+	if err := readStream(&errReader{data: cut}).streamError(); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("a read error must surface, got %v", err)
+	}
+}
+
+type errReader struct {
+	data string
+	done bool
+}
+
+func (e *errReader) Read(p []byte) (int, error) {
+	if !e.done {
+		e.done = true
+		return copy(p, e.data), nil
+	}
+	return 0, fmt.Errorf("boom: connection reset")
+}

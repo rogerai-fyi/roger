@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Served is what the final usage chunk says about a turn.
@@ -29,6 +30,11 @@ type streamed struct {
 	served    Served
 	errText   string
 	sawChoice bool
+	// complete is true when the stream ended properly: a `data: [DONE]` frame or a
+	// finish_reason. A stream without either was cut (cancelled, reset, or the reader's size
+	// cap) and its partial content is never a successful turn. readErr is the scanner's error.
+	complete bool
+	readErr  error
 }
 
 const sseCostComment = ": rogerai-cost="
@@ -59,7 +65,11 @@ func readStream(r io.Reader) streamed {
 			continue
 		}
 		data = strings.TrimSpace(data)
-		if data == "" || data == "[DONE]" {
+		if data == "[DONE]" {
+			st.complete = true
+			continue
+		}
+		if data == "" {
 			continue
 		}
 		var ch struct {
@@ -85,9 +95,9 @@ func readStream(r io.Reader) streamed {
 				CompletionTokens int      `json:"completion_tokens"`
 				Cost             *float64 `json:"cost"`
 				RogerAI          struct {
-					Node        string `json:"node"`
-					Model       string `json:"model"`
-					LockedUntil string `json:"locked_until"`
+					Node        string          `json:"node"`
+					Model       string          `json:"model"`
+					LockedUntil json.RawMessage `json:"locked_until"`
 				} `json:"rogerai"`
 			} `json:"usage"`
 			Error struct {
@@ -125,15 +135,19 @@ func readStream(r io.Reader) streamed {
 			if c.FinishReason == "length" {
 				st.msg.Truncated = true
 			}
+			if c.FinishReason != "" {
+				st.complete = true
+			}
 		}
 		if u := ch.Usage; u != nil {
 			st.in, st.out = u.PromptTokens, u.CompletionTokens
 			if u.Cost != nil {
 				chunkCost = *u.Cost
 			}
-			st.served = Served{Model: u.RogerAI.Model, Node: u.RogerAI.Node, LockedUntil: u.RogerAI.LockedUntil}
+			st.served = Served{Model: u.RogerAI.Model, Node: u.RogerAI.Node, LockedUntil: lockedUntilText(u.RogerAI.LockedUntil)}
 		}
 	}
+	st.readErr = sc.Err()
 	switch {
 	case chunkCost >= 0:
 		st.cost = chunkCost
@@ -163,13 +177,40 @@ func readStream(r io.Reader) streamed {
 	return st
 }
 
-// streamError is the turn's error for a stream that carried no reply.
+// streamError is the turn's error for a stream that carried no reply, was cut before it
+// finished, or failed to read.
 func (st streamed) streamError() error {
 	if st.errText != "" {
 		return fmt.Errorf("%s", st.errText)
 	}
+	if st.readErr != nil {
+		return fmt.Errorf("the reply stream broke off: %v - try again", st.readErr)
+	}
 	if !st.sawChoice {
 		return fmt.Errorf("the station sent an empty response (status 200)")
 	}
+	if !st.complete {
+		return fmt.Errorf("the reply stream ended before it finished (connection cut or reset) - try again")
+	}
 	return nil
+}
+
+// lockedUntilText renders the usage chunk's locked_until: the broker sends unix seconds (an
+// integer; 0 = no lock), an older shape sent a string, kept as is.
+func lockedUntilText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var n int64
+	if json.Unmarshal(raw, &n) == nil {
+		if n <= 0 {
+			return ""
+		}
+		return time.Unix(n, 0).UTC().Format(time.RFC3339)
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return ""
 }
