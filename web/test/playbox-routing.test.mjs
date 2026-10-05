@@ -251,6 +251,13 @@ test("No usage chunk means no footer numbers, never a guess", () => {
   assert.match(js, /X-RogerAI-Provider/, "the footer cannot fall back to the X-RogerAI-Provider header");
 });
 
+test("The header fallback names the served model from X-RogerAI-Model and the station only as the station", () => {
+  const fn = sendBody();
+  assert.match(fn, /headers\.get\("X-RogerAI-Model"\)/, "the fallback never reads the served model from X-RogerAI-Model");
+  assert.ok(!/\{\s*model:\s*provider\s*\}/.test(fn), "the fallback passes the station id (X-RogerAI-Provider) as the served model");
+  assert.match(fn, /node:\s*provider\b/, "the fallback does not name the station from X-RogerAI-Provider");
+});
+
 test("The station's own usage object is never mistaken for the broker's", () => {
   assert.match(js, /\.rogerai\s*\)|\.rogerai\s*&&|if\s*\([^)]*\.rogerai/, "the footer does not require the rogerai block before reading usage");
 });

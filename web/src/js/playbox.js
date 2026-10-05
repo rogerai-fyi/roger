@@ -1499,7 +1499,7 @@
 
   /* ---------- LIVE playback: text + voice ------------------------------ */
   function stationSend(model, hist, msgNode) {
-    var served = null, provider = "";
+    var served = null, provider = "", servedModel = "";
     abortCtl = ("AbortController" in window) ? new AbortController() : null;
     return fetch(BROKER + "/v1/chat/completions", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1513,6 +1513,7 @@
         });
       }
       provider = r.headers && r.headers.get("X-RogerAI-Provider");
+      servedModel = r.headers && r.headers.get("X-RogerAI-Model");
       if (!r.body || !r.body.getReader) return r.text().then(function (t) { return { whole: t }; });
       return { reader: r.body.getReader() };
     }).then(function (src) {
@@ -1555,8 +1556,8 @@
     }).then(function () {
       var reply = msgNode.textContent;
       if (reply) hist.push({ role: "assistant", content: reply });
-      // no usage chunk: name the station only if the header was readable, never a guess
-      servedFooter(msgNode, served || (provider ? { model: provider } : null), model);
+      // no usage chunk: the headers name the served model and the station, never a guess
+      servedFooter(msgNode, served || (servedModel ? { model: servedModel, node: provider } : null), model);
     });
   }
 
