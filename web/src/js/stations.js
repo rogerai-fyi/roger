@@ -152,10 +152,13 @@
   // the broker takes it from the session, so an appeal can only be filed for the caller.
   function wireAppeal() {
     var btn = el("appealSend");
-    if (!btn) return;
+    if (!btn || btn.__wired) return; // wired once, however often the evidence re-renders
+    btn.__wired = true;
     btn.addEventListener("click", function () {
+      if (btn.disabled) return; // one appeal per click, not one per double-click
       var reason = ((el("appealReason") || {}).value || "").trim();
       if (!reason) { text("appealMsg", "Write a short reason first."); return; }
+      btn.disabled = true;
       text("appealMsg", "Sending...");
       fetch(BROKER + "/owner/appeal", {
         method: "POST", credentials: "include",
@@ -164,12 +167,14 @@
       }).then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) {
           if (r.ok) {
+            // stays disabled: the appeal is filed, and a repeat would file another
             text("appealMsg", "Appeal " + (j.appeal_id ? "#" + j.appeal_id + " " : "") + "sent. A person will review it with the evidence above.");
           } else {
+            btn.disabled = false; // a refusal can be retried
             text("appealMsg", (j && j.error && j.error.message) || "That did not go through - try again.");
           }
         });
-      }).catch(function () { text("appealMsg", "Could not reach RogerAI. Check your connection and try again."); });
+      }).catch(function () { btn.disabled = false; text("appealMsg", "Could not reach RogerAI. Check your connection and try again."); });
     });
   }
 

@@ -59,3 +59,21 @@ test("a refusal shows the broker's message and never claims it was filed", async
   assert.match(p.els.appealMsg.textContent, /roger login/);
   assert.doesNotMatch(p.els.appealMsg.textContent, /filed|appeal id/i);
 });
+
+test("the send button is disabled in flight and after success, so a double-click files one appeal", async () => {
+  const p = appealPage(WITH_STRIKE, { status: 200, body: { ok: true, appeal_id: 7 } });
+  p.run("js/stations.js"); await settle();
+  p.els.appealReason.value = "mistake";
+  await Promise.all([p.fire("appealSend", "click"), p.fire("appealSend", "click")]);
+  await settle();
+  assert.equal(p.posts.length, 1, "two rapid clicks send one appeal");
+  assert.equal(p.els.appealSend.disabled, true, "and it stays disabled after success");
+});
+
+test("a refusal re-enables the button so the person can retry", async () => {
+  const p = appealPage(WITH_STRIKE, { status: 500, body: { error: { message: "store error" } } });
+  p.run("js/stations.js"); await settle();
+  p.els.appealReason.value = "mistake";
+  await p.fire("appealSend", "click"); await settle();
+  assert.equal(p.els.appealSend.disabled, false);
+});
