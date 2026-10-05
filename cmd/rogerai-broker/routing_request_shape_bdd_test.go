@@ -2880,6 +2880,10 @@ func TestRoutingRequestShapeBDD(t *testing.T) {
 }
 
 func TestRoutingVariantSugarBDD(t *testing.T) {
+	// The station's price here is posted the moment the fixture stands it up; this test is
+	// about the lock's hike protection, so the §14.12 promo-lock window is off (pinned in
+	// features/money/routing_money_hardening.feature).
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
 	// These scenarios measure ranking over many free relays from one client IP; the free-traffic
 	// limits (§14.3) are pinned in fairness_and_abuse.feature, so they are off here.
 	for _, k := range []string{"ROGERAI_FREE_RATE_RPM", "ROGERAI_FREE_STATION_RPM", "ROGERAI_FREE_PIN_RPM"} {

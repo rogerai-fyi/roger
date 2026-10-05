@@ -3479,6 +3479,10 @@ func (s *mf1State) register(sc *godog.ScenarioContext) {
 }
 
 func TestRoutingModelFallbackBDD(t *testing.T) {
+	// The station's price here is posted the moment the fixture stands it up; this test is
+	// about the lock's hike protection, so the §14.12 promo-lock window is off (pinned in
+	// features/money/routing_money_hardening.feature).
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
 	// One consumer triggers the station-wide cooldown (model_fallback_list.feature:879's note).
 	t.Setenv("ROGERAI_COOLDOWN_MIN_PAYERS", "1")
 	st := &mf1State{rpState: &rpState{foState: &foState{t: t, logs: &utLog{}}}}
