@@ -176,7 +176,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := randID()
-	j := s.q.submitRouted(jobID, model, lr.jobBody(model), lr.admits, lr.order, s.pollTimeout)
+	j := s.q.submitRouted(jobID, model, lr.jobBody(model), lr.admits, lr.preferredFor(stations, model), s.pollTimeout)
 	req := chatRequest{Model: model}
 	select {
 	case res := <-j.result:

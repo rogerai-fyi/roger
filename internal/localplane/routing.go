@@ -46,7 +46,8 @@ var (
 	localProviderIgnored = map[string]bool{"sort": true, "quantizations": true, "max_price": true, "require_parameters": true}
 	localRogerIgnored    = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "self_hosted_only": true, "region": true, "freq": true}
-	localSugar = []string{":free", ":floor", ":nitro"}
+	localSugar   = []string{":free", ":floor", ":nitro"}
+	maxPriceKeys = map[string]bool{"prompt": true, "completion": true, "request": true, "image": true}
 )
 
 // parseLocalRouting reads the routing carriers of a consumer request. hdrConfidential is the
@@ -149,7 +150,12 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 				if k == "max_price" {
 					var mp map[string]json.RawMessage
 					if json.Unmarshal(v, &mp) == nil {
+						// A closed set, as on the broker: the ignored header only ever echoes
+						// these four names, never a caller-chosen string.
 						for sk := range mp {
+							if !maxPriceKeys[sk] {
+								return lr, &routeErr{status: 400, msg: "provider.max_price keys are prompt, completion, request and image"}
+							}
 							ignored["provider.max_price."+sk] = true
 						}
 						continue
@@ -162,15 +168,26 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		}
 	}
 
+	if lr.only != nil {
+		for _, id := range lr.order {
+			if !lr.only[id] {
+				return lr, &routeErr{status: 400, code: "conflicting_routing_keys", msg: "provider.order names a station outside provider.only"}
+			}
+		}
+	}
+
 	if raw, ok := m["roger"]; ok && string(raw) != "null" {
 		var r map[string]json.RawMessage
 		if json.Unmarshal(raw, &r) != nil || r == nil {
 			return lr, &routeErr{status: 400, msg: "roger must be an object"}
 		}
-		if _, has := r["profile"]; has {
+		if v, has := r["profile"]; has && string(v) != "null" {
 			return lr, &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
 		}
 		for k, v := range r {
+			if string(v) == "null" {
+				continue // a null key is absent, as on the provider side
+			}
 			switch {
 			case k == "confidential":
 				var b bool
@@ -345,4 +362,20 @@ func containsID(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// preferredFor is the order's claim-window list: only the entries that are attached, serve
+// model and are admitted. An entry that could never claim must not hold the job for the
+// window while an eligible station waits; none left means no window at all.
+func (lr localRouting) preferredFor(stations []stationView, model string) []string {
+	var out []string
+	for _, id := range lr.order {
+		for _, st := range stations {
+			if st.id == id && serves(st.models, model) && lr.admits(id) {
+				out = append(out, id)
+				break
+			}
+		}
+	}
+	return out
 }

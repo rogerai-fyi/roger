@@ -142,3 +142,39 @@ func TestModelsEndpoint(t *testing.T) {
 	require.Equal(t, "zeta", got.Data[1].ID)
 	require.Equal(t, "local", got.Data[0].OwnedBy)
 }
+
+// Slice-4 audit regressions: order outside only is the contract's conflict (§1a), max_price
+// sub-keys are a closed set (so the ignored header echoes only known names), a null roger key
+// is absent, and the order's claim window is spent only on stations that could take the job.
+func TestLocalRoutingAuditRegressions(t *testing.T) {
+	_, e := parseLocalRouting([]byte(`{"model":"a","provider":{"only":["s1"],"order":["s2"]}}`), false)
+	require.NotNil(t, e)
+	require.Equal(t, 400, e.status)
+	require.Equal(t, "conflicting_routing_keys", e.code)
+	require.Equal(t, "provider.order names a station outside provider.only", e.msg)
+
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"only":["s1","s2"],"order":["s2"]}}`), false)
+	require.Nil(t, e, "an order inside only is fine")
+
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"zap\r\nX-Evil: 1":1}}}`), false)
+	require.NotNil(t, e)
+	require.Equal(t, 400, e.status)
+	require.Equal(t, "provider.max_price keys are prompt, completion, request and image", e.msg)
+
+	lr, e := parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"prompt":1,"completion":2,"request":3,"image":4}}}`), false)
+	require.Nil(t, e)
+	require.Equal(t, []string{"provider.max_price.completion", "provider.max_price.image", "provider.max_price.prompt", "provider.max_price.request"}, lr.ignored)
+
+	lr, e = parseLocalRouting([]byte(`{"model":"a","roger":{"trust_min":null,"profile":null,"confidential":null}}`), false)
+	require.Nil(t, e, "a null roger key is absent")
+	require.False(t, lr.needAttest)
+	require.False(t, lr.needVerify)
+	require.Empty(t, lr.ignored)
+
+	stations := []stationView{{id: "s1", models: []string{"q"}}, {id: "s2", models: []string{"q"}}, {id: "s3", models: []string{"m"}}}
+	lr, e = parseLocalRouting([]byte(`{"model":"q","provider":{"order":["s9","s3","s2","s1"],"ignore":["s1"]}}`), false)
+	require.Nil(t, e)
+	require.Equal(t, []string{"s2"}, lr.preferredFor(stations, "q"), "unattached, other-model and ignored entries are skipped")
+	lr, _ = parseLocalRouting([]byte(`{"model":"q","provider":{"order":["s9"]}}`), false)
+	require.Empty(t, lr.preferredFor(stations, "q"), "no eligible preferred station: no claim window at all")
+}
