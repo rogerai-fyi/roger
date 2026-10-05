@@ -2449,29 +2449,6 @@ func (v *valkeyStore) busNextRCSeq(sid string) (uint64, error) {
 	return uint64(n), nil
 }
 
-// openSharedStore builds the shared-state layer from ROGERAI_REDIS_URL. UNSET (the
-// default + the fallback) returns nil: the broker uses its in-memory maps with ZERO
-// behavior change. SET connects a valkeyStore; a connection failure at startup
-// DEGRADES GRACEFULLY - it logs a warning and returns nil so the broker boots on the
-// in-memory path and NEVER crashes. (The returned store is closed on a connect
-// failure so we leak no client.)
-func openSharedStore() sharedStore {
-	tp, ok := valkeyTopologyFromEnv()
-	if !ok {
-		return nil // flag OFF: in-memory, byte-for-byte today's behavior.
-	}
-	vs, err := newValkeyStoreTopology(tp)
-	if err != nil {
-		if vs != nil {
-			_ = vs.Close()
-		}
-		log.Printf("shared-state: ROGERAI_REDIS_URL set but connect failed, falling back to in-memory (broker continues): %v", err)
-		return nil
-	}
-	log.Printf("shared-state: valkey connected (keys namespaced under %q) - sharing anon/concierge rate limits + node liveness across instances", keyPrefix)
-	return vs
-}
-
 // cacheTTLJitter adds a small (+0..15%) random jitter to a cache TTL so many entries
 // written in the same burst do not all expire on the same tick (a thundering-herd /
 // stampede where every instance recomputes at once). The jitter only ever LENGTHENS

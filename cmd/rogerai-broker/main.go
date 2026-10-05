@@ -680,6 +680,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		case <-stop: // test seam (nil in production -> never fires)
 		case <-sig: // production: SIGTERM/SIGINT from a rolling redeploy
 		}
+		b.stopSharedRetry() // a not-ready boot retry never outlives the server
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
 		log.Printf("shutdown: draining in-flight relays (grace %s) so no consumer hold is orphaned", shutdownGrace)
@@ -797,12 +798,13 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	b.recount = loadRecount()
 	b.probe = loadProbe()
 	b.concierge = loadConcierge()
-	// PRE-SCALE Stage 1: wire the optional shared-state layer. UNSET ROGERAI_REDIS_URL
-	// => b.shared stays nil and everything below is a no-op (in-memory, unchanged). A
-	// connect failure already degraded to nil inside openSharedStore (logged warning,
-	// no crash). When set, ALL request limiters get the shared bucket (anon + concierge +
-	// the per-identity b.rl + the per-grant b.grantRL) so one limit is enforced across
-	// instances, not 2x. Liveness sharing is handled by markSeen + syncLiveness.
+	// PRE-SCALE Stage 1: the optional shared-state layer is wired by bootShared (called from
+	// runServe). UNSET ROGERAI_REDIS_URL (and multi-instance off) => b.shared stays nil and the
+	// broker is single-instance, unchanged. A configured store that does not answer at boot
+	// leaves the broker NOT READY while it retries (never a per-instance fallback). Once wired,
+	// ALL request limiters get the shared bucket (anon + concierge + the per-identity b.rl +
+	// the per-grant b.grantRL) so one limit is enforced across instances, not 2x. Liveness
+	// sharing is handled by markSeen + syncLiveness.
 	// Joined-Tower admission, wired only when it can be durable. Nil disables the routes
 	// rather than issuing credentials that a redeploy would invalidate - but a deployment
 	// that CONFIGURED Towers and could not start them fails here rather than coming up
@@ -901,7 +903,7 @@ func (b *broker) retryShared(tp valkeyTopology, sleep func(time.Duration), quit 
 	}
 }
 
-// stopSharedRetry ends a boot retry loop that is still running (tests; shutdown).
+// stopSharedRetry ends a boot retry loop that is still running (called at shutdown; tests).
 func (b *broker) stopSharedRetry() {
 	b.sharedQuitOnce.Do(func() {
 		if b.sharedQuit != nil {
