@@ -322,14 +322,21 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 	}
 	if len(r.Models) > 0 {
-		if _, present := m["models"]; present && string(m["models"]) != "null" {
-			var ids []string
-			_ = json.Unmarshal(m["models"], &ids)
+		var ids []string
+		if raw, present := m["models"]; present && string(raw) != "null" && json.Unmarshal(raw, &ids) != nil {
+			return nil, &RoutingRefusal{Msg: "models must be a list of model ids"}
+		}
+		if len(ids) > 0 {
 			kept := []string{}
 			for _, id := range ids {
 				if hasFold(r.Models, bareModel(id)) {
 					kept = append(kept, id)
 				}
+			}
+			// An empty filtered list would reach the broker as "no list" and route the owner's
+			// whole set: a guest list with no model inside the owner's is refused here.
+			if len(kept) == 0 {
+				return nil, &RoutingRefusal{Msg: "models names no model inside this session's allowed models"}
 			}
 			enc, _ := json.Marshal(kept)
 			m["models"] = enc

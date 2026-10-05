@@ -294,10 +294,13 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     And the proxy never sends provider.quantizations = []
 
   Scenario: The guest's models[] is bounded by the owner's models when the owner set one
+    # corrected 2026-10-05 (founder ruling): guest may only tighten - was "the broker receives
+    # models = []", which the broker reads as no list and routes the owner's whole set
     Given the proxy owner tuned with --models qwen3-32b-fp8,llama-3.3-70b
     When a chat request arrives with "models": ["mistral-large"]
-    Then the broker receives models = []
-    And the primary stays the band model
+    Then the guest receives an OpenAI-shaped 400 "models names no model inside this session's allowed models"
+    And the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
 
   @slice0
   Scenario: A guest models[] naming a model outside the tuned band is refused locally
