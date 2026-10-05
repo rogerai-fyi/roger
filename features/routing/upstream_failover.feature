@@ -135,11 +135,13 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
       | 413    | {"error":"request too large"}                 |
       | 422    | {"error":"unprocessable"}                     |
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the final upstream body is no longer
+  # passed through raw; it is wrapped as error.code upstream_error under error.metadata.raw.
   Scenario: at most ROGERAI_RELAY_ATTEMPTS stations are tried
     Given stations "s1", "s2", "s3", "s4" serve "m" and all upstreams return 429
     When a funded consumer relays
     Then exactly 3 stations received the request
-    And the response is 429 with the last upstream body and a Retry-After
+    And the response is 429 with the last upstream body wrapped as upstream_error under error.metadata.raw and a Retry-After
     And three voided receipts exist and the consumer was charged 0
 
   Scenario: a failed station is never re-picked within the same request
@@ -357,7 +359,9 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
   Scenario: the only station cooling returns 503 band cooling with Retry-After and no dispatch
     Given "s1" is the only station for "m" and is cooling for 8 more seconds
     When a funded consumer relays
-    Then the response is 503 {"error":{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after 8s"}}
+    # superseded 2026-10-05 by contract §14 (founder-approved): the envelope adds type and
+    # metadata (request_id, retry_after_s) to the same code and message.
+    Then the response is 503 {"error":{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after 8s","type":"overloaded_error","metadata":{"retry_after_s":8}}}
     # code added 2026-09-30 per the approved routing-expression contract §2 (founder re-approval)
     And Retry-After is 8
     And no hold, no receipt, no upstream call
@@ -386,10 +390,12 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
   # 6. RETRY-AFTER TRAVELS END TO END
   # ===========================================================================
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the upstream body is wrapped as
+  # upstream_error under error.metadata.raw, and metadata.retry_after_s equals the header.
   Scenario: a final upstream 429's Retry-After reaches the consumer
     Given every station for "m" 429s, the last with "Retry-After: 7"
     When a funded consumer relays
-    Then the response is 429 with the upstream body and Retry-After: 7
+    Then the response is 429 with the upstream body wrapped as upstream_error under error.metadata.raw and Retry-After: 7
 
   Scenario: a final upstream 429 without Retry-After gets the default as the hint
     Given every station for "m" 429s with no Retry-After

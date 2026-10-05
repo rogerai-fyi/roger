@@ -15,6 +15,10 @@
 # has no catch-all. copyRelayResponse forwards the broker's body+Content-Type as-is
 # (client.go:535-561), so a broker OpenAI error already reaches the client shaped — the gap is
 # the errors the PROXY itself generates.
+# superseded 2026-10-05 by contract §14 (founder-approved): every broker error the proxy forwards
+# is now the §14.B6 envelope {"error":{code,message,type,metadata}}, and a final upstream failure
+# is no longer the station's raw body - it arrives as error.code upstream_error with that body
+# under error.metadata.raw. The proxy still forwards the broker's body as-is.
 #
 # FOUNDER RULING NEEDED — the exact type/code strings (proposed, aligned to OpenAI):
 #   | path                | status | type                   | code                    |

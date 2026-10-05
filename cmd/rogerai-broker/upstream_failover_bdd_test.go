@@ -2436,14 +2436,31 @@ func (s *foState) exactlyNStations(n string) error {
 }
 
 func (s *foState) is429LastBodyRA() error {
-	if s.lastCode != 429 || !bytes.Contains(s.lastBody, []byte("rate limit exceeded")) {
-		return fmt.Errorf("status %d body %s, want 429 + upstream body", s.lastCode, s.lastBody)
+	var env struct {
+		Error struct {
+			Code     string `json:"code"`
+			Type     string `json:"type"`
+			Metadata struct {
+				Raw         string `json:"raw"`
+				RetryAfterS int    `json:"retry_after_s"`
+			} `json:"metadata"`
+		} `json:"error"`
 	}
-	if s.lastHdr.Get("Retry-After") == "" {
+	if err := json.Unmarshal(s.lastBody, &env); err != nil || s.lastCode != 429 {
+		return fmt.Errorf("status %d body %s, want a 429 envelope", s.lastCode, s.lastBody)
+	}
+	if env.Error.Code != "upstream_error" || env.Error.Type != "rate_limit_error" || !strings.Contains(env.Error.Metadata.Raw, "rate limit exceeded") {
+		return fmt.Errorf("body %s, want upstream_error/rate_limit_error with the station's body under metadata.raw", s.lastBody)
+	}
+	ra := s.lastHdr.Get("Retry-After")
+	if ra == "" {
 		return fmt.Errorf("no Retry-After on the final 429")
 	}
-	if last := s.lastAttemptStation(); last != "" && !bytes.Contains(s.lastBody, []byte(last)) {
-		return fmt.Errorf("body %s is not the LAST station's (%s)", s.lastBody, last)
+	if strconv.Itoa(env.Error.Metadata.RetryAfterS) != ra {
+		return fmt.Errorf("metadata.retry_after_s %d, Retry-After %s", env.Error.Metadata.RetryAfterS, ra)
+	}
+	if last := s.lastAttemptStation(); last != "" && !strings.Contains(env.Error.Metadata.Raw, last) {
+		return fmt.Errorf("metadata.raw %q is not the LAST station's (%s)", env.Error.Metadata.Raw, last)
 	}
 	return nil
 }
@@ -3067,9 +3084,26 @@ func (s *foState) is503BandCooling(secs string) error {
 	if s.lastCode != 503 {
 		return fmt.Errorf("status %d (%s)", s.lastCode, s.lastBody)
 	}
-	want := fmt.Sprintf(`{"error":{"code":"band_cooling","message":"band cooling - the station serving %s was rate limited upstream, retry after %ss"}}`, s.model, secs)
-	if string(bytes.TrimSpace(s.lastBody)) != want {
-		return fmt.Errorf("body %s, want %s", bytes.TrimSpace(s.lastBody), want)
+	var env struct {
+		Error struct {
+			Code     string         `json:"code"`
+			Message  string         `json:"message"`
+			Type     string         `json:"type"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(s.lastBody, &env); err != nil {
+		return fmt.Errorf("body %s: %v", s.lastBody, err)
+	}
+	e := env.Error
+	wantMsg := fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ss", s.model, secs)
+	if e.Code != "band_cooling" || e.Message != wantMsg || e.Type != "overloaded_error" || fmt.Sprint(e.Metadata["retry_after_s"]) != secs {
+		return fmt.Errorf("body %s, want band_cooling %q overloaded_error retry_after_s %s", s.lastBody, wantMsg, secs)
+	}
+	for k := range e.Metadata {
+		if k != "request_id" && k != "retry_after_s" {
+			return fmt.Errorf("metadata carries %q: %s", k, s.lastBody)
+		}
 	}
 	return nil
 }
@@ -3205,7 +3239,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^stations "s1", "s2", "s3", "s4" serve "m" and all upstreams return 429$`, st.fourAll429)
 			sc.Step(`^a funded consumer relays$`, st.fundedRelay)
 			sc.Step(`^exactly (\d+) stations received the request$`, st.exactlyNStations)
-			sc.Step(`^the response is 429 with the last upstream body and a Retry-After$`, st.is429LastBodyRA)
+			sc.Step(`^the response is 429 with the last upstream body wrapped as upstream_error under error\.metadata\.raw and a Retry-After$`, st.is429LastBodyRA)
 			sc.Step(`^three voided receipts exist and the consumer was charged 0$`, st.threeVoidedZero)
 			sc.Step(`^stations "s1" and "s2" serve "m" and both upstreams return 500$`, st.twoBoth500)
 			sc.Step(`^"s1" and "s2" each received exactly one request$`, st.eachExactlyOne)
@@ -3311,7 +3345,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 
 			// 5. only station cooling
 			sc.Step(`^"s1" is the only station for "m" and is cooling for (\d+) more seconds$`, st.onlyS1CoolingFor)
-			sc.Step(`^the response is 503 \{"error":\{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after (\d+)s"\}\}$`, st.is503BandCooling)
+			sc.Step(`^the response is 503 \{"error":\{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after (\d+)s","type":"overloaded_error","metadata":\{"retry_after_s":\d+\}\}\}$`, st.is503BandCooling)
 			sc.Step(`^Retry-After is (\d+)$`, st.retryAfterIs)
 			sc.Step(`^no hold, no receipt, no upstream call$`, st.noHoldReceiptCall)
 			sc.Step(`^"s1" cools for 20s and "s2" for 5s and nothing else serves "m"$`, st.s1_20_s2_5)
@@ -3326,7 +3360,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 
 			// 6. Retry-After
 			sc.Step(`^every station for "m" 429s, the last with "Retry-After: (\d+)"$`, st.all429LastRA)
-			sc.Step(`^the response is 429 with the upstream body and Retry-After: (\d+)$`, st.is429BodyRA)
+			sc.Step(`^the response is 429 with the upstream body wrapped as upstream_error under error\.metadata\.raw and Retry-After: (\d+)$`, st.is429BodyRA)
 			sc.Step(`^every station for "m" 429s with no Retry-After$`, st.all429NoRA)
 			sc.Step(`^the response has Retry-After: (\d+)$`, st.hasRA)
 			sc.Step(`^every station for "m" 503s, the last with "Retry-After: (\d+)"$`, st.all503LastRA)

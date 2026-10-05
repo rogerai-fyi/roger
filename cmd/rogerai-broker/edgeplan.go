@@ -320,5 +320,5 @@ func (b *broker) voidEdgeAttempt(payer, user string, c attemptCand, g dispatch.E
 
 // towerFailureBody is the error body a Tower station's failure is answered with.
 func towerFailureBody(status int) []byte {
-	return errorBody("", fmt.Sprintf("the station behind the tower replied %d", status))
+	return errorBody(status, "", fmt.Sprintf("the station behind the tower replied %d", status))
 }

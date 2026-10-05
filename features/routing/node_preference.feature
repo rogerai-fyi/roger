@@ -140,11 +140,13 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the pick is "p2"
     And "p1" received nothing
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): every band refusal carries the one
+  # generic code band_unavailable (still non-distinguishing); was "the body carries no error code".
   Scenario: only naming a public station on a private-band request is the uniform band message (no code)
     Given a private band "B" with station "p1" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.only ["s1"]
     Then the response is 503 "no station on that frequency (it may be off air) - check the code"
-    And the body carries no error code (§2: nothing on the band path distinguishes its refusals)
+    And the body carries only the generic band code band_unavailable (§14.B6: nothing on the band path distinguishes its refusals)
     And "s1" received nothing
     And "p1" received nothing
 
@@ -329,12 +331,14 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
     Then the pick is "p2"
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the band refusal carries the one
+  # generic code band_unavailable; was "the body carries no error code (§2)".
   @slice0
   Scenario: ignore that empties a private band is the uniform band message (no code)
     Given a private band "B" with station "p1" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
     Then the response is 503 "no station on that frequency (it may be off air) - check the code"
-    And the body carries no error code (§2)
+    And the body carries only the generic band code band_unavailable (§14.B6)
 
   # --- only ∩ ignore -----------------------------------------------------------
   Scenario: a station in both only and ignore is ignored
@@ -1239,9 +1243,11 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the capacity-aware load factor is reported on /admin/live for "s3"
     # strict means strict; the network does not second-guess a named station, it reports
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): every error carries its own
+  # metadata.request_id, so the bodies are byte-identical apart from the request id.
   Scenario: a no-fallback relay cannot be used to probe whether a private station exists
     Given "p1" is a private (band-only) station for "m"
     When a funded consumer relays with provider.order ["p1"] and provider.allow_fallbacks false
     And a funded consumer relays with provider.order ["nonexistent"] and provider.allow_fallbacks false
-    Then both responses are byte-identical 503 {"error":{"code":"no_match"}} bodies
+    Then both responses are byte-identical 503 {"error":{"code":"no_match"}} bodies apart from the request id
     And both refusals ran the same constant-work path (the private lookup is performed whether or not the id exists)

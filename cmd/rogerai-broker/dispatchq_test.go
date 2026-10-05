@@ -421,7 +421,7 @@ func TestWriteDispatchFailureWording(t *testing.T) {
 		}
 	}
 	for err, want := range map[error]dispatchOutcome{
-		errNoPoller: dispatchBusy, errStationBusy: dispatchBusy, errOffAir: dispatchOffAir,
+		errNoPoller: dispatchNoPoller, errStationBusy: dispatchBusy, errOffAir: dispatchOffAir,
 		errHandoffLost: dispatchLost, context.DeadlineExceeded: dispatchTimeout, errBadResult: dispatchBusErr,
 	} {
 		if got := (&broker{}).dispatchErrOutcome(err); got != want {

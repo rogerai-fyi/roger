@@ -2071,7 +2071,9 @@ func (s *np1State) np1BothNoMatchIdentical() error {
 			return fmt.Errorf("response %d: %d %s, want 503 no_match", i+1, r.code, r.body)
 		}
 	}
-	if !bytes.Equal(a.body, b.body) {
+	// Each error carries its own metadata.request_id (§14.B6); every other byte is identical.
+	rid := regexp.MustCompile(`"request_id":"[^"]*"`)
+	if !bytes.Equal(rid.ReplaceAll(a.body, nil), rid.ReplaceAll(b.body, nil)) {
 		return fmt.Errorf("bodies differ:\n%s\n%s", a.body, b.body)
 	}
 	return nil
@@ -2253,7 +2255,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^the response is (\d+) \{"error":\{"code":"([^"]*)"\}\} with Retry-After: (\d+)$`, st.responseIsWithCodeRetryAfter)
 			sc.Step(`^the response is 400 with error\.code "([^"]*)" naming "([^"]*)"$`, st.response400Naming)
 			sc.Step(`^the response is 503 "([^"]*)"$`, st.response503Message)
-			sc.Step(`^the body carries no error code \(§2\)$`, st.noErrorCode)
+			sc.Step(`^the body carries only the generic band code band_unavailable \(§14\.B6.*\)$`, func() error { return st.errorCodeIs("band_unavailable") })
 			sc.Step(`^the failover goes to "([^"]*)", never "([^"]*)"$`, st.failoverGoesToNever)
 			sc.Step(`^the failover goes to "([^"]*)"$`, st.failoverGoesTo)
 			sc.Step(`^attempt 1 hit "([^"]*)", attempt 2 hit "([^"]*)", attempt 3 hit "([^"]*)"$`, st.attemptsHit)
@@ -2283,7 +2285,6 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^X-RogerAI-Cost is 0 and there is no receipt$`, st.np1CostZeroNoReceipt)
 			sc.Step(`^the hold is released in full$`, st.np1HoldReleasedInFull)
 			sc.Step(`^the error message does not reveal that "([^"]*)" exists or is private$`, st.np1NoReveal)
-			sc.Step(`^the body carries no error code \(§2: .*\)$`, st.noErrorCode)
 			sc.Step(`^the message says no node of this grant's owner matches$`, st.np1GrantOwnerMessage)
 			sc.Step(`^the message says no confidential station matches$`, st.np1ConfidentialMessage)
 			sc.Step(`^the registration is rejected$`, st.registrationRejected)
@@ -2338,7 +2339,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^the second pick is by score$`, st.np1SecondPickByScore)
 			sc.Step(`^every relay is dispatched to "([^"]*)" \(the consumer chose it\)$`, st.np1EveryDispatchedTo)
 			sc.Step(`^the capacity-aware load factor is reported on /admin/live for "([^"]*)"$`, st.np1LoadFactorReported)
-			sc.Step(`^both responses are byte-identical 503 \{"error":\{"code":"no_match"\}\} bodies$`, st.np1BothNoMatchIdentical)
+			sc.Step(`^both responses are byte-identical 503 \{"error":\{"code":"no_match"\}\} bodies apart from the request id$`, st.np1BothNoMatchIdentical)
 			sc.Step(`^both refusals ran the same constant-work path \(the private lookup is performed whether or not the id exists\)$`, st.np1SameConstantWork)
 		},
 		Options: &godog.Options{

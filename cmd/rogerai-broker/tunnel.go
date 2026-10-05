@@ -2342,6 +2342,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		fromOrder bool            // the pick came from the ordered list (a strict pick)
 		capOut    map[string]bool // stations the per-request cap left no output budget for
 		eligCap   map[string]int  // capacity of each node in the eligible direct pool (§14.5)
+		offAir    bool            // nothing picked, but a station was passed over for having no tunnel here
 	}
 	pickModel := func(m routedModel) modelPick {
 		rr := rrFor(m)
@@ -2430,7 +2431,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			return modelPick{m: m, rr: rr, node: node, offer: offer, t: t, pricing: pricing, ok: ok, fromOrder: fromOrder, capOut: capOut, eligCap: eligCap}
+			return modelPick{m: m, rr: rr, node: node, offer: offer, t: t, pricing: pricing, ok: ok, fromOrder: fromOrder, capOut: capOut, eligCap: eligCap, offAir: !ok && len(noTunnel) > 0}
 		}
 	}
 	// THE LIST IS WALKED IN ORDER (§3): the first model with a station this caller can be
@@ -2639,6 +2640,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			b.answerBandCooling(w, coolModel, soonest)
 			return
 		}
+		// OFF AIR, NOT MISSING (§14.B6): a station that fits was passed over only because its
+		// tunnel is gone - it went off air between the pick and the dispatch. The re-picks
+		// below would find it again and misreport the request as too big.
+		for _, p := range picks {
+			if p.offAir {
+				b.writeDispatchFailure(w, dispatchOffAir)
+				return
+			}
+		}
 		// TOO BIG FOR A CURATED STATION'S TPM, NOT MISSING (§14.2): the pick found nothing
 		// because the only stations are curated ones whose declared tokens-per-minute share
 		// this one request exceeds. 429 with a Retry-After, nothing dispatched, $0, and no
@@ -2651,7 +2661,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 			rr := p.rr
 			rr.ignoreTPM = true
-			if _, _, hit := b.pickFor(p.m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow, rr.seeded(nil)); hit {
+			// Only a station the TPM guard actually turned away counts: a re-pick can also
+			// succeed for an unrelated reason (a registered station whose tunnel is gone is
+			// still pickable), which must not be reported as a TPM refusal.
+			if n, o, hit := b.pickFor(p.m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow, rr.seeded(nil)); hit && n.Curated && overTPMShare(o.TPM, promptTokens) {
 				tpmOnly = true
 				break
 			}
@@ -2729,8 +2742,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(privateAllow) > 0 {
 			// A band request that finds nothing in its band gets the band's uniform
-			// message (no code): the same words as an unresolvable code, so neither the
-			// band's existence nor its membership leaks through the error shape (§2).
+			// message and generic code (band_unavailable): the same words as an unresolvable
+			// code, so neither the band's existence nor its membership leaks (§2, §14.B6).
 			jsonErr(w, http.StatusServiceUnavailable, "no station on that frequency (it may be off air) - check the code")
 			return
 		}
@@ -2750,7 +2763,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		// The consumer's filters that emptied the pool are named, in a fixed order, so the
 		// consumer knows the model is on air and which constraint to relax (§5).
+		var nmFilters []string
 		if fs := b.noMatchFilters(cands, routeReq, minTPS); len(fs) > 0 {
+			nmFilters = fs
 			msg += " under " + strings.Join(fs, ", ")
 			for _, f := range fs {
 				b.stats.noteNoMatchFilter(f)
@@ -2765,7 +2780,17 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if noFallbacks {
 			b.stats.routingNoFallbackRefused.Add(1)
 		}
-		jsonErrCode(w, http.StatusServiceUnavailable, "no_match", msg)
+		nmCode := "no_match"
+		if gok && routing.Only == nil && len(routing.Ignore) == 0 && len(orderList) == 0 && pinNode == "" {
+			// Contract §14.B6: the grant's owner is not serving. A station preference that
+			// filtered the owner's nodes out stays the caller's own no_match.
+			nmCode = "grant_unavailable"
+		}
+		var nmMeta map[string]any
+		if len(nmFilters) > 0 {
+			nmMeta = map[string]any{"filters": nmFilters}
+		}
+		jsonErrMeta(w, http.StatusServiceUnavailable, nmCode, msg, nmMeta)
 		return
 	}
 
@@ -3188,7 +3213,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		res, concurrentAtDispatch, outcome := b.dispatchAwait(r.Context(), t, node.NodeID, job, resCh, deadline)
 		unreg()
 		switch outcome {
-		case dispatchBusy, dispatchBusErr, dispatchOffAir, dispatchLost:
+		case dispatchBusy, dispatchNoPoller, dispatchBusErr, dispatchOffAir, dispatchLost:
 			// A DISPATCH FAILURE BEFORE ANY WORK (§14.8) is a failover trigger: the station never
 			// saw the job, so nothing is billed, nothing is struck, and the next pair in the plan
 			// is tried under the same hold and deadline rules as any failover.
@@ -3243,6 +3268,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			if res.Status < 400 {
 				// Nothing settles on an unverified receipt: the usage says $0 and why (§14.9).
 				res.Body = withBilledUsage(res.Body, 0, 0, 0, map[string]any{"node": node.NodeID, "model": req.Model, "void_reason": "receipt-invalid"})
+			} else {
+				station := node.NodeID
+				if len(privateAllow) > 0 {
+					station = ""
+				}
+				w.Header().Set("X-RogerAI-Cost", "0")
+				res.Body = upstreamErrorBody(w.Header(), res.Status, station, req.Model, tried, res.Body)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(res.Status)
@@ -3317,6 +3349,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			if res.Status < 400 {
 				// A voided 2xx reports $0 and why, never the station's figures (§14.9).
 				res.Body = withBilledUsage(res.Body, 0, 0, 0, map[string]any{"node": node.NodeID, "model": req.Model, "void_reason": rec.VoidReason})
+			} else {
+				station := node.NodeID
+				if len(privateAllow) > 0 {
+					station = "" // a private band never names its station
+				}
+				res.Body = upstreamErrorBody(w.Header(), res.Status, station, req.Model, tried, res.Body)
 			}
 			_, _ = w.Write(res.Body)
 			return
@@ -3465,13 +3503,14 @@ func (t *nodeTunnel) await(jobID string) (chan protocol.JobResult, func()) {
 type dispatchOutcome int
 
 const (
-	dispatchResult  dispatchOutcome = iota // res carries the station's answer
-	dispatchBusy                           // no poller free (local queue full / no bus subscriber)
-	dispatchBusErr                         // the dispatch bus itself failed
-	dispatchTimeout                        // no result before the deadline
-	dispatchOffAir                         // the node is not live: refused at once (queue modes)
-	dispatchLost                           // a poller took the job but never handed it over
-	dispatchGone                           // the consumer disconnected before the result
+	dispatchResult   dispatchOutcome = iota // res carries the station's answer
+	dispatchBusy                            // the station is live and every slot is taken
+	dispatchNoPoller                        // no poller took the job and the station is not full
+	dispatchBusErr                          // the dispatch bus itself failed
+	dispatchTimeout                         // no result before the deadline
+	dispatchOffAir                          // the node is not live: refused at once (queue modes)
+	dispatchLost                            // a poller took the job but never handed it over
+	dispatchGone                            // the consumer disconnected before the result
 )
 
 // dispatchErrOutcome maps a dispatch-plane error to its outcome (counting it).
@@ -3479,7 +3518,7 @@ func (b *broker) dispatchErrOutcome(err error) dispatchOutcome {
 	switch err {
 	case errNoPoller:
 		b.stats.busNoPoller.Add(1)
-		return dispatchBusy
+		return dispatchNoPoller
 	case errStationBusy:
 		return dispatchBusy
 	case errOffAir:
@@ -3504,7 +3543,7 @@ func (b *broker) writeDispatchFailure(w http.ResponseWriter, outcome dispatchOut
 	w.Header().Set("X-RogerAI-Cost", "0")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	_, _ = w.Write(withEnvelopeHeaders(w.Header(), body))
 }
 
 // dispatchFailure is writeDispatchFailure's status and body (the stream path writes them
@@ -3519,12 +3558,25 @@ func (b *broker) dispatchFailure(outcome dispatchOutcome) (int, []byte) {
 		msg = "station handoff failed"
 	case dispatchBusErr:
 		msg = "dispatch bus unavailable"
+	case dispatchNoPoller:
+		code = "no_poller" // nobody took the job, yet the station had a free slot
 	default: // dispatchBusy
 		if queue {
-			msg = "station busy"
+			msg = "station busy" // a queue mode knows the station is live and full
 		}
 	}
-	return http.StatusServiceUnavailable, errorBody(code, msg)
+	return http.StatusServiceUnavailable, errorBody(http.StatusServiceUnavailable, code, msg)
+}
+
+// stationFull reports whether a station's in-flight count (this instance plus its peers)
+// is at its capacity: a hand-off nobody took is then station_busy, else no_poller (§14.B6).
+func (b *broker) stationFull(nodeID string) bool {
+	b.mu.Lock()
+	hw := b.nodes[nodeID].HW
+	b.mu.Unlock()
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	return b.inflight[nodeID]+b.peerInflight[nodeID] >= capacityOf(b.concurrentTPS[nodeID], hw)
 }
 
 // planDispatchOutcome is the outcome a plan that ended on a dispatch failure answers with:
@@ -3539,7 +3591,7 @@ func planDispatchOutcome(last dispatchOutcome, tried, offAir int) dispatchOutcom
 // dispatchFailed reports whether an attempt's outcome is a dispatch failure before any work
 // (a failover trigger, §14.8) as opposed to a result or a timeout.
 func dispatchFailed(o dispatchOutcome) bool {
-	return o == dispatchBusy || o == dispatchBusErr || o == dispatchOffAir || o == dispatchLost
+	return o == dispatchBusy || o == dispatchNoPoller || o == dispatchBusErr || o == dispatchOffAir || o == dispatchLost
 }
 
 // dispatchAwait hands ONE attempt's job to its station - over the Valkey bus when the poller
@@ -3586,7 +3638,10 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 		b.stats.localDispatch.Add(1)
 	case <-time.After(3 * time.Second):
 		b.exitInflight(nodeID, false)
-		return protocol.JobResult{}, concurrentAtDispatch, dispatchBusy
+		if b.stationFull(nodeID) {
+			return protocol.JobResult{}, concurrentAtDispatch, dispatchBusy
+		}
+		return protocol.JobResult{}, concurrentAtDispatch, dispatchNoPoller
 	}
 	select {
 	case res := <-resCh:
@@ -3686,6 +3741,7 @@ type lazySSE struct {
 	mu        sync.Mutex
 	committed bool
 	provider  string
+	hideNode  bool            // a band request: errors never name the station (no oracle)
 	model     string          // the served model, X-RogerAI-Model on commit
 	id        string          // the request id, the usage chunk's top-level "id"
 	ctx       context.Context // the consumer's request: gone = nothing more is written
@@ -3697,6 +3753,9 @@ type lazySSE struct {
 	// frame before a [DONE] the broker writes itself (finish). tail holds the partial last
 	// line of the previous write, so a frame split across reads is still recognised.
 	tail []byte
+	// sawDone: the current attempt's station sent its own [DONE]. A committed stream that
+	// reaches finish without it was cut short, and says so in one error frame (§14.B6).
+	sawDone bool
 }
 
 func (l *lazySSE) Header() http.Header { return l.w.Header() }
@@ -3709,6 +3768,7 @@ func (l *lazySSE) begin(provider string) {
 	l.provider = provider
 	l.pre.Reset()
 	l.tail = nil // a voided attempt's partial last line never leaks into the next attempt
+	l.sawDone = false
 	l.mu.Unlock()
 }
 
@@ -3769,6 +3829,7 @@ func (l *lazySSE) dropDone(ready []byte) []byte {
 	out := make([]byte, 0, len(ready))
 	for _, line := range bytes.SplitAfter(ready, []byte("\n")) {
 		if t := bytes.TrimSpace(bytes.TrimPrefix(bytes.TrimSpace(line), []byte("data:"))); bytes.Equal(t, []byte("[DONE]")) && bytes.HasPrefix(bytes.TrimSpace(line), []byte("data:")) {
+			l.sawDone = true
 			continue
 		}
 		out = append(out, line...)
@@ -3834,6 +3895,19 @@ func (l *lazySSE) finish(chunk []byte, comment string) {
 		_, _ = l.w.Write(l.tail)
 		_, _ = l.w.Write([]byte("\n"))
 		l.tail = nil
+	}
+	if !l.sawDone {
+		// The station's stream ended without its [DONE]: one error frame in the envelope,
+		// then the usage chunk and [DONE] as always (a post-commit failure, §14.B6).
+		station := l.provider
+		if l.hideNode {
+			station = ""
+		}
+		meta := map[string]any{}
+		if station != "" {
+			meta["station"], meta["model"] = station, l.model
+		}
+		_, _ = fmt.Fprintf(l.w, "data: %s\n\n", errEnvelope(l.w.Header(), http.StatusBadGateway, "upstream_error", "the station's stream ended before it finished", meta))
 	}
 	if chunk != nil {
 		chunk = l.stamp(chunk)
@@ -3921,14 +3995,22 @@ func (l *lazySSE) fail(status int, body []byte, retryAfterSec int) {
 		// plus the partial last line (an error body rarely ends in a newline).
 		body = append(append([]byte(nil), l.pre.Bytes()...), l.tail...)
 	}
-	if len(body) == 0 {
-		body = []byte(fmt.Sprintf(`{"error":{"message":"upstream returned %d"}}`, status))
-	}
 	h := l.w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("X-RogerAI-Cost", "0")
 	if retryAfterSec > 0 {
 		h.Set("Retry-After", strconv.Itoa(retryAfterSec))
+	}
+	if isEnvelope(body) {
+		body = withEnvelopeHeaders(h, body)
+	} else {
+		// A station's own failure body (or nothing) on the final attempt: wrapped, never raw
+		// (contract §14.B6). The station is named unless the no-oracle rules forbid it.
+		station := l.provider
+		if l.hideNode {
+			station = ""
+		}
+		body = upstreamErrorBody(h, status, station, l.model, 0, body)
 	}
 	l.w.WriteHeader(status)
 	_, _ = l.w.Write(body)
@@ -3956,7 +4038,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 		jsonErr(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	lw := &lazySSE{w: w, flusher: flusher, model: bill.model, id: requestID,
+	lw := &lazySSE{w: w, flusher: flusher, model: bill.model, id: requestID, hideNode: bill.privateBand,
 		onCommit: func() {
 			b.genLiveOf(requestID).with2(func(g *genLive) { g.firstFrame = time.Now() })
 		}}
@@ -3997,7 +4079,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			if out.refusal != nil {
 				// A bridge gate (rate, slot, balance) answers in its own words, as on the
 				// non-stream path - never as "the station behind the tower replied N".
-				status, failBody = out.refusal.status, errorBody("", out.refusal.msg)
+				status, failBody = out.refusal.status, errorBody(out.refusal.status, "", out.refusal.msg)
 				retry, _ = strconv.Atoi(out.refusal.retryAfter)
 			} else {
 				if out.status > 0 {
@@ -4015,7 +4097,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 				continue
 			}
 			if out.refusal == nil && out.status == 0 {
-				status, res.Body = http.StatusServiceUnavailable, errorBody("no_match", "no node offers "+c.model)
+				status, res.Body = http.StatusServiceUnavailable, errorBody(http.StatusServiceUnavailable, "no_match", "no node offers "+c.model)
 			}
 			lw.fail(status, res.Body, retry)
 			return
@@ -4214,7 +4296,10 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			b.stats.localDispatch.Add(1)
 		case <-time.After(3 * time.Second):
 			b.exitInflight(node.NodeID, false)
-			return protocol.JobResult{}, true, dispatchBusy // no poller free: nothing was sent
+			if b.stationFull(node.NodeID) {
+				return protocol.JobResult{}, true, dispatchBusy // every slot taken: nothing was sent
+			}
+			return protocol.JobResult{}, true, dispatchNoPoller // no poller free: nothing was sent
 		}
 	}
 	// Idle/void timer: RESETS on every streamed delta (sink.noteActivity), so a long
