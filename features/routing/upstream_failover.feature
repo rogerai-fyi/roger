@@ -455,8 +455,9 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     When a funded consumer relays
     Then one "FAILOVER request=... from=s1 (upstream-throttled) to=s2" line is logged
 
+  # corrected 2026-10-05 (founder-approved): the alert pages on REACHING 10 minutes cumulative
   Scenario: a station that keeps cooling pages the founder once
-    Given "s1" has been cooling for more than 10 minutes cumulative in the last hour with real demand behind it
+    Given "s1" has been cooling for at least 10 minutes cumulative in the last hour with real demand behind it
     Then the founder alert "station_cooling:s1" fired once naming the band and the count
     And it clears after an hour without a cooldown
 

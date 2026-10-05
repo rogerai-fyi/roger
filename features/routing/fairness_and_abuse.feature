@@ -298,6 +298,7 @@ Feature: Nobody can hurt an honest party on the network cheaply
 
   # added 2026-10-04 (founder directive on shared state): pair cooldowns and the payer window
   # live in the shared store; an outage fails the routing preference OPEN.
+  # approved 2026-10-05 (founder)
   Scenario: A shared-store outage fails a pair cooldown open
     Given nodes "n-1" and "n-2" are on air for "qwen3-32b"
     And the shared store is unreachable
@@ -400,6 +401,7 @@ Feature: Nobody can hurt an honest party on the network cheaply
 
   # added 2026-10-04 (founder directive on shared state): an abuse limit is never lifted by an
   # outage - it is enforced on each instance's own bucket until the store returns.
+  # approved 2026-10-05 (founder)
   Scenario: A shared-store outage keeps the free limits enforced per instance
     Given the free-traffic per-IP limit is 20 rpm
     And node "n-free" is free for "qwen3-32b"

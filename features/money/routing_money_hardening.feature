@@ -444,6 +444,7 @@ Feature: What the consumer pays and the operator earns are right in every routin
 
   # added 2026-10-04 (founder directive on shared state): the posted-since time lives in the
   # shared store; when it cannot be read the full lock is minted (today's consumer-protective rule).
+  # approved 2026-10-05 (founder)
   Scenario: A shared-store outage mints the full lock
     Given station "s1" normally charges out $0.60/1M
     And the owner posts $0.10 for 10 minutes

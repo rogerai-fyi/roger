@@ -1784,7 +1784,7 @@ func (s *foState) failoverLogged() error {
 func (s *foState) s1CoolingTenMinutes() error {
 	s.b.adminEmails = []string{"founder@example.com"}
 	s.only("s1").script429("120")
-	for i := 0; i < 6; i++ { // 6 x 120s = 12 minutes cumulative, each behind a real relay
+	for i := 0; i < 5; i++ { // 5 x 120s = exactly 10 minutes cumulative (the edge: reaching pages)
 		if err := s.pinnedRelay("s1"); err != nil {
 			return err
 		}
@@ -3296,7 +3296,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^the station row is on air with a "cooling" marker and the seconds remaining$`, st.stationRowCooling)
 			sc.Step(`^the band is never shown as dark because of cooling$`, st.bandNeverDark)
 			sc.Step(`^one "FAILOVER request=\.\.\. from=s1 \(upstream-throttled\) to=s2" line is logged$`, st.failoverLogged)
-			sc.Step(`^"s1" has been cooling for more than 10 minutes cumulative in the last hour with real demand behind it$`, st.s1CoolingTenMinutes)
+			sc.Step(`^"s1" has been cooling for at least 10 minutes cumulative in the last hour with real demand behind it$`, st.s1CoolingTenMinutes)
 			sc.Step(`^the founder alert "station_cooling:s1" fired once naming the band and the count$`, st.alertFiredOnce)
 			sc.Step(`^it clears after an hour without a cooldown$`, st.alertClears)
 
