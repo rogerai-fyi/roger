@@ -58,13 +58,22 @@ type mcState struct {
 	durableBroken bool
 	interleave    bool
 	notices       []string
+
+	// inflight tracks every request goroutine fire starts, so the After hook can drain the
+	// ones a step leaves in flight (inFlightHolding) before the next scenario resets state;
+	// resMu guards results across those goroutines and the steps.
+	inflight sync.WaitGroup
+	resMu    sync.Mutex
 }
 
 func (s *mcState) mcReset() error {
 	if err := s.psReset(); err != nil {
 		return err
 	}
-	s.cap, s.results, s.last, s.lastSent, s.dispatched = 0, nil, psResult{}, false, false
+	s.resMu.Lock()
+	s.results = nil
+	s.resMu.Unlock()
+	s.cap, s.last, s.lastSent, s.dispatched = 0, psResult{}, false, false
 	s.notices, capNoticeHookForTest = nil, nil
 	s.holdBefore, s.mismatches, s.stationName, s.bridgeModel, s.voice = 0, nil, "", "", false
 	s.voiceTun, s.voiceKey, s.voiceNode, s.voiceCalls, s.bridgeSubmits, s.durableBroken = nil, nil, "", 0, 0, false
@@ -147,7 +156,9 @@ func (s *mcState) fire(b *broker, stream bool, wg *sync.WaitGroup, mu *sync.Mute
 		model = s.bridgeModel
 	}
 	wg.Add(1)
+	s.inflight.Add(1)
 	go func() {
+		defer s.inflight.Done()
 		defer wg.Done()
 		var r psResult
 		if s.voice {
@@ -156,7 +167,9 @@ func (s *mcState) fire(b *broker, stream bool, wg *sync.WaitGroup, mu *sync.Mute
 			r = s.relayOn(b, s.acctPriv, model, stream)
 		}
 		mu.Lock()
+		s.resMu.Lock()
 		s.results = append(s.results, r)
+		s.resMu.Unlock()
 		mu.Unlock()
 	}()
 }
@@ -699,6 +712,7 @@ func TestMonthlyCapConcurrencyBDD(t *testing.T) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, st.mcReset() })
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 				st.release()
+				st.inflight.Wait() // no request goroutine outlives its scenario
 				if st.towerSrv != nil {
 					st.towerSrv.Close()
 					st.towerSrv = nil
