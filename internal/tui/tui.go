@@ -512,19 +512,16 @@ func (l Limit) acceptsQuant(q string) bool {
 	return false
 }
 
-// own is the rule an EDIT of `model` starts from: the band's own stored entry, else the
-// default. Writing back the merged view (resolve) would freeze the default's keys into the
-// band, so a later default edit would no longer reach it.
+// own is the rule an EDIT of `model` starts from: the band's own stored entry, empty when it
+// has none. Starting from the default (or the merged view, resolve) would freeze the default's
+// keys into the band, so a later default edit would no longer reach it.
 func (s *LimitStore) own(model string) Limit {
 	if s == nil {
 		return Limit{}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if l, ok := s.Models[model]; ok {
-		return l
-	}
-	return s.Default
+	return s.Models[model]
 }
 
 // Resolve is the band rule the booth applies to `model` (see resolve).
@@ -2958,6 +2955,7 @@ func (m model) disconnect() (tea.Model, tea.Cmd) {
 	// broker band - would send its turns to the previous band's local server under the new
 	// band's name, which is the same class of bug bindAgentEndpoint's clear exists to stop.
 	m.chatLocalChat, m.chatLocalKey = "", ""
+	m.tunedProfile = "" // the profile belongs to the channel accepted on the confirm
 	m.transcript = nil
 	m.chatUnstuck = false // a fresh transcript starts stuck
 	m.lastReply = ""      // leaving the channel: don't let ctrl+y / /copy yank a prior channel's reply
@@ -3028,7 +3026,9 @@ func (m *model) commitLimitField() bool {
 // [3] CONFIG edit binds the next guest turn without a re-tune (the endpoint and bearer key
 // are unchanged: SetBand keeps them).
 func (m *model) refreshLiveRouting() {
-	if m.connected == nil || m.proxyHolder == nil {
+	// A local direct channel never goes through the broker proxy, which its disconnect left
+	// refusing: re-pointing it here would mark it connected again.
+	if m.connected == nil || m.proxyHolder == nil || m.chatLocalChat != "" || !m.proxyHolder.Connected() {
 		return
 	}
 	m.q.limit = m.limits.resolve(m.connected.Model)

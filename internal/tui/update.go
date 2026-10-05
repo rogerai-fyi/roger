@@ -2006,7 +2006,7 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case " ":
 			if limFieldDefs[m.limField].kind == fkChoice {
-				m.putRowLimit(row, m.cycleField(row, m.rowLimit(row), m.limField))
+				m.cycleRowField(row, m.limField)
 				return m, nil
 			}
 		case "t", "v":
@@ -2132,12 +2132,12 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case " ":
 		if kind == fkChoice {
-			m.putRowLimit(row, m.cycleField(row, m.rowLimit(row), m.editField))
+			m.cycleRowField(row, m.editField)
 			return m, nil
 		}
 	case "enter":
 		if kind == fkChoice {
-			m.putRowLimit(row, m.cycleField(row, m.rowLimit(row), m.editField))
+			m.cycleRowField(row, m.editField)
 			return m, nil
 		}
 		// A freshly focused field: enter begins typing a new value.
@@ -2289,6 +2289,7 @@ func (m *model) runAutoTune() tea.Cmd {
 	case freeSt != nil:
 		o := *freeSt
 		m.clearFindingBeat()
+		m.tunedProfile = "" // an auto-tune bypasses the confirm: no profile binds
 		if _, err := m.bindChannel(o); err != nil {
 			// The local endpoint failed to bind: never claim a channel that is not there.
 			// Fall to the honest empty state (deduped) and drop any parked prompt silently.

@@ -133,14 +133,14 @@ func (m model) profileFor(model string) map[string]any {
 	return m.profileBody(m.tunedProfile)
 }
 
-// confirmLimit is the rule the confirm prices against: the band's, with the out cap of the
-// profile being offered when it sets one.
+// confirmLimit is the rule the confirm prices against: the band's, with the stricter of its
+// out cap and that of the profile being offered (the pair the proxy enforces).
 func (m model) confirmLimit(model string) Limit {
 	lim := m.limits.resolve(model)
 	if v, ok := m.profileBody(m.confirmProfile)["provider"].(map[string]any); ok {
 		if mp, ok := v["max_price"].(map[string]any); ok {
 			if c, ok := mp["completion"].(float64); ok && c > 0 {
-				lim.MaxOut = c
+				lim.MaxOut = stricterCap(lim.MaxOut, c)
 			}
 		}
 	}

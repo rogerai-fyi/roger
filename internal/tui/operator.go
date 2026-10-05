@@ -721,6 +721,7 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 			return m, nil
 		}
 		o := *freeSt
+		m.tunedProfile = "" // an auto-tune bypasses the confirm: no profile binds
 		if _, err := m.bindChannel(o); err != nil {
 			// The local endpoint failed to bind: refuse rather than open a plate over an
 			// unbound channel that would hand the guest a wall of 502s.

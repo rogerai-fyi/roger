@@ -226,6 +226,19 @@ func (m model) quantChoices(row string) []string {
 	return out
 }
 
+// cycleRowField cycles a choice field of a row's rule and stores it. A quant rule of two or
+// more labels is never cycled (the ring steps one label at a time and would overwrite it):
+// the status points at the band card's quant picker, which edits it.
+func (m *model) cycleRowField(row string, f int) {
+	l := m.rowLimit(row)
+	if f == lfQuant && len(l.Quants) > 1 {
+		m.status = stDim.Render("a rule of several quants is edited in the band card's quant picker (") +
+			stKey.Render("Q") + stDim.Render(")")
+		return
+	}
+	m.putRowLimit(row, m.cycleField(row, l, f))
+}
+
 // cycleField advances a choice field one step and returns the new rule.
 func (m model) cycleField(row string, l Limit, f int) Limit {
 	switch f {

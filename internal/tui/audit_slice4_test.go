@@ -163,3 +163,50 @@ func TestTUIResolvesLimitsByThePerKeyMerge(t *testing.T) {
 		})
 	}
 }
+
+// TestTunedProfileDoesNotOutliveItsChannel: the tuned profile belongs to the channel opened
+// through the confirm. Disconnecting, opening a local direct channel, or an auto-tune that
+// bypasses the confirm all start with no profile, so a later tune never inherits a stale one.
+func TestTunedProfileDoesNotOutliveItsChannel(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"roger": map[string]any{"pref": "fast"}})
+	dm, _ := m.disconnect()
+	require.Empty(t, asModel(dm).tunedProfile, "disconnect clears the tuned profile")
+
+	m = auditProfileModel(t, map[string]any{"roger": map[string]any{"pref": "fast"}})
+	m = m.openLocalChannel(privRow{model: "m", chat: "http://127.0.0.1:1/v1/chat/completions"})
+	require.Empty(t, m.tunedProfile, "a local direct channel carries no tuned profile")
+
+	a := freshDeskAgent(t, []offer{freeOffer("gpt-oss-20b", 32768)})
+	a.tunedProfile = "p"
+	_ = a.runAutoTune()
+	require.NotNil(t, a.connected, "the auto-tune bound a band")
+	require.Empty(t, a.tunedProfile, "an auto-tune bypasses the confirm, so it binds no profile")
+}
+
+// TestRefreshLiveRoutingSkipsALocalChannel: a CONFIG edit or an F/C/U toggle while a local
+// direct channel is open must not re-point (and re-connect) the broker proxy, which the
+// disconnect before it left refusing.
+func TestRefreshLiveRoutingSkipsALocalChannel(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.proxyHolder = client.NewProxyOptionsHolder(m.liveProxyOpts(*m.connected, m.alert))
+	m.proxyHolder.Disconnect()
+	m = m.openLocalChannel(privRow{model: "m", chat: "http://127.0.0.1:1/v1/chat/completions"})
+	m.refreshLiveRouting()
+	require.False(t, m.proxyHolder.Connected(), "the broker proxy stays disconnected under a local channel")
+}
+
+// TestConfirmLimitKeepsTheStricterCap: the confirm prices against the stricter of the band's
+// out cap and the offered profile's, the way the proxy enforces them; a looser profile cap
+// never shows on the plate.
+func TestConfirmLimitKeepsTheStricterCap(t *testing.T) {
+	for _, tc := range []struct{ band, prof, want float64 }{
+		{2, 5, 2}, // the profile is looser: the band's cap stands
+		{5, 2, 2}, // the profile is stricter: it wins
+		{0, 3, 3}, // the band sets none: the profile's
+	} {
+		m := auditProfileModel(t, map[string]any{"provider": map[string]any{"max_price": map[string]any{"completion": tc.prof}}})
+		m.limits.Models = map[string]Limit{"m": {MaxOut: tc.band}}
+		m.confirmProfile = "p"
+		require.Equal(t, tc.want, m.confirmLimit("m").MaxOut, "band %v, profile %v", tc.band, tc.prof)
+	}
+}

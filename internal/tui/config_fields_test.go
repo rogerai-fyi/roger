@@ -248,3 +248,48 @@ func TestEmptyInputClearsATextField(t *testing.T) {
 		require.Equal(t, want, m.limits.Models["q"], limFieldDefs[f].label+" via the editor")
 	}
 }
+
+// TestEditingABandWithNoEntryStoresOnlyTheEdit: a band with NO stored entry starts its first
+// edit from an empty rule, not the default - so the plate, the quant picker and the
+// raise-the-cap plate each store just the edit, and the band keeps inheriting the default.
+func TestEditingABandWithNoEntryStoresOnlyTheEdit(t *testing.T) {
+	def := Limit{MinTPS: 10, Region: []string{"eu"}, Pref: "cheap"}
+	for name, edit := range map[string]func(m *model){
+		"plate": func(m *model) {
+			m.limCursor, m.editField, m.editBuf = 0, lfMaxOut, "3"
+			require.True(t, m.commitLimitField())
+		},
+		"quant picker": func(m *model) { m.cfgModel = "q"; m.saveQuantRule([]string{"Q8_0"}) },
+	} {
+		m, _ := configModel(t)
+		m.limits.Default = def
+		_, had := m.limits.Models["q"]
+		require.False(t, had, "the band starts with no entry")
+		edit(m)
+		got := m.limits.Models["q"]
+		require.Zero(t, got.MinTPS, "%s: the default's min tps is not frozen into the band", name)
+		require.Empty(t, got.Region, "%s: nor its region", name)
+		require.Empty(t, got.Pref, "%s: nor its pref", name)
+		r := m.limits.Resolve("q")
+		require.Equal(t, 10.0, r.MinTPS, "%s: the band still resolves with the default's keys", name)
+	}
+	require.Equal(t, Limit{}, (&LimitStore{Default: def, Models: map[string]Limit{}}).own("q"),
+		"own is the band's stored entry only (the raise-the-cap plate starts from it too)")
+}
+
+// TestCyclingAMultiQuantRuleKeepsIt: the quant field cycles one label at a time, so a rule of
+// two or more labels is never cycled (that would overwrite it with a single label); the plate
+// points at the band card's quant picker, which edits it.
+func TestCyclingAMultiQuantRuleKeepsIt(t *testing.T) {
+	m, _ := configModel(t)
+	m.limits.Models["q"] = Limit{Quants: []string{"Q8_0", "BF16"}}
+	m.limCursor, m.limField = 0, lfQuant
+	cfgKey(m, "space")
+	require.Equal(t, []string{"Q8_0", "BF16"}, m.limits.Models["q"].Quants, "the multi-label rule is kept")
+	require.Contains(t, stripANSI(m.status), "quant picker")
+
+	m.limits.Models["q"] = Limit{Quants: []string{"Q8_0"}}
+	cfgKey(m, "space")
+	require.Len(t, m.limits.Models["q"].Quants, 1, "a single-label rule still cycles")
+	require.NotEqual(t, "Q8_0", m.limits.Models["q"].Quants[0])
+}
