@@ -40,6 +40,10 @@ type eaState struct {
 	consumer ed25519.PrivateKey
 	relays   []psResult
 	holdsAt  int
+	// pending is an attempt whose slot binding failed: its reservation token, id and deadline,
+	// replayed by "the delayed count lands" exactly as adoptSlotUntilCounted would.
+	pendTok, pendID string
+	pendUntil       time.Time
 }
 
 func (s *eaState) eaReset() error {
@@ -188,6 +192,35 @@ func (s *eaState) oneSettlesOn(name string) error {
 		return fmt.Errorf("no attempt to settle")
 	}
 	s.inst(name).edgeExitInflight(ids[0])
+	return nil
+}
+
+// openUnbound opens one more attempt on name whose promotion to its slot failed: the
+// reservation is held, the attempt is open locally, and the count is left to the retry.
+func (s *eaState) openUnbound(name string) error {
+	b := s.inst(name)
+	if !b.edgeAccountReserve(s.acct) {
+		return fmt.Errorf("could not reserve the extra slot on %s", name)
+	}
+	s.pendTok = b.takeSlotToken(s.acct) // the promotion never happens: its token is the retry's
+	if s.pendTok == "" {
+		return fmt.Errorf("no reservation token on %s", name)
+	}
+	s.pendID = fmt.Sprintf("att-unbound-%s-%d", s.nonce, time.Now().UnixNano())
+	s.pendUntil = time.Now().Add(10 * time.Minute)
+	b.edgeEnterInflight(s.pendID, "n-edge-"+s.nonce, s.acct, s.pendUntil) // no token left: no promote
+	return nil
+}
+
+func (s *eaState) pendingSettlesOn(name string) error {
+	s.inst(name).edgeExitInflight(s.pendID)
+	return nil
+}
+
+// delayedCountLands replays the retry's store call (adoptSlotUntilCounted's adopt), which can
+// land after the attempt closed: on another instance, or on this one after its local check.
+func (s *eaState) delayedCountLands(name string) error {
+	_ = s.inst(name).shared.edgeSlotAdopt(s.acct, s.pendTok, s.pendID, s.pendUntil)
 	return nil
 }
 
@@ -390,6 +423,9 @@ func TestEdgeAttemptCapSharedBDD(t *testing.T) {
 			sc.Step(`^(\d+) seconds pass$`, st.secondsPass)
 			sc.Step(`^one attempt settles on "B" and the same attempt settles again on "A"$`, st.settleTwice)
 			sc.Step(`^an unknown attempt id settles on "B"$`, st.unknownSettles)
+			sc.Step(`^"(A|B)" opens one more attempt whose slot binding fails and is retried later$`, st.openUnbound)
+			sc.Step(`^that attempt settles on "(A|B)" before the retry lands$`, st.pendingSettlesOn)
+			sc.Step(`^the delayed count lands on "(A|B)"$`, st.delayedCountLands)
 			sc.Step(`^"A" restarts as a fresh broker over the same stores$`, st.restartA)
 			sc.Step(`^"acct" reserves a slot on the fresh "A"$`, st.reserveFresh)
 			sc.Step(`^one of those attempts settles on the fresh "A"$`, st.settlesOnFresh)

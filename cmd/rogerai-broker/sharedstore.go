@@ -1974,7 +1974,14 @@ func (v *valkeyStore) counterDelIfEqual(key string, val float64) (bool, error) {
 const (
 	edgeSlotsPrefix = keyPrefix + "edgeslots:" // + account: sorted set of open slots
 	edgeAttPrefix   = keyPrefix + "edgeatt:"   // + attempt id: the account whose slot it holds
+	// edgeClosedPrefix + attempt id marks an attempt that has been freed, so a delayed count
+	// (edgeSlotAdopt after a failed promotion) that lands after the close removes itself.
+	edgeClosedPrefix = keyPrefix + "edgeclosed:"
 )
+
+// edgeClosedTTL bounds how long a closed attempt's tombstone lives: longer than any attempt's
+// execution window, so every delayed count for it lands while the tombstone still exists.
+const edgeClosedTTL = 30 * time.Minute
 
 // edgeSlotReserveScript: KEYS[1] the account's set; ARGV now ms, limit, member, deadline ms.
 // Returns 1 when the member was added, 0 at the cap.
@@ -2068,6 +2075,17 @@ func (v *valkeyStore) edgeSlotAdopt(account, token, attemptID string, deadline t
 		err = edgeSlotAdoptScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
 			token, attemptID, deadline.UnixMilli(), now.UnixMilli()).Err()
 	}
+	// A count that lands after the attempt closed (on any instance) must not stick: the close
+	// writes its tombstone BEFORE it frees, so checking AFTER adding sees it whenever the free
+	// could have missed this add, and the add is taken back.
+	if err == nil {
+		var closed int64
+		if closed, err = v.rdb.Exists(ctx, edgeClosedPrefix+attemptID).Result(); err == nil && closed > 0 {
+			if err = v.rdb.ZRem(ctx, edgeSlotsPrefix+account, attemptID).Err(); err == nil {
+				err = v.rdb.Del(ctx, edgeAttPrefix+attemptID).Err()
+			}
+		}
+	}
 	if err != nil {
 		v.noteErr("edgeSlotAdopt", err)
 		return err
@@ -2098,6 +2116,12 @@ func (v *valkeyStore) edgeSlotFree(attemptID string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
+	// The tombstone first (see edgeSlotAdopt): a delayed count for this attempt that lands
+	// after this free sees it and removes itself.
+	if err := v.rdb.Set(ctx, edgeClosedPrefix+attemptID, "1", edgeClosedTTL).Err(); err != nil {
+		v.noteErr("edgeSlotFree", err)
+		return err
+	}
 	acct, err := v.rdb.GetDel(ctx, edgeAttPrefix+attemptID).Result()
 	if err == redis.Nil {
 		v.setUp(true)

@@ -103,6 +103,22 @@ Feature: The open-attempt cap of an account is shared by every broker instance
     When one attempt settles on "B" and the same attempt settles again on "A"
     Then "acct" has 31 open attempts
 
+  # added 2026-10-05 (audit fix): a delayed count that lands after the attempt closed never sticks
+  Scenario: An attempt that closes before its delayed count lands is never counted
+    Given "acct" has 31 open attempts opened on "A"
+    And "A" opens one more attempt whose slot binding fails and is retried later
+    When that attempt settles on "B" before the retry lands
+    And the delayed count lands on "A"
+    Then "acct" has 31 open attempts
+
+  # added 2026-10-05 (audit fix): the same race on one instance
+  Scenario: An attempt closed on its own instance before its delayed count lands is never counted
+    Given "acct" has 31 open attempts opened on "A"
+    And "A" opens one more attempt whose slot binding fails and is retried later
+    When that attempt settles on "A" before the retry lands
+    And the delayed count lands on "A"
+    Then "acct" has 31 open attempts
+
   Scenario: A settle for an attempt id that was never opened frees nothing
     Given "acct" has 32 open attempts opened on "A"
     When an unknown attempt id settles on "B"
