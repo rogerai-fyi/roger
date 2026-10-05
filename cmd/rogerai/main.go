@@ -336,6 +336,16 @@ func loadConfig() config {
 //   - C5 unchanged for the common single-writer path: it writes the struct in canonical field
 //     order, byte-identical to before, taking the merge path only when it is actually needed.
 func saveConfig(c config) error {
+	// The same lock profile edits take (editConfigRaw), so this merge never reads a file a
+	// concurrent `roger profile set` is about to replace.
+	if err := os.MkdirAll(filepath.Dir(configPath()), 0o700); err != nil {
+		return err
+	}
+	release, err := lockConfig(configPath() + ".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
 	mine := toRawConfig(c)
 	theirs := readRawConfig(configPath())
 	if !configNeedsMerge(mine, theirs) {

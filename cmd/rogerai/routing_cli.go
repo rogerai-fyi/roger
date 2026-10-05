@@ -592,7 +592,13 @@ func resolveUse(cfg config, f *useFlags, profs *client.Profiles) (useTarget, err
 		layers = append(layers, routingLayer{label: "profile " + name, body: pb})
 	}
 	layers = append(layers, routingLayer{label: "flag", body: flagsBody(f)})
-	return useTarget{model: model, r: mergeLayers(layers...)}, nil
+	r := mergeLayers(layers...)
+	// Stored limits are hand-editable: the merged body is checked like a profile, so a value
+	// the contract does not accept is refused here, never shown as applied.
+	if err := client.ValidateRoutingBody(r.body); err != nil {
+		return useTarget{}, fmt.Errorf("use: %w", err)
+	}
+	return useTarget{model: model, r: r}, nil
 }
 
 // bareModelID strips a variant suffix (:free / :floor / :nitro) for the limits lookup.
@@ -1099,7 +1105,7 @@ func profileKeyOK(key string) error {
 	switch {
 	case key == "model" || key == "models":
 		return nil
-	case (top == "provider" || top == "roger") && sub != "":
+	case (top == "provider" || top == "roger") && client.KnownRoutingKey(top, sub):
 		return nil
 	}
 	return fmt.Errorf("%s is not a routing key (model, models, provider.<key>, roger.<key>)", key)
