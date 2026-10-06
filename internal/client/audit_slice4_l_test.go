@@ -49,3 +49,21 @@ func TestOwnerModelsCompareOnTheBareID(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out, &got))
 	require.Equal(t, []string{"a"}, got.Models)
 }
+
+// TestFreeTuneKeepsAGuestSortSugar: on a band tuned as m:free, a guest's m:nitro keeps its
+// sort sugar, and the session's :free still binds it.
+func TestFreeTuneKeepsAGuestSortSugar(t *testing.T) {
+	var got map[string]any
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		http.Error(w, `{"error":{"code":"no_match","message":"none"}}`, http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(broker.Close)
+	h := ProxyHandler(ProxyOptions{Broker: broker.URL, User: "u", Model: "m:free"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"model":"m:nitro","provider":{"quantizations":["Q8_0"]},"messages":[{"role":"user","content":"hi"}]}`)))
+	require.NotNil(t, got, "the request reached the broker")
+	require.Equal(t, "m:nitro:free", got["model"], "the guest's sort sugar is kept and the session's :free still binds")
+}

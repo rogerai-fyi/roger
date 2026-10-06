@@ -713,7 +713,9 @@ func rewriteModel(body []byte, target string, explicit bool) (out []byte, model 
 	// A guest's provider prefix (operator.ModelPrefixes) is stripped from its model and its
 	// models[] entries before the broker sees them.
 	var own string
-	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == target && (explicit || hasCarrier(body)) {
+	// Bare on both sides: on a band tuned as m:free, a guest's m:nitro still names the band
+	// (its :free is re-applied by the session's free-only routing, Routing.Apply).
+	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == bareModel(target) && (explicit || hasCarrier(body)) {
 		bare := guestModelID(own)
 		models, changed := unprefixedModels(m["models"])
 		if bare == own && !changed {
