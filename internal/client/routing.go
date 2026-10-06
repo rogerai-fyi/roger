@@ -194,7 +194,7 @@ func hasCarrier(body []byte) bool {
 
 // guestNamesOtherModel: a carrier-bearing body names a model outside the tuned band.
 func guestNamesOtherModel(body []byte, model, tuned string) bool {
-	if model == "" || strings.HasPrefix(model, "@profile/") || bareModel(model) == bareModel(tuned) {
+	if model == "" || strings.HasPrefix(guestModelID(model), ProfileRef) || bareModel(model) == bareModel(tuned) {
 		return false
 	}
 	return hasCarrier(body)
@@ -317,10 +317,14 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		if len(ids) > 0 {
 			// The band's own model (the request's model) is always routable, so it counts as
 			// inside the owner's set.
-			allowed := r.Models
+			// Compared on the bare id: an owner entry written with a variant (a:free) is still a.
+			allowed := make([]string, 0, len(r.Models)+1)
+			for _, id := range r.Models {
+				allowed = append(allowed, bareModel(id))
+			}
 			var band string
 			if json.Unmarshal(m["model"], &band) == nil && band != "" {
-				allowed = append(append([]string(nil), r.Models...), bareModel(band))
+				allowed = append(allowed, bareModel(band))
 			}
 			kept := []string{}
 			for _, id := range ids {
