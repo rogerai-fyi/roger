@@ -125,3 +125,15 @@ func TestSaveQuantRuleRepointsTheLiveProxy(t *testing.T) {
 	out, _ := m.saveQuantRule([]string{"Q8_0"})
 	require.Contains(t, asModel(out).proxyHolder.Get().Quantizations, "Q8_0")
 }
+
+// TestTunedProfileFreqBindsOwnerTurns: a tuned profile's roger.freq reaches the owner's own
+// turns (the live proxy and the agent), not only guest bodies naming @profile/; a private
+// band tuned with ~ still wins.
+func TestTunedProfileFreqBindsOwnerTurns(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"roger": map[string]any{"freq": "ABC123"}})
+	require.Equal(t, "ABC123", m.liveProxyOpts(*m.connected, m.alert).Freq)
+	require.Equal(t, "ABC123", m.agentFreqFor("m"))
+	require.Equal(t, "", m.agentFreqFor("other"), "the profile binds only the band it was tuned on")
+	m.tuneFreq = "TUNED"
+	require.Equal(t, "TUNED", m.liveProxyOpts(*m.connected, m.alert).Freq)
+}

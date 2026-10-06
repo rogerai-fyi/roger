@@ -133,6 +133,20 @@ func (m model) profileFor(model string) map[string]any {
 	return m.profileBody(m.tunedProfile)
 }
 
+// freqFor is the band code an owner turn on `model` carries: a private band tuned with ~
+// wins, else the roger.freq of the profile tuned on that band ("" for the open market).
+func (m model) freqFor(model string) string {
+	if m.tuneFreq != "" {
+		return m.tuneFreq
+	}
+	if r, ok := m.profileFor(model)["roger"].(map[string]any); ok {
+		if f, _ := r["freq"].(string); f != "" {
+			return f
+		}
+	}
+	return ""
+}
+
 // confirmLimit is the rule the confirm prices against: the band's, with the stricter of its
 // out cap and that of the profile being offered (the pair the proxy enforces).
 func (m model) confirmLimit(model string) Limit {

@@ -2779,7 +2779,7 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		MaxPriceIn:  stricterCap(m.q.limit.MaxIn, rt.MaxIn),
 		MaxPriceOut: stricterCap(m.q.limit.MaxOut, rt.MaxOut),
 		MinTPS:      max(m.q.limit.MinTPS, rt.MinTPS),
-		Freq:        m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
+		Freq:        m.freqFor(o.Model), // private band (~, else the tuned profile's): X-Roger-Freq
 		Pref:        rt.Pref, SelfHostedOnly: rt.SelfHostedOnly, Quantizations: rt.Quantizations,
 		MaxCost: rt.MaxReq, Require: rt.Require, ParamsB: rt.ParamsB, MinCtx: rt.MinCtx, MaxTTFT: rt.MaxTTFT,
 		TrustMin: rt.TrustMin, Region: rt.Region, FreeOnly: rt.FreeOnly,
