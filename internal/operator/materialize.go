@@ -240,7 +240,7 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 		case "opencode":
 			cfg := filepath.Join(dir, "opencode.json")
 			body := fmt.Sprintf(goldenOpencodeTmpl, s.BaseURL, SessionKeyEnv, s.Model, s.Model, s.Model)
-			if s.Profile != "" {
+			if pin != s.Model { // a model that already is the reference is listed once
 				body = fmt.Sprintf(profileOpencodeTmpl, s.BaseURL, SessionKeyEnv, pin, pin, s.Model, s.Model, pin)
 			}
 			if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
