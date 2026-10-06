@@ -324,11 +324,12 @@ func (s *rx6State) curatedStationFull(name, model, in, out, tps, quant, region s
 	return nil
 }
 
-// rx6TrafficCounters are the counters only real traffic may move (a dry run is not traffic).
+// rx6TrafficCounters are the counters only real traffic may move (a dry run is not traffic):
+// every routing counter except the dry-run counts themselves.
 func (s *rx6State) rx6TrafficCounters() map[string]int64 {
 	out := map[string]int64{}
 	for k, v := range s.b.stats.routingCounters() {
-		if k == "routing_body_requests" || strings.HasPrefix(k, "affinity_") {
+		if !strings.HasPrefix(k, "route_explain") && !strings.HasPrefix(k, "dry_run") {
 			out[k] = v
 		}
 	}

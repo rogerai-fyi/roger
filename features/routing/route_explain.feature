@@ -288,6 +288,19 @@ Feature: A dry run explains where a request would go and what it would cost, spe
     When "u-1" posts a chat completion for "m" with roger.dry_run true and roger.session "sess-1"
     Then no routing or affinity counter moved
 
+  # slice-6 audit 2026-10-06: nor does a dry run that names a class alias, a variant or a strict
+  # order, or one that would be a no_match
+  Scenario Outline: A dry run of any routing shape moves no routing counter
+    Given the routing counters are noted
+    When "u-1" posts a chat completion for "<model>" with roger.dry_run true<extra>
+    Then no routing or affinity counter moved
+
+    Examples:
+      | model        | extra                          |
+      | m:floor      |                                |
+      | m            | and provider.order ["s1"] and provider.allow_fallbacks false |
+      | nobody-here  |                                |
+
   # --- rate limiting and abuse ---------------------------------------------------------------
 
   Scenario: Dry runs use their own rate bucket, not the relay bucket

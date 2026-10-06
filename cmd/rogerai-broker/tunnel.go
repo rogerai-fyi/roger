@@ -1951,7 +1951,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		ids := b.expandClass(cls, scope)
-		b.stats.noteClassRequest(cls)
+		if !dry {
+			b.stats.noteClassRequest(cls)
+		}
 		w.Header().Set("X-RogerAI-Class", cls)
 		if len(ids) == 0 {
 			if freq != "" {
@@ -1996,7 +1998,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if routing.used && !dry { // a dry run is not traffic: it moves no counter
 		b.stats.routingBodyRequests.Add(1)
 	}
-	b.stats.countVariants(suffixes) // per suffix, per request; never a model id
+	if !dry {
+		b.stats.countVariants(suffixes) // per suffix, per request; never a model id
+	}
 	sentModel := req.Model
 	req.Model = models[0].bare
 	gen.with(func(st *genStored) { st.Rec.ModelRequested, st.Rec.Models = modelRequested, bareIDs(models) })
@@ -2657,10 +2661,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	strictWhy := "none"
 	switch {
 	case ok && pickedFromOrder:
-		b.stats.routingStrictOrder.Add(1)
+		if !dry {
+			b.stats.routingStrictOrder.Add(1)
+		}
 		strictWhy = "order"
 	case ok && routeSort != sortNone:
-		b.stats.routingStrictSort.Add(1)
+		if !dry {
+			b.stats.routingStrictSort.Add(1)
+		}
 		strictWhy = "sort"
 	}
 	// ONE routing line per request: the constraints the pass ran under and what it picked.
@@ -2850,7 +2858,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if tpmOnly {
-			b.stats.tpmRefusals.Add(1)
+			if !dry {
+				b.stats.tpmRefusals.Add(1)
+			}
 			w.Header().Set("Retry-After", "60")
 			jsonErrCode(w, http.StatusTooManyRequests, "request_exceeds_station_tpm",
 				fmt.Sprintf("~%d prompt tokens is more than %.0f%% of the tokens-per-minute budget of every station serving %s - shorten the prompt or retry later", promptTokens, tpmRequestShare()*100, modelNames(cands)))
@@ -2934,7 +2944,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// model is not missing - no station that can do what the request needs is on air.
 		if caps := routeReq.capabilityNames(); caps != "" {
 			msg += " with the " + caps + " capability"
-			b.stats.relayNoMatchCapability.Add(1)
+			if !dry {
+				b.stats.relayNoMatchCapability.Add(1)
+			}
 			log.Printf("relay no_match request=%s model=%s: no eligible station has the %s capability", requestID, named, caps)
 		}
 		// The consumer's filters that emptied the pool are named, in a fixed order, so the
@@ -2944,7 +2956,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			nmFilters = fs
 			msg += " under " + strings.Join(fs, ", ")
 			for _, f := range fs {
-				b.stats.noteNoMatchFilter(f)
+				if !dry {
+					b.stats.noteNoMatchFilter(f)
+				}
 				if f == "self_hosted_only" {
 					msg += " (a curated station is available)"
 				}
