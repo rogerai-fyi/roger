@@ -131,7 +131,8 @@ type relayWriter struct {
 	gone    func() bool
 	sent    bool // headers went to the underlying writer
 	capture bool
-	status  int // the status the consumer received (0 = nothing reached the consumer)
+	status  int  // the status the consumer received (0 = nothing reached the consumer)
+	charged bool // a charge was captured for this request (noteCharged)
 	body    bytes.Buffer
 	over    bool
 }
@@ -172,10 +173,28 @@ func (w *relayWriter) Flush() {
 
 func (w *relayWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
+// noteCharged records on the relay's writer that this request's charge was captured, so its
+// Idempotency-Key is never given back (a retry could otherwise charge again).
+func noteCharged(w http.ResponseWriter) {
+	for w != nil {
+		if rw, ok := w.(*relayWriter); ok {
+			rw.charged = true
+			return
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
+}
+
 // idemBegin runs before any rate token, moderation, hold or dispatch. done=true means the
 // request was answered here (a refusal, a 409, a 422 or a replay); otherwise finish (non-nil
 // when this request holds the claim) records the outcome once the relay returns.
-func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWriter, body []byte, scope, requestID string) (finish func(), done bool) {
+// stream sets the claim's deadline: an in-flight claim past its deadline is taken over (its
+// instance died), so a stream, which may run far past the non-stream wait, keeps the window.
+func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWriter, body []byte, scope, requestID string, stream bool) (finish func(), done bool) {
 	key := r.Header.Get("Idempotency-Key")
 	if !validIdemKey(key) {
 		jsonErrCode(w, http.StatusBadRequest, "invalid_idempotency_key", "Idempotency-Key must be 1 to 128 printable ASCII characters")
@@ -190,8 +209,12 @@ func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWrit
 	}
 	now := b.now()
 	fp := idemFingerprint(body, r.Header)
+	wait := nonStreamRelayWait
+	if stream {
+		wait = idemTTL()
+	}
 	c := store.IdemClaim{Payer: scope, Key: key, Fingerprint: fp, RequestID: requestID, State: store.IdemInFlight,
-		Deadline: now.Add(nonStreamRelayWait).UnixMilli(), Created: now.UnixMilli()}
+		Deadline: now.Add(wait).UnixMilli(), Created: now.UnixMilli()}
 	cur, claimed, err := b.db.ClaimIdempotency(c, now.Add(-idemTTL()).UnixMilli(), idemKeysPerPayer)
 	if err != nil {
 		// The claim store is down: serve the request (never blocked by the guard) unguarded.
@@ -201,7 +224,7 @@ func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWrit
 	if claimed {
 		rw.capture = true
 		return func() {
-			if rw.status < 100 || rw.status == http.StatusTooManyRequests || rw.status >= 500 {
+			if (rw.status < 100 && !rw.charged) || rw.status == http.StatusTooManyRequests || rw.status >= 500 {
 				// Nothing reached the consumer (it left before any answer), or the outcome is a
 				// retryable one (a 429 or a 5xx, founder ruling 2026-10-06): there is nothing to
 				// replay, so the key is given back and a retry runs fresh. Neither placed a charge,

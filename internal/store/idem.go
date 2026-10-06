@@ -32,7 +32,7 @@ func (m *Mem) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemC
 	if m.idemClaims == nil {
 		m.idemClaims = map[string]IdemClaim{}
 	}
-	if cur, ok := m.idemClaims[idemID(c.Payer, c.Key)]; ok && cur.Created >= since {
+	if cur, ok := m.idemClaims[idemID(c.Payer, c.Key)]; ok && cur.Created >= since && !deadInflight(cur, c.Created) {
 		return cur, false, nil
 	}
 	m.idemClaims[idemID(c.Payer, c.Key)] = c
@@ -42,10 +42,16 @@ func (m *Mem) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemC
 	}
 	m.idemSeq[idemID(c.Payer, c.Key)] = m.idemN // claim order breaks a tie on Created
 	var mine []IdemClaim
-	for _, x := range m.idemClaims {
-		if x.Payer == c.Payer {
-			mine = append(mine, x)
+	for id, x := range m.idemClaims {
+		if x.Payer != c.Payer {
+			continue
 		}
+		if x.Created < since && x.State != IdemInFlight {
+			delete(m.idemClaims, id) // past the window and finished: swept now, not at the bound
+			delete(m.idemSeq, id)
+			continue
+		}
+		mine = append(mine, x)
 	}
 	if len(mine) > maxPerPayer {
 		sort.Slice(mine, func(i, j int) bool {
@@ -63,6 +69,12 @@ func (m *Mem) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemC
 		}
 	}
 	return c, true, nil
+}
+
+// deadInflight reports whether cur is an in-flight claim past its deadline at now: its request
+// gave up or its instance died, so the next claim may take the key over.
+func deadInflight(cur IdemClaim, now int64) bool {
+	return cur.State == IdemInFlight && cur.Deadline > 0 && cur.Deadline < now
 }
 
 func (m *Mem) FinishIdempotency(payer, key, requestID, state string) error {

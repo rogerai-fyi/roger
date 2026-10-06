@@ -1813,7 +1813,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if !gok && !kok && (user == "anon" || !(authed && walletLoggedIn(wallet))) {
 			scope = user + "|" + clientIP(r)
 		}
-		finish, done := b.idemBegin(w, r, rw, body, scope, requestID)
+		var stream bool
+		_ = doc.field("stream", &stream)
+		finish, done := b.idemBegin(w, r, rw, body, scope, requestID, stream)
 		if done {
 			return
 		}
@@ -3380,6 +3382,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, bcost, brec.PromptTokens, brec.CompletionTokens, 0, protocol.EncodeReceipt(brec))
 				settled = true // the hold rides the attempt id the Tower's settlement captures
+				noteCharged(w)
 				return
 			}
 			if out.refusal != nil {
@@ -3602,6 +3605,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// A free plan captures nothing, so a hold placed for a paid first pick that
 			// failed over to a self-owned/free station is returned by the deferred release.
 			settled = !pricing.free || maxCost == 0
+			if !pricing.free && cost > 0 {
+				noteCharged(w) // a real charge was captured (a free plan or a $0 settle captures nothing)
+			}
 			// THE CAPACITY SIGNAL IS MEASURED ON THE COUNT THE BROKER VERIFIED, NOT ON THE
 			// NODE'S CLAIM - and the clamp it uses is the one computed three lines above
 			// for billing.
@@ -4367,6 +4373,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 				lw.complete() // the whole answer is out: no station [DONE] is owed
 				lw.finish(bridgedUsageChunk(g, rec, cost), "rogerai-cost="+fmtCostHeader(cost))
 				settled = true
+				noteCharged(w)
 				return
 			}
 			status, retry := http.StatusBadGateway, 0
@@ -4739,6 +4746,9 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 			// A free plan captures nothing: a hold placed for a paid first pick that failed
 			// over to a free station is returned by the deferred release.
 			*settled = !pricing.free || maxCost == 0
+			if !pricing.free && cost > 0 {
+				noteCharged(lw.w) // a real charge was captured (a free plan or a $0 settle captures nothing)
+			}
 		}
 		// THE SAME CLAMP AS THE RELAY PATH, for the same reason and off the same
 		// figure. A capacity input that is verified on one path and self-declared on

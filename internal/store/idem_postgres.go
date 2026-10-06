@@ -18,7 +18,8 @@ func (p *Postgres) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (
 		// Taken: an expired claim is replaced (only one racer's conditional update lands).
 		res, err = p.db.Exec(`UPDATE rogerai.idempotency_claims SET fingerprint=$3,request_id=$4,state=$5,deadline=$6,created=$7,
 			seq=nextval(pg_get_serial_sequence('rogerai.idempotency_claims','seq'))
-			WHERE payer=$1 AND key=$2 AND created < $8`, c.Payer, c.Key, c.Fingerprint, c.RequestID, c.State, c.Deadline, c.Created, since)
+			WHERE payer=$1 AND key=$2 AND (created < $8 OR (state=$9 AND deadline > 0 AND deadline < $7))`,
+			c.Payer, c.Key, c.Fingerprint, c.RequestID, c.State, c.Deadline, c.Created, since, IdemInFlight)
 		if err != nil {
 			return IdemClaim{}, false, err
 		}
@@ -31,8 +32,8 @@ func (p *Postgres) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (
 	}
 	// At most maxPerPayer keys per payer: the oldest FINISHED claims fall out early. An in-flight
 	// claim is never evicted (a retry would win a second claim, so a second job and hold).
-	if _, err := p.db.Exec(`DELETE FROM rogerai.idempotency_claims WHERE payer=$1 AND state<>$3 AND key IN (
-		SELECT key FROM rogerai.idempotency_claims WHERE payer=$1 ORDER BY created DESC, seq DESC OFFSET $2)`, c.Payer, maxPerPayer, IdemInFlight); err != nil {
+	if _, err := p.db.Exec(`DELETE FROM rogerai.idempotency_claims WHERE payer=$1 AND state<>$3 AND (created < $4 OR key IN (
+		SELECT key FROM rogerai.idempotency_claims WHERE payer=$1 ORDER BY created DESC, seq DESC OFFSET $2))`, c.Payer, maxPerPayer, IdemInFlight, since); err != nil {
 		return IdemClaim{}, false, err
 	}
 	return c, true, nil

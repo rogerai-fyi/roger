@@ -156,3 +156,85 @@ func TestIdempotencyEvictionSparesInflightParity(t *testing.T) {
 		})
 	}
 }
+
+// slice-6 audit 2026-10-06: an in-flight claim past its deadline (its instance died) is taken
+// over by the next claim, so the key does not answer 409 for the whole window; inside its
+// deadline it is not.
+func TestIdempotencyDeadInflightTakeoverParity(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			payer := fmt.Sprintf("iddead-%s-u1", name)
+			c := IdemClaim{Payer: payer, Key: "k", Fingerprint: "fp", RequestID: "r-1", State: IdemInFlight, Deadline: 2_000, Created: 1_000}
+			_, ok, err := s.ClaimIdempotency(c, 0, 1000)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			early := c
+			early.RequestID, early.Created, early.Deadline = "r-early", 1_500, 3_000
+			got, ok, err := s.ClaimIdempotency(early, 0, 1000)
+			require.NoError(t, err)
+			require.False(t, ok, "inside its deadline the claim holds")
+			require.Equal(t, "r-1", got.RequestID)
+
+			late := c
+			late.RequestID, late.Created, late.Deadline = "r-late", 2_500, 4_000
+			got, ok, err = s.ClaimIdempotency(late, 0, 1000)
+			require.NoError(t, err)
+			require.True(t, ok, "past its deadline an in-flight claim is taken over")
+			require.Equal(t, "r-late", got.RequestID)
+
+			// A finished claim is never taken over before the window ends, deadline or not.
+			require.NoError(t, s.FinishIdempotency(payer, "k", "r-late", IdemDone))
+			after := c
+			after.RequestID, after.Created = "r-after", 9_000
+			got, ok, err = s.ClaimIdempotency(after, 0, 1000)
+			require.NoError(t, err)
+			require.False(t, ok)
+			require.Equal(t, "r-late", got.RequestID)
+		})
+	}
+}
+
+// slice-6 audit 2026-10-06: a finished claim past the window is swept on the next claim, not
+// kept until the per-payer count bound reaches it.
+func TestIdempotencyExpiredSweepParity(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			payer := fmt.Sprintf("idsweep-%s-u1", name)
+			old := IdemClaim{Payer: payer, Key: "old", Fingerprint: "fp", RequestID: "r-old", State: IdemInFlight, Deadline: 200, Created: 100}
+			_, ok, err := s.ClaimIdempotency(old, 0, 1000)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.NoError(t, s.FinishIdempotency(payer, "old", "r-old", IdemDone))
+
+			fresh := IdemClaim{Payer: payer, Key: "new", Fingerprint: "fp", RequestID: "r-new", State: IdemInFlight, Deadline: 9_000, Created: 5_000}
+			_, ok, err = s.ClaimIdempotency(fresh, 1_000, 1000) // the window starts at 1000
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, 1, idemRowsOf(t, s, payer), "the expired finished claim was swept")
+		})
+	}
+}
+
+// idemRowsOf counts the claim rows a payer holds, on either backend.
+func idemRowsOf(t *testing.T, s Store, payer string) int {
+	t.Helper()
+	switch x := s.(type) {
+	case *Mem:
+		x.mu.Lock()
+		defer x.mu.Unlock()
+		n := 0
+		for _, c := range x.idemClaims {
+			if c.Payer == payer {
+				n++
+			}
+		}
+		return n
+	case *Postgres:
+		var n int
+		require.NoError(t, x.DB().QueryRow(`SELECT count(*) FROM rogerai.idempotency_claims WHERE payer=$1`, payer).Scan(&n))
+		return n
+	}
+	t.Fatalf("unknown store %T", s)
+	return 0
+}
