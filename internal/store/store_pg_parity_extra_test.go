@@ -6,11 +6,11 @@ package store
 // owner-level earnings freeze, and the strike-seeding test seam.
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
 
 // The verified-email lookup is a security boundary (owners.email alone is user-editable
@@ -150,7 +150,7 @@ func TestSeedStrikesForTestStagesTheDecayWindow(t *testing.T) {
 // back the LIVE pool - a nil or a fresh handle would silently double the connection footprint
 // the accessor exists to keep honest.
 func TestPostgresDBExposesTheLivePool(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping shared-pool accessor test")
 	}

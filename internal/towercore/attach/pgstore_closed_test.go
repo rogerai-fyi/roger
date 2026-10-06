@@ -2,11 +2,11 @@ package attach
 
 import (
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -28,7 +28,7 @@ func TestPGStoreNeedsADatabase(t *testing.T) {
 }
 
 func TestAClosedPoolReportsAnOutageOnEveryPath(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
@@ -77,7 +77,7 @@ func TestAClosedPoolReportsAnOutageOnEveryPath(t *testing.T) {
 // A schema that cannot be created is a startup failure, not a silently degraded registry.
 // The broker must refuse to come up rather than run with joined attachment quietly missing.
 func TestAnUnusableDatabaseFailsTheConstructor(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
@@ -92,7 +92,7 @@ func TestAnUnusableDatabaseFailsTheConstructor(t *testing.T) {
 // Admit against an invitation that does not exist is a REFUSAL, not an outage: the row is
 // simply absent, and the caller turns that into "no such invitation".
 func TestAdmitOnAnUnknownInvitationIsNotAnOutage(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
@@ -112,7 +112,7 @@ func TestAdmitOnAnUnknownInvitationIsNotAnOutage(t *testing.T) {
 // Application ordering handles the ordinary case; this is what holds when two transactions
 // check at the same instant, so it is worth proving the constraint exists and bites.
 func TestTheLiveKeyIndexRefusesASecondHolder(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}

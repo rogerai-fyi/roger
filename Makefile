@@ -59,22 +59,25 @@ test:
 # developer almost never does, which is how a dropped column in PGStore.ByTower once sat
 # behind a passing parity suite.
 #
-# TWO things have to be right, and both are easy to get wrong by hand:
+# Two things have to be right; the target handles both:
 #
 #   the schema  - production provisions `rogerai` out-of-band and NewPostgres owns only the
-#                 tables inside it, by design. A bare container has no such schema, and the
-#                 suites that do not create their own (admit, enroll) fail with
-#                 `schema "rogerai" does not exist` in a way that reads like a code defect.
+#                 tables inside it, by design. A bare container has no such schema; it is
+#                 created here (internal/pgtest gives each package's private database its
+#                 own), and the CREATE is also the signal that the server is ready.
 #
-#   -p 1        - a dozen suites TRUNCATE tables in that ONE shared schema, so packages run
-#                 in parallel wipe each other's fixtures. It scales with core count: a
-#                 2-core CI runner almost never trips it and a 64-core workstation trips it
-#                 most runs, which is the worst possible distribution for believing a
-#                 failure. Serial here costs minutes and buys a result you can act on.
+#   isolation   - a dozen suites TRUNCATE or migrate tables, so packages sharing ONE
+#                 database wipe each other's fixtures or deadlock on each other's locks.
+#                 Every package's tests now get a private database on this server from
+#                 internal/pgtest, so they run in parallel safely and -p 1 is gone.
 #
 # Usage: make test-db            (starts and stops its own postgres:16)
 #        make test-db PKGS=./internal/towercore/attach/...
 PG_TEST_PORT ?= 55432
+# The throwaway database skips durability flushes (same as scripts/cover-gate.sh): it is
+# deleted afterwards, and the flush dominated the money-path suites. Locking and isolation
+# are unchanged.
+PG_TEST_FLAGS := -c fsync=off -c synchronous_commit=off -c full_page_writes=off
 PKGS ?= ./internal/towercore/... ./internal/store/...
 .PHONY: test-db
 test-db:
@@ -89,9 +92,9 @@ test-db:
 			|| podman ps -a --format '{{.Names}}' 2>/dev/null | grep -qx rogerai-test-pg; then sleep 1; else break; fi; \
 	done
 	@(docker run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-		-p $(PG_TEST_PORT):5432 postgres:16 -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null 2>&1 \
+		-p $(PG_TEST_PORT):5432 postgres:16 $(PG_TEST_FLAGS) >/dev/null 2>&1 \
 		|| podman run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-		-p $(PG_TEST_PORT):5432 postgres:16 -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null) \
+		-p $(PG_TEST_PORT):5432 postgres:16 $(PG_TEST_FLAGS) >/dev/null) \
 		&& echo "postgres:16 up on $(PG_TEST_PORT)"
 	@until (docker exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1 \
 		|| podman exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1); do sleep 1; done
@@ -103,9 +106,9 @@ test-db:
 		if [ $$i = 30 ]; then echo "could not create the rogerai schema" >&2; exit 1; fi; \
 		sleep 1; \
 	done
-	@echo "running $(PKGS) with -p 1"
+	@echo "running $(PKGS)"
 	@ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@127.0.0.1:$(PG_TEST_PORT)/roger_test?sslmode=disable" \
-		go test -p 1 -count=1 $(PKGS); \
+		go test -count=1 $(PKGS); \
 		status=$$?; \
 		(docker stop rogerai-test-pg >/dev/null 2>&1 || podman stop rogerai-test-pg >/dev/null 2>&1 || true); \
 		exit $$status
