@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-06 (founder)
 #
 # LAN MODE - YOU CAN ALWAYS SEE IT.
 #
@@ -105,6 +105,6 @@ Feature: LAN mode is visible on every surface, in words, without relying on colo
     Given a turn served by the LAN Tower at 192.168.1.20:8787
     When the Edge sessions view renders
     Then that row's route reads "lan"
-    # DECISION: a third route value. features/edge/mode.feature defines route local ("stayed on
+    # RULED 2026-10-06: add "lan" as a third route value. features/edge/mode.feature defines route local ("stayed on
     # hardware the owner owns") and market. A LAN Tower may not be the owner's (an office Tower),
-    # so calling it local would overstate it. Recommendation: add "lan" as a third route.
+    # so calling it local would overstate it.

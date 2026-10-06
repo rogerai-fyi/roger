@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-06 (founder)
 #
 # LAN MODE - ROUTING AND INFERENCE: every turn, by every path, goes to a local source or is refused.
 #
@@ -14,7 +14,7 @@
 #   rung 2  a VERIFIED, LAN-direct Edge member      (unchanged; mTLS, pinned)
 #   rung 2b a LAN Tower                             (new; plain http, trust-the-LAN)
 #   rung 3  the market                              REMOVED in LAN mode
-#   # DECISION: Edge members before LAN Towers. Recommendation: yes. A member is the owner's own
+#   # RULED 2026-10-06: Edge members before LAN Towers. A member is the owner's own
 #   # hardware, verified by certificate; a LAN Tower is trusted only because it is on the LAN
 #   # and may be someone else's (an office Tower). When both serve a band, prefer the one with
 #   # the stronger identity, then measured speed within each rung.
@@ -171,7 +171,7 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     Given the LAN Tower at 192.168.1.20:8787 serves "llama-3.3-70b" and "qwen3-8b"
     When they run "roger --lan use 192.168.1.20:8787 qwen3-8b"
     Then the proxy opens pinned to that Tower for "qwen3-8b"
-    # DECISION: addressing a Tower by address in `roger use`. Recommendation: yes, mirroring
+    # RULED 2026-10-06: a Tower can be addressed by address in `roger use`, mirroring
     # node addressing (features/edge/addressed_inference.feature); a bare address that serves
     # one band needs no model, one that serves several lists them.
 
@@ -240,7 +240,7 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     When they run "roger --lan say hello"
     Then it is refused, saying no local voice is on air
     And no request was made to the public broker's /v1/audio/speech
-    # DECISION: voice in LAN mode. Recommendation: same filter as text; a local TTS station is
+    # RULED 2026-10-06: voice uses the same filter as text; a local TTS station is
     # a band like any other.
 
   @cli
@@ -248,7 +248,7 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     When they run "roger --lan remote-control"
     Then it behaves exactly as without --lan
     # They are not inference; the ruling keeps non-inference network use working.
-    # DECISION: confirm remote-control and capsules stay network features in LAN mode.
+    # RULED 2026-10-06: remote control and context capsules keep working unchanged in LAN mode.
 
   # =========================================================================
   # 3. VARIANTS, ALIASES AND CAPS IN LAN MODE

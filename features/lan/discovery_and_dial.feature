@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-06 (founder)
 #
 # LAN MODE - DISCOVERY AND THE DIAL: three local sources, one dial, and every row says where it is.
 #
@@ -22,7 +22,7 @@
 #   A HOSTNAME is local when EVERY address it resolves to is local, checked again at EVERY
 #   connection (a name that resolved local yesterday and public today is public today).
 #   CGNAT 100.64.0.0/10 is NOT local by default.
-#   # DECISION: CGNAT. Recommendation: not local by default (it is ISP shared space, and a
+#   # RULED 2026-10-06: CGNAT is not local by default (it is ISP shared space, and a
 #   # carrier-NATed neighbour is not your LAN), but an address the owner adds EXPLICITLY with
 #   # `roger lan add` is accepted with a one-line note that it is a carrier/overlay range (mesh
 #   # VPN overlays commonly use it). Discovery never yields a CGNAT Tower on its own.
@@ -33,7 +33,7 @@
 #       fingerprint (today's isLocalTowerBroker probe: /local/poll -> exactly the uniform 401);
 #   (c) mDNS: a standalone Tower may advertise itself on the LAN, and LAN mode lists what it
 #       hears as CANDIDATES the owner adds with one action. It is never used until added.
-#   # DECISION: mDNS advertisement by roger-tower-local. Recommendation: yes, OFF by default on
+#   # RULED 2026-10-06: roger-tower-local may advertise over mDNS, OFF by default on
 #   # the Tower (`roger-tower-local serve --advertise`), private interfaces only, and candidates
 #   # are never dialed for inference until the owner adds them (one keystroke in the TUI, one
 #   # command in the CLI). This keeps the approved standalone scenario "the Tower's own
@@ -366,5 +366,5 @@ Feature: In LAN mode the dial lists only bands served on this machine, by this E
     When the Ping World screen opens
     Then no request is made to the public broker's /discover
     And it draws the local sources only, or says it has nothing local to draw
-    # DECISION: Ping World in LAN mode. Recommendation: draw only local sources; it is a
+    # RULED 2026-10-06: Ping World in LAN mode draws only local sources; it is a
     # discovery view and the ruling is that LAN mode filters what is discovered.

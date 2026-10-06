@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-06 (founder)
 #
 # LAN MODE - MONEY AND ACCOUNTS: nothing is billed, nothing pretends to be.
 #
@@ -102,7 +102,7 @@ Feature: LAN mode moves no money, shows no money it does not move, and needs no 
     When the header renders
     Then it shows the LAN badge where the balance tag would be
     And the balance is still reachable from the account section
-    # DECISION: hide the balance from the header in LAN mode. Recommendation: yes, the header
+    # RULED 2026-10-06: the header hides the balance in LAN mode; the header
     # should state what this session costs (nothing), and the balance is one keystroke away.
 
   @console

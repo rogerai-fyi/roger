@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-06 (founder)
 #
 # LAN MODE - TRUST AND HONESTY: trust the LAN, and say plainly what that means.
 #
@@ -60,7 +60,7 @@ Feature: LAN mode trusts the local network for Towers, says so once where it mat
     And it says Towers are trusted because they are on the LAN, with the plain-http exposure
     And it says Edge members are verified by certificate
     And it says how to keep sensitive work on Edge members only
-    # DECISION: offer `roger --lan --edge-only` (Edge members and this machine, no Towers) for
+    # RULED 2026-10-06: yes, offer `roger --lan --edge-only` (Edge members and this machine, no Towers) for
     # sensitive work. Recommendation: yes; it is the strict subset that needs no trust in the LAN.
 
   @client

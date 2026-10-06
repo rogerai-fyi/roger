@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-06 (founder)
 #
 # LAN MODE - SHARE: what "share" means when the market is filtered out.
 #
@@ -77,7 +77,7 @@ Feature: Sharing in LAN mode serves the LAN Towers and the Edge, and never the m
   Scenario: `roger --lan share --price` is refused as meaningless on the LAN
     When they run "roger --lan share --price 0.5"
     Then it exits non-zero, saying LAN sharing is free and has no price
-    # DECISION: refuse or ignore a price flag in LAN mode. Recommendation: refuse, because a
+    # RULED 2026-10-06: refuse a price flag in LAN mode, because a
     # price the owner thinks is set but is not would mislead them.
 
   @agent

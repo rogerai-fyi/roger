@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-06 (founder)
 #
 # LAN MODE - LAUNCH AND CONFIG: one switch, the same everywhere, and you can always tell it is on.
 #
