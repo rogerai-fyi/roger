@@ -26,6 +26,7 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 		if up, key := opts.LANSelf(band); up != "" {
 			if resp, err := lanPost(ctx, opts, nil, up, body, false, key); err == nil {
 				onServed(0)
+				w.Header().Set("X-RogerAI-Cost", "0") // a LAN turn is free and says so
 				copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
 				resp.Body.Close()
 				return true, false
@@ -59,6 +60,7 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 				continue
 			}
 			onServed(0)
+			w.Header().Set("X-RogerAI-Cost", "0") // a LAN turn is free and says so
 			copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
 			resp.Body.Close()
 			return true, false

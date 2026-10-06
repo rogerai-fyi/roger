@@ -150,3 +150,17 @@ func TestChatTurnsInLANModeNeverAsksTheBroker(t *testing.T) {
 	require.ErrorContains(t, err, "nothing on this LAN serves")
 	require.Zero(t, brokerHits.Load())
 }
+
+// A LAN answer tells the caller it cost nothing (features/lan/money_and_accounts.feature).
+func TestRelayLANAnswersCarryAZeroCost(t *testing.T) {
+	var hits atomic.Int32
+	tw := lanUpstream(t, "tower", &hits, nil)
+	opts := ProxyOptions{LANMode: true, LANKey: lanKey(t),
+		LANTowers: func(string) []string { return []string{"192.168.1.20:8787"} },
+		LANHTTP:   dialMap{"192.168.1.20:8787": tw.Listener.Addr().String()}.client()}
+	rec := lanTurn(t, opts, "m")
+	require.Equal(t, "0", rec.Header().Get("X-RogerAI-Cost"))
+	self := lanUpstream(t, "self", &hits, nil)
+	rec = lanTurn(t, ProxyOptions{LANMode: true, LANSelf: func(string) (string, string) { return self.URL, "" }}, "m")
+	require.Equal(t, "0", rec.Header().Get("X-RogerAI-Cost"))
+}
