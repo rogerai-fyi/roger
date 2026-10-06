@@ -597,8 +597,10 @@ Rulings on the slice-6 open items (founder, 2026-10-05):
     key under its own label, so every instance agrees and no mapping table exists. A receipt
     names the attempt, not the request: responses carry `X-RogerAI-Attempt-Id` (the attempt the
     receipt names), and the consumer's own ledger rows and /console consumer events carry
-    `relay_request_id` beside it (Postgres: a `relay_request_id` column on receipts). A station
-    owner's rows never carry it. No station protocol change.
+    `relay_request_id` beside it (Postgres: a `relay_request_id` column on receipts). A
+    Tower-relayed attempt carries it too: the attempt record keeps it, so whichever instance
+    settles the attempt stamps it. A station owner's rows never carry it. No station protocol
+    change.
 24. Region (§14.B7 #21): the network-to-continent table is operator-supplied by configuration;
     the public code ships only the loader and names no dataset. With no table configured, region
     stays declared only (today's behavior) and `attribute_sources.region` says "declared".
