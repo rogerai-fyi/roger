@@ -579,6 +579,13 @@ func TestVoiceNamespacingBDD(t *testing.T) {
 					st.modStub.Close()
 					st.modStub = nil
 				}
+				// Release the scenario's pool now: reset opens one per scenario, and the
+				// t.Cleanup in nsTestStore only fires when the whole suite ends.
+				if st.b != nil {
+					if c, ok := st.b.db.(interface{ Close() error }); ok {
+						_ = c.Close()
+					}
+				}
 				return ctx, nil
 			})
 

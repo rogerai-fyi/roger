@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -144,6 +145,38 @@ type sharedStore interface {
 	// until the next reconcile - which is why a money read NEVER trusts a bare counter as
 	// authoritative without a reconcile path).
 	counterIncr(key string, delta float64) (val float64, err error)
+
+	// counterDel removes a counter (invalidation). A money fast-path that is rebuilt from
+	// Postgres on a miss is invalidated after each committed write instead of incremented, so
+	// a write racing a reconcile can never be counted twice.
+	counterDel(key string) error
+
+	// counterDelIfEqual deletes the counter only while it still holds exactly val (compare-
+	// and-delete). A reconcile uses it to withdraw a value that turned out stale without
+	// destroying a peer's later increment.
+	counterDelIfEqual(key string, val float64) (deleted bool, err error)
+	// counterSetIfGreater stores val (with ttl) only when the counter is absent or holds less
+	// than val, atomically; a monotonic month-to-date total can then never move backwards.
+	counterSetIfGreater(key string, val float64, ttl time.Duration) error
+
+	// edgeSlotReserve is the per-account open-attempt cap shared by every instance: one
+	// sorted set per account (member = slot id, score = its deadline in unix ms). In ONE
+	// atomic step it trims members whose deadline has passed, counts the rest, and adds
+	// member with deadline when fewer than limit are open. ok=false at the cap.
+	edgeSlotReserve(account, member string, deadline, now time.Time, limit int) (ok bool, err error)
+	// edgeSlotPromote turns a reservation into the attempt it became: it swaps member token
+	// for attemptID (score = the attempt's deadline) and records attemptID -> account so the
+	// instance that sees the attempt end, whichever it is, can free the slot.
+	edgeSlotPromote(account, token, attemptID string, deadline time.Time) error
+	// edgeSlotAdopt counts attemptID in the account's set whether or not its reservation token
+	// is still there (it may have lapsed while a promotion kept failing): it records the
+	// attempt's account, removes the token if present and adds the attempt with its deadline.
+	edgeSlotAdopt(account, token, attemptID string, deadline time.Time) error
+	// edgeSlotDrop frees a reservation that never became an attempt.
+	edgeSlotDrop(account, token string) error
+	// edgeSlotFree frees the slot an attempt holds. Idempotent: an unknown or already-freed
+	// attempt id frees nothing.
+	edgeSlotFree(attemptID string) error
 
 	// setIfAbsent sets key=val only if it does not already exist (SETNX), with a TTL, and
 	// reports whether THIS call set it (set==true) or it already existed (set==false). It
@@ -356,6 +389,15 @@ type sharedStore interface {
 	// this round.
 	cooling() (map[string]sharedCooling, error)
 
+	// recordCoolEvent appends one cooldown to the station's shared record of the last window
+	// (features/ops/cooling_alert_shared.feature) and returns that record. The cooling time
+	// the event ADDED is computed in the same atomic step against the shared cooldown expiry,
+	// so two instances cooling a station for one 429 window count it once.
+	recordCoolEvent(node, model string, now, until time.Time, window time.Duration) ([]coolEvent, error)
+	// coolEvents returns every station's shared cooldown record inside the window ending at
+	// now, with its band. A station with no event left in the window is returned empty.
+	coolEvents(now time.Time, window time.Duration) (map[string]coolRecord, error)
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
 }
@@ -364,6 +406,12 @@ type sharedStore interface {
 type sharedCooling struct {
 	until time.Time
 	model string
+}
+
+// coolRecord is one station's shared cooldown events and the band it cooled on.
+type coolRecord struct {
+	model  string
+	events []coolEvent
 }
 
 // streamFrame is one message off the per-job stream bus channel: a raw SSE chunk to
@@ -419,7 +467,17 @@ func (m *memStore) counterGet(string) (float64, bool, error) { return 0, false, 
 func (m *memStore) counterSet(string, float64, time.Duration) error {
 	return errNoSharedStore
 }
-func (m *memStore) counterIncr(string, float64) (float64, error) { return 0, errNoSharedStore }
+func (m *memStore) counterIncr(string, float64) (float64, error)             { return 0, errNoSharedStore }
+func (m *memStore) counterDel(string) error                                  { return errNoSharedStore }
+func (m *memStore) counterDelIfEqual(string, float64) (bool, error)          { return false, errNoSharedStore }
+func (m *memStore) counterSetIfGreater(string, float64, time.Duration) error { return errNoSharedStore }
+func (m *memStore) edgeSlotReserve(string, string, time.Time, time.Time, int) (bool, error) {
+	return false, errNoSharedStore
+}
+func (m *memStore) edgeSlotPromote(string, string, string, time.Time) error { return errNoSharedStore }
+func (m *memStore) edgeSlotAdopt(string, string, string, time.Time) error   { return errNoSharedStore }
+func (m *memStore) edgeSlotDrop(string, string) error                       { return errNoSharedStore }
+func (m *memStore) edgeSlotFree(string) error                               { return errNoSharedStore }
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 	return false, errNoSharedStore
 }
@@ -482,6 +540,12 @@ func (m *memStore) markCooling(string, string, time.Time, time.Duration) error {
 	return errNoSharedStore
 }
 func (m *memStore) cooling() (map[string]sharedCooling, error) { return nil, errNoSharedStore }
+func (m *memStore) recordCoolEvent(string, string, time.Time, time.Time, time.Duration) ([]coolEvent, error) {
+	return nil, errNoSharedStore
+}
+func (m *memStore) coolEvents(time.Time, time.Duration) (map[string]coolRecord, error) {
+	return nil, errNoSharedStore
+}
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -510,9 +574,12 @@ type valkeyStore struct {
 	// still running older code heartbeats only into the per-node keys, so both are read.
 	livenessHashOnly atomic.Bool
 
-	mu      sync.Mutex
-	up      bool // last observed reachability (for healthy())
-	lastLog time.Time
+	mu sync.Mutex
+	up bool // last observed reachability (for healthy())
+	// downSince is when the current run of failures began (zero while up): dispatch treats
+	// the store as down only once that run has lasted storeOutageDebounce (downFor).
+	downSince time.Time
+	lastLog   time.Time
 
 	// opErrors is a monotonic count of EVERY failed Valkey op (publish/subscribe/get/set/
 	// script/...), funneled through noteErr. It is an atomic so the (rare) error path adds
@@ -703,8 +770,30 @@ func newValkeyStoreTopology(tp valkeyTopology) (*valkeyStore, error) {
 
 func (v *valkeyStore) setUp(up bool) {
 	v.mu.Lock()
-	v.up = up
+	v.markLocked(up)
 	v.mu.Unlock()
+}
+
+// markLocked records reachability and starts or ends the current run of failures. Caller holds mu.
+func (v *valkeyStore) markLocked(up bool) {
+	switch {
+	case up:
+		v.downSince = time.Time{}
+	case v.downSince.IsZero():
+		v.downSince = time.Now()
+	}
+	v.up = up
+}
+
+// downFor is how long the store has been failing without a single success in between (zero
+// while it answers).
+func (v *valkeyStore) downFor() time.Duration {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.up || v.downSince.IsZero() {
+		return 0
+	}
+	return time.Since(v.downSince)
 }
 
 func (v *valkeyStore) healthy() bool {
@@ -722,7 +811,7 @@ func (v *valkeyStore) noteErr(op string, err error) {
 	}
 	v.opErrors.Add(1)
 	v.mu.Lock()
-	v.up = false
+	v.markLocked(false)
 	logNow := time.Since(v.lastLog) > 30*time.Second
 	if logNow {
 		v.lastLog = time.Now()
@@ -731,6 +820,36 @@ func (v *valkeyStore) noteErr(op string, err error) {
 	if logNow {
 		log.Printf("shared-state: valkey %s failed, using in-memory fallback: %v", op, err)
 	}
+}
+
+// noteReply is noteErr for an error REPLY (redis.Error). A refusal of one command on one
+// key (keyRefusal) means the store answered and can still serve, so it is counted and
+// logged without tripping the outage path. Every other error reply (out of memory,
+// persistence failing, auth, loading, a replica, client limits) can refuse every write,
+// so it goes to noteErr and marks the store down.
+func (v *valkeyStore) noteReply(op string, err error) {
+	if !keyRefusal(err) {
+		v.noteErr(op, err)
+		return
+	}
+	v.opErrors.Add(1)
+	v.mu.Lock()
+	v.markLocked(true)
+	logNow := time.Since(v.lastLog) > 30*time.Second
+	if logNow {
+		v.lastLog = time.Now()
+	}
+	v.mu.Unlock()
+	if logNow {
+		log.Printf("shared-state: valkey %s refused: %v", op, err)
+	}
+}
+
+// keyRefusal reports whether the server's error reply (unwrapped) refuses one command on
+// one key (the key holds the wrong type) rather than saying the server cannot serve.
+func keyRefusal(err error) bool {
+	var reply redis.Error
+	return errors.As(err, &reply) && strings.HasPrefix(reply.Error(), "WRONGTYPE ")
 }
 
 func (v *valkeyStore) Close() error {
@@ -1278,6 +1397,102 @@ func (v *valkeyStore) markCooling(node, model string, until time.Time, ttl time.
 	return nil
 }
 
+// The station's events and its shared expiry share one hash tag, so the record script runs
+// on one cluster slot; the index (station -> band) is a separate key read on the check.
+func coolEvKey(node string) string    { return keyPrefix + "coolev:{" + node + "}" }
+func coolUntilKey(node string) string { return keyPrefix + "coolevuntil:{" + node + "}" }
+
+const coolEvIndexKey = keyPrefix + "coolevidx"
+
+// recordCoolEventScript: KEYS[1] the events (score = at ms, member "at|added|nonce"), KEYS[2]
+// the shared expiry; ARGV now ms, until ms, window ms, nonce. Returns the events in the window.
+var recordCoolEventScript = redis.NewScript(`
+local now, untl, window = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+local prev = tonumber(redis.call('GET', KEYS[2]) or '0')
+local added = untl - now
+if prev > now then
+  if untl < prev then untl = prev end
+  added = untl - prev
+end
+redis.call('SET', KEYS[2], untl, 'PX', window)
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+redis.call('ZADD', KEYS[1], now, now .. '|' .. added .. '|' .. ARGV[4])
+redis.call('PEXPIRE', KEYS[1], window)
+return redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. (now - window), '+inf')
+`)
+
+func parseCoolEvents(members []string) []coolEvent {
+	out := make([]coolEvent, 0, len(members))
+	for _, m := range members {
+		parts := strings.SplitN(m, "|", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		at, err1 := strconv.ParseInt(parts[0], 10, 64)
+		added, err2 := strconv.ParseInt(parts[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		out = append(out, coolEvent{at: time.UnixMilli(at), added: time.Duration(added) * time.Millisecond})
+	}
+	return out
+}
+
+func (v *valkeyStore) recordCoolEvent(node, model string, now, until time.Time, window time.Duration) ([]coolEvent, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	members, err := recordCoolEventScript.Run(ctx, v.rdb, []string{coolEvKey(node), coolUntilKey(node)},
+		now.UnixMilli(), until.UnixMilli(), window.Milliseconds(), newInstanceID()).StringSlice()
+	if err == nil {
+		pipe := v.rdb.Pipeline()
+		pipe.HSet(ctx, coolEvIndexKey, node, model)
+		pipe.PExpire(ctx, coolEvIndexKey, 2*window)
+		_, err = pipe.Exec(ctx)
+	}
+	if err != nil {
+		v.noteErr("recordCoolEvent", err)
+		return nil, err
+	}
+	v.setUp(true)
+	return parseCoolEvents(members), nil
+}
+
+func (v *valkeyStore) coolEvents(now time.Time, window time.Duration) (map[string]coolRecord, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	idx, err := v.rdb.HGetAll(ctx, coolEvIndexKey).Result()
+	if err != nil {
+		v.noteErr("coolEvents", err)
+		return nil, err
+	}
+	out := make(map[string]coolRecord, len(idx))
+	if len(idx) == 0 {
+		v.setUp(true)
+		return out, nil
+	}
+	cutoff := "(" + strconv.FormatInt(now.Add(-window).UnixMilli(), 10)
+	pipe := v.rdb.Pipeline()
+	cmds := make(map[string]*redis.StringSliceCmd, len(idx))
+	for node := range idx {
+		cmds[node] = pipe.ZRangeByScore(ctx, coolEvKey(node), &redis.ZRangeBy{Min: cutoff, Max: "+inf"})
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("coolEvents", err)
+		return nil, err
+	}
+	for node, model := range idx {
+		out[node] = coolRecord{model: model, events: parseCoolEvents(cmds[node].Val())}
+	}
+	v.setUp(true)
+	return out, nil
+}
+
 func (v *valkeyStore) cooling() (map[string]sharedCooling, error) {
 	if v == nil || v.rdb == nil {
 		return nil, errNoSharedStore
@@ -1746,6 +1961,239 @@ func (v *valkeyStore) counterIncr(key string, delta float64) (float64, error) {
 	return val, nil
 }
 
+// counterSetIfGreaterScript: SET (with PX ARGV[2]) only when the key is absent or holds a
+// smaller number than ARGV[1]; returns 1 if it wrote.
+var counterSetIfGreaterScript = redis.NewScript(`
+local cur = redis.call('GET', KEYS[1])
+if (not cur) or tonumber(cur) < tonumber(ARGV[1]) then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+  return 1
+end
+return 0
+`)
+
+func (v *valkeyStore) counterSetIfGreater(key string, val float64, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := counterSetIfGreaterScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key},
+		strconv.FormatFloat(val, 'f', -1, 64), ttl.Milliseconds()).Err(); err != nil {
+		v.noteErr("counterSetIfGreater", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// counterDelIfEqualScript: DEL only while the stored number equals ARGV[1]; returns 1 if deleted.
+var counterDelIfEqualScript = redis.NewScript(`
+local v = redis.call('GET', KEYS[1])
+if v and tonumber(v) == tonumber(ARGV[1]) then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+return 0
+`)
+
+func (v *valkeyStore) counterDel(key string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Del(ctx, counterKeyPrefix+key).Err(); err != nil {
+		v.noteErr("counterDel", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) counterDelIfEqual(key string, val float64) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	n, err := counterDelIfEqualScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key}, strconv.FormatFloat(val, 'f', -1, 64)).Int()
+	if err != nil {
+		v.noteErr("counterDelIfEqual", err)
+		return false, err
+	}
+	v.setUp(true)
+	return n == 1, nil
+}
+
+// Every script below touches ONE key, so the set works unchanged on a cluster topology.
+const (
+	edgeSlotsPrefix = keyPrefix + "edgeslots:" // + account: sorted set of open slots
+	edgeAttPrefix   = keyPrefix + "edgeatt:"   // + attempt id: the account whose slot it holds
+	// edgeClosedPrefix + attempt id marks an attempt that has been freed, so a delayed count
+	// (edgeSlotAdopt after a failed promotion) that lands after the close removes itself.
+	edgeClosedPrefix = keyPrefix + "edgeclosed:"
+)
+
+// edgeClosedTTL bounds how long a closed attempt's tombstone lives: longer than any attempt's
+// execution window, so every delayed count for it lands while the tombstone still exists.
+const edgeClosedTTL = 30 * time.Minute
+
+// edgeSlotReserveScript: KEYS[1] the account's set; ARGV now ms, limit, member, deadline ms.
+// Returns 1 when the member was added, 0 at the cap.
+var edgeSlotReserveScript = redis.NewScript(`
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[4], ARGV[3])
+local ttl = tonumber(ARGV[4]) - tonumber(ARGV[1])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+// edgeSlotSwapScript: KEYS[1] the account's set; ARGV token, attempt id, deadline ms, now ms.
+// A reservation that already lapsed (trimmed) is not resurrected: returns 0.
+var edgeSlotSwapScript = redis.NewScript(`
+if redis.call('ZREM', KEYS[1], ARGV[1]) == 0 then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[2])
+local ttl = tonumber(ARGV[3]) - tonumber(ARGV[4])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+func (v *valkeyStore) edgeSlotReserve(account, member string, deadline, now time.Time, limit int) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	n, err := edgeSlotReserveScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+		now.UnixMilli(), limit, member, deadline.UnixMilli()).Int()
+	if err != nil {
+		v.noteErr("edgeSlotReserve", err)
+		return false, err
+	}
+	v.setUp(true)
+	return n == 1, nil
+}
+
+// edgeSlotPromote records the attempt's account FIRST, then swaps the member: a free that
+// races the swap finds the account and removes the attempt id (or nothing, harmlessly).
+func (v *valkeyStore) edgeSlotPromote(account, token, attemptID string, deadline time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	now := time.Now()
+	ttl := max(deadline.Sub(now), time.Millisecond)
+	err := v.rdb.Set(ctx, edgeAttPrefix+attemptID, account, ttl).Err()
+	if err == nil {
+		err = edgeSlotSwapScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+			token, attemptID, deadline.UnixMilli(), now.UnixMilli()).Err()
+	}
+	if err != nil {
+		v.noteErr("edgeSlotPromote", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// edgeSlotAdoptScript: KEYS[1] the account's set; ARGV token, attempt id, deadline ms, now ms.
+var edgeSlotAdoptScript = redis.NewScript(`
+redis.call('ZREM', KEYS[1], ARGV[1])
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[2])
+local ttl = tonumber(ARGV[3]) - tonumber(ARGV[4])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+func (v *valkeyStore) edgeSlotAdopt(account, token, attemptID string, deadline time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	now := time.Now()
+	ttl := max(deadline.Sub(now), time.Millisecond)
+	err := v.rdb.Set(ctx, edgeAttPrefix+attemptID, account, ttl).Err()
+	if err == nil {
+		err = edgeSlotAdoptScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+			token, attemptID, deadline.UnixMilli(), now.UnixMilli()).Err()
+	}
+	// A count that lands after the attempt closed (on any instance) must not stick: the close
+	// writes its tombstone BEFORE it frees, so checking AFTER adding sees it whenever the free
+	// could have missed this add, and the add is taken back.
+	if err == nil {
+		var closed int64
+		if closed, err = v.rdb.Exists(ctx, edgeClosedPrefix+attemptID).Result(); err == nil && closed > 0 {
+			if err = v.rdb.ZRem(ctx, edgeSlotsPrefix+account, attemptID).Err(); err == nil {
+				err = v.rdb.Del(ctx, edgeAttPrefix+attemptID).Err()
+			}
+		}
+	}
+	if err != nil {
+		v.noteErr("edgeSlotAdopt", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) edgeSlotDrop(account, token string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.ZRem(ctx, edgeSlotsPrefix+account, token).Err(); err != nil {
+		v.noteErr("edgeSlotDrop", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// edgeSlotFree takes the attempt's account with GETDEL, so of two concurrent frees exactly
+// one finds it and the other frees nothing.
+func (v *valkeyStore) edgeSlotFree(attemptID string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	// The tombstone first (see edgeSlotAdopt): a delayed count for this attempt that lands
+	// after this free sees it and removes itself.
+	if err := v.rdb.Set(ctx, edgeClosedPrefix+attemptID, "1", edgeClosedTTL).Err(); err != nil {
+		v.noteErr("edgeSlotFree", err)
+		return err
+	}
+	acct, err := v.rdb.GetDel(ctx, edgeAttPrefix+attemptID).Result()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil
+	}
+	if err == nil {
+		err = v.rdb.ZRem(ctx, edgeSlotsPrefix+acct, attemptID).Err()
+	}
+	if err != nil {
+		v.noteErr("edgeSlotFree", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
 func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, error) {
 	if v == nil || v.rdb == nil {
 		return false, errNoSharedStore
@@ -2079,29 +2527,6 @@ func (v *valkeyStore) busNextRCSeq(sid string) (uint64, error) {
 	v.rdb.Expire(ctx, key, rcSeqTTL)
 	v.setUp(true)
 	return uint64(n), nil
-}
-
-// openSharedStore builds the shared-state layer from ROGERAI_REDIS_URL. UNSET (the
-// default + the fallback) returns nil: the broker uses its in-memory maps with ZERO
-// behavior change. SET connects a valkeyStore; a connection failure at startup
-// DEGRADES GRACEFULLY - it logs a warning and returns nil so the broker boots on the
-// in-memory path and NEVER crashes. (The returned store is closed on a connect
-// failure so we leak no client.)
-func openSharedStore() sharedStore {
-	tp, ok := valkeyTopologyFromEnv()
-	if !ok {
-		return nil // flag OFF: in-memory, byte-for-byte today's behavior.
-	}
-	vs, err := newValkeyStoreTopology(tp)
-	if err != nil {
-		if vs != nil {
-			_ = vs.Close()
-		}
-		log.Printf("shared-state: ROGERAI_REDIS_URL set but connect failed, falling back to in-memory (broker continues): %v", err)
-		return nil
-	}
-	log.Printf("shared-state: valkey connected (keys namespaced under %q) - sharing anon/concierge rate limits + node liveness across instances", keyPrefix)
-	return vs
 }
 
 // cacheTTLJitter adds a small (+0..15%) random jitter to a cache TTL so many entries

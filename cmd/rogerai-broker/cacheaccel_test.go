@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -335,25 +336,43 @@ func TestEnsureSeededPGGuardHoldsWithoutFlag(t *testing.T) {
 
 // --- W2b: monthly-spend counter reconciles on a miss + FAILS CLOSED -----------
 
-// TestMonthSpendCounterFastPath proves the happy path: after recordMonthSpend, monthSpend
-// reads the Redis counter (a fast-path hit) without a ledger SUM.
+// TestMonthSpendCounterFastPath proves the happy path under the invalidate-on-settle
+// contract (features/money/monthly_cap_concurrency.feature C4): a settle invalidates the
+// counter, the next read reconciles the exact ledger SUM and seeds it, and every read after
+// that is a fast-path HIT with no further ledger SUM.
 func TestMonthSpendCounterFastPath(t *testing.T) {
-	vs, _ := testValkeyShared(t)
+	vs, mr := testValkeyShared(t)
 	cs := &countingStore{Store: store.NewMem()}
 	b := &broker{db: cs, shared: vs}
 	now := time.Now()
 	holder := "u_gh_7"
 
-	// Seed the counter via the Finalize-time increment path.
-	b.recordMonthSpend(holder, 3.0, now)
-	b.recordMonthSpend(holder, 2.0, now)
-
-	// First monthSpend read: counter exists -> fast-path hit (no reconcile SUM).
-	if got := b.monthSpend(holder, now); got != 5.0 {
-		t.Errorf("fast-path month spend = %v, want 5.0", got)
+	for i, c := range []float64{3.0, 2.0} {
+		if _, err := cs.Settle(holder, "paid", c, 0, protocol.UsageReceipt{RequestID: fmt.Sprintf("fp%d", i), TS: now.Unix()}); err != nil {
+			t.Fatal(err)
+		}
+		b.recordMonthSpend(holder, c, now) // the Finalize-time hook: post-commit total, set if greater
 	}
-	if ms, _, _, _, _ := cs.counts(); ms != 0 {
-		t.Errorf("a counter HIT must not run the ledger SUM, ran %d", ms)
+	_ = mr // the counter is written by the settles themselves (post-commit total, set if greater)
+	if got := b.monthSpend(holder, now); got != 5.0 {
+		t.Errorf("month spend after two settles = %v, want 5.0", got)
+	}
+	ms1, _, _, _, _ := cs.counts()
+	for i := 0; i < 3; i++ {
+		if got := b.monthSpend(holder, now); got != 5.0 {
+			t.Errorf("fast-path month spend = %v, want 5.0", got)
+		}
+	}
+	if ms, _, _, _, _ := cs.counts(); ms != ms1 {
+		t.Errorf("a counter HIT must not run the ledger SUM: %d SUMs after the reconcile, want %d", ms, ms1)
+	}
+	// A later settle raises the counter to the new total, so the next read is exact again.
+	if _, err := cs.Settle(holder, "paid", 1.0, 0, protocol.UsageReceipt{RequestID: "fp9", TS: now.Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	b.recordMonthSpend(holder, 1.0, now)
+	if got := b.monthSpend(holder, now); got != 6.0 {
+		t.Errorf("after a later settle the read must be exact: %v, want 6.0", got)
 	}
 }
 
@@ -377,15 +396,17 @@ func TestMonthSpendReconcilesOnMiss(t *testing.T) {
 	if got != 7.50 {
 		t.Fatalf("a Redis miss must RECONCILE from the ledger (7.50), not read $0: got %v", got)
 	}
-	if ms, _, _, _, _ := cs.counts(); ms != 1 {
-		t.Errorf("a miss should reconcile via ONE ledger SUM, ran %d", ms)
+	// A miss reconciles with the ledger SUM and re-reads it once after seeding (the
+	// stale-seed check of the race-free reconcile): two SUMs, never more.
+	if ms, _, _, _, _ := cs.counts(); ms != 2 {
+		t.Errorf("a miss should reconcile via the ledger SUM plus one post-seed re-read (2), ran %d", ms)
 	}
 	// The counter was re-seeded with the truth: a second read now hits the fast path.
 	if got2 := b.monthSpend(holder, now); got2 != 7.50 {
 		t.Errorf("re-seeded counter should serve the reconciled value, got %v", got2)
 	}
-	if ms2, _, _, _, _ := cs.counts(); ms2 != 1 {
-		t.Errorf("the re-seeded counter should be a HIT (still 1 SUM total), ran %d", ms2)
+	if ms2, _, _, _, _ := cs.counts(); ms2 != 2 {
+		t.Errorf("the re-seeded counter should be a HIT (still 2 SUMs total), ran %d", ms2)
 	}
 }
 
@@ -476,5 +497,63 @@ func TestPromoUnlimited(t *testing.T) {
 	rem, unlimited, active := b.promoStatus()
 	if rem != -1 || !unlimited || !active {
 		t.Errorf("unlimited promoStatus = (%d,%v,%v), want (-1,true,true)", rem, unlimited, active)
+	}
+}
+
+// TestMonthSpendCounterStaysWarmAcrossSettles (audit fix 2026-10-04): a settle writes the
+// post-commit ledger total into the counter (set only if greater), so the next paid request
+// reads it without a ledger SUM, and the value is exact.
+func TestMonthSpendCounterStaysWarmAcrossSettles(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	cs := &countingStore{Store: store.NewMem()}
+	b := &broker{db: cs, shared: vs}
+	now := time.Now()
+	holder := "u_gh_7"
+
+	for i, c := range []float64{2.0, 0.5} {
+		if _, err := cs.Settle(holder, "paid", c, 0, protocol.UsageReceipt{RequestID: fmt.Sprintf("w%d", i), TS: now.Unix()}); err != nil {
+			t.Fatal(err)
+		}
+		b.recordMonthSpend(holder, c, now)
+	}
+	ms1, _, _, _, _ := cs.counts()
+	if got := b.monthSpend(holder, now); got != 2.5 {
+		t.Fatalf("after two settles the warm counter = %v, want 2.5", got)
+	}
+	if ms, _, _, _, _ := cs.counts(); ms != ms1 {
+		t.Fatalf("the read after a settle ran the ledger SUM (%d SUMs, want %d): the counter went cold", ms, ms1)
+	}
+	// A late writer carrying an older total can never move the counter backwards.
+	if err := vs.counterSetIfGreater(capSpendKey(holder, now), 2.0, capCounterTTL); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.monthSpend(holder, now); got != 2.5 {
+		t.Fatalf("an older total moved the counter backwards: %v, want 2.5", got)
+	}
+}
+
+// TestCapPreCheckConfirmsAnOverReadingCounterWithTheLedger (audit fix 2026-10-04): the
+// counter is a cache and may over-read (a settle that committed before a reconcile's ledger
+// read but added itself after the seed). The pre-check never refuses on the counter alone:
+// a counter that says "over" is confirmed against the ledger before any 402.
+func TestCapPreCheckConfirmsAnOverReadingCounterWithTheLedger(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	cs := &countingStore{Store: store.NewMem()}
+	b := &broker{db: cs, shared: vs}
+	now := time.Now()
+	holder := "u_gh_7"
+	if err := cs.SetMonthlyCap(holder, 10.0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.Settle(holder, "paid", 5.0, 0, protocol.UsageReceipt{RequestID: "o1", TS: now.Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	// The counter over-reads: it says $9.50 while the ledger holds $5.00.
+	if err := vs.counterSet(capSpendKey(holder, now), 9.5, capCounterTTL); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	if st, msg := b.monthlyCapCheck(w, holder, 1.0, now); st != 0 {
+		t.Fatalf("a $1 request with $5 of real spend under a $10 cap was refused on an over-reading counter: %d %s", st, msg)
 	}
 }

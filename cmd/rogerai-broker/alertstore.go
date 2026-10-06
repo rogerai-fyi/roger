@@ -34,7 +34,7 @@ return n
 
 // alertValkey returns the shared client when the shared store is a live Valkey, else nil.
 func (b *broker) alertValkey() *valkeyStore {
-	v, ok := b.shared.(*valkeyStore)
+	v, ok := b.sharedLive().(*valkeyStore)
 	if !ok || v == nil || v.rdb == nil {
 		return nil
 	}

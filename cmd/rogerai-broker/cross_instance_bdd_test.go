@@ -82,6 +82,10 @@ func xiStore(t *testing.T) store.Store {
 		if err != nil {
 			t.Fatalf("postgres: %v", err)
 		}
+		// Backstop: suites that forget a per-scenario close still release the pool when the
+		// test ends (closing an already-closed pool is harmless). Per-scenario closes stay the
+		// primary release: a godog suite's t lives for every scenario in it.
+		t.Cleanup(func() { _ = pg.Close() })
 		return pg
 	}
 	return store.NewMem()
@@ -305,6 +309,10 @@ type xiState struct {
 	relayDone    chan struct{}
 
 	prevRelayWait time.Duration
+
+	// vsClose releases the scenario's per-instance Valkey clients in cleanup, before the
+	// scenario's miniredis goes away (the suite-end t.Cleanup is only a backstop).
+	vsClose []func()
 }
 
 func (s *xiState) reset(t *testing.T) {
@@ -324,6 +332,7 @@ func (s *xiState) reset(t *testing.T) {
 	s.grantSecret, s.grantID = "", ""
 	s.relayCode, s.relayBody, s.relayHeaders = 0, nil, nil
 	s.relayDone = nil
+	s.vsClose = nil
 	// Keep the non-stream relay window short so the give-up scenario runs in seconds;
 	// every completing scenario finishes far inside it. Restored in the After hook.
 	s.prevRelayWait = nonStreamRelayWait
@@ -337,6 +346,10 @@ func (s *xiState) cleanup() {
 	for _, i := range s.inst {
 		i.srv.Close()
 	}
+	for _, c := range s.vsClose {
+		c()
+	}
+	s.vsClose = nil
 	// Release the per-scenario Postgres pool. Without this each scenario leaked its (up to 8)
 	// conn pool for the whole test binary; across the cross-instance suites that piled up against
 	// the shared server-wide max_connections and starved connections - flaking these liveness
@@ -359,6 +372,7 @@ func (s *xiState) newInstance(name string, multi bool) *xiInst {
 		s.t.Fatalf("valkey connect: %v", err)
 	}
 	s.t.Cleanup(func() { _ = vs.Close() })
+	s.vsClose = append(s.vsClose, func() { _ = vs.Close() })
 	b.shared = vs
 	if multi {
 		b.multiInstance = true

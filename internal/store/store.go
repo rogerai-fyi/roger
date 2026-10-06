@@ -129,6 +129,21 @@ type Store interface {
 	// in-flight request). The relay path uses HoldFor; Hold stays for the unit/parity
 	// callers that don't need tracking.
 	HoldFor(user, requestID string, amount float64) (ok bool, err error)
+	// HoldForCapped is HoldFor under the wallet's monthly spend cap, decided where the money
+	// is reserved: in ONE transaction under the wallet row lock (Postgres) / the store mutex
+	// (in-memory) it places the hold only if month-to-date captured spend + the wallet's
+	// open pending holds + amount <= monthlyCap. monthlyCap <= 0 means no cap (plain HoldFor).
+	// The result says whether the hold landed, whether the cap refused it, and the spend and
+	// pending totals the decision read (for the at-limit headers).
+	HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error)
+	// QuotePrice returns the live 24 h price quote for (user, node, model): the first caller
+	// mints it from (in, out) locked for window; every later caller, on any broker instance,
+	// reads that same quote until it expires, after which the next caller mints a fresh one.
+	// Durable (survives restarts and shared-store flushes) and decided once (insert-if-absent).
+	QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error)
+	// PruneExpiredPriceQuotes deletes up to limit price quotes that expired at or before now
+	// and returns how many it deleted; a live quote is never touched.
+	PruneExpiredPriceQuotes(now time.Time, limit int) (int, error)
 	// ReleaseHoldFor returns a TRACKED reservation to the user and clears its pending-hold
 	// row, IDEMPOTENTLY: it refunds (and writes the hold_release ledger row) ONLY if the
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is
@@ -861,7 +876,8 @@ type Mem struct {
 	processed   map[string]bool
 	owners      map[string]Owner // keyed by pubkey
 	policy      PayoutPolicy
-	monthlyCap  map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
+	monthlyCap  map[string]float64    // wallet -> explicit monthly spend cap ($); absent = env default
+	priceQuotes map[string]PriceQuote // (user|node|model) -> the durable 24 h price lock (QuotePrice)
 
 	ledger   []LedgerRow     // append-only money events
 	ledgerID int64           // monotonic ledger id
