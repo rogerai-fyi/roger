@@ -130,6 +130,7 @@ func (s *Server) routes() {
 	s.modelRoutes()
 	s.mux.HandleFunc("/api/edge", s.auth(s.handleEdge))
 	s.mux.HandleFunc("/api/edge/adopt", s.action(s.handleEdgeAdopt))
+	s.mux.HandleFunc("/api/edge/join", s.action(s.handleEdgeJoin))
 	s.mux.HandleFunc("/api/edge/name", s.action(s.handleEdgeName))
 	s.mux.HandleFunc("/api/edge/forget", s.action(s.handleEdgeForget))
 	s.mux.HandleFunc("/api/edge/agent", s.action(s.handleEdgeAgent))

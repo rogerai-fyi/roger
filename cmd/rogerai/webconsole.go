@@ -195,6 +195,8 @@ func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 		Events:   edgeEventsHook(),
 		Intent:   edgeIntentHook(),
 		Adopting: h.EdgeAdopting, PersistentAgents: h.EdgePersistentAgents, AgentJobs: h.EdgeAgentJobs,
+		AdoptCode: h.EdgeAdoptCode,
+		Join:      func(name, authority, code string) error { return edgeConsoleJoin(cfg, name, authority, code) },
 		Household: h.EdgeHousehold,
 		Sessions:  h.EdgeSessions, Status: h.EdgeStatus,
 	}

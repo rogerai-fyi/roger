@@ -19,6 +19,7 @@ import (
 // A machine can always be set up (these never fail to construct); the individual steps
 // return errors the wizard shows.
 func edgeSetupHooks(cfg config) tui.EdgeSetup {
+	var held *edgeHeldJoin // the authority's answer, waiting for the owner's code
 	return tui.EdgeSetup{
 		DefaultName: edgeDefaultName,
 		UserKeyHex:  client.UserPubHex,
@@ -47,13 +48,34 @@ func edgeSetupHooks(cfg config) tui.EdgeSetup {
 			if err := edge.ValidName(name); err != nil {
 				return err
 			}
-			_, err := edgeEnrollJoin(cfg, name, authorityAddr, client.LinkedLogin(), edgeJoinTrust{Hold: true})
+			held = nil
+			_, h, err := edgeEnrollBegin(cfg, name, authorityAddr, client.LinkedLogin(), edgeJoinTrust{Hold: true})
+			if errors.Is(err, errEdgeNeedsCode) {
+				// The authority answered; nothing is written until the code the owner reads off the
+				// authority verifies the root (features/edge/enrollment_root_trust.feature).
+				held = h
+				return &tui.NeedsCodeError{Root: h.rootShort()}
+			}
+			if err == nil && h != nil {
+				_, err = h.finish()
+			}
 			if errors.Is(err, edgeauth.ErrUnknownMachine) {
 				return tui.ErrNotAllowedYet
 			}
 			// A real refusal stays in the authority's words; an unreachable authority is named
 			// as such, with the address, rather than shown as a raw dial error.
 			return edgeSetupJoinError(authorityAddr, err)
+		},
+		// JoinCode checks a code against the held answer; done once proven or past saving.
+		JoinCode: func(code string) (bool, error) {
+			if held == nil {
+				return true, errors.New("there is no answer waiting for a code: start the join again")
+			}
+			_, done, err := held.confirm(code)
+			if done {
+				held = nil
+			}
+			return done, err
 		},
 		// Finish: this machine already designated an authority but never enrolled itself.
 		EnrollSelf: func() error {
@@ -73,8 +95,24 @@ func edgeSetupHooks(cfg config) tui.EdgeSetup {
 func edgeSetupState() tui.EdgeSetupState {
 	st := edgeSelfStatus(nil, edgeDiscoveryFactsFromEnv())
 	return tui.EdgeSetupState{
-		Enrolled:      st.Enrolled,
-		AuthorityHere: st.AuthorityHere,
-		AuthorityAddr: st.AuthorityAddr,
+		Enrolled:        st.Enrolled,
+		AuthorityHere:   st.AuthorityHere,
+		AuthorityAddr:   st.AuthorityAddr,
+		RootFingerprint: edgeDescriptor().Fingerprint,
 	}
+}
+
+// edgeConsoleJoin is the console's join: the same enrollment the CLI runs, with the code the owner
+// read off the authority, so the console never keeps a root the code did not verify
+// (features/edge/enrollment_root_trust.feature).
+func edgeConsoleJoin(cfg config, name, authority, code string) error {
+	if err := edge.ValidName(name); err != nil {
+		return err
+	}
+	c, err := edgeauth.CanonicalCode(code)
+	if err != nil {
+		return err
+	}
+	_, err = edgeEnrollJoin(cfg, name, authority, client.LinkedLogin(), edgeJoinTrust{Code: c})
+	return edgeSetupJoinError(authority, err)
 }

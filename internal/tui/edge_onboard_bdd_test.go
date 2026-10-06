@@ -30,6 +30,13 @@ type fakeSetupBackend struct {
 
 	newErr, joinErr, selfErr error
 	acceptAfterAllow         bool // a not-allowed join that succeeds once retried
+	// needsCode: the authority answered and the join is held for the enrollment code it shows
+	// (features/edge/enrollment_root_trust.feature); code is the one that verifies.
+	needsCode     bool
+	code          string
+	codeAttempts  int
+	codeCalls     int
+	joinConfirmed bool
 
 	newCalls, joinCalls, selfCalls int
 	lastName, lastAddr             string
@@ -48,10 +55,27 @@ func (f *fakeSetupBackend) hooks() EdgeSetup {
 		Join: func(name, addr string) error {
 			f.joinCalls++
 			f.lastName, f.lastAddr = name, addr
+			err := f.joinErr
 			if f.acceptAfterAllow && f.joinCalls >= 2 {
-				return nil
+				err = nil
 			}
-			return f.joinErr
+			if err == nil && f.needsCode {
+				return &NeedsCodeError{Root: "3F7A-91C2-0B44-E8D1"}
+			}
+			return err
+		},
+		JoinCode: func(code string) (bool, error) {
+			f.codeCalls++
+			if code == f.code {
+				f.joinConfirmed = true
+				return true, nil
+			}
+			f.codeAttempts++
+			left := 5 - f.codeAttempts
+			if left <= 0 {
+				return true, errors.New("the code did not match 5 times: a device on your network may be impersonating the authority")
+			}
+			return false, fmt.Errorf("the enrollment code does not match the Edge that answered (%d attempts left)", left)
 		},
 		EnrollSelf: func() error {
 			f.selfCalls++
@@ -83,6 +107,7 @@ func (s *onboardBDD) reset() {
 	s.fleet.SetClock(func() time.Time { return s.now })
 	s.status = edge.SelfStatus{Authority: "Core", Discovery: edge.DiscoveryScanning, IntervalS: 30}
 	s.fake = &fakeSetupBackend{
+		code:    "7KQ2M-9XH4P",
 		defName: "workstation",
 		userKey: strings.Repeat("ab", 32), // 64 hex, the shape a real user key has
 		state:   EdgeSetupState{},
@@ -172,7 +197,8 @@ func execCmd(cmd tea.Cmd) []tea.Msg {
 func (s *onboardBDD) settle(cmd tea.Cmd) {
 	s.now = s.now.Add(2 * time.Second) // past edgeSetupMinShow
 	for _, msg := range execCmd(cmd) {
-		if _, ok := msg.(edgeSetupDoneMsg); ok {
+		switch msg.(type) {
+		case edgeSetupDoneMsg, edgeSetupCodeMsg:
 			s.update(msg)
 		}
 	}
@@ -258,7 +284,37 @@ func (s *onboardBDD) designateWillFail() error {
 	s.fake.newErr = errors.New("designate: home is read-only")
 	return nil
 }
-func (s *onboardBDD) authorityWillAccept() error { s.fake.joinErr = nil; return nil }
+func (s *onboardBDD) authorityWillAccept() error {
+	s.fake.joinErr, s.fake.needsCode = nil, true
+	return nil
+}
+
+// entersTheCode types the code the authority showed at the code step and lands the check.
+func (s *onboardBDD) entersTheCode() error { return s.entersCode(s.fake.code) }
+
+func (s *onboardBDD) entersCode(code string) error {
+	if w := s.wiz(); w == nil || w.step != setupCode {
+		return fmt.Errorf("the wizard is not asking for the code: %+v", s.wiz())
+	}
+	s.runes(code)
+	s.settle(s.enter())
+	return nil
+}
+
+func (s *onboardBDD) saysCodeAskedAfterAnswer() error {
+	s.render(100)
+	return contains(strings.Join(strings.Fields(s.out), " "), "enrollment code", "once the authority answers")
+}
+
+func (s *onboardBDD) saysAllowPrintsTheCode() error {
+	s.render(100)
+	return contains(strings.Join(strings.Fields(s.out), " "), "prints the code to bring back here")
+}
+
+func (s *onboardBDD) saysNextJoinsWithCode() error {
+	s.render(100)
+	return contains(strings.Join(strings.Fields(s.out), " "), "joins with the code", "allow or adopt prints here")
+}
 func (s *onboardBDD) authorityNotAllowYet() error {
 	s.fake.joinErr = ErrNotAllowedYet
 	return nil
@@ -339,7 +395,10 @@ func (s *onboardBDD) allowInstructionsShown(name string) error {
 	return s.ownerConfirms()
 }
 
-func (s *onboardBDD) sinceAllowed() error { s.fake.acceptAfterAllow = true; return nil }
+func (s *onboardBDD) sinceAllowed() error {
+	s.fake.acceptAfterAllow, s.fake.needsCode = true, true
+	return nil
+}
 
 func (s *onboardBDD) framesWhileInFlight() error {
 	s.bandA = s.render(100)
@@ -789,6 +848,10 @@ func TestOnboardFeatureTUI(t *testing.T) {
 			sc.Step(`^the owner names it "([^"]*)" and confirms$`, st.namesItAndConfirms)
 			sc.Step(`^the owner confirms$`, st.ownerConfirms)
 			sc.Step(`^the owner retries$`, st.ownerRetries)
+			sc.Step(`^the owner enters the code the authority showed$`, st.entersTheCode)
+			sc.Step(`^it says the authority's enrollment code is asked for once the authority answers$`, st.saysCodeAskedAfterAnswer)
+			sc.Step(`^it says that command prints the code to bring back here$`, st.saysAllowPrintsTheCode)
+			sc.Step(`^it says the next machine joins with the code that allow or adopt prints here$`, st.saysNextJoinsWithCode)
 			sc.Step(`^frames render while it is in flight$`, st.framesWhileInFlight)
 			sc.Step(`^the enrollment returns success$`, st.enrollmentReturnsSuccess)
 			sc.Step(`^the enrollment returns$`, st.enrollmentReturns)

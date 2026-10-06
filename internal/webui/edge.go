@@ -18,6 +18,7 @@ package webui
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -118,7 +119,14 @@ type EdgeHooks struct {
 	// in (shown so a just-adopted phone does not vanish between adopt and membership). PersistentAgents
 	// are the agents marked durable (one not in the live household is drawn offline), and AgentJobs are
 	// the durable assignments - each agent's bound model and its job. All read-only; nil = unknown.
-	Adopting         func() []store.EdgeNode
+	Adopting func() []store.EdgeNode
+	// AdoptCode is the live one-time enrollment code an adopted device enters, and when it expires
+	// (features/edge/enrollment_root_trust.feature). Every console read is token-gated, so the
+	// code reaches only the owner's own console. nil = this machine mints none.
+	AdoptCode func(id string) (code string, until time.Time, ok bool)
+	// Join enrolls this machine against an authority's address, keeping the root only if the code
+	// the owner read off the authority verifies it. nil = the console cannot join.
+	Join             func(name, authority, code string) error
 	PersistentAgents func() []edge.PersistentAgent
 	AgentJobs        func() []edge.AgentJob
 	// Now is the snapshot clock. Injectable so a test can assert on an age without
@@ -152,9 +160,14 @@ type edgeNodeJSON struct {
 	LastSeen   int64                 `json:"last_seen,omitempty"`
 	Age        string                `json:"age,omitempty"`
 	Pin        string                `json:"pin,omitempty"`
-	History    []store.EdgeEvent     `json:"history"`
-	Contract   store.EdgeContract    `json:"contract,omitempty"`
-	Station    bool                  `json:"station,omitempty"`
+	// Code is an adopting device's live enrollment code, CodeLeft how long it has; CodeExpired says
+	// it ran out and a fresh one is an adopt away.
+	Code        string             `json:"code,omitempty"`
+	CodeLeft    string             `json:"code_left,omitempty"`
+	CodeExpired bool               `json:"code_expired,omitempty"`
+	History     []store.EdgeEvent  `json:"history"`
+	Contract    store.EdgeContract `json:"contract,omitempty"`
+	Station     bool               `json:"station,omitempty"`
 	// The drawing facts, decided here and not in the browser: the browser paints what
 	// it is told and infers nothing.
 	LAN   bool   `json:"lan"`
@@ -664,7 +677,19 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 	snap.Adopting = []edgeNodeJSON{}
 	if h.Adopting != nil {
 		for _, a := range h.Adopting() {
-			snap.Adopting = append(snap.Adopting, edgeNodeOf(a, now, append(append([]store.EdgeNode(nil), list...), a)))
+			row := edgeNodeOf(a, now, append(append([]store.EdgeNode(nil), list...), a))
+			if h.AdoptCode != nil {
+				if code, until, ok := h.AdoptCode(a.ID); ok {
+					mins := int((until.Sub(now) + time.Minute - 1) / time.Minute)
+					if mins < 1 {
+						mins = 1
+					}
+					row.Code, row.CodeLeft = code, fmt.Sprintf("%d min", mins)
+				} else {
+					row.CodeExpired = true
+				}
+			}
+			snap.Adopting = append(snap.Adopting, row)
 		}
 	}
 	snap.PersistentAgents = []edge.PersistentAgent{}
@@ -763,6 +788,31 @@ func (s *Server) handleEdgeAdopt(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Adopt(cand.ID, cand.Name); err != nil {
 		http.Error(w, "adopt "+cand.Name+": "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.writeEdge(w)
+}
+
+// handleEdgeJoin enrolls this machine against an authority, POST-only and token-gated. The code is
+// required: the console never keeps a root the owner's code did not verify
+// (features/edge/enrollment_root_trust.feature). A refusal is said in the host's own words.
+func (s *Server) handleEdgeJoin(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Edge
+	if h.Join == nil {
+		http.Error(w, "this build cannot join an Edge from the console - use roger edge enroll --code", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Name      string `json:"name"`
+		Authority string `json:"authority"`
+		Code      string `json:"code"`
+	}
+	if !decode(r, &req) || req.Name == "" || req.Authority == "" || req.Code == "" {
+		http.Error(w, "a name, the authority's address and the code it shows are all needed", http.StatusBadRequest)
+		return
+	}
+	if err := h.Join(req.Name, req.Authority, req.Code); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	s.writeEdge(w)
