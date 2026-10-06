@@ -301,3 +301,28 @@ func TestBackgroundRescanNeverTurnsAcceptIntoARaise(t *testing.T) {
 	out, _ = asModel(out).Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)}))
 	require.Equal(t, modeOverLimit, asModel(out).mode, "an explicit re-scan may offer the raise")
 }
+
+// TestBindCarriesTheTunedProfileOnTheFirstBind: the options a bind hands the live proxy
+// already carry the profile tuned for that band, before any later re-point.
+func TestBindCarriesTheTunedProfileOnTheFirstBind(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"provider": map[string]any{"sort": "price"}})
+	m.connected = nil // not yet connected: the bind is what connects it
+	m.proxyAddr = "127.0.0.1:0"
+	_, err := m.bindChannel(offer{Model: "m", NodeID: "n1"})
+	require.NoError(t, err)
+	require.Equal(t, "price", m.proxyHolder.Get().Sort)
+}
+
+// TestProfileCtxAndTTFTComposeStricter: the context floor and the first-token ceiling are
+// limits, so a profile never loosens the band's (the higher floor, the lower ceiling).
+func TestProfileCtxAndTTFTComposeStricter(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"roger": map[string]any{"min_ctx": 8192.0, "max_ttft_ms": 3000.0}})
+	m.limits.Models = map[string]Limit{"m": {MinCtx: 32768, MaxTTFTMs: 1500}}
+	rt := m.routing("m", "")
+	require.Equal(t, 32768, rt.MinCtx)
+	require.Equal(t, 1500, rt.MaxTTFT)
+	m.limits.Models = map[string]Limit{"m": {MinCtx: 4096, MaxTTFTMs: 5000}}
+	rt = m.routing("m", "")
+	require.Equal(t, 8192, rt.MinCtx)
+	require.Equal(t, 3000, rt.MaxTTFT)
+}

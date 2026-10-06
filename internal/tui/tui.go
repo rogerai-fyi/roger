@@ -2859,11 +2859,13 @@ func (m *model) bindChannel(o offer) (warm bool, err error) {
 	// LIVE re-point: every (re)tune updates the band model / caps / freq / confidential on the
 	// SAME endpoint (ruling 9), keeping the session key + budget stable. A no-op-safe guard for
 	// the tests that pre-set proxyUp without a holder.
+	// Connected before the options are built: liveProxyOpts reads the profile tuned for the
+	// connected band (profileFor), so this re-point already carries it.
+	oc := o
+	m.connected = &oc
 	if m.proxyHolder != nil {
 		m.proxyHolder.SetBand(m.liveProxyOpts(o, m.alert))
 	}
-	oc := o
-	m.connected = &oc
 	m.apikey = m.proxyKey
 	if m.apikey == "" {
 		m.apikey = "roger-local"

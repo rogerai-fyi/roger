@@ -49,9 +49,10 @@ func (m model) quantRuleRefusal(model, rowQuant string) string {
 // It carries every key of the band's [3] CONFIG rule and the dial filters that bind: F as
 // `:free`, C as roger.confidential, U as roger.self_hosted_only.
 //
-// The band's price caps (out, in, per request) and min-tps floor compose with the tuned profile's the STRICTER way
+// The band's limits (the out, in and per-request price caps, the min-tps and context floors,
+// the first-token ceiling) compose with the tuned profile's the STRICTER way
 // (the lower cap, the higher floor), as the broker composes a header with a body. Every other
-// key the profile states (trust, region, require, min ctx, params, quantizations) replaces
+// key the profile states (trust, region, require, params, quantizations) replaces
 // the band's: both are the owner's own choices, and the profile was picked on the confirm.
 func (m model) routing(model, rowQuant string) client.Routing {
 	lim := m.limits.resolve(model)
@@ -72,6 +73,11 @@ func (m model) routing(model, rowQuant string) client.Routing {
 	}).Overlay(m.profileFor(model)) // the profile tuned under, for the connected band
 	rt.MaxOut, rt.MaxIn = stricterCap(lim.MaxOut, rt.MaxOut), stricterCap(lim.MaxIn, rt.MaxIn)
 	rt.MaxReq = stricterCap(lim.MaxCost, rt.MaxReq)
+	// The context floor and first-token ceiling are limits too: the higher floor, the lower ceiling.
+	rt.MinCtx = max(lim.MinCtx, rt.MinCtx)
+	if lim.MaxTTFTMs > 0 && (rt.MaxTTFT == 0 || lim.MaxTTFTMs < rt.MaxTTFT) {
+		rt.MaxTTFT = lim.MaxTTFTMs
+	}
 	// The dial row the operator connected to is the quant this turn asks for: a profile's list
 	// never silently replaces it (the confirm refuses a row the profile excludes).
 	if rowQuant != "" {
