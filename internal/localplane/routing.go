@@ -147,19 +147,25 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 					lr.order = ids
 				}
 			case localProviderIgnored[k]:
+				if string(v) == "null" {
+					continue // a null key is absent, never named as ignored (as on the broker)
+				}
 				if k == "max_price" {
 					var mp map[string]json.RawMessage
-					if json.Unmarshal(v, &mp) == nil {
-						// A closed set, as on the broker: the ignored header only ever echoes
-						// these four names, never a caller-chosen string.
-						for sk := range mp {
-							if !maxPriceKeys[sk] {
-								return lr, &routeErr{status: 400, msg: "provider.max_price keys are prompt, completion, request and image"}
-							}
+					if json.Unmarshal(v, &mp) != nil || mp == nil {
+						return lr, &routeErr{status: 400, msg: "provider.max_price must be an object"}
+					}
+					// A closed set, as on the broker: the ignored header only ever echoes
+					// these four names, never a caller-chosen string.
+					for sk, sv := range mp {
+						if !maxPriceKeys[sk] {
+							return lr, &routeErr{status: 400, msg: "provider.max_price keys are prompt, completion, request and image"}
+						}
+						if string(sv) != "null" {
 							ignored["provider.max_price."+sk] = true
 						}
-						continue
 					}
+					continue
 				}
 				ignored["provider."+k] = true
 			default:

@@ -64,9 +64,14 @@ func TestParseLocalRoutingHonoredAndIgnored(t *testing.T) {
 	require.False(t, lr.admits("s2"))
 	require.False(t, lr.admits("s3"))
 
-	lr, e = parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":5},"roger":{"trust_min":"confidential"}}`), false)
+	// A non-object max_price is a 400, as on the broker (it is not silently ignored).
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":5}}`), false)
+	require.NotNil(t, e)
+	require.Equal(t, 400, e.status)
+	// A null provider key, or a null max_price member, is absent: never named as ignored.
+	lr, e = parseLocalRouting([]byte(`{"model":"a","provider":{"sort":null,"quantizations":null,"max_price":{"prompt":null,"completion":1}},"roger":{"trust_min":"confidential"}}`), false)
 	require.Nil(t, e)
-	require.Equal(t, []string{"provider.max_price"}, lr.ignored)
+	require.Equal(t, []string{"provider.max_price.completion"}, lr.ignored)
 	require.True(t, lr.needAttest)
 
 	lr, e = parseLocalRouting([]byte(`{"model":"a","roger":{"trust_min":"any"}}`), true)
