@@ -1934,14 +1934,20 @@ func (k *kg5State) kl5EmailOnFile(acct string) error {
 	k.t.Setenv("RESEND_API_KEY", "test")
 	// The broker's mailer was built before the env was set: wire an enabled one whose sends
 	// land in k.mails (the provider request body carries the subject and the text).
-	k.b.mail = enabledMailer(func(r *http.Request) (*http.Response, error) {
+	k.b.mail = k.kl5CaptureMailer()
+	return k.db.BindOwner(store.Owner{GitHubID: a.gid, Login: a.who.login, Pubkey: kl5Pub(a), Email: acct + "@example.com"})
+}
+
+// kl5CaptureMailer is a NEW enabled mailer whose sends land in k.mails. Each instance gets its
+// own, so nothing a mailer remembers in process can de-duplicate across instances.
+func (k *kg5State) kl5CaptureMailer() *mailer {
+	return enabledMailer(func(r *http.Request) (*http.Response, error) {
 		raw, _ := io.ReadAll(r.Body)
 		k.mailMu.Lock()
 		k.mails = append(k.mails, string(raw))
 		k.mailMu.Unlock()
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"x"}`)), Header: http.Header{}}, nil
 	})
-	return k.db.BindOwner(store.Owner{GitHubID: a.gid, Login: a.who.login, Pubkey: kl5Pub(a), Email: acct + "@example.com"})
 }
 
 func (k *kg5State) kl5Crosses(label string) error {
@@ -1965,8 +1971,34 @@ func (k *kg5State) kl5Crosses(label string) error {
 	return k.pricedRelay(label)
 }
 
+// kl5MailSettled waits until every instance's mailer has nothing queued and its sender is
+// parked: every notice enqueued so far has been sent (the sender sends before it parks).
+func (k *kg5State) kl5MailSettled() error {
+	deadline := time.Now().Add(10 * time.Second)
+	for _, b := range []*broker{k.b, k.b2} {
+		if b == nil || b.mail == nil {
+			continue
+		}
+		for {
+			b.mail.q.mu.Lock()
+			depth := b.mail.q.depthLocked()
+			b.mail.q.mu.Unlock()
+			if depth == 0 && b.mail.idle() {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("the mailer did not settle (%d queued)", depth)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	return nil
+}
+
 func (k *kg5State) kl5EmailsDeduped(label string) error {
-	time.Sleep(300 * time.Millisecond) // the mailer sends from its own queue goroutine
+	if err := k.kl5MailSettled(); err != nil { // the mailer sends from its own queue goroutine
+		return err
+	}
 	k.mailMu.Lock()
 	mails := append([]string(nil), k.mails...)
 	k.mailMu.Unlock()
@@ -2156,11 +2188,26 @@ func (k *kg5State) kl5Leaked(label string) error {
 	return nil
 }
 
+// kl5ThiefGap is the time the thief's run spends per request. 10,000 requests then take about
+// 42 minutes, so the 120 rpm limiter admits roughly 5,000 of them while still pacing the rest;
+// each asks for and gets the full 1000-token reply (~$0.002 on n1), so k1's spend reaches its $5
+// limit after roughly 2,500. (Fired back to back in real time with short replies, only the burst
+// of 40 would pass, about $0.12, and the key limit would never be reached.)
+const kl5ThiefGap = 250 * time.Millisecond
+
 func (k *kg5State) kl5Thief() error {
 	k.codes = nil
 	body := k.relayBody(k.model, false, nil)
 	pin := map[string]string{"X-Roger-Node": k.st("n1").id}
+	k.kl5Claim("n1", 40, k.maxTokens) // the thief takes full-length replies
+	keyLimited := 0
 	for i := 0; i < 10000; i++ {
+		// The limiter refills on the wall clock: age its buckets by the thief's per-request gap.
+		k.b.rl.mu.Lock()
+		for _, bk := range k.b.rl.buckets {
+			bk.last = bk.last.Add(-kl5ThiefGap)
+		}
+		k.b.rl.mu.Unlock()
 		res, err := k.relayRaw(k.b, "k1", body, pin)
 		if err != nil {
 			return err
@@ -2169,12 +2216,24 @@ func (k *kg5State) kl5Thief() error {
 		if res.code == 429 && res.hdr.Get("Retry-After") == "" {
 			return fmt.Errorf("a 429 without Retry-After")
 		}
+		if res.code == http.StatusPaymentRequired && strings.Contains(string(res.body), "key_limit") {
+			keyLimited++
+		}
+	}
+	if keyLimited == 0 {
+		return fmt.Errorf("the thief's run never reached k1's key limit, so this scenario would not test it")
 	}
 	return nil
 }
 
 func (k *kg5State) kl5ThiefBounded(label string) error {
-	spent, _, err := k.kl5Window(label)
+	// The settled spend itself (k1 resets monthly), not limit minus limit_remaining: that
+	// remainder is floored at zero, so it could never show spend above the limit.
+	e, err := k.entry(label)
+	if err != nil {
+		return err
+	}
+	spent, err := k.fieldNum(e, "usage_monthly")
 	if err != nil {
 		return err
 	}

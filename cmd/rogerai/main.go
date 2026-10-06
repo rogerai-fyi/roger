@@ -12,6 +12,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -110,6 +111,9 @@ type config struct {
 	Palette         string                `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
 	Deck            string                `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
 	LastSeenVersion string                `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	// UseKey is an account key (`rog-key_...`) `roger use` relays with instead of the device
+	// signature. Written ONLY by `roger use --key ... --save-key`; never stored otherwise.
+	UseKey string `json:"use_key,omitempty"`
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -964,6 +968,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdWebui(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
+	case "keys":
+		return cmdKeys(cfg, args[1:])
 	case "context":
 		return cmdContext(cfg, args[1:])
 	case "onboard", "setup":
@@ -1062,7 +1068,22 @@ func cmdUse(cfg config, args []string) error {
 	// Default off = fallback ON (an empty-content reasoning reply is surfaced as content).
 	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
 	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
+	key := fs.String("key", "", "relay with this account key (rog-key_...) instead of this device's signature; - reads it from stdin (or set ROGER_KEY)")
+	saveKey := fs.Bool("save-key", false, "remember the key in the config file for later `roger use` runs")
+	forgetKey := fs.Bool("forget-key", false, "remove a saved key from the config file")
 	fs.Parse(rest)
+	if *forgetKey {
+		if cfg.UseKey != "" {
+			cfg.UseKey = ""
+			if err := saveConfig(cfg); err != nil {
+				return err
+			}
+		}
+		fmt.Println("no saved key - `roger use` signs with this device again")
+		if model == "" {
+			return nil
+		}
+	}
 	if model == "" {
 		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
 	}
@@ -1102,12 +1123,58 @@ func cmdUse(cfg config, args []string) error {
 		}
 		useport = p
 	}
+	// The key is --key's (- reads it from stdin), else ROGER_KEY's, else the one saved with
+	// --save-key. Neither stdin nor the environment puts it in shell history or ps.
+	useKey, keyNote := strings.TrimSpace(*key), ""
+	if useKey == "-" {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if useKey = strings.TrimSpace(line); useKey == "" {
+			return fmt.Errorf("--key - read no key from stdin")
+		}
+	}
+	if useKey == "" {
+		useKey = strings.TrimSpace(os.Getenv("ROGER_KEY"))
+	}
+	if useKey != "" && !client.IsAccountKey(useKey) {
+		return fmt.Errorf("--key takes an account key (rog-key_...) - mint one with `roger keys mint`")
+	}
+	if *saveKey {
+		if useKey == "" {
+			return fmt.Errorf("--save-key needs --key rog-key_... (or ROGER_KEY)")
+		}
+		cfg.UseKey = useKey
+		if err := saveConfig(cfg); err != nil {
+			return err
+		}
+	}
+	if useKey == "" && cfg.UseKey != "" {
+		useKey = cfg.UseKey // a key saved earlier with --save-key
+	}
+	if useKey != "" {
+		if err := client.KeyTransportOK(cfg.Broker); err != nil {
+			return err
+		}
+		keyNote = useKeyNote(useKey, cfg.UseKey, strings.TrimSpace(*key) != "")
+	}
 	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
 		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
-		Pref: lim.Pref, SelfHostedOnly: *selfHosted, Quantizations: quants,
+		Pref: lim.Pref, SelfHostedOnly: *selfHosted, Quantizations: quants, Key: useKey, KeyNote: keyNote,
 	})
+}
+
+// useKeyNote is the connect plate's KEY line for the account key a session relays with: its
+// hint (never the key) and where it came from.
+func useKeyNote(useKey, saved string, fromFlag bool) string {
+	hint := "..." + useKey[len(useKey)-4:]
+	switch {
+	case useKey == saved:
+		return "saved key " + hint + " in use (roger use --forget-key to clear)"
+	case fromFlag:
+		return "account key " + hint + " from --key"
+	}
+	return "account key " + hint + " from ROGER_KEY"
 }
 
 // shareModelArg pulls an optional LEADING positional model token out of `share`'s
@@ -2517,6 +2584,7 @@ func usage() {
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
+  roger keys                  account API keys for scripts and CI: list · mint · set · rm
   roger perms <mode>          agent tool approvals default: confirm | edits | all
   roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
   roger remote                your private remote sessions: list · attach <code> · off · link

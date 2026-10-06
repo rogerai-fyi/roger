@@ -2279,7 +2279,7 @@ func (p *Postgres) recoverLineageTx(tx *sql.Tx, id, consumerKind, consumerRefPre
 	if err := appendLedger(tx, wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix()); err != nil {
 		return ChargebackResult{}, err
 	}
-	if err := keyReverseTx(tx, requestID, amount, now.UnixMilli()); err != nil {
+	if err := keyReverseTx(tx, requestID, amount); err != nil {
 		return ChargebackResult{}, err
 	}
 	disputeID := id

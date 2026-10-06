@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"time"
 )
@@ -20,7 +21,7 @@ type AccountKey struct {
 	Hint          string   `json:"hint"`      // "...<last 4 of the secret>"
 	LimitUSD      float64  `json:"limit_usd"` // 0 = unlimited
 	Reset         string   `json:"reset"`     // daily | weekly | monthly | none
-	Anchor        int64    `json:"anchor"`    // unix; a window never starts before the last reset change
+	Anchor        int64    `json:"anchor"`    // unix MILLIS; a window never starts before the last reset change
 	ExpiresAt     int64    `json:"expires_at"`
 	AllowedModels []string `json:"allowed_models"`
 	AllowedNodes  []string `json:"allowed_nodes"`
@@ -41,7 +42,8 @@ func (k AccountKey) Expired(now time.Time) bool {
 
 // Key ledger kinds. Key spend rows are held under the KEY id (side "key"), never a wallet, so
 // no wallet balance or month-spend read ever sees them; key_event rows are $0 audit rows on the
-// account's wallet.
+// account's wallet. UNITS: key_spend and key_reversal rows date their ts in unix MILLISECONDS
+// (key windows are millisecond bounds); key_event rows, like every other ledger row, in seconds.
 const (
 	KindKeySpend    = "key_spend"    // key: settled spend attributed to the key (-amount)
 	KindKeyReversal = "key_reversal" // key: a chargeback/refund of a key request (+amount)
@@ -71,14 +73,24 @@ func keyRefMatches(ref, requestID string) bool {
 
 // --- in-memory store ---------------------------------------------------------------------------
 
-func (m *Mem) CreateAccountKey(k AccountKey) error {
+func (m *Mem) CreateAccountKey(k AccountKey, r MintKeyRules) (AccountKey, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.acctKeys == nil {
 		m.acctKeys = map[string]AccountKey{}
 	}
+	var mine []AccountKey
+	for _, x := range m.acctKeys {
+		if x.Account == k.Account {
+			mine = append(mine, x)
+		}
+	}
+	k, err := r.admit(k, mine)
+	if err != nil {
+		return AccountKey{}, err
+	}
 	m.acctKeys[k.ID] = k
-	return nil
+	return k, nil
 }
 
 func (m *Mem) AccountKeyByHash(hash string) (AccountKey, bool, error) {
@@ -111,14 +123,16 @@ func (m *Mem) AccountKeysOf(account string) ([]AccountKey, error) {
 	return out, nil
 }
 
-func (m *Mem) SaveAccountKey(k AccountKey) error {
+func (m *Mem) UpdateAccountKey(id string, edit func(*AccountKey)) (AccountKey, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.acctKeys[k.ID]; !ok {
-		return nil
+	k, ok := m.acctKeys[id]
+	if !ok || k.Revoked {
+		return AccountKey{}, false, nil
 	}
-	m.acctKeys[k.ID] = k
-	return nil
+	edit(&k)
+	m.acctKeys[id] = k
+	return k, true, nil
 }
 
 func (m *Mem) TouchAccountKey(id string, ts int64, request bool) error {
@@ -142,6 +156,50 @@ func (m *Mem) TouchAccountKey(id string, ts int64, request bool) error {
 type KeyLimit struct {
 	USD      float64
 	From, To int64
+}
+
+// MintKeyRules are the per-account rules CreateAccountKey enforces inside its own write, so
+// mints racing on several instances cannot pass them. Zero values switch a rule off.
+type MintKeyRules struct {
+	MaxLive   int   // live (non-revoked) keys an account may hold
+	IdemSince int64 // a key with the same IdemKey created at or after this (unix nanos) is a replay
+}
+
+// ErrKeyCount: the account already holds MaxLive live keys; nothing was written.
+var ErrKeyCount = errors.New("store: account key count limit")
+
+// KeyReplayError: a key was already minted under this Idempotency-Key (ID); nothing was written.
+type KeyReplayError struct{ ID string }
+
+func (e *KeyReplayError) Error() string { return "store: key already minted as " + e.ID }
+
+// admit applies the rules to k against the account's existing keys (replay first, then the cap)
+// and dates k strictly after the newest of them, so mint order never ties.
+func (r MintKeyRules) admit(k AccountKey, existing []AccountKey) (AccountKey, error) {
+	if k.CreatedAt == 0 {
+		k.CreatedAt = time.Now().UnixNano()
+	}
+	live := 0
+	var replay *AccountKey
+	for i, x := range existing {
+		if k.IdemKey != "" && r.IdemSince > 0 && x.IdemKey == k.IdemKey && x.CreatedAt >= r.IdemSince &&
+			(replay == nil || x.CreatedAt < replay.CreatedAt) {
+			replay = &existing[i]
+		}
+		if !x.Revoked {
+			live++
+		}
+		if x.CreatedAt >= k.CreatedAt {
+			k.CreatedAt = x.CreatedAt + 1
+		}
+	}
+	if replay != nil {
+		return AccountKey{}, &KeyReplayError{ID: replay.ID}
+	}
+	if r.MaxLive > 0 && live >= r.MaxLive {
+		return AccountKey{}, ErrKeyCount
+	}
+	return k, nil
 }
 
 // ErrKeyLimit: the hold would take the key past its limit; no hold was placed.
@@ -205,15 +263,31 @@ func (m *Mem) keySpendLocked(keyID string, from, to int64) float64 {
 	return sum
 }
 
-// KeySpendRefs maps every request ref a key settled to its net cost (for attributing spend in
-// /usage and the console lineage).
-func (m *Mem) KeySpendRefs(keyID string) (map[string]float64, error) {
+func (m *Mem) KeySpendSince(keyID string, froms []int64) ([]float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := map[string]float64{}
+	out := make([]float64, len(froms))
 	for _, r := range m.ledger {
-		if v, ok := keySpendRow(r, keyID); ok && r.Ref != "" {
-			out[r.Ref] += v
+		if v, ok := keySpendRow(r, keyID); ok {
+			for i, f := range froms {
+				if r.TS >= f {
+					out[i] += v
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *Mem) AccountKeySpendRefs(account string) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]string{}
+	for _, r := range m.ledger {
+		if k, ok := m.acctKeys[r.Holder]; ok && k.Account == account && r.Ref != "" {
+			if _, spend := keySpendRow(r, r.Holder); spend {
+				out[r.Ref] = r.Holder
+			}
 		}
 	}
 	return out, nil
@@ -234,19 +308,25 @@ func (m *Mem) keySpendCaptureLocked(ph pendingHold, ref string, cost float64) {
 	m.appendLedgerLocked(ph.keyID, "key", KindKeySpend, -cost, "", StatePosted, ref, ph.keyTS)
 }
 
-// keyReverseLocked writes the key-side reversal of a chargeback/refund of requestID. Caller
-// holds m.mu.
-func (m *Mem) keyReverseLocked(requestID string, amount float64, ts int64) {
+// keyReverseLocked writes the key-side reversal of a chargeback/refund of requestID: dated at
+// the spend it reverses (so it nets out of THAT window, never freeing budget in a later one) and
+// capped at what is left of that spend (a request is reversed on its key at most once in total).
+// Caller holds m.mu.
+func (m *Mem) keyReverseLocked(requestID string, amount float64) {
 	if requestID == "" || amount <= 0 {
 		return
 	}
 	for _, r := range m.ledger {
 		if r.Kind == KindKeySpend && keyRefMatches(r.Ref, requestID) {
-			back := amount
-			if -r.Amount < back {
-				back = -r.Amount
+			left := -r.Amount
+			for _, x := range m.ledger {
+				if x.Kind == KindKeyReversal && x.Holder == r.Holder && x.Ref == r.Ref {
+					left -= x.Amount
+				}
 			}
-			m.appendLedgerLocked(r.Holder, "key", KindKeyReversal, back, "", StatePosted, r.Ref, ts)
+			if back := math.Min(amount, left); back > 1e-9 {
+				m.appendLedgerLocked(r.Holder, "key", KindKeyReversal, back, "", StatePosted, r.Ref, r.TS)
+			}
 			return
 		}
 	}

@@ -545,10 +545,95 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     When "acct-a" mints "k1" on A
     Then a relay bearing "k1" on B authenticates
 
+  # state audit 2026-10-05: the per-account rules hold across instances, not per instance.
+  Scenario: Two instances minting at once cannot take an account past 32 live keys
+    Given "acct-a" holds 31 non-deleted keys
+    When "acct-a" mints on A and on B at the same moment
+    Then exactly one mint is 201 and the other is 400 "key_limit_count"
+    And "acct-a" holds exactly 32 live keys
+
+  # state audit 2026-10-05
+  Scenario: A mint replayed on another instance at the same moment does not mint twice
+    When "acct-a" mints with "Idempotency-Key: abc" on A and on B at the same moment
+    Then exactly one mint is 201 and the other is 409 "already_minted" naming the first key's id
+    And "acct-a" holds exactly 1 live key
+
+  # state audit 2026-10-05
+  Scenario: The management limiter is one limit across instances
+    When "acct-a" POSTs /account/keys 14 times in one minute, alternating between A and B
+    Then the requests past the management limiter are 429 with Retry-After and no key is created for them
+    And at most 10 keys were created across both instances
+
+  # state audit 2026-10-05
+  Scenario: A key revoked elsewhere stops working even while the shared store is down
+    Given "acct-a" mints "k1" on A
+    And a relay bearing "k1" on B authenticates
+    And "acct-a" DELETEs "k1" on instance A
+    When the shared store goes down
+    Then the next relay bearing "k1" on B is 401 "key_revoked" (never served from a stale cache)
+
   Scenario: The shared store being unreachable fails closed for key auth
     Given the shared store is down and the key is not in the local cache
     When a request bearing "k1" arrives
     Then it is 503 "key lookup failed - try again shortly" (never a silent allow, never a 401 that reads as revoked)
+
+  # push audit 2026-10-06: an unknown key costs little and is rate limited by address.
+  Scenario: Many unknown keys from one address are rate limited and leave nothing behind
+    When 10,000 relays from one address each bear a different unknown key
+    Then the relays past the per-address limit for unknown keys are 429 with Retry-After
+    And at most that limit's burst of them reach the key store
+    And the broker keeps no lookup entry for any of them
+    And a relay bearing a valid key from another address is served
+
+  # push audit 2026-10-06: a key trying to manage keys is limited before it is audited.
+  Scenario: Repeated key-management attempts with a key are rate limited before any audit row
+    Given "acct-a" mints "k1" on A
+    When a request bearing "k1" PATCHes /account/keys/k1 100 times from one address
+    Then the attempts past the per-address limit are 429 with Retry-After
+    And at most that limit's burst of "denied" audit rows are written
+
+  # push audit 2026-10-06: a relay the rate limiter refuses is not the key's use (an allow-list
+  # denial still is: features/relay/key_limits.feature, "A denied model or node ...").
+  Scenario: A relay the rate limiter refuses is not recorded as the key's use
+    Given "acct-a" mints "k1" on A and the per-identity limit admits one relay
+    When two relays bearing "k1" arrive back to back
+    Then the second is 429 and "k1" shows 1 request and the first relay's last_used
+
+  # slice-5 review 2026-10-05: an edit never writes back a revoked or disabled flag it read earlier.
+  Scenario: A rename racing a delete on another instance never brings the key back
+    Given "acct-a" mints "k1" on A
+    And a relay bearing "k1" on B authenticates
+    When "acct-a" renames "k1" on A while "acct-a" DELETEs it on B between A's read and write
+    Then the rename is 404 "not_found"
+    And the next relay bearing "k1" on B is 401 "key_revoked" (never served from a stale cache)
+
+  # slice-5 review 2026-10-05
+  Scenario: A rename racing a disable on another instance keeps the key disabled
+    Given "acct-a" mints "k1" on A
+    When "acct-a" renames "k1" to "renamed" on A while "acct-a" disables it on B between A's read and write
+    Then "k1" is disabled and named "renamed"
+
+  # slice-5 review 2026-10-05: a reversal nets out of the window the money was spent in.
+  Scenario: A chargeback in a later window frees no budget in the window it lands in
+    Given "acct-a" minted "k1" with a $5.00 daily limit and spent all of it yesterday (UTC)
+    When that request is charged back $5.00 today
+    Then "k1" shows usage_daily 0.00, limit_remaining 5.00 and usage 0.00
+
+  # slice-5 review 2026-10-05: a request is reversed on its key at most once, in total.
+  Scenario: A request refunded and then charged back is reversed on the key at most once
+    Given key "k1" settled $3.00 in one request
+    When that request is refunded $3.00 and then charged back $3.00
+    Then "k1" shows usage 0.00 (never below zero)
+
+  # slice-5 review 2026-10-05: an invalidation that failed during an outage is not lost.
+  Scenario: A key deleted during a shared-store outage stops working on peers once the store answers again
+    Given "acct-a" mints "k1" on A
+    And a relay bearing "k1" on B authenticates
+    And "acct-a" reads "k1" on A
+    And the shared store refuses every command
+    And "acct-a" DELETEs "k1" on instance A
+    When the shared store answers again
+    Then within 2 seconds a relay bearing "k1" on B is 401 "key_revoked"
 
   # --- audit ------------------------------------------------------------------------
   Scenario Outline: Every management action writes a $0 audit row
@@ -597,18 +682,17 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     Then "key_<rand>" is outside the reserved id namespaces (u_, u_gh_, g_) and can never be presented as an X-Roger-User
 
   # --- clients ------------------------------------------------------------------------
-  @web
-  Scenario: The web account page lists, mints, edits, and deletes keys through the same endpoints
-    Given "acct-a" is on the account page with a web session
-    Then the "API keys" section shows the same entries as GET /account/keys
+  # corrected 2026-10-06 (founder-approved): account keys live on /keys.html beside grant keys
+  Scenario: The web keys page lists, mints, edits, and deletes keys through the same endpoints
+    Given "acct-a" is on /keys.html with a web session
+    Then the "Account keys" section shows the same entries as GET /account/keys
     And minting shows the secret once with a copy control and a warning that it is never shown again
     And the page sends body JSON, never the secret in a URL
 
-  @web
-  Scenario: The account page follows the design system
-    Then the keys section uses the existing account-page type scale, one red, no grid, no glow, no pinned bar, and passes phone width and dark-mode contrast
+  # corrected 2026-10-06 (founder-approved): account keys live on /keys.html beside grant keys
+  Scenario: The keys page follows the design system
+    Then the account keys section uses the existing keys-page type scale, one red, no grid, no glow, no pinned bar, and passes phone width and dark-mode contrast
 
-  @cli
   Scenario Outline: `roger keys` covers the same surface (PROPOSED command set)
     When "acct-a" runs `<command>`
     Then it performs <effect> via the same endpoint and prints <output>
@@ -621,22 +705,56 @@ Feature: Account keys - guardrailed credentials an account mints for itself
       | roger keys set key_x --disable                                  | PATCH disabled true      | the updated row                            |
       | roger keys rm key_x                                             | DELETE /account/keys/key_x | "revoked key_x"                           |
 
-  @cli
   Scenario: `roger keys mint` refuses to print the secret into a pipe silently
     When `roger keys mint` runs with stdout not a TTY
     Then it prints only the secret (machine-readable) and the warning goes to stderr
 
-  @cli
   Scenario: `roger keys` needs a logged-in device key
     Given the device keypair never logged in
     When `roger keys list` runs
     Then it exits non-zero with "log in first - run `roger login`"
 
-  @cli
   Scenario: A key can be used as the bearer by `roger use --key`
     When `roger use qwen3-32b --key rog-key_...` runs
     Then the local proxy authenticates every relay with the key bearer instead of the device signature
     And the key is never written to the config file unless `--save-key` is passed
+
+  # founder ruling 2026-10-06: a key can reach `roger use` without shell history or ps.
+  Scenario: `roger use` takes the key from ROGER_KEY and never prints it
+    When `roger use qwen3-32b` runs with ROGER_KEY set to a key
+    Then the local proxy authenticates every relay with the key bearer instead of the device signature
+    And the key does not appear in roger's output
+
+  # founder ruling 2026-10-06
+  Scenario: `roger use --key -` reads the key from stdin
+    When `roger use qwen3-32b --key -` runs with a key on stdin
+    Then the local proxy authenticates every relay with the key bearer instead of the device signature
+    And the key does not appear in roger's output
+
+  # founder ruling 2026-10-06: the argv form stays (pinned by "A key can be used as the bearer by `roger use --key`").
+  Scenario Outline: The key `roger use` relays with is --key's, else ROGER_KEY's, else the saved one
+    Given a saved key, a ROGER_KEY key and a --key key that all differ
+    When `roger use qwen3-32b` runs with <sources>
+    Then every relay bears the <winner> key
+
+    Examples:
+      | sources                              | winner    |
+      | --key, ROGER_KEY and the saved key   | --key     |
+      | ROGER_KEY and the saved key          | ROGER_KEY |
+      | only the saved key                   | saved     |
+
+  # founder ruling 2026-10-06
+  Scenario: `roger use --forget-key` clears the saved key
+    Given a key was saved with `roger use qwen3-32b --key ... --save-key`
+    When `roger use --forget-key` runs
+    Then the config file no longer holds the key
+    And a later `roger use qwen3-32b` relays with the device signature and no bearer
+
+  # founder ruling 2026-10-06
+  Scenario: The connect plate says when a saved key is in use
+    Given a key was saved with `roger use qwen3-32b --key ... --save-key`
+    When `roger use qwen3-32b` runs
+    Then the plate has a KEY line saying a saved key is in use, showing its hint and never the key
 
   # --- adversarial ---------------------------------------------------------------------
   Scenario: An allow-listed private-band node still needs the band code

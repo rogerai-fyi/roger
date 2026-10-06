@@ -21,7 +21,8 @@ package main
 // tagged with a key epoch held in the shared store that every mint / patch / delete bumps; a
 // lookup reads the epoch (one shared-store command, the same for a hit, a miss, a revoked or a
 // disabled key - constant work) and goes to the store only when its cache is older. A shared
-// store that cannot answer fails closed unless this instance already holds the key.
+// store that cannot answer fails closed unless this instance already holds the key, and then
+// the key is re-read from the money store rather than trusted from the cache.
 
 import (
 	"crypto/rand"
@@ -30,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"math"
@@ -46,17 +48,18 @@ import (
 )
 
 const (
-	acctKeyPrefix    = "rog-key_"
-	acctKeyIDPrefix  = "key_"
-	acctKeyMaxLive   = 32
-	acctKeyMaxList   = 64
-	acctKeyNameMax   = 128
-	acctKeyBodyMax   = 4 << 10
-	acctKeyEpochKey  = "acctkeys:epoch"
-	acctKeyCacheTTL  = 60 * time.Second
-	acctKeyIdemTTL   = 10 * time.Minute
-	acctKeyLockWait  = 20 * time.Second
-	acctKeyNearRatio = 0.8
+	acctKeyPrefix      = "rog-key_"
+	acctKeyIDPrefix    = "key_"
+	acctKeyMaxLive     = 32
+	acctKeyMaxList     = 64
+	acctKeyNameMax     = 128
+	acctKeyBodyMax     = 4 << 10
+	acctKeyEpochKey    = "acctkeys:epoch"
+	acctKeyCacheTTL    = 60 * time.Second
+	acctKeyIdemTTL     = 10 * time.Minute
+	acctKeyLockWait    = 20 * time.Second
+	acctKeyLockPollMax = 25 * time.Millisecond
+	acctKeyNearRatio   = 0.8
 )
 
 // acctKeyCached is one locally cached lookup (found=false caches a miss).
@@ -69,23 +72,26 @@ type acctKeyCached struct {
 
 // acctKeyState is the broker's per-instance key machinery: the lookup cache, the local epoch
 // used when no shared store is wired (single instance), the local per-key locks of that case,
-// the management limiter, and the once-per-window log and email de-duplication.
+// the management limiter (shared-store backed), and the once-per-window log de-duplication.
 type acctKeyState struct {
 	mu         sync.Mutex
 	byHash     map[string]acctKeyCached
 	byID       map[string]acctKeyCached
 	localEpoch float64
-	locks      map[string]*sync.Mutex
-	acctLocks  map[string]*sync.Mutex
+	locks      [64]sync.Mutex // local per-key locks, striped by key id so they never grow
 	mgmt       *rateLimiter
+	miss       *rateLimiter      // per address: relays bearing a key that does not resolve (keyMissLimiter)
 	logged     map[string]string // key id -> the window it was last logged at-limit in
+
+	bumpOwed     int       // epoch bumps that failed and are not yet re-sent
+	bumpLastFail time.Time // when the latest one failed
+	bumpRetrying bool      // a retrier is running
 }
 
 func (s *acctKeyState) init() {
 	if s.byHash == nil {
 		s.byHash, s.byID = map[string]acctKeyCached{}, map[string]acctKeyCached{}
-		s.locks, s.acctLocks, s.logged = map[string]*sync.Mutex{}, map[string]*sync.Mutex{}, map[string]string{}
-		s.mgmt = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 10, burst: 10}
+		s.logged = map[string]string{}
 	}
 }
 
@@ -132,8 +138,45 @@ func (b *broker) bumpKeyEpoch() {
 	b.ak.mu.Unlock()
 	if b.shared != nil {
 		if _, err := b.shared.counterIncr(acctKeyEpochKey, 1); err != nil && !errors.Is(err, errNoSharedStore) {
-			log.Printf("account keys: epoch bump failed (peers keep their cache up to %s): %v", acctKeyCacheTTL, err)
+			log.Printf("account keys: epoch bump failed, retrying until it lands: %v", err)
+			b.owedKeyEpochBump()
 		}
+	}
+}
+
+// owedKeyEpochBump records a bump that did not land and makes sure one background retrier
+// re-sends it: peers that cached a key before the change keep serving it until the shared
+// epoch moves (the shared store answering again does not move it), or their cache expires.
+func (b *broker) owedKeyEpochBump() {
+	b.ak.mu.Lock()
+	defer b.ak.mu.Unlock()
+	b.ak.bumpOwed++
+	b.ak.bumpLastFail = time.Now()
+	if b.ak.bumpRetrying {
+		return
+	}
+	b.ak.bumpRetrying = true
+	go b.retryKeyEpochBump()
+}
+
+// retryKeyEpochBump re-sends the owed bump with backoff until one lands after the latest
+// failure, or until acctKeyCacheTTL past it (by then every peer's cache has expired anyway).
+func (b *broker) retryKeyEpochBump() {
+	wait := 50 * time.Millisecond
+	for {
+		time.Sleep(wait)
+		b.ak.mu.Lock()
+		owed, last := b.ak.bumpOwed, b.ak.bumpLastFail
+		b.ak.mu.Unlock()
+		_, err := b.shared.counterIncr(acctKeyEpochKey, 1)
+		b.ak.mu.Lock()
+		if ((err == nil || errors.Is(err, errNoSharedStore)) && b.ak.bumpOwed == owed) || time.Since(last) > acctKeyCacheTTL {
+			b.ak.bumpOwed, b.ak.bumpRetrying = 0, false
+			b.ak.mu.Unlock()
+			return
+		}
+		b.ak.mu.Unlock()
+		wait = min(2*wait, time.Second)
 	}
 }
 
@@ -148,15 +191,14 @@ func (b *broker) keyLookup(byHash bool, k string) (store.AccountKey, bool, error
 	}
 	c, ok := cache[k]
 	b.ak.mu.Unlock()
-	if eerr != nil {
-		if ok && c.found {
-			return c.k, true, nil // the shared store is down; this instance holds the key
-		}
-		return store.AccountKey{}, false, errKeyLookup
+	if eerr != nil && !(ok && c.found) {
+		return store.AccountKey{}, false, errKeyLookup // fail closed: nothing vouches for this key
 	}
-	if ok && c.epoch == ep && time.Since(c.at) < acctKeyCacheTTL {
+	if eerr == nil && ok && c.epoch == ep && time.Since(c.at) < acctKeyCacheTTL {
 		return c.k, c.found, nil
 	}
+	// A stale cache, or a shared store that cannot say whether the cached key changed: read the
+	// money store, which is the record (a key revoked on another instance is revoked here too).
 	var rec store.AccountKey
 	var found bool
 	var err error
@@ -168,9 +210,11 @@ func (b *broker) keyLookup(byHash bool, k string) (store.AccountKey, bool, error
 	if err != nil {
 		return store.AccountKey{}, false, errKeyLookup
 	}
-	b.ak.mu.Lock()
-	cache[k] = acctKeyCached{k: rec, found: found, epoch: ep, at: time.Now()}
-	b.ak.mu.Unlock()
+	if eerr == nil && found { // a miss is never cached: the cache holds only real keys
+		b.ak.mu.Lock()
+		cache[k] = acctKeyCached{k: rec, found: found, epoch: ep, at: time.Now()}
+		b.ak.mu.Unlock()
+	}
 	return rec, found, nil
 }
 
@@ -178,23 +222,32 @@ func (b *broker) keyLookup(byHash bool, k string) (store.AccountKey, bool, error
 type keyRefusal struct {
 	status    int
 	code, msg string
+	retry     int // Retry-After seconds, for a 429
 }
 
 // resolveRelayKey authenticates a `Bearer rog-key_...` relay. ok=false with a nil refusal means
 // the request carries no key.
+// An address that keeps presenting keys that do not resolve is rate limited BEFORE the lookup
+// (keyMissLimiter), so it costs neither a store read nor memory; only a refused key draws from that
+// budget, so a working key is never slowed by it. The caller records the use (TouchAccountKey)
+// once the relay is admitted.
 func (b *broker) resolveRelayKey(r *http.Request) (store.AccountKey, bool, *keyRefusal) {
 	tok := acctKeyToken(r)
 	if tok == "" {
 		return store.AccountKey{}, false, nil
 	}
+	ip := clientIP(r)
+	if blocked, retry := b.keyMissLimiter().blocked(ip); blocked {
+		return store.AccountKey{}, false, &keyRefusal{status: http.StatusTooManyRequests, code: "rate_limited", msg: "too many requests with keys that do not work - slow down", retry: retry}
+	}
 	k, found, err := b.keyLookup(true, acctKeyHash(tok))
 	if err != nil {
-		return store.AccountKey{}, false, &keyRefusal{http.StatusServiceUnavailable, "key_lookup_failed", "key lookup failed - try again shortly"}
+		return store.AccountKey{}, false, &keyRefusal{status: http.StatusServiceUnavailable, code: "key_lookup_failed", msg: "key lookup failed - try again shortly"}
 	}
 	if ref := keyStateRefusal(k, found, b.now()); ref != nil {
+		b.keyMissLimiter().allow(ip)
 		return store.AccountKey{}, false, ref
 	}
-	_ = b.db.TouchAccountKey(k.ID, b.now().UnixNano(), true)
 	return k, true, nil
 }
 
@@ -204,13 +257,13 @@ func (b *broker) resolveRelayKey(r *http.Request) (store.AccountKey, bool, *keyR
 func keyStateRefusal(k store.AccountKey, found bool, now time.Time) *keyRefusal {
 	switch {
 	case !found:
-		return &keyRefusal{http.StatusUnauthorized, "key_invalid", "key invalid"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_invalid", msg: "key invalid"}
 	case k.Revoked:
-		return &keyRefusal{http.StatusUnauthorized, "key_revoked", "key revoked"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_revoked", msg: "key revoked"}
 	case k.Expired(now):
-		return &keyRefusal{http.StatusUnauthorized, "key_expired", "key expired"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_expired", msg: "key expired"}
 	case k.Disabled:
-		return &keyRefusal{http.StatusUnauthorized, "key_disabled", "key disabled"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_disabled", msg: "key disabled"}
 	}
 	return nil
 }
@@ -350,12 +403,21 @@ var acctKeyLockTTL = 5 * time.Second
 // pre-check and before it places its hold: the window in which another instance can act.
 var keyHoldGapForTest func(b *broker)
 
+// keyMintGapForTest, when set (tests only), runs after a mint passes its checks and before it
+// writes the key: the window in which another instance can mint for the same account.
+var keyMintGapForTest func(b *broker)
+
+// keyPatchGapForTest, when set (tests only), runs after a PATCH has read the key and before it
+// writes: the window in which another instance can delete or edit the same key.
+var keyPatchGapForTest func(b *broker)
+
 // keyLock serializes a key's check-and-hold across every instance (a lock in the shared store;
 // a local mutex when the instance is alone). A shared store that cannot answer fails closed.
 func (b *broker) keyLock(id string) (func(), error) {
 	if b.shared != nil {
 		tok := randHex(8)
 		deadline := time.Now().Add(acctKeyLockWait)
+		wait := time.Millisecond
 		for {
 			set, err := b.shared.setIfAbsent("acctkeylock:"+id, tok, acctKeyLockTTL)
 			if errors.Is(err, errNoSharedStore) {
@@ -371,17 +433,13 @@ func (b *broker) keyLock(id string) (func(), error) {
 			if time.Now().After(deadline) {
 				return nil, errors.New("key lock wait exceeded")
 			}
-			time.Sleep(time.Millisecond)
+			time.Sleep(wait) // back off: a waiter re-asks at most every acctKeyLockPollMax
+			wait = min(2*wait, acctKeyLockPollMax)
 		}
 	}
-	b.ak.mu.Lock()
-	b.ak.init()
-	m := b.ak.locks[id]
-	if m == nil {
-		m = &sync.Mutex{}
-		b.ak.locks[id] = m
-	}
-	b.ak.mu.Unlock()
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(id))
+	m := &b.ak.locks[h.Sum32()%uint32(len(b.ak.locks))]
 	m.Lock()
 	return m.Unlock, nil
 }
@@ -392,7 +450,7 @@ func randHex(n int) string {
 	return hex.EncodeToString(buf)
 }
 
-// keyAllowNodes / keyAllowsModel: the key's allow-lists (empty = all).
+// keyAllowsModel: the key's model allow-list (empty = all).
 func keyAllowsModel(k store.AccountKey, model string) bool {
 	return len(k.AllowedModels) == 0 || containsString(k.AllowedModels, model)
 }
@@ -416,6 +474,13 @@ func (b *broker) accountKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	if tok := acctKeyToken(r); tok != "" || grantTokenFromHeader(r) != "" {
 		if tok != "" {
+			// Limited per address before the lookup and the audit row, so repeated attempts
+			// cost neither a store read nor a ledger row each.
+			if ok, retry := b.keyMissLimiter().allow(clientIP(r)); !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(retry))
+				jsonErr(w, http.StatusTooManyRequests, "too many requests - slow down")
+				return
+			}
 			if k, found, err := b.keyLookup(true, acctKeyHash(tok)); err == nil && found {
 				b.keyAudit(k.Account, k.ID, "denied", nil)
 			}
@@ -437,12 +502,8 @@ func (b *broker) accountKeys(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `roger login` (keys are per account)")
 		return
 	}
-	b.ak.mu.Lock()
-	b.ak.init()
-	lim := b.ak.mgmt
-	b.ak.mu.Unlock()
 	if r.Method != http.MethodGet {
-		if ok, retry := lim.allow(acct); !ok {
+		if ok, retry := b.keyMgmtLimiter().allow(acct); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(retry))
 			jsonErr(w, http.StatusTooManyRequests, "too many key changes - slow down")
 			return
@@ -466,10 +527,31 @@ func (b *broker) accountKeys(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// keyManager resolves who may manage keys: a web session from an allowlisted Origin, or a
-// signed request (an unsigned legacy id never qualifies).
-// keyManager authenticates a management request: the account wallet, and the owner pubkey a
-// minted key's notices are mailed to (an account wallet like u_gh_<id> is not an owner key).
+// keyMgmtLimiter is the per-account limiter on key changes: one bucket in the shared store for
+// every instance, degrading to this instance's own bucket while the shared store cannot answer
+// (as every request limiter does).
+// keyMissLimiter is the per-address limit on relays bearing a key that does not resolve.
+func (b *broker) keyMissLimiter() *rateLimiter {
+	b.ak.mu.Lock()
+	defer b.ak.mu.Unlock()
+	if b.ak.miss == nil {
+		b.ak.miss = loadKeyMissRateLimiter()
+	}
+	return b.ak.miss
+}
+
+func (b *broker) keyMgmtLimiter() *rateLimiter {
+	b.ak.mu.Lock()
+	defer b.ak.mu.Unlock()
+	if b.ak.mgmt == nil {
+		b.ak.mgmt = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 10, burst: 10, name: "acctkeys", shared: b.shared}
+	}
+	return b.ak.mgmt
+}
+
+// keyManager authenticates a management request (a web session from an allowlisted Origin, or
+// a signed request; an unsigned legacy id never qualifies): the account wallet, and the owner
+// pubkey a minted key's notices are mailed to (an account wallet like u_gh_<id> is not one).
 func (b *broker) keyManager(r *http.Request, body []byte) (acct, notify string, ok bool) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		if !originAllowed(r) {
@@ -509,18 +591,6 @@ func (b *broker) ownKey(acct, id string) (store.AccountKey, bool) {
 		return store.AccountKey{}, false
 	}
 	return k, true
-}
-
-func (b *broker) acctLock(acct string) *sync.Mutex {
-	b.ak.mu.Lock()
-	defer b.ak.mu.Unlock()
-	b.ak.init()
-	m := b.ak.acctLocks[acct]
-	if m == nil {
-		m = &sync.Mutex{}
-		b.ak.acctLocks[acct] = m
-	}
-	return m
 }
 
 // keyFields are the settable fields, validated (keyFieldError names the field).
@@ -675,43 +745,32 @@ func (b *broker) mintKey(w http.ResponseWriter, r *http.Request, acct, notify st
 		writeKeyFieldError(w, ferr)
 		return
 	}
-	m := b.acctLock(acct)
-	m.Lock()
-	defer m.Unlock()
-	keys, err := b.db.AccountKeysOf(acct)
-	if err != nil {
-		jsonErr(w, http.StatusInternalServerError, "store error")
-		return
-	}
 	idem := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	live, created := 0, now.UnixNano()
-	for _, k := range keys {
-		if k.CreatedAt >= created {
-			created = k.CreatedAt + 1 // mint order is strict, so "newest first" never ties
-		}
-		if idem != "" && k.IdemKey == idem && now.Sub(time.Unix(0, k.CreatedAt)) < acctKeyIdemTTL {
-			writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{
-				"code": "already_minted", "message": "this mint was already done as " + k.ID + " - the secret is shown once, ever",
-				"id": k.ID}, "id": k.ID})
-			return
-		}
-		if !k.Revoked {
-			live++
-		}
-	}
-	if live >= acctKeyMaxLive {
-		jsonErrCode(w, http.StatusBadRequest, "key_limit_count", "at most 32 keys per account - delete one first")
-		return
-	}
 	secret := acctKeyPrefix + randHex(32)
 	k := store.AccountKey{
 		ID: acctKeyIDPrefix + randHex(8), SecretHash: acctKeyHash(secret), Account: acct,
 		Hint: "..." + secret[len(secret)-4:], Reset: "none", IdemKey: idem, OwnerPub: notify,
-		CreatedAt: created, AllowedModels: []string{}, AllowedNodes: []string{},
+		CreatedAt: now.UnixNano(), AllowedModels: []string{}, AllowedNodes: []string{},
 	}
 	f.apply(&k, now)
 	k.Anchor = 0 // a new key's window is the calendar's
-	if err := b.db.CreateAccountKey(k); err != nil {
+	if keyMintGapForTest != nil {
+		keyMintGapForTest(b)
+	}
+	// The cap and the replay check run inside the store's write, so mints racing on several
+	// instances cannot pass them.
+	k, err := b.db.CreateAccountKey(k, store.MintKeyRules{MaxLive: acctKeyMaxLive, IdemSince: now.Add(-acctKeyIdemTTL).UnixNano()})
+	var replay *store.KeyReplayError
+	switch {
+	case errors.As(err, &replay):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{
+			"code": "already_minted", "message": "this mint was already done as " + replay.ID + " - the secret is shown once, ever",
+			"id": replay.ID}, "id": replay.ID})
+		return
+	case errors.Is(err, store.ErrKeyCount):
+		jsonErrCode(w, http.StatusBadRequest, "key_limit_count", "at most 32 keys per account - delete one first")
+		return
+	case err != nil:
 		jsonErr(w, http.StatusInternalServerError, "store error")
 		return
 	}
@@ -739,9 +798,18 @@ func (b *broker) patchKey(w http.ResponseWriter, acct, id string, body []byte) {
 		keyNotFound(w)
 		return
 	}
-	f.apply(&k, now)
-	if err := b.db.SaveAccountKey(k); err != nil {
+	if keyPatchGapForTest != nil {
+		keyPatchGapForTest(b)
+	}
+	// The edit applies to the live row under its own lock: a delete or another edit that
+	// landed since the read above is never written back over.
+	k, found, err := b.db.UpdateAccountKey(k.ID, func(live *store.AccountKey) { f.apply(live, now) })
+	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !found {
+		keyNotFound(w)
 		return
 	}
 	b.bumpKeyEpoch()
@@ -755,9 +823,13 @@ func (b *broker) deleteKey(w http.ResponseWriter, acct, id string) {
 		keyNotFound(w)
 		return
 	}
-	k.Revoked = true
-	if err := b.db.SaveAccountKey(k); err != nil {
+	_, found, err := b.db.UpdateAccountKey(k.ID, func(live *store.AccountKey) { live.Revoked = true })
+	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !found {
+		keyNotFound(w)
 		return
 	}
 	b.bumpKeyEpoch()
@@ -808,15 +880,15 @@ func (b *broker) keyEntry(k store.AccountKey, now time.Time) map[string]any {
 	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	week := day.AddDate(0, 0, -((int(t.Weekday()) + 6) % 7))
 	month := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
-	sum := func(from time.Time) float64 {
-		v, _ := b.db.KeySpend(k.ID, from.UnixMilli(), 0)
-		return round6(v)
+	from, _, _ := keyWindow(k, now) // the limit's window: its spend is the spend since it began
+	sums, err := b.db.KeySpendSince(k.ID, []int64{0, day.UnixMilli(), week.UnixMilli(), month.UnixMilli(), from})
+	if err != nil {
+		sums = make([]float64, 5)
 	}
-	life, _ := b.db.KeySpend(k.ID, 0, 0)
-	e["usage"], e["usage_daily"], e["usage_weekly"], e["usage_monthly"] = round6(life), sum(day), sum(week), sum(month)
-	if k.LimitUSD > 0 {
-		if s, err := b.keyLimitState(k, now); err == nil {
-			e["limit_remaining"] = s.remaining()
+	e["usage"], e["usage_daily"], e["usage_weekly"], e["usage_monthly"] = round6(sums[0]), round6(sums[1]), round6(sums[2]), round6(sums[3])
+	if k.LimitUSD > 0 && err == nil {
+		if res, rerr := b.db.KeyReserved(k.ID); rerr == nil {
+			e["limit_remaining"] = keyLimitState{k: k, spend: round6(sums[4]), reserved: res}.remaining()
 		}
 	}
 	return e
@@ -844,19 +916,9 @@ func (b *broker) keyAudit(acct, id, action string, fields []string) {
 // keyRefsOf maps every settled request ref of the account's keys (deleted ones included) to
 // its key id, for attributing spend in /usage and the console lineage.
 func (b *broker) keyRefsOf(acct string) map[string]string {
-	keys, err := b.db.AccountKeysOf(acct)
-	if err != nil || len(keys) == 0 {
+	out, err := b.db.AccountKeySpendRefs(acct)
+	if err != nil || len(out) == 0 {
 		return nil
-	}
-	out := map[string]string{}
-	for _, k := range keys {
-		refs, err := b.db.KeySpendRefs(k.ID)
-		if err != nil {
-			continue
-		}
-		for ref := range refs {
-			out[ref] = k.ID
-		}
 	}
 	return out
 }
@@ -871,7 +933,11 @@ func (b *broker) emailKeyNotice(s keyLimitState, threshold, window string) {
 	if email == "" {
 		email = b.emailOf(s.k.Account) // a pubkey wallet is its own owner key
 	}
-	if email == "" || !b.mail.capNoticeOnce("key:"+s.k.ID+":"+window, threshold, b.now()) {
+	if email == "" {
+		return
+	}
+	claimed, release := b.keyNoticeOnce(s, threshold, window)
+	if !claimed {
 		return
 	}
 	pct := s.spend / s.k.LimitUSD * 100
@@ -880,7 +946,28 @@ func (b *broker) emailKeyNotice(s keyLimitState, threshold, window string) {
 	}
 	subj := fmt.Sprintf("Key %q (%s) at %.0f%% of its limit", s.k.Name, s.k.ID, pct)
 	text := fmt.Sprintf("Your key %q (%s) has used $%.2f of its $%.2f limit (%.0f%%).", s.k.Name, s.k.ID, s.spend, s.k.LimitUSD, pct)
-	b.mail.sendEmail(email, subj, "<p>"+text+"</p>", text)
+	b.mail.sendEmailOrRelease(email, subj, "<p>"+text+"</p>", text, release)
+}
+
+// keyNoticeOnce claims one key notice (key, window, threshold) for this instance, and returns
+// how to give the claim back if the email is then dropped. The claim is held in the shared store
+// until the window ends, so exactly one instance mails it; only when no shared store answers
+// does the mailer's in-process record de-duplicate instead.
+func (b *broker) keyNoticeOnce(s keyLimitState, threshold, window string) (bool, func()) {
+	now := b.now()
+	if b.shared != nil {
+		ttl := 400 * 24 * time.Hour // reset none: the window is the key's whole life
+		if _, until, _ := keyWindow(s.k, now); until > 0 {
+			ttl = time.UnixMilli(until).Sub(now) + time.Hour
+		}
+		key := "keynotice:" + s.k.ID + ":" + window + ":" + threshold
+		set, err := b.shared.setIfAbsent(key, "1", ttl)
+		if err == nil {
+			return set, func() { _ = b.shared.counterDel(key) }
+		}
+	}
+	holder := "key:" + s.k.ID + ":" + window
+	return b.mail.capNoticeOnce(holder, threshold, now), func() { b.mail.releaseCapNotice(holder, threshold, now) }
 }
 
 // keyChunkFields is the key state after settle that a stream's usage chunk carries.

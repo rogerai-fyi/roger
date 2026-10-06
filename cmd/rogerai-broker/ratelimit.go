@@ -76,10 +76,45 @@ func loadAnonRateLimiter() *rateLimiter {
 	}
 }
 
+// loadKeyMissRateLimiter is the per-address limit on relays bearing a key that does not
+// resolve (unknown, revoked, expired or disabled). Local to the instance, like the
+// per-identity limiter.
+func loadKeyMissRateLimiter() *rateLimiter {
+	return &rateLimiter{
+		buckets: map[string]*tokenBucket{},
+		rpm:     envFloat("ROGERAI_KEY_MISS_RATE_RPM", 30),
+		burst:   envFloat("ROGERAI_KEY_MISS_RATE_BURST", 15),
+	}
+}
+
 // allow consumes one token for key and reports whether it may proceed. When denied,
 // retryAfter is a seconds hint. RPM <= 0 disables limiting (always allow).
 func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) {
 	return rl.allowAt(key, 0, 0)
+}
+
+// blocked reports, without drawing a token, whether key's local bucket is empty (and a
+// seconds hint). A key with no bucket yet is not blocked. It reads only the local buckets, so
+// it pairs with a limiter that has no shared backend.
+func (rl *rateLimiter) blocked(key string) (bool, int) {
+	if rl == nil || rl.rpm <= 0 {
+		return false, 0
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	b := rl.buckets[key]
+	if b == nil {
+		return false, 0
+	}
+	tokens := b.tokens + time.Since(b.last).Seconds()*(rl.rpm/60.0)
+	if tokens >= 1 {
+		return false, 0
+	}
+	retry := int((1 - tokens) / (rl.rpm / 60.0))
+	if retry < 1 {
+		retry = 1
+	}
+	return true, retry
 }
 
 // allowAt is allow with a per-key rate override (rpm/burst). A zero rpm or burst

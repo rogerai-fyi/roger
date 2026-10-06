@@ -92,6 +92,8 @@ type kg5Req struct {
 }
 
 type kg5State struct {
+	cli *kg5CLI // the real `roger` binary's run in this scenario (key_cli_bdd_test.go)
+	kg5Unknown
 	ownServed      *kl5OwnServed  // /console both views: the relay acct-a's own station served
 	consoleJS      map[string]any // the last /console payload read
 	consoleRelayID string         // the relay request id captured before reading /console
@@ -1422,10 +1424,17 @@ func (k *kg5State) holdsN(acct string, n int) error {
 		}
 		// A Given's N keys are state, not a burst: the management limiter is the subject of
 		// its own scenario, so the setup mints are not charged against it.
-		lim := k.b.ak.mgmt
+		lim := k.b.keyMgmtLimiter()
 		lim.mu.Lock()
 		lim.buckets = map[string]*tokenBucket{}
 		lim.mu.Unlock()
+		if !k.mrClosed { // and the shared bucket every instance draws from
+			for _, key := range k.mr.Keys() {
+				if strings.HasPrefix(key, keyPrefix+"rl:acctkeys:") {
+					k.mr.Del(key)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -2000,22 +2009,28 @@ func (k *kg5State) settledThenChargeback(label string) error {
 	}
 	wallet, _ := k.walletOf("acct-a")
 	// The $1.00 spend relay is the disputed request (the spend Given records no scenario
-	// response, so k.resp is not it). Its rows are keyed on the attempt that settled it.
-	es, err := k.db.RecentByUser(wallet, 2000)
+	// response, so k.resp is not it).
+	disputed, err := k.settledAttempt(wallet, k.spendReq)
 	if err != nil {
 		return err
 	}
-	disputed := ""
-	for _, e := range es {
-		if e.RelayRequestID == k.spendReq {
-			disputed = e.RequestID
-		}
-	}
-	if disputed == "" {
-		return fmt.Errorf("the $1.00 spend (request %q) settled no row on %s", k.spendReq, wallet)
-	}
 	_, err = k.db.Chargeback("dp_"+k.nonce, wallet, disputed, 1, time.Now())
 	return err
+}
+
+// settledAttempt is the attempt id a consumer request settled under on wallet: spend rows,
+// chargebacks and refunds are keyed on the attempt, never on the request id itself.
+func (k *kg5State) settledAttempt(wallet, requestID string) (string, error) {
+	es, err := k.db.RecentByUser(wallet, 2000)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range es {
+		if e.RelayRequestID == requestID {
+			return e.RequestID, nil
+		}
+	}
+	return "", fmt.Errorf("request %q settled no row on %s", requestID, wallet)
 }
 
 func (k *kg5State) usageIs(label string, v float64) error { return k.wantNum(label, "usage", v) }
@@ -3409,6 +3424,10 @@ func (k *kg5State) docString(acct string, doc *godog.DocString) error {
 func (k *kg5State) registerCommon(sc *godog.ScenarioContext) {
 	sc.Step(`^a broker with the money store and the shared store wired$`, k.wired)
 	sc.Step(`^account "([^"]+)" is logged in \(wallet "([^"]+)"\) with balance \$([0-9.]+)$`, k.loggedIn)
+	k.registerStateAudit(sc)
+	k.registerReview(sc)
+	k.registerCLI(sc)
+	k.registerWeb(sc)
 }
 
 func (k *kg5State) registerGuardrails(sc *godog.ScenarioContext) {
@@ -3686,7 +3705,7 @@ func kg5Run(t *testing.T, name, path string, register func(k *kg5State, sc *godo
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{path},
-			Tags: "~@cli && ~@web && ~@docs && ~@later", TestingT: t, Strict: true,
+			Tags: "~@docs && ~@later", TestingT: t, Strict: true,
 		},
 	}
 	if suite.Run() != 0 {

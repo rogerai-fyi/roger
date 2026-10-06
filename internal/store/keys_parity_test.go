@@ -37,9 +37,12 @@ func TestAccountKeysParity(t *testing.T) {
 			k := AccountKey{ID: "key_a", SecretHash: "hash-a", Account: acct, Name: "ci", Hint: "...abcd",
 				LimitUSD: 1, Reset: "monthly", AllowedModels: []string{"m1"}, AllowedNodes: []string{"n1"},
 				OwnerPub: "pub-a", CreatedAt: 1}
-			require.NoError(t, s.CreateAccountKey(k))
-			require.NoError(t, s.CreateAccountKey(AccountKey{ID: "key_b", SecretHash: "hash-b", Account: acct, Name: "b", Reset: "none", CreatedAt: 2}))
-			require.NoError(t, s.CreateAccountKey(AccountKey{ID: "key_o", SecretHash: "hash-o", Account: other, Name: "o", Reset: "none", CreatedAt: 3}))
+			_, err := s.CreateAccountKey(k, MintKeyRules{})
+			require.NoError(t, err)
+			_, err = s.CreateAccountKey(AccountKey{ID: "key_b", SecretHash: "hash-b", Account: acct, Name: "b", Reset: "none", CreatedAt: 2}, MintKeyRules{})
+			require.NoError(t, err)
+			_, err = s.CreateAccountKey(AccountKey{ID: "key_o", SecretHash: "hash-o", Account: other, Name: "o", Reset: "none", CreatedAt: 3}, MintKeyRules{})
+			require.NoError(t, err)
 
 			got, ok, err := s.AccountKeyByHash("hash-a")
 			require.NoError(t, err)
@@ -65,16 +68,19 @@ func TestAccountKeysParity(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, none)
 
-			// Save updates an existing key; saving an unknown id creates nothing.
-			k.Name, k.Disabled, k.LimitUSD = "renamed", true, 2
-			require.NoError(t, s.SaveAccountKey(k))
-			require.NoError(t, s.SaveAccountKey(AccountKey{ID: "key_ghost", Account: acct, Reset: "none"}))
+			// Update edits an existing key; updating an unknown id creates nothing.
+			_, found, err := s.UpdateAccountKey("key_a", func(x *AccountKey) { x.Name, x.Disabled, x.LimitUSD = "renamed", true, 2 })
+			require.NoError(t, err)
+			require.True(t, found)
+			_, found, err = s.UpdateAccountKey("key_ghost", func(x *AccountKey) { x.Name = "ghost" })
+			require.NoError(t, err)
+			require.False(t, found)
 			got, _, _ = s.AccountKeyByID("key_a")
 			require.Equal(t, "renamed", got.Name)
 			require.True(t, got.Disabled)
 			require.InDelta(t, 2, got.LimitUSD, 1e-9)
 			_, ok, _ = s.AccountKeyByID("key_ghost")
-			require.False(t, ok, "save never creates a key")
+			require.False(t, ok, "an update never creates a key")
 
 			// Touch: last-used always, the request count only for a request.
 			require.NoError(t, s.TouchAccountKey("key_a", 100, true))
@@ -119,9 +125,9 @@ func TestAccountKeysParity(t *testing.T) {
 			require.InDelta(t, 0, spend, 1e-9, "the window's end is exclusive")
 			spend, _ = s.KeySpend("key_b", 0, 0)
 			require.InDelta(t, 0, spend, 1e-9, "another key's spend is its own")
-			refs, err := s.KeySpendRefs("key_a")
+			refs, err := s.AccountKeySpendRefs(acct)
 			require.NoError(t, err)
-			require.InDelta(t, 0.4, refs["req-1"], 1e-9)
+			require.Equal(t, "key_a", refs["req-1"], "the settled request is attributed to the key that made it")
 
 			// With 0.4 spent, a 0.7 hold now exceeds the $1 limit; 0.5 fits.
 			_, err = s.HoldForKey(acct, "req-3", 0.7, "key_a", nowMs, lim)

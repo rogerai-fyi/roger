@@ -66,7 +66,8 @@ type gl3Who struct {
 }
 
 type gl3State struct {
-	gl3LastBody string // the last raw relay body (early-refusal steps)
+	gl3LastBody string            // the last raw relay body (early-refusal steps)
+	keyIDs      map[string]string // account keys this scenario minted, by name (generation_keys_bdd_test.go)
 	*sr3State
 
 	who       map[string]*gl3Who
@@ -1831,6 +1832,7 @@ func (g *gl3State) statsUnchanged() error {
 type gl3PanicStore struct{ store.Store }
 
 func (g *gl3State) register(sc *godog.ScenarioContext) {
+	g.registerKeyRecord(sc)
 	// Background
 	sc.Step(lit("a broker with an empty in-memory node registry"), g.emptyRegistry)
 	sc.Step(lit("the fee rate is 30%"), g.feeRate30)
@@ -2045,7 +2047,7 @@ func TestGenerationLookupBDD(t *testing.T) {
 			},
 			Options: &godog.Options{
 				Format: "pretty", Paths: []string{"../../features/routing/generation_lookup.feature"},
-				Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@slice5 && ~@web", TestingT: t, Strict: true,
+				Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@web", TestingT: t, Strict: true,
 			},
 		}
 		if suite.Run() != 0 {

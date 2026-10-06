@@ -430,6 +430,14 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     When "k1" crosses 80% and then 100% in one window
     Then at most one 80% email and one 100% email are sent for "k1" that window, naming the key by name and id, never the secret
 
+  # state audit 2026-10-05: the de-duplication is shared, so a second instance does not mail again.
+  Scenario: The key notice email is de-duplicated across instances
+    Given "acct-a" has an email on file and RESEND_API_KEY is set
+    And a second instance shares the store, with its own mailer
+    When "k1" crosses 80% and then 100% in one window on A
+    And a relay bearing "k1" on B is 402 key_limit in the same window
+    Then at most one 80% email and one 100% email are sent for "k1" that window, naming the key by name and id, never the secret
+
   Scenario: Logs never print the secret
     Then no relay log line contains "rog-key_"
 

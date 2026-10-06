@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -145,7 +146,9 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 	_, _ = b.db.RevokeRCSessions(wallet)
 	// Account keys: every key is revoked at once (on every instance) and its audit rows are
 	// de-identified with the rest of the account.
-	if err := b.db.RetireAccountKeys(wallet, "deleted_"+acctKeyHash(wallet)[:12]); err == nil {
+	if err := b.db.RetireAccountKeys(wallet, "deleted_"+acctKeyHash(wallet)[:12]); err != nil {
+		log.Printf("account delete: retiring the account's keys failed - they stay live until retried: %v", err)
+	} else {
 		b.bumpKeyEpoch()
 	}
 	// Revoke the web session regardless (so the now-anonymized account can't be read).
