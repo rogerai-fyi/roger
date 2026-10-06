@@ -151,7 +151,6 @@
     if (m && (m[1] || m[2])) { lo = m[1] ? +m[1] : 0; hi = m[2] ? +m[2] : 10000; }
     else if (/^\d+(?:\.\d+)?$/.test(v)) { lo = hi = +v; }
     else throw "size: write a range like 7-70";
-    if (!isFinite(lo) || !isFinite(hi)) throw "size: write a range like 7-70";
     if (lo > hi) throw "size: min must be at most max";
     if (!(hi > 0)) throw "size must be above 0";
     return [lo, hi];
