@@ -875,7 +875,7 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
      <span class="bands-panel__status is-live|is-off|is-quiet">..</span>..</div>
      rows ... <div class="bands-panel__quiet"><p class="bands-panel__quiet-head">..</p>
      <p class="bands-panel__quiet-sub">..</p></div></div>
-   Chips: <span class="band-tag band-tag--free|--deal|--ver|--seen">, and the
+   Chips: <span class="band-tag band-tag--free|--deal|--ver|--seen|--cat|--grade">, and the
    neutral "$".."$$$$" read <span class="price-tier">. */
 .bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
 .bands-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
@@ -919,6 +919,9 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
 /* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
 .band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
 .band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
+/* what the band is FOR (a guess carries "~"), and a reduced-refusal/uncensored grade */
+.band-tag--cat { color: var(--ink-900); border-color: var(--ink-400); }
+.band-tag--grade { color: var(--ink-700); border-style: dashed; }
 
 /* ======================= PRINT ================================== */
 /* A printed page is whole, still and legible. The reveals are scroll-linked (the

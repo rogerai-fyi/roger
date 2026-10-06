@@ -8,6 +8,21 @@ import (
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
+// handleCategories serves the closed category list the editor offers (the same list the
+// broker's GET /categories serves), so the console never hard-codes it.
+func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
+	type cat struct {
+		Name          string   `json:"name"`
+		Subcategories []string `json:"subcategories"`
+	}
+	defs := protocol.Categories()
+	out := make([]cat, len(defs))
+	for i, d := range defs {
+		out[i] = cat{d.Name, d.Subcategories}
+	}
+	writeJSON(w, map[string]any{"version": protocol.TaxonomyVersion, "categories": out})
+}
+
 // handleMeta serves /api/share/meta. Validation is the controller's (SetMeta), so the console
 // refuses exactly what the TUI and `roger share` refuse, with the same reason.
 func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {

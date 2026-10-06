@@ -363,7 +363,7 @@ or touches, or 4s pass.
 
 ### Directory
 `.bands-hero` (`__inner`, `__title`, `__sub`), `.bands-panel` (`__bar`, `__status` with
-`is-live`/`is-off`/`is-quiet`, `__quiet`), and the chips `.band-tag` (`--free`, `--deal`,
+`is-live`/`is-off`/`is-quiet`, `__quiet`), and the chips `.band-tag` (`--free`, `--deal`, `--cat`, `--grade`,
 `--ver`, `--seen`) and `.price-tier`. The live directories (Models, Voices) share the
 shape, the homepage market its chips, the App page its hero title. Rows and columns are
 each page's own.

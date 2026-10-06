@@ -80,6 +80,9 @@ type providerModelRow struct {
 	ActiveIn   float64                `json:"active_in"`   // the price in effect RIGHT NOW
 	ActiveOut  float64                `json:"active_out"`  // (after applying the time-of-use schedule)
 	ActiveFree bool                   `json:"active_free"` // a free window is active now
+	// Taxonomy is what the station registered the model as FOR (read-only here; edited from
+	// the node until the owner override lands). Canonicalized like /discover.
+	protocol.Taxonomy
 }
 
 // providerModelsList returns every model on every node bound to this owner account.
@@ -104,6 +107,7 @@ func (b *broker) providerModelsList(w http.ResponseWriter, o store.Owner) {
 				Schedule: scheduleOrEmpty(off.Schedule),
 				// the price comes from an override iff the store holds one we authored
 				ActiveIn: ain, ActiveOut: aout, ActiveFree: afree,
+				Taxonomy: off.Taxonomy.Canonical(offerModality(off.Modality)),
 			})
 		}
 	}

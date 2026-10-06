@@ -358,6 +358,8 @@
                   <tr><td><kbd>C</kbd></td><td>toggle: only confidential / verified-lineage bands</td></tr>
                   <tr><td><kbd>O</kbd></td><td>toggle: only bands with a station on air</td></tr>
                   <tr><td><kbd>Q</kbd></td><td>cycle the <b>quant</b> filter - show only bands at one compression label (<code>Q4_K_M</code>, <code>IQ4_XS</code>, <code>MXFP4</code>&hellip;). Only labels actually on air are offered, so the filter can never empty the band on you</td></tr>
+                  <tr><td><kbd>G</kbd></td><td>cycle the <b>category</b> filter - show only one category (<code>vision</code>, <code>retrieval</code>&hellip;). Only categories on the dial are offered. A category is the station's own description, or a guess marked <code>~</code>; it is not verified</td></tr>
+                  <tr><td><kbd>U</kbd></td><td>toggle: hide curated stations (commercial-API proxies, counted apart from people's hardware)</td></tr>
                   <tr><td><kbd>r</kbd> · <code>/search</code></td><td>re-scan the band for stations</td></tr>
                   <tr><td><kbd>m</kbd></td><td>compact "windowshade" mode (collapse the header)</td></tr>
                   <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt for a slash command</td></tr>
@@ -724,6 +726,33 @@
               <div class="man-plate__row"><span class="man-plate__k">--ctx</span><span class="man-plate__v">context length; auto-detected from the upstream, falls back to 32768</span></div>
             </div>
 
+            <h3>Say what your model is for</h3>
+            <p>Every shared model can carry a <b>category</b>: one of
+              language, vision, audio, retrieval, generation and signals, each with its
+              own subcategories (<code>vision/ocr</code>, <code>retrieval/embeddings</code>,
+              <code>language/code</code>&hellip;), plus up to eight domain tags. The live list,
+              with how many stations serve each, is the broker's
+              <a class="man-link" href="https://broker.rogerai.fm/categories">/categories</a>.
+              If you say nothing, your node <b>guesses</b> from the model's name and what it
+              can do, and that is always shown as guessed, marked <code>~</code>, never as
+              your claim. Say it yourself with the flags below, the SHARE tab's <kbd>g</kbd>
+              editor, or the local console's Category button; a declaration replaces the
+              guess as a whole and applies the next time the model goes on air.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">--category</span><span class="man-plate__v"><code>&lt;category&gt;[/&lt;subcategory&gt;]</code>, e.g. <code>vision/ocr</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--tag</span><span class="man-plate__v">a domain tag, repeatable: <code>--tag manufacturing --tag ppe</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--tuning</span><span class="man-plate__v"><code>base</code>, <code>instruct</code>, <code>finetune</code>, <code>merge</code>, <code>quantized</code> or <code>adapter</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--policy</span><span class="man-plate__v">the content-policy grade of the weights: <code>aligned</code>, <code>reduced-refusal</code> or <code>uncensored</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--license</span><span class="man-plate__v">the model's license, e.g. <code>Apache-2.0</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--base-model</span><span class="man-plate__v">what it was derived from, e.g. <code>Qwen/Qwen3-VL-8B-Instruct</code></span></div>
+            </div>
+            <p class="man-note">A category is your station's own description: it is
+              <b>not verified</b>, and every surface says whether it was declared or
+              guessed. A content-policy grade describes your weights; it
+              never turns screening off: RogerAI still screens every request, whatever a
+              station declares. A typo stops the share with the valid values, rather than going on
+              air without it.</p>
+
             <h3>The confidential tier</h3>
             <p>Run <code>roger share --confidential</code> on real TEE hardware (today:
               an AMD SEV-SNP confidential VM). At registration the node generates a fresh
@@ -741,7 +770,9 @@
               <code>roger share --advanced</code> reveals <code>--node</code>,
               <code>--region</code>, <code>--parallel</code>, <code>--upstream</code>,
               <code>--ctx</code>, <code>--confidential</code>, <code>--free-window</code>,
-              and <code>--schedule</code>.</p>
+              <code>--schedule</code>, and the category flags (<code>--category</code>,
+              <code>--tag</code>, <code>--tuning</code>, <code>--policy</code>,
+              <code>--license</code>, <code>--base-model</code>).</p>
           </section>
 
           <!-- ============== §T RUN A TOWER ============== -->
@@ -1476,6 +1507,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
                   <tr><td><kbd>Enter</kbd> · <kbd>a</kbd> · <kbd>space</kbd></td><td>flip the selected model ON / OFF air</td></tr>
                   <tr><td><kbd>p</kbd> · <kbd>e</kbd></td><td>open the price + time-of-use schedule editor (login-gated - earning needs an account)</td></tr>
                   <tr><td><kbd>h</kbd></td><td>HIDE the selected model onto a private frequency band (login-gated); a fresh band opens the one-time code card. Press <kbd>h</kbd> again to put it back on the open market (§5)</td></tr>
+                  <tr><td><kbd>g</kbd></td><td>open the category editor: what the selected model is for (category, tags, tuning, content policy, license, base model). No login needed</td></tr>
                   <tr><td><kbd>r</kbd></td><td>re-detect local models (falls into the guided setup if none)</td></tr>
                   <tr><td><kbd>esc</kbd> · <kbd>q</kbd> · <kbd>s</kbd></td><td>back to TUNE IN; on-air shares keep running in the background</td></tr>
                 </tbody>
@@ -1629,6 +1661,17 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
 ...     model="qwen3-coder-30b",
 ...     messages=[{"role": "user", "content": "Say roger."}],
 ... )</pre></div>
+            <h3>Browse the market by category</h3>
+            <p>The broker's public views filter by what a model is for:
+              <code>/discover</code> lists each station's offer, <code>/market</code> one row per
+              model, and <code>/categories</code> every category with its live supply. Add
+              <code>category=</code>, <code>subcategory=</code>, <code>tag=</code> (repeat it to
+              require several) and <code>policy=</code> (repeat it to allow several;
+              <code>none</code> means no grade declared). On <code>/market</code> a
+              <code>policy=</code> filter must hold for every station of the model, since a
+              request to a model can be routed to any of them. An unknown value matches
+              nothing.</p>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl 'https://broker.rogerai.fm/market?category=vision&amp;subcategory=ocr&amp;tag=manufacturing'</pre></div>
             <p class="man-lead" style="margin-top:32px">Roger that. The band is open.</p>
           </section>
 

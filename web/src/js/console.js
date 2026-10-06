@@ -245,6 +245,20 @@
     if (m.overridden) head.appendChild(el("span", "md-tag", "custom"));
     card.appendChild(head);
 
+    // what the model is FOR, as the station registered it (read-only here: features/
+    // categories/web_sharing_view.feature). A guess is marked "~", never shown as a claim.
+    var cat = el("div", "md-base md-cat");
+    cat.appendChild(el("span", "md-lbl", "Category"));
+    var catTxt = m.taxonomy_source ? "no category" : "none declared";
+    if (m.category) {
+      catTxt = (m.subcategory ? m.category + "/" + m.subcategory : m.category) +
+        (m.taxonomy_source === "declared" ? "" : "~");
+    }
+    if (m.tags && m.tags.length) catTxt += " · " + m.tags.join(", ");
+    if (m.content_policy) catTxt += " · " + m.content_policy;
+    cat.appendChild(el("span", "md-catv", catTxt));
+    card.appendChild(cat);
+
     // base price line
     var base = el("div", "md-base");
     base.appendChild(el("span", "md-lbl", "Base $/1M"));
