@@ -160,6 +160,9 @@ func TestKeySpendSinceAndRefsParity(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, none)
 
+			// A request reversed in full (spend row plus its reversal row) still names its key,
+			// on both backends: attribution reads spend AND reversal rows.
+			reviewKeyReverse(t, db, "r3_"+acct, 4)
 			refs, err := db.AccountKeySpendRefs(acct)
 			require.NoError(t, err)
 			require.Equal(t, map[string]string{"r1_" + acct: ka, "r2_" + acct: ka, "r3_" + acct: kb}, refs)

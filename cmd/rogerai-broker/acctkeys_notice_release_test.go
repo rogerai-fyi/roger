@@ -53,3 +53,29 @@ func TestKeyNoticeClaimReleasedWhenSendDropped(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	require.Equal(t, 2, count(), "a notice that was sent is mailed once per window")
 }
+
+// TestShutdownDropReleasesBeforeReturning: a notice dropped because the mailer is shutting down
+// gives its claim back before the drop returns (the process may exit right after), bounded so a
+// slow release cannot stall shutdown.
+func TestShutdownDropReleasesBeforeReturning(t *testing.T) {
+	m := enabledMailer(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`)), Header: http.Header{}}, nil
+	})
+	m.q.mu.Lock()
+	m.q.stopping = true
+	m.q.mu.Unlock()
+	released := make(chan struct{})
+	m.sendEmailOrRelease("owner@example.com", "s", "<p>t</p>", "t", func() {
+		time.Sleep(20 * time.Millisecond)
+		close(released)
+	})
+	select {
+	case <-released:
+	default:
+		t.Fatal("the claim was not released before the shutdown drop returned")
+	}
+
+	start := time.Now()
+	m.sendEmailOrRelease("owner@example.com", "s", "<p>t</p>", "t", func() { time.Sleep(time.Hour) })
+	require.Less(t, time.Since(start), 5*time.Second, "a release that hangs must not stall shutdown")
+}

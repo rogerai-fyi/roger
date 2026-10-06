@@ -410,10 +410,20 @@ func (q *emailQueue) depthLocked() int {
 	return n
 }
 
+// emailShutdownReleaseWait bounds how long a shutdown drop waits for its onDrop to finish.
+const emailShutdownReleaseWait = 2 * time.Second
+
 func (q *emailQueue) dropLocked(job *emailJob, reason string) {
 	q.dropped[reason]++
 	if job.onDrop != nil {
-		go job.onDrop()
+		done := make(chan struct{})
+		go func() { job.onDrop(); close(done) }()
+		if reason == "shutdown" { // the process may exit right after: wait, briefly
+			select {
+			case <-done:
+			case <-time.After(emailShutdownReleaseWait):
+			}
+		}
 	}
 	if reason == "queue-full" || reason == "rejected" {
 		log.Printf("email: DROPPED (%s, lane=%s) to=%s subj=%q", reason, job.lane, maskAddr(job.to), job.subject)

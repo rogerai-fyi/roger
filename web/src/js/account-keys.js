@@ -51,6 +51,17 @@
   }
   function usd(n) { return "$" + (Number(n) || 0).toFixed(2); }
 
+  // parseLimit reads a typed spend limit strictly: a plain non-negative number of dollars ("0"
+  // means no limit). null (a cancelled dialog) and "" are a choice not to set one, never 0; a
+  // typo such as "abc", "$5" or "-1" is refused rather than read as 0, which would remove the cap.
+  function parseLimit(s) {
+    if (s == null) return { none: true };
+    var t = String(s).trim();
+    if (t === "") return { none: true };
+    if (!/^\d+(\.\d+)?$/.test(t)) return { error: "a spend limit is a number of dollars, like 5 or 2.50 (0 = no limit)" };
+    return { value: Number(t) };
+  }
+
   // used is the spend in the window the limit counts (reset none: the key's whole life).
   function used(k) {
     var w = { daily: k.usage_daily, weekly: k.usage_weekly, monthly: k.usage_monthly }[k.reset];
@@ -80,16 +91,19 @@
   }
 
   // revealHTML is the one-time secret block: the secret once, the shared copy control
-// (data-copy-target, site.js) pointed at it, and the warning.
+// (data-copy-target, site.js) pointed at it, the warning, and Done to take it off the page.
   function revealHTML(secret) {
     return '<div class="kf__reveal-head"><span class="kf__reveal-tag">shown once</span>' +
       '<span class="kf__reveal-msg">' + esc(WARNING) + "</span></div>" +
       '<div class="kf__secret"><code class="kf__secret-val" id="akSecret">' + esc(secret) + "</code>" +
-      '<button type="button" class="kf__copy" data-copy-target="#akSecret">Copy</button></div>';
+      '<button type="button" class="kf__copy" data-copy-target="#akSecret">Copy</button></div>' +
+      '<button type="button" class="kf__rowbtn" data-reveal-done>Done</button>';
   }
 
   // ---- the page ------------------------------------------------------------------------------
-  function mount(doc, api) {
+  // mount wires the section; ui supplies the confirm/prompt dialogs (the window's by default).
+  function mount(doc, api, ui) {
+    ui = ui || window;
     var $ = function (id) { return doc.getElementById(id); };
     var rows = $("akRows"), wrap = $("akWrap"), empty = $("akEmpty"), err = $("akErr"), reveal = $("akReveal");
     if (!rows) return;
@@ -108,8 +122,9 @@
       ev.preventDefault();
       err.hidden = true;
       var fields = { name: $("akName").value.trim() };
-      var limit = parseFloat($("akLimit").value);
-      if (limit > 0) fields.limit_usd = limit;
+      var limit = parseLimit($("akLimit").value);
+      if (limit.error) return fail(new Error(limit.error));
+      if (!limit.none) fields.limit_usd = limit.value;
       fields.reset = $("akReset").value;
       mint(api, fields).then(function (k) {
         reveal.innerHTML = revealHTML(k.secret); // its Copy is the shared copy control (site.js)
@@ -118,19 +133,26 @@
         return refresh();
       }).catch(fail);
     });
+    reveal.addEventListener("click", function (ev) {
+      if (!ev.target.closest("[data-reveal-done]")) return;
+      reveal.innerHTML = ""; // the secret leaves the page
+      reveal.hidden = true;
+    });
     rows.addEventListener("click", function (ev) {
       var b = ev.target.closest("button[data-act]");
       if (!b) return;
       var id = b.getAttribute("data-id"), k = keysByID[id] || {}, act = b.getAttribute("data-act"), p;
+      err.hidden = true;
       if (act === "revoke") {
-        if (!confirm("Revoke " + id + "? Anything using it stops working.")) return;
+        if (!ui.confirm("Revoke " + id + "? Anything using it stops working.")) return;
         p = revoke(api, id);
       } else if (act === "toggle") {
         p = update(api, id, { disabled: !k.disabled });
       } else {
-        var v = prompt("Spend limit in $ for " + id + " (0 = unlimited)", k.limit_usd || 0);
-        if (v === null) return;
-        p = update(api, id, { limit_usd: parseFloat(v) || 0 });
+        var limit = parseLimit(ui.prompt("Spend limit in $ for " + id + " (0 = no limit)", k.limit_usd || 0));
+        if (limit.none) return;
+        if (limit.error) return fail(new Error(limit.error));
+        p = update(api, id, { limit_usd: limit.value });
       }
       p.then(refresh).catch(fail);
     });
@@ -138,7 +160,7 @@
   }
 
   var R = { makeApi: makeApi, list: list, mint: mint, update: update, revoke: revoke,
-    rowsHTML: rowsHTML, revealHTML: revealHTML, WARNING: WARNING, mount: mount };
+    rowsHTML: rowsHTML, revealHTML: revealHTML, parseLimit: parseLimit, WARNING: WARNING, mount: mount };
   if (typeof window !== "undefined") {
     window.RogerAccountKeys = R;
     document.addEventListener("DOMContentLoaded", function () {

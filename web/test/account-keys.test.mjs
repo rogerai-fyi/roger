@@ -109,3 +109,92 @@ test("account keys: the section uses only the keys page's existing classes, no i
     assert.ok(new RegExp("\\." + c.replace(/[-_]/g, (x) => "\\" + x) + "\\b").test(css), `class .${c} is an existing style`);
   }
 });
+
+/* ---- the page wiring: the real mount() over a small fake document ------------------------ */
+
+// fakeDoc is the handful of elements mount() reads, by id; ui stubs the browser dialogs.
+function fakeDoc() {
+  const els = {};
+  const make = (id) => ({
+    id, value: "", hidden: true, innerHTML: "", textContent: "", handlers: {},
+    addEventListener(t, f) { this.handlers[t] = f; },
+    reset() { for (const k of ["akName", "akLimit"]) els[k].value = ""; els.akReset.value = "monthly"; },
+  });
+  for (const id of ["akRows", "akWrap", "akEmpty", "akErr", "akReveal", "akForm", "akName", "akLimit", "akReset"]) els[id] = make(id);
+  els.akReset.value = "monthly";
+  return { els, getElementById: (id) => els[id] || null };
+}
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+async function mounted(ui) {
+  const doc = fakeDoc();
+  const { calls, api } = recorder([{ status: 200, body: { keys: [KEY] } }, ...Array(10).fill({ status: 200, body: { ...KEY, secret: "rog-key_NEW", keys: [KEY] } })]);
+  A.mount(doc, api, ui);
+  await flush();
+  calls.length = 0; // the first list
+  return { doc, calls };
+}
+const submit = async (doc) => { doc.els.akForm.handlers.submit({ preventDefault() {} }); await flush(); await flush(); };
+const clickRow = async (doc, act) => {
+  doc.els.akRows.handlers.click({ target: { closest: () => ({ getAttribute: (a) => (a === "data-id" ? "key_1" : act) }) } });
+  await flush(); await flush();
+};
+const writes = (calls) => calls.filter((c) => c.method !== "GET");
+
+test("mount: a mint's limit is parsed strictly; a typo is refused and nothing is sent", async () => {
+  for (const [typed, want] of [["abc", null], ["$5", null], ["-1", null], ["", "none"], ["2.5", 2.5], ["0", 0]]) {
+    const { doc, calls } = await mounted({});
+    doc.els.akName.value = "ci";
+    doc.els.akLimit.value = typed;
+    await submit(doc);
+    if (want === null) {
+      assert.equal(writes(calls).length, 0, `limit ${JSON.stringify(typed)} must send nothing`);
+      assert.equal(doc.els.akErr.hidden, false, `limit ${JSON.stringify(typed)} shows an error`);
+      assert.match(doc.els.akErr.textContent, /limit/i);
+      continue;
+    }
+    const body = JSON.parse(writes(calls)[0].body);
+    if (want === "none") assert.ok(!("limit_usd" in body), "an empty limit field sends no limit (the key has none)");
+    else assert.equal(body.limit_usd, want, `limit ${JSON.stringify(typed)}`);
+  }
+});
+
+test("mount: editing a limit parses strictly; an empty answer or Cancel changes nothing", async () => {
+  for (const [typed, want] of [["abc", null], ["$5", null], ["-1", null], ["", "cancel"], [null, "cancel"], ["2.5", 2.5], ["0", 0]]) {
+    const { doc, calls } = await mounted({ prompt: () => typed, confirm: () => true });
+    await clickRow(doc, "limit");
+    const w = writes(calls);
+    if (want === null || want === "cancel") {
+      assert.equal(w.length, 0, `answer ${JSON.stringify(typed)} must send nothing`);
+      assert.equal(doc.els.akErr.hidden, want === "cancel", `answer ${JSON.stringify(typed)}: error shown only for a typo`);
+      continue;
+    }
+    assert.equal(w[0].method, "PATCH");
+    assert.deepEqual(JSON.parse(w[0].body), { limit_usd: want });
+  }
+});
+
+test("mount: toggle and revoke send their request; a declined revoke sends nothing", async () => {
+  let { doc, calls } = await mounted({ confirm: () => false });
+  await clickRow(doc, "revoke");
+  assert.equal(writes(calls).length, 0);
+  ({ doc, calls } = await mounted({ confirm: () => true }));
+  await clickRow(doc, "revoke");
+  assert.equal(writes(calls)[0].method, "DELETE");
+  ({ doc, calls } = await mounted({}));
+  await clickRow(doc, "toggle");
+  assert.deepEqual(JSON.parse(writes(calls)[0].body), { disabled: true });
+});
+
+test("mount: the reveal shows the minted secret once, and Done clears it", async () => {
+  const { doc } = await mounted({});
+  doc.els.akName.value = "ci";
+  await submit(doc);
+  const reveal = doc.els.akReveal;
+  assert.equal(reveal.hidden, false);
+  assert.equal(reveal.innerHTML.split("rog-key_NEW").length - 1, 1);
+  assert.match(reveal.innerHTML, /data-reveal-done/);
+  reveal.handlers.click({ target: { closest: (sel) => (sel === "[data-reveal-done]" ? {} : null) } });
+  assert.equal(reveal.innerHTML, "", "Done removes the secret from the page");
+  assert.equal(reveal.hidden, true);
+});
