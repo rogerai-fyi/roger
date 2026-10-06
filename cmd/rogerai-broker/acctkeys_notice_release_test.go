@@ -5,6 +5,7 @@ package main
 // the next crossing mails it; a sent notice still mails once (slice-5 review 2026-10-05).
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -78,4 +79,46 @@ func TestShutdownDropReleasesBeforeReturning(t *testing.T) {
 	start := time.Now()
 	m.sendEmailOrRelease("owner@example.com", "s", "<p>t</p>", "t", func() { time.Sleep(time.Hour) })
 	require.Less(t, time.Since(start), 5*time.Second, "a release that hangs must not stall shutdown")
+}
+
+// TestShutdownDropReleasesSeveralOutsideTheLock: notices still queued when the drain budget
+// runs out are all given back before drain returns, together under one deadline (not one wait
+// per notice), and without holding the queue lock while they run.
+func TestShutdownDropReleasesSeveralOutsideTheLock(t *testing.T) {
+	m := enabledMailer(func(r *http.Request) (*http.Response, error) {
+		// Retryable with a long hint: every notice stays queued until the drain gives up.
+		return &http.Response{StatusCode: http.StatusTooManyRequests, Body: io.NopCloser(strings.NewReader(`{}`)),
+			Header: http.Header{"Retry-After": []string{"3600"}}}, nil
+	})
+	var mu sync.Mutex
+	released, lockFree := 0, 0
+	const n = 5
+	for i := 0; i < n; i++ {
+		m.sendEmailOrRelease("owner@example.com", fmt.Sprint("s", i), "<p>t</p>", "t", func() {
+			// The queue lock is not held while a release runs: it can be taken within a moment
+			// (the other releases take it briefly too, so a single TryLock would race them).
+			for end := time.Now().Add(50 * time.Millisecond); time.Now().Before(end); time.Sleep(time.Millisecond) {
+				if m.q.mu.TryLock() {
+					m.q.mu.Unlock()
+					mu.Lock()
+					lockFree++
+					mu.Unlock()
+					break
+				}
+			}
+			time.Sleep(300 * time.Millisecond)
+			mu.Lock()
+			released++
+			mu.Unlock()
+		})
+	}
+	time.Sleep(100 * time.Millisecond) // let the sender try each once and park them
+	start := time.Now()
+	m.drain(10 * time.Millisecond)
+	took := time.Since(start)
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, n, released, "every queued notice gives its claim back before drain returns")
+	require.Equal(t, n, lockFree, "no release runs under the queue lock")
+	require.Less(t, took, time.Duration(n)*300*time.Millisecond, "the releases share one deadline, not one wait each")
 }

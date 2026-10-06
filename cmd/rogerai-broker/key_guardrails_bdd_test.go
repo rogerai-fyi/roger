@@ -92,7 +92,8 @@ type kg5Req struct {
 }
 
 type kg5State struct {
-	cli            *kg5CLI        // the real `roger` binary's run in this scenario (key_cli_bdd_test.go)
+	cli *kg5CLI // the real `roger` binary's run in this scenario (key_cli_bdd_test.go)
+	kg5Unknown
 	ownServed      *kl5OwnServed  // /console both views: the relay acct-a's own station served
 	consoleJS      map[string]any // the last /console payload read
 	consoleRelayID string         // the relay request id captured before reading /console

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -155,4 +156,35 @@ func TestUseKeyFlags(t *testing.T) {
 	require.NoError(t, cmdUse(cfg, []string{"m1", "--key", "rog-key_abc", "--save-key"}))
 	require.Equal(t, "rog-key_abc", loadConfig().UseKey)
 	require.NoError(t, cmdUse(loadConfig(), []string{"m1"}), "a saved key is used by a later run")
+}
+
+func TestUseKeySources(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config{Broker: fakeBrokerEmpty(t), User: "u"}
+	withStdin := func(s string) {
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		_, _ = w.WriteString(s)
+		w.Close()
+		prev := os.Stdin
+		os.Stdin = r
+		t.Cleanup(func() { os.Stdin = prev })
+	}
+	withStdin("rog-key_fromstdin\n")
+	require.NoError(t, cmdUse(cfg, []string{"m1", "--key", "-", "--save-key"}))
+	require.Equal(t, "rog-key_fromstdin", loadConfig().UseKey, "--key - reads the key from stdin")
+	withStdin("")
+	require.ErrorContains(t, cmdUse(cfg, []string{"m1", "--key", "-"}), "read no key from stdin")
+
+	t.Setenv("ROGER_KEY", "not-a-key")
+	require.ErrorContains(t, cmdUse(cfg, []string{"m1"}), "--key takes an account key")
+	t.Setenv("ROGER_KEY", "rog-key_fromenv")
+	require.NoError(t, cmdUse(cfg, []string{"m1", "--save-key"}))
+	require.Equal(t, "rog-key_fromenv", loadConfig().UseKey, "--save-key keeps a ROGER_KEY key")
+	t.Setenv("ROGER_KEY", "")
+
+	require.NoError(t, cmdUse(loadConfig(), []string{"--forget-key"}), "--forget-key needs no model")
+	require.Empty(t, loadConfig().UseKey)
+	require.NoError(t, cmdUse(loadConfig(), []string{"--forget-key"}), "forgetting with nothing saved is fine")
+	require.NoError(t, cmdUse(loadConfig(), []string{"m1", "--forget-key"}), "--forget-key with a model then tunes in")
 }

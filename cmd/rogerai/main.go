@@ -12,6 +12,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1067,9 +1068,22 @@ func cmdUse(cfg config, args []string) error {
 	// Default off = fallback ON (an empty-content reasoning reply is surfaced as content).
 	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
 	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
-	key := fs.String("key", "", "relay with this account key (rog-key_...) instead of this device's signature")
-	saveKey := fs.Bool("save-key", false, "remember --key in the config file for later `roger use` runs")
+	key := fs.String("key", "", "relay with this account key (rog-key_...) instead of this device's signature; - reads it from stdin (or set ROGER_KEY)")
+	saveKey := fs.Bool("save-key", false, "remember the key in the config file for later `roger use` runs")
+	forgetKey := fs.Bool("forget-key", false, "remove a saved key from the config file")
 	fs.Parse(rest)
+	if *forgetKey {
+		if cfg.UseKey != "" {
+			cfg.UseKey = ""
+			if err := saveConfig(cfg); err != nil {
+				return err
+			}
+		}
+		fmt.Println("no saved key - `roger use` signs with this device again")
+		if model == "" {
+			return nil
+		}
+	}
 	if model == "" {
 		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
 	}
@@ -1109,27 +1123,41 @@ func cmdUse(cfg config, args []string) error {
 		}
 		useport = p
 	}
-	useKey := strings.TrimSpace(*key)
+	// The key is --key's (- reads it from stdin), else ROGER_KEY's, else the one saved with
+	// --save-key. Neither stdin nor the environment puts it in shell history or ps.
+	useKey, keyNote := strings.TrimSpace(*key), ""
+	if useKey == "-" {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if useKey = strings.TrimSpace(line); useKey == "" {
+			return fmt.Errorf("--key - read no key from stdin")
+		}
+	}
+	if useKey == "" {
+		useKey = strings.TrimSpace(os.Getenv("ROGER_KEY"))
+	}
 	if useKey != "" && !client.IsAccountKey(useKey) {
 		return fmt.Errorf("--key takes an account key (rog-key_...) - mint one with `roger keys mint`")
 	}
 	if *saveKey {
 		if useKey == "" {
-			return fmt.Errorf("--save-key needs --key rog-key_...")
+			return fmt.Errorf("--save-key needs --key rog-key_... (or ROGER_KEY)")
 		}
 		cfg.UseKey = useKey
 		if err := saveConfig(cfg); err != nil {
 			return err
 		}
 	}
-	if useKey == "" {
+	if useKey == "" && cfg.UseKey != "" {
 		useKey = cfg.UseKey // a key saved earlier with --save-key
+	}
+	if useKey != "" && useKey == cfg.UseKey {
+		keyNote = "saved key ..." + useKey[len(useKey)-4:] + " in use (roger use --forget-key to clear)"
 	}
 	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
 		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
-		Pref: lim.Pref, SelfHostedOnly: *selfHosted, Quantizations: quants, Key: useKey,
+		Pref: lim.Pref, SelfHostedOnly: *selfHosted, Quantizations: quants, Key: useKey, KeyNote: keyNote,
 	})
 }
 

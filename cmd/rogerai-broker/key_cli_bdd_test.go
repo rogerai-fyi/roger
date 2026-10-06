@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -78,6 +79,17 @@ type kg5CLI struct {
 
 	webCookie string // the signed web session the keys page sends (key_web_bdd_test.go)
 	webAcct   string
+
+	useOut  string            // everything the last `roger use` printed
+	secrets map[string]string // key secrets by role ("--key", "ROGER_KEY", "saved")
+}
+
+// kg5Unknown is the unknown-keys scenario's tally (key_review_bdd_test.go).
+type kg5Unknown struct {
+	rvRetryAfter int
+	rvLookups    int
+	rvFirstUsed  any   // the last_used a key showed after its first relay
+	rvCodes      []int // the touch scenario's relay statuses
 }
 
 func (c *kg5CLI) recorded() []kg5Hop {
@@ -185,6 +197,7 @@ func (k *kg5State) registerCLI(sc *godog.ScenarioContext) {
 	sc.Step("^`roger use qwen3-32b --key rog-key_\\.\\.\\.` runs$", k.cliUseKey)
 	sc.Step(`^the local proxy authenticates every relay with the key bearer instead of the device signature$`, k.cliRelaysBearKey)
 	sc.Step("^the key is never written to the config file unless `--save-key` is passed$", k.cliKeyNotSaved)
+	k.registerKeyHandling(sc)
 }
 
 // cliRuns runs a `roger keys` command as acct's logged-in device. "key_x" names a key the
@@ -383,9 +396,26 @@ func (k *kg5State) cliUseKey() error {
 	return k.cliUseRelay(secret, false)
 }
 
-// cliUseRelay runs `roger use` (optionally with --save-key) in the background, waits for the
-// channel plate, sends one relay through the local proxy, then stops it.
+// cliUseRelay runs `roger use qwen3-32b --key secret` (optionally with --save-key) and sends one
+// relay through it.
 func (k *kg5State) cliUseRelay(secret string, save bool) error {
+	args := []string{"qwen3-32b", "--key", secret}
+	if save {
+		args = append(args, "--save-key")
+	}
+	return k.cliUse(kg5UseRun{args: args})
+}
+
+// kg5UseRun is one `roger use` run: its arguments after "use", extra environment, and stdin.
+type kg5UseRun struct {
+	args  []string
+	env   []string
+	stdin string
+}
+
+// cliUse runs `roger use ...` in the background, waits for the channel plate, sends one relay
+// through the local proxy, then stops it. Everything roger printed is kept in useOut.
+func (k *kg5State) cliUse(run kg5UseRun) error {
 	bin, err := kg5BuildRoger()
 	if err != nil {
 		return err
@@ -397,12 +427,12 @@ func (k *kg5State) cliUseRelay(secret string, save bool) error {
 	}
 	port := l.Addr().(*net.TCPAddr).Port
 	_ = l.Close()
-	args := []string{"use", "qwen3-32b", "--key", secret, "--yes", "--port", fmt.Sprint(port)}
-	if save {
-		args = append(args, "--save-key")
-	}
+	args := append(append([]string{"use"}, run.args...), "--yes", "--port", fmt.Sprint(port))
 	cmd := exec.Command(bin, args...)
-	cmd.Env = k.cliEnv()
+	cmd.Env = append(k.cliEnv(), run.env...)
+	if run.stdin != "" {
+		cmd.Stdin = strings.NewReader(run.stdin)
+	}
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw
 	if err := cmd.Start(); err != nil {
@@ -411,31 +441,42 @@ func (k *kg5State) cliUseRelay(secret string, save bool) error {
 	exited := make(chan struct{})
 	go func() {
 		_ = cmd.Wait()
-		_ = pw.Close() // the reader sees EOF when roger exits early
+		_ = pw.Close() // the reader sees EOF when roger exits
 		close(exited)
 	}()
-	defer func() {
-		_ = cmd.Process.Kill()
-		<-exited
-	}()
-	plate := make(chan string, 1)
+	var outMu sync.Mutex
+	var seen strings.Builder
+	plate, readDone := make(chan string, 1), make(chan struct{})
 	go func() {
-		var seen strings.Builder
-		buf := make([]byte, 4096)
+		defer close(readDone)
+		buf, sent := make([]byte, 4096), false
 		for {
 			n, rerr := pr.Read(buf)
+			outMu.Lock()
 			seen.Write(buf[:n])
-			if m := regexp.MustCompile(`OPENAI_API_KEY=(\S+)`).FindStringSubmatch(seen.String()); m != nil {
+			text := seen.String()
+			outMu.Unlock()
+			if m := regexp.MustCompile(`OPENAI_API_KEY=(\S+)`).FindStringSubmatch(text); m != nil && !sent {
 				plate <- m[1]
-				_, _ = io.Copy(io.Discard, pr)
-				return
+				sent = true
 			}
 			if rerr != nil {
-				plate <- "!" + seen.String()
+				if !sent {
+					plate <- "!" + text
+				}
 				return
 			}
 		}
 	}()
+	stop := func() {
+		_ = cmd.Process.Kill()
+		<-exited
+		<-readDone
+		outMu.Lock()
+		c.useOut = seen.String()
+		outMu.Unlock()
+	}
+	defer stop()
 	var session string
 	select {
 	case session = <-plate:
@@ -518,4 +559,145 @@ func (k *kg5State) cliKeyNotSaved() error {
 		return fmt.Errorf("--save-key did not write the key to config.json (%v): %s", err, cfg)
 	}
 	return nil
+}
+
+// ---- founder ruling 2026-10-06: ROGER_KEY, --key -, precedence, --forget-key, the plate ------
+
+func (k *kg5State) registerKeyHandling(sc *godog.ScenarioContext) {
+	sc.Step("^`roger use qwen3-32b` runs with ROGER_KEY set to a key$", func() error {
+		s, err := k.cliMintSecret("k-env")
+		if err != nil {
+			return err
+		}
+		return k.cliUse(kg5UseRun{args: []string{"qwen3-32b"}, env: []string{"ROGER_KEY=" + s}})
+	})
+	sc.Step("^`roger use qwen3-32b --key -` runs with a key on stdin$", func() error {
+		s, err := k.cliMintSecret("k-stdin")
+		if err != nil {
+			return err
+		}
+		return k.cliUse(kg5UseRun{args: []string{"qwen3-32b", "--key", "-"}, stdin: s + "\n"})
+	})
+	sc.Step(`^the key does not appear in roger's output$`, func() error {
+		if c := k.cli; strings.Contains(c.useOut, c.secret) {
+			return fmt.Errorf("roger printed the key:\n%s", c.useOut)
+		}
+		return nil
+	})
+	sc.Step(`^a saved key, a ROGER_KEY key and a --key key that all differ$`, k.cliThreeKeys)
+	sc.Step("^`roger use qwen3-32b` runs with (--key, ROGER_KEY and the saved key|ROGER_KEY and the saved key|only the saved key)$", k.cliUseWith)
+	sc.Step(`^every relay bears the (--key|ROGER_KEY|saved) key$`, func(role string) error {
+		k.cli.secret = k.cli.secrets[role]
+		return k.cliRelaysBearKey()
+	})
+	sc.Step("^a key was saved with `roger use qwen3-32b --key \\.\\.\\. --save-key`$", func() error {
+		s, err := k.cliMintSecret("k-save")
+		if err != nil {
+			return err
+		}
+		return k.cliUseRelay(s, true)
+	})
+	sc.Step("^`roger use --forget-key` runs$", func() error {
+		if err := k.cliRun("use", "--forget-key"); err != nil {
+			return err
+		}
+		if k.cli.code != 0 {
+			return fmt.Errorf("roger use --forget-key exited %d: %s%s", k.cli.code, k.cli.stdout, k.cli.stderr)
+		}
+		return nil
+	})
+	sc.Step(`^the config file no longer holds the key$`, func() error {
+		b, _ := os.ReadFile(filepath.Join(k.cli.dir, "rogerai", "config.json"))
+		if bytes.Contains(b, []byte(k.cli.secret)) {
+			return fmt.Errorf("config.json still holds the key: %s", b)
+		}
+		return nil
+	})
+	sc.Step("^a later `roger use qwen3-32b` relays with the device signature and no bearer$", func() error {
+		if err := k.cliUse(kg5UseRun{args: []string{"qwen3-32b"}}); err != nil {
+			return err
+		}
+		return k.cliRelaysSigned()
+	})
+	sc.Step("^`roger use qwen3-32b` runs$", func() error { return k.cliUse(kg5UseRun{args: []string{"qwen3-32b"}}) })
+	sc.Step(`^the plate has a KEY line saying a saved key is in use, showing its hint and never the key$`, k.cliPlateKeyLine)
+}
+
+// cliMintSecret mints label for acct-a (logged in on the CLI's device key) and makes it the
+// scenario's key.
+func (k *kg5State) cliMintSecret(label string) (string, error) {
+	if err := k.cliKeyFor("acct-a"); err != nil {
+		return "", err
+	}
+	if err := k.mintWith("acct-a", label, "defaults"); err != nil {
+		return "", err
+	}
+	s, err := k.secretOf(label)
+	if err != nil {
+		return "", err
+	}
+	k.ensurePriced()
+	k.cliHarness().secret = s
+	return s, nil
+}
+
+func (k *kg5State) cliThreeKeys() error {
+	c := k.cliHarness()
+	c.secrets = map[string]string{}
+	for role, label := range map[string]string{"--key": "k-flag", "ROGER_KEY": "k-env", "saved": "k-saved"} {
+		s, err := k.cliMintSecret(label)
+		if err != nil {
+			return err
+		}
+		c.secrets[role] = s
+	}
+	cfg, _ := json.Marshal(map[string]any{"use_key": c.secrets["saved"]})
+	return os.WriteFile(filepath.Join(c.dir, "rogerai", "config.json"), cfg, 0o600)
+}
+
+func (k *kg5State) cliUseWith(sources string) error {
+	c := k.cli
+	run := kg5UseRun{args: []string{"qwen3-32b"}}
+	if strings.HasPrefix(sources, "--key") {
+		run.args = append(run.args, "--key", c.secrets["--key"])
+	}
+	if strings.Contains(sources, "ROGER_KEY") {
+		run.env = []string{"ROGER_KEY=" + c.secrets["ROGER_KEY"]}
+	}
+	return k.cliUse(run)
+}
+
+func (k *kg5State) cliRelaysSigned() error {
+	relays := 0
+	for _, h := range k.cli.recorded() {
+		if h.path != "/v1/chat/completions" {
+			continue
+		}
+		relays++
+		if a := h.header.Get("Authorization"); a != "" {
+			return fmt.Errorf("a relay still carried a bearer (%.20s...)", a)
+		}
+		if h.header.Get("X-Roger-Sig") == "" {
+			return fmt.Errorf("a relay carried no device signature")
+		}
+	}
+	if relays == 0 {
+		return fmt.Errorf("no relay reached the broker")
+	}
+	return nil
+}
+
+func (k *kg5State) cliPlateKeyLine() error {
+	c := k.cli
+	if strings.Contains(c.useOut, c.secret) {
+		return fmt.Errorf("roger printed the key:\n%s", c.useOut)
+	}
+	hint := c.secret[len(c.secret)-4:]
+	for _, l := range strings.Split(c.useOut, "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "KEY ") && strings.Contains(t, "saved") && strings.Contains(t, hint) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no KEY line naming a saved key and its hint ...%s on the plate:\n%s", hint, c.useOut)
 }

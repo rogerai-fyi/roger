@@ -6,11 +6,16 @@ package main
 // through the store, as the payment webhooks do.
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/cucumber/godog"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 func (k *kg5State) registerReview(sc *godog.ScenarioContext) {
@@ -30,6 +35,9 @@ func (k *kg5State) registerReview(sc *godog.ScenarioContext) {
 	sc.Step(`^the shared store refuses every command$`, k.saSharedDown)
 	sc.Step(`^the shared store answers again$`, k.rvSharedBack)
 	sc.Step(`^within (\d+) seconds a relay bearing "([^"]+)" on B is 401 "([^"]+)"$`, k.rvEventually401OnB)
+	k.registerUnknownKeys(sc)
+	k.registerMgmtBearer(sc)
+	k.registerTouch(sc)
 }
 
 // rvPatchRace renames label on A; between A's read and its write, B deletes or disables it.
@@ -169,4 +177,208 @@ func (k *kg5State) rvEventually401OnB(secs int, label, code string) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// ---- unknown keys from one address (push audit 2026-10-06) -----------------------------------
+
+// rvHashCounter counts the key-store lookups by secret hash.
+type rvHashCounter struct {
+	store.Store
+	mu sync.Mutex
+	n  int
+}
+
+func (c *rvHashCounter) AccountKeyByHash(h string) (store.AccountKey, bool, error) {
+	c.mu.Lock()
+	c.n++
+	c.mu.Unlock()
+	return c.Store.AccountKeyByHash(h)
+}
+
+func (k *kg5State) registerUnknownKeys(sc *godog.ScenarioContext) {
+	sc.Step(`^10,000 relays from one address each bear a different unknown key$`, k.rvUnknownKeys)
+	sc.Step(`^the relays past the per-address limit for unknown keys are 429 with Retry-After$`, k.rvUnknownLimited)
+	sc.Step(`^at most that limit's burst of them reach the key store$`, k.rvUnknownLookups)
+	sc.Step(`^the broker keeps no lookup entry for any of them$`, k.rvUnknownNoCache)
+	sc.Step(`^a relay bearing a valid key from another address is served$`, k.rvValidElsewhere)
+}
+
+func (k *kg5State) rvUnknownKeys() error {
+	counter := &rvHashCounter{Store: k.b.db}
+	saved := k.b.db
+	k.b.db = counter
+	defer func() { k.b.db = saved }()
+	body := k.relayBody(k.model, false, nil)
+	k.codes, k.rvRetryAfter = nil, 0
+	for i := 0; i < 10000; i++ {
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", fmt.Sprintf("Bearer rog-key_unknown%064d", i))
+		r.Header.Set("CF-Connecting-IP", "203.0.113.7")
+		rr := httptest.NewRecorder()
+		k.b.routes().ServeHTTP(rr, r)
+		k.codes = append(k.codes, rr.Code)
+		if rr.Code == http.StatusTooManyRequests && rr.Header().Get("Retry-After") != "" {
+			k.rvRetryAfter++
+		}
+	}
+	k.rvLookups = counter.n
+	return nil
+}
+
+func (k *kg5State) rvUnknownLimited() error {
+	limited := 0
+	for _, c := range k.codes {
+		switch c {
+		case http.StatusTooManyRequests:
+			limited++
+		case http.StatusUnauthorized:
+		default:
+			return fmt.Errorf("an unknown key got %d, want 401 or 429", c)
+		}
+	}
+	if limited < 9000 {
+		return fmt.Errorf("only %d of 10,000 unknown-key relays were rate limited", limited)
+	}
+	if k.rvRetryAfter != limited {
+		return fmt.Errorf("%d of %d 429s carried Retry-After", k.rvRetryAfter, limited)
+	}
+	return nil
+}
+
+func (k *kg5State) rvUnknownLookups() error {
+	burst := int(k.b.keyMissLimiter().burst)
+	if k.rvLookups > burst+1 {
+		return fmt.Errorf("%d unknown keys reached the key store, want at most the burst of %d", k.rvLookups, burst)
+	}
+	return nil
+}
+
+func (k *kg5State) rvUnknownNoCache() error {
+	k.b.ak.mu.Lock()
+	defer k.b.ak.mu.Unlock()
+	for h, c := range k.b.ak.byHash {
+		if !c.found {
+			return fmt.Errorf("the broker cached a miss (%d entries, e.g. %.12s...)", len(k.b.ak.byHash), h)
+		}
+	}
+	return nil
+}
+
+func (k *kg5State) rvValidElsewhere() error {
+	if err := k.mintWith("acct-a", "k-valid", "defaults"); err != nil {
+		return err
+	}
+	k.ensurePriced()
+	if err := k.keyRelayOn(k.b, "k-valid", k.model, false, nil, nil); err != nil {
+		return err
+	}
+	return k.status(200)
+}
+
+// ---- key-management attempts bearing a key (push audit 2026-10-06) --------------------------
+
+func (k *kg5State) registerMgmtBearer(sc *godog.ScenarioContext) {
+	sc.Step(`^a request bearing "([^"]+)" PATCHes /account/keys/k1 (\d+) times from one address$`, k.rvMgmtBearer)
+	sc.Step(`^the attempts past the per-address limit are 429 with Retry-After$`, k.rvMgmtLimited)
+	sc.Step(`^at most that limit's burst of "denied" audit rows are written$`, k.rvMgmtAudits)
+}
+
+func (k *kg5State) rvMgmtBearer(label string, n int) error {
+	secret, err := k.secretOf(label)
+	if err != nil {
+		return err
+	}
+	k.codes, k.rvRetryAfter = nil, 0
+	body := []byte(`{"name":"x"}`)
+	for i := 0; i < n; i++ {
+		r := httptest.NewRequest(http.MethodPatch, "/account/keys/"+k.keyID(label), bytes.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+secret)
+		r.Header.Set("CF-Connecting-IP", "203.0.113.9")
+		rr := httptest.NewRecorder()
+		k.b.routes().ServeHTTP(rr, r)
+		k.codes = append(k.codes, rr.Code)
+		if rr.Code == http.StatusTooManyRequests && rr.Header().Get("Retry-After") != "" {
+			k.rvRetryAfter++
+		}
+	}
+	return nil
+}
+
+func (k *kg5State) rvMgmtLimited() error {
+	limited := 0
+	for _, c := range k.codes {
+		switch c {
+		case http.StatusTooManyRequests:
+			limited++
+		case http.StatusForbidden:
+		default:
+			return fmt.Errorf("a key-management attempt with a key got %d, want 403 or 429", c)
+		}
+	}
+	if limited == 0 || k.rvRetryAfter != limited {
+		return fmt.Errorf("%d attempts were 429 (%d with Retry-After)", limited, k.rvRetryAfter)
+	}
+	return nil
+}
+
+func (k *kg5State) rvMgmtAudits() error {
+	wallet, _ := k.walletOf("acct-a")
+	rows, err := k.keyEvents(wallet)
+	if err != nil {
+		return err
+	}
+	denied := 0
+	for _, r := range rows {
+		if strings.Contains(r.Ref, "action=denied") {
+			denied++
+		}
+	}
+	if burst := int(k.b.keyMissLimiter().burst); denied > burst {
+		return fmt.Errorf("%d denied audit rows were written, want at most the burst of %d", denied, burst)
+	}
+	return nil
+}
+
+// ---- a key's use is recorded after admission (push audit 2026-10-06) ------------------------
+
+func (k *kg5State) registerTouch(sc *godog.ScenarioContext) {
+	sc.Step(`^"([^"]+)" mints "([^"]+)" on A and the per-identity limit admits one relay$`, func(acct, label string) error {
+		if err := k.mintsOnA(acct, label); err != nil {
+			return err
+		}
+		k.ensurePriced()
+		k.b.rl = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
+		return nil
+	})
+	sc.Step(`^two relays bearing "([^"]+)" arrive back to back$`, func(label string) error {
+		k.rvCodes = nil
+		for i := 0; i < 2; i++ {
+			if err := k.keyRelayOn(k.b, label, k.model, false, nil, nil); err != nil {
+				return err
+			}
+			k.rvCodes = append(k.rvCodes, k.resp.code)
+			if i == 0 {
+				e, err := k.entry(label)
+				if err != nil {
+					return err
+				}
+				k.rvFirstUsed = e["last_used"]
+			}
+		}
+		return nil
+	})
+	sc.Step(`^the second is 429 and "([^"]+)" shows 1 request and the first relay's last_used$`, func(label string) error {
+		if len(k.rvCodes) != 2 || k.rvCodes[0] != http.StatusOK || k.rvCodes[1] != http.StatusTooManyRequests {
+			return fmt.Errorf("the two relays answered %v, want [200 429]", k.rvCodes)
+		}
+		e, err := k.entry(label)
+		if err != nil {
+			return err
+		}
+		if n, _ := kg5Num(e["requests"]); n != 1 || e["last_used"] != k.rvFirstUsed {
+			return fmt.Errorf("%s shows requests=%v last_used=%v after a 429, want 1 and %v", label, e["requests"], e["last_used"], k.rvFirstUsed)
+		}
+		return nil
+	})
 }

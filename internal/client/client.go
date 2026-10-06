@@ -1617,6 +1617,8 @@ type UseOptions struct {
 	Quantizations  []string
 	// Key is an account key the proxy relays with instead of the device signature.
 	Key string
+	// KeyNote, when set, is printed on the connect plate's KEY line (never the key itself).
+	KeyNote string
 }
 
 // limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
@@ -1781,6 +1783,9 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
 	fmt.Printf("  %-9s %s\n", "API KEY", sessionKey)
 	fmt.Printf("  %-9s %s\n", "MODEL", model)
+	if opt.KeyNote != "" {
+		fmt.Printf("  %-9s %s\n", "KEY", opt.KeyNote)
+	}
 	if opt.MaxIn > 0 || maxOut > 0 || opt.MinTPS > 0 {
 		fmt.Printf("  %-9s %s\n", "LIMITS", limitsLine(opt.MaxIn, maxOut, opt.MinTPS))
 	}
@@ -1890,6 +1895,9 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
 	fmt.Printf("  %-9s %s\n", "API KEY", sessionKey)
 	fmt.Printf("  %-9s %s\n", "MODEL", model)
+	if opt.KeyNote != "" {
+		fmt.Printf("  %-9s %s\n", "KEY", opt.KeyNote)
+	}
 	fmt.Printf("  %-9s %s\n", "FREQ", display)
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)

@@ -577,6 +577,28 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     When a request bearing "k1" arrives
     Then it is 503 "key lookup failed - try again shortly" (never a silent allow, never a 401 that reads as revoked)
 
+  # push audit 2026-10-06: an unknown key costs little and is rate limited by address.
+  Scenario: Many unknown keys from one address are rate limited and leave nothing behind
+    When 10,000 relays from one address each bear a different unknown key
+    Then the relays past the per-address limit for unknown keys are 429 with Retry-After
+    And at most that limit's burst of them reach the key store
+    And the broker keeps no lookup entry for any of them
+    And a relay bearing a valid key from another address is served
+
+  # push audit 2026-10-06: a key trying to manage keys is limited before it is audited.
+  Scenario: Repeated key-management attempts with a key are rate limited before any audit row
+    Given "acct-a" mints "k1" on A
+    When a request bearing "k1" PATCHes /account/keys/k1 100 times from one address
+    Then the attempts past the per-address limit are 429 with Retry-After
+    And at most that limit's burst of "denied" audit rows are written
+
+  # push audit 2026-10-06: a relay the rate limiter refuses is not the key's use (an allow-list
+  # denial still is: features/relay/key_limits.feature, "A denied model or node ...").
+  Scenario: A relay the rate limiter refuses is not recorded as the key's use
+    Given "acct-a" mints "k1" on A and the per-identity limit admits one relay
+    When two relays bearing "k1" arrive back to back
+    Then the second is 429 and "k1" shows 1 request and the first relay's last_used
+
   # slice-5 review 2026-10-05: an edit never writes back a revoked or disabled flag it read earlier.
   Scenario: A rename racing a delete on another instance never brings the key back
     Given "acct-a" mints "k1" on A
@@ -696,6 +718,43 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     When `roger use qwen3-32b --key rog-key_...` runs
     Then the local proxy authenticates every relay with the key bearer instead of the device signature
     And the key is never written to the config file unless `--save-key` is passed
+
+  # founder ruling 2026-10-06: a key can reach `roger use` without shell history or ps.
+  Scenario: `roger use` takes the key from ROGER_KEY and never prints it
+    When `roger use qwen3-32b` runs with ROGER_KEY set to a key
+    Then the local proxy authenticates every relay with the key bearer instead of the device signature
+    And the key does not appear in roger's output
+
+  # founder ruling 2026-10-06
+  Scenario: `roger use --key -` reads the key from stdin
+    When `roger use qwen3-32b --key -` runs with a key on stdin
+    Then the local proxy authenticates every relay with the key bearer instead of the device signature
+    And the key does not appear in roger's output
+
+  # founder ruling 2026-10-06: the argv form stays (pinned by "A key can be used as the bearer by `roger use --key`").
+  Scenario Outline: The key `roger use` relays with is --key's, else ROGER_KEY's, else the saved one
+    Given a saved key, a ROGER_KEY key and a --key key that all differ
+    When `roger use qwen3-32b` runs with <sources>
+    Then every relay bears the <winner> key
+
+    Examples:
+      | sources                              | winner    |
+      | --key, ROGER_KEY and the saved key   | --key     |
+      | ROGER_KEY and the saved key          | ROGER_KEY |
+      | only the saved key                   | saved     |
+
+  # founder ruling 2026-10-06
+  Scenario: `roger use --forget-key` clears the saved key
+    Given a key was saved with `roger use qwen3-32b --key ... --save-key`
+    When `roger use --forget-key` runs
+    Then the config file no longer holds the key
+    And a later `roger use qwen3-32b` relays with the device signature and no bearer
+
+  # founder ruling 2026-10-06
+  Scenario: The connect plate says when a saved key is in use
+    Given a key was saved with `roger use qwen3-32b --key ... --save-key`
+    When `roger use qwen3-32b` runs
+    Then the plate has a KEY line saying a saved key is in use, showing its hint and never the key
 
   # --- adversarial ---------------------------------------------------------------------
   Scenario: An allow-listed private-band node still needs the band code

@@ -80,6 +80,7 @@ type acctKeyState struct {
 	localEpoch float64
 	locks      [64]sync.Mutex // local per-key locks, striped by key id so they never grow
 	mgmt       *rateLimiter
+	miss       *rateLimiter      // per address: relays bearing a key that does not resolve (keyMissLimiter)
 	logged     map[string]string // key id -> the window it was last logged at-limit in
 
 	bumpOwed     int       // epoch bumps that failed and are not yet re-sent
@@ -209,7 +210,7 @@ func (b *broker) keyLookup(byHash bool, k string) (store.AccountKey, bool, error
 	if err != nil {
 		return store.AccountKey{}, false, errKeyLookup
 	}
-	if eerr == nil {
+	if eerr == nil && found { // a miss is never cached: the cache holds only real keys
 		b.ak.mu.Lock()
 		cache[k] = acctKeyCached{k: rec, found: found, epoch: ep, at: time.Now()}
 		b.ak.mu.Unlock()
@@ -221,23 +222,32 @@ func (b *broker) keyLookup(byHash bool, k string) (store.AccountKey, bool, error
 type keyRefusal struct {
 	status    int
 	code, msg string
+	retry     int // Retry-After seconds, for a 429
 }
 
 // resolveRelayKey authenticates a `Bearer rog-key_...` relay. ok=false with a nil refusal means
 // the request carries no key.
+// An address that keeps presenting keys that do not resolve is rate limited BEFORE the lookup
+// (keyMissLimiter), so it costs neither a store read nor memory; only a refused key draws from that
+// budget, so a working key is never slowed by it. The caller records the use (TouchAccountKey)
+// once the relay is admitted.
 func (b *broker) resolveRelayKey(r *http.Request) (store.AccountKey, bool, *keyRefusal) {
 	tok := acctKeyToken(r)
 	if tok == "" {
 		return store.AccountKey{}, false, nil
 	}
+	ip := clientIP(r)
+	if blocked, retry := b.keyMissLimiter().blocked(ip); blocked {
+		return store.AccountKey{}, false, &keyRefusal{status: http.StatusTooManyRequests, code: "rate_limited", msg: "too many requests with keys that do not work - slow down", retry: retry}
+	}
 	k, found, err := b.keyLookup(true, acctKeyHash(tok))
 	if err != nil {
-		return store.AccountKey{}, false, &keyRefusal{http.StatusServiceUnavailable, "key_lookup_failed", "key lookup failed - try again shortly"}
+		return store.AccountKey{}, false, &keyRefusal{status: http.StatusServiceUnavailable, code: "key_lookup_failed", msg: "key lookup failed - try again shortly"}
 	}
 	if ref := keyStateRefusal(k, found, b.now()); ref != nil {
+		b.keyMissLimiter().allow(ip)
 		return store.AccountKey{}, false, ref
 	}
-	_ = b.db.TouchAccountKey(k.ID, b.now().UnixNano(), true)
 	return k, true, nil
 }
 
@@ -247,13 +257,13 @@ func (b *broker) resolveRelayKey(r *http.Request) (store.AccountKey, bool, *keyR
 func keyStateRefusal(k store.AccountKey, found bool, now time.Time) *keyRefusal {
 	switch {
 	case !found:
-		return &keyRefusal{http.StatusUnauthorized, "key_invalid", "key invalid"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_invalid", msg: "key invalid"}
 	case k.Revoked:
-		return &keyRefusal{http.StatusUnauthorized, "key_revoked", "key revoked"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_revoked", msg: "key revoked"}
 	case k.Expired(now):
-		return &keyRefusal{http.StatusUnauthorized, "key_expired", "key expired"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_expired", msg: "key expired"}
 	case k.Disabled:
-		return &keyRefusal{http.StatusUnauthorized, "key_disabled", "key disabled"}
+		return &keyRefusal{status: http.StatusUnauthorized, code: "key_disabled", msg: "key disabled"}
 	}
 	return nil
 }
@@ -468,6 +478,13 @@ func (b *broker) accountKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	if tok := acctKeyToken(r); tok != "" || grantTokenFromHeader(r) != "" {
 		if tok != "" {
+			// Limited per address before the lookup and the audit row, so repeated attempts
+			// cost neither a store read nor a ledger row each.
+			if ok, retry := b.keyMissLimiter().allow(clientIP(r)); !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(retry))
+				jsonErr(w, http.StatusTooManyRequests, "too many requests - slow down")
+				return
+			}
 			if k, found, err := b.keyLookup(true, acctKeyHash(tok)); err == nil && found {
 				b.keyAudit(k.Account, k.ID, "denied", nil)
 			}
@@ -517,6 +534,16 @@ func (b *broker) accountKeys(w http.ResponseWriter, r *http.Request) {
 // keyMgmtLimiter is the per-account limiter on key changes: one bucket in the shared store for
 // every instance, degrading to this instance's own bucket while the shared store cannot answer
 // (as every request limiter does).
+// keyMissLimiter is the per-address limit on relays bearing a key that does not resolve.
+func (b *broker) keyMissLimiter() *rateLimiter {
+	b.ak.mu.Lock()
+	defer b.ak.mu.Unlock()
+	if b.ak.miss == nil {
+		b.ak.miss = loadKeyMissRateLimiter()
+	}
+	return b.ak.miss
+}
+
 func (b *broker) keyMgmtLimiter() *rateLimiter {
 	b.ak.mu.Lock()
 	defer b.ak.mu.Unlock()

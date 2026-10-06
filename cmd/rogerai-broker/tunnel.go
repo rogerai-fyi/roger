@@ -1689,6 +1689,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// request: the bearer wins). A key that is not live is refused here.
 	akey, kok, kref := b.resolveRelayKey(r)
 	if kref != nil {
+		if kref.retry > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(kref.retry))
+		}
 		w.Header().Set("X-RogerAI-Cost", "0")
 		jsonErrCode(w, kref.status, kref.code, kref.msg)
 		return
@@ -1794,6 +1797,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	gen.admit() // identified and within its rate limit: from here every outcome is recorded
+	if kok {
+		// Past the rate limit, the key's use is recorded, served or refused from here on (an
+		// allow-list denial, the key limit), as last_used promises; a 429 above is not.
+		_ = b.db.TouchAccountKey(akey.ID, b.now().UnixNano(), true)
+	}
 	var req struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
