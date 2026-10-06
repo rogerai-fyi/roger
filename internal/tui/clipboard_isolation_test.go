@@ -1,8 +1,8 @@
 package tui
 
 import (
+	"bytes"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -37,20 +37,18 @@ func TestCopyToClipboardToolOutcome(t *testing.T) {
 	}
 }
 
-// TestClipboardWriteEmitsNoOSC52InTests pins the other half: the OSC 52 escape a terminal
-// turns into a clipboard write never reaches the real stdout during the package run.
-func TestClipboardWriteEmitsNoOSC52InTests(t *testing.T) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
+// TestClipboardWriteRoutesOSC52ThroughClipboardOut pins the other half: every OSC 52
+// escape (a terminal turns it into a clipboard write) goes through clipboardOut, which
+// TestMain points at io.Discard, so none reaches the real terminal during the run.
+func TestClipboardWriteRoutesOSC52ThroughClipboardOut(t *testing.T) {
+	if clipboardOut != io.Discard {
+		t.Fatal("TestMain must point clipboardOut at io.Discard")
 	}
-	prev := os.Stdout
-	os.Stdout = w
+	var buf bytes.Buffer
+	clipboardOut = &buf
+	t.Cleanup(func() { clipboardOut = io.Discard })
 	clipboardWrite("isolation probe")()
-	os.Stdout = prev
-	w.Close()
-	out, _ := io.ReadAll(r)
-	if strings.Contains(string(out), "\x1b]52;") {
-		t.Fatalf("clipboardWrite printed an OSC 52 clipboard escape to stdout: %q", out)
+	if !strings.Contains(buf.String(), "\x1b]52;") {
+		t.Fatalf("clipboardWrite's OSC 52 escape did not go through clipboardOut: %q", buf.String())
 	}
 }
