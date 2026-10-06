@@ -1,8 +1,10 @@
 package protocol
 
 import (
+	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Taxonomy is an offer's optional description of what the model is FOR
@@ -208,4 +210,96 @@ func canonicalTag(raw string) (string, bool) {
 	}
 	tag := b.String()
 	return tag, tag != "" && len(tag) <= tagMax
+}
+
+// Validate checks an operator's declaration STRICTLY (features/categories/declaration.feature).
+// The broker normalizes leniently - an unknown value is dropped - but an operator typing a
+// category deserves to be told it was wrong rather than see it vanish. The messages name what
+// is valid. modality is the offer's: a voice model is always audio/<modality>.
+func (t Taxonomy) Validate(modality string) error {
+	cat, sub := normWord(t.Category), normWord(t.Subcategory)
+	if modality == ModalityTTS || modality == ModalitySTT {
+		if (cat != "" && cat != "audio") || (sub != "" && sub != modality) {
+			return fmt.Errorf("a %s model is always audio/%s", modality, modality)
+		}
+	} else if sub == ModalityTTS || sub == ModalitySTT {
+		return fmt.Errorf("audio/%s is only for a %s model", sub, sub)
+	}
+	switch subs, ok := subcategoriesOf(cat); {
+	case cat == "" && sub != "":
+		return fmt.Errorf("subcategory %q needs a category", sub)
+	case cat != "" && !ok:
+		names := make([]string, len(categories))
+		for i, c := range categories {
+			names[i] = c.Name
+		}
+		return fmt.Errorf("unknown category %q (valid: %s)", t.Category, strings.Join(names, ", "))
+	case sub != "" && !slices.Contains(subs, sub):
+		return fmt.Errorf("%q is not a %s subcategory (valid: %s)", sub, cat, strings.Join(subs, ", "))
+	}
+	var tags []string
+	for _, raw := range t.Tags {
+		tag, ok := canonicalTag(raw)
+		switch {
+		case !ok:
+			return fmt.Errorf("invalid tag %q (use a-z, 0-9 and -, at most %d characters)", raw, tagMax)
+		case reservedTags[tag]:
+			return fmt.Errorf("reserved tag %q", tag)
+		case !slices.Contains(tags, tag):
+			if tags = append(tags, tag); len(tags) > MaxTags {
+				return fmt.Errorf("at most %d tags", MaxTags)
+			}
+		}
+	}
+	// Refused, not cut: the broker would truncate silently, and an operator's text arriving
+	// shortened is the same surprise as a category arriving dropped.
+	if n := utf8.RuneCountInString(strings.TrimSpace(t.BaseModel)); n > baseModelMax {
+		return fmt.Errorf("base model: at most %d characters (got %d)", baseModelMax, n)
+	}
+	if n := utf8.RuneCountInString(strings.TrimSpace(t.License)); n > licenseTextMx {
+		return fmt.Errorf("license: at most %d characters (got %d)", licenseTextMx, n)
+	}
+	if v := normWord(t.Tuning); v != "" && !knownTunings[v] {
+		return fmt.Errorf("unknown tuning %q (valid: base, instruct, finetune, merge, quantized, adapter)", t.Tuning)
+	}
+	if normWord(t.ContentPolicy) != "" && CanonicalContentPolicy(t.ContentPolicy) == "" {
+		return fmt.Errorf("unknown content policy %q (valid: aligned, reduced-refusal, uncensored)", t.ContentPolicy)
+	}
+	return nil
+}
+
+// Declare validates an operator's declaration for an offer of modality and returns it in the
+// canonical form it is stored in (no claim source: the source is stamped when it goes on air).
+func (t Taxonomy) Declare(modality string) (Taxonomy, error) {
+	if err := t.Validate(modality); err != nil {
+		return Taxonomy{}, err
+	}
+	t = t.Canonical(modality)
+	t.TaxonomySource = ""
+	return t, nil
+}
+
+// OnAir is what an offer carries given a stored declaration and the inference: the declaration
+// as a WHOLE, labelled declared, when a claim survives canonicalization; otherwise the inference.
+// One label, one author (founder ruling 2026-10-05). A stored entry that canonicalizes to
+// nothing - hand-edited to an unknown category, say - therefore never hides the inference.
+func (t Taxonomy) OnAir(modality string, inferred Taxonomy) Taxonomy {
+	t.TaxonomySource = ""
+	if c := t.Canonical(modality); c.TaxonomySource != "" {
+		c.TaxonomySource = SourceDeclared
+		return c
+	}
+	return inferred
+}
+
+// SplitCategory splits "cat/sub" (the form operators type) into its parts.
+func SplitCategory(s string) (cat, sub string) {
+	cat, sub, _ = strings.Cut(s, "/")
+	return cat, sub
+}
+
+// Declared reports whether any claim field is set (the claim source alone is not a claim).
+func (t Taxonomy) Declared() bool {
+	return t.Category != "" || t.Subcategory != "" || len(t.Tags) > 0 || t.Tuning != "" ||
+		t.BaseModel != "" || t.ContentPolicy != "" || t.License != ""
 }

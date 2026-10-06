@@ -101,6 +101,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/share/price", s.action(s.handlePrice))
 	s.mux.HandleFunc("/api/share/rename", s.action(s.handleRename))
 	s.mux.HandleFunc("/api/share/detect", s.action(s.handleDetect))
+	// A model's declared + inferred taxonomy: GET reads, POST declares, DELETE clears
+	// (token-gated like every /api route; features/categories/declaration.feature).
+	s.mux.HandleFunc("/api/share/meta", s.auth(s.handleMeta))
 	// Account (reads token-gated; writes POST-only).
 	s.mux.HandleFunc("/api/account", s.auth(s.handleAccount))
 	s.mux.HandleFunc("/api/account/login/begin", s.action(s.handleLoginBegin))

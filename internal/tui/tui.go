@@ -116,6 +116,10 @@ type Hooks struct {
 	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
 	// a BOOTH pass (nil = none). The host owns the disk read; the TUI does no I/O.
 	SavedVoices map[string]VoiceConfig
+	// SavedMeta seeds each model's DECLARED taxonomy from config.json share_meta, and
+	// SaveMeta persists a change (an empty taxonomy = remove). The host owns the disk I/O.
+	SavedMeta map[string]protocol.Taxonomy
+	SaveMeta  func(model string, t protocol.Taxonomy)
 	// Compact seeds the "windowshade" compact mode at launch from the saved config, so
 	// the [m] choice sticks across sessions (the host owns the disk read).
 	Compact bool
@@ -1289,7 +1293,9 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 		Prices:      hooks.SavedPrices,
 		Voices:      hooks.SavedVoices,
 		AutoStart:   hooks.SavedAutoStart,
+		Meta:        hooks.SavedMeta,
 		Hooks: node.Hooks{
+			SaveMeta:      hooks.SaveMeta,
 			SaveUpstream:  hooks.SaveUpstream,
 			SavePrice:     hooks.SavePrice,
 			SaveStation:   hooks.SaveStation,
