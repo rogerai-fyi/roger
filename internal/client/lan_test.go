@@ -177,3 +177,13 @@ func TestLANDiscoverDoesNotWaitForASlowTower(t *testing.T) {
 	require.Len(t, bands, 1)
 	require.Equal(t, LANTowerWaiting, status[0].State)
 }
+
+func staticResolver(ips ...string) func(context.Context, string) ([]net.IP, error) {
+	return func(context.Context, string) ([]net.IP, error) {
+		var out []net.IP
+		for _, s := range ips {
+			out = append(out, net.ParseIP(s))
+		}
+		return out, nil
+	}
+}

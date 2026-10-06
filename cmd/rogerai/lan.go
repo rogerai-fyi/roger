@@ -382,3 +382,71 @@ func lanStatusText(st client.LANTowerStatus) string {
 	}
 	return line
 }
+
+// lanSelfServe is this machine's own serve of a band (`roger model serve`): its completions
+// URL and runtime key, or "" when nothing here serves it.
+func lanSelfServe(band string) (string, string) {
+	for _, sv := range modelHome().LiveAll() {
+		if sv.Band == band && sv.BaseURL != "" {
+			return strings.TrimRight(sv.BaseURL, "/") + "/chat/completions", sv.Key
+		}
+	}
+	return "", ""
+}
+
+// applyLAN puts the ladder in LAN mode: this machine, then Edge members, then the LAN
+// Towers serving the band, from the one LAN dial; the market is never a rung.
+func applyLAN(cfg config, o *client.ProxyOptions) {
+	if !cfg.lan.LAN {
+		return
+	}
+	o.LANMode, o.Prefer = true, "local-only"
+	o.LANSelf = lanSelfServe
+	o.LANHTTP, o.LANResolve = lanProbeHTTP, lanResolve
+	o.LANTowers = func(band string) []string { return lanTowersServing(cfg, band) }
+}
+
+// lanTowersServing lists the LAN Towers whose /discover lists band, in configured order.
+func lanTowersServing(cfg config, band string) []string {
+	bands, _ := lanDial(cfg)
+	for _, b := range bands {
+		if b.Model != band {
+			continue
+		}
+		var out []string
+		for _, s := range b.Sources {
+			if s.Kind == client.LANTower {
+				out = append(out, s.Addr)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// lanSourcesOf is what serves a band on the LAN, for the `roger use` plate and its refusal.
+func lanSourcesOf(cfg config, band string) []client.LANSource {
+	bands, _ := lanDial(cfg)
+	for _, b := range bands {
+		if b.Model == band {
+			return b.Sources
+		}
+	}
+	return nil
+}
+
+// lanTowerAddress reports whether a `roger use` argument addresses a Tower (host:port at a
+// local address, ruled 2026-10-06), returning its normalized address.
+func lanTowerAddress(arg string) (string, bool) {
+	if !strings.Contains(arg, ":") {
+		return "", false
+	}
+	a, err := lanmode.ParseAddr(arg)
+	if err != nil || !a.Literal() {
+		return "", false
+	}
+	if v := lanmode.ClassifyLiteral(a.String()); !v.Local && !v.CGNAT {
+		return "", false
+	}
+	return a.String(), true
+}

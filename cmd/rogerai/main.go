@@ -845,6 +845,12 @@ func run(argv []string, cfg config) error {
 		// The TUI and the console read the same LAN dial `roger --lan search` prints.
 		lanCfg := cfg
 		tui.SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return lanDial(lanCfg) })
+		// Every path that carries a turn in this process (TUI chat, console chat, the agent)
+		// goes through the same local ladder `roger use` gets; the market is not a rung.
+		var lo client.ProxyOptions
+		applyEdgeLadder(lanCfg, &lo)
+		applyLAN(lanCfg, &lo)
+		client.SetLANRelay(&lo)
 	}
 	// Global approval-mode flags (--yolo / --perms <mode>) apply to this run only;
 	// with no flag, a persisted `roger perms` default seeds the env the TUI reads.
@@ -903,7 +909,7 @@ func run(argv []string, cfg config) error {
 
 		// The dispatch ladder: the booth tries a peer on this Edge before the market
 		// (features/edge/local_inference.feature), the same wiring `roger use` gets.
-		hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o) }
+		hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); applyLAN(cfg, o) }
 		// ONE limit store for BOTH front-ends. Built here rather than at the runTUI call so
 		// the console gets the same pointer - the browser's spend table and [4] CONFIG are
 		// two views of one setting, and two stores would silently diverge.
@@ -1109,7 +1115,18 @@ func cmdUse(cfg config, args []string) error {
 	// NODE on this Edge, pin the turn to that node's model instead of letting the band ladder pick a
 	// peer. A plain model falls through unchanged.
 	pinnedPeer, pinned := client.EdgePeer{}, false
-	if peer, band, isNode, err := edgeResolveAddressed(args[0], strings.TrimSpace(*onModel)); isNode {
+	pinnedTower := ""
+	if t, ok := lanTowerAddress(args[0]); ok && cfg.lan.LAN {
+		// `roger --lan use <tower-address> [model]`: that Tower and nothing else.
+		pinnedTower = t
+		model = strings.TrimSpace(*onModel)
+		if model == "" && len(fs.Args()) > 0 {
+			model = fs.Args()[0]
+		}
+		if model == "" {
+			return fmt.Errorf("usage: roger --lan use %s <model>", t)
+		}
+	} else if peer, band, isNode, err := edgeResolveAddressed(args[0], strings.TrimSpace(*onModel)); isNode {
 		if err != nil {
 			return err // a node address that cannot carry a turn - the typed refusal
 		}
@@ -1150,14 +1167,27 @@ func cmdUse(cfg config, args []string) error {
 	// feature). A machine that has not enrolled and set no preference is untouched.
 	var po client.ProxyOptions
 	applyEdgeLadder(cfg, &po)
+	applyLAN(cfg, &po)
+	if pinnedTower != "" {
+		pt := pinnedTower
+		po.EdgePeers, po.LANSelf = nil, nil
+		po.LANTowers = func(string) []string { return []string{pt} }
+		uo.Pinned = "tower: " + pt
+	}
 	if pinned {
 		// The owner named a specific node: pin the turn to it, and do not fall through to the market -
 		// an addressed node is that node or nothing (features/edge/addressed_inference.feature).
 		peer := pinnedPeer
 		po.EdgePeers = func(string) []client.EdgePeer { return []client.EdgePeer{peer} }
 		po.Prefer = "local-only"
+		po.LANSelf, po.LANTowers = nil, nil
+		uo.Pinned = "edge: " + peer.Node
 	}
 	uo.EdgePeers, uo.Prefer, uo.EdgeCert, uo.EdgeVerify = po.EdgePeers, po.Prefer, po.EdgeCert, po.EdgeVerify
+	uo.LANMode, uo.LANSelf, uo.LANTowers, uo.LANHTTP, uo.LANResolve = po.LANMode, po.LANSelf, po.LANTowers, po.LANHTTP, po.LANResolve
+	if cfg.lan.LAN {
+		uo.LANSources = func(band string) []client.LANSource { return lanSourcesOf(cfg, band) }
+	}
 	return client.Use(cfg.Broker, cfg.User, model, uo)
 }
 

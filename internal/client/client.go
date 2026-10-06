@@ -10,6 +10,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -23,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"sort"
 	"strconv"
 	"strings"
@@ -406,6 +408,17 @@ func TopupURL(broker, user string, usd float64) (string, error) {
 
 // ProxyOptions configures the local relay handler.
 type ProxyOptions struct {
+	// LAN mode (features/lan/routing_and_inference.feature): every turn goes to this
+	// machine's own serve, then an Edge member, then a LAN Tower, or it is refused. The
+	// market is never tried. LANSelf returns this machine's completions URL and its runtime key
+	// for a band ("" = none); LANTowers the Towers serving it, in order; LANHTTP/LANResolve/LANKey are seams.
+	LANMode    bool
+	LANSelf    func(band string) (url, key string)
+	LANTowers  func(band string) []string
+	LANHTTP    *http.Client
+	LANResolve lanmode.Resolver
+	LANKey     ed25519.PrivateKey
+
 	Broker, User string
 	Confidential bool
 	MinTPS       float64 // X-Roger-Min-TPS floor (0 = none)
@@ -832,6 +845,17 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	// RUNG 2 FIRST: a peer on this Edge that serves the band, before any broker. Under
 	// local-only a band nothing here serves is refused here, and the broker is never
 	// reached by this function at all.
+	if opts.LANMode {
+		// LAN MODE: the market is not a rung at all; relayLAN serves or refuses.
+		if onServed == nil {
+			onServed = func(float64) {}
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		relayLAN(ctx, w, opts, crit.Model, body, onServed)
+		return
+	}
 	if served, refused := relayEdgeFirst(ctx, w, opts, crit.Model, body, onServed); served || refused {
 		return
 	}
@@ -1504,6 +1528,18 @@ func effectiveMaxOut(maxOut float64) float64 { return EffectiveMaxOut(maxOut) }
 
 // UseOptions are the resolved spend limits + flags for `roger use`.
 type UseOptions struct {
+	// LAN mode and pinned turns (features/lan/routing_and_inference.feature): the session
+	// opens on local sources only, with no market lookup, no balance and no price text.
+	// LANSources names what serves a band locally (empty = nothing does). Pinned is the
+	// label of an addressed node or Tower; its turns never consult the market either.
+	LANMode    bool
+	LANSelf    func(band string) (url, key string)
+	LANTowers  func(band string) []string
+	LANSources func(band string) []LANSource
+	LANHTTP    *http.Client
+	LANResolve lanmode.Resolver
+	Pinned     string
+
 	Port         int
 	Confidential bool
 	MaxIn        float64 // cap on $/1M input price (0 = none)
@@ -1573,6 +1609,9 @@ func Use(broker, user, model string, opt UseOptions) error {
 	// the broker gives (no oracle). The price-safety confirm + default cap still apply.
 	if opt.Freq != "" {
 		return useOnFreq(broker, user, model, opt, maxOut, typical, defaultedCap, in)
+	}
+	if opt.LANMode || opt.Pinned != "" {
+		return useLocal(broker, user, model, opt)
 	}
 
 	for {
@@ -2025,7 +2064,11 @@ func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, 
 		}
 
 		start := time.Now()
-		resp, derr := httpClient.Do(req)
+		resp, inLAN := LANDo(req, reqBody)
+		var derr error
+		if !inLAN {
+			resp, derr = httpClient.Do(req)
+		}
 		if derr != nil {
 			// Transport timeout/drop: retryable. Keep a clean message in case we exhaust.
 			if ne, ok := derr.(interface{ Timeout() bool }); ok && ne.Timeout() {
@@ -2045,6 +2088,9 @@ func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, 
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
 			lastErr = parseChatError(raw, resp.StatusCode)
+			if inLAN {
+				return ChatResult{}, lastErr // the LAN relay already tried every local source
+			}
 			continue
 		}
 
@@ -2185,6 +2231,28 @@ func relayEdgeFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOption
 		}
 		return false, false
 	}
+	served, tried := tryEdgePeers(ctx, w, opts, band, body, onServed)
+	if served {
+		return true, false
+	}
+	if prefer == "local-only" {
+		msg := "local-only: no instance on this Edge serves " + band + " and this roger will not go to the market - serve it here, or roger edge prefer local"
+		if len(tried) > 0 {
+			msg = "local-only: every peer serving " + band + " failed (" + strings.Join(tried, "; ") + ") and this roger will not go to the market"
+		}
+		openAIError(w, http.StatusServiceUnavailable, "edge_error", "local_only", msg)
+		return false, true
+	}
+	return false, false
+}
+
+// tryEdgePeers sends the turn to each Edge peer serving band, over mutual TLS, until one
+// answers. A peer that answered is the answer, whatever it said. It reports whether a peer
+// served and how each one that did not failed.
+func tryEdgePeers(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) (bool, []string) {
+	if opts.EdgePeers == nil {
+		return false, nil
+	}
 	peers := opts.EdgePeers(band)
 	var tried []string
 	for _, p := range peers {
@@ -2216,17 +2284,9 @@ func relayEdgeFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOption
 		}
 		copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, onRec)
 		resp.Body.Close()
-		return true, false
+		return true, tried
 	}
-	if prefer == "local-only" {
-		msg := "local-only: no instance on this Edge serves " + band + " and this roger will not go to the market - serve it here, or roger edge prefer local"
-		if len(tried) > 0 {
-			msg = "local-only: every peer serving " + band + " failed (" + strings.Join(tried, "; ") + ") and this roger will not go to the market"
-		}
-		openAIError(w, http.StatusServiceUnavailable, "edge_error", "local_only", msg)
-		return false, true
-	}
-	return false, false
+	return false, tried
 }
 
 // dialEdgePeer sends one turn to a peer's face over mutual TLS: this node's certificate

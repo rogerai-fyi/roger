@@ -152,7 +152,11 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 		if ex := joinExcludes(rt.ExcludeNodes); ex != "" {
 			req.Header.Set("X-Roger-Exclude-Nodes", ex)
 		}
-		resp, err := httpClient.Do(req)
+		resp, inLAN := client.LANDo(req, reqBody)
+		var err error
+		if !inLAN {
+			resp, err = httpClient.Do(req) // LAN mode never reaches here: the local ladder served or refused
+		}
 		if err != nil {
 			// User aborted the turn (esc): a clean cancellation, not a network failure. An
 			// ExtendableTimeout that expired cancels with cause DeadlineExceeded - that is
