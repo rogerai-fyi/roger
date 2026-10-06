@@ -1064,6 +1064,9 @@ func cmdProfile(args []string) error {
 			if json.Unmarshal([]byte(args[3]), &v) != nil {
 				v = args[3]
 			}
+			if v == nil {
+				return fmt.Errorf("null is not a value for %s: roger profile unset %s %s removes it", args[2], args[1], args[2])
+			}
 			rfSetPath(p, args[2], v)
 			return nil
 		}, fmt.Sprintf("set profile %s %s", args[1], args[2]))

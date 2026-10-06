@@ -33,8 +33,8 @@ func lockConfig(path string) (func(), error) {
 				}
 			}, nil
 		}
-		if lockIsStale(path) {
-			takeOverStaleLock(path) // then the deadline and the pause, like any other wait
+		if seen, stale := staleLock(path); stale {
+			takeOverStaleLock(path, seen) // then the deadline and the pause, like any other wait
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("config.json is locked by another roger command (%s)", path)
@@ -46,16 +46,32 @@ func lockConfig(path string) (func(), error) {
 // lockStale is how old a config lock must be before it counts as a crashed writer's.
 const lockStale = 30 * time.Second
 
-func lockIsStale(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && time.Since(fi.ModTime()) > lockStale
+// lockSeen is one observation of a lock file: its holder's token and its modification time.
+type lockSeen struct {
+	token string
+	mod   time.Time
 }
 
-// takeOverStaleLock removes a crashed writer's lock. The decision is serialized by a second
-// lock file, and re-checked under it: while a stale lock exists nobody can create a new one,
-// and only a takeover removes a stale one, so the lock seen stale here is the crashed one,
-// never a fresh holder's. A takeover lock left by a crash is itself cleared after a while.
-func takeOverStaleLock(path string) {
+// staleLock reads the lock at path and reports whether it is older than lockStale.
+func staleLock(path string) (lockSeen, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return lockSeen{}, false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return lockSeen{}, false
+	}
+	seen := lockSeen{token: string(b), mod: fi.ModTime()}
+	return seen, time.Since(seen.mod) > lockStale
+}
+
+// takeOverStaleLock removes the crashed writer's lock that was seen stale, and only that one.
+// The decision is serialized by a second lock file, and the lock is re-read under it: it is
+// removed only if it still holds the token and modification time that were seen, so a holder
+// that released in between, and the fresh lock a newcomer took, are never deleted (every new
+// holder writes its own random token). A takeover lock left by a crash is cleared after a while.
+func takeOverStaleLock(path string, seen lockSeen) {
 	tl := path + ".takeover"
 	f, err := os.OpenFile(tl, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -66,7 +82,7 @@ func takeOverStaleLock(path string) {
 	}
 	f.Close()
 	defer os.Remove(tl)
-	if lockIsStale(path) {
+	if now, stale := staleLock(path); stale && now == seen {
 		_ = os.Remove(path)
 	}
 }

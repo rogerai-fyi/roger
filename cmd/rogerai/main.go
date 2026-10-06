@@ -360,7 +360,10 @@ func saveConfig(c config) error {
 	}
 	defer release()
 	mine := toRawConfig(c)
-	theirs := readRawConfig(configPath())
+	theirs, rerr := readRawConfigErr(configPath()) // read under the lock: this is the file replaced
+	if rerr != nil {
+		return fmt.Errorf("%s could not be read (%v); not overwriting it - fix its permissions first", configPath(), rerr)
+	}
 	if !configNeedsMerge(mine, theirs) {
 		// Fast path: nothing unknown on disk and no concurrent change to a field we left alone,
 		// so our canonical struct bytes are authoritative (C5 byte-identical).
@@ -429,14 +432,20 @@ func toRawConfig(c config) map[string]json.RawMessage {
 	return m
 }
 
-// readRawConfig reads the on-disk config as a per-key raw-JSON map; a missing or corrupt file
+// readRawConfigErr reads the on-disk config as a per-key raw-JSON map; a missing or corrupt file
 // yields an empty map (best-effort: the corrupt case is handled by loadConfig's C4 backup).
-func readRawConfig(path string) map[string]json.RawMessage {
+// It also reports a file it could not read (a missing file is not an error: it is empty).
+func readRawConfigErr(path string) (map[string]json.RawMessage, error) {
 	m := map[string]json.RawMessage{}
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &m)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return m, nil
+		}
+		return m, err
 	}
-	return m
+	_ = json.Unmarshal(b, &m)
+	return m, nil
 }
 
 // knownConfigKeys is the set of JSON keys the `config` struct owns (including omitempty fields,

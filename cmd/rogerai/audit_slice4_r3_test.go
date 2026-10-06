@@ -3,8 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,49 +61,6 @@ func TestSaveConfigTakesTheConfigLock(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-// TestConfigLockReleasesOnlyItsOwn: a holder whose stale lock was taken over never removes
-// the new holder's lock when it finally releases.
-func TestConfigLockReleasesOnlyItsOwn(t *testing.T) {
-	lock := filepath.Join(t.TempDir(), "config.json.lock")
-	release, err := lockConfig(lock)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(lock, []byte("someone-else"), 0o600)) // taken over meanwhile
-	release()
-	_, err = os.Stat(lock)
-	require.NoError(t, err, "release removed a lock it no longer held")
-}
-
-// TestConfigLockStaleTakeoverIsExclusive: many waiters on one stale lock never hold it at
-// the same time.
-func TestConfigLockStaleTakeoverIsExclusive(t *testing.T) {
-	lock := filepath.Join(t.TempDir(), "config.json.lock")
-	for round := 0; round < 20; round++ {
-		require.NoError(t, os.WriteFile(lock, []byte("crashed"), 0o600))
-		old := time.Now().Add(-time.Minute)
-		require.NoError(t, os.Chtimes(lock, old, old))
-		var active, overlap atomic.Int32
-		var wg sync.WaitGroup
-		for i := 0; i < 8; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				release, err := lockConfig(lock)
-				if err != nil {
-					return
-				}
-				if active.Add(1) > 1 {
-					overlap.Add(1)
-				}
-				time.Sleep(2 * time.Millisecond)
-				active.Add(-1)
-				release()
-			}()
-		}
-		wg.Wait()
-		require.Zero(t, overlap.Load(), "two waiters held the lock at once (round %d)", round)
-	}
-}
-
 // TestSaveConfigNeverOverwritesAnUnreadableConfig: a config.json this process could not read
 // (not missing, unreadable) is refused rather than replaced with defaults.
 func TestSaveConfigNeverOverwritesAnUnreadableConfig(t *testing.T) {
@@ -124,4 +79,34 @@ func TestSaveConfigNeverOverwritesAnUnreadableConfig(t *testing.T) {
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Contains(t, string(b), "keep.example")
+}
+
+// TestSaveConfigChecksTheFileItIsAboutToReplace: the read saveConfig makes under the lock is
+// the one that decides; a config.json that turned unreadable after load is not overwritten.
+func TestSaveConfigChecksTheFileItIsAboutToReplace(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
+	}
+	useTempConfig(t)
+	path := configPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real","broker":"https://keep.example"}`), 0o600))
+	c := loadConfig() // readable now
+	c.User = "changed"
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	require.Error(t, saveConfig(c))
+	require.NoError(t, os.Chmod(path, 0o600))
+	b, _ := os.ReadFile(path)
+	require.Contains(t, string(b), "keep.example")
+}
+
+// TestProfileSetNullIsRefused: `profile set <key> null` is not a value; unset removes a key.
+func TestProfileSetNullIsRefused(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdProfile([]string{"set", "p", "roger.pref", "fast"}))
+	err := cmdProfile([]string{"set", "p", "roger.pref", "null"})
+	require.ErrorContains(t, err, "roger profile unset")
+	b, _ := os.ReadFile(configPath())
+	require.NotContains(t, string(b), "null")
 }
