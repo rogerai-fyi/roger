@@ -76,12 +76,15 @@ func TestLoadNetTable(t *testing.T) {
 func TestRegionContinent(t *testing.T) {
 	for _, tc := range []struct{ region, want string }{
 		{"eu", "EU"}, {"EU", "EU"}, {"europe", "EU"}, {"eu-west", "EU"}, {" eu ", "EU"},
-		{"us", "NA"}, {"na", "NA"}, {"us-east", "NA"}, {"ca", "NA"},
+		{"us", "NA"}, {"us-east", "NA"}, {"northamerica", "NA"},
 		{"asia", "AS"}, {"jp", "AS"},
 		// slice-6 review 2026-10-06: an ambiguous token never maps (an honest station must never
 		// be contradicted): ap-southeast-2 is Australia, "ap" alone names no continent.
 		{"ap", ""}, {"ap-southeast", ""}, {"ap-southeast-2", ""}, {"ap-northeast-1", ""}, {"america", ""},
-		{"sa", "SA"}, {"br", "SA"}, {"af", "AF"}, {"oc", "OC"}, {"au", "OC"},
+		{"br", "SA"}, {"southamerica", "SA"}, {"af", "AF"}, {"oc", "OC"}, {"au", "OC"},
+		// slice-6 audit 2026-10-06: two-letter tokens that are also another place's country code
+		// map to nothing (sa Saudi Arabia, na Namibia, in India or a word, ca a state or a country).
+		{"sa", ""}, {"na", ""}, {"in", ""}, {"ca", ""},
 		{"", ""}, {"openrouter", ""}, {"mars", ""},
 	} {
 		require.Equal(t, tc.want, regionContinent(tc.region), tc.region)
@@ -111,4 +114,16 @@ func TestNetContinentIsBrokerSet(t *testing.T) {
 	reg.SignRegistration(priv)
 	reg.NetContinent = "NA"
 	require.True(t, reg.VerifyRegistration(), "the broker's stamp never breaks the node's signature")
+}
+
+// slice-6 audit 2026-10-06: the region table's state is visible to the operator on /admin/live.
+func TestRegionTableStatus(t *testing.T) {
+	b := &broker{}
+	require.Equal(t, map[string]any{"configured": false, "ranges": 0}, b.regionTableStatus())
+	tbl, err := loadNetTable("testdata/net_continents.txt")
+	require.NoError(t, err)
+	b.netTable = tbl
+	require.Equal(t, map[string]any{"configured": true, "ranges": 3}, b.regionTableStatus())
+	b.netTableErr = "line 2: want \"CIDR CONTINENT\""
+	require.Equal(t, "line 2: want \"CIDR CONTINENT\"", b.regionTableStatus()["error"])
 }

@@ -84,15 +84,29 @@ func loadNetTable(path string) (*netTable, error) {
 }
 
 // loadNetTableFromEnv loads ROGERAI_NET_CONTINENTS. A table that cannot be read or parsed is
-// logged and ignored: the check fails open to declared-only, never to refusing stations.
-func loadNetTableFromEnv() *netTable {
+// logged, reported on /admin/live (regionTableStatus) and ignored: the check fails open to
+// declared-only, never to refusing stations.
+func loadNetTableFromEnv() (*netTable, string) {
 	path := os.Getenv("ROGERAI_NET_CONTINENTS")
 	t, err := loadNetTable(path)
 	if err != nil {
 		log.Printf("network table %s unusable (%v): region stays declared only", path, err)
-		return nil
+		return nil, err.Error()
 	}
-	return t
+	return t, ""
+}
+
+// regionTableStatus is what /admin/live shows of the region table: whether one is loaded, its
+// size, and why a configured one was refused.
+func (b *broker) regionTableStatus() map[string]any {
+	st := map[string]any{"configured": b.netTable != nil, "ranges": 0}
+	if b.netTable != nil {
+		st["ranges"] = len(b.netTable.ranges)
+	}
+	if b.netTableErr != "" {
+		st["error"] = b.netTableErr
+	}
+	return st
 }
 
 // regionMismatches lists the stations whose declared region their network contradicts (ids only).
@@ -146,11 +160,11 @@ func regionContinent(region string) string {
 	switch head {
 	case "eu", "europe", "uk", "gb", "de", "fr", "nl":
 		return "EU"
-	case "us", "na", "ca", "northamerica":
+	case "us", "northamerica":
 		return "NA"
-	case "asia", "jp", "sg", "in", "kr", "cn", "hk", "tw":
+	case "asia", "jp", "sg", "kr", "cn", "hk", "tw":
 		return "AS"
-	case "sa", "br", "southamerica":
+	case "br", "southamerica":
 		return "SA"
 	case "af", "africa", "za":
 		return "AF"

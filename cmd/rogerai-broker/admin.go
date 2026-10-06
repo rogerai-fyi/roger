@@ -185,6 +185,7 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 		"infra":            b.infra(),
 		"routing":          b.routingLive(),
 		"region_mismatch":  b.regionMismatches(), // station ids only, never an address (§14.B7 #21)
+		"region_table":     b.regionTableStatus(),
 		"marketplace_live": b.liveMarket(now),
 		"seed_funded":      seeded,
 		"seed_limit":       seedLimit,

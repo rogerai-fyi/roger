@@ -181,7 +181,9 @@ type broker struct {
 	// merged from the shared store on the sync loop when one is wired.
 	totalLat map[string]float64
 	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.
-	netTable *netTable
+	// netTableErr is why a configured table was refused ("" = none).
+	netTable    *netTable
+	netTableErr string
 	// secrets caches deriveSecret per label (cooling.go).
 	secrets sync.Map
 	// idemLocal holds replayable outcomes when the shared store is down (idempotency.go);
@@ -770,7 +772,6 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		probeSched:   map[string]*probeState{},
 		lastPersist:  map[string]time.Time{},
 		priv:         priv, feeRate: fee, seedFunds: seed, lockWin: lock,
-		netTable:    loadNetTableFromEnv(),
 		ttsMaxChars: audioTTSMaxChars(), audioSem: newAudioSem(),
 		banned:                 map[string]bool{},
 		reportEjectAt:          reportEjectThreshold(),
@@ -936,6 +937,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	b.concierge.dogfoodFn = b.dogfoodRelay
 	b.concierge.groqFn = b.groqCall
 	log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
+	b.netTable, b.netTableErr = loadNetTableFromEnv()
 	return b
 }
 
