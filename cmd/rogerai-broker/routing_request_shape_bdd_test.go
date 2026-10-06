@@ -1188,7 +1188,26 @@ func (s *rs1State) persistedNegative(model, out string) error {
 	return s.persisted(model, -rs1f(out))
 }
 
-func (s *rs1State) rehydrates() error { s.b.rehydrateNodes(); return nil }
+// rehydrates runs the broker's real re-hydration. On a shared Postgres the store also holds
+// nodes earlier suites persisted moments ago (still inside the liveness window, their stubs
+// gone); only this scenario's own nodes and the one it persisted are kept on the air.
+func (s *rs1State) rehydrates() error {
+	s.b.mu.Lock()
+	mine := map[string]bool{"n-persisted-" + s.nonce: true}
+	for id := range s.b.nodes {
+		mine[id] = true
+	}
+	s.b.mu.Unlock()
+	s.b.rehydrateNodes()
+	s.b.mu.Lock()
+	for id := range s.b.nodes {
+		if !mine[id] {
+			delete(s.b.nodes, id)
+		}
+	}
+	s.b.mu.Unlock()
+	return nil
+}
 
 func (s *rs1State) ownerRaisesOut(name, out string) error {
 	st := s.st(name)
