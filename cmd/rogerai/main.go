@@ -841,6 +841,11 @@ func run(argv []string, cfg config) error {
 	if err != nil {
 		return err
 	}
+	if cfg.lan.LAN {
+		// The TUI and the console read the same LAN dial `roger --lan search` prints.
+		lanCfg := cfg
+		tui.SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return lanDial(lanCfg) })
+	}
 	// Global approval-mode flags (--yolo / --perms <mode>) apply to this run only;
 	// with no flag, a persisted `roger perms` default seeds the env the TUI reads.
 	rest, permsFlag, err := stripPermsFlags(rest)
@@ -958,6 +963,9 @@ func dispatch(cfg config, args []string) error {
 	}
 	switch args[0] {
 	case "search", "discover", "models":
+		if cfg.lan.LAN {
+			return cmdLANSearch(cfg, args[1:])
+		}
 		return client.Search(cfg.Broker)
 	case "lan":
 		return cmdLAN(cfg, args[1:])

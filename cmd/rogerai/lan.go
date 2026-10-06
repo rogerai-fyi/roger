@@ -11,8 +11,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/lanmode"
 )
 
@@ -221,10 +224,26 @@ func lanList() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	for _, entry := range c.LanTowers {
-		fmt.Println(lanTowerLine(ctx, entry))
+	_, status := client.LANDiscover(ctx, client.LANInputs{Towers: c.LanTowers, HTTP: lanProbeHTTP, Resolve: lanResolve})
+	for i, entry := range c.LanTowers {
+		fmt.Println(lanListLine(ctx, entry, status[i]))
 	}
 	return nil
+}
+
+// lanListLine is one `roger lan list` row: the address, whether it answered, and its bands.
+func lanListLine(ctx context.Context, entry string, st client.LANTowerStatus) string {
+	switch st.State {
+	case client.LANTowerAnswering:
+		return fmt.Sprintf("%-28s answering, %d band(s)", entry, st.Bands)
+	case client.LANTowerNotAdmitted:
+		return fmt.Sprintf("%-28s answering, not admitted: %s", entry, st.Detail)
+	case client.LANTowerSameAs:
+		return fmt.Sprintf("%-28s %s", entry, st.Detail)
+	case client.LANTowerNotAnswering, client.LANTowerWaiting:
+		return lanTowerLine(ctx, entry)
+	}
+	return fmt.Sprintf("%-28s %s: %s", entry, st.State, st.Detail)
 }
 
 // lanTowerLine is one `roger lan list` row: the address and what it is right now.
@@ -244,4 +263,122 @@ func lanTowerLine(ctx context.Context, entry string) string {
 		return fmt.Sprintf("%-28s not a standalone Tower", entry)
 	}
 	return fmt.Sprintf("%-28s not answering", entry)
+}
+
+// lanTowerAddrs is every Tower LAN mode uses: the configured list, plus the broker setting
+// when it is a local standalone Tower.
+func lanTowerAddrs(cfg config) []string {
+	out := append([]string(nil), cfg.LanTowers...)
+	if isLocalTowerBroker(cfg.Broker) {
+		if a, err := lanmode.ParseAddr(cfg.Broker); err == nil {
+			out = append(out, a.String())
+		}
+	}
+	return out
+}
+
+// lanEdgeBands reads this Edge's fleet record (never dialing anyone): every member band with
+// whether its serve was proven, whether the member is reachable LAN-direct, and whether dark.
+// This machine's own node is its household, not a member row.
+func lanEdgeBands() []client.LANEdgeBand {
+	st, err := loadEdgeState()
+	if err != nil {
+		return nil
+	}
+	nodes, err := st.fleet.List()
+	if err != nil {
+		return nil
+	}
+	self := ""
+	if id, _, ok, _ := edgeIdentityStore().LoadIdentity(); ok {
+		self = id.NodeID
+	}
+	var out []client.LANEdgeBand
+	for _, n := range nodes {
+		if n.ID == self {
+			continue
+		}
+		for _, in := range n.Instances {
+			loc := edge.Located{Node: n, Instance: in}
+			for _, b := range in.Bands {
+				out = append(out, client.LANEdgeBand{Node: n.Name, Band: b, Verified: loc.ServesBand(b),
+					LANDirect: edge.HasLANTransport(n), Dark: n.Presence == string(edge.PresenceDark)})
+			}
+		}
+	}
+	return out
+}
+
+// lanSelfBands is what this machine serves: its household's bands on air.
+func lanSelfBands() []string {
+	var out []string
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		out = append(out, in.Bands...)
+	}
+	return out
+}
+
+// lanDial is THE merged LAN dial every surface shows (search, `roger lan list`, the TUI, the
+// console): one function so no two surfaces can disagree about what is on the LAN.
+var lanDial = func(cfg config) ([]client.LANBand, []client.LANTowerStatus) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return client.LANDiscover(ctx, client.LANInputs{
+		Self: lanSelfBands(), Edge: lanEdgeBands(), Towers: lanTowerAddrs(cfg),
+		HTTP: lanProbeHTTP, Resolve: lanResolve,
+	})
+}
+
+// cmdLANSearch is `roger --lan search [--json]`: only local bands, each with its sources.
+func cmdLANSearch(cfg config, args []string) error {
+	bands, status := lanDial(cfg)
+	if len(args) > 0 && args[0] == "--json" {
+		b, _ := json.MarshalIndent(map[string]any{"bands": nonNilBands(bands), "towers": status}, "", "  ")
+		fmt.Println(string(b))
+		return nil
+	}
+	if len(bands) == 0 {
+		fmt.Println(lanEmptyText(status))
+		return nil
+	}
+	fmt.Printf("%-28s %-6s %s\n", "BAND", "PRICE", "SOURCE")
+	for _, b := range bands {
+		fmt.Printf("%-28s %-6s %s\n", b.Model, "free", b.SourceLabel())
+	}
+	for _, st := range status {
+		if st.State != client.LANTowerAnswering {
+			fmt.Println(lanStatusText(st))
+		}
+	}
+	return nil
+}
+
+func nonNilBands(b []client.LANBand) []client.LANBand {
+	if b == nil {
+		return []client.LANBand{}
+	}
+	return b
+}
+
+// lanEmptyText is the empty LAN as a status: what was checked, and how to get a band.
+func lanEmptyText(status []client.LANTowerStatus) string {
+	var b strings.Builder
+	b.WriteString("no local band is on air.\n")
+	fmt.Fprintf(&b, "checked: this machine, your Edge, and %d Tower(s)\n", len(status))
+	for _, st := range status {
+		b.WriteString("  " + lanStatusText(st) + "\n")
+	}
+	b.WriteString("to get one: serve a model here (roger model serve), add an Edge member (roger edge adopt), or add a Tower (roger lan add <address>)")
+	return b.String()
+}
+
+func lanStatusText(st client.LANTowerStatus) string {
+	line := fmt.Sprintf("tower %s: %s", st.Addr, st.State)
+	if st.Detail != "" {
+		line += " (" + st.Detail + ")"
+	}
+	if st.More {
+		line += "; it lists more than LAN mode shows"
+	}
+	return line
 }

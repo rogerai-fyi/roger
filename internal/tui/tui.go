@@ -514,10 +514,14 @@ func autoStartDetectCmd(extra, key string) tea.Cmd {
 }
 
 type offer struct {
-	NodeID string `json:"node_id"`
-	Region string `json:"region"`
-	HW     string `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
-	Model  string `json:"model"`
+	// LANSource names where a LAN-mode row is served ("this machine", "edge: jetson", "tower:
+	// 192.168.1.20"); LANSources are the rows' sources in full. Empty outside LAN mode.
+	LANSource  string             `json:"-"`
+	LANSources []client.LANSource `json:"-"`
+	NodeID     string             `json:"node_id"`
+	Region     string             `json:"region"`
+	HW         string             `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
+	Model      string             `json:"model"`
 	// Modality is what the station DOES: "chat" (the back-compat default), "tts" (speak), or
 	// "stt" (listen), carried from the broker's /discover feed. It is what lets the browser tell
 	// a VOICE band apart from a chat band so a voice station is offered as a PREVIEW, never
@@ -5172,9 +5176,25 @@ func pingWorldTick(gen int) tea.Cmd {
 // bottom) so the client never holds the whole list in memory.
 func fetchOffers(broker string) tea.Cmd {
 	return func() tea.Msg {
+		if LANMode() {
+			return lanOffers() // LAN mode never asks the broker for bands
+		}
 		resp, err := http.Get(broker + "/discover")
 		if err != nil {
 			return errMsg("broker unreachable: " + broker)
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			// A standalone Tower gates /discover on an admitted signature: retry ONCE signed, as
+			// client.discover does, rather than drawing the Tower as "0 on air".
+			resp.Body.Close()
+			req, rerr := http.NewRequest(http.MethodGet, broker+"/discover", nil)
+			if rerr != nil {
+				return errMsg("broker unreachable: " + broker)
+			}
+			client.SignRequest(req, nil)
+			if resp, err = http.DefaultClient.Do(req); err != nil {
+				return errMsg("broker unreachable: " + broker)
+			}
 		}
 		defer resp.Body.Close()
 		var d struct {

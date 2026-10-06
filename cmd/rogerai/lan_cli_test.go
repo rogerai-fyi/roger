@@ -57,7 +57,7 @@ func TestLanListLines(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	require.Len(t, lines, 6)
 	require.Contains(t, lines[0], "answering")
-	require.Contains(t, lines[1], "not a standalone Tower")
+	require.Contains(t, lines[1], "bad answer")
 	require.Contains(t, lines[2], "not answering")
 	require.Contains(t, lines[3], "refused: a public address")
 	require.Contains(t, lines[4], "refused: gone.lan does not resolve")

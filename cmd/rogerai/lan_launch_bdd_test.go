@@ -16,6 +16,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 type lanLaunchBDD struct {
@@ -55,6 +56,7 @@ func (s *lanLaunchBDD) reset() {
 
 func (s *lanLaunchBDD) restore() {
 	runDispatch, launchTUIForTest, lanNoteOut = dispatch, nil, os.Stderr
+	tui.SetLANDial(nil)
 }
 
 func (s *lanLaunchBDD) run(line string) error {
@@ -122,10 +124,10 @@ func (s *lanLaunchBDD) tuiOpens() error {
 }
 
 func (s *lanLaunchBDD) tuiBadge() error {
-	if s.decided == nil || !s.decided.LAN {
+	if s.decided == nil || !s.decided.LAN || !tui.LANMode() {
 		return fmt.Errorf("the TUI was opened outside LAN mode, so it cannot carry the LAN badge")
 	}
-	return nil // the badge itself is pinned by ui_visibility.feature (@tui)
+	return nil // the badge's rendering is pinned by ui_visibility.feature (@tui)
 }
 
 func (s *lanLaunchBDD) exitsNonZero() error {
