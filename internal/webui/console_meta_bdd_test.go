@@ -131,6 +131,7 @@ func (s *consoleMetaState) guessMark(mark string) error {
 func (s *consoleMetaState) refusalShown() error {
 	return s.has(`\$\("cat-err"\)\.textContent = e\.message`)
 }
+
 // modalSays checks the text is INSIDE the category modal (between its id and its last button).
 func (s *consoleMetaState) modalSays(text string) error {
 	return s.has(`id="modal-cat"[^§]*?` + regexp.QuoteMeta(text) + `[^§]*?id="cat-save"`)

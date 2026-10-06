@@ -83,6 +83,7 @@ type providerModelRow struct {
 	// Taxonomy is what the station registered the model as FOR (read-only here; edited from
 	// the node until the owner override lands). Canonicalized like /discover.
 	protocol.Taxonomy
+	MetaOverridden bool `json:"meta_overridden"` // the owner set the category from the web console
 }
 
 // providerModelsList returns every model on every node bound to this owner account.
@@ -117,6 +118,9 @@ func (b *broker) providerModelsList(w http.ResponseWriter, o store.Owner) {
 	for i := range rows {
 		if ov, found, _ := b.db.OfferOverride(rows[i].Node, rows[i].Model); found && ov.Owner == o.Pubkey {
 			rows[i].Overridden = true
+		}
+		if mv, found, _ := b.db.MetaOverride(rows[i].Node, rows[i].Model); found && mv.Owner == o.Pubkey {
+			rows[i].MetaOverridden = true
 		}
 	}
 	// Stable order: node, then model (the table reads the same on every refresh).
@@ -230,45 +234,56 @@ func (b *broker) providerModelsSet(w http.ResponseWriter, o store.Owner, body []
 // Mutating a fresh copy and republishing it keeps every already-published array
 // immutable.
 func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (providerModelRow, bool) {
-	now := time.Now()
+	off, online, ok := b.mutateLiveOffer(ov.NodeID, ov.Model, func(o *protocol.ModelOffer) {
+		o.PriceIn, o.PriceOut, o.Schedule = ov.PriceIn, ov.PriceOut, ov.Schedule
+	})
+	if !ok {
+		return providerModelRow{}, false
+	}
+	ain, aout, afree, _ := off.ActivePrice(time.Now())
+	return providerModelRow{
+		Node: ov.NodeID, Model: ov.Model, Online: online,
+		Ctx: off.Ctx, PriceIn: ov.PriceIn, PriceOut: ov.PriceOut,
+		Free: ov.PriceIn == 0 && ov.PriceOut == 0, Schedule: scheduleOrEmpty(ov.Schedule),
+		Overridden: true, ActiveIn: ain, ActiveOut: aout, ActiveFree: afree,
+	}, true
+}
+
+// mutateLiveOffer applies f to the live in-memory offer for (node, model) COPY-ON-WRITE (see
+// applyOverrideLive), republishes the node and re-persists its record, returning the
+// mutated offer and whether the node is online. ok=false when the node is not registered
+// or does not currently offer the model: nothing is written, and a stored override seeds
+// the offer when the node next advertises it. Shared by the price and category overrides.
+func (b *broker) mutateLiveOffer(node, model string, f func(*protocol.ModelOffer)) (protocol.ModelOffer, bool, bool) {
 	b.mu.Lock()
-	reg, known := b.nodes[ov.NodeID]
+	reg, known := b.nodes[node]
 	if !known {
 		b.mu.Unlock()
-		return providerModelRow{}, false
+		return protocol.ModelOffer{}, false, false
 	}
 	reg.Offers = append([]protocol.ModelOffer(nil), reg.Offers...)
-	var row providerModelRow
+	var off protocol.ModelOffer
 	matched := false
 	for i := range reg.Offers {
-		if reg.Offers[i].Model != ov.Model {
+		if reg.Offers[i].Model != model {
 			continue
 		}
-		reg.Offers[i].PriceIn = ov.PriceIn
-		reg.Offers[i].PriceOut = ov.PriceOut
-		reg.Offers[i].Schedule = ov.Schedule
-		ain, aout, afree, _ := reg.Offers[i].ActivePrice(now)
-		row = providerModelRow{
-			Node: ov.NodeID, Model: ov.Model, Online: time.Since(b.lastSeen[ov.NodeID]) < nodeTTL,
-			Ctx: reg.Offers[i].Ctx, PriceIn: ov.PriceIn, PriceOut: ov.PriceOut,
-			Free: ov.PriceIn == 0 && ov.PriceOut == 0, Schedule: scheduleOrEmpty(ov.Schedule),
-			Overridden: true, ActiveIn: ain, ActiveOut: aout, ActiveFree: afree,
-		}
-		matched = true
+		f(&reg.Offers[i])
+		off, matched = reg.Offers[i], true
 	}
-	conf := b.confidential[ov.NodeID]
-	seen := b.lastSeen[ov.NodeID]
-	b.nodes[ov.NodeID] = reg
-	b.mu.Unlock()
 	if !matched {
-		// Node is registered but does not currently offer this model; the override is
-		// stored and will seed the offer if/when the node advertises it.
-		return providerModelRow{}, false
+		b.mu.Unlock()
+		return protocol.ModelOffer{}, false, false
 	}
+	conf := b.confidential[node]
+	seen := b.lastSeen[node]
+	b.nodes[node] = reg
+	b.mu.Unlock()
 	if b.db != nil {
-		_ = b.db.UpsertNode(store.NodeRecord{NodeID: ov.NodeID, Reg: reg, Confidential: conf, LastSeen: seen.Unix()})
+		_ = b.db.UpsertNode(store.NodeRecord{NodeID: node, Reg: reg, Confidential: conf, LastSeen: seen.Unix()})
 	}
-	return row, true
+	b.mirrorRegistration(reg) // every instance serves the owner's edit, not just this one
+	return off, time.Since(seen) < nodeTTL, true
 }
 
 // scheduleOrEmpty returns a non-nil slice so the JSON is always a [] (never null),

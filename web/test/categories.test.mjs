@@ -188,3 +188,52 @@ test("the manual lists the categories, links the live list, and is honest", () =
     assert.match(m, new RegExp(`<code>${f}=`), `the ${f} filter is documented`);
   }
 });
+
+// ---------------------------------------------------------------- web_card_editor.feature
+// The card editor is page wiring over POST /provider/meta (whose behavior the broker suite,
+// owner_override_bdd_test.go, runs for real); these checks pin the wiring in the built script.
+test("each model card offers an Edit category control fed by /categories", () => {
+  const js = read("js/console.js");
+  assert.match(js, /el\("button", "ghost md-catedit", "Edit category"\)/, "an Edit category button");
+  assert.match(js, /fetch\(BROKER \+ "\/categories"/, "the editor reads the broker's category list");
+});
+
+test("saving and clearing go through /provider/meta with the owner's credentials", () => {
+  const js = read("js/console.js");
+  assert.match(js, /api\("\/provider\/meta", \{\s*method: "POST"/, "save POSTs /provider/meta through api() (credentials: include)");
+  assert.match(js, /function api\(path, opts\) \{[\s\S]*?opts\.credentials = "include"/, "api() sends the owner's credentials");
+  assert.match(js, /clear: true/, "clear POSTs clear: true");
+});
+
+test("a refused save shows the server's message in the card", () => {
+  assert.match(read("js/console.js"), /setState\(catState, "md-state--err", \(res\.j && res\.j\.error && res\.j\.error\.message\)/);
+});
+
+test("a category set on the web is labelled as such", () => {
+  assert.match(read("js/console.js"), /m\.meta_overridden\) catTxt \+= " · set on the web"/);
+});
+
+test("the console says the category can be changed here, or from the node", () => {
+  const html = read("console.html");
+  assert.match(html, /Edit category/);
+  assert.match(html, /roger share --category/);
+  assert.match(html, /SHARE tab/);
+  assert.match(html, /local console/);
+});
+
+test("the category editor builds its fields without innerHTML", () => {
+  const js = read("js/console.js");
+  const body = js.slice(js.indexOf("function catEditor("), js.indexOf("// end catEditor"));
+  assert.ok(body.length > 100, "the editor function exists");
+  assert.doesNotMatch(body, /innerHTML\s*=(?!\s*"")/, "no station text ever reaches innerHTML");
+});
+
+test("the editor's Save waits for the category list, and a failed list is not cached", () => {
+  // Regression (slice-5 review): an empty Save is a clear on the broker, so a Save clicked
+  // before the list loaded silently removed the owner's override.
+  const js = read("js/console.js");
+  const body = js.slice(js.indexOf("function catEditor("), js.indexOf("// end catEditor"));
+  assert.match(body, /save\.disabled = true;\s*\/\/ until the category list has loaded/, "Save starts disabled");
+  assert.match(body, /loadCatList\(\)\.then\(function \(list\) \{[\s\S]*?save\.disabled = !list\.length;/, "and is enabled once a list loads");
+  assert.match(js, /if \(!r\.ok\) return null;[\s\S]*?if \(d && d\.categories\) catList = d\.categories;/, "only a good list is cached");
+});

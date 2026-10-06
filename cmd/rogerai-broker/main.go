@@ -952,6 +952,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/console", b.console)                        // recent lineage feed + live counters (Console page)
 	mux.HandleFunc("/activity", b.console)                       // alias for /console
 	mux.HandleFunc("/provider/models", b.providerModels)         // owner: per-model price + time-of-use schedule (Console pricing manager)
+	mux.HandleFunc("/provider/meta", b.providerMeta)             // owner: what a model is for (Console category editor)
 	mux.HandleFunc("/grants", b.grants)                          // owner grant keys: create + list
 	mux.HandleFunc("/grants/", b.grants)                         // owner grant keys: show/edit/revoke by id
 	mux.HandleFunc("/bands", b.bands)                            // owner private bands: list + revoke by id
