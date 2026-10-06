@@ -42,6 +42,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -236,7 +237,11 @@ func (s *foState) reset() error {
 	s.teardown()
 	s.logs.Reset()
 	s.nonce = utNonce()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	dsn, err := pgtest.Private()
+	if err != nil {
+		return err
+	}
+	if dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			return fmt.Errorf("postgres: %w", err)

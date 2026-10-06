@@ -24,7 +24,10 @@ type interleavingStore struct {
 	Store
 	at     string
 	before func()
-	fired  bool
+	// fired needs no lock: the Registry calls its store on the test's own goroutine, and the
+	// competitor writes through the UNWRAPPED store, so fire never runs concurrently with
+	// itself and the test reads fired only after the call that set it has returned.
+	fired bool
 }
 
 func (s *interleavingStore) fire(op string) {
