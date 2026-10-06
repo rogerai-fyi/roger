@@ -65,3 +65,29 @@ test("the full body for a routed turn maps each field to its contract key", () =
   assert.deepEqual(b.roger, { min_tps: 20, self_hosted_only: true, confidential: true, require: ["tools", "vision"],
     params_b: [7, 70], region: ["eu"], trust_min: "verified", min_ctx: 32768, max_ttft_ms: 1500 });
 });
+
+// a stand-in DOM node: its tag, contenteditable, and the ancestors closest() can find
+const node = (tag, opts = {}) => ({
+  tagName: tag.toUpperCase(), isContentEditable: !!opts.editable,
+  closest: (sel) => (opts.inside || []).includes(sel) ? {} : null,
+});
+
+test("the cassette bay leaves arrow keys and drags to a field or the routing drawer", () => {
+  for (const t of ["input", "select", "textarea"]) {
+    assert.equal(R.ownsInput(node(t)), true, `${t} keeps its keys`);
+  }
+  assert.equal(R.ownsInput(node("div", { editable: true })), true, "contenteditable keeps its keys");
+  assert.equal(R.ownsInput(node("button", { inside: ["#dkRoute"] })), true, "anything inside the drawer keeps its keys");
+  assert.equal(R.ownsInput(node("button", { inside: ["#dkRouteBtn"] })), true, "the drawer toggle keeps its keys");
+  assert.equal(R.ownsInput(node("div")), false, "the bay itself swaps tapes");
+  assert.equal(R.ownsInput(null), false);
+});
+
+test("the bay's keydown and drag consult the guard before acting", () => {
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  const bay = js.slice(js.indexOf("(function dragBay() {"), js.indexOf("})();", js.indexOf("(function dragBay() {")));
+  assert.match(bay, /function down\(e\) \{\s*if \(STATE\.playing \|\| window\.PlayboxRoute\.ownsInput\(e\.target\)\) return;/,
+    "a drag starting on a field or the drawer must not throw the tape");
+  assert.match(bay, /addEventListener\("keydown", function \(e\) \{\s*if \(window\.PlayboxRoute\.ownsInput\(e\.target\)\) return;/,
+    "arrow keys in a field or the drawer must not change tape");
+});

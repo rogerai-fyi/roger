@@ -717,7 +717,7 @@
     if (!bay || !cas) return;
     var x0 = 0, dx = 0, dragging = false, pid = null;
     function down(e) {
-      if (STATE.playing) return;
+      if (STATE.playing || window.PlayboxRoute.ownsInput(e.target)) return;
       dragging = true; x0 = e.clientX; dx = 0; pid = e.pointerId;
       cas.classList.add("is-dragging");
       try { bay.setPointerCapture(pid); } catch (err) {}
@@ -748,6 +748,7 @@
     bay.setAttribute("tabindex", "0");
     bay.setAttribute("aria-label", "Cassette bay - arrow keys change tape");
     bay.addEventListener("keydown", function (e) {
+      if (window.PlayboxRoute.ownsInput(e.target)) return;   // the drawer is inside the bay
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       var next = neighbourTape(e.key === "ArrowRight" ? 1 : -1);
       if (next) { e.preventDefault(); loadTape(next, e.key === "ArrowRight" ? "left" : "right"); }

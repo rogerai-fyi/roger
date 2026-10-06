@@ -91,7 +91,16 @@
     return parts.join(" · ");
   }
 
-  var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary };
+  // ownsInput: the event's target takes its own keys and pointer (a field, contenteditable,
+  // the routing drawer or its toggle), so the cassette bay around it must not act on them
+  function ownsInput(t) {
+    if (!t) return false;
+    var tag = (t.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "textarea" || t.isContentEditable) return true;
+    return !!(t.closest && (t.closest("#dkRoute") || t.closest("#dkRouteBtn")));
+  }
+
+  var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();
