@@ -3627,7 +3627,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// estimate. A 200-with-empty-body does NOT count.
 			qOK := res.Status < 500 && rec.CompletionTokens > 0 && qualityOK(res.Body)
 			b.recordServed(node.NodeID, qOK, tps, concurrentAtDispatch)
-			b.observeTotalLatency(node.NodeID, msSince(start))
+			if qOK { // only an answer that passes the quality gate is a latency sample
+				b.observeTotalLatency(node.NodeID, msSince(start))
+			}
 			// We just measured this node for FREE off real traffic: reset its probe
 			// backoff + push the next probe out, so an actively-used node is barely
 			// probed (and reads as freshly verified, not stale).
@@ -4723,7 +4725,9 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 		// judge, so it falls back to the claimed-tokens signal as before.
 		qOK := rec.CompletionTokens > 0 && (sink.cap == nil || qualityOKText(completion))
 		b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
-		b.observeTotalLatency(node.NodeID, msSince(start))
+		if qOK { // only an answer that passes the quality gate is a latency sample
+			b.observeTotalLatency(node.NodeID, msSince(start))
+		}
 		// Free measurement off real (streamed) traffic: reset the probe backoff so
 		// an actively-used node is barely probed and reads as freshly verified.
 		b.markMeasured(node.NodeID)

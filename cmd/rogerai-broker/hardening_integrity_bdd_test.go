@@ -1237,6 +1237,29 @@ func (s *ri6State) directTTFTNoTotal(name, ttft string) error {
 	return nil
 }
 
+func (s *ri6State) junkNoTokens(name string) error {
+	s.scriptOn(s.ensureNode(name), func(_ int, w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":5,"completion_tokens":0}}`))
+	})
+	return nil
+}
+
+func (s *ri6State) relayPinnedTimes(who, model, name, n string) error {
+	for i := 0; i < atoiMust(n); i++ {
+		s.heartbeat()
+		s.do(fa6Spec{who: who, model: model, hdr: map[string]string{"X-Roger-Node": s.idOf(name)}})
+	}
+	return nil
+}
+
+func (s *ri6State) noTotalLatency(name string) error {
+	if v := s.b.totalLatencyOf(s.st(name).id); v != 0 {
+		return fmt.Errorf("%q earned a total latency of %.3f ms from answers that failed the quality gate", name, v)
+	}
+	return nil
+}
+
 // setTotalLatency states a node's measured total latency (seconds), held across relays.
 func (s *ri6State) setTotalLatency(nodeID, secs string) {
 	s.holdTotalLatency(nodeID, float64(atoiMust(secs))*1000)
@@ -1674,6 +1697,9 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^an approved Tower "([^"]+)" serves "([^"]+)" with TTFT (\d+) ms and total latency (\d+) s$`, st.towerTTFTTotal)
 	sc.Step(`^direct station "([^"]+)" has TTFT (\d+) ms and total latency (\d+) s$`, st.directTTFTTotal)
 	sc.Step(`^direct station "([^"]+)" has TTFT (\d+) ms and no total latency$`, st.directTTFTNoTotal)
+	sc.Step(`^"([^"]+)" answers every request instantly with text but claims no completion tokens$`, st.junkNoTokens)
+	sc.Step(`^"([^"]+)" relays for "([^"]+)" pinned to "([^"]+)" (\d+) times$`, st.relayPinnedTimes)
+	sc.Step(`^"([^"]+)" has no measured total latency$`, st.noTotalLatency)
 	sc.Step(`^"([^"]+)" relays for "([^"]+)" with provider\.sort "([^"]+)"$`, st.relaySort)
 	sc.Step(`^the plan head is "([^"]+)"$`, st.planHead)
 	sc.Step(`^an approved Tower "([^"]+)" serves "([^"]+)" and answers in (\d+) seconds$`, st.towerSlow)

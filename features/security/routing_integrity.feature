@@ -275,6 +275,14 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     When "u-1" relays for "m" with provider.sort "latency"
     Then the plan head is "s1"
 
+  # slice-6 review 2026-10-06 (M3): only an answer that passes the quality gate is a latency
+  # sample, so instant junk cannot buy the head of a latency sort
+  Scenario: A station answering instantly with output it claims no tokens for never earns a total latency
+    Given station "s2" is on air for "m"
+    And "s2" answers every request instantly with text but claims no completion tokens
+    When "u-1" relays for "m" pinned to "s2" 5 times
+    Then "s2" has no measured total latency
+
   # founder ruling 2026-10-05: sort:latency means total latency for every row, direct ones too
   Scenario: sort latency ranks direct stations on total latency, not first token
     Given station "s2" is on air for "m"
