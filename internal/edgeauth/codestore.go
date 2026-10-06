@@ -9,6 +9,8 @@ package edgeauth
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -127,4 +129,18 @@ func (l *Local) dropCode(join string) error {
 		return err
 	}
 	return l.writeJSON(CodesFile, without(got, join))
+}
+
+// pruneCodes rewrites the store with only its live codes, when there is a store at all.
+func (l *Local) pruneCodes() error {
+	if _, err := os.Stat(filepath.Join(l.dir, CodesFile)); err != nil {
+		return nil
+	}
+	return l.withLock(func() error {
+		got, err := l.readCodes()
+		if err != nil {
+			return err
+		}
+		return l.writeJSON(CodesFile, got)
+	})
 }

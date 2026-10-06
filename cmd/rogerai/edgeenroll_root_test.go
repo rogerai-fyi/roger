@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,43 +29,104 @@ import (
 	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
 )
 
-// rootedAuthority is a real local authority answering over real HTTP. strip removes the root
-// proof from every answer, which is what an authority from before proofs (or a device in between
-// that strips it) sends.
+// rootedAuthority is a real local authority answering over real HTTP through the production
+// enrollhttp handler. strip removes the root proof from every answer, which is what an authority
+// from before proofs (or a device in between that strips it) sends; mangle lets an impostor doctor
+// a real answer. Every request and answer body is kept, for "what crossed the wire" checks.
 type rootedAuthority struct {
-	local *edgeauth.Local
-	url   string
-	hits  atomic.Int32
-	strip atomic.Bool
+	mu      sync.Mutex
+	local   *edgeauth.Local
+	dir     string
+	url     string
+	hits    atomic.Int32
+	enrolls atomic.Int32 // requests to the enrollment or claim path: "the authority was asked"
+	strip   atomic.Bool
+	mangle  func(resp *edgeauth.Response, body []byte)
+	wire    []string
+	paths   []string // every path asked, in order
 }
 
 func newRootedAuthority(t *testing.T, where string) *rootedAuthority {
 	t.Helper()
-	local, err := edgeauth.Designate(t.TempDir(), where)
+	return newRootedAuthorityAt(t, t.TempDir(), where)
+}
+
+// newRootedAuthorityAt designates an authority in dir (a machine's own Edge directory, when the
+// scenario also drives that machine's CLI) and serves it.
+func newRootedAuthorityAt(t *testing.T, dir, where string) *rootedAuthority {
+	t.Helper()
+	local, err := edgeauth.Designate(dir, where)
 	require.NoError(t, err)
-	a := &rootedAuthority{local: local}
-	h := enrollhttp.Handler(local)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.hits.Add(1)
-		if !a.strip.Load() || r.URL.Path != enrollhttp.Path {
-			h.ServeHTTP(w, r)
-			return
-		}
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, r)
-		var m map[string]any
-		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &m) != nil {
-			w.WriteHeader(rec.Code)
-			_, _ = w.Write(rec.Body.Bytes())
-			return
-		}
-		delete(m, "root_proof")
-		delete(m, "root_proof_status")
-		_ = json.NewEncoder(w).Encode(m)
-	}))
+	a := &rootedAuthority{local: local, dir: dir}
+	srv := httptest.NewServer(http.HandlerFunc(a.serve))
 	t.Cleanup(srv.Close)
 	a.url = srv.URL
 	return a
+}
+
+func (a *rootedAuthority) serve(w http.ResponseWriter, r *http.Request) {
+	a.hits.Add(1)
+	if r.URL.Path == enrollhttp.Path || r.URL.Path == enrollhttp.ClaimPath {
+		a.enrolls.Add(1)
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	r.Body = io.NopCloser(strings.NewReader(string(body)))
+	a.mu.Lock()
+	h, mangle := enrollhttp.Handler(a.local), a.mangle
+	a.wire = append(a.wire, string(body))
+	a.paths = append(a.paths, r.URL.Path)
+	a.mu.Unlock()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	out := rec.Body.Bytes()
+	answer := r.URL.Path == enrollhttp.Path || r.URL.Path == enrollhttp.ClaimPath
+	if rec.Code == http.StatusOK && answer && (a.strip.Load() || mangle != nil) {
+		var resp edgeauth.Response
+		if json.Unmarshal(out, &resp) == nil {
+			if mangle != nil {
+				mangle(&resp, body)
+			}
+			var m map[string]any
+			b, _ := json.Marshal(resp)
+			_ = json.Unmarshal(b, &m)
+			if a.strip.Load() {
+				delete(m, "root_proof")
+				delete(m, "root_proof_status")
+			}
+			out, _ = json.Marshal(m)
+		}
+	}
+	a.mu.Lock()
+	a.wire = append(a.wire, string(out))
+	a.mu.Unlock()
+	for k, v := range rec.Header() {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(rec.Code)
+	_, _ = w.Write(out)
+}
+
+// restart reopens the authority from its directory, as a restarted process would.
+func (a *rootedAuthority) restart(t *testing.T) {
+	t.Helper()
+	l, ok, err := edgeauth.OpenLocal(a.dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	a.mu.Lock()
+	a.local = l
+	a.mu.Unlock()
+}
+
+func (a *rootedAuthority) setMangle(fn func(resp *edgeauth.Response, body []byte)) {
+	a.mu.Lock()
+	a.mangle = fn
+	a.mu.Unlock()
+}
+
+func (a *rootedAuthority) wireLog() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return strings.Join(a.wire, "\n")
 }
 
 func (a *rootedAuthority) fingerprint() string { return a.local.Descriptor().Fingerprint }
@@ -271,16 +333,14 @@ func TestAHeldAnswerIsNotTrustedAfterFifteenMinutes(t *testing.T) {
 	shed := newRootedAuthority(t, "shed")
 	code := shed.allow(t, aJoiner(t))
 	edgeIsInteractive = func() bool { return true }
-	start := time.Now()
-	calls := 0
+	start, late := time.Now(), false
 	edgeNow = func() time.Time {
-		calls++
-		if calls == 1 {
-			return start // the answer arrives
+		if late {
+			return start.Add(16 * time.Minute) // the owner types much later
 		}
-		return start.Add(16 * time.Minute) // the owner types much later
+		return start // the answer arrives
 	}
-	edgeStdin = strings.NewReader(code + "\n")
+	edgeStdin = &flipReader{r: strings.NewReader(code + "\n"), flip: func() { late = true }}
 	out, exit := edgeRun(t, "edge", "enroll", "bench", "--authority", shed.url)
 	require.Equal(t, 1, exit, out)
 	require.Contains(t, out, "run the join again")
@@ -307,7 +367,7 @@ func TestTheCorePathRefusesABrokerThatIsNotAuthenticated(t *testing.T) {
 	t.Setenv("ROGER_BROKER", "http://192.168.1.5:8080")
 	edgeLogin(t, "owner")
 	out, exit := edgeRun(t, "edge", "enroll", "bench")
-	require.Equal(t, 1, exit, out)
+	require.Equal(t, 2, exit, out, "refused before anything is sent")
 	require.Contains(t, out, "needs an https broker")
 	require.Contains(t, out, "local authority")
 	keptNothing(t)
@@ -455,4 +515,61 @@ func TestEnrollHelpListsEveryTrustFlagAndNoEscapeHatch(t *testing.T) {
 	}
 }
 
-var _ = io.Discard
+// flipReader runs flip the first time it is read: "the owner started typing", at a moment the
+// test chooses.
+type flipReader struct {
+	r    io.Reader
+	flip func()
+	done bool
+}
+
+func (f *flipReader) Read(p []byte) (int, error) {
+	if !f.done {
+		f.done = true
+		f.flip()
+	}
+	return f.r.Read(p)
+}
+
+// An empty answer, or the end of input, at the code prompt ends the join with nothing kept. It is
+// never read as "ask again", which on a closed input would ask for ever.
+func TestNoCodeTypedEndsTheJoinAndKeepsNothing(t *testing.T) {
+	shed := newRootedAuthority(t, "shed")
+	shed.allow(t, aJoiner(t))
+	edgeIsInteractive = func() bool { return true }
+	edgeStdin = strings.NewReader("")
+	type result struct {
+		out  string
+		exit int
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, exit := edgeRun(t, "edge", "enroll", "bench", "--authority", shed.url)
+		done <- result{out, exit}
+	}()
+	select {
+	case r := <-done:
+		require.Equal(t, 1, r.exit, r.out)
+		require.Contains(t, r.out, "no code was entered")
+		keptNothing(t)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the join kept asking for a code on a closed input")
+	}
+}
+
+// "an impostor answering first is reported once, plainly": the line naming the address and the
+// root it offered is said on the first refusal, and later retries of the same join say only that
+// the code did not match.
+func TestAnImpostorIsNamedOnceNotOnEveryRetry(t *testing.T) {
+	impostor := newRootedAuthority(t, "shed")
+	impostor.allow(t, aJoiner(t))
+	edgeIsInteractive = func() bool { return true }
+	edgeStdin = strings.NewReader("ZZZZZ-ZZZZZ\nYYYYY-YYYYY\nXXXXX-XXXXX\n\n")
+	out, exit := edgeRun(t, "edge", "enroll", "bench", "--authority", impostor.url)
+	require.Equal(t, 1, exit, out)
+	addr := strings.TrimPrefix(impostor.url, "http://")
+	require.Equal(t, 1, strings.Count(out, addr), "the address is named once:\n%s", out)
+	require.Equal(t, 1, strings.Count(out, "is not the Edge that showed you this code"))
+	require.Equal(t, 3, strings.Count(out, "does not match the Edge that answered"))
+	keptNothing(t)
+}

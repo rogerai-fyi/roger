@@ -127,7 +127,10 @@ func TestTheWizardsJoinRefusesAnImpostorAndKeepsNothing(t *testing.T) {
 	for i := 0; i < edgeauth.CodeAttempts-1; i++ {
 		done, err := h.JoinCode(code)
 		require.False(t, done)
-		require.ErrorContains(t, err, "is not the Edge that showed you this code")
+		require.ErrorContains(t, err, "does not match the Edge that answered")
+		if i == 0 {
+			require.ErrorContains(t, err, "is not the Edge that showed you this code", "said once, on the first")
+		}
 	}
 	done, err := h.JoinCode(code)
 	require.True(t, done)

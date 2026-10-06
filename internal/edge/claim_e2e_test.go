@@ -49,6 +49,10 @@ func TestAdoptClaimPresentMakesAMemberWithNoTyping(t *testing.T) {
 	// The owner ADOPTS the candidate on the authority (what `roger edge adopt <id>` / the [3] adopt
 	// key does): it grants the claim.
 	require.NoError(t, local.GrantClaim(nodeID, "pixel-8"))
+	// The adopt shows a one-time enrollment code for N (features/edge/claim.feature, amended by
+	// enrollment_root_trust.feature): the phone keeps the answer only once it verifies with it.
+	enrollCode, err := local.MintNodeCode(nodeID)
+	require.NoError(t, err)
 
 	// The phone CLAIMS and receives its certificate - no address typed, no manual allow.
 	req := edgeauth.NewClaimRequest("pixel-8", "mobile", nodePub, time.Now())
@@ -58,6 +62,11 @@ func TestAdoptClaimPresentMakesAMemberWithNoTyping(t *testing.T) {
 	require.Equal(t, nodeID, resp.NodeID)
 	require.Equal(t, edgeauth.LocalAccount, resp.Account)
 	require.Contains(t, resp.Cert, "BEGIN CERTIFICATE")
+	fp := local.Descriptor().Fingerprint
+	require.NoError(t, edgeauth.VerifyRootProof(enrollCode, resp.RootProof, fp, resp.Account, resp.NodeID, req.Nonce),
+		"the answer's root proof verifies with the code the adopt showed")
+	require.Error(t, edgeauth.VerifyRootProof("ZZZZZZZZZZ", resp.RootProof, fp, resp.Account, resp.NodeID, req.Nonce),
+		"and with no other")
 
 	// It is not yet on the map - claiming issues the cert; presence puts it on the map.
 	_, known, err := fleet.Get(nodeID)

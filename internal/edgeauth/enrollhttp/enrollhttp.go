@@ -79,6 +79,12 @@ const RootPath = "/edge/root"
 // is a few hundred bytes; a certificate answer is a few kilobytes.
 const maxBody = 64 << 10
 
+// Client is the HTTP client every enrollment call uses. It is Go's default, which verifies a
+// server's TLS certificate against the system's trusted roots and never skips that check - which
+// is what makes Core enrollment authenticated (features/edge/enrollment_root_trust.feature). It is
+// a variable only so a test can trust a test server's root; it must never skip verification.
+var Client = &http.Client{}
+
 // timeout bounds one enrollment attempt. Enrolling is interactive: the owner is
 // standing there, and a hung dial must become a message rather than a wait.
 const timeout = 15 * time.Second
@@ -265,7 +271,7 @@ func SignedRevocations(ctx context.Context, endpoint string) (edgeauth.SignedRev
 	if err != nil {
 		return out, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := Client.Do(req)
 	if err != nil {
 		return out, err
 	}
@@ -312,7 +318,7 @@ func get(ctx context.Context, endpoint, path string) ([]byte, error) {
 func do(req *http.Request) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
-	resp, err := (&http.Client{}).Do(req.WithContext(ctx))
+	resp, err := Client.Do(req.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}

@@ -55,6 +55,7 @@ type edgeHeldJoin struct {
 	where    string // the address that answered, for the messages
 	received time.Time
 	attempts int
+	named    bool // the address and offered root were already said to the owner
 	finish   func() (edgeEnrollResult, error)
 	verified bool
 }
@@ -91,10 +92,21 @@ func (h *edgeHeldJoin) check(typed string) (done bool, err error) {
 	if h.attempts >= edgeauth.CodeAttempts {
 		return true, edgeCapReached()
 	}
-	return false, fmt.Errorf("%w at %s (it offered root %s; %d attempts left).\n"+
+	left := edgeauth.CodeAttempts - h.attempts
+	if h.attempts > 1 {
+		// Said once per join: a retry only says the code did not match.
+		return false, fmt.Errorf("%w (%d attempts left)", edgeauth.ErrRootProofMismatch, left)
+	}
+	where := ""
+	if !h.named {
+		// The address and the root it offered, unless the prompt already named them.
+		where = fmt.Sprintf(" at %s (it offered root %s)", h.where, h.rootShort())
+		h.named = true
+	}
+	return false, fmt.Errorf("%w%s; %d attempts left.\n"+
 		"  check the code; if it is right, the device that answered at that address is not the Edge that showed you this code.\n"+
 		"  to start over, mint a fresh one with allow or adopt on the authority",
-		edgeauth.ErrRootProofMismatch, h.where, h.rootShort(), edgeauth.CodeAttempts-h.attempts)
+		edgeauth.ErrRootProofMismatch, where, left)
 }
 
 func edgeCapReached() error {
@@ -130,8 +142,15 @@ func edgeCheckPin(pin string, root *x509.Certificate, where string) error {
 // or the answer is too old.
 func edgeAskForCode(h *edgeHeldJoin, ask func(string) string) error {
 	fmt.Printf("the authority at %s answered, offering root %s.\n", h.where, h.rootShort())
+	h.named = true
 	for {
-		done, err := h.check(ask("enter the enrollment code shown on the authority: "))
+		typed := strings.TrimSpace(ask("enter the enrollment code shown on the authority: "))
+		if typed == "" {
+			// An empty answer, or the end of input: the owner is not going to type one. Nothing was
+			// kept, and asking again on a closed input would ask for ever.
+			return errors.New("no code was entered, so this machine did not join and nothing was kept")
+		}
+		done, err := h.check(typed)
 		if done {
 			return err
 		}

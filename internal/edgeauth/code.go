@@ -199,3 +199,34 @@ func ShortFingerprint(fp string) string {
 	u := strings.ToUpper(fp[:16])
 	return u[:4] + "-" + u[4:8] + "-" + u[8:12] + "-" + u[12:16]
 }
+
+// ErrRootUnproven is a first answer the joiner was given nothing to vouch for: no code and no pin.
+var ErrRootUnproven = errors.New("the root of the Edge you are joining has to be confirmed (a code or its full fingerprint) before it is kept")
+
+// VerifyAnswer is the whole rule a joiner applies to an authority's answer before keeping
+// anything (features/edge/enrollment_root_trust.feature). The answer must pass CheckResponse. A
+// root the joiner already holds (want.Root) decides on its own. Otherwise the owner's pin and/or
+// code must vouch for the root it offers - every one given must agree - and with neither, nothing
+// is kept. nonce is the one the joiner's own request carried.
+func VerifyAnswer(resp Response, want Expect, nonce, code, pin string) (*Identity, error) {
+	id, err := CheckResponse(resp, want)
+	if err != nil {
+		return nil, err
+	}
+	if want.Root != nil {
+		return id, nil
+	}
+	if code == "" && pin == "" {
+		return nil, ErrRootUnproven
+	}
+	fp := RootFingerprint(id.Root)
+	if pin != "" && fp != pin {
+		return nil, ErrPinMismatch
+	}
+	if code != "" {
+		if err := VerifyRootProof(code, resp.RootProof, fp, resp.Account, resp.NodeID, nonce); err != nil {
+			return nil, err
+		}
+	}
+	return id, nil
+}

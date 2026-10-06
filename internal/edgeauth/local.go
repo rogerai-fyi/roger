@@ -110,6 +110,10 @@ func open(dir string) (*Local, error) {
 		l.iss.issued[id] = serial
 	}
 	l.iss.mu.Unlock()
+	// A code that ran out while the authority was down is pruned now, so a restart never brings
+	// an expired code back (features/edge/enrollment_root_trust.feature). A damaged store is left
+	// for the issuing paths, which refuse on it.
+	_ = l.pruneCodes()
 	return l, nil
 }
 

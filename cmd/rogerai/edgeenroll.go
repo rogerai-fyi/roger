@@ -50,6 +50,10 @@ var defaultEdgeUserKey = client.LoadOrCreateUserKey
 
 var edgeUserKey = defaultEdgeUserKey
 
+// edgeUserPubHex is the public half of the key this machine signs its enrollment with - the key an
+// authority must allow. It is said from the same seam that signs, so the key shown is the key used.
+func edgeUserPubHex() string { return hex.EncodeToString(edgeUserKey().Public().(ed25519.PublicKey)) }
+
 // edgeIdentityStore is this machine's Edge directory.
 func edgeIdentityStore() edgeauth.Store { return edgeauth.Store{Dir: edgeAuthDir()} }
 
@@ -212,7 +216,7 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 	if err != nil {
 		return res, nil, err
 	}
-	now := time.Now()
+	now := edgeNow()
 	heldRoot := edgeHeldRoot(st)
 	if enrolled {
 		heldRoot = held.Root
@@ -262,10 +266,10 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 			"  pass --code <code>: the authority prints it when you allow or adopt this machine there\n"+
 			"    (roger edge authority allow %s)\n"+
 			"  or pass --root sha256:<fingerprint>: the full fingerprint `roger edge authority` prints there.\n"+
-			"  nothing was sent and nothing was kept", client.UserPubHex())
+			"  nothing was sent and nothing was kept", edgeUserPubHex())
 	}
 	if endpoint == "" && !isAuthority && !edgeBrokerAuthenticated(cfg.Broker) {
-		return res, nil, fmt.Errorf("Core enrollment needs an https broker, and %s is not one: over plain http the root\n"+
+		return res, nil, usagef("Core enrollment needs an https broker, and %s is not one: over plain http the root\n"+
 			"  this machine would be handed is only as good as the network it crossed.\n"+
 			"  to enroll on this network instead, use a local authority with a code:\n"+
 			"    roger edge authority local <name>   (on the machine that will root the Edge)\n"+
@@ -405,7 +409,7 @@ func edgeDifferentRootRefusal(isAuthority bool) error {
 			"  an Edge has exactly one authority; moving it is a deliberate migration:\n"+
 			"    roger edge authority local <name> --force", edgeDescriptor().Names())
 	}
-	return fmt.Errorf("this machine belongs to the Edge rooted at %s, and that certificate comes from a different root.\n"+
+	return fmt.Errorf("this machine belongs to the Edge rooted at %s, and that certificate comes from a different authority.\n"+
 		"  if the owner moved the Edge on purpose, the new authority's allow or adopt prints a code:\n"+
 		"    roger edge enroll <name> --authority <its address> --code <that code> --replace-root\n"+
 		"  nothing changed", edgeDescriptor().Names())
@@ -479,7 +483,8 @@ func edgeRefuseASecondAuthority(st edgeauth.Store, endpoint string) error {
 	move := "  to move this Edge deliberately, so every member is told to re-enroll:\n" +
 		"    roger edge authority local <name> --force"
 	if _, isAuthority, _ := edgeauth.OpenLocal(edgeAuthDir()); !isAuthority {
-		move = "  if the owner moved the Edge there on purpose, its allow or adopt prints a code:\n" +
+		move = "  the root it answers with is not this Edge's: that certificate comes from a different authority.\n" +
+			"  if the owner moved the Edge there on purpose, its allow or adopt prints a code:\n" +
 			"    roger edge enroll <name> --authority " + endpoint + " --code <that code> --replace-root"
 	}
 	return fmt.Errorf("this Edge is rooted at %s, and %s is a different authority.\n"+
@@ -891,7 +896,7 @@ func edgeEnrollErr(err error, name, endpoint string) error {
 	}
 	return fmt.Errorf("%w - the authority has not allowed this machine yet.\n"+
 		"  on the AUTHORITY machine, run:  roger edge authority allow %s\n"+
-		"  then here, again:                %s", err, client.UserPubHex(), retry)
+		"  then here, again:                %s", err, edgeUserPubHex(), retry)
 }
 
 // --- forgetting a node, and taking its certificate back -------------------

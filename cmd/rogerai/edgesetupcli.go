@@ -42,7 +42,7 @@ func cmdEdgeSetup(cfg config, args []string) error {
 		fmt.Println("  JOIN an existing Edge (once its authority has allowed this machine; allow prints the code):")
 		fmt.Println("    roger edge enroll <name> --authority http://<authority-address> --code <code>")
 		fmt.Println("  the key the authority must allow (run on the authority):")
-		fmt.Println("    roger edge authority allow " + client.UserPubHex())
+		fmt.Println("    roger edge authority allow " + edgeUserPubHex())
 		return nil
 	}
 
@@ -122,7 +122,7 @@ func edgeSetupJoin(cfg config, name string, ask func(string) string) error {
 		fmt.Println()
 		fmt.Println("This machine is not allowed on that Edge yet, so it did not join.")
 		fmt.Println("On the AUTHORITY machine, run:")
-		fmt.Println("  roger edge authority allow " + client.UserPubHex())
+		fmt.Println("  roger edge authority allow " + edgeUserPubHex())
 		fmt.Println("That command prints the code to bring back here: an enrollment code, good for 15 minutes.")
 		fmt.Println("Then run `roger edge setup` again (or `roger edge enroll " + name + " --authority " + addr + " --code <code>`).")
 		return nil

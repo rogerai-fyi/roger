@@ -276,3 +276,64 @@ func TestADamagedCodeStoreFailsClosed(t *testing.T) {
 	_, _, ok := local.NodeCode("n_x")
 	require.False(t, ok)
 }
+
+// VerifyAnswer is the one rule every joiner applies to an authority's answer
+// (enrollment_root_trust.feature): a held root decides on its own; otherwise a pin or the code's
+// proof must vouch for the root, and with neither nothing may be kept.
+func TestVerifyAnswerIsTheJoinersWholeRule(t *testing.T) {
+	local, nodePub, nodePriv, nodeID := claimFixture(t)
+	require.NoError(t, local.GrantClaim(nodeID, "pocket"))
+	code, err := local.MintNodeCode(nodeID)
+	require.NoError(t, err)
+	c := signedClaim(t, nodePub, nodePriv, time.Now())
+	resp, err := local.Claim(c, time.Now())
+	require.NoError(t, err)
+	want := edgeauth.Expect{NodeID: nodeID, Key: nodePub, Now: time.Now()}
+	fp := rootFP(t, resp)
+	other, err := edgeauth.Designate(t.TempDir(), "other")
+	require.NoError(t, err)
+
+	_, err = edgeauth.VerifyAnswer(resp, want, c.Nonce, "", "")
+	require.ErrorIs(t, err, edgeauth.ErrRootUnproven, "no code and no pin keeps nothing")
+
+	id, err := edgeauth.VerifyAnswer(resp, want, c.Nonce, code, "")
+	require.NoError(t, err)
+	require.Equal(t, fp, edgeauth.RootFingerprint(id.Root))
+
+	_, err = edgeauth.VerifyAnswer(resp, want, c.Nonce, "ZZZZZZZZZZ", "")
+	require.ErrorIs(t, err, edgeauth.ErrRootProofMismatch)
+
+	_, err = edgeauth.VerifyAnswer(resp, want, c.Nonce, "", fp)
+	require.NoError(t, err, "the full pin alone vouches")
+	_, err = edgeauth.VerifyAnswer(resp, want, c.Nonce, "", other.Descriptor().Fingerprint)
+	require.ErrorIs(t, err, edgeauth.ErrPinMismatch)
+	_, err = edgeauth.VerifyAnswer(resp, want, c.Nonce, code, other.Descriptor().Fingerprint)
+	require.ErrorIs(t, err, edgeauth.ErrPinMismatch, "a pin and a code must both agree")
+
+	held := want
+	held.Root = other.Authority().Root()
+	_, err = edgeauth.VerifyAnswer(resp, held, c.Nonce, "", "")
+	require.ErrorIs(t, err, edgeauth.ErrDifferentAuthority, "a held root is never replaced by an answer")
+	held.Root, _ = edgeauth.DecodeCert(resp.Root)
+	_, err = edgeauth.VerifyAnswer(resp, held, c.Nonce, "", "")
+	require.NoError(t, err, "the root already held vouches on its own")
+}
+
+// "an expired code is pruned and a restart does not revive it": reopening the authority rewrites
+// the store without the codes that have run out.
+func TestARestartPrunesExpiredCodesFromTheStore(t *testing.T) {
+	dir := t.TempDir()
+	local, err := edgeauth.Designate(dir, "shed")
+	require.NoError(t, err)
+	minted := time.Now().Add(-16 * time.Minute)
+	local.SetNow(func() time.Time { return minted })
+	_, old := allowedWithCode(t, local)
+	raw, err := os.ReadFile(filepath.Join(authDir(dir), edgeauth.CodesFile))
+	require.NoError(t, err)
+	require.Contains(t, string(raw), old, "before the restart the expired code is still on disk")
+	_, _, err = edgeauth.OpenLocal(dir)
+	require.NoError(t, err)
+	raw, err = os.ReadFile(filepath.Join(authDir(dir), edgeauth.CodesFile))
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), old, "the restart pruned it")
+}
