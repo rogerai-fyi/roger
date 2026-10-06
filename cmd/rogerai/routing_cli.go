@@ -1210,8 +1210,7 @@ func lockConfig(path string) (func(), error) {
 			}, nil
 		}
 		if lockIsStale(path) {
-			takeOverStaleLock(path)
-			continue
+			takeOverStaleLock(path) // then the deadline and the pause, like any other wait
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("config.json is locked by another roger command (%s)", path)
