@@ -93,6 +93,8 @@ type fa6State struct {
 	// every relay: the stub upstream answers in microseconds, so the broker's own measurement of
 	// a served request would otherwise overwrite the stated figure after the first serve.
 	held map[string]func()
+	// statedTotal is each node's stated total latency (ms) a Given holds (holdTotalLatency).
+	statedTotal map[string]float64
 
 	who                      map[string]*fa6Who
 	ops                      map[string]string // owner alias ("op1") -> station name
@@ -124,7 +126,7 @@ func (s *fa6State) reset() error {
 		return err
 	}
 	s.who, s.ops = map[string]*fa6Who{}, map[string]string{}
-	s.held = map[string]func(){}
+	s.held, s.statedTotal = map[string]func(){}, nil
 	s.resps, s.last, s.mark, s.hits = nil, fa6Resp{}, map[string]int{}, nil
 	s.succSnap, s.trustSnp, s.coolSeen, s.scen = map[string]float64{}, map[string]trustState{}, map[string]bool{}, map[string]any{}
 	s.ipN, s.unbound, s.recPrompt, s.recCompletion = 0, 0, 0, 0
@@ -366,6 +368,9 @@ func (s *fa6State) holdTowerCapacity(tw *rpTower, capacity int) {
 	})
 }
 
+// setTTFT holds a stated TTFT and, unless the scenario also states a total (holdTotalLatency),
+// no measured total latency: the stub answers in microseconds, and the broker's own total of a
+// served relay would otherwise outrank the stated figure (sort:latency ranks on the total).
 func (s *fa6State) setTTFT(st *fstation, ms int) {
 	s.hold("ttft:"+st.id, func() {
 		s.b.mu.Lock()
@@ -373,6 +378,32 @@ func (s *fa6State) setTTFT(st *fstation, ms int) {
 		tq.ttftMs = float64(ms)
 		s.b.trust[st.id] = tq
 		s.b.mu.Unlock()
+		s.b.metricsMu.Lock()
+		if s.b.totalLat == nil {
+			s.b.totalLat = map[string]float64{}
+		}
+		if ms, stated := s.statedTotal[st.id]; stated {
+			s.b.totalLat[st.id] = ms
+		} else {
+			delete(s.b.totalLat, st.id)
+		}
+		s.b.metricsMu.Unlock()
+	})
+}
+
+// holdTotalLatency holds a stated total latency (ms) for a node across relays.
+func (s *fa6State) holdTotalLatency(nodeID string, ms float64) {
+	if s.statedTotal == nil {
+		s.statedTotal = map[string]float64{}
+	}
+	s.statedTotal[nodeID] = ms
+	s.hold("total:"+nodeID, func() {
+		s.b.metricsMu.Lock()
+		if s.b.totalLat == nil {
+			s.b.totalLat = map[string]float64{}
+		}
+		s.b.totalLat[nodeID] = ms
+		s.b.metricsMu.Unlock()
 	})
 }
 

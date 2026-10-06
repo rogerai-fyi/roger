@@ -1237,14 +1237,9 @@ func (s *ri6State) directTTFTNoTotal(name, ttft string) error {
 	return nil
 }
 
-// setTotalLatency states a node's measured total latency (seconds) on the broker's own figure.
+// setTotalLatency states a node's measured total latency (seconds), held across relays.
 func (s *ri6State) setTotalLatency(nodeID, secs string) {
-	s.b.metricsMu.Lock()
-	if s.b.totalLat == nil {
-		s.b.totalLat = map[string]float64{}
-	}
-	s.b.totalLat[nodeID] = float64(atoiMust(secs)) * 1000
-	s.b.metricsMu.Unlock()
+	s.holdTotalLatency(nodeID, float64(atoiMust(secs))*1000)
 }
 
 func (s *ri6State) relaySort(who, model, sortBy string) error {
