@@ -3374,8 +3374,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			edgeStart := time.Now()
 			answer, g, out := b.planEdgeAttempt(r, c, payer, &holdKey, maxCost, i+1 < len(plan), deadline, requestID)
 			if len(answer) > 0 {
-				b.observeTotalLatency(c.edge.row.NodeID, msSince(edgeStart))
 				brec, bcost := b.writeBridgedAnswer(w, g, c.edge.row, c.edge.pubHex, answer, false)
+				if brec.CompletionTokens > 0 && qualityOKText(string(answer)) { // the direct path's quality gate
+					b.observeTotalLatency(c.edge.row.NodeID, msSince(edgeStart))
+				}
 				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, bcost, brec.PromptTokens, brec.CompletionTokens, 0, protocol.EncodeReceipt(brec))
 				settled = true // the hold rides the attempt id the Tower's settlement captures
 				return
@@ -3998,6 +4000,14 @@ func (l *lazySSE) begin(provider string) {
 	l.mu.Unlock()
 }
 
+// complete marks the current attempt's answer as whole: the broker wrote it itself (a bridged
+// answer arrives whole and has no station [DONE]), so finish adds no error frame.
+func (l *lazySSE) complete() {
+	l.mu.Lock()
+	l.sawDone = true
+	l.mu.Unlock()
+}
+
 // piped is what the current attempt's station sent before anything was committed: the
 // complete lines held back plus the partial last line.
 func (l *lazySSE) piped() []byte {
@@ -4203,6 +4213,12 @@ func (l *lazySSE) keepalive(every time.Duration) (stop func()) {
 				return
 			case <-t.C:
 				l.mu.Lock()
+				select {
+				case <-done: // stopped while waiting for the lock: the response may be an error body now
+					l.mu.Unlock()
+					return
+				default:
+				}
 				if l.ctx == nil || l.ctx.Err() == nil {
 					l.commitLocked()
 					_, _ = l.w.Write([]byte(": rogerai keepalive\n\n"))
@@ -4333,19 +4349,20 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			edgeStart := time.Now()
 			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, false, time.Now().Add(b.streamIdle()), requestID)
 			stopKA()
-			if len(answer) > 0 {
-				b.observeTotalLatency(c.edge.row.NodeID, msSince(edgeStart))
-			}
 			if len(answer) == 0 {
 				lw.Header().Del("X-RogerAI-Relay")
 			}
 			if len(answer) > 0 {
 				rec, cost := b.bridgedReceipt(g, c.edge.row, c.edge.pubHex, answer)
+				if rec.CompletionTokens > 0 && qualityOKText(string(answer)) { // the direct path's quality gate
+					b.observeTotalLatency(c.edge.row.NodeID, msSince(edgeStart))
+				}
 				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, cost, rec.PromptTokens, rec.CompletionTokens, 0, protocol.EncodeReceipt(rec))
 				lw.begin(g.RelayName)
 				lw.setModel(g.Model)
 				setBridgedHeaders(lw.Header(), g, rec, cost)
 				_, _ = lw.Write([]byte("data: " + string(bridgedDeltaChunk(answer, rec)) + "\n\n"))
+				lw.complete() // the whole answer is out: no station [DONE] is owed
 				lw.finish(bridgedUsageChunk(g, rec, cost), "rogerai-cost="+fmtCostHeader(cost))
 				settled = true
 				return
@@ -4374,6 +4391,12 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			}
 			if out.refusal == nil && out.status == 0 {
 				status, res.Body = http.StatusServiceUnavailable, errorBody(http.StatusServiceUnavailable, "no_match", "no node offers "+c.model)
+			}
+			if lw.isCommitted() {
+				// A keepalive already committed the headers: end the stream the broker's way (an
+				// error frame, a $0 usage chunk and [DONE]), as the direct branches do.
+				lw.finish(b.voidUsageChunk(c.node.NodeID, bill.model, voidReasonFor(status)), "")
+				return
 			}
 			lw.fail(status, res.Body, retry)
 			return

@@ -276,6 +276,21 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     Then at least 2 ": rogerai keepalive" comments arrive before the answer
     And the answer, the usage chunk and "[DONE]" follow in order
 
+  # slice-6 audit 2026-10-06: the broker writes a bridged answer whole, so the stream is complete
+  # without a station [DONE] and carries no error frame
+  Scenario: A bridged stream that answered carries no error frame
+    Given an approved Tower "t1" serves "m" and takes 0 seconds to answer
+    When "u-1" streams for "m" with provider.order ["t1"]
+    Then the stream carries no error frame
+    And the answer, the usage chunk and "[DONE]" follow in order
+
+  # slice-6 audit 2026-10-06: a bridged attempt that fails after a keepalive committed the headers
+  # still ends the stream the broker's way
+  Scenario: A bridged stream that fails after a keepalive ends with an error frame, a usage chunk and [DONE]
+    Given an approved Tower "t1" serves "m", sends keepalives, then fails with 503
+    When "u-1" streams for "m" with provider.order ["t1"] and no fallbacks
+    Then the stream ends with an error frame, a usage chunk and "[DONE]"
+
   Scenario: Keepalives do not count as content for failover purposes
     Given an approved Tower "t1" serves "m", sends keepalives, then fails with 503
     And direct station "s1" is on air for "m"

@@ -1236,6 +1236,33 @@ func (s *ri6State) answerUsageDone() error {
 	return nil
 }
 
+func (s *ri6State) streamsOrderNoFallbacks(who, model, list string) error {
+	var ids []string
+	for _, n := range ri6Models(list) {
+		ids = append(ids, s.idOf(n))
+	}
+	s.mark()
+	s.heartbeat()
+	s.do(fa6Spec{who: who, model: model, stream: true, extra: map[string]any{"provider": map[string]any{"order": ids, "allow_fallbacks": false}}})
+	return nil
+}
+
+func (s *ri6State) noErrorFrame() error {
+	if s.last.code != 200 || strings.Contains(string(s.last.body), `"error"`) {
+		return fmt.Errorf("the stream (%d) carries an error frame: %.400s", s.last.code, s.last.body)
+	}
+	return nil
+}
+
+func (s *ri6State) endsWithErrorUsageDone() error {
+	body := string(s.last.body)
+	e, u, d := strings.LastIndex(body, `"error"`), strings.LastIndex(body, `"usage"`), strings.LastIndex(body, "[DONE]")
+	if s.last.code != 200 || e < 0 || u < e || d < u {
+		return fmt.Errorf("want an error frame, then a usage chunk, then [DONE] on a committed stream (%d): error at %d, usage at %d, [DONE] at %d: %.400s", s.last.code, e, u, d, body)
+	}
+	return nil
+}
+
 func (s *ri6State) directOnAir(name, model string) error { return s.onAir(name, model) }
 
 func (s *ri6State) failsOverBeforeContent(name string) error {
@@ -1736,6 +1763,9 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^"([^"]+)" streams for "([^"]+)" with provider\.order \[(.+)\]$`, st.streamsOrder)
 	sc.Step(`^at least (\d+) ": rogerai keepalive" comments arrive before the answer$`, st.keepalivesBefore)
 	sc.Step(`^the answer, the usage chunk and "\[DONE\]" follow in order$`, st.answerUsageDone)
+	sc.Step(`^"([^"]+)" streams for "([^"]+)" with provider\.order \[(.+)\] and no fallbacks$`, st.streamsOrderNoFallbacks)
+	sc.Step(`^the stream carries no error frame$`, st.noErrorFrame)
+	sc.Step(`^the stream ends with an error frame, a usage chunk and "\[DONE\]"$`, st.endsWithErrorUsageDone)
 	sc.Step(`^an approved Tower "([^"]+)" serves "([^"]+)", sends keepalives, then fails with 503$`, st.towerKeepaliveFail)
 	sc.Step(`^direct station "([^"]+)" is on air for "([^"]+)"$`, st.directOnAir)
 	sc.Step(`^the stream fails over to "([^"]+)" before any content frame$`, st.failsOverBeforeContent)
