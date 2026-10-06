@@ -183,6 +183,14 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     And no hold was placed
     And no station received anything
 
+  # slice-6 audit 2026-10-06: the budget stops extending the failover plan; a head already found
+  # is served, never refused
+  Scenario: Running out of the pick budget while extending the plan still serves the head
+    Given ROGERAI_PICK_BUDGET is "1"
+    And 3 stations are on air for "m"
+    When "u-1" relays for "m"
+    Then the response is 200
+
   Scenario: Cap drops are evaluated in the pick, not by re-picking once per dropped station
     Given 40 stations are on air for "m" and 39 are dropped by the per-request cap
     When "u-1" relays for "m" with that per-request cap

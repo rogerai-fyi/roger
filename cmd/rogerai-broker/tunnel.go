@@ -3107,7 +3107,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			towers: towerCands,
 		}, now)
 	}
-	if budgetSpent() {
+	// The budget stops EXTENDING the failover plan; a head already found is served (only a
+	// request that found no head at all is refused for the budget).
+	if len(plan) == 0 && budgetSpent() {
 		return
 	}
 	if len(plan) == 0 {
