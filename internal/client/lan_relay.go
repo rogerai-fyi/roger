@@ -51,6 +51,13 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 				tried = append(tried, entry+": "+err.Error())
 				continue
 			}
+			if resp.StatusCode >= 500 {
+				// a Tower that could not serve (no station free, overloaded) is a failure to move
+				// past, inside the LAN, not an answer to hand the caller
+				resp.Body.Close()
+				tried = append(tried, fmt.Sprintf("%s: status %d", entry, resp.StatusCode))
+				continue
+			}
 			onServed(0)
 			copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
 			resp.Body.Close()

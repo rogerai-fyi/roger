@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
@@ -100,4 +102,30 @@ func newKey(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 		t.Fatal(err)
 	}
 	return pub, priv
+}
+
+// attachServing attaches a REAL station under its own node key and serves it with the real
+// station loop (agent.ServeLocalTower) over upstream, until the test ends.
+func (r *realTower) attachServing(t *testing.T, name, upstream string, models ...string) {
+	t.Helper()
+	_, priv := newKey(t)
+	keyHash := protocol.UserIDFromPubkey(hex.EncodeToString(priv.Public().(ed25519.PublicKey)))
+	if _, err := r.st.AttachStation(name, keyHash, models); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		_ = agent.ServeLocalTower(ctx, agent.Config{Broker: r.srv.URL, Upstream: upstream, Model: models[0]}, priv, io.Discard)
+	}()
+}
+
+// completionUpstream is an OpenAI-shaped model server that answers with its name.
+func completionUpstream(t *testing.T, name string) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"from ` + name + `"}}],"usage":{"prompt_tokens":1,"completion_tokens":2}}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }

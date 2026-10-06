@@ -385,7 +385,7 @@ func lanStatusText(st client.LANTowerStatus) string {
 
 // lanSelfServe is this machine's own serve of a band (`roger model serve`): its completions
 // URL and runtime key, or "" when nothing here serves it.
-func lanSelfServe(band string) (string, string) {
+var lanSelfServe = func(band string) (string, string) {
 	for _, sv := range modelHome().LiveAll() {
 		if sv.Band == band && sv.BaseURL != "" {
 			return strings.TrimRight(sv.BaseURL, "/") + "/chat/completions", sv.Key
