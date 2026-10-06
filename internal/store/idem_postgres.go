@@ -29,9 +29,10 @@ func (p *Postgres) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (
 			return cur, false, err
 		}
 	}
-	// At most maxPerPayer live keys per payer: the oldest fall out early.
-	if _, err := p.db.Exec(`DELETE FROM rogerai.idempotency_claims WHERE payer=$1 AND key IN (
-		SELECT key FROM rogerai.idempotency_claims WHERE payer=$1 ORDER BY created DESC, seq DESC OFFSET $2)`, c.Payer, maxPerPayer); err != nil {
+	// At most maxPerPayer keys per payer: the oldest FINISHED claims fall out early. An in-flight
+	// claim is never evicted (a retry would win a second claim, so a second job and hold).
+	if _, err := p.db.Exec(`DELETE FROM rogerai.idempotency_claims WHERE payer=$1 AND state<>$3 AND key IN (
+		SELECT key FROM rogerai.idempotency_claims WHERE payer=$1 ORDER BY created DESC, seq DESC OFFSET $2)`, c.Payer, maxPerPayer, IdemInFlight); err != nil {
 		return IdemClaim{}, false, err
 	}
 	return c, true, nil
@@ -39,5 +40,10 @@ func (p *Postgres) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (
 
 func (p *Postgres) FinishIdempotency(payer, key, requestID, state string) error {
 	_, err := p.db.Exec(`UPDATE rogerai.idempotency_claims SET state=$4 WHERE payer=$1 AND key=$2 AND request_id=$3`, payer, key, requestID, state)
+	return err
+}
+
+func (p *Postgres) ReleaseIdempotency(payer, key, requestID string) error {
+	_, err := p.db.Exec(`DELETE FROM rogerai.idempotency_claims WHERE payer=$1 AND key=$2 AND request_id=$3`, payer, key, requestID)
 	return err
 }

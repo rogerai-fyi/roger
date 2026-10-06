@@ -1694,7 +1694,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	rw := &relayWriter{ResponseWriter: gw, attempts: func() (n int) {
 		gen.with(func(st *genStored) { n = len(st.Rec.Attempts) })
 		return n
-	}}
+	}, gone: func() bool { return r.Context().Err() != nil }}
 	w = rw
 	corsCreds(w, r)
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))

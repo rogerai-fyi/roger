@@ -96,3 +96,63 @@ func TestIdempotencyClaimRace(t *testing.T) {
 		})
 	}
 }
+
+// slice-6 review 2026-10-06 (B1): a request that wrote nothing gives its claim back, so a retry
+// with the same key is served fresh. Only the holder can release it.
+func TestIdempotencyReleaseParity(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			pfx := fmt.Sprintf("idrel-%s-", name)
+			c := IdemClaim{Payer: pfx + "u1", Key: "k", Fingerprint: "fp", RequestID: "r-1", State: IdemInFlight, Deadline: 2_000, Created: 1_000}
+			_, claimed, err := s.ClaimIdempotency(c, 0, 1000)
+			require.NoError(t, err)
+			require.True(t, claimed)
+
+			require.NoError(t, s.ReleaseIdempotency(c.Payer, c.Key, "r-other"))
+			again := c
+			again.RequestID = "r-2"
+			got, claimed, err := s.ClaimIdempotency(again, 500, 1000)
+			require.NoError(t, err)
+			require.False(t, claimed, "a request that does not hold the claim cannot release it")
+			require.Equal(t, "r-1", got.RequestID)
+
+			require.NoError(t, s.ReleaseIdempotency(c.Payer, c.Key, "r-1"))
+			got, claimed, err = s.ClaimIdempotency(again, 500, 1000)
+			require.NoError(t, err)
+			require.True(t, claimed, "after the holder released it, the retry claims the key afresh")
+			require.Equal(t, "r-2", got.RequestID)
+		})
+	}
+}
+
+// slice-6 review 2026-10-06 (M1): the per-payer bound never evicts an in-flight claim, or a
+// retry of that request would win a second claim and run a second job and hold.
+func TestIdempotencyEvictionSparesInflightParity(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			payer := fmt.Sprintf("idev-%s-u1", name)
+			claim := func(key string, created int64, state string) {
+				c := IdemClaim{Payer: payer, Key: key, Fingerprint: "fp", RequestID: "r-" + key, State: IdemInFlight, Deadline: created + 1000, Created: created}
+				_, ok, err := s.ClaimIdempotency(c, 0, 2)
+				require.NoError(t, err)
+				require.True(t, ok)
+				if state != IdemInFlight {
+					require.NoError(t, s.FinishIdempotency(payer, key, "r-"+key, state))
+				}
+			}
+			claim("old-inflight", 1, IdemInFlight)
+			claim("old-done", 2, IdemDone)
+			claim("new-1", 3, IdemInFlight)
+			claim("new-2", 4, IdemInFlight)
+
+			held := func(key string) bool {
+				c := IdemClaim{Payer: payer, Key: key, Fingerprint: "fp", RequestID: "probe", State: IdemInFlight, Deadline: 9, Created: 9}
+				cur, ok, err := s.ClaimIdempotency(c, 0, 1000)
+				require.NoError(t, err)
+				return !ok && cur.RequestID == "r-"+key
+			}
+			require.True(t, held("old-inflight"), "the oldest claim is in flight: it survives the bound")
+			require.False(t, held("old-done"), "a finished claim is what the bound evicts")
+		})
+	}
+}

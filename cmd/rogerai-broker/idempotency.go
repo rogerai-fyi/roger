@@ -126,15 +126,22 @@ func (b *broker) idemLoad(payer, key string) (idemOutcome, bool) {
 type relayWriter struct {
 	http.ResponseWriter
 	attempts func() int
-	capture  bool
-	status   int
-	body     bytes.Buffer
-	over     bool
+	// gone reports the consumer has left (nil = never). What is written after that reaches
+	// nobody, so it is not the request's outcome: status stays 0 and nothing is captured.
+	gone    func() bool
+	sent    bool // headers went to the underlying writer
+	capture bool
+	status  int // the status the consumer received (0 = nothing reached the consumer)
+	body    bytes.Buffer
+	over    bool
 }
 
 func (w *relayWriter) WriteHeader(code int) {
-	if w.status == 0 {
-		w.status = code
+	if !w.sent {
+		w.sent = true
+		if w.gone == nil || !w.gone() {
+			w.status = code
+		}
 		if h := w.Header(); h.Get("X-RogerAI-Attempts") == "" {
 			h.Set("X-RogerAI-Attempts", strconv.Itoa(w.attempts()))
 		}
@@ -143,10 +150,10 @@ func (w *relayWriter) WriteHeader(code int) {
 }
 
 func (w *relayWriter) Write(p []byte) (int, error) {
-	if w.status == 0 {
+	if !w.sent {
 		w.WriteHeader(http.StatusOK)
 	}
-	if w.capture && !w.over {
+	if w.capture && !w.over && w.status != 0 {
 		if w.body.Len()+len(p) > idemBodyMax {
 			w.over = true
 			w.body.Reset()
@@ -194,6 +201,14 @@ func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWrit
 	if claimed {
 		rw.capture = true
 		return func() {
+			if rw.status < 100 {
+				// Nothing reached the consumer (it left before any answer): there is no outcome to
+				// replay, so the key is given back and a retry is served fresh.
+				if err := b.db.ReleaseIdempotency(scope, key, requestID); err != nil {
+					log.Printf("idempotency release request=%s: %v", requestID, err)
+				}
+				return
+			}
 			state := store.IdemDone
 			switch {
 			case strings.HasPrefix(rw.Header().Get("Content-Type"), "text/event-stream") && rw.status == http.StatusOK:
@@ -233,7 +248,7 @@ func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWrit
 		return nil, true
 	}
 	o, ok := b.idemLoad(scope, key)
-	if !ok {
+	if !ok || o.Status < 100 { // never replay a status below 100 (net/http refuses it)
 		// Finished, but its stored response is gone (a shared store that lost it, or another
 		// instance's local fallback): the documented limit. Never a second job under one key.
 		jsonErrCode(w, http.StatusConflict, "response_too_large_to_replay", "the first response with this Idempotency-Key is no longer available to replay")

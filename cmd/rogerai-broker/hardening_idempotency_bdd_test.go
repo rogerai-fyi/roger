@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
@@ -34,7 +35,8 @@ import (
 
 type id6State struct {
 	*sa6H
-	wallet0 float64
+	wallet0       float64
+	retryHoldBase int // hold rows when the retry was sent (disconnects)
 }
 
 func (s *id6State) window(n string) error { return os.Setenv("ROGERAI_IDEMPOTENCY_TTL", n+"m") }
@@ -314,6 +316,60 @@ func (s *id6State) inFlightOn(user, inst, model, key string, stream bool) error 
 		time.Sleep(10 * time.Millisecond)
 	}
 	return fmt.Errorf("the first request never reached a station")
+}
+
+// disconnects sends the first request and cancels it, as a consumer that goes away, once the
+// station has the job; it returns when the relay has returned.
+func (s *id6State) disconnects(user, model, key string, stream bool) error {
+	s.as(user)
+	if err := s.snapOnce(); err != nil {
+		return err
+	}
+	q := sa6Spec{user: user, caller: "user", model: model, stream: stream, hdr: map[string]string{"Idempotency-Key": key}}
+	req := s.rs1(q)
+	sent, _ := s.buildBody(req)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := s.httpRequest(req, sent).WithContext(ctx)
+	before := 0
+	for _, st := range s.stations {
+		before += st.upstreamCount()
+	}
+	done := make(chan rs1Shot, 1)
+	go func() {
+		w := &recWriter{ResponseRecorder: httptest.NewRecorder()}
+		s.b.relay(w, r)
+		done <- rs1Shot{code: w.Code, hdr: w.Header(), body: w.Body.Bytes(), sent: sent}
+	}()
+	for i := 0; i < 300; i++ {
+		n := 0
+		for _, st := range s.stations {
+			n += st.upstreamCount()
+		}
+		if n > before {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		return fmt.Errorf("the relay never returned after the consumer left")
+	}
+	sh := rs1Shot{sent: sent}
+	s.first, s.firstQ = &sh, q
+	n, _ := s.holdRowsOf(s.wallet)
+	s.retryHoldBase = n
+	return nil
+}
+
+func (s *id6State) retryOneHold() error {
+	n, _ := s.holdRowsOf(s.wallet)
+	if d := n - s.retryHoldBase; d != 1 {
+		return fmt.Errorf("the retry placed %d hold row(s), want exactly 1", d)
+	}
+	return nil
 }
 
 func (s *id6State) inFlight(user, model, key string) error {
@@ -707,6 +763,9 @@ func TestIdempotencyBDD(t *testing.T) {
 		sc.Step(`^"([^"]+)" has (\d+) live idempotency keys$`, s.liveKeys)
 		sc.Step(`^the oldest key of "([^"]+)" is no longer replayable$`, s.oldestGone)
 		sc.Step(`^exactly 1 hold was placed for key "([^"]+)"$`, s.oneHold)
+		sc.Step(`^"([^"]+)" sends a request for "([^"]+)" with Idempotency-Key "([^"]+)" and disconnects before the answer$`, func(u, m, k string) error { return s.disconnects(u, m, k, false) })
+		sc.Step(`^"([^"]+)" streams for "([^"]+)" with Idempotency-Key "([^"]+)" and disconnects before the first byte$`, func(u, m, k string) error { return s.disconnects(u, m, k, true) })
+		sc.Step(`^the retry placed exactly 1 hold$`, s.retryOneHold)
 		sc.Step(`^exactly 1 settle row and 1 earnings credit exist for it$`, s.oneSettleOneEarn)
 		sc.Step(`^the operator of "([^"]+)" earned once$`, s.earnedOnce)
 		sc.Step(`^the wallet balance of "([^"]+)" is unchanged by the replay$`, s.balanceUnchanged)

@@ -448,6 +448,9 @@ type Store interface {
 	ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemClaim, bool, error)
 	// FinishIdempotency sets the state of the claim requestID holds (no-op otherwise).
 	FinishIdempotency(payer, key, requestID, state string) error
+	// ReleaseIdempotency deletes the claim requestID holds (no-op otherwise): the request wrote
+	// nothing, so a retry with the key is served fresh.
+	ReleaseIdempotency(payer, key, requestID string) error
 
 	// --- grant keys (GRANT-KEYS-DESIGN) ------------------------------------
 

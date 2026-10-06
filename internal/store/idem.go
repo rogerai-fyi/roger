@@ -55,6 +55,9 @@ func (m *Mem) ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemC
 			return m.idemSeq[idemID(mine[i].Payer, mine[i].Key)] > m.idemSeq[idemID(mine[j].Payer, mine[j].Key)]
 		})
 		for _, x := range mine[maxPerPayer:] {
+			if x.State == IdemInFlight {
+				continue // never evicted: a retry would win a second claim, so a second job and hold
+			}
 			delete(m.idemClaims, idemID(x.Payer, x.Key))
 			delete(m.idemSeq, idemID(x.Payer, x.Key))
 		}
@@ -68,6 +71,16 @@ func (m *Mem) FinishIdempotency(payer, key, requestID, state string) error {
 	if cur, ok := m.idemClaims[idemID(payer, key)]; ok && cur.RequestID == requestID {
 		cur.State = state
 		m.idemClaims[idemID(payer, key)] = cur
+	}
+	return nil
+}
+
+func (m *Mem) ReleaseIdempotency(payer, key, requestID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cur, ok := m.idemClaims[idemID(payer, key)]; ok && cur.RequestID == requestID {
+		delete(m.idemClaims, idemID(payer, key))
+		delete(m.idemSeq, idemID(payer, key))
 	}
 	return nil
 }

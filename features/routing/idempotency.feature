@@ -107,6 +107,23 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
 
   # --- in flight -------------------------------------------------------------------------
 
+  # slice-6 review 2026-10-06: a request that wrote nothing gives its key back, so the retry is
+  # served (a replay of "nothing" would be an unanswerable response)
+  Scenario: A retry after the consumer disconnected is served fresh with exactly one hold
+    Given "s1" takes 2 seconds to answer
+    And "u-1" sends a request for "m" with Idempotency-Key "k-gone" and disconnects before the answer
+    When "u-1" sends the identical request with Idempotency-Key "k-gone"
+    Then the response is a fresh relay
+    And the retry placed exactly 1 hold
+
+  # slice-6 review 2026-10-06
+  Scenario: A retry after a stream that ended before its first byte is served fresh with exactly one hold
+    Given "s1" takes 2 seconds to answer
+    And "u-1" streams for "m" with Idempotency-Key "k-sgone" and disconnects before the first byte
+    When "u-1" sends the identical stream request with Idempotency-Key "k-sgone"
+    Then the response is a fresh relay
+    And the retry placed exactly 1 hold
+
   Scenario: A retry while the first is still running is a 409 with Retry-After
     Given "s1" takes 5 seconds to answer
     And "u-1" has relayed for "m" with Idempotency-Key "k-5" and the request is still in flight
@@ -253,6 +270,17 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
     When "u-1" relays for "m" with Idempotency-Key "k-1001"
     Then the response is 200
     And the oldest key of "u-1" is no longer replayable
+
+  # slice-6 review 2026-10-06 (M1): the bound evicts finished keys only; evicting a request still
+  # in flight would let its retry run a second job and place a second hold
+  Scenario: The per-payer key bound never evicts a request still in flight
+    Given station "s2" is on air for "m2" at in $0.10 out $0.30 per 1M
+    And "s2" takes 5 seconds to answer
+    And "u-1" has relayed for "m2" with Idempotency-Key "k-live" and the request is still in flight
+    And "u-1" has 1000 live idempotency keys
+    When "u-1" sends the identical request with Idempotency-Key "k-live"
+    Then the response is 409 with error code "request_in_flight"
+    And "s2" received exactly 1 job in total
 
   # --- money ---------------------------------------------------------------------------------
 
