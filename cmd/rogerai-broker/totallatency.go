@@ -37,6 +37,10 @@ func (b *broker) observeTotalLatency(node string, ms float64) {
 	}
 }
 
+// msSince is the time since t in milliseconds, kept to the microsecond: a sub-millisecond serve
+// is a real sample, never a 0 that would skip the measurement.
+func msSince(t time.Time) float64 { return float64(time.Since(t).Microseconds()) / 1000 }
+
 // totalLatencyOf is the node's total latency in ms (0 = unmeasured).
 func (b *broker) totalLatencyOf(node string) float64 {
 	b.metricsMu.Lock()

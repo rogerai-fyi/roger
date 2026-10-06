@@ -3363,7 +3363,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			edgeStart := time.Now()
 			answer, g, out := b.planEdgeAttempt(r, c, payer, &holdKey, maxCost, i+1 < len(plan), deadline, requestID)
 			if len(answer) > 0 {
-				b.observeTotalLatency(c.edge.row.NodeID, float64(time.Since(edgeStart).Milliseconds()))
+				b.observeTotalLatency(c.edge.row.NodeID, msSince(edgeStart))
 				brec, bcost := b.writeBridgedAnswer(w, g, c.edge.row, c.edge.pubHex, answer, false)
 				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, bcost, brec.PromptTokens, brec.CompletionTokens, 0, protocol.EncodeReceipt(brec))
 				settled = true // the hold rides the attempt id the Tower's settlement captures
@@ -3627,7 +3627,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// estimate. A 200-with-empty-body does NOT count.
 			qOK := res.Status < 500 && rec.CompletionTokens > 0 && qualityOK(res.Body)
 			b.recordServed(node.NodeID, qOK, tps, concurrentAtDispatch)
-			b.observeTotalLatency(node.NodeID, float64(time.Since(start).Milliseconds()))
+			b.observeTotalLatency(node.NodeID, msSince(start))
 			// We just measured this node for FREE off real traffic: reset its probe
 			// backoff + push the next probe out, so an actively-used node is barely
 			// probed (and reads as freshly verified, not stale).
@@ -4321,7 +4321,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, false, time.Now().Add(b.streamIdle()), requestID)
 			stopKA()
 			if len(answer) > 0 {
-				b.observeTotalLatency(c.edge.row.NodeID, float64(time.Since(edgeStart).Milliseconds()))
+				b.observeTotalLatency(c.edge.row.NodeID, msSince(edgeStart))
 			}
 			if len(answer) == 0 {
 				lw.Header().Del("X-RogerAI-Relay")
@@ -4723,7 +4723,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 		// judge, so it falls back to the claimed-tokens signal as before.
 		qOK := rec.CompletionTokens > 0 && (sink.cap == nil || qualityOKText(completion))
 		b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
-		b.observeTotalLatency(node.NodeID, float64(time.Since(start).Milliseconds()))
+		b.observeTotalLatency(node.NodeID, msSince(start))
 		// Free measurement off real (streamed) traffic: reset the probe backoff so
 		// an actively-used node is barely probed and reads as freshly verified.
 		b.markMeasured(node.NodeID)

@@ -52,3 +52,8 @@ func TestTotalLatencySharedAcrossInstances(t *testing.T) {
 	b.syncTotalLatency()
 	require.InDelta(t, 0.3*1000+0.7*9000, b.totalLatencyOf("n1"), 1e-9)
 }
+
+func TestMsSinceKeepsSubMillisecondServes(t *testing.T) {
+	require.Greater(t, msSince(time.Now().Add(-300*time.Microsecond)), 0.0, "a sub-millisecond serve is still a sample")
+	require.InDelta(t, 1500, msSince(time.Now().Add(-1500*time.Millisecond)), 50)
+}
