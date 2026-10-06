@@ -775,7 +775,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
   # both estimated request costs fall within 5% of the best, so both are in the band and the
   # pick between them is seeded, weighted by spare capacity. Old Then: every pick is "s2".
-  Scenario: sort price breaks an out-price tie on in-price
+  Scenario: sort price keeps two close request costs in one band and spreads between them
     Given "s1" and "s2" both price out 1.00, "s1" prices in 0.50, "s2" prices in 0.20
     When 20 funded consumers relay with provider.sort "price"
     Then both "s1" and "s2" are picked
@@ -783,7 +783,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
   # a tie inside the band is broken by the request seed, never by score or node id.
   # Old Then: every pick is "s2".
-  Scenario: sort price breaks a full price tie on score
+  Scenario: sort price spreads a full price tie across both stations, not by score
     Given "s1" and "s2" price identically and "s2" has the better reliability
     When 20 funded consumers relay with provider.sort "price"
     Then both "s1" and "s2" are picked
@@ -847,7 +847,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
   # a tps tie is inside the 10% speed band and broken by the request seed.
   # Old Then: every pick is "s1".
-  Scenario: sort throughput breaks a tps tie on score
+  Scenario: sort throughput spreads a tps tie across both stations, not by score
     Given measured tps "s1" 40 and "s2" 40, and "s1" has the better reliability
     When 20 funded consumers relay with provider.sort "throughput"
     Then both "s1" and "s2" are picked
@@ -883,7 +883,7 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
   # a TTFT tie is inside the 10% speed band and broken by the request seed.
   # Old Then: every pick is "s3".
-  Scenario: sort latency breaks a TTFT tie on score
+  Scenario: sort latency spreads a TTFT tie across both stations, not by score
     Given measured ttft "s1" 400ms and "s3" 400ms, and "s3" has the better reliability
     When 20 funded consumers relay with provider.sort "latency"
     Then both "s1" and "s3" are picked
