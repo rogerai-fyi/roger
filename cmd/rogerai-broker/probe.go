@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
@@ -69,8 +70,40 @@ var canaryFingerprints = []canaryFingerprint{
 // nextCanary returns the fingerprint for round n (round-robin over the set). Taking
 // the round number keeps selection deterministic + testable and guarantees every
 // fingerprint is exercised over a full cycle (no RNG-skew that could starve one).
+//
+// The challenge cycles through canaryFingerprints; its WORDING is drawn from a pool whose size is
+// coprime to the challenge count, so successive cycles phrase each challenge differently and no
+// fixed instruction sentence marks a canary (§14.B7 #2). The expected answer never changes.
 func nextCanary(round uint64) canaryFingerprint {
-	return canaryFingerprints[int(round%uint64(len(canaryFingerprints)))]
+	fp := canaryFingerprints[int(round%uint64(len(canaryFingerprints)))]
+	if alts, ok := canaryArithmetic[fp.expect]; ok {
+		fp.prompt = alts[int(round/uint64(len(canaryFingerprints)))%len(alts)]
+		return fp
+	}
+	fp.prompt = fmt.Sprintf(canaryWordPhrasings[int(round%uint64(len(canaryWordPhrasings)))], strings.ToUpper(fp.expect))
+	return fp
+}
+
+// canaryWordPhrasings are the ways a one-word challenge is asked (11: coprime to the 8
+// challenges, so a full lcm cycle pairs every word with every wording).
+var canaryWordPhrasings = []string{
+	"Reply with only the single word: %s",
+	"Answer with just one word, %s, and nothing else.",
+	"Please respond with the word %s only.",
+	"Say %s. No other text.",
+	"Type back exactly this word and nothing more: %s",
+	"Your whole reply should be the word %s.",
+	"Return only %s.",
+	"Write %s and stop.",
+	"Echo this word back to me, alone: %s",
+	"Just say %s, please.",
+	"One word reply: %s",
+}
+
+// canaryArithmetic are the ways each arithmetic challenge is asked, by expected answer.
+var canaryArithmetic = map[string][]string{
+	"5": {"Output only the number that is two plus three, as digits.", "What is 2 + 3? Reply with the digit only.", "Give just the digit for two plus three."},
+	"3": {"Output only the result of seven minus four, as a digit.", "What is 7 - 4? Answer with only the digit.", "Seven minus four is what? Digits only, please."},
 }
 
 // Active-probe defaults. The probe is ON by default now (nodes get MEASURED before
@@ -691,33 +724,28 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	}
 
 	prompt := fp.prompt
-	extra := map[string]any{}
+	zero := 0.0
+	// canaryMaxTokens leaves room for a REASONING model (gpt-oss, deepseek, ...) to emit its
+	// reasoning/harmony channel AND a short answer. A tiny budget (the old 16) was exhausted by
+	// the reasoning channel before any answer surfaced, false-failing healthy flagships.
+	doc := canaryRequest{Model: model, Temperature: &zero, MaxTokens: canaryMaxTokens}
 	if shape, ok := b.shadowShape(model); ok {
 		// A SHADOW canary (§14.B7): the shape of a recent customer request for this model.
 		prompt = shadowPrompt(prompt, shape.promptTokens)
 		if shape.tools {
-			extra["tools"], extra["tool_choice"] = shadowTools, "none"
+			doc.Tools, doc.ToolChoice = shadowToolSet(), "none"
 		}
 	}
-	doc := map[string]any{
-		"model":       model,
-		"messages":    []map[string]string{{"role": "user", "content": prompt}},
-		"temperature": 0,
-		// canaryMaxTokens leaves room for a REASONING model (gpt-oss, deepseek, ...)
-		// to emit its reasoning/harmony channel AND a short answer. A tiny budget
-		// (the old 16) was exhausted by the reasoning channel before any answer
-		// surfaced, false-failing perfectly healthy flagships. Liveness no longer
-		// depends on the fingerprint landing, but the larger budget gives reasoning
-		// models a fair shot at producing the literal answer (the strong signal).
-		"max_tokens": canaryMaxTokens,
+	if s, ok := b.organicSample(model); ok {
+		// The sampling parameters of a recent customer request for this model (§14.B7 #2): a
+		// fixed temperature and budget would mark the canary. The budget never drops below the
+		// floor a reasoning model needs to answer.
+		doc.Temperature = s.temperature
+		doc.MaxTokens = max(s.maxTokens, canaryMaxTokens)
 	}
-	for k, v := range extra {
-		doc[k] = v
-	}
+	doc.Messages = []map[string]string{{"role": "user", "content": prompt}}
 	stream := b.canaryStream(model) // the model's organic stream share (§14.B7 #2)
-	if stream {
-		doc["stream"] = true
-	}
+	doc.Stream = stream
 	body, _ := json.Marshal(doc)
 	// The pseudonym real users get (§14.B7): a canary is indistinguishable from a customer.
 	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: body}
@@ -794,6 +822,18 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	case <-time.After(30 * time.Second):
 		b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 	}
+}
+
+// canaryRequest is a canary's body, keys in the order a client SDK writes them (model first),
+// never the alphabetical order a marshalled map would give away.
+type canaryRequest struct {
+	Model       string              `json:"model"`
+	Messages    []map[string]string `json:"messages"`
+	Temperature *float64            `json:"temperature,omitempty"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	Stream      bool                `json:"stream,omitempty"`
+	Tools       any                 `json:"tools,omitempty"`
+	ToolChoice  any                 `json:"tool_choice,omitempty"`
 }
 
 // probeStreamed runs a canary sent as a stream: the station pipes its SSE into a stream sink

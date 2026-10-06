@@ -126,6 +126,17 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     Then the canary job's body has stream true
     And "s1" earned verified from that canary
 
+  # slice-6 audit 2026-10-06: no fixed instruction sentence marks a canary
+  Scenario: Canaries phrase their challenge many ways
+    When the probe sends 20 canaries to "s1"
+    Then at least 8 distinct instruction phrasings were used
+
+  # slice-6 audit 2026-10-06: a canary's sampling parameters follow the model's traffic
+  Scenario: Canaries take temperature and max_tokens from organic traffic
+    Given recent organic traffic for "m" uses temperature 0.7 and max_tokens 1000
+    When the probe sends 20 canaries to "s1"
+    Then some canaries carry temperature 0.7 and max_tokens 1000
+
   Scenario: Shadow canaries mirror the shape of organic traffic
     Given recent organic traffic for "m" carries tools in 60% of requests with prompts of 2000 to 8000 tokens
     When the probe sends 50 canaries to "s1"

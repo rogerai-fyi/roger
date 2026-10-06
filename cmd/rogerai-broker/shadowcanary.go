@@ -35,16 +35,18 @@ type organicShape struct {
 	tools        bool
 	stream       bool
 	promptTokens int
+	temperature  *float64 // as the request stated it (nil = left out)
+	maxTokens    int      // as the request stated it (0 = left out)
 }
 
 // noteOrganic records one served-path request's shape for its model.
-func (b *broker) noteOrganic(model string, tools, stream bool, promptTokens int) {
+func (b *broker) noteOrganic(model string, shape organicShape) {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	if b.organic == nil {
 		b.organic = map[string][]organicShape{}
 	}
-	ring := append(b.organic[model], organicShape{tools: tools, stream: stream, promptTokens: promptTokens})
+	ring := append(b.organic[model], shape)
 	if len(ring) > organicRing {
 		ring = ring[len(ring)-organicRing:]
 	}
@@ -58,6 +60,18 @@ func shadowShare() float64 {
 		return v
 	}
 	return 0.5
+}
+
+// organicSample draws any recent organic shape for model (ok=false with no sample): a canary
+// takes its sampling parameters from it.
+func (b *broker) organicSample(model string) (organicShape, bool) {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	ring := b.organic[model]
+	if len(ring) == 0 {
+		return organicShape{}, false
+	}
+	return ring[rand.Intn(len(ring))], true
 }
 
 // shadowShape draws a recent organic shape for model, or ok=false for a plain canary.
@@ -100,19 +114,43 @@ func (b *broker) canaryStream(model string) bool {
 	return stream
 }
 
-// shadowTools is a realistic function definition a shadow canary carries (with tool_choice
-// "none", so the challenge is still answered in text).
-var shadowTools = []map[string]any{{"type": "function", "function": map[string]any{
-	"name": "search_documents", "description": "Search the user's documents for a phrase.",
-	"parameters": map[string]any{"type": "object", "properties": map[string]any{
-		"query": map[string]any{"type": "string"}}, "required": []string{"query"}},
-}}}
+// shadowToolSets are realistic function definitions a shadow canary carries (with tool_choice
+// "none", so the challenge is still answered in text); one is drawn per canary.
+var shadowToolSets = [][]map[string]any{
+	{{"type": "function", "function": map[string]any{
+		"name": "search_documents", "description": "Search the user's documents for a phrase.",
+		"parameters": map[string]any{"type": "object", "properties": map[string]any{
+			"query": map[string]any{"type": "string"}}, "required": []string{"query"}}}}},
+	{{"type": "function", "function": map[string]any{
+		"name": "get_weather", "description": "Get the current weather for a city.",
+		"parameters": map[string]any{"type": "object", "properties": map[string]any{
+			"city": map[string]any{"type": "string"}, "unit": map[string]any{"type": "string", "enum": []string{"c", "f"}}},
+			"required": []string{"city"}}}}},
+	{{"type": "function", "function": map[string]any{
+		"name": "create_calendar_event", "description": "Add an event to the user's calendar.",
+		"parameters": map[string]any{"type": "object", "properties": map[string]any{
+			"title": map[string]any{"type": "string"}, "start": map[string]any{"type": "string"}},
+			"required": []string{"title", "start"}}}}},
+}
 
-// shadowContext is ordinary prose a shadow canary is padded with to reach a sampled prompt
-// length; the challenge itself comes last, as a customer's question would.
-const shadowContext = "Here are my notes from this week. The team met on Monday to review the release plan, " +
-	"agreed to move the migration to the following sprint and asked for a short summary of open risks. " +
-	"On Wednesday the support queue was quiet, with most tickets about password resets and invoices. "
+func shadowToolSet() []map[string]any { return shadowToolSets[rand.Intn(len(shadowToolSets))] }
+
+// shadowContexts is ordinary prose a shadow canary is padded with to reach a sampled prompt
+// length, one drawn per canary; the challenge itself comes last, as a customer's question would.
+var shadowContexts = []string{
+	"Here are my notes from this week. The team met on Monday to review the release plan, " +
+		"agreed to move the migration to the following sprint and asked for a short summary of open risks. " +
+		"On Wednesday the support queue was quiet, with most tickets about password resets and invoices. ",
+	"I am planning a trip in the spring and comparing two routes. The coastal road is longer but has " +
+		"better places to stop, while the inland highway saves about two hours. My budget covers four nights, " +
+		"and I would like at least one day without driving. ",
+	"Our garden club met on Saturday. We swapped seedlings, talked about the late frost and agreed to " +
+		"share the cost of a new compost bin. Two members offered to water the shared beds in August while " +
+		"others are away. ",
+	"The quarterly numbers came in slightly ahead of plan. Subscriptions grew in the smaller accounts, " +
+		"churn held steady, and support costs fell after the new help pages went live. The board wants a " +
+		"short note on what changed. ",
+}
 
 // shadowPrompt pads prompt to about tokens prompt tokens (4 characters a token).
 func shadowPrompt(prompt string, tokens int) string {
@@ -121,8 +159,9 @@ func shadowPrompt(prompt string, tokens int) string {
 		return prompt
 	}
 	var sb strings.Builder
+	pad := shadowContexts[rand.Intn(len(shadowContexts))]
 	for sb.Len() < need {
-		sb.WriteString(shadowContext)
+		sb.WriteString(pad)
 	}
 	return sb.String()[:need] + "\n\n" + prompt
 }

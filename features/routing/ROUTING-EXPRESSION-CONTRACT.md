@@ -914,7 +914,9 @@ by the feature file named beside it.
 ## §14.B7 Integrity (features/security/routing_integrity.feature)
 
 - Probes: pseudonym from the real derivation (no "probe" user), rotated per probe (§13 ruling 28);
-  rotating realistic prompts (no fixed sentinel); same request shape as the model's traffic; shadow canaries mirror organic
+  rotating realistic prompts (no fixed sentinel: the challenge wording, the padding prose and the
+  shadow tools are drawn from pools, the body is written model-first like a client SDK, and
+  temperature and max_tokens follow a recent organic request); same request shape as the model's traffic; shadow canaries mirror organic
   shape. `verified` withdrawn when organic evidence contradicts the probe: K=3 recount strikes or
   organic success below the Tier-A bar within 1h (knobs), restored after a clean window and a
   passing canary.

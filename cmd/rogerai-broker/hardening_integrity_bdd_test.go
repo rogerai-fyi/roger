@@ -383,6 +383,49 @@ var ri6Tool = []map[string]any{{"type": "function", "function": map[string]any{
 	"parameters": map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}},
 }}}
 
+// ri6Phrasing is a canary prompt's instruction with its challenge (the uppercase word or the
+// digits) and any padding removed: the sentence a station could match on.
+func ri6Phrasing(prompt string) string {
+	if i := strings.LastIndex(prompt, "\n\n"); i >= 0 {
+		prompt = prompt[i+2:]
+	}
+	return regexp.MustCompile(`[A-Z]{3,}|[0-9]+`).ReplaceAllString(prompt, "_")
+}
+
+func (s *ri6State) distinctPhrasings(n string) error {
+	seen := map[string]bool{}
+	for _, p := range s.canaryPrompts() {
+		seen[ri6Phrasing(p)] = true
+	}
+	if len(seen) < atoiMust(n) {
+		return fmt.Errorf("%d distinct phrasings across the canaries, want at least %s: %v", len(seen), n, seen)
+	}
+	return nil
+}
+
+func (s *ri6State) organicSampling(model, temp, maxTok string) error {
+	s.lastModel = model
+	for i := 0; i < 10; i++ {
+		s.heartbeat()
+		s.do(fa6Spec{who: "u-1", model: model, extra: map[string]any{"temperature": atofMust(temp), "max_tokens": atoiMust(maxTok)}})
+	}
+	return nil
+}
+
+func (s *ri6State) canariesCarrySampling(temp, maxTok string) error {
+	name, _ := s.scen["canaryNode"].(string)
+	for _, b := range s.newBodies(name, false) {
+		var d struct {
+			Temperature *float64 `json:"temperature"`
+			MaxTokens   int      `json:"max_tokens"`
+		}
+		if json.Unmarshal(b, &d) == nil && d.Temperature != nil && *d.Temperature == atofMust(temp) && d.MaxTokens == atoiMust(maxTok) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no canary carried temperature %s and max_tokens %s", temp, maxTok)
+}
+
 func (s *ri6State) organicTools(model, pct, lo, hi string) error {
 	s.lastModel = model
 	n := atoiMust(pct) / 10
@@ -1699,6 +1742,9 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^"([^"]+)" earned verified from that canary$`, st.earnedVerified)
 	sc.Step(`^recent organic traffic for "([^"]+)" carries tools in (\d+)% of requests with prompts of (\d+) to (\d+) tokens$`, st.organicTools)
 	sc.Step(`^some canaries carry a tools array$`, st.someTools)
+	sc.Step(`^at least (\d+) distinct instruction phrasings were used$`, st.distinctPhrasings)
+	sc.Step(`^recent organic traffic for "([^"]+)" uses temperature ([0-9.]+) and max_tokens (\d+)$`, st.organicSampling)
+	sc.Step(`^some canaries carry temperature ([0-9.]+) and max_tokens (\d+)$`, st.canariesCarrySampling)
 	sc.Step(`^some canary prompts fall in the (\d+) to (\d+) token band$`, st.somePromptsInBand)
 	sc.Step(`^"([^"]+)" passes every canary$`, st.passesCanaries)
 	sc.Step(`^"([^"]+)" accrues (\d+) recount strikes from organic relays within 1 hour$`, st.recountStrikes)

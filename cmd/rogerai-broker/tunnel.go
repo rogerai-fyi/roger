@@ -2195,7 +2195,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if !dry { // a dry run is not traffic: it moves no counter the scored pick reads
 		b.stats.routingPref[routePref].Add(1)
 		b.totalReqs.Add(1)
-		b.noteOrganic(models[0].bare, doc.needsTools(), req.Stream, promptTokens)
+		shape := organicShape{tools: doc.needsTools(), stream: req.Stream, promptTokens: promptTokens}
+		_ = doc.field("temperature", &shape.temperature) // absent leaves nil
+		_ = doc.field("max_tokens", &shape.maxTokens)
+		b.noteOrganic(models[0].bare, shape)
 	}
 	// Consumer out-price cap. Defense in depth: even if the client omits the header (a
 	// hand-rolled API caller, not the first-party CLI/TUI which always injects it), the
