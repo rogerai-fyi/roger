@@ -74,16 +74,31 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	if len(argv.pos) > 0 {
 		name = argv.pos[0]
 	}
-	endpoint := argv.flags["authority"]
+	endpoint, tr, err := edgeTrustFromArgs(argv, argv.flags["authority"])
+	if err != nil {
+		return err
+	}
+	if edgeIsInteractive() {
+		tr.Ask = func(prompt string) string { fmt.Print(prompt); return edgeReadLine() }
+	}
 	account := client.LinkedLogin()
 	if want, ok := argv.flags["account"]; ok && want != account {
 		// Never repeated back, and nothing is sent: a refusal that names the other
 		// account turns "does this account exist?" into a question anyone can ask.
 		return fmt.Errorf("this machine is logged in as %s, and can only enroll into its own Edge", account)
 	}
-	res, err := edgeEnrollCore(cfg, name, endpoint, account)
+	res, err := edgeEnrollJoin(cfg, name, endpoint, account, tr)
 	if err != nil {
 		return edgeEnrollErr(err, name, endpoint)
+	}
+	if res.LeftAlone {
+		fmt.Println("left alone: this machine stays on the Edge it is on.")
+		return nil
+	}
+	if res.RootUnchanged {
+		fmt.Printf("the root is unchanged (%s): this machine is already on that Edge, so nothing is replaced.\n",
+			edgeauth.ShortFingerprint(res.RootFingerprint))
+		return nil
 	}
 	if res.AlreadyEnrolled {
 		fmt.Println(edgeEnrolledLine(res, edgeStationName()))
@@ -92,6 +107,17 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 		return nil
 	}
 	fmt.Println(edgeEnrolledLine(res, edgeStationName()))
+	if res.ReplacedRoot != "" {
+		fmt.Printf("  this machine left the Edge rooted at %s and joined the one rooted at %s.\n",
+			edgeauth.ShortFingerprint(res.ReplacedRoot), edgeauth.ShortFingerprint(res.RootFingerprint))
+	}
+	switch res.ProvenBy {
+	case "code":
+		fmt.Printf("  root %s - the same short fingerprint `roger edge authority` shows there, for reassurance;\n"+
+			"  the code is what was checked.\n", edgeauth.ShortFingerprint(res.RootFingerprint))
+	case "pin":
+		fmt.Printf("  root %s - it matched the full fingerprint you gave.\n", edgeauth.ShortFingerprint(res.RootFingerprint))
+	}
 	fmt.Printf("  this machine now advertises itself, so your other machines can see it.\n")
 	if res.TrustWarning != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", res.TrustWarning)
@@ -121,67 +147,141 @@ type edgeEnrollResult struct {
 	// time), for the caller's own UX. The core does not print it - the CLI prints it, the TUI can
 	// surface it in the wizard.
 	TrustWarning string
+	// RootFingerprint is the root this machine now holds; ProvenBy says what vouched for it on a
+	// first join ("code" or "pin"; "" when the root was already held, or came over TLS from Core).
+	RootFingerprint string
+	ProvenBy        string
+	// ReplacedRoot is the fingerprint of the root a deliberate move left behind (ruling D11).
+	ReplacedRoot string
+	// RootUnchanged: --replace-root was asked for, and the authority's root is the one held.
+	RootUnchanged bool
+	// LeftAlone: the owner declined a root change, so nothing changed.
+	LeftAlone bool
 }
 
-// edgeEnrollCore is the whole enrollment orchestration with NO printing, so the CLI and the
-// TUI wizard drive the same code (the wizard cannot print into the alt screen). It returns
-// typed errors the wizard can classify - in particular a join refused because this machine
-// is not on the authority's allow-list comes back wrapping edgeauth.ErrUnknownMachine, so a
-// caller can tell "allow me" from every other refusal. account is the resolved login (may be
-// empty); name "" takes the default.
+// edgeEnrollCore is the enrollment with nothing to vouch for a new root: a Core enrollment, the
+// authority enrolling itself, or a member renewing. A first join against an authority that needs
+// the owner's code is refused by it (the callers that can ask for the code use edgeEnrollJoin).
 func edgeEnrollCore(cfg config, name, endpoint, account string) (edgeEnrollResult, error) {
+	return edgeEnrollJoin(cfg, name, endpoint, account, edgeJoinTrust{})
+}
+
+// edgeEnrollJoin is the whole enrollment orchestration with NO printing (beyond the code prompt a
+// caller's Ask performs), so the CLI and the TUI wizard drive the same code. It returns typed
+// errors the wizard can classify - in particular a join refused because this machine is not on the
+// authority's allow-list comes back wrapping edgeauth.ErrUnknownMachine, so a caller can tell
+// "allow me" from every other refusal. account is the resolved login (may be empty); name "" takes
+// the default. With tr.Hold, a first join returns errEdgeNeedsCode and a held answer to confirm.
+func edgeEnrollJoin(cfg config, name, endpoint, account string, tr edgeJoinTrust) (edgeEnrollResult, error) {
+	res, held, err := edgeEnrollBegin(cfg, name, endpoint, account, tr)
+	if err != nil || held == nil {
+		return res, err
+	}
+	return held.finish()
+}
+
+// edgeEnrollBegin runs a join up to the point where the root has to be vouched for. A nil held
+// means the join already finished (or needed no vouching); a non-nil one is an answer that passed
+// every check but the owner's, with nothing written.
+func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrust) (edgeEnrollResult, *edgeHeldJoin, error) {
 	var res edgeEnrollResult
 	local, isAuthority, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {
-		return res, err
+		return res, nil, err
 	}
 	// A login is what ties this machine to an account. It is NOT needed when the Edge is
 	// rooted locally - the owner naming an authority, or this machine being one - because
 	// on a network with no Core there is nothing to log in to, and it is the authority
 	// that decides who may join.
 	if account == "" && endpoint == "" && !isAuthority {
-		return res, usagef("this machine is not logged in, so there is no account to enroll it into.\n" +
+		return res, nil, usagef("this machine is not logged in, so there is no account to enroll it into.\n" +
 			"  log in first:                 roger login\n" +
 			"  or, with no internet at all:  roger edge authority local <name>, then " +
-			"roger edge enroll <name> --authority <address>")
+			"roger edge enroll <name> --authority <address> --code <the code allow prints there>")
 	}
 	if name == "" {
 		name = edgeDefaultName()
 	}
 	if err := edge.ValidName(name); err != nil {
-		return res, usagef("%v", err)
+		return res, nil, usagef("%v", err)
 	}
 	res.Name = name
 
 	st := edgeIdentityStore()
 	held, heldKey, enrolled, err := st.LoadIdentity()
 	if err != nil {
-		return res, err
+		return res, nil, err
 	}
 	now := time.Now()
+	heldRoot := edgeHeldRoot(st)
+	if enrolled {
+		heldRoot = held.Root
+	}
+	if heldRoot == nil && isAuthority {
+		// The machine that roots the Edge knows its own root: even reached over its own LAN
+		// address, the answer must carry exactly that root.
+		heldRoot = local.Authority().Root()
+	}
 
 	// ONE EDGE, ONE AUTHORITY. When the owner names an authority and this machine already
-	// has a root, ask that authority whose root it is BEFORE asking it for anything.
-	if endpoint != "" {
-		if err := edgeRefuseASecondAuthority(st, endpoint); err != nil {
-			return res, err
+	// has a root, ask that authority whose root it is BEFORE asking it for anything. Only a
+	// deliberate --replace-root, backed by the new root's code or pin, goes past it (D11).
+	replacing := false
+	if endpoint != "" && heldRoot != nil {
+		if tr.ReplaceRoot {
+			if theirs := edgeRootAt(endpoint); theirs != nil && theirs.Equal(heldRoot) {
+				res.RootUnchanged, res.RootFingerprint = true, edgeauth.RootFingerprint(heldRoot)
+				return res, nil, nil
+			}
+			replacing = true
+		} else if err := edgeRefuseASecondAuthority(st, endpoint); err != nil {
+			return res, nil, err
 		}
 	}
-	if enrolled && !held.NeedsRenewal(now) {
+	if enrolled && !replacing && !held.NeedsRenewal(now) {
 		res.NodeID, res.Name = held.NodeID, edgeNameOf(held.NodeID, name)
 		res.Authority, res.AlreadyEnrolled, res.NotAfter = edgeDescriptor().Names(), true, held.NotAfter()
-		return res, nil
+		return res, nil, nil
+	}
+
+	// WHAT MUST VOUCH FOR THE ROOT. Core arrives over TLS that authenticated Core; the authority
+	// enrolling itself holds its own root; a member renewing is checked against the root it holds.
+	// Everything else - a first join against an authority, a deliberate move - needs the owner.
+	needProof := endpoint != "" && (heldRoot == nil || replacing)
+	if replacing && tr.Code == "" && tr.Pin == "" {
+		return res, nil, usagef("a new root needs the code from its authority (or its full fingerprint):\n" +
+			"  on the new authority, allow or adopt prints one; then add --code <code> here.\n" +
+			"  nothing was asked for and nothing changed")
+	}
+	if replacing && !tr.Yes && tr.Ask == nil {
+		return res, nil, usagef("a root change must be confirmed: this machine would leave the Edge it is on.\n" +
+			"  add --yes to confirm it with no prompt. nothing was asked for and nothing changed")
+	}
+	if needProof && tr.Code == "" && tr.Pin == "" && tr.Ask == nil && !tr.Hold {
+		return res, nil, usagef("the root of the Edge you are joining has to be confirmed before this machine keeps it.\n"+
+			"  pass --code <code>: the authority prints it when you allow or adopt this machine there\n"+
+			"    (roger edge authority allow %s)\n"+
+			"  or pass --root sha256:<fingerprint>: the full fingerprint `roger edge authority` prints there.\n"+
+			"  nothing was sent and nothing was kept", client.UserPubHex())
+	}
+	if endpoint == "" && !isAuthority && !edgeBrokerAuthenticated(cfg.Broker) {
+		return res, nil, fmt.Errorf("Core enrollment needs an https broker, and %s is not one: over plain http the root\n"+
+			"  this machine would be handed is only as good as the network it crossed.\n"+
+			"  to enroll on this network instead, use a local authority with a code:\n"+
+			"    roger edge authority local <name>   (on the machine that will root the Edge)\n"+
+			"  nothing was sent and nothing was kept", cfg.Broker)
 	}
 
 	// A renewal keeps the key, and therefore the node id, and therefore its place, its
-	// name and its history. A first enrollment generates one, here, and it never leaves.
+	// name and its history. A first enrollment (or a move to a new root) generates one, here,
+	// and it never leaves.
 	pub, priv := ed25519.PublicKey(nil), heldKey
-	if enrolled {
+	if enrolled && !replacing {
 		pub = heldKey.Public().(ed25519.PublicKey)
 	} else {
 		pub, priv, err = ed25519.GenerateKey(rand.Reader)
 		if err != nil {
-			return res, err
+			return res, nil, err
 		}
 	}
 
@@ -202,36 +302,134 @@ func edgeEnrollCore(cfg config, name, endpoint, account string) (edgeEnrollResul
 	case endpoint == "":
 		resp, err = enrollhttp.Enroll(context.Background(), cfg.Broker, req)
 		if err != nil {
-			return res, edgeUnreachableAuthority(err)
+			return res, nil, edgeUnreachableAuthority(err)
 		}
 	default:
 		resp, err = enrollhttp.Enroll(context.Background(), endpoint, req)
 		if err != nil {
-			return res, edgeClassifyEnrollErr(err)
+			return res, nil, edgeClassifyEnrollErr(err)
 		}
 	}
 	if err != nil {
-		return res, err
+		return res, nil, err
 	}
 
 	want := edgeauth.Expect{NodeID: req.NodeID, Account: claim, Key: pub, Now: now}
-	if enrolled {
-		want.Root = held.Root
-	} else if root := edgeHeldRoot(st); root != nil {
-		want.Root = root
+	if !needProof {
+		want.Root = heldRoot
 	}
 	id, err := edgeauth.CheckResponse(resp, want)
 	if errors.Is(err, edgeauth.ErrDifferentAuthority) {
-		return res, fmt.Errorf("this Edge is rooted at %s, and that certificate comes from somewhere else.\n"+
+		return res, nil, edgeDifferentRootRefusal(isAuthority)
+	}
+	if err != nil {
+		return res, nil, err
+	}
+
+	h := &edgeHeldJoin{id: id, resp: resp, nonce: req.Nonce, where: edgeAuthorityLabel(endpoint), received: edgeNow()}
+	h.finish = func() (edgeEnrollResult, error) {
+		return edgeEnrollFinish(res, st, id, priv, pub, name, endpoint, local, isAuthority, now, replacing, held, enrolled, heldRoot)
+	}
+	if !needProof {
+		h.verified = true
+		return res, h, nil
+	}
+	if tr.Pin != "" {
+		if err := edgeCheckPin(tr.Pin, id.Root, h.where); err != nil {
+			return res, nil, err
+		}
+		res.ProvenBy = "pin"
+	}
+	switch {
+	case tr.Code != "":
+		// --code is ONE attempt: a wrong one is not retried behind the owner's back (D5).
+		if _, err := h.check(tr.Code); err != nil {
+			return res, nil, err
+		}
+		res.ProvenBy = "code"
+	case tr.Pin != "":
+		h.verified = true
+	case tr.Hold:
+		return res, h, errEdgeNeedsCode
+	default:
+		if err := edgeAskForCode(h, tr.Ask); err != nil {
+			return res, nil, err
+		}
+		res.ProvenBy = "code"
+	}
+	if replacing && !tr.Yes {
+		fmt.Printf("replace this machine's Edge root %s with %s? it leaves the Edge it is on now [y/N]: ",
+			edgeauth.ShortFingerprint(edgeauth.RootFingerprint(heldRoot)), h.rootShort())
+		if !edgeConfirmed() {
+			res.LeftAlone = true
+			return res, nil, nil
+		}
+	}
+	h.finish = func() (edgeEnrollResult, error) {
+		return edgeEnrollFinish(res, st, id, priv, pub, name, endpoint, local, isAuthority, now, replacing, held, enrolled, heldRoot)
+	}
+	return res, h, nil
+}
+
+// confirm finishes a held join with the owner's code: the TUI wizard's second step.
+func (h *edgeHeldJoin) confirm(typed string) (edgeEnrollResult, bool, error) {
+	done, err := h.check(typed)
+	if err != nil {
+		return edgeEnrollResult{}, done, err
+	}
+	res, err := h.finish()
+	res.ProvenBy = "code"
+	return res, true, err
+}
+
+// edgeRootAt is the root an authority says it signs under, or nil when it cannot say. It is a HINT,
+// used only to tell "nothing to replace" from a move; a move still needs the new root's proof.
+func edgeRootAt(endpoint string) *x509.Certificate {
+	pemText, err := enrollhttp.Root(context.Background(), endpoint)
+	if err != nil {
+		return nil
+	}
+	c, err := edgeauth.DecodeCert(pemText)
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
+// edgeDifferentRootRefusal is what a machine is told when an authority answers with a root other
+// than the one it holds. A member is told how a deliberate move is made; only the authority itself
+// is pointed at the authority's own migration command.
+func edgeDifferentRootRefusal(isAuthority bool) error {
+	if isAuthority {
+		return fmt.Errorf("this Edge is rooted at %s, and that certificate comes from somewhere else.\n"+
 			"  an Edge has exactly one authority; moving it is a deliberate migration:\n"+
 			"    roger edge authority local <name> --force", edgeDescriptor().Names())
 	}
-	if err != nil {
-		return res, err
-	}
+	return fmt.Errorf("this machine belongs to the Edge rooted at %s, and that certificate comes from a different root.\n"+
+		"  if the owner moved the Edge on purpose, the new authority's allow or adopt prints a code:\n"+
+		"    roger edge enroll <name> --authority <its address> --code <that code> --replace-root\n"+
+		"  nothing changed", edgeDescriptor().Names())
+}
 
-	// Only now is anything written. Everything above is checks; nothing below can leave
-	// half an identity behind, because there was nothing to half-write until here.
+// edgeEnrollFinish writes a vouched-for identity. Only now is anything written. Everything before
+// it is checks; nothing here can leave half an identity behind, because there was nothing to
+// half-write until here.
+func edgeEnrollFinish(res edgeEnrollResult, st edgeauth.Store, id *edgeauth.Identity, priv ed25519.PrivateKey,
+	pub ed25519.PublicKey, name, endpoint string, local *edgeauth.Local, isAuthority bool, now time.Time,
+	replacing bool, held *edgeauth.Identity, enrolled bool, heldRoot *x509.Certificate) (edgeEnrollResult, error) {
+	if replacing {
+		res.ReplacedRoot = edgeauth.RootFingerprint(heldRoot)
+		// The machine's old membership ends in the same step it gains the new one: its own row under
+		// the old root is retired so the name it had comes with it.
+		if enrolled {
+			if state, err := loadEdgeState(); err == nil {
+				if _, ok, _ := state.fleet.Get(held.NodeID); ok {
+					_ = state.fleet.Forget(held.NodeID)
+					_ = state.save()
+				}
+			}
+		}
+	}
 	if err := st.SaveAccount(id.Account); err != nil {
 		return res, err
 	}
@@ -247,6 +445,7 @@ func edgeEnrollCore(cfg config, name, endpoint, account string) (edgeEnrollResul
 		return res, err
 	}
 	res.NodeID, res.Authority = id.NodeID, edgeDescriptor().Names()
+	res.RootFingerprint = edgeauth.RootFingerprint(id.Root)
 	return res, nil
 }
 
@@ -277,12 +476,16 @@ func edgeRefuseASecondAuthority(st edgeauth.Store, endpoint string) error {
 	if err != nil || mine.Equal(theirs) {
 		return nil
 	}
+	move := "  to move this Edge deliberately, so every member is told to re-enroll:\n" +
+		"    roger edge authority local <name> --force"
+	if _, isAuthority, _ := edgeauth.OpenLocal(edgeAuthDir()); !isAuthority {
+		move = "  if the owner moved the Edge there on purpose, its allow or adopt prints a code:\n" +
+			"    roger edge enroll <name> --authority " + endpoint + " --code <that code> --replace-root"
+	}
 	return fmt.Errorf("this Edge is rooted at %s, and %s is a different authority.\n"+
 		"  an Edge has exactly one root: a second one would mean a peer that verifies for\n"+
 		"  half your fleet and not the other half. Nothing was asked for and no root was created.\n"+
-		"  to move this Edge deliberately, so every member is told to re-enroll:\n"+
-		"    roger edge authority local <name> --force", edgeDescriptor().Names(),
-		edgeAuthorityLabel(endpoint))
+		"%s", edgeDescriptor().Names(), edgeAuthorityLabel(endpoint), move)
 }
 
 // edgeUnreachableAuthority is the message an owner gets when Core is the authority and
@@ -472,7 +675,8 @@ func edgeShowAuthority() error {
 	fmt.Printf("this Edge is rooted at %s.\n", d.Names())
 	fmt.Printf("  %s\n", d.NetworkLine())
 	if d.Fingerprint != "" {
-		fmt.Printf("  root %s\n", edgeShortFP(d.Fingerprint))
+		fmt.Printf("  root %s\n", edgeauth.ShortFingerprint(d.Fingerprint))
+		fmt.Printf("  to pin it when joining:  --root sha256:%s\n", d.Fingerprint)
 	}
 	if isAuthority {
 		fmt.Printf("  this machine IS the authority: it holds the root's private half, and nothing else does.\n")
@@ -623,19 +827,33 @@ func edgeAllow(userKey string) error {
 	if err := local.Allow(userKey); err != nil {
 		return err
 	}
+	code, err := local.MintKeyCode(userKey)
+	if err != nil {
+		return err
+	}
+	shown := edgeauth.FormatCode(code)
+	fp := local.Descriptor().Fingerprint
 	fmt.Printf("that machine may now enroll against this authority.\n")
+	fmt.Printf("  enrollment code: %s  (good for %d minutes, for one join; allowing again makes a new one)\n",
+		shown, int(edgeauth.CodeLifetime.Minutes()))
+	fmt.Printf("  root %s - the joining machine shows the same when it has joined\n", edgeauth.ShortFingerprint(fp))
+	fmt.Println("  a machine running a roger from before root proofs does not check the code: update roger on it before it joins.")
 	b, err := os.ReadFile(edgeAuthorityPortFile())
 	port := strings.TrimSpace(string(b))
 	ips := edgeLANIPs()
 	if err != nil || port == "" || len(ips) == 0 {
 		fmt.Println("  start roger on this machine so the authority answers on your network; then, on that machine:")
-		fmt.Println("  roger edge enroll <name> --authority http://<this machine's address>:<port in " + edgeAuthorityPortFile() + ">")
+		fmt.Println("  roger edge enroll <name> --authority http://<this machine's address>:<port in " + edgeAuthorityPortFile() + "> --code " + shown)
+		fmt.Println("  or paste one invite:")
+		fmt.Println("  roger edge enroll <name> --invite " + edgeInvite("<this machine's address>:<port>", fp, code))
 		return nil
 	}
 	fmt.Println("  on it, run (with roger running here, so the authority answers):")
 	for _, ip := range ips {
-		fmt.Printf("    roger edge enroll <name> --authority http://%s\n", net.JoinHostPort(ip, port))
+		fmt.Printf("    roger edge enroll <name> --authority http://%s --code %s\n", net.JoinHostPort(ip, port), shown)
 	}
+	fmt.Println("  or paste one invite:")
+	fmt.Printf("    roger edge enroll <name> --invite %s\n", edgeInvite(net.JoinHostPort(ips[0], port), fp, code))
 	return nil
 }
 

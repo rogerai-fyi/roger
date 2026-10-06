@@ -71,6 +71,8 @@ func TestACodeIsSpentWhenItsCertificateIsIssued(t *testing.T) {
 	resp2, err := local.Issue(again)
 	require.NoError(t, err, "the allowed key may still enroll (renew)")
 	require.Empty(t, resp2.RootProof, "a spent code vouches for nothing again")
+	require.Equal(t, edgeauth.ProofNone, resp2.ProofStatus, "and the answer says it held no live code")
+	require.Empty(t, resp.ProofStatus)
 }
 
 func TestMintingAgainVoidsThePreviousCode(t *testing.T) {

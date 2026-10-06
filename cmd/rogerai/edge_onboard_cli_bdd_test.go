@@ -199,6 +199,9 @@ func TestOnboardFeatureCLI(t *testing.T) {
 				return st.printsThisKey()
 			})
 			sc.Step(`^it exits without pretending the machine joined$`, st.didNotJoin)
+			sc.Step(`^it says that command prints the code to bring back here$`, func() error {
+				return st.has("prints the code to bring back here")
+			})
 			sc.Step(`^it explains it needs a terminal, and names the non-interactive commands to use instead$`, func() error {
 				if err := st.explainsNeedsTerminal(); err != nil {
 					return err

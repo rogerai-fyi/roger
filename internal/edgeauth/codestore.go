@@ -105,8 +105,10 @@ func (l *Local) prove(resp *Response, join, nonce string) error {
 	if err != nil {
 		return err
 	}
+	resp.ProofStatus = ProofNone
 	for _, c := range got {
 		if c.Join == join {
+			resp.ProofStatus = ""
 			root, err := DecodeCert(resp.Root)
 			if err != nil {
 				return err

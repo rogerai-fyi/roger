@@ -40,6 +40,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -275,6 +276,8 @@ type enrollBDD struct {
 	pendingNodeKey ed25519.PublicKey
 	expiredRoot    *x509.Certificate
 	stationDB      *store.Mem
+	// member is a second machine enrolled under the authority, for the migration scenario.
+	member *enrollMachine
 }
 
 func (s *enrollBDD) reset(t *testing.T) {
@@ -291,7 +294,7 @@ func (s *enrollBDD) reset(t *testing.T) {
 	s.t = t
 	s.bus = &edgeBus{}
 	s.machines, s.peers = nil, nil
-	s.cur, s.authorityOf = nil, nil
+	s.cur, s.authorityOf, s.member = nil, nil, nil
 	s.authorityURL = ""
 	s.out, s.err, s.code = "", nil, 0
 	s.beforeID, s.beforeCert, s.beforeHistory, s.beforeList = "", "", nil, 0
@@ -1001,8 +1004,63 @@ func (s *enrollBDD) ownerEnrollsBothOnThatNetwork() error {
 	if err := s.mustRun("roger edge authority allow " + key); err != nil {
 		return err
 	}
+	code := s.codeFromOut()
 	s.use(cur)
-	return s.mustRun("roger edge enroll bench --authority " + s.authorityURL)
+	return s.mustRun("roger edge enroll bench --authority " + s.authorityURL + " --code " + code)
+}
+
+// codeFromOut is the one-time enrollment code the last `authority allow` printed
+// (features/edge/enrollment_root_trust.feature): a joiner keeps the root only with it.
+func (s *enrollBDD) codeFromOut() string {
+	return regexp.MustCompile(`[0-9A-Z]{5}-[0-9A-Z]{5}`).FindString(s.out)
+}
+
+// secondMachineKeptRootByCode: the second machine holds the authority's root, and it kept it
+// because the code the authority printed verified it.
+func (s *enrollBDD) secondMachineKeptRootByCode() error {
+	if !strings.Contains(s.out, "the code is what was checked") {
+		return fmt.Errorf("the second machine's join was not vouched for by the code:\n%s", s.out)
+	}
+	id, _, ok := s.identity()
+	if !ok || !id.Root.Equal(s.localRoot()) {
+		return fmt.Errorf("the second machine does not hold the authority's root")
+	}
+	return nil
+}
+
+// memberReenrollsWithTheNewCode: a member enrolled under the old root re-enrolls against the
+// authority the Edge moved to, with that authority's code and --replace-root, and is its member.
+func (s *enrollBDD) memberReenrollsWithTheNewCode() error {
+	member := s.member
+	if member == nil {
+		return fmt.Errorf("no member was enrolled before the move")
+	}
+	s.authorityOf.stop()
+	if err := s.serveAuthority(); err != nil {
+		return err
+	}
+	s.use(s.authorityOf)
+	key := hex.EncodeToString(member.user.Public().(ed25519.PublicKey))
+	if err := s.mustRun("roger edge authority allow " + key); err != nil {
+		return err
+	}
+	code := s.codeFromOut()
+	newRoot := s.localRoot()
+	s.use(member)
+	if err := s.run("roger edge enroll workshop --authority " + s.authorityURL); err != nil {
+		return err
+	}
+	if s.err == nil || strings.Contains(s.out, "authority local") || !strings.Contains(s.out, "--replace-root") {
+		return fmt.Errorf("a member re-enrolling without the code was not told how a deliberate move is made:\n%s", s.out)
+	}
+	if err := s.mustRun("roger edge enroll workshop --authority " + s.authorityURL + " --code " + code + " --replace-root --yes"); err != nil {
+		return err
+	}
+	id, _, ok := s.identity()
+	if !ok || !id.Root.Equal(newRoot) {
+		return fmt.Errorf("the member is not under the new authority's root")
+	}
+	return nil
 }
 
 func (s *enrollBDD) bothHoldCertificatesFromThatAuthority() error {
@@ -1165,8 +1223,9 @@ func (s *enrollBDD) nodeNeverReceivesThePrivateHalf() error {
 		if err := s.mustRun("roger edge authority allow " + key); err != nil {
 			return err
 		}
+		code := s.codeFromOut()
 		s.use(node)
-		if err := s.mustRun("roger edge enroll bench --authority " + s.authorityURL); err != nil {
+		if err := s.mustRun("roger edge enroll bench --authority " + s.authorityURL + " --code " + code); err != nil {
 			return err
 		}
 	}
@@ -1429,6 +1488,22 @@ func (s *enrollBDD) localAuthorityWithMembers() error {
 	if err := s.aNodeEnrollsAgainstIt(); err != nil {
 		return err
 	}
+	// A second member, on its own machine, enrolled with the authority's code.
+	auth := s.authorityOf
+	member := s.newMachine("member")
+	s.broker("http://" + s.deadAddr())
+	key := hex.EncodeToString(member.user.Public().(ed25519.PublicKey))
+	s.use(auth)
+	if err := s.mustRun("roger edge authority allow " + key); err != nil {
+		return err
+	}
+	code := s.codeFromOut()
+	s.use(member)
+	if err := s.mustRun("roger edge enroll workshop --authority " + s.authorityURL + " --code " + code); err != nil {
+		return err
+	}
+	s.member = member
+	s.use(auth)
 	s.beforeList = len(s.fleet())
 	return nil
 }
@@ -2426,6 +2501,8 @@ func TestEdgeEnrollmentFeature(t *testing.T) {
 			sc.Step(`^it does not become a member$`, st.doesNotBecomeAMember)
 			sc.Step(`^an Edge rooted at a local authority with enrolled members$`, st.localAuthorityWithMembers)
 			sc.Step(`^the owner moves the Edge to a different authority$`, st.ownerMovesToADifferentAuthority)
+			sc.Step(`^a member re-enrolls with the new authority's code and --replace-root, and is then its member$`, st.memberReenrollsWithTheNewCode)
+			sc.Step(`^the second machine kept the root only after the authority's enrollment code verified it$`, st.secondMachineKeptRootByCode)
 			sc.Step(`^the owner is told every member must re-enroll$`, st.ownerToldEveryMemberMustReenroll)
 			sc.Step(`^members are not silently dropped$`, st.membersNotSilentlyDropped)
 			sc.Step(`^until a member re-enrolls it is shown as needing re-enrollment, with the reason$`, st.shownAsNeedingReenrollment)

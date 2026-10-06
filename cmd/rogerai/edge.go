@@ -96,7 +96,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>|tag:<tag>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"sink", "[add <webhook|discord|telegram> <url> | rm <id> | test <id>]", "say where an alert should go when it leaves this machine, or show what is configured", 0, 3},
 	{"actuate", "<node> [--yes]", "confirm that a node may change the physical world - the one capability only you can grant", 1, 1},
-	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
+	{"enroll", "[name] [--authority <address>] [--code <code> | --root sha256:<fingerprint> | --invite <invite>] [--replace-root] [--yes]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"run", "", "keep this machine on its Edge with no screen, until stopped (what the boot service runs)", 0, 0},
 	{"service", "[install|remove]", "make roger start at boot, say whether it does, or stop it (systemd)", 0, 1},
@@ -269,7 +269,8 @@ func edgeWantsHelp(args []string) bool {
 // edgeFlags is what one leaf's flags may be: the name, and whether it takes a value.
 var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
-	"force": false, "clear": false,
+	"force": false, "clear": false, "replace-root": false,
+	"code": true, "root": true, "invite": true,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
 	"node": true, "limit": true, "lines": true, "every": true, "once": false, "select": true, "health": false,
 }

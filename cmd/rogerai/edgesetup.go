@@ -47,7 +47,7 @@ func edgeSetupHooks(cfg config) tui.EdgeSetup {
 			if err := edge.ValidName(name); err != nil {
 				return err
 			}
-			_, err := edgeEnrollCore(cfg, name, authorityAddr, client.LinkedLogin())
+			_, err := edgeEnrollJoin(cfg, name, authorityAddr, client.LinkedLogin(), edgeJoinTrust{Hold: true})
 			if errors.Is(err, edgeauth.ErrUnknownMachine) {
 				return tui.ErrNotAllowedYet
 			}

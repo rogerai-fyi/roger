@@ -76,7 +76,15 @@ type Response struct {
 	// RootProof, when the owner minted an enrollment code for this join, proves the root is the
 	// one whose authority showed that code (code.go). A joiner from before proofs ignores it.
 	RootProof string `json:"root_proof,omitempty"`
+	// ProofStatus is ProofNone when this authority proves roots but held no live code for this join
+	// (used, expired, or never minted), so the joiner can say which "no proof" it was. It is a
+	// hint for the message only: a missing proof is refused whatever it says.
+	ProofStatus string `json:"root_proof_status,omitempty"`
 }
+
+// ProofNone is the ProofStatus of an answer from an authority that proves roots, for a join it held
+// no live code for.
+const ProofNone = "none"
 
 // Issue mints one certificate, or refuses and mints nothing.
 //
