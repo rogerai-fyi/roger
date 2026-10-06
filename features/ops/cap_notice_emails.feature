@@ -134,6 +134,33 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
     Then no message is sent
     And the response is served with the near-cap notice header set
 
+  # PR #142 follow-up 2026-10-05: "no mailable address" is remembered per account and threshold
+  # in the shared store for a few minutes, so every later request above the threshold does not
+  # repeat the address lookup; the answer is shared by every instance and lapses on its own
+  Scenario: An account with no mailable address is not looked up again on each request above the threshold
+    Given an Apple-linked account with no email on file and a monthly cap of $10.00 and $7.90 spent
+    When the account relays a paid request that crosses 80%
+    And the account relays another paid request above 80%
+    Then that request looked up no address for the notice
+    And no message is sent
+
+  # PR #142 follow-up 2026-10-05
+  Scenario: The remembered "no address" answer is shared by every broker instance
+    Given two broker instances share one store
+    And an Apple-linked account with no email on file and a monthly cap of $10.00 and $7.90 spent
+    When the account relays a paid request that crosses 80%
+    And the account relays another paid request above 80% on the second instance
+    Then that request looked up no address for the notice
+
+  # PR #142 follow-up 2026-10-05
+  Scenario: An address the account gains after a "no address" answer gets its notice once the answer lapses
+    Given an Apple-linked account with no email on file and a monthly cap of $10.00 and $7.90 spent
+    When the account relays a paid request that crosses 80%
+    And the account signs in with Apple and the provider reports "late@example.com"
+    And the remembered "no address" answer lapses
+    And the account relays another paid request above 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "late@example.com"
+
   Scenario: An unbound keypair has no cap and never gets a notice (unchanged)
     Given a signed keypair bound to no account
     When it relays requests to a free station

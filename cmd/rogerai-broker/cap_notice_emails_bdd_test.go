@@ -61,6 +61,8 @@ type cnState struct {
 	// never land in a later scenario's capture: they are tagged with the generation the mailer
 	// was built in and dropped once the scenario has moved on.
 	mailGen int64
+
+	ownerReads int64 // owner lookups made by the last counted relay
 }
 
 type cnMail struct{ to, subject, text string }
@@ -859,6 +861,7 @@ func TestCapNoticeEmailsBDD(t *testing.T) {
 			sc.Step(`^the message contains no wallet id, no device pubkey and no other address$`, st.noIdentifiersInMessage)
 			sc.Step(`^no log line contains "([^"]+)"$`, st.addrNotLogged)
 			st.registerNoticeRulingSteps(sc)
+			st.registerNoAddrSteps(sc)
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{"../../features/ops/cap_notice_emails.feature"},

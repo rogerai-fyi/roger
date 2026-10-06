@@ -169,15 +169,35 @@ const capUnknown = -1.0
 
 // capNotify sends the threshold notice, doing the cheapest checks first so a request above an
 // already-notified threshold costs no lookups: the mailer is enabled, then this month's
-// claim for the threshold is not already taken, then the account's address is resolved, and
-// only then is the claim taken (emailCapNotice), so an account with no address on file never
-// spends its once-a-month claim.
+// claim for the threshold is not already taken, then no recent lookup found the account
+// without a mailable address, then the account's address is resolved, and only then is the
+// claim taken (emailCapNotice), so an account with no address on file never spends its
+// once-a-month claim.
 func (b *broker) capNotify(r *http.Request, holder, threshold string, spend, cap float64, now time.Time) {
 	if !b.mail.enabled() || b.capNoticeClaimed(holder, threshold, now) {
 		return
 	}
-	b.emailCapNotice(b.capNoticeAddress(r, holder), holder, threshold, spend, cap, now)
+	noAddr := "capnoaddr:" + holder + "|" + threshold
+	if b.shared != nil {
+		if _, found, err := b.shared.counterGet(noAddr); err == nil && found {
+			return
+		}
+	}
+	addr := b.capNoticeAddress(r, holder)
+	if addr == "" {
+		// Remembered in the shared store (every instance skips the lookup) for a short while, so
+		// an address the account gains later is still mailed once this lapses. Best effort: with
+		// the shared store unreachable the lookup simply runs again next time.
+		if b.shared != nil {
+			_, _ = b.shared.setIfAbsent(noAddr, "1", capNoAddrTTL)
+		}
+		return
+	}
+	b.emailCapNotice(addr, holder, threshold, spend, cap, now)
 }
+
+// capNoAddrTTL is how long a "no mailable address" answer is remembered for a threshold.
+const capNoAddrTTL = 10 * time.Minute
 
 // capNoticeAddress resolves the verified address of the account that owns `holder` from the
 // request's AUTHENTICATED identity: a signed CLI key (its bound owner row) or the web session
