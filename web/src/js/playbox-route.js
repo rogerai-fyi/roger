@@ -136,8 +136,30 @@
     return /^(button|checkbox|switch|tab|menuitem|radio|link)$/.test(role || "");
   }
 
+  // pressesControl: the key is one a focused control takes itself (Space and Enter press a
+  // button), so the page's shortcut for it must not fire too. Other keys still drive the deck.
+  function pressesControl(e) {
+    return !!e && (e.key === " " || e.key === "Spacebar" || e.key === "Enter") && isControl(e.target);
+  }
+
+  // parseSize reads the size field: "7-70" (B optional), "-70" (up to), "13" (exactly), or
+  // blank / "any" for no constraint. Anything else, or a bound that is not a number, throws.
+  function parseSize(v) {
+    v = String(v || "").trim().replace(/b/gi, "");
+    if (!v || v === "any") return null;
+    var m = v.match(/^(\d+(?:\.\d+)?)?\s*-\s*(\d+(?:\.\d+)?)?$/), lo, hi;
+    if (m && (m[1] || m[2])) { lo = m[1] ? +m[1] : 0; hi = m[2] ? +m[2] : 10000; }
+    else if (/^\d+(?:\.\d+)?$/.test(v)) { lo = hi = +v; }
+    else throw "size: write a range like 7-70";
+    if (!isFinite(lo) || !isFinite(hi)) throw "size: write a range like 7-70";
+    if (lo > hi) throw "size: min must be at most max";
+    if (!(hi > 0)) throw "size must be above 0";
+    return [lo, hi];
+  }
+
   var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
-    regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl };
+    regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl,
+    pressesControl: pressesControl, parseSize: parseSize };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();

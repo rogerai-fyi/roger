@@ -156,7 +156,7 @@ test("Choices that no station on the tape can satisfy are shown, marked, not hid
 });
 
 test("Validation happens in the drawer with the contract's rules", () => {
-  needText("min must be at most max", "the size validation");
+  assert.throws(() => PR.parseSize("70-7"), /min must be at most max/, "the size validation");
   needText("must be 0 or more", "the price validation");
 });
 

@@ -822,7 +822,7 @@
     if (e.metaKey || e.ctrlKey || e.altKey) return;      // leave browser chords alone
     if (isTyping(e.target)) return;                       // the composer always wins
     if (window.PlayboxRoute.ownsInput(e.target)) return;  // so does the routing drawer
-    if (e.key !== "Escape" && window.PlayboxRoute.isControl(e.target)) return;   // a focused button keeps its keys
+    if (window.PlayboxRoute.pressesControl(e)) return;    // a focused button takes Space and Enter itself
     var k = e.key;
     if (k === " " || k === "Spacebar") {
       if (!$("dkPlay").disabled) { e.preventDefault(); play(); }
@@ -1277,17 +1277,8 @@
     if (!isFinite(n) || n < 0) throw label + " must be 0 or more";
     return n;
   }
-  function routeSize(v) {
-    v = String(v || "").trim().replace(/b/gi, "");
-    if (!v || v === "any") return null;
-    var m = v.match(/^(\d*\.?\d*)\s*-\s*(\d*\.?\d*)$/), lo, hi;
-    if (m) { lo = m[1] ? +m[1] : 0; hi = m[2] ? +m[2] : 10000; }
-    else if (!isNaN(+v)) { lo = hi = +v; }
-    else throw "size: write a range like 7-70";
-    if (lo > hi) throw "size: min must be at most max";
-    if (!(hi > 0)) throw "size must be above 0";
-    return [lo, hi];
-  }
+  function routeSize(v) { return window.PlayboxRoute.parseSize(v); }
+
   function routeCtx(v) {
     v = String(v || "").trim();
     if (!v) return null;

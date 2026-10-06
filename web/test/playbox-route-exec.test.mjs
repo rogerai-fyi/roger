@@ -115,7 +115,7 @@ test("the document keydown consults the drawer guard and the control guard", () 
   const i = js.indexOf('document.addEventListener("keydown", function (e) {');
   const head = js.slice(i, i + 700);
   assert.match(head, /if \(isTyping\(e\.target\)\) return;[^\n]*\n\s*if \(window\.PlayboxRoute\.ownsInput\(e\.target\)\) return;/);
-  assert.match(head, /if \(e\.key !== "Escape" && window\.PlayboxRoute\.isControl\(e\.target\)\) return;/);
+  assert.match(head, /if \(window\.PlayboxRoute\.pressesControl\(e\)\) return;/);
 });
 
 test("a refused routing value names the drawer field, the models list included", () => {
@@ -125,4 +125,25 @@ test("a refused routing value names the drawer field, the models list included",
     "invalid routing value for max $/1M out: want a non-negative number");
   assert.equal(R.nameFields("invalid routing value for roger.min_tps: want a non-negative number"),
     "invalid routing value for min t/s: want a non-negative number");
+});
+
+test("only the keys a focused control takes (Space, Enter) are left to it; arrows, digits and E still drive the deck", () => {
+  const btn = node("button");
+  for (const key of [" ", "Spacebar", "Enter"]) assert.equal(R.pressesControl({ key, target: btn }), true, key);
+  for (const key of ["ArrowLeft", "ArrowRight", "1", "e", "Escape"]) assert.equal(R.pressesControl({ key, target: btn }), false, key);
+  assert.equal(R.pressesControl({ key: " ", target: node("div") }), false);
+});
+
+test("a size range parses to [min, max] or refuses, never NaN", () => {
+  assert.deepEqual(R.parseSize("7-70B"), [7, 70]);
+  assert.deepEqual(R.parseSize("-70"), [0, 70]);
+  assert.deepEqual(R.parseSize("13"), [13, 13]);
+  assert.equal(R.parseSize(""), null);
+  assert.equal(R.parseSize("any"), null);
+  for (const bad of [".", "7-.", "-", ". - .", "70-7", "0", "x"]) assert.throws(() => R.parseSize(bad), bad);
+});
+
+test("the drawer reads its size through the module's parser", () => {
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  assert.match(js, /function routeSize\(v\) \{ return window\.PlayboxRoute\.parseSize\(v\); \}/);
 });
