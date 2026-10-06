@@ -364,6 +364,22 @@ func (s *id6State) disconnects(user, model, key string, stream bool) error {
 	return nil
 }
 
+// replyLost drops the saved reply for the current consumer's key, on the shared store and the
+// local fallback alike (the claim stays).
+func (s *id6State) replyLost(key string) error {
+	k := idemStoreKey(s.wallet, key)
+	if s.b.shared != nil {
+		_ = s.b.shared.cacheDel(k)
+	}
+	s.b.idemLocal.mu.Lock()
+	delete(s.b.idemLocal.m, k)
+	s.b.idemLocal.mu.Unlock()
+	if _, ok := s.b.idemLoad(s.wallet, key); ok {
+		return fmt.Errorf("the saved reply for %q is still there", key)
+	}
+	return nil
+}
+
 func (s *id6State) retryOneHold() error {
 	n, _ := s.holdRowsOf(s.wallet)
 	if d := n - s.retryHoldBase; d != 1 {
@@ -766,6 +782,7 @@ func TestIdempotencyBDD(t *testing.T) {
 		sc.Step(`^"([^"]+)" sends a request for "([^"]+)" with Idempotency-Key "([^"]+)" and disconnects before the answer$`, func(u, m, k string) error { return s.disconnects(u, m, k, false) })
 		sc.Step(`^"([^"]+)" streams for "([^"]+)" with Idempotency-Key "([^"]+)" and disconnects before the first byte$`, func(u, m, k string) error { return s.disconnects(u, m, k, true) })
 		sc.Step(`^the retry placed exactly 1 hold$`, s.retryOneHold)
+		sc.Step(`^the saved reply for Idempotency-Key "([^"]+)" is lost$`, s.replyLost)
 		sc.Step(`^exactly 1 settle row and 1 earnings credit exist for it$`, s.oneSettleOneEarn)
 		sc.Step(`^the operator of "([^"]+)" earned once$`, s.earnedOnce)
 		sc.Step(`^the wallet balance of "([^"]+)" is unchanged by the replay$`, s.balanceUnchanged)

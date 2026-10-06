@@ -35,8 +35,10 @@
 #   - Stored outcomes are bounded: body up to 1 MiB (larger bodies store status + headers and
 #     replay as 409 response_too_large_to_replay); at most 1000 live keys per payer (the oldest
 #     falls out of the window early; the request that would exceed it is still served).
-#   - Shared across instances via the shared store; without a shared store, per instance (a
-#     retry landing on another instance is then served fresh: documented limitation).
+#   - Shared across instances via the shared store. corrected 2026-10-06 (founder-approved): the
+#     claim itself always lives in the store, so a retry whose saved reply is gone (another
+#     instance's local fallback while the shared store is down, or a lost entry) is answered
+#     409 response_unavailable, never served as a second job.
 #   - The broker returns `X-RogerAI-Attempts: <n>` (the number of station attempts made) on
 #     every relay response. The local proxy does not re-pick on its own retry when n > 1 (the
 #     broker already walked its plan); it retries only transport errors, and every retry of one
@@ -323,6 +325,14 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
     Given the shared store is unreachable
     When "u-1" relays for "m" with Idempotency-Key "k-24"
     Then the response is 200
+
+  # corrected 2026-10-06 (founder-approved): the claim exists but its saved reply is gone
+  Scenario: A retry whose saved reply is gone is a 409 response_unavailable
+    Given "u-1" relays for "m" with Idempotency-Key "k-25" and the response is 200 from "s1"
+    And the saved reply for Idempotency-Key "k-25" is lost
+    When "u-1" sends the identical request with Idempotency-Key "k-25"
+    Then the response is 409 with error code "response_unavailable"
+    And "s1" received exactly 1 job in total
 
   # --- the attempts header --------------------------------------------------------------------
 

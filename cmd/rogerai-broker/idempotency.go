@@ -251,7 +251,7 @@ func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWrit
 	if !ok || o.Status < 100 { // never replay a status below 100 (net/http refuses it)
 		// Finished, but its stored response is gone (a shared store that lost it, or another
 		// instance's local fallback): the documented limit. Never a second job under one key.
-		jsonErrCode(w, http.StatusConflict, "response_too_large_to_replay", "the first response with this Idempotency-Key is no longer available to replay")
+		jsonErrCode(w, http.StatusConflict, "response_unavailable", "the first response with this Idempotency-Key is no longer available to replay")
 		return nil, true
 	}
 	for k, v := range o.Header {
