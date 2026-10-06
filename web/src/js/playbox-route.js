@@ -107,8 +107,37 @@
     return (list || []).filter(function (x) { return typeof x === "string" && REGION.test(x); });
   }
 
+  // the drawer's label for each contract key, so a 400 names the field to fix
+  var LABELS = {
+    models: "also try", completion: "max $/1M out", prompt: "max $/1M in", request: "max $/turn",
+    min_tps: "min t/s", self_hosted_only: "self-hosted", confidential: "confidential", require: "needs tools / vision",
+    quantizations: "quant", params_b: "size", region: "region", pref: "prefer", sort: "sort by",
+    trust_min: "trust", min_ctx: "min ctx", max_ttft_ms: "max first token"
+  };
+
+  // nameFields swaps the contract key a refusal names for the drawer field's label. models
+  // is a top-level key, named bare ("for models"); the rest carry their carrier prefix.
+  function nameFields(msg) {
+    msg = String(msg);
+    Object.keys(LABELS).forEach(function (k) {
+      var re = k === "models" ? /\bfor models\b/ : new RegExp("(roger|provider)\\.(max_price\\.)?" + k + "\\b");
+      msg = msg.replace(re, k === "models" ? "for " + LABELS[k] : LABELS[k]);
+    });
+    return msg;
+  }
+
+  // isControl: a focused button, link or control-role element in the deck keeps its own keys
+  // (Space and Enter press it), so the page's shortcut keys must not act on them too.
+  function isControl(t) {
+    if (!t) return false;
+    var tag = (t.tagName || "").toLowerCase();
+    if (tag === "button" || tag === "a" || tag === "summary") return true;
+    var role = t.getAttribute ? t.getAttribute("role") : null;
+    return /^(button|checkbox|switch|tab|menuitem|radio|link)$/.test(role || "");
+  }
+
   var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
-    regionChoices: regionChoices };
+    regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();

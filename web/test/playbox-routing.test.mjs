@@ -301,7 +301,9 @@ test("A 503 band_cooling shows the wait and is not retried into (approved rate-l
 });
 
 test("A 400 from a routing value is shown with the key named", () => {
-  assert.match(js, /params_b["']?\s*:\s*["']size["']/, "no map from roger.params_b to the drawer's label 'size'");
+  assert.equal(PR.nameFields("invalid routing value for roger.params_b: want [min, max]"),
+    "invalid routing value for size: want [min, max]", "roger.params_b is named by the drawer's label 'size'");
+  assert.match(js, /return window\.PlayboxRoute\.nameFields\(msg\);/, "the 400 text runs through the label map");
 });
 
 // ---------- design and accessibility ---------------------------------------------------------

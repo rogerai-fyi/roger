@@ -102,3 +102,27 @@ test("the drawer fills its region select through the filter", () => {
   const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
   assert.match(js, /fill\("dkRtRegion", b \? window\.PlayboxRoute\.regionChoices\(Object\.keys\(b\.regions \|\| \{\}\)\) : \[\]/);
 });
+
+test("the page's shortcut keys leave a focused button or control in the deck alone (Escape still stops)", () => {
+  for (const t of ["button", "a", "summary"]) assert.equal(R.isControl(node(t)), true, t);
+  assert.equal(R.isControl({ ...node("div"), getAttribute: (n) => (n === "role" ? "button" : null) }), true, "role=button");
+  assert.equal(R.isControl(node("div")), false);
+  assert.equal(R.isControl(null), false);
+});
+
+test("the document keydown consults the drawer guard and the control guard", () => {
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  const i = js.indexOf('document.addEventListener("keydown", function (e) {');
+  const head = js.slice(i, i + 700);
+  assert.match(head, /if \(isTyping\(e\.target\)\) return;[^\n]*\n\s*if \(window\.PlayboxRoute\.ownsInput\(e\.target\)\) return;/);
+  assert.match(head, /if \(e\.key !== "Escape" && window\.PlayboxRoute\.isControl\(e\.target\)\) return;/);
+});
+
+test("a refused routing value names the drawer field, the models list included", () => {
+  assert.equal(R.nameFields("invalid routing value for models: want a list of model ids"),
+    "invalid routing value for also try: want a list of model ids");
+  assert.equal(R.nameFields("invalid routing value for provider.max_price.completion: want a non-negative number"),
+    "invalid routing value for max $/1M out: want a non-negative number");
+  assert.equal(R.nameFields("invalid routing value for roger.min_tps: want a non-negative number"),
+    "invalid routing value for min t/s: want a non-negative number");
+});

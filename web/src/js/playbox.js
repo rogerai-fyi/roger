@@ -821,6 +821,8 @@
   document.addEventListener("keydown", function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;      // leave browser chords alone
     if (isTyping(e.target)) return;                       // the composer always wins
+    if (window.PlayboxRoute.ownsInput(e.target)) return;  // so does the routing drawer
+    if (e.key !== "Escape" && window.PlayboxRoute.isControl(e.target)) return;   // a focused button keeps its keys
     var k = e.key;
     if (k === " " || k === "Spacebar") {
       if (!$("dkPlay").disabled) { e.preventDefault(); play(); }
@@ -1203,10 +1205,7 @@
     }
     // a routing value the contract refused names the drawer field to fix
     if (status === 400 && msg && /routing/.test(String(code || ""))) {
-      Object.keys(ROUTE_LABELS).forEach(function (k) {
-        msg = msg.replace(new RegExp("(roger|provider)\\.(max_price\\.)?" + k + "\\b"), ROUTE_LABELS[k]);
-      });
-      return msg;
+      return window.PlayboxRoute.nameFields(msg);
     }
     // A refused session must not leave a handle on the plate and a paid tape
     // unlocked - the deck stops claiming what it can no longer back.
@@ -1255,13 +1254,6 @@
      ===================================================================== */
   var ROUTE_KEY = "roger-playbox-routing-v1";
   var ROUTE_MAX_FALLBACKS = window.PlayboxRoute.MAX_FALLBACKS;
-  // the drawer's label for each contract key, so a 400 names the field to fix
-  var ROUTE_LABELS = {
-    models: "also try", completion: "max $/1M out", prompt: "max $/1M in", request: "max $/turn",
-    min_tps: "min t/s", self_hosted_only: "self-hosted", confidential: "confidential", require: "needs tools / vision",
-    quantizations: "quant", params_b: "size", region: "region", pref: "prefer", sort: "sort by",
-    trust_min: "trust", min_ctx: "min ctx", max_ttft_ms: "max first token"
-  };
   // stored state is untrusted (an old version, a hand edit): PlayboxRoute keeps only
   // well-formed fields and the values the drawer offers
   function routeClean(o) { return window.PlayboxRoute.clean(o); }
