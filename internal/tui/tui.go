@@ -1176,7 +1176,10 @@ type model struct {
 	// tuneFreqLabel is the cosmetic display shown in the header (e.g. "147.520 MHz").
 	// /freq sets them after a successful resolve; esc clears back to OPEN MARKET.
 	limitsGen uint64 // the limit store's write count last seen (see the tickMsg handler)
-	tuneFreq  string
+	// confirmRescan: the operator pressed r on the connect confirm, so the next scan's requote
+	// may offer the raise-the-cap screen (a periodic scan never does).
+	confirmRescan bool
+	tuneFreq      string
 	// headerRouting is the routing wire negotiated at TUNE time (client.NegotiateRouting):
 	// false = the broker reads the body carriers; true = an OLD broker, speak X-Roger-*
 	// headers on every in-booth path (live proxy, chat, agent). Per session, never saved.
@@ -1681,7 +1684,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampBrowse()
 		// A re-scan (r) on the connect confirm: what the operator accepts is priced from it.
 		if m.mode == modeConnectConfirm {
-			m.requote()
+			m.requote(m.confirmRescan)
+			m.confirmRescan = false
 		}
 		// "wait & notify" stub: if a watched band has dipped under the limit, say so.
 		notified := false

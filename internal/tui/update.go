@@ -366,7 +366,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r":
 			m.status = stDim.Render("re-scanning the band…")
-			m.scanErr, m.scanned = false, false
+			m.scanErr, m.scanned, m.confirmRescan = false, false, true
 			return m, fetchOffers(m.broker)
 		case "enter", "y", "Y":
 			if why := m.quantRuleRefusal(m.q.b.model, m.q.b.quant); why != "" {
@@ -378,7 +378,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil // nor for a row the chosen profile excludes
 			}
 			if m.q.overLimit {
-				m.status = stEmber.Render("over profile " + m.confirmProfile + "'s cap - p for another profile, or esc")
+				if m.confirmProfile != "" {
+					m.status = stEmber.Render("over profile " + m.confirmProfile + "'s cap - p for another profile, or esc")
+				} else {
+					m.status = stEmber.Render("the price is above your cap - r to re-scan, esc to go back")
+				}
 				return m, nil
 			}
 			return m.openChannel()

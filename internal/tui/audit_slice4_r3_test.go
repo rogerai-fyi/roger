@@ -272,3 +272,32 @@ func TestClearingAnAbsentLimitWritesNothing(t *testing.T) {
 	s.clear("a")
 	require.Equal(t, 1, saves)
 }
+
+// TestBackgroundRescanNeverTurnsAcceptIntoARaise: a periodic scan that finds the price above
+// the cap while the confirm is open keeps the confirm (accept refuses, nothing is pre-filled);
+// only an explicit r goes to the raise-the-cap screen.
+func TestBackgroundRescanNeverTurnsAcceptIntoARaise(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{"m1": {MaxOut: 2}}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 1.0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	m := asModel(tm)
+	out, _ := m.connect()
+	m = asModel(out)
+	require.Equal(t, modeConnectConfirm, m.mode)
+
+	out, _ = m.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)})) // a periodic scan
+	m = asModel(out)
+	require.Equal(t, modeConnectConfirm, m.mode, "a background scan never moves the operator off the confirm")
+	require.True(t, m.q.overLimit)
+	require.Empty(t, m.editBuf, "nothing is pre-filled to raise")
+	out, _ = m.Update(keyMsg("enter"))
+	m = asModel(out)
+	require.Equal(t, modeConnectConfirm, m.mode, "accept refuses a quote over the cap")
+	require.InDelta(t, 2.0, m.limits.own("m1").MaxOut, 1e-9, "the cap is not raised")
+
+	out, _ = m.Update(keyMsg("r"))
+	out, _ = asModel(out).Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)}))
+	require.Equal(t, modeOverLimit, asModel(out).mode, "an explicit re-scan may offer the raise")
+}

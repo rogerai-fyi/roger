@@ -70,7 +70,11 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 // requote rebuilds the open confirm's quote from the band list a re-scan just returned, under
 // the profile the confirm is on. A band that is gone, or no longer serving, is not offered for
 // accept; a fresh price above the cap goes to the over-limit screen, as connect does.
-func (m *model) requote() {
+//
+// Only the operator's own re-scan (r, explicit) may move to the raise-the-cap screen. A
+// periodic scan keeps the confirm and marks the quote over the cap, so accept refuses; it never
+// pre-fills a raise the operator's next enter would save.
+func (m *model) requote(explicit bool) {
 	for _, b := range m.bands {
 		if b.model != m.q.b.model || b.quant != m.q.b.quant || !b.online || b.cheapest == nil {
 			continue
@@ -79,8 +83,12 @@ func (m *model) requote() {
 		m.q = quote{b: b, limit: m.confirmLimit(b.model), typical: typ, estReply: b.minOut * float64(typ) / 1e6}
 		if m.q.limit.MaxOut > 0 && b.minOut > m.q.limit.MaxOut {
 			m.q.overLimit = true
-			m.editBuf = money(b.minOut)
-			m.mode = modeOverLimit
+			if explicit {
+				m.editBuf = money(b.minOut)
+				m.mode = modeOverLimit
+				return
+			}
+			m.status = stEmber.Render("the price rose above your cap - r to re-scan, esc to go back")
 		}
 		return
 	}
