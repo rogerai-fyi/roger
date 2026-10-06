@@ -211,6 +211,21 @@ func ValidateRoutingBody(b map[string]any) error {
 			return fmt.Errorf("models has more than 5 distinct models")
 		}
 	}
+	if err := ValidateRoutingValues(b); err != nil {
+		return err
+	}
+	p, _ := b["provider"].(map[string]any)
+	r, _ := b["roger"].(map[string]any)
+	if p != nil && r != nil && p["sort"] != nil && r["pref"] != nil {
+		return fmt.Errorf("provider.sort and roger.pref are exclusive")
+	}
+	return nil
+}
+
+// ValidateRoutingValues checks the type and range of each provider and roger key present
+// (§1a), without the rules that relate one key to another (sort vs pref). A plane that
+// ignores some keys still refuses a value the broker would.
+func ValidateRoutingValues(b map[string]any) error {
 	if v, ok := b["provider"]; ok && v != nil {
 		p, isObj := v.(map[string]any)
 		if !isObj {
@@ -228,11 +243,6 @@ func ValidateRoutingBody(b map[string]any) error {
 		if err := validateRoger(r); err != nil {
 			return err
 		}
-	}
-	p, _ := b["provider"].(map[string]any)
-	r, _ := b["roger"].(map[string]any)
-	if p != nil && r != nil && p["sort"] != nil && r["pref"] != nil {
-		return fmt.Errorf("provider.sort and roger.pref are exclusive")
 	}
 	return nil
 }

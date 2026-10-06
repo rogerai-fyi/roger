@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // The routing body object on the Core-free plane (ROUTING-EXPRESSION-CONTRACT §5a). The plane
@@ -45,6 +46,7 @@ type localRouting struct {
 var (
 	localProviderHonored = map[string]bool{"order": true, "only": true, "ignore": true, "allow_fallbacks": true}
 	localProviderIgnored = map[string]bool{"sort": true, "quantizations": true, "max_price": true, "require_parameters": true}
+	localRogerHonored    = map[string]bool{"confidential": true, "trust_min": true, "profile": true}
 	localRogerIgnored    = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "self_hosted_only": true, "region": true, "freq": true}
 	localSugar   = []string{":free", ":floor", ":nitro"}
@@ -53,32 +55,41 @@ var (
 
 // parseLocalRouting reads the routing carriers of a consumer request. hdrConfidential is the
 // X-Roger-Confidential request header.
-// ignoredProviderValueErr checks a provider key the local plane does not honor with the
-// broker's rules ("" when the value is acceptable).
-func ignoredProviderValueErr(k string, v json.RawMessage) string {
-	switch k {
-	case "sort":
-		var s string
-		if json.Unmarshal(v, &s) != nil || (s != "price" && s != "throughput" && s != "latency") {
-			return "provider.sort must be price, throughput or latency"
+// knownKeysInOrder returns a carrier's keys sorted, refusing the first unknown one (by name)
+// before any value is read, so a body with several faults always gets the same 400.
+func knownKeysInOrder(carrier string, obj map[string]json.RawMessage, sets ...map[string]bool) ([]string, *routeErr) {
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		known := false
+		for _, set := range sets {
+			known = known || set[k]
 		}
-	case "require_parameters":
-		var b bool
-		if json.Unmarshal(v, &b) != nil {
-			return "provider.require_parameters must be true or false"
-		}
-	case "quantizations":
-		var list []string
-		if json.Unmarshal(v, &list) != nil || len(list) > 32 {
-			return "provider.quantizations must be a list of at most 32 labels"
-		}
-		for _, q := range list {
-			if strings.TrimSpace(q) == "" {
-				return "provider.quantizations entries must be non-empty strings"
-			}
+		if !known {
+			return nil, &routeErr{status: 400, msg: "unknown routing key " + carrier + "." + k}
 		}
 	}
-	return ""
+	return keys, nil
+}
+
+// validateCarriers runs the shared value rules (client.ValidateRoutingValues) over the
+// provider and roger carriers. Not the cross-key ones: this plane ignores sort and pref, so
+// stating both is not a conflict here (localplane_routing.feature).
+func validateCarriers(m map[string]json.RawMessage) error {
+	sub := map[string]any{}
+	for _, k := range []string{"provider", "roger"} {
+		if raw, ok := m[k]; ok && string(raw) != "null" {
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			sub[k] = v
+		}
+	}
+	return client.ValidateRoutingValues(sub)
 }
 
 func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeErr) {
@@ -149,22 +160,10 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		if json.Unmarshal(raw, &p) != nil || p == nil {
 			return lr, &routeErr{status: 400, msg: "provider must be an object"}
 		}
-		// Keys in a fixed order, unknown ones refused first, so a body with several faults always
-		// gets the same 400.
-		keys := make([]string, 0, len(p))
-		for k := range p {
-			if !localProviderHonored[k] && !localProviderIgnored[k] {
-				keys = append(keys, k)
-			}
+		keys, e := knownKeysInOrder("provider", p, localProviderHonored, localProviderIgnored)
+		if e != nil {
+			return lr, e
 		}
-		sort.Strings(keys)
-		if len(keys) > 0 {
-			return lr, &routeErr{status: 400, msg: "unknown routing key provider." + keys[0]}
-		}
-		for k := range p {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
 		for _, k := range keys {
 			v := p[k]
 			switch {
@@ -196,11 +195,6 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 				if string(v) == "null" {
 					continue // a null key is absent, never named as ignored (as on the broker)
 				}
-				// Not honored here, but checked with the broker's rules: a value the broker
-				// would refuse is refused here too, never served.
-				if msg := ignoredProviderValueErr(k, v); msg != "" {
-					return lr, &routeErr{status: 400, msg: msg}
-				}
 				if k == "max_price" {
 					var mp map[string]json.RawMessage
 					if json.Unmarshal(v, &mp) != nil || mp == nil {
@@ -217,14 +211,9 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 						if !maxPriceKeys[sk] {
 							return lr, &routeErr{status: 400, msg: "provider.max_price keys are prompt, completion, request and image"}
 						}
-						if string(mp[sk]) == "null" {
-							continue
+						if string(mp[sk]) != "null" {
+							ignored["provider.max_price."+sk] = true
 						}
-						var f float64
-						if t := strings.TrimSpace(string(mp[sk])); t == "" || t[0] == '"' || json.Unmarshal(mp[sk], &f) != nil || f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
-							return lr, &routeErr{status: 400, msg: "provider.max_price." + sk + " must be a non-negative number"}
-						}
-						ignored["provider.max_price."+sk] = true
 					}
 					continue
 				}
@@ -249,7 +238,12 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		if v, has := r["profile"]; has && string(v) != "null" {
 			return lr, &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
 		}
-		for k, v := range r {
+		rkeys, e := knownKeysInOrder("roger", r, localRogerHonored, localRogerIgnored)
+		if e != nil {
+			return lr, e
+		}
+		for _, k := range rkeys {
+			v := r[k]
 			if string(v) == "null" {
 				continue // a null key is absent, as on the provider side
 			}
@@ -276,12 +270,16 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 				}
 			case localRogerIgnored[k]:
 				ignored["roger."+k] = true
-			default:
-				return lr, &routeErr{status: 400, msg: "unknown routing key roger." + k}
 			}
 		}
 	}
 
+	// The keys this plane does not honor are still checked with the contract's value rules
+	// (the same ones the client and the broker apply), so a value the broker would refuse is
+	// refused here too, never served. Local checks above run first and keep their codes.
+	if err := validateCarriers(m); err != nil {
+		return lr, &routeErr{status: 400, msg: err.Error()}
+	}
 	for k := range ignored {
 		lr.ignored = append(lr.ignored, k)
 	}

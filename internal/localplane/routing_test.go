@@ -166,9 +166,12 @@ func TestLocalRoutingAuditRegressions(t *testing.T) {
 	require.Equal(t, 400, e.status)
 	require.Equal(t, "provider.max_price keys are prompt, completion, request and image", e.msg)
 
-	lr, e := parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"prompt":1,"completion":2,"request":3,"image":4}}}`), false)
+	// image pricing does not exist: max_price.image is refused, as the broker refuses it
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"image":4}}}`), false)
+	require.NotNil(t, e)
+	lr, e := parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"prompt":1,"completion":2,"request":3}}}`), false)
 	require.Nil(t, e)
-	require.Equal(t, []string{"provider.max_price.completion", "provider.max_price.image", "provider.max_price.prompt", "provider.max_price.request"}, lr.ignored)
+	require.Equal(t, []string{"provider.max_price.completion", "provider.max_price.prompt", "provider.max_price.request"}, lr.ignored)
 
 	lr, e = parseLocalRouting([]byte(`{"model":"a","roger":{"trust_min":null,"profile":null,"confidential":null}}`), false)
 	require.Nil(t, e, "a null roger key is absent")
@@ -213,4 +216,35 @@ func TestLocalRoutingRefusalIsDeterministic(t *testing.T) {
 		require.NotNil(t, e)
 		require.Equal(t, "unknown routing key provider.aaa", e.msg)
 	}
+}
+
+// TestLocalRoutingRogerRefusalIsDeterministic: the roger carrier, like provider, names the
+// same fault every time, an unknown key first.
+func TestLocalRoutingRogerRefusalIsDeterministic(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		_, e := parseLocalRouting([]byte(`{"model":"a","roger":{"min_tps":"x","zzz":1,"aaa":2}}`), false)
+		require.NotNil(t, e)
+		require.Equal(t, "unknown routing key roger.aaa", e.msg)
+	}
+}
+
+// TestLocalRoutingValidatesIgnoredRogerValues: an unhonored roger key is still checked with
+// the contract's rules, and max_price.image (no image pricing exists) is refused.
+func TestLocalRoutingValidatesIgnoredRogerValues(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"a","roger":{"min_tps":"fast"}}`,
+		`{"model":"a","roger":{"pref":"turbo"}}`,
+		`{"model":"a","roger":{"params_b":[70,7]}}`,
+		`{"model":"a","roger":{"min_ctx":0}}`,
+		`{"model":"a","roger":{"require":["telepathy"]}}`,
+		`{"model":"a","roger":{"region":["US-West"]}}`,
+		`{"model":"a","provider":{"max_price":{"image":1}}}`,
+	} {
+		_, e := parseLocalRouting([]byte(body), false)
+		require.NotNil(t, e, body)
+		require.Equal(t, 400, e.status, body)
+	}
+	lr, e := parseLocalRouting([]byte(`{"model":"a","roger":{"min_tps":5,"pref":"fast","params_b":[7,70],"min_ctx":32768}}`), false)
+	require.Nil(t, e)
+	require.Equal(t, []string{"roger.min_ctx", "roger.min_tps", "roger.params_b", "roger.pref"}, lr.ignored)
 }
