@@ -11,6 +11,7 @@ package main
 // with a Retry-After, and the Retry-After travels end to end. Probes never consult the filter.
 
 import (
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -110,7 +111,11 @@ func (b *broker) attemptID(requestID string, n int) string {
 // attemptKey is the attempt-id secret: derived from the broker signing key under its own
 // label, so every instance of one broker agrees on it with no extra configuration.
 func (b *broker) attemptKey() []byte {
-	mac := hmac.New(sha256.New, b.priv.Seed())
+	var seed []byte
+	if len(b.priv) == ed25519.PrivateKeySize {
+		seed = b.priv.Seed()
+	} // a broker built without a key (some unit fixtures): same shape, unkeyed
+	mac := hmac.New(sha256.New, seed)
 	mac.Write([]byte("rogerai attempt-id v1"))
 	return mac.Sum(nil)
 }

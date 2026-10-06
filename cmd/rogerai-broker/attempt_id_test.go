@@ -1,0 +1,29 @@
+package main
+
+// attempt_id_test.go: the per-attempt id (contract §14.B7 #13) keeps its shape on every broker,
+// including one built without a signing key (some unit fixtures), and is stable per attempt.
+
+import (
+	"crypto/ed25519"
+	"regexp"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+var attemptShape = regexp.MustCompile(`^att_[0-9a-f]{24}$`)
+
+func TestAttemptID(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	for name, b := range map[string]*broker{"keyed": {priv: priv}, "no key": {}} {
+		a1, a2 := b.attemptID("R", 1), b.attemptID("R", 2)
+		require.Regexp(t, attemptShape, a1, name)
+		require.Regexp(t, attemptShape, a2, name)
+		require.NotEqual(t, a1, a2, name)
+		require.Equal(t, a1, b.attemptID("R", 1), "%s: stable per (request, attempt)", name)
+		require.Equal(t, a1, b.attemptID("R", 0), "%s: n below 1 is attempt 1", name)
+	}
+	_, other, _ := ed25519.GenerateKey(nil)
+	require.NotEqual(t, (&broker{priv: priv}).attemptID("R", 1), (&broker{priv: other}).attemptID("R", 1),
+		"another broker key derives other ids")
+}
