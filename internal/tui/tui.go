@@ -659,8 +659,8 @@ func (s *LimitStore) clear(model string) {
 
 // clearLocked deletes one cap; the caller must hold mu (see setLocked).
 func (s *LimitStore) clearLocked(model string) {
-	if s.Models == nil {
-		return
+	if _, ok := s.Models[model]; !ok {
+		return // nothing stored: nothing to persist, and not an edit
 	}
 	delete(s.Models, model)
 	s.gen++
@@ -3034,6 +3034,9 @@ func (m *model) commitLimitField() bool {
 		limFieldDefs[m.editField].kind == fkToggle {
 		return true
 	}
+	if !m.editDraft && m.editBuf == "" {
+		return true // begun, nothing typed: the stored value is kept, never committed as a clear
+	}
 	row := m.limModels[m.limCursor]
 	cur := m.rowLimit(row)
 	next, err := applyField(cur, m.editField, m.editBuf)
@@ -3064,7 +3067,7 @@ func (m *model) focusLimitField(f int) {
 	m.limField = ((f % n) + n) % n
 	if m.editField >= 0 {
 		m.editField = m.limField
-		m.editTyped = false
+		m.editTyped, m.editDraft = false, false
 		m.editBuf = ""
 		if m.limCursor < len(m.limModels) {
 			m.editBuf = fieldBuf(m.rowLimit(m.limModels[m.limCursor]), m.limField)

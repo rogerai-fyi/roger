@@ -244,6 +244,7 @@ func TestEmptyInputClearsATextField(t *testing.T) {
 		m, _ := configModel(t)
 		m.limits.Models["q"] = full
 		m.limCursor, m.editField, m.editBuf = 0, f, ""
+		m.editDraft = true // the operator deleted the value (an untouched begun field keeps it)
 		require.True(t, m.commitLimitField())
 		require.Equal(t, want, m.limits.Models["q"], limFieldDefs[f].label+" via the editor")
 	}

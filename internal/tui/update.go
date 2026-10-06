@@ -2151,12 +2151,7 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editTyped, m.editDraft, m.editBuf = true, false, ""
 			return m, nil
 		}
-		// Begun but nothing typed: the stored value is kept, never committed as a clear.
-		if !m.editDraft && m.editBuf == "" {
-			m.editField = -1
-			return m, nil
-		}
-		if !m.commitLimitField() {
+		if !m.commitLimitField() { // begun with nothing typed keeps the stored value
 			return m, nil // the plate shows why; the draft is theirs to fix
 		}
 		m.editField = -1
@@ -2309,9 +2304,6 @@ func (m *model) runAutoTune() tea.Cmd {
 			m.flushPendingPrompts()
 			return nil
 		}
-		// The bind built its options with whatever quote limit the last confirm left; an
-		// auto-tune has no confirm, so the band's own rule is what binds.
-		m.refreshLiveRouting()
 		m.agent.model = o.Model
 		// Same rule as refreshAgentModel: the endpoint follows the model, or an earlier
 		// local pick keeps swallowing turns under this band's name.

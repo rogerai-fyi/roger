@@ -245,3 +245,30 @@ func TestRefreshLiveRoutingLeavesAnOpenQuoteAlone(t *testing.T) {
 	require.InDelta(t, 0.7, got.q.limit.MaxOut, 1e-12, "the open confirm's cap is untouched")
 	require.InDelta(t, 0.3, got.proxyHolder.Get().MaxPriceOut, 1e-12, "the connected band's proxy follows its rule")
 }
+
+// TestBegunFieldTabWithNothingTypedKeepsTheValue: tab off a begun field with nothing typed
+// keeps the stored value (as enter does); it never commits the empty draft as a clear.
+func TestBegunFieldTabWithNothingTypedKeepsTheValue(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.limits.Models = map[string]Limit{"m": {MinCtx: 32768}}
+	m.mode = modeLimits
+	m.limModels = []string{"m", defaultLimitRow}
+	m.limCursor, m.editField = 0, 0
+	m.focusLimitField(lfMinCtx)
+	out, _ := m.Update(keyMsg("enter")) // begins a fresh value
+	out, _ = asModel(out).Update(keyMsg("tab"))
+	require.Equal(t, 32768, asModel(out).limits.own("m").MinCtx, "tab with nothing typed keeps the stored value")
+}
+
+// TestClearingAnAbsentLimitWritesNothing: clearing a band with no stored rule neither
+// re-persists the config nor counts as an edit.
+func TestClearingAnAbsentLimitWritesNothing(t *testing.T) {
+	saves := 0
+	s := &LimitStore{Models: map[string]Limit{"a": {MaxOut: 1}}, Save: func(map[string]Limit, Limit) { saves++ }}
+	g := s.Gen()
+	s.clear("absent")
+	require.Zero(t, saves)
+	require.Equal(t, g, s.Gen())
+	s.clear("a")
+	require.Equal(t, 1, saves)
+}
