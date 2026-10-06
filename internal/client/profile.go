@@ -61,7 +61,7 @@ var (
 	profileRogerKeys = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "trust_min": true, "self_hosted_only": true, "confidential": true, "region": true, "freq": true, "profile": true}
 	profileMaxPriceKeys = map[string]bool{"prompt": true, "completion": true, "request": true}
-	regionTokenRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{1,7}$`)
+	regionTokenRE       = regexp.MustCompile(`^[a-z]{2,8}$`) // the broker's rule (routingreq.go)
 )
 
 // KnownRoutingKey reports whether sub (dotted, below top "provider" or "roger") is a routing

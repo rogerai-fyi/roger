@@ -39,10 +39,15 @@ func TestParseUnits(t *testing.T) {
 
 	_, err := ParseParams("70-7")
 	require.EqualError(t, err, "min must be ≤ max")
-	for _, r := range []string{"eu", "us-west"} {
+	for _, r := range []string{"eu", "apac"} {
 		got, err := NormRegion(r)
 		require.NoError(t, err)
 		require.Equal(t, r, got)
+	}
+	// The broker's token rule (^[a-z]{2,8}$, request_shape.feature): no digits or hyphens.
+	for _, r := range []string{"us-west", "eu-1", "europe-west1", "e"} {
+		_, err := NormRegion(r)
+		require.Error(t, err, r)
 	}
 	for _, r := range []string{"EU", "e", "europe-west1"} {
 		_, err := NormRegion(r)

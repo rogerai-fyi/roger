@@ -100,12 +100,12 @@ func ParseTTFT(v string) (int, error) {
 	return ms, nil
 }
 
-var regionTokenOK = regexp.MustCompile(`^[a-z][a-z0-9-]{1,7}$`)
+var regionTokenOK = regexp.MustCompile(`^[a-z]{2,8}$`) // the broker's rule (routingreq.go)
 
-// NormRegion accepts one lowercase region token (eu, us-west).
+// NormRegion accepts one lowercase region token (eu, apac): 2 to 8 letters, the broker's rule.
 func NormRegion(s string) (string, error) {
 	if !regionTokenOK.MatchString(s) {
-		return "", fmt.Errorf("%q is not a lowercase region (eu, us-west)", s)
+		return "", fmt.Errorf("%q is not a lowercase region (2 to 8 letters: eu, us, apac)", s)
 	}
 	return s, nil
 }
