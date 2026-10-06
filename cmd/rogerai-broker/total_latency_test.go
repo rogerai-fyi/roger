@@ -7,6 +7,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"fmt"
 	"testing"
 	"time"
 
@@ -56,4 +57,26 @@ func TestTotalLatencySharedAcrossInstances(t *testing.T) {
 func TestMsSinceKeepsSubMillisecondServes(t *testing.T) {
 	require.Greater(t, msSince(time.Now().Add(-300*time.Microsecond)), 0.0, "a sub-millisecond serve is still a sample")
 	require.InDelta(t, 1500, msSince(time.Now().Add(-1500*time.Millisecond)), 50)
+}
+
+// slice-6 review 2026-10-06: the shared hash is pruned per node, so a node that stopped
+// serving drops out after the TTL instead of living as long as any other node keeps writing.
+func TestTotalLatencyPrunesStaleNodes(t *testing.T) {
+	mr := miniredis.RunT(t)
+	t.Setenv("ROGERAI_REDIS_URL", "redis://"+mr.Addr())
+	t.Setenv("ROGERAI_MULTI_INSTANCE", "1")
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := buildBroker(store.NewMem(), priv, 0.30, 100, time.Hour)
+	t.Cleanup(func() { _ = b.shared.Close() })
+
+	b.observeTotalLatency("fresh", 1200)
+	stale := time.Now().Add(-totalLatencyTTL - time.Minute).UnixMilli()
+	mr.HSet(totalLatencyKey(), "stale", fmt.Sprintf("900@%d", stale))
+
+	got, err := b.shared.totalLatencies()
+	require.NoError(t, err)
+	require.InDelta(t, 1200, got["fresh"], 1e-9)
+	_, kept := got["stale"]
+	require.False(t, kept, "a figure older than the TTL is not served")
+	require.False(t, mr.Exists(totalLatencyKey()) && mr.HGet(totalLatencyKey(), "stale") != "", "and it is deleted")
 }

@@ -108,16 +108,26 @@ func (b *broker) attemptID(requestID string, n int) string {
 	return "att_" + hex.EncodeToString(mac.Sum(nil))[:24]
 }
 
-// attemptKey is the attempt-id secret: derived from the broker signing key under its own
-// label, so every instance of one broker agrees on it with no extra configuration.
-func (b *broker) attemptKey() []byte {
+// attemptKey is the attempt-id secret (see deriveSecret).
+func (b *broker) attemptKey() []byte { return b.deriveSecret("rogerai attempt-id v1") }
+
+// deriveSecret is a secret derived from the broker signing key under its own label, so every
+// instance of one broker agrees on it with no extra configuration, and one label's secret says
+// nothing about another's. Cached per label. A broker built without a key (some unit fixtures)
+// derives the same shape, unkeyed.
+func (b *broker) deriveSecret(label string) []byte {
+	if v, ok := b.secrets.Load(label); ok {
+		return v.([]byte)
+	}
 	var seed []byte
 	if len(b.priv) == ed25519.PrivateKeySize {
 		seed = b.priv.Seed()
-	} // a broker built without a key (some unit fixtures): same shape, unkeyed
+	}
 	mac := hmac.New(sha256.New, seed)
-	mac.Write([]byte("rogerai attempt-id v1"))
-	return mac.Sum(nil)
+	mac.Write([]byte(label))
+	k := mac.Sum(nil)
+	b.secrets.Store(label, k)
+	return k
 }
 
 // attemptCand is one station the relay may try for a request, with its billing plan and its

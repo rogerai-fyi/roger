@@ -27,3 +27,17 @@ func TestAttemptID(t *testing.T) {
 	require.NotEqual(t, (&broker{priv: priv}).attemptID("R", 1), (&broker{priv: other}).attemptID("R", 1),
 		"another broker key derives other ids")
 }
+
+// slice-6 review 2026-10-06: every secret the broker derives from its signing key goes through
+// one helper, and none of them panics on a broker built without a key.
+func TestDerivedSecretsWithoutAKey(t *testing.T) {
+	b := &broker{}
+	require.NotPanics(t, func() { _ = b.affinityKey("payer", "session", "m") })
+	require.Regexp(t, `^aff:[0-9a-f]{40}$`, b.affinityKey("payer", "session", "m"))
+
+	_, priv, _ := ed25519.GenerateKey(nil)
+	k := &broker{priv: priv}
+	require.Equal(t, k.deriveSecret("x"), k.deriveSecret("x"), "stable per label")
+	require.NotEqual(t, k.deriveSecret("x"), k.deriveSecret("y"), "distinct per label")
+	require.NotEqual(t, k.affinityKey("p", "s", "m"), (&broker{}).affinityKey("p", "s", "m"), "keyed")
+}

@@ -58,17 +58,29 @@ func TestLoadNetTable(t *testing.T) {
 	_, err = loadNetTable(filepath.Join(t.TempDir(), "missing"))
 	require.Error(t, err)
 
+	// slice-6 review 2026-10-06: the read is bounded; a table over the cap is refused.
+	big := filepath.Join(t.TempDir(), "big.txt")
+	require.NoError(t, os.WriteFile(big, []byte("# padding\n"+string(make([]byte, 64))), 0o600))
+	prev := netTableMaxBytes
+	netTableMaxBytes = 16
+	_, err = loadNetTable(big)
+	netTableMaxBytes = prev
+	require.ErrorContains(t, err, "larger than")
+
 	tbl, err = loadNetTable("testdata/net_continents.txt")
 	require.NoError(t, err)
-	require.Equal(t, "NA", tbl.continentOf("3.208.0.1"))
-	require.Equal(t, "EU", tbl.continentOf("52.28.0.1"))
+	require.Equal(t, "NA", tbl.continentOf("192.0.2.1"))
+	require.Equal(t, "EU", tbl.continentOf("198.51.100.1"))
 }
 
 func TestRegionContinent(t *testing.T) {
 	for _, tc := range []struct{ region, want string }{
 		{"eu", "EU"}, {"EU", "EU"}, {"europe", "EU"}, {"eu-west", "EU"}, {" eu ", "EU"},
 		{"us", "NA"}, {"na", "NA"}, {"us-east", "NA"}, {"ca", "NA"},
-		{"asia", "AS"}, {"ap-southeast", "AS"}, {"jp", "AS"},
+		{"asia", "AS"}, {"jp", "AS"},
+		// slice-6 review 2026-10-06: an ambiguous token never maps (an honest station must never
+		// be contradicted): ap-southeast-2 is Australia, "ap" alone names no continent.
+		{"ap", ""}, {"ap-southeast", ""}, {"ap-southeast-2", ""}, {"ap-northeast-1", ""}, {"america", ""},
 		{"sa", "SA"}, {"br", "SA"}, {"af", "AF"}, {"oc", "OC"}, {"au", "OC"},
 		{"", ""}, {"openrouter", ""}, {"mars", ""},
 	} {

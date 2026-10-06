@@ -361,7 +361,7 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     Then "s1" is a candidate
 
   Scenario: A curated station's region is its provider name and is never contradicted
-    Given curated station "c1" whose region is its provider "openrouter"
+    Given curated station "c1" whose region is its provider "upstream-co"
     When a consumer GETs /discover
     Then "c1"'s region is not marked "contradicted"
 

@@ -16,7 +16,7 @@ package main
 //     "picks=N" / "body_decodes=N" field off the relay's log line and fail naming the missing
 //     field when it is absent.
 //   - Region contradiction uses the broker's own network bucket (coarseNetBucket of the
-//     station's address): North America 3.208.0.1, Europe 52.28.0.1, no continent 203.0.113.5.
+//     station's address): North America 192.0.2.1, Europe 198.51.100.1, no continent 203.0.113.5.
 
 import (
 	"bytes"
@@ -1394,8 +1394,8 @@ func (s *ri6State) modelsAttrSources(model string) error {
 }
 
 const (
-	ri6NA      = "3.208.0.1"
-	ri6Europe  = "52.28.0.1"
+	ri6NA      = "192.0.2.1"
+	ri6Europe  = "198.51.100.1"
 	ri6Unknown = "203.0.113.5"
 )
 

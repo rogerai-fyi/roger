@@ -49,7 +49,7 @@ type affinityLocal struct {
 // affinityKey is the store key: an HMAC under the broker's own secret, so neither the session
 // id nor the payer can be read back from it.
 func (b *broker) affinityKey(payer, session, model string) string {
-	mac := hmac.New(sha256.New, append([]byte("affinity|"), b.priv.Seed()...))
+	mac := hmac.New(sha256.New, b.deriveSecret("rogerai affinity v1"))
 	mac.Write([]byte(payer + "\x00" + session + "\x00" + model))
 	return "aff:" + hex.EncodeToString(mac.Sum(nil))[:40]
 }

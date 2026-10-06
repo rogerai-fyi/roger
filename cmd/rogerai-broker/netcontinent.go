@@ -13,6 +13,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/netip"
@@ -59,14 +60,25 @@ func parseNetTable(raw []byte) (*netTable, error) {
 	return t, nil
 }
 
+// netTableMaxBytes bounds the table read (a var so a test can lower it).
+var netTableMaxBytes int64 = 64 << 20
+
 // loadNetTable reads the table at path ("" = none configured: nil, no error).
 func loadNetTable(path string) (*netTable, error) {
 	if path == "" {
 		return nil, nil
 	}
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, netTableMaxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > netTableMaxBytes {
+		return nil, fmt.Errorf("the network table is larger than %d bytes", netTableMaxBytes)
 	}
 	return parseNetTable(raw)
 }
@@ -98,6 +110,9 @@ func (b *broker) regionMismatches() []string {
 }
 
 // continentOf is the continent addr falls in ("" = no table, no match, or not an address).
+// The lookup is a linear scan, longest prefix first: it runs once per registration (never per
+// request), and an operator table of continent ranges is a few thousand lines, so a scan is
+// microseconds where a trie would be code to maintain.
 func (t *netTable) continentOf(addr string) string {
 	if t == nil {
 		return ""
@@ -119,7 +134,9 @@ func (t *netTable) continentOf(addr string) string {
 }
 
 // regionContinent maps a declared region to its continent ("" = no continent: never
-// contradicted). Regions are free-form; this knows the common spellings and prefixes.
+// contradicted). Regions are free-form, so only tokens that name one continent without doubt
+// map; anything ambiguous ("ap-southeast-2" is in Oceania, "america" is two continents) maps to
+// nothing, because an honest station must never be contradicted.
 func regionContinent(region string) string {
 	r := strings.ToLower(strings.TrimSpace(region))
 	if r == "" {
@@ -129,9 +146,9 @@ func regionContinent(region string) string {
 	switch head {
 	case "eu", "europe", "uk", "gb", "de", "fr", "nl":
 		return "EU"
-	case "us", "na", "ca", "northamerica", "america":
+	case "us", "na", "ca", "northamerica":
 		return "NA"
-	case "asia", "ap", "as", "jp", "sg", "in", "kr", "cn", "hk", "tw":
+	case "asia", "jp", "sg", "in", "kr", "cn", "hk", "tw":
 		return "AS"
 	case "sa", "br", "southamerica":
 		return "SA"

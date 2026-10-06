@@ -6,14 +6,22 @@ package main
 // elapsed time into a per-node EWMA. With a shared store the figure lives there (write-through on
 // each sample, merged into memory on the sync loop), so every instance ranks on the same number;
 // without one it is this instance's own.
+//
+// The shared figure is BEST EFFORT and LAST WRITER WINS: each instance blends a sample into its
+// own copy and writes the result, so two instances serving one node at once can overwrite each
+// other's sample. For a ranking hint that is fine (both figures are recent measurements of the
+// same node); nothing money- or trust-bearing reads it. Each node's field carries its write
+// time and is dropped once older than totalLatencyTTL, so a node that stopped serving falls out.
 
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 )
 
-// totalLatencyTTL keeps the shared hash alive while any node is being measured.
+// totalLatencyTTL is how long a node's figure is served after its last sample (and keeps the
+// shared hash alive while any node is being measured).
 const totalLatencyTTL = 24 * time.Hour
 
 // observeTotalLatency folds one served attempt's time to the whole answer (ms) into the node's
@@ -93,7 +101,7 @@ func (v *valkeyStore) setTotalLatency(node string, ms float64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	pipe := v.rdb.Pipeline()
-	pipe.HSet(ctx, totalLatencyKey(), node, strconv.FormatFloat(ms, 'g', -1, 64))
+	pipe.HSet(ctx, totalLatencyKey(), node, strconv.FormatFloat(ms, 'g', -1, 64)+"@"+strconv.FormatInt(time.Now().UnixMilli(), 10))
 	pipe.PExpire(ctx, totalLatencyKey(), totalLatencyTTL)
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("setTotalLatency", err)
@@ -115,10 +123,20 @@ func (v *valkeyStore) totalLatencies() (map[string]float64, error) {
 		return nil, err
 	}
 	out := make(map[string]float64, len(fields))
+	cutoff := time.Now().Add(-totalLatencyTTL).UnixMilli()
+	var stale []string
 	for node, s := range fields {
-		if f, perr := strconv.ParseFloat(s, 64); perr == nil && f > 0 {
-			out[node] = f
+		val, at, _ := strings.Cut(s, "@")
+		f, perr := strconv.ParseFloat(val, 64)
+		ts, terr := strconv.ParseInt(at, 10, 64)
+		if perr != nil || terr != nil || f <= 0 || ts < cutoff {
+			stale = append(stale, node) // unreadable or older than the TTL: not served, and swept
+			continue
 		}
+		out[node] = f
+	}
+	if len(stale) > 0 {
+		_ = v.rdb.HDel(ctx, totalLatencyKey(), stale...).Err()
 	}
 	v.setUp(true)
 	return out, nil

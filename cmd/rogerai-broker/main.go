@@ -182,6 +182,8 @@ type broker struct {
 	totalLat map[string]float64
 	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.
 	netTable *netTable
+	// secrets caches deriveSecret per label (cooling.go).
+	secrets sync.Map
 	// idemLocal holds replayable outcomes when the shared store is down (idempotency.go);
 	// the claim itself always lives in the store.
 	idemLocal idemLocal
