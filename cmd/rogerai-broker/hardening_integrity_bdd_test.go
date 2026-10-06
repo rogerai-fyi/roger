@@ -793,7 +793,7 @@ func (s *ri6State) noCommonPrefix(a, b string) error {
 		return err
 	}
 	s.scen["ids"] = [2]string{ia, ib}
-	if p := commonPrefix(ia, ib); p > len("att_") {
+	if p := commonPrefix(ia, ib); p > len("att_")+4 {
 		return fmt.Errorf("job ids %q and %q share the %d-character prefix %q", ia, ib, p, ia[:p])
 	}
 	return nil
@@ -1646,7 +1646,7 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^the job id "([^"]+)" received is not "R" and does not contain "R"$`, st.jobNotR)
 	sc.Step(`^"([^"]+)" answers the next request with an upstream 429$`, st.answersNext429)
 	sc.Step(`^"([^"]+)" relays for "([^"]+)" and "([^"]+)" serves$`, st.relayAndServes)
-	sc.Step(`^the job ids received by "([^"]+)" and "([^"]+)" share no common prefix longer than "att_"$`, st.noCommonPrefix)
+	sc.Step(`^the job ids received by "([^"]+)" and "([^"]+)" share no common prefix longer than "att_" plus 4 hex characters$`, st.noCommonPrefix)
 	sc.Step(`^neither job id is derivable from the other without the broker secret$`, st.notDerivable)
 	sc.Step(`^the broker derives the job id for request "R" attempt 2 twice$`, st.deriveTwice)
 	sc.Step(`^the response's X-RogerAI-Attempt-Id is the job id "([^"]+)" received$`, st.attemptHeaderIs)

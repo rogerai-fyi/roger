@@ -191,11 +191,12 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     When "u-1" relays for "m" and the response carries X-RogerAI-Request-Id "R"
     Then the job id "s1" received is not "R" and does not contain "R"
 
+  # corrected 2026-10-05 (founder-approved): random ids share a hex char 1 in 16
   Scenario: Two stations on one failover chain cannot link their job ids
     Given station "s2" is on air for "m"
     And "s1" answers the next request with an upstream 429
     When "u-1" relays for "m" and "s2" serves
-    Then the job ids received by "s1" and "s2" share no common prefix longer than "att_"
+    Then the job ids received by "s1" and "s2" share no common prefix longer than "att_" plus 4 hex characters
     And neither job id is derivable from the other without the broker secret
 
   # founder ruling 2026-10-05: the receipt names the attempt, and the response says which
