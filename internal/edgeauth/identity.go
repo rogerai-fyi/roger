@@ -62,6 +62,9 @@ const (
 	// ClaimsFile is the node ids the owner has ADOPTED and that may therefore claim a
 	// certificate (features/edge/claim.feature). A grant is consumed on a successful claim.
 	ClaimsFile = "claims.json"
+	// CodesFile is the live one-time enrollment codes, one per join, owner-readable only
+	// (features/edge/enrollment_root_trust.feature). A code is deleted when spent or expired.
+	CodesFile = "codes.json"
 )
 
 // ErrDifferentAuthority refuses an answer from an authority that is not the one this

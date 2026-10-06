@@ -73,6 +73,9 @@ type Response struct {
 	Account string `json:"account"`
 	Cert    string `json:"cert"`
 	Root    string `json:"root"`
+	// RootProof, when the owner minted an enrollment code for this join, proves the root is the
+	// one whose authority showed that code (code.go). A joiner from before proofs ignores it.
+	RootProof string `json:"root_proof,omitempty"`
 }
 
 // Issue mints one certificate, or refuses and mints nothing.
