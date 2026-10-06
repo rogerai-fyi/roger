@@ -207,6 +207,48 @@ func (s *ri6State) probeSendsTwo(a, b string) error {
 	return s.collectUsers(a, b)
 }
 
+func (s *ri6State) probeSendsNToTwo(n, a, m, b string) error {
+	s.mark()
+	for _, name := range []string{a, b} {
+		st := s.ensureNode(name)
+		for i := 0; i < atoiMust(n); i++ {
+			s.canary(st)
+		}
+	}
+	if m != n {
+		return fmt.Errorf("the step sends the same count to both stations (%s and %s)", n, m)
+	}
+	return s.collectUsers(a, b)
+}
+
+func (s *ri6State) allDistinctPseudonyms() error {
+	if len(s.jobUsers) == 0 {
+		if err := s.collectUsers(fmt.Sprint(s.scen["canaryNode"])); err != nil {
+			return err
+		}
+	}
+	seen := map[string]bool{}
+	for _, u := range s.jobUsers {
+		if seen[u] {
+			return fmt.Errorf("canary pseudonym %q repeats across %d canaries", u, len(s.jobUsers))
+		}
+		seen[u] = true
+	}
+	if len(seen) < 2 {
+		return fmt.Errorf("observed %d canary jobs, want at least 2", len(seen))
+	}
+	return nil
+}
+
+func (s *ri6State) allPseudonymShaped() error {
+	for _, u := range s.jobUsers {
+		if !regexp.MustCompile(`^u_[0-9a-f]{16}$`).MatchString(u) {
+			return fmt.Errorf("canary user %q is not shaped like a real pseudonym", u)
+		}
+	}
+	return nil
+}
+
 func (s *ri6State) differentPseudonyms() error {
 	if len(s.jobUsers) < 2 {
 		return fmt.Errorf("observed %d canary jobs, want 2", len(s.jobUsers))
@@ -1618,6 +1660,9 @@ func ri6Register(sc *godog.ScenarioContext, st *ri6State) {
 	sc.Step(`^station "([^"]+)" is on air for "([^"]+)"$`, st.onAir)
 	sc.Step(`^the probe sends its canary to "([^"]+)" and to "([^"]+)"$`, st.probeSendsTwo)
 	sc.Step(`^the two jobs carry different pseudonyms$`, st.differentPseudonyms)
+	sc.Step(`^the probe sends (\d+) canaries to "([^"]+)" and (\d+) canaries to "([^"]+)"$`, func(n, a, m, b string) error { return st.probeSendsNToTwo(n, a, m, b) })
+	sc.Step(`^every canary carried a different pseudonym$`, st.allDistinctPseudonyms)
+	sc.Step(`^every canary pseudonym matches the pattern of a real pseudonym$`, st.allPseudonymShaped)
 	sc.Step(`^the probe sends (\d+) canaries to "([^"]+)"$`, st.probeSendsN)
 	sc.Step(`^at least (\d+) distinct prompts were used$`, st.distinctPrompts)
 	sc.Step(`^no prompt contains a fixed marker string shared by all of them$`, st.noSharedMarker)

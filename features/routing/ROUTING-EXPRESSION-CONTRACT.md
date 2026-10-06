@@ -613,6 +613,19 @@ Rulings on the slice-6 open items (founder, 2026-10-05):
 27. Route explain: the `self_hosted_only` exclusion is pinned with a curated station of its own
     (the outline row that named a never-curated station is replaced).
 
+Rulings on the slice-6 review (founder, 2026-10-06):
+28. Canary identity (§14.B7 #2): the pseudonym a canary carries rotates PER PROBE: each is
+    derived from the broker secret plus a per-probe nonce, shaped like a customer's, so a station
+    sees no stable probe user. Grading and verified status are unchanged.
+29. Idempotency replays (§14.B2): only a success or a client error (a 4xx other than 429) is
+    replayed. A retryable outcome (429, any 5xx) releases the claim and the retry runs fresh,
+    still with at most one hold and one charge overall. A request that reached nobody (the
+    consumer left before any answer) releases its claim too, and a stored status below 100 is
+    never replayed.
+30. Idempotency, saved reply gone (§14.B2): when the claim exists but its saved reply is gone,
+    the answer stays a 409 (never a second job under one key) with the code
+    `response_unavailable`.
+
 ---
 
 ## 14. Hardening (slice 6, PROPOSED 2026-10-02, awaiting founder approval)
@@ -819,15 +832,18 @@ by the feature file named beside it.
 - `Idempotency-Key` header, 1..128 printable ASCII bytes, else 400 invalid_idempotency_key.
   Scope (payer, key); window `ROGERAI_IDEMPOTENCY_TTL` default 10m from the first request.
 - Fingerprint = sha256(exact body bytes + the X-Roger-* routing headers read).
-- Same scope + fingerprint: finished non-stream (any status) → replay: same status, body bytes,
+- Same scope + fingerprint: finished non-stream with a success or client-error status (§13 ruling
+  29; a 429 or 5xx releases the key and the retry runs fresh) → replay: same status, body bytes,
   X-RogerAI-* headers, same X-RogerAI-Request-Id, plus `X-RogerAI-Idempotent-Replay: true`; no
   dispatch, hold, settle, moderation, or relay rate token. In flight → 409 request_in_flight with
   Retry-After >= 1. A stream that committed its first frame → 409 stream_not_replayable; a stream
-  that failed before any frame is replayed like a non-stream outcome.
+  that failed before any frame is treated like a non-stream outcome of the same status.
 - Same scope, different fingerprint → 422 idempotency_key_reused.
 - Bounds: stored body <= 1 MiB (else retries get 409 response_too_large_to_replay); <= 1000 live
-  keys per payer (oldest evicted early; the request is still served).
-- Shared store; per instance without it (documented).
+  keys per payer (the oldest FINISHED keys are evicted early, never one still in flight; the
+  request is still served).
+- The claim lives in the store; the saved reply in the shared store (per instance without it).
+  A claim whose saved reply is gone answers 409 response_unavailable (§13 ruling 30).
 - Every relay response carries `X-RogerAI-Attempts: <n>` (station attempts made). The local proxy
   mints one key per client request (or forwards the client's), reuses it on every retry, and does
   not re-pick when n > 1.
@@ -893,8 +909,8 @@ by the feature file named beside it.
 
 ## §14.B7 Integrity (features/security/routing_integrity.feature)
 
-- Probes: pseudonym from the real derivation (no "probe" user); rotating realistic prompts (no
-  fixed sentinel); same request shape as the model's traffic; shadow canaries mirror organic
+- Probes: pseudonym from the real derivation (no "probe" user), rotated per probe (§13 ruling 28);
+  rotating realistic prompts (no fixed sentinel); same request shape as the model's traffic; shadow canaries mirror organic
   shape. `verified` withdrawn when organic evidence contradicts the probe: K=3 recount strikes or
   organic success below the Tier-A bar within 1h (knobs), restored after a clean window and a
   passing canary.

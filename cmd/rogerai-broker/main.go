@@ -1270,7 +1270,11 @@ func resolveBrokerKey(h string, requireKey bool) (ed25519.PrivateKey, error) {
 // Stable for repeat-customer stats; not reversible to the real user and not the
 // same across nodes (so providers can't collude to re-identify someone).
 func (b *broker) pseudonym(user, node string) string {
-	h := sha256.Sum256(append(b.priv.Seed(), []byte(user+"|"+node)...))
+	var seed []byte
+	if len(b.priv) == ed25519.PrivateKeySize {
+		seed = b.priv.Seed()
+	} // a broker built without a key (some unit fixtures): same shape, unkeyed
+	h := sha256.Sum256(append(seed, []byte(user+"|"+node)...))
 	return "u_" + hex.EncodeToString(h[:8])
 }
 

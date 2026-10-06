@@ -94,6 +94,19 @@ Feature: Routing measurements cannot be gamed, picks are bounded, and consumers 
     When the probe sends its canary to "s1" and to "s2"
     Then the two jobs carry different pseudonyms
 
+  # founder ruling 2026-10-06: the canary identity rotates per probe, so a station sees no stable
+  # probe user to recognise
+  Scenario: Two canaries to the same station carry different pseudonyms
+    When the probe sends 2 canaries to "s1"
+    Then every canary carried a different pseudonym
+
+  # founder ruling 2026-10-06
+  Scenario: A canary pseudonym never repeats across stations
+    Given station "s2" is on air for "m"
+    When the probe sends 5 canaries to "s1" and 5 canaries to "s2"
+    Then every canary carried a different pseudonym
+    And every canary pseudonym matches the pattern of a real pseudonym
+
   Scenario: Canary prompts rotate and contain no fixed sentinel text
     When the probe sends 20 canaries to "s1"
     Then at least 5 distinct prompts were used

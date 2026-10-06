@@ -10,24 +10,23 @@ package main
 // sampling hint for the probe, not a source of truth for anything a request depends on.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
-// probeIdentity is the identity canaries are pseudonymised from: b.pseudonym hashes it with
-// the broker's secret, so the station sees "u_" + 16 hex like any consumer and cannot tell.
-const probeIdentity = "\x00probe"
+// probeIdentity prefixes the identity a canary is pseudonymised from. Founder ruling 2026-10-06:
+// the identity ROTATES PER PROBE (a fresh nonce each time), so every canary carries a pseudonym
+// derived from the broker's secret exactly like a customer's ("u_" + 16 hex) and no two canaries
+// share one: a station sees no stable probe user to recognise. Grading and verified status do not
+// read the pseudonym.
+const probeIdentity = "\x00probe|"
 
 func (b *broker) probePseudonym(node string) string {
-	if len(b.priv) == 0 { // a broker built without a key (some unit fixtures): same shape, unkeyed
-		h := sha256.Sum256([]byte(probeIdentity + "|" + node))
-		return "u_" + hex.EncodeToString(h[:8])
-	}
-	return b.pseudonym(probeIdentity, node)
+	return b.pseudonym(probeIdentity+protocol.NewRequestID(), node)
 }
 
 const organicRing = 50 // shapes kept per model

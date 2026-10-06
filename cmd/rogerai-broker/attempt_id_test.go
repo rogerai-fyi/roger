@@ -34,6 +34,9 @@ func TestDerivedSecretsWithoutAKey(t *testing.T) {
 	b := &broker{}
 	require.NotPanics(t, func() { _ = b.affinityKey("payer", "session", "m") })
 	require.Regexp(t, `^aff:[0-9a-f]{40}$`, b.affinityKey("payer", "session", "m"))
+	require.NotPanics(t, func() { _ = b.pseudonym("u", "n") })
+	require.Regexp(t, `^u_[0-9a-f]{16}$`, b.probePseudonym("n"))
+	require.NotEqual(t, b.probePseudonym("n"), b.probePseudonym("n"), "a canary identity rotates per probe")
 
 	_, priv, _ := ed25519.GenerateKey(nil)
 	k := &broker{priv: priv}
