@@ -1372,7 +1372,7 @@
       return values.length ? "" : emptyNote;
     }
     var qn = fill("dkRtQuant", b ? Object.keys(b.quants || {}) : [], ROUTE.quant, "no station on this tape states its quant");
-    var rn = fill("dkRtRegion", b ? Object.keys(b.regions || {}) : [], ROUTE.region, "");
+    var rn = fill("dkRtRegion", b ? window.PlayboxRoute.regionChoices(Object.keys(b.regions || {})) : [], ROUTE.region, "");
     if (qn.indexOf("is not on") !== -1) ROUTE.quant = "";
     if (rn.indexOf("is not on") !== -1) ROUTE.region = "";
     routeNote(qn || rn);

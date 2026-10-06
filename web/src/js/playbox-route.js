@@ -7,6 +7,7 @@
 
   var MAX_FALLBACKS = 4;
   // the values the drawer's selects offer ("" is unset); anything else stored is dropped
+  var REGION = /^[a-z]{2,8}$/;   // the broker's region token rule
   var SORTS = ["price", "throughput", "latency"], PREFS = ["cheap", "fast", "reliable"],
     TRUSTS = ["verified", "confidential"];
 
@@ -24,7 +25,8 @@
     r.tps = num(o.tps);
     ["ctx", "ttft"].forEach(function (k) { r[k] = num(o[k]) || null; });
     ["selfHosted", "confidential", "tools", "vision"].forEach(function (k) { r[k] = o[k] === true; });
-    ["quant", "region"].forEach(function (k) { r[k] = str(o[k]); });
+    r.quant = str(o.quant);
+    r.region = REGION.test(str(o.region)) ? o.region : "";   // the broker 400s any other token
     function oneOf(v, xs) { return xs.indexOf(v) !== -1 ? v : ""; }
     r.sort = oneOf(o.sort, SORTS); r.trust = oneOf(o.trust, TRUSTS);
     r.pref = r.sort ? "" : oneOf(o.pref, PREFS);   // sort by replaces prefer
@@ -100,7 +102,13 @@
     return !!(t.closest && (t.closest("#dkRoute") || t.closest("#dkRouteBtn")));
   }
 
-  var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput };
+  // regionChoices: the station-declared regions the broker would accept in roger.region
+  function regionChoices(list) {
+    return (list || []).filter(function (x) { return typeof x === "string" && REGION.test(x); });
+  }
+
+  var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
+    regionChoices: regionChoices };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();

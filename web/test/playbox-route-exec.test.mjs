@@ -91,3 +91,14 @@ test("the bay's keydown and drag consult the guard before acting", () => {
   assert.match(bay, /addEventListener\("keydown", function \(e\) \{\s*if \(window\.PlayboxRoute\.ownsInput\(e\.target\)\) return;/,
     "arrow keys in a field or the drawer must not change tape");
 });
+
+test("region choices and stored regions keep only tokens the broker accepts (^[a-z]{2,8}$)", () => {
+  assert.deepEqual(R.regionChoices(["eu", "us-west", "US", "apac", "x", "toolongtoken"]), ["eu", "apac"]);
+  assert.equal(R.clean({ region: "us-west" }).region, "", "a stored region the broker would 400 is dropped");
+  assert.equal(R.clean({ region: "eu" }).region, "eu");
+});
+
+test("the drawer fills its region select through the filter", () => {
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  assert.match(js, /fill\("dkRtRegion", b \? window\.PlayboxRoute\.regionChoices\(Object\.keys\(b\.regions \|\| \{\}\)\) : \[\]/);
+});
