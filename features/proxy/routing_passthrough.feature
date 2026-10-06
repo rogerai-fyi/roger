@@ -167,6 +167,13 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with model "@profile/coding"
     Then the broker receives model "qwen3-32b-fp8" and models ["llama-3.3-70b", "qwen3-32b-fp8"]
 
+  # regression 2026-10-05: audit finding, contract §2 (a :free tune is free-only for every model it can reach)
+  Scenario: A session tuned on the band's free variant asks for free on every model it forwards
+    Given a tuned band whose model is "qwen3-32b-fp8:free"
+    And the proxy owner tuned with --models qwen3-32b-fp8,llama-3.3-70b
+    When a chat request arrives with "models": ["llama-3.3-70b"]
+    Then the broker receives model "qwen3-32b-fp8:free" and models ["llama-3.3-70b:free"]
+
   # regression 2026-10-05: audit finding, contract §9 (a profile's :free on the band survives the rewrite)
   Scenario: A profile naming the band's free variant keeps asking for free
     Given profile "freebie" sets model = "qwen3-32b-fp8:free"
