@@ -2166,18 +2166,8 @@ func (s *eb1State) eb1DeclineMix(nTPS, nReq int) error {
 	return s.eb1WhenMany(nReq, `with roger.require ["tools"]`)
 }
 
-// eb1RequestID is the request id of the last relay, as far as the response reveals it: the
-// receipt's request id with its attempt suffix removed.
-func (s *eb1State) eb1RequestID() string {
-	rec, err := protocol.DecodeReceipt(s.lastHdr.Get("X-RogerAI-Receipt"))
-	if err != nil || rec.RequestID == "" {
-		return ""
-	}
-	if i := strings.LastIndex(rec.RequestID, "-"); i > 0 {
-		return rec.RequestID[:i]
-	}
-	return rec.RequestID
-}
+// eb1RequestID is the request id of the last relay, as the response names it.
+func (s *eb1State) eb1RequestID() string { return s.lastHdr.Get("X-RogerAI-Request-Id") }
 
 func (s *eb1State) eb1OneDeclineLine(tower, constraint string) error {
 	tw, err := s.eb1T(tower)
