@@ -61,7 +61,11 @@ type tp4TUI struct {
 	keyScreen   string
 	keyBefore   tp4KeyState
 	proxyBefore string
-	lastKey     string
+	addrBefore  string
+	// the booth's key and endpoint after the CONFIG edit, read before the stand-in send
+	// (which mints its own key for its own bind)
+	keyAfterEdit, addrAfterEdit string
+	lastKey                     string
 }
 
 type tp4KeyState struct {
@@ -1497,11 +1501,12 @@ func (s *tp4TUI) connectedTo(mdl string) error {
 		return err
 	}
 	s.m.proxyKey = "rk-session-fixed"
-	s.proxyBefore = s.m.proxyKey
+	s.proxyBefore, s.addrBefore = s.m.proxyKey, s.m.proxyAddr
 	return nil
 }
 
 func (s *tp4TUI) nextTurnPref(want string) error {
+	s.keyAfterEdit, s.addrAfterEdit = s.m.proxyKey, s.m.proxyAddr
 	s.tuneMark = len(s.requests())
 	if err := s.sendGuestViaLiveProxy(""); err != nil {
 		return err
@@ -1517,9 +1522,14 @@ func (s *tp4TUI) nextTurnPref(want string) error {
 }
 
 func (s *tp4TUI) endpointUnchanged() error {
-	if s.m.proxyKey != s.proxyBefore && s.proxyBefore != "" {
-		// sendGuestViaLiveProxy mints a fresh key for its own bind; the booth's key is what the
-		// operator shared, compared before the CONFIG edit
+	if s.proxyBefore == "" || s.addrBefore == "" {
+		return fmt.Errorf("no booth key and endpoint were recorded when the band was tuned")
+	}
+	if s.keyAfterEdit != s.proxyBefore {
+		return fmt.Errorf("the CONFIG edit changed the bearer key: %q, was %q", s.keyAfterEdit, s.proxyBefore)
+	}
+	if s.addrAfterEdit != s.addrBefore {
+		return fmt.Errorf("the CONFIG edit moved the endpoint: %q, was %q", s.addrAfterEdit, s.addrBefore)
 	}
 	return nil
 }

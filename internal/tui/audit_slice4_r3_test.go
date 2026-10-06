@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,4 +90,38 @@ func TestBandCardRefusedOnTheDefaultRow(t *testing.T) {
 	m.limCursor = 1
 	out, _ = m.Update(keyMsg("b"))
 	require.NotEqual(t, modeBandConfig, asModel(out).mode)
+}
+
+// autoTunedModel is a booth that has silently auto-tuned to a free band (the real
+// autoTuneMsg), with a quote limit left over from an earlier confirm.
+func autoTunedModel(t *testing.T) model {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("gpt-oss-20b", 32768, true, nil, 0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	tm, _ = tm.Update(keyMsg("0"))
+	m := asModel(tm)
+	m.q.limit = Limit{MaxOut: 0.5} // a prior confirm's cap for another band
+	tm, _ = m.Update(autoTuneMsg{})
+	m = asModel(tm)
+	require.NotNil(t, m.proxyHolder, "the auto-tune bound a channel")
+	return m
+}
+
+// TestAutoTuneBindDropsAStaleQuoteLimit: an auto-tune bypasses the confirm, so a quote limit
+// from an earlier confirm never binds the auto-tuned band.
+func TestAutoTuneBindDropsAStaleQuoteLimit(t *testing.T) {
+	m := autoTunedModel(t)
+	require.Zero(t, m.proxyHolder.Get().MaxPriceOut, "the earlier confirm's cap leaked into the auto-tuned band")
+}
+
+// TestSaveQuantRuleRepointsTheLiveProxy: a quant rule saved on the connected band binds the
+// live proxy's next turn at once.
+func TestSaveQuantRuleRepointsTheLiveProxy(t *testing.T) {
+	m := autoTunedModel(t)
+	m.cfgModel = m.connected.Model
+	out, _ := m.saveQuantRule([]string{"Q8_0"})
+	require.Contains(t, asModel(out).proxyHolder.Get().Quantizations, "Q8_0")
 }

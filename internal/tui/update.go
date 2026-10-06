@@ -2303,6 +2303,9 @@ func (m *model) runAutoTune() tea.Cmd {
 			m.flushPendingPrompts()
 			return nil
 		}
+		// The bind built its options with whatever quote limit the last confirm left; an
+		// auto-tune has no confirm, so the band's own rule is what binds.
+		m.refreshLiveRouting()
 		m.agent.model = o.Model
 		// Same rule as refreshAgentModel: the endpoint follows the model, or an earlier
 		// local pick keeps swallowing turns under this band's name.

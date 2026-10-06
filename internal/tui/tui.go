@@ -3050,30 +3050,6 @@ func (m *model) focusLimitField(f int) {
 	}
 }
 
-// nextPref walks the pref knob: unset -> cheap -> balanced -> fast -> reliable -> unset
-// (and back with up=false). Unset means the balanced default.
-func nextPref(cur string, up bool) string {
-	ring := append([]string{""}, client.RoutingPrefs...)
-	i := 0
-	for j, p := range ring {
-		if p == cur {
-			i = j
-		}
-	}
-	if up {
-		return ring[(i+1)%len(ring)]
-	}
-	return ring[(i+len(ring)-1)%len(ring)]
-}
-
-// prefLabel names the knob for the footer: an unset pref is the balanced default.
-func prefLabel(p string) string {
-	if p == "" {
-		return "balanced (default)"
-	}
-	return p
-}
-
 // nudge adjusts a numeric edit buffer by delta, clamped at 0, 2dp.
 func nudge(buf string, delta float64) string {
 	v, _ := strconv.ParseFloat(strings.TrimSpace(buf), 64)

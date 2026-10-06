@@ -730,6 +730,7 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 				stDim.Render("· ")+stDim.Render("tune in manually with ")+stKey.Render("[1]")+stDim.Render(", then hand off again with ")+stKey.Render("/operator"))
 			return m, nil
 		}
+		(&m).refreshLiveRouting() // no confirm: the band's own rule binds, not a stale quote limit
 		m.noteOnce(stDim.Render("· ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" (free) for the handoff"))
 	}
 	// The DJ's in-flight turn owns the completer and the terminal; a queued prompt

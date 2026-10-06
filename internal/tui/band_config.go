@@ -689,6 +689,7 @@ func (m model) saveQuantRule(qs []string) (tea.Model, tea.Cmd) {
 	lim := m.limits.own(m.cfgModel)
 	lim.Quants = qs
 	m.limits.Set(m.cfgModel, lim)
+	(&m).refreshLiveRouting() // a rule on the connected band binds its next turn at once
 	if len(qs) == 0 {
 		m.status = stDim.Render("any quant accepted for ") + stKey.Render(m.cfgModel)
 		return m, nil
