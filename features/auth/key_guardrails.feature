@@ -671,7 +671,6 @@ Feature: Account keys - guardrailed credentials an account mints for itself
   Scenario: The account page follows the design system
     Then the keys section uses the existing account-page type scale, one red, no grid, no glow, no pinned bar, and passes phone width and dark-mode contrast
 
-  @cli
   Scenario Outline: `roger keys` covers the same surface (PROPOSED command set)
     When "acct-a" runs `<command>`
     Then it performs <effect> via the same endpoint and prints <output>
@@ -684,18 +683,15 @@ Feature: Account keys - guardrailed credentials an account mints for itself
       | roger keys set key_x --disable                                  | PATCH disabled true      | the updated row                            |
       | roger keys rm key_x                                             | DELETE /account/keys/key_x | "revoked key_x"                           |
 
-  @cli
   Scenario: `roger keys mint` refuses to print the secret into a pipe silently
     When `roger keys mint` runs with stdout not a TTY
     Then it prints only the secret (machine-readable) and the warning goes to stderr
 
-  @cli
   Scenario: `roger keys` needs a logged-in device key
     Given the device keypair never logged in
     When `roger keys list` runs
     Then it exits non-zero with "log in first - run `roger login`"
 
-  @cli
   Scenario: A key can be used as the bearer by `roger use --key`
     When `roger use qwen3-32b --key rog-key_...` runs
     Then the local proxy authenticates every relay with the key bearer instead of the device signature

@@ -92,6 +92,7 @@ type kg5Req struct {
 }
 
 type kg5State struct {
+	cli            *kg5CLI        // the real `roger` binary's run in this scenario (key_cli_bdd_test.go)
 	ownServed      *kl5OwnServed  // /console both views: the relay acct-a's own station served
 	consoleJS      map[string]any // the last /console payload read
 	consoleRelayID string         // the relay request id captured before reading /console
@@ -3401,6 +3402,7 @@ func (k *kg5State) registerCommon(sc *godog.ScenarioContext) {
 	sc.Step(`^account "([^"]+)" is logged in \(wallet "([^"]+)"\) with balance \$([0-9.]+)$`, k.loggedIn)
 	k.registerStateAudit(sc)
 	k.registerReview(sc)
+	k.registerCLI(sc)
 }
 
 func (k *kg5State) registerGuardrails(sc *godog.ScenarioContext) {
@@ -3678,7 +3680,7 @@ func kg5Run(t *testing.T, name, path string, register func(k *kg5State, sc *godo
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{path},
-			Tags: "~@cli && ~@web && ~@docs && ~@later", TestingT: t, Strict: true,
+			Tags: "~@web && ~@docs && ~@later", TestingT: t, Strict: true,
 		},
 	}
 	if suite.Run() != 0 {
