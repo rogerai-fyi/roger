@@ -62,8 +62,9 @@ func TestCreateAccountKeyMintRulesParity(t *testing.T) {
 			require.Len(t, keys, 3)
 
 			// A revoked key frees its slot.
-			keys[0].Revoked = true
-			require.NoError(t, db.SaveAccountKey(keys[0]))
+			_, ok0, err := db.UpdateAccountKey(keys[0].ID, func(k *AccountKey) { k.Revoked = true })
+			require.NoError(t, err)
+			require.True(t, ok0)
 			ok, _ = mintRace(t, db, acct, "", 2, MintKeyRules{MaxLive: 3})
 			require.Len(t, ok, 1)
 

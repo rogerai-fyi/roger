@@ -3400,6 +3400,7 @@ func (k *kg5State) registerCommon(sc *godog.ScenarioContext) {
 	sc.Step(`^a broker with the money store and the shared store wired$`, k.wired)
 	sc.Step(`^account "([^"]+)" is logged in \(wallet "([^"]+)"\) with balance \$([0-9.]+)$`, k.loggedIn)
 	k.registerStateAudit(sc)
+	k.registerReview(sc)
 }
 
 func (k *kg5State) registerGuardrails(sc *godog.ScenarioContext) {

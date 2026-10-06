@@ -414,9 +414,11 @@ type Store interface {
 	AccountKeyByID(id string) (AccountKey, bool, error)
 	// AccountKeysOf lists every key an account minted, revoked ones included.
 	AccountKeysOf(account string) ([]AccountKey, error)
-	// SaveAccountKey writes a key's editable fields (name, limit, reset, anchor, expiry,
-	// allow-lists, disabled, revoked).
-	SaveAccountKey(k AccountKey) error
+	// UpdateAccountKey applies edit to the LIVE key under the key's own lock and writes its
+	// editable fields (name, limit, reset, anchor, expiry, allow-lists, disabled, revoked), so
+	// an edit never writes back a flag another instance changed after the caller's read.
+	// found=false (nothing written) for a missing or revoked key: a revoked key is never edited.
+	UpdateAccountKey(id string, edit func(*AccountKey)) (k AccountKey, found bool, err error)
 	// TouchAccountKey records an authenticated use (last_used; requests when counted).
 	TouchAccountKey(id string, ts int64, request bool) error
 	// HoldForKey is HoldFor whose reservation is attributed to an account key: the key's
@@ -431,8 +433,12 @@ type Store interface {
 	// KeySpend sums a key's settled spend dated in [from, to) (to <= 0 = unbounded), net of
 	// chargeback/refund reversals.
 	KeySpend(keyID string, from, to int64) (float64, error)
-	// KeySpendRefs maps each request ref a key settled to its net cost.
-	KeySpendRefs(keyID string) (map[string]float64, error)
+	// KeySpendSince sums a key's settled spend (net of reversals) dated at or after each bound
+	// in froms, in ONE read: out[i] is the spend since froms[i].
+	KeySpendSince(keyID string, froms []int64) ([]float64, error)
+	// AccountKeySpendRefs maps every request ref any key of account settled (deleted keys
+	// included) to that key's id, in one read.
+	AccountKeySpendRefs(account string) (map[string]string, error)
 	// AppendKeyEvent writes a $0 key_event audit row on wallet.
 	AppendKeyEvent(wallet, ref string, ts int64) error
 	// RetireAccountKeys revokes every key of a deleted account and re-keys its key_event rows
@@ -2556,7 +2562,7 @@ func (m *Mem) addRecoveredLocked(chargeRefs []string, amount float64) {
 func (m *Mem) recoverLineageLocked(id, consumerKind, consumerRefPrefix, wallet, requestID string, amount, unspentReclaim float64, now time.Time) ChargebackResult {
 	m.wallet[wallet] -= amount
 	m.appendLedgerLocked(wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix())
-	m.keyReverseLocked(requestID, amount, now.UnixMilli()) // key rows are dated in millis
+	m.keyReverseLocked(requestID, amount)
 
 	// Lineage: target THIS consumer wallet's OWN lots (via the receipts/entries link),
 	// never unrelated operators'. With an explicit requestID we target that one request

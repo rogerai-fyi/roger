@@ -3,6 +3,9 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"math"
+	"strings"
 	"time"
 )
 
@@ -102,12 +105,27 @@ func (p *Postgres) AccountKeysOf(account string) ([]AccountKey, error) {
 	return out, rows.Err()
 }
 
-func (p *Postgres) SaveAccountKey(k AccountKey) error {
-	_, err := p.db.Exec(`UPDATE rogerai.account_keys SET name=$2,limit_usd=$3,reset=$4,anchor=$5,expires_at=$6,
+func (p *Postgres) UpdateAccountKey(id string, edit func(*AccountKey)) (AccountKey, bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return AccountKey{}, false, err
+	}
+	defer tx.Rollback()
+	k, err := scanAcctKey(tx.QueryRow(`SELECT `+acctKeyCols+` FROM rogerai.account_keys WHERE id=$1 FOR UPDATE`, id))
+	if err == sql.ErrNoRows || (err == nil && k.Revoked) {
+		return AccountKey{}, false, nil
+	}
+	if err != nil {
+		return AccountKey{}, false, err
+	}
+	edit(&k)
+	if _, err := tx.Exec(`UPDATE rogerai.account_keys SET name=$2,limit_usd=$3,reset=$4,anchor=$5,expires_at=$6,
 		allowed_models=$7,allowed_nodes=$8,disabled=$9,revoked=$10 WHERE id=$1`,
 		k.ID, k.Name, k.LimitUSD, k.Reset, k.Anchor, k.ExpiresAt, jsonStrSlice(k.AllowedModels),
-		jsonStrSlice(k.AllowedNodes), k.Disabled, k.Revoked)
-	return err
+		jsonStrSlice(k.AllowedNodes), k.Disabled, k.Revoked); err != nil {
+		return AccountKey{}, false, err
+	}
+	return k, true, tx.Commit()
 }
 
 func (p *Postgres) TouchAccountKey(id string, ts int64, request bool) error {
@@ -186,23 +204,40 @@ func (p *Postgres) KeySpend(keyID string, from, to int64) (float64, error) {
 	return sum, err
 }
 
-func (p *Postgres) KeySpendRefs(keyID string) (map[string]float64, error) {
-	rows, err := p.db.Query(`SELECT COALESCE(ref,''), SUM(-amount) FROM rogerai.ledger
-		WHERE holder=$1 AND kind IN ($2,$3) AND state<>'reversed' GROUP BY ref`, keyID, KindKeySpend, KindKeyReversal)
+func (p *Postgres) KeySpendSince(keyID string, froms []int64) ([]float64, error) {
+	out := make([]float64, len(froms))
+	if len(froms) == 0 {
+		return out, nil
+	}
+	cols := make([]string, len(froms))
+	args := []any{keyID, KindKeySpend, KindKeyReversal}
+	dst := make([]any, len(froms))
+	for i, f := range froms {
+		cols[i] = fmt.Sprintf("COALESCE(SUM(-amount) FILTER (WHERE ts >= $%d),0)", len(args)+1)
+		args = append(args, f)
+		dst[i] = &out[i]
+	}
+	err := p.db.QueryRow(`SELECT `+strings.Join(cols, ",")+` FROM rogerai.ledger
+		WHERE holder=$1 AND kind IN ($2,$3) AND state<>'reversed'`, args...).Scan(dst...)
+	return out, err
+}
+
+func (p *Postgres) AccountKeySpendRefs(account string) (map[string]string, error) {
+	rows, err := p.db.Query(`SELECT DISTINCT l.ref, l.holder FROM rogerai.ledger l
+		JOIN rogerai.account_keys k ON k.id = l.holder
+		WHERE k.account=$1 AND l.kind IN ($2,$3) AND l.state<>'reversed' AND COALESCE(l.ref,'')<>''`,
+		account, KindKeySpend, KindKeyReversal)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]float64{}
+	out := map[string]string{}
 	for rows.Next() {
-		var ref string
-		var v float64
-		if err := rows.Scan(&ref, &v); err != nil {
+		var ref, key string
+		if err := rows.Scan(&ref, &key); err != nil {
 			return nil, err
 		}
-		if ref != "" {
-			out[ref] = v
-		}
+		out[ref] = key
 	}
 	return out, rows.Err()
 }
@@ -228,25 +263,33 @@ func keySpendCaptureTx(tx *sql.Tx, keyID string, keyTS int64, ref string, cost f
 	return appendLedger(tx, keyID, "key", KindKeySpend, -cost, "", StatePosted, ref, keyTS)
 }
 
-// keyReverseTx writes the key-side reversal of a chargeback/refund of requestID.
-func keyReverseTx(tx *sql.Tx, requestID string, amount float64, ts int64) error {
+// keyReverseTx writes the key-side reversal of a chargeback/refund of requestID: dated at the
+// spend it reverses and capped at what is left of it (see the Mem twin). The spend row is locked
+// so two reversals of one request cannot both read the same remainder.
+func keyReverseTx(tx *sql.Tx, requestID string, amount float64) error {
 	if requestID == "" || amount <= 0 {
 		return nil
 	}
 	var holder, ref string
 	var spent float64
-	err := tx.QueryRow(`SELECT holder, ref, -amount FROM rogerai.ledger WHERE kind=$1 AND (ref=$2 OR ref LIKE $3) ORDER BY id LIMIT 1`,
-		KindKeySpend, requestID, requestID+"-%").Scan(&holder, &ref, &spent)
+	var ts int64
+	err := tx.QueryRow(`SELECT holder, ref, -amount, ts FROM rogerai.ledger WHERE kind=$1 AND (ref=$2 OR ref LIKE $3) ORDER BY id LIMIT 1 FOR UPDATE`,
+		KindKeySpend, requestID, requestID+"-%").Scan(&holder, &ref, &spent, &ts)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if spent < amount {
-		amount = spent
+	var reversed float64
+	if err := tx.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM rogerai.ledger WHERE kind=$1 AND holder=$2 AND ref=$3`,
+		KindKeyReversal, holder, ref).Scan(&reversed); err != nil {
+		return err
 	}
-	return appendLedger(tx, holder, "key", KindKeyReversal, amount, "", StatePosted, ref, ts)
+	if back := math.Min(amount, spent-reversed); back > 1e-9 {
+		return appendLedger(tx, holder, "key", KindKeyReversal, back, "", StatePosted, ref, ts)
+	}
+	return nil
 }
 
 func (p *Postgres) RetireAccountKeys(account, anon string) error {

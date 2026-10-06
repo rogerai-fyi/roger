@@ -81,6 +81,7 @@ type emailJob struct {
 	to, subject, html, text string
 	attempts                int
 	notBefore               time.Time
+	onDrop                  func() // runs (off the queue lock) if the job is dropped
 }
 
 // newEmailID mints an idempotency key. crypto/rand so two instances retrying the same
@@ -147,10 +148,10 @@ func (m *mailer) effCap() int {
 }
 
 // enqueue appends a job to its lane and wakes the sender. Never blocks, never errors.
-func (m *mailer) enqueue(lane emailLane, to, subject, html, text string) {
+func (m *mailer) enqueue(lane emailLane, to, subject, html, text string, onDrop func()) {
 	q := &m.q
 	q.startOnce.Do(m.startSender)
-	job := &emailJob{lane: lane, id: newEmailID(), to: to, subject: subject, html: html, text: text}
+	job := &emailJob{lane: lane, id: newEmailID(), to: to, subject: subject, html: html, text: text, onDrop: onDrop}
 	q.mu.Lock()
 	if q.stopping {
 		// A page raised after the drain began (a late onset goroutine) is counted AND named:
@@ -411,6 +412,9 @@ func (q *emailQueue) depthLocked() int {
 
 func (q *emailQueue) dropLocked(job *emailJob, reason string) {
 	q.dropped[reason]++
+	if job.onDrop != nil {
+		go job.onDrop()
+	}
 	if reason == "queue-full" || reason == "rejected" {
 		log.Printf("email: DROPPED (%s, lane=%s) to=%s subj=%q", reason, job.lane, maskAddr(job.to), job.subject)
 	}

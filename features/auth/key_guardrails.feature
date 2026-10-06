@@ -577,6 +577,42 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     When a request bearing "k1" arrives
     Then it is 503 "key lookup failed - try again shortly" (never a silent allow, never a 401 that reads as revoked)
 
+  # slice-5 review 2026-10-05: an edit never writes back a revoked or disabled flag it read earlier.
+  Scenario: A rename racing a delete on another instance never brings the key back
+    Given "acct-a" mints "k1" on A
+    And a relay bearing "k1" on B authenticates
+    When "acct-a" renames "k1" on A while "acct-a" DELETEs it on B between A's read and write
+    Then the rename is 404 "not_found"
+    And the next relay bearing "k1" on B is 401 "key_revoked" (never served from a stale cache)
+
+  # slice-5 review 2026-10-05
+  Scenario: A rename racing a disable on another instance keeps the key disabled
+    Given "acct-a" mints "k1" on A
+    When "acct-a" renames "k1" to "renamed" on A while "acct-a" disables it on B between A's read and write
+    Then "k1" is disabled and named "renamed"
+
+  # slice-5 review 2026-10-05: a reversal nets out of the window the money was spent in.
+  Scenario: A chargeback in a later window frees no budget in the window it lands in
+    Given "acct-a" minted "k1" with a $5.00 daily limit and spent all of it yesterday (UTC)
+    When that request is charged back $5.00 today
+    Then "k1" shows usage_daily 0.00, limit_remaining 5.00 and usage 0.00
+
+  # slice-5 review 2026-10-05: a request is reversed on its key at most once, in total.
+  Scenario: A request refunded and then charged back is reversed on the key at most once
+    Given key "k1" settled $3.00 in one request
+    When that request is refunded $3.00 and then charged back $3.00
+    Then "k1" shows usage 0.00 (never below zero)
+
+  # slice-5 review 2026-10-05: an invalidation that failed during an outage is not lost.
+  Scenario: A key deleted during a shared-store outage stops working on peers once the store answers again
+    Given "acct-a" mints "k1" on A
+    And a relay bearing "k1" on B authenticates
+    And "acct-a" reads "k1" on A
+    And the shared store refuses every command
+    And "acct-a" DELETEs "k1" on instance A
+    When the shared store answers again
+    Then within 2 seconds a relay bearing "k1" on B is 401 "key_revoked"
+
   # --- audit ------------------------------------------------------------------------
   Scenario Outline: Every management action writes a $0 audit row
     When "acct-a" performs <action>

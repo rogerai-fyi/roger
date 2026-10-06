@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"math"
@@ -77,15 +78,19 @@ type acctKeyState struct {
 	byHash     map[string]acctKeyCached
 	byID       map[string]acctKeyCached
 	localEpoch float64
-	locks      map[string]*sync.Mutex
+	locks      [64]sync.Mutex // local per-key locks, striped by key id so they never grow
 	mgmt       *rateLimiter
 	logged     map[string]string // key id -> the window it was last logged at-limit in
+
+	bumpOwed     int       // epoch bumps that failed and are not yet re-sent
+	bumpLastFail time.Time // when the latest one failed
+	bumpRetrying bool      // a retrier is running
 }
 
 func (s *acctKeyState) init() {
 	if s.byHash == nil {
 		s.byHash, s.byID = map[string]acctKeyCached{}, map[string]acctKeyCached{}
-		s.locks, s.logged = map[string]*sync.Mutex{}, map[string]string{}
+		s.logged = map[string]string{}
 	}
 }
 
@@ -132,8 +137,45 @@ func (b *broker) bumpKeyEpoch() {
 	b.ak.mu.Unlock()
 	if b.shared != nil {
 		if _, err := b.shared.counterIncr(acctKeyEpochKey, 1); err != nil && !errors.Is(err, errNoSharedStore) {
-			log.Printf("account keys: epoch bump failed (peers keep their cache up to %s): %v", acctKeyCacheTTL, err)
+			log.Printf("account keys: epoch bump failed, retrying until it lands: %v", err)
+			b.owedKeyEpochBump()
 		}
+	}
+}
+
+// owedKeyEpochBump records a bump that did not land and makes sure one background retrier
+// re-sends it: peers that cached a key before the change keep serving it until the shared
+// epoch moves (the shared store answering again does not move it), or their cache expires.
+func (b *broker) owedKeyEpochBump() {
+	b.ak.mu.Lock()
+	defer b.ak.mu.Unlock()
+	b.ak.bumpOwed++
+	b.ak.bumpLastFail = time.Now()
+	if b.ak.bumpRetrying {
+		return
+	}
+	b.ak.bumpRetrying = true
+	go b.retryKeyEpochBump()
+}
+
+// retryKeyEpochBump re-sends the owed bump with backoff until one lands after the latest
+// failure, or until acctKeyCacheTTL past it (by then every peer's cache has expired anyway).
+func (b *broker) retryKeyEpochBump() {
+	wait := 50 * time.Millisecond
+	for {
+		time.Sleep(wait)
+		b.ak.mu.Lock()
+		owed, last := b.ak.bumpOwed, b.ak.bumpLastFail
+		b.ak.mu.Unlock()
+		_, err := b.shared.counterIncr(acctKeyEpochKey, 1)
+		b.ak.mu.Lock()
+		if ((err == nil || errors.Is(err, errNoSharedStore)) && b.ak.bumpOwed == owed) || time.Since(last) > acctKeyCacheTTL {
+			b.ak.bumpOwed, b.ak.bumpRetrying = 0, false
+			b.ak.mu.Unlock()
+			return
+		}
+		b.ak.mu.Unlock()
+		wait = min(2*wait, time.Second)
 	}
 }
 
@@ -359,6 +401,10 @@ var keyHoldGapForTest func(b *broker)
 // writes the key: the window in which another instance can mint for the same account.
 var keyMintGapForTest func(b *broker)
 
+// keyPatchGapForTest, when set (tests only), runs after a PATCH has read the key and before it
+// writes: the window in which another instance can delete or edit the same key.
+var keyPatchGapForTest func(b *broker)
+
 // keyLock serializes a key's check-and-hold across every instance (a lock in the shared store;
 // a local mutex when the instance is alone). A shared store that cannot answer fails closed.
 func (b *broker) keyLock(id string) (func(), error) {
@@ -385,14 +431,9 @@ func (b *broker) keyLock(id string) (func(), error) {
 			wait = min(2*wait, acctKeyLockPollMax)
 		}
 	}
-	b.ak.mu.Lock()
-	b.ak.init()
-	m := b.ak.locks[id]
-	if m == nil {
-		m = &sync.Mutex{}
-		b.ak.locks[id] = m
-	}
-	b.ak.mu.Unlock()
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(id))
+	m := &b.ak.locks[h.Sum32()%uint32(len(b.ak.locks))]
 	m.Lock()
 	return m.Unlock, nil
 }
@@ -403,7 +444,7 @@ func randHex(n int) string {
 	return hex.EncodeToString(buf)
 }
 
-// keyAllowNodes / keyAllowsModel: the key's allow-lists (empty = all).
+// keyAllowsModel: the key's model allow-list (empty = all).
 func keyAllowsModel(k store.AccountKey, model string) bool {
 	return len(k.AllowedModels) == 0 || containsString(k.AllowedModels, model)
 }
@@ -485,10 +526,9 @@ func (b *broker) keyMgmtLimiter() *rateLimiter {
 	return b.ak.mgmt
 }
 
-// keyManager resolves who may manage keys: a web session from an allowlisted Origin, or a
-// signed request (an unsigned legacy id never qualifies).
-// keyManager authenticates a management request: the account wallet, and the owner pubkey a
-// minted key's notices are mailed to (an account wallet like u_gh_<id> is not an owner key).
+// keyManager authenticates a management request (a web session from an allowlisted Origin, or
+// a signed request; an unsigned legacy id never qualifies): the account wallet, and the owner
+// pubkey a minted key's notices are mailed to (an account wallet like u_gh_<id> is not one).
 func (b *broker) keyManager(r *http.Request, body []byte) (acct, notify string, ok bool) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		if !originAllowed(r) {
@@ -735,9 +775,18 @@ func (b *broker) patchKey(w http.ResponseWriter, acct, id string, body []byte) {
 		keyNotFound(w)
 		return
 	}
-	f.apply(&k, now)
-	if err := b.db.SaveAccountKey(k); err != nil {
+	if keyPatchGapForTest != nil {
+		keyPatchGapForTest(b)
+	}
+	// The edit applies to the live row under its own lock: a delete or another edit that
+	// landed since the read above is never written back over.
+	k, found, err := b.db.UpdateAccountKey(k.ID, func(live *store.AccountKey) { f.apply(live, now) })
+	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !found {
+		keyNotFound(w)
 		return
 	}
 	b.bumpKeyEpoch()
@@ -751,9 +800,13 @@ func (b *broker) deleteKey(w http.ResponseWriter, acct, id string) {
 		keyNotFound(w)
 		return
 	}
-	k.Revoked = true
-	if err := b.db.SaveAccountKey(k); err != nil {
+	_, found, err := b.db.UpdateAccountKey(k.ID, func(live *store.AccountKey) { live.Revoked = true })
+	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !found {
+		keyNotFound(w)
 		return
 	}
 	b.bumpKeyEpoch()
@@ -804,15 +857,15 @@ func (b *broker) keyEntry(k store.AccountKey, now time.Time) map[string]any {
 	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	week := day.AddDate(0, 0, -((int(t.Weekday()) + 6) % 7))
 	month := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
-	sum := func(from time.Time) float64 {
-		v, _ := b.db.KeySpend(k.ID, from.UnixMilli(), 0)
-		return round6(v)
+	from, _, _ := keyWindow(k, now) // the limit's window: its spend is the spend since it began
+	sums, err := b.db.KeySpendSince(k.ID, []int64{0, day.UnixMilli(), week.UnixMilli(), month.UnixMilli(), from})
+	if err != nil {
+		sums = make([]float64, 5)
 	}
-	life, _ := b.db.KeySpend(k.ID, 0, 0)
-	e["usage"], e["usage_daily"], e["usage_weekly"], e["usage_monthly"] = round6(life), sum(day), sum(week), sum(month)
-	if k.LimitUSD > 0 {
-		if s, err := b.keyLimitState(k, now); err == nil {
-			e["limit_remaining"] = s.remaining()
+	e["usage"], e["usage_daily"], e["usage_weekly"], e["usage_monthly"] = round6(sums[0]), round6(sums[1]), round6(sums[2]), round6(sums[3])
+	if k.LimitUSD > 0 && err == nil {
+		if res, rerr := b.db.KeyReserved(k.ID); rerr == nil {
+			e["limit_remaining"] = keyLimitState{k: k, spend: round6(sums[4]), reserved: res}.remaining()
 		}
 	}
 	return e
@@ -840,19 +893,9 @@ func (b *broker) keyAudit(acct, id, action string, fields []string) {
 // keyRefsOf maps every settled request ref of the account's keys (deleted ones included) to
 // its key id, for attributing spend in /usage and the console lineage.
 func (b *broker) keyRefsOf(acct string) map[string]string {
-	keys, err := b.db.AccountKeysOf(acct)
-	if err != nil || len(keys) == 0 {
+	out, err := b.db.AccountKeySpendRefs(acct)
+	if err != nil || len(out) == 0 {
 		return nil
-	}
-	out := map[string]string{}
-	for _, k := range keys {
-		refs, err := b.db.KeySpendRefs(k.ID)
-		if err != nil {
-			continue
-		}
-		for ref := range refs {
-			out[ref] = k.ID
-		}
 	}
 	return out
 }
@@ -867,7 +910,11 @@ func (b *broker) emailKeyNotice(s keyLimitState, threshold, window string) {
 	if email == "" {
 		email = b.emailOf(s.k.Account) // a pubkey wallet is its own owner key
 	}
-	if email == "" || !b.keyNoticeOnce(s, threshold, window) {
+	if email == "" {
+		return
+	}
+	claimed, release := b.keyNoticeOnce(s, threshold, window)
+	if !claimed {
 		return
 	}
 	pct := s.spend / s.k.LimitUSD * 100
@@ -876,25 +923,28 @@ func (b *broker) emailKeyNotice(s keyLimitState, threshold, window string) {
 	}
 	subj := fmt.Sprintf("Key %q (%s) at %.0f%% of its limit", s.k.Name, s.k.ID, pct)
 	text := fmt.Sprintf("Your key %q (%s) has used $%.2f of its $%.2f limit (%.0f%%).", s.k.Name, s.k.ID, s.spend, s.k.LimitUSD, pct)
-	b.mail.sendEmail(email, subj, "<p>"+text+"</p>", text)
+	b.mail.sendEmailOrRelease(email, subj, "<p>"+text+"</p>", text, release)
 }
 
-// keyNoticeOnce claims one key notice (key, window, threshold) for this instance. The claim is
-// held in the shared store until the window ends, so exactly one instance mails it; only when
-// no shared store answers does the mailer's in-process record de-duplicate instead.
-func (b *broker) keyNoticeOnce(s keyLimitState, threshold, window string) bool {
+// keyNoticeOnce claims one key notice (key, window, threshold) for this instance, and returns
+// how to give the claim back if the email is then dropped. The claim is held in the shared store
+// until the window ends, so exactly one instance mails it; only when no shared store answers
+// does the mailer's in-process record de-duplicate instead.
+func (b *broker) keyNoticeOnce(s keyLimitState, threshold, window string) (bool, func()) {
 	now := b.now()
 	if b.shared != nil {
 		ttl := 400 * 24 * time.Hour // reset none: the window is the key's whole life
 		if _, until, _ := keyWindow(s.k, now); until > 0 {
 			ttl = time.UnixMilli(until).Sub(now) + time.Hour
 		}
-		set, err := b.shared.setIfAbsent("keynotice:"+s.k.ID+":"+window+":"+threshold, "1", ttl)
+		key := "keynotice:" + s.k.ID + ":" + window + ":" + threshold
+		set, err := b.shared.setIfAbsent(key, "1", ttl)
 		if err == nil {
-			return set
+			return set, func() { _ = b.shared.counterDel(key) }
 		}
 	}
-	return b.mail.capNoticeOnce("key:"+s.k.ID+":"+window, threshold, now)
+	holder := "key:" + s.k.ID + ":" + window
+	return b.mail.capNoticeOnce(holder, threshold, now), func() { b.mail.releaseCapNotice(holder, threshold, now) }
 }
 
 // keyChunkFields is the key state after settle that a stream's usage chunk carries.
