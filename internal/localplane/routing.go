@@ -50,7 +50,9 @@ var (
 	localRogerIgnored    = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "self_hosted_only": true, "region": true, "freq": true}
 	localSugar = []string{":free", ":floor", ":nitro"}
-	// maxModelsEntries bounds models[] by raw entries, as the broker does (contract §1a).
+	// maxModelID bounds one model id (contract §3); maxModelsEntries bounds models[] by raw
+	// entries (§1a), as the broker does.
+	maxModelID       = 256
 	maxModelsEntries = 32
 	maxPriceKeys     = map[string]bool{"prompt": true, "completion": true, "request": true, "image": true}
 )
@@ -58,7 +60,9 @@ var (
 // parseLocalRouting reads the routing carriers of a consumer request. hdrConfidential is the
 // X-Roger-Confidential request header.
 // knownKeysInOrder returns a carrier's keys sorted, refusing the first unknown one (by name)
-// before any value is read, so a body with several faults always gets the same 400.
+// before any value is read, so a body with several faults always gets the same 400. The order
+// is alphabetical, where the broker reports in document order: the two can name a different
+// one of several faults, never accept what the other refuses.
 func knownKeysInOrder(carrier string, obj map[string]json.RawMessage, sets ...map[string]bool) ([]string, *routeErr) {
 	keys := make([]string, 0, len(obj))
 	for k := range obj {
@@ -133,6 +137,9 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		}
 		lr.models = append(lr.models, bare)
 	}
+	if len(model) > maxModelID {
+		return lr, &routeErr{status: 400, msg: fmt.Sprintf("a model id longer than %d characters", maxModelID)}
+	}
 	if model != "" {
 		add(model)
 	}
@@ -149,6 +156,9 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 			id, isStr := e.(string)
 			if !isStr || strings.TrimSpace(id) == "" {
 				return lr, &routeErr{status: 400, msg: "models must be a list of model ids"}
+			}
+			if len(id) > maxModelID {
+				return lr, &routeErr{status: 400, msg: fmt.Sprintf("a model id longer than %d characters", maxModelID)}
 			}
 			add(id)
 			if len(lr.models) > maxLocalModels {
@@ -246,6 +256,10 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 			return lr, &routeErr{status: 400, msg: "roger must be an object"}
 		}
 		if v, has := r["profile"]; has && string(v) != "null" {
+			var ref string
+			if json.Unmarshal(v, &ref) != nil || !strings.HasPrefix(ref, "@profile/") || len(ref) == len("@profile/") {
+				return lr, &routeErr{status: 400, msg: "roger.profile must be @profile/<name>"}
+			}
 			return lr, &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
 		}
 		rkeys, e := knownKeysInOrder("roger", r, localRogerHonored, localRogerIgnored)
@@ -422,7 +436,7 @@ func localIDs(raw json.RawMessage) ([]string, error) {
 	out := make([]string, 0, len(list))
 	for _, e := range list {
 		s, ok := e.(string)
-		if !ok || strings.TrimSpace(s) == "" {
+		if !ok || strings.TrimSpace(s) == "" || s != strings.TrimSpace(s) { // padded ids are refused, as on the broker
 			return nil, fmt.Errorf("bad id")
 		}
 		out = append(out, s)

@@ -33,7 +33,8 @@ func TestParseLocalRoutingRefusals(t *testing.T) {
 		{"trust_min unknown", `{"model":"a","roger":{"trust_min":"gold"}}`, "", "roger.trust_min must be any, verified or confidential"},
 		{"unknown roger key", `{"model":"a","roger":{"zap":1}}`, "", "unknown routing key roger.zap"},
 		{"profile model", `{"model":"@profile/x"}`, "unknown_profile", "profiles resolve on the client; send the model"},
-		{"roger.profile", `{"model":"a","roger":{"profile":"x"}}`, "unknown_profile", "profiles resolve on the client; send the model"},
+		{"roger.profile", `{"model":"a","roger":{"profile":"@profile/x"}}`, "unknown_profile", "profiles resolve on the client; send the model"},
+		{"roger.profile not a reference", `{"model":"a","roger":{"profile":"x"}}`, "", "roger.profile must be @profile/<name>"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -273,4 +274,24 @@ func TestLocalEmptyIgnoreIsNothingToDeny(t *testing.T) {
 		_, e := parseLocalRouting([]byte(`{"model":"a","provider":{"`+k+`":[]}}`), false)
 		require.NotNil(t, e, k)
 	}
+}
+
+// TestLocalRoutingParityWithTheBroker: a padded station id, a model id over 256 characters,
+// and a roger.profile that is not a profile reference are refused the way the broker refuses
+// them (invalid values, not an unknown profile).
+func TestLocalRoutingParityWithTheBroker(t *testing.T) {
+	_, e := parseLocalRouting([]byte(`{"model":"a","provider":{"only":[" s1"]}}`), false)
+	require.NotNil(t, e, "a padded id")
+	long := strings.Repeat("m", 257)
+	_, e = parseLocalRouting([]byte(`{"model":"`+long+`"}`), false)
+	require.NotNil(t, e, "a model id over 256")
+	_, e = parseLocalRouting([]byte(`{"model":"a","models":["`+long+`"]}`), false)
+	require.NotNil(t, e, "a models[] id over 256")
+	_, e = parseLocalRouting([]byte(`{"model":"`+strings.Repeat("m", 256)+`"}`), false)
+	require.Nil(t, e, "exactly 256 is accepted")
+	_, e = parseLocalRouting([]byte(`{"model":"a","roger":{"profile":5}}`), false)
+	require.NotNil(t, e)
+	require.Empty(t, e.code, "a non-reference profile is an invalid value, not an unknown profile")
+	_, e = parseLocalRouting([]byte(`{"model":"a","roger":{"profile":"@profile/x"}}`), false)
+	require.Equal(t, "unknown_profile", e.code)
 }
