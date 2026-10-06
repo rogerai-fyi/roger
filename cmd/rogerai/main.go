@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,6 +140,18 @@ type config struct {
 	// AgentTimeoutSeconds is the optional per-model-call AGENT timeout. Zero is the
 	// default and means unlimited; a positive value enables the soft cap + grace UI.
 	AgentTimeoutSeconds int `json:"agent_timeout_seconds,omitempty"`
+	// Mode is the sticky run mode (features/lan/launch_and_config.feature): "" is the default,
+	// "lan" is LAN mode. --lan/--no-lan and ROGER_LAN win per run (lanmode.Decide).
+	Mode string `json:"mode,omitempty"`
+	// LanTowers are the standalone Towers LAN mode uses, as host:port (`roger lan add`).
+	LanTowers []string `json:"lan_towers,omitempty"`
+	// LanTrustNoted records that the plain-http trust note was shown once
+	// (features/lan/trust_and_honesty.feature).
+	LanTrustNoted bool `json:"lan_trust_noted,omitempty"`
+
+	// lan is THIS process's decided mode (never persisted): run() decides it once from flag,
+	// environment and config, and every surface reads this one answer.
+	lan lanmode.Mode
 }
 
 // SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
@@ -823,6 +836,11 @@ func run(argv []string, cfg config) error {
 	// subcommands; strip them here so the dispatcher reads the real command, and resolve
 	// whether the console comes up (ON by default; saved config or --no-webui opts out).
 	rest, webuiOn, webuiPort := stripWebuiFlags(argv, cfg.webuiEnabled(), defaultWebuiPort)
+	// LAN mode is decided ONCE here, from flag, then environment, then config.
+	rest, cfg, err := decideLAN(rest, cfg)
+	if err != nil {
+		return err
+	}
 	// Global approval-mode flags (--yolo / --perms <mode>) apply to this run only;
 	// with no flag, a persisted `roger perms` default seeds the env the TUI reads.
 	rest, permsFlag, err := stripPermsFlags(rest)
@@ -834,6 +852,9 @@ func run(argv []string, cfg config) error {
 	// A spawned Edge agent runs HEADLESS (no TUI), before any of the interactive setup below.
 	if len(rest) == 1 && rest[0] == edgeAgentRunArg {
 		return runEdgeAgent(cfg)
+	}
+	if len(rest) == 0 && launchTUIForTest != nil {
+		return launchTUIForTest(cfg)
 	}
 	if len(rest) == 0 {
 		// Tube warm-up boot (design overhaul §5.6): the ROGER·AI set glows up ONCE per
@@ -901,8 +922,16 @@ func run(argv []string, cfg config) error {
 			fmt.Fprintln(os.Stderr, notice)
 		}
 	}
-	return dispatch(cfg, rest)
+	noteLAN(cfg, rest[0])
+	return runDispatch(cfg, rest)
 }
+
+// runDispatch and launchTUIForTest are run()'s test seams: a runner observes the decided
+// config (the LAN mode above all) on the real run() path without dialing or opening a TUI.
+var (
+	runDispatch      = dispatch
+	launchTUIForTest func(cfg config) error
+)
 
 // detectFull / detectProbeKey are behaviour-preserving seams over the local-LLM
 // detector (default detect.DetectFull / detect.ProbeKey). Production calls the real
@@ -930,6 +959,10 @@ func dispatch(cfg config, args []string) error {
 	switch args[0] {
 	case "search", "discover", "models":
 		return client.Search(cfg.Broker)
+	case "lan":
+		return cmdLAN(cfg, args[1:])
+	case "status":
+		return cmdStatus(cfg, args[1:])
 	case "balance":
 		return cmdBalance(cfg, args[1:])
 	case "account", "identity":
@@ -2294,9 +2327,19 @@ func cmdConfig(args []string) error {
 			return nil
 		}
 		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
+	case "unset":
+		if len(args) < 2 || args[1] != "mode" {
+			return fmt.Errorf("usage: roger config unset mode")
+		}
+		c := loadConfig()
+		c.Mode = ""
+		if err := saveConfig(c); err != nil {
+			return err
+		}
+		fmt.Println("unset mode (the default mode is back)")
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|agent-timeout> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|agent-timeout|mode> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -2334,6 +2377,13 @@ func cmdConfig(args []string) error {
 				return err
 			}
 			c.AgentTimeoutSeconds = seconds
+		case "mode":
+			// The sticky run mode (features/lan/launch_and_config.feature): lan, or default.
+			m, err := lanmode.ConfigMode(args[2])
+			if err != nil {
+				return err
+			}
+			c.Mode = m
 		default:
 			return fmt.Errorf("unknown key %q", args[1])
 		}
