@@ -393,6 +393,38 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
       | false   | true     |
       | false   | false    |
 
+  # founder ruling 2026-10-05: any verified address. A stored address stays proven when it
+  # matches ANY address GitHub lists as verified (primary or secondary), not only the primary.
+  Scenario: A stored address that GitHub verified as a secondary address stays mailable
+    Given a GitHub-linked account "second@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows no public address and lists the addresses:
+      | email              | primary | verified |
+      | real@example.com   | true    | true     |
+      | SECOND@example.com | false   | true     |
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "second@example.com"
+
+  # founder ruling 2026-10-05: any verified address
+  Scenario: A stored address that GitHub lists but has not verified is unproven
+    Given a GitHub-linked account "second@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows no public address and lists the addresses:
+      | email              | primary | verified |
+      | real@example.com   | true    | true     |
+      | second@example.com | false   | false    |
+    And the account relays a paid request that crosses 80%
+    Then no cap notice is sent to "second@example.com"
+
+  # founder ruling 2026-10-05: any verified address. With no match, GitHub's report is still the
+  # primary verified address and the existing re-check applies.
+  Scenario: A stored address matching no verified address is re-checked against the primary
+    Given a GitHub-linked account "typed@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows no public address and lists the addresses:
+      | email              | primary | verified |
+      | real@example.com   | true    | true     |
+      | other@example.com  | false   | true     |
+    And the account relays a paid request that crosses 80%
+    Then no cap notice is sent to "typed@example.com"
+
   # founder ruling 2026-10-05: user:email. A token without the new scope (minted before the
   # change) or a failing address list falls back to the public address, and never fails sign-in.
   Scenario Outline: A failing address list falls back to the public address without failing sign-in

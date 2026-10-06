@@ -246,7 +246,10 @@ type Store interface {
 	// to: mailable when it matches any of them (case-insensitively); unproven when every linked
 	// provider has reported and none matches; left as it was while a linked provider has not
 	// reported yet. A code-proven address is never touched, and an empty report changes nothing.
-	ReconcileProviderEmail(githubID int64, appleSub, reported string) error
+	// verified lists every address the provider marks verified (GitHub's /user/emails): a row
+	// whose stored address matches one of them records that address as the report instead
+	// (founder ruling 2026-10-05), so a verified secondary address stays mailable.
+	ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error
 	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
 	// returning whether THIS call claimed it. It is the once-only guard for the welcome
 	// email: a true result means the caller (and only the caller) should send it.
@@ -1862,8 +1865,8 @@ func judgeProviderEmail(o Owner) bool {
 	return o.EmailUnproven
 }
 
-func (m *Mem) ReconcileProviderEmail(githubID int64, appleSub, reported string) error {
-	if reported == "" || (githubID == 0 && appleSub == "") {
+func (m *Mem) ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error {
+	if (reported == "" && len(verified) == 0) || (githubID == 0 && appleSub == "") {
 		return nil
 	}
 	m.mu.Lock()
@@ -1877,11 +1880,21 @@ func (m *Mem) ReconcileProviderEmail(githubID int64, appleSub, reported string) 
 		if !ghMatch && !apMatch {
 			continue
 		}
+		rep := reported
+		for _, v := range verified {
+			if o.Email != "" && strings.EqualFold(o.Email, v) {
+				rep = v
+				break
+			}
+		}
+		if rep == "" {
+			continue // only unmatched verified addresses and no primary: nothing to record
+		}
 		if ghMatch {
-			o.GitHubReportedEmail = reported
+			o.GitHubReportedEmail = rep
 		}
 		if apMatch {
-			o.AppleReportedEmail = reported
+			o.AppleReportedEmail = rep
 		}
 		// The report is recorded on every live row (as Postgres does); only an address that was
 		// not proven by code is re-judged.

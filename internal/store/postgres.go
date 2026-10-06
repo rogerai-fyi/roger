@@ -1401,17 +1401,24 @@ func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 // last report of every provider the row is linked to (see the Store interface): mailable on
 // any match, unproven when all linked providers have reported and none matches, otherwise left
 // as it was. One statement, so the record and the judgement can never disagree.
-func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported string) error {
-	if reported == "" || (githubID == 0 && appleSub == "") {
+func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error {
+	if (reported == "" && len(verified) == 0) || (githubID == 0 && appleSub == "") {
 		return nil
 	}
-	_, err := p.db.Exec(`WITH r AS (
-		  SELECT pubkey,
-		         CASE WHEN github_id = $1 AND $1 <> 0 THEN $3 ELSE github_reported_email END AS gh,
-		         CASE WHEN apple_sub = NULLIF($2,'') THEN $3 ELSE apple_reported_email END AS ap
+	// rep is this row's report: the verified address matching its stored address (as the
+	// provider spells it), else the primary report; NULL (keep the last report) when neither.
+	_, err := p.db.Exec(`WITH r0 AS (
+		  SELECT pubkey, github_id, apple_sub, github_reported_email, apple_reported_email,
+		         COALESCE((SELECT v FROM unnest($4::text[]) v WHERE lower(v) = lower(email) LIMIT 1), NULLIF($3,'')) AS rep
 		  FROM rogerai.owners
 		  WHERE ((github_id = $1 AND $1 <> 0) OR apple_sub = NULLIF($2,''))
-		    AND NOT COALESCE(anonymized,false))
+		    AND NOT COALESCE(anonymized,false)),
+		r AS (
+		  SELECT pubkey,
+		         CASE WHEN github_id = $1 AND $1 <> 0 AND rep IS NOT NULL THEN rep ELSE github_reported_email END AS gh,
+		         CASE WHEN apple_sub = NULLIF($2,'') AND rep IS NOT NULL THEN rep ELSE apple_reported_email END AS ap
+		  FROM r0
+		)
 		UPDATE rogerai.owners o SET
 		  github_reported_email = r.gh,
 		  apple_reported_email = r.ap,
@@ -1422,7 +1429,7 @@ func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported str
 		    WHEN (o.github_id = 0 OR r.gh IS NOT NULL)
 		     AND (COALESCE(o.apple_sub,'') = '' OR r.ap IS NOT NULL) THEN true
 		    ELSE o.email_unproven END
-		FROM r WHERE o.pubkey = r.pubkey`, githubID, appleSub, reported)
+		FROM r WHERE o.pubkey = r.pubkey`, githubID, appleSub, reported, verified)
 	return err
 }
 

@@ -37,7 +37,13 @@ type gitHubUser struct {
 	Login string `json:"login"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
+	// Verified is every address GitHub marks verified (primary or not); a stored address
+	// matching any of them stays proven (founder ruling 2026-10-05).
+	Verified []string `json:"-"`
 }
+
+// gitHubBodyLimit caps every GitHub API response the broker reads.
+const gitHubBodyLimit = 1 << 16
 
 // fetchGitHubUser verifies a GitHub access token by calling GET /user server-side
 // and returns the authenticated user. A non-200 means the token is bad/expired.
@@ -55,46 +61,52 @@ func fetchGitHubUser(token string) (gitHubUser, bool) {
 		return gitHubUser{}, false
 	}
 	var u gitHubUser
-	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil || u.ID == 0 {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, gitHubBodyLimit)).Decode(&u); err != nil || u.ID == 0 {
 		return gitHubUser{}, false
 	}
-	if addr := fetchGitHubPrimaryEmail(token); addr != "" {
-		u.Email = addr
+	primary, verified := fetchGitHubEmails(token)
+	if primary != "" {
+		u.Email = primary
 	}
+	u.Verified = verified
 	return u, true
 }
 
-// fetchGitHubPrimaryEmail returns the account's primary verified address from GET
-// /user/emails (scope user:email), so a user with a private address still reports one. ""
-// when the list is unavailable (a token minted without the scope, any error) or holds no
-// primary verified address: the caller keeps the public address, and sign-in never fails.
-func fetchGitHubPrimaryEmail(token string) string {
+// fetchGitHubEmails returns the account's primary verified address and every verified
+// address from GET /user/emails (scope user:email), so a user with a private address still
+// reports one. Empty when the list is unavailable (a token minted without the scope, any
+// error): the caller keeps the public address, and sign-in never fails.
+func fetchGitHubEmails(token string) (primary string, verified []string) {
 	req, _ := http.NewRequest(http.MethodGet, gitHubAPI+"/user/emails", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "rogerai-broker")
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return ""
+		return "", nil
 	}
 	var list []struct {
 		Email    string `json:"email"`
 		Primary  bool   `json:"primary"`
 		Verified bool   `json:"verified"`
 	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&list) != nil {
-		return ""
+	if json.NewDecoder(io.LimitReader(resp.Body, gitHubBodyLimit)).Decode(&list) != nil {
+		return "", nil
 	}
 	for _, e := range list {
-		if e.Primary && e.Verified {
-			return e.Email
+		if !e.Verified {
+			continue
+		}
+		verified = append(verified, e.Email)
+		if e.Primary {
+			primary = e.Email
 		}
 	}
-	return ""
+	return primary, verified
 }
 
 // authGitHub handles POST /auth/github: the CLI (after a GitHub device-flow login)
@@ -137,7 +149,7 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 	// Re-check a stored address against the one the provider reports (founder ruling
 	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
 	// Best-effort: a failure never fails the sign-in.
-	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email)
+	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email, gu.Verified...)
 	// W1: a (re)login can change the pubkey->wallet binding, so drop the cached mapping
 	// for this pubkey now rather than waiting out the TTL.
 	b.invalidateOwnerWallet(pubkey)
@@ -416,7 +428,7 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	// Re-check a stored address against the one the provider reports (founder ruling
 	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
 	// Best-effort: a failure never fails the sign-in.
-	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email)
+	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email, gu.Verified...)
 	exp := time.Now().Add(24 * time.Hour).Unix()
 	// SameSite=None so the browser sends this cookie on the dashboard's cross-ORIGIN
 	// XHR to the broker. For the default deploy (rogerai.fm <-> broker.rogerai.fm,

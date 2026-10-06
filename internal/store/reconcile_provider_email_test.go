@@ -169,3 +169,34 @@ func TestDeleteAccountClearsReportedEmails(t *testing.T) {
 		})
 	}
 }
+
+// Founder ruling 2026-10-05 (any verified address): a GitHub sign-in passes every address
+// GitHub lists as verified. A row whose stored address matches one of them records that
+// address as GitHub's report and stays mailable; any other row records the primary. Apple's
+// report on the same row is never touched by a GitHub sign-in.
+func TestReconcileProviderEmailAnyVerified(t *testing.T) {
+	for name, db := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			rpeOwner(t, db, Owner{Pubkey: "av1", GitHubID: 9301, Login: "av1", AppleSub: "as-av1", Email: "second@x.com"})
+			rpeOwner(t, db, Owner{Pubkey: "av2", GitHubID: 9302, Login: "av2", Email: "typed@x.com"})
+			if err := db.ReconcileProviderEmail(0, "as-av1", "relay@privaterelay.appleid.com"); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.ReconcileProviderEmail(9301, "", "real@x.com", "real@x.com", "SECOND@x.com"); err != nil {
+				t.Fatal(err)
+			}
+			if rpeUnproven(t, db, "av1") {
+				t.Error("a stored address GitHub verified as a secondary address was withdrawn")
+			}
+			if err := db.ReconcileProviderEmail(9302, "", "real@x.com", "real@x.com", "other@x.com"); err != nil {
+				t.Fatal(err)
+			}
+			if !rpeUnproven(t, db, "av2") {
+				t.Error("a stored address matching no verified address stayed mailable")
+			}
+			if gh, ap := reportedEmails(t, db, "av1"); gh != "SECOND@x.com" || ap != "relay@privaterelay.appleid.com" {
+				t.Errorf("reports after a GitHub sign-in: github=%q (want the matching verified address), apple=%q (want untouched)", gh, ap)
+			}
+		})
+	}
+}
