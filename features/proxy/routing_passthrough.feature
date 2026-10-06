@@ -167,6 +167,12 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with model "@profile/coding"
     Then the broker receives model "qwen3-32b-fp8" and models ["llama-3.3-70b", "qwen3-32b-fp8"]
 
+  # regression 2026-10-05: audit finding, contract §9 (a profile's :free on the band survives the rewrite)
+  Scenario: A profile naming the band's free variant keeps asking for free
+    Given profile "freebie" sets model = "qwen3-32b-fp8:free"
+    When a chat request arrives with model "@profile/freebie"
+    Then the broker receives model "qwen3-32b-fp8:free"
+
   Scenario: A body with no carrier is rewritten to the band model exactly as approved
     When a chat request arrives with model "gpt-4o" and no routing carrier
     Then the broker receives model "qwen3-32b-fp8"

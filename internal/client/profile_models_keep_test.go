@@ -16,7 +16,7 @@ func TestProfileModelsSurviveTheBandRewrite(t *testing.T) {
 	out, did, err := ResolveProfileBody([]byte(`{"model":"@profile/two","messages":[]}`), ps)
 	require.NoError(t, err)
 	require.True(t, did)
-	rewritten, model, ok := rewriteModel(keepPrimaryBeforeRewrite(out, "b"), "b")
+	rewritten, model, ok := rewriteModel(keepPrimaryBeforeRewrite(out, "b"), "b", true)
 	require.True(t, ok)
 	require.Equal(t, "b", model)
 	var m struct {
@@ -43,4 +43,17 @@ func TestFreqStripKeepsLargeIntegers(t *testing.T) {
 	out = dropGuestFreq([]byte(`{"model":"@profile/p","seed":9007199254740993,"roger":{"freq":"abc"}}`))
 	require.NotContains(t, string(out), "freq")
 	require.Contains(t, string(out), "9007199254740993")
+}
+
+// TestProfileFreeVariantOfTheBandSurvivesTheRewrite: a profile whose model is the band's
+// :free variant, with no other routing key, still asks for free once resolved on the proxy.
+func TestProfileFreeVariantOfTheBandSurvivesTheRewrite(t *testing.T) {
+	ps, err := ParseProfiles([]byte(`{"profiles":{"freebie":{"model":"b:free"}}}`))
+	require.NoError(t, err)
+	out, did, err := ResolveProfileBody([]byte(`{"model":"@profile/freebie","messages":[]}`), ps)
+	require.NoError(t, err)
+	require.True(t, did)
+	_, model, ok := rewriteModel(keepPrimaryBeforeRewrite(out, "b"), "b", true)
+	require.True(t, ok)
+	require.Equal(t, "b:free", model, "the profile's :free is kept")
 }

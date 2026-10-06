@@ -696,7 +696,7 @@ func writeModelsList(w http.ResponseWriter, model string, created int64) {
 // not a JSON object (malformed, empty, an array, null) is rejected: ok=false -> the caller
 // 400s BEFORE any relay/hold so a broken client never spends. When target=="" (legacy
 // single-user) the body is returned unchanged and the body's own model is reported.
-func rewriteModel(body []byte, target string) (out []byte, model string, ok bool) {
+func rewriteModel(body []byte, target string, explicit bool) (out []byte, model string, ok bool) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
 		return nil, "", false
@@ -713,7 +713,7 @@ func rewriteModel(body []byte, target string) (out []byte, model string, ok bool
 	// A guest's provider prefix (operator.ModelPrefixes) is stripped from its model and its
 	// models[] entries before the broker sees them.
 	var own string
-	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == target && hasCarrier(body) {
+	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == target && (explicit || hasCarrier(body)) {
 		bare := guestModelID(own)
 		models, changed := unprefixedModels(m["models"])
 		if bare == own && !changed {
@@ -838,10 +838,11 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		// A guest's own roger.freq is never taken (the owner's band stands), so it is dropped
 		// before the merge; a band code in the OWNER's profile is the owner's choice and
 		// travels as the X-Roger-Freq header for this request, never in the body.
-		if resolved, did, perr := ResolveProfileBody(dropGuestFreq(body), profiles.Get()); perr != nil {
+		resolved, fromProfile, perr := ResolveProfileBody(dropGuestFreq(body), profiles.Get())
+		if perr != nil {
 			routingRefused(w, perr)
 			return
-		} else if did {
+		} else if fromProfile {
 			var freq string
 			body, freq = takeFreq(resolved)
 			if freq != "" && opts.Freq == "" {
@@ -853,7 +854,9 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		}
 		// Model rewrite + malformed-body guard (ruling 2): rewrite `model` to the band's, keep
 		// every other field; a non-object body is a 400 before any relay/hold.
-		rewritten, model, ok := rewriteModel(body, opts.Model)
+		// A resolved profile is the owner's explicit choice, like a carrier: its variant of the
+		// band (`band:free`) is kept rather than rewritten to the bare band.
+		rewritten, model, ok := rewriteModel(body, opts.Model, fromProfile)
 		if !ok {
 			openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")
 			return

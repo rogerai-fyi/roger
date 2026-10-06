@@ -131,11 +131,33 @@ func PickBest(offers []Offer, model string) (string, bool) {
 	return pickAlternative(offers, Criteria{Model: model}, nil)
 }
 
+// hasFreeSugar reports whether a model id carries the :free variant among its suffixes.
+func hasFreeSugar(id string) bool {
+	for {
+		switch {
+		case strings.HasSuffix(id, ":free"):
+			return true
+		case strings.HasSuffix(id, ":floor"):
+			id = strings.TrimSuffix(id, ":floor")
+		case strings.HasSuffix(id, ":nitro"):
+			id = strings.TrimSuffix(id, ":nitro")
+		default:
+			return false
+		}
+	}
+}
+
 // pickAlternative is the pure selection step (no I/O) so it is unit-testable.
 func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (string, bool) {
+	// The session model may carry a variant (`roger use m:free`); /discover lists bare ids.
+	// :free is a filter (only what costs the caller nothing now); :floor/:nitro are sorts.
+	want, freeOnly := bareModel(c.Model), hasFreeSugar(c.Model)
 	var eligible []Offer
 	for _, o := range offers {
-		if !o.Online || o.Model != c.Model {
+		if !o.Online || bareModel(o.Model) != want {
+			continue
+		}
+		if freeOnly && !o.FreeNow && (o.PriceIn > 0 || o.PriceOut > 0) {
 			continue
 		}
 		if exclude[o.NodeID] {
