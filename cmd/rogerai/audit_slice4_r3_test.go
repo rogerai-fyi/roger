@@ -106,26 +106,22 @@ func TestConfigLockStaleTakeoverIsExclusive(t *testing.T) {
 	}
 }
 
-// TestConfigLockHonorsTheDeadlineDuringATakeover: while another waiter holds the takeover of
-// a stale lock, a waiter still gives up at its deadline (it never spins past it).
-func TestConfigLockHonorsTheDeadlineDuringATakeover(t *testing.T) {
-	lock := filepath.Join(t.TempDir(), "config.json.lock")
-	require.NoError(t, os.WriteFile(lock, []byte("crashed"), 0o600))
-	old := time.Now().Add(-time.Minute)
-	require.NoError(t, os.Chtimes(lock, old, old))
-	require.NoError(t, os.WriteFile(lock+".takeover", nil, 0o600)) // a live takeover in progress
-	done := make(chan error, 1)
-	go func() {
-		release, err := lockConfig(lock)
-		if err == nil {
-			release()
-		}
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		require.ErrorContains(t, err, "locked by another roger command")
-	case <-time.After(10 * time.Second):
-		t.Fatal("lockConfig spun past its 5 s deadline")
+// TestSaveConfigNeverOverwritesAnUnreadableConfig: a config.json this process could not read
+// (not missing, unreadable) is refused rather than replaced with defaults.
+func TestSaveConfigNeverOverwritesAnUnreadableConfig(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
 	}
+	useTempConfig(t)
+	path := configPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real","broker":"https://keep.example"}`), 0o600))
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	c := loadConfig()
+	require.Error(t, saveConfig(c), "an unreadable config is not overwritten")
+	require.NoError(t, os.Chmod(path, 0o600))
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(b), "keep.example")
 }

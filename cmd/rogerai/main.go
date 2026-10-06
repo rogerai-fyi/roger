@@ -307,9 +307,19 @@ func defaultUser() string {
 // load-once, mutate-then-save-many-times pattern compares against the right baseline.
 var configBaseline map[string]json.RawMessage
 
+// configReadErr is why the last loadConfig could not read config.json when the file exists
+// but is unreadable (nil when it read, or there is no file). saveConfig refuses to replace a
+// file it could not read: writing defaults over it would erase the user's real settings.
+var configReadErr error
+
 func loadConfig() config {
 	c := config{Broker: defaultBroker, User: defaultUser()}
-	if b, err := os.ReadFile(configPath()); err == nil {
+	b, err := os.ReadFile(configPath())
+	configReadErr = nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		configReadErr = err
+	}
+	if err == nil {
 		if uerr := json.Unmarshal(b, &c); uerr != nil {
 			// C4: a corrupt / half-written config.json must not crash or silently wipe the
 			// user's real settings - preserve the unreadable file as a backup and fall back
@@ -336,6 +346,9 @@ func loadConfig() config {
 //   - C5 unchanged for the common single-writer path: it writes the struct in canonical field
 //     order, byte-identical to before, taking the merge path only when it is actually needed.
 func saveConfig(c config) error {
+	if configReadErr != nil {
+		return fmt.Errorf("%s could not be read (%v); not overwriting it - fix its permissions first", configPath(), configReadErr)
+	}
 	// The same lock profile edits take (editConfigRaw), so this merge never reads a file a
 	// concurrent `roger profile set` is about to replace.
 	if err := os.MkdirAll(filepath.Dir(configPath()), 0o700); err != nil {
