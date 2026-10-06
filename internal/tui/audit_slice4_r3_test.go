@@ -186,3 +186,24 @@ func TestConfirmRescanRebuildsTheQuote(t *testing.T) {
 	out, _ = m.Update(offersMsg([]offer{capOffer("other", 32768, false, nil, 1.0, 72)}))
 	require.NotEqual(t, modeConnectConfirm, asModel(out).mode, "a band gone from the scan is not offered for accept")
 }
+
+// TestTunedRowQuantWinsOverTheProfileList: the dial row the operator connected to is the
+// quant the turn asks for; a tuned profile's quantizations never silently replace it.
+func TestTunedRowQuantWinsOverTheProfileList(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"provider": map[string]any{"quantizations": []any{"Q4_K_M"}}})
+	require.Equal(t, []string{"Q8_0"}, m.routing("m", "Q8_0").Quantizations)
+	require.Equal(t, []string{"Q4_K_M"}, m.routing("m", "").Quantizations, "with no row quant the profile's list applies")
+}
+
+// TestConfirmRefusesARowOutsideTheProfileQuants: accepting a row whose quant the chosen
+// profile excludes is refused at the confirm, as a row outside the band rule is.
+func TestConfirmRefusesARowOutsideTheProfileQuants(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"provider": map[string]any{"quantizations": []any{"Q4_K_M"}}})
+	m.mode = modeConnectConfirm
+	m.confirmProfile = "p"
+	m.q = quote{b: band{model: "m", quant: "Q8_0"}}
+	out, _ := m.Update(keyMsg("enter"))
+	got := asModel(out)
+	require.Equal(t, modeConnectConfirm, got.mode, "the row is not accepted")
+	require.Contains(t, stripANSI(got.status), "Q8_0")
+}

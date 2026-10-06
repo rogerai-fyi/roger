@@ -72,8 +72,32 @@ func (m model) routing(model, rowQuant string) client.Routing {
 	}).Overlay(m.profileFor(model)) // the profile tuned under, for the connected band
 	rt.MaxOut, rt.MaxIn = stricterCap(lim.MaxOut, rt.MaxOut), stricterCap(lim.MaxIn, rt.MaxIn)
 	rt.MaxReq = stricterCap(lim.MaxCost, rt.MaxReq)
+	// The dial row the operator connected to is the quant this turn asks for: a profile's list
+	// never silently replaces it (the confirm refuses a row the profile excludes).
+	if rowQuant != "" {
+		rt.Quantizations = []string{rowQuant}
+	}
 	rt.MinTPS = max(lim.MinTPS, rt.MinTPS)
 	return rt
+}
+
+// profileQuantRefusal is the reason a row at `rowQuant` must not be accepted under a profile
+// whose provider.quantizations excludes it ("" when it may).
+func profileQuantRefusal(body map[string]any, rowQuant string) string {
+	p, _ := body["provider"].(map[string]any)
+	list, _ := p["quantizations"].([]any)
+	if rowQuant == "" || len(list) == 0 {
+		return ""
+	}
+	var names []string
+	for _, q := range list {
+		s, _ := q.(string)
+		if strings.EqualFold(s, rowQuant) {
+			return ""
+		}
+		names = append(names, s)
+	}
+	return rowQuant + " is outside the profile's quant list (" + strings.Join(names, ", ") + ") - pick another row or profile"
 }
 
 // stricterCap is the lower of two price caps, where 0 means "no cap of my own".

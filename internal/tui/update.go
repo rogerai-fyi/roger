@@ -373,6 +373,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = stEmber.Render(why)
 				return m, nil // accepting is not offered for a row outside the rule
 			}
+			if why := profileQuantRefusal(m.profileBody(m.confirmProfile), m.q.b.quant); why != "" {
+				m.status = stEmber.Render(why)
+				return m, nil // nor for a row the chosen profile excludes
+			}
 			if m.q.overLimit {
 				m.status = stEmber.Render("over profile " + m.confirmProfile + "'s cap - p for another profile, or esc")
 				return m, nil
