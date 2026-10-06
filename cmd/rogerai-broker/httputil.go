@@ -138,7 +138,7 @@ func withEnvelopeHeaders(h http.Header, body []byte) []byte {
 // station; an anonymous caller naming a Tower gets no station either), plus the number of
 // station attempts made when the caller knows it.
 func upstreamErrorBody(h http.Header, status int, station, model string, attempts int, raw []byte) []byte {
-	meta := upstreamRawMeta(raw)
+	meta := upstreamRawMeta(status, raw)
 	if station != "" {
 		meta["station"] = station
 		if model != "" {
@@ -280,7 +280,7 @@ const upstreamRawCap = 4 << 10
 // under metadata.raw (capped), and the station named unless station is "" (the no-oracle
 // rules: a private band never names its station).
 func consumerRejectedBody(h http.Header, status int, station string, raw []byte) []byte {
-	meta := upstreamRawMeta(raw)
+	meta := upstreamRawMeta(status, raw)
 	if station != "" {
 		meta["station"] = station
 	}
@@ -288,8 +288,13 @@ func consumerRejectedBody(h http.Header, status int, station string, raw []byte)
 		"the station refused the request itself (a parameter or size it does not accept); not retried elsewhere", meta)
 }
 
-// upstreamRawMeta is the station's own body for diagnosis, capped.
-func upstreamRawMeta(raw []byte) map[string]any {
+// upstreamRawMeta is the station's own body for diagnosis, capped - and left out of a 401 or a
+// 403 (founder ruling 2026-10-06): an upstream credential refusal can echo a fragment of a
+// credential, so the consumer gets the status, the code and a plain message only.
+func upstreamRawMeta(status int, raw []byte) map[string]any {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return map[string]any{}
+	}
 	if len(raw) > upstreamRawCap {
 		raw = raw[:upstreamRawCap]
 	}

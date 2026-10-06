@@ -625,6 +625,10 @@ Rulings on the slice-6 review (founder, 2026-10-06):
 30. Idempotency, saved reply gone (§14.B2): when the claim exists but its saved reply is gone,
     the answer stays a 409 (never a second job under one key) with the code
     `response_unavailable`.
+31. Upstream credential refusals (§14.B6): a station's upstream 401 or 403 reaches the consumer
+    with its status, its error code and a plain message, never `error.metadata.raw` (a commercial
+    upstream's refusal can echo a fragment of a credential). Every other status keeps the capped
+    raw body for diagnosis. A 403's classification is unchanged (upstream_error, no failover).
 
 ---
 

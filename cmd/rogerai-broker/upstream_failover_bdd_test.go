@@ -2392,6 +2392,32 @@ func (s *foState) isStatusConsumerRejected(status string) error {
 	return s.chargedZero()
 }
 
+// isStatusNoRaw is an upstream credential refusal (401/403): the status, the code and a plain
+// message, never the station's body (founder ruling 2026-10-06).
+func (s *foState) isStatusNoRaw(status, code string) error {
+	n, _ := strconv.Atoi(status)
+	if s.lastCode != n {
+		return fmt.Errorf("status %d, want %d (%s)", s.lastCode, n, s.lastBody)
+	}
+	var e struct {
+		Error struct {
+			Code     string         `json:"code"`
+			Message  string         `json:"message"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(s.lastBody, &e); err != nil || e.Error.Code != code || e.Error.Message == "" {
+		return fmt.Errorf("body is not the %s envelope with a message: %s", code, s.lastBody)
+	}
+	if _, has := e.Error.Metadata["raw"]; has || strings.Contains(string(s.lastBody), "key-abcd1234") {
+		return fmt.Errorf("the station's body reached the consumer: %s", s.lastBody)
+	}
+	if s.st("s1").upstreamCount() != 1 {
+		return fmt.Errorf("s1 received %d requests, want 1", s.st("s1").upstreamCount())
+	}
+	return s.chargedZero()
+}
+
 func (s *foState) receivedNothing(name string) error {
 	if n := s.st(name).upstreamCount(); n != 0 {
 		return fmt.Errorf("%s received %d request(s), want 0", name, n)
@@ -3210,6 +3236,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^"s1"'s upstream returns (\d+) with (\{.*\})$`, st.s1StatusBody)
 			sc.Step(`^the response is (\d+) with the upstream body \(one attempt, voided as today\)$`, st.isStatusUpstreamBody)
 			sc.Step(`^the response is (\d+) with the station's body wrapped as consumer_rejected \(one attempt, voided at \$0\)$`, st.isStatusConsumerRejected)
+			sc.Step(`^the response is (\d+) with error code "([^"]+)", a plain message and no raw station body \(one attempt, voided at \$0\)$`, st.isStatusNoRaw)
 			sc.Step(`^"([^"]*)"'s upstream received nothing$`, st.receivedNothing)
 			sc.Step(`^stations "s1", "s2", "s3", "s4" serve "m" and all upstreams return 429$`, st.fourAll429)
 			sc.Step(`^a funded consumer relays$`, st.fundedRelay)

@@ -130,10 +130,25 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     Examples:
       | status | body                                          |
       | 400    | {"error":"invalid request"}                   |
-      | 401    | {"error":"upstream key rejected"}             |
       | 404    | {"error":"model not found"}                   |
       | 413    | {"error":"request too large"}                 |
       | 422    | {"error":"unprocessable"}                     |
+
+  # superseded 2026-10-06 by founder ruling: no raw body on 401/403. The 401 row moved here from
+  # the outline above (whose Then required the station's body under error.metadata.raw) and a
+  # 403 row is added: an upstream credential refusal can echo a fragment of a credential, so the
+  # consumer gets the status, the error code and a plain message, never the station's body.
+  Scenario Outline: an upstream 401 or 403 does not fail over and carries no raw station body
+    Given stations "s1" and "s2" serve "m"
+    And "s1"'s upstream returns <status> with <body>
+    When a funded consumer relays and the pick lands on "s1"
+    Then the response is <status> with error code "<code>", a plain message and no raw station body (one attempt, voided at $0)
+    And "s2"'s upstream received nothing
+
+    Examples:
+      | status | code              | body                                         |
+      | 401    | consumer_rejected | {"error":"upstream key rejected key-abcd1234"} |
+      | 403    | upstream_error    | {"error":"forbidden for key-abcd1234"}         |
 
   # superseded 2026-10-05 by contract §14 (founder-approved): the final upstream body is no longer
   # passed through raw; it is wrapped as error.code upstream_error under error.metadata.raw.
