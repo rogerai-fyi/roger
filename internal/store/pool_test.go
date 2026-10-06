@@ -1,9 +1,10 @@
 package store
 
 import (
-	"os"
 	"testing"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
 
 // The broker's managed Postgres is a small shared cluster (~22 usable backend
@@ -46,7 +47,7 @@ func TestPoolLimitsFromEnv(t *testing.T) {
 
 // NewPostgres must actually apply the bounds to the live pool (real Postgres, no mocks).
 func TestNewPostgresBoundsPool(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping real-Postgres pool-bounds test")
 	}
