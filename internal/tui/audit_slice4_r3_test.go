@@ -154,3 +154,13 @@ func TestLimPlateShowsTheResolvedRule(t *testing.T) {
 	require.Contains(t, def, "pref cheap")
 	require.NotContains(t, def, "(default)", "the default row is the default: no marker")
 }
+
+// TestConsoleLimitEditReachesTheLiveProxy: a limit written to the shared store by another
+// front-end (the browser console) re-points the live proxy on the booth's next tick.
+func TestConsoleLimitEditReachesTheLiveProxy(t *testing.T) {
+	m := autoTunedModel(t)
+	band := m.connected.Model
+	m.limits.Update(band, func(cur Limit) Limit { cur.MaxOut = 0.3; return cur }) // the console's write
+	out, _ := m.Update(tickMsg{gen: m.tickGen})
+	require.InDelta(t, 0.3, asModel(out).proxyHolder.Get().MaxPriceOut, 1e-12)
+}

@@ -563,6 +563,7 @@ func (s *LimitStore) setLocked(model string, l Limit) {
 		s.Models = map[string]Limit{}
 	}
 	s.Models[model] = l
+	s.gen++
 	if s.Save != nil {
 		s.Save(s.Models, s.Default)
 	}
@@ -637,6 +638,16 @@ func (s *LimitStore) Snapshot() map[string]Limit {
 	return out
 }
 
+// Gen is the store's write count (0 for a nil store).
+func (s *LimitStore) Gen() uint64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.gen
+}
+
 func (s *LimitStore) clear(model string) {
 	if s == nil {
 		return
@@ -652,6 +663,7 @@ func (s *LimitStore) clearLocked(model string) {
 		return
 	}
 	delete(s.Models, model)
+	s.gen++
 	if s.Save != nil {
 		s.Save(s.Models, s.Default)
 	}
@@ -1162,7 +1174,8 @@ type model struct {
 	// TUNE-IN private band: tuneFreq is the active frequency code (empty = OPEN MARKET);
 	// tuneFreqLabel is the cosmetic display shown in the header (e.g. "147.520 MHz").
 	// /freq sets them after a successful resolve; esc clears back to OPEN MARKET.
-	tuneFreq string
+	limitsGen uint64 // the limit store's write count last seen (see the tickMsg handler)
+	tuneFreq  string
 	// headerRouting is the routing wire negotiated at TUNE time (client.NegotiateRouting):
 	// false = the broker reads the body carriers; true = an OLD broker, speak X-Roger-*
 	// headers on every in-booth path (live proxy, chat, agent). Per session, never saved.
@@ -1506,6 +1519,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.
 		if msg.gen != m.tickGen {
 			return m, nil
+		}
+		// The browser console writes the same limit store from its own goroutine: an edit
+		// this booth did not make re-points the live proxy here.
+		if g := m.limits.Gen(); g != m.limitsGen {
+			m.limitsGen = g
+			(&m).refreshLiveRouting()
 		}
 		// FRAME CLOCK + native-selection freeze: advance the animation clock ONLY when something is
 		// actually animating (a turn in flight, a staged tune-in, share-detect, the screensaver, or

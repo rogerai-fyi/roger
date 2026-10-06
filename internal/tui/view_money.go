@@ -72,6 +72,9 @@ type LimitStore struct {
 	// Profiles are the named routing profiles of config.json (`roger profile`), re-read on
 	// change; nil = none. The booth lists them in [3] CONFIG and tunes under one.
 	Profiles *client.ProfileStore
+	// gen counts writes, so a booth sharing the store with the browser console can tell an
+	// edit it did not make has landed (and re-point its live proxy).
+	gen uint64
 }
 
 // payoutSnapshot is the TUI's compact view of `roger payout status` (enough for the
