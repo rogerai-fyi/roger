@@ -1414,7 +1414,7 @@ func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported str
 		  WHERE ((github_id = $1 AND $1 <> 0) OR apple_sub = NULLIF($2,''))
 		    AND NOT COALESCE(anonymized,false)),
 		r AS (
-		  SELECT pubkey,
+		  SELECT pubkey, rep,
 		         CASE WHEN github_id = $1 AND $1 <> 0 AND rep IS NOT NULL THEN rep ELSE github_reported_email END AS gh,
 		         CASE WHEN apple_sub = NULLIF($2,'') AND rep IS NOT NULL THEN rep ELSE apple_reported_email END AS ap
 		  FROM r0
@@ -1423,7 +1423,7 @@ func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported str
 		  github_reported_email = r.gh,
 		  apple_reported_email = r.ap,
 		  email_unproven = CASE
-		    WHEN o.email_verified_at IS NOT NULL OR COALESCE(o.email,'') = '' THEN o.email_unproven
+		    WHEN r.rep IS NULL OR o.email_verified_at IS NOT NULL OR COALESCE(o.email,'') = '' THEN o.email_unproven
 		    WHEN (r.gh IS NOT NULL AND lower(o.email) = lower(r.gh))
 		      OR (r.ap IS NOT NULL AND lower(o.email) = lower(r.ap)) THEN false
 		    WHEN (o.github_id = 0 OR r.gh IS NOT NULL)

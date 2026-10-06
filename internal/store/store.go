@@ -245,10 +245,11 @@ type Store interface {
 	// proven with an emailed code against the last report of EVERY provider the row is linked
 	// to: mailable when it matches any of them (case-insensitively); unproven when every linked
 	// provider has reported and none matches; left as it was while a linked provider has not
-	// reported yet. A code-proven address is never touched, and an empty report changes nothing.
-	// verified lists every address the provider marks verified (GitHub's /user/emails): a row
-	// whose stored address matches one of them records that address as the report instead
-	// (founder ruling 2026-10-05), so a verified secondary address stays mailable.
+	// reported yet. A code-proven address is never touched. verified lists every address the
+	// provider marks verified (GitHub's /user/emails): a row whose stored address matches one
+	// of them records that address as the report instead (founder ruling 2026-10-05), so a
+	// verified secondary address stays mailable. A row with nothing to record (an empty report
+	// and no matching verified address) is left exactly as it was, on both stores.
 	ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error
 	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
 	// returning whether THIS call claimed it. It is the once-only guard for the welcome

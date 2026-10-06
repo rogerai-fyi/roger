@@ -194,6 +194,23 @@ func TestReconcileProviderEmailAnyVerified(t *testing.T) {
 			if !rpeUnproven(t, db, "av2") {
 				t.Error("a stored address matching no verified address stayed mailable")
 			}
+			// No primary and no matching verified address: nothing is recorded, so the row is
+			// left exactly as it was on both stores (a typed address that happens to equal an
+			// earlier report stays unproven until a report is actually made).
+			rpeOwner(t, db, Owner{Pubkey: "av3", GitHubID: 9303, Login: "av3", Email: "old@x.com"})
+			_ = db.ReconcileProviderEmail(9303, "", "gh@x.com")
+			if _, ok, err := db.UpdateAccount("av3", "gh@x.com"); err != nil || !ok {
+				t.Fatalf("typed address: ok=%v err=%v", ok, err)
+			}
+			if !rpeUnproven(t, db, "av3") {
+				t.Fatal("fixture: a typed address should start unproven")
+			}
+			if err := db.ReconcileProviderEmail(9303, "", "", "other@x.com"); err != nil {
+				t.Fatal(err)
+			}
+			if !rpeUnproven(t, db, "av3") {
+				t.Error("a sign-in that recorded nothing re-judged the row")
+			}
 			if gh, ap := reportedEmails(t, db, "av1"); gh != "SECOND@x.com" || ap != "relay@privaterelay.appleid.com" {
 				t.Errorf("reports after a GitHub sign-in: github=%q (want the matching verified address), apple=%q (want untouched)", gh, ap)
 			}
