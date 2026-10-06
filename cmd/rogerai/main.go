@@ -1073,13 +1073,15 @@ func cmdUse(cfg config, args []string) error {
 	forgetKey := fs.Bool("forget-key", false, "remove a saved key from the config file")
 	fs.Parse(rest)
 	if *forgetKey {
-		if cfg.UseKey != "" {
+		if cfg.UseKey == "" {
+			fmt.Println("no key was saved - nothing to forget")
+		} else {
 			cfg.UseKey = ""
 			if err := saveConfig(cfg); err != nil {
 				return err
 			}
+			fmt.Println("forgot the saved key - `roger use` signs with this device again")
 		}
-		fmt.Println("no saved key - `roger use` signs with this device again")
 		if model == "" {
 			return nil
 		}
@@ -1138,6 +1140,11 @@ func cmdUse(cfg config, args []string) error {
 	if useKey != "" && !client.IsAccountKey(useKey) {
 		return fmt.Errorf("--key takes an account key (rog-key_...) - mint one with `roger keys mint`")
 	}
+	if useKey != "" {
+		if err := client.KeyTransportOK(cfg.Broker); err != nil {
+			return err // checked before --save-key, so a refused key is never written
+		}
+	}
 	if *saveKey {
 		if useKey == "" {
 			return fmt.Errorf("--save-key needs --key rog-key_... (or ROGER_KEY)")
@@ -1152,7 +1159,7 @@ func cmdUse(cfg config, args []string) error {
 	}
 	if useKey != "" {
 		if err := client.KeyTransportOK(cfg.Broker); err != nil {
-			return err
+			return err // a saved key, checked against this run's broker
 		}
 		keyNote = useKeyNote(useKey, cfg.UseKey, strings.TrimSpace(*key) != "")
 	}

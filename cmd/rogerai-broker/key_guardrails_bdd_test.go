@@ -3625,7 +3625,7 @@ func (k *kg5State) registerGuardrails(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]+)" POSTs /account/export$`, k.getsExport)
 	sc.Step(`^the export lists the key ids, names, and key_event rows, and no secrets or hashes$`, k.exportLists)
 	sc.Step(`^"([^"]+)" POSTs /account/delete$`, k.postsAccountDelete)
-	sc.Step(`^every key of "([^"]+)" is revoked immediately and its key_event rows are anonymized like the rest of the account$`, k.everyKeyRevoked)
+	sc.Step(`^every key of "([^"]+)" is revoked immediately and its key_event rows are anonymized, because they carry key names and ids$`, k.everyKeyRevoked)
 
 	// privacy
 	sc.Step(`^"([^"]+)" mints "([^"]+)" and a relay bearing "([^"]+)" is served$`, k.mintAndServe)
