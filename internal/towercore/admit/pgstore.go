@@ -314,6 +314,11 @@ func nullInt64(n int64) any {
 	return n
 }
 
+// admitBetweenStatements is a test seam: nil in production. It runs while Admit holds the
+// token row and before it touches the admissions table, which is the window a concurrent
+// migration has to fit into to deadlock it.
+var admitBetweenStatements func()
+
 // Admit consumes the token and inserts the Tower in ONE transaction: the whole bundle
 // commits or none of it does. A failed insert rolls the token consumption back with it,
 // so a rejected attempt leaves the token usable for the operator's next try.
@@ -336,6 +341,9 @@ func (p *PGStore) Admit(tokenID string, tw Tower) (bool, error) {
 	}
 	if err != nil {
 		return false, wrap("admit", err)
+	}
+	if admitBetweenStatements != nil {
+		admitBetweenStatements()
 	}
 	if err := insertTowerIn(tx, tw); err != nil {
 		// Rolls back the token consumption too.
