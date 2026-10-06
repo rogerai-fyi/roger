@@ -590,9 +590,6 @@ func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
 	if opts.SelfHostedOnly {
 		c.SelfHostedOnly = true
 	}
-	if opts.Confidential {
-		c.Confidential = true
-	}
 	if len(c.Quantizations) == 0 && len(opts.Quantizations) > 0 {
 		c.Quantizations = append([]string(nil), opts.Quantizations...)
 	}

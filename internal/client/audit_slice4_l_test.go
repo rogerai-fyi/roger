@@ -67,3 +67,15 @@ func TestFreeTuneKeepsAGuestSortSugar(t *testing.T) {
 	require.NotNil(t, got, "the request reached the broker")
 	require.Equal(t, "m:nitro:free", got["model"], "the guest's sort sugar is kept and the session's :free still binds")
 }
+
+// TestParseCtxRefusesOverflow: a k count too large to multiply is refused, never wrapped,
+// and a count above what the broker accepts (2^31-1) is refused too.
+func TestParseCtxRefusesOverflow(t *testing.T) {
+	for _, v := range []string{"9007199254740993k", "9223372036854775807k", "3000000000", "2097152k"} {
+		_, err := ParseCtx(v)
+		require.Error(t, err, v)
+	}
+	n, err := ParseCtx("2097151k")
+	require.NoError(t, err)
+	require.Equal(t, 2097151*1024, n)
+}

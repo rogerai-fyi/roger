@@ -67,11 +67,15 @@ func ParseCtx(v string) (int, error) {
 		return 0, fmt.Errorf("%q is not a token count (8192 or 32k)", v)
 	}
 	n, err := strconv.Atoi(m[1])
-	if m[2] != "" {
-		n *= 1024
-	}
 	if err != nil || n <= 0 {
 		return 0, fmt.Errorf("%q is not a positive token count", v)
+	}
+	// Bounded before the multiply (so a k count never wraps), at what the broker accepts.
+	if limit := math.MaxInt32; n > limit || (m[2] != "" && n > limit/1024) {
+		return 0, fmt.Errorf("%q is more tokens than any context (max %d)", v, math.MaxInt32)
+	}
+	if m[2] != "" {
+		n *= 1024
 	}
 	return n, nil
 }
