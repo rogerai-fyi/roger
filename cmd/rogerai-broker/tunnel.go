@@ -3361,7 +3361,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// to the next candidate or stands as the answer.
 			b.genAttemptStart(requestID, i+1, "", c.model)
 			edgeStart := time.Now()
-			answer, g, out := b.planEdgeAttempt(r, c, payer, &holdKey, maxCost, i+1 < len(plan), deadline)
+			answer, g, out := b.planEdgeAttempt(r, c, payer, &holdKey, maxCost, i+1 < len(plan), deadline, requestID)
 			if len(answer) > 0 {
 				b.observeTotalLatency(c.edge.row.NodeID, float64(time.Since(edgeStart).Milliseconds()))
 				brec, bcost := b.writeBridgedAnswer(w, g, c.edge.row, c.edge.pubHex, answer, false)
@@ -4318,7 +4318,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			stopKA := lw.keepalive(bridgeKeepalive())
 			log.Printf("bridge stream attempt request=%s tower=%s window_s=%d", requestID, c.edge.row.TowerID, int(b.streamIdle().Seconds()))
 			edgeStart := time.Now()
-			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, false, time.Now().Add(b.streamIdle()))
+			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, false, time.Now().Add(b.streamIdle()), requestID)
 			stopKA()
 			if len(answer) > 0 {
 				b.observeTotalLatency(c.edge.row.NodeID, float64(time.Since(edgeStart).Milliseconds()))

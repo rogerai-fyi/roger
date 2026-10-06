@@ -297,9 +297,9 @@ func (b *broker) noteIDCollisions(ids []string, models []string) {
 
 // planEdgeAttempt runs one planned bridged attempt on the request's hold. soft is "a later
 // candidate stands behind this one", which bounds a dead Tower to the short drive timeout.
-func (b *broker) planEdgeAttempt(r *http.Request, c attemptCand, payer string, holdKey *string, maxCost float64, soft bool, deadline time.Time) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
+func (b *broker) planEdgeAttempt(r *http.Request, c attemptCand, payer string, holdKey *string, maxCost float64, soft bool, deadline time.Time, requestID string) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
 	e := c.edge
-	return b.edgeAttempt(r, e.target, e.row, c.model, c.body, e.wallet, edgeHold{payer: payer, key: holdKey, maxCost: maxCost}, soft, deadline)
+	return b.edgeAttempt(r, e.target, e.row, c.model, c.body, e.wallet, edgeHold{payer: payer, key: holdKey, maxCost: maxCost}, soft, deadline, requestID)
 }
 
 // voidEdgeAttempt records the $0 lineage receipt of a bridged attempt that failed, as a
