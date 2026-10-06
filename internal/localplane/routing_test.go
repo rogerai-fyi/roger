@@ -262,3 +262,15 @@ func TestLocalModelsListIsBoundedBeforeItIsRead(t *testing.T) {
 	require.Equal(t, 400, e.status)
 	require.Contains(t, e.msg, "32")
 }
+
+// TestLocalEmptyIgnoreIsNothingToDeny: provider.ignore: [] is accepted (nothing to deny), as
+// on the broker; an empty order or only is still refused.
+func TestLocalEmptyIgnoreIsNothingToDeny(t *testing.T) {
+	lr, e := parseLocalRouting([]byte(`{"model":"a","provider":{"ignore":[]}}`), false)
+	require.Nil(t, e)
+	require.True(t, lr.admits("s1"))
+	for _, k := range []string{"order", "only"} {
+		_, e := parseLocalRouting([]byte(`{"model":"a","provider":{"`+k+`":[]}}`), false)
+		require.NotNil(t, e, k)
+	}
+}

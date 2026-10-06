@@ -188,7 +188,9 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 					continue
 				}
 				ids, err := localIDs(v)
-				if err != nil || len(ids) == 0 {
+				// An empty ignore is "nothing to deny" (as on the broker); an empty order or only
+				// is a malformed preference.
+				if err != nil || (len(ids) == 0 && k != "ignore") {
 					return lr, &routeErr{status: 400, msg: "provider." + k + " must be a non-empty list of local station ids"}
 				}
 				switch k {
