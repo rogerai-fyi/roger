@@ -124,3 +124,12 @@ func TestProxyRelaysWithKeyBearer(t *testing.T) {
 	require.Empty(t, hdr.Get("Authorization"))
 	require.NotEmpty(t, hdr.Get("X-Roger-Sig"))
 }
+
+func TestKeyTransportOK(t *testing.T) {
+	for _, ok := range []string{"https://broker.rogerai.fm", "http://127.0.0.1:8080", "http://localhost:4141", "http://[::1]:9"} {
+		require.NoError(t, KeyTransportOK(ok), ok)
+	}
+	for _, bad := range []string{"http://broker.example", "http://192.168.1.69:39009", "ftp://x", "://bad"} {
+		require.Error(t, KeyTransportOK(bad), bad)
+	}
+}

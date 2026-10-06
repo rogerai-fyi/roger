@@ -1150,8 +1150,11 @@ func cmdUse(cfg config, args []string) error {
 	if useKey == "" && cfg.UseKey != "" {
 		useKey = cfg.UseKey // a key saved earlier with --save-key
 	}
-	if useKey != "" && useKey == cfg.UseKey {
-		keyNote = "saved key ..." + useKey[len(useKey)-4:] + " in use (roger use --forget-key to clear)"
+	if useKey != "" {
+		if err := client.KeyTransportOK(cfg.Broker); err != nil {
+			return err
+		}
+		keyNote = useKeyNote(useKey, cfg.UseKey, strings.TrimSpace(*key) != "")
 	}
 	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
 		Port: useport, Confidential: *confidential,
@@ -1159,6 +1162,19 @@ func cmdUse(cfg config, args []string) error {
 		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
 		Pref: lim.Pref, SelfHostedOnly: *selfHosted, Quantizations: quants, Key: useKey, KeyNote: keyNote,
 	})
+}
+
+// useKeyNote is the connect plate's KEY line for the account key a session relays with: its
+// hint (never the key) and where it came from.
+func useKeyNote(useKey, saved string, fromFlag bool) string {
+	hint := "..." + useKey[len(useKey)-4:]
+	switch {
+	case useKey == saved:
+		return "saved key " + hint + " in use (roger use --forget-key to clear)"
+	case fromFlag:
+		return "account key " + hint + " from --key"
+	}
+	return "account key " + hint + " from ROGER_KEY"
 }
 
 // shareModelArg pulls an optional LEADING positional model token out of `share`'s

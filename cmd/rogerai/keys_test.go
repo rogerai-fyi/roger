@@ -188,3 +188,16 @@ func TestUseKeySources(t *testing.T) {
 	require.NoError(t, cmdUse(loadConfig(), []string{"--forget-key"}), "forgetting with nothing saved is fine")
 	require.NoError(t, cmdUse(loadConfig(), []string{"m1", "--forget-key"}), "--forget-key with a model then tunes in")
 }
+
+func TestUseKeyNoteAndTransport(t *testing.T) {
+	require.Equal(t, "saved key ...wxyz in use (roger use --forget-key to clear)", useKeyNote("rog-key_wxyz", "rog-key_wxyz", false))
+	require.Equal(t, "account key ...wxyz from --key", useKeyNote("rog-key_wxyz", "", true))
+	require.Equal(t, "account key ...wxyz from ROGER_KEY", useKeyNote("rog-key_wxyz", "rog-key_other", false))
+	for _, n := range []string{useKeyNote("rog-key_secretwxyz", "", true)} {
+		require.NotContains(t, n, "secret", "the note shows the hint, never the key")
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	err := cmdUse(config{Broker: "http://broker.example", User: "u"}, []string{"m1", "--key", "rog-key_abc"})
+	require.ErrorContains(t, err, "only over https")
+}

@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"text/tabwriter"
 )
@@ -138,6 +140,22 @@ func (k AccountKey) State() string {
 		return "expired"
 	}
 	return "active"
+}
+
+// KeyTransportOK refuses to carry an account key in the clear: the broker must be https, or
+// plain http only to this machine (a local Tower or a test broker).
+func KeyTransportOK(broker string) error {
+	u, err := url.Parse(broker)
+	if err != nil {
+		return fmt.Errorf("broker %q: %v", broker, err)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if ip := net.ParseIP(u.Hostname()); u.Scheme == "http" && (u.Hostname() == "localhost" || ip != nil && ip.IsLoopback()) {
+		return nil
+	}
+	return fmt.Errorf("an account key is sent only over https (or to this machine), not to %s", broker)
 }
 
 // IsAccountKey reports whether s looks like an account key secret.

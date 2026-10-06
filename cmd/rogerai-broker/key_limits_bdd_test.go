@@ -1971,8 +1971,34 @@ func (k *kg5State) kl5Crosses(label string) error {
 	return k.pricedRelay(label)
 }
 
+// kl5MailSettled waits until every instance's mailer has nothing queued and its sender is
+// parked: every notice enqueued so far has been sent (the sender sends before it parks).
+func (k *kg5State) kl5MailSettled() error {
+	deadline := time.Now().Add(10 * time.Second)
+	for _, b := range []*broker{k.b, k.b2} {
+		if b == nil || b.mail == nil {
+			continue
+		}
+		for {
+			b.mail.q.mu.Lock()
+			depth := b.mail.q.depthLocked()
+			b.mail.q.mu.Unlock()
+			if depth == 0 && b.mail.idle() {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("the mailer did not settle (%d queued)", depth)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	return nil
+}
+
 func (k *kg5State) kl5EmailsDeduped(label string) error {
-	time.Sleep(300 * time.Millisecond) // the mailer sends from its own queue goroutine
+	if err := k.kl5MailSettled(); err != nil { // the mailer sends from its own queue goroutine
+		return err
+	}
 	k.mailMu.Lock()
 	mails := append([]string(nil), k.mails...)
 	k.mailMu.Unlock()
