@@ -197,15 +197,27 @@ func (b *broker) agentCancels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	select {
-	case raw, ok := <-msgs:
-		if !ok {
+	// A publish is only a wake-up: every cancel is in the buffer, so each wake drains it.
+	for {
+		select {
+		case _, ok := <-msgs:
+			if !ok {
+				answer(nil)
+				return
+			}
+			raws, derr := b.shared.cancelDrain(node)
+			if derr != nil {
+				continue // the buffer keeps them for the next wake or poll
+			}
+			if ids := liveIDs(raws, time.Now().UnixMilli()); len(ids) > 0 {
+				answer(ids)
+				return
+			}
+		case <-hold.C:
 			answer(nil)
 			return
+		case <-r.Context().Done():
+			return
 		}
-		answer(liveIDs([][]byte{raw}, time.Now().UnixMilli()))
-	case <-hold.C:
-		answer(nil)
-	case <-r.Context().Done():
 	}
 }

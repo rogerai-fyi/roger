@@ -61,18 +61,18 @@ func (v *valkeyStore) cancelPush(node string, entry []byte, ttl time.Duration) e
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
 	defer cancel()
-	n, err := v.rdb.Publish(ctx, busCancelPrefix+node, entry).Result()
-	if err != nil {
+	// ALWAYS buffered, then a wake-up published: a poll drains the buffer on every wake, so a
+	// cancel published while a poll was answering another one (still subscribed) is not lost.
+	key := cancelBufPrefix + node
+	pipe := v.rdb.TxPipeline()
+	pipe.RPush(ctx, key, entry)
+	pipe.Expire(ctx, key, ttl)
+	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("cancelPush", err)
 		return err
 	}
-	if n == 0 {
-		key := cancelBufPrefix + node
-		if perr := v.rdb.RPush(ctx, key, entry).Err(); perr != nil {
-			v.noteErr("cancelPush", perr)
-			return perr
-		}
-		v.rdb.Expire(ctx, key, ttl)
+	if err := v.rdb.Publish(ctx, busCancelPrefix+node, entry).Err(); err != nil {
+		v.noteErr("cancelPush", err) // buffered all the same: the next poll drains it
 	}
 	v.setUp(true)
 	return nil
