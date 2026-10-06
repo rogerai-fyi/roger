@@ -78,11 +78,19 @@ func TestAStartupMigrationDoesNotDeadlockAConcurrentAdmission(t *testing.T) {
 	go func() { migrated <- pgmigrate.Apply(rec, schema+enrollSchema) }()
 
 	// Wait until the migration is blocked behind Admit, so the interleave is the real one.
+	// The match is a lock on the token table that has not been granted, which only the
+	// migration's token index can be waiting for here (Admit holds that lock), so another
+	// lock waiter on a shared test server cannot release Admit early. pg_locks rather than
+	// pg_stat_activity's query text, which is cut off at 1 KB and so would not show the
+	// statement inside the long single-transaction script this used to be.
 	require.Eventually(t, func() bool {
 		var n int
-		require.NoError(t, db.QueryRow(
-			`SELECT count(*) FROM pg_stat_activity
-			  WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&n))
+		if err := db.QueryRow(
+			`SELECT count(*) FROM pg_locks
+			  WHERE NOT granted AND relation = 'rogerai.tower_enrollment_tokens'::regclass`).Scan(&n); err != nil {
+			t.Logf("probing for the blocked migration: %v", err)
+			return false
+		}
 		return n > 0
 	}, 10*time.Second, 10*time.Millisecond, "the migration never waited on Admit's lock")
 
