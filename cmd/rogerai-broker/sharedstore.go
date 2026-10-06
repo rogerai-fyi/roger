@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -844,10 +845,11 @@ func (v *valkeyStore) noteReply(op string, err error) {
 	}
 }
 
-// keyRefusal reports whether an error reply refuses one command on one key (the key holds
-// the wrong type) rather than saying the server cannot serve.
+// keyRefusal reports whether the server's error reply (unwrapped) refuses one command on
+// one key (the key holds the wrong type) rather than saying the server cannot serve.
 func keyRefusal(err error) bool {
-	return strings.HasPrefix(err.Error(), "WRONGTYPE ")
+	var reply redis.Error
+	return errors.As(err, &reply) && strings.HasPrefix(reply.Error(), "WRONGTYPE ")
 }
 
 func (v *valkeyStore) Close() error {

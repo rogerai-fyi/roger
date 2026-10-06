@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -626,6 +627,9 @@ func TestQueueRefusedPushFailsFast(t *testing.T) {
 	if strings.Contains(logs.String(), "in-memory fallback") {
 		t.Errorf("a refused push marked the shared store down: %s", logs.String())
 	}
+	if vs, ok := a.shared.(*valkeyStore); !ok || !vs.healthy() {
+		t.Errorf("after a refused push the shared store reads down (valkey=%v)", ok)
+	}
 }
 
 // An ambiguous push error (the push may have landed) is never failed fast: the job stays
@@ -669,12 +673,30 @@ func TestNoteReplyMarksDownUnlessItIsAKeyRefusal(t *testing.T) {
 		"ERR max number of clients reached":                                 false,
 	} {
 		v := &valkeyStore{up: true}
-		v.noteReply("dq push", errors.New(msg))
+		v.noteReply("dq push", fmt.Errorf("dq push: %w", replyErr(msg)))
 		if v.healthy() != up || (up && v.downFor() != 0) {
 			t.Errorf("after %q: healthy=%v downFor=%s, want healthy=%v", msg, v.healthy(), v.downFor(), up)
 		}
 		if v.opErrors.Load() != 1 {
 			t.Errorf("after %q: counted %d op errors, want 1", msg, v.opErrors.Load())
 		}
+	}
+}
+
+// replyErr is an error reply from the server, as go-redis surfaces one (redis.Error).
+type replyErr string
+
+func (e replyErr) Error() string { return string(e) }
+func (replyErr) RedisError()     {}
+
+// A key refusal is judged on the server's reply, through any wrapping; an error that only
+// reads like one (not a reply) is not taken as proof the store answered.
+func TestKeyRefusalReadsTheServerReply(t *testing.T) {
+	wrongType := "WRONGTYPE Operation against a key holding the wrong kind of value"
+	if !keyRefusal(fmt.Errorf("dq push: %w", replyErr(wrongType))) {
+		t.Error("a wrapped WRONGTYPE reply is a key refusal")
+	}
+	if keyRefusal(errors.New(wrongType)) {
+		t.Error("an error that is not a server reply is not a key refusal")
 	}
 }
