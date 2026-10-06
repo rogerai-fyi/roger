@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/lanmode"
 )
 
@@ -92,4 +94,50 @@ func TestIsLocalTowerBrokerUsesTheSharedProbe(t *testing.T) {
 	require.False(t, isLocalTowerBroker("https://"+tw.addr()), "only plain http is a Tower's shape")
 	require.False(t, isLocalTowerBroker("http://203.0.113.7:8787"), "a public address is never probed")
 	require.False(t, isLocalTowerBroker("://bad"))
+}
+
+func TestLANUseHelpers(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"192.168.1.20:8787", "192.168.1.20:8787", true},
+		{"100.64.3.9:8787", "100.64.3.9:8787", true},
+		{"203.0.113.7:8787", "", false},
+		{"qwen3-8b", "", false},
+		{"tower.lan:8787", "", false},
+		{"jetson/serve", "", false},
+	} {
+		got, ok := lanTowerAddress(tc.in)
+		require.Equal(t, tc.ok, ok, tc.in)
+		require.Equal(t, tc.want, got, tc.in)
+	}
+
+	useTempConfig(t)
+	u, k := lanSelfServe("nothing-served-here")
+	require.Empty(t, u)
+	require.Empty(t, k)
+
+	tw := newRealTower(t)
+	require.NoError(t, tw.admit(client.LoadOrCreateUserKey().Public().(ed25519.PublicKey)))
+	require.NoError(t, tw.attach("st-1", "llama-3.3-70b"))
+	dial := &lanDialMap{}
+	dial.set("192.168.1.20:8787", tw.addr())
+	lanProbeHTTP = dial.client()
+	defer func() { lanProbeHTTP = &http.Client{} }()
+	cfg := config{LanTowers: []string{"192.168.1.20:8787"}}
+	cfg.lan = lanmode.Mode{LAN: true, Source: lanmode.SrcFlag}
+	require.Equal(t, []string{"192.168.1.20:8787"}, lanTowersServing(cfg, "llama-3.3-70b"))
+	require.Nil(t, lanTowersServing(cfg, "other"))
+	require.Len(t, lanSourcesOf(cfg, "llama-3.3-70b"), 1)
+	require.Nil(t, lanSourcesOf(cfg, "other"))
+
+	var o client.ProxyOptions
+	applyLAN(config{}, &o)
+	require.False(t, o.LANMode, "default mode leaves the ladder alone")
+	applyLAN(cfg, &o)
+	require.True(t, o.LANMode)
+	require.Equal(t, "local-only", o.Prefer)
+	require.Equal(t, []string{"192.168.1.20:8787"}, o.LANTowers("llama-3.3-70b"))
 }
