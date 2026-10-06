@@ -275,7 +275,7 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
   # in flight would let its retry run a second job and place a second hold
   Scenario: The per-payer key bound never evicts a request still in flight
     Given station "s2" is on air for "m2" at in $0.10 out $0.30 per 1M
-    And "s2" takes 5 seconds to answer
+    And "s2" takes 60 seconds to answer
     And "u-1" has relayed for "m2" with Idempotency-Key "k-live" and the request is still in flight
     And "u-1" has 1000 live idempotency keys
     When "u-1" sends the identical request with Idempotency-Key "k-live"
