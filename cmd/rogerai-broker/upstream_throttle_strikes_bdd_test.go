@@ -28,7 +28,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +35,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -144,7 +144,11 @@ func (s *utState) reset() error {
 	s.teardown()
 	s.logs.Reset()
 	nonce := utNonce()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	dsn, err := pgtest.Private()
+	if err != nil {
+		return err
+	}
+	if dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			return fmt.Errorf("postgres: %w", err)

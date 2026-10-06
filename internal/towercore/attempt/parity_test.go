@@ -11,49 +11,23 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"net/url"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
-
-var privateOnce sync.Once
-
-func privateDSN(t *testing.T, dsn string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil || u.Path == "" || u.Path == "/" {
-		return dsn
-	}
-	name := strings.TrimPrefix(u.Path, "/") + "_attempt"
-	privateOnce.Do(func() {
-		admin, aerr := sql.Open("pgx", dsn)
-		if aerr != nil {
-			t.Fatalf("private db: open admin: %v", aerr)
-		}
-		defer admin.Close()
-		if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
-			!strings.Contains(cerr.Error(), "already exists") {
-			t.Fatalf("private db: create %s: %v", name, cerr)
-		}
-	})
-	u.Path = "/" + name
-	return u.String()
-}
 
 func stores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMemStore()}
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		return out
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
@@ -237,11 +211,11 @@ func TestADurableLedgerNeedsADatabase(t *testing.T) {
 // A database that has gone away is reported, never read as "no such attempt" - which would
 // let a second broker issue an attempt that already exists.
 func TestADeadDatabaseIsReportedRatherThanReadAsAbsent(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("set ROGERAI_TEST_DATABASE_URL to exercise the durable ledger")
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
 	s, err := NewPGStore(db)
