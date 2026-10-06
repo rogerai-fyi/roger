@@ -4260,7 +4260,9 @@ func (l *lazySSE) isCommitted() bool {
 // fail answers an uncommitted stream with the upstream's real failure: its status, its body
 // (the station's result body, else what it piped before failing), and a Retry-After when
 // the status calls for one. A no-op once committed.
-func (l *lazySSE) fail(status int, body []byte, retryAfterSec int) {
+// built says the broker made body (an envelope it composed); anything else is the station's own
+// body and is wrapped, whatever it looks like - never told apart by sniffing the bytes.
+func (l *lazySSE) fail(status int, body []byte, retryAfterSec int, built bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.committed {
@@ -4278,7 +4280,7 @@ func (l *lazySSE) fail(status int, body []byte, retryAfterSec int) {
 	if retryAfterSec > 0 {
 		h.Set("Retry-After", strconv.Itoa(retryAfterSec))
 	}
-	if isEnvelope(body) {
+	if built {
 		body = withEnvelopeHeaders(h, body)
 	} else {
 		// A station's own failure body (or nothing) on the final attempt: wrapped, never raw
@@ -4398,7 +4400,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 				lw.finish(b.voidUsageChunk(c.node.NodeID, bill.model, voidReasonFor(status)), "")
 				return
 			}
-			lw.fail(status, res.Body, retry)
+			lw.fail(status, res.Body, retry, true) // the bridge's own refusal or failure body
 			return
 		}
 		res, voided, dout := b.streamAttempt(lw, c, bill, requestID, i+1, abody, maxCost, &settled)
@@ -4420,7 +4422,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 				return
 			}
 			status, fbody := b.dispatchFailure(planDispatchOutcome(dout, tried, offAir))
-			lw.fail(status, fbody, 1)
+			lw.fail(status, fbody, 1, true)
 			return
 		}
 		if !voided {
@@ -4437,14 +4439,15 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 		if res.Status == http.StatusTooManyRequests || res.Status == http.StatusServiceUnavailable {
 			hint = b.retryAfterHint(res)
 		}
-		if voidReasonOf(res) == protocol.VoidConsumerRejected {
+		built := voidReasonOf(res) == protocol.VoidConsumerRejected
+		if built {
 			station := c.node.NodeID
 			if bill.privateBand {
 				station = ""
 			}
 			res.Body = consumerRejectedBody(lw.Header(), res.Status, station, res.Body)
 		}
-		lw.fail(res.Status, res.Body, hint)
+		lw.fail(res.Status, res.Body, hint, built)
 		return
 	}
 }

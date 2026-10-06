@@ -3236,6 +3236,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^stations "s1" and "s2" serve "m"$`, st.twoSamePrice)
 			sc.Step(`^"s1"'s upstream (returns \d+|returns 200 with an empty completion|is unreachable \(station posts 502\)) and "s2"'s returns a real completion$`, st.s1FailureS2Real)
 			sc.Step(`^a funded consumer relays and the pick lands on "([^"]*)"$`, st.relayLandsOn)
+			sc.Step(`^a funded consumer streams and the pick lands on "([^"]*)"$`, st.streamLandsOn)
 			sc.Step(`^the response is 200 from "([^"]*)"$`, st.is200From)
 			sc.Step(`^"s1"'s receipt is voided with void_reason "([^"]*)"$`, st.s1VoidReason)
 			sc.Step(`^"s1"'s upstream returns (\d+) with (\{.*\})$`, st.s1StatusBody)

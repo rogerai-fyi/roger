@@ -150,6 +150,15 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
       | 401    | consumer_rejected | {"error":"upstream key rejected key-abcd1234"} |
       | 403    | upstream_error    | {"error":"forbidden for key-abcd1234"}         |
 
+  # slice-6 audit 2026-10-06: a station's own error body is wrapped on a stream too, whatever its
+  # shape (a body that looks like the broker's envelope is still the station's)
+  Scenario: A streamed upstream 403 in an envelope-shaped body is wrapped and carries no raw body
+    Given stations "s1" and "s2" serve "m"
+    And "s1"'s upstream returns 403 with {"error":{"code":"forbidden","message":"key-abcd1234 is not allowed"}}
+    When a funded consumer streams and the pick lands on "s1"
+    Then the response is 403 with error code "upstream_error", a plain message and no raw station body (one attempt, voided at $0)
+    And "s2"'s upstream received nothing
+
   # superseded 2026-10-05 by contract §14 (founder-approved): the final upstream body is no longer
   # passed through raw; it is wrapped as error.code upstream_error under error.metadata.raw.
   Scenario: at most ROGERAI_RELAY_ATTEMPTS stations are tried
