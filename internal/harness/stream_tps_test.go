@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,4 +28,20 @@ func TestStreamedTurnReportsTPSFromTheUsageChunk(t *testing.T) {
 	_, err := c(context.Background(), []Message{{Role: "user", Content: "x"}}, nil)
 	require.NoError(t, err)
 	require.InDelta(t, 42.5, tps, 1e-9, "the agent t/s meter gets the stream's rate")
+}
+
+// TestDoneAfterACutToolCallIsNotSuccess: [DONE] closes the stream, but a tool call is whole
+// only when the station said it finished; a cut tool call followed by [DONE] is an error,
+// while a text reply that ends in [DONE] stays a success.
+func TestDoneAfterACutToolCallIsNotSuccess(t *testing.T) {
+	cut := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n" +
+		"data: [DONE]\n\n"))
+	require.Error(t, cut.streamError(), "a cut tool call is not a successful turn")
+
+	whole := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+		"data: [DONE]\n\n"))
+	require.NoError(t, whole.streamError())
+
+	text := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"))
+	require.NoError(t, text.streamError(), "a text reply closed by [DONE] is complete")
 }

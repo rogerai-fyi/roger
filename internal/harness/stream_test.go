@@ -103,9 +103,14 @@ func TestReadStreamRejectsATruncatedStream(t *testing.T) {
 	if err := readStream(strings.NewReader(cut)).streamError(); err == nil {
 		t.Fatal("a stream cut before [DONE] or a finish_reason passed as a successful turn")
 	}
-	done := cut + "data: [DONE]\n"
+	// [DONE] completes a text reply; a tool call is whole only with a finish_reason, so the
+	// cut tool call above stays an error even when [DONE] follows it.
+	done := "data: {\"choices\":[{\"delta\":{\"content\":\"half an ans\"}}]}\ndata: [DONE]\n"
 	if err := readStream(strings.NewReader(done)).streamError(); err != nil {
-		t.Errorf("a stream that ends with [DONE] is complete: %v", err)
+		t.Errorf("a text stream that ends with [DONE] is complete: %v", err)
+	}
+	if err := readStream(strings.NewReader(cut + "data: [DONE]\n")).streamError(); err == nil {
+		t.Error("a cut tool call followed by [DONE] passed as a successful turn")
 	}
 	finished := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n"
 	if err := readStream(strings.NewReader(finished)).streamError(); err != nil {

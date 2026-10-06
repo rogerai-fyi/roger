@@ -31,9 +31,10 @@ type streamed struct {
 	served    Served
 	errText   string
 	sawChoice bool
-	// complete is true when the stream ended properly: a `data: [DONE]` frame or a
-	// finish_reason. A stream without either was cut (cancelled, reset, or the reader's size
-	// cap) and its partial content is never a successful turn. readErr is the scanner's error.
+	// complete is true when the stream ended properly: a finish_reason, or a `data: [DONE]`
+	// frame for a reply with no tool call (a tool call is whole only when the station said it
+	// finished). A stream without either was cut (cancelled, reset, or the reader's size cap)
+	// and its partial content is never a successful turn. readErr is the scanner's error.
 	complete bool
 	readErr  error
 }
@@ -51,6 +52,7 @@ func readStream(r io.Reader) streamed {
 	}
 	calls := map[int]*callBuf{}
 	chunkCost, commentCost := -1.0, -1.0
+	sawDone := false
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 4<<20)
 	for sc.Scan() {
@@ -67,7 +69,7 @@ func readStream(r io.Reader) streamed {
 		}
 		data = strings.TrimSpace(data)
 		if data == "[DONE]" {
-			st.complete = true
+			sawDone = true
 			continue
 		}
 		if data == "" {
@@ -150,6 +152,9 @@ func readStream(r io.Reader) streamed {
 		}
 	}
 	st.readErr = sc.Err()
+	if sawDone && len(calls) == 0 {
+		st.complete = true
+	}
 	switch {
 	case chunkCost >= 0:
 		st.cost = chunkCost
