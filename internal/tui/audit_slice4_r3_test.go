@@ -232,3 +232,16 @@ func TestBegunFieldEnterWithNothingTypedKeepsTheValue(t *testing.T) {
 	out, _ = asModel(out).Update(keyMsg("enter"))
 	require.Equal(t, 8192, asModel(out).limits.own("m").MinCtx, "a typed value is committed")
 }
+
+// TestRefreshLiveRoutingLeavesAnOpenQuoteAlone: re-pointing the connected band's proxy never
+// rewrites the quote a confirm for another band is showing.
+func TestRefreshLiveRoutingLeavesAnOpenQuoteAlone(t *testing.T) {
+	m := autoTunedModel(t)
+	m.q = quote{b: band{model: "other"}, limit: Limit{MaxOut: 0.7}}
+	m.mode = modeConnectConfirm
+	m.limits.Update(m.connected.Model, func(cur Limit) Limit { cur.MaxOut = 0.3; return cur })
+	out, _ := m.Update(tickMsg{gen: m.tickGen})
+	got := asModel(out)
+	require.InDelta(t, 0.7, got.q.limit.MaxOut, 1e-12, "the open confirm's cap is untouched")
+	require.InDelta(t, 0.3, got.proxyHolder.Get().MaxPriceOut, 1e-12, "the connected band's proxy follows its rule")
+}

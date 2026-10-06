@@ -2798,13 +2798,12 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 	return client.ProxyOptions{
 		Broker: m.broker, User: m.user, Model: o.Model, SessionKey: m.proxyKey,
 		Confidential: rt.Confidential,
-		// The band's caps composed with the tuned profile's (routing), and with the quote's
-		// limit the operator may have just tightened at the confirm plate - stricter wins.
-		MaxPriceIn:  stricterCap(m.q.limit.MaxIn, rt.MaxIn),
-		MaxPriceOut: stricterCap(m.q.limit.MaxOut, rt.MaxOut),
-		MinTPS:      max(m.q.limit.MinTPS, rt.MinTPS),
-		Freq:        m.freqFor(o.Model), // private band (~, else the tuned profile's): X-Roger-Freq
-		Pref:        rt.Pref, SelfHostedOnly: rt.SelfHostedOnly, Quantizations: rt.Quantizations,
+		// The band's caps composed with the tuned profile's, stricter wins (routing): the same
+		// pair the confirm priced against (confirmLimit), read live rather than from a quote
+		// that may belong to another band by now.
+		MaxPriceIn: rt.MaxIn, MaxPriceOut: rt.MaxOut, MinTPS: rt.MinTPS,
+		Freq: m.freqFor(o.Model), // private band (~, else the tuned profile's): X-Roger-Freq
+		Pref: rt.Pref, SelfHostedOnly: rt.SelfHostedOnly, Quantizations: rt.Quantizations,
 		MaxCost: rt.MaxReq, Require: rt.Require, ParamsB: rt.ParamsB, MinCtx: rt.MinCtx, MaxTTFT: rt.MaxTTFT,
 		TrustMin: rt.TrustMin, Region: rt.Region, FreeOnly: rt.FreeOnly,
 		// The tuned profile's provider keys and model list ride the live proxy too, exactly as
@@ -3055,7 +3054,6 @@ func (m *model) refreshLiveRouting() {
 	if m.connected == nil || m.proxyHolder == nil || m.chatLocalChat != "" || !m.proxyHolder.Connected() {
 		return
 	}
-	m.q.limit = m.limits.resolve(m.connected.Model)
 	m.proxyHolder.SetBand(m.liveProxyOpts(*m.connected, m.alert))
 }
 
