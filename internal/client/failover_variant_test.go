@@ -25,3 +25,21 @@ func TestPickAlternativeMatchesTheBareModelAndKeepsFree(t *testing.T) {
 	require.True(t, ok, "a sort variant re-picks among every offer of the bare model")
 	require.NotEmpty(t, got)
 }
+
+// TestRepickHonorsCtxTTFTAndExclusions: a failover hint never names a station the broker
+// would refuse for the window, the first-token ceiling, or an ignored station, whether the
+// owner or the caller stated it. Unmeasured values pass, as on the broker.
+func TestRepickHonorsCtxTTFTAndExclusions(t *testing.T) {
+	offers := []Offer{
+		{NodeID: "small", Model: "m", Online: true, TPS: 300, Ctx: 8192},
+		{NodeID: "slow", Model: "m", Online: true, TPS: 300, Ctx: 65536, TTFTMs: 4000},
+		{NodeID: "banned", Model: "m", Online: true, TPS: 300, Ctx: 65536, TTFTMs: 200},
+		{NodeID: "ok", Model: "m", Online: true, TPS: 50, Ctx: 65536, TTFTMs: 300},
+	}
+	c := Criteria{Model: "m"}
+	ownerRoutingCriteria(ProxyOptions{MinCtx: 32768, ExcludeNodes: []string{"banned"}}, &c)
+	callerRoutingCriteria([]byte(`{"roger":{"max_ttft_ms":1500},"provider":{"ignore":["nope"]}}`), &c)
+	got, ok := pickAlternative(offers, c, nil)
+	require.True(t, ok)
+	require.Equal(t, "ok", got)
+}

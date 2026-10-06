@@ -32,6 +32,12 @@ type Criteria struct {
 	Only           []string
 	Region         []string
 	TrustMin       string
+	// MinCtx / MaxTTFT are the context-window floor and first-token ceiling (0 = none), and
+	// Exclude the stations the owner or caller ignored. Offers carry no parameter size, so
+	// params_b is left to the broker.
+	MinCtx  int
+	MaxTTFT int
+	Exclude []string
 }
 
 // Offer is one discoverable provider offer (a subset of the broker's /discover
@@ -517,6 +523,16 @@ func offerMeetsBody(o Offer, c Criteria) bool {
 	if len(c.Region) > 0 && !hasFold(c.Region, o.Region) {
 		return false
 	}
+	if hasFold(c.Exclude, o.NodeID) {
+		return false
+	}
+	// Measured and outside the bound is out; unmeasured passes, as on the broker.
+	if c.MinCtx > 0 && o.Ctx > 0 && o.Ctx < c.MinCtx {
+		return false
+	}
+	if c.MaxTTFT > 0 && o.TTFTMs > 0 && o.TTFTMs > float64(c.MaxTTFT) {
+		return false
+	}
 	if c.TrustMin == "verified" && !o.Verified {
 		return false
 	}
@@ -558,6 +574,13 @@ func callerRoutingCriteria(body []byte, c *Criteria) (noRepick bool) {
 	if t, ok := r["trust_min"].(string); ok {
 		c.TrustMin = t
 	}
+	if v, ok := r["min_ctx"].(float64); ok && int(v) > c.MinCtx {
+		c.MinCtx = int(v)
+	}
+	if v, ok := r["max_ttft_ms"].(float64); ok && v > 0 && (c.MaxTTFT == 0 || int(v) < c.MaxTTFT) {
+		c.MaxTTFT = int(v)
+	}
+	c.Exclude = append(c.Exclude, stringsOf(p["ignore"])...)
 	if v, ok := p["allow_fallbacks"].(bool); ok && !v {
 		noRepick = true
 	}
@@ -590,6 +613,13 @@ func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
 	if opts.SelfHostedOnly {
 		c.SelfHostedOnly = true
 	}
+	if opts.MinCtx > c.MinCtx {
+		c.MinCtx = opts.MinCtx
+	}
+	if opts.MaxTTFT > 0 && (c.MaxTTFT == 0 || opts.MaxTTFT < c.MaxTTFT) {
+		c.MaxTTFT = opts.MaxTTFT
+	}
+	c.Exclude = append(c.Exclude, opts.ExcludeNodes...)
 	if len(c.Quantizations) == 0 && len(opts.Quantizations) > 0 {
 		c.Quantizations = append([]string(nil), opts.Quantizations...)
 	}
