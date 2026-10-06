@@ -245,6 +245,9 @@ Feature: A node is the owner's machine, typed by what it can do rather than by w
     And nothing else of it is kept: not its pin, its grants, its tags or its history
     And the record is bounded: the oldest is dropped once there are more than 64
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
+  # Re-admitting also mints a fresh enrollment code; a device still holding this Edge's root
+  # needs none (enrollment_root_trust.feature section 10).
   Scenario: a forgotten device is re-admitted by the name it had
     Given a device named "attic" that was forgotten
     When the owner re-admits "attic"

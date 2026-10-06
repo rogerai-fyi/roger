@@ -108,14 +108,16 @@ Feature: A machine is set up onto its Edge from the browser console, through the
   # 4. JOIN AN EXISTING EDGE
   # =========================================================================
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @web
   Scenario: joining from the browser enrolls against the authority over the LAN
     Given a console over a machine that is not enrolled
     And an authority at "http://192.168.1.10:8791" that will accept this machine
-    When a setup request joins as "bench" against that authority
+    When a setup request joins as "bench" against that authority, carrying the code it showed
     Then the backend enrolled this machine against that authority
     And the response says this machine joined
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @web
   Scenario: joining before being allowed returns this machine's key and the allow command
     Given a console over a machine that is not enrolled
@@ -124,6 +126,7 @@ Feature: A machine is set up onto its Edge from the browser console, through the
     Then the response says this machine is not allowed on that Edge yet
     And it returns this machine's PUBLIC user key
     And it returns the exact command to run on the authority: roger edge authority allow <that key>
+    And it says that command prints the code to bring back here
     And this machine did not join
 
   @web

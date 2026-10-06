@@ -137,10 +137,12 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
     And no network was needed
     And the wizard reaches the done step naming this machine on its Edge
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @tui
   Scenario: the done step of a new Edge says how to add the next machine
     Given a new Edge was just created as "shed"
     Then the done step names this machine's address and the command another machine runs to join
+    And it says the next machine joins with the code that allow or adopt prints here
     And it says the mode is LOCAL, formed with no internet
 
   @tui
@@ -156,20 +158,25 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
   # 5. JOIN AN EXISTING EDGE
   # =========================================================================
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @tui
   Scenario: joining asks for the authority's address as well as a name
     Given the wizard is on the join path
     Then it asks for a name for this machine
     And it asks for the authority's address, shaped like http://host:port
+    And it says the authority's enrollment code is asked for once the authority answers
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @tui
   Scenario: a successful join enrolls against the authority over the LAN
     Given the wizard is on the join path, named "bench", authority "http://192.168.1.10:8791"
     And that authority will accept this machine
     When the owner confirms
+    And the owner enters the code the authority showed
     Then the handshake runs and this machine is enrolled against that authority
     And the wizard reaches the done step
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @tui
   Scenario: joining before being allowed shows this machine's key and the exact allow command
     Given the wizard is on the join path, named "bench", authority "http://192.168.1.10:8791"
@@ -178,13 +185,16 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
     Then the wizard says this machine is not allowed on that Edge yet
     And it shows this machine's user key
     And it shows the exact command to run ON THE AUTHORITY: roger edge authority allow <this key>
+    And it says that command prints the code to bring back here
     And it offers to retry once that is done
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @tui
   Scenario: retrying after being allowed completes the join
     Given the wizard is showing the allow instructions for "bench"
     And the owner has since allowed this machine on the authority
     When the owner retries
+    And the owner enters the code the authority showed
     Then the handshake runs and this machine is enrolled
     And the wizard reaches the done step
 
@@ -287,11 +297,13 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
     Then this machine is designated the authority and enrolled
     And it prints how another machine joins
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @cli
   Scenario: roger edge setup joins, and guides the allow step when not yet allowed
     Given an owner whose machine is not yet allowed on the authority
     When they run "roger edge setup", choose to join, name it "bench" and give the authority address
     Then it prints this machine's user key and the allow command to run on the authority
+    And it says that command prints the code to bring back here
     And it exits without pretending the machine joined
 
   @cli

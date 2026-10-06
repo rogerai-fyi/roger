@@ -143,11 +143,15 @@ Feature: A machine the owner is logged in on enrolls itself, and from then on th
   # 2b. THE CHOSEN AUTHORITY - and the airgap that needs no Core, ever
   # =========================================================================
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
+  # The second machine keeps the authority's root only once the enrollment code the authority
+  # printed verifies it (features/edge/enrollment_root_trust.feature).
   Scenario: an Edge with no internet at all forms completely under a local authority
     Given a network that has never had a route to the internet
     And the owner designates this machine as the Edge authority
     When the owner enrolls this machine and a second machine on that network
-    Then both hold certificates issued by that authority
+    Then the second machine kept the root only after the authority's enrollment code verified it
+    And both hold certificates issued by that authority
     And both appear as VERIFIED members of one fleet
     And Core was never contacted, not once, at any point
 
@@ -188,12 +192,16 @@ Feature: A machine the owner is logged in on enrolls itself, and from then on th
     Then it is refused as "unknown authority"
     And it does not become a member
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
+  # A member re-enrolls WITH the new authority's code and --replace-root; the refusal it gets
+  # without them speaks to a member, never telling it to designate itself an authority.
   Scenario: changing authority is a deliberate migration, never a silent switch
     Given an Edge rooted at a local authority with enrolled members
     When the owner moves the Edge to a different authority
     Then the owner is told every member must re-enroll
     And members are not silently dropped
     And until a member re-enrolls it is shown as needing re-enrollment, with the reason
+    And a member re-enrolls with the new authority's code and --replace-root, and is then its member
 
   Scenario: designating an authority does not require a login when there is no Core to log in to
     Given a machine on a network with no route to the internet
@@ -274,6 +282,10 @@ Feature: A machine the owner is logged in on enrolls itself, and from then on th
     And it appears as a new member, not as the old one returning
     And the old pin does not verify it, so a peer refuses it as an identity mismatch
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
+  # Unchanged for an unconsented second Edge. The one consented path is a code for the new root
+  # plus --replace-root and a confirmation, which ends the first membership in the same step
+  # (enrollment_root_trust.feature section 9).
   Scenario: a node belongs to exactly one Edge
     Given this machine is enrolled to one account
     When it attempts to enroll to a second account while still enrolled

@@ -1,5 +1,5 @@
-# STATUS: PROPOSED 2026-10-06 (awaiting founder approval)
-# BUILD STATUS: NOT BUILT. No step definitions and no production code exist for this file yet.
+# STATUS: APPROVED 2026-10-06 (founder)
+# BUILD STATUS: IN PROGRESS (Go side, wt/edge-enroll-root). The phone half: docs/ios-enrollment-root-trust.md.
 #
 # ROGER EDGE - THE FIRST ENROLLMENT VERIFIES THE ROOT ("the answer proves where it came from").
 #
@@ -50,7 +50,7 @@
 #
 # WHAT DOES NOT CHANGE
 #   - Authorization. The allow-list and the adopt grant still decide WHO may join. The code decides
-#     only WHICH ROOT the joiner may believe. (DECISION D15.)
+#     only WHICH ROOT the joiner may believe. (RULED D15.)
 #   - The certificate shape, the verification path, VerifyPeer, the Core-free structural guarantee.
 #   - Renewal: a member renewing already holds its root and is checked against it, as today.
 #
@@ -72,30 +72,31 @@
 # its Go-side half runs here against golden vectors shared with roger-ios).
 #
 # ============================================================================
-# DECISIONS FOR THE FOUNDER (each repeated as # DECISION: beside its scenarios)
+# FOUNDER RULINGS 2026-10-06: all fifteen as recommended (each repeated as # RULED beside its scenarios)
 # ============================================================================
-#   D1  Design: code-bound root proof + optional full-fingerprint pin.  RECOMMEND: yes, as above.
-#   D2  Code: 10 Crockford base32 symbols, 50 bits, shown XXXXX-XXXXX.  RECOMMEND: yes.
-#   D3  Stretch: PBKDF2-HMAC-SHA256, 200,000 iterations, salted per request.  RECOMMEND: yes.
-#   D4  Lifetime: 15 minutes on the authority; the joiner keeps an answer for 15 minutes.  RECOMMEND: yes.
-#   D5  Wrong-code cap on the joiner: 5 entries, then the code is discarded.  RECOMMEND: 5.
-#   D6  One-time: a code is spent when its certificate is issued; minting again voids the old one.  RECOMMEND: yes.
-#   D7  No trust-on-first-use escape hatch, no flag that skips the check.  RECOMMEND: none, ever.
-#   D8  An authority that sends no proof: the pin works, the code alone fails closed.  RECOMMEND: yes.
-#   D9  A new authority does not refuse an old joiner (refusing protects nobody); it warns.  RECOMMEND: warn.
+#   D1  Design: code-bound root proof + optional full-fingerprint pin.  RULED: yes, as above.
+#   D2  Code: 10 Crockford base32 symbols, 50 bits, shown XXXXX-XXXXX.  RULED: yes.
+#   D3  Stretch: PBKDF2-HMAC-SHA256, 200,000 iterations, salted per request.  RULED: yes.
+#   D4  Lifetime: 15 minutes on the authority; the joiner keeps an answer for 15 minutes.  RULED: yes.
+#   D5  Wrong-code cap on the joiner: 5 entries, then the code is discarded.  RULED: 5.
+#   D6  One-time: a code is spent when its certificate is issued; minting again voids the old one.  RULED: yes.
+#   D7  No trust-on-first-use escape hatch, no flag that skips the check.  RULED: none, ever.
+#   D8  An authority that sends no proof: the pin works, the code alone fails closed.  RULED: yes.
+#   D9  A new authority does not refuse an old joiner (refusing protects nobody); it warns.  RULED: warn.
 #   D10 Core: TLS to Core settles the root; a non-loopback plain-HTTP broker is refused for Edge
-#       enrollment.  RECOMMEND: yes.
+#       enrollment.  RULED: yes.
 #   D11 A different root on re-enroll: accepted only with a code or pin for it AND an explicit
-#       confirmation, ending the old membership in the same step.  RECOMMEND: yes.
+#       confirmation, ending the old membership in the same step.  RULED: yes.
 #   D12 QR: the pasteable invite ships in this slice; drawing a QR and scanning it on the phone
-#       is the next UX slice.  RECOMMEND: defer QR (it is convenience, not security).
+#       is the next UX slice.  RULED: defer QR (it is convenience, not security).
 #   D13 Where the code is shown: the adopt/allow output and the adopting panel, until spent or
-#       expired; never in a log, an event, the trouble feed or an advertisement.  RECOMMEND: yes.
+#       expired; never in a log, an event, the trouble feed or an advertisement.  RULED: yes.
 #   D14 Order: hold the answer, THEN ask for the code (a typo never burns the code), rather than a
-#       separate pre-flight endpoint.  RECOMMEND: hold-then-verify.
-#   D15 The code does NOT replace the allow-list in this slice.  RECOMMEND: separate slice if wanted.
+#       separate pre-flight endpoint.  RULED: hold-then-verify.
+#   D15 The code does NOT replace the allow-list in this slice.  RULED: separate slice if wanted.
 #
-# APPROVED / PROPOSED SCENARIOS THIS WOULD SUPERSEDE OR AMEND (not edited here; listed for review):
+# SCENARIOS THIS SUPERSEDES OR AMENDS (each marked "# superseded 2026-10-06 by founder ruling
+# (enrollment root trust)" in its own file):
 #   enrollment.feature (APPROVED 2026-09-12)
 #     - "an Edge with no internet at all forms completely under a local authority": the second
 #       machine now also needs the code (or pin) from the authority. Amended, not contradicted.
@@ -178,8 +179,8 @@ Feature: A machine joining an Edge for the first time believes only a root the o
   # 2. THE ENROLLMENT CODE - minted by the step the owner already takes
   # =========================================================================
 
-  # DECISION: D2 - 10 Crockford base32 symbols (50 bits), shown as two groups of five. RECOMMEND yes:
-  # the house alphabet (internal/protocol/band.go), no I/L/O/U, readable aloud, and with D3 + D4 the
+  # RULED 2026-10-06: D2 - 10 Crockford base32 symbols (50 bits), shown as two groups of five.
+  # The house alphabet (internal/protocol/band.go), no I/L/O/U, readable aloud, and with D3 + D4 the
   # entropy is far beyond what an attacker can search within a code's life (section 8).
 
   @security @cli
@@ -211,7 +212,7 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     And no two codes are equal
     And each symbol position is uniformly distributed within statistical tolerance
 
-  # DECISION: D6 - minting again for the same machine voids the previous code. RECOMMEND yes: the
+  # RULED 2026-10-06: D6 - minting again for the same machine voids the previous code. The
   # owner who lost a code just runs allow (or adopt) again, and only one code is ever live per join.
   @security
   Scenario: minting a new code for the same machine voids the previous one
@@ -227,7 +228,7 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then the authority's answer to "pocket" carries a proof made with B only
     And "bench"'s code A remains live and unspent
 
-  # DECISION: D13 - where the code may appear. RECOMMEND: on the screen where the owner asked for it
+  # RULED 2026-10-06: D13 - where the code may appear. On the screen where the owner asked for it
   # and in that join's adopting panel until it is spent or expires; nowhere that persists or travels.
   @security
   Scenario Outline: the code never appears where it could outlive the join or leave the machine
@@ -281,7 +282,7 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     When the owner types the code
     Then the held answer's proof verifies and the identity is kept
 
-  # DECISION: D14 - hold the answer, then ask. RECOMMEND: hold-then-verify. Nothing derived from the
+  # RULED 2026-10-06: D14 - hold the answer, then ask. Hold-then-verify. Nothing derived from the
   # code is ever sent, so the order is free; asking after the answer means a mistyped code is just
   # typed again, rather than spending the authority's one-time code on an answer nobody kept.
   @security @cli
@@ -558,7 +559,7 @@ Feature: A machine joining an Edge for the first time believes only a root the o
   # 7. EXPIRY
   # =========================================================================
 
-  # DECISION: D4 - 15 minutes. RECOMMEND yes: the owner is standing between two screens; a longer
+  # RULED 2026-10-06: D4 - 15 minutes. The owner is standing between two screens; a longer
   # life widens the window an offline search would have (section 8) and buys no convenience, since
   # minting a fresh code is one command or one key.
   @security
@@ -608,8 +609,8 @@ Feature: A machine joining an Edge for the first time believes only a root the o
   # 8. BRUTE FORCE - why 50 bits is enough, and what bounds every kind of guessing
   # =========================================================================
 
-  # DECISION: D3 - PBKDF2-HMAC-SHA256, 200,000 iterations, salted with the request's own nonce.
-  # RECOMMEND yes. A device that relays a real exchange sees one proof and could search for the code
+  # RULED 2026-10-06: D3 - PBKDF2-HMAC-SHA256, 200,000 iterations, salted with the request's own nonce.
+  # A device that relays a real exchange sees one proof and could search for the code
   # offline; the stretch and the per-request salt make that search cost ~2^49 x 200,000 hashes on
   # average, with no table to precompute, against a code that dies in 15 minutes. PBKDF2 is in Go's
   # standard library and in iOS CommonCrypto, so the phone needs no new dependency.
@@ -625,7 +626,7 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then a code is 10 symbols from a 32-symbol alphabet
     And every symbol is drawn independently and uniformly
 
-  # DECISION: D5 - 5 wrong entries per held answer, then the code is discarded. RECOMMEND 5: it
+  # RULED 2026-10-06: D5 - 5 wrong entries per held answer, then the code is discarded. It
   # keeps an impostor's chance at 5 in 2^50, and still forgives an owner who fumbles twice.
   @security
   Scenario: the joiner caps how many codes it will try against held answers
@@ -685,8 +686,8 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     And it says that if the owner moved the Edge on purpose, the new authority's allow or adopt prints a code, and to re-enroll with it and --replace-root
     And it does not tell the member to run "roger edge authority local --force"
 
-  # DECISION: D11 - a different root is accepted only with a code (or full pin) for it AND an explicit
-  # confirmation, and the old membership ends in the same step. RECOMMEND yes: the code is the owner's
+  # RULED 2026-10-06: D11 - a different root is accepted only with a code (or full pin) for it AND an explicit
+  # confirmation, and the old membership ends in the same step. The code is the owner's
   # proof that the new root is theirs; the confirmation is the owner's consent to leave the old one.
   @security @cli
   Scenario: after the owner moved the Edge, a member re-enrolls with the new authority's code
@@ -769,9 +770,9 @@ Feature: A machine joining an Edge for the first time believes only a root the o
   # 11. DOWNGRADE - an authority that sends no proof
   # =========================================================================
 
-  # DECISION: D8 - against an authority from before proofs, a code cannot be checked, so a code-only
-  # join fails closed; the full-fingerprint pin needs nothing from the authority and works. RECOMMEND
-  # yes: the owner always has a working path, and it is never the unsafe one.
+  # RULED 2026-10-06: D8 - against an authority from before proofs, a code cannot be checked, so a code-only
+  # join fails closed; the full-fingerprint pin needs nothing from the authority and works.
+  # The owner always has a working path, and it is never the unsafe one.
   @security
   Scenario: a code-only join against an authority that sends no proof is refused
     Given "shed" runs a roger from before root proofs
@@ -794,7 +795,7 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then it is refused exactly as against an authority that sends none
     And nothing about the answer's version or headers can make the joiner skip the check
 
-  # DECISION: D7 - no trust-on-first-use switch. RECOMMEND: none, ever. A flag that skips the check is
+  # RULED 2026-10-06: D7 - no trust-on-first-use switch. None, ever. A flag that skips the check is
   # the flag every how-to would tell the owner to use; the pin is the always-available safe path.
   @security @cli
   Scenario: there is no option that accepts an unproven root
@@ -812,7 +813,7 @@ Feature: A machine joining an Edge for the first time believes only a root the o
   # 12. MIXED-VERSION FLEETS
   # =========================================================================
 
-  # DECISION: D9 - a new authority does not refuse a joiner too old to check proofs. RECOMMEND: warn,
+  # RULED 2026-10-06: D9 - a new authority does not refuse a joiner too old to check proofs. Warn,
   # do not refuse. The old joiner's exposure is to a device that is NOT this authority; refusing it
   # here protects it from nothing and only strands it. The owner is told plainly instead.
   @security @cli
@@ -893,8 +894,8 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then the TLS certificate does not verify
     And enrollment fails naming connectivity, keeping nothing, as enrollment.feature requires
 
-  # DECISION: D10 - refuse a plain-HTTP broker for Edge enrollment unless it is loopback. RECOMMEND
-  # yes: a plain-HTTP broker would put the Core path back where the LAN path was; loopback stays
+  # RULED 2026-10-06: D10 - refuse a plain-HTTP broker for Edge enrollment unless it is loopback.
+  # A plain-HTTP broker would put the Core path back where the LAN path was; loopback stays
   # allowed for development and the test harness.
   @security
   Scenario Outline: the Core path refuses a broker address that is not authenticated
