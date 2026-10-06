@@ -39,12 +39,13 @@ func TestCapRefusalUsesTheStoreTolerance(t *testing.T) {
 	require.Empty(t, notices, "no 100%% notice while spend is under the cap")
 }
 
-// The once-a-month 100% notice is for spend that has reached the cap. A request too large
-// for the room left (spend 85%, nothing in flight) is refused plainly without spending it.
-func TestCapRefusalKeepsTheFullNoticeForSpendAtTheCap(t *testing.T) {
+// Founder ruling 2026-10-05: a request refused because it would exceed the cap sends the
+// once-a-month 100% notice, even below the cap (spend 85%, nothing in flight); the mailer's
+// once-per-threshold dedupe keeps the later real crossing from sending a second one.
+func TestCapRefusalSendsTheFullNoticeForATooLargeRequest(t *testing.T) {
 	notices, w := capRefusalNotices(t, 0.85, 0, 0.3, 1)
 	require.Empty(t, w.Header().Get("X-RogerAI-Monthly-Pending"))
-	require.Empty(t, notices, "85%% spend is not the cap")
+	require.Equal(t, []string{"100"}, notices, "a too-large refusal sends the 100%% notice")
 
 	notices, _ = capRefusalNotices(t, 1, 0, 0.1, 1)
 	require.Equal(t, []string{"100"}, notices)

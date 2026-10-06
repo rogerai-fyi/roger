@@ -479,15 +479,15 @@ func (b *broker) emailCapNotice(holder string, threshold string, spend, cap floa
 	var subj string
 	var d emailDoc
 	if threshold == "100" {
-		subj = "Monthly spend limit reached"
+		subj = "A paid request hit your monthly spend limit"
 		bodyHTML := receipt(hero, nil) +
-			p(`You have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit.`) +
+			p(`A paid request was refused because it would take your spend past your monthly limit. Paid requests that do not fit are paused until next month, or until you raise the limit.`) +
 			p(`<span style="color:`+colInk500+`;">Raise it from the billing page, or on the CLI with <span style="font-family:`+fontMono+`;">roger limit --monthly</span> (or [3] CONFIG).</span>`)
-		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nYou have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit with `roger limit --monthly` (or [3] CONFIG).", round6(spend), round6(cap), pct)
+		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nA paid request was refused because it would take your spend past your monthly limit. Paid requests that do not fit are paused until next month, or until you raise the limit with `roger limit --monthly` (or [3] CONFIG).", round6(spend), round6(cap), pct)
 		d = emailDoc{
-			kicker:    "Spend limit reached",
-			heading:   "You hit your monthly spend limit",
-			preheader: fmt.Sprintf("$%.2f of $%.2f used - paid requests paused.", round6(spend), round6(cap)),
+			kicker:    "Spend limit",
+			heading:   "A paid request hit your monthly spend limit",
+			preheader: fmt.Sprintf("$%.2f of $%.2f used - requests that do not fit are paused.", round6(spend), round6(cap)),
 			bodyHTML:  bodyHTML,
 			bodyText:  bodyText,
 			ctaLabel:  "Top up",

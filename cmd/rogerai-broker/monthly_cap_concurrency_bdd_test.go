@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -58,6 +59,8 @@ type mcState struct {
 	durableBroken bool
 	interleave    bool
 	notices       []string
+	mailBodies    []string
+	mailMu        *sync.Mutex
 
 	// inflight tracks every request goroutine fire starts, so the After hook can drain the
 	// ones a step leaves in flight (inFlightHolding) before the next scenario resets state;
@@ -745,6 +748,9 @@ func TestMonthlyCapConcurrencyBDD(t *testing.T) {
 			sc.Step(`^the response carries X-RogerAI-Monthly-Pending "([^"]+)"$`, st.pendingHeader)
 			sc.Step(`^the response carries no X-RogerAI-Monthly-Pending header$`, st.noPendingHeader)
 			sc.Step(`^"acct" has a verified email for notices$`, st.recordNotices)
+			sc.Step(`^"acct"'s cap notices are delivered to a test mailbox$`, st.mailbox)
+			sc.Step(`^"acct" spends another \$([0-9.]+) this month$`, st.spent)
+			sc.Step(`^exactly (\d+) 100% cap notices? (?:was|were) delivered for "acct"$`, st.delivered100)
 			sc.Step(`^no 100% cap notice was sent for "acct"$`, func() error { return st.noticeSent(false) })
 			sc.Step(`^a 100% cap notice was sent for "acct"$`, func() error { return st.noticeSent(true) })
 			sc.Step(`^one request from "acct" for "m" arrives$`, st.arrivesM)
@@ -824,6 +830,51 @@ func (s *mcState) recordNotices() error {
 		if holder == s.acctWallet {
 			s.notices = append(s.notices, threshold)
 		}
+	}
+	return nil
+}
+
+// mailbox routes "acct"'s cap notices through the real mailer (its once-a-month dedupe
+// included) to a counting transport, with an owner on file for the account's address.
+func (s *mcState) mailbox() error {
+	if err := s.db.BindOwner(store.Owner{GitHubID: time.Now().UnixNano(), Login: "cap-mailbox",
+		Pubkey: s.acctWallet, Email: "acct@example.com"}); err != nil {
+		return err
+	}
+	var mu sync.Mutex
+	s.mailBodies = nil
+	s.b.mail = enabledMailer(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		s.mailBodies = append(s.mailBodies, string(body))
+		mu.Unlock()
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})
+	s.mailMu = &mu
+	return nil
+}
+
+// delivered100 counts the 100% notices the mailbox received. Delivery is queued, so it waits
+// for at least the expected count, then holds briefly so a late duplicate is still seen.
+func (s *mcState) delivered100(want int) error {
+	count := func() int {
+		s.mailMu.Lock()
+		defer s.mailMu.Unlock()
+		n := 0
+		for _, b := range s.mailBodies {
+			if !strings.Contains(b, "Monthly spend at 80%") && strings.Contains(b, "spend limit") {
+				n++
+			}
+		}
+		return n
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for count() < want && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if got := count(); got != want {
+		return fmt.Errorf("%d 100%% cap notices delivered, want %d", got, want)
 	}
 	return nil
 }

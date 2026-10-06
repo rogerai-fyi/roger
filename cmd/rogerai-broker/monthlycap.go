@@ -151,10 +151,11 @@ func (b *broker) holdUnderCap(w http.ResponseWriter, holder, requestID string, a
 // the approved 402 for a request the monthly cap refuses. pending is the wallet's open holds
 // the decision counted: when this request (amount) would fit on captured spend alone, the
 // open holds are the reason, so the refusal says the rest is held by requests still in
-// progress (X-RogerAI-Monthly-Pending) and the once-a-month 100% notice is kept for spend
-// that has actually reached the cap. A request too large even with nothing in flight gets
-// the plain refusal: waiting for those requests would never let it through. Both compare
-// with the store's tolerance (store.CapEpsilon), the one HoldForCapped decided with.
+// progress (X-RogerAI-Monthly-Pending) and sends no notice: waiting lets it through. A
+// request too large even with nothing in flight gets the plain refusal and the 100% notice,
+// below the cap too (founder ruling 2026-10-05); the mailer sends that notice once a month,
+// so the later real crossing does not repeat it. The fit check compares with the store's
+// tolerance (store.CapEpsilon), the one HoldForCapped decided with.
 func (b *broker) capRefusal(w http.ResponseWriter, holder string, spend, pending, amount, cap float64, now time.Time) (int, string) {
 	setCapHeaders(w, capState{cap: cap, spend: spend, pct: spend / cap, atLimit: true})
 	w.Header().Set("X-RogerAI-Cost", "0")
@@ -164,9 +165,7 @@ func (b *broker) capRefusal(w http.ResponseWriter, holder string, spend, pending
 			"monthly spend limit reached: $%.2f spent and $%.2f held by requests still in progress, of $%.2f this month - retry when they finish, raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
 			round6(spend), round6(pending), round6(cap))
 	}
-	if spend >= cap-store.CapEpsilon {
-		b.emailCapNotice(holder, "100", spend, cap, now)
-	}
+	b.emailCapNotice(holder, "100", spend, cap, now)
 	return http.StatusPaymentRequired, fmt.Sprintf(
 		"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
 		round6(spend), round6(cap))

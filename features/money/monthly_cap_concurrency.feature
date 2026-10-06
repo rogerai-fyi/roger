@@ -110,13 +110,33 @@ Feature: A monthly spend cap is never overshot, however many requests race for i
     And the response carries no X-RogerAI-Monthly-Pending header
 
   # audit 2026-10-05: the 100% notice is for spend that has reached the cap
-  Scenario: A request too large for the room left does not send the 100% notice
+  # superseded 2026-10-05 by founder ruling: a too-large refusal sends the 100% notice once
+  Scenario: A request too large for the room left sends the 100% notice once
     Given "acct" has spent $0.95 this month
     And "acct" has a verified email for notices
     When another request from "acct" for "m" arrives
     Then it is refused 402 "monthly spend limit reached"
-    And no 100% cap notice was sent for "acct"
+    And a 100% cap notice was sent for "acct"
     And the response carries no X-RogerAI-Monthly-Pending header
+
+  # founder ruling 2026-10-05: the 100% notice is once a month, however it was triggered
+  Scenario: A second too-large refusal the same month delivers no second 100% notice
+    Given "acct" has spent $0.95 this month
+    And "acct"'s cap notices are delivered to a test mailbox
+    When another request from "acct" for "m" arrives
+    And another request from "acct" for "m" arrives
+    Then it is refused 402 "monthly spend limit reached"
+    And exactly 1 100% cap notice was delivered for "acct"
+
+  # founder ruling 2026-10-05
+  Scenario: Reaching the cap after a too-large refusal delivers no second 100% notice
+    Given "acct" has spent $0.95 this month
+    And "acct"'s cap notices are delivered to a test mailbox
+    When another request from "acct" for "m" arrives
+    And "acct" spends another $0.05 this month
+    And another request from "acct" for "m" arrives
+    Then it is refused 402 "monthly spend limit reached"
+    And exactly 1 100% cap notice was delivered for "acct"
 
   Scenario: A released hold frees its share of the cap
     Given "acct" has spent $0.85 this month
