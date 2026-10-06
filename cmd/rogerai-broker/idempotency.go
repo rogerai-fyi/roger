@@ -201,9 +201,11 @@ func (b *broker) idemBegin(w http.ResponseWriter, r *http.Request, rw *relayWrit
 	if claimed {
 		rw.capture = true
 		return func() {
-			if rw.status < 100 {
-				// Nothing reached the consumer (it left before any answer): there is no outcome to
-				// replay, so the key is given back and a retry is served fresh.
+			if rw.status < 100 || rw.status == http.StatusTooManyRequests || rw.status >= 500 {
+				// Nothing reached the consumer (it left before any answer), or the outcome is a
+				// retryable one (a 429 or a 5xx, founder ruling 2026-10-06): there is nothing to
+				// replay, so the key is given back and a retry runs fresh. Neither placed a charge,
+				// so the retry is still the only one that can.
 				if err := b.db.ReleaseIdempotency(scope, key, requestID); err != nil {
 					log.Printf("idempotency release request=%s: %v", requestID, err)
 				}

@@ -249,6 +249,17 @@ func (s *id6State) debitedOnce(string) error {
 	return nil
 }
 
+func (s *id6State) debitedAtMostOnce(string) error {
+	n, err := s.spendRows()
+	if err != nil {
+		return err
+	}
+	if n > 1 {
+		return fmt.Errorf("%d spend row(s) on the wallet, want at most 1", n)
+	}
+	return nil
+}
+
 func (s *id6State) moderationOnce() error {
 	s.modMu.Lock()
 	n := s.modCalls
@@ -554,6 +565,15 @@ func (s *id6State) isReplay() error {
 
 func (s *id6State) isFresh() error { return s.freshNotReplay() }
 
+// ranFresh is a retry that was not a replay (whatever it answered): a new request id, no replay
+// header.
+func (s *id6State) ranFresh() error {
+	if v := s.lastHdr.Get("X-RogerAI-Idempotent-Replay"); v != "" {
+		return fmt.Errorf("the retry was a replay (%d %.200s)", s.lastCode, s.lastBody)
+	}
+	return s.reqIDDiffers()
+}
+
 // --- streams -----------------------------------------------------------------------------------
 
 func (s *id6State) streamCompleted(user, model, key string) error {
@@ -782,6 +802,8 @@ func TestIdempotencyBDD(t *testing.T) {
 		sc.Step(`^"([^"]+)" sends a request for "([^"]+)" with Idempotency-Key "([^"]+)" and disconnects before the answer$`, func(u, m, k string) error { return s.disconnects(u, m, k, false) })
 		sc.Step(`^"([^"]+)" streams for "([^"]+)" with Idempotency-Key "([^"]+)" and disconnects before the first byte$`, func(u, m, k string) error { return s.disconnects(u, m, k, true) })
 		sc.Step(`^the retry placed exactly 1 hold$`, s.retryOneHold)
+		sc.Step(`^the retry ran fresh, not as a replay$`, s.ranFresh)
+		sc.Step(`^the wallet of "([^"]+)" was debited at most once$`, s.debitedAtMostOnce)
 		sc.Step(`^the saved reply for Idempotency-Key "([^"]+)" is lost$`, s.replyLost)
 		sc.Step(`^exactly 1 settle row and 1 earnings credit exist for it$`, s.oneSettleOneEarn)
 		sc.Step(`^the operator of "([^"]+)" earned once$`, s.earnedOnce)

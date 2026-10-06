@@ -486,6 +486,8 @@ func (h *sa6H) send(q sa6Spec) error {
 		q.model = "nobody-serves-this"
 	case strings.HasPrefix(exp, "451"):
 		q.illegal = true
+	case exp == "429":
+		q.all429 = true // every station answers this request's attempt with an upstream 429
 	}
 	before := h.counts()
 	err := h.sendCore(q)

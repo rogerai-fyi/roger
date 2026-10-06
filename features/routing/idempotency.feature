@@ -20,7 +20,10 @@
 #     (ROGERAI_IDEMPOTENCY_TTL, default 10m).
 #   - Fingerprint = sha256 of the exact request body bytes plus the routing headers the broker
 #     reads (X-Roger-*). Same (payer, key) + same fingerprint within the window:
-#       * first request finished (any status) and was NOT a stream → replay its stored outcome:
+#       * superseded 2026-10-06 by founder ruling: only a success or a client error (4xx other
+#         than 429) is replayed; a retryable outcome (429, any 5xx) gives the key back and the
+#         retry runs fresh, still with at most one hold and one charge overall.
+#       * first request finished with a replayable status and was NOT a stream → replay its stored outcome:
 #         same status, same body bytes, same X-RogerAI-* headers incl. the SAME
 #         X-RogerAI-Request-Id, plus `X-RogerAI-Idempotent-Replay: true`. No dispatch, no hold,
 #         no settle, no moderation call, no rate-limit token consumed beyond the replay lookup.
@@ -75,6 +78,8 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
     When "u-1" sends the identical request with Idempotency-Key "k-1"
     Then X-RogerAI-Receipt, X-RogerAI-Cost, X-RogerAI-Provider, X-RogerAI-Model and X-RogerAI-Price equal the first response's
 
+  # superseded 2026-10-06 by founder ruling: only client errors replay; the 503 no_match row
+  # moved to "A retry after a 503 no_match runs fresh" below.
   Scenario Outline: A refused first request is replayed as the same refusal
     Given "u-1" relays for "m" with Idempotency-Key "k-2" and the response is <status> <code>
     When "u-1" sends the identical request with Idempotency-Key "k-2"
@@ -86,7 +91,25 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
       | status | code                  |
       | 400    | invalid_routing_value |
       | 402    | insufficient_balance  |
-      | 503    | no_match              |
+
+  # founder ruling 2026-10-06: a retryable outcome gives the key back, so the retry runs fresh
+  Scenario: A retry after an upstream 429 runs fresh
+    Given "u-1" relays for "m" with Idempotency-Key "k-26" and the response is 429
+    When "u-1" sends the identical request with Idempotency-Key "k-26"
+    Then the retry ran fresh, not as a replay
+
+  # founder ruling 2026-10-06
+  Scenario: A retry after a 503 no_match runs fresh
+    Given "u-1" relays for "m" with Idempotency-Key "k-27" and the response is 503 no_match
+    When "u-1" sends the identical request with Idempotency-Key "k-27"
+    Then the retry ran fresh, not as a replay
+
+  # founder ruling 2026-10-06: a client error still replays
+  Scenario: A retry after a 400 for a malformed request replays it
+    Given "u-1" relays for "m" with Idempotency-Key "k-28" and the response is 400 invalid_routing_value
+    When "u-1" sends the identical request with Idempotency-Key "k-28"
+    Then the response is a replay with the first request's id
+    And no station received anything for the retry
 
   Scenario: A replay does not call moderation again
     Given "u-1" relays for "m" with Idempotency-Key "k-1" and the response is 200 from "s1"
@@ -100,12 +123,15 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
     Then the response is 451
     And no second moderation record was written
 
-  Scenario: A replay after a 504 node timeout returns the 504, never a second dispatch
+  # superseded 2026-10-06 by founder ruling: a 504 is retryable, so the key is given back and the
+  # retry runs fresh. Old title: "A replay after a 504 node timeout returns the 504, never a second
+  # dispatch"; old Then: the response is 504, and "s1" received exactly 1 job in total.
+  Scenario: A retry after a 504 node timeout runs fresh
     Given "s1" takes longer than the non-stream relay window
     And "u-1" relays for "m" with Idempotency-Key "k-4" and the response is 504
     When "u-1" sends the identical request with Idempotency-Key "k-4"
-    Then the response is 504
-    And "s1" received exactly 1 job in total
+    Then the retry ran fresh, not as a replay
+    And the wallet of "u-1" was debited at most once
 
   # --- in flight -------------------------------------------------------------------------
 
@@ -218,12 +244,15 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
     And "s1" received exactly 1 job in total
     And the wallet of "u-1" was debited once
 
-  Scenario: A retry of a stream that failed before any frame is replayed as that failure
+  # superseded 2026-10-06 by founder ruling: a 503 is retryable, so the stream's key is given back
+  # too. Old title: "A retry of a stream that failed before any frame is replayed as that failure";
+  # old Then: the response is 503 with error code "no_match" (a replay).
+  Scenario: A retry of a stream that failed before any frame with a retryable status runs fresh
     Given no station is on air for "m2"
     And "u-1" streams for "m2" with Idempotency-Key "k-15" and the response is 503 no_match
     When "u-1" sends the identical stream request with Idempotency-Key "k-15"
-    Then the response is 503 with error code "no_match"
-    And no station received anything for the retry
+    Then the retry ran fresh, not as a replay
+    And the response is 503 with error code "no_match"
 
   Scenario: A retry of a stream still in flight is a 409 request_in_flight
     Given "s1" streams slowly for 5 seconds
