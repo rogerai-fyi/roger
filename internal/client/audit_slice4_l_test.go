@@ -79,3 +79,17 @@ func TestParseCtxRefusesOverflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2097151*1024, n)
 }
+
+// TestFreeOnlyKeepsAStackedFreeVariant: an id already carrying :free among stacked sugar
+// (m:free:nitro) is not suffixed again.
+func TestFreeOnlyKeepsAStackedFreeVariant(t *testing.T) {
+	out, err := Routing{FreeOnly: true}.Apply([]byte(`{"model":"m:free:nitro","models":["a:nitro:free","b"]}`))
+	require.NoError(t, err)
+	var got struct {
+		Model  string
+		Models []string
+	}
+	require.NoError(t, json.Unmarshal(out, &got))
+	require.Equal(t, "m:free:nitro", got.Model)
+	require.Equal(t, []string{"a:nitro:free", "b:free"}, got.Models)
+}

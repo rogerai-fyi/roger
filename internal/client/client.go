@@ -1022,8 +1022,9 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			TrustMin: opts.TrustMin, Region: opts.Region, Only: opts.Only, Models: opts.Models,
 			Sort: opts.Sort, Prefer: opts.Prefer, NoFallbacks: opts.NoFallbacks, Require: opts.Require,
 			ParamsB: opts.ParamsB, MinCtx: opts.MinCtx, MaxTTFT: opts.MaxTTFT, RequireParams: opts.RequireParams,
-			// `roger use m:free` tunes the variant itself: it binds every fallback like F does.
-			FreeOnly: opts.FreeOnly || hasFreeSugar(opts.Model), HeaderMode: opts.HeaderRouting,
+			// `roger use m:free` tunes the variant itself, and a resolved profile can name it
+			// (crit.Model is the model after the band rewrite): either binds every fallback.
+			FreeOnly: opts.FreeOnly || hasFreeSugar(opts.Model) || hasFreeSugar(crit.Model), HeaderMode: opts.HeaderRouting,
 		}
 		if lifted.Pref != "" {
 			rt.Pref = lifted.Pref

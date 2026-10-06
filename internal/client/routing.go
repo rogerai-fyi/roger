@@ -412,7 +412,7 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if r.FreeOnly {
 		// The broker applies :free per entry, so every models[] fallback carries it too.
 		free := func(id string) string {
-			if id == "" || strings.HasSuffix(id, ":free") {
+			if id == "" || hasFreeSugar(id) { // :free anywhere in stacked sugar (m:free:nitro)
 				return id
 			}
 			return id + ":free"
