@@ -13,11 +13,16 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
+	"strconv"
 	"time"
 
+	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -140,6 +145,96 @@ func (s *cnState) signsInWith(provider, reported string) error {
 		}
 	default:
 		return fmt.Errorf("unknown provider %q", provider)
+	}
+	return nil
+}
+
+// --- founder ruling 2026-10-05: user:email -----------------------------------------------
+
+// ghEmailsStub serves a fake GitHub: GET /user with `public` as the public address ("" = none)
+// and GET /user/emails answering `emails` (status 200) or a bare `status`.
+func ghEmailsStub(id int64, login, public string, emails []map[string]any, status int) func() {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user":
+			m := map[string]any{"id": id, "login": login, "name": "", "email": nil}
+			if public != "" {
+				m["email"] = public
+			}
+			_ = json.NewEncoder(w).Encode(m)
+		case "/user/emails":
+			if status != http.StatusOK {
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(emails)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	old := gitHubAPI
+	gitHubAPI = srv.URL
+	return func() { gitHubAPI = old; srv.Close() }
+}
+
+// publicFrom reads `no public address` / `the public address "x"` into the address ("" = none).
+func (s *cnState) publicFrom(shows string) string {
+	if m := regexp.MustCompile(`"([^"]+)"`).FindStringSubmatch(shows); m != nil {
+		return s.u(m[1])
+	}
+	return ""
+}
+
+func (s *cnState) githubSignInWith(public string, emails []map[string]any, status int) error {
+	defer ghEmailsStub(s.acctOwner.GitHubID, s.acctOwner.Login, public, emails, status)()
+	body := []byte(`{"access_token":"tok-cn"}`)
+	req := httptest.NewRequest(http.MethodPost, "/auth/github", bytes.NewReader(body))
+	signReq(req, s.acctKey, body)
+	rec := httptest.NewRecorder()
+	s.b.authGitHub(rec, req)
+	if rec.Code != 200 {
+		return fmt.Errorf("GitHub sign-in = %d %s, want 200 (the address list never fails sign-in)", rec.Code, rec.Body.String())
+	}
+	return nil
+}
+
+func (s *cnState) signsInWithGitHubList(shows string, tbl *godog.Table) error {
+	var emails []map[string]any
+	for _, row := range tbl.Rows[1:] {
+		emails = append(emails, map[string]any{
+			"email":    s.u(row.Cells[0].Value),
+			"primary":  row.Cells[1].Value == "true",
+			"verified": row.Cells[2].Value == "true",
+		})
+	}
+	return s.githubSignInWith(s.publicFrom(shows), emails, http.StatusOK)
+}
+
+func (s *cnState) signsInWithGitHubListStatus(shows, status string) error {
+	code, _ := strconv.Atoi(status)
+	return s.githubSignInWith(s.publicFrom(shows), nil, code)
+}
+
+func (s *cnState) startsWebGitHubSignIn() error {
+	s.t.Setenv("GITHUB_OAUTH_CLIENT_ID", "cid-cn")
+	s.t.Setenv("GITHUB_OAUTH_CLIENT_SECRET", "secret-cn")
+	rec := httptest.NewRecorder()
+	s.b.authGitHubLogin(rec, httptest.NewRequest(http.MethodGet, "/auth/github/login", nil))
+	if rec.Code != http.StatusFound {
+		return fmt.Errorf("web GitHub sign-in = %d, want a 302 to GitHub", rec.Code)
+	}
+	s.authorizeURL = rec.Header().Get("Location")
+	return nil
+}
+
+func (s *cnState) authorizeAsksScopes(want string) error {
+	u, err := url.Parse(s.authorizeURL)
+	if err != nil {
+		return err
+	}
+	if got := u.Query().Get("scope"); got != want {
+		return fmt.Errorf("the authorize request asks for scope %q, want %q", got, want)
 	}
 	return nil
 }

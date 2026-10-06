@@ -279,9 +279,10 @@ type deviceFlow struct {
 	Interval                int    `json:"interval"`
 }
 
-// startDeviceFlow requests a device + user code from GitHub (scope read:user).
+// startDeviceFlow requests a device + user code from GitHub. It asks for the profile and
+// the account's email addresses, the same scopes as the web sign-in.
 func startDeviceFlow(clientID string) (deviceFlow, error) {
-	form := url.Values{"client_id": {clientID}, "scope": {"read:user"}}
+	form := url.Values{"client_id": {clientID}, "scope": {"read:user user:email"}}
 	req, _ := http.NewRequest(http.MethodPost, ghDeviceCodeURL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")

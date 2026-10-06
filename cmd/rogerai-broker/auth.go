@@ -21,12 +21,17 @@ import (
 // gitHubAPI is the GitHub REST base (overridable in tests).
 var gitHubAPI = "https://api.github.com"
 
+// githubScopes is what both GitHub sign-ins ask for: the profile, and the account's email
+// addresses so a private address can still be reported (founder ruling 2026-10-05).
+const githubScopes = "read:user user:email"
+
 // ghAccessTokenURL is GitHub's OAuth token endpoint (overridable in tests).
 var ghAccessTokenURL = "https://github.com/login/oauth/access_token"
 
 // gitHubUser is the subset of GET /user we need to identify an owner. Name + Email are
-// captured for the welcome email: both are best-effort (GitHub omits email unless the
-// user has a PUBLIC email, and name may be empty), so neither is ever a gate.
+// captured for the welcome email: both are best-effort (name may be empty, and Email is the
+// account's primary verified address when the token can list addresses, else its public
+// one), so neither is ever a gate.
 type gitHubUser struct {
 	ID    int64  `json:"id"`
 	Login string `json:"login"`
@@ -53,7 +58,43 @@ func fetchGitHubUser(token string) (gitHubUser, bool) {
 	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil || u.ID == 0 {
 		return gitHubUser{}, false
 	}
+	if addr := fetchGitHubPrimaryEmail(token); addr != "" {
+		u.Email = addr
+	}
 	return u, true
+}
+
+// fetchGitHubPrimaryEmail returns the account's primary verified address from GET
+// /user/emails (scope user:email), so a user with a private address still reports one. ""
+// when the list is unavailable (a token minted without the scope, any error) or holds no
+// primary verified address: the caller keeps the public address, and sign-in never fails.
+func fetchGitHubPrimaryEmail(token string) string {
+	req, _ := http.NewRequest(http.MethodGet, gitHubAPI+"/user/emails", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "rogerai-broker")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var list []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&list) != nil {
+		return ""
+	}
+	for _, e := range list {
+		if e.Primary && e.Verified {
+			return e.Email
+		}
+	}
+	return ""
 }
 
 // authGitHub handles POST /auth/github: the CLI (after a GitHub device-flow login)
@@ -338,7 +379,7 @@ func (b *broker) authGitHubLogin(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{
 		"client_id":    {githubClientID()},
 		"redirect_uri": {webRedirectURI()},
-		"scope":        {"read:user"},
+		"scope":        {githubScopes},
 		"state":        {state},
 	}
 	http.Redirect(w, r, "https://github.com/login/oauth/authorize?"+q.Encode(), http.StatusFound)

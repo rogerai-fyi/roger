@@ -63,6 +63,8 @@ type cnState struct {
 	mailGen int64
 
 	ownerReads int64 // owner lookups made by the last counted relay
+
+	authorizeURL string // where the last web GitHub sign-in redirected
 }
 
 type cnMail struct{ to, subject, text string }
@@ -73,6 +75,7 @@ func (s *cnState) reset() error {
 	}
 	s.acctWallet, s.acctAddr, s.acctKey, s.acctSess = "", "", nil, ""
 	s.acctOwner = store.Owner{}
+	s.authorizeURL = ""
 	s.sceneNow = time.Now()
 	s.mailDelay, s.mailStatus = 0, 200
 	atomic.StoreInt64(&s.posts, 0)
@@ -815,6 +818,10 @@ func TestCapNoticeEmailsBDD(t *testing.T) {
 			sc.Step(`^the account signs in with (GitHub|Apple) and the provider reports "([^"]+)"$`, st.signsInWith)
 			sc.Step(`^the account signs in with (GitHub|Apple) and the provider reports no address$`, func(p string) error { return st.signsInWith(p, "") })
 			sc.Step(`^the account requests speech that brings its spend past \$([0-9.]+)$`, func(string) error { return st.speechCrossing() })
+			sc.Step(`^a visitor starts the web GitHub sign-in$`, st.startsWebGitHubSignIn)
+			sc.Step(`^the GitHub authorize request asks for the scopes "([^"]+)"$`, st.authorizeAsksScopes)
+			sc.Step(`^the account signs in with GitHub, which shows (no public address|the public address "[^"]+") and lists the addresses:$`, st.signsInWithGitHubList)
+			sc.Step(`^the account signs in with GitHub, which shows (no public address|the public address "[^"]+") and answers the address list with status (\d+)$`, st.signsInWithGitHubListStatus)
 
 			sc.Step(`^the account relays (\d+) more paid requests this month$`, st.relaysNMore)
 			sc.Step(`^exactly one "([^"]+)" message has been sent to "([^"]+)" this month$`, st.exactlyOneThisMonth)

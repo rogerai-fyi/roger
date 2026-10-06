@@ -339,3 +339,77 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
     When the account signs in with GitHub and the provider reports no address
     And the account relays a paid request that crosses 80%
     Then exactly one "Monthly spend at 80%" message is sent to "kept@example.com"
+
+  # --- GitHub reports the account's primary verified address ------------------------------
+
+  # founder ruling 2026-10-05: user:email. Both GitHub sign-ins ask for the account's email
+  # addresses, and the address GitHub reports is the PRIMARY + VERIFIED one from that list, so a
+  # GitHub user with a private address is re-checked like everyone else. The CLI device sign-in
+  # asks for the same scopes (pinned by TestDeviceFlowRequestsEmailScope in internal/client).
+  Scenario: The web GitHub sign-in asks for the account's email addresses
+    When a visitor starts the web GitHub sign-in
+    Then the GitHub authorize request asks for the scopes "read:user user:email"
+
+  # founder ruling 2026-10-05: user:email
+  Scenario: A private-address GitHub user's stored address is re-checked against their primary verified address
+    Given a GitHub-linked account "typed@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows no public address and lists the addresses:
+      | email            | primary | verified |
+      | real@example.com | true    | true     |
+    And the account relays a paid request that crosses 80%
+    Then no cap notice is sent to "typed@example.com"
+
+  # founder ruling 2026-10-05: user:email
+  Scenario: A private-address GitHub user whose primary verified address matches keeps it mailable
+    Given a GitHub-linked account "same@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows no public address and lists the addresses:
+      | email            | primary | verified |
+      | SAME@example.com | true    | true     |
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "same@example.com"
+
+  # founder ruling 2026-10-05: user:email
+  Scenario: The primary verified address wins over a different public address
+    Given a GitHub-linked account "primary@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows the public address "public@example.com" and lists the addresses:
+      | email               | primary | verified |
+      | public@example.com  | false   | true     |
+      | primary@example.com | true    | true     |
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "primary@example.com"
+
+  # founder ruling 2026-10-05: user:email
+  Scenario Outline: An unverified or non-primary address is never the one GitHub reports
+    Given a GitHub-linked account "kept@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows no public address and lists the addresses:
+      | email             | primary   | verified   |
+      | other@example.com | <primary> | <verified> |
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "kept@example.com"
+
+    Examples:
+      | primary | verified |
+      | true    | false    |
+      | false   | true     |
+      | false   | false    |
+
+  # founder ruling 2026-10-05: user:email. A token without the new scope (minted before the
+  # change) or a failing address list falls back to the public address, and never fails sign-in.
+  Scenario Outline: A failing address list falls back to the public address without failing sign-in
+    Given a GitHub-linked account "typed@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows the public address "real@example.com" and answers the address list with status <status>
+    And the account relays a paid request that crosses 80%
+    Then no cap notice is sent to "typed@example.com"
+
+    Examples:
+      | status |
+      | 403    |
+      | 404    |
+      | 500    |
+
+  # founder ruling 2026-10-05: user:email
+  Scenario: A failing address list and no public address leave the stored address as it was
+    Given a GitHub-linked account "kept@example.com" whose address predates typed-address tracking, with a monthly cap of $10.00 and $7.90 spent
+    When the account signs in with GitHub, which shows no public address and answers the address list with status 403
+    And the account relays a paid request that crosses 80%
+    Then exactly one "Monthly spend at 80%" message is sent to "kept@example.com"
