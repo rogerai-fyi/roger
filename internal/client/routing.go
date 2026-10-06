@@ -239,6 +239,30 @@ func bareModel(id string) string {
 // below is kept, and the effective cap is always written. The body is always re-encoded
 // (every value's raw JSON is kept byte-identical; top-level key order may change), even for
 // a zero Routing; a body that is not a JSON object is an error.
+// mistyped reports whether obj states key with a value of the wrong type (absent or null is
+// not mistyped: the owner's value applies).
+func mistyped(obj map[string]any, key string, ok func(any) bool) bool {
+	v, present := obj[key]
+	return present && v != nil && !ok(v)
+}
+
+func isNumber(v any) bool { _, ok := v.(float64); return ok }
+
+func isTrustValue(v any) bool {
+	s, _ := v.(string)
+	return s == "any" || s == "verified" || s == "confidential"
+}
+
+func isStringList(v any) bool {
+	list, ok := v.([]any)
+	for _, e := range list {
+		if _, isStr := e.(string); !isStr {
+			return false
+		}
+	}
+	return ok
+}
+
 func (r Routing) Apply(body []byte) ([]byte, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
@@ -269,12 +293,14 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 		roger["confidential"] = true
 	}
-	if r.TrustMin != "" {
+	// A guest value of the wrong type is forwarded as sent, for the broker's 400 (as a
+	// non-object max_price is): replacing it with the owner's would hide the guest's error.
+	if r.TrustMin != "" && !mistyped(roger, "trust_min", isTrustValue) {
 		if g, _ := roger["trust_min"].(string); trustRank(g) < trustRank(r.TrustMin) {
 			roger["trust_min"] = r.TrustMin
 		}
 	}
-	if len(r.Region) > 0 {
+	if len(r.Region) > 0 && !mistyped(roger, "region", isStringList) {
 		if got := stringsOf(roger["region"]); len(got) > 0 {
 			for _, x := range got {
 				if !hasFold(r.Region, x) {
@@ -382,12 +408,12 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 		roger["params_b"] = []float64{lo, hi}
 	}
-	if r.MinCtx > 0 {
+	if r.MinCtx > 0 && !mistyped(roger, "min_ctx", isNumber) {
 		if g, ok := roger["min_ctx"].(float64); !ok || g < float64(r.MinCtx) {
 			roger["min_ctx"] = r.MinCtx
 		}
 	}
-	if r.MaxTTFT > 0 {
+	if r.MaxTTFT > 0 && !mistyped(roger, "max_ttft_ms", isNumber) {
 		if g, ok := roger["max_ttft_ms"].(float64); !ok || g <= 0 || g > float64(r.MaxTTFT) {
 			roger["max_ttft_ms"] = r.MaxTTFT
 		}

@@ -93,3 +93,23 @@ func TestFreeOnlyKeepsAStackedFreeVariant(t *testing.T) {
 	require.Equal(t, "m:free:nitro", got.Model)
 	require.Equal(t, []string{"a:nitro:free", "b:free"}, got.Models)
 }
+
+// TestMistypedGuestValuesGoToTheBroker: a guest value of the wrong type is forwarded as sent
+// for the broker's 400 (as a non-object max_price is), never silently swapped for the owner's.
+func TestMistypedGuestValuesGoToTheBroker(t *testing.T) {
+	owner := Routing{TrustMin: "verified", Region: []string{"eu"}, MinCtx: 32768, MaxTTFT: 1500}
+	for _, tc := range []struct{ key, guest string }{
+		{"trust_min", `5`}, {"region", `"eu"`}, {"min_ctx", `"32k"`}, {"max_ttft_ms", `"fast"`},
+	} {
+		out, err := owner.Apply([]byte(`{"model":"m","roger":{"` + tc.key + `":` + tc.guest + `}}`))
+		require.NoError(t, err, tc.key)
+		var got struct{ Roger map[string]json.RawMessage }
+		require.NoError(t, json.Unmarshal(out, &got))
+		require.JSONEq(t, tc.guest, string(got.Roger[tc.key]), tc.key)
+	}
+	// A well-typed looser value is still tightened to the owner's.
+	out, err := owner.Apply([]byte(`{"model":"m","roger":{"trust_min":"any","min_ctx":1024}}`))
+	require.NoError(t, err)
+	require.Contains(t, string(out), `"trust_min":"verified"`)
+	require.Contains(t, string(out), `"min_ctx":32768`)
+}
