@@ -15,23 +15,23 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
 
 func ackStores(t *testing.T) map[string]AckStore {
 	t.Helper()
 	out := map[string]AckStore{"mem": NewAckMemStore()}
 
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		return out
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)

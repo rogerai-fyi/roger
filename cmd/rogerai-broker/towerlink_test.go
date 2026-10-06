@@ -4,15 +4,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +18,7 @@ import (
 
 	"path/filepath"
 
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/station"
 	"rogerai.fm/roger/v6/internal/store"
@@ -506,17 +504,16 @@ func TestANegotiationFailureIsTheTowersToFix(t *testing.T) {
 // `rogerai` schema permission bug that would have taken admission offline in production got
 // through because nothing exercised this path with a real database.
 func TestTheSubsystemLoadsAgainstARealDatabase(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
-	// A PRIVATE database, for the same reason internal/store keeps one: packages run in
-	// parallel against one ROGERAI_TEST_DATABASE_URL, and this test loads the CA from
-	// rogerai.tower_ca_root - a table another package's custody test seeds with the
+	// The package's PRIVATE database (internal/pgtest) matters here: this test loads the CA
+	// from rogerai.tower_ca_root - a table another package's custody test seeds with the
 	// placeholder "key-pem". Reading somebody else's fixture made this fail with "the Tower
 	// CA key is not a usable PEM private key", which is a true statement about a root this
 	// deployment never wrote.
-	pg, err := store.NewPostgres(brokerPrivateDSN(t, dsn))
+	pg, err := store.NewPostgres(dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pg.Close() })
 
@@ -546,29 +543,6 @@ func TestTheSubsystemLoadsAgainstARealDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "a second instance must see the head the first recorded")
 	require.Equal(t, int64(7), h.Revision)
-}
-
-// brokerPrivateDSN gives this test its own database on the same server.
-func brokerPrivateDSN(t *testing.T, dsn string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil || u.Path == "" || u.Path == "/" {
-		return dsn
-	}
-	name := strings.TrimPrefix(u.Path, "/") + "_towerlink"
-	admin, aerr := sql.Open("pgx", dsn)
-	require.NoError(t, aerr)
-	defer admin.Close()
-	if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
-		!strings.Contains(cerr.Error(), "already exists") {
-		t.Fatalf("private broker db: %v", cerr)
-	}
-	u.Path = "/" + name
-	own, oerr := sql.Open("pgx", u.String())
-	require.NoError(t, oerr)
-	defer own.Close()
-	_, _ = own.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
-	return u.String()
 }
 
 // No database is NOT a misconfiguration: standalone Towers need nothing from us, so the
