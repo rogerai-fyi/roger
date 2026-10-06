@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -136,4 +137,20 @@ func TestTunedProfileFreqBindsOwnerTurns(t *testing.T) {
 	require.Equal(t, "", m.agentFreqFor("other"), "the profile binds only the band it was tuned on")
 	m.tuneFreq = "TUNED"
 	require.Equal(t, "TUNED", m.liveProxyOpts(*m.connected, m.alert).Freq)
+}
+
+// TestLimPlateShowsTheResolvedRule: a band that sets no pref of its own shows the default's
+// pref on its CONFIG plate (marked as the default's), as the band card does, never a
+// "balanced" the band does not run.
+func TestLimPlateShowsTheResolvedRule(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.limits.Default = Limit{Pref: "cheap"}
+	m.limits.Models = map[string]Limit{"m": {MaxOut: 2}}
+	m.limField = lfMaxIn
+	plate := stripANSI(strings.Join(m.limPlate("m", 200), "\n"))
+	require.Contains(t, plate, "pref cheap (default)")
+	require.NotContains(t, plate, "pref balanced")
+	def := stripANSI(strings.Join(m.limPlate(defaultLimitRow, 200), "\n"))
+	require.Contains(t, def, "pref cheap")
+	require.NotContains(t, def, "(default)", "the default row is the default: no marker")
 }

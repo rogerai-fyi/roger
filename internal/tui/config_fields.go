@@ -351,11 +351,22 @@ func fieldShown(l Limit, f int) string {
 // limPlate is the selected row's detail plate: every field after the two table columns as
 // "label value", the focused one in the selection style, and the choices of a focused choice
 // field. Each line is clipped to the terminal (truncVisible ends a cut with "…").
+//
+// A band row shows each key it does not set as the value it inherits, marked "(default)", so
+// the plate reads the rule the band runs (as the band card does), not an unset placeholder.
 func (m model) limPlate(row string, w int) []string {
 	l := m.rowLimit(row)
+	res := l
+	if row != defaultLimitRow && m.limits != nil {
+		res = m.limits.resolve(row)
+	}
 	var cells []string
 	for f := lfMaxIn; f < len(limFieldDefs); f++ {
-		cell := limFieldDefs[f].label + " " + fieldShown(l, f)
+		shown := fieldShown(l, f)
+		if inherited := fieldShown(res, f); shown == fieldShown(Limit{}, f) && inherited != shown {
+			shown = inherited + " (default)"
+		}
+		cell := limFieldDefs[f].label + " " + shown
 		if f == m.limField {
 			cells = append(cells, stSelText.Render(cell))
 		} else {
