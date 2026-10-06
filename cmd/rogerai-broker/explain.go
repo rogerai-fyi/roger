@@ -135,7 +135,8 @@ func (w *dryWriter) finish() {
 func (b *broker) dryLimiter() *rateLimiter {
 	b.dryOnce.Do(func() {
 		b.dryRL = &rateLimiter{buckets: map[string]*tokenBucket{},
-			rpm: envFloat("ROGERAI_DRYRUN_RATE_RPM", 60), burst: envFloat("ROGERAI_DRYRUN_RATE_BURST", 30)}
+			rpm: envFloat("ROGERAI_DRYRUN_RATE_RPM", 60), burst: envFloat("ROGERAI_DRYRUN_RATE_BURST", 30),
+			name: "dry", shared: b.shared} // fleet-wide like every other request limiter
 	})
 	return b.dryRL
 }

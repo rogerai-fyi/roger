@@ -28,7 +28,9 @@ const cancelledStatus = 499
 // endpoint, or one that forgot the node; the poll loop re-registers in that case).
 var cancelBackoff = time.Minute
 
-// cancelRetry is the wait after a transport error or another unexpected status.
+// cancelRetry is the first wait after a transport error or another unexpected status; each
+// consecutive failure doubles it, up to cancelBackoff, and an answered poll resets it, so a
+// broker that cannot deliver cancels (a store outage answers 503) is not hot-looped by every node.
 var cancelRetry = 2 * time.Second
 
 // inflightJobs maps the jobs being served now to the cancel of their upstream request.
@@ -84,6 +86,14 @@ func cancelLoop(cfg Config, sess *Session) {
 			return true
 		}
 	}
+	retry := cancelRetry
+	failed := func() bool {
+		ok := wait(retry)
+		if retry *= 2; retry > cancelBackoff {
+			retry = cancelBackoff
+		}
+		return ok
+	}
 	for {
 		select {
 		case <-sess.stop:
@@ -95,7 +105,7 @@ func cancelLoop(cfg Config, sess *Session) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := client.Do(req)
 		if err != nil {
-			if !wait(cancelRetry) {
+			if !failed() {
 				return
 			}
 			continue
@@ -109,16 +119,18 @@ func cancelLoop(cfg Config, sess *Session) {
 		resp.Body.Close()
 		switch resp.StatusCode {
 		case http.StatusOK:
+			retry = cancelRetry
 			for _, id := range out.IDs {
 				sess.inflight.cancel(id)
 			}
 		case http.StatusNoContent:
+			retry = cancelRetry
 		case http.StatusNotFound:
 			if !wait(cancelBackoff) {
 				return
 			}
 		default:
-			if !wait(cancelRetry) {
+			if !failed() {
 				return
 			}
 		}

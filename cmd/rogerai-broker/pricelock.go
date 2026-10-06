@@ -40,9 +40,14 @@ func postedKey(node, model string, in, out float64) string {
 func (b *broker) notePosted(node, model string, in, out float64) (time.Time, bool) {
 	key, now := postedKey(node, model, in, out), b.now()
 	if b.shared != nil {
-		_, err := b.shared.setIfAbsent(key, strconv.FormatInt(now.UnixMilli(), 10), postedSinceTTL)
+		set, err := b.shared.setIfAbsent(key, strconv.FormatInt(now.UnixMilli(), 10), postedSinceTTL)
 		if err == nil {
 			if v, found, err := b.shared.counterGet(key); err == nil && found {
+				if !set {
+					// Seen again: keep the first-posted time alive while the price stays posted
+					// (an expired record would read a long-posted price as just posted).
+					_ = b.shared.counterSet(key, v, postedSinceTTL)
+				}
 				return time.UnixMilli(int64(v)), true
 			}
 			return time.Time{}, false

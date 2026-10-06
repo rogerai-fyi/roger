@@ -885,6 +885,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
 		b.rl.name, b.rl.shared = "id", b.shared
 		b.grantRL.name, b.grantRL.shared = "grant", b.shared
+		b.idemRL.name, b.idemRL.shared = "idem", b.shared // the Idempotency-Key lookup bound, fleet-wide
 		go b.syncLiveness(nil)
 		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
 		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
