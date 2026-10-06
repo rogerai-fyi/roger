@@ -51,3 +51,16 @@ func TestCapRefusalKeepsTheFullNoticeForSpendAtTheCap(t *testing.T) {
 	notices, _ = capRefusalNotices(t, 1-5e-10, 0, 0.1, 1)
 	require.Equal(t, []string{"100"}, notices, "spend within the store tolerance of the cap is at the cap")
 }
+
+// The counter pre-check refuses with the store's tolerance too: $0.10 spent plus a $0.20
+// request against a $0.30 cap sums to 0.30000000000000004 in floats, which the capped hold
+// admits, so the pre-check must not refuse it first.
+func TestMonthlyCapPrecheckUsesTheStoreTolerance(t *testing.T) {
+	b, _, wallet := capBroker(t)
+	now := time.Now()
+	require.NoError(t, b.db.SetMonthlyCap(wallet, 0.3))
+	seedMonthSpend(t, b, wallet, 0.1, "s1")
+	w := httptest.NewRecorder()
+	st, msg := b.monthlyCapCheck(w, wallet, 0.2, now)
+	require.Zero(t, st, "an exact fit is allowed: %s", msg)
+}

@@ -653,20 +653,28 @@ func TestQueueAmbiguousPushWaitsOutTheQueue(t *testing.T) {
 	}
 }
 
-// An error reply that says the server cannot serve is still an outage signal; a refusal of
-// one command is not.
-func TestUnavailableReply(t *testing.T) {
-	for msg, want := range map[string]bool{
-		"LOADING Redis is loading the dataset in memory":                    true,
-		"READONLY You can't write against a read only replica.":             true,
-		"MASTERDOWN Link with MASTER is down":                               true,
-		"CLUSTERDOWN The cluster is down":                                   true,
-		"TRYAGAIN Multiple keys request during rehashing of slot":           true,
-		"WRONGTYPE Operation against a key holding the wrong kind of value": false,
-		"ERR unknown command":                                               false,
+// Only a refusal of one command on one key (WRONGTYPE) means "the store answered and is
+// fine"; every other error reply (out of memory, persistence failing, auth, loading, a
+// replica) can refuse every write, so it marks the store down as before.
+func TestNoteReplyMarksDownUnlessItIsAKeyRefusal(t *testing.T) {
+	for msg, up := range map[string]bool{
+		"WRONGTYPE Operation against a key holding the wrong kind of value": true,
+		"OOM command not allowed when used memory > 'maxmemory'.":           false,
+		"MISCONF Redis is configured to save RDB snapshots":                 false,
+		"NOAUTH Authentication required.":                                   false,
+		"NOPERM this user has no permissions to run the 'rpush' command":    false,
+		"WRONGPASS invalid username-password pair":                          false,
+		"LOADING Redis is loading the dataset in memory":                    false,
+		"READONLY You can't write against a read only replica.":             false,
+		"ERR max number of clients reached":                                 false,
 	} {
-		if got := unavailableReply(errors.New(msg)); got != want {
-			t.Errorf("unavailableReply(%q) = %v, want %v", msg, got, want)
+		v := &valkeyStore{up: true}
+		v.noteReply("dq push", errors.New(msg))
+		if v.healthy() != up || (up && v.downFor() != 0) {
+			t.Errorf("after %q: healthy=%v downFor=%s, want healthy=%v", msg, v.healthy(), v.downFor(), up)
+		}
+		if v.opErrors.Load() != 1 {
+			t.Errorf("after %q: counted %d op errors, want 1", msg, v.opErrors.Load())
 		}
 	}
 }

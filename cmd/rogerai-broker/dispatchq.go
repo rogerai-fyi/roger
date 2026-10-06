@@ -216,8 +216,8 @@ func (q *dispatchQueue) noteErr(op string, err error) {
 	}
 }
 
-// noteReply records an error REPLY: the store answered, so it is counted and logged but is
-// not marked down, unless the reply says the server cannot serve (see unavailableReply).
+// noteReply records an error REPLY to a queue push: a refusal on one key is counted and
+// logged without marking the store down; any other error reply does (see keyRefusal).
 func (q *dispatchQueue) noteReply(op string, err error) {
 	if vs, ok := q.b.shared.(*valkeyStore); ok {
 		vs.noteReply(op, err)

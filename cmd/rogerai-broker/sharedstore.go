@@ -821,12 +821,13 @@ func (v *valkeyStore) noteErr(op string, err error) {
 	}
 }
 
-// noteReply is noteErr for an error REPLY (redis.Error). The store answered, so a refusal
-// on one key (WRONGTYPE and the like) is counted and logged without tripping the outage
-// path. A reply that says the server is not serving (unavailableReply) is an outage signal
-// and goes to noteErr.
+// noteReply is noteErr for an error REPLY (redis.Error). A refusal of one command on one
+// key (keyRefusal) means the store answered and can still serve, so it is counted and
+// logged without tripping the outage path. Every other error reply (out of memory,
+// persistence failing, auth, loading, a replica, client limits) can refuse every write,
+// so it goes to noteErr and marks the store down.
 func (v *valkeyStore) noteReply(op string, err error) {
-	if unavailableReply(err) {
+	if !keyRefusal(err) {
 		v.noteErr(op, err)
 		return
 	}
@@ -843,16 +844,10 @@ func (v *valkeyStore) noteReply(op string, err error) {
 	}
 }
 
-// unavailableReply reports whether an error reply means the server cannot serve right now
-// (still loading, a replica, no primary, cluster down) rather than refusing one command.
-func unavailableReply(err error) bool {
-	msg := err.Error()
-	for _, p := range []string{"LOADING ", "READONLY ", "MASTERDOWN ", "CLUSTERDOWN ", "TRYAGAIN "} {
-		if strings.HasPrefix(msg, p) {
-			return true
-		}
-	}
-	return false
+// keyRefusal reports whether an error reply refuses one command on one key (the key holds
+// the wrong type) rather than saying the server cannot serve.
+func keyRefusal(err error) bool {
+	return strings.HasPrefix(err.Error(), "WRONGTYPE ")
 }
 
 func (v *valkeyStore) Close() error {
