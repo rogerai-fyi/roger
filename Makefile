@@ -89,9 +89,9 @@ test-db:
 			|| podman ps -a --format '{{.Names}}' 2>/dev/null | grep -qx rogerai-test-pg; then sleep 1; else break; fi; \
 	done
 	@(docker run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-		-p $(PG_TEST_PORT):5432 postgres:16 >/dev/null 2>&1 \
+		-p $(PG_TEST_PORT):5432 postgres:16 -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null 2>&1 \
 		|| podman run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-		-p $(PG_TEST_PORT):5432 postgres:16 >/dev/null) \
+		-p $(PG_TEST_PORT):5432 postgres:16 -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null) \
 		&& echo "postgres:16 up on $(PG_TEST_PORT)"
 	@until (docker exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1 \
 		|| podman exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1); do sleep 1; done
