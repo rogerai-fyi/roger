@@ -49,8 +49,10 @@ var (
 	localRogerHonored    = map[string]bool{"confidential": true, "trust_min": true, "profile": true}
 	localRogerIgnored    = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "self_hosted_only": true, "region": true, "freq": true}
-	localSugar   = []string{":free", ":floor", ":nitro"}
-	maxPriceKeys = map[string]bool{"prompt": true, "completion": true, "request": true, "image": true}
+	localSugar = []string{":free", ":floor", ":nitro"}
+	// maxModelsEntries bounds models[] by raw entries, as the broker does (contract §1a).
+	maxModelsEntries = 32
+	maxPriceKeys     = map[string]bool{"prompt": true, "completion": true, "request": true, "image": true}
 )
 
 // parseLocalRouting reads the routing carriers of a consumer request. hdrConfidential is the
@@ -140,12 +142,18 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		if json.Unmarshal(raw, &list) != nil {
 			return lr, &routeErr{status: 400, msg: "models must be a list of model ids"}
 		}
+		if len(list) > maxModelsEntries { // bounded before any entry is read (contract §1a)
+			return lr, &routeErr{status: 400, msg: fmt.Sprintf("models has more than %d entries", maxModelsEntries)}
+		}
 		for _, e := range list {
 			id, isStr := e.(string)
 			if !isStr || strings.TrimSpace(id) == "" {
 				return lr, &routeErr{status: 400, msg: "models must be a list of model ids"}
 			}
 			add(id)
+			if len(lr.models) > maxLocalModels {
+				return lr, &routeErr{status: 400, msg: fmt.Sprintf("too many models (max %d)", maxLocalModels)}
+			}
 		}
 	}
 	if len(lr.models) == 0 {

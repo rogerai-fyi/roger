@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -247,4 +248,17 @@ func TestLocalRoutingValidatesIgnoredRogerValues(t *testing.T) {
 	lr, e := parseLocalRouting([]byte(`{"model":"a","roger":{"min_tps":5,"pref":"fast","params_b":[7,70],"min_ctx":32768}}`), false)
 	require.Nil(t, e)
 	require.Equal(t, []string{"roger.min_ctx", "roger.min_tps", "roger.params_b", "roger.pref"}, lr.ignored)
+}
+
+// TestLocalModelsListIsBoundedBeforeItIsRead: models[] is capped at 32 raw entries (contract
+// §1a) before any entry is deduplicated, so a huge list costs nothing to refuse.
+func TestLocalModelsListIsBoundedBeforeItIsRead(t *testing.T) {
+	list := make([]string, 40)
+	for i := range list {
+		list[i] = `"a"`
+	}
+	_, e := parseLocalRouting([]byte(`{"model":"a","models":[`+strings.Join(list, ",")+`]}`), false)
+	require.NotNil(t, e)
+	require.Equal(t, 400, e.status)
+	require.Contains(t, e.msg, "32")
 }
