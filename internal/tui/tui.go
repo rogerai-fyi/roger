@@ -2330,6 +2330,10 @@ func (m model) transcriptText() string {
 // (wl-copy / xclip / xsel on Linux, pbcopy on macOS, clip on Windows). Returns true
 // on success. Never fatal - a missing tool just returns false and the caller falls
 // back to "select it manually". No network, no persistence.
+// clipboardLookPath finds a clipboard tool; tests replace it so a run never touches
+// the developer's real clipboard.
+var clipboardLookPath = exec.LookPath
+
 func copyToClipboard(s string) bool {
 	if s == "" {
 		return false
@@ -2348,7 +2352,7 @@ func copyToClipboard(s string) bool {
 		tools = []tool{{"wl-copy", nil}, {"xclip", []string{"-selection", "clipboard"}}, {"xsel", []string{"--clipboard", "--input"}}}
 	}
 	for _, t := range tools {
-		path, err := exec.LookPath(t.bin)
+		path, err := clipboardLookPath(t.bin)
 		if err != nil {
 			continue
 		}

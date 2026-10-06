@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -22,6 +23,9 @@ func TestMain(m *testing.M) {
 	if got, err := os.UserConfigDir(); err != nil || !strings.HasPrefix(got, dir) {
 		panic("config isolation FAILED: UserConfigDir=" + got + " not under " + dir)
 	}
+	// No clipboard tool is ever found, so copy paths fall back without reaching (and
+	// overwriting) the developer's real clipboard.
+	clipboardLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
