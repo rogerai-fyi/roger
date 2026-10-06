@@ -1678,6 +1678,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clamp the cursor + window into the FILTERED view (the list the user actually
 		// navigates), so a re-scan that shrinks the matches never strands the cursor.
 		m.clampBrowse()
+		// A re-scan (r) on the connect confirm: what the operator accepts is priced from it.
+		if m.mode == modeConnectConfirm {
+			m.requote()
+		}
 		// "wait & notify" stub: if a watched band has dipped under the limit, say so.
 		notified := false
 		if m.watching != "" {

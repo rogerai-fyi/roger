@@ -164,3 +164,25 @@ func TestConsoleLimitEditReachesTheLiveProxy(t *testing.T) {
 	out, _ := m.Update(tickMsg{gen: m.tickGen})
 	require.InDelta(t, 0.3, asModel(out).proxyHolder.Get().MaxPriceOut, 1e-12)
 }
+
+// TestConfirmRescanRebuildsTheQuote: r on the connect confirm re-scans, and the quote the
+// operator then accepts is priced from the fresh scan, not the station list they saw before.
+func TestConfirmRescanRebuildsTheQuote(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 1.0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	m := asModel(tm)
+	out, _ := m.connect()
+	m = asModel(out)
+	require.Equal(t, modeConnectConfirm, m.mode)
+	require.InDelta(t, 1.0, m.q.b.minOut, 1e-9)
+	out, _ = m.Update(keyMsg("r"))
+	out, _ = asModel(out).Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)}))
+	m = asModel(out)
+	require.InDelta(t, 3.0, m.q.b.minOut, 1e-9, "the quote is rebuilt from the fresh scan")
+
+	out, _ = m.Update(offersMsg([]offer{capOffer("other", 32768, false, nil, 1.0, 72)}))
+	require.NotEqual(t, modeConnectConfirm, asModel(out).mode, "a band gone from the scan is not offered for accept")
+}

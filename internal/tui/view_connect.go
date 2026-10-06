@@ -67,6 +67,27 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// requote rebuilds the open confirm's quote from the band list a re-scan just returned, under
+// the profile the confirm is on. A band that is gone, or no longer serving, is not offered for
+// accept; a fresh price above the cap goes to the over-limit screen, as connect does.
+func (m *model) requote() {
+	for _, b := range m.bands {
+		if b.model != m.q.b.model || b.quant != m.q.b.quant || !b.online || b.cheapest == nil {
+			continue
+		}
+		typ := m.limits.typical()
+		m.q = quote{b: b, limit: m.confirmLimit(b.model), typical: typ, estReply: b.minOut * float64(typ) / 1e6}
+		if m.q.limit.MaxOut > 0 && b.minOut > m.q.limit.MaxOut {
+			m.q.overLimit = true
+			m.editBuf = money(b.minOut)
+			m.mode = modeOverLimit
+		}
+		return
+	}
+	m.mode = modeBrowse
+	m.status = stEmber.Render(noStationServing(m.q.b.model)) + stDim.Render(" - pick another band")
+}
+
 // connectStages is the number of staged steps in the tune-in sequence (scan, lock,
 // handshake, CHANNEL OPEN). connectStageDone is the terminal stage (all steps "ok"
 // and the channel held open, ready to drop into CHANNEL on the next beat).
