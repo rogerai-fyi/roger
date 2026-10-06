@@ -65,6 +65,8 @@ type rx6State struct {
 	dryHold  float64
 	maxIn    int
 	codes429 int
+	// countersBefore are the traffic counters noted before a dry run (noteCounters).
+	countersBefore map[string]int64
 }
 
 func (s *rx6State) doc() (*rx6Doc, error) {
@@ -319,6 +321,29 @@ func (s *rx6State) curatedStationFull(name, model, in, out, tps, quant, region s
 	reg.Curated = true
 	s.b.nodes[reg.NodeID] = reg
 	s.b.mu.Unlock()
+	return nil
+}
+
+// rx6TrafficCounters are the counters only real traffic may move (a dry run is not traffic).
+func (s *rx6State) rx6TrafficCounters() map[string]int64 {
+	out := map[string]int64{}
+	for k, v := range s.b.stats.routingCounters() {
+		if k == "routing_body_requests" || strings.HasPrefix(k, "affinity_") {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func (s *rx6State) noteCounters() error { s.countersBefore = s.rx6TrafficCounters(); return nil }
+
+func (s *rx6State) noCounterMoved() error {
+	after := s.rx6TrafficCounters()
+	for k, v := range after {
+		if v != s.countersBefore[k] {
+			return fmt.Errorf("the dry run moved %s from %d to %d", k, s.countersBefore[k], v)
+		}
+	}
 	return nil
 }
 
@@ -911,6 +936,8 @@ func TestRouteExplainBDD(t *testing.T) {
 		sc.Step(`^"([^"]+)" posts a chat completion for "([^"]+)" with ((?s).+)$`, s.posts)
 		sc.Step(`^"([^"]+)" posts the same body to /v1/route/explain$`, s.explainEndpoint)
 		sc.Step(`^"([^"]+)" then sends the same request without dry_run$`, s.thenReal)
+		sc.Step(`^the routing counters are noted$`, s.noteCounters)
+		sc.Step(`^no routing or affinity counter moved$`, s.noCounterMoved)
 		sc.Step(`^"([^"]+)" posts (\d+) dry runs for "([^"]+)" concurrently$`, s.concurrentDryRuns)
 		sc.Step(`^"([^"]+)" posts dry runs faster than the /market rate limit$`, s.fastDryRuns)
 		sc.Step(`^the grant holder posts a chat completion for "([^"]+)" with (.+)$`, s.grantPosts)

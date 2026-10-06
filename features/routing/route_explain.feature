@@ -281,6 +281,13 @@ Feature: A dry run explains where a request would go and what it would cost, spe
     When "u-1" posts a chat completion for "m" with roger.dry_run true
     Then "s1" is not excluded for "cooling"
 
+  # slice-6 review 2026-10-06: a dry run is not traffic, so it moves no routing or affinity counter
+  Scenario: A dry run moves no routing or affinity counter
+    Given "u-1" posts a chat completion for "m" with roger.session "sess-1"
+    And the routing counters are noted
+    When "u-1" posts a chat completion for "m" with roger.dry_run true and roger.session "sess-1"
+    Then no routing or affinity counter moved
+
   # --- rate limiting and abuse ---------------------------------------------------------------
 
   Scenario: Dry runs use their own rate bucket, not the relay bucket

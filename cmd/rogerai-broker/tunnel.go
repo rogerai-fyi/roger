@@ -1982,7 +1982,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		refuse(&routingError{code: "unsupported_routing_key", msg: "unsupported routing key " + routing.unsupported + " (not honoured by this release)"})
 		return
 	}
-	if routing.used {
+	if routing.used && !dry { // a dry run is not traffic: it moves no counter
 		b.stats.routingBodyRequests.Add(1)
 	}
 	b.stats.countVariants(suffixes) // per suffix, per request; never a model id
@@ -2487,11 +2487,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			if n, fresh, found := b.affinityGet(b.affinityKey(user, routing.Session, m.bare)); found {
 				switch {
 				case !fresh:
-					b.stats.noteAffinityMiss("expired")
+					b.noteAffinityMiss(dry, "expired")
 				case len(orderList) > 0 || pinNode != "" || routeSort != sortNone:
-					b.stats.noteAffinityMiss("explicit")
+					b.noteAffinityMiss(dry, "explicit")
 				case routing.Only != nil && !containsString(routing.Only, n):
-					b.stats.noteAffinityMiss("ineligible")
+					b.noteAffinityMiss(dry, "ineligible")
 				case strings.HasPrefix(n, affinityTowerPrefix):
 					affTower = strings.TrimPrefix(n, affinityTowerPrefix) // a Tower row: the edge merge heads with it
 				default:
@@ -2513,10 +2513,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				n, o, hit := b.pickFor(m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, affNode, skip, allow, privateAllow, rr.seeded(nil))
 				if why := b.affineGateLocked(affNode, m.bare, hit && !skip[affNode], rr); why == "" {
 					node, offer, ok = n, o, true
-					b.stats.affinityHits.Add(1)
+					if !dry {
+						b.stats.affinityHits.Add(1)
+					}
 					affHit = affNode
 				} else {
-					b.stats.noteAffinityMiss(why)
+					b.noteAffinityMiss(dry, why)
 				}
 				affNode = "" // tried once: a re-entry of this walk routes normally
 			}

@@ -129,3 +129,10 @@ func (b *broker) affineGateLocked(node, model string, picked bool, req pickReq) 
 	}
 	return ""
 }
+
+// noteAffinityMiss counts a miss by reason, never for a dry run (it is not traffic).
+func (b *broker) noteAffinityMiss(dry bool, why string) {
+	if !dry {
+		b.stats.noteAffinityMiss(why)
+	}
+}
