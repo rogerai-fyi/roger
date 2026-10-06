@@ -1074,10 +1074,21 @@ func cmdProfile(args []string) error {
 		if len(args) != 3 {
 			return fmt.Errorf("usage: roger profile unset <name> <key>")
 		}
-		return profileWrite(args[1], false, func(p map[string]any) error {
+		if err := profileKeyOK(args[2]); err != nil {
+			return err
+		}
+		err := profileWrite(args[1], false, func(p map[string]any) error {
+			if _, has := rfGetPath(p, args[2]); !has {
+				return errNotSet // nothing to remove: config.json is left as it is
+			}
 			rfDelPath(p, args[2])
 			return nil
 		}, fmt.Sprintf("unset profile %s %s", args[1], args[2]))
+		if errors.Is(err, errNotSet) {
+			fmt.Printf("%s is not set in profile %s\n", args[2], args[1])
+			return nil
+		}
+		return err
 	case "rm", "remove", "delete":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: roger profile rm <name>")
@@ -1100,6 +1111,9 @@ func cmdProfile(args []string) error {
 	}
 	return fmt.Errorf(profileUsage)
 }
+
+// errNotSet is profile unset's "nothing to remove": no write happens.
+var errNotSet = errors.New("not set")
 
 // profileKeyOK accepts a routing key a profile may hold.
 func profileKeyOK(key string) error {

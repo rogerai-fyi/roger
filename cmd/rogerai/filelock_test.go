@@ -1,5 +1,3 @@
-//go:build !unix
-
 package main
 
 import (
@@ -23,7 +21,7 @@ func TestConfigLockHonorsTheDeadlineDuringATakeover(t *testing.T) {
 	require.NoError(t, os.WriteFile(lock+".takeover", nil, 0o600)) // a live takeover in progress
 	done := make(chan error, 1)
 	go func() {
-		release, err := lockConfig(lock)
+		release, err := fileLockConfig(lock)
 		if err == nil {
 			release()
 		}
@@ -41,7 +39,7 @@ func TestConfigLockHonorsTheDeadlineDuringATakeover(t *testing.T) {
 // the new holder's lock when it finally releases.
 func TestConfigLockReleasesOnlyItsOwn(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "config.json.lock")
-	release, err := lockConfig(lock)
+	release, err := fileLockConfig(lock)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(lock, []byte("someone-else"), 0o600)) // taken over meanwhile
 	release()
@@ -63,7 +61,7 @@ func TestConfigLockStaleTakeoverIsExclusive(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				release, err := lockConfig(lock)
+				release, err := fileLockConfig(lock)
 				if err != nil {
 					return
 				}

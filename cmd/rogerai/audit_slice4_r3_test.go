@@ -110,3 +110,32 @@ func TestProfileSetNullIsRefused(t *testing.T) {
 	b, _ := os.ReadFile(configPath())
 	require.NotContains(t, string(b), "null")
 }
+
+// TestSaveConfigRefusesAFileCorruptedSinceLoad: a config.json that became unparseable after
+// load is refused under the lock (as editConfigRaw refuses it), never merged as empty.
+func TestSaveConfigRefusesAFileCorruptedSinceLoad(t *testing.T) {
+	useTempConfig(t)
+	path := configPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real"}`), 0o600))
+	c := loadConfig()
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real", "broker":`), 0o600)) // half-written by another writer
+	require.Error(t, saveConfig(c))
+	b, _ := os.ReadFile(path)
+	require.Equal(t, `{"user":"real", "broker":`, string(b), "the file is left for the user to fix")
+}
+
+// TestProfileUnsetChecksTheKey: unset refuses a key that is not a routing key, and writes
+// nothing when the profile did not hold the key.
+func TestProfileUnsetChecksTheKey(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdProfile([]string{"set", "p", "roger.pref", "fast"}))
+	require.Error(t, cmdProfile([]string{"unset", "p", "roger.prefx"}))
+	fi, _ := os.Stat(configPath())
+	before := fi.ModTime()
+	time.Sleep(20 * time.Millisecond)
+	out := captureStdout(t, func() { require.NoError(t, cmdProfile([]string{"unset", "p", "roger.region"})) })
+	fi, _ = os.Stat(configPath())
+	require.Equal(t, before, fi.ModTime(), "nothing removed: config.json is not rewritten")
+	require.Contains(t, out, "not set")
+}

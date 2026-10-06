@@ -307,19 +307,9 @@ func defaultUser() string {
 // load-once, mutate-then-save-many-times pattern compares against the right baseline.
 var configBaseline map[string]json.RawMessage
 
-// configReadErr is why the last loadConfig could not read config.json when the file exists
-// but is unreadable (nil when it read, or there is no file). saveConfig refuses to replace a
-// file it could not read: writing defaults over it would erase the user's real settings.
-var configReadErr error
-
 func loadConfig() config {
 	c := config{Broker: defaultBroker, User: defaultUser()}
-	b, err := os.ReadFile(configPath())
-	configReadErr = nil
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		configReadErr = err
-	}
-	if err == nil {
+	if b, err := os.ReadFile(configPath()); err == nil {
 		if uerr := json.Unmarshal(b, &c); uerr != nil {
 			// C4: a corrupt / half-written config.json must not crash or silently wipe the
 			// user's real settings - preserve the unreadable file as a backup and fall back
@@ -346,9 +336,6 @@ func loadConfig() config {
 //   - C5 unchanged for the common single-writer path: it writes the struct in canonical field
 //     order, byte-identical to before, taking the merge path only when it is actually needed.
 func saveConfig(c config) error {
-	if configReadErr != nil {
-		return fmt.Errorf("%s could not be read (%v); not overwriting it - fix its permissions first", configPath(), configReadErr)
-	}
 	// The same lock profile edits take (editConfigRaw), so this merge never reads a file a
 	// concurrent `roger profile set` is about to replace.
 	if err := os.MkdirAll(filepath.Dir(configPath()), 0o700); err != nil {
@@ -362,7 +349,7 @@ func saveConfig(c config) error {
 	mine := toRawConfig(c)
 	theirs, rerr := readRawConfigErr(configPath()) // read under the lock: this is the file replaced
 	if rerr != nil {
-		return fmt.Errorf("%s could not be read (%v); not overwriting it - fix its permissions first", configPath(), rerr)
+		return fmt.Errorf("%s could not be read (%v); not overwriting it - fix it first", configPath(), rerr)
 	}
 	if !configNeedsMerge(mine, theirs) {
 		// Fast path: nothing unknown on disk and no concurrent change to a field we left alone,
@@ -432,9 +419,8 @@ func toRawConfig(c config) map[string]json.RawMessage {
 	return m
 }
 
-// readRawConfigErr reads the on-disk config as a per-key raw-JSON map; a missing or corrupt file
-// yields an empty map (best-effort: the corrupt case is handled by loadConfig's C4 backup).
-// It also reports a file it could not read (a missing file is not an error: it is empty).
+// readRawConfigErr reads the on-disk config as a per-key raw-JSON map. A missing file is
+// empty; a file it cannot read or parse is an error (saveConfig then refuses to replace it).
 func readRawConfigErr(path string) (map[string]json.RawMessage, error) {
 	m := map[string]json.RawMessage{}
 	b, err := os.ReadFile(path)
@@ -444,7 +430,9 @@ func readRawConfigErr(path string) (map[string]json.RawMessage, error) {
 		}
 		return m, err
 	}
-	_ = json.Unmarshal(b, &m)
+	if err := json.Unmarshal(b, &m); err != nil {
+		return m, fmt.Errorf("not valid JSON: %w", err)
+	}
 	return m, nil
 }
 
