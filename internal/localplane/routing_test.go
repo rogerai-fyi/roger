@@ -183,3 +183,34 @@ func TestLocalRoutingAuditRegressions(t *testing.T) {
 	lr, _ = parseLocalRouting([]byte(`{"model":"q","provider":{"order":["s9"]}}`), false)
 	require.Empty(t, lr.preferredFor(stations, "q"), "no eligible preferred station: no claim window at all")
 }
+
+// TestLocalRoutingValidatesIgnoredValuesLikeTheBroker: a key the local plane does not honor
+// is still checked with the broker's rules, so a value the broker would 400 is never served.
+func TestLocalRoutingValidatesIgnoredValuesLikeTheBroker(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"a","provider":{"sort":"fastest"}}`,
+		`{"model":"a","provider":{"sort":1}}`,
+		`{"model":"a","provider":{"require_parameters":"yes"}}`,
+		`{"model":"a","provider":{"max_price":{"prompt":-1}}}`,
+		`{"model":"a","provider":{"max_price":{"completion":"1"}}}`,
+		`{"model":"a","provider":{"quantizations":"Q8_0"}}`,
+		`{"model":"a","provider":{"quantizations":[""]}}`,
+	} {
+		_, e := parseLocalRouting([]byte(body), false)
+		require.NotNil(t, e, body)
+		require.Equal(t, 400, e.status, body)
+	}
+	lr, e := parseLocalRouting([]byte(`{"model":"a","provider":{"sort":"latency","require_parameters":true,"quantizations":["Q8_0"],"max_price":{"prompt":0.5}}}`), false)
+	require.Nil(t, e)
+	require.Equal(t, []string{"provider.max_price.prompt", "provider.quantizations", "provider.require_parameters", "provider.sort"}, lr.ignored)
+}
+
+// TestLocalRoutingRefusalIsDeterministic: with several faults the 400 always names the same
+// one, an unknown key first.
+func TestLocalRoutingRefusalIsDeterministic(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		_, e := parseLocalRouting([]byte(`{"model":"a","provider":{"sort":"bad","zzz":1,"aaa":2}}`), false)
+		require.NotNil(t, e)
+		require.Equal(t, "unknown routing key provider.aaa", e.msg)
+	}
+}

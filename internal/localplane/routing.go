@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -52,6 +53,34 @@ var (
 
 // parseLocalRouting reads the routing carriers of a consumer request. hdrConfidential is the
 // X-Roger-Confidential request header.
+// ignoredProviderValueErr checks a provider key the local plane does not honor with the
+// broker's rules ("" when the value is acceptable).
+func ignoredProviderValueErr(k string, v json.RawMessage) string {
+	switch k {
+	case "sort":
+		var s string
+		if json.Unmarshal(v, &s) != nil || (s != "price" && s != "throughput" && s != "latency") {
+			return "provider.sort must be price, throughput or latency"
+		}
+	case "require_parameters":
+		var b bool
+		if json.Unmarshal(v, &b) != nil {
+			return "provider.require_parameters must be true or false"
+		}
+	case "quantizations":
+		var list []string
+		if json.Unmarshal(v, &list) != nil || len(list) > 32 {
+			return "provider.quantizations must be a list of at most 32 labels"
+		}
+		for _, q := range list {
+			if strings.TrimSpace(q) == "" {
+				return "provider.quantizations entries must be non-empty strings"
+			}
+		}
+	}
+	return ""
+}
+
 func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeErr) {
 	lr := localRouting{needAttest: hdrConfidential}
 	var m map[string]json.RawMessage
@@ -120,7 +149,24 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		if json.Unmarshal(raw, &p) != nil || p == nil {
 			return lr, &routeErr{status: 400, msg: "provider must be an object"}
 		}
-		for k, v := range p {
+		// Keys in a fixed order, unknown ones refused first, so a body with several faults always
+		// gets the same 400.
+		keys := make([]string, 0, len(p))
+		for k := range p {
+			if !localProviderHonored[k] && !localProviderIgnored[k] {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		if len(keys) > 0 {
+			return lr, &routeErr{status: 400, msg: "unknown routing key provider." + keys[0]}
+		}
+		for k := range p {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			v := p[k]
 			switch {
 			case localProviderHonored[k]:
 				if string(v) == "null" {
@@ -150,6 +196,11 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 				if string(v) == "null" {
 					continue // a null key is absent, never named as ignored (as on the broker)
 				}
+				// Not honored here, but checked with the broker's rules: a value the broker
+				// would refuse is refused here too, never served.
+				if msg := ignoredProviderValueErr(k, v); msg != "" {
+					return lr, &routeErr{status: 400, msg: msg}
+				}
 				if k == "max_price" {
 					var mp map[string]json.RawMessage
 					if json.Unmarshal(v, &mp) != nil || mp == nil {
@@ -157,19 +208,27 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 					}
 					// A closed set, as on the broker: the ignored header only ever echoes
 					// these four names, never a caller-chosen string.
-					for sk, sv := range mp {
+					sks := make([]string, 0, len(mp))
+					for sk := range mp {
+						sks = append(sks, sk)
+					}
+					sort.Strings(sks)
+					for _, sk := range sks {
 						if !maxPriceKeys[sk] {
 							return lr, &routeErr{status: 400, msg: "provider.max_price keys are prompt, completion, request and image"}
 						}
-						if string(sv) != "null" {
-							ignored["provider.max_price."+sk] = true
+						if string(mp[sk]) == "null" {
+							continue
 						}
+						var f float64
+						if t := strings.TrimSpace(string(mp[sk])); t == "" || t[0] == '"' || json.Unmarshal(mp[sk], &f) != nil || f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+							return lr, &routeErr{status: 400, msg: "provider.max_price." + sk + " must be a non-negative number"}
+						}
+						ignored["provider.max_price."+sk] = true
 					}
 					continue
 				}
 				ignored["provider."+k] = true
-			default:
-				return lr, &routeErr{status: 400, msg: "unknown routing key provider." + k}
 			}
 		}
 	}
