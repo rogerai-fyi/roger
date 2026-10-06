@@ -8,14 +8,71 @@
   <div class="authwrap tint-panel">
   <main class="card" id="card" hidden>
     <h1>API keys</h1>
-    <p class="sub">Grant keys - private, labeled bearer keys (<code>rog-grant_...</code>) your
-      bots, family, friends, or your own headless boxes use as their API key, with no
-      login of their own. They route only to your nodes, free or at a price you sponsor,
-      under the caps you set. See the <a href="/manual.html#s5">manual</a>.</p>
+    <p class="sub">Two kinds of key. <b>Account keys</b> (<code>rog-key_...</code>) call the API
+      as you, from scripts and CI, under a spend limit you set. <b>Grant keys</b>
+      (<code>rog-grant_...</code>) let your bots, family and friends use your own nodes. See the
+      <a href="/manual.html#s5">manual</a>.</p>
 
-    <!-- ============ CREATE A KEY ============ -->
+    <!-- ============ ACCOUNT KEYS (account-keys.js, /account/keys) ============ -->
+    <section class="panel" id="acctKeys">
+      <h2>Account keys</h2>
+      <p class="fine">An account key pays from your wallet and routes the whole network, held to
+        its own spend limit. The secret is shown <b>once</b>, at mint. Only its hash is stored.</p>
+
+      <form id="akForm" class="kf" autocomplete="off">
+        <div class="kf__field">
+          <label class="kf__k" for="akName">Name</label>
+          <input id="akName" class="kf__in" type="text" required maxlength="64" placeholder="ci" />
+        </div>
+        <div class="kf__field">
+          <label class="kf__k" for="akLimit">Spend limit ($)</label>
+          <input id="akLimit" class="kf__in kf__num" type="number" min="0" step="0.01"
+            inputmode="decimal" placeholder="5.00" />
+          <span class="kf__hint">Empty or 0 = unlimited.</span>
+        </div>
+        <div class="kf__field">
+          <label class="kf__k" for="akReset">Limit resets</label>
+          <select id="akReset" class="kf__in kf__sel">
+            <option value="monthly">Monthly</option>
+            <option value="weekly">Weekly</option>
+            <option value="daily">Daily</option>
+            <option value="none">Never</option>
+          </select>
+        </div>
+        <button type="submit" class="primary">Mint account key</button>
+        <p class="kf__err" id="akErr" hidden></p>
+      </form>
+
+      <div class="kf__reveal" id="akReveal" hidden></div>
+
+      <div class="kf__tablewrap" id="akWrap" hidden>
+        <table class="mx-table">
+          <thead>
+            <tr>
+              <th scope="col">ID</th>
+              <th scope="col">Name</th>
+              <th scope="col">Hint</th>
+              <th scope="col" class="num">Limit</th>
+              <th scope="col" class="num">Used</th>
+              <th scope="col">Resets</th>
+              <th scope="col">Expires</th>
+              <th scope="col">State</th>
+              <th scope="col"><span class="vh">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="akRows"></tbody>
+        </table>
+      </div>
+      <p class="mx-state" id="akEmpty" hidden>No account keys yet. Mint one above, or run
+        <code>roger keys mint --name ci</code>.</p>
+    </section>
+
+    <!-- ============ GRANT KEYS: CREATE ============ -->
     <section class="panel">
-      <h2>Mint a key</h2>
+      <h2>Grant keys</h2>
+      <p class="fine">Grant keys are private, labeled bearer keys your bots, family, friends, or
+        your own headless boxes use as their API key, with no login of their own. They route only
+        to your nodes, free or at a price you sponsor, under the caps you set.</p>
       <p class="fine">The secret is shown <b>once</b>, at create. Only its hash is stored,
         so it can never be re-displayed - copy it then.</p>
 
@@ -136,9 +193,9 @@
       </div>
     </section>
 
-    <!-- ============ EXISTING KEYS ============ -->
+    <!-- ============ GRANT KEYS: EXISTING ============ -->
     <section class="panel">
-      <h2>Your keys</h2>
+      <h2>Your grant keys</h2>
 
       <div class="kf__tablewrap" id="keysWrap" hidden>
         <table class="mx-table kf__table">
@@ -176,7 +233,7 @@
   <!-- Logged-out gate: shown when the broker says we are not signed in. -->
   <main class="card" id="gate" hidden>
     <h1>API keys</h1>
-    <p class="sub">Log in to mint and manage your grant keys.</p>
+    <p class="sub">Log in to mint and manage your account keys and grant keys.</p>
     <section class="acct-state tint-panel">
       <h2>Signed out</h2>
       <p>Grant keys are owner-issued: you sign in once - with GitHub, Apple, or an emailed
@@ -187,6 +244,7 @@
   </main>
   </div>
   <!-- include: footer.html anchors=/ -->
+  <script src="js/account-keys.js" defer></script>
   <script src="js/keys.js" defer></script>
   <!-- include: site-js.html -->
 </body>

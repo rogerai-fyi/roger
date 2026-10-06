@@ -660,16 +660,16 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     Then "key_<rand>" is outside the reserved id namespaces (u_, u_gh_, g_) and can never be presented as an X-Roger-User
 
   # --- clients ------------------------------------------------------------------------
-  @web
-  Scenario: The web account page lists, mints, edits, and deletes keys through the same endpoints
-    Given "acct-a" is on the account page with a web session
-    Then the "API keys" section shows the same entries as GET /account/keys
+  # corrected 2026-10-06 (founder-approved): account keys live on /keys.html beside grant keys
+  Scenario: The web keys page lists, mints, edits, and deletes keys through the same endpoints
+    Given "acct-a" is on /keys.html with a web session
+    Then the "Account keys" section shows the same entries as GET /account/keys
     And minting shows the secret once with a copy control and a warning that it is never shown again
     And the page sends body JSON, never the secret in a URL
 
-  @web
-  Scenario: The account page follows the design system
-    Then the keys section uses the existing account-page type scale, one red, no grid, no glow, no pinned bar, and passes phone width and dark-mode contrast
+  # corrected 2026-10-06 (founder-approved): account keys live on /keys.html beside grant keys
+  Scenario: The keys page follows the design system
+    Then the account keys section uses the existing keys-page type scale, one red, no grid, no glow, no pinned bar, and passes phone width and dark-mode contrast
 
   Scenario Outline: `roger keys` covers the same surface (PROPOSED command set)
     When "acct-a" runs `<command>`

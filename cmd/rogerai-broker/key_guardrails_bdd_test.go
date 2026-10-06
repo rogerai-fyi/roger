@@ -3403,6 +3403,7 @@ func (k *kg5State) registerCommon(sc *godog.ScenarioContext) {
 	k.registerStateAudit(sc)
 	k.registerReview(sc)
 	k.registerCLI(sc)
+	k.registerWeb(sc)
 }
 
 func (k *kg5State) registerGuardrails(sc *godog.ScenarioContext) {
@@ -3680,7 +3681,7 @@ func kg5Run(t *testing.T, name, path string, register func(k *kg5State, sc *godo
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{path},
-			Tags: "~@web && ~@docs && ~@later", TestingT: t, Strict: true,
+			Tags: "~@docs && ~@later", TestingT: t, Strict: true,
 		},
 	}
 	if suite.Run() != 0 {

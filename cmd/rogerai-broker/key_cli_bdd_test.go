@@ -75,6 +75,9 @@ type kg5CLI struct {
 	code   int
 	keyID  string // the id "key_x" stands for
 	secret string // the key secret a `--key` run carries
+
+	webCookie string // the signed web session the keys page sends (key_web_bdd_test.go)
+	webAcct   string
 }
 
 func (c *kg5CLI) recorded() []kg5Hop {
