@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -68,6 +69,16 @@ func (b *broker) accountExport(w http.ResponseWriter, r *http.Request) {
 		}
 		dump["remote_control_sessions"] = sessions
 	}
+	// Account keys: ids, names and settings - never a secret or its hash (the key_event audit
+	// rows are already in the consumer ledger above).
+	if keys, err := b.db.AccountKeysOf(wallet); err == nil {
+		list := make([]map[string]any, 0, len(keys))
+		for _, k := range keys {
+			list = append(list, map[string]any{"id": k.ID, "name": k.Name, "created_at": time.Unix(0, k.CreatedAt).UTC().Format(time.RFC3339), "revoked": k.Revoked,
+				"limit_usd": round6(k.LimitUSD), "reset": k.Reset})
+		}
+		dump["account_keys"] = list
+	}
 	w.Header().Set("Content-Disposition", `attachment; filename="rogerai-export.json"`)
 	writeJSON(w, http.StatusOK, dump)
 }
@@ -133,6 +144,13 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, _ = b.db.RevokeRCSessions(wallet)
+	// Account keys: every key is revoked at once (on every instance) and its audit rows, which
+	// carry key names and ids, are de-identified.
+	if err := b.db.RetireAccountKeys(wallet, "deleted_"+acctKeyHash(wallet)[:12]); err != nil {
+		log.Printf("account delete: retiring the account's keys failed - they stay live until retried: %v", err)
+	} else {
+		b.bumpKeyEpoch()
+	}
 	// Revoke the web session regardless (so the now-anonymized account can't be read).
 	// Clear BOTH the session cookie and the signed-in hint - otherwise the deleted user's
 	// browser keeps the stale roger_signed_in flag and goes on probing /account (401).
@@ -225,7 +243,8 @@ func (b *broker) usage(w http.ResponseWriter, r *http.Request) {
 // makes that join stable for a node id's lifetime.
 type usageRow struct {
 	store.Entry
-	CuratedProvider string `json:"curated_provider,omitempty"`
+	KeyID           *string `json:"key_id"` // the account key that made the request (null for none)
+	CuratedProvider string  `json:"curated_provider,omitempty"`
 	// CuratedList is the upstream list component of a curated row's cost (cost/markup),
 	// derived server-side so the page can show "list + routing fee" without knowing the
 	// markup constant. Since the 50/50 ruling the operator's share is list + half the
@@ -248,11 +267,19 @@ func (b *broker) usageFor(w http.ResponseWriter, r *http.Request, user string) {
 	if len(recent) > tableLimit {
 		recent = recent[:tableLimit]
 	}
+	keyOf := b.keyRefsOf(user)
+	if r.URL.Query().Get("by") == "key" {
+		writeJSON(w, http.StatusOK, map[string]any{"spend": round6(spend), "group": "key", "rows": usageByKey(recent, keyOf)})
+		return
+	}
 	rows := make([]usageRow, 0, len(recent))
 	var curatedOf map[string]string
 	var curatedAtCost map[string]bool
 	for _, e := range recent {
 		row := usageRow{Entry: e}
+		if id, ok := keyOf[e.RequestID]; ok {
+			row.KeyID = &id
+		}
 		if curatedOf == nil {
 			curatedOf = map[string]string{}
 			curatedAtCost = map[string]bool{}
@@ -326,4 +353,38 @@ func nonNilLedger(rows []store.LedgerRow) []store.LedgerRow {
 		return []store.LedgerRow{}
 	}
 	return rows
+}
+
+// usageByKey groups settled requests by the account key that made them (null for a request
+// made without a key): spend, request count, and tokens.
+func usageByKey(entries []store.Entry, keyOf map[string]string) []map[string]any {
+	type agg struct {
+		spend    float64
+		requests int
+		tokens   int
+	}
+	sums := map[string]*agg{}
+	var order []string
+	for _, e := range entries {
+		id := keyOf[e.RequestID]
+		a := sums[id]
+		if a == nil {
+			a = &agg{}
+			sums[id] = a
+			order = append(order, id)
+		}
+		a.spend += e.Cost
+		a.requests++
+		a.tokens += e.PromptTokens + e.CompletionTokens
+	}
+	out := make([]map[string]any, 0, len(order))
+	for _, id := range order {
+		var key any
+		if id != "" {
+			key = id
+		}
+		a := sums[id]
+		out = append(out, map[string]any{"key_id": key, "spend": round6(a.spend), "requests": a.requests, "tokens": a.tokens})
+	}
+	return out
 }

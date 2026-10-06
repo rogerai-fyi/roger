@@ -75,6 +75,8 @@ type genRecord struct {
 	LatencyMs      float64       `json:"latency_ms"`
 	Moderation     genModeration `json:"moderation"`
 	KeyID          *string       `json:"key_id"`
+	KeyLimit       *float64      `json:"key_limit,omitempty"`       // consumer view only: the key's limit
+	KeySpendAfter  *float64      `json:"key_spend_after,omitempty"` // consumer view only: window spend after settle
 	Attempts       []genAttempt  `json:"attempts"`
 	Receipt        *string       `json:"receipt"`
 }
@@ -94,15 +96,32 @@ type genLive struct {
 	start      time.Time
 	firstFrame time.Time
 	written    bool
+	// admitted is set once the caller's identity resolved and it passed the rate limiter.
+	// A refusal before that point has no identity that could read the record, so writing one
+	// would only let unauthenticated junk requests fill the shared store (audit 2026-10-04).
+	admitted bool
 }
 
 // genRegistry holds the in-flight records and the no-shared-store fallback.
 type genRegistry struct {
 	live sync.Map // request id -> *genLive
 
+	// stripes orders a record's final write against late updates to the same record (the
+	// async moderation verdict), so neither is lost or overwritten. Striped by request id.
+	stripes [64]sync.Mutex
+
 	mu    sync.Mutex
 	local map[string][]byte
 	order []string
+}
+
+// stripe returns the lock that orders writes to one record.
+func (r *genRegistry) stripe(id string) *sync.Mutex {
+	var h uint32 = 2166136261
+	for i := 0; i < len(id); i++ {
+		h = (h ^ uint32(id[i])) * 16777619
+	}
+	return &r.stripes[h%uint32(len(r.stripes))]
 }
 
 func (b *broker) genLiveOf(requestID string) *genLive {
@@ -122,6 +141,16 @@ func (b *broker) genOpen(requestID string, now time.Time) *genLive {
 		Moderation: genModeration{Mode: mode, Verdict: "none"}}}}
 	b.gens.live.Store(requestID, g)
 	return g
+}
+
+// admit marks the record writable: the caller is identified and within its rate limit.
+func (g *genLive) admit() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.admitted = true
+	g.mu.Unlock()
 }
 
 // with2 runs f on the live record itself (nil-safe), under its lock.
@@ -210,6 +239,9 @@ func (b *broker) genServe(requestID string, n int, served genServed, cost float6
 // genVerdictLater updates a record's moderation verdict that landed after the relay (the
 // off-path screener): in flight, or already written.
 func (b *broker) genVerdictLater(requestID, verdict string) {
+	mu := b.gens.stripe(requestID)
+	mu.Lock()
+	defer mu.Unlock()
 	if g := b.genLiveOf(requestID); g != nil {
 		g.mu.Lock()
 		if !g.written {
@@ -265,8 +297,18 @@ func (w *genWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // genClose finishes the record when the relay returns and writes it.
 func (b *broker) genClose(g *genLive, w *genWriter, r *http.Request) {
-	b.gens.live.Delete(g.st.Rec.ID)
+	// The live entry stays visible until the record is written, and the write holds the
+	// record's stripe: a late verdict either lands on the live record before the copy below
+	// or reads the written record after it - never in between (audit 2026-10-04).
+	mu := b.gens.stripe(g.st.Rec.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	defer b.gens.live.Delete(g.st.Rec.ID)
 	g.mu.Lock()
+	if !g.admitted {
+		g.mu.Unlock()
+		return
+	}
 	rec := &g.st.Rec
 	rec.Status = w.status
 	if rec.Status == 0 {

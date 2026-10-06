@@ -81,6 +81,7 @@ type emailJob struct {
 	to, subject, html, text string
 	attempts                int
 	notBefore               time.Time
+	onDrop                  func() // runs (off the queue lock) if the job is dropped
 }
 
 // newEmailID mints an idempotency key. crypto/rand so two instances retrying the same
@@ -108,6 +109,7 @@ type emailQueue struct {
 	sent     int64
 	retries  int64
 	dropped  map[string]int64 // by reason: queue-full | retries | rejected | shutdown
+	releases []func()         // onDrop releases of shutdown drops, run after unlocking
 
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -147,17 +149,19 @@ func (m *mailer) effCap() int {
 }
 
 // enqueue appends a job to its lane and wakes the sender. Never blocks, never errors.
-func (m *mailer) enqueue(lane emailLane, to, subject, html, text string) {
+func (m *mailer) enqueue(lane emailLane, to, subject, html, text string, onDrop func()) {
 	q := &m.q
 	q.startOnce.Do(m.startSender)
-	job := &emailJob{lane: lane, id: newEmailID(), to: to, subject: subject, html: html, text: text}
+	job := &emailJob{lane: lane, id: newEmailID(), to: to, subject: subject, html: html, text: text, onDrop: onDrop}
 	q.mu.Lock()
 	if q.stopping {
 		// A page raised after the drain began (a late onset goroutine) is counted AND named:
 		// never silently gone.
 		q.dropLocked(job, "shutdown")
 		log.Printf("email: DROPPED (shutdown, lane=%s) enqueued after the drain began to=%s subj=%q", job.lane, maskAddr(job.to), job.subject)
+		rel := q.takeReleasesLocked()
 		q.mu.Unlock()
+		runReleases(rel)
 		return
 	}
 	if q.depthLocked() >= m.effCap() {
@@ -216,7 +220,9 @@ func (m *mailer) senderLoop() {
 				q.dropAllLocked("shutdown")
 				log.Printf("email: DROPPED %d queued email(s) at shutdown (drain budget exhausted)", n)
 			}
+			rel := q.takeReleasesLocked()
 			q.mu.Unlock()
+			runReleases(rel) // before done closes, so drain returns after the claims are back
 			return
 		}
 		job, wait := q.peekLocked(now)
@@ -409,10 +415,49 @@ func (q *emailQueue) depthLocked() int {
 	return n
 }
 
+// emailShutdownReleaseWait bounds, in total, how long shutdown waits for the onDrop releases of
+// the jobs it dropped.
+const emailShutdownReleaseWait = 2 * time.Second
+
 func (q *emailQueue) dropLocked(job *emailJob, reason string) {
 	q.dropped[reason]++
+	if job.onDrop != nil {
+		if reason == "shutdown" {
+			// The process may exit right after: the caller runs these, after unlocking, and
+			// waits for them (runReleases).
+			q.releases = append(q.releases, job.onDrop)
+		} else {
+			go job.onDrop()
+		}
+	}
 	if reason == "queue-full" || reason == "rejected" {
 		log.Printf("email: DROPPED (%s, lane=%s) to=%s subj=%q", reason, job.lane, maskAddr(job.to), job.subject)
+	}
+}
+
+// takeReleasesLocked hands over the releases collected by shutdown drops.
+func (q *emailQueue) takeReleasesLocked() []func() {
+	r := q.releases
+	q.releases = nil
+	return r
+}
+
+// runReleases runs fns concurrently and waits for them, all under one emailShutdownReleaseWait
+// deadline. The caller must not hold q.mu.
+func runReleases(fns []func()) {
+	if len(fns) == 0 {
+		return
+	}
+	var wg sync.WaitGroup
+	for _, f := range fns {
+		wg.Add(1)
+		go func(f func()) { defer wg.Done(); f() }(f)
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(emailShutdownReleaseWait):
 	}
 }
 

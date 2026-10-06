@@ -441,6 +441,10 @@ type ProxyOptions struct {
 	// disabled (the legacy single-user path; production callers generate one via
 	// NewSessionKey so a guest agent / other local process can't spend the wallet).
 	SessionKey string
+	// KeyBearer is an account key (`rog-key_...`, `roger use --key`). When set, every relay to
+	// the broker authenticates with `Authorization: Bearer <KeyBearer>` INSTEAD of the device
+	// signature: the key's own limits and allow-lists then apply, and it pays from its account.
+	KeyBearer string
 	// Budget is the per-session spend cap in dollars (1 credit = $1). The proxy accumulates
 	// each response's billed X-RogerAI-Cost and hard-stops the NEXT request with a 402 once
 	// the running total reaches the cap. 0 = no local cap (unlimited); the guest-operator
@@ -956,8 +960,12 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		// wallet from the verified pubkey (X-Roger-User is sent only as a legacy,
 		// unauthenticated hint). This is the P0 security fix - a header alone can no
 		// longer spend someone else's wallet.
-		signRequest(req, sent)
-		req.Header.Set("X-Roger-User", opts.User)
+		if opts.KeyBearer != "" {
+			req.Header.Set("Authorization", "Bearer "+opts.KeyBearer)
+		} else {
+			signRequest(req, sent)
+			req.Header.Set("X-Roger-User", opts.User)
+		}
 		// The caps as headers: the owner's, tightened by a guest's own lower cap in header
 		// mode (lifted), never raised. In body mode the guest's tightening lives in the body
 		// (written above) and the header carries the owner's cap; the broker applies the
@@ -1607,6 +1615,10 @@ type UseOptions struct {
 	Pref           string
 	SelfHostedOnly bool
 	Quantizations  []string
+	// Key is an account key the proxy relays with instead of the device signature.
+	Key string
+	// KeyNote, when set, is printed on the connect plate's KEY line (never the key itself).
+	KeyNote string
 }
 
 // limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
@@ -1771,12 +1783,15 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
 	fmt.Printf("  %-9s %s\n", "API KEY", sessionKey)
 	fmt.Printf("  %-9s %s\n", "MODEL", model)
+	if opt.KeyNote != "" {
+		fmt.Printf("  %-9s %s\n", "KEY", opt.KeyNote)
+	}
 	if opt.MaxIn > 0 || maxOut > 0 || opt.MinTPS > 0 {
 		fmt.Printf("  %-9s %s\n", "LIMITS", limitsLine(opt.MaxIn, maxOut, opt.MinTPS))
 	}
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS,
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, KeyBearer: opt.Key, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
 		HeaderRouting:        NegotiateRouting(broker), // tune time: body carriers, or headers for an old broker
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
@@ -1880,10 +1895,13 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
 	fmt.Printf("  %-9s %s\n", "API KEY", sessionKey)
 	fmt.Printf("  %-9s %s\n", "MODEL", model)
+	if opt.KeyNote != "" {
+		fmt.Printf("  %-9s %s\n", "KEY", opt.KeyNote)
+	}
 	fmt.Printf("  %-9s %s\n", "FREQ", display)
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, KeyBearer: opt.Key, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
 		HeaderRouting:        NegotiateRouting(broker),
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {

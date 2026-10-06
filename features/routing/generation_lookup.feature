@@ -292,6 +292,25 @@ Feature: GET /generation returns one request's full routing and billing history 
     When owner "frank", who owns no station involved, GETs /generation for it
     Then the status is 404
 
+  # added 2026-10-04 (audit fix): a refusal before identity and the rate limiter has nothing to
+  # look up (no identity can read it), so it writes no record; the request id is still returned.
+  Scenario Outline: A refusal before identity and rate limiting writes no record
+    When <request> is refused with status <status>
+    Then the response still carries X-RogerAI-Request-Id
+    And no /generation record exists for that request id
+
+    Examples:
+      | request                                                   | status |
+      | an unsigned request with no allowlisted Origin            | 401    |
+      | a request with a bad signature                            | 401    |
+      | a request bearing an unknown rog-key_ secret              | 401    |
+      | an anonymous request over the per-IP rate limit           | 429    |
+
+  Scenario: A signed request refused after the rate limiter still leaves a record
+    When "alice" sends a request with an unknown routing key
+    Then the relay answered 400
+    And a /generation record exists for that request id
+
   Scenario: An anonymous caller gets a uniform 404, not a 401 that confirms the id
     Given "alice" made a request served by "n-1"
     When an unauthenticated caller GETs /generation for it
