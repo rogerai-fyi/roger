@@ -3545,7 +3545,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				if len(privateAllow) > 0 {
 					station = "" // a private band never names its station
 				}
-				_, _ = w.Write(consumerRejectedBody(station, res.Body))
+				_, _ = w.Write(consumerRejectedBody(w.Header(), res.Status, station, res.Body))
 				return
 			}
 			if res.Status < 400 {
@@ -4410,7 +4410,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			if bill.privateBand {
 				station = ""
 			}
-			res.Body = consumerRejectedBody(station, res.Body)
+			res.Body = consumerRejectedBody(lw.Header(), res.Status, station, res.Body)
 		}
 		lw.fail(res.Status, res.Body, hint)
 		return

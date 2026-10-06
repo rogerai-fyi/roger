@@ -138,10 +138,7 @@ func withEnvelopeHeaders(h http.Header, body []byte) []byte {
 // station; an anonymous caller naming a Tower gets no station either), plus the number of
 // station attempts made when the caller knows it.
 func upstreamErrorBody(h http.Header, status int, station, model string, attempts int, raw []byte) []byte {
-	if len(raw) > upstreamRawCap {
-		raw = raw[:upstreamRawCap]
-	}
-	meta := map[string]any{"raw": string(raw)}
+	meta := upstreamRawMeta(raw)
 	if station != "" {
 		meta["station"] = station
 		if model != "" {
@@ -282,21 +279,21 @@ const upstreamRawCap = 4 << 10
 // 401, 404, 413 or 422, contract §14.1) in the broker's envelope: the station's own body
 // under metadata.raw (capped), and the station named unless station is "" (the no-oracle
 // rules: a private band never names its station).
-func consumerRejectedBody(station string, raw []byte) []byte {
-	if len(raw) > upstreamRawCap {
-		raw = raw[:upstreamRawCap]
-	}
-	meta := map[string]any{"raw": string(raw)}
+func consumerRejectedBody(h http.Header, status int, station string, raw []byte) []byte {
+	meta := upstreamRawMeta(raw)
 	if station != "" {
 		meta["station"] = station
 	}
-	b, _ := json.Marshal(map[string]any{"error": map[string]any{
-		"code":     "consumer_rejected",
-		"type":     "invalid_request_error",
-		"message":  "the station refused the request itself (a parameter or size it does not accept); not retried elsewhere",
-		"metadata": meta,
-	}})
-	return b
+	return errEnvelope(h, status, "consumer_rejected",
+		"the station refused the request itself (a parameter or size it does not accept); not retried elsewhere", meta)
+}
+
+// upstreamRawMeta is the station's own body for diagnosis, capped.
+func upstreamRawMeta(raw []byte) map[string]any {
+	if len(raw) > upstreamRawCap {
+		raw = raw[:upstreamRawCap]
+	}
+	return map[string]any{"raw": string(raw)}
 }
 
 // isEnvelope reports whether body is already a broker error envelope ({"error":{...}}).
