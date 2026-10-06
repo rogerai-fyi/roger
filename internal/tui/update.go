@@ -2146,9 +2146,14 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cycleRowField(row, m.editField)
 			return m, nil
 		}
-		// A freshly focused field: enter begins typing a new value.
+		// A freshly focused field: enter begins typing a new value (routing_profiles.feature).
 		if kind != fkToggle && !m.editTyped {
-			m.editTyped, m.editBuf = true, ""
+			m.editTyped, m.editDraft, m.editBuf = true, false, ""
+			return m, nil
+		}
+		// Begun but nothing typed: the stored value is kept, never committed as a clear.
+		if !m.editDraft && m.editBuf == "" {
+			m.editField = -1
 			return m, nil
 		}
 		if !m.commitLimitField() {
@@ -2176,13 +2181,12 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if kind == fkText {
 		switch k.String() {
 		case "backspace":
-			if len(m.editBuf) > 0 {
-				m.editBuf = m.editBuf[:len(m.editBuf)-1]
-			}
+			m.editBuf = backspaceSeed(m.editBuf, m.editTyped)
+			m.editTyped, m.editDraft = true, true
 		default:
 			if r := k.Runes; len(r) > 0 && k.Type == tea.KeyRunes {
-				m.editBuf += string(r)
-				m.editTyped = true
+				m.editBuf = typeOverSeed(m.editBuf, m.editTyped) + string(r)
+				m.editTyped, m.editDraft = true, true
 			}
 		}
 		return m, nil
@@ -2198,18 +2202,16 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// to think about. DOWN FLOORS AT ZERO rather than going negative - a negative
 		// cap is not a smaller cap, it is a nonsense the commit would have to reject.
 		m.editBuf = nudgeLimit(m.editBuf, m.editField != lfMinTPS, k.String() == "up")
-		m.editTyped = true
+		m.editTyped, m.editDraft = true, true
 		return m, nil
 	case "backspace":
-		if len(m.editBuf) > 0 {
-			m.editBuf = m.editBuf[:len(m.editBuf)-1]
-		}
-		m.editTyped = true
+		m.editBuf = backspaceSeed(m.editBuf, m.editTyped)
+		m.editTyped, m.editDraft = true, true
 		return m, nil
 	default:
 		if d := digitsDot(k.String()); d != "" {
-			m.editBuf += d
-			m.editTyped = true
+			m.editBuf = typeOverSeed(m.editBuf, m.editTyped) + d
+			m.editTyped, m.editDraft = true, true
 		}
 		return m, nil
 	}
@@ -2552,4 +2554,21 @@ func RunResumedWithController(
 var runProgram = func(m tea.Model, opts ...tea.ProgramOption) error {
 	_, err := tea.NewProgram(m, opts...).Run()
 	return err
+}
+
+// typeOverSeed is the buffer a keystroke appends to: an untouched seed (the stored value the
+// field opened on) is replaced, a draft is extended.
+func typeOverSeed(buf string, typed bool) string {
+	if !typed {
+		return ""
+	}
+	return buf
+}
+
+// backspaceSeed clears an untouched seed and trims a draft.
+func backspaceSeed(buf string, typed bool) string {
+	if !typed || buf == "" {
+		return ""
+	}
+	return buf[:len(buf)-1]
 }

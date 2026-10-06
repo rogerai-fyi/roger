@@ -207,3 +207,28 @@ func TestConfirmRefusesARowOutsideTheProfileQuants(t *testing.T) {
 	require.Equal(t, modeConnectConfirm, got.mode, "the row is not accepted")
 	require.Contains(t, stripANSI(got.status), "Q8_0")
 }
+
+// TestBegunFieldEnterWithNothingTypedKeepsTheValue: enter begins a fresh value (the spec's
+// flow); a second enter with nothing typed keeps the stored value instead of clearing it,
+// while a typed value or an explicit backspace is committed.
+func TestBegunFieldEnterWithNothingTypedKeepsTheValue(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.limits.Models = map[string]Limit{"m": {MinCtx: 32768}}
+	m.mode = modeLimits
+	m.limModels = []string{"m", defaultLimitRow}
+	m.limCursor, m.editField = 0, 0
+	m.focusLimitField(lfMinCtx)
+	out, _ := m.Update(keyMsg("enter")) // begins a fresh value
+	out, _ = asModel(out).Update(keyMsg("enter"))
+	m = asModel(out)
+	require.Equal(t, 32768, m.limits.own("m").MinCtx, "nothing typed: the stored value is kept")
+	require.Equal(t, -1, m.editField)
+
+	m.editField = 0
+	m.focusLimitField(lfMinCtx)
+	out, _ = m.Update(keyMsg("enter"))
+	out, _ = asModel(out).Update(keyMsg("8"))
+	out, _ = asModel(out).Update(keyMsg("k"))
+	out, _ = asModel(out).Update(keyMsg("enter"))
+	require.Equal(t, 8192, asModel(out).limits.own("m").MinCtx, "a typed value is committed")
+}

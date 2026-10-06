@@ -891,6 +891,7 @@ type model struct {
 	loadedOnce bool   // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
 	q          quote  // the in-flight connect quote (confirm / over-limit)
 	editBuf    string // inline numeric edit buffer (over-limit + limits edit)
+	editDraft  bool   // the operator typed, deleted or nudged in the open field (see enter)
 	editField  int    // the limits editor field being EDITED (-1 = browsing the table)
 	limField   int    // the [3] CONFIG field the cursor is on (config_fields.go limFieldDefs)
 	editTyped  bool   // the edit buffer was typed into since the field was focused
