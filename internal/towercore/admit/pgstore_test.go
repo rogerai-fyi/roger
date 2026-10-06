@@ -9,23 +9,24 @@ package admit
 
 import (
 	"database/sql"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 
 	// The registry itself never opens a connection - the broker hands it a pool - so the
 	// driver is registered here, where the tests do the opening.
 	"fmt"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func pgStore(t *testing.T) Store {
 	t.Helper()
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping the durable registry tests")
 	}
@@ -36,8 +37,8 @@ func pgStore(t *testing.T) Store {
 
 	s, err := NewPGStore(db)
 	require.NoError(t, err)
-	// Each test starts from a clean registry; the tables are shared with other suites on
-	// the same throwaway server.
+	// Each test starts from a clean registry. The database is this package's own
+	// (pgtest), so the truncate reaches no other package's rows.
 	_, err = db.Exec(`TRUNCATE rogerai.tower_admissions, rogerai.tower_enrollment_tokens`)
 	require.NoError(t, err)
 	return s
@@ -249,7 +250,7 @@ func TestDurableRegistryReportsAnOutageRatherThanAnAnswer(t *testing.T) {
 	// Every path must distinguish "this Tower is not admitted" from "we cannot currently
 	// tell". Conflating them turns a database blip into a network-wide ban - and, in the
 	// other direction, would let an unreadable registry grant work.
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping the durable registry tests")
 	}

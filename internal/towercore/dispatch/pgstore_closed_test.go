@@ -9,11 +9,11 @@ package dispatch
 
 import (
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -26,7 +26,7 @@ func TestDispatchPGStoreNeedsADatabase(t *testing.T) {
 func TestDispatchPGStoreRefusesAPoolThatCannotMigrate(t *testing.T) {
 	// The schema migration is the constructor's first act; a pool that cannot run it must
 	// fail construction rather than hand back a store whose every call will fail worse.
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
@@ -38,7 +38,7 @@ func TestDispatchPGStoreRefusesAPoolThatCannotMigrate(t *testing.T) {
 }
 
 func TestAClosedPoolFailsEveryDispatchPathAsAnOutage(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
@@ -67,7 +67,7 @@ func TestAClosedPoolFailsEveryDispatchPathAsAnOutage(t *testing.T) {
 // whose recorded Station key has rotted must refuse to answer at all rather than hand back
 // a key nobody can verify a receipt against.
 func TestTheDurableStoreDiagnosesItsRefusals(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}

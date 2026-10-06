@@ -1,11 +1,11 @@
 package towerstore
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
@@ -87,7 +87,7 @@ func TestPGStoreImplementsTheTowerStore(t *testing.T) {
 
 func realDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL; skipping the live-database round trip")
 	}

@@ -7,40 +7,20 @@ package origin
 
 import (
 	"database/sql"
-	"net/url"
-	"os"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
-
-var privateOnce sync.Once
 
 func stores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMemStore()}
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		return out
-	}
-	name := "roger_test_origin"
-	if u, err := url.Parse(dsn); err == nil && u.Path != "" && u.Path != "/" {
-		name = strings.TrimPrefix(u.Path, "/") + "_origin"
-		privateOnce.Do(func() {
-			admin, aerr := sql.Open("pgx", dsn)
-			require.NoError(t, aerr)
-			defer admin.Close()
-			if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
-				!strings.Contains(cerr.Error(), "already exists") {
-				t.Fatalf("create %s: %v", name, cerr)
-			}
-		})
-		u.Path = "/" + name
-		dsn = u.String()
 	}
 	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
@@ -162,13 +142,9 @@ func TestNewPGStoreRejectsNilDB(t *testing.T) {
 // A store whose database has gone away must return the error, not swallow it: an origin
 // write that silently fails would under-count demand without a trace.
 func TestOriginPGSurfacesDBErrors(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL; the durable error paths need a real handle")
-	}
-	if u, err := url.Parse(dsn); err == nil && u.Path != "" && u.Path != "/" {
-		u.Path = "/" + strings.TrimPrefix(u.Path, "/") + "_origin"
-		dsn = u.String()
 	}
 	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
@@ -187,13 +163,9 @@ func TestOriginPGSurfacesDBErrors(t *testing.T) {
 // the attempt-id-only INSERT would violate NOT NULL and the tally would stop recording. This
 // stands up the OLD table shape first, then proves the store works over it.
 func TestOriginPGMigratesAwayTheSeenTimestamp(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL; the migration path needs a real handle")
-	}
-	if u, err := url.Parse(dsn); err == nil && u.Path != "" && u.Path != "/" {
-		u.Path = "/" + strings.TrimPrefix(u.Path, "/") + "_origin"
-		dsn = u.String()
 	}
 	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
