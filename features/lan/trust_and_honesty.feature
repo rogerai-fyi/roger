@@ -61,7 +61,7 @@ Feature: LAN mode trusts the local network for Towers, says so once where it mat
     And it says Edge members are verified by certificate
     And it says how to keep sensitive work on Edge members only
     # RULED 2026-10-06: yes, offer `roger --lan --edge-only` (Edge members and this machine, no Towers) for
-    # sensitive work. Recommendation: yes; it is the strict subset that needs no trust in the LAN.
+    # sensitive work. It is the strict subset that needs no trust in the LAN.
 
   @client
   Scenario: the client still signs and nonces every request to a LAN Tower

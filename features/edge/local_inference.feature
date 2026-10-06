@@ -70,6 +70,9 @@ Feature: A turn is served by the nearest thing that can serve it: this instance,
 
   @client
   @later
+  # superseded 2026-10-06 by founder ruling (LAN mode): under `roger --lan` there is a rung 2b, a
+  # standalone Tower at a local address, and NO rung 3; a band nothing local serves is refused
+  # (features/lan/routing_and_inference.feature).
   Scenario: rung 3 - the market, only when nothing on the Edge serves it
     Given no instance on this Edge serves "gpt-oss-120b"
     And the preference is local

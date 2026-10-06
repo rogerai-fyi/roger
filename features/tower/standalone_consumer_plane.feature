@@ -30,7 +30,10 @@
 #    http); loopback has no wire to eavesdrop so needs none, and the public https broker never
 #    sees one. The broker verifies a nonce-bound signature too (central identityOf) but does not
 #    replay-guard - that is the free-local plane's concern.
-# REMAINING:
+# corrected 2026-10-06 (founder-approved): headless `roger share` already serves a standalone
+# Tower (agent.ServeLocalTower); TUI and console SHARE follow in LAN mode
+# (features/lan/share_in_lan_mode.feature).
+# REMAINING (historical):
 #  - the roger CLIENT-side SHARE integration: `roger share` polling /local/poll to serve a
 #    standalone Tower's stations (the server side of /local/poll is done; the client does not
 #    yet poll a local Tower). `roger use` / config already work with the nonce above.
@@ -140,6 +143,9 @@ Feature: A standalone Tower serves its own network and no one else's
     And none of it is logged, echoed, or reflected in any response
     # Reflecting X-Roger-Freq would confirm the private-band namespace to a prober.
 
+  # superseded 2026-10-06 by founder ruling (LAN mode): a Tower started with --advertise announces
+  # itself by mDNS on PRIVATE interfaces only (features/lan/discovery_and_dial.feature). Off by
+  # default; nothing ever reaches the public network, which is what this scenario protects.
   Scenario: The Tower's own advertisements never leave the machine
     When the Tower has stations attached and clients admitted
     Then nothing it knows appears on the public /discover

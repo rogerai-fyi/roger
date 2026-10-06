@@ -148,6 +148,10 @@ Feature: A turn can be addressed to a specific node's model, and every reason it
 
   # =========================================================================
   # 4. RELATION TO `roger edge prefer` AND THE LADDER
+  #
+  # corrected 2026-10-06 (founder-approved): in LAN mode a standalone Tower can be addressed the
+  # same way, by its address (`roger use 192.168.1.20:8787 [model]`); see
+  # features/lan/routing_and_inference.feature.
   # =========================================================================
 
   @edge

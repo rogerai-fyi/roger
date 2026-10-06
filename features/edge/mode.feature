@@ -13,7 +13,11 @@
 #          Edge, it changes only when the owner changes it, and it is already built
 #          (features/edge/enrollment.feature) but shown nowhere except `roger edge authority`.
 #
-#   ROUTE  where ONE TURN actually went: local (it stayed on hardware the owner owns) or market
+# superseded 2026-10-06 by founder ruling (LAN mode): a third route, lan, for a turn served by a
+# standalone Tower on the LAN (features/lan/ui_visibility.feature). A LAN Tower may not be the
+# owner's hardware, so it is never reported as local.
+#   ROUTE  where ONE TURN actually went: local (it stayed on hardware the owner owns), lan (a
+#          standalone Tower on the local network, LAN mode only) or market
 #          (it went out through the broker, possibly to a stranger's station). It answers "did
 #          this prompt leave the building?"  It is a property of a session and is new here.
 #
@@ -224,13 +228,19 @@ Feature: The Edge says what roots it and where each turn went, prefers local, an
     Then no request left this Edge
     And each refusal or local answer is drawn as what it was
 
-  @edge @later
+  # corrected 2026-10-06 (founder-approved): no longer @later. Every path that carries a turn
+  # (proxy, TUI chat, console chat, agent, guest operator, addressed node) now dispatches through
+  # the one local ladder; features/lan/regressions.feature and routing_and_inference.feature pin
+  # each path against a recording broker that must see no call.
+  @edge
   Scenario: local-only is structural, not a flag one code path can forget
     Given the preference is local-only
     Then the dispatch path cannot reach the broker client at all
     And that is enforced by construction rather than by a check at each call site
 
   @tui
+  # superseded 2026-10-06 by founder ruling (LAN mode): under `roger --lan` the header shows LAN
+  # in place of LOCAL-ONLY, because LAN mode implies local-only (features/lan/ui_visibility.feature).
   Scenario: local-only is visible, because an owner turns it on to be sure
     Given the preference is local-only
     When the Edge screen renders at 100 columns

@@ -86,4 +86,4 @@ Feature: Sharing in LAN mode serves the LAN Towers and the Edge, and never the m
     When "roger --lan share" starts
     Then it refuses to start while the market share is live, naming it
     # One registrant per node id (the voice-station lesson): two sharers of one node id
-    # black-hole jobs. Recommendation: refuse rather than silently take the node id over.
+    # black-hole jobs. Refuse rather than silently take the node id over.
