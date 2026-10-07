@@ -216,6 +216,7 @@ func TestEditingABandKeepsItsOwnRuleOnly(t *testing.T) {
 	m.limits.Default = Limit{MinTPS: 10, Region: []string{"eu"}}
 	m.limits.Models["q"] = Limit{MaxOut: 2}
 	m.limCursor, m.editField, m.editBuf = 0, lfMaxOut, "3"
+	m.editDraft = true // the operator typed 3
 	require.True(t, m.commitLimitField())
 	require.Equal(t, Limit{MaxOut: 3}, m.limits.Models["q"], "the plate edit")
 

@@ -420,7 +420,29 @@ func TestAFailedConfigSaveIsShown(t *testing.T) {
 		m.limits.ReportSaveErr(fmt.Errorf("config.json is locked by another roger command"))
 	}
 	m.limits.Set("m", Limit{MaxOut: 1})
+	// In browse, with an older toast due to be dismissed on this very tick.
+	m.mode, m.status, m.frame, m.statusFrame = modeBrowse, "an old toast", 1000, 1
 	out, _ := m.Update(tickMsg{gen: m.tickGen})
-	require.Contains(t, stripANSI(asModel(out).status), "not saved")
+	require.Contains(t, stripANSI(asModel(out).status), "not saved", "the dismiss on the same tick must not erase it")
 	require.NoError(t, asModel(out).limits.TakeSaveErr(), "shown once")
+}
+
+// TestTabAcrossUntouchedFieldsWritesNothing: moving across fields without typing leaves
+// config.json alone (no write, no edit counted).
+func TestTabAcrossUntouchedFieldsWritesNothing(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	saves := 0
+	m.limits.Models = map[string]Limit{"m": {MaxOut: 5, MinTPS: 10}}
+	m.limits.Save = func(map[string]Limit, Limit) { saves++ }
+	m.mode = modeLimits
+	m.limModels = []string{"m", defaultLimitRow}
+	m.limCursor, m.editField = 0, 0
+	m.focusLimitField(lfMaxOut)
+	g := m.limits.Gen()
+	for i := 0; i < 3; i++ {
+		out, _ := m.Update(keyMsg("tab"))
+		m = asModel(out)
+	}
+	require.Zero(t, saves)
+	require.Equal(t, g, m.limits.Gen())
 }

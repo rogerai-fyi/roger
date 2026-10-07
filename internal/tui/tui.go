@@ -1535,6 +1535,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if err := m.limits.TakeSaveErr(); err != nil {
 			m.status = stEmber.Render("limits not saved to config.json: " + err.Error())
+			m.statusFrame = m.frame + 1 // stamped: the toast dismiss below must not erase it this tick
 		}
 		// FRAME CLOCK + native-selection freeze: advance the animation clock ONLY when something is
 		// actually animating (a turn in flight, a staged tune-in, share-detect, the screensaver, or
@@ -3047,8 +3048,8 @@ func (m *model) commitLimitField() bool {
 		limFieldDefs[m.editField].kind == fkToggle {
 		return true
 	}
-	if !m.editDraft && m.editBuf == "" {
-		return true // begun, nothing typed: the stored value is kept, never committed as a clear
+	if !m.editDraft {
+		return true // nothing typed in this field: the stored value stands, nothing is written
 	}
 	row := m.limModels[m.limCursor]
 	cur := m.rowLimit(row)
