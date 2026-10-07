@@ -94,6 +94,9 @@ type edgeHost struct {
 	lastFound   string
 	unavailable bool
 	armed       bool // the engine exists (ROGERAI_EDGE_DISCOVERY was not 0)
+	// browsing is whether the engine's browse is running now; onRequest, that it runs only
+	// because an on-request scope is open on a machine outside an Edge (scan_on_request.feature).
+	browsing, onRequest bool
 	// The status is polled - once a frame by the TUI, once a second by the console - and
 	// reading it opens the authority's root and dials for the LAN address. It is cached
 	// for edgeStatusTTL; the files it reads change on the owner's own commands, not
@@ -220,6 +223,7 @@ func (h *edgeHost) status() edge.SelfStatus {
 	facts := edgeDiscoveryFacts{
 		Enabled: h.armed, Unavailable: h.unavailable, Interval: h.every,
 		LastPass: h.lastPass, Found: h.lastFound, AuthorityAddr: edgeAuthorityURL(h.authLn),
+		NoEngine: h.armed && !h.browsing, OnRequest: h.onRequest,
 	}
 	h.mu.Unlock()
 	// Enabled is whether the ENGINE exists (arm built one), not what the environment
@@ -881,19 +885,68 @@ func (h *edgeHost) start(ctx context.Context) bool {
 // serve brings the engine up and paces the passes. A pass that fails is a pass: it is
 // retried on the NEXT interval, never in a tight loop.
 func (h *edgeHost) serve(ctx context.Context) {
-	// Start never blocks and never fails: an unusable network is one log line from the
-	// engine itself, not an error, and the pass is simply retried on the next interval.
-	_ = h.disc.Start(ctx)
-	defer h.disc.Stop()
+	defer h.stopBrowse()
 	t := time.NewTicker(h.every)
 	defer t.Stop()
 	for {
 		h.runPass(ctx)
+		// A machine outside an Edge that browses only because someone asked re-checks every
+		// second, so the scan stops promptly once they leave (a console lease runs out with no
+		// poke). Everything else waits for the interval or a scope opening or closing.
+		var recheck <-chan time.Time
+		if h.browsingOnRequest() {
+			recheck = time.After(time.Second)
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		case <-edgeScans.wake:
+		case <-recheck:
 		}
+	}
+}
+
+// syncBrowse starts or stops this process's browse to match edgeMayBrowse (features/edge/
+// scan_on_request.feature) and reports whether it is browsing now. Start never blocks and
+// never fails: an unusable network is one log line from the engine itself, not an error, and
+// the pass is simply retried on the next interval.
+func (h *edgeHost) syncBrowse(ctx context.Context) bool {
+	want := edgeMayBrowse(scanEdge)
+	h.mu.Lock()
+	browsing := h.browsing
+	h.mu.Unlock()
+	switch {
+	case want && !browsing:
+		_ = h.disc.Start(ctx)
+	case !want && browsing:
+		h.disc.Stop()
+	}
+	onRequest := want && !edgeInAnEdge()
+	h.mu.Lock()
+	if h.browsing != want || h.onRequest != onRequest {
+		h.statusAt = time.Time{} // the DISCOVERY fact just changed: never serve the old one
+	}
+	h.browsing, h.onRequest = want, onRequest
+	h.mu.Unlock()
+	return want
+}
+
+// browsingOnRequest reports whether this process browses only because a scope is open.
+func (h *edgeHost) browsingOnRequest() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.browsing && h.onRequest
+}
+
+// stopBrowse ends the browse when the host stops.
+func (h *edgeHost) stopBrowse() {
+	h.mu.Lock()
+	browsing := h.browsing
+	h.browsing, h.onRequest = false, false
+	h.mu.Unlock()
+	if browsing {
+		h.disc.Stop()
 	}
 }
 
@@ -928,6 +981,10 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	// through the ordinary maintenance path, so the target's switch and the grant still decide; a
 	// machine with no schedules does nothing at all here.
 	edgeRunSchedule(cfg, time.Now(), h.recordOnNode)
+	if !h.syncBrowse(ctx) {
+		// Outside an Edge with nobody asking: no browse, no socket (scan_on_request.feature).
+		return edge.Report{}
+	}
 	rep := h.disc.RunOnce(ctx)
 	h.mu.Lock()
 	h.st.adoptExternalEdits() // before merging discovery in: a candidate adopted elsewhere is gone
@@ -976,11 +1033,11 @@ func (h *edgeHost) adoptEnrollment(ctx context.Context) {
 				"; the EDGE screen draws that Edge from the next launch")
 		}
 	}
-	h.disc.Stop()
+	h.stopBrowse()
 	if !h.arm() {
 		return
 	}
-	_ = h.disc.Start(ctx)
+	h.syncBrowse(ctx) // now a member, so it browses (and advertises) as before
 }
 
 // beat hands the screen one real heartbeat and NEVER blocks. A run with no TUI drains

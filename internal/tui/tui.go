@@ -156,6 +156,11 @@ type Hooks struct {
 	// authority, discovery - for the screen an owner sees before anything is set up.
 	// Nil = unknown, and the empty screen then names only the LAN path.
 	EdgeStatus func() edge.SelfStatus
+	// EdgeScan opens an on-request LAN scan of the given kind ("edge" while the [3] EDGE screen
+	// shows, "lan" while the LAN dial shows) and returns the function that closes it. A machine
+	// outside an Edge browses only while one is open (features/edge/scan_on_request.feature).
+	// Nil = the host does not gate scans, and the screens ask for nothing.
+	EdgeScan func(kind string) (end func())
 	// EdgeHousehold is the rogers running on THIS machine right now (this instance among
 	// them) - the local instance registry, read live. It is how [3] shows the owner's own
 	// instances and agents even on one machine, where mDNS cannot see loopback. Nil = unknown.
@@ -1175,7 +1180,9 @@ type model struct {
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	upg        upgState
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
-	hooks     Hooks          // host-supplied platform/auth bits (nil-safe)
+	hooks Hooks // host-supplied platform/auth bits (nil-safe)
+	// scanEnds closes each on-request scan this model opened, by kind (scan.go).
+	scanEnds  map[string]func()
 	share     *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
 	onAir     bool           // ON AIR indicator + panel (true while any share is live)
 	ghLogin   string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous

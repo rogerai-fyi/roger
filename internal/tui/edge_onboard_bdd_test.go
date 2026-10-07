@@ -213,6 +213,15 @@ func (s *onboardBDD) notEnrolled() error {
 	return nil
 }
 
+// notEnrolledOnRequest is a machine outside an Edge, scanning only while this view is open.
+func (s *onboardBDD) notEnrolledOnRequest() error {
+	if err := s.notEnrolled(); err != nil {
+		return err
+	}
+	s.status.ScansOnRequest = true
+	return nil
+}
+
 func (s *onboardBDD) enrolledAs(name string) error {
 	s.status.Enrolled, s.status.Name = true, name
 	s.fake.state = EdgeSetupState{Enrolled: true}
@@ -807,6 +816,7 @@ func TestOnboardFeatureTUI(t *testing.T) {
 
 			// givens
 			sc.Step(`^a machine that is not enrolled, rooted at Core, scanning its network$`, st.notEnrolled)
+			sc.Step(`^a machine that is not enrolled, rooted at Core, scanning while this view is open$`, st.notEnrolledOnRequest)
 			sc.Step(`^a machine that is not enrolled$`, st.notEnrolled)
 			sc.Step(`^this machine is enrolled as "([^"]*)"$`, func(n string) error {
 				if err := st.enrolledAs(n); err != nil {

@@ -192,6 +192,11 @@ test("gpu-isolation: the Roger Edge exception is stated, opt-in, members only, s
   assert.match(visible, /only devices that are members of your Edge can connect/i, "members only");
   assert.match(visible, /acts only on grants you sign/i, "the delegate runner needs a grant the owner signs");
   assert.match(visible, /Sharing a model never turns any of that on/i, "sharing does not start it");
+  // Founder ruling 2026-10-07 (features/edge/scan_on_request.feature): before setup, the only
+  // listening is the on-request LAN scan, while a view asks for it, and it stops on leaving.
+  assert.match(visible, /only time it listens at all is when you ask/i, "the on-request scan is named");
+  assert.match(visible, /roger edge scan/, "the command that asks is named");
+  assert.match(visible, /stops when you leave/i, "and it ends when the view does");
 });
 
 test("gpu-isolation: no em dashes in the copy", () => {

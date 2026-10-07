@@ -117,6 +117,13 @@ func (s *emptyEdgeBDD) freshMachine() error {
 	return nil
 }
 
+// freshMachineOnRequest is a machine outside an Edge: it scans only while this view is open
+// (features/edge/scan_on_request.feature).
+func (s *emptyEdgeBDD) freshMachineOnRequest() error {
+	s.status = edge.SelfStatus{Authority: "Core", Discovery: edge.DiscoveryScanning, IntervalS: 30, ScansOnRequest: true}
+	return nil
+}
+
 func (s *emptyEdgeBDD) enrolledAs(name string) error {
 	s.status.Enrolled, s.status.Name, s.status.LoggedIn = true, name, true
 	return nil
@@ -241,6 +248,14 @@ func (s *emptyEdgeBDD) discoveryScanning() error {
 		return err
 	}
 	return contains(f, "scanning this network", "every 30s")
+}
+
+func (s *emptyEdgeBDD) discoveryScanningOnRequest() error {
+	f, err := s.factLine("DISCOVERY")
+	if err != nil {
+		return err
+	}
+	return contains(f, "scanning this network while this screen is open", "every 30s")
 }
 
 func (s *emptyEdgeBDD) authorityLocal(where string) error {
@@ -408,6 +423,7 @@ func TestEmptyEdgeFeatureTUI(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) { st.reset(); return c, nil })
 			sc.Step(`^a machine that is not enrolled, not logged in, rooted at Core, scanning its network$`, st.freshMachine)
+			sc.Step(`^a machine that is not enrolled, not logged in, rooted at Core, scanning while this view is open$`, st.freshMachineOnRequest)
 			sc.Step(`^a machine enrolled as "([^"]*)" with no other node$`, st.enrolledAs)
 			sc.Step(`^a machine that is the local authority "([^"]*)" with (\d+) machines allowed$`, st.localAuthority)
 			sc.Step(`^a machine that is the local authority "([^"]*)" reachable at "([^"]*)"$`, st.localAuthorityAt)
@@ -434,6 +450,7 @@ func TestEmptyEdgeFeatureTUI(t *testing.T) {
 			sc.Step(`^it names "([^"]*)"$`, st.names)
 			sc.Step(`^it does not name "([^"]*)" as a next step$`, st.doesNotName)
 			sc.Step(`^under DISCOVERY it says it is scanning this network and how often$`, st.discoveryScanning)
+			sc.Step(`^under DISCOVERY it says it scans while this screen is open, and how often$`, st.discoveryScanningOnRequest)
 			sc.Step(`^under AUTHORITY it names "([^"]*)" and says enrolling needs no network beyond this LAN$`, st.authorityLocal)
 			sc.Step(`^it says this machine IS the authority and that (\d+) machines may enroll against it$`, st.isTheAuthority)
 			sc.Step(`^it says a login is needed to enroll under Core, and names "roger login"$`, st.loginNeeded)

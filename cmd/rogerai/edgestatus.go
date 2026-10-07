@@ -26,11 +26,14 @@ import (
 type edgeDiscoveryFacts struct {
 	Enabled     bool
 	Unavailable bool
-	// NoEngine: the switch is on but this process runs no discovery (a one-shot CLI).
+	// NoEngine: the switch is on but this process runs no discovery (a one-shot CLI, or a
+	// machine outside an Edge that nobody has asked to scan).
 	NoEngine bool
-	Interval time.Duration
-	LastPass time.Time
-	Found    string
+	// OnRequest: it scans only because a view asked (scan_on_request.feature).
+	OnRequest bool
+	Interval  time.Duration
+	LastPass  time.Time
+	Found     string
 	// AuthorityAddr is the address other machines enroll against when THIS machine is
 	// the authority and its LAN service is up; "" otherwise.
 	AuthorityAddr string
@@ -91,6 +94,7 @@ func edgeSelfStatus(fleet *edge.Fleet, disc edgeDiscoveryFacts) edge.SelfStatus 
 		st.Discovery = edge.DiscoveryIdle
 	default:
 		st.Discovery = edge.DiscoveryScanning
+		st.ScansOnRequest = disc.OnRequest
 	}
 	st.IntervalS = int64(disc.Interval / time.Second)
 	if !disc.LastPass.IsZero() {

@@ -416,6 +416,7 @@ func contains(list []string, s string) bool {
 
 // cmdLANSearch is `roger --lan search [--json]`: only local bands, each with its sources.
 func cmdLANSearch(cfg config, args []string) error {
+	defer edgeScans.Begin(scanLAN)() // this run is the request (scan_on_request.feature)
 	d := lanDial(cfg)
 	bands, status := d.Bands, d.Towers
 	if len(args) > 0 && args[0] == "--json" {
@@ -667,6 +668,9 @@ var lanBrowseTowers = defaultLANBrowseTowers
 // to add it. A candidate is only a line; nothing is ever read from or sent to it until the owner
 // adds it. An advert naming a public address is not offered at all.
 func lanCandidates(ctx context.Context, towers []string) []client.LANTowerStatus {
+	if !edgeMayBrowse(scanLAN) {
+		return nil // outside an Edge with no LAN view open: no browse, no socket
+	}
 	res, err := lanBrowseTowers(ctx)
 	if err != nil {
 		return nil

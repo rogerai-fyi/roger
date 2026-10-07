@@ -49,6 +49,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (a move, a re-sort, a resize, a screen change). One central call, so no key
 		// handler has to remember to reset the scroll.
 		mm.syncMarquee()
+		// One central call, after every update: a screen change opens or closes the
+		// on-request LAN scan (scan.go), so no key handler has to remember it.
+		mm.syncScans()
 		return mm.refreshScroll(), cmd
 	}
 	return tm, cmd

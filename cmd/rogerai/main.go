@@ -560,6 +560,8 @@ func tuiHooks(cfg config) tui.Hooks {
 	h := tui.Hooks{
 		// THE SAME `roger model` the CLI and the console run (modelweb.go).
 		Models: modelWebHooks(),
+		// A screen that is open is a request to scan (edgescan.go, scan_on_request.feature).
+		EdgeScan: func(kind string) func() { return edgeScans.Begin(scanKind(kind)) },
 		// ...and the same request carried to a member (edgeservecontrol.go).
 		EdgeServeModel: edgeServeModelHook,
 		// Station is the PUBLIC, NON-SENSITIVE callsign the TUI derives every band's node

@@ -133,12 +133,22 @@ func TestEdgeHostStatusReportsTheEngineNotTheKnob(t *testing.T) {
 	require.EqualValues(t, edge.DefaultInterval/time.Second, st.IntervalS)
 	require.Equal(t, "Core", st.Authority)
 
+	// Armed but not browsing: a machine outside an Edge that nobody has asked to scan
+	// (scan_on_request.feature) is not scanning, and does not claim to be.
 	h.mu.Lock()
 	h.armed, h.every, h.lastPass, h.lastFound = true, 30*time.Second, time.Now().Add(-12*time.Second), edge.PassSummary(0, 0)
+	h.mu.Unlock()
+	now = now.Add(edgeStatusTTL)
+	st = h.status()
+	require.Equal(t, edge.DiscoveryIdle, st.Discovery)
+
+	h.mu.Lock()
+	h.browsing = true
 	h.mu.Unlock()
 	now = now.Add(edgeStatusTTL) // arming happens at launch, before any viewer polls
 	st = h.status()
 	require.Equal(t, edge.DiscoveryScanning, st.Discovery)
+	require.False(t, st.ScansOnRequest, "browsing as a member, not on request")
 	require.EqualValues(t, 30, st.IntervalS)
 	require.Contains(t, st.DiscoveryLine(time.Now()), "last pass 12s ago, nothing answered")
 }

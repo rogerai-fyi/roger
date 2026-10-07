@@ -1371,7 +1371,8 @@ func (st *consoleEdgeBDD) init(sc *godog.ScenarioContext) {
 	sc.Step(`^it carries the root as LOCAL and the authority "([^"]*)"$`, st.carriesRootLocal)
 	sc.Step(`^the panel shows the badge in the header$`, st.panelShowsBadge)
 	// empty_edge.feature (@console)
-	sc.Step(`^a console over a machine that is not enrolled, rooted at Core, scanning every (\d+) seconds$`, st.machineFresh)
+	sc.Step(`^a console over a machine that is not enrolled, rooted at Core, scanning every (\d+) seconds while this view is open$`, st.machineFresh)
+	sc.Step(`^the self status says it scans only while this view is open$`, st.scansOnRequest)
 	sc.Step(`^it carries a self status with enrolled false, authority "([^"]*)", discovery "([^"]*)" and an interval of (\d+) seconds$`, st.selfStatusIs)
 	sc.Step(`^the empty state has a slot for THIS MACHINE, AUTHORITY and DISCOVERY$`, st.emptySlots)
 	sc.Step(`^the Edge code fills them from the self status$`, st.fillsFromStatus)
@@ -1400,8 +1401,15 @@ func TestEdgeConsoleViewFeature(t *testing.T) {
 // ---- empty_edge.feature (@console) ----------------------------------------------
 
 func (s *consoleEdgeBDD) machineFresh(every int) error {
-	s.self = &edge.SelfStatus{Authority: "Core", Discovery: edge.DiscoveryScanning, IntervalS: int64(every)}
+	// A machine outside an Edge scans only while a view is open (scan_on_request.feature).
+	s.self = &edge.SelfStatus{Authority: "Core", Discovery: edge.DiscoveryScanning, IntervalS: int64(every),
+		ScansOnRequest: true}
 	return nil
+}
+
+func (s *consoleEdgeBDD) scansOnRequest() error {
+	st := s.snap.SelfStatus
+	return want(st != nil && st.ScansOnRequest, "self_status = %+v", st)
 }
 
 func (s *consoleEdgeBDD) selfStatusIs(authority, discovery string, every int) error {

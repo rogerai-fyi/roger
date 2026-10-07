@@ -35,7 +35,10 @@ import (
 // READ here and WRITTEN by the console's own relayed turns (chat.go), because the console
 // is an initiator like any other and its traffic belongs on the Edge it came from.
 type EdgeHooks struct {
-	Self       string
+	Self string
+	// ScanLease is renewed by every read of the Edge view: a machine outside an Edge scans the
+	// LAN only while this view is open (features/edge/scan_on_request.feature). Nil renews nothing.
+	ScanLease  func()
 	Fleet      *edge.Fleet
 	Candidates func() []store.EdgeNode
 	Adopt      func(id, name string) error
@@ -753,6 +756,9 @@ func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+	if s.opts.Edge.ScanLease != nil {
+		s.opts.Edge.ScanLease() // the Edge view is open: keep the on-request scan going
 	}
 	s.writeEdge(w)
 }

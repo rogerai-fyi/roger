@@ -112,6 +112,9 @@ func TestEdgeDiscoveryHonoursTheOffSwitch(t *testing.T) {
 			t.Setenv(edge.EnvDiscovery, tc.env)
 			planes := edgeCountingPlane(t)
 
+			// The owner is on the [3] EDGE screen: a machine outside an Edge scans only on
+			// request (scan_on_request.feature), so the switch is tested with a request open.
+			openScan(t, scanEdge)
 			h, err := newEdgeHost("roger-desk")
 			require.NoError(t, err)
 			h.start(context.Background())
@@ -124,7 +127,7 @@ func TestEdgeDiscoveryHonoursTheOffSwitch(t *testing.T) {
 				return
 			}
 			require.Eventually(t, func() bool { return planes() > 0 }, 3*time.Second, 20*time.Millisecond,
-				"an enabled discovery browses on its own")
+				"an enabled discovery browses while it is asked to")
 		})
 	}
 }
@@ -194,6 +197,7 @@ func TestEdgeVerifiedSightingBeatsExactlyThatNode(t *testing.T) {
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: member.advert.Addr(), Fingerprint: member.advert.Fingerprint}},
 	})
 
+	openScan(t, scanEdge) // the owner is on [3]: this machine is outside an Edge
 	h, err := newEdgeHost("roger-desk")
 	require.NoError(t, err)
 	var hooks tui.Hooks

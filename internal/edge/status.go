@@ -108,10 +108,13 @@ type SelfStatus struct {
 	Root      string `json:"root"`
 	Prefer    string `json:"prefer"`
 	Discovery string `json:"discovery"`
-	IntervalS int64  `json:"interval_s,omitempty"`
-	LastPass  int64  `json:"last_pass,omitempty"` // unix; 0 = no pass has completed
-	Found     string `json:"found,omitempty"`     // PassSummary of the last pass
-	Err       string `json:"error,omitempty"`
+	// ScansOnRequest: this machine is outside an Edge, so it scans only while a view is open
+	// (features/edge/scan_on_request.feature), and the DISCOVERY fact says so.
+	ScansOnRequest bool   `json:"scans_on_request,omitempty"`
+	IntervalS      int64  `json:"interval_s,omitempty"`
+	LastPass       int64  `json:"last_pass,omitempty"` // unix; 0 = no pass has completed
+	Found          string `json:"found,omitempty"`     // PassSummary of the last pass
+	Err            string `json:"error,omitempty"`
 }
 
 // PassSummary words one discovery pass: what it found, or that nothing answered.
@@ -189,6 +192,9 @@ func (s SelfStatus) DiscoveryLine(now time.Time) string {
 		return out
 	}
 	out := "scanning this network"
+	if s.ScansOnRequest {
+		out += " while this screen is open"
+	}
 	if s.IntervalS > 0 {
 		out += " every " + (time.Duration(s.IntervalS) * time.Second).String()
 	}

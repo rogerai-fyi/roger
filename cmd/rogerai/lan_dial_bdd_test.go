@@ -95,6 +95,9 @@ type lanDialBDD struct {
 
 func (s *lanDialBDD) reset() {
 	useTempConfig(s.t)
+	// The dial is open: in LAN mode that is the request to browse for advertised Towers on a
+	// machine outside an Edge (features/edge/scan_on_request.feature).
+	openScan(s.t, scanLAN)
 	s.broker = newRecordingBroker(s.t)
 	// The recording broker must be REACHABLE at the configured URL, or a "the broker was not
 	// asked" check passes vacuously (a TLS hello to a plain-http server never reaches the

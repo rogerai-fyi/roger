@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/tui"
@@ -104,7 +105,7 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 		// THE SAME `roger model`, from the browser (modelweb.go).
 		Models: modelWebHooks(),
 		// THE SAME LAN DIAL the TUI reads, in LAN mode; nil otherwise.
-		LANDial: lanDialFor(cfg),
+		LANDial: consoleLANDial(cfg),
 		Broker:  cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
 		// [4] CONFIG are two views of one setting; two stores would let them disagree
@@ -154,6 +155,9 @@ func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 		return webui.EdgeHooks{}
 	}
 	return webui.EdgeHooks{
+		// Each read of the Edge view keeps the on-request scan open a few seconds
+		// (features/edge/scan_on_request.feature).
+		ScanLease: func() { edgeScans.Lease(scanEdge, edgeConsoleLease) },
 		// WHAT RAISES AN ALARM, from the same log and the same wording the terminal uses, so a rule
 		// set in the browser and one set at the prompt are one rule with one id and one scope.
 		Rules: func() ([]edge.Rule, error) { return edgeAlertLog().Rules() },
@@ -282,5 +286,18 @@ func edgeFloorHook(h *tui.Hooks) func(time.Time) webui.EdgeFloor {
 			f.Reads = h.EdgeReads()
 		}
 		return f
+	}
+}
+
+// consoleLANDial is the LAN dial the console's band list reads. Each read is the request that
+// lets a machine outside an Edge browse for advertised Towers (scan_on_request.feature).
+func consoleLANDial(cfg config) func() client.LANDial {
+	dial := lanDialFor(cfg)
+	if dial == nil {
+		return nil
+	}
+	return func() client.LANDial {
+		edgeScans.Lease(scanLAN, edgeConsoleLease)
+		return dial()
 	}
 }
