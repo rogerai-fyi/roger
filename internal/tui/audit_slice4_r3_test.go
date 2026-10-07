@@ -578,3 +578,13 @@ func TestRescanOnAPrivateFrequencyIsRefused(t *testing.T) {
 	require.Nil(t, cmd, "no scan is started")
 	require.NotContains(t, stripANSI(asModel(out).status), "re-scanning")
 }
+
+// TestLiveProxyCarriesTheTunedProfile: the booth's live proxy knows the profile the band was
+// tuned under, the only one a guest may name (founder ruling 2026-10-07); none tuned, none.
+func TestLiveProxyCarriesTheTunedProfile(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"roger": map[string]any{"pref": "fast"}})
+	require.NotEmpty(t, m.tunedProfile)
+	require.Equal(t, m.tunedProfile, m.liveProxyOpts(*m.connected, m.alert).TunedProfile)
+	m.tunedProfile = ""
+	require.Empty(t, m.liveProxyOpts(*m.connected, m.alert).TunedProfile)
+}

@@ -1445,6 +1445,13 @@ func TestRoutingPassthroughFullBDD(t *testing.T) {
 
 			// Given
 			sc.Step(`^profile "([^"]+)" sets (.+)$`, st.profileSets)
+			sc.Step(`^the proxy owner tuned under profile "([^"]+)"$`, func(n string) error {
+				if st.ownerExtra == nil {
+					st.ownerExtra = map[string]any{}
+				}
+				st.ownerExtra["TunedProfile"] = n
+				return nil
+			})
 			sc.Step(`^the proxy owner's limit for the band has quants (\[.*\])$`, st.ownerQuantRule)
 			sc.Step(`^the session budget is \$([0-9.]+) and \$([0-9.]+) is spent$`, st.budgetSpent)
 			sc.Step(`^the first attempt fails with a transport error at station "([^"]+)"$`, st.firstAttemptTransportAt)

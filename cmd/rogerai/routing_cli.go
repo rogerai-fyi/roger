@@ -549,8 +549,9 @@ func defaultLayers(cfg config, model string) []routingLayer {
 // useTarget is what a `roger use` resolves to: the band model (variant suffix kept) and the
 // merged routing.
 type useTarget struct {
-	model string
-	r     resolvedRouting
+	model   string
+	profile string // the profile tuned under ("" = none)
+	r       resolvedRouting
 }
 
 // resolveUse applies the resolution order to a parsed command line.
@@ -610,7 +611,7 @@ func resolveUse(cfg config, f *useFlags, profs *client.Profiles) (useTarget, err
 	if err := client.ValidateRoutingBody(check); err != nil {
 		return useTarget{}, fmt.Errorf("use: %w", err)
 	}
-	return useTarget{model: model, r: r}, nil
+	return useTarget{model: model, r: r, profile: name}, nil
 }
 
 // bareModelID strips a variant suffix (:free / :floor / :nitro) for the limits lookup.
@@ -729,6 +730,7 @@ func cmdUse(cfg config, args []string) error {
 	// --port 0 (not given): Use binds the first free port from the default and prints that one.
 	opt.Port, opt.TypicalOut, opt.Yes, opt.Raw = f.port, typical, f.yes, f.raw
 	opt.RoutingLine = routingLine(t.r)
+	opt.TunedProfile = t.profile
 	return client.Use(cfg.Broker, cfg.User, t.model, opt)
 }
 

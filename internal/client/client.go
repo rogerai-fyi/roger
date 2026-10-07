@@ -451,6 +451,9 @@ type ProxyOptions struct {
 	// Profiles resolves a guest's "@profile/<name>" against config.json, re-read on change.
 	// nil = the handler builds one for ConfigPath().
 	Profiles *ProfileStore
+	// TunedProfile is the profile the owner tuned this session under ("" = none). A guest may
+	// name only it, never another profile in the owner's config (founder ruling 2026-10-07).
+	TunedProfile string
 	// Model is the TUNED band's model. It is the /v1/models identity AND the rewrite
 	// target: every incoming request's `model` field is rewritten to this before relay,
 	// so an agent's arbitrary default ("gpt-4o", "sonnet") just works. Empty = legacy
@@ -848,6 +851,13 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		// A guest's own roger.freq is never taken (the owner's band stands), so it is dropped
 		// before the merge; a band code in the OWNER's profile is the owner's choice and
 		// travels as the X-Roger-Freq header for this request, never in the body.
+		// A guest may name only the profile the session was tuned under (founder ruling
+		// 2026-10-07): any other profile in the owner's config could be looser or pricier.
+		if name := guestProfileOf(body); name != "" && name != opts.TunedProfile {
+			openAIError(w, http.StatusForbidden, "permission_error", "profile_not_tuned",
+				"profile "+name+" is not the profile this session was tuned under")
+			return
+		}
 		resolved, fromProfile, perr := ResolveProfileBody(dropGuestFreq(body), profiles.Get())
 		if perr != nil {
 			routingRefused(w, perr)
@@ -1764,6 +1774,8 @@ type UseOptions struct {
 	RequireParams bool
 	// RoutingLine is the one effective-routing line the connect plate prints ("" = none).
 	RoutingLine string
+	// TunedProfile is the profile the session was tuned under (`--profile` or `@profile/`).
+	TunedProfile string
 }
 
 // limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
@@ -1947,7 +1959,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
 		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
 		Sort: opt.Sort, Prefer: opt.Prefer, NoFallbacks: opt.NoFallbacks, Require: opt.Require, ParamsB: opt.ParamsB,
-		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams,
+		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams, TunedProfile: opt.TunedProfile,
 		HeaderRouting:        NegotiateRouting(broker), // tune time: body carriers, or headers for an old broker
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
@@ -2123,7 +2135,7 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
 		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
 		Sort: opt.Sort, Prefer: opt.Prefer, NoFallbacks: opt.NoFallbacks, Require: opt.Require, ParamsB: opt.ParamsB,
-		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams,
+		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams, TunedProfile: opt.TunedProfile,
 		HeaderRouting:        NegotiateRouting(broker),
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)

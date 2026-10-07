@@ -551,6 +551,20 @@ func deepCopy(v any) any {
 	return v
 }
 
+// guestProfileOf is the profile a request body names ("" for none, or for a body the
+// resolver refuses on its own: two profiles, sugar on the reference, not JSON).
+func guestProfileOf(body []byte) string {
+	var m map[string]any
+	if json.Unmarshal(body, &m) != nil || m == nil {
+		return ""
+	}
+	name, _, err := profileRefOf(m)
+	if err != nil {
+		return ""
+	}
+	return name
+}
+
 // profileRefOf reports the profile a body names, from model "@profile/<n>" (a guest provider
 // prefix such as roger/ is stripped first) or roger.profile. Case-sensitive: "@Profile/x" is
 // not a reference. A sugar suffix on the reference is an error.

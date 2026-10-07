@@ -77,20 +77,25 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     Then the argv is exactly "pi --provider rogerai --model @profile/coding"
     And pi's models.json lists "@profile/coding" alongside "qwen3-32b-fp8"
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile (the plate's choice)
   Scenario: The proxy resolves the guest's @profile/ per request
     Given profile "coding" sets models = ["qwen3-32b-fp8", "llama-3.3-70b"] and roger.require = ["tools"]
+    And the DJ chose profile "coding" on the plate
     When the guest sends {"model": "@profile/coding", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8", models ["llama-3.3-70b"], roger.require ["tools"]
     And the guest's response is OpenAI-shaped exactly as before
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile (the plate's choice)
   Scenario: A profile that names no model still lands on the band
     Given profile "cheap" sets roger.pref = "cheap" and no model
+    And the DJ chose profile "cheap" on the plate
     When the guest sends {"model": "@profile/cheap", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8" and roger.pref = "cheap"
 
-  Scenario: A profile the guest names that does not exist is a local 400, nothing relayed
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile (the plate's choice)
+  Scenario: A profile the guest names that is not the plate's is refused 403, nothing relayed
     When the guest sends {"model": "@profile/nope", "messages": [...]}
-    Then the guest receives an OpenAI-shaped 400 "unknown profile nope"
+    Then the guest receives a 403 with error.code "profile_not_tuned" saying "profile nope is not the profile this session was tuned under"
     And the plate's call counter does not increase
 
   Scenario: The default plate (no profile chosen) behaves exactly as today

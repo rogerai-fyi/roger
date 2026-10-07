@@ -216,7 +216,25 @@ func (s *cf4oState) profileSets(name, text string) error {
 	return s.writeProfile(name, prof)
 }
 
-func (s *cf4oState) djChose(name string) error { s.profile = name; return nil }
+// djChose records the plate's profile, which is also the session's tuned profile (the TUI
+// binds m.tunedProfile to both): the only one a guest may name.
+func (s *cf4oState) djChose(name string) error {
+	s.profile = name
+	if s.holder != nil {
+		o := s.holder.Get()
+		o.TunedProfile = name
+		s.holder.SetBand(o)
+	}
+	return nil
+}
+
+// guest403 checks a local refusal carries 403 and the error code.
+func (s *cf4oState) guest403(code, msg string) error {
+	if s.code != http.StatusForbidden || !strings.Contains(string(s.body), `"code":"`+code+`"`) || !strings.Contains(string(s.body), msg) {
+		return fmt.Errorf("guest got %d %s, want 403 %s saying %q", s.code, s.body, code, msg)
+	}
+	return nil
+}
 
 // ── guest requests ─────────────────────────────────────────────────────────────────────
 
@@ -875,6 +893,7 @@ func TestGuestRoutingBDD(t *testing.T) {
 			sc.Step(`^the broker receives (.+)$`, st.brokerReceives)
 			sc.Step(`^the guest's response is OpenAI-shaped exactly as before$`, st.openAIShapedAsBefore)
 			sc.Step(`^the guest receives an OpenAI-shaped 400 "([^"]+)"$`, st.guest400)
+			sc.Step(`^the guest receives a 403 with error\.code "([^"]+)" saying "([^"]+)"$`, st.guest403)
 			sc.Step(`^the plate's call counter does not increase$`, st.callCounterSame)
 			sc.Step(`^the guest receives a local 400 with error\.code "([^"]+)", OpenAI-shaped$`, st.guest400Code)
 			sc.Step(`^that second request never reaches the broker$`, st.secondNeverReached)

@@ -146,8 +146,10 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with no model field and "models": ["qwen3-32b-fp8:floor"]
     Then the broker receives model "qwen3-32b-fp8" and models ["qwen3-32b-fp8:floor"]
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A @profile/ whose profile names no model gets the band model as the primary (no local 400)
     Given profile "quiet" sets only "roger": {"pref": "reliable"}
+    And the proxy owner tuned under profile "quiet"
     When a chat request arrives with model "@profile/quiet"
     Then the broker receives model "qwen3-32b-fp8" and roger.pref "reliable"
     And the guest's response carries no error
@@ -156,14 +158,18 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with model "" and "roger": {"pref": "fast"}
     Then the broker receives model "qwen3-32b-fp8"
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A body with a @profile/ model is resolved, not rewritten
     Given profile "coding" sets models = ["qwen3-32b-fp8", "llama-3.3-70b"]
+    And the proxy owner tuned under profile "coding"
     When a chat request arrives with model "@profile/coding"
     Then the broker receives model "qwen3-32b-fp8" and models ["llama-3.3-70b"]
 
   # regression 2026-10-05: audit finding, contract §3 + §9 (a profile's first model survives the band rewrite)
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A profile whose first model is not the band keeps it as the first fallback
     Given profile "coding" sets models = ["llama-3.3-70b", "qwen3-32b-fp8"]
+    And the proxy owner tuned under profile "coding"
     When a chat request arrives with model "@profile/coding"
     Then the broker receives model "qwen3-32b-fp8" and models ["llama-3.3-70b", "qwen3-32b-fp8"]
 
@@ -180,14 +186,18 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Then the broker receives model "qwen3-32b-fp8:free" and models ["qwen3-32b-fp8"]
 
   # regression 2026-10-06: audit finding, contract §2 + §9 (a profile's :free binds its fallbacks too)
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A profile naming the band's free variant asks for free on its fallbacks too
     Given profile "freebie" sets model = "qwen3-32b-fp8:free" and models = ["llama-3.3-70b"]
+    And the proxy owner tuned under profile "freebie"
     When a chat request arrives with model "@profile/freebie"
     Then the broker receives model "qwen3-32b-fp8:free" and models ["llama-3.3-70b:free"]
 
   # regression 2026-10-05: audit finding, contract §9 (a profile's :free on the band survives the rewrite)
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A profile naming the band's free variant keeps asking for free
     Given profile "freebie" sets model = "qwen3-32b-fp8:free"
+    And the proxy owner tuned under profile "freebie"
     When a chat request arrives with model "@profile/freebie"
     Then the broker receives model "qwen3-32b-fp8:free"
 
@@ -380,8 +390,10 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with no routing carrier
     Then the broker receives provider.max_price.completion = 10
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A guest request that only names a profile still gets the owner's ceiling applied
     Given profile "loose" sets provider.max_price.completion = 50
+    And the proxy owner tuned under profile "loose"
     When a chat request arrives with model "@profile/loose"
     Then the broker receives provider.max_price.completion = 2
 
@@ -563,9 +575,11 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When opencode sends {"model": "qwen3-32b-fp8", "provider": {"sort": "throughput"}, "messages": [...]}
     Then the broker receives provider.sort = "throughput" and model "qwen3-32b-fp8"
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: hermes - a @profile/ default model resolves through the proxy
     Given the hermes launch materialized per features/operator/config_hermes.feature with default model "@profile/coding"
     And profile "coding" sets models = ["qwen3-32b-fp8"] and roger.require = ["tools"]
+    And the proxy owner tuned under profile "coding"
     When hermes sends {"model": "@profile/coding", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8" and roger.require = ["tools"]
     And hermes's argv still pins "roger/@profile/coding" (the -m pin is the guest's, the proxy resolves it)

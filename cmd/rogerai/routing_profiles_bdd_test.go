@@ -947,16 +947,25 @@ func (s *cf4State) guestSends(body string) error {
 	return s.guestSend(strings.ReplaceAll(body, "[...]", cf4Messages))
 }
 
+// mergedWithRequest runs "profile <name> is merged with the request" through the real
+// resolver the proxy uses (client.ResolveProfileBody). Not through a guest: since the
+// 2026-10-07 ruling a guest may name only the tuned profile, whose keys then bind the owner
+// too, so a guest request can no longer exercise a merge that loosens the profile.
 func (s *cf4State) mergedWithRequest(name string) error {
-	if err := s.ensureProxy("qwen3-32b"); err != nil {
-		return err
-	}
 	obj := map[string]any{"model": "@profile/" + name}
 	for k, v := range s.requestKeys {
 		rfSet(obj, k, v)
 	}
 	b, _ := json.Marshal(obj)
-	return s.guestSend(string(b))
+	out, _, err := client.ResolveProfileBody(b, client.NewProfileStore(s.cfgPath()).Get())
+	s.resolved, s.resolvedRaw = nil, nil
+	if err != nil {
+		s.guestCode, s.guestBody = http.StatusBadRequest, []byte(err.Error())
+		return nil
+	}
+	s.guestCode, s.guestBody = http.StatusOK, nil
+	s.resolvedRaw = out
+	return json.Unmarshal(out, &s.resolved)
 }
 
 func (s *cf4State) resolveByProxy() error {
@@ -1093,6 +1102,27 @@ func (s *cf4State) treatedAsPlain() error {
 	}
 	if got, _ := s.resolved["model"].(string); got != "@Profile/coding" {
 		return fmt.Errorf("the broker received model %q: the proxy did not treat \"@Profile/coding\" as a plain model id", got)
+	}
+	return nil
+}
+
+// guest403 checks a local refusal carries 403, the error code, and the message.
+func (s *cf4State) guest403(code, msg string) error {
+	if s.guestCode != http.StatusForbidden {
+		return fmt.Errorf("guest status %d, want 403: %s", s.guestCode, s.guestBody)
+	}
+	var e struct {
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if json.Unmarshal(s.guestBody, &e) != nil || e.Error.Code != code || !strings.Contains(e.Error.Message, msg) {
+		return fmt.Errorf("guest 403 = %s, want code %q saying %q", s.guestBody, code, msg)
+	}
+	return nil
+}
+
+func (s *cf4State) guest200() error {
+	if s.guestCode != http.StatusOK {
+		return fmt.Errorf("guest status %d, want 200: %s", s.guestCode, s.guestBody)
 	}
 	return nil
 }
@@ -1824,7 +1854,7 @@ func (s *cf4State) proxyResolvedOnce(name string) error {
 			return err
 		}
 	}
-	if err := s.ensureProxy("qwen3-32b"); err != nil {
+	if err := s.proxyTunedWith("--profile " + name); err != nil { // a guest may name only the tuned profile
 		return err
 	}
 	if err := s.guestSend(`{"model": "@profile/` + name + `"}`); err != nil {
@@ -2354,6 +2384,8 @@ func cf4Register(sc *godog.ScenarioContext, s *cf4State) {
 	sc.Step(`^the body carries no roger\.freq$`, s.bodyNoFreq)
 	sc.Step(`^the local proxy does not resolve it as a profile$`, s.notResolvedAsProfile)
 	sc.Step(`^nothing reaches the broker$`, s.nothingReached)
+	sc.Step(`^the guest receives a 403 with error\.code "([^"]+)" saying "([^"]+)"$`, s.guest403)
+	sc.Step(`^the guest receives a 200$`, s.guest200)
 	sc.Step(`^the local proxy treats it as a plain model id \(which no station serves\)$`, s.treatedAsPlain)
 	sc.Step(`^the broker answers 400 with error\.code "([^"]+)"$`, s.brokerAnswers400Code)
 	sc.Step(`^no hold is placed$`, s.noHoldPlaced)

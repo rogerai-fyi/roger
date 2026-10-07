@@ -2836,6 +2836,7 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		NoFallbacks: rt.NoFallbacks, RequireParams: rt.RequireParams,
 		HeaderRouting: m.headerRouting,  // negotiated once per tune in bindChannel
 		Profiles:      m.profileStore(), // a guest's @profile/ resolves against the booth's store
+		TunedProfile:  m.tunedProfile,   // the only profile a guest may name
 		// ROGERAI_REASONING_RAW is a global session knob: honor it in the TUI booth too, not just
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
 		ReasoningFallbackOff: client.RawReasoningEnv(),

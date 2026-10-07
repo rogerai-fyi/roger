@@ -16,13 +16,14 @@ import (
 func TestGuestModelsAreFilteredToTheOwners(t *testing.T) {
 	owner := Routing{Models: []string{"a", "b"}}
 	for name, c := range map[string]struct{ guest, want, refusal string }{
-		"no guest list takes the owner's":   {`{"model":"a"}`, `{"model":"a","models":["a","b"]}`, ""},
-		"a null list takes the owner's":     {`{"model":"a","models":null}`, `{"model":"a","models":["a","b"]}`, ""},
-		"overlap keeps only the inside":     {`{"model":"a","models":["B","c"]}`, `{"model":"a","models":["B"]}`, ""},
-		"a sugared entry is matched bare":   {`{"model":"a","models":["b:nitro"]}`, `{"model":"a","models":["b:nitro"]}`, ""},
-		"no overlap is refused":             {`{"model":"a","models":["c","d"]}`, "", "models names no model inside this session's allowed models"},
-		"an empty list takes the owner's":   {`{"model":"a","models":[]}`, `{"model":"a","models":["a","b"]}`, ""},
-		"a list that is not ids is refused": {`{"model":"a","models":"c"}`, "", "models must be a list of model ids"},
+		"no guest list takes the owner's":    {`{"model":"a"}`, `{"model":"a","models":["a","b"]}`, ""},
+		"a null list takes the owner's":      {`{"model":"a","models":null}`, `{"model":"a","models":["a","b"]}`, ""},
+		"overlap keeps only the inside":      {`{"model":"a","models":["b","c"]}`, `{"model":"a","models":["b"]}`, ""},
+		"ids compare exactly, as the broker": {`{"model":"a","models":["B"]}`, "", "models names no model inside this session's allowed models"},
+		"a sugared entry is matched bare":    {`{"model":"a","models":["b:nitro"]}`, `{"model":"a","models":["b:nitro"]}`, ""},
+		"no overlap is refused":              {`{"model":"a","models":["c","d"]}`, "", "models names no model inside this session's allowed models"},
+		"an empty list takes the owner's":    {`{"model":"a","models":[]}`, `{"model":"a","models":["a","b"]}`, ""},
+		"a list that is not ids is refused":  {`{"model":"a","models":"c"}`, "", "models must be a list of model ids"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, err := owner.Apply([]byte(c.guest))
