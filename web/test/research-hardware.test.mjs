@@ -199,11 +199,11 @@ test("hardware: the band scrolls on a narrow screen instead of shrinking to noth
   // the band scrolls: overflow on the <figure> would carry the caption off with it.
   const page = read(PAGE);
   const css = src("styles/research-hardware.css");
-  assert.match(page, /<div class="hw-figure__scroll">[\s\S]*?<svg[^>]*hw-ladder/,
-    "the band sits in its own scroll container");
-  assert.match(css, /\.hw-figure__scroll\s*\{[^}]*overflow-x:\s*auto/,
+  assert.match(page, /<div class="scroll-box scroll-box--diagram">[\s\S]*?<svg[^>]*hw-ladder/,
+    "the band sits in its own scroll container (the shared diagram scroll box)");
+  assert.match(src("styles/components.css"), /\.scroll-box\s*\{[^}]*overflow-x:\s*auto/,
     "that container scrolls horizontally");
-  assert.match(css, /\.hw-ladder\s*\{[^}]*min-width:\s*\d+px/,
+  assert.match(css, /\.hw-ladder\s*\{[^}]*--diagram-min:\s*\d+px/,
     "and the band keeps a legible minimum width rather than scaling down");
   assert.doesNotMatch(css, /\.hw-figure\s*\{[^}]*overflow-x/,
     "the figure itself must not scroll, or the caption leaves with the band");

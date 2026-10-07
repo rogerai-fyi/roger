@@ -1,0 +1,12 @@
+<!-- site-js: the shared page runtime (web/DESIGN-SYSTEM.md). One form, deferred, on every
+     page: a page script that needs site.js goes after this include, and deferred scripts
+     run in document order, so a page's own scripts written BEFORE it (the account pages)
+     still run before it, as they did when these were blocking. -->
+  <script src="js/lets-talk.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>{{#unless promo=0}}
+  <script src="js/promo.js" defer></script>{{/unless}}
+  <script src="js/tuner.js" defer></script>
+  <script src="js/scrub.js" defer></script>
+  <script src="js/anchor-hold.js" defer></script>
+  <script src="js/range-twin.js" defer></script>

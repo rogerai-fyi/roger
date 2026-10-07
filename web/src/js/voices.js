@@ -265,20 +265,8 @@
     });
   }
 
-  /* ---------- copy the "how to speak" command -------------------- */
-  var cmdBtn = document.getElementById("voiceCmd");
-  if (cmdBtn) cmdBtn.addEventListener("click", function () {
-    var codeEl = document.getElementById("voiceCmdCode");
-    var code = codeEl ? codeEl.textContent : "";
-    var done = function () {
-      cmdBtn.classList.add("is-copied");
-      var t = document.getElementById("toast");
-      if (t) { t.textContent = "Copied to clipboard"; t.classList.add("is-shown"); setTimeout(function () { t.classList.remove("is-shown"); }, 1800); }
-      setTimeout(function () { cmdBtn.classList.remove("is-copied"); }, 1200);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, function () {});
-    else { try { var ta = document.createElement("textarea"); ta.value = code; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done(); } catch (e) {} }
-  });
+  /* the "how to speak" command (#voiceCmd) is an .install__box: site.js's shared
+     copy tick copies it, so there is no second handler here */
 
   /* ---------- kick off when scrolled into view ------------------ */
   function activate() {

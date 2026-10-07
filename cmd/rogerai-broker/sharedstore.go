@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -488,7 +492,23 @@ var errNoSharedStore = redis.Nil
 // namespaced under keyPrefix so they never collide with another tenant sharing the
 // instance.
 type valkeyStore struct {
-	rdb *redis.Client
+	// rdb is one Valkey, a client-side ring of independent Valkeys, or a Valkey Cluster
+	// (valkeyTopology). Every hot-path command touches ONE key, so all three work unchanged.
+	rdb redis.UniversalClient
+	// dial builds a fresh client over the SAME topology with its own small pool and the
+	// given read timeout. The dispatch plane's inbox reader uses it so its held XREAD never
+	// occupies a pooled connection other calls need (DISPATCH-SCALE-DESIGN section 3.7).
+	dial func(readTimeout time.Duration) redis.UniversalClient
+	// poolSize is the effective per-server connection pool of rdb (go-redis's default when
+	// the URL sets none), exposed for the connection-budget scenario.
+	poolSize int
+	// closed is closed by Close so the dispatch plane's reader stops with the store.
+	closed    chan struct{}
+	closeOnce sync.Once
+	// livenessHashOnly: every instance writes the fleet liveness hash, so a tick reads only it.
+	// Set once the rollout reaches a queue mode (ROGERAI_DISPATCH); until then an instance
+	// still running older code heartbeats only into the per-node keys, so both are read.
+	livenessHashOnly atomic.Bool
 
 	mu      sync.Mutex
 	up      bool // last observed reachability (for healthy())
@@ -561,16 +581,116 @@ func retrySubscribe(ctx context.Context, attempts int, backoff time.Duration, fn
 // to in-memory - it never crashes). Returns the store even when the ping fails so a
 // later recovery is possible, but reports the error so startup can log + degrade.
 func newValkeyStore(url string) (*valkeyStore, error) {
-	opt, err := redis.ParseURL(url)
+	return newValkeyStoreTopology(valkeyTopology{urls: []string{url}})
+}
+
+// valkeyTopology names the shared-state servers. One URL is a single Valkey. Several URLs
+// are a client-side consistent-hash RING of independent Valkeys (works on any provider,
+// because every hot-path command is single-key), or, with cluster set, the seed nodes of a
+// Valkey Cluster. Ring shard names follow URL order, so keep the order stable: reordering
+// or adding a shard remaps keys.
+type valkeyTopology struct {
+	urls    []string
+	cluster bool
+}
+
+// valkeyTopologyFromEnv reads ROGERAI_REDIS_RING or ROGERAI_REDIS_CLUSTER (comma-separated
+// URLs) before the single ROGERAI_REDIS_URL. All unset = no shared store.
+func valkeyTopologyFromEnv() (valkeyTopology, bool) {
+	split := func(v string) []string {
+		var out []string
+		for _, u := range strings.Split(v, ",") {
+			if u = strings.TrimSpace(u); u != "" {
+				out = append(out, u)
+			}
+		}
+		return out
+	}
+	if urls := split(envStr("ROGERAI_REDIS_RING", "")); len(urls) > 0 {
+		return valkeyTopology{urls: urls}, true
+	}
+	if urls := split(envStr("ROGERAI_REDIS_CLUSTER", "")); len(urls) > 0 {
+		return valkeyTopology{urls: urls, cluster: true}, true
+	}
+	if url := envStr("ROGERAI_REDIS_URL", ""); url != "" {
+		return valkeyTopology{urls: []string{url}}, true
+	}
+	return valkeyTopology{}, false
+}
+
+// build returns a client for the topology with the broker's tight timeouts. poolSize 0
+// keeps go-redis's default; readTimeout overrides the per-op read timeout (a blocking
+// reader needs longer than sharedOpTimeout).
+func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.UniversalClient, int, error) {
+	if len(tp.urls) == 0 {
+		return nil, 0, fmt.Errorf("no valkey url")
+	}
+	opts := make([]*redis.Options, len(tp.urls))
+	for i, u := range tp.urls {
+		opt, err := redis.ParseURL(u)
+		if err != nil {
+			return nil, 0, err
+		}
+		opt.DialTimeout = 2 * time.Second
+		opt.ReadTimeout = readTimeout
+		opt.WriteTimeout = sharedOpTimeout
+		opt.MaxRetries = 1
+		if poolSize > 0 {
+			opt.PoolSize = poolSize
+		}
+		opts[i] = opt
+	}
+	eff := opts[0].PoolSize
+	if eff == 0 {
+		eff = 10 * runtime.GOMAXPROCS(0) // go-redis's default
+	}
+	switch {
+	case len(opts) == 1 && !tp.cluster:
+		return redis.NewClient(opts[0]), eff, nil
+	case tp.cluster:
+		o := opts[0]
+		addrs := make([]string, len(opts))
+		for i, op := range opts {
+			addrs[i] = op.Addr
+		}
+		return redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs: addrs, Username: o.Username, Password: o.Password, TLSConfig: o.TLSConfig,
+			DialTimeout: o.DialTimeout, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout,
+			MaxRetries: o.MaxRetries, PoolSize: o.PoolSize,
+		}), eff, nil
+	default:
+		byAddr := map[string]*redis.Options{}
+		shards := map[string]string{}
+		for i, op := range opts {
+			byAddr[op.Addr] = op
+			shards[fmt.Sprintf("s%d", i)] = op.Addr
+		}
+		return redis.NewRing(&redis.RingOptions{
+			Addrs: shards,
+			// Each shard keeps its OWN credentials/TLS/db from its URL.
+			NewClient: func(o *redis.Options) *redis.Client {
+				cp := *byAddr[o.Addr]
+				return redis.NewClient(&cp)
+			},
+		}), eff, nil
+	}
+}
+
+// newValkeyStoreTopology connects to the topology. It does a single bounded PING so a bad
+// URL / unreachable server is detected at startup; the CALLER decides what to do with the
+// error (the broker logs a warning and falls back to in-memory - it never crashes). Returns
+// the store even when the ping fails so a later recovery is possible.
+func newValkeyStoreTopology(tp valkeyTopology) (*valkeyStore, error) {
+	// Keep timeouts tight: this is a hot-path cache, not a primary store.
+	rdb, pool, err := tp.build(sharedOpTimeout, 0)
 	if err != nil {
 		return nil, err
 	}
-	// Keep timeouts tight: this is a hot-path cache, not a primary store.
-	opt.DialTimeout = 2 * time.Second
-	opt.ReadTimeout = sharedOpTimeout
-	opt.WriteTimeout = sharedOpTimeout
-	opt.MaxRetries = 1
-	vs := &valkeyStore{rdb: redis.NewClient(opt)}
+	vs := &valkeyStore{rdb: rdb, poolSize: pool, closed: make(chan struct{})}
+	vs.dial = func(readTimeout time.Duration) redis.UniversalClient {
+		c, _, _ := tp.build(readTimeout, 2) // tp already parsed once above, so no error here
+		return c
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := vs.rdb.Ping(ctx).Err(); err != nil {
@@ -616,6 +736,9 @@ func (v *valkeyStore) noteErr(op string, err error) {
 func (v *valkeyStore) Close() error {
 	if v == nil || v.rdb == nil {
 		return nil
+	}
+	if v.closed != nil {
+		v.closeOnce.Do(func() { close(v.closed) })
 	}
 	return v.rdb.Close()
 }
@@ -704,6 +827,11 @@ func (v *valkeyStore) markSeen(node string, now time.Time) error {
 	pipe := v.rdb.Pipeline()
 	pipe.HSet(ctx, key, livenessField, now.UnixMilli())
 	pipe.PExpire(ctx, key, livenessTTL)
+	// The whole fleet's last_seen in ONE hash, so a peer's tick reads it with one HGETALL
+	// instead of one HGET per node (registry_changelog.feature C1). The per-node key above
+	// stays for instances still running code that reads it.
+	pipe.HSet(ctx, livenessAllKey, node, now.UnixMilli())
+	pipe.PExpire(ctx, livenessAllKey, livenessTTL)
 	// Keep the shared REGISTRY entry (if any) alive as long as the node heartbeats, even
 	// though it only re-registers rarely: a heartbeat that lands on ANY instance extends
 	// the reg TTL so the registry mirror doesn't drop a live node. No-op if no reg key.
@@ -740,6 +868,61 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
+	// One HGETALL over the fleet hash. Its fields never expire individually, so a field older
+	// than livenessTTL is skipped here and pruned in the background (compare-and-delete, so a
+	// heartbeat landing meanwhile is never removed).
+	all, err := v.rdb.HGetAll(ctx, livenessAllKey).Result()
+	if err != nil {
+		v.noteErr("liveness", err)
+		return nil, err
+	}
+	hash := make(map[string]time.Time, len(all))
+	cutoff := time.Now().Add(-livenessTTL).UnixMilli()
+	var stale []any
+	for id, val := range all {
+		ms, perr := strconv.ParseInt(val, 10, 64)
+		if perr != nil || ms < cutoff {
+			stale = append(stale, id)
+			continue
+		}
+		hash[id] = time.UnixMilli(ms)
+	}
+	if len(stale) > 0 {
+		go func() {
+			c, cc := context.WithTimeout(context.Background(), sharedOpTimeout)
+			defer cc()
+			pruneStaleLivenessScript.Run(c, v.rdb, []string{livenessAllKey}, append([]any{cutoff}, stale...)...)
+		}()
+	}
+	if len(hash) > 0 && v.livenessHashOnly.Load() {
+		v.setUp(true)
+		return hash, nil
+	}
+	perNode, err := v.livenessPerNode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for id, at := range hash {
+		if at.After(perNode[id]) {
+			perNode[id] = at
+		}
+	}
+	return perNode, nil
+}
+
+// pruneStaleLivenessScript deletes a fleet-hash field only if it is STILL older than the cutoff.
+var pruneStaleLivenessScript = redis.NewScript(`
+for i = 2, #ARGV do
+  local v = redis.call('HGET', KEYS[1], ARGV[i])
+  if v and tonumber(v) and tonumber(v) < tonumber(ARGV[1]) then
+    redis.call('HDEL', KEYS[1], ARGV[i])
+  end
+end
+return 0
+`)
+
+// livenessPerNode reads the per-node liveness keys (one HGET per node, pipelined).
+func (v *valkeyStore) livenessPerNode(ctx context.Context) (map[string]time.Time, error) {
 	ids, err := v.rdb.SMembers(ctx, keyPrefix+"nodes").Result()
 	if err != nil {
 		v.noteErr("liveness", err)
@@ -792,8 +975,10 @@ func (v *valkeyStore) markToolsVerified(node, model string, ttl time.Duration) e
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	pipe := v.rdb.Pipeline()
-	pipe.HSet(ctx, toolsKey(), node+"\x00"+model, time.Now().UnixMilli())
+	nowMs := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	pipe.HSet(ctx, toolsKey(), node+"\x00"+model, nowMs)
 	pipe.PExpire(ctx, toolsKey(), ttl) // refresh the hash TTL on every mark (like liveness)
+	logChange(ctx, pipe, "tok", node+"\x00"+model, []byte(nowMs))
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("markToolsVerified", err)
 		return err
@@ -808,7 +993,10 @@ func (v *valkeyStore) clearToolsVerified(node, model string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
-	if err := v.rdb.HDel(ctx, toolsKey(), node+"\x00"+model).Err(); err != nil && err != redis.Nil {
+	pipe := v.rdb.Pipeline()
+	pipe.HDel(ctx, toolsKey(), node+"\x00"+model)
+	logChange(ctx, pipe, "tclr", node+"\x00"+model, nil)
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
 		v.noteErr("clearToolsVerified", err)
 		return err
 	}
@@ -904,6 +1092,7 @@ func (v *valkeyStore) putNode(id string, reg []byte, ttl time.Duration) error {
 	pipe.Set(ctx, regKey(id), reg, ttl)
 	pipe.SAdd(ctx, keyPrefix+"regset", id)
 	pipe.PExpire(ctx, keyPrefix+"regset", ttl)
+	logChange(ctx, pipe, "reg", id, reg)
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("putNode", err)
 		return err
@@ -990,6 +1179,7 @@ func (v *valkeyStore) putPrivateNode(id string, reg []byte, ttl time.Duration) e
 	pipe.Set(ctx, pregKey(id), reg, ttl)
 	pipe.SAdd(ctx, pregsetKey, id)
 	pipe.PExpire(ctx, pregsetKey, ttl)
+	logChange(ctx, pipe, "preg", id, reg)
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr("putPrivateNode", err)
 		return err
@@ -1075,7 +1265,9 @@ func (v *valkeyStore) markCooling(node, model string, until time.Time, ttl time.
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	pipe := v.rdb.Pipeline()
-	pipe.Set(ctx, coolKey(node), strconv.FormatInt(until.Unix(), 10)+"|"+model, ttl)
+	coolVal := strconv.FormatInt(until.Unix(), 10) + "|" + model
+	pipe.Set(ctx, coolKey(node), coolVal, ttl)
+	logChange(ctx, pipe, "cool", node, []byte(coolVal))
 	pipe.SAdd(ctx, coolSetKey, node)
 	pipe.PExpire(ctx, coolSetKey, 2*ttl+time.Minute) // the index outlives its members; stale ids are dropped on read
 	if _, err := pipe.Exec(ctx); err != nil {
@@ -1896,11 +2088,11 @@ func (v *valkeyStore) busNextRCSeq(sid string) (uint64, error) {
 // in-memory path and NEVER crashes. (The returned store is closed on a connect
 // failure so we leak no client.)
 func openSharedStore() sharedStore {
-	url := envStr("ROGERAI_REDIS_URL", "")
-	if url == "" {
+	tp, ok := valkeyTopologyFromEnv()
+	if !ok {
 		return nil // flag OFF: in-memory, byte-for-byte today's behavior.
 	}
-	vs, err := newValkeyStore(url)
+	vs, err := newValkeyStoreTopology(tp)
 	if err != nil {
 		if vs != nil {
 			_ = vs.Close()
@@ -2076,3 +2268,85 @@ const (
 	publicMarketTTL = 3 * time.Second
 	authedFeedTTL   = 20 * time.Second
 )
+
+// ---- the change log (features/multinode/registry_changelog.feature) ----------------------
+
+// changeLogKey is the append-only log of registry, cooldown and tools-verdict changes. Every
+// writer of those appends one entry in the SAME pipeline as its write; each instance tails it
+// from the last id it applied, so a quiet tick costs one read instead of a full re-read.
+const changeLogKey = keyPrefix + "ctl:changes"
+
+// changeLogMaxLen bounds the log. An instance that falls further behind than this sees a gap
+// and takes a full snapshot (never a partial view).
+const changeLogMaxLen = 5000
+
+// livenessAllKey is the fleet-wide last_seen hash (node -> unix ms).
+const livenessAllKey = keyPrefix + "lsall"
+
+// logChange appends one change entry to a pipeline the caller executes.
+func logChange(ctx context.Context, pipe redis.Pipeliner, kind, id string, data []byte) {
+	pipe.XAdd(ctx, &redis.XAddArgs{
+		Stream: changeLogKey, MaxLen: changeLogMaxLen, Approx: true,
+		Values: []any{"k", kind, "id", id, "d", data},
+	})
+	pipe.Expire(ctx, changeLogKey, livenessTTL)
+}
+
+// changeEntry is one applied change.
+type changeEntry struct {
+	id, kind, key string
+	data          []byte
+}
+
+// fingerprint identifies an entry beyond its id (a store emptied by a restart can hand the
+// same id to a different entry).
+func (e changeEntry) fingerprint() string {
+	h := sha256.Sum256(append([]byte(e.kind+"\x00"+e.key+"\x00"), e.data...))
+	return hex.EncodeToString(h[:8])
+}
+
+func entryOf(m redis.XMessage) changeEntry {
+	return changeEntry{id: m.ID, kind: xstr(m.Values["k"]), key: xstr(m.Values["id"]), data: []byte(xstr(m.Values["d"]))}
+}
+
+// changeHead is the id and fingerprint of the newest log entry ("0-0" when the log is empty).
+func (v *valkeyStore) changeHead() (string, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	msgs, err := v.rdb.XRevRangeN(ctx, changeLogKey, "+", "-", 1).Result()
+	if err != nil {
+		v.noteErr("changeHead", err)
+		return "", "", err
+	}
+	if len(msgs) == 0 {
+		return "0-0", "", nil
+	}
+	return msgs[0].ID, entryOf(msgs[0]).fingerprint(), nil
+}
+
+// changesAfter returns the entries after `after`. gap is true when the entry `after` itself
+// is no longer in the log (trimmed, or the store restarted) or more than max entries are
+// pending: the caller must take a full snapshot instead.
+func (v *valkeyStore) changesAfter(after, afterFP string, max int64) ([]changeEntry, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	msgs, err := v.rdb.XRangeN(ctx, changeLogKey, after, "+", max+1).Result()
+	if err != nil {
+		v.noteErr("changesAfter", err)
+		return nil, false, err
+	}
+	if after != "0-0" {
+		if len(msgs) == 0 || msgs[0].ID != after || (afterFP != "" && entryOf(msgs[0]).fingerprint() != afterFP) {
+			return nil, true, nil // our position is gone: trimmed, or the store restarted
+		}
+		msgs = msgs[1:]
+	}
+	if int64(len(msgs)) > max {
+		return nil, true, nil // too far behind: a snapshot is cheaper and exact
+	}
+	out := make([]changeEntry, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, entryOf(m))
+	}
+	return out, false, nil
+}

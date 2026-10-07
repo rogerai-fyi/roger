@@ -712,28 +712,22 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 		// a node-quality signal, so it skips the round rather than failing (see derr below).
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ch, dcancel, derr := b.busDispatchJob(ctx, node.NodeID, job)
-		if dcancel != nil {
-			defer dcancel()
-		}
+		tk, derr := b.dispatchRemote(ctx, node.NodeID, job, false)
 		if derr != nil {
 			// A dispatch that never reached the node is NOT evidence about the node's
 			// quality, so SKIP this round (don't touch trust) rather than record a failure.
-			// Both cases are transient and self-correct next interval:
-			//   - errNoPoller (delivered==0): nobody subscribed at this instant - usually the
-			//     node briefly BETWEEN long-polls (~25s re-poll gap), not death. Recording
-			//     probeDead here is the exact false-positive bus dispatch was meant to remove;
-			//     true death is caught by heartbeat liveness (markSeen TTL), not the probe.
+			// All cases are transient and self-correct next interval:
+			//   - no poller / busy / off air: usually the node briefly BETWEEN long-polls or
+			//     saturated, not death; true death is caught by heartbeat liveness (markSeen
+			//     TTL), not the probe.
 			//   - any other bus error: a transient Valkey blip would otherwise mark the WHOLE
 			//     fleet's probes dead at once. Skip and retry.
 			return
 		}
-		select {
-		case raw, ok := <-ch:
-			if !ok {
-				b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
-				return
-			}
+		defer tk.close()
+		raw, werr := tk.awaitResult(time.Now().Add(30 * time.Second))
+		switch werr {
+		case nil:
 			var res protocol.JobResult
 			if json.Unmarshal(raw, &res) != nil {
 				b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
@@ -742,8 +736,11 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 			elapsed := time.Since(start)
 			outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp, model)
 			b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched, completed)
-		case <-time.After(30 * time.Second):
+		case context.DeadlineExceeded:
 			b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
+		default:
+			// Withdrawn after its queue wait (the node was saturated) or lost in handoff:
+			// neither says anything about the node's answers. Skip the round.
 		}
 		return
 	}

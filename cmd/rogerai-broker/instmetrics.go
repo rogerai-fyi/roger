@@ -30,6 +30,22 @@ type instStats struct {
 	// non-zero, growing value is the signal that the bus itself is unhealthy.
 	busDispatchErr atomic.Int64
 
+	// The dispatch queue (dispatchq.go). dqNudge: wake-ups sent to a peer's idle poller;
+	// dqBounce: wake-ups a peer answered with "no idle poller" (a stale route); dqHandoff: jobs
+	// written to a node from the queue; dqBusy: jobs refused or withdrawn as station busy;
+	// dqLost: popped jobs whose handoff never reported taken; dqOffAir: dispatches refused
+	// because the node is not live.
+	dqNudge   atomic.Int64
+	dqBounce  atomic.Int64
+	dqHandoff atomic.Int64
+	dqBusy    atomic.Int64
+	dqLost    atomic.Int64
+	dqOffAir  atomic.Int64
+	// dqRedeliver counts jobs put back because an ack-capable node never acked them.
+	dqRedeliver atomic.Int64
+	// rcFrames counts remote-control frames this instance received for its viewers.
+	rcFrames atomic.Int64
+
 	// Upstream failover / cooldown (features/routing/upstream_failover.feature): relays
 	// re-dispatched to a sibling after a no-output failure, stations cooled by an upstream
 	// 429, and consumer requests refused fast with the band-cooling 503.
@@ -45,5 +61,11 @@ func (s *instStats) snapshot() map[string]any {
 		"bus_dispatch":     s.busDispatch.Load(),
 		"bus_no_poller":    s.busNoPoller.Load(),
 		"bus_dispatch_err": s.busDispatchErr.Load(),
+		"dq_nudge":         s.dqNudge.Load(),
+		"dq_bounce":        s.dqBounce.Load(),
+		"dq_handoff":       s.dqHandoff.Load(),
+		"dq_busy":          s.dqBusy.Load(),
+		"dq_lost":          s.dqLost.Load(),
+		"dq_off_air":       s.dqOffAir.Load(),
 	}
 }

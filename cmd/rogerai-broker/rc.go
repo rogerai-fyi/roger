@@ -46,6 +46,7 @@ type rcHub struct {
 	seq      uint64
 	hostUp   bool
 	lastHost time.Time
+	rem      *rcRemote // multi-instance delivery state on the inbox plane (rcinbox.go)
 }
 
 func newRCHub() *rcHub {
@@ -371,6 +372,10 @@ func (b *broker) rcMultiInstance() bool { return b.multiInstance && b.shared != 
 // re-backfills on connect, so we don't serve ring replay cross-instance (the broker never
 // persists the transcript).
 func (b *broker) rcFanOut(sid string, h *rcHub, f protocol.RCFrame) {
+	if q := b.rcInbox(); q != nil {
+		b.rcFanOutInbox(q, sid, f)
+		return
+	}
 	if !b.rcMultiInstance() {
 		h.publish(f)
 		return
@@ -390,6 +395,10 @@ func (b *broker) rcFanOut(sid string, h *rcHub, f protocol.RCFrame) {
 // subscribed). Single-instance: hand it to the local hub's poll channel (non-blocking; an
 // offline host simply misses it, exactly as before).
 func (b *broker) rcDeliverInbound(sid string, h *rcHub, in protocol.RCInbound) {
+	if q := b.rcInbox(); q != nil {
+		b.rcSendInbox(q, sid, in)
+		return
+	}
 	if b.rcMultiInstance() {
 		raw, _ := json.Marshal(in)
 		_ = b.shared.busPublishRCIn(sid, raw)
@@ -507,6 +516,10 @@ func (b *broker) rcPoll(w http.ResponseWriter, r *http.Request, sid string) {
 	_ = b.db.UpdateRCSession(sess)
 	h := b.rcHubFor(sid)
 	h.markHost(true)
+	if q := b.rcInbox(); q != nil {
+		b.rcPollInbox(q, w, r.Context(), sid, h)
+		return
+	}
 
 	// MULTI-INSTANCE: a viewer's inbound may have been published on a PEER instance, so for the
 	// life of this long-poll also subscribe to the session's inbound bus channel. The local
@@ -672,6 +685,18 @@ func (b *broker) rcStream(w http.ResponseWriter, r *http.Request, sid string) {
 	flusher.Flush()
 
 	ctx := r.Context()
+
+	if q := b.rcInbox(); q != nil {
+		b.rcStreamInbox(q, ctx, sid, h, viewerID, since, func(f protocol.RCFrame) bool {
+			// A backfill frame is addressed to ONE viewer; others skip it.
+			if f.Kind == protocol.RCKindBackfill && f.Viewer != "" && f.Viewer != viewerID {
+				return true
+			}
+			rcWriteSSE(w, flusher, f)
+			return f.Kind != protocol.RCKindEnded
+		})
+		return
+	}
 
 	// MULTI-INSTANCE: the host may be posting frames to a PEER instance, so subscribe to the
 	// session's frame bus channel. Cross-instance we don't serve ring replay (the host

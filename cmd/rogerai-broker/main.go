@@ -60,7 +60,9 @@ type broker struct {
 
 	// emails is the first-party sign-in state machine: a RogerAI account of our own,
 	// entered with a code we mail (see emaillogin.go).
-	emails *emailauth.Flow
+	emails     *emailauth.Flow
+	emailLinks *emailauth.Flow  // add-an-address flow (own namespace; see emaillink.go)
+	linkClock  func() time.Time // test seam for the link token expiry; nil = time.Now
 
 	// tower is joined-Tower admission, or nil when it cannot be durable (see tower.go).
 	// Nil is a supported state: standalone Towers need nothing from us.
@@ -279,6 +281,13 @@ type broker struct {
 	// Finalize are unchanged (already durable/shared) - the bus only carries the
 	// transient handoff, and a bus error fails the request cleanly (never double-charge).
 	multiInstance bool
+	// dispatchMode is the multi-instance dispatch rollout switch (ROGERAI_DISPATCH, see
+	// dispatchq.go); dq is this instance's end of the dispatch plane, started on first use.
+	dispatchMode dispatchMode
+	dqOnce       sync.Once
+	dq           *dispatchQueue
+	// changes is this instance's position in the shared change log (changelog.go).
+	changes changeTail
 
 	// instanceID identifies THIS broker process in the shared inflight hash (each
 	// instance write-throughs its own count under this field; a peer sums the others).
@@ -502,6 +511,7 @@ type broker struct {
 	cooling          map[string]time.Time
 	coolModel        map[string]string
 	coolEvents       map[string][]coolEvent
+	sessRefused      []time.Time // valid sessions refused as logged-out (guarded by metricsMu)
 	coolFallbackOnce sync.Once
 }
 
@@ -656,7 +666,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	// with http.TimeoutHandler (streamSafeHandler) so a stuck non-stream handler can
 	// never pin a connection, while the streaming/poll routes keep their long windows.
 	srv := &http.Server{
-		Handler:           streamSafeHandler(mux),
+		Handler:           csrfGuard(streamSafeHandler(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -827,6 +837,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// per-instance limits would multiply the mail-flood allowance by the fleet size.
 	if es := newValkeyEmailStore(b.shared); es != nil {
 		b.emails = newEmailFlowWithStore(es)
+		b.emailLinks = newLinkFlowWithStore(es) // same shared store, own namespace
 		log.Printf("email login: outstanding codes and their budgets are shared across instances")
 	}
 	if b.shared != nil {
@@ -850,6 +861,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
 		if multiInstanceEnabled() {
 			b.multiInstance = true
+			b.dispatchMode = dispatchModeFromEnv()
+			if vs, ok := b.shared.(*valkeyStore); ok && b.dispatchMode != dispatchViaBus {
+				vs.livenessHashOnly.Store(true) // every instance runs code that writes the fleet hash
+			}
 			b.instanceID = newInstanceID()
 			b.peerInflight = map[string]int{}
 			b.peerEdgeLoad = map[string]int{}
@@ -863,7 +878,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 			// is gated on multi-instance, so the single-instance log format is unchanged.
 			log.SetPrefix("[" + b.instanceID + "] ")
 			go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
-			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
+			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s, ROGERAI_DISPATCH=%s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID, [...]string{"bus", "queue", "queue-only"}[b.dispatchMode])
 		} else {
 			// The registry mirror + lazy-learn run whenever the shared backend is wired
 			// (task #52: registration state travels with liveness state under both flag
@@ -902,6 +917,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
 	mux.HandleFunc("/agent/poll", b.agentPoll)     // node dials out, long-polls for jobs
 	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
+	mux.HandleFunc("/agent/ack", b.agentAck)       // node confirms it received a job (node_ack.feature)
 	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
 	mux.HandleFunc("/voices", b.voices) // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
@@ -918,41 +934,43 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)            // web: 302 to GitHub authorize
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback)      // web: code exchange + session cookie
 	b.registerTowerRoutes(mux)
-	mux.HandleFunc("/auth/email/start", b.emailStart)        // web: mail a first-party sign-in code
-	mux.HandleFunc("/auth/email/verify", b.emailVerify)      // web: accept the code -> session
-	mux.HandleFunc("/auth/device/start", b.deviceStart)      // CLI: begin a broker-mediated login (signed)
-	mux.HandleFunc("/auth/device/token", b.deviceToken)      // CLI: poll it (signed)
-	mux.HandleFunc("/auth/device/pending", b.devicePending)  // web: what the approval screen shows
-	mux.HandleFunc("/auth/device/approve", b.deviceApprove)  // web: authorize, binding the CLI key to this account
-	mux.HandleFunc("/auth/device/deny", b.deviceDeny)        // web: refuse it permanently
-	mux.HandleFunc("/auth/logout", b.authLogout)             // web: clear the session cookie
-	mux.HandleFunc("/account", b.account)                    // web: account hub (GET profile+balances, PATCH email)
-	mux.HandleFunc("/account/limit", b.accountLimit)         // GET/PATCH the per-account monthly spend cap (budget limit)
-	mux.HandleFunc("/account/export", b.accountExport)       // GDPR/CCPA data dump
-	mux.HandleFunc("/account/delete", b.accountDelete)       // soft-delete + anonymize (retention-safe)
-	mux.HandleFunc("/billing", b.billing)                    // money-in view: balance + top-up history
-	mux.HandleFunc("/billing/checkout", b.checkout)          // Stripe top-up -> credits
-	mux.HandleFunc("/billing/webhook", b.webhook)            // Stripe payment + dispute webhook
-	mux.HandleFunc("/iap/credit", b.iapCredit)               // StoreKit IAP top-up -> credits (Apple 3.1.1)
-	mux.HandleFunc("/iap/notifications", b.iapNotifications) // App Store Server Notifications V2 -> refund clawback
-	mux.HandleFunc("/usage", b.usage)                        // consumer spend by model|day
-	mux.HandleFunc("/connect/onboard", b.connectOnboard)     // Stripe Connect Express onboarding link
-	mux.HandleFunc("/connect/status", b.connectStatus)       // Connect capability status (KYC gate)
-	mux.HandleFunc("/payouts/request", b.payoutsRequest)     // request a payout (KYC + min gated)
-	mux.HandleFunc("/payouts/history", b.payoutsHistory)     // payout + clawback history
-	mux.HandleFunc("/payouts/earnings", b.payoutsEarnings)   // earnings split + dated release ladder + rollups
-	mux.HandleFunc("/payouts/", b.payoutsSubtree)            // /payouts/{id}/lots: a payout's funding lineage
-	mux.HandleFunc("/metrics/provider", b.metricsProvider)   // per-model SERVE metrics (free/paid + earnings)
-	mux.HandleFunc("/metrics/usage", b.metricsUsage)         // per-model CONSUME metrics (free/paid + spend)
-	mux.HandleFunc("/metrics/series", b.metricsSeries)       // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)
-	mux.HandleFunc("/console", b.console)                    // recent lineage feed + live counters (Console page)
-	mux.HandleFunc("/activity", b.console)                   // alias for /console
-	mux.HandleFunc("/provider/models", b.providerModels)     // owner: per-model price + time-of-use schedule (Console pricing manager)
-	mux.HandleFunc("/grants", b.grants)                      // owner grant keys: create + list
-	mux.HandleFunc("/grants/", b.grants)                     // owner grant keys: show/edit/revoke by id
-	mux.HandleFunc("/bands", b.bands)                        // owner private bands: list + revoke by id
-	mux.HandleFunc("/bands/", b.bandsByID)                   // /bands/{id} revoke; /bands/resolve = public freq lookup
-	mux.HandleFunc("/bands/resolve", b.bandResolve)          // PUBLIC: resolve a frequency code -> offers (constant-work)
+	mux.HandleFunc("/auth/email/start", b.emailStart)            // web: mail a first-party sign-in code
+	mux.HandleFunc("/auth/email/verify", b.emailVerify)          // web: accept the code -> session
+	mux.HandleFunc("/auth/email/link/start", b.emailLinkStart)   // web: signed in -> mail a code to ADD this address to the account
+	mux.HandleFunc("/auth/email/link/verify", b.emailLinkVerify) // web: accept the code -> address verified on THIS account
+	mux.HandleFunc("/auth/device/start", b.deviceStart)          // CLI: begin a broker-mediated login (signed)
+	mux.HandleFunc("/auth/device/token", b.deviceToken)          // CLI: poll it (signed)
+	mux.HandleFunc("/auth/device/pending", b.devicePending)      // web: what the approval screen shows
+	mux.HandleFunc("/auth/device/approve", b.deviceApprove)      // web: authorize, binding the CLI key to this account
+	mux.HandleFunc("/auth/device/deny", b.deviceDeny)            // web: refuse it permanently
+	mux.HandleFunc("/auth/logout", b.authLogout)                 // web: clear the session cookie
+	mux.HandleFunc("/account", b.account)                        // web: account hub (GET profile+balances, PATCH email)
+	mux.HandleFunc("/account/limit", b.accountLimit)             // GET/PATCH the per-account monthly spend cap (budget limit)
+	mux.HandleFunc("/account/export", b.accountExport)           // GDPR/CCPA data dump
+	mux.HandleFunc("/account/delete", b.accountDelete)           // soft-delete + anonymize (retention-safe)
+	mux.HandleFunc("/billing", b.billing)                        // money-in view: balance + top-up history
+	mux.HandleFunc("/billing/checkout", b.checkout)              // Stripe top-up -> credits
+	mux.HandleFunc("/billing/webhook", b.webhook)                // Stripe payment + dispute webhook
+	mux.HandleFunc("/iap/credit", b.iapCredit)                   // StoreKit IAP top-up -> credits (Apple 3.1.1)
+	mux.HandleFunc("/iap/notifications", b.iapNotifications)     // App Store Server Notifications V2 -> refund clawback
+	mux.HandleFunc("/usage", b.usage)                            // consumer spend by model|day
+	mux.HandleFunc("/connect/onboard", b.connectOnboard)         // Stripe Connect Express onboarding link
+	mux.HandleFunc("/connect/status", b.connectStatus)           // Connect capability status (KYC gate)
+	mux.HandleFunc("/payouts/request", b.payoutsRequest)         // request a payout (KYC + min gated)
+	mux.HandleFunc("/payouts/history", b.payoutsHistory)         // payout + clawback history
+	mux.HandleFunc("/payouts/earnings", b.payoutsEarnings)       // earnings split + dated release ladder + rollups
+	mux.HandleFunc("/payouts/", b.payoutsSubtree)                // /payouts/{id}/lots: a payout's funding lineage
+	mux.HandleFunc("/metrics/provider", b.metricsProvider)       // per-model SERVE metrics (free/paid + earnings)
+	mux.HandleFunc("/metrics/usage", b.metricsUsage)             // per-model CONSUME metrics (free/paid + spend)
+	mux.HandleFunc("/metrics/series", b.metricsSeries)           // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)
+	mux.HandleFunc("/console", b.console)                        // recent lineage feed + live counters (Console page)
+	mux.HandleFunc("/activity", b.console)                       // alias for /console
+	mux.HandleFunc("/provider/models", b.providerModels)         // owner: per-model price + time-of-use schedule (Console pricing manager)
+	mux.HandleFunc("/grants", b.grants)                          // owner grant keys: create + list
+	mux.HandleFunc("/grants/", b.grants)                         // owner grant keys: show/edit/revoke by id
+	mux.HandleFunc("/bands", b.bands)                            // owner private bands: list + revoke by id
+	mux.HandleFunc("/bands/", b.bandsByID)                       // /bands/{id} revoke; /bands/resolve = public freq lookup
+	mux.HandleFunc("/bands/resolve", b.bandResolve)              // PUBLIC: resolve a frequency code -> offers (constant-work)
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/v1/audio/speech", b.audioRelay)                                                  // TTS relay: metered by input chars; tts nodes only
 	mux.HandleFunc("/v1/audio/transcriptions", b.transcribeRelay)                                     // STT relay: metered by uploaded bytes; stt nodes only
@@ -1318,6 +1336,7 @@ func reservedID(s string) bool {
 	return looksLikeDerivedID(s) ||
 		strings.HasPrefix(s, "u_gh_") ||
 		strings.HasPrefix(s, "u_apple_") || // an Apple account wallet is guessable from a sub - same leak guard as u_gh_
+		strings.HasPrefix(s, "u_email_") || // an email account wallet is guessable from an address - same leak guard
 		strings.HasPrefix(s, "g_")
 }
 
@@ -1380,11 +1399,11 @@ func (b *broker) mergeDualLinkWallet(o store.Owner) {
 	}
 }
 
-// isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub
-// or Apple), versus an anonymous pubkey-derived id (no balance by design). Gates the spend
+// isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub,
+// Apple, or email), versus an anonymous pubkey-derived id (no balance by design). Gates the spend
 // path (loggedInWallet) and the dashboard balance (walletLoggedIn).
 func isAccountWallet(w string) bool {
-	return strings.HasPrefix(w, "u_gh_") || strings.HasPrefix(w, "u_apple_")
+	return strings.HasPrefix(w, "u_gh_") || strings.HasPrefix(w, "u_apple_") || isEmailWallet(w)
 }
 
 // bindUserPub records the first pubkey seen for a verified user id (TOFU). Because

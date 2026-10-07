@@ -12,6 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -101,28 +102,35 @@ test("the closing CTA mounts the brandlocked art, theme-swapped via CSS (light +
     assert.ok(existsSync(join(root, f)), `${f} exists`);
 });
 
-test("each numbered section carries a dial-rule divider with its own needle position", () => {
-  const numbered = [...app.matchAll(/class="sectionno">§\d+/g)];
-  const rules = [...app.matchAll(/class="app-dialrule"[^>]*style="--dial-pos:\s*(\d+)%"/g)];
+// The page used to open each numbered section with its own dial rule, a needle moving
+// left to right across the band. The site-wide TOC tuner (components.css) took over that job
+// in the 2026-09 rollout: ONE scale under the hero, one station per numbered section, in
+// order, whose needle rests on the section in view. Same guarantee, pinned the same way:
+// every numbered section is on the band, none is skipped, and the stations run in order.
+test("every numbered section is a station on the page's tuner, in order, ending at the last", () => {
+  const numbered = [...app.matchAll(/<section class="section[^"]*" id="([^"]+)"[\s\S]*?class="sectionno">(§\d+)/g)];
   assert.ok(numbered.length >= 9, `the page keeps its numbered sections (got ${numbered.length})`);
-  // ONE rule per numbered section - exact, not ">= 7": a new numbered section (the §10
-  // install outro) that forgot its needle used to pass silently against the old floor.
-  assert.equal(rules.length, numbered.length,
-    `one dial-rule per numbered section: ${numbered.length} sections, ${rules.length} rules`);
-  // and the needles sweep strictly left-to-right, ending at the edge of the band.
-  const pos = rules.map((m) => parseInt(m[1], 10));
-  for (let i = 1; i < pos.length; i++) {
-    assert.ok(pos[i] > pos[i - 1], `needle ${i} at ${pos[i]}% must sit right of ${pos[i - 1]}%`);
-  }
-  assert.equal(pos[pos.length - 1], 100, "the last needle reaches the end of the band (100%)");
+  const tuner = app.match(/<nav class="toc-tuner" data-tuner[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
+  const st = [...tuner.matchAll(/href="#([^"]+)"><b>(§\d+)<\/b>/g)];
+  // ONE station per numbered section - exact, so a new section that forgot its station fails
+  assert.equal(st.length, numbered.length, `one station per numbered section: ${numbered.length} sections, ${st.length} stations`);
+  st.forEach((m, i) => {
+    assert.equal(m[1], numbered[i][1], `station ${i + 1} tunes to section #${numbered[i][1]}`);
+    assert.equal(m[2], `§${i + 1}`, `the stations run §1 .. §${numbered.length} left to right`);
+  });
+  assert.doesNotMatch(tuner, /position:\s*(sticky|fixed)/, "never pinned");
 });
 
 // §10 INSTALL - the page describes the terminal (§8) and the browser console (§9) but must
 // also tell you how to GET the roger binary, in the copy-button component the rest of the
 // site uses, positioned before the closing App Store CTA (its last image).
 test("app.html ships the roger install command in a copy box, before the closing CTA", () => {
-  // the install__box copy component (site.js wires copy-to-clipboard for every .install__box)
-  const box = app.match(/<button class="install__box"[\s\S]*?<\/button>/);
+  // the install__box copy component (site.js wires copy-to-clipboard for every .install__box).
+  // The page includes it from _partials/install-box.html, so check the BUILT page.
+  execFileSync("node", ["build.mjs"], { cwd: join(root, "..") });
+  const built = readFileSync(join(root, "..", "dist", "app.html"), "utf8");
+  assert.match(app, /<!-- include: install-box\.html /, "the page uses the shared install-box partial");
+  const box = built.match(/<button class="install__box"[\s\S]*?<\/button>/);
   assert.ok(box, "the install command sits in an install__box copy button");
   assert.match(box[0], /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/,
     "the one-line installer is the canonical rogerai.fm/install.sh");

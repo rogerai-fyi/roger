@@ -1,0 +1,11 @@
+{
+  "source": "web/dist/index.html <section class=\"hero\"> built from origin/main 5eb0fbb1 (pre-lift)",
+  "text": "(( • )) ROGERAI · American AI research + infrastructure Tune in to the world&rsquo;s decentralized Models . In under 30 seconds. RogerAI provides private inference networks for the edge, that means you and your homelab, that means factories and their fleet. Our labs focus on enabling open models to run on a spectrum of hardware . Our network runs one OpenAI-compatible local endpoint only you have access to, in a privatized relay on top of community and private hardware. It handles discovery, routing, failover, metering, and signed receipts. Get Control, Read the receipts &rarr; ROGERAI LABS WAVE PICO EDGE CLASS · WAYPOINT TRAINED FIG. 1 - TUNE IN roger is one binary: a local harness for local models . It finds the models already on your machine and tunes you into everyone else&rsquo;s. $ curl -fsSL https://rogerai.fm/install.sh | sh macOS · Linux - no account needed to browse or download a binary &rarr; On Windows (PowerShell): irm https://rogerai.fm/install.ps1 | iex PING RogerAI Labs · right-sized intelligence standing by tune in / share / earn / signed receipts only PING / CONCIERGE :::: NOW TRANSMITTING / replies roll on the banner FIG. 2 - ROGER EDGE &middot; ON THE AIR More on the Edge line &rarr; STORY A sound off",
+  "hrefs": [
+    "/research-hardware.html",
+    "/pricing.html#why",
+    "/research.html",
+    "https://github.com/rogerai-fyi/roger/releases",
+    "/research-models.html#roger-edge"
+  ]
+}

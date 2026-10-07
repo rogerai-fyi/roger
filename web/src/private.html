@@ -4,8 +4,8 @@
   <!-- include: head.html title="Base Station - RogerAI" theme=external css=chrome robots=noindex -->
 </head>
 <body class="auth">
-  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
-  <div class="authwrap">
+  <!-- include: nav.html promo=0 variant=lean home=/ scrolled=1 -->
+  <div class="authwrap tint-panel">
   <main class="card" id="card" hidden>
     <section class="panel" id="privateAbout">
       <h2>What a private band is</h2>
@@ -22,8 +22,8 @@
 
     <p class="cn-state" id="loading">Tuning in...</p>
     <p class="cn-state" id="error" hidden>Could not reach Base Station. Try again shortly.</p>
-    <p class="cn-state" id="gate" hidden>Sign in to see your private sessions and bands.
-      <a href="/login.html">Log in</a>.</p>
+    <div class="acct-state tint-panel" id="gate" hidden><p>Sign in to see your private sessions and bands.
+      <a href="/login.html">Log in</a>.</p></div>
 
     <!-- ============ REMOTE SESSIONS ============ -->
     <section class="panel" id="sessionsWrap" hidden>
@@ -97,8 +97,7 @@
   </main>
   </div>
   <!-- include: footer.html anchors=/ -->
-  <script src="js/site.js"></script>
-  <script src="js/session.js"></script>
-  <script src="js/private.js"></script>
+  <!-- include: site-js.html promo=0 -->
+  <script src="js/private.js" defer></script>
 </body>
 </html>

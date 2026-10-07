@@ -43,7 +43,9 @@ test("Research is a concise first-class destination", () => {
   // reads. So the conciseness budget now measures the page with the instruments
   // collapsed, and a separate, looser ceiling keeps total page weight honest so this
   // cannot become a loophole for dumping unbounded SVG.
-  const collapsed = main.replace(/<svg[\s\S]*?<\/svg>/g, "<svg/>");
+  // The contents tuner (research rollout) is collapsed for the same reason: it is
+  // navigation that repeats the section labels already counted below, not prose.
+  const collapsed = main.replace(/<svg[\s\S]*?<\/svg>/g, "<svg/>").replace(/<nav class="toc-tuner"[\s\S]*?<\/nav>/g, "<nav/>");
   assert.ok(collapsed.length < 19500, `research content is concise (${collapsed.length} bytes of prose)`);
   assert.ok(main.length < 40000, `research page stays light (${main.length} bytes total)`);
 });
@@ -682,7 +684,7 @@ test("each onward row offers a full set of destinations that resolve", () => {
   const rows = [...page.matchAll(/<div class="research-onward">([\s\S]*?)<\/div>\s*<\/div>/g)];
   assert.ok(rows.length >= 2, `the hub has more than one onward row, found ${rows.length}`);
   for (const [, row] of rows) {
-    const cards = [...row.matchAll(/<a href="([^"]+)">\s*<b>([^<]+)<\/b>\s*<span>([\s\S]*?)<\/span>/g)];
+    const cards = [...row.matchAll(/<a(?: class="[^"]*")? href="([^"]+)">\s*<b>([^<]+)<\/b>\s*<span>([\s\S]*?)<\/span>/g)];
     assert.equal(cards.length, 3, `each row fills the grid, found ${cards.length}`);
     for (const [, href, title, blurb] of cards) {
       assert.ok(title.trim().length > 0, "the card is named");

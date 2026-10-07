@@ -1,0 +1,78 @@
+/* Broadcast 014 - the model/harness isolation field guide. Scoped under .gpu-post. */
+
+
+/* ---- §1 two-machine comparison, with a wall between them ---- */
+.gpu-machines {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: var(--s-5);
+  margin: var(--s-6) 0 0;
+}
+.gpu-machines__col {
+  padding: var(--s-6); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper-2);
+}
+.gpu-machines__label {
+  display: block; font-size: var(--t-xs); letter-spacing: .06em; color: var(--ink-500);
+  margin-bottom: var(--s-3);
+}
+.gpu-machines__col h3 { margin: 0 0 var(--s-2); color: var(--ink-900); font-size: var(--t-h3); font-weight: var(--weight-semi); }
+.gpu-machines__col p { margin: 0; color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
+.gpu-machines__wall {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--s-2); width: 2px; background: repeating-linear-gradient(
+    to bottom, var(--ink-900) 0 6px, transparent 6px 12px
+  );
+  position: relative;
+}
+.gpu-machines__wall-label {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(90deg);
+  white-space: nowrap; font-size: var(--t-xs); letter-spacing: .1em; color: var(--ink-500);
+  background: var(--paper); padding: 4px 8px;
+}
+@media (max-width: 700px) {
+  .gpu-machines { grid-template-columns: 1fr; }
+  .gpu-machines__wall {
+    width: auto; height: 2px;
+    background: repeating-linear-gradient(to right, var(--ink-900) 0 6px, transparent 6px 12px);
+  }
+  .gpu-machines__wall-label { transform: translate(-50%, -50%); }
+}
+
+/* ---- §2 the literal wire payload: a labelled shared code block ---- */
+.gpu-wire { margin: var(--s-6) 0 0; }
+
+/* ---- §3 flow: model proposes -> text travels -> harness confirms -> action happens ---- */
+.gpu-flow {
+  display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  align-items: stretch; gap: var(--s-3); margin: var(--s-6) 0 0;
+}
+.gpu-flow__step {
+  padding: var(--s-5) var(--s-4); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper-2);
+}
+.gpu-flow__no {
+  display: block; font-size: var(--t-xs); letter-spacing: .08em; color: var(--ink-500);
+  margin-bottom: var(--s-2);
+}
+.gpu-flow__step h3 { margin: 0 0 4px; color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
+.gpu-flow__step p { margin: 0; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-500); }
+.gpu-flow__arrow { display: flex; align-items: center; justify-content: center; color: var(--ink-300); font-size: 1.1rem; }
+@media (max-width: 760px) {
+  .gpu-flow { grid-template-columns: 1fr; }
+  .gpu-flow__arrow { transform: rotate(90deg); padding-block: 2px; }
+}
+
+/* ---- the requester's side as an ink panel (it was a pink tint): the page's own ink and
+   paper swapped, so red stays an indicator. Holds AA both ways: paper on ink-900, and
+   ink-300 labels (10:1 on the light site, 6.9:1 on the dark one). ---- */
+.gpu-machines__col--live, .gpu-flow__step--live { background: var(--ink-900); border-color: var(--ink-900); }
+.gpu-machines__col--live :is(h3, p), .gpu-flow__step--live :is(h3, p) { color: var(--paper); }
+.gpu-machines__col--live .gpu-machines__label, .gpu-flow__step--live .gpu-flow__no { color: var(--ink-300); }
+.gpu-flow__step--live p code { background: transparent; border-color: var(--ink-500); color: var(--paper); }
+/* on the dark site ink-900 is the light ink, so the swap would turn the requester's
+   side into a bright slab: it stays a room there instead, the raised face with a ring */
+:root[data-theme="dark"] :is(.gpu-machines__col--live, .gpu-flow__step--live) {
+  background: var(--white); border-color: var(--hairline-2);
+}
+:root[data-theme="dark"] :is(.gpu-machines__col--live :is(h3, p), .gpu-flow__step--live :is(h3, p)) { color: var(--ink-900); }
+:root[data-theme="dark"] :is(.gpu-machines__col--live .gpu-machines__label, .gpu-flow__step--live .gpu-flow__no) { color: var(--ink-400); }
+:root[data-theme="dark"] .gpu-flow__step--live p code { border-color: var(--hairline-2); color: var(--ink-900); }

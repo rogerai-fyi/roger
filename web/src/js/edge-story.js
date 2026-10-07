@@ -1,8 +1,9 @@
 /* =====================================================================
-   RogerAI - homepage FIG.2, the Roger Edge story reel. Two brand films
-   (Story A / Story B) muted, played back to back forever - edge-story.js
-   swaps <source> on `ended` and picks which one opens at random per page
-   load, so the two halves trade first place across visits.
+   RogerAI - homepage FIG.2, the Roger Edge story reel. Four films (Story
+   A, Story B, the FireDefense use case and The Network, the narrated
+   Network film) muted, played back to back forever in random order - edge-story.js swaps
+   <source> on `ended`, never repeating the film that just played, and
+   picks which one opens at random per page load.
 
    The power-on/off is an old CRT set, and it is the screen's actual HEIGHT
    that collapses to a thin bright line and back - not an internal clip over
@@ -40,22 +41,43 @@
   var muteBtn = document.getElementById("edgeMute");
   var muteLabel = document.getElementById("edgeMuteLabel");
 
+  // Four films: the two original brand films, the FireDefense use case and
+  // The Network (the narrated 170 s cut, which replaced the 126 s silent-script
+  // cut of the same film in Sep 2026 - one Network film on the reel, not two). The order is random but never repeats the
+  // one that just played, so a visitor who stays sees a different film each
+  // time, and a repeat visit does not always open on the same one.
   var STORIES = {
-    a: { webm: "assets/edge/story-a.webm", mp4: "assets/edge/story-a.mp4", poster: "assets/edge/poster-a.webp", tag: "STORY A" },
-    b: { webm: "assets/edge/story-b.webm", mp4: "assets/edge/story-b.mp4", poster: "assets/edge/poster-b.webp", tag: "STORY B" }
+    a:  { webm: "assets/edge/story-a.webm", mp4: "assets/edge/story-a.mp4", poster: "assets/edge/poster-a.webp", tag: "STORY A" },
+    b:  { webm: "assets/edge/story-b.webm", mp4: "assets/edge/story-b.mp4", poster: "assets/edge/poster-b.webp", tag: "STORY B" },
+    fd: { webm: "assets/edge/hero-fd.webm", mp4: "assets/edge/hero-fd.mp4", poster: "assets/edge/poster-fd.webp", tag: "FIREDEFENSE" },
+    n:  { webm: "assets/edge/hero-n.webm",  mp4: "assets/edge/hero-n.mp4",  poster: "assets/edge/poster-n.webp",  tag: "THE NETWORK" }
   };
+  var KEYS = Object.keys(STORIES);
+  function pick(except) {
+    var pool = KEYS.filter(function (k) { return k !== except; });
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
   var sources = video.querySelectorAll("source");
-  var current = Math.random() < 0.5 ? "a" : "b";
+  var current = pick(null);
+  // the film that follows is decided as soon as one starts, so its poster
+  // (a ~20KB webp) can be warmed while this one plays and the hand-over
+  // shows the right frame instantly instead of a blank screen while the
+  // next file's first bytes arrive. Only the poster is warmed: the video
+  // bytes themselves stay lazy, fetched by the <video> when it is its turn.
+  var next = null;
   var loaded = false;
 
   function setStory(key) {
     current = key;
     var s = STORIES[key];
-    sources[0].src = s.webm;
-    sources[1].src = s.mp4;
+    // index 0 is the mp4 <source> (listed first in the markup - see its
+    // comment for why: H.264 hardware-decodes far more reliably than VP9).
+    sources[0].src = s.mp4;
+    sources[1].src = s.webm;
     video.setAttribute("poster", s.poster);
     if (tagEl) tagEl.textContent = s.tag;
     video.load();
+    next = pick(key);
   }
 
   function playCurrent() {
@@ -63,9 +85,16 @@
     if (p && p.catch) p.catch(function () {});
   }
 
-  // advance to the OTHER story and keep going - the alternating loop.
+  // once the current film is actually rolling, warm the next film's poster.
+  video.addEventListener("playing", function () {
+    if (!next) return;
+    var img = new Image();
+    img.src = STORIES[next].poster;
+  });
+
+  // advance to a different film at random and keep going.
   video.addEventListener("ended", function () {
-    setStory(current === "a" ? "b" : "a");
+    setStory(next || pick(current));
     playCurrent();
   });
 
@@ -126,6 +155,14 @@
     if (state === "poweringOff") forceReflow();
     reel.classList.add("is-powering-on");
     state = "poweringOn";
+    // belt-and-suspenders: animationend normally arms ioExit (below) right
+    // on schedule (~0.85s), but if the animation is ever suppressed after
+    // this point (reduced-motion toggled live mid-session, the element
+    // display:none'd elsewhere) that event may never arrive - without it,
+    // state sticks at "poweringOn" forever with no path left to power off a
+    // video that has since scrolled off-screen. armExitObserving's own guard
+    // makes this a no-op on the normal path, where animationend always wins.
+    setTimeout(armExitObserving, 1000);
   }
 
   function powerOff() {
@@ -137,11 +174,21 @@
     state = "poweringOff";
   }
 
+  // set once the FIRST power-on animation completes (below) - ioExit only
+  // starts watching once the set is confirmed fully on, never at the same
+  // instant as ioEnter, so a position already close to ioExit's shrunk top
+  // line can't fire a conflicting powerOff() a tick after powerOn() starts.
+  var exitObserving = false;
+  function armExitObserving() {
+    if (!exitObserving && CAN_FX) { exitObserving = true; ioExit.observe(reel); }
+  }
+
   reel.addEventListener("animationend", function (e) {
     if (e.animationName === "reelPowerOn" && state === "poweringOn") {
       reel.classList.remove("is-powering-on");
       reel.classList.add("is-on");
       state = "on";
+      armExitObserving();
     } else if (e.animationName === "reelPowerOff" && state === "poweringOff") {
       reel.classList.remove("is-powering-off", "is-on");
       video.pause(); // freeze on the collapsed line, not mid-picture
@@ -190,21 +237,52 @@
       setScreenA11y(true);
     }
   } else if (CAN_FX) {
-    // Fire as the reel is APPROACHING each edge, not once it's already well
-    // past it. rootMargin is not direction-aware, so the two edges need
-    // OPPOSITE signs to both mean "sooner": a positive bottom margin grows
-    // the box downward, so entering from below counts as intersecting while
-    // still under the fold - powerOn() starts before it's actually visible.
-    // A negative top margin shrinks the box upward from the real top edge,
-    // so leaving through the top (the common case: scrolling on down the
-    // page) counts as NOT intersecting while the reel still has real
-    // clearance left - powerOff() starts well before it's actually gone.
-    var io = new IntersectionObserver(function (entries) {
+    // TWO observers, not one, each with exactly one job - a single shared
+    // rootMargin can't satisfy both "turn on reliably" and "turn off with
+    // room to see the animation finish" at once (tried that; see the
+    // history below), because they need opposite-sized top margins.
+    //
+    // ioEnter: powerOn() only, on the TRUE top edge (no shrink). This is
+    // what has to be trustworthy the instant observation starts (right
+    // after the visitor's first scroll/wheel/key gesture) - a shrunk top
+    // here previously meant a single ordinary scroll (even a Page Down)
+    // could carry the reel's position past the shrunk boundary before that
+    // first read ever happened, and it stayed stuck "off" from then on
+    // (only scrolling back up would have fixed it). The +20% bottom margin
+    // still makes entering from below fire before it's actually visible.
+    var ioEnter = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) powerOn(); });
+    }, { threshold: 0, rootMargin: "0px 0px 20% 0px" });
+    // ioExit: BOTH powerOff() and powerOn(), against a top edge shrunk by a
+    // LOT (-40%). Power-off-only was a real bug (caught in review): on a
+    // viewport shorter than 40% of the reel's shrunk zone (portrait/mobile),
+    // the reel can re-enter from below without ever re-crossing ioEnter's
+    // TRUE (unshrunk) boundary - ioEnter had already fired once and stays
+    // intersecting throughout, so nothing calls powerOn() again, and the set
+    // is stuck dark until scrolled fully past. Being bidirectional here
+    // restores that recovery path; ioEnter still owns the one read that has
+    // to be trustworthy on the very first activation.
+    //
+    // This one only ever runs after the set is already on, so it can be as
+    // eager as the close animation needs, firing while a solid chunk of the
+    // reel is still on screen instead of catching only its last sliver. It
+    // also acts on its OWN first read (unlike ioEnter) - an earlier version
+    // skipped that read to dodge an "on-then-immediately-off" case where a
+    // fast scroll during the open animation leaves the reel already past the
+    // -40% line by the time this starts watching. That skip was itself a
+    // worse bug (caught in review): if THAT swallowed read was the only
+    // moment the reel was ever out of range, nothing calls powerOff() again,
+    // and the video keeps playing off-screen indefinitely. Reacting to the
+    // first read is correct either way: if the reel is still in range it's a
+    // harmless powerOn() no-op, and if fast scrolling already carried it out
+    // of range, immediately closing again is the right response, not a flash
+    // to guard against.
+    var ioExit = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) { e.isIntersecting ? powerOn() : powerOff(); });
-    }, { threshold: 0, rootMargin: "-45% 0px 20% 0px" });
+    }, { threshold: 0, rootMargin: "-40% 0px 0px 0px" });
     // Stay collapsed on load, even if the reel is already geometrically in
     // view (a tall viewport, a mid-page anchor link) - observing only
-    // starts on the first real scroll OR a 5s fallback timer, WHICHEVER
+    // starts on the first real scroll OR a 2.5s fallback timer, WHICHEVER
     // FIRST: a visitor who never touches the page still sees the set come
     // on (so it isn't dead weight for someone reading without scrolling),
     // but a visitor who scrolls first gets the scroll-triggered version and
@@ -219,9 +297,9 @@
       if (settled) return;
       settled = true;
       clearTimeout(autoStartTimer);
-      io.observe(reel);
+      ioEnter.observe(reel); // ioExit starts once the first power-on completes, above
     }
-    var autoStartTimer = setTimeout(beginObserving, 5000);
+    var autoStartTimer = setTimeout(beginObserving, 2500);
     ["scroll", "wheel", "touchstart", "keydown"].forEach(function (type) {
       window.addEventListener(type, beginObserving, { once: true, passive: true });
     });

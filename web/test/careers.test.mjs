@@ -45,7 +45,7 @@ test("roles are grouped by the work and each names its problem and stack", () =>
   for (const group of [/research/i, /engineering/i, /industrial|deployment/i]) {
     assert.match(copy, group);
   }
-  const roles = [...page.matchAll(/<article class="role"[\s\S]*?<\/article>/g)].map((m) => m[0]);
+  const roles = [...page.matchAll(/<article class="role[ "][\s\S]*?<\/article>/g)].map((m) => m[0]);
   assert.ok(roles.length >= 3, `expected at least 3 roles, found ${roles.length}`);
   for (const role of roles) {
     const t = visible(role);

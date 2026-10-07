@@ -57,7 +57,7 @@
    hover/focus ties it to the savings story. dashboard.js sets role=button + tabindex (keyboard). */
 .ds-hero__toggle { cursor: pointer; border-bottom: 1px dotted currentColor; border-radius: 1px; transition: color .15s ease; }
 .ds-hero__toggle:hover,
-.ds-hero__toggle:focus-visible { color: var(--live); outline: none; }
+.ds-hero__toggle:focus-visible { color: var(--live-text); outline: none; }
 
 /* ---- STAT TILES: reuse .stats; just open the spacing under the hero. ---- */
 .ds-tiles { margin-top: var(--s-6); }

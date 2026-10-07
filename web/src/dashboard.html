@@ -5,7 +5,7 @@
 </head>
 <body class="auth">
   <!-- include: nav.html variant=lean home=/ scrolled=1 -->
-  <div class="authwrap">
+  <div class="authwrap tint-panel">
   <main class="card" id="card" hidden>
     <h1>Dashboard</h1>
     <p class="sub">Signed in as <b id="who">-</b> &middot; last 30 days</p>
@@ -13,9 +13,10 @@
     <!-- loading / empty / error states for the whole feed -->
     <p class="ds-state" id="dashLoading">Loading your numbers...</p>
     <p class="ds-state" id="dashError" hidden>Could not load your dashboard. Try again shortly.</p>
-    <section class="panel" id="dashEmpty" hidden>
+    <section class="acct-state tint-panel" id="dashEmpty" hidden>
       <h2>No traffic yet</h2>
       <p>Nothing has moved through your account in the last 30 days. Tune in to a model and your tokens, spend and savings will chart here.</p>
+      <p>Balance <b id="emptyBalance">-</b> &middot; <a href="/billing.html">Add credit</a> &middot; <a href="/keys.html">Make an API key</a> &middot; <a href="/stations.html">Your stations</a></p>
       <pre class="cmd">roger use &lt;model&gt;</pre>
       <p class="fine">Or put a GPU on air with <code>roger share</code> to start earning.</p>
     </section>
@@ -40,6 +41,8 @@
       <div><dt>Tokens</dt><dd id="statTok">-</dd></div>
       <div id="tileSpend" hidden><dt>Spend</dt><dd id="statSpend">-</dd></div>
       <div id="tileEarn" hidden><dt>Earned</dt><dd id="statEarn">-</dd></div>
+      <div id="tileBalance" hidden><dt><a href="/billing.html">Balance</a></dt><dd id="statBalance">-</dd></div>
+      <div id="tilePayable" hidden><dt><a href="/payouts.html">Payable now</a></dt><dd id="statPayable">-</dd></div>
     </dl>
 
     <!-- ============ SAVINGS PER DAY ============ -->
@@ -110,10 +113,8 @@ roger share</pre>
   </main>
   </div>
   <!-- include: footer.html anchors=/ -->
-  <script src="js/fmt.js"></script>
-  <script src="js/dashboard.js"></script>
-  <script src="js/site.js"></script>
-  <script src="js/session.js"></script>
-  <script src="js/promo.js"></script>
+  <script src="js/fmt.js" defer></script>
+  <script src="js/dashboard.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

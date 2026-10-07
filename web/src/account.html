@@ -5,8 +5,9 @@
 </head>
 <body class="auth">
   <!-- include: nav.html variant=lean home=/ scrolled=1 -->
-  <div class="authwrap">
+  <div class="authwrap tint-panel">
   <main class="card" id="card" hidden>
+    <p class="fine" id="pageError" role="alert" hidden>Could not load this page. Try again shortly.</p>
     <h1>Account</h1>
     <p class="sub">Signed in as <b id="who">-</b></p>
 
@@ -30,10 +31,15 @@
         <div><dt>Handle</dt><dd id="handle">-</dd></div>
       </dl>
       <dl class="ac-meta">
-        <div><dt>GitHub id</dt><dd id="ghid">-</dd></div>
+        <div><dt>Sign-in</dt><dd id="signin">-</dd></div>
+        <div><dt>Machines</dt><dd id="machines">-</dd></div>
         <div><dt>Payout status</dt><dd id="connect">-</dd></div>
         <div><dt>Member since</dt><dd id="since">-</dd></div>
       </dl>
+
+      <p class="fine" id="identityHelp">Your machines, earnings and API keys belong to the sign-in that ran
+        <code>roger login</code>. If you signed in another way and see none of them here, sign in with that one
+        instead: <a href="/login.html">switch sign-in</a>.</p>
 
       <div class="ac-field">
         <label class="ac-field__k" for="email">Contact email <span class="ac-field__opt">optional</span></label>
@@ -43,6 +49,28 @@
           <button id="saveEmail" class="ghost">Save email</button>
           <span class="fine" id="saveMsg"></span>
         </div>
+      </div>
+    </section>
+
+    <section class="panel" id="linkPanel" hidden>
+      <h2>Sign in with email too</h2>
+      <p>Add an email address to this account. Afterwards, signing in with an emailed code reaches these same
+        machines, earnings and keys. Nothing is merged: balances stay where they are.</p>
+      <p class="fine" id="linkCurrent"></p>
+      <p class="fine" id="linkNeedsLogin" hidden>This sign-in has no machines linked yet. Run <code>roger login</code>
+        on a machine with this account first, then come back.</p>
+      <div id="linkForm">
+        <div class="ac-field" id="linkStep1">
+          <label class="ac-field__k" for="linkEmail">Email address</label>
+          <input id="linkEmail" class="ac-field__in" type="email" placeholder="you@example.com" autocomplete="email" />
+          <div class="ac-field__act"><button id="linkSend" class="ghost" type="button">Send code</button></div>
+        </div>
+        <div class="ac-field" id="linkStep2" hidden>
+          <label class="ac-field__k" for="linkCode">Code from the email</label>
+          <input id="linkCode" class="ac-field__in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+          <div class="ac-field__act"><button id="linkVerify" class="ghost" type="button">Add address</button></div>
+        </div>
+        <p class="fine" id="linkMsg" role="status"></p>
       </div>
     </section>
 
@@ -85,10 +113,8 @@
   </main>
   </div>
   <!-- include: footer.html anchors=/ -->
-  <script src="js/fmt.js"></script>
-  <script src="js/account.js"></script>
-  <script src="js/site.js"></script>
-  <script src="js/session.js"></script>
-  <script src="js/promo.js"></script>
+  <script src="js/fmt.js" defer></script>
+  <script src="js/account.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

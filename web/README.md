@@ -49,6 +49,32 @@ source of the brand mark (the `[ ]` brackets + the live-red circle on-air beacon
 it. Keep the matching circle beacon in `favicon.svg`, `logo.svg` and Ping's eye
 (`ping.svg`) so the brand family stays in sync.
 
+## Wave status (one source)
+
+Every status label a page shows for a Wave tier (Pico to Exa, plus Roger Edge and Wave
+Infinite) lives in `src/data/wave-status.json`: the tier's canonical `stage` (one of
+`planned`, `base-selected`, `training`, `gated`, `on-air`, `released`, defined in `stages`),
+`publicCheckpoint`, `onAirBand`, and a `labels` map of the exact text each page shows today.
+The file is build input only and is not shipped.
+
+- **Wired labels** (`"wired": true`) are written in the page as `{{wave:<tier>.<label>}}`,
+  e.g. `{{wave:giga.research-models.chip}}`, and `build.mjs` fills them in
+  (`scripts/wave-status.mjs`). Change the `text` in the data file and every page follows.
+- **Hand-typed labels** (`"wired": false`) are prose, JSON-LD, the Playbox JS, and the
+  research-models stage lines (`test/research-hardware.test.mjs` reads those from source).
+  Edit the page and the data file together; `test/wave-status.test.mjs` fails if they drift.
+
+**Changing a tier's stage.** Set `stage` (and `publicCheckpoint` / `onAirBand` if they move),
+then update that tier's label texts. Every label text is classified into a stage in the
+`IMPLIES` table of `test/wave-status.test.mjs`; a new wording must be added there.
+
+**Founder ruling.** A tier whose labels imply different stages carries a bare
+`"ruling": "pending"` flag; the ledger test works out which labels disagree from the labels
+themselves and requires the conflicted tiers to be exactly the pending ones. When the founder
+rules: set `stage`, rewrite the tier's labels so they all imply it, delete `ruling`, and remove
+the tier from the pending list at the bottom of the test. The ledger only shrinks when the
+pages actually agree.
+
 ## Deploy
 
 Two layers (this is **not** Cloudflare Pages):
@@ -83,15 +109,17 @@ with `ROGERAI_VERSION=vX.Y.Z` or the dir with `ROGERAI_INSTALL_DIR=…`.
 
 ```
 web/
-├─ index.html          the page
-├─ install.sh          POSIX installer (the hero curl target)
-├─ styles/
-│  ├─ tokens.css        design tokens (source of truth)
-│  └─ site.css          layout & components
-├─ js/
-│  ├─ radiomap.js       Canvas2D blip-map background
-│  ├─ terminal.js       hand-built TUI replay
-│  └─ site.js           nav, reveals, copy-on-click, OS hint
+├─ build.mjs           the build: partial includes, per-page CSS bundles, cache-busting
+├─ src/
+│  ├─ *.html           the pages
+│  ├─ _partials/       shared HTML: head, nav, footer, site-js (the page runtime), ...
+│  ├─ styles/          tokens.css -> base.css -> components.css -> each page's own sheet
+│  └─ js/              site.js (the runtime) + self-initializing component modules
+├─ test/               node --test suites (npm test), incl. the design-system guards
+├─ DESIGN-SYSTEM.md    layers, tokens, components and their markup contracts
 ├─ TECH.md             tech choices + how to deploy
 └─ README.md           this file
 ```
+
+How the look is built (and how to add a page or change the theme):
+**[`DESIGN-SYSTEM.md`](DESIGN-SYSTEM.md)**.

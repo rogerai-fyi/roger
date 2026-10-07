@@ -5,7 +5,7 @@
 </head>
 <body class="auth">
   <!-- include: nav.html variant=lean home=/ scrolled=1 -->
-  <div class="authwrap">
+  <div class="authwrap tint-panel">
   <main class="card" id="card" hidden>
     <h1>API keys</h1>
     <p class="sub">Grant keys - private, labeled bearer keys (<code>rog-grant_...</code>) your
@@ -160,6 +160,14 @@
       <p class="mx-state" id="keysLoading">Loading your keys...</p>
       <p class="mx-state" id="keysEmpty" hidden>No keys yet. Mint one above, or run
         <code>roger grant create --name my-bots</code>.</p>
+      <section class="mx-state" id="keysNoOperator" hidden>
+        <h2>Keys come from a machine on air</h2>
+        <p>An API key lets someone use the models your machines serve, so it is minted by an account that has put one on air. Nothing is registered to the account you are signed in with.</p>
+        <p><b>Already sharing?</b> Sign in with the account you used for <code>roger login</code> (GitHub or Apple). <b>Not yet?</b></p>
+        <pre class="cmd">roger login
+roger share</pre>
+        <p class="fine"><a href="/login.html">Switch sign-in</a> &middot; <a href="/account.html">Account</a></p>
+      </section>
       <p class="mx-state" id="keysError" hidden>Could not load your keys. Try again shortly.</p>
     </section>
 
@@ -177,19 +185,17 @@
   <main class="card" id="gate" hidden>
     <h1>API keys</h1>
     <p class="sub">Log in to mint and manage your grant keys.</p>
-    <section class="panel">
+    <section class="acct-state tint-panel">
       <h2>Signed out</h2>
       <p>Grant keys are owner-issued: you sign in once - with GitHub, Apple, or an emailed
         code - then mint private bearer keys for your bots, family, or your own headless
         boxes. Each key is shown only once.</p>
-      <p style="margin-top:16px"><a class="gh" href="/login.html">Log in</a></p>
+      <p class="research-actions research-actions--lead"><a class="research-button" href="/login.html">Log in</a></p>
     </section>
   </main>
   </div>
   <!-- include: footer.html anchors=/ -->
-  <script src="js/keys.js"></script>
-  <script src="js/site.js"></script>
-  <script src="js/session.js"></script>
-  <script src="js/promo.js"></script>
+  <script src="js/keys.js" defer></script>
+  <!-- include: site-js.html -->
 </body>
 </html>

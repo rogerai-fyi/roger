@@ -5,7 +5,7 @@
 </head>
 <body class="auth">
   <!-- include: nav.html variant=lean home=/ scrolled=1 -->
-  <div class="authwrap">
+  <div class="authwrap tint-panel">
   <main class="card">
     <h1>Sign in</h1>
     <p class="sub">You only need an account to <b>get paid</b> for a GPU. Using models needs no sign in. Signing in unlocks your usage dashboard: spend, history, and earnings.</p>
@@ -40,12 +40,10 @@
   </main>
   </div>
   <!-- include: footer.html anchors=/ -->
-  <script src="js/fmt.js"></script>
-  <script src="js/auth.js"></script>
-  <script src="js/site.js"></script>
-  <script src="js/session.js"></script>
-  <script src="js/login-next.js"></script>
-  <script src="js/email-login.js"></script>
-  <script src="js/promo.js"></script>
+  <script src="js/fmt.js" defer></script>
+  <script src="js/auth.js" defer></script>
+  <!-- include: site-js.html -->
+  <script src="js/login-next.js" defer></script>
+  <script src="js/email-login.js" defer></script>
 </body>
 </html>

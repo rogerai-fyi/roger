@@ -17,10 +17,7 @@
 <body data-onair="idle">
 
   <!-- running head: this page is one bound document -->
-  <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI &middot; The Console</span>
-    <span class="rail__rev">Rev. 2026.08 &middot; ((&bull;))</span>
-  </div>
+  <!-- include: rail.html head="RogerAI &middot; The Console" rev="Rev. 2026.08 &middot; ((&bull;))" -->
 
   <!-- ============================ NAV ============================ -->
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 playboxcurrent='aria-current="page"' -->
@@ -31,7 +28,7 @@
     <section class="pg-hero">
       <div class="wrap pg-hero__inner">
         <span class="hero__eyebrow" data-reveal>
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <!-- include: onair.html -->
           <span class="hero__callsign">THE PLAYBOX</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <span id="pgHeroKicker">open the console</span>
@@ -706,12 +703,9 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
-  <script src="js/lets-talk.js" defer></script>
-  <script src="js/site.js" defer></script>
-  <script src="js/session.js" defer></script>
+  <!-- include: site-js.html -->
   <script src="js/playbox.js" defer></script>
   <script src="js/wave-patch.js" defer></script>
   <script src="js/wave-factory.js" defer></script>
-  <script src="js/promo.js" defer></script>
 </body>
 </html>

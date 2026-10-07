@@ -18,7 +18,10 @@ Feature: Every landing surface tells the network's real story
 
   Scenario: The homepage tells the unlinking, the two earn paths, and the tower
     When the homepage renders
-    Then it says the upstream sees a station, never you
+    # a hero subhead clause making this same claim ("sees" not "hears") was
+    # dropped 2026-09-11 - nothing moved, the pre-existing PRIVACY-FIRST
+    # AIRWAVES section headline already stated it, so one placement remains
+    Then it says the provider hears a station, never you
     And the monetize section names both transmitters: your GPU and your contracts
     And the tower section offers the 5 percent relay and the free standalone exit
     And the comparison tease concedes when going direct is cheaper

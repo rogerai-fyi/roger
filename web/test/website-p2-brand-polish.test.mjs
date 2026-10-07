@@ -184,7 +184,7 @@ test("a link inside a sentence looks like a link, on every page", () => {
   const rule = css.slice(css.indexOf("p > a:not([class]),"));
   assert.match(rule.slice(0, 300), /border-bottom: 1px solid color-mix\(in srgb, var\(--live\) 55%, transparent\)/,
     "at rest the link wears a live hairline, not a full underline");
-  assert.match(rule.slice(0, 900), /:hover \{ color: var\(--live\); border-bottom-color: var\(--live\); \}/,
+  assert.match(rule.slice(0, 900), /:hover \{ color: var\(--live-text\); border-bottom-color: var\(--live\); \}/,
     "hover commits to full live");
   assert.match(rule.slice(0, 1400), /:focus-visible \{[\s\S]{0,160}outline: 2px solid var\(--live\)/,
     "keyboard focus is at least as loud as hover");
