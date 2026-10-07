@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/lanmode"
 )
 
 // TestTargetsLANTowerEveryLocalAddress: the replay nonce goes to every address the LAN check
@@ -42,10 +44,10 @@ func TestTargetsLANTowerEveryLocalAddress(t *testing.T) {
 	} {
 		u, err := url.Parse(tc.raw)
 		require.NoError(t, err, tc.raw)
-		require.Equal(t, tc.want, targetsLANTower(u), tc.raw)
+		require.Equal(t, tc.want, lanmode.WantsNonce(u, lanTowerHostList()), tc.raw)
 	}
 	SetLANTowerHosts(nil)
 	u, _ := url.Parse("http://100.64.10.20:8787/discover")
-	require.False(t, targetsLANTower(u), "with no hand-added Towers a CGNAT address gets no nonce")
-	require.False(t, targetsLANTower(nil))
+	require.False(t, lanmode.WantsNonce(u, lanTowerHostList()), "with no hand-added Towers a CGNAT address gets no nonce")
+	require.False(t, lanmode.WantsNonce(nil, lanTowerHostList()))
 }

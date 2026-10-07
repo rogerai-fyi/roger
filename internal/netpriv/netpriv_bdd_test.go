@@ -30,7 +30,7 @@ var siteFiles = map[string]string{
 	"tower bind":                   "internal/localplane/bind.go",
 	"tower egress allow-list":      "internal/tower/egress.go",
 	"lan add":                      "internal/lanmode/lanmode.go",
-	"client nonce decision":        "internal/client/identity.go",
+	"client nonce decision":        "internal/lanmode/lanmode.go", // lanmode.WantsNonce
 	"edge advert":                  "internal/edge/wire/advert.go",
 	"edge listener":                "cmd/rogerai/edgebind.go",
 	"tower advertise":              "cmd/roger-tower-local/advertise.go",

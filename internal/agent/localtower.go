@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -220,6 +221,15 @@ func completeLocalJob(c *http.Client, broker string, priv ed25519.PrivateKey, jo
 // captured, and a nonce is harmless where it could not (the Tower still just accepts the first
 // use). body must be exactly what is sent (nil for the empty-bodied poll).
 func signLocal(req *http.Request, body []byte, priv ed25519.PrivateKey) {
+	// The Tower this station was pointed at is a known standalone Tower: the one nonce
+	// decision gives it a nonce over plain http, loopback included, and none over https.
+	if !lanmode.WantsNonce(req.URL, []string{req.URL.Host}) {
+		pubHex, ts, sigHex := protocol.SignRequest(priv, req.Method, req.URL.Path, body)
+		req.Header.Set(protocol.HeaderPubkey, pubHex)
+		req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+		req.Header.Set(protocol.HeaderSig, sigHex)
+		return
+	}
 	nonce := protocol.NewNonce()
 	pubHex, ts, sigHex := protocol.SignRequestNonce(priv, req.Method, req.URL.Path, body, nonce)
 	req.Header.Set(protocol.HeaderPubkey, pubHex)

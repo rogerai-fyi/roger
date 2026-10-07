@@ -88,6 +88,41 @@ func Decide(flagLAN, flagNoLAN bool, env string, envSet bool, cfgMode string) (M
 	return Mode{Source: SrcDefault}, nil
 }
 
+// WantsNonce is THE nonce decision (features/packaging/one_binary.feature section 7.6): whether
+// a signed request carries a replay nonce. Every standalone Tower gets one, loopback included
+// (ruled 2026-10-07):
+//   - plaintext http to a non-loopback address the one rule (internal/netpriv) calls local:
+//     RFC 1918, ULA and link-local, zoned IPv6 included; or
+//   - plaintext http to a Tower in known (host:port, a bare host, or an http URL): one the owner
+//     added (`roger lan add`, how a CGNAT, loopback or named Tower is known), the broker setting
+//     when it is a standalone Tower, or the Tower a share station was pointed at.
+//
+// A loopback address is not assumed to be a Tower: other services there (a Core-joined Tower's
+// hub, a test broker) verify signatures without a nonce. https (the public broker) and any
+// public host never get one. Both signers ask this: the client's signWithKey and the share
+// station's signLocal.
+func WantsNonce(u *url.URL, known []string) bool {
+	if u == nil || u.Scheme != "http" {
+		return false
+	}
+	host, port := u.Hostname(), u.Port()
+	if port == "" {
+		port = "80"
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		switch netpriv.ClassifyAddr(ip) {
+		case netpriv.Private, netpriv.ULA, netpriv.LinkLocal:
+			return true
+		}
+	}
+	for _, a := range known {
+		if t, err := ParseAddr(a); err == nil && strings.EqualFold(t.Host, host) && t.Port == port {
+			return true
+		}
+	}
+	return false
+}
+
 // IsLocalIP is LAN mode's local check: the one rule (internal/netpriv) with CGNAT excluded,
 // which is not local unless the owner added it by hand (ruled 2026-10-06).
 func IsLocalIP(ip net.IP) bool { return netpriv.IsLocal(ip, false) }

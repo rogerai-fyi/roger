@@ -9,12 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"net/netip"
-	"net/url"
 	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/netpriv"
 	"rogerai.fm/roger/v6/internal/protocol"
-	"strings"
 	"sync/atomic"
 )
 
@@ -83,11 +79,11 @@ func signRequest(req *http.Request, body []byte) {
 }
 
 // signWithKey signs req with priv. When the target is a LAN Tower (plaintext http to a local
-// address: see targetsLANTower), it binds a fresh per-request NONCE into the signature and sends
+// address: see lanmode.WantsNonce), it binds a fresh per-request NONCE into the signature and sends
 // it in X-Roger-Nonce, so the Tower's replay guard can refuse a captured request resent within
 // the freshness window. Everywhere else it signs the plain way.
 func signWithKey(req *http.Request, body []byte, priv ed25519.PrivateKey) {
-	if targetsLANTower(req.URL) {
+	if lanmode.WantsNonce(req.URL, lanTowerHostList()) {
 		nonce := protocol.NewNonce()
 		pubHex, ts, sigHex := protocol.SignRequestNonce(priv, req.Method, req.URL.Path, body, nonce)
 		req.Header.Set(protocol.HeaderPubkey, pubHex)
@@ -116,40 +112,12 @@ func SetLANTowerHosts(fn func() []string) {
 	lanTowerHosts.Store(&fn)
 }
 
-// targetsLANTower reports whether a request goes to a standalone Tower and so carries a replay
-// nonce (ruled 2026-10-07: every standalone Tower gets one, loopback included):
-//   - plaintext http to a non-loopback address the one rule (internal/netpriv) calls local:
-//     RFC 1918, ULA and link-local, zoned IPv6 included, the same rule `roger lan add` and the
-//     LAN dial use; or
-//   - plaintext http to a Tower the CLI knows by host and port: one the owner added with
-//     `roger lan add` (how a CGNAT, loopback or named Tower is known) or the broker setting when
-//     it is a standalone Tower.
-//
-// A loopback address is not assumed to be a Tower: other services there (a Core-joined Tower's
-// hub, a test broker) verify signatures without a nonce, so loopback gets one only when it is a
-// known standalone Tower. https (the public broker) and any public host never get a nonce.
-func targetsLANTower(u *url.URL) bool {
-	if u == nil || u.Scheme != "http" {
-		return false
-	}
-	host, port := u.Hostname(), u.Port()
-	if port == "" {
-		port = "80"
-	}
-	if ip, err := netip.ParseAddr(host); err == nil {
-		switch netpriv.ClassifyAddr(ip) {
-		case netpriv.Private, netpriv.ULA, netpriv.LinkLocal:
-			return true
-		}
-	}
+// lanTowerHostList is the known standalone Towers, for the nonce decision.
+func lanTowerHostList() []string {
 	if fn := lanTowerHosts.Load(); fn != nil {
-		for _, a := range (*fn)() {
-			if t, err := lanmode.ParseAddr(a); err == nil && strings.EqualFold(t.Host, host) && t.Port == port {
-				return true
-			}
-		}
+		return (*fn)()
 	}
-	return false
+	return nil
 }
 
 // itoa is a tiny helper (avoid importing strconv just for one call site here).
