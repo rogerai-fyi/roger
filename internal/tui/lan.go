@@ -250,3 +250,121 @@ func lanTrustTag(bd band) string {
 	}
 	return tag
 }
+
+// lanFlagsW is what a LAN dial row's flags cell can take: a badge, "FREE" and "unverified".
+const lanFlagsW = 20
+
+// lanSourceW is the wide LAN dial's source column: the room left after the band, on-air and
+// flags cells (a LAN row has no price, signal, ctx or t/s column: none of them carries data on
+// the LAN), at most enough for "tower: 192.168.100.200".
+func (m model) lanSourceW(w int) int {
+	n := w - 2 - m.bandNameW() - 2 - 9 - 2 - 2 - lanFlagsW
+	switch {
+	case n > 23:
+		return 23
+	case n < 6:
+		return 6
+	}
+	return n
+}
+
+// lanSourceCell is a row's source column: where the band is served, by label.
+func lanSourceCell(bd band) string {
+	if bd.cheapest == nil {
+		return ""
+	}
+	return bd.cheapest.LANSource
+}
+
+// lanWideRow is one wide LAN dial row: band, on air, source and flags (with the trust word).
+func (m model) lanWideRow(bd band, w, nameW int, stationsLbl string, sel, connected bool, tableW int) string {
+	srcW := m.lanSourceW(w)
+	src := pad(truncVisible(lanSourceCell(bd), srcW), srcW)
+	if sel {
+		plain := fmt.Sprintf("%s  %s  %s  %s", bandNameCellAt(bd, nameW, m.marqueeOff()), pad(stationsLbl, 9), src,
+			plainBandBadge(bd, m.limits, connected)+lanTrustTag(bd))
+		return m.caratGutter() + rowSel(true, plain, tableW) + "\n"
+	}
+	nameCell, statCell := stDim.Render(bandNameCell(bd, nameW)), stDim.Render(pad(stationsLbl, 9))
+	if connected {
+		nameCell, statCell = stKey.Render(bandNameCell(bd, nameW)), stRed.Render(pad(stationsLbl, 9))
+	}
+	return selCarat(false) + " " + nameCell + "  " + statCell + "  " + stEmber.Render(src) + "  " +
+		bandBadge(bd, m.limits, connected) + stDim.Render(lanTrustTag(bd)) + "\n"
+}
+
+// narrowPriceCell is the narrow dial's price column, or in LAN mode the source, cut to what the
+// row has left after the band, on-air, FREE and trust cells so the row never overflows w.
+func (m model) narrowPriceCell(bd band, w, nameW int) string {
+	if !LANMode() {
+		return rangeStr(bd)
+	}
+	left := w - 4 - nameW - 2 - 9 - 2 - len("  FREE") - len(lanTrustTag(bd))
+	if left < 4 {
+		return "" // no room left: the row fits first; the plate and [i] still name the source
+	}
+	if left > 23 {
+		left = 23
+	}
+	return pad(truncVisible(lanSourceCell(bd), left), left)
+}
+
+// lanEdgeUnreadLine notes, under a LAN dial, that this Edge's record could not be read: its
+// members' bands may be missing, so the dial never reads as "the Edge serves nothing".
+func lanEdgeUnreadLine(w int) string {
+	lanMu.RLock()
+	why := lanEdgeUnread
+	lanMu.RUnlock()
+	if why == "" {
+		return ""
+	}
+	return "  " + truncVisible(stEmber.Render("the Edge could not be read: ")+stDim.Render(why), w-4) + "\n"
+}
+
+// lanEmptyView is the empty LAN dial (features/lan/discovery_and_dial.feature §5): it says no
+// local band is on air, what it checked, and the three ways to get one. It never falls back to
+// the market. An Edge whose record could not be read is reported as unread, not as checked.
+func (m model) lanEmptyView(w int) string {
+	lanMu.RLock()
+	unread := lanEdgeUnread
+	towers := append([]client.LANTowerStatus(nil), lanTowerStatus...)
+	lanMu.RUnlock()
+	checked := []string{"this machine"}
+	if unread == "" {
+		checked = append(checked, "this Edge's members")
+	}
+	nTowers := 0
+	for _, st := range towers {
+		if st.State != client.LANTowerCandidate {
+			nTowers++
+		}
+	}
+	checked = append(checked, fmt.Sprintf("LAN Towers (%d configured)", nTowers))
+	line := func(s string) string { return "  " + truncVisible(s, w-4) + "\n" }
+	var b strings.Builder
+	b.WriteString("\n" + line(stDim.Render("no local band is on air")))
+	if m.compact {
+		b.WriteString(line(stDim.Render("checked " + strings.Join(checked, ", "))))
+		return b.String()
+	}
+	b.WriteString(line(stDim.Render("checked: " + strings.Join(checked, ", "))))
+	if unread != "" {
+		b.WriteString(lanEdgeUnreadLine(w))
+	}
+	for _, st := range towers {
+		if st.State == client.LANTowerCandidate || st.State == client.LANTowerAnswering {
+			continue
+		}
+		b.WriteString(line(stDim.Render("tower " + lanTowerHost(st.Addr) + ": " + string(st.State))))
+	}
+	b.WriteString(line(stDim.Render("to get one:")))
+	for _, way := range [][2]string{
+		{"serve a model here", "roger model serve"},
+		{"add an Edge member", "roger edge adopt"},
+		{"add a Tower", "roger lan add <addr>"},
+	} {
+		b.WriteString(line(stDim.Render("  · ") + stKey.Render(way[0]) + stDim.Render("  "+way[1])))
+	}
+	b.WriteString(m.lanCandidateView(w))
+	return b.String()
+}

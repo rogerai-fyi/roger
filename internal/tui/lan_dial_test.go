@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/client"
@@ -69,4 +70,40 @@ func TestNewControllerPutsShareInLANMode(t *testing.T) {
 	if res.Err == nil || !strings.Contains(res.Err.Error(), "LAN mode") {
 		t.Fatalf("a private band in LAN mode: %+v", res)
 	}
+}
+
+// TestLANDialFitsEveryWidth: the source column never pushes a LAN dial row past the terminal,
+// at narrow, wide and windowshade widths, and each row still names its source where it fits.
+func TestLANDialFitsEveryWidth(t *testing.T) {
+	s := &lanUIBDD{t: t}
+	s.reset()
+	s.bands = append(s.bands, client.LANBand{Model: "deepseek-v4-flash-long-name",
+		Sources: []client.LANSource{{Kind: client.LANTower, ID: "192.168.100.200:8787", Addr: "192.168.100.200:8787"}}})
+	defer SetLANDial(nil)
+	for _, w := range []int{52, 60, 63, 64, 80, 100} {
+		for _, compact := range []bool{false, true} {
+			s.seed(w, "http://broker.invalid")
+			s.m.compact = compact
+			out := stripANSI(s.m.browseView(w))
+			for _, ln := range strings.Split(out, "\n") {
+				require.LessOrEqual(t, lipgloss.Width(ln), w, "w=%d compact=%v overflows: %q", w, compact, ln)
+			}
+			if !compact && w >= 64 {
+				require.Contains(t, lanRow(out, "qwen3-8b"), "this machine", "w=%d", w)
+			}
+		}
+	}
+}
+
+// TestLANDialNotesAnUnreadEdgeUnderItsBands: a dial with bands still says the Edge could not be
+// read, so a missing member band never looks like a member serving nothing.
+func TestLANDialNotesAnUnreadEdgeUnderItsBands(t *testing.T) {
+	s := &lanUIBDD{t: t}
+	s.reset()
+	s.edgeUnread = "open edge.json: permission denied"
+	defer SetLANDial(nil)
+	s.seed(100, "http://broker.invalid")
+	out := stripANSI(s.m.browseView(100))
+	require.Contains(t, out, "the Edge could not be read: open edge.json: permission denied")
+	require.NotEmpty(t, lanRow(out, "qwen3-8b"))
 }

@@ -23,10 +23,12 @@ import (
 )
 
 type lanUIBDD struct {
-	t     *testing.T
-	m     model
-	out   string
-	bands []client.LANBand
+	t          *testing.T
+	m          model
+	out        string
+	bands      []client.LANBand
+	edgeUnread string
+	asked      bool // the recording broker saw a request
 }
 
 func (s *lanUIBDD) reset() {
@@ -35,7 +37,8 @@ func (s *lanUIBDD) reset() {
 		{Model: "gpt-oss-20b", Sources: []client.LANSource{{Kind: client.LANEdge, ID: "jetson", Verified: true}}},
 		{Model: "llama-3.3-70b", Sources: []client.LANSource{{Kind: client.LANTower, ID: "192.168.1.20:8787", Addr: "192.168.1.20:8787"}}},
 	}
-	SetLANDial(func() client.LANDial { return client.LANDial{Bands: s.bands} })
+	s.edgeUnread, s.asked = "", false
+	SetLANDial(func() client.LANDial { return client.LANDial{Bands: s.bands, EdgeUnread: s.edgeUnread} })
 	s.out = ""
 }
 
@@ -75,6 +78,9 @@ func TestLANUIBDD(t *testing.T) {
 		paths = append(paths, fmt.Sprintf("../../features/lan/money_and_accounts.feature:%d", l))
 	}
 	paths = append(paths, "../../features/lan/share_in_lan_mode.feature:64")
+	for _, l := range []int{220, 228, 330, 341} {
+		paths = append(paths, fmt.Sprintf("../../features/lan/discovery_and_dial.feature:%d", l))
+	}
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { s.reset(); return ctx, nil })
@@ -174,9 +180,88 @@ func TestLANUIBDD(t *testing.T) {
 				}
 				return nil
 			})
+			// discovery_and_dial: the dial's rows, and the empty LAN as a status.
+			sc.Step(`^the same three sources$`, func() error { return nil })
+			sc.Step(`^the dial renders at (\d+) columns$`, func(w int) error {
+				s.seedRecorded(w)
+				s.out = stripANSI(s.m.browseView(w))
+				return nil
+			})
+			sc.Step(`^the "([^"]*)" row's source reads "([^"]*)"$`, func(band, want string) error {
+				row := lanRow(s.out, band)
+				if row == "" {
+					return fmt.Errorf("no %q row:\n%s", band, s.out)
+				}
+				if !strings.Contains(row, want) {
+					return fmt.Errorf("the %q row does not name its source %q: %q", band, want, row)
+				}
+				return nil
+			})
+			sc.Step(`^no row shows a \$/1M price$`, func() error {
+				if strings.Contains(s.out, "$/1M") || regexp.MustCompile(`(^|\s)\$?\d+\.\d\d(\s|$)`).MatchString(s.out) {
+					return fmt.Errorf("the LAN dial shows a price:\n%s", s.out)
+				}
+				return nil
+			})
+			sc.Step(`^each row shows "([^"]*)"$`, func(want string) error {
+				for _, b := range s.bands {
+					if row := lanRow(s.out, b.Model); !strings.Contains(strings.ToLower(row), want) {
+						return fmt.Errorf("the %q row does not show %q: %q", b.Model, want, row)
+					}
+				}
+				return nil
+			})
+			sc.Step(`^this machine serves nothing$`, func() error { s.bands = nil; return nil })
+			sc.Step(`^this Edge has no member serving a band$`, func() error { return nil })
+			sc.Step(`^lan_towers is empty and the broker setting is not local$`, func() error { return nil })
+			sc.Step(`^the Edge record cannot be read$`, func() error {
+				s.bands, s.edgeUnread = nil, "open edge.json: permission denied"
+				return nil
+			})
+			sc.Step(`^it says no local band is on air$`, func() error { return s.outHas("no local band is on air") })
+			sc.Step(`^it says what it checked: this machine, the Edge, and Towers$`, func() error {
+				line := lanLineWith(s.out, "checked")
+				for _, w := range []string{"this machine", "Edge", "Tower"} {
+					if !strings.Contains(line, w) {
+						return fmt.Errorf("the checked line does not name %q: %q\n%s", w, line, s.out)
+					}
+				}
+				return nil
+			})
+			sc.Step(`^it names the three ways to get one: serve a model here, add an Edge member, add a Tower$`, func() error {
+				for _, w := range []string{"serve a model here", "add an Edge member", "add a Tower"} {
+					if err := s.outHas(w); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			sc.Step(`^it does not show market bands as a fallback$`, func() error {
+				for _, w := range []string{"no stations on air", "OPEN MARKET", "broker"} {
+					if strings.Contains(s.out, w) {
+						return fmt.Errorf("the empty LAN dial reads like the market (%q):\n%s", w, s.out)
+					}
+				}
+				if s.asked {
+					return fmt.Errorf("the empty LAN dial asked the broker")
+				}
+				return nil
+			})
+			sc.Step(`^it says the Edge could not be read, with the reason$`, func() error {
+				if err := s.outHas("Edge could not be read"); err != nil {
+					return err
+				}
+				return s.outHas("permission denied")
+			})
+			sc.Step(`^it does not claim the Edge serves nothing$`, func() error {
+				if line := lanLineWith(s.out, "checked"); strings.Contains(line, "Edge") {
+					return fmt.Errorf("an unread Edge is listed as checked: %q", line)
+				}
+				return nil
+			})
 			sc.Step(`^the dial renders$`, func() error {
-				s.seed(120, "http://broker.invalid")
-				s.out = s.m.View()
+				s.seedRecorded(120)
+				s.out = stripANSI(s.m.View())
 				return nil
 			})
 			sc.Step(`^its title names LAN$`, func() error {
@@ -286,4 +371,42 @@ func TestLANUIBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("LAN UI scenarios failed")
 	}
+}
+
+// seedRecorded renders a LAN TUI at width w against a recording broker, so a step can say the
+// broker was never asked.
+func (s *lanUIBDD) seedRecorded(w int) {
+	broker := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		s.asked = true
+		_, _ = rw.Write([]byte(`{"offers":[{"model":"market-band","node_id":"n1","online":true}]}`))
+	}))
+	s.t.Cleanup(broker.Close)
+	s.seed(w, broker.URL)
+}
+
+func (s *lanUIBDD) outHas(want string) error {
+	if !strings.Contains(s.out, want) {
+		return fmt.Errorf("it does not say %q:\n%s", want, s.out)
+	}
+	return nil
+}
+
+// lanRow is the dial line naming band, or "".
+func lanRow(out, band string) string {
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, " "+band+" ") || strings.HasSuffix(strings.TrimRight(ln, " "), " "+band) {
+			return ln
+		}
+	}
+	return ""
+}
+
+// lanLineWith is the first line containing want, or "".
+func lanLineWith(out, want string) string {
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, want) {
+			return ln
+		}
+	}
+	return ""
 }
