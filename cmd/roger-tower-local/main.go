@@ -9,12 +9,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/localplane"
@@ -38,9 +40,10 @@ func main() {
 // the serve loop keeps every decision that can fail - flags, bind posture, mode, lock, bind -
 // testable without standing up a blocking server.
 type prepared struct {
-	srv     *http.Server
-	ln      net.Listener
-	release func() error
+	srv       *http.Server
+	ln        net.Listener
+	release   func() error
+	advertise func(context.Context) // nil unless --advertise and the bind is a private address
 }
 
 // prepare validates flags and the bind posture, opens the standalone Tower, takes its lock,
@@ -52,6 +55,8 @@ func prepare(args []string, out io.Writer) (*prepared, error) {
 	dir := fs.String("dir", "", "standalone Tower data directory")
 	bind := fs.String("bind", localplane.DefaultBind, "address to listen on (host:port); loopback by default")
 	allowPublic := fs.Bool("allow-public", false, "acknowledge binding a public or all-interfaces address (a broker lookalike risk)")
+	advertise := fs.Bool("advertise", false, "announce this Tower by mDNS on private networks, so LAN-mode clients list it as a candidate")
+	label := fs.String("label", "", "the name a --advertise announcement carries (default: this machine's hostname)")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -82,7 +87,7 @@ func prepare(args []string, out io.Writer) (*prepared, error) {
 		return nil, err
 	}
 
-	ln, err := net.Listen("tcp", addr)
+	ln, err := towerListen("tcp", addr)
 	if err != nil {
 		_ = release()
 		return nil, fmt.Errorf("cannot listen on %s: %w", addr, err)
@@ -91,7 +96,20 @@ func prepare(args []string, out io.Writer) (*prepared, error) {
 	fmt.Fprintf(out, "serving the standalone consumer plane on http://%s\n", ln.Addr())
 	fmt.Fprintf(out, "point a client at it with: roger config set broker http://%s\n", ln.Addr())
 
+	var adv func(context.Context)
+	if *advertise {
+		host, portStr, _ := net.SplitHostPort(addr)
+		port, _ := strconv.Atoi(portStr)
+		if port == 0 { // an OS-chosen port: announce the one actually bound
+			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+				port = tcp.Port
+			}
+		}
+		adv = advertiser(host, port, *label, out)
+	}
+
 	return &prepared{
+		advertise: adv,
 		// MaxHeaderBytes well below the 1 MiB default: the plane's signing headers are small, and a
 		// tight cap stops an unauthenticated caller from making the Tower buffer a large header.
 		srv:     &http.Server{Handler: localplane.New(st).Handler(), ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10},
@@ -103,6 +121,11 @@ func prepare(args []string, out io.Writer) (*prepared, error) {
 // serve runs the bound plane until the server is closed, then releases the directory lock.
 func (p *prepared) serve() error {
 	defer func() { _ = p.release() }()
+	if p.advertise != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go p.advertise(ctx)
+	}
 	if serr := p.srv.Serve(p.ln); serr != nil && serr != http.ErrServerClosed {
 		return serr
 	}
