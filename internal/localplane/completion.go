@@ -87,14 +87,10 @@ func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool)
 	return found, true
 }
 
-// chatRequest is the one field the plane reads from a consumer request: the model. Everything
-// else in the body is opaque and passed to the station verbatim. Notably, the plane reads NO
-// RogerAI account, wallet, X-Roger-Freq band, or grant key from the request - none of it
-// authenticates or routes anything here, and none is echoed back.
-type chatRequest struct {
-	Model string `json:"model"`
-}
-
+// The plane reads only the model and the routing carriers from a consumer request; the rest
+// of the body is opaque and passed to the station verbatim. It reads NO RogerAI account,
+// wallet, X-Roger-Freq band, or grant key - none of it authenticates or routes anything here.
+//
 // chatCompletions serves one completion by routing it to a LOCAL station and waiting for the
 // station to poll, run it, and return the answer. The Tower dials nobody: the answer arrives
 // because a station connected in. An Open Market model this Tower does not host is refused
@@ -181,17 +177,16 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	jobID := randID()
 	j := s.q.submitRouted(jobID, model, lr.jobBody(model), lr.admits, lr.preferredFor(stations, model), s.pollTimeout)
-	req := chatRequest{Model: model}
 	select {
 	case res := <-j.result:
-		s.writeAnswer(w, clientKeyHash, req.Model, res)
+		s.writeAnswer(w, clientKeyHash, model, res)
 	case <-r.Context().Done():
 		// The consumer disconnected. Abandon so the job neither leaks nor is later run as stale
 		// work; but if a station delivered in the same instant, still record the receipt (the
 		// work happened) - there is just no socket left to write the answer to.
 		s.q.abandon(jobID)
 		if res, ok := drain(j); ok {
-			_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, req.Model)
+			_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, model)
 		}
 	case <-time.After(s.completionTimeout):
 		// Abandon FIRST, then drain - the same order as the disconnect branch. complete delivers
@@ -201,7 +196,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// 504 while the station believes it succeeded, with no racy window either way.
 		s.q.abandon(jobID)
 		if res, ok := drain(j); ok {
-			s.writeAnswer(w, clientKeyHash, req.Model, res)
+			s.writeAnswer(w, clientKeyHash, model, res)
 			return
 		}
 		writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": "no local station served this request in time"})
