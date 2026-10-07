@@ -295,3 +295,24 @@ func TestLocalRoutingParityWithTheBroker(t *testing.T) {
 	_, e = parseLocalRouting([]byte(`{"model":"a","roger":{"profile":"@profile/x"}}`), false)
 	require.Equal(t, "unknown_profile", e.code)
 }
+
+// TestLocalModelsEntriesFollowTheBrokerRules: a padded models[] entry is invalid, a profile
+// reference in models[] is the client's (unknown_profile), and a null max_price.image is
+// absent (as the broker drops it), while a priced one is still refused.
+func TestLocalModelsEntriesFollowTheBrokerRules(t *testing.T) {
+	_, e := parseLocalRouting([]byte(`{"model":"a","models":[" b"]}`), false)
+	require.NotNil(t, e, "a padded entry")
+	_, e = parseLocalRouting([]byte(`{"model":"a","models":["@profile/x"]}`), false)
+	require.NotNil(t, e)
+	require.Equal(t, "unknown_profile", e.code)
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"image":null}}}`), false)
+	require.Nil(t, e, "a null image price is absent")
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"image":1}}}`), false)
+	require.NotNil(t, e)
+}
+
+// TestLocalUnknownMaxPriceKeyIsRefusedEvenWhenNull: only a known key's null is absent.
+func TestLocalUnknownMaxPriceKeyIsRefusedEvenWhenNull(t *testing.T) {
+	_, e := parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"tokens":null}}}`), false)
+	require.NotNil(t, e)
+}

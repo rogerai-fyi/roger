@@ -300,11 +300,16 @@ func validateProvider(p map[string]any) error {
 			return fmt.Errorf("provider.max_price must be an object")
 		}
 		for k, pv := range mp {
-			if !profileMaxPriceKeys[k] {
+			// As on the broker: an unknown key is refused even when null; a known one that is
+			// null is absent, image included (no image pricing exists, so a priced one is refused).
+			if !profileMaxPriceKeys[k] && k != "image" {
 				return fmt.Errorf("provider.max_price.%s is not supported", k)
 			}
 			if pv == nil {
 				continue
+			}
+			if !profileMaxPriceKeys[k] {
+				return fmt.Errorf("provider.max_price.%s is not supported", k)
 			}
 			f, isNum := pv.(float64)
 			if !isNum || f < 0 || math.IsInf(f, 0) || math.IsNaN(f) {

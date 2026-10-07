@@ -154,8 +154,11 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		}
 		for _, e := range list {
 			id, isStr := e.(string)
-			if !isStr || strings.TrimSpace(id) == "" {
+			if !isStr || strings.TrimSpace(id) == "" || id != strings.TrimSpace(id) { // padded: refused, as on the broker
 				return lr, &routeErr{status: 400, msg: "models must be a list of model ids"}
+			}
+			if strings.HasPrefix(id, "@profile/") {
+				return lr, &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
 			}
 			if len(id) > maxModelID {
 				return lr, &routeErr{status: 400, msg: fmt.Sprintf("a model id longer than %d characters", maxModelID)}
