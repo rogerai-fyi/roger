@@ -88,7 +88,7 @@ Feature: The field guide that turns the Tower into something a person can run
   # superseded 2026-10-07 by founder ruling (one binary): a Tower is `roger tower`, installed with
   # the normal roger installer; standalone runs everywhere, joined on Linux only.
   Scenario: The install surface matches what the release actually ships
-    Then the article prints the normal roger installer line and teaches `roger tower` commands, not `roger-tower`
+    Then the article prints the normal roger installer line and teaches `roger tower` commands, not the old separate Tower program
     And it says a standalone Tower runs on Linux, macOS and Windows and a joined Tower on Linux only
     And it never tells the reader a Tower needs a GPU
 

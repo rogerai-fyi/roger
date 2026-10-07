@@ -97,7 +97,7 @@ Feature: The tower explains how a request is routed, metered and guaranteed
   Scenario: The page offers the Tower it describes
     Then the page offers the normal copyable roger install command, not a separate Tower component
     And it names `roger tower` as the way to run a Tower once roger is installed
-    And it links the published roger release and the checksums that verify it, and no roger-tower asset
+    And it links the published roger release and the checksums that verify it, and no separate Tower asset
     And it states that a standalone Tower runs on Linux, macOS and Windows
     And it states that a joined Tower runs on Linux only, because it is a long-running server process on the public network
     And it states the share a Tower operator earns on a settled request
