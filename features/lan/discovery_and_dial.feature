@@ -35,8 +35,7 @@
 #       fingerprint (today's isLocalTowerBroker probe: /local/poll -> exactly the uniform 401);
 #   (c) mDNS: a standalone Tower may advertise itself on the LAN, and LAN mode lists what it
 #       hears as CANDIDATES the owner adds with one action. It is never used until added.
-#   # superseded 2026-10-07 by founder ruling (one binary): the command is `roger tower serve --advertise`.
-#   # RULED 2026-10-06: a standalone Tower may advertise over mDNS, OFF by default on
+#   # RULED 2026-10-06 (command superseded 2026-10-07, one binary): a Tower may advertise, OFF by default on
 #   # the Tower (`roger tower serve --advertise`), private interfaces only, and candidates
 #   # are never dialed for inference until the owner adds them (one keystroke in the TUI, one
 #   # command in the CLI). This keeps the approved standalone scenario "the Tower's own
@@ -99,11 +98,11 @@ Feature: In LAN mode the dial lists only bands served on this machine, by this E
     Then "tower.lan" is not dialed
     And its row is shown as refused, naming "resolves to a public address"
 
-  # corrected 2026-10-06 (founder-approved): the client's check is the private-address check
-  # (localplane.IsPrivateAddr) plus link-local.
+  # corrected 2026-10-06 (founder-approved); superseded 2026-10-07 by founder ruling (one binary):
+  # the plane's private-address set now lives in internal/netpriv (IsHome), plus link-local.
   @client
   Scenario: the predicate is the one the plane already uses, not a second copy
-    Then the client's check is the private-address check (localplane.IsPrivateAddr) plus link-local, for every address in the classification table
+    Then the client's check is the private-address check (netpriv.IsHome) plus link-local, for every address in the classification table
 
   # =========================================================================
   # 2. FINDING TOWERS

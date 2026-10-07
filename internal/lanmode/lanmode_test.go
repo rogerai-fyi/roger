@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 func TestParseEnv(t *testing.T) {
@@ -154,10 +156,10 @@ func TestClassifyHostnameEveryAddressMustBeLocal(t *testing.T) {
 	require.True(t, Classify(ctx, mustAddr(t, "192.168.1.20:8787"), nil).Local)
 }
 
-func TestIsLocalIPAgreesWithThePlanePlusLinkLocal(t *testing.T) {
+func TestIsLocalIPIsTheHomeSetPlusLinkLocal(t *testing.T) {
 	for _, s := range []string{"127.0.0.1", "::1", "10.1.2.3", "172.20.0.1", "192.168.0.1", "fd00::1", "8.8.8.8", "100.64.0.1"} {
 		ip := net.ParseIP(s)
-		require.Equal(t, planePrivate(ip), IsLocalIP(ip), s)
+		require.Equal(t, netpriv.IsHome(ip), IsLocalIP(ip), s)
 	}
 	require.True(t, IsLocalIP(net.ParseIP("169.254.1.1")))
 	require.True(t, IsLocalIP(net.ParseIP("fe80::1")))

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // DefaultBind is where the consumer plane listens when the operator names no address:
@@ -11,13 +13,9 @@ import (
 // explicit choice, never the default.
 const DefaultBind = "127.0.0.1:8787"
 
-// privateBindCIDRs are the addresses the plane may bind without an override: loopback and the
-// RFC1918 / IPv6-ULA private ranges. Link-local (169.254/16) is deliberately absent - it is
-// where cloud instance-metadata lives, never where a plant's consumer plane should sit.
-var privateBindCIDRs = mustCIDRs(
-	"127.0.0.0/8", "::1/128",
-	"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
-)
+// The addresses the plane binds without an override are internal/netpriv's home set: loopback,
+// RFC 1918 and ULA. Link-local is deliberately absent: it is where cloud instance metadata
+// lives, never where a plant's consumer plane should sit.
 
 // ResolveBind validates the address the consumer plane is asked to listen on and returns the
 // address to bind plus a human note describing the exposure. The posture is the spec's
@@ -57,7 +55,7 @@ func ResolveBind(addr string, allowPublic bool) (bind, note string, err error) {
 			return "", "", fmt.Errorf("--bind %q listens on ALL interfaces, which exposes this Tower as a public broker lookalike; pass --allow-public to acknowledge, or bind a specific loopback/LAN address", addr)
 		}
 		return addr, "WARNING: listening on ALL interfaces (--allow-public) - this Tower is reachable from every network it is attached to", nil
-	case isPrivateBind(ip):
+	case netpriv.IsHome(ip):
 		return addr, "listening on a private-LAN address: reachable from the local network", nil
 	default:
 		if !allowPublic {
@@ -66,32 +64,3 @@ func ResolveBind(addr string, allowPublic bool) (bind, note string, err error) {
 		return addr, "WARNING: listening on a PUBLIC address (--allow-public) - anyone who can reach it can try this Tower", nil
 	}
 }
-
-func isPrivateBind(ip net.IP) bool {
-	for _, n := range privateBindCIDRs {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
-
-func mustCIDRs(cidrs ...string) []*net.IPNet {
-	out := make([]*net.IPNet, 0, len(cidrs))
-	for _, c := range cidrs {
-		_, n, err := net.ParseCIDR(c)
-		if err != nil {
-			panic("localplane: bad built-in CIDR " + c)
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
-// IsPrivateAddr reports whether ip is one of the addresses this plane may bind without
-// an override: loopback, RFC1918, or an IPv6 ULA. Link-local 169.254/16 is NOT one of
-// them, deliberately (see privateBindCIDRs).
-//
-// Exported so Roger Edge's LAN discovery binds and advertises on exactly the same set.
-// The rule belongs in one place: a second copy is a second thing to forget to update.
-func IsPrivateAddr(ip net.IP) bool { return ip != nil && isPrivateBind(ip) }

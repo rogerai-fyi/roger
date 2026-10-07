@@ -2,7 +2,10 @@ package tower
 
 import (
 	"fmt"
+	"net"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // Report is doctor's answer: what this Tower is, whether it can reach the public
@@ -140,8 +143,17 @@ func clockRepair(c ClockCheck) string {
 	return "enable a time daemon on this host and confirm it is reaching its NTP servers"
 }
 
+// isLoopback parses the listener's host with the one rule (internal/netpriv); "localhost" is
+// loopback by definition (RFC 6761). Any other name is not: it could resolve anywhere.
 func isLoopback(addr string) bool {
-	return strings.HasPrefix(addr, "127.") || strings.HasPrefix(addr, "[::1]:") || strings.HasPrefix(addr, "localhost:")
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	return netpriv.Classify(net.ParseIP(host)) == netpriv.Loopback
 }
 
 // String renders the report for a terminal. It leads with the two things an operator

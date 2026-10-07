@@ -3,7 +3,7 @@ package wire
 import (
 	"net"
 
-	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // TowerService is the mDNS service a standalone Tower advertises on when started with
@@ -33,9 +33,9 @@ func PrivateInterfaces(ifaces []net.Interface, addrsOf func(net.Interface) ([]ne
 		private, public := false, false
 		for _, a := range addrs {
 			ip := addrIP(a)
-			switch {
-			case ip == nil, ip.IsLinkLocalUnicast(), ip.IsLoopback():
-			case localplane.IsPrivateAddr(ip):
+			switch netpriv.Classify(ip) {
+			case netpriv.Invalid, netpriv.LinkLocal, netpriv.Loopback:
+			case netpriv.Private, netpriv.ULA:
 				private = true
 			default:
 				public = true

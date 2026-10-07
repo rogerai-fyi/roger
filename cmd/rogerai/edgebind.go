@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // edgeInterfaceAddrs, edgeIsLoopback and edgeIsPrivate are this machine's interface addresses and
@@ -14,7 +14,7 @@ import (
 var (
 	edgeInterfaceAddrs = net.InterfaceAddrs
 	edgeIsLoopback     = func(ip net.IP) bool { return ip.IsLoopback() }
-	edgeIsPrivate      = localplane.IsPrivateAddr
+	edgeIsPrivate      = netpriv.IsHome
 )
 
 // edgeListen opens an Edge listener (the face or the authority). An explicit host in bind is
@@ -36,7 +36,7 @@ func edgeListen(bind string) (net.Listener, error) {
 	var ips []net.IP
 	for _, a := range addrs {
 		ipn, ok := a.(*net.IPNet)
-		if !ok || ipn.IP.IsLinkLocalUnicast() {
+		if !ok || netpriv.Classify(ipn.IP) == netpriv.LinkLocal {
 			continue
 		}
 		if edgeIsLoopback(ipn.IP) || edgeIsPrivate(ipn.IP) {

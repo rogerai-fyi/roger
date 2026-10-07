@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/netpriv"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towercore/link"
 	"rogerai.fm/roger/v6/internal/towerjoin"
@@ -555,10 +556,12 @@ func classifyAdvertised(host string, ips []net.IP, named bool) string {
 	loop, private := false, false
 	shown := ips[0].String()
 	for _, ip := range ips {
-		switch {
-		case ip.IsLoopback():
+		// One rule (internal/netpriv), the same classes `roger lan add` uses: link-local is
+		// local but not routable, so it lands in the LAN tier like RFC 1918 and ULA.
+		switch netpriv.Classify(ip) {
+		case netpriv.Loopback:
 			loop = true
-		case ip.IsPrivate() || ip.IsLinkLocalUnicast():
+		case netpriv.Private, netpriv.ULA, netpriv.LinkLocal:
 			private = true
 		}
 	}

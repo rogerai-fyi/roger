@@ -3,6 +3,8 @@ package tower
 import (
 	"fmt"
 	"net"
+
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // Egress control is what makes standalone isolation a PROOF rather than an omission.
@@ -22,19 +24,6 @@ import (
 //   - Declaring an allowlist REPLACES the default rather than extending it, so an
 //     operator who declares a range cannot accidentally keep a broader one they forgot.
 
-// defaultPrivateCIDRs is the allowlist when an operator declares none: loopback and the
-// RFC1918 private ranges. Notably absent is 169.254.0.0/16 - link-local carries cloud
-// instance-metadata endpoints, the classic pivot for turning a relay into a credential
-// thief.
-var defaultPrivateCIDRs = mustCIDRs(
-	"127.0.0.0/8",
-	"::1/128",
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"fc00::/7", // IPv6 unique-local
-)
-
 // EgressGuard decides whether this Tower may connect to a destination.
 type EgressGuard struct {
 	allowed []*net.IPNet
@@ -43,7 +32,10 @@ type EgressGuard struct {
 // NewEgressGuard builds a guard. A nil or empty allowlist uses the private defaults.
 func NewEgressGuard(allowed []*net.IPNet) *EgressGuard {
 	if len(allowed) == 0 {
-		return &EgressGuard{allowed: defaultPrivateCIDRs}
+		// The default is internal/netpriv's home set: loopback, RFC 1918 and ULA. Notably absent
+		// is link-local - it carries cloud instance-metadata endpoints, the classic pivot for
+		// turning a relay into a credential thief.
+		return &EgressGuard{allowed: netpriv.HomeCIDRs()}
 	}
 	return &EgressGuard{allowed: allowed}
 }
@@ -79,16 +71,4 @@ func (g *EgressGuard) Allow(addr string) error {
 // can keep it from being an egress proxy.
 func (g *EgressGuard) AllowRequestTarget(target string) error {
 	return fmt.Errorf("this Tower does not fetch request-supplied targets (%q): v1 has no such route", target)
-}
-
-func mustCIDRs(cidrs ...string) []*net.IPNet {
-	out := make([]*net.IPNet, 0, len(cidrs))
-	for _, c := range cidrs {
-		_, n, err := net.ParseCIDR(c)
-		if err != nil {
-			panic("tower: bad built-in CIDR " + c) // a build-time constant, not input
-		}
-		out = append(out, n)
-	}
-	return out
 }

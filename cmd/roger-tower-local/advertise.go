@@ -9,7 +9,7 @@ import (
 	"strconv"
 
 	"rogerai.fm/roger/v6/internal/edge/wire"
-	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // The network edge of advertising, as seams: the machine's interfaces and their addresses, the
@@ -53,7 +53,7 @@ func advertiser(bindHost string, port int, label string, out io.Writer) func(con
 	case ip.IsLoopback():
 		fmt.Fprintln(out, "roger-tower-local: not advertising: bound to loopback, which no other machine can reach; bind a LAN address")
 		return nil
-	case !localplane.IsPrivateAddr(ip) || ip.IsLinkLocalUnicast():
+	case !netpriv.IsHome(ip):
 		fmt.Fprintln(out, "roger-tower-local: not advertising: advertisements go on private networks only")
 		return nil
 	default:

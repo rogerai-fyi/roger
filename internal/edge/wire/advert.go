@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // Advert is what a node broadcasts about itself on the LAN, and it is A HINT AND ONLY A
@@ -133,19 +133,15 @@ func (a Advert) usable() error {
 // AdvertiseAddrs picks the addresses discovery may bind and advertise on: loopback and
 // the RFC1918 / IPv6-ULA private ranges, and nothing else.
 //
-// The rule is not re-implemented here. internal/localplane already decides what counts
-// as a private bind for the consumer plane, including the deliberate absence of
-// link-local 169.254/16 (where cloud instance metadata lives, and where a
-// self-assigned address means the network did not work). One rule, one place: if the
-// plane's notion of "private" ever changes, discovery changes with it.
+// The rule is not re-implemented here: it is internal/netpriv's home set (loopback, RFC 1918,
+// ULA), the same one the consumer plane binds on, including the deliberate absence of
+// link-local (where cloud instance metadata lives, and where a self-assigned address means
+// the network did not work). One rule, one place.
 func AdvertiseAddrs(addrs []net.Addr) []net.IP {
 	var out []net.IP
 	for _, a := range addrs {
 		ip := addrIP(a)
-		if ip == nil || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			continue
-		}
-		if localplane.IsPrivateAddr(ip) {
+		if netpriv.IsHome(ip) {
 			out = append(out, ip)
 		}
 	}

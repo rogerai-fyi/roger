@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // DefaultTowerPort is the standalone Tower's default consumer port (cmd/roger-tower-local).
@@ -88,25 +88,9 @@ func Decide(flagLAN, flagNoLAN bool, env string, envSet bool, cfgMode string) (M
 	return Mode{Source: SrcDefault}, nil
 }
 
-// cgnat is the carrier-grade NAT range (RFC 6598): not local by default
-// (features/lan/discovery_and_dial.feature, ruled 2026-10-06).
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
-
-// IsLocalIP is THE local check: the plane's own private set (loopback, RFC 1918, ULA; the
-// same rule localplane binds and Edge advertises on) plus link-local unicast.
-func IsLocalIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	return planePrivate(ip) || ip.IsLinkLocalUnicast()
-}
-
-func planePrivate(ip net.IP) bool { return localplane.IsPrivateAddr(ip) }
-
-func localNetip(a netip.Addr) bool {
-	a = a.Unmap()
-	return IsLocalIP(net.IP(a.WithZone("").AsSlice()))
-}
+// IsLocalIP is LAN mode's local check: the one rule (internal/netpriv) with CGNAT excluded,
+// which is not local unless the owner added it by hand (ruled 2026-10-06).
+func IsLocalIP(ip net.IP) bool { return netpriv.IsLocal(ip, false) }
 
 // Addr is a parsed Tower address: a host (a literal IP, possibly zoned, or a name) and a port.
 type Addr struct {
@@ -171,15 +155,17 @@ type Verdict struct {
 const LocalRanges = "loopback, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7 and link-local"
 
 func classifyIP(a netip.Addr) Verdict {
-	a = a.Unmap()
-	switch {
-	case a.IsUnspecified():
-		return Verdict{Reason: "an unspecified address is never a Tower"}
-	case a.IsMulticast() || a == netip.AddrFrom4([4]byte{255, 255, 255, 255}):
+	if a.Unmap() == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
 		return Verdict{Reason: "a broadcast or multicast address is never a Tower"}
-	case localNetip(a):
+	}
+	switch netpriv.ClassifyAddr(a) {
+	case netpriv.Unspecified:
+		return Verdict{Reason: "an unspecified address is never a Tower"}
+	case netpriv.Multicast:
+		return Verdict{Reason: "a broadcast or multicast address is never a Tower"}
+	case netpriv.Loopback, netpriv.Private, netpriv.ULA, netpriv.LinkLocal:
 		return Verdict{Local: true}
-	case cgnat.Contains(a):
+	case netpriv.CGNAT:
 		return Verdict{CGNAT: true, Reason: "a carrier/overlay (CGNAT) address is not local unless added by hand"}
 	}
 	return Verdict{Reason: "a public address: LAN mode only uses " + LocalRanges}

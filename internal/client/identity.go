@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"net"
 	"net/netip"
 	"net/url"
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/netpriv"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"strings"
 	"sync/atomic"
@@ -118,8 +118,8 @@ func SetLANTowerHosts(fn func() []string) {
 
 // targetsLANTower reports whether a request goes to a standalone Tower and so carries a replay
 // nonce (ruled 2026-10-07: every standalone Tower gets one, loopback included):
-//   - plaintext http to a non-loopback address the LAN check calls local (lanmode.IsLocalIP:
-//     RFC 1918, ULA and link-local, zoned IPv6 included), the same rule `roger lan add` and the
+//   - plaintext http to a non-loopback address the one rule (internal/netpriv) calls local:
+//     RFC 1918, ULA and link-local, zoned IPv6 included, the same rule `roger lan add` and the
 //     LAN dial use; or
 //   - plaintext http to a Tower the CLI knows by host and port: one the owner added with
 //     `roger lan add` (how a CGNAT, loopback or named Tower is known) or the broker setting when
@@ -137,8 +137,8 @@ func targetsLANTower(u *url.URL) bool {
 		port = "80"
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
-		ip = ip.Unmap()
-		if !ip.IsLoopback() && lanmode.IsLocalIP(net.IP(ip.WithZone("").AsSlice())) {
+		switch netpriv.ClassifyAddr(ip) {
+		case netpriv.Private, netpriv.ULA, netpriv.LinkLocal:
 			return true
 		}
 	}

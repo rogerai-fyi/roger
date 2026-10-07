@@ -19,6 +19,8 @@ import (
 
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
+
+	"rogerai.fm/roger/v6/internal/netpriv"
 )
 
 // nodeTTL is how long after a node's last heartbeat/poll it is still considered
@@ -3639,7 +3641,8 @@ func coarseNetBucket(addr string) string {
 	if ip == nil {
 		return ""
 	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+	switch netpriv.Classify(ip) {
+	case netpriv.Loopback, netpriv.Private, netpriv.ULA, netpriv.LinkLocal, netpriv.Unspecified:
 		return "local"
 	}
 	if v4 := ip.To4(); v4 != nil {
