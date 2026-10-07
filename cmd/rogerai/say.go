@@ -149,7 +149,7 @@ func voiceHandle(v client.Voice) string {
 // sent to the network's /v1/audio/speech.
 func sayLAN(cfg config, voice string) error {
 	if voice != "" {
-		bands, _ := lanDial(cfg)
+		bands := lanDial(cfg).Bands
 		for _, b := range bands {
 			if b.Model == voice {
 				return fmt.Errorf("LAN mode is on: %s is on air on this LAN, but roger say cannot speak through a LAN voice yet; run without --lan to use the network's voices", voice)

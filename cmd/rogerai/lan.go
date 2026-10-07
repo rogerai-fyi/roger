@@ -305,14 +305,14 @@ func lanTowerAddrs(cfg config) []string {
 // lanEdgeBands reads this Edge's fleet record (never dialing anyone): every member band with
 // whether its serve was proven, whether the member is reachable LAN-direct, and whether dark.
 // This machine's own node is its household, not a member row.
-func lanEdgeBands() []client.LANEdgeBand {
+func lanEdgeBands() ([]client.LANEdgeBand, error) {
 	st, err := loadEdgeState()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	nodes, err := st.fleet.List()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	self := ""
 	if id, _, ok, _ := edgeIdentityStore().LoadIdentity(); ok {
@@ -331,7 +331,7 @@ func lanEdgeBands() []client.LANEdgeBand {
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 // lanSelfBands is what this machine serves: its household's bands on air.
@@ -348,14 +348,15 @@ func lanSelfBands() []string {
 
 // lanDial is THE merged LAN dial every surface shows (search, `roger lan list`, the TUI, the
 // console): one function so no two surfaces can disagree about what is on the LAN.
-var lanDial = func(cfg config) ([]client.LANBand, []client.LANTowerStatus) {
+var lanDial = func(cfg config) client.LANDial {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	towers := lanTowerAddrs(cfg)
 	cands := make(chan []client.LANTowerStatus, 1)
 	go func() { cands <- lanCandidates(ctx, towers) }() // the mDNS browse runs beside the Tower reads
+	edgeBands, edgeErr := lanEdgeBands()
 	bands, status := client.LANDiscover(ctx, client.LANInputs{
-		Self: lanSelfBands(), Edge: lanEdgeBands(), Towers: towers,
+		Self: lanSelfBands(), Edge: edgeBands, Towers: towers,
 		HTTP: lanProbeHTTP, Resolve: lanResolve,
 	})
 	status = append(status, <-cands...)
@@ -364,7 +365,11 @@ var lanDial = func(cfg config) ([]client.LANBand, []client.LANTowerStatus) {
 		status = append(status, client.LANTowerStatus{Addr: a, State: client.LANTowerNotStandalone,
 			Detail: "it answered without the local marker; re-add it with roger lan add " + a})
 	}
-	return bands, status
+	d := client.LANDial{Bands: bands, Towers: status}
+	if edgeErr != nil {
+		d.EdgeUnread = edgeErr.Error()
+	}
+	return d
 }
 
 // lanMarkNotTower records that addr answered a turn without the local marker.
@@ -388,7 +393,8 @@ func contains(list []string, s string) bool {
 
 // cmdLANSearch is `roger --lan search [--json]`: only local bands, each with its sources.
 func cmdLANSearch(cfg config, args []string) error {
-	bands, status := lanDial(cfg)
+	d := lanDial(cfg)
+	bands, status := d.Bands, d.Towers
 	if len(args) > 0 && args[0] == "--json" {
 		b, _ := json.MarshalIndent(map[string]any{"bands": nonNilBands(bands), "towers": status}, "", "  ")
 		fmt.Println(string(b))
@@ -504,7 +510,7 @@ func installLANRelay(cfg config) {
 		}
 		return
 	}
-	tui.SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return lanDial(cfg) })
+	tui.SetLANDial(func() client.LANDial { return lanDial(cfg) })
 	var lo client.ProxyOptions
 	frontEndLadder(cfg)(&lo)
 	client.SetLANRelay(&lo)
@@ -512,7 +518,8 @@ func installLANRelay(cfg config) {
 
 // lanTowersServing lists the LAN Towers whose /discover lists band, in configured order.
 func lanTowersServing(cfg config, band string) []string {
-	bands, status := lanDial(cfg)
+	d := lanDial(cfg)
+	bands, status := d.Bands, d.Towers
 	var out []string
 	for _, b := range bands {
 		if b.Model != band {
@@ -568,7 +575,7 @@ func lanLastServed(addr, band string) bool {
 
 // lanSourcesOf is what serves a band on the LAN, for the `roger use` plate and its refusal.
 func lanSourcesOf(cfg config, band string) []client.LANSource {
-	bands, _ := lanDial(cfg)
+	bands := lanDial(cfg).Bands
 	for _, b := range bands {
 		if b.Model == band {
 			return b.Sources

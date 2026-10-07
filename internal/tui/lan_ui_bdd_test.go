@@ -35,7 +35,7 @@ func (s *lanUIBDD) reset() {
 		{Model: "gpt-oss-20b", Sources: []client.LANSource{{Kind: client.LANEdge, ID: "jetson", Verified: true}}},
 		{Model: "llama-3.3-70b", Sources: []client.LANSource{{Kind: client.LANTower, ID: "192.168.1.20:8787", Addr: "192.168.1.20:8787"}}},
 	}
-	SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return s.bands, nil })
+	SetLANDial(func() client.LANDial { return client.LANDial{Bands: s.bands} })
 	s.out = ""
 }
 

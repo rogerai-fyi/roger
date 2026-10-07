@@ -16,12 +16,12 @@ import (
 
 var (
 	lanMu   sync.RWMutex
-	lanDial func() ([]client.LANBand, []client.LANTowerStatus)
+	lanDial func() client.LANDial
 )
 
 // SetLANDial puts the TUI in LAN mode for this process (fn non-nil) with the shared dial, or
 // back in the default mode (nil). The mode is decided once per process by the CLI.
-func SetLANDial(fn func() ([]client.LANBand, []client.LANTowerStatus)) {
+func SetLANDial(fn func() client.LANDial) {
 	lanMu.Lock()
 	defer lanMu.Unlock()
 	lanDial = fn
@@ -53,16 +53,20 @@ func (m model) headerTag(compact bool) string {
 }
 
 // lanTowerStatus is the last LAN dial's Tower lines, for the empty-LAN status.
-var lanTowerStatus []client.LANTowerStatus
+var (
+	lanTowerStatus []client.LANTowerStatus
+	lanEdgeUnread  string // why the last dial could not read this Edge's record; "" = read
+)
 
 // lanOffers reads the LAN dial as dial rows: free, online, one per band, naming its sources.
 func lanOffers() offersMsg {
 	lanMu.RLock()
 	fn := lanDial
 	lanMu.RUnlock()
-	bands, status := fn()
+	d := fn()
+	bands := d.Bands
 	lanMu.Lock()
-	lanTowerStatus = status
+	lanTowerStatus, lanEdgeUnread = d.Towers, d.EdgeUnread
 	lanMu.Unlock()
 	out := make([]offer, 0, len(bands))
 	for _, b := range bands {

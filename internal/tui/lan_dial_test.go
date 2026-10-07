@@ -39,11 +39,11 @@ func TestFetchOffersInLANModeReadsTheLANDial(t *testing.T) {
 	asked := false
 	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { asked = true }))
 	defer broker.Close()
-	SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) {
-		return []client.LANBand{
+	SetLANDial(func() client.LANDial {
+		return client.LANDial{Bands: []client.LANBand{
 			{Model: "qwen3-8b", Sources: []client.LANSource{{Kind: client.LANSelf, Verified: true}}},
 			{Model: "llama-3.3-70b", Sources: []client.LANSource{{Kind: client.LANTower, ID: "192.168.1.20:8787"}}},
-		}, nil
+		}}
 	})
 	defer SetLANDial(nil)
 	got, ok := fetchOffers(broker.URL)().(offersMsg)

@@ -110,6 +110,14 @@ type LANTowerStatus struct {
 	More   bool          `json:"more,omitempty"` // it listed more than LAN mode shows
 }
 
+// LANDial is one read of the LAN dial: the merged rows, each Tower's state, and, when this
+// Edge's record could not be read, why (an unread Edge is never shown as an empty one).
+type LANDial struct {
+	Bands      []LANBand
+	Towers     []LANTowerStatus
+	EdgeUnread string
+}
+
 // LANInputs are the sources to merge.
 type LANInputs struct {
 	Self     []string

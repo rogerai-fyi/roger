@@ -28,7 +28,7 @@ type lanCandBDD struct {
 
 func (s *lanCandBDD) reset() {
 	s.bands, s.status, s.added, s.out = nil, nil, nil, ""
-	SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return s.bands, s.status })
+	SetLANDial(func() client.LANDial { return client.LANDial{Bands: s.bands, Towers: s.status} })
 }
 
 func (s *lanCandBDD) seed() {

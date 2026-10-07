@@ -147,7 +147,7 @@ func TestLANMoneyBDD(t *testing.T) {
 				return fmt.Errorf("no warning %q in %v", want, s.alerts)
 			})
 			sc.Step(`^the address is marked on the dial as "([^"]*)"$`, func(want string) error {
-				_, status := lanDial(s.cfg())
+				status := lanDial(s.cfg()).Towers
 				for _, st := range status {
 					if st.Addr == "192.168.1.30:8787" && string(st.State) == want {
 						return nil

@@ -253,7 +253,8 @@ func (s *lanDialBDD) memberRelayed(node string) error {
 
 func (s *lanDialBDD) read() error {
 	start := time.Now()
-	s.bands, s.status = lanDial(s.cfg())
+	d := lanDial(s.cfg())
+	s.bands, s.status = d.Bands, d.Towers
 	s.took = time.Since(start)
 	return nil
 }
