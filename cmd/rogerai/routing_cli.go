@@ -766,6 +766,11 @@ func cmdSetLimit(args []string) error {
 		return usage
 	}
 	model := args[0]
+	release, err := acquireConfigLock() // held across load, edit and save
+	if err != nil {
+		return err
+	}
+	defer release()
 	c := loadConfig()
 	var cur Limit
 	if model == "default" {
@@ -918,7 +923,7 @@ func cmdSetLimit(args []string) error {
 		}
 		c.Limits.Models[model] = cur
 	}
-	if err := saveConfig(c); err != nil {
+	if err := saveConfigLocked(c); err != nil {
 		return err
 	}
 	if maxOutCleared {

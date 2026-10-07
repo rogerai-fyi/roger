@@ -338,14 +338,26 @@ func loadConfig() config {
 func saveConfig(c config) error {
 	// The same lock profile edits take (editConfigRaw), so this merge never reads a file a
 	// concurrent `roger profile set` is about to replace.
-	if err := os.MkdirAll(filepath.Dir(configPath()), 0o700); err != nil {
-		return err
-	}
-	release, err := lockConfig(configPath() + ".lock")
+	release, err := acquireConfigLock()
 	if err != nil {
 		return err
 	}
 	defer release()
+	return saveConfigLocked(c)
+}
+
+// acquireConfigLock takes the config.json lock (the one every writer takes). A writer that
+// reads, edits and writes holds it across all three (load, then saveConfigLocked), so a
+// concurrent writer's edit is never read stale and overwritten.
+func acquireConfigLock() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(configPath()), 0o700); err != nil {
+		return nil, err
+	}
+	return lockConfig(configPath() + ".lock")
+}
+
+// saveConfigLocked is saveConfig for a caller already holding acquireConfigLock.
+func saveConfigLocked(c config) error {
 	mine := toRawConfig(c)
 	theirs, rerr := readRawConfigErr(configPath()) // read under the lock: this is the file replaced
 	if rerr != nil {
@@ -609,13 +621,19 @@ func tuiLimits(cfg config) *tui.LimitStore {
 		Profiles:   client.NewProfileStore(""), // config.json's profiles, re-read on change
 	}
 	ls.Save = func(tm map[string]tui.Limit, def tui.Limit) {
+		release, err := acquireConfigLock() // held across load, edit and save
+		if err != nil {
+			ls.ReportSaveErr(err)
+			return
+		}
+		defer release()
 		c := loadConfig()
 		c.Limits.Models = map[string]Limit{}
 		for m, l := range tm {
 			c.Limits.Models[m] = fromTUILimit(l)
 		}
 		c.Limits.Default = fromTUILimit(def)
-		ls.ReportSaveErr(saveConfig(c)) // the booth says so on its next tick
+		ls.ReportSaveErr(saveConfigLocked(c)) // the booth says so on its next tick
 	}
 	return ls
 }
@@ -2225,13 +2243,18 @@ func cmdConfig(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: roger config clear-limit <model|default>")
 		}
+		release, err := acquireConfigLock() // held across load, edit and save
+		if err != nil {
+			return err
+		}
+		defer release()
 		c := loadConfig()
 		if args[1] == "default" { // limits.default, the rule every band inherits
 			c.Limits.Default = Limit{}
 		} else if c.Limits.Models != nil {
 			delete(c.Limits.Models, args[1])
 		}
-		if err := saveConfig(c); err != nil {
+		if err := saveConfigLocked(c); err != nil {
 			return err
 		}
 		fmt.Printf("cleared limit for %s\n", args[1])
