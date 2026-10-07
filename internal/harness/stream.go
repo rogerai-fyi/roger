@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 	"time"
 )
 
@@ -24,13 +26,16 @@ type Served struct {
 
 // streamed is a reassembled streamed completion.
 type streamed struct {
-	msg       Message
-	cost      float64
-	in, out   int
-	tps       float64 // usage.rogerai.tps: a stream carries no X-RogerAI-TPS header
-	served    Served
-	errText   string
-	sawChoice bool
+	msg     Message
+	cost    float64
+	in, out int
+	tps     float64 // usage.rogerai.tps: a stream carries no X-RogerAI-TPS header
+	// voidReason is usage.rogerai.void_reason: the broker voided the attempt after content
+	// had started (a cut reply, not charged). settle-failed is the one void with a whole reply.
+	voidReason string
+	served     Served
+	errText    string
+	sawChoice  bool
 	// complete is true when the stream ended properly: a finish_reason, or a `data: [DONE]`
 	// frame for a reply with no tool call (a tool call is whole only when the station said it
 	// finished). A stream without either was cut (cancelled, reset, or the reader's size cap)
@@ -102,6 +107,7 @@ func readStream(r io.Reader) streamed {
 					Model       string          `json:"model"`
 					LockedUntil json.RawMessage `json:"locked_until"`
 					TPS         float64         `json:"tps"`
+					VoidReason  string          `json:"void_reason"`
 				} `json:"rogerai"`
 			} `json:"usage"`
 			Error struct {
@@ -144,7 +150,7 @@ func readStream(r io.Reader) streamed {
 			}
 		}
 		if u := ch.Usage; u != nil {
-			st.in, st.out, st.tps = u.PromptTokens, u.CompletionTokens, u.RogerAI.TPS
+			st.in, st.out, st.tps, st.voidReason = u.PromptTokens, u.CompletionTokens, u.RogerAI.TPS, u.RogerAI.VoidReason
 			if u.Cost != nil {
 				chunkCost = *u.Cost
 			}
@@ -192,6 +198,9 @@ func (st streamed) streamError() error {
 	}
 	if st.readErr != nil {
 		return fmt.Errorf("the reply stream broke off: %v - try again", st.readErr)
+	}
+	if st.voidReason != "" && st.voidReason != protocol.VoidSettleFailed {
+		return fmt.Errorf("the station's reply was cut (%s) and you were not charged - try again", st.voidReason)
 	}
 	if !st.sawChoice {
 		return fmt.Errorf("the station sent an empty response (status 200)")

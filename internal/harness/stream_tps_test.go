@@ -45,3 +45,17 @@ func TestDoneAfterACutToolCallIsNotSuccess(t *testing.T) {
 	text := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"))
 	require.NoError(t, text.streamError(), "a text reply closed by [DONE] is complete")
 }
+
+// TestVoidedStreamIsNotASuccessfulTurn: the broker ends a stream it voided after content
+// started with a usage chunk naming the void, then [DONE]; that is a cut reply, not a turn.
+// A settle-failed void (the reply finished, the ledger refused the charge) is still a reply.
+func TestVoidedStreamIsNotASuccessfulTurn(t *testing.T) {
+	cut := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"upstream-5xx\"}}}\n\n" +
+		"data: [DONE]\n\n"))
+	require.ErrorContains(t, cut.streamError(), "not charged")
+	settled := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"all\"},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"settle-failed\"}}}\n\n" +
+		"data: [DONE]\n\n"))
+	require.NoError(t, settled.streamError())
+}
