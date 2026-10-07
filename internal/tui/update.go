@@ -377,6 +377,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = stEmber.Render(why)
 				return m, nil // nor for a row the chosen profile excludes
 			}
+			if m.q.stale {
+				m.status = stEmber.Render("this band was not in the last scan - r to re-scan, esc to go back")
+				return m, nil
+			}
 			if m.q.overLimit {
 				if m.confirmProfile != "" {
 					m.status = stEmber.Render("over profile " + m.confirmProfile + "'s cap - p for another profile, or esc")

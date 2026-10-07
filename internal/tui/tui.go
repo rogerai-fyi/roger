@@ -677,6 +677,9 @@ type quote struct {
 	estReply  float64 // credits per typical reply at the cheapest out-price
 	typical   int
 	overLimit bool
+	// stale: a background scan no longer lists this band, so the price shown may be gone;
+	// accept refuses until an explicit re-scan (r) confirms it or takes the operator back.
+	stale bool
 }
 
 type model struct {

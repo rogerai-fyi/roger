@@ -92,6 +92,11 @@ func (m *model) requote(explicit bool) {
 		}
 		return
 	}
+	if !explicit { // deploy churn or a discovery flicker: keep the confirm, refuse accept for now
+		m.q.stale = true
+		m.status = stEmber.Render(noStationServing(m.q.b.model)) + stDim.Render(" right now - r to re-scan, esc to go back")
+		return
+	}
 	m.mode = modeBrowse
 	m.status = stEmber.Render(noStationServing(m.q.b.model)) + stDim.Render(" - pick another band")
 }

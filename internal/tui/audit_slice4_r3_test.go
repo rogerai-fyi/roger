@@ -184,7 +184,9 @@ func TestConfirmRescanRebuildsTheQuote(t *testing.T) {
 	require.InDelta(t, 3.0, m.q.b.minOut, 1e-9, "the quote is rebuilt from the fresh scan")
 
 	out, _ = m.Update(offersMsg([]offer{capOffer("other", 32768, false, nil, 1.0, 72)}))
-	require.NotEqual(t, modeConnectConfirm, asModel(out).mode, "a band gone from the scan is not offered for accept")
+	require.True(t, asModel(out).q.stale, "a band gone from the scan is not offered for accept")
+	out, _ = asModel(out).Update(keyMsg("enter"))
+	require.Nil(t, asModel(out).connected, "accept refuses it")
 }
 
 // TestTunedRowQuantWinsOverTheProfileList: the dial row the operator connected to is the
@@ -325,4 +327,35 @@ func TestProfileCtxAndTTFTComposeStricter(t *testing.T) {
 	rt = m.routing("m", "")
 	require.Equal(t, 8192, rt.MinCtx)
 	require.Equal(t, 3000, rt.MaxTTFT)
+}
+
+// TestBackgroundScanMissingTheBandKeepsTheConfirm: a periodic scan that does not list the
+// band (deploy churn, a discovery flicker) keeps the operator on the confirm with the quote
+// marked stale, so accept refuses; only an explicit r that still finds nothing goes back.
+func TestBackgroundScanMissingTheBandKeepsTheConfirm(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 1.0, 72), capOffer("m2", 32768, false, nil, 1.0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	m := asModel(tm)
+	m.cursor = 0
+	out, _ := m.connect()
+	m = asModel(out)
+	require.Equal(t, modeConnectConfirm, m.mode)
+	band := m.q.b.model
+	other := "m2"
+	if band == "m2" {
+		other = "m1"
+	}
+	out, _ = m.Update(offersMsg([]offer{capOffer(other, 32768, false, nil, 1.0, 72)})) // the band is missing
+	m = asModel(out)
+	require.Equal(t, modeConnectConfirm, m.mode, "a background scan never dismisses the confirm")
+	out, _ = m.Update(keyMsg("enter"))
+	require.Equal(t, modeConnectConfirm, asModel(out).mode, "accept refuses a stale quote")
+	require.Nil(t, asModel(out).connected)
+
+	out, _ = asModel(out).Update(keyMsg("r"))
+	out, _ = asModel(out).Update(offersMsg([]offer{capOffer(other, 32768, false, nil, 1.0, 72)}))
+	require.Equal(t, modeBrowse, asModel(out).mode, "an explicit re-scan that still finds nothing goes back")
 }
