@@ -1533,6 +1533,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.limitsGen = g
 			(&m).refreshLiveRouting()
 		}
+		if err := m.limits.TakeSaveErr(); err != nil {
+			m.status = stEmber.Render("limits not saved to config.json: " + err.Error())
+		}
 		// FRAME CLOCK + native-selection freeze: advance the animation clock ONLY when something is
 		// actually animating (a turn in flight, a staged tune-in, share-detect, the screensaver, or
 		// a transient toast clearing). When idle the frame FREEZES, so the rendered screen is

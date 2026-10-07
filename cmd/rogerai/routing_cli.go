@@ -297,9 +297,17 @@ func parseUseFlags(args []string) (f *useFlags, help bool, err error) {
 			}
 		}
 		f.models.items = kept
-		if len(kept)+1 > maxModels {
+		// Distinct bare models (a variant of one is the same model), the positional included.
+		distinct := map[string]bool{bareModelID(f.model): true}
+		for _, m := range kept {
+			distinct[bareModelID(m)] = true
+		}
+		if len(distinct) > maxModels {
 			return nil, false, fmt.Errorf("use: --models: more than %d models in all (the positional counts)", maxModels)
 		}
+	}
+	if f.port < 0 || f.port > 65535 {
+		return nil, false, fmt.Errorf("use: --port %d is not a port (0 picks a free one)", f.port)
 	}
 	return f, false, nil
 }

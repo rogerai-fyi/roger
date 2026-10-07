@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -409,4 +410,17 @@ func TestRescanFlagNeverOutlivesItsConfirm(t *testing.T) {
 	require.Equal(t, modeConnectConfirm, m.mode)
 	out, _ = m.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)})) // periodic
 	require.Equal(t, modeConnectConfirm, asModel(out).mode, "a periodic scan never offers the raise")
+}
+
+// TestAFailedConfigSaveIsShown: when the host cannot write config.json (a lock timeout, an
+// unreadable file), the booth says so on its next tick instead of dropping the error.
+func TestAFailedConfigSaveIsShown(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.limits.Save = func(map[string]Limit, Limit) {
+		m.limits.ReportSaveErr(fmt.Errorf("config.json is locked by another roger command"))
+	}
+	m.limits.Set("m", Limit{MaxOut: 1})
+	out, _ := m.Update(tickMsg{gen: m.tickGen})
+	require.Contains(t, stripANSI(asModel(out).status), "not saved")
+	require.NoError(t, asModel(out).limits.TakeSaveErr(), "shown once")
 }

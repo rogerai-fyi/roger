@@ -75,6 +75,33 @@ type LimitStore struct {
 	// gen counts writes, so a booth sharing the store with the browser console can tell an
 	// edit it did not make has landed (and re-point its live proxy).
 	gen uint64
+	// saveErr is the last failed Save the host reported (ReportSaveErr), until the booth
+	// shows it. Its own lock: Save runs while mu is held.
+	saveMu  sync.Mutex
+	saveErr error
+}
+
+// ReportSaveErr records that persisting the limits failed (the host's Save calls it), so the
+// booth can say the edit was not saved instead of dropping the error.
+func (s *LimitStore) ReportSaveErr(err error) {
+	if s == nil || err == nil {
+		return
+	}
+	s.saveMu.Lock()
+	s.saveErr = err
+	s.saveMu.Unlock()
+}
+
+// TakeSaveErr returns and clears the last reported save failure.
+func (s *LimitStore) TakeSaveErr() error {
+	if s == nil {
+		return nil
+	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	err := s.saveErr
+	s.saveErr = nil
+	return err
 }
 
 // payoutSnapshot is the TUI's compact view of `roger payout status` (enough for the

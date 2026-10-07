@@ -149,3 +149,18 @@ func TestClearLimitDefaultClearsTheDefault(t *testing.T) {
 	c := loadConfig()
 	require.Equal(t, Limit{}, c.Limits.Default)
 }
+
+// TestUseModelsCountsDistinctModels: the 5-model limit counts distinct bare models (a variant
+// of one counts once), and a port outside 0..65535 is refused rather than auto-picked.
+func TestUseModelsCountsDistinctModels(t *testing.T) {
+	_, _, err := parseUseFlags([]string{"m", "--models", "m:free,a,b,c,d"})
+	require.NoError(t, err, "m:free is the positional's own variant: five distinct models")
+	_, _, err = parseUseFlags([]string{"m", "--models", "a,a:free,b,c,d"})
+	require.NoError(t, err, "a and a:free are one model")
+	_, _, err = parseUseFlags([]string{"m", "--models", "a,b,c,d,e"})
+	require.Error(t, err, "six distinct models")
+	for _, p := range []string{"-1", "65536"} {
+		_, _, err = parseUseFlags([]string{"m", "--port", p})
+		require.Error(t, err, p)
+	}
+}

@@ -600,21 +600,22 @@ func tuiLimits(cfg config) *tui.LimitStore {
 	if typ <= 0 {
 		typ = 800
 	}
-	return &tui.LimitStore{
+	ls := &tui.LimitStore{
 		Models:     models,
 		Default:    toTUILimit(cfg.Limits.Default),
 		TypicalOut: typ,
 		Profiles:   client.NewProfileStore(""), // config.json's profiles, re-read on change
-		Save: func(tm map[string]tui.Limit, def tui.Limit) {
-			c := loadConfig()
-			c.Limits.Models = map[string]Limit{}
-			for m, l := range tm {
-				c.Limits.Models[m] = fromTUILimit(l)
-			}
-			c.Limits.Default = fromTUILimit(def)
-			_ = saveConfig(c)
-		},
 	}
+	ls.Save = func(tm map[string]tui.Limit, def tui.Limit) {
+		c := loadConfig()
+		c.Limits.Models = map[string]Limit{}
+		for m, l := range tm {
+			c.Limits.Models[m] = fromTUILimit(l)
+		}
+		c.Limits.Default = fromTUILimit(def)
+		ls.ReportSaveErr(saveConfig(c)) // the booth says so on its next tick
+	}
+	return ls
 }
 
 // tuiHooks supplies the host bits the TUI can't compute (the broadcast station, HW,
