@@ -821,15 +821,15 @@
   document.addEventListener("keydown", function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;      // leave browser chords alone
     if (isTyping(e.target)) return;                       // the composer always wins
-    if (window.PlayboxRoute.ownsInput(e.target)) return;  // so does the routing drawer
-    if (window.PlayboxRoute.pressesControl(e)) return;    // a focused button takes Space and Enter itself
     var k = e.key;
-    if (k === " " || k === "Spacebar") {
-      if (!$("dkPlay").disabled) { e.preventDefault(); play(); }
+    if (k === "Escape") {   // stops playback from anywhere outside the composer, the drawer included
+      if (STATE.playing) { e.preventDefault(); stopPlayback(); }
       return;
     }
-    if (k === "Escape") {
-      if (STATE.playing) { e.preventDefault(); stopPlayback(); }
+    if (window.PlayboxRoute.ownsInput(e.target)) return;  // the routing drawer keeps its keys
+    if (window.PlayboxRoute.pressesControl(e)) return;    // a focused button takes Space and Enter itself
+    if (k === " " || k === "Spacebar") {
+      if (!$("dkPlay").disabled) { e.preventDefault(); play(); }
       return;
     }
     if (k === "ArrowLeft" || k === "ArrowRight") {
@@ -1271,11 +1271,7 @@
 
   // a number field: blank is unset, anything else must be a number >= 0
   function routeNum(id, label) {
-    var v = ($(id) && $(id).value || "").trim();
-    if (!v) return null;
-    var n = Number(v);
-    if (!isFinite(n) || n < 0) throw label + " must be 0 or more";
-    return n;
+    return window.PlayboxRoute.parseNum(($(id) && $(id).value || ""), label);
   }
   function routeSize(v) { return window.PlayboxRoute.parseSize(v); }
 

@@ -114,7 +114,8 @@ test("the document keydown consults the drawer guard and the control guard", () 
   const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
   const i = js.indexOf('document.addEventListener("keydown", function (e) {');
   const head = js.slice(i, i + 700);
-  assert.match(head, /if \(isTyping\(e\.target\)\) return;[^\n]*\n\s*if \(window\.PlayboxRoute\.ownsInput\(e\.target\)\) return;/);
+  assert.match(head, /if \(isTyping\(e\.target\)\) return;/);
+  assert.match(head, /if \(window\.PlayboxRoute\.ownsInput\(e\.target\)\) return;/);
   assert.match(head, /if \(window\.PlayboxRoute\.pressesControl\(e\)\) return;/);
 });
 
@@ -204,4 +205,19 @@ test("a first-token ceiling under a millisecond is refused, not rounded to no ce
   assert.throws(() => R.parseTtft("0.4"));
   assert.throws(() => R.parseTtft("0.0004s"));
   assert.equal(R.parseTtft("0.6"), 1);
+});
+
+test("money and speed fields parse to finite numbers of 0 or more, through the module", () => {
+  assert.equal(R.parseNum("2", "max $/1M out"), 2);
+  assert.equal(R.parseNum("", "max $/1M out"), null);
+  for (const bad of ["-1", "x", "1" + "0".repeat(400)]) assert.throws(() => R.parseNum(bad, "max $/1M out"), bad);
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  assert.match(js, /return window\.PlayboxRoute\.parseNum\(\(\$\(id\) && \$\(id\)\.value \|\| ""\), label\);/);
+});
+
+test("Escape still stops playback while focus is in the routing drawer", () => {
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  const i = js.indexOf('document.addEventListener("keydown", function (e) {');
+  const head = js.slice(i, i + 900);
+  assert.ok(head.indexOf('k === "Escape"') < head.indexOf("PlayboxRoute.ownsInput"), "Escape is handled before the drawer guard");
 });

@@ -147,6 +147,15 @@
   // finite throws msg unless n is a finite number: digits alone can still read as Infinity (309+)
   function finite(n, msg) { if (!isFinite(n)) throw msg; return n; }
 
+  // parseNum reads a money or speed field: blank is unset, anything else a finite number >= 0
+  function parseNum(v, label) {
+    v = String(v || "").trim();
+    if (!v) return null;
+    var n = Number(v);
+    if (!isFinite(n) || n < 0) throw label + " must be 0 or more";
+    return n;
+  }
+
   // parseCtx reads min ctx: a whole token count, 8192 or 32k (x1024), at most 2^31-1 like the
   // broker's integer limits; blank is unset.
   function parseCtx(v) {
@@ -203,7 +212,7 @@
   var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
     regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl,
     pressesControl: pressesControl, parseSize: parseSize, servedOf: servedOf, voidNote: voidNote,
-    parseCtx: parseCtx, parseTtft: parseTtft };
+    parseCtx: parseCtx, parseTtft: parseTtft, parseNum: parseNum };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();

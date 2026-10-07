@@ -157,7 +157,7 @@ test("Choices that no station on the tape can satisfy are shown, marked, not hid
 
 test("Validation happens in the drawer with the contract's rules", () => {
   assert.throws(() => PR.parseSize("70-7"), /min must be at most max/, "the size validation");
-  needText("must be 0 or more", "the price validation");
+  assert.throws(() => PR.parseNum("-1", "max $/1M out"), /must be 0 or more/, "the price validation");
 });
 
 test("A too-long \"also try\" list is capped at four extra models", () => {
