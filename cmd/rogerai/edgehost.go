@@ -189,6 +189,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeResumeAgent = h.resumeAgentLive
 	hooks.EdgeRemoveAgent = h.removeAgentLive
 	hooks.EdgeAdopting = h.adopting
+	hooks.EdgeAdoptCode = edgeAdoptCode
 	hooks.EdgeAgentJobs = func() []edge.AgentJob { return edge.AgentJobs(edgeJobsDir()) }
 	hooks.EdgeSetAgentJob = h.setAgentJobLive
 	hooks.EdgeClearAgentJob = h.clearAgentJobLive

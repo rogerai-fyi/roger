@@ -110,6 +110,10 @@ func open(dir string) (*Local, error) {
 		l.iss.issued[id] = serial
 	}
 	l.iss.mu.Unlock()
+	// A code that ran out while the authority was down is pruned now, so a restart never brings
+	// an expired code back (features/edge/enrollment_root_trust.feature). A damaged store is left
+	// for the issuing paths, which refuse on it.
+	_ = l.pruneCodes()
 	return l, nil
 }
 
@@ -222,6 +226,11 @@ func (l *Local) Issue(r Request) (Response, error) {
 				return ErrUnknownMachine
 			}
 		}
+		// The code store is read before anything is minted, so a damaged one issues nothing rather
+		// than a certificate the owner's code cannot vouch for (fail closed).
+		if _, err := l.readCodes(); err != nil {
+			return err
+		}
 		// Mint AND record inside one lock (in-process and cross-process), so a concurrent forget or
 		// claim cannot interleave, and record the serial of THIS certificate parsed from its own
 		// bytes - never SerialOf, which returns the latest and under a race could be another call's.
@@ -247,6 +256,13 @@ func (l *Local) Issue(r Request) (Response, error) {
 		if r.UserKey != "" {
 			if err := l.recordEnrolledBy(r2.NodeID, r.UserKey); err != nil {
 				return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+			}
+		}
+		// The owner's code for this machine, if one is live, vouches for the root in this answer
+		// and is spent here, under the same lock, so one code proves exactly one issuance.
+		if r.UserKey != "" {
+			if err := l.prove(&r2, keyJoin(r.UserKey), r.Nonce); err != nil {
+				return err
 			}
 		}
 		resp = r2
@@ -576,6 +592,9 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		if err != nil {
 			return err
 		}
+		if _, err := l.readCodes(); err != nil {
+			return err
+		}
 		leaf, err := l.auth.Issue(c.NodeID, pub)
 		if err != nil {
 			return fmt.Errorf("that certificate could not be issued: %w", err)
@@ -594,7 +613,8 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 			Cert:    EncodeCert(leaf),
 			Root:    EncodeCert(l.auth.Root()),
 		}
-		return nil
+		// The adopt's code is spent with the grant, in this same locked step.
+		return l.prove(&resp, nodeJoin(c.NodeID), c.Nonce)
 	})
 	if err != nil {
 		return Response{}, err
@@ -611,6 +631,9 @@ func (l *Local) Forget(nodeID string) ([]string, string, error) {
 	var evictedKey string
 	err := l.withLock(func() error {
 		if err := l.consumeClaim(nodeID); err != nil {
+			return err
+		}
+		if err := l.dropCode(nodeJoin(nodeID)); err != nil {
 			return err
 		}
 		serials, err := l.serialsFor(nodeID)

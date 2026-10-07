@@ -96,7 +96,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"alert", "[set <metric> <gt|lt> <value> [--scope fleet|<node>|tag:<tag>] | off|on|rm <rule> | test <sink>]", "list the alert rules and what is firing, or change them", 0, 4},
 	{"sink", "[add <webhook|discord|telegram> <url> | rm <id> | test <id>]", "say where an alert should go when it leaves this machine, or show what is configured", 0, 3},
 	{"actuate", "<node> [--yes]", "confirm that a node may change the physical world - the one capability only you can grant", 1, 1},
-	{"enroll", "[name]", "join this machine to your Edge", 0, 1},
+	{"enroll", "[name] [--authority <address>] [--code <code> | --root sha256:<fingerprint> | --invite <invite>] [--replace-root] [--yes]", "join this machine to your Edge", 0, 1},
 	{"setup", "", "set up this machine's Edge interactively (new, or join one)", 0, 0},
 	{"run", "", "keep this machine on its Edge with no screen, until stopped (what the boot service runs)", 0, 0},
 	{"service", "[install|remove]", "make roger start at boot, say whether it does, or stop it (systemd)", 0, 1},
@@ -269,7 +269,8 @@ func edgeWantsHelp(args []string) bool {
 // edgeFlags is what one leaf's flags may be: the name, and whether it takes a value.
 var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
-	"force": false, "clear": false,
+	"force": false, "clear": false, "replace-root": false,
+	"code": true, "root": true, "invite": true,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
 	"node": true, "limit": true, "lines": true, "every": true, "once": false, "select": true, "health": false,
 }
@@ -1593,6 +1594,11 @@ func edgeAdoptWant(want string) (string, error) {
 		return "", err
 	}
 	if !found {
+		// An adopted device that has not joined yet is not a candidate any more; adopting it again
+		// is how the owner gets a fresh code when the first one expired.
+		if msg, ok, err := edgeFreshCodeForAdopting(want); err != nil || ok {
+			return msg, err
+		}
 		return "", fmt.Errorf("no candidate %q was seen on this network (run `roger edge scan`)", want)
 	}
 	// A candidate that advertises no certificate (a phone) joins by CLAIM, not by being dialed.
@@ -1605,9 +1611,9 @@ func edgeAdoptWant(want string) (string, error) {
 		_ = st.save()
 		name := edge.UnitName(c, append(append([]store.EdgeNode(nil), st.candidates...), c)) // what it is, never its id
 		if ok {                                                                              // it was already on this Edge (offline) - this is a RE-ADMIT, which revokes its old cert
-			return fmt.Sprintf("re-admitted %s - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.", name), nil
+			return fmt.Sprintf("re-admitted %s - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.\n%s", name, edgeReadmitCodeLine(c.ID, name)), nil
 		}
-		return fmt.Sprintf("adopted %s - it can now claim its certificate; it appears as a member when it checks in.", name), nil
+		return fmt.Sprintf("adopted %s - it can now claim its certificate; it appears as a member when it checks in.\n%s", name, edgeNodeCodeLine(c.ID, name)), nil
 	}
 	// A serving candidate is verified and enrolled directly; it is NOT granted a claim (a grant that
 	// outlives revoke/forget would let a removed node re-claim a fresh certificate - audit 2026-09-23).
@@ -1761,6 +1767,9 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 	st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != id })
 	_ = st.save()
 	fmt.Printf("re-admitted %s - %s\n", done, after)
+	if line := edgeReadmitCodeLine(id, done); line != "" {
+		fmt.Println(line)
+	}
 	return nil
 }
 
@@ -1929,7 +1938,13 @@ func edgeAdoptByClaim(nodeID, name string) error {
 		return err
 	}
 	if !issued {
-		return local.GrantClaim(nodeID, name) // a brand-new device
+		if err := local.GrantClaim(nodeID, name); err != nil { // a brand-new device
+			return err
+		}
+		// The one-time code the device enters to keep this Edge's root
+		// (features/edge/enrollment_root_trust.feature).
+		_, err := local.MintNodeCode(nodeID)
+		return err
 	}
 	// A device previously issued a cert is rejoining. A ROUTINE adopt re-admits it ONLY if its cert is
 	// not currently revoked (a device that merely LEFT); if it was REVOKED (the owner forgot or revoked
@@ -1949,7 +1964,74 @@ func edgeAdoptByClaim(nodeID, name string) error {
 	if err != nil {
 		return edgeRecordRevoked(revoked, err)
 	}
-	return edgeRecordRevoked(revoked, nil)
+	if err := edgeRecordRevoked(revoked, nil); err != nil {
+		return err
+	}
+	_, err = local.MintNodeCode(nodeID)
+	return err
+}
+
+// edgeAdoptCode is the live enrollment code an adopted device enters, and when it expires - for
+// the [3] adopting panel and the console. ok=false when there is none, or this is not the authority.
+func edgeAdoptCode(nodeID string) (string, time.Time, bool) {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !ok {
+		return "", time.Time{}, false
+	}
+	code, until, ok := local.NodeCode(nodeID)
+	if !ok {
+		return "", time.Time{}, false
+	}
+	return edgeauth.FormatCode(code), until, true
+}
+
+// edgeNodeCodeLine says, after an adopt, the code the device enters to finish joining.
+func edgeNodeCodeLine(nodeID, name string) string {
+	code, _, ok := edgeAdoptCode(nodeID)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("  on %s, enter the enrollment code %s (good for %d minutes, for one join).\n"+
+		"  a device running a roger or app from before root proofs does not check it: update it before it joins.",
+		name, code, int(edgeauth.CodeLifetime.Minutes()))
+}
+
+// edgeReadmitCodeLine is edgeNodeCodeLine for a re-admitted device, which may not need it.
+func edgeReadmitCodeLine(nodeID, name string) string {
+	line := edgeNodeCodeLine(nodeID, name)
+	if line == "" {
+		return ""
+	}
+	return line + "\n  a device that still holds this Edge's root will not need it."
+}
+
+// edgeFreshCodeForAdopting mints a fresh code for a device the owner already adopted that has not
+// joined yet - its code expired, or was lost - voiding the old one. It answers ok=false when want
+// names no such device.
+func edgeFreshCodeForAdopting(want string) (string, bool, error) {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !ok {
+		return "", false, err
+	}
+	grants, err := local.Claims()
+	if err != nil {
+		return "", false, err
+	}
+	for _, g := range grants {
+		if g.NodeID != want && (g.Name == "" || g.Name != want) {
+			continue
+		}
+		if _, err := local.MintNodeCode(g.NodeID); err != nil {
+			return "", true, err
+		}
+		name := g.Name
+		if name == "" {
+			name = "that device"
+		}
+		return fmt.Sprintf("%s is adopted and has not joined yet - here is a fresh code; the old one is void.\n%s",
+			name, edgeNodeCodeLine(g.NodeID, name)), true, nil
+	}
+	return "", false, nil
 }
 
 // edgeRecordRevoked mirrors revoked serials into THIS machine's own trust store so its verification
@@ -1979,7 +2061,11 @@ func edgeReAdmitDeliberate(nodeID, name string) error {
 		return fmt.Errorf("only the machine that roots this Edge can re-admit a device")
 	}
 	revoked, err := local.ReAdmit(nodeID, name)
-	return edgeRecordRevoked(revoked, err)
+	if err := edgeRecordRevoked(revoked, err); err != nil {
+		return err
+	}
+	_, err = local.MintNodeCode(nodeID)
+	return err
 }
 
 // edgeDropMembers removes candidates that are already members of the fleet. A node's advert carries

@@ -188,7 +188,11 @@ type Hooks struct {
 	// EdgeAdopting is the nodes the owner has adopted (granted a claim) that have not yet claimed
 	// their certificate and checked in - shown as ADOPTING so a just-adopted phone does not vanish
 	// between adopt and membership. Each carries the friendly name from the grant. nil when none.
-	EdgeAdopting  func() []store.EdgeNode
+	EdgeAdopting func() []store.EdgeNode
+	// EdgeAdoptCode is the live one-time enrollment code an adopted device enters to finish
+	// joining, and when it expires (features/edge/enrollment_root_trust.feature). ok=false when
+	// there is none (spent, expired, or this machine is not the authority).
+	EdgeAdoptCode func(id string) (code string, until time.Time, ok bool)
 	EdgeAgentJobs func() []edge.AgentJob
 	// EdgeSetAgentJob and EdgeClearAgentJob set/clear an agent's assignment in place, so the owner
 	// binds a model or a job from [3] without leaving the screen.
@@ -1657,6 +1661,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onEdgeSetupTick()
 	case edgeSetupDoneMsg:
 		return m.onEdgeSetupDone(msg)
+	case edgeSetupCodeMsg:
+		return m.onEdgeSetupCode(msg)
 	case tickMsg:
 		// A stale tick chain (a kick bumped m.tickGen since this one was scheduled): let it die
 		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.

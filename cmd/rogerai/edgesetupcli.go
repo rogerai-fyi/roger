@@ -39,10 +39,10 @@ func cmdEdgeSetup(cfg config, args []string) error {
 		fmt.Println("  start a NEW Edge here (this machine roots it, no internet needed):")
 		fmt.Println("    roger edge authority local <name>")
 		fmt.Println("    roger edge enroll <name>")
-		fmt.Println("  JOIN an existing Edge (once its authority has allowed this machine):")
-		fmt.Println("    roger edge enroll <name> --authority http://<authority-address>")
+		fmt.Println("  JOIN an existing Edge (once its authority has allowed this machine; allow prints the code):")
+		fmt.Println("    roger edge enroll <name> --authority http://<authority-address> --code <code>")
 		fmt.Println("  the key the authority must allow (run on the authority):")
-		fmt.Println("    roger edge authority allow " + client.UserPubHex())
+		fmt.Println("    roger edge authority allow " + edgeUserPubHex())
 		return nil
 	}
 
@@ -114,20 +114,24 @@ func edgeSetupJoin(cfg config, name string, ask func(string) string) error {
 	if addr == "" {
 		return usagef("an authority address is needed to join an existing Edge")
 	}
-	res, err := edgeEnrollCore(cfg, name, addr, client.LinkedLogin())
+	// The authority's answer is held while the owner reads the code off the authority's screen
+	// (features/edge/enrollment_root_trust.feature): this machine keeps the root only once it
+	// verifies.
+	res, err := edgeEnrollJoin(cfg, name, addr, client.LinkedLogin(), edgeJoinTrust{Ask: ask})
 	if errors.Is(err, edgeauth.ErrUnknownMachine) {
 		fmt.Println()
 		fmt.Println("This machine is not allowed on that Edge yet, so it did not join.")
 		fmt.Println("On the AUTHORITY machine, run:")
-		fmt.Println("  roger edge authority allow " + client.UserPubHex())
-		fmt.Println("Then run `roger edge setup` again (or `roger edge enroll " + name + " --authority " + addr + "`).")
+		fmt.Println("  roger edge authority allow " + edgeUserPubHex())
+		fmt.Println("That command prints the code to bring back here: an enrollment code, good for 15 minutes.")
+		fmt.Println("Then run `roger edge setup` again (or `roger edge enroll " + name + " --authority " + addr + " --code <code>`).")
 		return nil
 	}
 	if err != nil {
 		return edgeSetupJoinError(addr, err)
 	}
 	fmt.Println()
-	fmt.Printf("Joined: this machine is on the Edge as %q.\n", name)
+	fmt.Printf("Joined: this machine is on the Edge as %q, root %s.\n", name, edgeauth.ShortFingerprint(res.RootFingerprint))
 	if res.TrustWarning != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", res.TrustWarning)
 	}

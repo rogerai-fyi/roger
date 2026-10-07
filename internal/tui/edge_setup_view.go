@@ -57,6 +57,8 @@ func (m model) edgeSetupView(w int, line func(string)) {
 		m.setupHandshakeScene(cw, w, line)
 	case setupAllow:
 		emit(m.setupAllowScene(cw))
+	case setupCode:
+		emit(m.setupCodeScene(cw))
 	case setupDone:
 		emit(m.setupDoneScene(cw))
 	case setupFailed:
@@ -146,7 +148,7 @@ func edgeSetupRailIndex(s *edgeSetup) int {
 		return 0
 	case setupName, setupAddr:
 		return 1
-	case setupRunning:
+	case setupRunning, setupCode:
 		return 2
 	default:
 		return 3
@@ -246,7 +248,32 @@ func (m model) setupAddrScene(cw int) string {
 	if s.err != "" {
 		blocks = append(blocks, "", edgeSetupCenter(lampStyle(roleLive).Render("✕ ")+stEmber.Render(s.err), cw))
 	}
-	blocks = append(blocks, "", edgeSetupCenter(stDim.Render("shaped like http://192.168.1.10:8791 - the address the authority machine shows."), cw))
+	blocks = append(blocks, "", edgeSetupCenter(stDim.Render("shaped like http://192.168.1.10:8791 - the address the authority machine shows."), cw),
+		edgeSetupCenter(stDim.Render("once the authority answers, you enter the enrollment code it shows (allow or adopt prints it there)."), cw))
+	return lipgloss.JoinVertical(lipgloss.Left, blocks...)
+}
+
+// setupCodeScene holds the authority's answer and asks for the code: this machine keeps the root
+// only once the code the owner reads off the authority verifies it.
+func (m model) setupCodeScene(cw int) string {
+	s := m.edge.setup
+	blocks := []string{
+		edgeSetupCenter(stKey.Render("the authority answered.")+stDim.Render(" enter the code shown on the authority:"), cw),
+		"",
+		edgeSetupPlate(cw, "AUTHORITY", s.addr, false),
+		edgeSetupPlate(cw, "CODE", s.code, true),
+		"",
+		edgeSetupCenter(stDim.Render("it offered root ")+stEmber.Render(s.offered)+stDim.Render(" - the same as `roger edge authority` shows there."), cw),
+		edgeSetupCenter(stDim.Render("that is reassurance; the code is what is checked. nothing is kept until it matches."), cw),
+	}
+	if s.codeErr != "" {
+		blocks = append(blocks, "")
+		for _, ln := range strings.Split(s.codeErr, "\n") {
+			if strings.TrimSpace(ln) != "" {
+				blocks = append(blocks, edgeSetupCenter(lampStyle(roleLive).Render("✕ ")+stEmber.Render(edgeSetupClip(strings.TrimSpace(ln), cw-6)), cw))
+			}
+		}
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, blocks...)
 }
 
@@ -389,7 +416,8 @@ func (m model) setupAllowScene(cw int) string {
 		stDim.Render("on the AUTHORITY machine, run:"),
 		lampStyle(roleLive).Render("  roger edge authority allow ") + stKey.Render(edgeSetupClip(s.userKey, cw-32)),
 		"",
-		stDim.Render("that is this machine's user key. once it is allowed, retry below."),
+		stDim.Render("that is this machine's user key. that command prints the code to bring back here."),
+		stDim.Render("once it is allowed, retry below and enter the code."),
 	}
 	return edgeSetupPanel(cw, cDialGlow, body)
 }
@@ -414,15 +442,30 @@ func (m model) setupDoneScene(cw int) string {
 	if addr == "" {
 		addr = "http://<this machine's LAN address>"
 	}
-	return edgeSetupPanel(cw, cLive, []string{
+	return edgeSetupPanel(cw, cLive, append([]string{
 		crown, "", lock, "",
 		lampStyle(roleLive).Render("◉ ") + stKey.Render("on air. this machine is on your Edge."),
 		stDim.Render("your Edge is live, rooted here, mode LOCAL, formed with no internet."),
 		"",
-		stKey.Render("add a device or agent") + stDim.Render(" - on the other machine, either:"),
-		stEmber.Render("  roger edge enroll <name> --authority " + addr),
+		stKey.Render("add a device or agent:"),
+		stDim.Render("the next machine joins with the code that allow or adopt prints here."),
+		stEmber.Render("  roger edge authority allow <its key>") + stDim.Render("   (here), then on it:"),
+		stEmber.Render("  roger edge enroll <name> --authority " + addr + " --code <code>"),
 		stDim.Render("  or run  ") + stEmber.Render("roger edge setup") + stDim.Render("  there and join this Edge at "+addr),
-	})
+	}, edgeSetupPinLines(st.RootFingerprint, cw)...))
+}
+
+// edgeSetupPinLines shows the root's FULL fingerprint for the pin path (--root), split in two when
+// the panel is too narrow for one line, never clipped: a clipped pin is not a pin.
+func edgeSetupPinLines(fp string, cw int) []string {
+	if fp == "" {
+		return nil
+	}
+	pin := "sha256:" + fp
+	if len(pin)+4 <= cw-6 {
+		return []string{"", stDim.Render("or pin the root:  ") + stEmber.Render("--root "+pin)}
+	}
+	return []string{"", stDim.Render("or pin the root with --root:"), stEmber.Render("  " + pin[:39]), stEmber.Render("  " + pin[39:])}
 }
 
 // edgeSetupLockStrip is the arrival payoff: the carrier that was sweeping now stands SOLID
@@ -509,6 +552,8 @@ func edgeSetupHint(s *edgeSetup) string {
 		return "working..."
 	case setupAllow:
 		return "⏎/r retry once allowed  ·  esc leave"
+	case setupCode:
+		return "type the code  ·  ⏎ check  ·  esc leave"
 	case setupDone:
 		return "⏎ done"
 	case setupFailed:

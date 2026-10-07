@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,8 +75,13 @@ func TestEdgeAdoptWantByName(t *testing.T) {
 	require.NoError(t, err)
 	said, err = edgeAdoptWant("pocket")
 	require.NoError(t, err)
-	require.Equal(t, "adopted pocket - it can now claim its certificate; it appears as a member when it checks in.", said)
+	first, rest, _ := strings.Cut(said, "\n")
+	require.Equal(t, "adopted pocket - it can now claim its certificate; it appears as a member when it checks in.", first)
 	require.True(t, local.ClaimGranted("n_phone"))
+	// The adopt now also says the one-time code the phone enters (enrollment_root_trust.feature).
+	code, _, ok := local.NodeCode("n_phone")
+	require.True(t, ok)
+	require.Contains(t, rest, "on pocket, enter the enrollment code "+edgeauth.FormatCode(code))
 
 	said, err = edgeAdoptWant("back")
 	require.NoError(t, err)

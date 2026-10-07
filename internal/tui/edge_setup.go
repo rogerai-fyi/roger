@@ -20,6 +20,7 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -33,7 +34,20 @@ type EdgeSetup struct {
 	UserKeyHex  func() string
 	NewEdge     func(name string) error // this machine becomes the authority + enrolls
 	Join        func(name, authorityAddr string) error
-	EnrollSelf  func() error // finish: designated here but not enrolled
+	// JoinCode finishes a join Join held for the enrollment code (it returned a *NeedsCodeError).
+	// done=false with an error is a code that did not verify and may be typed again; done=true with
+	// an error is the end of that held answer (features/edge/enrollment_root_trust.feature).
+	JoinCode   func(code string) (done bool, err error)
+	EnrollSelf func() error // finish: designated here but not enrolled
+}
+
+// NeedsCodeError is what Join returns when the authority answered and this machine keeps the root
+// only once the owner types the enrollment code the authority shows. Root is the short fingerprint
+// of the root it offered, shown for reassurance (the code is what is checked).
+type NeedsCodeError struct{ Root string }
+
+func (e *NeedsCodeError) Error() string {
+	return "the authority answered; enter the enrollment code it shows to finish joining"
 }
 
 // EdgeSetupState is the half-done state the wizard reads to start at the right step.
@@ -41,6 +55,8 @@ type EdgeSetupState struct {
 	Enrolled      bool
 	AuthorityHere bool
 	AuthorityAddr string
+	// RootFingerprint is this Edge's full root fingerprint, for the pin path on the done step.
+	RootFingerprint string
 }
 
 // ErrNotAllowedYet is what Join returns when the authority does not yet allow this machine:
@@ -56,6 +72,7 @@ const (
 	setupAddr                         // (join) the authority address
 	setupRunning                      // the handshake is in flight
 	setupAllow                        // (join) not allowed yet: show the key + command
+	setupCode                         // (join) the authority answered: enter the code it shows
 	setupDone                         // success
 	setupFailed                       // an error other than not-allowed
 )
@@ -72,6 +89,9 @@ type edgeSetup struct {
 	finish  bool   // entered straight at "enroll this machine" (a missed step)
 	err     string // the failure text at setupFailed
 	userKey string // this machine's key, shown at setupAllow
+	code    string // the enrollment-code buffer, at setupCode
+	offered string // the short fingerprint of the root the authority offered
+	codeErr string // why the last code did not verify, with the attempts left
 
 	// the handshake animation: its own clock, bound to the operation.
 	anim    bool
@@ -90,7 +110,14 @@ const edgeSetupTickEvery = 90 * time.Millisecond
 // edgeSetupDoneMsg carries an enroll op's result back to the model.
 type edgeSetupDoneMsg struct {
 	err  error
-	kind edgeSetupStep // setupDone, setupAllow, or setupFailed
+	kind edgeSetupStep // setupDone, setupAllow, setupCode, or setupFailed
+	root string        // at setupCode: the short fingerprint of the root offered
+}
+
+// edgeSetupCodeMsg carries a code check's result back to the model.
+type edgeSetupCodeMsg struct {
+	done bool
+	err  error
 }
 
 type edgeSetupTickMsg struct{}
@@ -147,9 +174,12 @@ func (m *model) dispatchEdgeSetup() tea.Cmd {
 		default:
 			err = hooks.NewEdge(name)
 		}
+		var need *NeedsCodeError
 		switch {
 		case err == nil:
 			return edgeSetupDoneMsg{kind: setupDone}
+		case errors.As(err, &need):
+			return edgeSetupDoneMsg{kind: setupCode, root: need.Root}
 		case errors.Is(err, ErrNotAllowedYet):
 			return edgeSetupDoneMsg{kind: setupAllow, err: err}
 		default:
@@ -191,6 +221,8 @@ func (m model) onEdgeSetupDone(msg edgeSetupDoneMsg) (tea.Model, tea.Cmd) {
 			if msg.err != nil {
 				s.err = msg.err.Error()
 			}
+		case setupCode:
+			s.step, s.offered, s.code, s.codeErr = setupCode, msg.root, "", ""
 		default:
 			s.step = setupDone
 			m.refreshEdge() // the fleet now has this machine; redraw behind the done panel
@@ -222,6 +254,13 @@ func (m *model) onEdgeSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true // no input while the handshake is in flight
 	case setupAllow:
 		return m.onSetupAllowKey(k)
+	case setupCode:
+		if k.Type == tea.KeyEsc {
+			// Leaving drops the held answer: nothing of it was ever written.
+			m.closeEdgeSetup()
+			return m, nil, true
+		}
+		return m.onSetupTextKey(k, &s.code, m.setupAfterCode)
 	case setupDone:
 		// Dismiss on enter/space/esc/q. Key BY TYPE first (some terminals deliver enter as a
 		// type with a non-"enter" String()), so ⏎ on the done screen always closes to [3].
@@ -300,6 +339,43 @@ func (m *model) setupAfterAddr() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, m.dispatchEdgeSetup()
+}
+
+// setupAfterCode checks the typed code against the held answer, off the UI thread (the check
+// stretches the code, which takes a moment on a small board).
+func (m *model) setupAfterCode() (tea.Model, tea.Cmd) {
+	s := m.edge.setup
+	if strings.TrimSpace(s.code) == "" {
+		s.codeErr = "type the code the authority shows, shaped XXXXX-XXXXX"
+		return m, nil
+	}
+	if m.hooks.EdgeSetup == nil || m.hooks.EdgeSetup.JoinCode == nil {
+		s.step, s.err = setupFailed, "this build cannot finish a join that needs a code here - use roger edge enroll --code"
+		return m, nil
+	}
+	check, code := m.hooks.EdgeSetup.JoinCode, s.code
+	return m, func() tea.Msg {
+		done, err := check(code)
+		return edgeSetupCodeMsg{done: done, err: err}
+	}
+}
+
+// onEdgeSetupCode lands a code check: the done step, the same step again with why, or the end.
+func (m model) onEdgeSetupCode(msg edgeSetupCodeMsg) (tea.Model, tea.Cmd) {
+	s := m.edge.setup
+	if s == nil || s.step != setupCode {
+		return m, nil
+	}
+	switch {
+	case msg.err == nil:
+		s.step = setupDone
+		m.refreshEdge()
+	case !msg.done:
+		s.code, s.codeErr = "", msg.err.Error()
+	default:
+		s.step, s.err = setupFailed, msg.err.Error()
+	}
+	return m, nil
 }
 
 func (m *model) onSetupAllowKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {

@@ -19,6 +19,7 @@ package tui
 // Spec: features/edge/topology_view.feature.
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -892,7 +893,30 @@ func (m *model) adoptEdgeCandidate() {
 		return
 	}
 	m.refreshEdge()
-	m.status = edgeAdoptedMessage(n.Name, n.Pin)
+	m.status = edgeAdoptedMessage(n.Name, n.Pin) + m.edgeAdoptCodeNote(n.ID, n.Pin)
+}
+
+// edgeAdoptCodeNote is the one-time enrollment code a device that joins by claim enters to finish
+// joining, said at the moment of adopting (features/edge/enrollment_root_trust.feature).
+func (m *model) edgeAdoptCodeNote(id, pin string) string {
+	if pin != "" || m.hooks.EdgeAdoptCode == nil {
+		return ""
+	}
+	code, until, ok := m.hooks.EdgeAdoptCode(id)
+	if !ok {
+		return ""
+	}
+	return stDim.Render(" · on it, enter code ") + stKey.Render(code) +
+		stDim.Render(fmt.Sprintf(" (good for %s)", edgeMinutesLeft(until.Sub(m.edgeNow()))))
+}
+
+// edgeMinutesLeft says how long a code has left, in whole minutes, never "0 min".
+func edgeMinutesLeft(d time.Duration) string {
+	n := int((d + time.Minute - 1) / time.Minute)
+	if n < 1 {
+		n = 1
+	}
+	return fmt.Sprintf("%d min", n)
 }
 
 // edgeAdoptSelectedNet adopts the candidate the network-map highlight is on - the UniFi moment for
@@ -917,7 +941,7 @@ func (m *model) edgeAdoptSelectedNet() {
 	if it.node != nil {
 		pin = it.node.Pin
 	}
-	m.status = edgeAdoptedMessage(it.name, pin)
+	m.status = edgeAdoptedMessage(it.name, pin) + m.edgeAdoptCodeNote(it.id, pin)
 }
 
 // edgeAdoptedMessage is the confirmation after adopting a candidate. A candidate that advertised no

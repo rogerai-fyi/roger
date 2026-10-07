@@ -33,12 +33,15 @@
 
 Feature: The owner adopts a candidate from the authority, and the candidate claims its certificate
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
   @edge
   Scenario: adopting a candidate grants it a claim, and the claim issues a certificate
     Given a phone advertising as a candidate with node id N
     When the owner adopts N on the authority
+    And the authority shows a one-time enrollment code for N
     And the phone claims with a signature by its node key
     Then the authority issues it a certificate under the Edge root and account
+    And the answer carries a root proof that verifies with that code, and with no other
     And the grant is consumed, so a second claim with the same node key is refused
 
   @security
@@ -65,9 +68,12 @@ Feature: The owner adopts a candidate from the authority, and the candidate clai
     When a claim for N is timestamped far outside the freshness window
     Then it is refused as stale
 
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
+  # Still no address and no manual allow; the phone keeps its certificate only once the 10-symbol
+  # code shown at adopt verifies the root (enrollment_root_trust.feature).
   @edge
   Scenario: a claimed candidate then presents and is drawn as a verified member
     Given a candidate the owner adopted and that has claimed its certificate
     When it presents with that certificate
     Then it is recorded as a verified member, drawn like any other node
-    And the whole join needed no address typed on the phone and no manual allow
+    And the whole join needed no address typed on the phone and no manual allow, only the adopt code

@@ -702,6 +702,19 @@ func (m model) edgeAdoptingHint(cw int, line func(string)) {
 	}
 	line("  " + edgeSetupCenter(lampStyle(roleLive).Render("◍ ADOPTING  ")+stKey.Render(strings.Join(names, ", "))+
 		stDim.Render("  · claiming its certificate, will appear as a member"), cw))
+	// The one-time code each adopted device enters to keep this Edge's root, until it is spent or
+	// expires (features/edge/enrollment_root_trust.feature). Shown whole, one device per line.
+	if m.hooks.EdgeAdoptCode != nil {
+		for i, n := range ad {
+			if code, until, ok := m.hooks.EdgeAdoptCode(n.ID); ok {
+				line("  " + edgeSetupCenter(stKey.Render(names[i])+stDim.Render(" · code ")+stEmber.Render(code)+
+					stDim.Render(" · "+edgeMinutesLeft(until.Sub(m.edgeNow()))+" left"), cw))
+				continue
+			}
+			line("  " + edgeSetupCenter(stKey.Render(names[i])+stDim.Render(" · code expired - ")+
+				stEmber.Render("roger edge adopt "+names[i])+stDim.Render(" for a fresh code"), cw))
+		}
+	}
 	line("")
 }
 

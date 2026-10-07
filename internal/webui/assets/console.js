@@ -1901,7 +1901,11 @@
     box.innerHTML = "";
     box.appendChild(el("span", "mono muted small", "adopting \u00b7 waiting to check in:"));
     list.forEach(function (a) {
-      box.appendChild(el("span", "edge-adopting-pill mono small", edgeName(a) + " (" + (a.kind || "?") + ")"));
+      var pill = edgeName(a) + " (" + (a.kind || "?") + ")";
+      // The one-time enrollment code the device enters to keep this Edge's root, shown whole.
+      if (a.code) pill += " \u00b7 code " + a.code + " \u00b7 " + a.code_left + " left";
+      else if (a.code_expired) pill += " \u00b7 code expired, adopt it again for a fresh one";
+      box.appendChild(el("span", "edge-adopting-pill mono small", pill));
     });
     show(box, true);
   }
