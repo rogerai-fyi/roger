@@ -19,6 +19,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -33,7 +34,7 @@ type lanCLIMoneyBDD struct {
 func (s *lanCLIMoneyBDD) serveHere(band string) error {
 	lanSelfServe = prodLANSelfServe
 	up := s.counting("self", &s.selfHits)
-	return writeLANShareRecord(lanShareRecord{PID: os.Getpid(), Band: band, ChatURL: up.URL + "/v1/chat/completions"})
+	return writeShareRecord(onair.Share{PID: os.Getpid(), Band: band, ChatURL: up.URL + "/v1/chat/completions"})
 }
 
 func (s *lanCLIMoneyBDD) loggedIn() error {

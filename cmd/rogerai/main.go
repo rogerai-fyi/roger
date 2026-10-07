@@ -29,6 +29,9 @@ import (
 	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/keyfile"
+	roggnode "rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/session"
 	"rogerai.fm/roger/v6/internal/tui"
@@ -854,6 +857,11 @@ func run(argv []string, cfg config) error {
 	// subcommands; strip them here so the dispatcher reads the real command, and resolve
 	// whether the console comes up (ON by default; saved config or --no-webui opts out).
 	rest, webuiOn, webuiPort := stripWebuiFlags(argv, cfg.webuiEnabled(), defaultWebuiPort)
+	// A damaged identity key is refused before anything signs, with the one message naming its
+	// path; it is never replaced (features/packaging/one_binary.feature section 7.5).
+	if err := checkIdentityKeys(); err != nil {
+		return err
+	}
 	// A broker setting that is a standalone Tower is folded into lan_towers once, so LAN Tower
 	// discovery reads one list.
 	cfg = foldBrokerTower(cfg, os.Stderr)
@@ -973,6 +981,17 @@ var errUnknownCommand = fmt.Errorf("unknown command")
 // dispatch routes a parsed argv (args[0] is the subcommand, args[1:] its arguments) to
 // the matching handler and returns its error. main() owns the process-exit; this owns
 // only the routing, so a test can drive every verb.
+// checkIdentityKeys refuses a damaged node.key or user.key (keyfile.Check); a missing one is
+// created when first needed.
+func checkIdentityKeys() error {
+	for _, p := range []string{agent.NodeKeyPath(), client.UserKeyPath()} {
+		if err := keyfile.Check(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func dispatch(cfg config, args []string) error {
 	if len(args) == 0 {
 		usage()
@@ -1643,7 +1662,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
 	// share serves to the share's own upstream: a local, owner-only record, gone when we stop.
 	if foundModality == "" && up != "" {
-		if stop, err := writeLANShare(mdl, up, *upKey); err == nil {
+		if stop, err := onair.WriteShare(onair.Share{PID: os.Getpid(), Band: mdl, ChatURL: roggnode.NormalizeUpstream(up), Key: *upKey}); err == nil {
 			defer stop()
 		}
 	}

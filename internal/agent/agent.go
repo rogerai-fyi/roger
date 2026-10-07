@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/keyfile"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -1085,19 +1086,12 @@ func brokerErrMsg(body []byte) string {
 	return string(body)
 }
 
-func loadOrCreateKey() ed25519.PrivateKey {
+func loadOrCreateKey() ed25519.PrivateKey { return keyfile.MustLoadOrCreate(NodeKeyPath()) }
+
+// NodeKeyPath is where this machine's node identity (node.key) lives.
+func NodeKeyPath() string {
 	dir, _ := os.UserConfigDir()
-	path := filepath.Join(dir, "rogerai", "node.key")
-	if data, err := os.ReadFile(path); err == nil {
-		if raw, err := hex.DecodeString(string(bytes.TrimSpace(data))); err == nil && len(raw) == ed25519.PrivateKeySize {
-			return ed25519.PrivateKey(raw)
-		}
-	}
-	_, priv, _ := ed25519.GenerateKey(nil)
-	_ = os.MkdirAll(filepath.Dir(path), 0700)
-	_ = os.WriteFile(path, []byte(hex.EncodeToString(priv)), 0600)
-	log.Printf("generated node key at %s", path)
-	return priv
+	return filepath.Join(dir, "rogerai", "node.key")
 }
 
 func randHex(n int) string {

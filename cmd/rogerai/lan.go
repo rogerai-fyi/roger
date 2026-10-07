@@ -22,6 +22,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edge/wire"
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/tui"
 )
 
@@ -335,7 +336,7 @@ func lanSelfBands() []string {
 	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
 		out = append(out, in.Bands...)
 	}
-	for _, rec := range lanShares() {
+	for _, rec := range onair.Shares() {
 		out = append(out, rec.Band)
 	}
 	return out
@@ -469,7 +470,7 @@ var lanSelfServe = func(band string) (string, string) {
 			return u, k
 		}
 	}
-	for _, rec := range lanShares() { // a separate `roger share` process on this machine
+	for _, rec := range onair.Shares() { // a separate `roger share` process on this machine
 		if rec.Band == band {
 			return rec.ChatURL, rec.Key
 		}

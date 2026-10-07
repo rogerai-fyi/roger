@@ -25,6 +25,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/onair"
 )
 
 // separateProcess starts a real, separate process and returns its pid; it is killed at cleanup.
@@ -62,7 +63,7 @@ func TestASeparateLANShareIsServedToTheEdgeThroughThisFace(t *testing.T) {
 	// THIS process shares nothing: no band on air, no upstream of its own.
 	edgeOnAir, edgeUpstreamOf = nil, nil
 	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })
-	require.NoError(t, writeLANShareRecord(lanShareRecord{PID: separateProcess(t), Band: "qwen",
+	require.NoError(t, writeShareRecord(onair.Share{PID: separateProcess(t), Band: "qwen",
 		ChatURL: upstream.URL + "/v1/chat/completions", Key: "upkey"}))
 
 	h, err := newEdgeHost("roger-desk")

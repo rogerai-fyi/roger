@@ -9,7 +9,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v6/internal/onair"
 )
+
+// writeShareRecord writes a share's local record as a share process would.
+func writeShareRecord(s onair.Share) error {
+	_, err := onair.WriteShare(s)
+	return err
+}
 
 // deadPID is the pid of a process that has already exited.
 func deadPID(t *testing.T) int {
@@ -25,7 +33,7 @@ func deadPID(t *testing.T) int {
 // share writes a local, owner-only record the LAN relay reads, and nothing else carries it.
 func TestLANShareRecordIsThisMachinesServe(t *testing.T) {
 	useTempConfig(t)
-	stop, err := writeLANShare("qwen3-8b", "http://127.0.0.1:11434", "up-key")
+	stop, err := onair.WriteShare(onair.Share{PID: os.Getpid(), Band: "qwen3-8b", ChatURL: node.NormalizeUpstream("http://127.0.0.1:11434"), Key: "up-key"})
 	require.NoError(t, err)
 
 	url, key := lanSelfServe("qwen3-8b")
@@ -33,12 +41,12 @@ func TestLANShareRecordIsThisMachinesServe(t *testing.T) {
 	require.Equal(t, "up-key", key)
 	require.Contains(t, lanSelfBands(), "qwen3-8b", "the dial lists it as this machine's")
 
-	files, _ := filepath.Glob(filepath.Join(lanSharesDir(), "*.json"))
+	files, _ := filepath.Glob(filepath.Join(onair.SharesDir(), "*.json"))
 	require.Len(t, files, 1)
 	fi, err := os.Stat(files[0])
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm(), "the record holds the upstream key: owner-only")
-	di, err := os.Stat(lanSharesDir())
+	di, err := os.Stat(onair.SharesDir())
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o700), di.Mode().Perm())
 
@@ -54,24 +62,24 @@ func TestLANShareRecordIsThisMachinesServe(t *testing.T) {
 // A record left by a share that died without cleaning up is ignored and removed.
 func TestLANShareRecordOfADeadProcessIsIgnored(t *testing.T) {
 	useTempConfig(t)
-	require.NoError(t, writeLANShareRecord(lanShareRecord{PID: deadPID(t), Band: "qwen3-8b",
+	require.NoError(t, writeShareRecord(onair.Share{PID: deadPID(t), Band: "qwen3-8b",
 		ChatURL: "http://127.0.0.1:11434/v1/chat/completions"}))
 
 	url, _ := lanSelfServe("qwen3-8b")
 	require.Empty(t, url, "a dead share's record is never routed to")
 	require.NotContains(t, lanSelfBands(), "qwen3-8b")
-	files, _ := filepath.Glob(filepath.Join(lanSharesDir(), "*.json"))
+	files, _ := filepath.Glob(filepath.Join(onair.SharesDir(), "*.json"))
 	require.Empty(t, files, "the stale record is removed")
 }
 
 // A damaged record is skipped, never fatal.
 func TestLANShareRecordDamagedIsSkipped(t *testing.T) {
 	useTempConfig(t)
-	require.NoError(t, os.MkdirAll(lanSharesDir(), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(lanSharesDir(), "share-1.json"), []byte("{not json"), 0o600))
+	require.NoError(t, os.MkdirAll(onair.SharesDir(), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(onair.SharesDir(), "share-1.json"), []byte("{not json"), 0o600))
 	url, _ := lanSelfServe("qwen3-8b")
 	require.Empty(t, url)
-	require.Empty(t, lanShares())
+	require.Empty(t, onair.Shares())
 }
 
 // `roger share` writes the record while it serves and removes it when it stops.

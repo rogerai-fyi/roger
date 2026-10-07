@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
 	"net/http"
@@ -9,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"rogerai.fm/roger/v6/internal/keyfile"
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"sync/atomic"
@@ -26,6 +26,9 @@ var (
 )
 
 // userKeyPath is $UserConfigDir/rogerai/user.key.
+// UserKeyPath is where this machine's signing identity (user.key) lives.
+func UserKeyPath() string { return userKeyPath() }
+
 func userKeyPath() string {
 	dir, _ := os.UserConfigDir()
 	return filepath.Join(dir, "rogerai", "user.key")
@@ -39,18 +42,8 @@ func LoadOrCreateUserKey() ed25519.PrivateKey {
 	if userKeyOnce != nil {
 		return userKeyOnce
 	}
-	path := userKeyPath()
-	if data, err := os.ReadFile(path); err == nil {
-		if raw, err := hex.DecodeString(string(bytes.TrimSpace(data))); err == nil && len(raw) == ed25519.PrivateKeySize {
-			userKeyOnce = ed25519.PrivateKey(raw)
-			return userKeyOnce
-		}
-	}
-	_, priv, _ := ed25519.GenerateKey(nil)
-	_ = os.MkdirAll(filepath.Dir(path), 0700)
-	_ = os.WriteFile(path, []byte(hex.EncodeToString(priv)), 0600)
-	userKeyOnce = priv
-	return priv
+	userKeyOnce = keyfile.MustLoadOrCreate(userKeyPath())
+	return userKeyOnce
 }
 
 // UserPubHex is the hex public key for the local signing identity.

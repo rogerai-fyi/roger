@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
@@ -198,7 +199,7 @@ func edgeBandsOnAir() []string {
 	}
 	// A band a SEPARATE headless share on this machine has on air is this machine's too: the face
 	// serves it to members from the share's local record (lanShareUpstream).
-	for _, rec := range lanShares() {
+	for _, rec := range onair.Shares() {
 		if !slices.Contains(out, rec.Band) {
 			out = append(out, rec.Band)
 		}
@@ -212,7 +213,7 @@ func edgeBandsOnAir() []string {
 // lanShareUpstream resolves band to a separate headless share's upstream on this machine, from its
 // owner-only record. The upstream and its key never leave this machine: only the band is advertised.
 func lanShareUpstream(band string) (chatURL, key string, ok bool) {
-	for _, rec := range lanShares() {
+	for _, rec := range onair.Shares() {
 		if rec.Band == band {
 			return rec.ChatURL, rec.Key, true
 		}
