@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // TestResolveUseValidatesStoredLimits: a hand-edited limits value that is not a contract
@@ -177,4 +178,17 @@ func TestUseCountsThePositionalModel(t *testing.T) {
 	require.NoError(t, err)
 	_, err = resolveUse(config{}, f, ps)
 	require.NoError(t, err, "the positional is one of the five")
+}
+
+// TestTUISaveKeepsAConcurrentCLIEdit: a limit set from the CLI while the booth is open (on
+// another model) survives the booth's next save, which applies only what the booth changed.
+func TestTUISaveKeepsAConcurrentCLIEdit(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdSetLimit([]string{"booth-model", "--max-out", "1"}))
+	store := tuiLimits(loadConfig()) // the booth opens
+	require.NoError(t, cmdSetLimit([]string{"cli-model", "--max-out", "2"})) // the CLI, meanwhile
+	store.Set("booth-model", tui.Limit{MaxOut: 3})                           // the booth's own edit
+	c := loadConfig()
+	require.InDelta(t, 2.0, c.Limits.Models["cli-model"].MaxOut, 1e-9, "the CLI's edit survived")
+	require.InDelta(t, 3.0, c.Limits.Models["booth-model"].MaxOut, 1e-9, "the booth's edit landed")
 }

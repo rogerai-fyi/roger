@@ -620,6 +620,14 @@ func tuiLimits(cfg config) *tui.LimitStore {
 		TypicalOut: typ,
 		Profiles:   client.NewProfileStore(""), // config.json's profiles, re-read on change
 	}
+	// The booth writes only what it changed since its last save (against this baseline), onto
+	// the config read under the lock: a limit another roger process set meanwhile, on any
+	// other model or the default, is kept rather than overwritten by the booth's older copy.
+	baseModels := map[string]tui.Limit{}
+	for m, l := range models {
+		baseModels[m] = l
+	}
+	baseDef := toTUILimit(cfg.Limits.Default)
 	ls.Save = func(tm map[string]tui.Limit, def tui.Limit) {
 		release, err := acquireConfigLock() // held across load, edit and save
 		if err != nil {
@@ -628,12 +636,31 @@ func tuiLimits(cfg config) *tui.LimitStore {
 		}
 		defer release()
 		c := loadConfig()
-		c.Limits.Models = map[string]Limit{}
-		for m, l := range tm {
-			c.Limits.Models[m] = fromTUILimit(l)
+		if c.Limits.Models == nil {
+			c.Limits.Models = map[string]Limit{}
 		}
-		c.Limits.Default = fromTUILimit(def)
-		ls.ReportSaveErr(saveConfigLocked(c)) // the booth says so on its next tick
+		for m, l := range tm { // added or changed in the booth
+			if b, had := baseModels[m]; !had || !reflect.DeepEqual(b, l) {
+				c.Limits.Models[m] = fromTUILimit(l)
+			}
+		}
+		for m := range baseModels { // cleared in the booth
+			if _, still := tm[m]; !still {
+				delete(c.Limits.Models, m)
+			}
+		}
+		if !reflect.DeepEqual(def, baseDef) {
+			c.Limits.Default = fromTUILimit(def)
+		}
+		if err := saveConfigLocked(c); err != nil {
+			ls.ReportSaveErr(err) // the booth says so on its next tick
+			return
+		}
+		baseModels = map[string]tui.Limit{}
+		for m, l := range tm {
+			baseModels[m] = l
+		}
+		baseDef = def
 	}
 	return ls
 }
