@@ -130,16 +130,6 @@ func TestStationConfig(t *testing.T) {
 	}
 }
 
-// TestFreePort covers freePort (binds a free port in the scan range). The former
-// reachable() health-probe helper was removed (unused; prod preflights via the broker
-// client), so this no longer exercises it.
-func TestFreePort(t *testing.T) {
-	p, err := freePort(40000)
-	if err != nil || p < 40000 {
-		t.Fatalf("freePort = %d/%v", p, err)
-	}
-}
-
 // TestCommandHandlers drives the broker-facing command handlers against a fake broker.
 func TestCommandHandlers(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

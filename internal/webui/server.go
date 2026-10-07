@@ -16,11 +16,11 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/node"
 )
 
@@ -196,41 +196,15 @@ func (s *Server) localhostOnly(next http.Handler) http.Handler {
 	})
 }
 
-// Listen binds a free localhost port at/after addr and returns the listener plus the URL
-// (with the access token) to open. addr like "127.0.0.1:4180"; if that port is taken it
-// scans upward, mirroring the TUI's listenFreePort so a busy port never dead-ends.
+// Listen binds a free localhost port at/after addr (netbind.ListenFree: one bind, scanning
+// upward when the port is taken) and returns the listener plus the URL (with the access token)
+// to open. addr like "127.0.0.1:4180".
 func (s *Server) Listen(addr string) (net.Listener, string, error) {
-	ln, err := listenFreePort(addr)
+	ln, err := netbind.ListenFree(addr)
 	if err != nil {
 		return nil, "", err
 	}
 	return ln, "http://" + ln.Addr().String() + "/?t=" + s.token, nil
-}
-
-// listenFreePort binds addr, or — if its port is taken — scans upward to the first free
-// port on the same host (bounded). Mirrors internal/tui.listenFreePort.
-func listenFreePort(addr string) (net.Listener, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		host, port = "127.0.0.1", "0"
-	}
-	if port == "0" {
-		return net.Listen("tcp", net.JoinHostPort(host, "0"))
-	}
-	start, _ := strconv.Atoi(port)
-	var lastErr error
-	for p := start; p < start+64; p++ {
-		ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
-		if err == nil {
-			return ln, nil
-		}
-		lastErr = err
-	}
-	// Last resort: let the OS pick any free port rather than dead-end.
-	if ln, err := net.Listen("tcp", net.JoinHostPort(host, "0")); err == nil {
-		return ln, nil
-	}
-	return nil, lastErr
 }
 
 func newToken() string {

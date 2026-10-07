@@ -1155,14 +1155,9 @@ func cmdUse(cfg config, args []string) error {
 	if *minTPS >= 0 {
 		lim.MinTPS = *minTPS
 	}
+	// 0 = auto: client.Use binds the first free port at or above client.DefaultUsePort, and the
+	// endpoint line prints the port it holds.
 	useport := *port
-	if useport == 0 {
-		p, err := freePort(4141) // auto-pick + the endpoint line prints the chosen port
-		if err != nil {
-			return err
-		}
-		useport = p
-	}
 	uo := client.UseOptions{
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,

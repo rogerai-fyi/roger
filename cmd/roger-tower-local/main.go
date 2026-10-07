@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
@@ -66,7 +67,10 @@ func prepare(args []string, out io.Writer) (*prepared, error) {
 
 	// The bind posture is decided BEFORE the data directory is touched: an exposure mistake
 	// should fail fast with a precise message, not after the network is half up.
-	addr, note, err := localplane.ResolveBind(*bind, *allowPublic)
+	if *bind == "" {
+		*bind = localplane.DefaultBind
+	}
+	addr, note, err := netbind.Resolve(*bind, *allowPublic)
 	if err != nil {
 		return nil, err
 	}

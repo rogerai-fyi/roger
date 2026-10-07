@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/mattn/go-isatty"
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/netbind"
 )
 
 // The first-run onboarding wizard (charmbracelet/huh). It runs once, before the
@@ -186,7 +186,9 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 	if len(pick.Models) > 0 {
 		model = pick.Models[0]
 	}
-	port, err := freePort(4140)
+	// A port for the share to use later: a suggestion (netbind.SuggestPort), never a bind
+	// this process holds - the share binds its own listener when it starts.
+	port, err := netbind.SuggestPort(4140)
 	if err != nil {
 		return cfg, false, err
 	}
@@ -346,22 +348,6 @@ func guidedUpstream(broker string, needKey []string) (detect.Found, bool) {
 		}
 		fmt.Println("still nothing on the default ports / your open ports - give it a moment, or paste the URL.")
 	}
-}
-
-// freePort returns the first free TCP port at/above start (auto-pick so a user
-// never hits "address in use"); start itself if it binds, else scans upward. It
-// returns an error when the whole scan window is busy - it must NOT fall back to a
-// known-busy port (the caller would then bind-fail with a confusing "address in
-// use" the auto-pick was meant to avoid).
-func freePort(start int) (int, error) {
-	for p := start; p < start+200; p++ {
-		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p))
-		if err == nil {
-			ln.Close()
-			return p, nil
-		}
-	}
-	return 0, fmt.Errorf("no free TCP port in %d-%d (close some listeners or pass --port)", start, start+199)
 }
 
 // parsePrice parses a price input, clamping to 0 on a bad value.

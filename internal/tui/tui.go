@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -41,6 +40,7 @@ import (
 	"rogerai.fm/roger/v6/internal/glyphs"
 	"rogerai.fm/roger/v6/internal/harness"
 	"rogerai.fm/roger/v6/internal/modelview"
+	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/operator"
 	"rogerai.fm/roger/v6/internal/protocol"
@@ -2964,7 +2964,7 @@ func (m *model) bindChannel(o offer) (warm bool, err error) {
 		// Auto-pick a free port instead of dead-ending if 4141 is taken (mirrors the CLI's
 		// freePort): scan upward from the configured port so a busy port never bounces the
 		// user back to browse with a bind error and no recovery.
-		ln, lerr := listenFreePort(m.proxyAddr)
+		ln, lerr := netbind.ListenFree(m.proxyAddr)
 		if lerr != nil {
 			return false, lerr
 		}
@@ -3364,32 +3364,6 @@ var spectrumBlocks = []rune("▁▂▃▄▅▆▇█")
 // splitting an escape sequence. It is the compact strip's width clamp (ansi.Truncate
 // is display-width aware and ANSI-safe, so a colored segment is cut cleanly rather
 // than leaking a half escape).
-// listenFreePort binds the first free TCP port at/above the port in addr ("host:port"),
-// returning the open listener. It mirrors the CLI's freePort (cmd/rogerai/onboard.go):
-// the configured port (4141) is tried first; if it is busy the scan walks upward so the
-// TUI's tune-in never dead-ends on "address in use". It returns an error only when the
-// whole window is busy (never falls back to a known-busy port). A malformed/portless addr
-// degrades to letting the OS pick (":0").
-func listenFreePort(addr string) (net.Listener, error) {
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return net.Listen("tcp", addr)
-	}
-	start, perr := strconv.Atoi(portStr)
-	if perr != nil || start <= 0 {
-		// No usable start port: let the OS assign one rather than fail.
-		return net.Listen("tcp", net.JoinHostPort(host, "0"))
-	}
-	var lastErr error
-	for p := start; p < start+200; p++ {
-		ln, lerr := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
-		if lerr == nil {
-			return ln, nil
-		}
-		lastErr = lerr
-	}
-	return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners): %v", start, start+199, lastErr)
-}
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
 // live-red on-air eye + the current state. It COMPACTS to a thin one-line bar

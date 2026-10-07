@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/pricetier"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
@@ -1717,7 +1718,13 @@ func Use(broker, user, model string, opt UseOptions) error {
 		break
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	// One bind: the endpoint printed below is the socket already held (netbind), never a port
+	// probed now and bound later, which another process could take in between.
+	ln, lerr := useListen(opt.Port)
+	if lerr != nil {
+		return lerr
+	}
+	addr := ln.Addr().String()
 	// The staged tune-in: scan -> lock -> lineage handshake -> CHANNEL OPEN, mirroring
 	// the TUI sequence + the website's animation. Plain text (CLI is non-interactive),
 	// ◉ on-air / ◆ verified shared with the band table, so the lock reads the same on
@@ -1748,17 +1755,30 @@ func Use(broker, user, model string, opt UseOptions) error {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}, OnReceipt: opt.OnReceipt,
 		EdgePeers: opt.EdgePeers, Prefer: opt.Prefer, EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify}
-	return useServe(addr, newProxyHandler(opts))
+	return useServe(ln, newProxyHandler(opts))
+}
+
+// DefaultUsePort is where `roger use` starts looking for a free loopback port when no --port
+// is given; a busy port moves it upward.
+const DefaultUsePort = 4141
+
+// useListen binds the local endpoint ONCE (internal/netbind): an explicit port exactly, or the
+// first free port at or above DefaultUsePort.
+func useListen(port int) (net.Listener, error) {
+	if port <= 0 {
+		return netbind.ListenFree(net.JoinHostPort("127.0.0.1", strconv.Itoa(DefaultUsePort)))
+	}
+	return net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 }
 
 // useStdin / useServe are seams over the two side effects Use can't run in a test: the
-// interactive confirm reader (default os.Stdin) and the blocking local-proxy listener
-// (default http.ListenAndServe). Tests point useStdin at an os.Pipe and useServe at a
+// interactive confirm reader (default os.Stdin) and serving the local proxy on its listener
+// (default http.Serve, which blocks). Tests point useStdin at an os.Pipe and useServe at a
 // capture func so every branch up to and including "channel open" is exercised without
-// reading the real terminal or binding a forever-blocking port.
+// reading the real terminal or blocking on a listener.
 var (
 	useStdin = os.Stdin
-	useServe = http.ListenAndServe
+	useServe = http.Serve
 	// newProxyHandler is the seam Use / useOnFreq build the local relay handler through, so a
 	// test can capture the assembled ProxyOptions (e.g. the --raw wiring) without binding a
 	// real listener. Production value is ProxyHandler; the useServe seam still runs it.
@@ -1768,7 +1788,7 @@ var (
 // SetUseServe points `roger use`'s listener at fn and returns the restore func. Only the CLI's
 // executable specs call it, so a scenario can drive the real proxy handler without holding a
 // port; production never does.
-func SetUseServe(fn func(addr string, h http.Handler) error) (restore func()) {
+func SetUseServe(fn func(ln net.Listener, h http.Handler) error) (restore func()) {
 	old := useServe
 	useServe = fn
 	return func() { useServe = old }
@@ -1847,7 +1867,13 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 		}
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	// One bind: the endpoint printed below is the socket already held (netbind), never a port
+	// probed now and bound later, which another process could take in between.
+	ln, lerr := useListen(opt.Port)
+	if lerr != nil {
+		return lerr
+	}
+	addr := ln.Addr().String()
 	fmt.Printf("\n  %s scanning frequency ... ok\n", glyphOnAir)
 	fmt.Printf("  %s locking @%s · %s · %.2f $/M ... ok\n", glyphOnAir, br.CheapNode, tpsLabel(br.CheapTPS), br.Min)
 	fmt.Printf("  %s CHANNEL OPEN (private) %s via @%s\n", glyphOnAir, model, br.CheapNode)
@@ -1862,7 +1888,7 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}, OnReceipt: opt.OnReceipt,
 		EdgePeers: opt.EdgePeers, Prefer: opt.Prefer, EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify}
-	return useServe(addr, newProxyHandler(opts))
+	return useServe(ln, newProxyHandler(opts))
 }
 
 // rangeLabel renders a cross-station spread as "min ~ max" ($/1M out), or a single

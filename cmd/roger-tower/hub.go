@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/link"
@@ -378,10 +379,13 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 	// It is generous on purpose. A tower's real concurrency is its Stations' poll workers plus
 	// consumer submits, a few per Station; 512 is far above any tower this design contemplates
 	// and far below what an unbounded listener hands an attacker.
-	ln, lerr := net.Listen("tcp", opt.Addr)
+	// netbind states the posture (a joined hub is public by design, so a public bind is never
+	// refused, only said out loud) and refuses a hostname bind like every other site.
+	ln, posture, lerr := netbind.Stated("hub", opt.Addr)
 	if lerr != nil {
-		return nil, fmt.Errorf("cannot listen on %s: %w", opt.Addr, lerr)
+		return nil, lerr
 	}
+	fmt.Fprintln(out, posture)
 	ln = limitConns(ln, maxHubConns)
 
 	// The refresher: keep the hub's node registrations in step with Core's attachment

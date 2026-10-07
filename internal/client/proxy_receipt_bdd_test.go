@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -137,7 +138,7 @@ func (s *receiptBDD) useWithCallback() error {
 		s.handler = ProxyHandler(o)
 		return s.handler
 	}
-	useServe = func(string, http.Handler) error { return nil }
+	useServe = func(ln net.Listener, _ http.Handler) error { return ln.Close() }
 	s.t.Cleanup(func() { newProxyHandler, useServe = old, oldServe })
 	return Use(s.broker.URL, "u", "gpt-oss-120b", UseOptions{Port: 4321, OnReceipt: s.sink})
 }

@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,9 +35,9 @@ func (s *lanUseBDD) resetUse() {
 }
 
 func (s *lanUseBDD) runUse(line string) error {
-	restore := client.SetUseServe(func(_ string, h http.Handler) error {
+	restore := client.SetUseServe(func(ln net.Listener, h http.Handler) error {
 		s.handler, s.opened = h, true
-		return nil
+		return ln.Close()
 	})
 	defer restore()
 	args := strings.Fields(line)[1:]

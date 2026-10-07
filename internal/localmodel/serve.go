@@ -13,13 +13,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/runtime"
 )
@@ -182,7 +182,7 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 	var release func()
 	for try := 0; release == nil; try++ {
 		if o.Port == 0 {
-			if port, err = freePort(); err != nil {
+			if port, err = netbind.SuggestPort(0); err != nil { // the runtime binds it; claimPort guards a race
 				return nil, Serving{}, err
 			}
 		}
@@ -234,15 +234,6 @@ func newKey() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
-}
-
-func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 // RecordOf is where a serve's record (and so its key) is kept, for the owner to find.

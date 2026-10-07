@@ -275,7 +275,13 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 		}
 		label = strings.Join(labels, ", ")
 	}
-	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	// One bind: the endpoint printed below is the socket already held (netbind), never a port
+	// probed now and bound later, which another process could take in between.
+	ln, lerr := useListen(opt.Port)
+	if lerr != nil {
+		return lerr
+	}
+	addr := ln.Addr().String()
 	sessionKey := NewSessionKey()
 	mode := "LAN"
 	if !opt.LANMode {
@@ -293,7 +299,7 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 		Alert:     func(s string) { fmt.Fprintln(os.Stderr, "rogerai: "+s) },
 		EdgePeers: opt.EdgePeers, Prefer: "local-only", EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify,
 		LANMode: opt.LANMode, LANSelf: opt.LANSelf, LANTowers: opt.LANTowers, LANHTTP: opt.LANHTTP, LANResolve: opt.LANResolve}
-	return useServe(addr, newProxyHandler(opts))
+	return useServe(ln, newProxyHandler(opts))
 }
 
 // The process-wide LAN relay: the TUI chat, the console chat and the agent send their turns

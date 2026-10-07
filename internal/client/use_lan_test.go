@@ -2,6 +2,7 @@ package client
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,7 +28,7 @@ func captureUse(t *testing.T, model string, opt UseOptions) (string, *ProxyOptio
 	defer broker.Close()
 	var got *ProxyOptions
 	oldServe, oldHandler := useServe, newProxyHandler
-	useServe = func(string, http.Handler) error { return nil }
+	useServe = func(ln net.Listener, _ http.Handler) error { return ln.Close() }
 	newProxyHandler = func(o ProxyOptions) http.Handler { got = &o; return http.NotFoundHandler() }
 	defer func() { useServe, newProxyHandler = oldServe, oldHandler }()
 	out := captureOut(t, func() error { return Use(broker.URL, "u", model, opt) })
@@ -48,7 +49,7 @@ func captureOut(t *testing.T, fn func() error) useOut {
 }
 
 func TestUseInLANModeOpensOnALocalSourceAndNeverAsksTheBroker(t *testing.T) {
-	out, opts, paths, err := captureUse(t, "llama-3.3-70b", UseOptions{Port: 4141, LANMode: true,
+	out, opts, paths, err := captureUse(t, "llama-3.3-70b", UseOptions{LANMode: true,
 		LANSources: func(string) []LANSource { return []LANSource{{Kind: LANTower, ID: "192.168.1.20:8787"}} },
 		LANTowers:  func(string) []string { return []string{"192.168.1.20:8787"} }})
 	require.NoError(t, err)
@@ -65,7 +66,7 @@ func TestUseInLANModeOpensOnALocalSourceAndNeverAsksTheBroker(t *testing.T) {
 }
 
 func TestUseInLANModeRefusesABandNothingLocalServes(t *testing.T) {
-	_, opts, paths, err := captureUse(t, "gpt-oss-120b", UseOptions{Port: 4141, LANMode: true,
+	_, opts, paths, err := captureUse(t, "gpt-oss-120b", UseOptions{LANMode: true,
 		LANSources: func(string) []LANSource { return nil }})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "gpt-oss-120b")
@@ -76,7 +77,7 @@ func TestUseInLANModeRefusesABandNothingLocalServes(t *testing.T) {
 
 func TestUsePinnedNodeNeverConsultsTheMarket(t *testing.T) {
 	peer := EdgePeer{Node: "jetson", Addr: "192.168.1.77:1", Pin: strings.Repeat("ab", 32)}
-	out, opts, paths, err := captureUse(t, "gpt-oss-20b", UseOptions{Port: 4141, Pinned: "edge: jetson",
+	out, opts, paths, err := captureUse(t, "gpt-oss-20b", UseOptions{Pinned: "edge: jetson",
 		EdgePeers: func(string) []EdgePeer { return []EdgePeer{peer} }, Prefer: "local-only"})
 	require.NoError(t, err)
 	require.Empty(t, paths, "a pinned node consulted the broker: %v", paths)

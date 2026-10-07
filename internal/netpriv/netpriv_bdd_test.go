@@ -27,7 +27,7 @@ const netprivImport = `"rogerai.fm/roger/v6/internal/netpriv"`
 // siteFiles is where each site in the outline decides "local". A site passes only when its
 // file imports netpriv: a site with its own rule fails here before the class is compared.
 var siteFiles = map[string]string{
-	"tower bind":                   "internal/localplane/bind.go",
+	"tower bind":                   "internal/netbind/netbind.go",
 	"tower egress allow-list":      "internal/tower/egress.go",
 	"lan add":                      "internal/lanmode/lanmode.go",
 	"client nonce decision":        "internal/lanmode/lanmode.go", // lanmode.WantsNonce
