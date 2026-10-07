@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,9 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 				tried = append(tried, "this machine: "+err.Error())
 			}
 		}
+	}
+	if len(tried) > 0 {
+		noteLANLeft(w, tried)
 	}
 	if ok, peerTried := tryEdgePeers(ctx, w, opts, band, body, onServed); ok {
 		return true, false
@@ -60,6 +64,7 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 				continue
 			}
 			onServed(0)
+			noteLANLeft(w, tried)
 			w.Header().Set("X-RogerAI-Cost", "0") // a LAN turn is free and says so
 			copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
 			resp.Body.Close()
@@ -72,6 +77,50 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	}
 	openAIError(w, http.StatusServiceUnavailable, "lan_error", "lan_only", msg)
 	return false, true
+}
+
+// noteLANLeft names, on the answer, the local sources a turn failed over from, so the caller can
+// see that it left them (features/lan/routing_and_inference.feature, failover inside the LAN).
+func noteLANLeft(w http.ResponseWriter, tried []string) {
+	if len(tried) == 0 {
+		return
+	}
+	names := make([]string, 0, len(tried))
+	for _, t := range tried {
+		name, _, _ := strings.Cut(t, ":")
+		name, _, _ = strings.Cut(name, "/")
+		names = append(names, strings.TrimSpace(name))
+	}
+	w.Header().Set("X-RogerAI-LAN-Left", strings.Join(names, ", "))
+}
+
+// lanPace is how long each Edge member took to answer a turn from this machine, keyed by its
+// pinned face. It only orders members within the LAN ladder's Edge rung, so it is a per-process
+// hint, never a record.
+var lanPace sync.Map // EdgePeer.Addr+"|"+EdgePeer.Pin -> time.Duration
+
+func lanPaceKey(p EdgePeer) string { return p.Addr + "|" + p.Pin }
+
+// lanOrderPeers puts members not yet measured first (so each gets measured), then the measured
+// ones fastest first; ties keep the fleet's order.
+func lanOrderPeers(peers []EdgePeer) []EdgePeer {
+	out := append([]EdgePeer(nil), peers...)
+	pace := func(p EdgePeer) (time.Duration, bool) {
+		v, ok := lanPace.Load(lanPaceKey(p))
+		if !ok {
+			return 0, false
+		}
+		return v.(time.Duration), true
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		di, mi := pace(out[i])
+		dj, mj := pace(out[j])
+		if mi != mj {
+			return !mi
+		}
+		return di < dj
+	})
+	return out
 }
 
 // lanTowerBase checks a Tower entry NOW and returns the base URL of the address the check

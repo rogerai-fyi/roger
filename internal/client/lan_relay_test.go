@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -163,4 +164,24 @@ func TestRelayLANAnswersCarryAZeroCost(t *testing.T) {
 	self := lanUpstream(t, "self", &hits, nil)
 	rec = lanTurn(t, ProxyOptions{LANMode: true, LANSelf: func(string) (string, string) { return self.URL, "" }}, "m")
 	require.Equal(t, "0", rec.Header().Get("X-RogerAI-Cost"))
+}
+
+func TestLANOrderPeersMeasuresThenPrefersFaster(t *testing.T) {
+	a := EdgePeer{Addr: "10.0.0.1:1", Pin: "a", Node: "a"}
+	b := EdgePeer{Addr: "10.0.0.2:1", Pin: "b", Node: "b"}
+	c := EdgePeer{Addr: "10.0.0.3:1", Pin: "c", Node: "c"}
+	lanPace.Store(lanPaceKey(a), 300*time.Millisecond)
+	lanPace.Store(lanPaceKey(b), 10*time.Millisecond)
+	t.Cleanup(func() { lanPace.Delete(lanPaceKey(a)); lanPace.Delete(lanPaceKey(b)) })
+	got := lanOrderPeers([]EdgePeer{a, b, c})
+	require.Equal(t, []string{"c", "b", "a"}, []string{got[0].Node, got[1].Node, got[2].Node},
+		"an unmeasured member is measured first, then the faster measured one")
+}
+
+func TestNoteLANLeftNamesEachSource(t *testing.T) {
+	rec := httptest.NewRecorder()
+	noteLANLeft(rec, nil)
+	require.Empty(t, rec.Header().Get("X-RogerAI-LAN-Left"))
+	noteLANLeft(rec, []string{"jetson/serve: connection refused", "192.168.1.20:8787: status 503"})
+	require.Equal(t, "jetson, 192.168.1.20", rec.Header().Get("X-RogerAI-LAN-Left"))
 }

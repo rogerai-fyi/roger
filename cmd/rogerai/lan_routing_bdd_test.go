@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -27,13 +28,18 @@ type lanRouteBDD struct {
 	selfHits, towerHits atomic.Int32
 	code                int
 	body                string
+	hdr                 http.Header
+	faces               map[string]*edgeFace
+	lastBand, lastTower string
+	before              map[string]int32
 }
 
 func (s *lanRouteBDD) resetRoute() {
 	s.lanDialBDD.reset()
 	s.selfHits.Store(0)
 	s.towerHits.Store(0)
-	s.code, s.body = 0, ""
+	s.code, s.body, s.hdr = 0, "", nil
+	s.faces, s.before = map[string]*edgeFace{}, map[string]int32{}
 	lanSelfServe = func(string) (string, string) { return "", "" }
 }
 
@@ -91,8 +97,29 @@ func (s *lanRouteBDD) dispatchBody(band, body string) error {
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
-	s.code, s.body = resp.StatusCode, string(b)
+	s.code, s.body, s.hdr = resp.StatusCode, string(b), resp.Header
 	return nil
+}
+
+// face stands an Edge member's mTLS face serving band and records the member at it.
+func (s *lanRouteBDD) face(node, band string, delay time.Duration) error {
+	f := newEdgeFace(s.t, node, delay)
+	s.faces[node] = f
+	return s.memberAt(node, band, f.addr(), f.pin)
+}
+
+// failingTower points addr at a Tower that lists band but cannot serve it.
+func (s *lanRouteBDD) failingTower(addr, band string) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/discover" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"offers": []client.Offer{{Model: band, Online: true}}})
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	s.t.Cleanup(failing.Close)
+	s.dial.set(addr, failing.Listener.Addr().String())
+	s.addTower(addr)
 }
 
 func (s *lanRouteBDD) servedBy(name string) error {
@@ -124,7 +151,7 @@ func (s *lanRouteBDD) refusedNaming(parts ...string) error {
 func TestLANRoutingBDD(t *testing.T) {
 	s := &lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}
 	var paths []string
-	for _, l := range []int{49, 66, 75, 94, 278} {
+	for _, l := range []int{49, 57, 66, 75, 86, 94, 111, 278} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/routing_and_inference.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -170,23 +197,74 @@ func TestLANRoutingBDD(t *testing.T) {
 			sc.Step(`^no request was made to the public broker$`, s.noMarketInference)
 			sc.Step(`^no money moved$`, s.noMarketInference)
 			sc.Step(`^the Edge member "([^"]*)" and the LAN Tower at ([0-9.:]+) both serve "([^"]*)"$`, func(node, addr, band string) error {
-				if err := s.memberVerified(node, band); err != nil {
+				s.lastBand, s.lastTower = band, addr
+				if err := s.face(node, band, 0); err != nil {
 					return err
 				}
-				// a Tower that lists the band but cannot serve it: no station is free to poll
-				failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r.URL.Path == "/discover" {
-						_ = json.NewEncoder(w).Encode(map[string]any{"offers": []client.Offer{{Model: band, Online: true}}})
-						return
-					}
-					w.WriteHeader(http.StatusServiceUnavailable)
-				}))
-				s.t.Cleanup(failing.Close)
-				s.dial.set(addr, failing.Listener.Addr().String())
-				s.addTower(addr)
+				return s.towerServing(addr, band)
+			})
+			sc.Step(`^"([^"]*)" refuses the connection$`, func(node string) error { s.faces[node].srv.Close(); return nil })
+			sc.Step(`^both fail$`, func() error {
+				for _, f := range s.faces {
+					f.srv.Close()
+				}
+				s.failingTower(s.lastTower, s.lastBand)
 				return nil
 			})
-			sc.Step(`^both fail$`, func() error { return nil }) // jetson's recorded face does not answer; the Tower answers 503
+			sc.Step(`^it is served by the Tower at ([0-9.:]+)$`, func(string) error { return s.servedBy("tower") })
+			sc.Step(`^the turn's record names "([^"]*)" as the source it left$`, func(node string) error {
+				if left := s.hdr.Get("X-RogerAI-LAN-Left"); !strings.Contains(left, node) {
+					return fmt.Errorf("X-RogerAI-LAN-Left %q does not name %q", left, node)
+				}
+				return nil
+			})
+			sc.Step(`^this machine serves nothing$`, func() error { return nil })
+			sc.Step(`^the Edge member "([^"]*)" serves "([^"]*)", VERIFIED, LAN-direct$`, func(node, band string) error {
+				return s.face(node, band, 0)
+			})
+			sc.Step(`^the LAN Tower at ([0-9.:]+) also serves "([^"]*)"$`, s.towerServing)
+			sc.Step(`^it is served by "([^"]*)" over mTLS$`, func(node string) error {
+				if err := s.servedBy(node); err != nil {
+					return err
+				}
+				if s.faces[node].mutualTLS.Load() == 0 {
+					return fmt.Errorf("%s answered without the caller's certificate", node)
+				}
+				return nil
+			})
+			sc.Step(`^the Tower was not contacted for inference$`, func() error {
+				if n := s.towerHits.Load(); n != 0 {
+					return fmt.Errorf("the Tower's station served %d turns", n)
+				}
+				return nil
+			})
+			sc.Step(`^two Edge members serve "([^"]*)" and one has measured faster on this machine$`, func(band string) error {
+				s.lastBand = band
+				if err := s.face("atlas", band, 150*time.Millisecond); err != nil {
+					return err
+				}
+				if err := s.face("zephyr", band, 0); err != nil {
+					return err
+				}
+				for i := 0; i < 2; i++ { // turns served on this machine measure each member
+					if err := s.dispatch(band); err != nil {
+						return err
+					}
+				}
+				for n, f := range s.faces {
+					s.before[n] = f.hits.Load()
+				}
+				return nil
+			})
+			sc.Step(`^the faster member is tried first$`, func() error {
+				if err := s.servedBy("zephyr"); err != nil {
+					return err
+				}
+				if d := s.faces["atlas"].hits.Load() - s.before["atlas"]; d != 0 {
+					return fmt.Errorf("the slower member was tried first (%d turns)", d)
+				}
+				return nil
+			})
 			sc.Step(`^it is refused, naming "([^"]*)" and the Tower and how each failed$`, func(node string) error {
 				return s.refusedNaming(node, "192.168.1.20:8787", "status 503")
 			})

@@ -2254,12 +2254,20 @@ func tryEdgePeers(ctx context.Context, w http.ResponseWriter, opts ProxyOptions,
 		return false, nil
 	}
 	peers := opts.EdgePeers(band)
+	if opts.LANMode {
+		peers = lanOrderPeers(peers) // within the rung, the member measured faster here goes first
+	}
 	var tried []string
 	for _, p := range peers {
+		start := time.Now()
 		resp, leaf, err := dialEdgePeer(ctx, p, body, opts)
 		if err != nil {
 			tried = append(tried, p.Node+"/"+p.Instance+": "+err.Error())
 			continue
+		}
+		lanPace.Store(lanPaceKey(p), time.Since(start))
+		if opts.LANMode {
+			noteLANLeft(w, tried)
 		}
 		// A peer that answered is the answer, whatever it said: a refusal from a machine
 		// the owner owns is drawn as what it was, not papered over by the market.
