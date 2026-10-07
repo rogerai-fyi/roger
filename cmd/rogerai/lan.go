@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/client"
@@ -354,6 +355,7 @@ var lanDial = func(cfg config) ([]client.LANBand, []client.LANTowerStatus) {
 		HTTP: lanProbeHTTP, Resolve: lanResolve,
 	})
 	status = append(status, <-cands...)
+	noteLANServed(bands, status)
 	for _, a := range loadConfig().LanNotTower {
 		status = append(status, client.LANTowerStatus{Addr: a, State: client.LANTowerNotStandalone,
 			Detail: "it answered without the local marker; re-add it with roger lan add " + a})
@@ -506,20 +508,58 @@ func installLANRelay(cfg config) {
 
 // lanTowersServing lists the LAN Towers whose /discover lists band, in configured order.
 func lanTowersServing(cfg config, band string) []string {
-	bands, _ := lanDial(cfg)
+	bands, status := lanDial(cfg)
+	var out []string
 	for _, b := range bands {
 		if b.Model != band {
 			continue
 		}
-		var out []string
 		for _, s := range b.Sources {
 			if s.Kind == client.LANTower {
 				out = append(out, s.Addr)
 			}
 		}
-		return out
 	}
-	return nil
+	// A configured Tower that served this band at an earlier refresh and is REFUSED now (its name
+	// resolves elsewhere, for one) is still handed to the relay: the relay's connect-time check
+	// refuses it again and names why, so the turn's refusal says what happened rather than that
+	// nothing ever served the band (features/lan/adversarial.feature). It is never dialed.
+	for _, st := range status {
+		if st.State == client.LANTowerRefused && lanLastServed(st.Addr, band) && !contains(out, st.Addr) {
+			out = append(out, st.Addr)
+		}
+	}
+	return out
+}
+
+// lanServed remembers, for this process, which bands each configured Tower listed at the last
+// refresh that read it. It is only a hint for naming a refusal; nothing is routed on it.
+var (
+	lanServedMu sync.Mutex
+	lanServed   = map[string]map[string]bool{}
+)
+
+func noteLANServed(bands []client.LANBand, status []client.LANTowerStatus) {
+	lanServedMu.Lock()
+	defer lanServedMu.Unlock()
+	for _, st := range status {
+		if st.State == client.LANTowerAnswering {
+			lanServed[st.Addr] = map[string]bool{}
+		}
+	}
+	for _, b := range bands {
+		for _, s := range b.Sources {
+			if s.Kind == client.LANTower && lanServed[s.Addr] != nil {
+				lanServed[s.Addr][b.Model] = true
+			}
+		}
+	}
+}
+
+func lanLastServed(addr, band string) bool {
+	lanServedMu.Lock()
+	defer lanServedMu.Unlock()
+	return lanServed[addr][band]
 }
 
 // lanSourcesOf is what serves a band on the LAN, for the `roger use` plate and its refusal.
