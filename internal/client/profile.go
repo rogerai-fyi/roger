@@ -211,7 +211,7 @@ func ValidateRoutingBody(b map[string]any) error {
 		}
 		for _, e := range arr {
 			s, isStr := e.(string)
-			if !isStr || strings.TrimSpace(s) == "" {
+			if !isStr || strings.TrimSpace(s) == "" || s != strings.TrimSpace(s) { // padded: refused, as on the broker
 				return fmt.Errorf("models must be a list of model ids")
 			}
 			if len(s) > ModelIDMax {

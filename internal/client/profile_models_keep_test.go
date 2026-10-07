@@ -119,3 +119,16 @@ func TestValidateRoutingBodyBoundsRawModelsEntries(t *testing.T) {
 	require.ErrorContains(t, err, "more than 32 entries")
 	require.NoError(t, ValidateRoutingBody(map[string]any{"model": "a", "models": many[:RoutingListMax]}))
 }
+
+// TestValidateRoutingBodyRefusesPaddedModelIDs: a models[] entry with surrounding whitespace is
+// refused, as the broker refuses it ("every entry must be a non-empty model id"). The model
+// field has no such rule on the broker, so it has none here.
+func TestValidateRoutingBodyRefusesPaddedModelIDs(t *testing.T) {
+	for _, b := range []map[string]any{
+		{"model": "a", "models": []any{" b"}},
+		{"model": "a", "models": []any{"b\t"}},
+	} {
+		require.Error(t, ValidateRoutingBody(b), "%v", b)
+	}
+	require.NoError(t, ValidateRoutingBody(map[string]any{"model": "a", "models": []any{"b"}}))
+}

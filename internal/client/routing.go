@@ -398,6 +398,9 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			}
 			kept := []string{}
 			for _, id := range ids {
+				if id == "" || id != strings.TrimSpace(id) { // padded or empty: refused, as on the broker
+					return nil, &RoutingRefusal{Msg: "models must be a list of model ids"}
+				}
 				if slices.Contains(allowed, bareModel(id)) { // exact, as the broker and GuestModelsWithin compare
 					kept = append(kept, id)
 				}

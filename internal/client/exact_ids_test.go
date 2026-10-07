@@ -30,3 +30,12 @@ func TestStationsAndRegionsCompareExactly(t *testing.T) {
 	_, ok = pickAlternative(offers, Criteria{Model: "m", Exclude: []string{"N1"}}, nil)
 	require.True(t, ok, "an exclusion names one station exactly, as the broker's ignore does")
 }
+
+// TestPaddedGuestModelsEntryIsRefused: a guest's models[] entry with surrounding whitespace is
+// refused, as the broker refuses it, never silently dropped by the owner's filter.
+func TestPaddedGuestModelsEntryIsRefused(t *testing.T) {
+	_, err := Routing{Models: []string{"a", "b"}}.Apply([]byte(`{"model":"a","models":["b"," b"]}`))
+	var rr *RoutingRefusal
+	require.ErrorAs(t, err, &rr)
+	require.Equal(t, "models must be a list of model ids", rr.Msg)
+}
