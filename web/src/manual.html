@@ -773,7 +773,7 @@
 
             <h3>Install</h3>
             <p>One line, same installer as the client with the Tower component selected. It
-              verifies the release checksum and installs <code>roger-tower</code> to
+              verifies the release checksum and installs <code>roger</code> (a Tower is <code>roger tower</code>; for this release the old <code>roger-tower</code> name is installed beside it as a stand-in) to
               <code>~/.local/bin</code>.</p>
             <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre>
 
@@ -781,23 +781,23 @@
             <p>Prefer to fetch and place the binary yourself? Pull it straight from the latest
               release and verify it against the published checksums before you run it.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">Linux amd64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-amd64">roger-tower-linux-amd64 &darr;</a></span></div>
-              <div class="man-plate__row"><span class="man-plate__k">Linux arm64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-arm64">roger-tower-linux-arm64 &darr;</a></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Linux amd64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-linux-amd64">roger-linux-amd64 &darr;</a></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Linux arm64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-linux-arm64">roger-linux-arm64 &darr;</a></span></div>
               <div class="man-plate__row"><span class="man-plate__k">Checksums</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/checksums.txt">checksums.txt</a> - verify with <code>sha256sum -c</code>, then <code>chmod +x</code> and move onto your <code>PATH</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">All releases</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases">github.com/rogerai-fyi/roger/releases</a></span></div>
             </div>
 
             <h3>Bring it up</h3>
             <p>Initialize state, run the pre-flight, then enroll against the network. Enrolling
-              is a signed act tied to your account (<code>roger-tower login</code> first), because
+              is a signed act tied to your account (<code>roger tower login</code> first), because
               putting a relay on the network under your name is an account decision.</p>
-            <pre><span class="p">$</span> roger-tower login --dir /var/lib/roger-tower                 <span class="c"># sign in - same account as the website</span>
-<span class="p">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined    <span class="c"># create keys + local state</span>
-<span class="p">$</span> roger-tower doctor --config /etc/roger-tower/tower.yaml      <span class="c"># pre-flight: config, reachability, clock</span>
-<span class="p">$</span> roger-tower ready  --config /etc/roger-tower/tower.yaml      <span class="c"># durability preflight - exits non-zero if it cannot keep state</span>
-<span class="p">$</span> roger-tower register --dir /var/lib/roger-tower              <span class="c"># enroll this Tower against the broker</span>
-<span class="p">$</span> roger-tower status --dir /var/lib/roger-tower                <span class="c"># admission state, lease, attached nodes</span>
-<span class="p">$</span> roger-tower serve --dir /var/lib/roger-tower --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls   <span class="c"># hold the link + host the data plane, encrypted</span></pre>
+            <pre><span class="p">$</span> roger tower login --dir /var/lib/roger-tower                 <span class="c"># sign in - same account as the website</span>
+<span class="p">$</span> roger tower init --dir /var/lib/roger-tower --mode joined    <span class="c"># create keys + local state</span>
+<span class="p">$</span> roger tower doctor --config /etc/roger-tower/tower.yaml      <span class="c"># pre-flight: config, reachability, clock</span>
+<span class="p">$</span> roger tower ready  --config /etc/roger-tower/tower.yaml      <span class="c"># durability preflight - exits non-zero if it cannot keep state</span>
+<span class="p">$</span> roger tower register --dir /var/lib/roger-tower              <span class="c"># enroll this Tower against the broker</span>
+<span class="p">$</span> roger tower status --dir /var/lib/roger-tower                <span class="c"># admission state, lease, attached nodes</span>
+<span class="p">$</span> roger tower serve --dir /var/lib/roger-tower --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls   <span class="c"># hold the link + host the data plane, encrypted</span></pre>
             <div class="man-note">
               <span class="man-note__tag">--mode is not optional</span>
               A data directory is initialized as <b>one mode for life</b>. To change mode you
@@ -821,8 +821,8 @@
               typed. Two commented, ready-to-edit configurations ship in
               <code>packaging/tower/</code> - <code>tower.standalone.example.yaml</code> and
               <code>tower.joined.example.yaml</code>. Check one before you trust it:</p>
-            <pre><span class="p">$</span> roger-tower config validate --config /etc/roger-tower/tower.yaml
-<span class="p">$</span> roger-tower config print    --config /etc/roger-tower/tower.yaml   <span class="c"># every effective value, secrets shown as PATHS only</span></pre>
+            <pre><span class="p">$</span> roger tower config validate --config /etc/roger-tower/tower.yaml
+<span class="p">$</span> roger tower config print    --config /etc/roger-tower/tower.yaml   <span class="c"># every effective value, secrets shown as PATHS only</span></pre>
             <div class="man-note">
               <span class="man-note__tag">unknown fields are errors</span>
               A misspelled setting <b>fails the config</b> rather than being silently ignored,
@@ -838,12 +838,19 @@
               its own local network and trust root, and routes between your own machines. This
               is how you build a private relay for local models - a household, a lab, an
               air-gapped site - with nothing leaving your machines and nobody to sign up with.</p>
-            <pre><span class="p">$</span> roger-tower init --dir ~/tower --mode standalone
-<span class="p">$</span> roger-tower invite --dir ~/tower --client $KEYHASH        <span class="c"># prints a code ONCE; 15m, 5 attempts</span>
-<span class="p">$</span> roger-tower admit  --dir ~/tower --client $KEYHASH --id ID --code CODE
-<span class="p">$</span> roger-tower attach --dir ~/tower --station st-1 --key $STATION_KEYHASH --models llama-3,qwen-2.5
-<span class="p">$</span> roger-tower stations --dir ~/tower                        <span class="c"># what is attached</span>
-<span class="p">$</span> roger-tower route --dir ~/tower --client $KEYHASH --model llama-3</pre>
+            <pre><span class="p">$</span> roger tower init --dir ~/tower --mode standalone
+<span class="p">$</span> roger tower invite --dir ~/tower --client $KEYHASH        <span class="c"># prints a code ONCE; 15m, 5 attempts</span>
+<span class="p">$</span> roger tower admit  --dir ~/tower --client $KEYHASH --id ID --code CODE
+<span class="p">$</span> roger tower attach --dir ~/tower --station st-1 --key $STATION_KEYHASH --models llama-3,qwen-2.5
+<span class="p">$</span> roger tower stations --dir ~/tower                        <span class="c"># what is attached</span>
+<span class="p">$</span> roger tower route --dir ~/tower --client $KEYHASH --model llama-3
+<span class="p">$</span> roger tower serve --dir ~/tower --bind 192.168.1.20:8787   <span class="c"># serve the consumer plane on your LAN</span></pre>
+            <p><b>What "no outbound connection" rests on.</b> The standalone serve package imports no
+              Core code, which a dependency test enforces, and standalone mode refuses every
+              non-local connection: the process's default HTTP client, transport and resolver
+              reach only local addresses, and serving refuses to start if a Core client was ever
+              built. That is a guarantee about the serving code and the running process, not a
+              claim that <code>roger</code> as a whole carries nothing else.</p>
             <div class="man-note">
               <span class="man-note__tag">free, and it says so</span>
               Standalone routing is <b>free and locally accounted</b>: every receipt names your
@@ -882,10 +889,10 @@
               model and its own listed price - and <b>Core</b> decides which Tower it lands on.
               Placement is first-fit today, so a new Tower may wait while an established one
               takes attachments; locality- and load-aware placement is being built.
-              <code>roger-tower station revoke</code> is your kill switch for a node serving
-              under your Tower, and <code>roger-tower probe --model NAME</code> drives the
+              <code>roger tower station revoke</code> is your kill switch for a node serving
+              under your Tower, and <code>roger tower probe --model NAME</code> drives the
               whole sealed loop as a consumer to prove your Tower carries work.
-              <code>roger-tower --help</code> lists every command (<code>drain</code>,
+              <code>roger tower help</code> lists every command (<code>drain</code>,
               <code>resume</code>, <code>revoke</code>).</p>
 
             <h3>Run it as a service</h3>
@@ -932,7 +939,7 @@
               (100.64/10) counts only if you add it by hand.</p>
 
             <h3>Adding Towers</h3>
-            <p>A standalone Tower (<code>roger-tower-local</code>) joins the LAN dial once you
+            <p>A standalone Tower (<code>roger tower serve</code> on a standalone directory) joins the LAN dial once you
               add it. A Tower started with <code>--advertise</code> announces itself on your
               private network and appears on the dial as a candidate; it is never used until you
               add it (<b>+</b> on the dial, or the command below).</p>

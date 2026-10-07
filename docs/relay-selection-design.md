@@ -659,7 +659,7 @@ actually reachable all involve the *same* Tower id:
 
 **A Tower runs exactly one hub process per endpoint. That is now a constraint, not an
 assumption.** Two processes cannot agree on a nonce without shared state, and neither the ring nor
-the settle spool is shared. Putting a load balancer in front of two `roger-tower serve --hub`
+the settle spool is shared. Putting a load balancer in front of two `roger tower serve --hub`
 instances re-opens replay for the whole skew window; a Tower that needs to scale needs a shared
 gate first.
 
@@ -897,7 +897,7 @@ different versions in both directions. The two halves are deliberately **asymmet
   up) is not a security property. A current node therefore cannot serve a Tower older than this
   change, and says so on the notice channel (`agent.ErrHubRefusedThisNode`) rather than retrying
   into a discarded writer forever.
-- **The Tower accepts either, for one release.** `roger-tower serve --hub-legacy-bearer` (default
+- **The Tower accepts either, for one release.** `roger tower serve --hub-legacy-bearer` (default
   true; `hub.allowLegacyBearer` in the config file) keeps a v5.7.1 node — which still presents a
   bearer — earning while it updates. What it preserves is an exposure an already-released binary
   already has.
@@ -1196,7 +1196,7 @@ Still open after round five, and worth naming so the next reader does not have t
   whose keys differ from the authorization's - so a squatter must both hold the secret and match
   the keys the operator chose. Second, and more simply: **there is no classic path left to
   attack.** `/tower/station/invite` and `/tower/station/attach` are gone from the broker's route
-  table, `roger-tower station` offers only `revoke` ("the invite-file ceremony died with the
+  table, `roger tower station` offers only `revoke` ("the invite-file ceremony died with the
   roger-station binary"), and `attach.NewInvite` and `Registry.Admit` each have exactly ONE
   production caller in the tree - the self-attach handler this change fixes. The package still
   supports the flow, and the secret is the reason it would be safe if it returned; adding a
@@ -1671,7 +1671,7 @@ advertisement, so the state the whole change exists to prevent — a TLS listene
 cannot check it — has no representation on the wire. It is also why the endpoint format is
 untouched: a URL would have been a breaking change to a field three clients concatenate onto.
 
-`roger-tower serve --hub-tls` with no certificate files mints an Ed25519 self-signed certificate,
+`roger tower serve --hub-tls` with no certificate files mints an Ed25519 self-signed certificate,
 keeps it in the data directory, and advertises its fingerprint. That is the whole operator
 experience: one flag, no authority, no domain, no renewal.
 

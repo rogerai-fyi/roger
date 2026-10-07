@@ -225,7 +225,7 @@ numbers in 4.5 are the founder's rather than mine.
 A Tower needs no GPU and runs no model. Its requirements are a stable address, an exposed
 port, bandwidth, and a **synchronised clock** — and the last one is newly load-bearing.
 
-`roger-tower doctor` now checks it, in two independent ways, because they answer different
+`roger tower doctor` now checks it, in two independent ways, because they answer different
 questions:
 
 - **Is anything keeping this clock right?** The kernel's own time-discipline state

@@ -315,7 +315,7 @@ Feature: One user binary with modes
   # is local); joined mode refuses on macOS and Windows with "joined Towers run on Linux"
   # until a non-Linux joined build is tested, because the hub, the systemd unit and the
   # non-root runtime were only proven on Linux.
-
+  @blocked-on-release-signing-not-built
   Scenario: A release builds one user binary per platform
     When a release is built
     Then the archives contain roger for linux, darwin and windows on every built architecture

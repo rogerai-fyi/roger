@@ -3,17 +3,6 @@
 #   sudo install -m0644 roger-tower.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now roger-tower
 #
-# ---------------------------------------------------------------------------
-# DO NOT ENABLE THIS UNIT YET.
-#
-# `roger-tower serve` is not implemented - the long-running server lands with the
-# joined-Tower protocol (Phase 2). Enabling this today gives you a crash loop every
-# RestartSec, because ExecStart exits 1 immediately.
-#
-# The unit ships now so the hardening below can be reviewed alongside the code it will
-# protect. Until `serve` exists, drive a standalone Tower with the one-shot commands
-# (init / invite / admit / attach / route) - see README.md.
-# ---------------------------------------------------------------------------
 #
 # The hardening below is not decoration. A Tower runs unattended and, in joined mode,
 # relays other people's traffic, so it runs as its own unprivileged user with no ability
@@ -32,8 +21,8 @@ Group=roger-tower
 # Refuse to start rather than serve and silently lose state. `ready` exits non-zero when
 # a durable Tower's identity volume, trust root, signing key or database secret is
 # missing, and prints the repair for each.
-ExecStartPre=/usr/local/bin/roger-tower ready --config /etc/roger-tower/tower.yaml
-ExecStart=/usr/local/bin/roger-tower serve --config /etc/roger-tower/tower.yaml
+ExecStartPre=/usr/local/bin/roger tower ready --config /etc/roger-tower/tower.yaml
+ExecStart=/usr/local/bin/roger tower serve --dir /var/lib/roger-tower --config /etc/roger-tower/tower.yaml
 Restart=on-failure
 RestartSec=5s
 

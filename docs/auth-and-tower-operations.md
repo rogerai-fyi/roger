@@ -138,13 +138,13 @@ The last two are absent on a single-instance deployment, which is correct there 
 problem behind a load balancer.
 
 Then, end to end: sign in with an emailed code; run `roger login` and approve it from the
-browser; run `roger-tower login` and `roger-tower register` and confirm the Tower reports
+browser; run `roger tower login` and `roger tower register` and confirm the Tower reports
 `quarantine`. Quarantine is the expected state - a new Tower is never trusted on arrival,
 and promotion is a separate, deliberate decision.
 
 ## The relay link
 
-`roger-tower serve` holds it. A joined Tower opens a session, pushes a signed inventory,
+`roger tower serve` holds it. A joined Tower opens a session, pushes a signed inventory,
 heartbeats, and drains on shutdown so Core drops its inventory at once rather than letting it
 age out over the freshness window.
 
@@ -158,14 +158,14 @@ I have nothing."
 > generation. A provider now runs plain `roger share` - no flag, no second binary - and the
 > share offers itself to the relay fabric on its own (self-attach at their own listed price,
 > blind-serve sealed submits, audits answered automatically) on top of going on air the
-> ordinary way; a tower operator runs `roger-tower serve --hub :8444 --relay-public HOST:PORT`.
+> ordinary way; a tower operator runs `roger tower serve --hub :8444 --relay-public HOST:PORT`.
 
 ### Serving work
 
 Given `--station ID=URL`, `serve` also collects work for its Stations:
 
 ```
-roger-tower serve --dir DIR --station st-abc123=http://127.0.0.1:8730/execute
+roger tower serve --dir DIR --station st-abc123=http://127.0.0.1:8730/execute
 ```
 
 and on the Station:
@@ -205,16 +205,17 @@ channel would prove nothing.
 ## Standalone Towers: serving your own private network
 
 A **standalone** Tower is a self-governed local network with its own trust root. It never
-touches the public RogerAI network - no discovery, no settlement, no advertisement, by linkage
-and not by a setting - and it serves its own clients for free. The consumer plane runs from a
-separate, Core-free binary (`roger-tower-local`) whose whole dependency graph links nothing that
-can reach Roger Core; a test enforces that.
+touches the public RogerAI network - no discovery, no settlement, no advertisement - and it
+serves its own clients for free. `roger tower serve` on a standalone directory runs the consumer
+plane from a package (internal/localplane/serve) that imports no Core code, which a dependency
+test enforces, and in standalone mode the process refuses every non-local connection (its
+default HTTP client, transport and resolver) and refuses to start if a Core client was built.
 
 The whole loop, on the plant's private network:
 
 ```
 # 1. On the Tower host: create the network.
-roger-tower init  --dir /var/lib/roger-tower --mode standalone
+roger tower init  --dir /var/lib/roger-tower --mode standalone
 
 # 2. Collect the two kinds of tower client id you will admit. Both come from `roger account`, which
 #    prints two ids from two DIFFERENT keys:
@@ -223,15 +224,15 @@ roger-tower init  --dir /var/lib/roger-tower --mode standalone
 #      node also prints this id and the exact attach command on start.)
 
 # 3. Admit them - WITH THE PLANE STOPPED. invite/admit/attach take the data-directory lock, and a
-#    running `roger-tower-local` holds it, so admission is an offline step done before serving (and
+#    running `roger tower serve` holds it, so admission is an offline step done before serving (and
 #    to add a client or station later, stop the plane, admit, restart):
-roger-tower invite --dir /var/lib/roger-tower --client <u_consumer-id>
-roger-tower admit  --dir /var/lib/roger-tower --client <u_consumer-id> --id <ID> --code <CODE>
-roger-tower attach --dir /var/lib/roger-tower --station st-1 --key <u_node-id> --models llama-3.1-8b
+roger tower invite --dir /var/lib/roger-tower --client <u_consumer-id>
+roger tower admit  --dir /var/lib/roger-tower --client <u_consumer-id> --id <ID> --code <CODE>
+roger tower attach --dir /var/lib/roger-tower --station st-1 --key <u_node-id> --models llama-3.1-8b
 
 # 4. Start the consumer plane (loopback by default; a LAN address needs --bind and is reachable
 #    from the local network - a public/all-interfaces bind is refused without --allow-public):
-roger-tower-local --dir /var/lib/roger-tower            # or: --bind 192.168.1.10:8787
+roger tower serve --dir /var/lib/roger-tower            # or: --bind 192.168.1.10:8787
 
 # 5. The serving node points roger at its local model and serves the Tower's stations by POLLING
 #    it (the Tower dials nobody). The consumer points roger at the Tower and uses it normally:
@@ -247,11 +248,11 @@ the Tower can refuse a replayed request; over loopback there is no wire to captu
 needed. Point roger at the Tower by its literal `192.168.x`/`10.x`/`172.16-31.x` address to get
 that replay defense.
 
-> **Retired:** the old `roger-station` binary and the `roger-tower station invite --assertion-key
+> **Retired:** the old `roger-station` binary and the `roger tower station invite --assertion-key
 > … --session-key …` / `roger-station offer … → offers/` file ceremony below are gone. A
-> standalone station attaches with `roger-tower attach --key <its tower client id>` as above; a
+> standalone station attaches with `roger tower attach --key <its tower client id>` as above; a
 > joined station self-attaches by running `roger share` on the serving node (Core assigns the
-> Tower), and `roger-tower station revoke` is the operator's kill switch.
+> Tower), and `roger tower station revoke` is the operator's kill switch.
 
 ## Attaching a Station (joined Towers)
 
@@ -261,19 +262,19 @@ ceremony, and no retired `--tower` flag: the node offers itself at its listed pr
 assigns it to a relay. Its private key never leaves the node. (The retired `roger-station
 init/invite/offer` file ceremony that earlier versions documented here is gone.)
 
-`roger-tower status` reports what **Core** believes: state, whether the link is live, and
+`roger tower status` reports what **Core** believes: state, whether the link is live, and
 which Stations are routable. That is the only trustworthy answer — the Tower's own files
 record what it was told at enrollment and go stale the moment anything changes.
 
-`roger-tower station revoke --dir DIR --station-id ID` retires a Station. It is signed by the
+`roger tower station revoke --dir DIR --station-id ID` retires a Station. It is signed by the
 account, not the Tower, so it still works when the Tower is the thing that has gone wrong.
 
 ## Pausing, resuming and retiring your own Tower
 
 ```
-roger-tower drain  --dir DIR        # stop taking new work; keep the link up
-roger-tower resume --dir DIR        # take work again
-roger-tower revoke --dir DIR --yes  # retire this Tower permanently
+roger tower drain  --dir DIR        # stop taking new work; keep the link up
+roger tower resume --dir DIR        # take work again
+roger tower revoke --dir DIR --yes  # retire this Tower permanently
 ```
 
 Draining is not the same as stopping `serve`. Stopping drops the inventory and goes;

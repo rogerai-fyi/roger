@@ -23,7 +23,9 @@ more than a few seconds to replace.
 curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh
 ```
 
-Linux only, on purpose: a Tower is a long-running server process.
+That installs `roger`; a Tower is `roger tower ...` (for this release the old `roger-tower`
+name is also installed as a stand-in that hands off to it). A standalone Tower runs anywhere
+roger does; a joined Tower runs on Linux, where its hub and this unit were proven.
 
 The installer checks the download against the release `checksums.txt` and refuses to
 install on a **mismatch**. Be aware of what that does and does not cover: if no sha256
@@ -37,25 +39,25 @@ built yet.
 
 ```sh
 # 1. Create the data directory. This fixes the mode for the life of the directory.
-roger-tower init --dir /var/lib/roger-tower --mode standalone
+roger tower init --dir /var/lib/roger-tower --mode standalone
 
 # 2. Check what it will do before it does anything. (doctor reads a CONFIG FILE, not the
 #    data directory - write the YAML below first, or skip this step for now.)
-roger-tower doctor --config /etc/roger-tower/tower.yaml
+roger tower doctor --config /etc/roger-tower/tower.yaml
 
 # 3. Mint a one-time code for your first client. Shown ONCE - it is never stored.
-roger-tower invite --dir /var/lib/roger-tower --client <your-client-key-hash>
+roger tower invite --dir /var/lib/roger-tower --client <your-client-key-hash>
 
 # 4. Redeem it. That client becomes this network's operator.
-roger-tower admit --dir /var/lib/roger-tower --client <hash> --id <id> --code <code>
+roger tower admit --dir /var/lib/roger-tower --client <hash> --id <id> --code <code>
 
 # 5. Attach a machine that serves a model, then route to it.
-roger-tower attach --dir /var/lib/roger-tower --station st-1 --key <hash> --models llama-8b
-roger-tower route  --dir /var/lib/roger-tower --client <hash> --model llama-8b
+roger tower attach --dir /var/lib/roger-tower --station st-1 --key <hash> --models llama-8b
+roger tower route  --dir /var/lib/roger-tower --client <hash> --model llama-8b
 ```
 
-`roger-tower stations` lists what is attached; `roger-tower status` shows the mode and
-network id; `roger-tower version` prints the build.
+`roger tower stations` lists what is attached; `roger tower status` shows the mode and
+network id; `roger tower version` prints the build.
 
 Two kinds of argument, which the commands do not mix: `--dir` names the **data
 directory** (identity, admission state, attached Stations); `--config` names a **YAML
@@ -109,7 +111,7 @@ Three things the config will not let you do, by design:
 - **Typo a control into silence.** Unknown fields are errors. A misspelled setting fails
   the config rather than being ignored.
 
-`roger-tower config print --config FILE` shows every effective value including defaults,
+`roger tower config print --config FILE` shows every effective value including defaults,
 with secret *paths* shown and their contents never read. There is no unredacted mode.
 
 ### Durability
@@ -123,7 +125,7 @@ storage:
 admission state and attached Stations may be lost on restart. Fine for trying it out,
 never quiet about what it is.
 
-**durable** promises the state survives a restart, so `roger-tower ready` checks every
+**durable** promises the state survives a restart, so `roger tower ready` checks every
 dependency that promise rests on - the identity volume, the pinned offline root, the local
 signing key, and the database secret if one is configured - and **exits non-zero** when any
 is missing, naming the repair for each. Put it in an `ExecStartPre` or a readiness probe:
@@ -136,7 +138,7 @@ preflight exists to prevent.
 
 ## Run it as a service
 
-The unit runs `roger-tower serve`, which holds the link to Roger Core and hosts the sealed
+The unit runs `roger tower serve`, which holds the link to Roger Core and hosts the sealed
 hub - the data plane consumers submit encrypted work to and `roger share` nodes poll.
 Give it a hub listener and the public address consumers reach it at, in the config file the
 unit passes:
@@ -154,7 +156,7 @@ The install is:
 
 ```sh
 sudo useradd --system --home /var/lib/roger-tower --shell /usr/sbin/nologin roger-tower
-sudo install -m0755 roger-tower /usr/local/bin/
+sudo install -m0755 roger /usr/local/bin/   # one program; the Tower is `roger tower`
 sudo install -m0644 roger-tower.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now roger-tower
 ```
@@ -170,7 +172,7 @@ the code into one the kernel enforces.
 clean drain, renewal), the sealed hub data plane, self-attaching `roger share` nodes,
 signed receipts, one-use settlement, and compensation: every settled request pays the serving
 node 90% of its own listed price, **your Tower 5%**, the platform 5%. Relay earnings are
-ordinary earnings — `roger-tower earnings` reads them, and they cash out on the same rail as
+ordinary earnings — `roger tower earnings` reads them, and they cash out on the same rail as
 serving (30-day hold with a 10% reserve to day 90, $25 minimum, Stripe Connect onboarding).
 
 **Not built:** the wider revenue-share *program* around those earnings (eligibility tiers,
@@ -186,7 +188,7 @@ spec describes.
 One flag:
 
 ```bash
-roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls
+roger tower serve --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls
 ```
 
 With no certificate files this Tower mints a self-signed certificate, keeps it, and
@@ -221,7 +223,7 @@ a rotation as a brief interruption rather than a transparent one.
 ## Your clock is load-bearing
 
 ```bash
-roger-tower doctor --config /etc/roger-tower/config.yaml
+roger tower doctor --config /etc/roger-tower/config.yaml
 ```
 
 Doctor reports two things about time: whether the kernel believes its clock is disciplined —

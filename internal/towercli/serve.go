@@ -362,16 +362,21 @@ var serveFlagModes = map[string]struct {
 // one runs the link and the hub. A flag of the other mode is refused (exit 2) before anything is
 // opened, naming the flag as typed and the directory's mode.
 func cmdServe(args []string, out io.Writer) error {
-	dir := ""
-	for i, a := range args {
-		name, val, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		if !strings.HasPrefix(a, "-") || name != "dir" {
-			continue
+	for _, a := range args {
+		if a == "-h" || a == "--help" || a == "-help" {
+			fmt.Fprint(out, serveHelp)
+			return errHelpShown
 		}
-		if hasVal {
-			dir = val
-		} else if i+1 < len(args) {
-			dir = args[i+1]
+	}
+	dir := flagValue(args, "dir")
+	if dir == "" {
+		// With only --config, the directory is the config's identity.dir (the packaged unit
+		// passes both; a unit written for the old name passed only --config).
+		if cfgPath := flagValue(args, "config"); cfgPath != "" {
+			if c, err := tower.LoadConfig(cfgPath); err == nil && c.Identity.Dir != "" {
+				dir = c.Identity.Dir
+				args = append(append([]string(nil), args...), "--dir", dir)
+			}
 		}
 	}
 	if dir == "" {
@@ -418,6 +423,44 @@ func cmdServe(args []string, out io.Writer) error {
 		return serveStandalone(args, out)
 	}
 	return cmdServeJoined(args, out)
+}
+
+// serveHelp is `roger tower serve --help`, including what the standalone guarantee rests on.
+const serveHelp = `usage: roger tower serve --dir DIR [--config FILE] [flags]
+
+Serves the data directory as its recorded mode says.
+
+  standalone  the consumer plane on your own network:
+                --bind HOST:PORT (default 127.0.0.1:8787)  --allow-public  --advertise
+                --label NAME  --check (resolve and report, without listening)
+  joined      the link to Roger Core and the sealed hub:
+                --hub :8444  --relay-public HOST:PORT  --hub-tls [--hub-tls-cert F --hub-tls-key F]
+                --hub-legacy-bearer=false
+
+A flag of the other mode is refused (exit 2). With only --config, the directory is the
+config's identity.dir.
+
+Standalone: the standalone serve package imports no Core code, and standalone mode refuses
+every non-local connection (the process's default HTTP client, transport and resolver), and it
+refuses to start if a Core client was built.
+`
+
+// flagValue is the value of --name (or --name=v, or -name) in args, read before parsing so the
+// dispatch can choose the mode first.
+func flagValue(args []string, name string) string {
+	for i, a := range args {
+		n, val, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if !strings.HasPrefix(a, "-") || n != name {
+			continue
+		}
+		if hasVal {
+			return val
+		}
+		if i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 // serveStandalone is the standalone consumer plane (a seam: a test stands in for the blocking
