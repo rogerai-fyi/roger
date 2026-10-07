@@ -1,4 +1,4 @@
-package edge
+package wire
 
 // Unit tests for the hand-rolled mDNS codec and the multicast plane. They live INSIDE
 // the package because the interesting surface is the decoder that reads bytes off an

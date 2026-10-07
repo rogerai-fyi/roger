@@ -1,4 +1,4 @@
-package edge
+package wire
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package edge
+package wire
 
 // Found with tools/edgesim (2026-10-04): a member whose network interface went away and came back
 // (a container reconnected; on a real board, a USB Ethernet adapter re-enumerating) kept writing to
