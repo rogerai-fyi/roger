@@ -145,7 +145,7 @@
   // parseSize reads the size field: "7-70" (B optional), "-70" (up to), "13" (exactly), or
   // blank / "any" for no constraint. Anything else, or a bound that is not a number, throws.
   function parseSize(v) {
-    v = String(v || "").trim().replace(/b/gi, "");
+    v = String(v || "").replace(/\s*b/gi, "").trim();
     if (!v || v === "any") return null;
     var m = v.match(/^(\d+(?:\.\d+)?)?\s*-\s*(\d+(?:\.\d+)?)?$/), lo, hi;
     if (m && (m[1] || m[2])) { lo = m[1] ? +m[1] : 0; hi = m[2] ? +m[2] : 10000; }
@@ -156,9 +156,19 @@
     return [lo, hi];
   }
 
+  // servedOf reads the broker's usage chunk (the one with a rogerai block): who served and
+  // what it cost, or {void: reason} when the broker voided the reply after it had started (a
+  // cut reply, not charged). settle-failed is a finished reply the ledger did not charge.
+  function servedOf(u) {
+    var r = u && u.rogerai;
+    if (!r) return null;
+    if (r.void_reason && r.void_reason !== "settle-failed") return { void: r.void_reason };
+    return { model: r.model, node: r.node, cost: u.cost };
+  }
+
   var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
     regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl,
-    pressesControl: pressesControl, parseSize: parseSize };
+    pressesControl: pressesControl, parseSize: parseSize, servedOf: servedOf };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();

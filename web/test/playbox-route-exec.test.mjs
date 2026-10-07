@@ -147,3 +147,21 @@ test("the drawer reads its size through the module's parser", () => {
   const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
   assert.match(js, /function routeSize\(v\) \{ return window\.PlayboxRoute\.parseSize\(v\); \}/);
 });
+
+test("a voided reply is not shown as served (settle-failed still is: the reply finished)", () => {
+  assert.deepEqual(R.servedOf({ cost: 0.01, rogerai: { model: "m", node: "n" } }), { model: "m", node: "n", cost: 0.01 });
+  assert.deepEqual(R.servedOf({ cost: 0, rogerai: { model: "m", node: "n", void_reason: "upstream-5xx" } }), { void: "upstream-5xx" });
+  assert.deepEqual(R.servedOf({ cost: 0, rogerai: { model: "m", node: "n", void_reason: "settle-failed" } }), { model: "m", node: "n", cost: 0 });
+  assert.equal(R.servedOf({ prompt_tokens: 1 }), null, "a station's own usage object is not the broker's");
+});
+
+test("a size with a spaced unit parses", () => {
+  assert.deepEqual(R.parseSize("7 B"), [7, 7]);
+  assert.deepEqual(R.parseSize("7 - 70 B"), [7, 70]);
+});
+
+test("the stream reads served through the module, and clearing stale choices is saved", () => {
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  assert.match(js, /served = window\.PlayboxRoute\.servedOf\(d\.usage\)/);
+  assert.match(js, /if \(qn\.indexOf\("is not on"\) !== -1 \|\| rn\.indexOf\("is not on"\) !== -1\) saveRoute\(\);/);
+});

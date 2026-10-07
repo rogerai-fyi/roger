@@ -1358,6 +1358,7 @@
     var rn = fill("dkRtRegion", b ? window.PlayboxRoute.regionChoices(Object.keys(b.regions || {})) : [], ROUTE.region, "");
     if (qn.indexOf("is not on") !== -1) ROUTE.quant = "";
     if (rn.indexOf("is not on") !== -1) ROUTE.region = "";
+    if (qn.indexOf("is not on") !== -1 || rn.indexOf("is not on") !== -1) saveRoute();
     routeNote(qn || rn);
   }
 
@@ -1421,6 +1422,10 @@
   // carries a rogerai block - a station's own usage object is not the broker's)
   function servedFooter(msgNode, served, model) {
     if (!served || !msgNode) return;
+    if (served.void) {   // the broker voided a reply that had started: say so, never "served"
+      msgNode.parentNode.appendChild(el("span", "pg-line__ts mono", "the reply was cut (" + served.void + ") - not charged"));
+      return;
+    }
     var text = "served by " + served.model + (served.model && served.model !== model ? " (fallback)" : "") +
       (served.node ? " · " + served.node : "");
     if (served.cost != null) text += STATE.loggedIn ? " · $" + served.cost : " · free";
@@ -1462,9 +1467,7 @@
           try {
             var d = JSON.parse(payload);
             // the broker's final chunk: usage with a rogerai block (who served, the cost)
-            if (d.usage && d.usage.rogerai) {
-              served = { model: d.usage.rogerai.model, node: d.usage.rogerai.node, cost: d.usage.cost };
-            }
+            if (d.usage && d.usage.rogerai) served = window.PlayboxRoute.servedOf(d.usage);
             var delta = d.choices && d.choices[0] && (d.choices[0].delta || d.choices[0].message);
             var piece = delta && delta.content;
             if (piece) {
