@@ -1028,11 +1028,12 @@ Feature: A machine joining an Edge for the first time believes only a root the o
   # 15. NEVER HALF-APPLIED
   # =========================================================================
 
+  # corrected 2026-10-06 (founder-approved): the Then said "no root ... remain", which cannot hold for
+  # a declined root change, where the old membership rightly stays. What every row means is this.
   @security
   Scenario Outline: every refusal in this file leaves the machine exactly as it was
     Given a first enrollment refused because <reason>
-    Then no root, no certificate, no node key, no account file and no fleet row remain
-    And no revocation list was saved
+    Then nothing from the refused answer is kept: the machine's Edge files are exactly as before the attempt
     And retrying later behaves as a first attempt
 
     Examples:

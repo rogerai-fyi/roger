@@ -109,6 +109,8 @@ Feature: A machine is set up onto its Edge from the browser console, through the
   # =========================================================================
 
   # superseded 2026-10-06 by founder ruling (enrollment root trust)
+  # Founder-approved 2026-10-06: the token-gated POST /api/edge/join already exists (it requires the
+  # enrollment code; enrollment_root_trust.feature, @console). Its browser UI is designed here later.
   @web
   Scenario: joining from the browser enrolls against the authority over the LAN
     Given a console over a machine that is not enrolled

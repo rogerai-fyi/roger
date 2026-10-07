@@ -3368,8 +3368,6 @@ func (s *rtBDD) nothingRemains() error {
 	return s.unchanged()
 }
 
-func (s *rtBDD) noRevocationSaved() error { return s.unchanged() }
-
 func (s *rtBDD) retryIsFirst() error {
 	if s.heldFP() != "" {
 		// The declined root change: trying the move again, deliberately, works as the first time.
@@ -3858,8 +3856,7 @@ func TestEnrollmentRootTrustFeature(t *testing.T) {
 
 			// 15
 			sc.Step(`^a first enrollment refused because (.+)$`, st.firstRefusedBecause)
-			sc.Step(`^no root, no certificate, no node key, no account file and no fleet row remain$`, st.nothingRemains)
-			sc.Step(`^no revocation list was saved$`, st.noRevocationSaved)
+			sc.Step(`^nothing from the refused answer is kept: the machine's Edge files are exactly as before the attempt$`, st.nothingRemains)
 			sc.Step(`^retrying later behaves as a first attempt$`, st.retryIsFirst)
 			sc.Step(`^an answer from an unverified authority$`, st.answerFromUnverified)
 			sc.Step(`^no address, name, account or revocation list from it is used or stored$`, st.nothingFromItUsed)
