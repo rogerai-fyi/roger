@@ -827,6 +827,12 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		// profile is the owner's config, so its models are the owner's choice). With an owner
 		// --models list the guest's list is filtered to it instead (Routing.Apply). Header mode
 		// refuses every models[] itself - an old broker cannot honour one.
+		// A model that is not a model id is refused in every mode: no owner list or header
+		// mode makes it a valid request.
+		if err := mistypedGuestModel(body); err != nil {
+			routingRefused(w, err)
+			return
+		}
 		if err := GuestModelsWithin(body, opts.Model); err != nil && !opts.HeaderRouting && !(len(opts.Models) > 0 && !guestNamesOtherModelOf(body, opts.Model)) {
 			routingRefused(w, err)
 			return

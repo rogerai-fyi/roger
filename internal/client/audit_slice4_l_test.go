@@ -133,6 +133,20 @@ func TestNonStringModelCannotSmuggleAForeignList(t *testing.T) {
 	require.False(t, hit, "a refused body never reaches the broker")
 }
 
+// TestNonStringModelIsRefusedWithAnOwnerModelsList: an owner --models list (which filters a
+// guest's list instead of refusing it) does not turn the non-string model refusal off.
+func TestNonStringModelIsRefusedWithAnOwnerModelsList(t *testing.T) {
+	hit := false
+	broker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	t.Cleanup(broker.Close)
+	h := ProxyHandler(ProxyOptions{Broker: broker.URL, User: "u", Model: "band", Models: []string{"band", "b2"}})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"model":5,"models":["b2"],"messages":[]}`)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.False(t, hit)
+}
+
 // TestEveryMistypedGuestValueGoesToTheBroker: the forward-as-sent rule covers every owner-
 // bounded key the proxy composes, not only four of them.
 func TestEveryMistypedGuestValueGoesToTheBroker(t *testing.T) {
@@ -151,4 +165,13 @@ func TestEveryMistypedGuestValueGoesToTheBroker(t *testing.T) {
 		require.NoError(t, json.Unmarshal(top[tc.carrier], &carrier))
 		require.JSONEq(t, tc.guest, string(carrier[tc.key]), tc.key)
 	}
+}
+
+// TestUndecodableGuestCarrierGoesToTheBroker: a carrier the proxy cannot decode (a number out
+// of range) is forwarded as sent for the broker's 400, never re-encoded without it.
+func TestUndecodableGuestCarrierGoesToTheBroker(t *testing.T) {
+	in := `{"model":"m","roger":{"min_tps":1e400}}`
+	out, err := Routing{MinTPS: 10}.Apply([]byte(in))
+	require.NoError(t, err)
+	require.Equal(t, in, string(out), "forwarded byte for byte")
 }

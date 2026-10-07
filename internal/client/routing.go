@@ -129,14 +129,15 @@ func GuestModelsWithin(body []byte, tuned string) error {
 	if json.Unmarshal(body, &top) != nil || top == nil {
 		return nil
 	}
+	if err := mistypedGuestModel(body); err != nil {
+		return err
+	}
 	var m struct {
 		Model  string
 		Models json.RawMessage
 	}
-	if raw, ok := top["model"]; ok && string(raw) != "null" {
-		if json.Unmarshal(raw, &m.Model) != nil {
-			return &RoutingRefusal{Msg: "model must be a model id"}
-		}
+	if raw, ok := top["model"]; ok {
+		_ = json.Unmarshal(raw, &m.Model)
 	}
 	m.Models = top["models"]
 	if guestNamesOtherModel(body, m.Model, tuned) {
@@ -156,6 +157,22 @@ func GuestModelsWithin(body []byte, tuned string) error {
 		}
 		if bareModel(id) != tuned {
 			return &RoutingRefusal{Msg: "model " + id + " is outside this session's band"}
+		}
+	}
+	return nil
+}
+
+// mistypedGuestModel refuses a body whose model is present, not null, and not a string. A
+// body that is not a JSON object is left to the rewrite's 400.
+func mistypedGuestModel(body []byte) error {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil || top == nil {
+		return nil
+	}
+	if raw, ok := top["model"]; ok && string(raw) != "null" {
+		var s string
+		if json.Unmarshal(raw, &s) != nil {
+			return &RoutingRefusal{Msg: "model must be a model id"}
 		}
 	}
 	return nil
@@ -287,8 +304,8 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	// A carrier that is present but not an object is the caller's malformed request: it is
 	// forwarded untouched for the broker's 400 invalid_routing_value, never repaired around.
 	for _, k := range []string{"roger", "provider"} {
-		if raw, ok := m[k]; ok && string(raw) != "null" && !rawObjectOK(raw) {
-			return body, nil
+		if raw, ok := m[k]; ok && string(raw) != "null" && (!rawObjectOK(raw) || !decodes(raw)) {
+			return body, nil // includes a value the proxy cannot decode (a number out of range)
 		}
 	}
 	roger, provider := rawObject(m["roger"]), rawObject(m["provider"])
@@ -871,6 +888,12 @@ func guestNamesOtherModelOf(body []byte, tuned string) bool {
 }
 
 // rawObjectOK reports whether raw JSON is an object.
+// decodes reports whether a carrier decodes in full (a number out of range does not).
+func decodes(raw json.RawMessage) bool {
+	var m map[string]any
+	return json.Unmarshal(raw, &m) == nil
+}
+
 func rawObjectOK(raw json.RawMessage) bool {
 	var m map[string]json.RawMessage
 	return json.Unmarshal(raw, &m) == nil && m != nil

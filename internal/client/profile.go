@@ -199,7 +199,11 @@ func ValidateRoutingBody(b map[string]any) error {
 		if !isArr {
 			return fmt.Errorf("models must be a list of model ids")
 		}
+		// The effective list is [model] ++ models (contract §3): the model counts too.
 		seen := map[string]bool{}
+		if m, ok := b["model"].(string); ok && strings.TrimSpace(m) != "" {
+			seen[bareModel(m)] = true
+		}
 		for _, e := range arr {
 			s, isStr := e.(string)
 			if !isStr || strings.TrimSpace(s) == "" {

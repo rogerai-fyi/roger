@@ -82,3 +82,10 @@ func TestValidatorEnforcesTheBrokerBounds(t *testing.T) {
 	require.NoError(t, ValidateRoutingBody(map[string]any{"provider": map[string]any{"quantizations": []any{strings.Repeat("q", 40)}},
 		"roger": map[string]any{"min_ctx": 2147483647.0, "region": many("eu", 32)}}))
 }
+
+// TestFiveModelLimitCountsTheModel: the effective list is [model] ++ models (contract §3), so
+// a model plus five other entries is six models, over the limit.
+func TestFiveModelLimitCountsTheModel(t *testing.T) {
+	require.Error(t, ValidateRoutingBody(map[string]any{"model": "a", "models": []any{"b", "c", "d", "e", "f"}}))
+	require.NoError(t, ValidateRoutingBody(map[string]any{"model": "a", "models": []any{"a", "b", "c", "d", "e"}}))
+}
