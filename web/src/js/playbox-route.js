@@ -104,6 +104,16 @@
     return !!(t.closest && (t.closest("#dkRoute") || t.closest("#dkRouteBtn")));
   }
 
+  // escapeStops: Escape stops playback from anywhere but a text field outside the routing
+  // drawer (the composer keeps its Escape); the drawer's inputs and selects stop it too
+  function escapeStops(e) {
+    if (!e || e.key !== "Escape") return false;
+    var t = e.target;
+    var tag = (t && t.tagName || "").toLowerCase();
+    var field = tag === "input" || tag === "select" || tag === "textarea" || !!(t && t.isContentEditable);
+    return !field || !!(t.closest && t.closest("#dkRoute"));
+  }
+
   // regionChoices: the station-declared regions the broker would accept in roger.region
   function regionChoices(list) {
     return (list || []).filter(function (x) { return typeof x === "string" && REGION.test(x); });
@@ -211,7 +221,7 @@
 
   var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
     regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl,
-    pressesControl: pressesControl, parseSize: parseSize, servedOf: servedOf, voidNote: voidNote,
+    pressesControl: pressesControl, escapeStops: escapeStops, parseSize: parseSize, servedOf: servedOf, voidNote: voidNote,
     parseCtx: parseCtx, parseTtft: parseTtft, parseNum: parseNum };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test

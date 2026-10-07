@@ -820,12 +820,12 @@
 
   document.addEventListener("keydown", function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;      // leave browser chords alone
-    if (isTyping(e.target)) return;                       // the composer always wins
-    var k = e.key;
-    if (k === "Escape") {   // stops playback from anywhere outside the composer, the drawer included
+    if (window.PlayboxRoute.escapeStops(e)) {            // the drawer's fields included; the composer keeps Escape
       if (STATE.playing) { e.preventDefault(); stopPlayback(); }
       return;
     }
+    if (isTyping(e.target)) return;                       // the composer always wins
+    var k = e.key;
     if (window.PlayboxRoute.ownsInput(e.target)) return;  // the routing drawer keeps its keys
     if (window.PlayboxRoute.pressesControl(e)) return;    // a focused button takes Space and Enter itself
     if (k === " " || k === "Spacebar") {

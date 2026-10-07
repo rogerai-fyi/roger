@@ -215,9 +215,24 @@ test("money and speed fields parse to finite numbers of 0 or more, through the m
   assert.match(js, /return window\.PlayboxRoute\.parseNum\(\(\$\(id\) && \$\(id\)\.value \|\| ""\), label\);/);
 });
 
-test("Escape still stops playback while focus is in the routing drawer", () => {
+// target builds an event target the way the browser presents one: a tag and closest().
+function target(tag, inDrawer) {
+  return { tagName: tag, closest: (sel) => (inDrawer && sel === "#dkRoute" ? {} : null) };
+}
+
+test("Escape stops playback from a drawer input or select, never from the composer", () => {
+  const esc = (t) => ({ key: "Escape", target: t });
+  assert.equal(R.escapeStops(esc(target("INPUT", true))), true, "a drawer input");
+  assert.equal(R.escapeStops(esc(target("SELECT", true))), true, "a drawer select");
+  assert.equal(R.escapeStops(esc(target("BUTTON", false))), true, "a deck button");
+  assert.equal(R.escapeStops(esc(target("TEXTAREA", false))), false, "the composer keeps Escape");
+  assert.equal(R.escapeStops(esc(target("INPUT", false))), false, "a field outside the drawer keeps Escape");
+  assert.equal(R.escapeStops({ key: "a", target: target("INPUT", true) }), false, "only Escape");
+});
+
+test("the page's keydown asks the module before the typing guard", () => {
   const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
   const i = js.indexOf('document.addEventListener("keydown", function (e) {');
-  const head = js.slice(i, i + 900);
-  assert.ok(head.indexOf('k === "Escape"') < head.indexOf("PlayboxRoute.ownsInput"), "Escape is handled before the drawer guard");
+  const head = js.slice(i, i + 600);
+  assert.ok(head.indexOf("PlayboxRoute.escapeStops(e)") > 0 && head.indexOf("PlayboxRoute.escapeStops(e)") < head.indexOf("isTyping(e.target)"));
 });
