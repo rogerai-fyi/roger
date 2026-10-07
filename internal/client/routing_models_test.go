@@ -56,3 +56,15 @@ func TestGuestModelsAreFilteredToTheOwners(t *testing.T) {
 	require.Contains(t, e.Error.Message, "allowed models")
 	require.False(t, hit, "a refused body never reaches the broker")
 }
+
+// TestGuestEmptyOnlyReachesTheBroker: a guest's provider.only = [] is malformed (the broker
+// answers 400 "provider.only must not be empty"); the proxy forwards it as sent rather than
+// quietly replacing it with the owner's list.
+func TestGuestEmptyOnlyReachesTheBroker(t *testing.T) {
+	out, err := Routing{Only: []string{"n1"}}.Apply([]byte(`{"model":"a","provider":{"only":[]}}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"a","provider":{"only":[]}}`, string(out))
+	out, err = Routing{Only: []string{"n1"}}.Apply([]byte(`{"model":"a"}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"a","provider":{"only":["n1"]}}`, string(out), "no guest only still takes the owner's")
+}

@@ -107,3 +107,15 @@ func TestMaxPriceRefusalIsDeterministic(t *testing.T) {
 		require.EqualError(t, err, "provider.max_price.aa is not supported")
 	}
 }
+
+// TestValidateRoutingBodyBoundsRawModelsEntries: like the broker, more than 32 raw models[]
+// entries is refused even when they name few distinct models.
+func TestValidateRoutingBodyBoundsRawModelsEntries(t *testing.T) {
+	many := make([]any, RoutingListMax+1)
+	for i := range many {
+		many[i] = "a"
+	}
+	err := ValidateRoutingBody(map[string]any{"model": "a", "models": many})
+	require.ErrorContains(t, err, "more than 32 entries")
+	require.NoError(t, ValidateRoutingBody(map[string]any{"model": "a", "models": many[:RoutingListMax]}))
+}

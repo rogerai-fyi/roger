@@ -201,6 +201,9 @@ func ValidateRoutingBody(b map[string]any) error {
 		if !isArr {
 			return fmt.Errorf("models must be a list of model ids")
 		}
+		if len(arr) > RoutingListMax { // the broker bounds raw entries before counting models
+			return fmt.Errorf("models has more than %d entries", RoutingListMax)
+		}
 		// The effective list is [model] ++ models (contract §3): the model counts too.
 		seen := map[string]bool{}
 		if m, ok := b["model"].(string); ok && strings.TrimSpace(m) != "" {

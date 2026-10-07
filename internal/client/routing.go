@@ -366,7 +366,8 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 	}
 	if len(r.Only) > 0 && !mistyped(provider, "only", isStringList) {
-		guestOnly := len(stringsOf(provider["only"])) > 0
+		g, stated := provider["only"]
+		guestOnly := stated && g != nil // an explicit [] is the guest's, forwarded for the broker's 400
 		if err := capStations(provider, r.Only, "allowed"); err != nil {
 			return nil, err
 		}
