@@ -77,7 +77,11 @@ type lanDialBDD struct {
 func (s *lanDialBDD) reset() {
 	useTempConfig(s.t)
 	s.broker = newRecordingBroker(s.t)
-	s.t.Setenv("ROGER_BROKER", "https://"+s.broker.srv.Listener.Addr().String()) // a public-shaped broker
+	// The recording broker must be REACHABLE at the configured URL, or a "the broker was not
+	// asked" check passes vacuously (a TLS hello to a plain-http server never reaches the
+	// handler). It is not a standalone Tower (its /local/poll is a 404), so LAN mode never
+	// counts it as a local source.
+	s.t.Setenv("ROGER_BROKER", s.broker.srv.URL)
 	s.dial, s.dns, s.towers = &lanDialMap{}, map[string][]net.IP{}, map[string]*realTower{}
 	lanProbeHTTP = s.dial.client()
 	lanResolve = func(_ context.Context, host string) ([]net.IP, error) {
