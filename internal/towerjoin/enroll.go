@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
 )
@@ -218,6 +219,7 @@ func signedPost(url string, _ ed25519.PrivateKey, body []byte, out any) error {
 	if err := signAsOperator(req, body); err != nil {
 		return err
 	}
+	coreclient.Note("towerjoin: Core request")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("could not reach RogerAI: %w", err)
@@ -292,6 +294,7 @@ func signedGet(url string, out any) error {
 	if err := signAsOperator(req, nil); err != nil {
 		return err
 	}
+	coreclient.Note("towerjoin: Core request")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("could not reach RogerAI: %w", err)

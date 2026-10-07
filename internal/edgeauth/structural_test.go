@@ -11,8 +11,8 @@ package edgeauth
 // dial, so an owner on a plant network is not trusting a comment.
 //
 // This is the same guarantee, and deliberately the same kind of test, that
-// cmd/roger-tower-local/structural_test.go already earns for the standalone consumer
-// plane.
+// internal/localplane/serve/structural_test.go earns for the standalone consumer plane,
+// through the same shared helper (internal/structural).
 
 import (
 	"os/exec"
@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/structural"
 )
 
 // deps returns the whole transitive dependency set of a package.
@@ -38,32 +40,19 @@ func deps(t *testing.T, pkg string) []string {
 }
 
 func TestTheEdgeAuthorityLinksNothingThatCouldReachCore(t *testing.T) {
-	// Every RogerAI package that dials Roger Core, plus every transport that could.
-	forbidden := []string{
+	// Every RogerAI package that dials Roger Core, plus every transport that could. towercore/*
+	// is forbidden too, with ONE exception that is itself structural: towercore/cert. See
+	// TestTheCertificateLibraryIsALeaf below - it links no other RogerAI package at all, so it has
+	// nothing to reach Core with. Reusing it is what makes a local certificate and a Core
+	// certificate the same certificate.
+	structural.ForbidDeps(t, ".", []string{
 		"rogerai.fm/roger/v6/internal/client",    // the Core/broker client
 		"rogerai.fm/roger/v6/internal/towerjoin", // dials Core to join
 		"rogerai.fm/roger/v6/internal/towerhub",
+		"rogerai.fm/roger/v6/internal/towercore",
 		"net/http", // no client, no server: this package cannot speak to anything
-	}
-	// towercore/* is forbidden too, with ONE exception that is itself structural:
-	// towercore/cert. See TestTheCertificateLibraryIsALeaf below - it links no other
-	// RogerAI package at all, so it has nothing to reach Core with. Reusing it is what
-	// makes a local certificate and a Core certificate the same certificate.
-	const towercore = "rogerai.fm/roger/v6/internal/towercore"
-	const certPkg = towercore + "/cert"
-
-	for _, dep := range deps(t, ".") {
-		for _, bad := range forbidden {
-			require.NotEqual(t, bad, dep,
-				"the Edge authority links %s: it must link NOTHING that can reach Roger Core, "+
-					"and nothing that can make a network call at all. The wire belongs in "+
-					"internal/edgeauth/enrollhttp.", dep)
-		}
-		if dep == towercore || (strings.HasPrefix(dep, towercore+"/") && dep != certPkg) {
-			t.Fatalf("the Edge authority links %s: the only towercore package it may link "+
-				"is %s, which is a leaf and can reach nothing.", dep, certPkg)
-		}
-	}
+	}, "rogerai.fm/roger/v6/internal/towercore/cert")
+	structural.Deps(t, ".") // the scan really enumerated the graph
 }
 
 // TestTheCertificateLibraryIsALeaf is what makes the exception above a guarantee rather

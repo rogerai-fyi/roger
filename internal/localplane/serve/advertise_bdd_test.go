@@ -1,4 +1,4 @@
-package main
+package serve
 
 // Executable spec: features/lan/discovery_and_dial.feature ("a standalone Tower advertises on the
 // LAN only when asked to") and features/lan/adversarial.feature ("a standalone Tower's
@@ -70,7 +70,7 @@ func (timeoutErr) Temporary() bool { return true }
 type advState struct {
 	t     *testing.T
 	plane *recPlane
-	p     *prepared
+	p     *Prepared
 	out   strings.Builder
 }
 
@@ -99,13 +99,13 @@ func (s *advState) fakeIfaces() {
 }
 
 func (s *advState) start(args ...string) error {
-	p, err := prepare(append([]string{"--dir", standaloneDir(s.t), "--bind", "192.168.1.50:8787", "--label", "garage"}, args...), &s.out)
+	p, err := Prepare(append([]string{"--dir", standaloneDir(s.t), "--bind", "192.168.1.50:8787", "--label", "garage"}, args...), &s.out)
 	if err != nil {
 		return err
 	}
 	s.p = p
 	done := make(chan error, 1)
-	go func() { done <- p.serve() }()
+	go func() { done <- p.Serve() }()
 	s.t.Cleanup(func() {
 		_ = p.srv.Close()
 		<-done
@@ -200,7 +200,7 @@ func TestTowerAdvertiseBDD(t *testing.T) {
 			})
 		},
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: []string{
-			"../../features/lan/discovery_and_dial.feature:174", "../../features/lan/adversarial.feature:113"}},
+			"../../../features/lan/discovery_and_dial.feature:174", "../../../features/lan/adversarial.feature:113"}},
 	}
 	if suite.Run() != 0 {
 		t.Fatal("Tower advertise scenarios failed")

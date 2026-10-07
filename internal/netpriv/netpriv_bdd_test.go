@@ -33,7 +33,7 @@ var siteFiles = map[string]string{
 	"client nonce decision":        "internal/lanmode/lanmode.go", // lanmode.WantsNonce
 	"edge advert":                  "internal/edge/wire/advert.go",
 	"edge listener":                "cmd/rogerai/edgebind.go",
-	"tower advertise":              "cmd/roger-tower-local/advertise.go",
+	"tower advertise":              "internal/localplane/serve/advertise.go",
 	"joined serve advertised addr": "cmd/roger-tower/serve.go",
 	"tower doctor":                 "internal/tower/doctor.go",
 }

@@ -32,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towercore/inv"
@@ -257,6 +258,7 @@ func towerPostStatus(st *tower.State, path string, body []byte, out any, client 
 	if client == nil {
 		client = httpClient
 	}
+	coreclient.Note("towerjoin: link")
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrUnreachable, err)

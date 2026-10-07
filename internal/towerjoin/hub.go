@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
 )
@@ -31,6 +32,7 @@ func DispatchKey() (ed25519.PublicKey, error) {
 	if err := protocol.TrustedBase(base); err != nil {
 		return nil, err
 	}
+	coreclient.Note("towerjoin: dispatch key")
 	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}
 	resp, err := client.Get(base + "/tower/dispatch/key")
 	if err != nil {

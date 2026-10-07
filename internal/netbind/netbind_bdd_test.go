@@ -24,7 +24,7 @@ const netbindImport = `"rogerai.fm/roger/v6/internal/netbind"`
 
 // listenerFiles is where each listener binds.
 var listenerFiles = map[string]string{
-	"standalone serve": "cmd/roger-tower-local/main.go",
+	"standalone serve": "internal/localplane/serve/serve.go",
 	"edge face":        "cmd/rogerai/edgebind.go",
 	"web console":      "internal/webui/server.go",
 	"joined hub":       "cmd/roger-tower/hub.go",

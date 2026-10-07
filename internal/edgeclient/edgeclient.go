@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 )
@@ -56,6 +57,7 @@ func (c *Client) network() string {
 }
 
 func (c *Client) httpClient() *http.Client {
+	coreclient.Note("edgeclient: sealed Edge consumer")
 	if c.HTTP != nil {
 		return c.HTTP
 	}
