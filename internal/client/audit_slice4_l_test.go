@@ -192,3 +192,13 @@ func TestOwnerOrderDefaultStaysInsideTheGuestsOnly(t *testing.T) {
 	_, has := got.Provider["order"]
 	require.False(t, has, "nothing of the owner's order is allowed: no order is sent")
 }
+
+// TestMistypedFallbackKeysGoToTheBroker: allow_fallbacks and require_parameters of the wrong
+// type reach the broker as sent, like every other owner-bounded key.
+func TestMistypedFallbackKeysGoToTheBroker(t *testing.T) {
+	owner := Routing{NoFallbacks: true, Prefer: []string{"n1"}, RequireParams: true}
+	out, err := owner.Apply([]byte(`{"model":"m","provider":{"allow_fallbacks":"yes","require_parameters":1}}`))
+	require.NoError(t, err)
+	require.Contains(t, string(out), `"allow_fallbacks":"yes"`)
+	require.Contains(t, string(out), `"require_parameters":1`)
+}

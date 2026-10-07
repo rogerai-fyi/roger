@@ -192,6 +192,8 @@ func ValidateRoutingBody(b map[string]any) error {
 	if v, ok := b["model"]; ok && v != nil {
 		if s, isStr := v.(string); !isStr || strings.TrimSpace(s) == "" {
 			return fmt.Errorf("model must be a model id")
+		} else if len(s) > ModelIDMax {
+			return fmt.Errorf("model: a model id longer than %d characters", ModelIDMax)
 		}
 	}
 	if v, ok := b["models"]; ok && v != nil {
@@ -209,10 +211,13 @@ func ValidateRoutingBody(b map[string]any) error {
 			if !isStr || strings.TrimSpace(s) == "" {
 				return fmt.Errorf("models must be a list of model ids")
 			}
+			if len(s) > ModelIDMax {
+				return fmt.Errorf("models: a model id longer than %d characters", ModelIDMax)
+			}
 			seen[bareModel(s)] = true
 		}
-		if len(seen) > 5 {
-			return fmt.Errorf("models has more than 5 distinct models")
+		if len(seen) > ModelsMax {
+			return fmt.Errorf("models has more than %d distinct models", ModelsMax)
 		}
 	}
 	if err := ValidateRoutingValues(b); err != nil {
@@ -233,6 +238,8 @@ const (
 	RoutingListMax = 32
 	QuantLabelMax  = 40
 	RoutingIntMax  = math.MaxInt32
+	ModelsMax      = 5   // distinct models in [model] ++ models (contract §3)
+	ModelIDMax     = 256 // characters in one model id
 )
 
 // ValidateRoutingValues checks the type and range of each provider and roger key present
@@ -270,8 +277,8 @@ func validateProvider(p map[string]any) error {
 		if err != nil || (k != "ignore" && len(ids) == 0) {
 			return fmt.Errorf("provider.%s must be a non-empty list of station ids", k)
 		}
-		if len(ids) > 32 {
-			return fmt.Errorf("provider.%s has more than 32 entries", k)
+		if len(ids) > RoutingListMax {
+			return fmt.Errorf("provider.%s has more than %d entries", k, RoutingListMax)
 		}
 	}
 	if order, only := p["order"], p["only"]; order != nil && only != nil {
@@ -321,7 +328,13 @@ func validateProvider(p map[string]any) error {
 		if !isObj {
 			return fmt.Errorf("provider.max_price must be an object")
 		}
-		for k, pv := range mp {
+		keys := make([]string, 0, len(mp))
+		for k := range mp {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys) // a fixed order: several faults always name the same one
+		for _, k := range keys {
+			pv := mp[k]
 			// As on the broker: an unknown key is refused even when null; a known one that is
 			// null is absent, image included (no image pricing exists, so a priced one is refused).
 			if !profileMaxPriceKeys[k] && k != "image" {

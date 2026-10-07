@@ -14,4 +14,6 @@ func TestClientMirrorsTheBrokerRoutingBounds(t *testing.T) {
 	require.Equal(t, routingListMax, client.RoutingListMax)
 	require.Equal(t, quantLabelMax, client.QuantLabelMax)
 	require.Equal(t, math.MaxInt32, client.RoutingIntMax)
+	require.Equal(t, routingModelsMax, client.ModelsMax)
+	require.Equal(t, routingModelIDMax, client.ModelIDMax)
 }

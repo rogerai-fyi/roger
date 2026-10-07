@@ -874,7 +874,7 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		if fromProfile && hasFreeSugar(model) {
 			opts.FreeOnly = true
 		}
-		crit := Criteria{Model: model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
+		crit := Criteria{Model: repickModel(opts, model), Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
 		// Per-session spend budget (rulings 1/2, the literal ceiling). UNCAPPED sessions
 		// (Budget <= 0: `roger use`, the TUI) skip the admission gate entirely and relay fully
 		// in parallel (review HIGH #3) - costs still accumulate via addSpend for observability.
@@ -932,6 +932,16 @@ func keepPrimaryBeforeRewrite(body []byte, band string) []byte {
 		return body
 	}
 	return out
+}
+
+// repickModel is the model a failover re-pick filters on: a session that binds every model
+// free (opts.FreeOnly, or a tune on m:free) re-picks among free stations only, even when the
+// guest named the bare model (the request itself still carries :free).
+func repickModel(opts ProxyOptions, model string) string {
+	if (opts.FreeOnly || hasFreeSugar(opts.Model)) && !hasFreeSugar(model) {
+		return model + ":free"
+	}
+	return model
 }
 
 // readCappedBody reads up to limit+1 bytes; if the extra byte is present the body EXCEEDED the

@@ -430,10 +430,10 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if r.Sort != "" && !guestStatesSort(m, provider) && roger["pref"] == nil {
 		provider["sort"] = r.Sort
 	}
-	if r.NoFallbacks {
+	if r.NoFallbacks && !mistyped(provider, "allow_fallbacks", isBool) {
 		provider["allow_fallbacks"] = false
 	}
-	if r.RequireParams {
+	if r.RequireParams && !mistyped(provider, "require_parameters", isBool) {
 		provider["require_parameters"] = true
 	}
 	if len(r.Require) > 0 && !mistyped(roger, "require", isStringList) {

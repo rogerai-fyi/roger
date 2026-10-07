@@ -56,3 +56,13 @@ func TestRepickCtxFloorNeedsADeclaredWindow(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "declared", got)
 }
+
+// TestFreeOnlySessionRepicksAmongFreeStations: when the session binds every model free (the
+// owner's free tune, F, or a profile's band:free), the failover re-pick looks only at free
+// stations even if the guest named the bare model.
+func TestFreeOnlySessionRepicksAmongFreeStations(t *testing.T) {
+	require.Equal(t, "m:free", repickModel(ProxyOptions{FreeOnly: true}, "m"))
+	require.Equal(t, "m:free", repickModel(ProxyOptions{Model: "m:free"}, "m"))
+	require.Equal(t, "m:free:nitro", repickModel(ProxyOptions{FreeOnly: true}, "m:free:nitro"))
+	require.Equal(t, "m", repickModel(ProxyOptions{}, "m"))
+}

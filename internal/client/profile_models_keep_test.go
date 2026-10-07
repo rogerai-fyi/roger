@@ -89,3 +89,21 @@ func TestFiveModelLimitCountsTheModel(t *testing.T) {
 	require.Error(t, ValidateRoutingBody(map[string]any{"model": "a", "models": []any{"b", "c", "d", "e", "f"}}))
 	require.NoError(t, ValidateRoutingBody(map[string]any{"model": "a", "models": []any{"a", "b", "c", "d", "e"}}))
 }
+
+// TestValidatorBoundsAModelID: a model id over 256 characters, in model or models[], is
+// refused as the broker refuses it; exactly 256 is accepted.
+func TestValidatorBoundsAModelID(t *testing.T) {
+	long := strings.Repeat("m", ModelIDMax+1)
+	require.Error(t, ValidateRoutingBody(map[string]any{"model": long}))
+	require.Error(t, ValidateRoutingBody(map[string]any{"models": []any{long}}))
+	require.NoError(t, ValidateRoutingBody(map[string]any{"model": strings.Repeat("m", ModelIDMax)}))
+}
+
+// TestMaxPriceRefusalIsDeterministic: with several faulty max_price keys the refusal names the
+// same one every time.
+func TestMaxPriceRefusalIsDeterministic(t *testing.T) {
+	for i := 0; i < 40; i++ {
+		err := ValidateRoutingBody(map[string]any{"provider": map[string]any{"max_price": map[string]any{"zz": 1.0, "aa": 1.0, "mm": 1.0}}})
+		require.EqualError(t, err, "provider.max_price.aa is not supported")
+	}
+}
