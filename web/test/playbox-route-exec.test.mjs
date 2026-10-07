@@ -182,3 +182,20 @@ test("a size too large to be a number is refused, never sent as null", () => {
   assert.throws(() => R.parseSize("1" + "0".repeat(400)));
   assert.throws(() => R.parseSize("7-" + "9".repeat(400)));
 });
+
+test("min ctx and max first token parse to finite whole numbers, and refuse anything else", () => {
+  assert.equal(R.parseCtx("32k"), 32768);
+  assert.equal(R.parseCtx("8192"), 8192);
+  assert.equal(R.parseCtx(""), null);
+  for (const bad of ["0", "x", "1" + "0".repeat(400), "1" + "0".repeat(400) + "k", "2097152k"]) assert.throws(() => R.parseCtx(bad), bad);
+  assert.equal(R.parseTtft("1.5s"), 1500);
+  assert.equal(R.parseTtft("800"), 800);
+  assert.equal(R.parseTtft(""), null);
+  for (const bad of ["0", "soon", "1" + "0".repeat(400), "1" + "0".repeat(400) + "s"]) assert.throws(() => R.parseTtft(bad), bad);
+});
+
+test("the drawer reads min ctx and max first token through the module", () => {
+  const js = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/js/playbox.js"), "utf8");
+  assert.match(js, /function routeCtx\(v\) \{ return window\.PlayboxRoute\.parseCtx\(v\); \}/);
+  assert.match(js, /function routeTtft\(v\) \{ return window\.PlayboxRoute\.parseTtft\(v\); \}/);
+});

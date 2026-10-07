@@ -144,6 +144,32 @@
     return !!e && (e.key === " " || e.key === "Spacebar" || e.key === "Enter") && isControl(e.target);
   }
 
+  // finite throws msg unless n is a finite number: digits alone can still read as Infinity (309+)
+  function finite(n, msg) { if (!isFinite(n)) throw msg; return n; }
+
+  // parseCtx reads min ctx: a whole token count, 8192 or 32k (x1024), at most 2^31-1 like the
+  // broker's integer limits; blank is unset.
+  function parseCtx(v) {
+    v = String(v || "").trim();
+    if (!v) return null;
+    var m = v.match(/^(\d+)([kK]?)$/);
+    if (!m || +m[1] <= 0) throw "min ctx: a token count like 8192 or 32k";
+    var n = finite(+m[1] * (m[2] ? 1024 : 1), "min ctx: a token count like 8192 or 32k");
+    if (n > 2147483647) throw "min ctx: more tokens than any context";
+    return n;
+  }
+
+  // parseTtft reads max first token: milliseconds (800) or seconds (1.5s); blank is unset.
+  function parseTtft(v) {
+    v = String(v || "").trim();
+    if (!v) return null;
+    var m = v.match(/^(\d*\.?\d+)\s*(ms|s)?$/);
+    if (!m || +m[1] <= 0) throw "max first token: like 1500ms or 1.5s";
+    var n = Math.round(finite(+m[1] * (m[2] === "s" ? 1000 : 1), "max first token: like 1500ms or 1.5s"));
+    if (n > 2147483647) throw "max first token: like 1500ms or 1.5s";
+    return n;
+  }
+
   // parseSize reads the size field: "7-70" (B optional), "-70" (up to), "13" (exactly), or
   // blank / "any" for no constraint. Anything else, or a bound that is not a number, throws.
   function parseSize(v) {
@@ -153,7 +179,7 @@
     if (m && (m[1] || m[2])) { lo = m[1] ? +m[1] : 0; hi = m[2] ? +m[2] : 10000; }
     else if (/^\d+(?:\.\d+)?$/.test(v)) { lo = hi = +v; }
     else throw "size: write a range like 7-70";
-    if (!isFinite(lo) || !isFinite(hi)) throw "size: write a range like 7-70";   // 309+ digits read as Infinity
+    finite(lo, "size: write a range like 7-70"); finite(hi, "size: write a range like 7-70");
     if (lo > hi) throw "size: min must be at most max";
     if (!(hi > 0)) throw "size must be above 0";
     return [lo, hi];
@@ -176,7 +202,8 @@
 
   var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
     regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl,
-    pressesControl: pressesControl, parseSize: parseSize, servedOf: servedOf, voidNote: voidNote };
+    pressesControl: pressesControl, parseSize: parseSize, servedOf: servedOf, voidNote: voidNote,
+    parseCtx: parseCtx, parseTtft: parseTtft };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();

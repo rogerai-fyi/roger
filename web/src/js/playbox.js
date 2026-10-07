@@ -1279,20 +1279,8 @@
   }
   function routeSize(v) { return window.PlayboxRoute.parseSize(v); }
 
-  function routeCtx(v) {
-    v = String(v || "").trim();
-    if (!v) return null;
-    var m = v.match(/^(\d+)([kK]?)$/);
-    if (!m || +m[1] <= 0) throw "min ctx: a token count like 8192 or 32k";
-    return +m[1] * (m[2] ? 1024 : 1);
-  }
-  function routeTtft(v) {
-    v = String(v || "").trim();
-    if (!v) return null;
-    var m = v.match(/^(\d*\.?\d+)\s*(ms|s)?$/);
-    if (!m || +m[1] <= 0) throw "max first token: like 1500ms or 1.5s";
-    return Math.round(+m[1] * (m[2] === "s" ? 1000 : 1));
-  }
+  function routeCtx(v) { return window.PlayboxRoute.parseCtx(v); }
+  function routeTtft(v) { return window.PlayboxRoute.parseTtft(v); }
 
   // read every field into ROUTE (validated); a refusal names the field and holds the turn
   function readRoute() {
