@@ -17,6 +17,8 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,4 +211,48 @@ func TestNodeIDIsStableAndCanonical(t *testing.T) {
 	require.Equal(t, "u_", id1[:2], "the node id is a tower client id")
 	require.Equal(t, id1, NodeID(), "it is stable across calls - the same persisted node key")
 	require.Equal(t, idFromPriv(NodeKey()), id1, "and it is exactly what a share will sign with")
+}
+
+// A Tower that has not attached this station answers every poll 401. The node says so once,
+// naming the Tower and the exact attach command, and backs off instead of spinning.
+func TestServeLocalTowerReportsAnUnattachedStationAndBacksOff(t *testing.T) {
+	prev := localPollBackoffBase
+	localPollBackoffBase = 20 * time.Millisecond
+	t.Cleanup(func() { localPollBackoffBase = prev })
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	var mu sync.Mutex
+	var at []time.Time
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		at = append(at, time.Now())
+		mu.Unlock()
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"unauthorized"}`)
+	}))
+	defer refusing.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	var out bytes.Buffer
+	_ = ServeLocalTower(ctx, Config{Broker: refusing.URL, Upstream: "http://127.0.0.1:1", Model: "m"}, priv, &out)
+
+	s := out.String()
+	require.Contains(t, s, "the Tower at "+refusing.URL+" has not attached this station")
+	require.Contains(t, s, "roger-tower attach --station <name> --key "+protocol.UserIDFromPubkey(hexOf(pub))+" --models m")
+	require.Equal(t, 1, strings.Count(s, "has not attached this station"), "said once, not on every poll")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(at), 3)
+	require.Less(t, len(at), 10, "polls back off: a fixed 20ms spin would poll about 35 times")
+	first, last := at[1].Sub(at[0]), at[len(at)-1].Sub(at[len(at)-2])
+	require.Greater(t, last, 2*first, "each retry waits longer than the one before")
+}
+
+func TestLocalPollBackoffDoublesToItsCap(t *testing.T) {
+	for _, tc := range []struct {
+		n    int
+		want time.Duration
+	}{{1, 500 * time.Millisecond}, {2, time.Second}, {3, 2 * time.Second}, {7, 30 * time.Second}, {50, 30 * time.Second}} {
+		require.Equal(t, tc.want, localPollBackoff(tc.n), "failure %d", tc.n)
+	}
 }

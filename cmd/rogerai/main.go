@@ -1239,6 +1239,14 @@ func cmdShare(cfg config, args []string) error {
 	if err := refusedTowerFlag(args); err != nil {
 		return err
 	}
+	if cfg.lan.LAN {
+		// LAN sharing is free and serves the LAN only: refuse the network-only flags with the
+		// reason, and ignore a saved earn price (it would otherwise demand a login to earn).
+		if why := lanShareRefusal(args); why != "" {
+			return errors.New(why)
+		}
+		defIn, defOut = 0, 0
+	}
 	posModel, rest := shareModelArg(args)
 	defModelFlag := defModel
 	if posModel != "" {
@@ -1628,6 +1636,9 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// 404s), so `roger share` pointed at a local Tower Just Works - no registration, no relay
 	// fabric, no on-air lock, no login. The node polls the Tower and serves its stations for
 	// free, and returns here only when the operator stops it.
+	if cfg.lan.LAN {
+		return shareLAN(cfg, cfgRun, station, mdl, os.Stdout)
+	}
 	if isLocalTowerBroker(cfgRun.Broker) {
 		return serveLocalTowerShare(cfgRun, os.Stdout)
 	}

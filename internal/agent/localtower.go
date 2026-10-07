@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,34 +53,72 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 	fmt.Fprintf(out, "  the Tower operator attaches it with: roger-tower attach --station <name> --key %s --models <models>\n", nodeID)
 	fmt.Fprintf(out, "serving the local network's stations at %s (polling for work)\n", cfg.Broker)
 	var lastPollErrLog time.Time
+	failures, toldUnattached := 0, false
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv)
-		if err != nil && ctx.Err() == nil {
-			// A poll error that keeps recurring - an unattached key (401), a wrong Tower address -
-			// is worth surfacing, but not on every spin. Log the first, then at most once a minute,
-			// so a misconfigured node is visible instead of silently idle. A cancelled context is
-			// not an error worth a line: it is the operator stopping the node, so it is skipped.
+		switch {
+		case err == nil:
+			failures, toldUnattached = 0, false
+		case ctx.Err() != nil:
+			// The operator stopping the node is not an error worth a line.
+		case errors.Is(err, errNotAttached):
+			// The Tower is reachable but has not attached this station: say so ONCE, with the
+			// exact command that fixes it, instead of a generic poll error every minute.
+			if !toldUnattached {
+				fmt.Fprintf(out, "the Tower at %s has not attached this station: its operator runs roger-tower attach --station <name> --key %s --models %s\n",
+					cfg.Broker, nodeID, cfg.Model)
+				toldUnattached = true
+			}
+		default:
+			// A poll error that keeps recurring (a wrong Tower address) is worth surfacing, but
+			// not on every spin: the first, then at most once a minute.
 			if now := time.Now(); now.Sub(lastPollErrLog) > time.Minute {
 				fmt.Fprintf(out, "still trying to poll %s: %v\n", cfg.Broker, err)
 				lastPollErrLog = now
 			}
 		}
 		if err != nil || !got {
-			// No work (204), a transient error, or a cancelled context: pause briefly and re-poll
-			// rather than hammering. The plane's long-poll already absorbs most of the wait.
+			// No work (204): pause briefly and re-poll (the plane's long-poll absorbs most of the
+			// wait). A failing poll backs off, doubling up to a cap, so an unattached or
+			// unreachable Tower is not hammered.
+			wait := localPollBackoffBase
+			if err != nil {
+				failures++
+				wait = localPollBackoff(failures)
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(500 * time.Millisecond):
+			case <-time.After(wait):
 			}
 			continue
 		}
 		answer := runLocalJob(execClient, cfg, job.Request)
 		completeLocalJob(execClient, cfg.Broker, priv, job.ID, answer)
 	}
+}
+
+// errNotAttached is a poll the Tower refused: it has not attached this station's key.
+var errNotAttached = errors.New("this station is not attached to the Tower")
+
+// localPollBackoffBase is the pause between polls with no work, and the first retry after a
+// failed poll; localPollBackoffMax caps the doubling retry wait.
+var (
+	localPollBackoffBase = 500 * time.Millisecond
+	localPollBackoffMax  = 30 * time.Second
+)
+
+// localPollBackoff is the wait after the n-th consecutive failed poll: the base, doubled per
+// failure, capped.
+func localPollBackoff(n int) time.Duration {
+	d := localPollBackoffBase
+	for i := 1; i < n && d < localPollBackoffMax; i++ {
+		d *= 2
+	}
+	return min(d, localPollBackoffMax)
 }
 
 // localJob is one unit of work the Tower hands a polling station: the id to complete against and
@@ -105,6 +144,9 @@ func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed255
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNoContent {
 		return localJob{}, false, nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return localJob{}, false, errNotAttached
 	}
 	if resp.StatusCode != http.StatusOK {
 		return localJob{}, false, fmt.Errorf("poll: status %d", resp.StatusCode)
