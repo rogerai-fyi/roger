@@ -150,8 +150,9 @@ type Session struct {
 	probeReqs     atomic.Int64 // UNBILLED broker probes served (kept out of servedReqs)
 	probeToks     atomic.Int64 // completion tokens spent on those probes
 	stop          chan struct{}
-	rereg         *reregistrar // shared self-healing re-register coordinator
-	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
+	loops         sync.WaitGroup // the standalone Tower loops a LAN share runs (StartLAN)
+	rereg         *reregistrar   // shared self-healing re-register coordinator
+	link          atomic.Int32   // LinkState: is the BROKER actually acknowledging us?
 
 	// Private band: the broker-minted band id + the secret frequency code (the code is
 	// returned ONCE at the first register and stashed here so the caller - CLI/TUI -
@@ -395,6 +396,10 @@ func (s *Session) Node() string             { return s.cfg.NodeID }
 func (s *Session) Upstream() string         { return s.cfg.Upstream }
 
 // Stop ends the session's poll loops (best-effort; the process can also just exit).
+// Wait returns once every standalone Tower loop StartLAN started has ended (at once for a
+// session that runs none). Call it after Stop.
+func (s *Session) Wait() { s.loops.Wait() }
+
 func (s *Session) Stop() {
 	select {
 	case <-s.stop:

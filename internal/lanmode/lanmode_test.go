@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -166,27 +167,48 @@ func TestIsLocalIPIsTheHomeSetPlusLinkLocal(t *testing.T) {
 	require.False(t, IsLocalIP(nil))
 }
 
-func TestProbeTower(t *testing.T) {
+func TestCheckAndIsTower(t *testing.T) {
+	ResetTowers()
+	t.Cleanup(ResetTowers)
 	tower := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/local/poll" {
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`)) // the Tower's uniform 401 body
 			return
 		}
 		http.NotFound(w, r)
 	}))
 	defer tower.Close()
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
-	defer other.Close()
-	notAuth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+	defer broker.Close()
+	catchAll := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) }))
+	defer catchAll.Close()
+	other401 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"login required"}`))
+		_, _ = w.Write([]byte(`{"error":"authentication_error"}`))
 	}))
-	defer notAuth.Close()
+	defer other401.Close()
 	ctx := context.Background()
-	require.True(t, ProbeTower(ctx, nil, tower.URL))
-	require.False(t, ProbeTower(ctx, nil, other.URL))
-	require.False(t, ProbeTower(ctx, nil, notAuth.URL))
-	require.False(t, ProbeTower(ctx, nil, "http://127.0.0.1:1"))
-	require.False(t, ProbeTower(ctx, nil, "://bad"))
+
+	require.Equal(t, ProbeTowerYes, Check(ctx, nil, tower.URL))
+	require.Equal(t, ProbeNotTower, Check(ctx, nil, broker.URL), "a broker 404s /local/poll")
+	require.Equal(t, ProbeNotTower, Check(ctx, nil, catchAll.URL), "a catch-all 200 is not a Tower")
+	require.Equal(t, ProbeNotTower, Check(ctx, nil, other401.URL), "a 401 without the uniform body is not a Tower")
+	require.Equal(t, ProbeNoAnswer, Check(ctx, nil, "http://127.0.0.1:1"))
+	require.Equal(t, ProbeNoAnswer, Check(ctx, nil, "://bad"))
+
+	require.True(t, IsTower(ctx, nil, tower.URL))
+	require.False(t, IsTower(ctx, nil, broker.URL))
+	// "localhost" is the loopback host, case-insensitively (RFC 4343).
+	u, _ := url.Parse(tower.URL)
+	require.True(t, IsTower(ctx, nil, "http://localhost:"+u.Port()))
+	require.True(t, IsTower(ctx, nil, "http://LOCALHOST:"+u.Port()))
+	for _, bad := range []string{"https://broker.example", "http://203.0.113.5:8787", "http://roggentoo:8787", "://bad", ""} {
+		require.False(t, IsTower(ctx, nil, bad), bad+" is never probed as a Tower")
+	}
+	// A confirmed Tower is remembered for the nonce decision.
+	tu, _ := url.Parse(tower.URL + "/v1/chat/completions")
+	require.True(t, WantsNonce(tu, nil), "a Tower this process confirmed gets the nonce, loopback included")
+	ResetTowers()
+	require.False(t, WantsNonce(tu, nil), "a loopback address nobody confirmed does not")
 }

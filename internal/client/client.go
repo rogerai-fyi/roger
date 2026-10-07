@@ -948,8 +948,7 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 				// recorded that way, whether or not LAN mode is on (features/lan/regressions.feature).
 				w.Header().Set("X-RogerAI-Cost", "0")
 				if onReceipt != nil {
-					onReceipt(protocol.UsageReceipt{RequestID: newRequestID(), NodeID: "tower:" + opts.Broker,
-						Model: crit.Model, Local: true, TS: time.Now().Unix()})
+					onReceipt(localTowerReceipt(opts.Broker, crit.Model, false))
 					onReceipt = nil
 				}
 			}

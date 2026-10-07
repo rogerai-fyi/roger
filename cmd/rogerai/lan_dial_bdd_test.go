@@ -6,6 +6,7 @@ package main
 // read" is lanDial, the one function every surface shows.
 
 import (
+	"io"
 	"strconv"
 
 	"rogerai.fm/roger/v6/internal/edge/wire"
@@ -101,6 +102,7 @@ func (s *lanDialBDD) reset() {
 	s.t.Setenv("ROGER_BROKER", s.broker.srv.URL)
 	s.dial, s.dns, s.towers = &lanDialMap{}, map[string][]net.IP{}, map[string]*realTower{}
 	lanProbeHTTP = s.dial.client()
+	lanmode.ResetTowers()
 	lanResolve = func(_ context.Context, host string) ([]net.IP, error) {
 		if ips, ok := s.dns[host]; ok {
 			return ips, nil
@@ -254,7 +256,9 @@ func (s *lanDialBDD) memberRelayed(node string) error {
 
 func (s *lanDialBDD) read() error {
 	start := time.Now()
-	d := lanDial(s.cfg())
+	// A roger process folds a broker setting that is a standalone Tower into lan_towers when it
+	// starts (run, features/packaging/one_binary.feature section 7.2), before any dial is read.
+	d := lanDial(foldBrokerTower(s.cfg(), io.Discard))
 	s.bands, s.status = d.Bands, d.Towers
 	s.took = time.Since(start)
 	return nil

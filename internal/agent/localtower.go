@@ -273,7 +273,11 @@ func StartLAN(cfg Config, towers []string, priv ed25519.PrivateKey, out io.Write
 	for _, base := range towers {
 		c := cfg
 		c.Broker = base
-		go func() { _ = ServeLocalTower(ctx, c, priv, out) }()
+		s.loops.Add(1)
+		go func() {
+			defer s.loops.Done()
+			_ = ServeLocalTower(ctx, c, priv, out)
+		}()
 	}
 	return s
 }

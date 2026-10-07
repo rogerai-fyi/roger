@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // relayLAN serves the turn on the LAN or refuses it; it never returns (false, false).
@@ -82,8 +81,7 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 			if resp.Header.Get("X-Roger-Local") == "1" {
 				w.Header().Set("X-RogerAI-Cost", "0") // a LAN turn is free and says so
 				if opts.OnReceipt != nil {
-					opts.OnReceipt(protocol.UsageReceipt{RequestID: newRequestID(), NodeID: "tower:" + entry,
-						Model: band, Local: true, LAN: true, TS: time.Now().Unix()})
+					opts.OnReceipt(localTowerReceipt(entry, band, true))
 				}
 			} else {
 				// Something at a configured address answered, but not as a standalone Tower does:

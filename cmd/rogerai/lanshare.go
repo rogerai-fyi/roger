@@ -6,9 +6,7 @@ import (
 	"io"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
-	"time"
 
 	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/lanmode"
@@ -50,27 +48,57 @@ func shareLAN(cfg config, run agent.Config, station, model string, out io.Writer
 		return fmt.Errorf("LAN mode: %v - stop that share of %s before sharing it on the LAN", err, model)
 	}
 	defer release()
-	ctx, stop := lanShareContext()
-	defer stop()
 	fmt.Fprintf(out, "LAN mode: sharing %s free on the LAN only; nothing is registered with the network\n", model)
 	towers := lanTowerBases(cfg)
 	if len(towers) == 0 {
 		fmt.Fprintln(out, "no LAN Tower is configured: serving this Edge's members only (add a Tower with roger lan add <address>)")
 	}
-	var wg sync.WaitGroup
-	for _, base := range towers {
-		c := run
-		c.Broker = base
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = agent.ServeLocalTower(ctx, c, agent.NodeKey(), out)
-		}()
-	}
-	<-ctx.Done()
-	wg.Wait()
+	shareToTowers(run, towers, out)
 	fmt.Fprintln(out, "stopped sharing on the LAN.")
 	return nil
+}
+
+// shareToTowers serves this machine's model to standalone Towers through agent.StartLAN, the one
+// standalone share loop (features/packaging/one_binary.feature section 7.3), until the operator
+// stops it. A single Tower is the same loop with one Tower.
+func shareToTowers(run agent.Config, towers []string, out io.Writer) {
+	ctx, stop := lanShareContext()
+	defer stop()
+	s := agent.StartLAN(run, towers, agent.NodeKey(), out)
+	<-ctx.Done()
+	s.Stop()
+	s.Wait()
+}
+
+// brokerTower reports the broker setting's consumer-plane base when it is a standalone Tower
+// (lanmode.IsTower, the one Tower check): `roger share` and the TUI and console SHARE serve it.
+func brokerTower(cfg config) (string, bool) {
+	if !lanmode.IsTower(context.Background(), lanProbeHTTP, cfg.Broker) {
+		return "", false
+	}
+	a, err := lanmode.ParseAddr(cfg.Broker)
+	if err != nil {
+		return "", false
+	}
+	return a.Base(), true
+}
+
+// foldBrokerTower copies a broker setting that is a standalone Tower into lan_towers, once per
+// broker value (features/packaging/one_binary.feature section 7.2, ruled 2026-10-07), so LAN
+// Tower discovery reads one list. The broker setting itself is left as it is.
+func foldBrokerTower(cfg config, note io.Writer) config {
+	if cfg.Broker == "" || cfg.Broker == cfg.LanBrokerChecked {
+		return cfg
+	}
+	cfg.LanBrokerChecked = cfg.Broker
+	if base, ok := brokerTower(cfg); ok {
+		if a, err := lanmode.ParseAddr(base); err == nil && !contains(cfg.LanTowers, a.String()) && !contains(cfg.LanNotTower, a.String()) {
+			cfg.LanTowers = append(cfg.LanTowers, a.String())
+			fmt.Fprintf(note, "added %s to your LAN Towers (from your broker setting)\n", a)
+		}
+	}
+	_ = saveConfig(cfg)
+	return cfg
 }
 
 // lanTowerBases is the LAN Towers' consumer-plane base URLs, for SHARE in LAN mode.
@@ -82,21 +110,4 @@ func lanTowerBases(cfg config) []string {
 		}
 	}
 	return out
-}
-
-// lanTowerBasesCached is lanTowerBases behind a short cache: the TUI renders SHARE every frame and
-// the list can probe the network (a local broker setting is checked for a Tower), so a render
-// reuses the last list for ttl rather than probing again.
-func lanTowerBasesCached(cfg config, ttl time.Duration) func() []string {
-	var mu sync.Mutex
-	var at time.Time
-	var last []string
-	return func() []string {
-		mu.Lock()
-		defer mu.Unlock()
-		if at.IsZero() || time.Since(at) > ttl {
-			last, at = lanTowerBases(cfg), time.Now()
-		}
-		return last
-	}
 }

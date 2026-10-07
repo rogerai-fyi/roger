@@ -35,6 +35,7 @@ func (s *lanAddBDD) reset() {
 	s.dial = &lanDialMap{}
 	s.dns = map[string][]net.IP{}
 	lanProbeHTTP = s.dial.client()
+	lanmode.ResetTowers()
 	lanResolve = func(_ context.Context, host string) ([]net.IP, error) {
 		if ips, ok := s.dns[host]; ok {
 			return ips, nil

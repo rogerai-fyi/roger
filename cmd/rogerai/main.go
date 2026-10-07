@@ -148,6 +148,9 @@ type config struct {
 	// LanNotTower are configured addresses that answered a turn without the standalone Tower's
 	// local marker; LAN mode sends them nothing until `roger lan add` re-adds them.
 	LanNotTower []string `json:"lan_not_tower,omitempty"`
+	// LanBrokerChecked is the broker setting last checked for a standalone Tower to fold into
+	// LanTowers (features/packaging/one_binary.feature section 7.2): it is checked once per value.
+	LanBrokerChecked string `json:"lan_broker_checked,omitempty"`
 	// LanTrustNoted records that the plain-http trust note was shown once
 	// (features/lan/trust_and_honesty.feature).
 	LanTrustNoted bool `json:"lan_trust_noted,omitempty"`
@@ -748,19 +751,16 @@ func tuiHooks(cfg config) tui.Hooks {
 		}
 	}
 	if cfg.lan.LAN {
-		h.LANTowers = lanTowerBasesCached(cfg, 5*time.Second)
+		h.LANTowers = func() []string { return lanTowerBases(cfg) }
 		h.LANAddTower = func(addr string) (string, error) {
 			var out strings.Builder
 			err := lanAddTo(&out, []string{addr})
 			return strings.TrimSpace(out.String()), err
 		}
-	} else if isLocalTowerBroker(cfg.Broker) {
+	} else if base, ok := brokerTower(cfg); ok {
 		// A broker setting that is a standalone Tower is served the way headless `roger share`
 		// serves it (features/lan/regressions.feature): poll it, never register with it.
-		if a, err := lanmode.ParseAddr(cfg.Broker); err == nil {
-			base := a.Base()
-			h.LANTowers = func() []string { return []string{base} }
-		}
+		h.LANTowers = func() []string { return []string{base} }
 	}
 	return h
 }
@@ -854,6 +854,9 @@ func run(argv []string, cfg config) error {
 	// subcommands; strip them here so the dispatcher reads the real command, and resolve
 	// whether the console comes up (ON by default; saved config or --no-webui opts out).
 	rest, webuiOn, webuiPort := stripWebuiFlags(argv, cfg.webuiEnabled(), defaultWebuiPort)
+	// A broker setting that is a standalone Tower is folded into lan_towers once, so LAN Tower
+	// discovery reads one list.
+	cfg = foldBrokerTower(cfg, os.Stderr)
 	// LAN mode is decided ONCE here, from flag, then environment, then config.
 	rest, cfg, err := decideLAN(rest, cfg)
 	if err != nil {
@@ -1653,8 +1656,14 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	if cfg.lan.LAN {
 		return shareLAN(cfg, cfgRun, station, mdl, os.Stdout)
 	}
-	if isLocalTowerBroker(cfgRun.Broker) {
-		return serveLocalTowerShare(cfgRun, os.Stdout)
+	if base, ok := brokerTower(cfg); ok {
+		fmt.Fprintf(os.Stdout, "this broker is a standalone Tower - serving its local network directly (free, no login).\n")
+		if cfgRun.Upstream == "" {
+			return fmt.Errorf("no local model found to serve: pass --upstream http://127.0.0.1:PORT/v1/chat/completions")
+		}
+		shareToTowers(cfgRun, []string{base}, os.Stdout)
+		fmt.Fprintln(os.Stdout, "\nstopped serving the local network.")
+		return nil
 	}
 
 	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`

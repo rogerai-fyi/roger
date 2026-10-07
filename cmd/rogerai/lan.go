@@ -177,7 +177,7 @@ func lanAddTo(w io.Writer, args []string) error {
 		fmt.Fprintf(w, "%s is already in the list\n", a)
 		return nil
 	}
-	switch lanmode.Probe(ctx, lanProbeHTTP, a.Base()) {
+	switch lanmode.Check(ctx, lanProbeHTTP, a.Base()) {
 	case lanmode.ProbeTowerYes:
 		fmt.Fprintf(w, "added %s: it answered as a standalone Tower\n", a)
 		if marked {
@@ -276,7 +276,7 @@ func lanTowerLine(ctx context.Context, entry string) string {
 	if !v.Local && !(v.CGNAT && a.Literal()) {
 		return fmt.Sprintf("%-28s refused: %s", entry, v.Reason)
 	}
-	switch lanmode.Probe(ctx, lanProbeHTTP, a.Base()) {
+	switch lanmode.Check(ctx, lanProbeHTTP, a.Base()) {
 	case lanmode.ProbeTowerYes:
 		return fmt.Sprintf("%-28s answering", entry)
 	case lanmode.ProbeNotTower:
@@ -285,18 +285,13 @@ func lanTowerLine(ctx context.Context, entry string) string {
 	return fmt.Sprintf("%-28s not answering", entry)
 }
 
-// lanTowerAddrs is every Tower LAN mode uses: the configured list, plus the broker setting
-// when it is a local standalone Tower.
+// lanTowerAddrs is every Tower LAN mode uses: the configured list (a broker setting that is a
+// standalone Tower is folded into it once, foldBrokerTower), less the ones marked not a Tower.
 func lanTowerAddrs(cfg config) []string {
 	var out []string
 	for _, a := range cfg.LanTowers {
 		if !contains(cfg.LanNotTower, a) {
 			out = append(out, a)
-		}
-	}
-	if isLocalTowerBroker(cfg.Broker) {
-		if a, err := lanmode.ParseAddr(cfg.Broker); err == nil {
-			out = append(out, a.String())
 		}
 	}
 	return out
@@ -367,7 +362,7 @@ var lanDial = func(cfg config) client.LANDial {
 	}
 	for _, st := range status {
 		if st.State == client.LANTowerAnswering {
-			noteKnownTower(st.Addr)
+			lanmode.NoteTower(st.Addr)
 		}
 	}
 	d := client.LANDial{Bands: bands, Towers: status}
@@ -504,20 +499,10 @@ func frontEndLadder(cfg config) func(*client.ProxyOptions) {
 func init() {
 	// Every request this process signs to a standalone Tower it knows by address carries the
 	// replay nonce (ruled 2026-10-07, loopback included): the Towers added with `roger lan add`
-	// (a CGNAT, loopback or named one too) and every Tower this process has already identified.
-	client.SetLANTowerHosts(func() []string {
-		hosts := append([]string(nil), loadConfig().LanTowers...)
-		knownTowers.Range(func(k, _ any) bool { hosts = append(hosts, k.(string)); return true })
-		return hosts
-	})
+	// (a CGNAT, loopback or named one too); lanmode itself remembers every Tower this process has
+	// confirmed (lanmode.Check, lanmode.NoteTower).
+	client.SetLANTowerHosts(func() []string { return loadConfig().LanTowers })
 }
-
-// knownTowers are the standalone Towers this process has identified (the broker setting probed
-// as one, a LAN dial Tower that answered), by address. Signing reads it, so a request is never
-// held up by a probe.
-var knownTowers sync.Map // address -> struct{}
-
-func noteKnownTower(addr string) { knownTowers.Store(addr, struct{}{}) }
 
 // lanDialFor is the LAN dial for a front end in LAN mode, nil outside it.
 func lanDialFor(cfg config) func() client.LANDial {

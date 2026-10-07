@@ -50,6 +50,7 @@ func TestLanListLines(t *testing.T) {
 	defer other.Close()
 	dial.set("192.168.1.30:8787", other.Listener.Addr().String())
 	lanProbeHTTP = dial.client()
+	lanmode.ResetTowers()
 	lanResolve = func(context.Context, string) ([]net.IP, error) { return nil, fmt.Errorf("nxdomain") }
 	defer func() { lanProbeHTTP = &http.Client{}; lanResolve = lanmode.DefaultResolver }()
 
@@ -73,6 +74,7 @@ func TestLanAddRefusesBadInput(t *testing.T) {
 	require.Error(t, lanAdd(nil))
 	require.ErrorContains(t, lanAdd([]string{"0.0.0.0:8787"}), "unspecified")
 	lanProbeHTTP = (&lanDialMap{}).client()
+	lanmode.ResetTowers()
 	defer func() { lanProbeHTTP = &http.Client{} }()
 	require.ErrorContains(t, lanAdd([]string{"192.168.1.77:8787"}), "--offline")
 }
@@ -88,14 +90,20 @@ func TestStatusDefaultsAndHelpers(t *testing.T) {
 	require.Contains(t, out, `"mode": "default"`)
 }
 
-func TestIsLocalTowerBrokerUsesTheSharedProbe(t *testing.T) {
+func TestBrokerTowerUsesTheOneCheck(t *testing.T) {
+	lanmode.ResetTowers()
+	t.Cleanup(lanmode.ResetTowers)
 	tw := newRealTower(t)
-	require.True(t, isLocalTowerBroker("http://"+tw.addr()))
+	base, ok := brokerTower(config{Broker: "http://" + tw.addr()})
+	require.True(t, ok)
+	require.Equal(t, "http://"+tw.addr(), base)
 	_, port, _ := net.SplitHostPort(tw.addr())
-	require.True(t, isLocalTowerBroker("http://localhost:"+port))
-	require.False(t, isLocalTowerBroker("https://"+tw.addr()), "only plain http is a Tower's shape")
-	require.False(t, isLocalTowerBroker("http://203.0.113.7:8787"), "a public address is never probed")
-	require.False(t, isLocalTowerBroker("://bad"))
+	_, ok = brokerTower(config{Broker: "http://localhost:" + port})
+	require.True(t, ok)
+	for _, b := range []string{"https://" + tw.addr(), "http://203.0.113.7:8787", "://bad"} {
+		_, ok = brokerTower(config{Broker: b})
+		require.False(t, ok, b)
+	}
 }
 
 func TestLANUseHelpers(t *testing.T) {
@@ -127,6 +135,7 @@ func TestLANUseHelpers(t *testing.T) {
 	dial := &lanDialMap{}
 	dial.set("192.168.1.20:8787", tw.addr())
 	lanProbeHTTP = dial.client()
+	lanmode.ResetTowers()
 	defer func() { lanProbeHTTP = &http.Client{} }()
 	cfg := config{LanTowers: []string{"192.168.1.20:8787"}}
 	cfg.lan = lanmode.Mode{LAN: true, Source: lanmode.SrcFlag}
@@ -216,7 +225,10 @@ func TestKnownTowersCarryTheNonce(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	tw := newRealTower(t)
 	broker := "http://" + tw.addr()
-	require.True(t, isLocalTowerBroker(broker))
+	lanmode.ResetTowers()
+	t.Cleanup(lanmode.ResetTowers)
+	_, ok := brokerTower(config{Broker: broker})
+	require.True(t, ok)
 	u, _ := url.Parse(broker + "/v1/chat/completions")
 	req := &http.Request{Method: http.MethodPost, URL: u, Header: http.Header{}}
 	client.SignRequestWith(req, nil, client.LoadOrCreateUserKey())

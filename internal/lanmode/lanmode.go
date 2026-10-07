@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/netpriv"
@@ -94,8 +95,8 @@ func Decide(flagLAN, flagNoLAN bool, env string, envSet bool, cfgMode string) (M
 //   - plaintext http to a non-loopback address the one rule (internal/netpriv) calls local:
 //     RFC 1918, ULA and link-local, zoned IPv6 included; or
 //   - plaintext http to a Tower in known (host:port, a bare host, or an http URL): one the owner
-//     added (`roger lan add`, how a CGNAT, loopback or named Tower is known), the broker setting
-//     when it is a standalone Tower, or the Tower a share station was pointed at.
+//     added (`roger lan add`, how a CGNAT, loopback or named Tower is known) or the Tower a share
+//     station was pointed at; or one this process has confirmed (Check, NoteTower).
 //
 // A loopback address is not assumed to be a Tower: other services there (a Core-joined Tower's
 // hub, a test broker) verify signatures without a nonce. https (the public broker) and any
@@ -114,6 +115,9 @@ func WantsNonce(u *url.URL, known []string) bool {
 		case netpriv.Private, netpriv.ULA, netpriv.LinkLocal:
 			return true
 		}
+	}
+	if towerSeenAt(host, port) {
+		return true
 	}
 	for _, a := range known {
 		if t, err := ParseAddr(a); err == nil && strings.EqualFold(t.Host, host) && t.Port == port {
@@ -252,14 +256,6 @@ func Classify(ctx context.Context, a Addr, resolve Resolver) Verdict {
 	return Verdict{Local: true}
 }
 
-// ProbeTower reports whether base answers as a standalone Tower: an unsigned POST to
-// /local/poll gets the plane's UNIFORM 401, {"error":"unauthorized"}. Matching that exact
-// answer (not merely "not a 404") tells a Tower apart from a public broker (no such route) and
-// from a dev server that catch-alls a 200. hc nil uses a 3 s client.
-func ProbeTower(ctx context.Context, hc *http.Client, base string) bool {
-	return Probe(ctx, hc, base) == ProbeTowerYes
-}
-
 // ProbeResult is what an address is, as far as /local/poll can tell.
 type ProbeResult int
 
@@ -269,8 +265,10 @@ const (
 	ProbeTowerYes                    // the standalone Tower's uniform 401
 )
 
-// Probe classifies base by its answer to an unsigned /local/poll.
-func Probe(ctx context.Context, hc *http.Client, base string) ProbeResult {
+// probe classifies base by its answer to an unsigned /local/poll: the plane's UNIFORM 401,
+// {"error":"unauthorized"}. Matching that exact answer (not merely "not a 404") tells a Tower
+// apart from a public broker (no such route) and from a dev server that catch-alls a 200.
+func probe(ctx context.Context, hc *http.Client, base string) ProbeResult {
 	if hc == nil {
 		hc = &http.Client{Timeout: 3 * time.Second}
 	}
@@ -289,4 +287,78 @@ func Probe(ctx context.Context, hc *http.Client, base string) ProbeResult {
 		return ProbeTowerYes
 	}
 	return ProbeNotTower
+}
+
+// TowerCacheTTL is how long one probe's answer stands for every caller (the TUI renders SHARE
+// every frame; `roger lan list` and the dial ask too).
+const TowerCacheTTL = 5 * time.Second
+
+type towerSeen struct {
+	res ProbeResult
+	at  time.Time
+}
+
+var (
+	towerMu    sync.Mutex
+	towerCache = map[string]towerSeen{}
+	// towersSeen is every standalone Tower this process has confirmed, by host:port: a request
+	// signed to one carries the replay nonce (WantsNonce) without waiting on a probe.
+	towersSeen sync.Map
+)
+
+// Check is THE standalone-Tower probe (features/packaging/one_binary.feature section 7.2):
+// whether base answers /local/poll as a standalone Tower does. One answer stands for
+// TowerCacheTTL for every caller. hc nil uses a 3 s client. A Tower it confirms is noted for the
+// nonce decision.
+func Check(ctx context.Context, hc *http.Client, base string) ProbeResult {
+	key := strings.TrimRight(base, "/")
+	towerMu.Lock()
+	if seen, ok := towerCache[key]; ok && time.Since(seen.at) < TowerCacheTTL {
+		towerMu.Unlock()
+		return seen.res
+	}
+	towerMu.Unlock()
+	res := probe(ctx, hc, key)
+	towerMu.Lock()
+	towerCache[key] = towerSeen{res: res, at: time.Now()}
+	towerMu.Unlock()
+	if res == ProbeTowerYes {
+		NoteTower(key)
+	}
+	return res
+}
+
+// IsTower reports whether base is a standalone Tower's consumer plane: plaintext http at a local
+// address (or "localhost", how most people type the loopback host; no other name is resolved
+// here), answering Check as a Tower. The public https broker is never probed.
+func IsTower(ctx context.Context, hc *http.Client, base string) bool {
+	u, err := url.Parse(base)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	if !strings.EqualFold(u.Hostname(), "localhost") && !ClassifyLiteral(u.Host).Local {
+		return false
+	}
+	return Check(ctx, hc, base) == ProbeTowerYes
+}
+
+// NoteTower records a standalone Tower this process has seen answer (a probe, or a LAN dial read
+// of its /discover), so requests signed to it carry the replay nonce.
+func NoteTower(addr string) {
+	if a, err := ParseAddr(addr); err == nil {
+		towersSeen.Store(strings.ToLower(a.String()), struct{}{})
+	}
+}
+
+func towerSeenAt(host, port string) bool {
+	_, ok := towersSeen.Load(strings.ToLower(net.JoinHostPort(host, port)))
+	return ok
+}
+
+// ResetTowers forgets every cached probe answer and noted Tower (tests start each scenario fresh).
+func ResetTowers() {
+	towerMu.Lock()
+	towerCache = map[string]towerSeen{}
+	towerMu.Unlock()
+	towersSeen.Range(func(k, _ any) bool { towersSeen.Delete(k); return true })
 }
