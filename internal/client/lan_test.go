@@ -121,7 +121,7 @@ func TestLANDiscoverTowerStates(t *testing.T) {
 	})
 	require.Len(t, status, 6)
 	require.Equal(t, LANTowerNotAdmitted, status[0].State)
-	require.Contains(t, status[0].Detail, "roger-tower admit --client")
+	require.Contains(t, status[0].Detail, "roger tower invite --client")
 	require.Equal(t, LANTowerBadAnswer, status[1].State)
 	require.Equal(t, LANTowerAnswering, status[2].State)
 	require.True(t, status[2].More)
