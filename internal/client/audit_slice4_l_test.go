@@ -202,3 +202,18 @@ func TestMistypedFallbackKeysGoToTheBroker(t *testing.T) {
 	require.Contains(t, string(out), `"allow_fallbacks":"yes"`)
 	require.Contains(t, string(out), `"require_parameters":1`)
 }
+
+// TestPassThroughForwardsOnlyAllowedHeaders: a no_match passed through to the guest carries
+// the same deny-by-default header allowlist as a relayed reply (no cookies, no server headers).
+func TestPassThroughForwardsOnlyAllowedHeaders(t *testing.T) {
+	resp := &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{
+		"Set-Cookie": {"s=1"}, "Server": {"x"}, "X-Rogerai-Model": {"m"}, "Retry-After": {"3"}, "Content-Type": {"application/json"},
+	}}
+	rec := httptest.NewRecorder()
+	passThrough(rec, resp, []byte(`{"error":{"code":"no_match"}}`))
+	require.Empty(t, rec.Header().Get("Set-Cookie"))
+	require.Empty(t, rec.Header().Get("Server"))
+	require.Equal(t, "m", rec.Header().Get("X-RogerAI-Model"))
+	require.Equal(t, "3", rec.Header().Get("Retry-After"))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}

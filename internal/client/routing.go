@@ -796,11 +796,12 @@ func bandCooling(resp *http.Response) (raw []byte, wait time.Duration, ok bool) 
 // passThrough replays an upstream response the proxy decided not to retry (its status,
 // headers and the already-read body) to the caller unchanged.
 func passThrough(w http.ResponseWriter, resp *http.Response, raw []byte) {
-	for k, vs := range resp.Header {
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = "application/json"
 	}
+	w.Header().Set("Content-Type", ct)
+	copyAllowedHeaders(w, resp) // the same allowlist as a relayed reply
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, bytes.NewReader(raw))
 }

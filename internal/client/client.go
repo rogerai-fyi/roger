@@ -1254,22 +1254,29 @@ const maxTransformBody = 8 << 20
 // body it buffers, applies applyReasoningFallback when enabled, and forwards. reasoningFallbackOn
 // only reshapes body text; status, headers (incl. the billed X-RogerAI-Cost), and the SSE meter
 // pass through untouched.
+// relayHeaderAllow is the deny-by-default allowlist of upstream headers a guest may see: the
+// safe meter headers plus Retry-After (so a 429'd agent can back off - ruling 7). Hop-by-hop /
+// connection-scoped / cookie / server headers are NEVER forwarded (RFC 7230 §6.1); keep it tight.
+var relayHeaderAllow = []string{"X-RogerAI-Provider", "X-RogerAI-Model", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After",
+	// a standalone Tower's free-plane meter and the routing keys it ignored (names only)
+	"X-Roger-Cost", "X-Roger-Local", "X-Roger-Curated", "X-Roger-Routing-Ignored"}
+
+// copyAllowedHeaders copies the allowlisted upstream headers onto w.
+func copyAllowedHeaders(w http.ResponseWriter, resp *http.Response) {
+	for _, h := range relayHeaderAllow {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+}
+
 func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFallbackOn bool) (sseCost float64) {
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
 	}
 	w.Header().Set("Content-Type", ct)
-	// Deny-by-default allowlist: the safe meter headers plus Retry-After (so a 429'd agent can
-	// back off - ruling 7). Hop-by-hop / connection-scoped / cookie / server headers are NEVER
-	// forwarded (RFC 7230 §6.1); keep this list tight.
-	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Model", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After",
-		// a standalone Tower's free-plane meter and the routing keys it ignored (names only)
-		"X-Roger-Cost", "X-Roger-Local", "X-Roger-Curated", "X-Roger-Routing-Ignored"} {
-		if v := resp.Header.Get(h); v != "" {
-			w.Header().Set(h, v)
-		}
-	}
+	copyAllowedHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 
 	if strings.Contains(ct, "text/event-stream") {
