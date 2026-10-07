@@ -15,6 +15,7 @@ const read = (p) => readFileSync(path.join(SRC, p), "utf8");
 
 const js = read("js/playbox.js");
 const js2 = read("js/wave-patch.js");
+const routeJs = read("js/playbox-route.js"); // the deck asks it about Escape
 const html = read("playbox.html");
 const css = read("styles/playbox.css");
 const nav = read("_partials/nav.html");
@@ -634,7 +635,8 @@ test("deck: an off-air tape can be inspected but never played", () => {
 test("console: the deck is playable from the keyboard", () => {
   assert.ok(js.includes('document.addEventListener("keydown"'), "the deck listens globally");
   assert.ok(js.includes('if (k === " " || k === "Spacebar")'), "space plays");
-  assert.ok(js.includes('if (k === "Escape")'), "escape stops");
+  assert.ok(js.includes("if (window.PlayboxRoute.escapeStops(e))") && routeJs.includes('e.key !== "Escape"'),
+    "escape stops (the handler asks the module, which decides on Escape)");
   assert.ok(js.includes('k === "ArrowLeft" || k === "ArrowRight"'), "arrows change tape");
   assert.ok(js.includes('k >= "1" && k <= "6"'), "the number keys select input positions");
   assert.ok(js.includes('k === "e" || k === "E"'), "E ejects");
@@ -677,7 +679,7 @@ test("console: the faceplate prints only keys the deck honours", () => {
   for (const cap of caps) {
     const needle = claims[cap];
     assert.ok(needle, `the legend prints <kbd>${cap}</kbd> - add it to the claims map`);
-    assert.ok(js.includes(needle), `the deck must honour the printed key ${cap}`);
+    assert.ok((js + routeJs).includes(needle), `the deck must honour the printed key ${cap}`);
   }
 });
 
