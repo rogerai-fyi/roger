@@ -131,3 +131,11 @@ func TestVersionCommandPrintsTheBuild(t *testing.T) {
 		require.Equal(t, version+"\n", out.String())
 	}
 }
+
+// An empty --bind is the plane's default (localplane.DefaultBind, loopback): the posture check
+// passes, so the next thing to fail on an uninitialized directory is opening it, never the bind.
+func TestPrepareEmptyBindIsTheLoopbackDefault(t *testing.T) {
+	_, err := prepare([]string{"--dir", t.TempDir(), "--bind", ""}, io.Discard)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "--bind", "an empty bind is the loopback default, not a posture refusal")
+}
