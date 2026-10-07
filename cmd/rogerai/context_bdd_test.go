@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"testing"
@@ -210,7 +211,7 @@ func TestContextCLIBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("context CLI behavior scenarios failed (see godog output above)")
 	}
 }

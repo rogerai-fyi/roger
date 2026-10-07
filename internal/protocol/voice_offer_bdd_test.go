@@ -8,6 +8,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -156,7 +157,7 @@ func TestVoiceOfferBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("voice/offer_modality behavior scenarios failed (see godog output above)")
 	}
 }

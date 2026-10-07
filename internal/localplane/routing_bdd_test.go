@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strings"
 	"sync"
@@ -1521,7 +1522,7 @@ func TestLocalplaneRoutingBDD(t *testing.T) {
 			Paths: []string{"../../features/tower/localplane_routing.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("the local-plane routing scenarios failed")
 	}
 }

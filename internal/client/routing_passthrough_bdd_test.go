@@ -21,6 +21,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync"
 	"testing"
@@ -512,7 +513,7 @@ func TestRoutingPassthroughNegotiation(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("routing passthrough negotiation scenarios failed (see godog output above)")
 	}
 }

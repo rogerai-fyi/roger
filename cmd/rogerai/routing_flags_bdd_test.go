@@ -46,6 +46,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -1299,7 +1300,7 @@ func TestRoutingFlagsPins(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("features/routing/regression_pins.feature (@cli): failing scenarios")
 	}
 }

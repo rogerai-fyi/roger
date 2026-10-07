@@ -44,6 +44,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -2499,7 +2500,7 @@ func cf4Suite(t *testing.T, name, path string) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatalf("%s: failing scenarios", name)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strings"
 	"testing"
@@ -684,7 +685,7 @@ func TestRegistryChangelogBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/registry_changelog scenarios failed (see godog output above)")
 	}
 }

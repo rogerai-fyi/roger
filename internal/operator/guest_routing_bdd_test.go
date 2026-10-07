@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -927,7 +928,7 @@ func TestGuestRoutingBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("features/operator/guest_routing.feature: failing scenarios")
 	}
 }

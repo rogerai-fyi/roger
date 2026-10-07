@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
@@ -434,7 +435,7 @@ func TestStationsDashboardBDD(t *testing.T) {
 			Output:   os.Stdout,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("stations-dashboard scenarios failed (see godog output above)")
 	}
 }

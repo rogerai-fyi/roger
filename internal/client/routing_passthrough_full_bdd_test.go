@@ -42,6 +42,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"testing"
@@ -1540,7 +1541,7 @@ func TestRoutingPassthroughFullBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("features/proxy/routing_passthrough.feature (full): failing scenarios")
 	}
 }

@@ -45,6 +45,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"slices"
 	"sort"
 	"strconv"
@@ -2318,7 +2319,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@part-b && ~@part-c && ~@slice2 && ~@slice3 && ~@slice4",
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("features/routing/node_preference.feature has failing scenarios")
 	}
 }

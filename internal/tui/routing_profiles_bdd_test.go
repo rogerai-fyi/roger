@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"testing"
@@ -1938,7 +1939,7 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			Paths: []string{"../../features/tui/routing_profiles.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("the TUI routing-profile scenarios failed")
 	}
 }

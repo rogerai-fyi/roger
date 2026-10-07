@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"testing"
 	"time"
@@ -339,7 +340,7 @@ func TestCostPrecisionBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("money/cost_precision behavior scenarios failed (see godog output above)")
 	}
 }

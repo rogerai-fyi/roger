@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync"
 	"testing"
@@ -679,7 +680,7 @@ func (s *rciState) crossInstancePasses() error {
 		Options: &godog.Options{Format: "progress", Paths: []string{"../../features/multinode/rc_cross_instance.feature"},
 			Strict: true, Output: io.Discard},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(s.t, &suite) != 0 {
 		return fmt.Errorf("rc_cross_instance.feature failed on the inbox plane")
 	}
 	return nil
@@ -883,7 +884,7 @@ func TestRCInboxBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/rc_inbox scenarios failed (see godog output above)")
 	}
 }
@@ -898,7 +899,7 @@ func TestRCCrossInstanceBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/rc_cross_instance scenarios failed (see godog output above)")
 	}
 }

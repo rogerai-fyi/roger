@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -336,7 +337,7 @@ func TestTrustRecountBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("trust/recount behavior scenarios failed (see godog output above)")
 	}
 }

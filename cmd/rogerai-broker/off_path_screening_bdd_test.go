@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -2105,7 +2106,7 @@ func TestOffPathScreeningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("off-path screening scenarios failed (see godog output above)")
 	}
 }

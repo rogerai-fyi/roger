@@ -36,6 +36,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -2116,7 +2117,7 @@ func TestRoutingOpenNetworkFiltersBDD(t *testing.T) {
 			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@slice3",
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("open_network_filters.feature failed")
 	}
 }

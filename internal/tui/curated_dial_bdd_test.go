@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 
@@ -251,7 +252,7 @@ func TestCuratedDialFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_dial.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("curated dial scenarios failed")
 	}
 }
