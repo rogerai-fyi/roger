@@ -48,9 +48,13 @@ func (s *lanRouteBDD) resetRoute() {
 	lanSelfServe = func(string) (string, string) { return "", "" }
 }
 
+// prodLANSelfServe is the production self rung, put back after every scenario so a runner's
+// stub never leaks into another test.
+var prodLANSelfServe = lanSelfServe
+
 func (s *lanRouteBDD) restoreRoute() {
 	s.lanDialBDD.restore()
-	lanSelfServe = func(band string) (string, string) { return "", "" }
+	lanSelfServe = prodLANSelfServe
 }
 
 func (s *lanRouteBDD) counting(name string, hits *atomic.Int32) *httptest.Server {
