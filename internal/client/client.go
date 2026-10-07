@@ -1745,6 +1745,15 @@ var (
 	newProxyHandler = ProxyHandler
 )
 
+// SetUseServe points `roger use`'s listener at fn and returns the restore func. Only the CLI's
+// executable specs call it, so a scenario can drive the real proxy handler without holding a
+// port; production never does.
+func SetUseServe(fn func(addr string, h http.Handler) error) (restore func()) {
+	old := useServe
+	useServe = fn
+	return func() { useServe = old }
+}
+
 // RawReasoningEnv reports whether ROGERAI_REASONING_RAW asks for raw passthrough (the
 // reasoning->content fallback disabled). A non-empty value other than the usual falsey tokens
 // ("", "0", "false", "no", "off") counts as set, so `ROGERAI_REASONING_RAW=1` works. It ORs
