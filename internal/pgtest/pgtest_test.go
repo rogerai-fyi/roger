@@ -167,3 +167,13 @@ func TestARemoteServerIsRefusedWithoutOptIn(t *testing.T) {
 	t.Setenv(AllowRemoteEnv, "1")
 	require.NoError(t, refuseRemote("postgres://u@db.example.com/x"))
 }
+
+// TestARemoteHostInTheQueryIsRefusedToo: the host pgx actually dials can come from ?host=
+// (and fallbacks), not only the URL's authority; a remote one there is refused as well.
+func TestARemoteHostInTheQueryIsRefusedToo(t *testing.T) {
+	t.Setenv(AllowRemoteEnv, "")
+	require.Error(t, refuseRemote("postgres:///rogerai?host=db.example.com"))
+	require.Error(t, refuseRemote("postgres://u@127.0.0.1/x?host=127.0.0.1,db.example.com"))
+	require.NoError(t, refuseRemote("postgres:///rogerai?host=/var/run/postgresql"))
+	require.NoError(t, refuseRemote("postgres://u@127.0.0.1:1/x"))
+}

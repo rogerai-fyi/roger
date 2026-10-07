@@ -20,6 +20,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
 	"net"
 	"net/url"
 	"os"
@@ -40,23 +41,35 @@ const Env = "ROGERAI_TEST_DATABASE_URL"
 const AllowRemoteEnv = "ROGERAI_TEST_DATABASE_ALLOW_REMOTE"
 
 // refuseRemote returns an error for a server that is not local (loopback, localhost or a unix
-// socket), unless AllowRemoteEnv is set. It never connects.
+// socket), unless AllowRemoteEnv is set. It reads the hosts pgx would dial, the URL's and any
+// ?host= or fallback ones, and never connects.
 func refuseRemote(shared string) error {
 	if os.Getenv(AllowRemoteEnv) != "" {
 		return nil
 	}
-	u, err := url.Parse(shared)
+	cfg, err := pgconn.ParseConfig(shared)
 	if err != nil {
-		return fmt.Errorf("%s is not a URL: %w", Env, err)
+		return fmt.Errorf("%s is not a postgres URL: %w", Env, err)
 	}
-	host := u.Hostname()
-	if host == "" || host == "localhost" || strings.HasPrefix(host, "/") {
-		return nil
+	hosts := []string{cfg.Host}
+	for _, f := range cfg.Fallbacks {
+		hosts = append(hosts, f.Host)
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return nil
+	for _, h := range hosts {
+		if !localHost(h) {
+			return fmt.Errorf("%s names %s, not this machine: the test helper creates databases there; set %s=1 to allow it", Env, h, AllowRemoteEnv)
+		}
 	}
-	return fmt.Errorf("%s names %s, not this machine: the test helper creates databases there; set %s=1 to allow it", Env, host, AllowRemoteEnv)
+	return nil
+}
+
+// localHost reports a unix socket directory, localhost, or a loopback address.
+func localHost(h string) bool {
+	if strings.HasPrefix(h, "/") || h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 // maxIdent is Postgres's identifier limit (NAMEDATALEN-1). A longer name is not an error to
@@ -139,7 +152,10 @@ func privateFor(shared, key string) (string, error) {
 	// Production provisions the schema out of band; the test server's shared database gets
 	// it from the gate script, so the private one has to be given it here.
 	if err := run(private, `CREATE SCHEMA rogerai`); err != nil {
-		_ = run(shared, `DROP DATABASE IF EXISTS `+quoted) // never leave a half-made database behind
+		// Never leave a half-made database behind; if even the drop fails, say so.
+		if derr := run(shared, `DROP DATABASE IF EXISTS `+quoted+` WITH (FORCE)`); derr != nil {
+			return "", fmt.Errorf("provision the rogerai schema in %s: %w (and dropping it failed: %v)", name, err, derr)
+		}
 		return "", fmt.Errorf("provision the rogerai schema in %s: %w", name, err)
 	}
 	created[cacheKey] = private
