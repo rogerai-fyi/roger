@@ -370,7 +370,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.status = stDim.Render("re-scanning the band…")
-			m.scanErr, m.scanned, m.confirmRescan = false, false, false
+			m.scanErr, m.scanned = false, false
 			return m, fetchRescan(m.broker, m.confirmSeq) // its reply, not whichever scan lands first, is explicit
 		case "enter", "y", "Y":
 			if why := m.quantRuleRefusal(m.q.b.model, m.q.b.quant); why != "" {
@@ -399,7 +399,6 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		default: // esc, n, N, anything else - default DENY
 			m.mode = modeBrowse
-			m.confirmRescan = false // a pending re-scan belonged to the confirm just left
 			m.status = stDim.Render("denied - no channel opened")
 			return m, nil
 		}

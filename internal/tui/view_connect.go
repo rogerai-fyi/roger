@@ -50,8 +50,7 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("this band is paid - ") + stKey.Render("type /login") + stDim.Render(" to use your wallet (free bands work without an account)")
 		return m, nil
 	}
-	m.confirmProfile = ""   // every confirm starts on the default; p cycles
-	m.confirmRescan = false // a re-scan asked for on an earlier confirm is not this one's
+	m.confirmProfile = "" // every confirm starts on the default; p cycles
 	m.confirmSeq++
 	lim := m.confirmLimit(bd.model)
 	typ := m.limits.typical()

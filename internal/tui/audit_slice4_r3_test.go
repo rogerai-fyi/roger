@@ -588,3 +588,19 @@ func TestLiveProxyCarriesTheTunedProfile(t *testing.T) {
 	m.tunedProfile = ""
 	require.Empty(t, m.liveProxyOpts(*m.connected, m.alert).TunedProfile)
 }
+
+// TestARescanReplyNeverLeavesTheFlagSet: confirmRescan lives only for the update that handles
+// the reply to r. A reply that a tuned private band ignores must not leave it set, or the
+// next periodic scan would be read as the operator's explicit re-scan.
+func TestARescanReplyNeverLeavesTheFlagSet(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{"m1": {MaxOut: 2}}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 1.0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	out, _ := asModel(tm).connect()
+	m := asModel(out)
+	m.tuneFreq = "147.520 MHz AAAA" // a private band: the scan reply is ignored
+	out, _ = m.Update(rescanMsg{offers: []offer{capOffer("m1", 32768, false, nil, 3.0, 72)}, seq: m.confirmSeq})
+	require.False(t, asModel(out).confirmRescan, "an ignored rescan reply left the flag set")
+}

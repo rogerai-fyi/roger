@@ -1180,8 +1180,9 @@ type model struct {
 	// tuneFreqLabel is the cosmetic display shown in the header (e.g. "147.520 MHz").
 	// /freq sets them after a successful resolve; esc clears back to OPEN MARKET.
 	limitsGen uint64 // the limit store's write count last seen (see the tickMsg handler)
-	// confirmRescan: the operator pressed r on the connect confirm, so the next scan's requote
-	// may offer the raise-the-cap screen (a periodic scan never does).
+	// confirmRescan is true only while the reply to r on the open connect confirm is being
+	// handled (rescanMsg sets and clears it), so that requote may offer the raise-the-cap
+	// screen; a periodic scan never does.
 	confirmRescan bool
 	// confirmSeq numbers each connect confirm (connect increments it), so a re-scan reply is
 	// matched to the confirm whose r asked for it.
@@ -1664,8 +1665,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rescanMsg:
 		// The reply to r on the confirm still open: its requote may offer the raise. A reply to
 		// an earlier confirm's r is just a scan to this one.
+		// The flag lives only for this one update: cleared on the way out whatever path the
+		// scan took (a tuned private band ignores it), so no later scan is read as an r.
 		m.confirmRescan = m.mode == modeConnectConfirm && msg.seq == m.confirmSeq
-		return m.Update(offersMsg(msg.offers))
+		out, cmd := m.Update(offersMsg(msg.offers))
+		if nm, ok := out.(model); ok {
+			nm.confirmRescan = false
+			return nm, cmd
+		}
+		return out, cmd
 	case offersMsg:
 		// A private freq is tuned: ignore the periodic public-market scan so it does not
 		// clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).
@@ -1682,8 +1690,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// short grace; the alternating-instance flicker stops (a full scan resets the counter).
 		if len(msg) == 0 && m.loadedOnce && len(m.offers) > 0 {
 			if m.emptyScans++; m.emptyScans < emptyScansToBlank {
-				m.confirmRescan = false // the re-scan this answered found nothing to quote; it is spent
-				return m, nil           // ignore the blip - keep the current band list + status
+				return m, nil // ignore the blip - keep the current band list + status
 			}
 		} else {
 			m.emptyScans = 0
@@ -1704,7 +1711,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A re-scan (r) on the connect confirm: what the operator accepts is priced from it.
 		if m.mode == modeConnectConfirm {
 			m.requote(m.confirmRescan)
-			m.confirmRescan = false
 		}
 		// "wait & notify" stub: if a watched band has dipped under the limit, say so.
 		notified := false
@@ -1857,8 +1863,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.relaying = false
 		if strings.HasPrefix(string(msg), "broker unreachable") {
-			m.scanErr = true        // the band scan dropped -> Ping goes "...static"
-			m.confirmRescan = false // the re-scan it answered for failed; the next one is periodic
+			m.scanErr = true // the band scan dropped -> Ping goes "...static"
 		}
 		// A COLD AGENT [0] auto-tune fetches /discover first; if the broker is unreachable
 		// the fetch fails HERE. Without this the auto-tune stays armed and the "finding a
