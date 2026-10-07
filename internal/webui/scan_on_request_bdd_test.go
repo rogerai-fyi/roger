@@ -66,7 +66,10 @@ func TestScanOnRequestFeatureConsole(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) { st.reset(); return c, nil })
-			sc.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) { st.reset(); return c, nil })
+			sc.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				st.reset()
+				return c, nil
+			})
 			sc.Given(`^a fresh install that has not joined an Edge and holds no Edge root$`, func() error { return nil })
 			sc.Given(`^a console wired to a scan lease$`, st.wired)
 			sc.When(`^the Edge data is read$`, st.read)

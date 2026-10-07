@@ -213,14 +213,15 @@ func (c *consumer) waitContents(n int, d time.Duration) error {
 }
 
 type stationStreamState struct {
-	t        *testing.T
-	st       *tower.State
-	plane    *httptest.Server
-	clientPv ed25519.PrivateKey
-	clientH  string
-	nodePv   ed25519.PrivateKey
-	up       *streamUpstream
-	cancel   context.CancelFunc
+	batchWait error // the batching scenario judges its wait after the chunk count
+	t         *testing.T
+	st        *tower.State
+	plane     *httptest.Server
+	clientPv  ed25519.PrivateKey
+	clientH   string
+	nodePv    ed25519.PrivateKey
+	up        *streamUpstream
+	cancel    context.CancelFunc
 
 	mu       sync.Mutex
 	calls    []wireCall
@@ -231,6 +232,7 @@ type stationStreamState struct {
 }
 
 func (s *stationStreamState) reset() {
+	s.batchWait = nil
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -656,7 +658,10 @@ func (s *stationStreamState) thousandTokensInASecond() error {
 	}
 	s.up.tokens = toks
 	s.up.gap = time.Millisecond
-	return s.postsStreamTrueQuick()
+	// The wait's error is judged in the Then, AFTER the chunk count: a station that posts per
+	// token is caught by the count ("at most 20"), not by a slow stream timing out.
+	s.batchWait = s.postsStreamTrueQuick()
+	return nil
 }
 
 func (s *stationStreamState) atMost20() error {
@@ -672,6 +677,9 @@ func (s *stationStreamState) atMost20() error {
 	}
 	if data > 20 {
 		return fmt.Errorf("the station posted %d chunks for one second of tokens, want at most 20", data)
+	}
+	if s.batchWait != nil {
+		return s.batchWait
 	}
 	if got := len(strings.Join(s.cons.contents(), "")); got != 1000 {
 		return fmt.Errorf("the consumer received %d tokens, want 1000", got)
