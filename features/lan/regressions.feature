@@ -95,6 +95,9 @@ Feature: The paths that ignored local sources or local answers now honour them
   # The replay nonce was decided by "a literal RFC 1918 / ULA address", so a Tower that
   # `roger lan add` accepts at a link-local, zoned IPv6 or hand-added CGNAT address got
   # requests with no nonce. Every LAN Tower address now gets one.
+  # Founder ruling 2026-10-07 (one-binary spec, decision 9): every standalone Tower gets a
+  # nonce, loopback included. This supersedes the standalone spec header line saying a
+  # loopback Tower "needs no" nonce; that header is reworded in the consolidation work.
   @client
   Scenario Outline: a turn to a LAN Tower at any local address carries a nonce, and a replay is refused
     Given a LAN Tower at <address> serving "llama-3.3-70b", added with roger lan add
@@ -109,3 +112,5 @@ Feature: The paths that ignored local sources or local answers now honour them
       | 169.254.10.20:8787   | link-local IPv4       |
       | [fe80::20%eth0]:8787 | zoned link-local IPv6 |
       | 100.64.10.20:8787    | CGNAT, added by hand  |
+      | 127.0.0.1:8787       | loopback IPv4         |
+      | [::1]:8787           | loopback IPv6         |

@@ -24,7 +24,7 @@ func TestLANTrustBDD(t *testing.T) {
 	for _, l := range []int{29, 38, 67, 94} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/trust_and_honesty.feature:%d", l))
 	}
-	paths = append(paths, "../../features/lan/regressions.feature:99")
+	paths = append(paths, "../../features/lan/regressions.feature:102")
 	var nonceAddr string // the Tower address the nonce regression sends its turn to
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -113,7 +113,7 @@ func TestLANTrustBDD(t *testing.T) {
 				}
 				return nil
 			})
-			// regressions.feature:99 (2026-10-07): every LAN Tower address gets the replay nonce.
+			// regressions.feature:102 (2026-10-07): every LAN Tower address gets the replay nonce.
 			sc.Step(`^a LAN Tower at (\S+) serving "([^"]*)", added with roger lan add$`, func(addr, model string) error {
 				nonceAddr = addr
 				if err := s.towerRuns(addr, model); err != nil {

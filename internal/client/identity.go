@@ -102,9 +102,9 @@ func signWithKey(req *http.Request, body []byte, priv ed25519.PrivateKey) {
 	req.Header.Set(protocol.HeaderSig, sigHex)
 }
 
-// lanTowerHosts lists the Tower addresses the owner added by hand (`roger lan add`); nil = none.
-// The CLI sets it once per process, so a hand-added Tower (a CGNAT address, or a name) gets the
-// nonce like any other LAN Tower.
+// lanTowerHosts lists the standalone Towers the CLI knows by address (host:port): the ones the
+// owner added by hand (`roger lan add`) and the broker setting when it is a standalone Tower.
+// nil = none. The CLI sets it once per process.
 var lanTowerHosts atomic.Pointer[func() []string]
 
 // SetLANTowerHosts sets where the hand-added LAN Tower addresses are read from.
@@ -116,32 +116,35 @@ func SetLANTowerHosts(fn func() []string) {
 	lanTowerHosts.Store(&fn)
 }
 
-// targetsLANTower reports whether a request goes to a LAN Tower and so carries a replay nonce:
-// plaintext http to an address the LAN check calls local (lanmode.IsLocalIP: RFC 1918, ULA and
-// link-local, zoned IPv6 included), or to an address the owner added by hand with `roger lan add`
-// (which is how a CGNAT address, or a name, becomes a Tower). It is the same rule `roger lan add`
-// and the LAN dial use, so no Tower they accept goes without the nonce.
+// targetsLANTower reports whether a request goes to a standalone Tower and so carries a replay
+// nonce (ruled 2026-10-07: every standalone Tower gets one, loopback included):
+//   - plaintext http to a non-loopback address the LAN check calls local (lanmode.IsLocalIP:
+//     RFC 1918, ULA and link-local, zoned IPv6 included), the same rule `roger lan add` and the
+//     LAN dial use; or
+//   - plaintext http to a Tower the CLI knows by host and port: one the owner added with
+//     `roger lan add` (how a CGNAT, loopback or named Tower is known) or the broker setting when
+//     it is a standalone Tower.
 //
-// LOOPBACK is deliberately excluded: traffic to it never leaves the host, so there is no wire to
-// capture a replay on, and it is what in-process test servers use. https (the public broker) and
-// any public host are excluded too, so no nonce ever reaches them.
+// A loopback address is not assumed to be a Tower: other services there (a Core-joined Tower's
+// hub, a test broker) verify signatures without a nonce, so loopback gets one only when it is a
+// known standalone Tower. https (the public broker) and any public host never get a nonce.
 func targetsLANTower(u *url.URL) bool {
 	if u == nil || u.Scheme != "http" {
 		return false
 	}
-	host := u.Hostname()
+	host, port := u.Hostname(), u.Port()
+	if port == "" {
+		port = "80"
+	}
 	if ip, err := netip.ParseAddr(host); err == nil {
 		ip = ip.Unmap()
-		if ip.IsLoopback() {
-			return false
-		}
-		if lanmode.IsLocalIP(net.IP(ip.WithZone("").AsSlice())) {
+		if !ip.IsLoopback() && lanmode.IsLocalIP(net.IP(ip.WithZone("").AsSlice())) {
 			return true
 		}
 	}
 	if fn := lanTowerHosts.Load(); fn != nil {
 		for _, a := range (*fn)() {
-			if t, err := lanmode.ParseAddr(a); err == nil && strings.EqualFold(t.Host, host) {
+			if t, err := lanmode.ParseAddr(a); err == nil && strings.EqualFold(t.Host, host) && t.Port == port {
 				return true
 			}
 		}

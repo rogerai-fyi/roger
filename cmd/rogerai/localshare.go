@@ -27,7 +27,11 @@ func isLocalTowerBroker(broker string) bool {
 	if !strings.EqualFold(u.Hostname(), "localhost") && !lanmode.ClassifyLiteral(u.Host).Local {
 		return false
 	}
-	return lanmode.ProbeTower(context.Background(), lanProbeHTTP, broker)
+	if !lanmode.ProbeTower(context.Background(), lanProbeHTTP, broker) {
+		return false
+	}
+	noteKnownTower(broker) // its requests carry the replay nonce from here on
+	return true
 }
 
 // serveLocalTowerShare serves a standalone Tower's stations by polling it, until the operator
