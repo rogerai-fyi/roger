@@ -167,9 +167,9 @@ func lanRefuseForeign(w http.ResponseWriter, opts ProxyOptions, body []byte) boo
 // get it here, and that the market was not tried. Under edge-only it says LAN Towers are not used.
 func lanNothingServes(band string, edgeOnly bool) string {
 	if edgeOnly {
-		return "nothing on this LAN serves " + band + ": edge-only is on, so LAN Towers are not used, and the market was not tried - serve it here (roger model serve) or add an Edge member (roger edge adopt); drop --edge-only to use LAN Towers"
+		return "nothing on this LAN serves " + band + ": checked this machine and your Edge; edge-only is on, so LAN Towers are not used, and the market was not tried - serve it here (roger model serve) or add an Edge member (roger edge adopt); drop --edge-only to use LAN Towers"
 	}
-	return "nothing on this LAN serves " + band + ": LAN mode is on and the market was not tried - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market"
+	return "nothing on this LAN serves " + band + ": checked this machine, your Edge and your LAN Towers; LAN mode is on and the market was not tried - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market"
 }
 
 // noteLANLeft names, on the answer, the local sources a turn failed over from, so the caller can
