@@ -49,8 +49,10 @@ func TestServeLocalTowerServesAConsumerEndToEnd(t *testing.T) {
 	_, err = st.AttachStation("st-node", nodeID, []string{"local-llama"})
 	require.NoError(t, err)
 
-	// The fake upstream model: it must SEE stream:false (the node forces it) and answers with a
-	// verbatim, non-streaming chat completion.
+	// The fake upstream model: a non-stream request reaches it as stream:false, and it answers with a
+	// verbatim, non-streaming chat completion. (A streamed request keeps its flag: superseded
+	// 2026-10-07 by features/tower/standalone_streaming.feature, covered in
+	// localtower_stream_bdd_test.go.)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		require.Contains(t, string(body), `"stream":false`, "the node must force non-streaming")
@@ -70,7 +72,7 @@ func TestServeLocalTowerServesAConsumerEndToEnd(t *testing.T) {
 	}()
 
 	// The consumer posts a prompt and gets the model's answer, having only pointed at the Tower.
-	prompt := []byte(`{"model":"local-llama","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	prompt := []byte(`{"model":"local-llama","messages":[{"role":"user","content":"hi"}]}`)
 	req, _ := http.NewRequest(http.MethodPost, plane.URL+"/v1/chat/completions", bytes.NewReader(prompt))
 	pubHex, ts, sig := protocol.SignRequest(consumerPriv, http.MethodPost, "/v1/chat/completions", prompt)
 	req.Header.Set(protocol.HeaderPubkey, pubHex)

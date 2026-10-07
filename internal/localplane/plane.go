@@ -48,11 +48,15 @@ type Server struct {
 	q                 *queue
 	rl                *rateLimiter
 	stationRL         *rateLimiter
+	chunkRL           *rateLimiter
 	inflight          semaphore
 	perClient         *clientInflight
 	replay            *replayGuard
 	completionTimeout time.Duration
 	pollTimeout       time.Duration
+	// stream limits (stream.go)
+	chunkMax, streamTotal int
+	streamIdle, streamMax time.Duration
 }
 
 // New builds a consumer plane over a standalone Tower's state.
@@ -62,6 +66,11 @@ func New(st *tower.State) *Server {
 		q:                 newQueue(),
 		rl:                newRateLimiter(time.Now, defaultPerClientRate, defaultPerClientBurst),
 		stationRL:         newRateLimiter(time.Now, defaultStationRate, defaultStationBurst),
+		chunkRL:           newRateLimiter(time.Now, defaultChunkRate, defaultChunkBurst),
+		chunkMax:          defaultChunkMax,
+		streamTotal:       defaultStreamTotal,
+		streamIdle:        defaultStreamIdle,
+		streamMax:         defaultStreamMax,
 		inflight:          newSemaphore(defaultMaxInFlight),
 		perClient:         newClientInflight(defaultMaxInFlightPerClient),
 		replay:            newReplayGuard(time.Now, replayWindow),
@@ -111,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/chat/completions", s.chatCompletions)
 	mux.HandleFunc("/local/poll", s.localPoll)
 	mux.HandleFunc("/local/complete", s.localComplete)
+	mux.HandleFunc("/local/chunk", s.localChunk)
 	return mux
 }
 

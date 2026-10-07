@@ -98,14 +98,14 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     Then it is refused, naming "jetson" and the Tower and how each failed
     And no request was made to the public broker
 
-  @client @blocked-on-tower-streaming
+  @client
   Scenario: a mid-stream failure is not retried somewhere the caller cannot see
     Given the LAN Tower at 192.168.1.20:8787 serves "llama-3.3-70b" as a stream
     And the stream breaks after the first tokens
     When the turn is in progress
     Then the caller receives the tokens already sent and a clear stream error
     And the turn is not silently restarted on another source
-    # The same rule the market relay already follows once bytes have reached the consumer.
+    # The same rule the market relay already follows once bytes have reached the consumer. # unblocked 2026-10-07 by features/tower/standalone_streaming.feature
 
   @client
   Scenario: within a rung the faster source is tried first

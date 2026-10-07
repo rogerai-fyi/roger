@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-07 (founder)
-# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
+# BUILD STATUS: BUILT. The chunk route, the SSE relay, the legacy wrap and the station's batching shipped with this spec.
 #
 # STANDALONE TOWER STREAMING: a streamed request through a LAN Tower arrives as a stream.
 #
