@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/protocol"
 	"slices"
 	"sort"
 	"strconv"
@@ -304,15 +305,18 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
 		return nil, fmt.Errorf("request body is not a JSON object")
 	}
-	// A carrier that is present but not an object is the caller's malformed request: it is
-	// forwarded untouched for the broker's 400 invalid_routing_value, never repaired around.
-	for _, k := range []string{"roger", "provider"} {
+	// A carrier that is present but not an object, or that the proxy cannot decode (a number
+	// out of range), is refused here (founder ruling 2026-10-07). Forwarding it would skip
+	// every owner rule, and the broker's reader can accept a body the proxy cannot read (a
+	// duplicate key whose last value decodes), so the broker's 400 is not a guarantee.
+	for _, k := range []string{"provider", "roger"} {
 		if raw, ok := m[k]; ok && string(raw) != "null" && (!rawObjectOK(raw) || !decodes(raw)) {
-			// Includes a value the proxy cannot decode (a number out of range). No owner rule is
-			// applied to such a body: it is safe because the broker's typed decode refuses it
-			// with a 400 before routing, so nothing the owner bounded can be served.
-			return body, nil
+			return nil, &RoutingRefusal{Msg: k + ": an undecodable routing object is refused locally"}
 		}
+	}
+	// A key twice inside a routing object is refused, as the broker and the local plane do.
+	if k := protocol.DuplicateRoutingKey(body); k != "" {
+		return nil, &RoutingRefusal{Msg: "invalid routing value for " + k + ": duplicate key"}
 	}
 	roger, provider := rawObject(m["roger"]), rawObject(m["provider"])
 	// The owner's pref is a DEFAULT, and a sort the guest stated (provider.sort, or a :floor /

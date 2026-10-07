@@ -212,10 +212,11 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     And nothing reaches the broker
 
   # corrected 2026-10-04 (founder-approved): a guest may only tighten - the tuned model with a malformed carrier goes to the broker for its 400
-  Scenario: A carrier of the wrong type is forwarded for the broker's 400, not rewritten around
+  # superseded 2026-10-07 by founder ruling: an undecodable carrier is refused locally
+  Scenario: A carrier of the wrong type is refused locally, never forwarded
     When a chat request arrives with model "qwen3-32b-fp8" and "provider": "openai"
-    Then the broker receives model "qwen3-32b-fp8" and provider "openai"
-    And the broker's 400 is returned to the guest
+    Then the guest receives an OpenAI-shaped 400 "provider: an undecodable routing object is refused locally"
+    And nothing reaches the broker
 
   # added 2026-10-04 (founder-approved): the same malformed carrier on a foreign model is refused locally first
   Scenario: A carrier of the wrong type on a foreign model is refused locally
@@ -599,4 +600,17 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Given the proxy owner tuned with --models qwen3-32b-fp8,llama-3.3-70b
     When a chat request arrives with "models": ["LLAMA-3.3-70B"]
     Then the guest receives an OpenAI-shaped 400 "models names no model inside this session's allowed models"
+    And nothing reaches the broker
+
+  # regression 2026-10-07: founder ruling - an undecodable routing object is refused locally
+  Scenario: A routing object the proxy cannot decode is refused locally and never forwarded
+    Given the proxy owner tuned with --max-cost 0.01
+    When a chat request arrives with "provider": {"max_price": {"request": 1e400, "request": 50}}
+    Then the guest receives an OpenAI-shaped 400 "provider: an undecodable routing object is refused locally"
+    And nothing reaches the broker
+
+  # founder ruling 2026-10-07: a duplicate key inside a routing object is refused, as on the broker
+  Scenario: A duplicate key inside a routing object is refused locally
+    When a chat request arrives with "provider": {"max_price": {"request": 1, "request": 50}}
+    Then the guest receives an OpenAI-shaped 400 "invalid routing value for provider.max_price.request: duplicate key"
     And nothing reaches the broker

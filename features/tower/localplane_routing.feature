@@ -322,3 +322,15 @@ Feature: The standalone Tower honors the routing keys it can evaluate and names 
     Then it posts one models[] request and one only request
     And it asserts X-RogerAI-Model, X-Roger-Cost: 0 and X-Roger-Routing-Ignored on an ignored-key request
     And the check fails if the station's job body still carries "provider" or "roger"
+
+  # founder ruling 2026-10-07: a duplicate key inside a routing object is refused, as on the broker
+  Scenario Outline: A duplicate key inside a routing object is a 400 naming the key
+    When "c1" posts {"model": "qwen3-32b", <carrier>, "messages": [...]}
+    Then the response is 400 naming "<key>"
+    And nothing is queued
+
+    Examples:
+      | carrier                                                        | key                           |
+      | "provider": {"only": ["s1"], "only": ["s2"]}                   | provider.only                 |
+      | "roger": {"min_tps": 1, "min_tps": 2}                          | roger.min_tps                 |
+      | "provider": {"max_price": {"completion": 1, "completion": 2}}  | provider.max_price.completion |

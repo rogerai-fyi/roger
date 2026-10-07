@@ -1306,3 +1306,23 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {"sort": "x"}`
     Then /admin/live reports routing_body_requests 1 and routing_body_rejects 1
     And /admin/live echoes no node id, price, or band code from either request
+
+  # --- duplicate keys inside a routing object ------------------------------------------
+  # founder ruling 2026-10-07: a duplicate key inside a routing object (provider, roger, or
+  # provider.max_price) is refused with the key named, never resolved last-wins. The proxy and
+  # the standalone Tower's local plane refuse the same bodies.
+
+  # founder ruling 2026-10-07
+  Scenario Outline: A duplicate key inside a routing object is a 400 naming the key
+    When "u-1" posts a chat completion for "qwen3-32b" with raw body `<body>`
+    Then the response is 400
+    And the error code is "invalid_routing_value"
+    And the error message names "<key>"
+    And no hold was placed and no station was dispatched
+
+    Examples:
+      | body                                                                                                                           | key                        |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"provider":{"only":["n-a"],"only":["n-c"]}}                  | provider.only              |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"roger":{"pref":"cheap","pref":"fast"}}                      | roger.pref                 |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"provider":{"max_price":{"request":1,"request":50}}}         | provider.max_price.request |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"provider":{"max_price":{"request":1e400,"request":50}}}     | provider.max_price.request |

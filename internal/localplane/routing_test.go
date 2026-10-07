@@ -50,12 +50,13 @@ func TestParseLocalRoutingRefusals(t *testing.T) {
 func TestParseLocalRoutingHonoredAndIgnored(t *testing.T) {
 	lr, e := parseLocalRouting([]byte(`{"model":"a:free:nitro","models":["a","b:floor",null],
 		"provider":{"only":["s1"],"ignore":["s2"],"order":["s1"],"allow_fallbacks":false,"sort":"price",
-		"max_price":{"prompt":1,"completion":2},"only":null},
+		"max_price":{"prompt":1,"completion":2}},
 		"roger":{"trust_min":"verified","min_tps":5},"messages":[]}`), false)
 	require.NotNil(t, e) // a null element in models[] is not a model id
+	require.Equal(t, "models must be a list of model ids", e.msg)
 	lr, e = parseLocalRouting([]byte(`{"model":"a:free:nitro","models":["a","b:floor"],
 		"provider":{"only":["s1"],"ignore":["s2"],"order":["s1"],"allow_fallbacks":false,"sort":"price",
-		"max_price":{"prompt":1,"completion":2},"quantizations":["q8"],"order":null},
+		"max_price":{"prompt":1,"completion":2},"quantizations":["q8"]},
 		"roger":{"trust_min":"verified","min_tps":5,"confidential":false},"messages":[]}`), false)
 	require.Nil(t, e)
 	require.Equal(t, []string{"a", "b"}, lr.models)
@@ -65,6 +66,12 @@ func TestParseLocalRoutingHonoredAndIgnored(t *testing.T) {
 	require.True(t, lr.admits("s1"))
 	require.False(t, lr.admits("s2"))
 	require.False(t, lr.admits("s3"))
+
+	// A key given twice inside a routing object is a 400 naming it (founder ruling 2026-10-07),
+	// never read last-wins.
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"order":["s1"],"order":null}}`), false)
+	require.NotNil(t, e)
+	require.Equal(t, "invalid routing value for provider.order: duplicate key", e.msg)
 
 	// A non-object max_price is a 400, as on the broker (it is not silently ignored).
 	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":5}}`), false)

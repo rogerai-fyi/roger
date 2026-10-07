@@ -189,7 +189,8 @@ var (
 
 // routingObject reads one carrier (or provider.max_price): it must be an object, and every
 // key must be one the contract defines - checked for ALL keys before any value, so an
-// unknown key is never masked by an earlier invalid value. Later duplicates win.
+// unknown key is never masked by an earlier invalid value. A key given twice is refused
+// (founder ruling 2026-10-07), as the proxy and the local plane refuse it.
 func routingObject(path string, raw json.RawMessage, known map[string]bool) (map[string]json.RawMessage, *routingError) {
 	kvs, ok := jsonObject(raw)
 	if !ok {
@@ -200,13 +201,18 @@ func routingObject(path string, raw json.RawMessage, known map[string]bool) (map
 			return nil, &routingError{code: "unknown_routing_key", msg: "unknown routing key " + path + "." + kv.key}
 		}
 	}
+	seen := make(map[string]bool, len(kvs))
+	for _, kv := range kvs {
+		if seen[kv.key] {
+			return nil, invalidRouting(path+"."+kv.key, "duplicate key")
+		}
+		seen[kv.key] = true
+	}
 	m := make(map[string]json.RawMessage, len(kvs))
 	for _, kv := range kvs {
-		if isJSONNull(kv.val) {
-			delete(m, kv.key) // null means absent, and the LAST occurrence of a key wins
-			continue
+		if !isJSONNull(kv.val) { // null means absent
+			m[kv.key] = kv.val
 		}
-		m[kv.key] = kv.val
 	}
 	return m, nil
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/protocol"
 	"sort"
 	"strings"
 
@@ -103,6 +104,11 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
 		return lr, &routeErr{status: 400, msg: "a model is required"}
+	}
+	// A key twice inside a routing object is refused before any value is read, as the broker
+	// and the proxy refuse it (founder ruling 2026-10-07); the map above kept only the last.
+	if k := protocol.DuplicateRoutingKey(body); k != "" {
+		return lr, &routeErr{status: 400, msg: "invalid routing value for " + k + ": duplicate key"}
 	}
 	ignored := map[string]bool{}
 

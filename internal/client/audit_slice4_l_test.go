@@ -167,13 +167,23 @@ func TestEveryMistypedGuestValueGoesToTheBroker(t *testing.T) {
 	}
 }
 
-// TestUndecodableGuestCarrierGoesToTheBroker: a carrier the proxy cannot decode (a number out
-// of range) is forwarded as sent for the broker's 400, never re-encoded without it.
-func TestUndecodableGuestCarrierGoesToTheBroker(t *testing.T) {
-	in := `{"model":"m","roger":{"min_tps":1e400}}`
-	out, err := Routing{MinTPS: 10}.Apply([]byte(in))
-	require.NoError(t, err)
-	require.Equal(t, in, string(out), "forwarded byte for byte")
+// TestUndecodableGuestCarrierIsRefusedLocally (superseded 2026-10-07 by founder ruling): a
+// carrier the proxy cannot decode is refused here, never forwarded, so no owner rule is
+// skipped; a duplicate key inside a routing object is refused like the broker refuses it.
+func TestUndecodableGuestCarrierIsRefusedLocally(t *testing.T) {
+	for _, in := range []string{
+		`{"model":"m","roger":{"min_tps":1e400}}`,
+		`{"model":"m","provider":{"max_price":{"request":1e400,"request":50}}}`,
+		`{"model":"m","provider":"openai"}`,
+		`{"model":"m","roger":[]}`,
+	} {
+		_, err := Routing{MinTPS: 10, MaxReq: 0.01}.Apply([]byte(in))
+		var rr *RoutingRefusal
+		require.ErrorAs(t, err, &rr, in)
+		require.Contains(t, rr.Msg, "an undecodable routing object is refused locally", in)
+	}
+	_, err := Routing{}.Apply([]byte(`{"model":"m","provider":{"max_price":{"request":1,"request":50}}}`))
+	require.EqualError(t, err, "invalid routing value for provider.max_price.request: duplicate key")
 }
 
 // TestOwnerOrderDefaultStaysInsideTheGuestsOnly: the owner's order is a default; when the guest
