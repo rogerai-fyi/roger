@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,4 +57,28 @@ func TestProfileFreeVariantOfTheBandSurvivesTheRewrite(t *testing.T) {
 	_, model, ok := rewriteModel(keepPrimaryBeforeRewrite(out, "b"), "b", true)
 	require.True(t, ok)
 	require.Equal(t, "b:free", model, "the profile's :free is kept")
+}
+
+// TestValidatorEnforcesTheBrokerBounds: the client refuses what the broker refuses on size:
+// more than 32 require or region entries, a quant label over 40 characters, and a min_ctx or
+// max_ttft_ms above 2^31-1.
+func TestValidatorEnforcesTheBrokerBounds(t *testing.T) {
+	many := func(v string, n int) []any {
+		out := make([]any, n)
+		for i := range out {
+			out[i] = v
+		}
+		return out
+	}
+	for name, b := range map[string]map[string]any{
+		"33 require":       {"roger": map[string]any{"require": many("tools", 33)}},
+		"33 region":        {"roger": map[string]any{"region": many("eu", 33)}},
+		"41-char label":    {"provider": map[string]any{"quantizations": []any{strings.Repeat("q", 41)}}},
+		"min_ctx 2^31":     {"roger": map[string]any{"min_ctx": 2147483648.0}},
+		"max_ttft_ms 2^31": {"roger": map[string]any{"max_ttft_ms": 2147483648.0}},
+	} {
+		require.Error(t, ValidateRoutingBody(b), name)
+	}
+	require.NoError(t, ValidateRoutingBody(map[string]any{"provider": map[string]any{"quantizations": []any{strings.Repeat("q", 40)}},
+		"roger": map[string]any{"min_ctx": 2147483647.0, "region": many("eu", 32)}}))
 }

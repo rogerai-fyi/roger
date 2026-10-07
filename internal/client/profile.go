@@ -222,6 +222,15 @@ func ValidateRoutingBody(b map[string]any) error {
 	return nil
 }
 
+// The broker's size bounds on a routing object (cmd/rogerai-broker routingreq.go; a broker
+// test pins the two sets of values together): list entries, one quant label's length, and the
+// largest integer limit (min_ctx, max_ttft_ms).
+const (
+	RoutingListMax = 32
+	QuantLabelMax  = 40
+	RoutingIntMax  = math.MaxInt32
+)
+
 // ValidateRoutingValues checks the type and range of each provider and roger key present
 // (§1a), without the rules that relate one key to another (sort vs pref). A plane that
 // ignores some keys still refuses a value the broker would.
@@ -290,8 +299,17 @@ func validateProvider(p map[string]any) error {
 		}
 	}
 	if v, ok := p["quantizations"]; ok && v != nil {
-		if _, err := idList(v); err != nil {
+		labels, err := idList(v)
+		if err != nil {
 			return fmt.Errorf("provider.quantizations must be a list of labels")
+		}
+		if len(labels) > RoutingListMax {
+			return fmt.Errorf("provider.quantizations has more than %d entries", RoutingListMax)
+		}
+		for _, l := range labels {
+			if len([]rune(strings.TrimSpace(l))) > QuantLabelMax {
+				return fmt.Errorf("provider.quantizations: a label is longer than %d characters", QuantLabelMax)
+			}
 		}
 	}
 	if v, ok := p["max_price"]; ok && v != nil {
@@ -336,6 +354,9 @@ func validateRoger(r map[string]any) error {
 		if err != nil {
 			return fmt.Errorf("roger.require must be a list")
 		}
+		if len(caps) > RoutingListMax {
+			return fmt.Errorf("roger.require has more than %d entries", RoutingListMax)
+		}
 		for _, c := range caps {
 			if c != "tools" && c != "vision" {
 				return fmt.Errorf("roger.require: unknown capability %s", c)
@@ -346,6 +367,9 @@ func validateRoger(r map[string]any) error {
 		regs, err := idList(v)
 		if err != nil || len(regs) == 0 {
 			return fmt.Errorf("roger.region must be a list of lowercase regions")
+		}
+		if len(regs) > RoutingListMax {
+			return fmt.Errorf("roger.region has more than %d entries", RoutingListMax)
 		}
 		for _, x := range regs {
 			if !regionTokenRE.MatchString(x) {
@@ -367,7 +391,7 @@ func validateRoger(r map[string]any) error {
 	}
 	for _, k := range []string{"min_ctx", "max_ttft_ms"} {
 		if v, ok := r[k]; ok && v != nil {
-			if f, isNum := v.(float64); !isNum || f <= 0 || f != math.Trunc(f) {
+			if f, isNum := v.(float64); !isNum || f <= 0 || f != math.Trunc(f) || f > RoutingIntMax {
 				return fmt.Errorf("roger.%s must be a positive integer", k)
 			}
 		}
