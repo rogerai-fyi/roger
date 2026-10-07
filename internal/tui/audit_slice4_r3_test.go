@@ -390,3 +390,23 @@ func TestQuantPickerStartsFromTheBandsOwnRule(t *testing.T) {
 	}
 	require.Empty(t, m.limits.own("m").Quants)
 }
+
+// TestRescanFlagNeverOutlivesItsConfirm: r then esc leaves no pending "explicit" re-scan for
+// the next confirm, so that confirm's periodic scan still never offers a raise.
+func TestRescanFlagNeverOutlivesItsConfirm(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{"m1": {MaxOut: 2}}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 1.0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	m := asModel(tm)
+	out, _ := m.connect()
+	out, _ = asModel(out).Update(keyMsg("r"))   // re-scan requested...
+	out, _ = asModel(out).Update(keyMsg("esc")) // ...then left before it landed
+	m = asModel(out)
+	out, _ = m.connect() // a new confirm
+	m = asModel(out)
+	require.Equal(t, modeConnectConfirm, m.mode)
+	out, _ = m.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)})) // periodic
+	require.Equal(t, modeConnectConfirm, asModel(out).mode, "a periodic scan never offers the raise")
+}

@@ -395,6 +395,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		default: // esc, n, N, anything else - default DENY
 			m.mode = modeBrowse
+			m.confirmRescan = false // a pending re-scan belonged to the confirm just left
 			m.status = stDim.Render("denied - no channel opened")
 			return m, nil
 		}

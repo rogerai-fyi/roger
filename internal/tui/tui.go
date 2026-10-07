@@ -1667,7 +1667,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// short grace; the alternating-instance flicker stops (a full scan resets the counter).
 		if len(msg) == 0 && m.loadedOnce && len(m.offers) > 0 {
 			if m.emptyScans++; m.emptyScans < emptyScansToBlank {
-				return m, nil // ignore the blip - keep the current band list + status
+				m.confirmRescan = false // the re-scan this answered found nothing to quote; it is spent
+				return m, nil           // ignore the blip - keep the current band list + status
 			}
 		} else {
 			m.emptyScans = 0
@@ -1841,7 +1842,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.relaying = false
 		if strings.HasPrefix(string(msg), "broker unreachable") {
-			m.scanErr = true // the band scan dropped -> Ping goes "...static"
+			m.scanErr = true        // the band scan dropped -> Ping goes "...static"
+			m.confirmRescan = false // the re-scan it answered for failed; the next one is periodic
 		}
 		// A COLD AGENT [0] auto-tune fetches /discover first; if the broker is unreachable
 		// the fetch fails HERE. Without this the auto-tune stays armed and the "finding a
