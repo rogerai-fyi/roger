@@ -10,11 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// pendingElsewhere is every scenario in these feature files that the routing runners exclude
-// by tag and no runner executes yet: approved behaviour that is not built (no broker code
-// logs an unknown OpenRouter slug, the desk has no profile-aware handoff frame or return
-// summary). They are listed here, never left silently unexecuted: a new tag-excluded scenario,
-// or one of these starting to run somewhere, fails this test until the list is updated.
+// pendingElsewhere is every @tui / @broker scenario in these two feature files: their runners
+// exclude those tags and no other runner loads these files, so none of them executes yet. They
+// are approved behaviour that is not built (no broker code logs an unknown OpenRouter slug,
+// the desk has no profile-aware handoff frame or return summary). Listing them keeps them from
+// being skipped in silence: adding or removing such a scenario fails this test until the list
+// (and the PR that changes it) says so. It does not detect a scenario that starts running.
 var pendingElsewhere = []string{
 	"cli/profiles.feature: The TUI, CLI and proxy resolve the same profile to the same body object",
 	"operator/guest_routing.feature: An OpenRouter `models` list with slugs no station serves is skipped model by model",

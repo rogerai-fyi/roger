@@ -177,3 +177,8 @@ test("a voided reply's note names the void and says it was not charged", () => {
   assert.equal(R.voidNote({ void: "upstream-5xx" }), "the reply was cut (upstream-5xx) - not charged");
   assert.equal(R.voidNote({ model: "m" }), "");
 });
+
+test("a size too large to be a number is refused, never sent as null", () => {
+  assert.throws(() => R.parseSize("1" + "0".repeat(400)));
+  assert.throws(() => R.parseSize("7-" + "9".repeat(400)));
+});

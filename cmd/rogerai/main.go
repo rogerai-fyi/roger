@@ -420,7 +420,9 @@ func toRawConfig(c config) map[string]json.RawMessage {
 }
 
 // readRawConfigErr reads the on-disk config as a per-key raw-JSON map. A missing file is
-// empty; a file it cannot read or parse is an error (saveConfig then refuses to replace it).
+// empty; a file it cannot read or parse is an error, and saveConfig then refuses to replace it.
+// (A file already corrupt at load is renamed aside by loadConfig first, C4, so this catches one
+// that became unreadable or corrupt after load.)
 func readRawConfigErr(path string) (map[string]json.RawMessage, error) {
 	m := map[string]json.RawMessage{}
 	b, err := os.ReadFile(path)
