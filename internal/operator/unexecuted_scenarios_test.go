@@ -21,6 +21,7 @@ var pendingElsewhere = []string{
 	"cli/profiles.feature: The TUI, CLI and proxy resolve the same profile to the same body object",
 	"routing/open_network_filters.feature: OpenAPI documents every filter with its unknown-attribute rule",
 	"routing/open_network_filters.feature: The quant filter replaces the TUI's exclude-list simulation and binds in standalone roger use",
+	"routing/open_network_filters.feature: The TUI hide-curated toggle sends self_hosted_only, not an exclude list",
 	"routing/request_shape.feature: The strip happens on the agent-harness relay path",
 	"operator/guest_routing.feature: An OpenRouter `models` list with slugs no station serves is skipped model by model",
 	"operator/guest_routing.feature: Detection and the desk strip are unaffected by profiles",
@@ -38,7 +39,7 @@ var pendingElsewhere = []string{
 var excludedBy = map[string][]string{
 	"cli/profiles.feature":                 {"tui"},
 	"operator/guest_routing.feature":       {"tui", "broker"},
-	"routing/open_network_filters.feature": {"cli", "proxy", "harness", "docs"},
+	"routing/open_network_filters.feature": {"cli", "tui", "proxy", "harness", "docs"}, // the TUI pins runner loads only regression_pins
 	"routing/request_shape.feature":        {"cli", "proxy", "harness", "docs"},
 }
 
