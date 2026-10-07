@@ -459,3 +459,19 @@ func TestOverCapConfirmWithoutAProfileNamesNone(t *testing.T) {
 	require.NotContains(t, v, "p for another")
 	require.Contains(t, v, "r to re-scan")
 }
+
+// TestBandCardLimitEditTypesOverTheSeedAndSaves: from the band card, typing replaces the
+// shown cap (not appends to it) and enter saves what was typed, as on the CONFIG plate.
+func TestBandCardLimitEditTypesOverTheSeedAndSaves(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.limits.Models = map[string]Limit{"m": {MaxOut: 2}}
+	m.bands = []band{{model: "m"}}
+	m.cfgModel = "m"
+	out, _ := m.cfgEditLimit(0)
+	m = asModel(out)
+	require.Equal(t, "2", m.editBuf)
+	out, _ = m.Update(keyMsg("3"))
+	require.Equal(t, "3", asModel(out).editBuf, "the first digit replaces the seed")
+	out, _ = asModel(out).Update(keyMsg("enter"))
+	require.InDelta(t, 3.0, asModel(out).limits.own("m").MaxOut, 1e-9, "enter saves what was typed")
+}

@@ -567,7 +567,9 @@ func (m model) cfgEditLimit(field int) (tea.Model, tea.Cmd) {
 		}
 		m.limCursor = i
 		m.editField, m.limField = field, field
-		m.editTyped = true // the card hands over a live value: ⏎ saves it as shown
+		// As on the plate: the field shows the stored value, the first keystroke replaces it,
+		// and enter saves what was typed (an untouched value is left as it is).
+		m.editTyped, m.editDraft = false, false
 		m.editBuf = ""
 		// The band's OWN entry: seeding from the merged rule would save the default's cap
 		// into the band on enter, so a later default edit no longer reached it.
