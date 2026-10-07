@@ -678,7 +678,7 @@ func (h *edgeHost) startFace() (edge.Advert, bool) {
 	srv := edge.NewServer(edge.Describe{
 		NodeID: id.NodeID, Account: id.Account, Kind: string(edge.Host),
 	}, tls.Certificate{Certificate: [][]byte{id.Cert.Raw}, PrivateKey: key})
-	ln, err := net.Listen("tcp", edgeFaceBind())
+	ln, err := edgeListen(edgeFaceBind())
 	if err != nil {
 		log.Println("edge: could not open this machine's LAN face:", err)
 		return edge.Advert{}, false
@@ -737,7 +737,7 @@ func (h *edgeHost) startAuthority() {
 	if err != nil || !ok {
 		return
 	}
-	ln, err := net.Listen("tcp", edgeAuthorityBind())
+	ln, err := edgeListen(edgeAuthorityBind())
 	fellBack := false
 	if err != nil {
 		// The remembered (or env-pinned) port is momentarily taken - typically the process we just
@@ -745,7 +745,7 @@ func (h *edgeHost) startAuthority() {
 		// NOT persist it: overwriting the saved port with a transient one would orphan every enrolled
 		// device. The next restart tries the saved port again, so the port converges back to stable.
 		log.Printf("edge: authority port %s unavailable (%v); using an ephemeral port for this run only", edgeAuthorityBind(), err)
-		ln, err = net.Listen("tcp", ":0")
+		ln, err = edgeListen(":0")
 		if err != nil {
 			log.Println("edge: could not open the Edge authority's LAN service:", err)
 			return

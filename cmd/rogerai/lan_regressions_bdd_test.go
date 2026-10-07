@@ -9,6 +9,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -43,7 +45,7 @@ func (s *lanRegressBDD) offCfg() config {
 func TestLANRegressionsBDD(t *testing.T) {
 	s := &lanRegressBDD{lanUseBDD: lanUseBDD{lanRouteBDD: lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}}}
 	var paths []string
-	for _, l := range []int{32, 41, 49, 57} {
+	for _, l := range []int{32, 41, 49, 57, 67, 74} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/regressions.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -54,7 +56,47 @@ func TestLANRegressionsBDD(t *testing.T) {
 				client.SetLANRelay(nil)
 				return ctx, nil
 			})
+			var ln net.Listener
+			var loop, private, public string
+			listen := func(bind string) error {
+				var err error
+				ln, err = edgeListen(bind)
+				return err
+			}
+			sc.Step(`^a machine with a public and a private interface$`, func() error {
+				loop, private, public = fakeInterfaces(t)
+				return nil
+			})
+			sc.Step(`^a machine with a public and a private interface that is a local Edge authority$`, func() error {
+				loop, private, public = fakeInterfaces(t)
+				useTempConfig(t)
+				return nil
+			})
+			sc.Step(`^the Edge host starts its face listener$`, func() error { return listen(edgeFaceBind()) })
+			sc.Step(`^the authority listener starts$`, func() error { return listen(edgeAuthorityBind()) })
+			sc.Step(`^it listens on the private interface and loopback only$`, func() error {
+				port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+				for _, a := range []string{private, loop} {
+					if !dialOK(net.JoinHostPort(a, port)) {
+						return fmt.Errorf("%s does not answer on %s", a, port)
+					}
+				}
+				if dialOK(net.JoinHostPort(public, port)) {
+					return fmt.Errorf("the public interface %s answers on %s", public, port)
+				}
+				return nil
+			})
+			sc.Step(`^a connection to the public interface's address is refused$`, func() error {
+				if dialOK(net.JoinHostPort(public, strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))) {
+					return fmt.Errorf("the public interface accepted a connection")
+				}
+				return nil
+			})
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				if ln != nil {
+					_ = ln.Close()
+					ln = nil
+				}
 				client.SetLANRelay(nil)
 				s.restoreRoute()
 				return ctx, nil
