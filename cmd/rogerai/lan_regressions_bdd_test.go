@@ -45,7 +45,7 @@ func (s *lanRegressBDD) offCfg() config {
 func TestLANRegressionsBDD(t *testing.T) {
 	s := &lanRegressBDD{lanUseBDD: lanUseBDD{lanRouteBDD: lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}}}
 	var paths []string
-	for _, l := range []int{32, 41, 49, 57, 67, 74} {
+	for _, l := range []int{32, 41, 49, 57, 67, 74, 80} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/regressions.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -73,6 +73,25 @@ func TestLANRegressionsBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^the Edge host starts its face listener$`, func() error { return listen(edgeFaceBind()) })
+			sc.Step(`^the owner set the Edge face bind to an explicit address$`, func() error {
+				useTempConfig(t)
+				t.Setenv(envFaceBind, "127.0.0.9:0")
+				return nil
+			})
+			sc.Step(`^the Edge host starts$`, func() error { return listen(edgeFaceBind()) })
+			sc.Step(`^it listens on that address$`, func() error {
+				if got := ln.Addr().(*net.TCPAddr).IP.String(); got != "127.0.0.9" {
+					return fmt.Errorf("it listens on %s, want the explicit 127.0.0.9", got)
+				}
+				return nil
+			})
+			sc.Step("^`roger edge` output names the explicit bind$", func() error {
+				out, _ := edgeRun(t, "edge")
+				if !strings.Contains(out, "face bind: 127.0.0.9:0 (explicit") {
+					return fmt.Errorf("`roger edge` does not name the explicit bind:\n%s", out)
+				}
+				return nil
+			})
 			sc.Step(`^the authority listener starts$`, func() error { return listen(edgeAuthorityBind()) })
 			sc.Step(`^it listens on the private interface and loopback only$`, func() error {
 				port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)

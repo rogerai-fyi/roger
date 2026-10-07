@@ -961,6 +961,11 @@ func cmdEdgeList(cfg config, args []string) error {
 	if argv.has("json") {
 		return edgeWriteJSON(os.Stdout, nodes, cands, reach)
 	}
+	// An explicit face bind overrides the private-interfaces-only default, so it is named
+	// (features/lan/regressions.feature): the owner can see this machine listens where they said.
+	if v := os.Getenv(envFaceBind); v != "" {
+		fmt.Printf("face bind: %s (explicit, from %s; the default listens on private interfaces only)\n", v, envFaceBind)
+	}
 	// THE MODE, first: what roots this Edge and where turns go first - two words that
 	// must never share a label (features/edge/mode.feature).
 	if self := edgeSelfStatus(st.fleet, edgeDiscoveryFactsFromEnv()); self.Err == "" {
