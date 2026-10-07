@@ -19,6 +19,19 @@ func TestConfigLockHonorsTheDeadlineDuringATakeover(t *testing.T) {
 	old := time.Now().Add(-time.Minute)
 	require.NoError(t, os.Chtimes(lock, old, old))
 	require.NoError(t, os.WriteFile(lock+".takeover", nil, 0o600)) // a live takeover in progress
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() { // a live takeover keeps its file fresh; only a crashed one goes stale
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(250 * time.Millisecond):
+				now := time.Now()
+				_ = os.Chtimes(lock+".takeover", now, now)
+			}
+		}
+	}()
 	done := make(chan error, 1)
 	go func() {
 		release, err := fileLockConfig(lock)
@@ -86,4 +99,19 @@ func TestFileLockReturnsAnErrorThatIsNotAHolder(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "locked by another roger command")
 	require.Less(t, time.Since(start), time.Second)
+}
+
+// TestACrashedTakeoverDoesNotBlockPastTheDeadline: a .takeover file left by a writer that
+// crashed mid-takeover is cleared well inside the 5 s wait, so the next writer gets the lock.
+func TestACrashedTakeoverDoesNotBlockPastTheDeadline(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "config.json.lock")
+	require.NoError(t, os.WriteFile(lock, []byte("crashed"), 0o600))
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(lock, old, old))
+	require.NoError(t, os.WriteFile(lock+".takeover", nil, 0o600))
+	crashed := time.Now().Add(-3 * time.Second) // the takeover itself died a few seconds ago
+	require.NoError(t, os.Chtimes(lock+".takeover", crashed, crashed))
+	release, err := fileLockConfig(lock)
+	require.NoError(t, err)
+	release()
 }

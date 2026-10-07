@@ -52,6 +52,11 @@ func fileLockConfig(path string) (func(), error) {
 // lockStale is how old a config lock must be before it counts as a crashed writer's.
 const lockStale = 30 * time.Second
 
+// takeoverStale is how old a takeover file must be before it counts as a crashed takeover's.
+// A takeover holds it only for a stat and a remove, so it is short: well inside a waiter's
+// 5 s deadline, or one crashed takeover would block every writer for lockStale.
+const takeoverStale = 2 * time.Second
+
 // lockSeen is one observation of a lock file: its holder's token and its modification time.
 type lockSeen struct {
 	token string
@@ -81,7 +86,7 @@ func takeOverStaleLock(path string, seen lockSeen) {
 	tl := path + ".takeover"
 	f, err := os.OpenFile(tl, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		if fi, serr := os.Stat(tl); serr == nil && time.Since(fi.ModTime()) > lockStale {
+		if fi, serr := os.Stat(tl); serr == nil && time.Since(fi.ModTime()) > takeoverStale {
 			_ = os.Remove(tl)
 		}
 		return
