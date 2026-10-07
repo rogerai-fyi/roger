@@ -412,7 +412,20 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if len(r.Order) > 0 {
 		provider["order"] = r.Order
 	} else if len(r.Prefer) > 0 {
-		setDefault(provider, "order", r.Prefer)
+		// A default the guest's only can narrow: an order naming a station outside only is a
+		// broker 400 for what is a legitimate tightening. Nothing left means no order.
+		order := r.Prefer
+		if only := stringsOf(provider["only"]); len(only) > 0 {
+			order = nil
+			for _, x := range r.Prefer {
+				if hasFold(only, x) {
+					order = append(order, x)
+				}
+			}
+		}
+		if len(order) > 0 {
+			setDefault(provider, "order", order)
+		}
 	}
 	if r.Sort != "" && !guestStatesSort(m, provider) && roger["pref"] == nil {
 		provider["sort"] = r.Sort

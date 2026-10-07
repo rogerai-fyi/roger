@@ -71,3 +71,12 @@ func TestVoidAfterAFinishedReplyIsNotCalledCut(t *testing.T) {
 	require.NotContains(t, err.Error(), "cut")
 	require.Contains(t, err.Error(), "never settled")
 }
+
+// TestMidStreamVoidIsCalledCut: a void with no finish_reason before it (the broker's
+// void chunk then [DONE] on a reply that broke off) is a cut reply, worded so.
+func TestMidStreamVoidIsCalledCut(t *testing.T) {
+	st := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"upstream-5xx\"}}}\n\n" +
+		"data: [DONE]\n\n"))
+	require.ErrorContains(t, st.streamError(), "cut")
+}

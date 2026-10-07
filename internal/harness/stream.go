@@ -33,6 +33,7 @@ type streamed struct {
 	// voidReason is usage.rogerai.void_reason: the broker voided the attempt after content
 	// had started (a cut reply, not charged). settle-failed is the one void with a whole reply.
 	voidReason string
+	finished   bool // a finish_reason arrived: the station finished its reply
 	served     Served
 	errText    string
 	sawChoice  bool
@@ -146,7 +147,7 @@ func readStream(r io.Reader) streamed {
 				st.msg.Truncated = true
 			}
 			if c.FinishReason != "" {
-				st.complete = true
+				st.complete, st.finished = true, true
 			}
 		}
 		if u := ch.Usage; u != nil {
@@ -200,7 +201,7 @@ func (st streamed) streamError() error {
 		return fmt.Errorf("the reply stream broke off: %v - try again", st.readErr)
 	}
 	if st.voidReason != "" && st.voidReason != protocol.VoidSettleFailed {
-		if st.complete {
+		if st.finished { // [DONE] alone does not mean the station finished
 			return fmt.Errorf("the reply's receipt never settled (%s), so you were not charged - try again", st.voidReason)
 		}
 		return fmt.Errorf("the station's reply was cut (%s) and you were not charged - try again", st.voidReason)

@@ -175,3 +175,20 @@ func TestUndecodableGuestCarrierGoesToTheBroker(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, in, string(out), "forwarded byte for byte")
 }
+
+// TestOwnerOrderDefaultStaysInsideTheGuestsOnly: the owner's order is a default; when the guest
+// narrows only, the defaulted order keeps just the stations still allowed (an order naming a
+// station outside only is a broker 400 for a legitimate tightening), and is dropped if none is.
+func TestOwnerOrderDefaultStaysInsideTheGuestsOnly(t *testing.T) {
+	out, err := Routing{Prefer: []string{"n1", "n2"}}.Apply([]byte(`{"model":"m","provider":{"only":["n2"]}}`))
+	require.NoError(t, err)
+	var got struct{ Provider map[string]any }
+	require.NoError(t, json.Unmarshal(out, &got))
+	require.Equal(t, []any{"n2"}, got.Provider["order"])
+	out, err = Routing{Prefer: []string{"n1"}}.Apply([]byte(`{"model":"m","provider":{"only":["n2"]}}`))
+	require.NoError(t, err)
+	got.Provider = nil
+	require.NoError(t, json.Unmarshal(out, &got))
+	_, has := got.Provider["order"]
+	require.False(t, has, "nothing of the owner's order is allowed: no order is sent")
+}
