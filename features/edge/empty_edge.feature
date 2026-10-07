@@ -45,15 +45,17 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
   # 1. THE THREE FACTS
   # =========================================================================
 
+  # superseded 2026-10-07 by founder ruling: a machine outside an Edge scans only on request
+  # (features/edge/scan_on_request.feature). It scans while this screen is open, and says so.
   @tui
   Scenario: a fresh machine sees the three facts and a next command for each
-    Given a machine that is not enrolled, not logged in, rooted at Core, scanning its network
+    Given a machine that is not enrolled, not logged in, rooted at Core, scanning while this view is open
     When the Edge screen renders at 100 columns
     Then it still says this machine is the only node on the Edge
     And under THIS MACHINE it says "not enrolled" and names "roger edge enroll <name>"
     And under AUTHORITY it says Core and that enrolling a new node needs the network
     And it names "roger edge authority local <name>" as the way to form an Edge with no internet
-    And under DISCOVERY it says it is scanning this network and how often
+    And under DISCOVERY it says it scans while this screen is open, and how often
 
   @tui
   Scenario: an enrolled machine is named, and the enroll hint goes away
@@ -176,11 +178,14 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
   # 5. THE CONSOLE SAYS THE SAME
   # =========================================================================
 
+  # superseded 2026-10-07 by founder ruling: a machine outside an Edge scans only on request
+  # (features/edge/scan_on_request.feature). The console's Edge view is that request.
   @console
   Scenario: the Edge read carries this machine's status
-    Given a console over a machine that is not enrolled, rooted at Core, scanning every 30 seconds
+    Given a console over a machine that is not enrolled, rooted at Core, scanning every 30 seconds while this view is open
     When the Edge data is read
     Then it carries a self status with enrolled false, authority "Core", discovery "scanning" and an interval of 30 seconds
+    And the self status says it scans only while this view is open
 
   @console
   Scenario: the console's empty state shows the three facts and both ways to add a node

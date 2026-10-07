@@ -46,9 +46,11 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
   # 1. THE ENTRY - additive to the honest empty state
   # =========================================================================
 
+  # superseded 2026-10-07 by founder ruling: a machine outside an Edge scans only on request
+  # (features/edge/scan_on_request.feature), so it scans while this screen is open.
   @tui
   Scenario: the empty screen keeps its facts and gains a way in
-    Given a machine that is not enrolled, rooted at Core, scanning its network
+    Given a machine that is not enrolled, rooted at Core, scanning while this view is open
     When the Edge screen renders at 100 columns
     Then it still says this machine is the only node on the Edge
     And it still names "roger edge enroll <name>"
