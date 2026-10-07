@@ -17,6 +17,7 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // Test seams: where the one-line LAN note goes, how names resolve, and the probe client.
@@ -404,6 +405,25 @@ func applyLAN(cfg config, o *client.ProxyOptions) {
 	o.LANSelf = lanSelfServe
 	o.LANHTTP, o.LANResolve = lanProbeHTTP, lanResolve
 	o.LANTowers = func(band string) []string { return lanTowersServing(cfg, band) }
+}
+
+// frontEndLadder is the dispatch hook every front-end that tunes a band installs (the TUI,
+// `roger webui`, `roger resume`): the Edge ladder, and in LAN mode the LAN ladder over it.
+func frontEndLadder(cfg config) func(*client.ProxyOptions) {
+	return func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); applyLAN(cfg, o) }
+}
+
+// installLANRelay puts every path that carries a turn in this process (TUI chat, console chat,
+// the agent) on the same local ladder `roger use` gets, and gives the TUI and the console the
+// LAN dial `roger --lan search` prints. It does nothing outside LAN mode.
+func installLANRelay(cfg config) {
+	if !cfg.lan.LAN {
+		return
+	}
+	tui.SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return lanDial(cfg) })
+	var lo client.ProxyOptions
+	frontEndLadder(cfg)(&lo)
+	client.SetLANRelay(&lo)
 }
 
 // lanTowersServing lists the LAN Towers whose /discover lists band, in configured order.

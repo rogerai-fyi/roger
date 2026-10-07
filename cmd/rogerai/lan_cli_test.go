@@ -141,3 +141,22 @@ func TestLANUseHelpers(t *testing.T) {
 	require.Equal(t, "local-only", o.Prefer)
 	require.Equal(t, []string{"192.168.1.20:8787"}, o.LANTowers("llama-3.3-70b"))
 }
+
+// Every front-end that tunes a band (the TUI, `roger webui`, `roger resume`) installs the same
+// dispatch hook; in LAN mode it must put the proxy on the LAN ladder, or a console-tuned guest
+// would reach the market.
+func TestFrontEndLadderHookCarriesLANMode(t *testing.T) {
+	useTempConfig(t)
+	cfg := loadConfig()
+	cfg.lan = lanmode.Mode{LAN: true, Source: lanmode.SrcFlag}
+	var o client.ProxyOptions
+	frontEndLadder(cfg)(&o)
+	require.True(t, o.LANMode, "a LAN-mode front end's proxy must be on the LAN ladder")
+	require.Equal(t, "local-only", o.Prefer)
+	require.NotNil(t, o.LANTowers)
+
+	cfg.lan = lanmode.Mode{}
+	var off client.ProxyOptions
+	frontEndLadder(cfg)(&off)
+	require.False(t, off.LANMode)
+}

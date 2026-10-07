@@ -185,3 +185,29 @@ func TestNoteLANLeftNamesEachSource(t *testing.T) {
 	noteLANLeft(rec, []string{"jetson/serve: connection refused", "192.168.1.20:8787: status 503"})
 	require.Equal(t, "jetson, 192.168.1.20", rec.Header().Get("X-RogerAI-LAN-Left"))
 }
+
+func TestLANBandStripsOnlyRoutingVariants(t *testing.T) {
+	for in, want := range map[string]string{"qwen3-8b": "qwen3-8b", "qwen3-8b:free": "qwen3-8b",
+		"qwen3-8b:nitro": "qwen3-8b", "qwen3-8b:floor": "qwen3-8b", "org/m:q8": "org/m:q8"} {
+		require.Equal(t, want, lanBand(in), in)
+	}
+}
+
+func TestLANRefuseForeignOnlyRefusesWhatNothingLocalServes(t *testing.T) {
+	opts := ProxyOptions{LANMode: true, Model: "qwen3-8b",
+		LANSelf:   func(b string) (string, string) { return map[string]string{"qwen3-8b": "http://127.0.0.1:1"}[b], "" },
+		EdgePeers: func(b string) []EdgePeer { return map[string][]EdgePeer{"gpt-oss-20b": {{Node: "jetson"}}}[b] },
+		LANTowers: func(b string) []string { return map[string][]string{"llama": {"192.168.1.20:8787"}}[b] }}
+	for model, refused := range map[string]bool{"qwen3-8b": false, "qwen3-8b:free": false, "gpt-oss-20b": false,
+		"llama": false, "gpt-oss-120b": true, "": false} {
+		rec := httptest.NewRecorder()
+		got := lanRefuseForeign(rec, opts, []byte(`{"model":"`+model+`"}`))
+		require.Equal(t, refused, got, model)
+		if refused {
+			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+			require.Contains(t, rec.Body.String(), "nothing on this LAN serves gpt-oss-120b")
+		}
+	}
+	require.False(t, lanRefuseForeign(httptest.NewRecorder(), ProxyOptions{Model: "qwen3-8b"}, []byte(`{"model":"x"}`)), "outside LAN mode nothing changes")
+	require.False(t, lanRefuseForeign(httptest.NewRecorder(), opts, []byte(`not json`)))
+}

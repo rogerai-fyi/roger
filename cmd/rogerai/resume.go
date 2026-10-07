@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/mattn/go-isatty"
-	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/session"
 	"rogerai.fm/roger/v6/internal/tui"
 )
@@ -99,7 +98,7 @@ func cmdResumeWithRuntime(cfg config, args []string, notice string, webuiOn bool
 
 	// The dispatch ladder: the booth tries a peer on this Edge before the market
 	// (features/edge/local_inference.feature), the same wiring `roger use` gets.
-	hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o) }
+	hooks.EdgeLadder = frontEndLadder(cfg)
 	// One store for both front-ends - see run()'s note.
 	limits := tuiLimits(cfg)
 	if webuiOn {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"rogerai.fm/roger/v6/internal/client"
 	"strings"
 	"syscall"
 
@@ -81,7 +80,7 @@ func cmdWebui(cfg config, args []string) error {
 
 	// The dispatch ladder: the booth tries a peer on this Edge before the market
 	// (features/edge/local_inference.feature), the same wiring `roger use` gets.
-	hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o) }
+	hooks.EdgeLadder = frontEndLadder(cfg)
 	limits := tuiLimits(cfg)
 	// startWebConsole prints the URL, serves in the background and self-gates its own
 	// auto-open on the saved config. Reuse it whole rather than standing up a second

@@ -777,6 +777,9 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		}
 		// Model rewrite + malformed-body guard (ruling 2): rewrite `model` to the band's, keep
 		// every other field; a non-object body is a 400 before any relay/hold.
+		if lanRefuseForeign(w, opts, body) {
+			return
+		}
 		rewritten, model, ok := rewriteModel(body, opts.Model)
 		if !ok {
 			openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")

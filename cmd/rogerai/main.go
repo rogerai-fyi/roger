@@ -841,17 +841,7 @@ func run(argv []string, cfg config) error {
 	if err != nil {
 		return err
 	}
-	if cfg.lan.LAN {
-		// The TUI and the console read the same LAN dial `roger --lan search` prints.
-		lanCfg := cfg
-		tui.SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return lanDial(lanCfg) })
-		// Every path that carries a turn in this process (TUI chat, console chat, the agent)
-		// goes through the same local ladder `roger use` gets; the market is not a rung.
-		var lo client.ProxyOptions
-		applyEdgeLadder(lanCfg, &lo)
-		applyLAN(lanCfg, &lo)
-		client.SetLANRelay(&lo)
-	}
+	installLANRelay(cfg)
 	// Global approval-mode flags (--yolo / --perms <mode>) apply to this run only;
 	// with no flag, a persisted `roger perms` default seeds the env the TUI reads.
 	rest, permsFlag, err := stripPermsFlags(rest)
@@ -909,7 +899,7 @@ func run(argv []string, cfg config) error {
 
 		// The dispatch ladder: the booth tries a peer on this Edge before the market
 		// (features/edge/local_inference.feature), the same wiring `roger use` gets.
-		hooks.EdgeLadder = func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); applyLAN(cfg, o) }
+		hooks.EdgeLadder = frontEndLadder(cfg)
 		// ONE limit store for BOTH front-ends. Built here rather than at the runTUI call so
 		// the console gets the same pointer - the browser's spend table and [4] CONFIG are
 		// two views of one setting, and two stores would silently diverge.

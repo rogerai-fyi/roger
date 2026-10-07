@@ -79,6 +79,52 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	return false, true
 }
 
+// lanBand is the band a requested model names: a routing variant suffix (:free, :nitro,
+// :floor) changes how a turn is routed, never which band it is.
+func lanBand(model string) string {
+	for _, v := range []string{":free", ":nitro", ":floor"} {
+		if strings.HasSuffix(model, v) {
+			return strings.TrimSuffix(model, v)
+		}
+	}
+	return model
+}
+
+// lanServes reports whether any local source serves band right now.
+func lanServes(opts ProxyOptions, band string) bool {
+	if opts.LANSelf != nil {
+		if up, _ := opts.LANSelf(band); up != "" {
+			return true
+		}
+	}
+	if opts.EdgePeers != nil && len(opts.EdgePeers(band)) > 0 {
+		return true
+	}
+	return opts.LANTowers != nil && len(opts.LANTowers(band)) > 0
+}
+
+// lanRefuseForeign refuses, on the LAN, a guest's turn naming a model that is not the tuned band
+// and that nothing local serves: rewriting it onto the tuned band would answer a question the
+// caller did not ask, and the market is not a rung in LAN mode.
+func lanRefuseForeign(w http.ResponseWriter, opts ProxyOptions, body []byte) bool {
+	if !opts.LANMode || opts.Model == "" {
+		return false
+	}
+	var p struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(body, &p) != nil || p.Model == "" {
+		return false
+	}
+	asked := lanBand(p.Model)
+	if asked == lanBand(opts.Model) || lanServes(opts, asked) {
+		return false
+	}
+	openAIError(w, http.StatusServiceUnavailable, "lan_error", "lan_only",
+		"nothing on this LAN serves "+asked+": LAN mode is on and the market was not tried - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market")
+	return true
+}
+
 // noteLANLeft names, on the answer, the local sources a turn failed over from, so the caller can
 // see that it left them (features/lan/routing_and_inference.feature, failover inside the LAN).
 func noteLANLeft(w http.ResponseWriter, tried []string) {

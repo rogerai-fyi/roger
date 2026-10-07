@@ -72,10 +72,12 @@ func (s *lanUseBDD) turn(model string) error {
 	return nil
 }
 
-func (s *lanUseBDD) brokerNotAsked(paths ...string) error {
+func (s *lanUseBDD) brokerNotAsked(paths ...string) error { return brokerNotAsked(s.broker, paths...) }
+
+func brokerNotAsked(rb *recordingBroker, paths ...string) error {
 	for _, p := range paths {
-		if s.broker.saw(p) {
-			return fmt.Errorf("the broker was asked %s: %v", p, s.broker.paths)
+		if rb.saw(p) {
+			return fmt.Errorf("the broker was asked %s: %v", p, rb.paths)
 		}
 	}
 	return nil
