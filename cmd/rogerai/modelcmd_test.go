@@ -55,6 +55,10 @@ func TestMain(m *testing.M) {
 	// No test hears the real LAN: a Tower advertising on the developer's network must never
 	// show up as a candidate in a test. Runners that test candidates set the seam themselves.
 	lanBrowseTowers = func(context.Context) (wire.BrowseResult, error) { return wire.BrowseResult{}, nil }
+	// No test inherits the shell's LAN mode: a ROGER_LAN or ROGER_LAN_EDGE_ONLY exported where the
+	// tests run would change what every command does. Runners that test the variables set them.
+	os.Unsetenv("ROGER_LAN")
+	os.Unsetenv("ROGER_LAN_EDGE_ONLY")
 	os.Exit(m.Run())
 }
 

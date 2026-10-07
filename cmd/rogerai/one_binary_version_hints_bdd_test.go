@@ -106,7 +106,7 @@ func (s *obD) oneVariable() error {
 func (s *obD) sameEverywhere() error {
 	run := func(name string, args ...string) (string, error) {
 		cmd := exec.Command(filepath.Join(s.bin, name), args...)
-		cmd.Env = append(os.Environ(), "ROGERAI_NO_UPDATE_CHECK=1", "XDG_CONFIG_HOME="+s.t.TempDir(), "HOME="+s.t.TempDir())
+		cmd.Env = pkgEnv(s.t)
 		var o bytes.Buffer
 		cmd.Stdout = &o
 		err := cmd.Run()

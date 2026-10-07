@@ -149,6 +149,15 @@ f="$FAKE_RELEASE/${url##*/}"
 if [ -n "$out" ]; then cp "$f" "$out"; else cat "$f"; fi
 `
 
+// pkgEnv is the whole environment for a program this runner launches (install.sh, the installed
+// roger, a stand-in): PATH and fresh HOME/config dirs only, so a ROGER_* or ROGERAI_* variable in
+// the shell that runs the tests cannot change what the shipped binaries do. Later entries win.
+func pkgEnv(t *testing.T, extra ...string) []string {
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "XDG_CONFIG_HOME=" + t.TempDir(),
+		"TMPDIR=" + os.TempDir(), "ROGERAI_NO_UPDATE_CHECK=1"}
+	return append(env, extra...)
+}
+
 func (s *pkgBDD) runInstall(component string) error {
 	if runtime.GOOS != "linux" {
 		return godog.ErrSkip
@@ -184,7 +193,7 @@ func (s *pkgBDD) runInstall(component string) error {
 	}
 	s.install = s.t.TempDir()
 	cmd := exec.Command("sh", filepath.Join(repoRoot(), "web", "src", "install.sh"))
-	cmd.Env = append(os.Environ(), "PATH="+fake+":"+os.Getenv("PATH"), "FAKE_RELEASE="+rel,
+	cmd.Env = pkgEnv(s.t, "PATH="+fake+":"+os.Getenv("PATH"), "FAKE_RELEASE="+rel,
 		"ROGERAI_VERSION=v9.9.9", "ROGERAI_INSTALL_DIR="+s.install, "ROGERAI_COMPONENT="+component)
 	var o bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &o, &o
@@ -198,7 +207,9 @@ func (s *pkgBDD) runInstall(component string) error {
 
 func (s *pkgBDD) rogerInstalled() error {
 	p := filepath.Join(s.install, "roger")
-	out, err := exec.Command(p, "version").Output()
+	cmd := exec.Command(p, "version")
+	cmd.Env = pkgEnv(s.t)
+	out, err := cmd.Output()
 	if err != nil || !strings.Contains(string(out), s.d.stamp) {
 		return fmt.Errorf("installed roger version %q (%v)", out, err)
 	}
@@ -349,7 +360,7 @@ func (s *pkgBDD) startsAfterUpgrade() error {
 		return err
 	}
 	cmd := exec.Command(filepath.Join(s.d.bin, "roger-tower"), "serve", "--config", cfg)
-	cmd.Env = append(os.Environ(), "ROGERAI_NO_UPDATE_CHECK=1", "XDG_CONFIG_HOME="+s.t.TempDir(), "HOME="+s.t.TempDir())
+	cmd.Env = pkgEnv(s.t)
 	var errb bytes.Buffer
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, &errb
