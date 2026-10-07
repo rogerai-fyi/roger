@@ -359,3 +359,34 @@ func TestBackgroundScanMissingTheBandKeepsTheConfirm(t *testing.T) {
 	out, _ = asModel(out).Update(offersMsg([]offer{capOffer(other, 32768, false, nil, 1.0, 72)}))
 	require.Equal(t, modeBrowse, asModel(out).mode, "an explicit re-scan that still finds nothing goes back")
 }
+
+// TestRescanUnderAProfileKeepsTheProfile: an explicit re-scan that finds the price above the
+// cap while a profile is chosen stays on the confirm (the raise path would drop the profile).
+func TestRescanUnderAProfileKeepsTheProfile(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{"provider": map[string]any{"max_price": map[string]any{"completion": 2.0}}})
+	m.connected = nil
+	m.bands = []band{{model: "m", online: true, minOut: 3, cheapest: &offer{Model: "m", NodeID: "n1", PriceOut: 3}}}
+	m.mode = modeConnectConfirm
+	m.confirmProfile = "p"
+	m.q = quote{b: band{model: "m"}}
+	m.requote(true)
+	require.Equal(t, modeConnectConfirm, m.mode)
+	require.Equal(t, "p", m.confirmProfile)
+	require.True(t, m.q.overLimit)
+}
+
+// TestQuantPickerStartsFromTheBandsOwnRule: opening the band card's quant picker on a band
+// with no quant rule of its own and saving it untouched stores nothing from the default.
+func TestQuantPickerStartsFromTheBandsOwnRule(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.limits.Default = Limit{Quants: []string{"Q8_0"}}
+	m.bands = []band{{model: "m", quant: "Q8_0", online: true}, {model: "m", quant: "Q4_K_M", online: true}}
+	m.cfgModel, m.mode = "m", modeBandConfig
+	out, _ := m.Update(keyMsg("Q"))
+	m = asModel(out)
+	require.Equal(t, modeBandQuants, m.mode)
+	for i := range m.quantOpts {
+		require.False(t, m.quantSel[i], "nothing is pre-checked from the default's rule")
+	}
+	require.Empty(t, m.limits.own("m").Quants)
+}

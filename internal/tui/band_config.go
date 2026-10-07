@@ -379,7 +379,9 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// The STANDING quant rule for this band. It lives on the card because the card is
 		// where everything about a band lives - and beside the spend caps because it is
 		// the same kind of statement: what this operator will accept being routed to.
-		rule := m.limits.resolve(m.cfgModel).Quants
+		// The band's OWN rule: seeding from the merged one would save the default's quants
+		// into the band when the picker is saved untouched (the card-edit freeze, 1b43c15e).
+		rule := m.limits.own(m.cfgModel).Quants
 		// The picker's rows: the sorted union of the rule in force (each checked)
 		// and every quant the dial knows. A rule can name a quant the dial has
 		// lost, so the union, not just the air.

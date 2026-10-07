@@ -139,3 +139,13 @@ func TestProfileUnsetChecksTheKey(t *testing.T) {
 	require.Equal(t, before, fi.ModTime(), "nothing removed: config.json is not rewritten")
 	require.Contains(t, out, "not set")
 }
+
+// TestClearLimitDefaultClearsTheDefault: `roger config clear-limit default` (where `profile
+// rm default` points) clears limits.default, not a model entry named "default".
+func TestClearLimitDefaultClearsTheDefault(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdSetLimit([]string{"default", "--pref", "cheap", "--max-out", "3"}))
+	require.NoError(t, cmdConfig([]string{"clear-limit", "default"}))
+	c := loadConfig()
+	require.Equal(t, Limit{}, c.Limits.Default)
+}

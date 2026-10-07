@@ -2220,10 +2220,12 @@ func cmdConfig(args []string) error {
 		return cmdConfigShow(args[1:])
 	case "clear-limit":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: roger config clear-limit <model>")
+			return fmt.Errorf("usage: roger config clear-limit <model|default>")
 		}
 		c := loadConfig()
-		if c.Limits.Models != nil {
+		if args[1] == "default" { // limits.default, the rule every band inherits
+			c.Limits.Default = Limit{}
+		} else if c.Limits.Models != nil {
 			delete(c.Limits.Models, args[1])
 		}
 		if err := saveConfig(c); err != nil {

@@ -2900,7 +2900,6 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
 		return m, nil
 	}
-	m.refreshLiveRouting() // now that the band is connected, its tuned profile binds the proxy too
 	if warm {
 		m.mode = modeConnecting
 		m.connectStage = connectStageDone

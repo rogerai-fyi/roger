@@ -83,7 +83,9 @@ func (m *model) requote(explicit bool) {
 		m.q = quote{b: b, limit: m.confirmLimit(b.model), typical: typ, estReply: b.minOut * float64(typ) / 1e6}
 		if m.q.limit.MaxOut > 0 && b.minOut > m.q.limit.MaxOut {
 			m.q.overLimit = true
-			if explicit {
+			// The raise screen re-enters connect, which starts over on the default profile: with
+			// a profile chosen, stay here (accept refuses, p picks another profile).
+			if explicit && m.confirmProfile == "" {
 				m.editBuf = money(b.minOut)
 				m.mode = modeOverLimit
 				return
