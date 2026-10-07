@@ -254,10 +254,12 @@ func TestLocalRoutingValidatesIgnoredRogerValues(t *testing.T) {
 // TestLocalModelsListIsBoundedBeforeItIsRead: models[] is capped at 32 raw entries (contract
 // §1a) before any entry is deduplicated, so a huge list costs nothing to refuse.
 func TestLocalModelsListIsBoundedBeforeItIsRead(t *testing.T) {
-	list := make([]string, 40)
+	// 33 entries, the first invalid: only a bound checked before any entry is read names 32.
+	list := make([]string, 33)
 	for i := range list {
 		list[i] = `"a"`
 	}
+	list[0] = `5`
 	_, e := parseLocalRouting([]byte(`{"model":"a","models":[`+strings.Join(list, ",")+`]}`), false)
 	require.NotNil(t, e)
 	require.Equal(t, 400, e.status)
@@ -315,4 +317,22 @@ func TestLocalModelsEntriesFollowTheBrokerRules(t *testing.T) {
 func TestLocalUnknownMaxPriceKeyIsRefusedEvenWhenNull(t *testing.T) {
 	_, e := parseLocalRouting([]byte(`{"model":"a","provider":{"max_price":{"tokens":null}}}`), false)
 	require.NotNil(t, e)
+}
+
+// TestLocalUnknownRogerKeyIsNamedBeforeTheProfile: as on the broker, every key is checked to
+// be known before any value is read, a profile reference included.
+func TestLocalUnknownRogerKeyIsNamedBeforeTheProfile(t *testing.T) {
+	_, e := parseLocalRouting([]byte(`{"model":"a","roger":{"profile":"@profile/x","bogus":1}}`), false)
+	require.NotNil(t, e)
+	require.Equal(t, "unknown routing key roger.bogus", e.msg)
+}
+
+// TestJobBodyWritesADuplicatedKeyOnce: a caller key that appears twice reaches the station
+// once (with its last value, as JSON decoding reads it), never as a repeated key.
+func TestJobBodyWritesADuplicatedKeyOnce(t *testing.T) {
+	lr, e := parseLocalRouting([]byte(`{"model":"a","temperature":1,"temperature":0.2,"messages":[]}`), false)
+	require.Nil(t, e)
+	out := string(lr.jobBody("a"))
+	require.Equal(t, 1, strings.Count(out, `"temperature"`), out)
+	require.Contains(t, out, `"temperature":0.2`)
 }

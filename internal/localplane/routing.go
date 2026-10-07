@@ -172,9 +172,6 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 	if len(lr.models) == 0 {
 		return lr, &routeErr{status: 400, msg: "a model is required"}
 	}
-	if len(lr.models) > maxLocalModels {
-		return lr, &routeErr{status: 400, msg: fmt.Sprintf("too many models (max %d)", maxLocalModels)}
-	}
 
 	if raw, ok := m["provider"]; ok && string(raw) != "null" {
 		var p map[string]json.RawMessage
@@ -258,16 +255,16 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 		if json.Unmarshal(raw, &r) != nil || r == nil {
 			return lr, &routeErr{status: 400, msg: "roger must be an object"}
 		}
+		rkeys, e := knownKeysInOrder("roger", r, localRogerHonored, localRogerIgnored)
+		if e != nil {
+			return lr, e
+		}
 		if v, has := r["profile"]; has && string(v) != "null" {
 			var ref string
 			if json.Unmarshal(v, &ref) != nil || !strings.HasPrefix(ref, "@profile/") || len(ref) == len("@profile/") {
 				return lr, &routeErr{status: 400, msg: "roger.profile must be @profile/<name>"}
 			}
 			return lr, &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
-		}
-		rkeys, e := knownKeysInOrder("roger", r, localRogerHonored, localRogerIgnored)
-		if e != nil {
-			return lr, e
 		}
 		for _, k := range rkeys {
 			v := r[k]
@@ -354,8 +351,25 @@ func (lr localRouting) jobBody(model string) []byte {
 	return b.Bytes()
 }
 
-// objectKeys returns a JSON object's top-level keys in document order.
+// objectKeys returns a JSON object's top-level keys in document order, a duplicated key once
+// at its LAST position (where its winning value is).
 func objectKeys(body []byte) []string {
+	keys := allObjectKeys(body)
+	last := make(map[string]int, len(keys))
+	for i, k := range keys {
+		last[k] = i
+	}
+	out := keys[:0:0]
+	for i, k := range keys {
+		if last[k] == i {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// allObjectKeys returns every top-level key occurrence in document order.
+func allObjectKeys(body []byte) []string {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return nil
