@@ -602,7 +602,12 @@ func resolveUse(cfg config, f *useFlags, profs *client.Profiles) (useTarget, err
 	r := mergeLayers(layers...)
 	// Stored limits are hand-editable: the merged body is checked like a profile, so a value
 	// the contract does not accept is refused here, never shown as applied.
-	if err := client.ValidateRoutingBody(r.body); err != nil {
+	// Checked with the model the request will carry, so the 5-model limit counts it too.
+	check := map[string]any{"model": model}
+	for k, v := range r.body {
+		check[k] = v
+	}
+	if err := client.ValidateRoutingBody(check); err != nil {
 		return useTarget{}, fmt.Errorf("use: %w", err)
 	}
 	return useTarget{model: model, r: r}, nil

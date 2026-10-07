@@ -164,3 +164,17 @@ func TestUseModelsCountsDistinctModels(t *testing.T) {
 		require.Error(t, err, p)
 	}
 }
+
+// TestUseCountsThePositionalModel: the 5-model limit counts the positional model with the
+// profile's list, so a sixth model is refused before the broker sees it.
+func TestUseCountsThePositionalModel(t *testing.T) {
+	ps := profilesOf(t, `{"profiles":{"five":{"models":["a","b","c","d","e"]}}}`)
+	f, _, err := parseUseFlags([]string{"x", "--profile", "five"})
+	require.NoError(t, err)
+	_, err = resolveUse(config{}, f, ps)
+	require.ErrorContains(t, err, "more than 5")
+	f, _, err = parseUseFlags([]string{"a", "--profile", "five"})
+	require.NoError(t, err)
+	_, err = resolveUse(config{}, f, ps)
+	require.NoError(t, err, "the positional is one of the five")
+}
