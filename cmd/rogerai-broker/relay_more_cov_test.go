@@ -224,6 +224,7 @@ func respondOnce(tun *nodeTunnel, nodeID string, nodePriv ed25519.PrivateKey, bo
 // end to end on a free grant: SSE headers are flushed, the node result settles $0, and the
 // stream completes. This exercises the stream branch of relay + the local relayStream path.
 func TestRelayGrantStreamRoundTrip(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 	owner := "ownerStream"
@@ -262,6 +263,7 @@ func TestRelayGrantStreamRoundTrip(t *testing.T) {
 // earning lot mints for the owner (the fixed=false price-lock + settle branch of
 // relayStream).
 func TestRelayPaidStreamSettles(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
@@ -302,6 +304,7 @@ func TestRelayPaidStreamSettles(t *testing.T) {
 // node returns an EMPTY completion is charged $0 and the consumer's hold is refunded in
 // full (no earning minted).
 func TestRelayPaidStreamVoidRefunds(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)

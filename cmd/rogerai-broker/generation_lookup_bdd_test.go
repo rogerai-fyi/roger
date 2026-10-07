@@ -532,8 +532,14 @@ func (g *gl3State) aliceRequestAny(model string) error {
 
 func (g *gl3State) disconnectBills(cost string) error {
 	c := int(math.Round(sr3f(cost) / (g.st("n-1").priceOut / 1e6)))
+	// Since §14.10 a disconnect bills the FORWARDED text, recounted: the sidecar counts what
+	// reached the consumer as c tokens (prompt recounts to 0 so the cost is the completion's).
+	g.recCompletion = c
 	g.ctxCancel = true
-	g.sse("n-1", []sr3Frame{{line: sr3Content(1, "n-1")}, {line: sr3Content(2, "n-1"), sleep: 300 * time.Millisecond},
+	// The forwarded frame carries text the size of c tokens (~4 chars each), so the bill of
+	// what reached the consumer is c tokens however it is counted.
+	long := fmt.Sprintf(`data: {"choices":[{"delta":{"content":"%s %s"}}]}`, sr3Marker, strings.Repeat("word ", c*4/5))
+	g.sse("n-1", []sr3Frame{{line: long}, {line: sr3Content(2, "n-1"), sleep: 300 * time.Millisecond},
 		{line: sr3Usage(40, c), sleep: 50 * time.Millisecond}, {line: sr3Done}})
 	g.landOn("n-1")
 	if err := g.relayAs("alice", true); err != nil {
@@ -1285,8 +1291,8 @@ func (g *gl3State) receiptIsSecond() error {
 	if err != nil {
 		return err
 	}
-	if rec.RequestID != g.reqID+"-2" {
-		return fmt.Errorf("the record's receipt is %s's, want the second attempt %s-2", rec.RequestID, g.reqID)
+	if want := g.b.attemptID(g.reqID, 2); rec.RequestID != want {
+		return fmt.Errorf("the record's receipt is %s's, want the second attempt %s", rec.RequestID, want)
 	}
 	return nil
 }
@@ -1987,6 +1993,7 @@ func (g *gl3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit("attempts and cost are present"), g.attemptsAndCostPresent)
 	sc.Step(lit("the record has no receipt"), g.noReceipt)
 	sc.Step(lit("the record has no key_limit and no key_spend_after"), g.noKeyState)
+	sc.Step(lit("the record has no key_id"), func() error { return g.absent("key_id") })
 	sc.Step(`^attempts has exactly one entry, ([a-z]+)'s: \{ (.+) \}$`, g.ownerOneAttempt)
 	sc.Step(lit("served is absent from the body"), g.servedAbsent)
 	sc.Step(`^the body does not contain "([^"]*)"$`, g.bodyLacksName)

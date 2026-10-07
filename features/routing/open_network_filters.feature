@@ -634,12 +634,15 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     And the error message names "roger.trust_min"
     And no station was dispatched to
 
-  Scenario: trust_min verified is independent of the Tier-A/Tier-B health gate
+  # superseded 2026-10-05 by contract §14 (founder-approved): an organic success rate below the
+  # Tier-A bar withdraws verified (§14.B7), so a station in Tier B on a low success rate is no
+  # longer verified; was 'And "n-ver-b" is a candidate and serves from Tier B because Tier A is empty'.
+  Scenario: trust_min verified admits neither an unprobed station nor one whose low organic success withdrew verified
     Given node "n-ver-b" is on air for "qwen3-32b", verified, but in Tier B on a low success rate
     And node "n-new-a" is on air for "qwen3-32b", never probed, in Tier A
     When a request for "qwen3-32b" carries roger.trust_min "verified"
     Then "n-new-a" is NOT a candidate
-    And "n-ver-b" is a candidate and serves from Tier B because Tier A is empty
+    And "n-ver-b" is NOT a candidate
 
   Scenario: No verified station is a 503 no_match naming trust_min
     Given node "n-new" is the only station on air for "qwen3-32b" and never probed

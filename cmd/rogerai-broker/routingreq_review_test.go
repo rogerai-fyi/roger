@@ -205,19 +205,25 @@ func TestTowerFailureStatusIsBounded(t *testing.T) {
 // TestErrorBodyIsValidJSON (review A9): the stream path's refusal bodies are marshalled, so a
 // message carrying a quote or a model id with odd characters cannot break the envelope.
 func TestErrorBodyIsValidJSON(t *testing.T) {
-	for _, tc := range []struct{ code, msg string }{
-		{"no_match", `no node offers we"ird\model`},
-		{"", "slot limit reached"},
+	// Contract §14.B6: code is always set (derived from the status when the caller has none)
+	// and every envelope carries a type and a metadata object.
+	for _, tc := range []struct{ code, msg, want string }{
+		{"no_match", `no node offers we"ird\model`, "no_match"},
+		{"", "slot limit reached", "server_error"},
 	} {
 		var env struct {
 			Error struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
+				Code     string         `json:"code"`
+				Message  string         `json:"message"`
+				Type     string         `json:"type"`
+				Metadata map[string]any `json:"metadata"`
 			} `json:"error"`
 		}
-		require.NoError(t, json.Unmarshal(errorBody(tc.code, tc.msg), &env))
-		require.Equal(t, tc.code, env.Error.Code)
+		require.NoError(t, json.Unmarshal(errorBody(503, tc.code, tc.msg), &env))
+		require.Equal(t, tc.want, env.Error.Code)
 		require.Equal(t, tc.msg, env.Error.Message)
+		require.Equal(t, "overloaded_error", env.Error.Type)
+		require.NotNil(t, env.Error.Metadata)
 	}
 	require.True(t, json.Valid(towerFailureBody(429)))
 }

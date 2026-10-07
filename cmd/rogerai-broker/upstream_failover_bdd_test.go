@@ -68,6 +68,7 @@ type fstation struct {
 	forgeRetryAfter *int             // when set, the station posts retry_after_sec = *forgeRetryAfter
 	tun             *nodeTunnel
 	unreachable     bool
+	jobCancels      map[string]context.CancelFunc // in-flight upstream calls by job id (cancel-capable stations)
 }
 
 // statusWriter records the status an upstream script answered with (rejected counting).
@@ -429,6 +430,7 @@ func (s *foState) standUp(name string, o stationOpts) *fstation {
 		Offers: []protocol.ModelOffer{{Model: o.model, PriceIn: o.priceIn, PriceOut: o.priceOut, Ctx: o.ctx}},
 	}
 	s.b.lastSeen[st.id] = time.Now()
+	s.b.notePostedPrices(s.b.nodes[st.id]) // the registration records when each price was posted
 	st.tun = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: "tok-" + st.id}
 	s.b.tunnels[st.id] = st.tun
 	if err := s.db.BindNode(st.id, st.acct); err != nil {
@@ -446,7 +448,12 @@ const foJobHeader = "X-Fo-Job"
 
 // foPostUpstream is the station loop's upstream call: the job body, tagged with its job id.
 func foPostUpstream(url string, job protocol.Job) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(job.Body))
+	return foPostUpstreamCtx(context.Background(), url, job)
+}
+
+// foPostUpstreamCtx is foPostUpstream bound to ctx (a cancel-capable station aborts it on a cancel).
+func foPostUpstreamCtx(ctx context.Context, url string, job protocol.Job) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(job.Body))
 	if err != nil {
 		return nil, err
 	}
@@ -495,10 +502,18 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 			st.mu.Unlock()
 			var resp *http.Response
 			var err error
+			jcancel := context.CancelFunc(func() {})
 			if unreachable {
 				err = fmt.Errorf("connection refused")
 			} else {
-				resp, err = foPostUpstream(st.up.URL, job)
+				var jctx context.Context
+				jctx, jcancel = context.WithCancel(context.Background())
+				st.mu.Lock()
+				if st.jobCancels != nil {
+					st.jobCancels[job.ID] = jcancel
+				}
+				st.mu.Unlock()
+				resp, err = foPostUpstreamCtx(jctx, st.up.URL, job)
 			}
 			if err == nil {
 				status = resp.StatusCode
@@ -547,6 +562,10 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 				}
 				resp.Body.Close()
 			}
+			jcancel()
+			st.mu.Lock()
+			delete(st.jobCancels, job.ID)
+			st.mu.Unlock()
 			rec := protocol.UsageReceipt{
 				RequestID: job.ID, NodeID: st.id, User: job.User, Model: st.model,
 				PromptTokens: pt, CompletionTokens: ct, PriceIn: st.priceIn, PriceOut: st.priceOut,
@@ -576,6 +595,51 @@ func (s *foState) station(st *fstation, stop <-chan struct{}) {
 			s.deliverRaw(st, wire)
 		}
 	}
+}
+
+// cancelCapable makes st speak the job-cancel protocol (features/multinode/job_cancel.feature) the
+// way internal/agent does: it advertises X-Roger-Cancel (noted exactly as the broker's poll handler
+// notes it) and keeps a long-poll on the REAL GET /agent/cancels handler, aborting the upstream
+// call of each cancelled job.
+func (s *foState) cancelCapable(st *fstation) {
+	st.mu.Lock()
+	if st.jobCancels == nil {
+		st.jobCancels = map[string]context.CancelFunc{}
+	}
+	st.mu.Unlock()
+	s.b.noteCancelCapable(st.id)
+	stop := s.stationStop
+	s.stationWG.Add(1)
+	go func() {
+		defer s.stationWG.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			r := httptest.NewRequest(http.MethodGet, "/agent/cancels?node="+st.id, nil).WithContext(ctx)
+			r.Header.Set("Authorization", "Bearer "+st.tun.token)
+			w := httptest.NewRecorder()
+			s.b.agentCancels(w, r)
+			cancel()
+			if w.Code != http.StatusOK {
+				continue
+			}
+			var out struct {
+				IDs []string `json:"ids"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &out)
+			st.mu.Lock()
+			for _, id := range out.IDs {
+				if c := st.jobCancels[id]; c != nil {
+					c()
+				}
+			}
+			st.mu.Unlock()
+		}
+	}()
 }
 
 func (s *foState) deliverRaw(st *fstation, wire []byte) {
@@ -821,29 +885,7 @@ func (s *foState) entriesOf(name string) ([]store.Entry, error) {
 }
 
 func (s *foState) storedReceipt(reqID string) (protocol.UsageReceipt, map[string]any, error) {
-	var raw []byte
-	if s.pg != nil {
-		var txt string
-		if err := s.pg.DB().QueryRow(`SELECT receipt::text FROM rogerai.receipts WHERE request_id=$1`, reqID).Scan(&txt); err != nil {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("receipt %s: %w", reqID, err)
-		}
-		raw = []byte(txt)
-	} else {
-		rec, ok := s.mem.ReceiptOf(reqID)
-		if !ok {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("no stored receipt for %s", reqID)
-		}
-		raw, _ = json.Marshal(rec)
-	}
-	var rec protocol.UsageReceipt
-	var keys map[string]any
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return rec, nil, err
-	}
-	if err := json.Unmarshal(raw, &keys); err != nil {
-		return rec, nil, err
-	}
-	return rec, keys, nil
+	return storedReceiptOf(s.b, s.pg, s.mem, reqID)
 }
 
 func (s *foState) voidReasonOf(name string) (string, string, error) {
@@ -905,8 +947,13 @@ func (s *foState) pickOK(pin string, exclude, allow map[string]bool, b *broker) 
 	return n, ok
 }
 
+// isCooling: the station is not pickable, pinned, for its OWN model (a station that serves
+// another model than the scenario default must be asked about that one).
 func (s *foState) isCooling(name string) bool {
-	_, ok := s.pickOK(s.st(name).id, nil, nil, s.b)
+	st := s.st(name)
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	_, _, ok := s.b.pickFor(st.model, false, 0, 0, 0, st.id, nil, nil, nil, pickReq{rng: seededRand("fo-" + utNonce())})
 	return !ok
 }
 
@@ -1783,7 +1830,7 @@ func (s *foState) failoverLogged() error {
 func (s *foState) s1CoolingTenMinutes() error {
 	s.b.adminEmails = []string{"founder@example.com"}
 	s.only("s1").script429("120")
-	for i := 0; i < 6; i++ { // 6 x 120s = 12 minutes cumulative, each behind a real relay
+	for i := 0; i < 5; i++ { // 5 x 120s = exactly 10 minutes cumulative (the edge: reaching pages)
 		if err := s.pinnedRelay("s1"); err != nil {
 			return err
 		}
@@ -1966,8 +2013,8 @@ func (s *foState) bodyExactlyS2() error {
 	if s.lastCode != 200 {
 		return fmt.Errorf("status %d", s.lastCode)
 	}
-	if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(`{"choices":[{"message":{"role":"assistant","content":"The answer is 4."}}],"usage":{"prompt_tokens":5000,"completion_tokens":20}}`)) {
-		return fmt.Errorf("body is not exactly s2's completion: %s", s.lastBody)
+	if err := utCompletionAsBilled(s.lastBody, utRealCompletionBody, s.lastHdr); err != nil {
+		return fmt.Errorf("s2: %w", err)
 	}
 	if bytes.Contains(s.lastBody, []byte(s.st("s1").id)) {
 		return fmt.Errorf("s1's error body leaked: %s", s.lastBody)
@@ -2227,8 +2274,8 @@ func (s *foState) is200From(name string) error {
 		if !bytes.Contains(s.lastBody, []byte("from "+name)) {
 			return fmt.Errorf("stream is not %s's: %s", name, s.lastBody)
 		}
-	} else if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(utRealCompletionBody)) {
-		return fmt.Errorf("body is not exactly %s's completion: %s", name, s.lastBody)
+	} else if err := utCompletionAsBilled(s.lastBody, utRealCompletionBody, s.lastHdr); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	if p := s.lastHdr.Get("X-RogerAI-Provider"); p != s.st(name).id {
 		return fmt.Errorf("X-RogerAI-Provider=%q, want %s", p, s.st(name).id)
@@ -2318,6 +2365,64 @@ func (s *foState) isStatusUpstreamBody(status string) error {
 	return nil
 }
 
+// isStatusConsumerRejected: a client-caused 4xx is one attempt, voided consumer-rejected at $0,
+// answered with the broker's envelope carrying the station's own body (contract §14.1).
+func (s *foState) isStatusConsumerRejected(status string) error {
+	n, _ := strconv.Atoi(status)
+	if s.lastCode != n {
+		return fmt.Errorf("status %d, want %d (%s)", s.lastCode, n, s.lastBody)
+	}
+	var e struct {
+		Error struct {
+			Code     string         `json:"code"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(s.lastBody, &e); err != nil || e.Error.Code != "consumer_rejected" {
+		return fmt.Errorf("body is not the consumer_rejected envelope: %s", s.lastBody)
+	}
+	if raw, _ := e.Error.Metadata["raw"].(string); !strings.Contains(raw, `"error"`) {
+		return fmt.Errorf("error.metadata.raw does not carry the station's body: %s", s.lastBody)
+	}
+	if s.st("s1").upstreamCount() != 1 {
+		return fmt.Errorf("s1 received %d requests, want 1", s.st("s1").upstreamCount())
+	}
+	vr, _, err := s.voidReasonOf("s1")
+	if err != nil {
+		return err
+	}
+	if vr != protocol.VoidConsumerRejected {
+		return fmt.Errorf("s1 void_reason=%q, want %s", vr, protocol.VoidConsumerRejected)
+	}
+	return s.chargedZero()
+}
+
+// isStatusNoRaw is an upstream credential refusal (401/403): the status, the code and a plain
+// message, never the station's body (founder ruling 2026-10-06).
+func (s *foState) isStatusNoRaw(status, code string) error {
+	n, _ := strconv.Atoi(status)
+	if s.lastCode != n {
+		return fmt.Errorf("status %d, want %d (%s)", s.lastCode, n, s.lastBody)
+	}
+	var e struct {
+		Error struct {
+			Code     string         `json:"code"`
+			Message  string         `json:"message"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(s.lastBody, &e); err != nil || e.Error.Code != code || e.Error.Message == "" {
+		return fmt.Errorf("body is not the %s envelope with a message: %s", code, s.lastBody)
+	}
+	if _, has := e.Error.Metadata["raw"]; has || strings.Contains(string(s.lastBody), "key-abcd1234") {
+		return fmt.Errorf("the station's body reached the consumer: %s", s.lastBody)
+	}
+	if s.st("s1").upstreamCount() != 1 {
+		return fmt.Errorf("s1 received %d requests, want 1", s.st("s1").upstreamCount())
+	}
+	return s.chargedZero()
+}
+
 func (s *foState) receivedNothing(name string) error {
 	if n := s.st(name).upstreamCount(); n != 0 {
 		return fmt.Errorf("%s received %d request(s), want 0", name, n)
@@ -2340,14 +2445,31 @@ func (s *foState) exactlyNStations(n string) error {
 }
 
 func (s *foState) is429LastBodyRA() error {
-	if s.lastCode != 429 || !bytes.Contains(s.lastBody, []byte("rate limit exceeded")) {
-		return fmt.Errorf("status %d body %s, want 429 + upstream body", s.lastCode, s.lastBody)
+	var env struct {
+		Error struct {
+			Code     string `json:"code"`
+			Type     string `json:"type"`
+			Metadata struct {
+				Raw         string `json:"raw"`
+				RetryAfterS int    `json:"retry_after_s"`
+			} `json:"metadata"`
+		} `json:"error"`
 	}
-	if s.lastHdr.Get("Retry-After") == "" {
+	if err := json.Unmarshal(s.lastBody, &env); err != nil || s.lastCode != 429 {
+		return fmt.Errorf("status %d body %s, want a 429 envelope", s.lastCode, s.lastBody)
+	}
+	if env.Error.Code != "upstream_error" || env.Error.Type != "rate_limit_error" || !strings.Contains(env.Error.Metadata.Raw, "rate limit exceeded") {
+		return fmt.Errorf("body %s, want upstream_error/rate_limit_error with the station's body under metadata.raw", s.lastBody)
+	}
+	ra := s.lastHdr.Get("Retry-After")
+	if ra == "" {
 		return fmt.Errorf("no Retry-After on the final 429")
 	}
-	if last := s.lastAttemptStation(); last != "" && !bytes.Contains(s.lastBody, []byte(last)) {
-		return fmt.Errorf("body %s is not the LAST station's (%s)", s.lastBody, last)
+	if strconv.Itoa(env.Error.Metadata.RetryAfterS) != ra {
+		return fmt.Errorf("metadata.retry_after_s %d, Retry-After %s", env.Error.Metadata.RetryAfterS, ra)
+	}
+	if last := s.lastAttemptStation(); last != "" && !strings.Contains(env.Error.Metadata.Raw, last) {
+		return fmt.Errorf("metadata.raw %q is not the LAST station's (%s)", env.Error.Metadata.Raw, last)
 	}
 	return nil
 }
@@ -2663,14 +2785,11 @@ func (s *foState) lineage123() error {
 		}
 		ids[n] = es[0].RequestID
 	}
-	base := ids["s1"]
-	if !strings.HasPrefix(ids["s2"], base+"-") || !strings.HasPrefix(ids["s3"], base+"-") {
-		return fmt.Errorf("attempt ids %v do not share the request lineage %s", ids, base)
+	mine, err := s.entries()
+	if err != nil {
+		return err
 	}
-	if ids["s2"] != base+"-2" || ids["s3"] != base+"-3" {
-		return fmt.Errorf("attempt ids %v, want %s-2 and %s-3", ids, base, base)
-	}
-	return nil
+	return attemptLineage(s.b, mine, []string{ids["s1"], ids["s2"], ids["s3"]})
 }
 
 func (s *foState) ownerNoEarnNoStrike(name string) error {
@@ -2971,9 +3090,26 @@ func (s *foState) is503BandCooling(secs string) error {
 	if s.lastCode != 503 {
 		return fmt.Errorf("status %d (%s)", s.lastCode, s.lastBody)
 	}
-	want := fmt.Sprintf(`{"error":{"code":"band_cooling","message":"band cooling - the station serving %s was rate limited upstream, retry after %ss"}}`, s.model, secs)
-	if string(bytes.TrimSpace(s.lastBody)) != want {
-		return fmt.Errorf("body %s, want %s", bytes.TrimSpace(s.lastBody), want)
+	var env struct {
+		Error struct {
+			Code     string         `json:"code"`
+			Message  string         `json:"message"`
+			Type     string         `json:"type"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(s.lastBody, &env); err != nil {
+		return fmt.Errorf("body %s: %v", s.lastBody, err)
+	}
+	e := env.Error
+	wantMsg := fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ss", s.model, secs)
+	if e.Code != "band_cooling" || e.Message != wantMsg || e.Type != "overloaded_error" || fmt.Sprint(e.Metadata["retry_after_s"]) != secs {
+		return fmt.Errorf("body %s, want band_cooling %q overloaded_error retry_after_s %s", s.lastBody, wantMsg, secs)
+	}
+	for k := range e.Metadata {
+		if k != "request_id" && k != "retry_after_s" {
+			return fmt.Errorf("metadata carries %q: %s", k, s.lastBody)
+		}
 	}
 	return nil
 }
@@ -3068,6 +3204,9 @@ func (s *foState) noRA() error {
 }
 
 func TestUpstreamFailoverBDD(t *testing.T) {
+	// The station-wide cooldown mechanics, with one payer enough to trigger it (the file's
+	// header: ROGERAI_COOLDOWN_MIN_PAYERS 1 is the pre-§14.2 rule).
+	t.Setenv("ROGERAI_COOLDOWN_MIN_PAYERS", "1")
 	st := &foState{t: t, logs: &utLog{}}
 	prev := log.Writer()
 	log.SetOutput(st.logs)
@@ -3097,15 +3236,18 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^stations "s1" and "s2" serve "m"$`, st.twoSamePrice)
 			sc.Step(`^"s1"'s upstream (returns \d+|returns 200 with an empty completion|is unreachable \(station posts 502\)) and "s2"'s returns a real completion$`, st.s1FailureS2Real)
 			sc.Step(`^a funded consumer relays and the pick lands on "([^"]*)"$`, st.relayLandsOn)
+			sc.Step(`^a funded consumer streams and the pick lands on "([^"]*)"$`, st.streamLandsOn)
 			sc.Step(`^the response is 200 from "([^"]*)"$`, st.is200From)
 			sc.Step(`^"s1"'s receipt is voided with void_reason "([^"]*)"$`, st.s1VoidReason)
 			sc.Step(`^"s1"'s upstream returns (\d+) with (\{.*\})$`, st.s1StatusBody)
 			sc.Step(`^the response is (\d+) with the upstream body \(one attempt, voided as today\)$`, st.isStatusUpstreamBody)
+			sc.Step(`^the response is (\d+) with the station's body wrapped as consumer_rejected \(one attempt, voided at \$0\)$`, st.isStatusConsumerRejected)
+			sc.Step(`^the response is (\d+) with error code "([^"]+)", a plain message and no raw station body \(one attempt, voided at \$0\)$`, st.isStatusNoRaw)
 			sc.Step(`^"([^"]*)"'s upstream received nothing$`, st.receivedNothing)
 			sc.Step(`^stations "s1", "s2", "s3", "s4" serve "m" and all upstreams return 429$`, st.fourAll429)
 			sc.Step(`^a funded consumer relays$`, st.fundedRelay)
 			sc.Step(`^exactly (\d+) stations received the request$`, st.exactlyNStations)
-			sc.Step(`^the response is 429 with the last upstream body and a Retry-After$`, st.is429LastBodyRA)
+			sc.Step(`^the response is 429 with the last upstream body wrapped as upstream_error under error\.metadata\.raw and a Retry-After$`, st.is429LastBodyRA)
 			sc.Step(`^three voided receipts exist and the consumer was charged 0$`, st.threeVoidedZero)
 			sc.Step(`^stations "s1" and "s2" serve "m" and both upstreams return 500$`, st.twoBoth500)
 			sc.Step(`^"s1" and "s2" each received exactly one request$`, st.eachExactlyOne)
@@ -3211,7 +3353,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 
 			// 5. only station cooling
 			sc.Step(`^"s1" is the only station for "m" and is cooling for (\d+) more seconds$`, st.onlyS1CoolingFor)
-			sc.Step(`^the response is 503 \{"error":\{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after (\d+)s"\}\}$`, st.is503BandCooling)
+			sc.Step(`^the response is 503 \{"error":\{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after (\d+)s","type":"overloaded_error","metadata":\{"retry_after_s":\d+\}\}\}$`, st.is503BandCooling)
 			sc.Step(`^Retry-After is (\d+)$`, st.retryAfterIs)
 			sc.Step(`^no hold, no receipt, no upstream call$`, st.noHoldReceiptCall)
 			sc.Step(`^"s1" cools for 20s and "s2" for 5s and nothing else serves "m"$`, st.s1_20_s2_5)
@@ -3226,7 +3368,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 
 			// 6. Retry-After
 			sc.Step(`^every station for "m" 429s, the last with "Retry-After: (\d+)"$`, st.all429LastRA)
-			sc.Step(`^the response is 429 with the upstream body and Retry-After: (\d+)$`, st.is429BodyRA)
+			sc.Step(`^the response is 429 with the upstream body wrapped as upstream_error under error\.metadata\.raw and Retry-After: (\d+)$`, st.is429BodyRA)
 			sc.Step(`^every station for "m" 429s with no Retry-After$`, st.all429NoRA)
 			sc.Step(`^the response has Retry-After: (\d+)$`, st.hasRA)
 			sc.Step(`^every station for "m" 503s, the last with "Retry-After: (\d+)"$`, st.all503LastRA)
@@ -3259,7 +3401,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^the station row is on air with a "cooling" marker and the seconds remaining$`, st.stationRowCooling)
 			sc.Step(`^the band is never shown as dark because of cooling$`, st.bandNeverDark)
 			sc.Step(`^one "FAILOVER request=\.\.\. from=s1 \(upstream-throttled\) to=s2" line is logged$`, st.failoverLogged)
-			sc.Step(`^"s1" has been cooling for more than 10 minutes cumulative in the last hour with real demand behind it$`, st.s1CoolingTenMinutes)
+			sc.Step(`^"s1" has been cooling for at least 10 minutes cumulative in the last hour with real demand behind it$`, st.s1CoolingTenMinutes)
 			sc.Step(`^the founder alert "station_cooling:s1" fired once naming the band and the count$`, st.alertFiredOnce)
 			sc.Step(`^it clears after an hour without a cooldown$`, st.alertClears)
 

@@ -28,6 +28,9 @@ type Entry struct {
 	Cost             float64 `json:"cost"`        // credits the consumer paid
 	OwnerShare       float64 `json:"owner_share"` // credits credited to the node owner
 	TS               int64   `json:"ts"`
+	// RelayRequestID is the request id the attempt (RequestID) belongs to: set on the
+	// consumer's rows only (RecentByUser), never on a station owner's.
+	RelayRequestID string `json:"relay_request_id,omitempty"`
 }
 
 type Store interface {
@@ -445,6 +448,18 @@ type Store interface {
 	// to anon (they carry key names and ids, so they are de-identified).
 	RetireAccountKeys(account, anon string) error
 
+	// --- Idempotency-Key claims (contract §14.B2; idem.go) --------------------
+
+	// ClaimIdempotency claims (c.Payer, c.Key) for c.RequestID unless a claim created at or
+	// after since holds it; it returns the live claim (claimed=false) or c (claimed=true).
+	// Claiming keeps at most maxPerPayer keys per payer, evicting the oldest.
+	ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemClaim, bool, error)
+	// FinishIdempotency sets the state of the claim requestID holds (no-op otherwise).
+	FinishIdempotency(payer, key, requestID, state string) error
+	// ReleaseIdempotency deletes the claim requestID holds (no-op otherwise): the request wrote
+	// nothing, so a retry with the key is served fresh.
+	ReleaseIdempotency(payer, key, requestID string) error
+
 	// --- grant keys (GRANT-KEYS-DESIGN) ------------------------------------
 
 	// CreateGrant persists an owner-issued grant (free or custom-priced private
@@ -703,6 +718,12 @@ type Store interface {
 	// Terminal "ban:*" marker strikes are excluded (they are an audit record of the ban,
 	// not an independent signal). `since`<=0 counts all strikes.
 	OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error)
+	// OwnerStrikePayers returns, for an owner's strikes of one kind at or after since: total,
+	// every such row; payerRows, those that RECORD a payer (evidence "payer"); and payers, the
+	// distinct payers behind all of them, where a row with no payer (written before the payer
+	// floor existed) counts as its own payer. Callers discount only payer-bearing rows, so old
+	// evidence keeps its weight.
+	OwnerStrikePayers(accountID, kind string, since int64) (total, payerRows, payers int, err error)
 	// ThrottledCount is the number of a node's receipts the broker voided as
 	// upstream-throttled (an HTTP 429 from the provider behind the station) with a receipt
 	// ts at or after `since` (unix seconds). A throttle is recorded on the $0 receipt, never
@@ -886,6 +907,9 @@ type NodeRecord struct {
 // Mem is the in-memory implementation (single-process, non-durable).
 type Mem struct {
 	mu          sync.Mutex
+	idemClaims  map[string]IdemClaim // Idempotency-Key claims by payer\x00key (idem.go)
+	idemSeq     map[string]int64     // claim order of each (tie-break for eviction)
+	idemN       int64
 	chainHead   map[string]string // nodeID -> last recorded receipt-chain head
 	chainBreaks map[string]int64
 	chainSeen   map[string]int64
@@ -894,6 +918,7 @@ type Mem struct {
 	earnings    map[string]float64
 	spend       map[string]float64
 	entries     []Entry
+	relayReq    map[string]string // attempt id -> its request id; joined into the consumer's rows only
 	processed   map[string]bool
 	owners      map[string]Owner // keyed by pubkey
 	policy      PayoutPolicy
@@ -1369,6 +1394,7 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
@@ -1519,6 +1545,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	// Capture the hold into ledger: release the full reservation, then debit the
 	// actual spend. Net wallet delta == held-cost, matching the cache above.
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
@@ -1580,6 +1607,7 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: stationEarn, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
@@ -1618,7 +1646,25 @@ func (m *Mem) SpendOf(user string) (float64, error) {
 }
 
 func (m *Mem) RecentByUser(user string, limit int) ([]Entry, error) {
-	return m.recent(func(e Entry) bool { return e.User == user }, limit), nil
+	out := m.recent(func(e Entry) bool { return e.User == user }, limit)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range out {
+		out[i].RelayRequestID = m.relayReq[out[i].RequestID]
+	}
+	return out, nil
+}
+
+// noteRelayReqLocked keeps the attempt's request id beside the ledger row, where only the
+// consumer's view joins it in (an owner's never does: it would re-link the attempts).
+func (m *Mem) noteRelayReqLocked(rec protocol.UsageReceipt) {
+	if rec.RequestID == "" || rec.RelayRequestID == "" {
+		return
+	}
+	if m.relayReq == nil {
+		m.relayReq = map[string]string{}
+	}
+	m.relayReq[rec.RequestID] = rec.RelayRequestID
 }
 
 func (m *Mem) RecentByNode(node string, limit int) ([]Entry, error) {

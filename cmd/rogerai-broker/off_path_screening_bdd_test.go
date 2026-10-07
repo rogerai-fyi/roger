@@ -256,6 +256,7 @@ func classifiedText(body string) string {
 // --- relay results ---------------------------------------------------------------
 
 type relayResult struct {
+	relayID    string // X-RogerAI-Request-Id: what screening, flags and logs name the request by
 	code       int
 	body       string
 	hdrReceipt string
@@ -549,6 +550,7 @@ func (s *opsState) relay(id int, body []byte) relayResult {
 	s.b.relay(w, r)
 	res := relayResult{
 		code: w.Code, body: w.Body.String(), hdrReceipt: w.Header().Get("X-RogerAI-Receipt"),
+		relayID: w.Header().Get("X-RogerAI-Request-Id"),
 		elapsed: time.Since(start),
 		user:    protocol.UserIDFromPubkey(hex.EncodeToString(priv.Public().(ed25519.PublicKey))),
 		wallet:  fmt.Sprintf("u_gh_%d", id),
@@ -1074,11 +1076,11 @@ func (s *opsState) csamRowExists() error {
 }
 func (s *opsState) flagRowExists(cat string) error {
 	for _, f := range s.flags(s.last) {
-		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.requestID {
+		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.relayID {
 			return nil
 		}
 	}
-	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.requestID, s.pseudonymOf(s.last), s.flags(s.last))
+	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.relayID, s.pseudonymOf(s.last), s.flags(s.last))
 }
 func (s *opsState) flagCarriesAll() error {
 	fl := s.flags(s.last)
@@ -1429,8 +1431,8 @@ func (s *opsState) staleLineNames() error {
 	if line == "" {
 		return fmtErr("no MODERATION SKIPPED (stale after 429 backoff) line:\n%s", s.logs.String())
 	}
-	if !strings.Contains(line, s.last.requestID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
-		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.requestID, s.pseudonymOf(s.last), line)
+	if !strings.Contains(line, s.last.relayID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
+		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.relayID, s.pseudonymOf(s.last), line)
 	}
 	return nil
 }

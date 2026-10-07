@@ -292,7 +292,9 @@ Feature: Voice relay node-side failure passthrough
     And the consumer wallet "u_test" still holds $10.00
     And no hold remains open for the request
     And no receipt enters lineage for the request
-    And the response carries no X-RogerAI-Cost header
+    # superseded 2026-10-05 by contract §14 (founder-approved): every error carries
+    # X-RogerAI-Cost: 0 (§14.B6); was "carries no X-RogerAI-Cost header".
+    And the response carries X-RogerAI-Cost: 0
 
   Scenario: a node-side failure on a grant-key request records no grant usage
     Given a grant key funded by "u_test" scoped to "@op/voice-a"

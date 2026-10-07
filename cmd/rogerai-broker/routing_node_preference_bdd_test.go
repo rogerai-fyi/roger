@@ -70,6 +70,11 @@ type np1Snap struct {
 type np1State struct {
 	*s0State
 
+	// np1TTFTOnly: the scenario stated TTFT figures, so every relay starts with no total
+	// latency measured (the stub answers in microseconds, and the broker's own measurement of a
+	// served relay would otherwise outrank the stated figures from the second relay on).
+	np1TTFTOnly bool
+
 	// request shaping beyond what the slice-0 runner carries
 	np1Grant   bool               // relay as the grant holder (bearer token, no signature)
 	np1PrefHdr string             // X-Roger-Pref
@@ -114,7 +119,7 @@ func (s *np1State) np1Reset() error {
 	s.np1Snapped, s.np1Before, s.np1LogMark = false, np1Snap{}, 0
 	s.np1RA, s.np1TPS, s.np1BannedOps = map[string]string{}, map[string]float64{}, map[string]bool{}
 	s.np1Later, s.np1BResults, s.np1Collision, s.np1PoseTower = nil, nil, "", ""
-	s.np1Shares = nil
+	s.np1Shares, s.np1TTFTOnly = nil, false
 	return nil
 }
 
@@ -446,8 +451,21 @@ func (s *np1State) np1Snapshot() error {
 // np1Fire is one REAL relay with the current shaping: the slice-0 fire plus the grant bearer,
 // the X-Roger-Pref header, a second consumer and streaming.
 func (s *np1State) np1Fire() error {
+	if s.np1TTFTOnly {
+		s.b.metricsMu.Lock()
+		clear(s.b.totalLat)
+		s.b.metricsMu.Unlock()
+	}
 	if err := s.np1Snapshot(); err != nil {
 		return err
+	}
+	// The stated tok/s hold across the batch: the stub upstream answers in microseconds, so
+	// the broker's own measurement of a served relay would otherwise overwrite them after the
+	// first serve (a band pick, §14.4, is sensitive to exactly that).
+	for n, v := range s.np1TPS {
+		if st, ok := s.stations[n]; ok {
+			s.setTPS(st.id, v)
+		}
 	}
 	var priv ed25519.PrivateKey
 	switch {
@@ -735,6 +753,7 @@ var (
 )
 
 func (s *np1State) np1SetTTFT(name string, ms float64) {
+	s.np1TTFTOnly = true
 	s.b.mu.Lock()
 	tq := s.b.trust[s.st(name).id]
 	tq.ttftMs = ms
@@ -1862,6 +1881,23 @@ func (s *np1State) np1BodyOtherwiseIdentical(name string) error {
 	return nil
 }
 
+// np1BodyIdenticalButMax: the station's body minus the default max_tokens the broker adds to a
+// body that states no output limit (contract §14.11) is the consumer's body without carriers.
+func (s *np1State) np1BodyIdenticalButMax(name string) error {
+	body, err := s.np1StationBody(name)
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(body, []byte(`"max_tokens"`)) {
+		return fmt.Errorf("%q received no default max_tokens: %s", name, body)
+	}
+	got := rewriteBodyDrop(body, map[string]bool{"max_tokens": true}, nil)
+	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(s.np1Base)) {
+		return fmt.Errorf("%q received\n%s\nwant the consumer's body without the carriers (plus max_tokens)\n%s", name, body, s.np1Base)
+	}
+	return nil
+}
+
 func (s *np1State) np1ShowsCounters(order, srt, refused string) error {
 	for key, want := range map[string]string{"routing_strict_order": order, "routing_strict_sort": srt, "routing_nofallback_refused": refused} {
 		w, _ := strconv.Atoi(want)
@@ -1877,15 +1913,9 @@ func (s *np1State) np1OneLogLine(reason, name string) error {
 	if s.lastCode != 200 {
 		return fmt.Errorf("status %d, want 200 (%s)", s.lastCode, s.lastBody)
 	}
-	rec, err := protocol.DecodeReceipt(s.lastHdr.Get("X-RogerAI-Receipt"))
-	if err != nil {
-		return fmt.Errorf("no receipt to read the request id from: %v", err)
-	}
-	req := rec.RequestID
-	if i := strings.LastIndex(req, "-"); i > 0 {
-		if _, aerr := strconv.Atoi(req[i+1:]); aerr == nil {
-			req = req[:i] // the attempt suffix; the line names the request
-		}
+	req := s.lastHdr.Get("X-RogerAI-Request-Id") // the line names the request, never an attempt
+	if req == "" {
+		return fmt.Errorf("the response names no request id")
 	}
 	id, n := s.idOf(name), 0
 	for _, line := range strings.Split(s.np1LogsSince(s.np1LogMark), "\n") {
@@ -2048,7 +2078,7 @@ func (s *np1State) np1BothNoMatchIdentical() error {
 			return fmt.Errorf("response %d: %d %s, want 503 no_match", i+1, r.code, r.body)
 		}
 	}
-	if !bytes.Equal(a.body, b.body) {
+	if !sameApartFromRequestID(a.body, b.body) {
 		return fmt.Errorf("bodies differ:\n%s\n%s", a.body, b.body)
 	}
 	return nil
@@ -2111,6 +2141,11 @@ func (s *np1State) np1HoldCovers(name, price string) error {
 }
 
 func TestRoutingNodePreferenceBDD(t *testing.T) {
+	// These scenarios measure ranking over many free relays from one client IP; the free-traffic
+	// limits (§14.3) are pinned in fairness_and_abuse.feature, so they are off here.
+	for _, k := range []string{"ROGERAI_FREE_RATE_RPM", "ROGERAI_FREE_STATION_RPM", "ROGERAI_FREE_PIN_RPM"} {
+		t.Setenv(k, "0")
+	}
 	st := &np1State{s0State: &s0State{rpState: &rpState{foState: &foState{t: t, logs: &utLog{}}}}}
 	prev := log.Writer()
 	log.SetOutput(st.logs)
@@ -2225,7 +2260,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^the response is (\d+) \{"error":\{"code":"([^"]*)"\}\} with Retry-After: (\d+)$`, st.responseIsWithCodeRetryAfter)
 			sc.Step(`^the response is 400 with error\.code "([^"]*)" naming "([^"]*)"$`, st.response400Naming)
 			sc.Step(`^the response is 503 "([^"]*)"$`, st.response503Message)
-			sc.Step(`^the body carries no error code \(§2\)$`, st.noErrorCode)
+			sc.Step(`^the body carries only the generic band code band_unavailable \(§14\.B6.*\)$`, func() error { return st.errorCodeIs("band_unavailable") })
 			sc.Step(`^the failover goes to "([^"]*)", never "([^"]*)"$`, st.failoverGoesToNever)
 			sc.Step(`^the failover goes to "([^"]*)"$`, st.failoverGoesTo)
 			sc.Step(`^attempt 1 hit "([^"]*)", attempt 2 hit "([^"]*)", attempt 3 hit "([^"]*)"$`, st.attemptsHit)
@@ -2255,7 +2290,6 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^X-RogerAI-Cost is 0 and there is no receipt$`, st.np1CostZeroNoReceipt)
 			sc.Step(`^the hold is released in full$`, st.np1HoldReleasedInFull)
 			sc.Step(`^the error message does not reveal that "([^"]*)" exists or is private$`, st.np1NoReveal)
-			sc.Step(`^the body carries no error code \(§2: .*\)$`, st.noErrorCode)
 			sc.Step(`^the message says no node of this grant's owner matches$`, st.np1GrantOwnerMessage)
 			sc.Step(`^the message says no confidential station matches$`, st.np1ConfidentialMessage)
 			sc.Step(`^the registration is rejected$`, st.registrationRejected)
@@ -2301,6 +2335,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^no error is returned$`, st.np1NoErrorReturned)
 			sc.Step(`^the body "([^"]*)" received has no "provider", "roger" or "models" key$`, st.np1BodyHasNoCarriers)
 			sc.Step(`^the body "([^"]*)" received is otherwise byte-identical to what the consumer sent$`, st.np1BodyOtherwiseIdentical)
+			sc.Step(`^the body "([^"]*)" received is otherwise byte-identical to what the consumer sent, apart from the default max_tokens$`, st.np1BodyIdenticalButMax)
 			sc.Step(`^it shows routing_strict_order (\d+), routing_strict_sort (\d+), routing_nofallback_refused (\d+)$`, st.np1ShowsCounters)
 			sc.Step(`^exactly one log line names the request, "([^"]*)", and "([^"]*)"$`, st.np1OneLogLine)
 			sc.Step(`^no log line contains the band code$`, st.np1NoBandCodeInLogs)
@@ -2309,7 +2344,7 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 			sc.Step(`^the second pick is by score$`, st.np1SecondPickByScore)
 			sc.Step(`^every relay is dispatched to "([^"]*)" \(the consumer chose it\)$`, st.np1EveryDispatchedTo)
 			sc.Step(`^the capacity-aware load factor is reported on /admin/live for "([^"]*)"$`, st.np1LoadFactorReported)
-			sc.Step(`^both responses are byte-identical 503 \{"error":\{"code":"no_match"\}\} bodies$`, st.np1BothNoMatchIdentical)
+			sc.Step(`^both responses are byte-identical 503 \{"error":\{"code":"no_match"\}\} bodies apart from the request id$`, st.np1BothNoMatchIdentical)
 			sc.Step(`^both refusals ran the same constant-work path \(the private lookup is performed whether or not the id exists\)$`, st.np1SameConstantWork)
 		},
 		Options: &godog.Options{

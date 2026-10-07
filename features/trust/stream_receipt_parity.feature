@@ -120,11 +120,14 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
     And the consumer does not receive [DONE] before the broker's usage chunk
     And the consumer receives [DONE] after it
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 reports usage exactly once,
+  # as billed, so the station's usage-only frame is no longer forwarded. Old Then: the
+  # station's usage frame is forwarded unchanged / And the broker's usage chunk follows it.
   Scenario: The station's own usage chunk (if any) passes through before the broker's
     Given "n-1" streams a final frame with usage {"prompt_tokens":120,"completion_tokens":40}
     When a streaming request for "qwen3-32b" is served
-    Then the station's usage frame is forwarded unchanged
-    And the broker's usage chunk follows it
+    Then the station's usage frame is not forwarded
+    And the broker's usage chunk is the only event with a usage object
     And only the broker's carries usage.rogerai
 
   Scenario: The trailing `: rogerai-cost=` comment is still emitted and agrees with the chunk
@@ -148,10 +151,12 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
 
   # --- equality with the non-stream headers ---------------------------------------
 
+  # superseded 2026-10-05 by founder ruling (contract §14.B7 #13): a receipt names the
+  # per-attempt id, the one X-RogerAI-Attempt-Id carries, never the request id itself.
   Scenario: The receipt in the chunk is the same encoding X-RogerAI-Receipt would carry
     When a streaming request for "qwen3-32b" is served by "n-1"
     Then usage.rogerai.receipt decodes with DecodeReceipt
-    And the decoded receipt names the request id, "n-1" and "qwen3-32b"
+    And the decoded receipt names the attempt id, "n-1" and "qwen3-32b"
 
   Scenario: The receipt in the chunk verifies under the current broker signature version
     When a streaming request for "qwen3-32b" is served by "n-1"
@@ -289,11 +294,14 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
     And usage.cost equals the settled cost for those tokens
     And [DONE] follows the chunk
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.10 settles the content
+  # delivered before a stall (recounted, clamped to the hold) and marks the chunk
+  # partial "stall"; a stall before any content is still a void. Old Then: the stream ends
+  # with a usage chunk whose usage.cost is 0 / And usage.rogerai.void_reason names the stall.
   Scenario: A stream that stalls after content is voided per today's rule and the chunk says so
     Given "n-1" streams one content frame and then goes silent past the idle window
     When a streaming request for "qwen3-32b" is served
-    Then the stream ends with a usage chunk whose usage.cost is 0
-    And usage.rogerai.void_reason names the stall
+    Then the stream ends with a usage chunk billing the delivered content, marked partial "stall"
     And [DONE] follows the chunk
 
   Scenario: A genuinely empty final stream bills zero and says so
@@ -450,12 +458,16 @@ Feature: A streamed relay ends with the broker's signed usage chunk, equal to th
     And the station is not struck for it
     And the broker's own chunk follows with the genuine receipt
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): the content the station delivered
+  # before going silent settles as a partial "stall" (§14.10), so withholding the receipt
+  # neither skips settlement nor voids delivered work. Old Then: the stream ends with a
+  # voided usage chunk (cost 0, void_reason set) and then [DONE] / And the hold is released.
   Scenario: A station cannot end the stream early with its own [DONE] to skip settlement
     Given "n-1" streams [DONE] and then never sends a receipt
     When a streaming request for "qwen3-32b" is served
     Then the broker withholds [DONE] until the idle window expires
-    And the stream ends with a voided usage chunk (cost 0, void_reason set) and then [DONE]
-    And the hold is released
+    And the stream ends with a usage chunk billing the delivered content, marked partial "stall"
+    And the request settles once
 
   Scenario: A station cannot send two receipts to get two chunks
     Given "n-1" sends two receipts for the same job

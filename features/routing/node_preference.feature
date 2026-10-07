@@ -140,11 +140,13 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the pick is "p2"
     And "p1" received nothing
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): every band refusal carries the one
+  # generic code band_unavailable (still non-distinguishing); was "the body carries no error code".
   Scenario: only naming a public station on a private-band request is the uniform band message (no code)
     Given a private band "B" with station "p1" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.only ["s1"]
     Then the response is 503 "no station on that frequency (it may be off air) - check the code"
-    And the body carries no error code (§2: nothing on the band path distinguishes its refusals)
+    And the body carries only the generic band code band_unavailable (§14.B6: nothing on the band path distinguishes its refusals)
     And "s1" received nothing
     And "p1" received nothing
 
@@ -329,12 +331,14 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
     Then the pick is "p2"
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the band refusal carries the one
+  # generic code band_unavailable; was "the body carries no error code (§2)".
   @slice0
   Scenario: ignore that empties a private band is the uniform band message (no code)
     Given a private band "B" with station "p1" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
     Then the response is 503 "no station on that frequency (it may be off air) - check the code"
-    And the body carries no error code (§2)
+    And the body carries only the generic band code band_unavailable (§14.B6)
 
   # --- only ∩ ignore -----------------------------------------------------------
   Scenario: a station in both only and ignore is ignored
@@ -768,15 +772,21 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then every pick is "s1"
     # strict: P2C is disabled; the consumer asked for the floor
 
-  Scenario: sort price breaks an out-price tie on in-price
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # both estimated request costs fall within 5% of the best, so both are in the band and the
+  # pick between them is seeded, weighted by spare capacity. Old Then: every pick is "s2".
+  Scenario: sort price keeps two close request costs in one band and spreads between them
     Given "s1" and "s2" both price out 1.00, "s1" prices in 0.50, "s2" prices in 0.20
     When 20 funded consumers relay with provider.sort "price"
-    Then every pick is "s2"
+    Then both "s1" and "s2" are picked
 
-  Scenario: sort price breaks a full price tie on score
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # a tie inside the band is broken by the request seed, never by score or node id.
+  # Old Then: every pick is "s2".
+  Scenario: sort price spreads a full price tie across both stations, not by score
     Given "s1" and "s2" price identically and "s2" has the better reliability
     When 20 funded consumers relay with provider.sort "price"
-    Then every pick is "s2"
+    Then both "s1" and "s2" are picked
 
   Scenario: sort price puts free (0/0) offers first
     Given "f1" serves "m" free (0/0)
@@ -828,15 +838,19 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then every pick is "s3"
     And "s2" is planned after "s1"
 
+  # restored 2026-10-05 (founder ruling): with no station measured, a strict sort falls back to the routing score
   Scenario: sort throughput with every station unmeasured falls back to score
     Given no station has a tps measurement
     When 20 funded consumers relay with provider.sort "throughput"
     Then the picks follow the score order
 
-  Scenario: sort throughput breaks a tps tie on score
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # a tps tie is inside the 10% speed band and broken by the request seed.
+  # Old Then: every pick is "s1".
+  Scenario: sort throughput spreads a tps tie across both stations, not by score
     Given measured tps "s1" 40 and "s2" 40, and "s1" has the better reliability
     When 20 funded consumers relay with provider.sort "throughput"
-    Then every pick is "s1"
+    Then both "s1" and "s2" are picked
 
   Scenario: sort throughput with min_tps filters first, then sorts
     Given measured tps "s1" 20, "s2" 60, "s3" 40
@@ -866,10 +880,13 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 20 funded consumers relay with provider.sort "latency"
     Then every pick is "s3"
 
-  Scenario: sort latency breaks a TTFT tie on score
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # a TTFT tie is inside the 10% speed band and broken by the request seed.
+  # Old Then: every pick is "s3".
+  Scenario: sort latency spreads a TTFT tie across both stations, not by score
     Given measured ttft "s1" 400ms and "s3" 400ms, and "s3" has the better reliability
     When 20 funded consumers relay with provider.sort "latency"
-    Then every pick is "s3"
+    Then both "s1" and "s3" are picked
 
 
   Scenario: sort latency with max_ttft_ms filters first, then sorts
@@ -1181,7 +1198,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
   Scenario: the station receives no provider or roger object
     When a funded consumer relays with provider.order ["s1"], provider.ignore ["s3"], roger.pref "cheap"
     Then the body "s1" received has no "provider", "roger" or "models" key
-    And the body "s1" received is otherwise byte-identical to what the consumer sent
+    # superseded 2026-10-04 by contract §14 (founder-approved): apart from the default max_tokens (§14.11)
+    And the body "s1" received is otherwise byte-identical to what the consumer sent, apart from the default max_tokens
 
   # ============================================================================
   # telemetry and logs
@@ -1225,9 +1243,11 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And the capacity-aware load factor is reported on /admin/live for "s3"
     # strict means strict; the network does not second-guess a named station, it reports
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): every error carries its own
+  # metadata.request_id, so the bodies are byte-identical apart from the request id.
   Scenario: a no-fallback relay cannot be used to probe whether a private station exists
     Given "p1" is a private (band-only) station for "m"
     When a funded consumer relays with provider.order ["p1"] and provider.allow_fallbacks false
     And a funded consumer relays with provider.order ["nonexistent"] and provider.allow_fallbacks false
-    Then both responses are byte-identical 503 {"error":{"code":"no_match"}} bodies
+    Then both responses are byte-identical 503 {"error":{"code":"no_match"}} bodies apart from the request id
     And both refusals ran the same constant-work path (the private lookup is performed whether or not the id exists)

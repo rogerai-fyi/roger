@@ -45,6 +45,23 @@ func effectiveRelayMaxOut(reqMaxOut float64) float64 {
 	return consumerDefaultMaxOut()
 }
 
+// consumerDefaultMaxIn is the broker-side DEFAULT consumer input-price cap (per 1M tokens),
+// ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN (default $5/1M, contract §14.7): the input twin of
+// consumerDefaultMaxOut, so a request that states no input cap cannot bind to a station with
+// a near-zero output price and an outsized input price. <=0 disables the backstop.
+func consumerDefaultMaxIn() float64 {
+	return envFloat("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", 5)
+}
+
+// effectiveRelayMaxIn is effectiveRelayMaxOut for the input axis: the consumer's cap when set
+// (>0), clamped to the register ceiling, else the default backstop.
+func effectiveRelayMaxIn(reqMaxIn float64) float64 {
+	if reqMaxIn > 0 {
+		return math.Min(reqMaxIn, maxPriceInCeiling())
+	}
+	return consumerDefaultMaxIn()
+}
+
 // clampSettleCost bounds a computed settle cost on BOTH sides before it is captured. The
 // LOWER bound is a money invariant: Finalize does `wallet += held - cost`, so a negative (or
 // non-finite) cost would MINT spendable credit into the consumer's wallet - the same class as

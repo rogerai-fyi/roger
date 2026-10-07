@@ -64,7 +64,8 @@ var edgeCoinForTest func() bool
 // receives (the dispatched model, carriers already stripped), its hold ceiling at the row's
 // price over the joined node's declared window (the same holdCostFor a direct pair uses), and
 // the per-request cap lowering max_tokens to what the cap buys at that price.
-func (b *broker) edgePlanCand(model string, e edgeCand, body []byte, capReq float64, promptTokens int, now time.Time) attemptCand {
+func (b *broker) edgePlanCand(model string, e edgeCand, d reqDoc, lim outLimits, capReq float64, promptTokens int, now time.Time) attemptCand {
+	body := d.body
 	b.mu.Lock()
 	reg := b.nodes[e.row.NodeID]
 	b.mu.Unlock()
@@ -72,15 +73,18 @@ func (b *broker) edgePlanCand(model string, e edgeCand, body []byte, capReq floa
 	offer := protocol.ModelOffer{Model: model, PriceIn: e.metric.in, PriceOut: e.metric.out, Ctx: joined.Ctx, CtxEstimated: joined.CtxEstimated}
 	pricing := pricingPlan{payer: e.wallet}
 	ec := e
-	c := attemptCand{node: protocol.NodeRegistration{NodeID: e.row.TowerID}, offer: offer, pricing: pricing, model: model, body: body, edge: &ec}
+	c := attemptCand{node: protocol.NodeRegistration{NodeID: e.row.TowerID}, offer: offer, pricing: pricing, model: model, body: body, edge: &ec,
+		promptTokens: promptTokens, outTokens: lim.stated()}
 	// The larger of the window estimate and the grant's own ceiling (founder ruling
 	// 2026-10-02): the Tower's settlement clamps to the hold, so a hold below the ceiling could
 	// underpay the operator. The consumer's own caps still bound it (capReq below; a pair the
 	// wallet cannot cover is trimmed from the plan like any other).
-	c.maxCost = math.Max(holdCostFor(pricing, offer, body, now), edgeGrantCeiling(e.row.PriceIn, e.row.PriceOut))
+	c.maxCost = math.Max(holdCostSized(pricing, offer, len(body), lim.stated(), now), edgeGrantCeiling(e.row.PriceIn, e.row.PriceOut))
 	if capReq > 0 && c.maxCost > capReq {
 		buys, _ := capBuys(capReq, promptTokens, offer.PriceIn, offer.PriceOut)
-		c.body = capBody(body, buys)
+		if set := lim.capSet(buys); set != nil {
+			c.body, c.outTokens = d.rewrite(nil, set).body, lim.apply(set).stated()
+		}
 		c.maxCost = capReq
 	}
 	return c
@@ -97,7 +101,8 @@ func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 	tps := b.tps[c.node.NodeID]
 	sr, sseen := b.success[c.node.NodeID]
 	b.metricsMu.Unlock()
-	return edgeMetric{in: ain, out: aout, tps: tps, ttft: tq.ttftMs}, tierAHealthy(tq.probeFails, sr, sseen)
+	cost := estRequestCost(c.promptTokens, expectedOutput(c.outTokens, c.promptTokens, c.offer.Ctx), ain, aout)
+	return edgeMetric{in: ain, out: aout, cost: cost, tps: tps, latency: b.latencyRank(c.node.NodeID, tq.ttftMs)}, tierAHealthy(tq.probeFails, sr, sseen)
 }
 
 // edgeMetricLess is the strict single-metric ordering of contract §5 over two candidates
@@ -106,6 +111,9 @@ func (b *broker) directMetric(c attemptCand, now time.Time) (edgeMetric, bool) {
 func edgeMetricLess(key sortKey, a, b edgeMetric) (before, decided bool) {
 	switch key {
 	case sortPrice:
+		if a.cost != b.cost {
+			return a.cost < b.cost, true // estimated request cost (§14.7); a free offer costs 0
+		}
 		if a.out != b.out {
 			return a.out < b.out, true
 		}
@@ -120,11 +128,11 @@ func edgeMetricLess(key sortKey, a, b edgeMetric) (before, decided bool) {
 			return a.tps > b.tps, true
 		}
 	case sortLatency:
-		if am, bm := a.ttft > 0, b.ttft > 0; am != bm {
+		if am, bm := a.latency > 0, b.latency > 0; am != bm {
 			return am, true
 		}
-		if a.ttft != b.ttft {
-			return a.ttft < b.ttft, true
+		if a.latency != b.latency {
+			return a.latency < b.latency, true
 		}
 	}
 	return false, false
@@ -132,12 +140,15 @@ func edgeMetricLess(key sortKey, a, b edgeMetric) (before, decided bool) {
 
 // edgeMerge is how the Tower candidates of a request join the direct plan, per model.
 type edgeMerge struct {
-	order       []string                 // provider.order: the listed portion ranks first, in list order
-	sort        sortKey                  // provider.sort: one metric across both fabrics, direct first on a tie
-	onePerModel bool                     // allow_fallbacks:false: the head of each model only
-	headModel   string                   // the model the request's first pick is for (the coin is flipped there)
-	coinEdge    func() bool              // the fan-out coin, counted once when consulted; true = the Tower head goes first
-	towers      map[string][]attemptCand // per model, in placement order
+	order       []string    // provider.order: the listed portion ranks first, in list order
+	sort        sortKey     // provider.sort: one metric across both fabrics, direct first on a tie
+	onePerModel bool        // allow_fallbacks:false: the head of each model only
+	headModel   string      // the model the request's first pick is for (the coin is flipped there)
+	coinEdge    func() bool // the fan-out coin, counted once when consulted; true = the Tower head goes first
+	// curatedEqual lifts home-first (§14.6); without it a Tower row behind a curated node follows
+	// a home direct station, and a home Tower row leads a curated direct one.
+	curatedEqual bool
+	towers       map[string][]attemptCand // per model, in placement order
 }
 
 // mergeEdgePlan returns the plan with the Tower candidates inserted. Direct candidates keep
@@ -222,6 +233,8 @@ func (b *broker) mergeEdgePlan(plan []attemptCand, models []string, m edgeMerge,
 				towerFirst = true
 			case !towerA && directA:
 				towerFirst = false
+			case !m.curatedEqual && b.nodeCurated(block[0].node.NodeID) != b.nodeCurated(tws[0].edge.row.NodeID):
+				towerFirst = b.nodeCurated(block[0].node.NodeID) // the home side goes first
 			case model == m.headModel && m.coinEdge != nil:
 				towerFirst = m.coinEdge()
 			}
@@ -284,9 +297,9 @@ func (b *broker) noteIDCollisions(ids []string, models []string) {
 
 // planEdgeAttempt runs one planned bridged attempt on the request's hold. soft is "a later
 // candidate stands behind this one", which bounds a dead Tower to the short drive timeout.
-func (b *broker) planEdgeAttempt(r *http.Request, c attemptCand, payer string, holdKey *string, maxCost float64, soft bool, deadline time.Time) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
+func (b *broker) planEdgeAttempt(r *http.Request, c attemptCand, payer string, holdKey *string, maxCost float64, soft bool, deadline time.Time, requestID string) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
 	e := c.edge
-	return b.edgeAttempt(r, e.target, e.row, c.model, c.body, e.wallet, edgeHold{payer: payer, key: holdKey, maxCost: maxCost}, soft, deadline)
+	return b.edgeAttempt(r, e.target, e.row, c.model, c.body, e.wallet, edgeHold{payer: payer, key: holdKey, maxCost: maxCost}, soft, deadline, requestID)
 }
 
 // voidEdgeAttempt records the $0 lineage receipt of a bridged attempt that failed, as a
@@ -307,5 +320,5 @@ func (b *broker) voidEdgeAttempt(payer, user string, c attemptCand, g dispatch.E
 
 // towerFailureBody is the error body a Tower station's failure is answered with.
 func towerFailureBody(status int) []byte {
-	return errorBody("", fmt.Sprintf("the station behind the tower replied %d", status))
+	return errorBody(status, "", fmt.Sprintf("the station behind the tower replied %d", status))
 }

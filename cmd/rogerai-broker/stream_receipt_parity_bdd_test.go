@@ -45,7 +45,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -282,40 +281,11 @@ func (s *sr3State) dispatchedIDs() map[string][]string {
 	return out
 }
 
-var sr3AttemptSuffix = regexp.MustCompile(`-\d+$`)
-
+// resolveReqID reads the request id the relay names on every response (X-RogerAI-Request-Id,
+// founder ruling 2026-10-02). Receipts and dispatched jobs carry per-attempt ids, which never
+// lead back to it.
 func (s *sr3State) resolveReqID() {
-	s.reqID = ""
-	// The relay names its request id on every response (X-RogerAI-Request-Id, founder ruling
-	// 2026-10-02); the dispatched-job and receipt reads below remain for a response without it.
-	if v := s.lastHdr.Get("X-RogerAI-Request-Id"); v != "" {
-		s.reqID = v
-		return
-	}
-	var ids []string
-	for _, l := range s.dispatchedIDs() {
-		ids = append(ids, l...)
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		return len(ids[i]) < len(ids[j]) || (len(ids[i]) == len(ids[j]) && ids[i] < ids[j])
-	})
-	if len(ids) > 0 {
-		s.reqID = sr3AttemptSuffix.ReplaceAllString(ids[0], "")
-		return
-	}
-	// The bridge path dispatches no direct station: read the request id off the receipt the
-	// answer carries (the X-RogerAI-Receipt header, or the stream chunk's).
-	if enc := s.lastHdr.Get("X-RogerAI-Receipt"); enc != "" {
-		if rec, err := protocol.DecodeReceipt(enc); err == nil {
-			s.reqID = sr3AttemptSuffix.ReplaceAllString(rec.RequestID, "")
-			return
-		}
-	}
-	if ch, err := s.chunk(); err == nil {
-		if rec, err := s.chunkReceipt(ch); err == nil {
-			s.reqID = sr3AttemptSuffix.ReplaceAllString(rec.RequestID, "")
-		}
-	}
+	s.reqID = s.lastHdr.Get("X-RogerAI-Request-Id")
 }
 
 // send fires one real relay with the scenario's shaping (rpState.requestBody + headers) through
@@ -1095,7 +1065,7 @@ func (s *sr3State) debit() (float64, int, error) {
 	}
 	total, n := 0.0, 0
 	for _, e := range es {
-		if e.RequestID == s.reqID || strings.HasPrefix(e.RequestID, s.reqID+"-") {
+		if e.RelayRequestID == s.reqID || isAttemptOf(s.b, e.RequestID, s.reqID) {
 			total += e.Cost
 			if e.Cost > 0 {
 				n++
@@ -1378,23 +1348,27 @@ func (s *sr3State) doneAfterChunk() error {
 	return nil
 }
 
-func (s *sr3State) stationUsageForwarded() error {
-	if s.stationUsage == "" || !bytes.Contains(s.lastBody, []byte(s.stationUsage+"\n\n")) {
-		return fmt.Errorf("the station's usage frame %q was not forwarded unchanged: %.500s", s.stationUsage, s.lastBody)
+func (s *sr3State) stationUsageNotForwarded() error {
+	if s.stationUsage == "" {
+		return fmt.Errorf("the station sent no usage frame in this scenario")
+	}
+	if bytes.Contains(s.lastBody, []byte(s.stationUsage)) {
+		return fmt.Errorf("the station's usage frame %q was forwarded (§14.9): %.500s", s.stationUsage, s.lastBody)
 	}
 	return nil
 }
 
-func (s *sr3State) brokerChunkFollowsStation() error {
-	ci := s.chunkIndex()
-	si := -1
+// onlyBrokerUsage: exactly one event carries a usage object, and it is the broker's chunk.
+func (s *sr3State) onlyBrokerUsage() error {
+	n, at := 0, -1
 	for i, ev := range sr3Events(s.lastBody) {
-		if ev == s.stationUsage {
-			si = i
+		var m map[string]json.RawMessage
+		if json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(ev, "data:"))), &m) == nil && len(m["usage"]) > 0 && string(m["usage"]) != "null" {
+			n, at = n+1, i
 		}
 	}
-	if si < 0 || ci <= si {
-		return fmt.Errorf("the broker's chunk (event %d) does not follow the station's usage frame (event %d)", ci, si)
+	if n != 1 || at != s.chunkIndex() {
+		return fmt.Errorf("%d event(s) carry a usage object (the last at %d, the broker's chunk at %d), want exactly the broker's", n, at, s.chunkIndex())
 	}
 	return nil
 }
@@ -1478,8 +1452,9 @@ func (s *sr3State) receiptNames(name, model string) error {
 	if err != nil {
 		return err
 	}
-	if sr3AttemptSuffix.ReplaceAllString(rec.RequestID, "") != s.reqID || rec.NodeID != s.nameID(name) || rec.Model != model {
-		return fmt.Errorf("receipt names request %q node %q model %q, want %q %q %q", rec.RequestID, rec.NodeID, rec.Model, s.reqID, s.nameID(name), model)
+	attempt := s.lastHdr.Get("X-RogerAI-Attempt-Id")
+	if attempt == "" || rec.RequestID != attempt || rec.NodeID != s.nameID(name) || rec.Model != model {
+		return fmt.Errorf("receipt names attempt %q node %q model %q, want %q %q %q", rec.RequestID, rec.NodeID, rec.Model, attempt, s.nameID(name), model)
 	}
 	return nil
 }
@@ -1753,8 +1728,8 @@ func (s *sr3State) receiptNamesSecondAttempt(name string) error {
 	if err != nil {
 		return err
 	}
-	if rec.NodeID != s.nameID(name) || rec.RequestID != s.reqID+"-2" {
-		return fmt.Errorf("chunk receipt names %q/%q, want %s/%s", rec.NodeID, rec.RequestID, s.nameID(name), s.reqID+"-2")
+	if want := s.b.attemptID(s.reqID, 2); rec.NodeID != s.nameID(name) || rec.RequestID != want {
+		return fmt.Errorf("chunk receipt names %q/%q, want %s/%s", rec.NodeID, rec.RequestID, s.nameID(name), want)
 	}
 	return nil
 }
@@ -2135,6 +2110,23 @@ func (s *sr3State) withheldUntilIdle() error {
 	return s.doneAfterChunk()
 }
 
+// partialStallChunk: the stream's last usage chunk bills what was delivered before the stall
+// (a positive cost and completion count, no void_reason, partial "stall"), then [DONE].
+func (s *sr3State) partialStallChunk() error {
+	ch, err := s.chunk()
+	if err != nil {
+		return err
+	}
+	u, _ := ch["usage"].(map[string]any)
+	rb, _ := u["rogerai"].(map[string]any)
+	cost, _ := u["cost"].(float64)
+	ct, _ := u["completion_tokens"].(float64)
+	if _, voided := rb["void_reason"]; voided || rb["partial"] != "stall" || !(cost > 0) || !(ct > 0) {
+		return fmt.Errorf("the chunk is not a delivered-content partial: %v", u)
+	}
+	return s.doneAfterChunk()
+}
+
 func (s *sr3State) voidedChunkThenDone() error {
 	if err := s.chunkCostZero(); err != nil {
 		return err
@@ -2280,8 +2272,8 @@ func (s *sr3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit("the consumer receives the three content frames as they arrive"), s.threeAsTheyArrive)
 	sc.Step(lit("the consumer does not receive [DONE] before the broker's usage chunk"), s.noDoneBeforeChunk)
 	sc.Step(lit("the consumer receives [DONE] after it"), s.doneAfterChunk)
-	sc.Step(lit("the station's usage frame is forwarded unchanged"), s.stationUsageForwarded)
-	sc.Step(lit("the broker's usage chunk follows it"), s.brokerChunkFollowsStation)
+	sc.Step(lit("the station's usage frame is not forwarded"), s.stationUsageNotForwarded)
+	sc.Step(lit("the broker's usage chunk is the only event with a usage object"), s.onlyBrokerUsage)
 	sc.Step(lit("only the broker's carries usage.rogerai"), s.exactlyOneRogerai)
 	sc.Step(lit("a comment line `: rogerai-cost=<x>` follows the usage chunk"), s.commentFollowsChunk)
 	sc.Step(lit("<x> equals usage.cost formatted by fmtCostHeader"), s.commentEqualsCost)
@@ -2291,7 +2283,7 @@ func (s *sr3State) register(sc *godog.ScenarioContext) {
 
 	// Then: receipts and equality
 	sc.Step(lit("usage.rogerai.receipt decodes with DecodeReceipt"), s.receiptDecodes)
-	sc.Step(`^the decoded receipt names the request id, "([^"]*)" and "([^"]*)"$`, s.receiptNames)
+	sc.Step(`^the decoded receipt names the attempt id, "([^"]*)" and "([^"]*)"$`, s.receiptNames)
 	sc.Step(`^the decoded receipt carries broker signature version (\d+)$`, s.receiptSigVersion)
 	sc.Step(lit("VerifyBroker verifies it over the broker canonical form"), s.receiptVerifyBroker)
 	sc.Step(lit("the coverage report says the billed counts are covered"), s.coverageCovered)
@@ -2331,6 +2323,7 @@ func (s *sr3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit("[DONE] follows the chunk"), s.doneAfterChunk)
 	sc.Step(lit("the stream ends with a usage chunk whose usage.cost is 0"), s.chunkCostZero)
 	sc.Step(lit("usage.rogerai.void_reason names the stall"), s.voidNamesStall)
+	sc.Step(lit(`the stream ends with a usage chunk billing the delivered content, marked partial "stall"`), s.partialStallChunk)
 	sc.Step(lit("the usage chunk has usage.completion_tokens 0 and usage.cost 0"), s.completionZeroCostZero)
 	sc.Step(lit("usage.rogerai.void_reason is present"), s.voidPresent)
 	sc.Step(lit("the hold is released in full"), s.holdReleasedFull)

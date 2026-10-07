@@ -46,6 +46,7 @@ type instStats struct {
 	dqOffAir  atomic.Int64
 	// dqRedeliver counts jobs put back because an ack-capable node never acked them.
 	dqRedeliver atomic.Int64
+	cancelsSent atomic.Int64 // job cancels queued for a cancel-capable node (job_cancel.feature)
 	// rcFrames counts remote-control frames this instance received for its viewers.
 	rcFrames atomic.Int64
 
@@ -53,7 +54,10 @@ type instStats struct {
 	// re-dispatched to a sibling after a no-output failure, stations cooled by an upstream
 	// 429, and consumer requests refused fast with the band-cooling 503.
 	relayFailovers atomic.Int64
-	routingPref    [4]atomic.Int64 // per-profile routing passes, indexed by pref
+	// Session affinity (§14.B1): heads served by the affine station, and the reasons it was not.
+	affinityHits   atomic.Int64
+	affinityMisses map[string]int64 // guarded by edgeMu
+	routingPref    [4]atomic.Int64  // per-profile routing passes, indexed by pref
 	// The routing expression (features/routing/ROUTING-EXPRESSION-CONTRACT.md): requests
 	// that carried a routing body / were refused with a routing 400, requests that used a
 	// strict order / a strict sort, no-fallback requests refused no_match, the variant sugar
@@ -65,6 +69,9 @@ type instStats struct {
 	routingStrictSort        atomic.Int64
 	modelFallbacks           atomic.Int64 // a failover that moved to a LATER model of the list
 	routingNoFallbackRefused atomic.Int64
+	routingBudgetExceeded    atomic.Int64 // 503 routing_budget_exceeded (§14.B #12)
+	pairCooldowns            atomic.Int64 // (station, payer, model) cooldowns entered (§14.2)
+	tpmRefusals              atomic.Int64 // 429 request_exceeds_station_tpm (§14.2)
 	variantFree              atomic.Int64
 	variantFloor             atomic.Int64
 	variantNitro             atomic.Int64
@@ -88,6 +95,8 @@ type instStats struct {
 	// noMatchFilter counts no_match refusals by each filter that emptied the pool
 	// (relay_no_match_<filter>, contract §5). Guarded by edgeMu.
 	noMatchFilter map[string]int64
+	// classRequests counts relays per model class (class_requests_<name>, §14.B5). edgeMu.
+	classRequests map[string]int64
 	collisions    map[string]bool
 	// paramsMismatch: node ids whose declared params_b the model id contradicts (§5).
 	paramsMismatch map[string]bool
@@ -172,6 +181,9 @@ func (s *instStats) routingCounters() map[string]int64 {
 		"routing_strict_order":       s.routingStrictOrder.Load(),
 		"routing_strict_sort":        s.routingStrictSort.Load(),
 		"routing_nofallback_refused": s.routingNoFallbackRefused.Load(),
+		"routing_budget_exceeded":    s.routingBudgetExceeded.Load(),
+		"pair_cooldowns":             s.pairCooldowns.Load(),
+		"tpm_refusals":               s.tpmRefusals.Load(),
 		"variant_free":               s.variantFree.Load(),
 		"variant_floor":              s.variantFloor.Load(),
 		"variant_nitro":              s.variantNitro.Load(),
@@ -187,8 +199,36 @@ func (s *instStats) routingCounters() map[string]int64 {
 	for f, n := range s.noMatchFilter {
 		m["relay_no_match_"+f] = n
 	}
+	for c, n := range s.classRequests {
+		m["class_requests_"+c] = n
+	}
+	m["affinity_hits"] = s.affinityHits.Load()
+	total := int64(0)
+	for _, r := range []string{"ineligible", "cooling", "busy", "expired", "explicit"} {
+		m["affinity_misses_"+r] = s.affinityMisses[r]
+		total += s.affinityMisses[r]
+	}
+	m["affinity_misses"] = total
 	s.edgeMu.Unlock()
 	return m
+}
+
+func (s *instStats) noteAffinityMiss(reason string) {
+	s.edgeMu.Lock()
+	if s.affinityMisses == nil {
+		s.affinityMisses = map[string]int64{}
+	}
+	s.affinityMisses[reason]++
+	s.edgeMu.Unlock()
+}
+
+func (s *instStats) noteClassRequest(c string) {
+	s.edgeMu.Lock()
+	if s.classRequests == nil {
+		s.classRequests = map[string]int64{}
+	}
+	s.classRequests[c]++
+	s.edgeMu.Unlock()
 }
 
 func (s *instStats) noteNoMatchFilter(f string) {

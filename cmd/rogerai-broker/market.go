@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -12,8 +13,11 @@ import (
 type offerView struct {
 	NodeID string `json:"node_id"`
 	Region string `json:"region"`
-	HW     string `json:"hw"`
-	Model  string `json:"model"`
+	// regionContradicted: the station's network contradicts its declared region (§14.B7 #21);
+	// surfaced only as attribute_sources.region "contradicted".
+	regionContradicted bool
+	HW                 string `json:"hw"`
+	Model              string `json:"model"`
 	// Quant / Weights / Variant tell two offers of the SAME model id apart, so a consumer
 	// can pick the compression and the build rather than trusting that one "qwen3-8b" is
 	// interchangeable with another. Carried VERBATIM from the offer, never bucketed.
@@ -51,8 +55,10 @@ type offerView struct {
 	// instead of one folded number.
 	UpstreamIn  float64 `json:"upstream_in,omitempty"`
 	UpstreamOut float64 `json:"upstream_out,omitempty"`
-	In          float64 `json:"price_in"`  // active (time-of-use) price right now
-	Out         float64 `json:"price_out"` // active price right now
+	// TPM is a curated station's declared tokens-per-minute budget (§14.2), 0 = none.
+	TPM int     `json:"tpm,omitempty"`
+	In  float64 `json:"price_in"`  // active (time-of-use) price right now
+	Out float64 `json:"price_out"` // active price right now
 	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
 	// graded vs the same-model external reference (preferred) or the live per-model
 	// median. Computed server-side (assignPriceTiers) so every surface renders alike.
@@ -92,6 +98,10 @@ type offerView struct {
 	// still ON AIR (online is unchanged), just not routed to until this passes. The dial
 	// marks it; omitted when the station is not cooling.
 	CoolingUntil int64 `json:"cooling_until,omitempty"`
+	// AttributeSources says where each attribute comes from (contract §14.B7): "declared" by
+	// the station, "estimated" by the broker, "verified" by a broker canary, "measured" by the
+	// broker on traffic - so a consumer can weigh a self-declared filter as one.
+	AttributeSources map[string]string `json:"attribute_sources,omitempty"`
 }
 
 // enrichOffersForNode builds the fully-enriched offerView list for ONE node, with
@@ -210,9 +220,9 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		}
 		out = append(out, offerView{
 			ParamsB: params, ParamsEstimated: paramsEst,
-			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
+			NodeID: n.NodeID, Region: n.Region, regionContradicted: regionContradicted(n), HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
 			Curated: n.Curated, CuratedProvider: n.CuratedProvider,
-			UpstreamIn: o.UpstreamIn, UpstreamOut: o.UpstreamOut,
+			UpstreamIn: o.UpstreamIn, UpstreamOut: o.UpstreamOut, TPM: o.TPM,
 			// canonicalized at read, never raw wire. The VERIFIED "tools" bit is unioned in from the
 			// probe verdict (toolsOK snapshot of toolsVerifiedForLocked): a node-declared "tools" was
 			// stripped at registration, so only a passing canary (this instance's own verdict, or the
@@ -236,8 +246,36 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			InFlight: inflight, Capacity: capacity, Radius: round6(radius),
 			CoolingUntil: coolingUntil,
 		})
+		out[len(out)-1].AttributeSources = attributeSources(out[len(out)-1])
 	}
 	return out
+}
+
+// attributeSources labels an offer's attributes by where they come from (§14.B7).
+func attributeSources(v offerView) map[string]string {
+	src := map[string]string{"tps": "measured", "ttft": "measured"}
+	if v.Region != "" {
+		src["region"] = "declared"
+		if v.regionContradicted {
+			src["region"] = "contradicted"
+		}
+	}
+	if v.Quant != "" {
+		src["quant"] = "declared"
+	}
+	if v.ParamsEstimated != nil {
+		src["params_b"] = map[bool]string{true: "estimated", false: "declared"}[*v.ParamsEstimated]
+	}
+	if v.Ctx > 0 {
+		src["ctx"] = map[bool]string{true: "estimated", false: "declared"}[v.CtxEstimated]
+	}
+	if slices.Contains(v.Capabilities, protocol.CapTools) {
+		src["tools"] = "verified"
+	}
+	if slices.Contains(v.Capabilities, protocol.CapVision) {
+		src["vision"] = "declared"
+	}
+	return src
 }
 
 // discover handles GET /discover: all model offers with live status, measured
@@ -286,6 +324,10 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 // short window. The only side effect is demand-probe scheduling, which is a best-effort
 // hint and still fires on every cache miss.
 func (b *broker) computeDiscover() any {
+	// The verified-tools bits come from the shared store, read once per cache miss, so a
+	// verdict that aged out of the store is gone from the feed (and /v1/models) at once
+	// rather than on the next sync tick (contract §14.B4: an expired verdict removes tools).
+	b.syncToolsVerified()
 	b.mu.Lock()
 	now := time.Now()
 	var out []offerView

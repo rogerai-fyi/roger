@@ -59,7 +59,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1579,10 +1578,7 @@ func aSSEOnly(name string, never ...string) mf1A {
 
 func aBodyIsCompletion() mf1A {
 	return func(s *mf1State) error {
-		if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(utRealCompletionBody)) {
-			return fmt.Errorf("body is not exactly the serving station's completion: %.300s", s.lastBody)
-		}
-		return nil
+		return utCompletionAsBilled(s.lastBody, utRealCompletionBody, s.lastHdr)
 	}
 }
 
@@ -2274,12 +2270,7 @@ func (s *mf1State) requestID() string {
 	if err != nil || len(es) == 0 {
 		return ""
 	}
-	ids := make([]string, 0, len(es))
-	for _, e := range es {
-		ids = append(ids, e.RequestID)
-	}
-	sort.Slice(ids, func(i, j int) bool { return len(ids[i]) < len(ids[j]) })
-	return ids[0]
+	return es[0].RelayRequestID // every attempt's row ties back to the one request id
 }
 
 // --- When ---------------------------------------------------------------------------
@@ -2613,17 +2604,28 @@ func mf1Thens() []mf1Step {
 			}
 			return fmt.Errorf("no station serving \"b\" received the request (response %d %.160s)", s.lastCode, s.lastBody)
 		}),
-		T(`"b1"'s job User is the pseudonym for (user, "b1") and the messages and max_tokens are byte-identical to the consumer's`, func(s *mf1State) error {
+		T(`"b1"'s job User is the pseudonym for (user, "b1"), the messages are byte-identical to the consumer's, and max_tokens is the default output budget`, func(s *mf1State) error {
 			got, err := s.lastBodyOf("b1")
 			if err != nil {
 				return err
 			}
 			var sent map[string]json.RawMessage
 			_ = json.Unmarshal(s.reqBody, &sent)
-			for _, k := range []string{"messages", "max_tokens"} {
-				if !bytes.Equal(got[k], sent[k]) {
-					return fmt.Errorf("b1 received %s %.80s, the consumer sent %.80s", k, got[k], sent[k])
-				}
+			if !bytes.Equal(got["messages"], sent["messages"]) {
+				return fmt.Errorf("b1 received messages %.80s, the consumer sent %.80s", got["messages"], sent["messages"])
+			}
+			if sent["max_tokens"] != nil {
+				return fmt.Errorf("the scenario's consumer must state no max_tokens")
+			}
+			prompt := approxPromptTokens(s.reqBody)
+			s.b.mu.Lock()
+			reg := s.b.nodes[s.st("b1").id]
+			s.b.mu.Unlock()
+			if len(reg.Offers) == 0 {
+				return fmt.Errorf("b1 has no registered offer")
+			}
+			if want := fmt.Sprint(expectedOutput(0, prompt-1, holdWindow(reg.Offers[0]))); string(got["max_tokens"]) != want {
+				return fmt.Errorf("b1 received max_tokens %s, want the default output budget %s", got["max_tokens"], want)
 			}
 			_, rec, err := s.voidReason("b1")
 			if err != nil {
@@ -2722,9 +2724,17 @@ func mf1Thens() []mf1Step {
 		T(`the response is 503 with error code "no_match"`, aCode(503), aErrCode("no_match")),
 		T(`the response is 503 with error code "no_match" and no hold was placed`, aCode(503), aErrCode("no_match"), aNoHold()),
 		T(`the response is 503 with error code "band_cooling" and Retry-After "12"`, aCode(503), aErrCode("band_cooling"), aHdr("Retry-After", "12")),
-		T(`the response is 503 with Retry-After "20" and "b1"'s body`, aCode(503), aHdr("Retry-After", "20"), func(s *mf1State) error {
-			if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(utDefaultBody(503))) {
-				return fmt.Errorf("body %.200s, want b1's upstream body", s.lastBody)
+		T(`the response is 503 with Retry-After "20" and "b1"'s body wrapped as upstream_error under error.metadata.raw`, aCode(503), aHdr("Retry-After", "20"), aErrCode("upstream_error"), func(s *mf1State) error {
+			var env struct {
+				Error struct {
+					Metadata struct {
+						Raw string `json:"raw"`
+					} `json:"metadata"`
+				} `json:"error"`
+			}
+			_ = json.Unmarshal(s.lastBody, &env)
+			if strings.TrimSpace(env.Error.Metadata.Raw) != strings.TrimSpace(utDefaultBody(503)) {
+				return fmt.Errorf("body %.200s, want b1's upstream body under error.metadata.raw", s.lastBody)
 			}
 			return aRecvN("b1", 1)(s)
 		}),
@@ -2740,12 +2750,7 @@ func mf1Thens() []mf1Step {
 		}),
 		T(`the response is 503 "no node of this grant's owner is serving" with error code "no_match"`, aCode(503), aMsgHas("no node of this grant's owner is serving"), aErrCode("no_match")),
 		T(`the response is 503 "no station on that frequency (it may be off air) - check the code"`, aCode(503), aMsgHas("no station on that frequency (it may be off air) - check the code")),
-		T(`the body carries no error code that distinguishes model-denied from off-air`, func(s *mf1State) error {
-			if code, _ := s.errObj(); code != "" {
-				return fmt.Errorf("the band refusal carries error code %q", code)
-			}
-			return nil
-		}),
+		T(`the body carries only the generic band code band_unavailable, which distinguishes nothing`, aErrCode("band_unavailable")),
 		T(`the response is 403 with error code "grant_model_denied"`, aCode(403), aErrCode("grant_model_denied")),
 		T(`the message names the denied models and no station received anything`, aMsgHas("a", "b", "c"), aErrCode("grant_model_denied"), aNoStation()),
 		T(`the message names "a, b, c"`, aMsgHas("a, b, c")),
@@ -2967,11 +2972,11 @@ func mf1Thens() []mf1Step {
 				}
 				ids[n] = es[0].RequestID
 			}
-			base := ids["a1"]
-			if ids["a2"] != base+"-2" || ids["b1"] != base+"-3" {
-				return fmt.Errorf("attempt ids %v, want %s, %s-2, %s-3", ids, base, base, base)
+			mine, err := s.db.RecentByUser(s.payerWallet(), 2000)
+			if err != nil {
+				return err
 			}
-			return nil
+			return attemptLineage(s.b, mine, []string{ids["a1"], ids["a2"], ids["b1"]})
 		}),
 		T(`the settled row is keyed on model "b" and the recount uses "b"'s tokenizer`, aFrom("b1"), func(s *mf1State) error {
 			es, err := s.entriesFor("b1")
@@ -3471,6 +3476,12 @@ func (s *mf1State) register(sc *godog.ScenarioContext) {
 }
 
 func TestRoutingModelFallbackBDD(t *testing.T) {
+	// The station's price here is posted the moment the fixture stands it up; this test is
+	// about the lock's hike protection, so the §14.12 promo-lock window is off (pinned in
+	// features/money/routing_money_hardening.feature).
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
+	// One consumer triggers the station-wide cooldown (model_fallback_list.feature:879's note).
+	t.Setenv("ROGERAI_COOLDOWN_MIN_PAYERS", "1")
 	st := &mf1State{rpState: &rpState{foState: &foState{t: t, logs: &utLog{}}}}
 	prev := log.Writer()
 	log.SetOutput(st.logs)

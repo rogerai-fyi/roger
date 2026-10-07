@@ -80,19 +80,24 @@ func (s *curRouteState) humanAndCurated() error {
 	return s.reg("c1", "gpt-oss-20b", true, "openrouter", 40)
 }
 
-func (s *curRouteState) picksBySameRules() error {
-	// Same terms, many draws: both stations must be REACHABLE by the ordinary pick - a
-	// rule that shut proxies (or humans) out entirely would never select one.
-	seen := map[string]bool{}
+// humanByDefault: home first (§14.6) - with no opt-in and room at home, the human station takes
+// every pick; with an opt-in (curatedEqual) both kinds stay reachable by the ordinary rules.
+func (s *curRouteState) humanByDefault() error {
+	seen, equal := map[string]bool{}, map[string]bool{}
 	for i := 0; i < 64; i++ {
 		n, _, ok := s.b.pickFor("gpt-oss-20b", false, 0, 0, 0, "", nil, nil, nil, pickReq{rng: seededRand(fmt.Sprintf("neutral-%d", i))})
 		if !ok {
 			return fmt.Errorf("pick failed with two healthy stations")
 		}
 		seen[n.NodeID] = true
+		n, _, _ = s.b.pickFor("gpt-oss-20b", false, 0, 0, 0, "", nil, nil, nil, pickReq{rng: seededRand(fmt.Sprintf("neutral-%d", i)), curatedEqual: true})
+		equal[n.NodeID] = true
 	}
-	if !seen["h1"] || !seen["c1"] {
-		return fmt.Errorf("at equal terms both kinds must be reachable by the ordinary rules; picked only %v", seen)
+	if !seen["h1"] || seen["c1"] {
+		return fmt.Errorf("by default the human station must take every pick while it has room; picked %v", seen)
+	}
+	if !equal["h1"] || !equal["c1"] {
+		return fmt.Errorf("with an opt-in both kinds must be reachable by the ordinary rules; picked only %v", equal)
 	}
 	return nil
 }
@@ -115,7 +120,7 @@ func (s *curRouteState) noHardcodedPreference() error {
 		}
 		h := 0
 		for i := 0; i < 400; i++ {
-			n, _, ok := s.b.pickFor("gpt-oss-20b", false, 0, 0, 0, "", nil, nil, nil, pickReq{rng: seededRand(fmt.Sprintf("flip-%d", i))})
+			n, _, ok := s.b.pickFor("gpt-oss-20b", false, 0, 0, 0, "", nil, nil, nil, pickReq{rng: seededRand(fmt.Sprintf("flip-%d", i)), curatedEqual: true})
 			if !ok {
 				return 0, fmt.Errorf("pick failed")
 			}
@@ -271,10 +276,17 @@ func (s *curFilterState) curatedServedNone() error {
 }
 
 func (s *curFilterState) curatedReachableWithoutKey() error {
-	// Same terms, no key: the curated station must be REACHABLE by the ordinary pick
-	// (neutrality, the same observation picksBySameRules makes). Seeded draws, not relays:
-	// after the batch above the human station carries measured successes the curated one
-	// does not, so relay outcomes would show the score, not the filter.
+	// No key: curated is overflow (§14.6), so it serves once the human station has no room.
+	// Seeded draws, not relays: after the batch above the human station carries measured
+	// successes the curated one does not, so relay outcomes would show the score, not the filter.
+	s.b.metricsMu.Lock()
+	s.b.inflight[s.human.id] = capacityOf(s.b.concurrentTPS[s.human.id], s.b.nodes[s.human.id].HW)
+	s.b.metricsMu.Unlock()
+	defer func() {
+		s.b.metricsMu.Lock()
+		s.b.inflight[s.human.id] = 0
+		s.b.metricsMu.Unlock()
+	}()
 	for i := 0; i < 64; i++ {
 		n, _, ok := s.b.pickFor(s.model, false, 0, 0, 0, "", nil, nil, nil, pickReq{rng: seededRand(fmt.Sprintf("nokey-%d", i))})
 		if !ok {
@@ -304,10 +316,10 @@ func TestCuratedRoutingFeature(t *testing.T) {
 			sc.Step(`^a funded consumer relays with body roger\.self_hosted_only true twelve times$`, fs.relaysSelfHostedOnly)
 			sc.Step(`^every one of those relays is served by the human station$`, fs.allServedByHuman)
 			sc.Step(`^the curated station serves none of them$`, fs.curatedServedNone)
-			sc.Step(`^without the key the same consumer can still be served by the curated station$`, fs.curatedReachableWithoutKey)
+			sc.Step(`^without the key the same consumer is served by the curated station once the human station has no room$`, fs.curatedReachableWithoutKey)
 			sc.Step(`^a human and a curated station on one band$`, st.humanAndCurated)
-			sc.Step(`^the router picks by the same price, health and signal rules it always uses$`, st.picksBySameRules)
-			sc.Step(`^no preference for either kind is hard-coded$`, st.noHardcodedPreference)
+			sc.Step(`^by default the human station is picked while it has room$`, st.humanByDefault)
+			sc.Step(`^with an opt-in to curated no preference for either kind is hard-coded$`, st.noHardcodedPreference)
 			sc.Step(`^two curated stations serving the same model via different providers$`, st.twoCuratedDifferentSpeed)
 			sc.Step(`^their measured speed and health differ$`, st.speedsDiffer)
 			sc.Step(`^routing favors the better-measured connection$`, st.favorsBetterMeasured)

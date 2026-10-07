@@ -85,6 +85,11 @@ var (
 	// dqAfterPop is a TEST HOOK run between a poll's pop and its handoff (nil in production);
 	// returning true simulates the process dying at that point.
 	dqAfterPop func(inst string) (crashed bool)
+	// dqBeforeDispatch is a TEST HOOK run as a queue dispatch starts (nil in production): the
+	// dispatch-failure scenarios use it to change REAL state at the one moment that matters
+	// (the station drops off air, the store fails) between the pick and the dispatch. The
+	// returned func, when non-nil, runs as the dispatch call returns.
+	dqBeforeDispatch func(nodeID string) (after func())
 )
 
 var (
@@ -282,7 +287,10 @@ func (q *dispatchQueue) handle(m dqMsg) {
 	tk := q.tickets[m.job]
 	q.mu.Unlock()
 	if tk == nil {
-		return // the relay already finished (a late result is absorbed, as before)
+		if m.kind == "res" {
+			go q.b.lateResultRaw(m.node, m.data) // a result after its 504 is recorded at $0 (§14.10)
+		}
+		return // the relay already finished
 	}
 	switch m.kind {
 	case "bounce":
@@ -425,11 +433,22 @@ func (t *dispatchTicket) close() {
 
 // awaitResult waits for the result, a terminal failure, or the deadline.
 func (t *dispatchTicket) awaitResult(deadline time.Time) ([]byte, error) {
+	return t.awaitResultCtx(context.Background(), deadline)
+}
+
+// errConsumerGone ends a wait whose consumer disconnected (job_cancel.feature).
+var errConsumerGone = errors.New("the consumer disconnected")
+
+// awaitResultCtx is awaitResult that also ends when ctx (the consumer's request) is done, so a
+// multi-instance relay notices a disconnect exactly as the local path does.
+func (t *dispatchTicket) awaitResultCtx(ctx context.Context, deadline time.Time) ([]byte, error) {
 	select {
 	case raw := <-t.res:
 		return raw, nil
 	case <-t.done:
 		return nil, t.err
+	case <-ctx.Done():
+		return nil, errConsumerGone
 	case <-time.After(time.Until(deadline)):
 		return nil, context.DeadlineExceeded
 	}
@@ -534,6 +553,11 @@ func (b *broker) nodeLive(nodeID string) bool {
 }
 
 func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTicket, error) {
+	if h := dqBeforeDispatch; h != nil {
+		if after := h(nodeID); after != nil {
+			defer after()
+		}
+	}
 	if !q.b.nodeLive(nodeID) {
 		q.b.stats.dqOffAir.Add(1)
 		return nil, errOffAir

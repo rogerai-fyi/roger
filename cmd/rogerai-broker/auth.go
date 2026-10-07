@@ -624,7 +624,7 @@ func corsCreds(w http.ResponseWriter, r *http.Request) {
 }
 
 // corsExposedHeaders is every relay response header a first-party browser page may read.
-const corsExposedHeaders = "X-RogerAI-Request-Id, X-RogerAI-Model, X-RogerAI-Provider, X-RogerAI-Relay, X-RogerAI-Cost, X-RogerAI-Receipt, " +
+const corsExposedHeaders = "X-RogerAI-Request-Id, X-RogerAI-Model, X-RogerAI-Provider, X-RogerAI-Relay, X-RogerAI-Cost, X-RogerAI-Receipt, X-RogerAI-Attempt-Id, " +
 	"X-RogerAI-Tokens-In, X-RogerAI-Tokens-Out, X-RogerAI-Balance, X-RogerAI-Price, X-RogerAI-TPS, X-RogerAI-Quality, " +
 	"X-RogerAI-Monthly-Cap, X-RogerAI-Monthly-Spend, X-RogerAI-Monthly-Pct, X-RogerAI-Monthly-Notice, Retry-After"
 

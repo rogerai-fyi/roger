@@ -174,16 +174,6 @@ func (g *genLive) with(f func(st *genStored)) {
 	g.mu.Unlock()
 }
 
-// splitAttemptID maps an attempt id ("<id>" or "<id>-n") to its request id and n.
-func splitAttemptID(attempt string) (string, int) {
-	if i := strings.LastIndexByte(attempt, '-'); i > 0 {
-		if n, err := strconv.Atoi(attempt[i+1:]); err == nil {
-			return attempt[:i], n
-		}
-	}
-	return attempt, 1
-}
-
 // attemptOf returns attempt n of the record, appending it if absent.
 func (st *genStored) attemptOf(n int) *genAttempt {
 	for i := range st.Rec.Attempts {
@@ -203,12 +193,6 @@ func (b *broker) genAttemptStart(requestID string, n int, node, model string) {
 	})
 }
 
-// genAttemptEnd records how attempt (by its attempt id) ended without serving.
-func (b *broker) genAttemptEnd(attempt, node string, status int, void string, retryAfter int) {
-	id, n := splitAttemptID(attempt)
-	b.genAttemptEndN(id, n, node, status, void, retryAfter)
-}
-
 func (b *broker) genAttemptEndN(requestID string, n int, node string, status int, void string, retryAfter int) {
 	b.genLiveOf(requestID).with(func(st *genStored) {
 		a := st.attemptOf(n)
@@ -216,6 +200,9 @@ func (b *broker) genAttemptEndN(requestID string, n int, node string, status int
 			a.Node = node
 		}
 		a.Status, a.VoidReason, a.RetryAfterS = status, void, retryAfter
+		if void == protocol.VoidConsumerRejected {
+			a.ErrorCode = void // the attempt's error is the request itself (§14.1)
+		}
 		if !a.start.IsZero() {
 			a.DurationMs = time.Since(a.start).Milliseconds()
 		}
@@ -404,6 +391,11 @@ func (b *broker) generation(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	b.stats.generationLookups.Add(1)
 	id := r.URL.Query().Get("id")
+	if dryID, ok := strings.CutPrefix(id, "dry_"); ok && requestIDPattern.MatchString(dryID) {
+		// A dry run's id is a request id that never has a record (§14.B3).
+		jsonErrCode(w, http.StatusNotFound, "not_found", "no generation record for that id")
+		return
+	}
 	if !requestIDPattern.MatchString(id) {
 		jsonErrCode(w, http.StatusBadRequest, "invalid_request_id", "id must be a request id: 16 lowercase hex characters")
 		return
@@ -435,7 +427,9 @@ func (b *broker) generation(w http.ResponseWriter, r *http.Request) {
 	if grantID != "" {
 		limitKey = "gen-grant:" + grantID
 	}
-	if ok, retry := b.rl.allow(limitKey); !ok {
+	// Its own bucket (§14.B7), never the relay's: reading records cannot starve relays, and a
+	// caller at its relay limit can still look its requests up.
+	if ok, retry := b.genLimiter().allow(limitKey); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(retry))
 		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
 		return
@@ -490,10 +484,12 @@ func (b *broker) genOwnerView(st genStored, ownerPub string, found bool) any {
 	if !found || (!minted && len(attempts) == 0) {
 		return nil
 	}
+	// Lean (§14.B7): no key id, no model list and no moderation verdict - the consumer's
+	// choices and screening are not a station owner's business.
 	view := map[string]any{
-		"id": rec.ID, "created_at": rec.CreatedAt, "model_requested": rec.ModelRequested, "models": rec.Models,
+		"id": rec.ID, "created_at": rec.CreatedAt, "model_requested": rec.ModelRequested,
 		"streamed": rec.Streamed, "cancelled": rec.Cancelled, "status": rec.Status, "error_code": rec.ErrorCode,
-		"moderation": rec.Moderation, "key_id": rec.KeyID, "attempts": attempts,
+		"attempts": attempts,
 	}
 	if rec.Served != nil && (minted || mine(rec.Served.Node)) {
 		view["served"] = rec.Served
@@ -501,6 +497,18 @@ func (b *broker) genOwnerView(st genStored, ownerPub string, found bool) any {
 		view["ttft_ms"], view["latency_ms"] = rec.TTFTMs, rec.LatencyMs
 	}
 	return view
+}
+
+// genLimiter is /generation's own bucket, at the relay's per-identity limits
+// (ROGERAI_RATE_RPM / _BURST, as /console), built on first use.
+func (b *broker) genLimiter() *rateLimiter {
+	b.genRLOnce.Do(func() {
+		b.genRL = loadRateLimiter()
+		if b.rl != nil {
+			b.genRL.rpm, b.genRL.burst = b.rl.rpm, b.rl.burst
+		}
+	})
+	return b.genRL
 }
 
 // msOf is a duration in milliseconds with microsecond resolution (a fast local relay is

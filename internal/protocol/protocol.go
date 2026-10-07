@@ -93,6 +93,10 @@ type ModelOffer struct {
 	// of the registration (regSigningBytes excludes only Sig and the display fields).
 	UpstreamIn  float64 `json:"upstream_in,omitempty"`
 	UpstreamOut float64 `json:"upstream_out,omitempty"`
+	// TPM is a CURATED station's declared tokens-per-minute budget at its provider (0 = none
+	// declared). The broker never dispatches one request whose measured prompt exceeds
+	// ROGERAI_TPM_REQUEST_SHARE of it (contract §14.2); a human station may not declare one.
+	TPM int `json:"tpm,omitempty"`
 	// Voice metadata (optional; set only for voice offers) — surfaced by GET /voices for the app
 	// picker (BROKER-VOICE-API.md). Passive display labels ONLY; a node address is never here.
 	Name      string `json:"name,omitempty"`
@@ -370,10 +374,14 @@ type NodeRegistration struct {
 	// BridgeToken is a shared secret the broker presents (Bearer) when relaying
 	// to the node's bridge. It secures the PUBLIC tunnel URL so only the broker
 	// can use it - randoms who discover the *.trycloudflare.com URL can't.
-	BridgeToken string       `json:"bridge_token"`
-	Region      string       `json:"region"`
-	HW          string       `json:"hw"`
-	Offers      []ModelOffer `json:"offers"`
+	BridgeToken string `json:"bridge_token"`
+	Region      string `json:"region"`
+	// NetContinent is BROKER-set at register: the continent the node's connecting address falls
+	// in under the operator's network table ("" = none). It is outside the node's signed bytes
+	// (regSigningBytes), rides the shared registry mirror, and is never emitted to consumers.
+	NetContinent string       `json:"net_continent,omitempty"`
+	HW           string       `json:"hw"`
+	Offers       []ModelOffer `json:"offers"`
 	// Confidential: node claims it runs inference in a TEE/confidential VM where
 	// the owner cannot read memory; Attestation is the (to-be-verified) hardware
 	// quote. The broker only surfaces `confidential ◆` after CRYPTOGRAPHICALLY
@@ -453,6 +461,7 @@ type NodeRegistration struct {
 func (r NodeRegistration) regSigningBytes() []byte {
 	c := r
 	c.Sig = ""
+	c.NetContinent = "" // broker-set after the node signs
 	if len(c.Offers) > 0 {
 		offers := make([]ModelOffer, len(c.Offers))
 		copy(offers, c.Offers)
@@ -590,13 +599,25 @@ type UsageReceipt struct {
 	SigVersion int    `json:"sig_version,omitempty"`
 	NodeSig    string `json:"node_sig,omitempty"`
 	BrokerSig  string `json:"broker_sig,omitempty"`
+	// RelayRequestID is the consumer-facing request id (X-RogerAI-Request-Id) this attempt
+	// belongs to. Broker-internal: never serialized, so it is in neither signed form, never
+	// reaches a station, and travels only to the store's consumer-side ledger row.
+	RelayRequestID string `json:"-"`
 }
 
 // Void reasons a broker stamps on a $0 receipt (UsageReceipt.VoidReason).
 const (
 	VoidUpstreamThrottled = "upstream-throttled" // the provider behind the station said 429: capacity, not misconduct
 	VoidUpstreamError     = "upstream-error"     // any other >= 400 from the station
-	VoidEmptyOutput       = "empty-output"       // a 2xx that carried no usable completion
+	// VoidConsumerRejected: the station's server refused the REQUEST itself (400, 401, 404,
+	// 413, 422 that is not a context-window overflow): a fact about what the consumer sent,
+	// never evidence about the operator (contract §14.1).
+	VoidConsumerRejected = "consumer-rejected"
+	// VoidLateAfterTimeout: a non-stream result that arrived after the consumer was answered
+	// 504, within the late-receipt grace (contract §14.10): recorded for lineage at $0, the
+	// consumer billed nothing, the operator unpaid, never a strike.
+	VoidLateAfterTimeout = "late-after-timeout"
+	VoidEmptyOutput      = "empty-output" // a 2xx that carried no usable completion
 	// VoidContextWindow: the upstream refused the prompt as larger than the model's window (a
 	// 400 in the context-overflow vocabulary). It is a fact about the request against that
 	// model, never a strike; with a model list it moves the request on to the next model.

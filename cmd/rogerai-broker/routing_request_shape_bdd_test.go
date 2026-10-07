@@ -1188,7 +1188,26 @@ func (s *rs1State) persistedNegative(model, out string) error {
 	return s.persisted(model, -rs1f(out))
 }
 
-func (s *rs1State) rehydrates() error { s.b.rehydrateNodes(); return nil }
+// rehydrates runs the broker's real re-hydration. On a shared Postgres the store also holds
+// nodes earlier suites persisted moments ago (still inside the liveness window, their stubs
+// gone); only this scenario's own nodes and the one it persisted are kept on the air.
+func (s *rs1State) rehydrates() error {
+	s.b.mu.Lock()
+	mine := map[string]bool{"n-persisted-" + s.nonce: true}
+	for id := range s.b.nodes {
+		mine[id] = true
+	}
+	s.b.mu.Unlock()
+	s.b.rehydrateNodes()
+	s.b.mu.Lock()
+	for id := range s.b.nodes {
+		if !mine[id] {
+			delete(s.b.nodes, id)
+		}
+	}
+	s.b.mu.Unlock()
+	return nil
+}
 
 func (s *rs1State) ownerRaisesOut(name, out string) error {
 	st := s.st(name)
@@ -1954,6 +1973,20 @@ func (s *rs1State) stationOnlyKeys(a, b string) error {
 	}
 	if len(m) != 2 || m[a] == nil || m[b] == nil {
 		return fmt.Errorf("the station received keys other than %q, %q: %s", a, b, body)
+	}
+	return nil
+}
+
+// stationOnlyKeysDefaultMax: the two consumer keys plus the default max_tokens the broker adds
+// to a body that states no output limit (contract §14.11), a positive integer.
+func (s *rs1State) stationOnlyKeysDefaultMax(a, b string) error {
+	m, body, err := s.upstreamBody()
+	if err != nil {
+		return err
+	}
+	var mt int
+	if len(m) != 3 || m[a] == nil || m[b] == nil || json.Unmarshal(m["max_tokens"], &mt) != nil || mt <= 0 {
+		return fmt.Errorf("the station received keys other than %q, %q and a default max_tokens: %s", a, b, body)
 	}
 	return nil
 }
@@ -2774,6 +2807,7 @@ func rs1Steps(sc *godog.ScenarioContext, st *rs1State) {
 
 	// Then: what the station / Tower / bus received
 	sc.Step(`^the station received a body whose only top-level keys are "([^"]*)", "([^"]*)"$`, st.stationOnlyKeys)
+	sc.Step(`^the station received a body whose only top-level keys are "([^"]*)", "([^"]*)" and the default "max_tokens"$`, st.stationOnlyKeysDefaultMax)
 	sc.Step(`^the station received no top-level key "([^"]*)"$`, st.stationNoKey)
 	sc.Step(`^the station received top-level key "([^"]*)" with value (.+)$`, st.stationReceivedKey)
 	sc.Step(`^the station received top-level key "([^"]*)" byte-identical to what was sent$`, st.stationKeyByteIdentical)
@@ -2865,5 +2899,14 @@ func TestRoutingRequestShapeBDD(t *testing.T) {
 }
 
 func TestRoutingVariantSugarBDD(t *testing.T) {
+	// The station's price here is posted the moment the fixture stands it up; this test is
+	// about the lock's hike protection, so the §14.12 promo-lock window is off (pinned in
+	// features/money/routing_money_hardening.feature).
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
+	// These scenarios measure ranking over many free relays from one client IP; the free-traffic
+	// limits (§14.3) are pinned in fairness_and_abuse.feature, so they are off here.
+	for _, k := range []string{"ROGERAI_FREE_RATE_RPM", "ROGERAI_FREE_STATION_RPM", "ROGERAI_FREE_PIN_RPM"} {
+		t.Setenv(k, "0")
+	}
 	rs1Run(t, "../../features/routing/variant_sugar.feature")
 }

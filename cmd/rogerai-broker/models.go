@@ -9,19 +9,28 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 type modelEntry struct {
-	ID      string         `json:"id"`
-	Object  string         `json:"object"`
-	Created int64          `json:"created"`
-	OwnedBy string         `json:"owned_by"`
-	RogerAI map[string]any `json:"rogerai,omitempty"`
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+	// The OpenRouter-compatible top-level fields SDKs read (contract §14.B4).
+	ContextLength       int                 `json:"context_length,omitempty"` // max DECLARED window
+	Pricing             map[string]string   `json:"pricing,omitempty"`        // per-token USD, ONE offer
+	SupportedParameters []string            `json:"supported_parameters,omitempty"`
+	Architecture        map[string][]string `json:"architecture,omitempty"`
+	RogerAI             map[string]any      `json:"rogerai,omitempty"`
 }
 
 func (b *broker) models(w http.ResponseWriter, r *http.Request) {
@@ -86,13 +95,14 @@ func (b *broker) catalogCreated() func(string) int64 {
 // modelAgg accumulates one model's rogerai block over its on-air chat offers.
 type modelAgg struct {
 	providers, curated                int
-	minIn, minOut, bestTPS            float64
+	minIn, minOut, bestTPS, blend     float64 // blend: the lowest single-station blended price
 	priced                            bool
 	ctxMax                            int
 	declared, estimated               []float64
 	caps, quants                      map[string]bool
 	free, confidential, verified, all bool // all: every offer cooling
 	coolUntil                         int64
+	priceIn, priceOut, priceKey       float64 // the coherent pricing offer: lowest blended cost, first wins a tie
 }
 
 // collapseModels collapses offers into catalog entries, sorted by id.
@@ -113,6 +123,16 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 			a.curated++
 		} else {
 			a.providers++
+		}
+		if bl := blendedPrice(o.In, o.Out); !a.priced || bl < a.blend {
+			a.blend = bl // one station's in AND out, never one's in with another's out
+		}
+		in, out := o.In, o.Out
+		if o.FreeNow {
+			in, out = 0, 0 // an active free window prices the offer at nothing right now
+		}
+		if k := blendedPrice(in, out); !a.priced || k < a.priceKey {
+			a.priceIn, a.priceOut, a.priceKey = in, out, k // strict: a tie keeps the earlier /discover offer
 		}
 		if !a.priced || o.In < a.minIn {
 			a.minIn = o.In
@@ -156,6 +176,7 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 		block := map[string]any{
 			"providers": a.providers, "curated": a.curated,
 			"min_price_in": a.minIn, "min_price_out": a.minOut, "best_tps": a.bestTPS,
+			"blended_price_per_1m": a.blend, "blend_ratio": blendLabel(),
 			"free_now": a.free, "confidential": a.confidential, "verified": a.verified,
 			"quants": sortedKeys(a.quants), "cooling": a.all,
 		}
@@ -182,10 +203,82 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 		if len(a.caps) > 0 {
 			block["capabilities"] = sortedKeys(a.caps)
 		}
-		data = append(data, modelEntry{ID: id, Object: "model", OwnedBy: "rogerai", Created: created(id), RogerAI: block})
+		// Where the block's attributes come from (§14.B7), as on each /discover offer.
+		src := map[string]string{"tps": "measured", "ttft": "measured"}
+		if len(a.quants) > 0 {
+			src["quant"] = "declared"
+		}
+		if est, ok := block["params_estimated"].(bool); ok {
+			src["params_b"] = map[bool]string{true: "estimated", false: "declared"}[est]
+		}
+		if a.ctxMax > 0 {
+			src["ctx"] = "declared"
+		}
+		if a.caps[protocol.CapTools] {
+			src["tools"] = "verified"
+		}
+		if a.caps[protocol.CapVision] {
+			src["vision"] = "declared"
+		}
+		block["attribute_sources"] = src
+		params := []string{"max_tokens", "temperature", "top_p", "stop", "seed", "stream"}
+		if a.caps["tools"] { // the canary-verified bit only (a declared "tools" is stripped at register)
+			params = append(params, "tools", "tool_choice", "response_format")
+		}
+		input := []string{"text"}
+		if a.caps["vision"] {
+			input = append(input, "image")
+		}
+		data = append(data, modelEntry{
+			ID: id, Object: "model", OwnedBy: "rogerai", Created: created(id), RogerAI: block,
+			ContextLength:       a.ctxMax,
+			Pricing:             map[string]string{"prompt": perTokenUSD(a.priceIn), "completion": perTokenUSD(a.priceOut)},
+			SupportedParameters: params,
+			Architecture:        map[string][]string{"input_modalities": input, "output_modalities": {"text"}},
+		})
 	}
+	data = append(data, classEntries(offers, data)...)
+	sort.Slice(data, func(i, j int) bool { return data[i].ID < data[j].ID })
 	return data
 }
+
+// perTokenUSD renders a $/1M price as OpenRouter's per-token decimal string: the shortest
+// decimal of the $/1M figure with its point moved six places left, so no float division
+// adds noise and no exponent appears ("0.1" -> "0.0000001", 0 -> "0").
+func perTokenUSD(perM float64) string {
+	if perM <= 0 {
+		return "0"
+	}
+	digits := strconv.FormatFloat(perM, 'f', -1, 64)
+	whole, frac, _ := strings.Cut(digits, ".")
+	whole = strings.Repeat("0", max(0, 6-len(whole))) + whole
+	cut := len(whole) - 6
+	out := strings.TrimLeft(whole[:cut], "0")
+	if out == "" {
+		out = "0"
+	}
+	if f := strings.TrimRight(whole[cut:]+frac, "0"); f != "" {
+		out += "." + f
+	}
+	return out
+}
+
+// blendRatio is ROGERAI_BLEND_INPUT_RATIO (input tokens per output token, default 3), read
+// per call like the other pricing knobs.
+func blendRatio() float64 {
+	if v, err := strconv.ParseFloat(os.Getenv("ROGERAI_BLEND_INPUT_RATIO"), 64); err == nil && v > 0 && !math.IsInf(v, 0) {
+		return v
+	}
+	return 3
+}
+
+// blendedPrice is one offer's $/1M at the blend ratio: (r*in + out) / (r+1).
+func blendedPrice(in, out float64) float64 {
+	r := blendRatio()
+	return (r*in + out) / (r + 1)
+}
+
+func blendLabel() string { return strconv.FormatFloat(blendRatio(), 'g', -1, 64) + ":1 input:output" }
 
 // firstSeenModel is the unix time a model FIRST came on air: a shared-store record (the same
 // on every broker instance), written once and read back; the in-memory map serves a

@@ -1465,10 +1465,14 @@ func (s *df2State) staleNodesScheduled() error {
 
 // --- assertions: /v1/models ----------------------------------------------------------------
 
+// ids are the MODEL entries' ids: class alias entries (@class/..., §14.B4) are not models.
 func (s *df2State) ids() []string {
 	var out []string
 	for _, e := range s.data {
 		id, _ := e["id"].(string)
+		if strings.HasPrefix(id, classPrefix) {
+			continue
+		}
 		out = append(out, id)
 	}
 	return out
@@ -1595,7 +1599,9 @@ func (s *df2State) idsEqualMarketSet() error {
 	_ = json.Unmarshal(s.bodies[1], &market)
 	a, b := map[string]bool{}, map[string]bool{}
 	for _, e := range models.Data {
-		a[e["id"].(string)] = true
+		if id := e["id"].(string); !strings.HasPrefix(id, classPrefix) {
+			a[id] = true
+		}
 	}
 	for _, m := range market.Market {
 		b[m["model"].(string)] = true
@@ -1617,7 +1623,9 @@ func (s *df2State) idsEqualOnlineDiscover() error {
 	_ = json.Unmarshal(s.bodies[2], &disc)
 	a, b := map[string]bool{}, map[string]bool{}
 	for _, e := range models.Data {
-		a[e["id"].(string)] = true
+		if id := e["id"].(string); !strings.HasPrefix(id, classPrefix) {
+			a[id] = true
+		}
 	}
 	for _, o := range disc.Offers {
 		if on, _ := o["online"].(bool); on {

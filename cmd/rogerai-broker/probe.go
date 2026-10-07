@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -66,8 +70,40 @@ var canaryFingerprints = []canaryFingerprint{
 // nextCanary returns the fingerprint for round n (round-robin over the set). Taking
 // the round number keeps selection deterministic + testable and guarantees every
 // fingerprint is exercised over a full cycle (no RNG-skew that could starve one).
+//
+// The challenge cycles through canaryFingerprints; its WORDING is drawn from a pool whose size is
+// coprime to the challenge count, so successive cycles phrase each challenge differently and no
+// fixed instruction sentence marks a canary (§14.B7 #2). The expected answer never changes.
 func nextCanary(round uint64) canaryFingerprint {
-	return canaryFingerprints[int(round%uint64(len(canaryFingerprints)))]
+	fp := canaryFingerprints[int(round%uint64(len(canaryFingerprints)))]
+	if alts, ok := canaryArithmetic[fp.expect]; ok {
+		fp.prompt = alts[int(round/uint64(len(canaryFingerprints)))%len(alts)]
+		return fp
+	}
+	fp.prompt = fmt.Sprintf(canaryWordPhrasings[int(round%uint64(len(canaryWordPhrasings)))], strings.ToUpper(fp.expect))
+	return fp
+}
+
+// canaryWordPhrasings are the ways a one-word challenge is asked (11: coprime to the 8
+// challenges, so a full lcm cycle pairs every word with every wording).
+var canaryWordPhrasings = []string{
+	"Reply with only the single word: %s",
+	"Answer with just one word, %s, and nothing else.",
+	"Please respond with the word %s only.",
+	"Say %s. No other text.",
+	"Type back exactly this word and nothing more: %s",
+	"Your whole reply should be the word %s.",
+	"Return only %s.",
+	"Write %s and stop.",
+	"Echo this word back to me, alone: %s",
+	"Just say %s, please.",
+	"One word reply: %s",
+}
+
+// canaryArithmetic are the ways each arithmetic challenge is asked, by expected answer.
+var canaryArithmetic = map[string][]string{
+	"5": {"Output only the number that is two plus three, as digits.", "What is 2 + 3? Reply with the digit only.", "Give just the digit for two plus three."},
+	"3": {"Output only the result of seven minus four, as a digit.", "What is 7 - 4? Answer with only the digit.", "Seven minus four is what? Digits only, please."},
 }
 
 // Active-probe defaults. The probe is ON by default now (nodes get MEASURED before
@@ -687,19 +723,36 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 		return
 	}
 
-	body, _ := json.Marshal(map[string]any{
-		"model":       model,
-		"messages":    []map[string]string{{"role": "user", "content": fp.prompt}},
-		"temperature": 0,
-		// canaryMaxTokens leaves room for a REASONING model (gpt-oss, deepseek, ...)
-		// to emit its reasoning/harmony channel AND a short answer. A tiny budget
-		// (the old 16) was exhausted by the reasoning channel before any answer
-		// surfaced, false-failing perfectly healthy flagships. Liveness no longer
-		// depends on the fingerprint landing, but the larger budget gives reasoning
-		// models a fair shot at producing the literal answer (the strong signal).
-		"max_tokens": canaryMaxTokens,
-	})
-	job := protocol.Job{ID: protocol.NewRequestID(), User: "probe", Body: body}
+	prompt := fp.prompt
+	zero := 0.0
+	// canaryMaxTokens leaves room for a REASONING model (gpt-oss, deepseek, ...) to emit its
+	// reasoning/harmony channel AND a short answer. A tiny budget (the old 16) was exhausted by
+	// the reasoning channel before any answer surfaced, false-failing healthy flagships.
+	doc := canaryRequest{Model: model, Temperature: &zero, MaxTokens: canaryMaxTokens}
+	if shape, ok := b.shadowShape(model); ok {
+		// A SHADOW canary (§14.B7): the shape of a recent customer request for this model.
+		prompt = shadowPrompt(prompt, shape.promptTokens)
+		if shape.tools {
+			doc.Tools, doc.ToolChoice = shadowToolSet(), "none"
+		}
+	}
+	if s, ok := b.organicSample(model); ok {
+		// The sampling parameters of a recent customer request for this model (§14.B7 #2): a
+		// fixed temperature and budget would mark the canary. The budget never drops below the
+		// floor a reasoning model needs to answer.
+		doc.Temperature = s.temperature
+		doc.MaxTokens = max(s.maxTokens, canaryMaxTokens)
+	}
+	doc.Messages = []map[string]string{{"role": "user", "content": prompt}}
+	stream := b.canaryStream(model) // the model's organic stream share (§14.B7 #2)
+	doc.Stream = stream
+	body, _ := json.Marshal(doc)
+	// The pseudonym real users get (§14.B7): a canary is indistinguishable from a customer.
+	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: body}
+	if stream {
+		b.probeStreamed(node, t, mi, job, model, fp)
+		return
+	}
 	start := time.Now()
 
 	if mi {
@@ -769,6 +822,151 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	case <-time.After(30 * time.Second):
 		b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 	}
+}
+
+// canaryRequest is a canary's body, keys in the order a client SDK writes them (model first),
+// never the alphabetical order a marshalled map would give away.
+type canaryRequest struct {
+	Model       string              `json:"model"`
+	Messages    []map[string]string `json:"messages"`
+	Temperature *float64            `json:"temperature,omitempty"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	Stream      bool                `json:"stream,omitempty"`
+	Tools       any                 `json:"tools,omitempty"`
+	ToolChoice  any                 `json:"tool_choice,omitempty"`
+}
+
+// probeStreamed runs a canary sent as a stream: the station pipes its SSE into a stream sink
+// exactly as for a customer (locally, or over the bus pump from a peer instance), the wait is
+// the streaming relay's idle window (reset by every delta), and the collected frames are
+// rebuilt into the non-stream answer shape evalCanary grades.
+func (b *broker) probeStreamed(node protocol.NodeRegistration, t *nodeTunnel, mi bool, job protocol.Job, model string, fp canaryFingerprint) {
+	out := &canaryStreamWriter{}
+	sink := &streamSink{w: out, flush: func() {}, nodeID: node.NodeID, activity: make(chan struct{}, 1)}
+	b.streamMu.Lock()
+	b.streams[job.ID] = sink
+	b.streamMu.Unlock()
+	defer func() { b.streamMu.Lock(); delete(b.streams, job.ID); b.streamMu.Unlock() }()
+
+	resCh := make(chan protocol.JobResult, 1)
+	pumpDone := make(chan struct{})
+	start := time.Now()
+	if mi {
+		tk, derr := b.dispatchRemote(context.Background(), node.NodeID, job, true)
+		if derr != nil {
+			return // never reached the node: not evidence about it (see probeNode)
+		}
+		defer tk.close()
+		go func() {
+			defer close(pumpDone)
+			for {
+				select {
+				case fr := <-tk.frames:
+					if fr.isDone {
+						return
+					}
+					_, _ = sink.w.Write(fr.payload)
+					sink.noteActivity()
+				case <-tk.done:
+					return
+				case <-tk.closed:
+					return
+				}
+			}
+		}()
+		tk.forward(resCh)
+	} else {
+		close(pumpDone) // agentStream writes the sink itself, before the node posts its result
+		t.mu.Lock()
+		t.waiters[job.ID] = resCh
+		t.mu.Unlock()
+		defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
+		select {
+		case t.jobs <- job:
+		case <-time.After(3 * time.Second):
+			b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
+			return
+		}
+	}
+	idle := time.NewTimer(b.streamIdle())
+	defer idle.Stop()
+	for {
+		select {
+		case res := <-resCh:
+			select {
+			case <-pumpDone:
+			case <-time.After(2 * time.Second):
+			}
+			if text := out.answer(); len(text) > 0 {
+				res.Body = text
+			}
+			elapsed := time.Since(start)
+			outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp, model)
+			b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched, completed)
+			return
+		case <-sink.activity:
+			if !idle.Stop() {
+				<-idle.C
+			}
+			idle.Reset(b.streamIdle())
+		case <-idle.C:
+			b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
+			return
+		}
+	}
+}
+
+// canaryStreamWriter collects a streamed canary's SSE (bounded like the re-count capture).
+type canaryStreamWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *canaryStreamWriter) Header() http.Header { return http.Header{} }
+func (c *canaryStreamWriter) WriteHeader(int)     {}
+func (c *canaryStreamWriter) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.buf.Len() < maxRecountCapture {
+		c.buf.Write(p)
+	}
+	return len(p), nil
+}
+
+// answer rebuilds the streamed deltas as a non-stream completion, content and reasoning kept
+// apart as a non-stream reply carries them (nil when no delta arrived).
+func (c *canaryStreamWriter) answer() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var content, reasoning strings.Builder
+	for _, line := range bytes.Split(c.buf.Bytes(), []byte{'\n'}) {
+		i := bytes.IndexByte(line, '{')
+		if i < 0 {
+			continue
+		}
+		var d struct {
+			Choices []struct {
+				Delta struct {
+					Content          string `json:"content"`
+					Reasoning        string `json:"reasoning"`
+					ReasoningContent string `json:"reasoning_content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal(line[i:], &d) != nil {
+			continue
+		}
+		for _, ch := range d.Choices {
+			content.WriteString(ch.Delta.Content)
+			reasoning.WriteString(ch.Delta.Reasoning + ch.Delta.ReasoningContent)
+		}
+	}
+	if content.Len() == 0 && reasoning.Len() == 0 {
+		return nil
+	}
+	out, _ := json.Marshal(map[string]any{"choices": []map[string]any{{"message": map[string]string{
+		"content": content.String(), "reasoning": reasoning.String()}}}})
+	return out
 }
 
 // probeOutcome is the trichotomy evalCanary resolves a probe into. The key fix

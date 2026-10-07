@@ -999,17 +999,6 @@ func (s *s0State) response503Message(msg string) error {
 	return nil
 }
 
-func (s *s0State) noErrorCode() error {
-	var m map[string]any
-	_ = json.Unmarshal(s.lastBody, &m)
-	if e, _ := m["error"].(map[string]any); e != nil {
-		if _, has := e["code"]; has {
-			return fmt.Errorf("body carries error.code: %s", s.lastBody)
-		}
-	}
-	return nil
-}
-
 func (s *s0State) errorCodeIs(code string) error {
 	if got, _ := s.errBody(); got != code {
 		return fmt.Errorf("error.code %q, want %q (%s)", got, code, s.lastBody)
@@ -1478,7 +1467,7 @@ func TestRoutingSlice0BDD(t *testing.T) {
 			sc.Step(`^the response is (\d+) \{"error":\{"code":"([^"]*)"\}\} with Retry-After: (\d+)$`, st.responseIsWithCodeRetryAfter)
 			sc.Step(`^the response is 400 with error\.code "([^"]*)" naming "([^"]*)"$`, st.response400Naming)
 			sc.Step(`^the response is 503 "([^"]*)"$`, st.response503Message)
-			sc.Step(`^the body carries no error code \(§2\)$`, st.noErrorCode)
+			sc.Step(`^the body carries only the generic band code band_unavailable \(§14\.B6.*\)$`, func() error { return st.errorCodeIs("band_unavailable") })
 			sc.Step(`^the error code is "([^"]*)"$`, st.errorCodeIs)
 			sc.Step(`^the error message names "([^"]*)"$`, st.errorMessageNames)
 			sc.Step(`^the failover goes to "([^"]*)", never "([^"]*)"$`, st.failoverGoesToNever)

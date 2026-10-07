@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -207,18 +208,28 @@ func TestNextCanaryRotates(t *testing.T) {
 		if fp.prompt == "" || fp.expect == "" {
 			t.Fatalf("round %d: empty fingerprint", r)
 		}
-		seen[fp.prompt] = true
+		if !strings.Contains(strings.ToLower(fp.prompt), fp.expect) && !strings.ContainsAny(fp.prompt, "0123456789") && fp.expect != "5" && fp.expect != "3" {
+			t.Errorf("round %d: the prompt %q does not carry its challenge %q", r, fp.prompt, fp.expect)
+		}
+		seen[fp.expect] = true
 	}
 	if len(seen) != n {
-		t.Errorf("rotation covered %d/%d fingerprints over a full cycle", len(seen), n)
+		t.Errorf("rotation covered %d/%d challenges over a full cycle", len(seen), n)
 	}
 	// Consecutive rounds differ.
-	if nextCanary(0).prompt == nextCanary(1).prompt {
-		t.Error("consecutive rounds should use different fingerprints")
+	if nextCanary(0).expect == nextCanary(1).expect {
+		t.Error("consecutive rounds should use different challenges")
 	}
-	// Wraps around deterministically.
-	if nextCanary(0).prompt != nextCanary(uint64(n)).prompt {
-		t.Error("rotation should wrap around the set")
+	// The challenge wraps around the set; its wording moves on (slice-6 audit 2026-10-06:
+	// no fixed instruction sentence marks a canary). Each round is deterministic.
+	if nextCanary(0).expect != nextCanary(uint64(n)).expect {
+		t.Error("the challenge should wrap around the set")
+	}
+	if nextCanary(0).prompt == nextCanary(uint64(n)).prompt {
+		t.Error("the next cycle should phrase the challenge differently")
+	}
+	if nextCanary(7) != nextCanary(7) {
+		t.Error("a round's canary is deterministic")
 	}
 }
 

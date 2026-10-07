@@ -99,11 +99,15 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     When "u-1" posts a chat completion for "qwen3-32b:floor"
     Then the served node is "n-cheap"
 
+  # superseded 2026-10-05 by contract §14.4 (founder-approved, fairness_and_abuse.feature #8):
+  # :floor inherits the band; "n-tie" and "n-cheap" differ only in a tiny prompt cost, so both
+  # are within 5% of the best estimated request cost and the request seed picks between them.
+  # Old Then: the served node is "n-tie".
   Scenario: :floor tie on out price breaks on in price, then on score
     Given node "n-tie" is on air for "qwen3-32b" at in $0.05 out $0.30 per 1M with 20 tok/s, seen just now
     And node "n-free" goes off air
     When "u-1" posts a chat completion for "qwen3-32b:floor"
-    Then the served node is "n-tie"
+    Then the served node is one of "n-tie", "n-cheap"
 
   Scenario: :nitro is a strict throughput sort - highest measured tok/s first
     When "u-1" posts a chat completion for "qwen3-32b:nitro"

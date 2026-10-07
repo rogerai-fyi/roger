@@ -11,6 +11,10 @@ package main
 // with a Retry-After, and the Retry-After travels end to end. Probes never consult the filter.
 
 import (
+	"crypto/ed25519"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math"
@@ -91,13 +95,39 @@ func failoverable(status int) bool {
 	return status == http.StatusTooManyRequests || status >= 500 || status < 400
 }
 
-// attemptID names attempt n of a request: the request id itself for the first, "<id>-n" for a
-// failover attempt, so every attempt's receipt is its own row and the lineage is readable.
-func attemptID(requestID string, n int) string {
-	if n <= 1 {
-		return requestID
+// attemptID names attempt n of a request as the station sees it (contract §14.B7 #13):
+// "att_" + 24 hex of HMAC-SHA256(key, "<request id>:<n>"). Every attempt's receipt is its own
+// row, the same (request, attempt) always derives the same id on every instance, and neither
+// the request id nor a sibling attempt's id can be recovered from it without the key.
+func (b *broker) attemptID(requestID string, n int) string {
+	if n < 1 {
+		n = 1
 	}
-	return fmt.Sprintf("%s-%d", requestID, n)
+	mac := hmac.New(sha256.New, b.attemptKey())
+	fmt.Fprintf(mac, "%s:%d", requestID, n)
+	return "att_" + hex.EncodeToString(mac.Sum(nil))[:24]
+}
+
+// attemptKey is the attempt-id secret (see deriveSecret).
+func (b *broker) attemptKey() []byte { return b.deriveSecret("rogerai attempt-id v1") }
+
+// deriveSecret is a secret derived from the broker signing key under its own label, so every
+// instance of one broker agrees on it with no extra configuration, and one label's secret says
+// nothing about another's. Cached per label. A broker built without a key (some unit fixtures)
+// derives the same shape, unkeyed.
+func (b *broker) deriveSecret(label string) []byte {
+	if v, ok := b.secrets.Load(label); ok {
+		return v.([]byte)
+	}
+	var seed []byte
+	if len(b.priv) == ed25519.PrivateKeySize {
+		seed = b.priv.Seed()
+	}
+	mac := hmac.New(sha256.New, seed)
+	mac.Write([]byte(label))
+	k := mac.Sum(nil)
+	b.secrets.Store(label, k)
+	return k
 }
 
 // attemptCand is one station the relay may try for a request, with its billing plan and its
@@ -118,6 +148,9 @@ type attemptCand struct {
 	// bridged through the Tower's sealed hub instead of dispatched to a tunnel (t is nil, and
 	// node carries only the Tower id so the plan's bookkeeping names it).
 	edge *edgeCand
+	// promptTokens and outTokens are the measured prompt and the output limit body carries,
+	// for the estimated request cost a strict price sort ranks on (never a re-parse).
+	promptTokens, outTokens int
 }
 
 // holdCostFor is the upper-bound cost of a request on one candidate, at the price the
@@ -126,15 +159,41 @@ type attemptCand struct {
 // C1), with an ESTIMATED context window clamped so a display sentinel can't inflate the
 // pre-auth. A free plan holds nothing.
 func holdCostFor(p pricingPlan, offer protocol.ModelOffer, body []byte, now time.Time) float64 {
+	return holdCostSized(p, offer, len(body), statedOutputTokens(body), now)
+}
+
+// holdCostSized is holdCostFor from the body's length and stated output limit, so the relay
+// sizes every candidate's hold without parsing its body again.
+func holdCostSized(p pricingPlan, offer protocol.ModelOffer, bodyLen, stated int, now time.Time) float64 {
 	holdIn, holdOut, free := billedPrices(p, offer, now)
 	if free {
 		return 0
 	}
-	holdCtx := offer.Ctx
-	if offer.CtxEstimated && holdCtx > 32768 {
-		holdCtx = 32768
+	return estimateMaxCostSized(bodyLen, stated, holdIn, holdOut, holdWindow(offer))
+}
+
+// holdWindow is the context window the hold (and the default output budget) assumes for an
+// offer: its declared window, an estimated one capped at 32768.
+func holdWindow(offer protocol.ModelOffer) int {
+	if offer.CtxEstimated && offer.Ctx > 32768 {
+		return 32768
 	}
-	return estimateMaxCost(body, holdIn, holdOut, holdCtx)
+	return offer.Ctx
+}
+
+// holdCostWithOutput is the hold for a body the broker gave a default max_tokens (§14.11): the
+// prompt estimate of the consumer's own body plus exactly the outTokens the station is sent,
+// so the hold covers what the station may generate and nothing the broker itself added.
+func holdCostWithOutput(p pricingPlan, offer protocol.ModelOffer, consumerBodyLen, outTokens int, now time.Time) float64 {
+	holdIn, holdOut, free := billedPrices(p, offer, now)
+	if free {
+		return 0
+	}
+	c := (float64(consumerBodyLen/4+1)*holdIn + float64(outTokens)*holdOut) / 1e6
+	if c < 1e-6 {
+		c = 1e-6 // the same floor estimateMaxCost places
+	}
+	return c
 }
 
 // billedPrices is the per-1M price a pair bills at: $0 for a free plan (free reports it), the
@@ -195,6 +254,17 @@ func planCeilings(plan []attemptCand) []float64 {
 		}
 	}
 	return out[:n]
+}
+
+// towerFreePlan is the plan without its Tower pairs, in order (§14.11).
+func towerFreePlan(plan []attemptCand) []attemptCand {
+	var out []attemptCand
+	for _, a := range plan {
+		if a.edge == nil {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // trimPlan drops the candidates the placed hold cannot cover (their attempt would settle
@@ -395,7 +465,7 @@ func (b *broker) applyCooling(shared map[string]sharedCooling) {
 // no-provider band). Caller holds b.mu.
 func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (time.Time, bool) {
 	b.metricsMu.Lock()
-	none := len(b.cooling) == 0
+	none := len(b.cooling) == 0 && len(req.pairCool) == 0
 	b.metricsMu.Unlock()
 	if none {
 		return time.Time{}, false
@@ -413,7 +483,15 @@ func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTP
 			break
 		}
 		seen[n.NodeID] = true
-		if until, cooling := b.coolingUntil(n.NodeID); cooling && (!found || until.Before(soonest)) {
+		until, cooling := b.coolingUntil(n.NodeID)
+		if pu, ok := pairUntil(req.pairCool, n.NodeID, model); ok && b.now().Before(pu) {
+			// The caller's own pair cooldown (§14.2): available again once both have lapsed.
+			if !cooling || pu.After(until) {
+				until = pu
+			}
+			cooling = true
+		}
+		if cooling && (!found || until.Before(soonest)) {
 			soonest, found = until, true
 		}
 	}
@@ -529,7 +607,7 @@ func (b *broker) checkCoolingAlerts(now time.Time) {
 		b.alertClear("station_cooling:" + node)
 	}
 	for _, r := range rows {
-		if r.total <= coolingAlertThreshold {
+		if r.total < coolingAlertThreshold { // reaching the threshold pages (five 120 s cooldowns = 10 min, fairness_and_abuse.feature, founder-approved 2026-10-04)
 			continue
 		}
 		b.adminAlert("station_cooling:"+r.node, "station "+r.node+" keeps cooling on band "+r.model,

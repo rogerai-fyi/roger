@@ -301,6 +301,15 @@ func (p *Postgres) OwnerStrikeStats(accountID string, since int64) (windowed, di
 	return windowed, distinctKinds, err
 }
 
+// OwnerStrikePayers counts an owner's payer-bearing strikes of one kind at or after since and
+// the distinct payers among them (contract §14.1).
+func (p *Postgres) OwnerStrikePayers(accountID, kind string, since int64) (total, payerRows, payers int, err error) {
+	err = p.db.QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE COALESCE(evidence->>'payer','')<>''),
+		COUNT(DISTINCT NULLIF(evidence->>'payer','')) + COUNT(*) FILTER (WHERE COALESCE(evidence->>'payer','')='')
+		FROM rogerai.owner_strikes WHERE account_id=$1 AND kind=$2 AND created_at>=$3`, accountID, kind, since).Scan(&total, &payerRows, &payers)
+	return total, payerRows, payers, err
+}
+
 // ThrottledCount counts a node's receipts voided as upstream-throttled at or after since
 // (the void reason lives on the stored receipt JSON, not in a strike row).
 func (p *Postgres) ThrottledCount(node string, since int64) (int, error) {

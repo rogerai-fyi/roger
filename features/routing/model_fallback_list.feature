@@ -428,17 +428,25 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
   # corrected 2026-10-01 (founder-approved): the station finishes the work after the cancel, and
   # finished work settles today (one spend row, the hold captured for it, the remainder released);
   # refunding served work on a disconnect would be a new money rule.
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.10 bills a non-stream
+  # disconnect before the result $0 (nothing was delivered). Old Then (second line): the
+  # finished attempt on "a1" settles: one spend row, the hold captured for it and the
+  # remainder released.
   Scenario: a client that disconnects while the first model is being tried ends the plan
     Given "a1" serves "a" slowly and "b1" serves "b"
     When the consumer disconnects during the attempt on "a1" with "models": ["b"] set
     Then no attempt on "b1" is started
-    And the finished attempt on "a1" settles: one spend row, the hold captured for it and the remainder released
+    And the hold is released in full
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.8 makes a dispatch failure
+  # before any work a failover and model-fallback trigger, so the list moves on to "b".
+  # Old Then: the response is the existing "node busy" 503 (dispatch outcome), not a model
+  # fallback / And the hold is released in full.
   Scenario: a dispatch failure that is not an upstream verdict is answered as today
     Given "a1" serves "a" but no poller is listening on it, and "b1" serves "b"
     When a consumer relays with "model": "a" and "models": ["b"]
-    Then the response is the existing "node busy" 503 (dispatch outcome), not a model fallback
-    And the hold is released in full
+    Then the response is 200 from "b1"
+    And one hold_release and one spend for "b1"'s cost exist
 
   Scenario: the non-stream 504 timeout on the first model is answered, not failed over
     Given "a1" serves "a" and never answers within nonStreamRelayWait, "b1" serves "b"
@@ -492,10 +500,12 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "stream": true across ["a", "b"]
     Then the SSE stream carries only "b1"'s chunks
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the last station's body arrives wrapped as
+  # error.code upstream_error under error.metadata.raw (§14.B6), no longer raw.
   Scenario: every listed model failing on a stream returns the last error with Retry-After
     Given "a1" returns 429 with Retry-After 7 and "b1" returns 503 with Retry-After 20
     When a consumer relays with "stream": true across ["a", "b"]
-    Then the response is 503 with Retry-After "20" and "b1"'s body
+    Then the response is 503 with Retry-After "20" and "b1"'s body wrapped as upstream_error under error.metadata.raw
     And the consumer was charged 0 and both receipts are voided
 
   Scenario: a streaming 5xx on the last model is answered without a Retry-After
@@ -719,7 +729,9 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     Given private band B on "s1" allows models ["z"]
     When a band-B relay is made with "model": "a" and "models": ["b"]
     Then the response is 503 "no station on that frequency (it may be off air) - check the code"
-    And the body carries no error code that distinguishes model-denied from off-air
+    # superseded 2026-10-05 by contract §14 (founder-approved): every band refusal carries the one
+    # generic code band_unavailable (§14.B6), which still distinguishes nothing.
+    And the body carries only the generic band code band_unavailable, which distinguishes nothing
 
   Scenario: a band request never leaves the band for a later model
     Given "s1" is the only station on band B, serves "a" and 429s; a public "x1" serves "b"
@@ -872,6 +884,9 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then "a1" is not cooling and its success EWMA is graded down as today
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): a 429 cools the (station, payer)
+  # pair first; the station-wide cooldown this scenario pins needs ROGERAI_COOLDOWN_MIN_PAYERS
+  # distinct payers, so this runner uses the threshold 1 (one consumer is enough).
   Scenario: a 429 on the first model cools that station for its Retry-After
     Given "a1" returns 429 with Retry-After 30 and "b1" serves
     When a consumer relays across ["a", "b"]
@@ -938,6 +953,10 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays across ["a", "b"]
     Then the late result is discarded, no second spend exists, and "a1" earns nothing
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 replaces a non-stream
+  # body's usage member with the billed one (billed counts, cost, rogerai block); every other
+  # byte of the station's completion is still passed through unchanged, and that is what
+  # "exactly" / "byte-for-byte" now checks.
   Scenario: an error body from the first model never leaks into the second model's success
     Given "a1" returns 500 with body {"error":"secret-upstream-detail"} and "b1" serves
     When a consumer relays across ["a", "b"]
@@ -953,10 +972,11 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
     When a consumer relays with "model": "a" and "models": ["b"]
     Then "b1" received a body with model "b"
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): a body that states no output limit is sent the default max_tokens the hold was sized for (§14.11)
   Scenario: rewriting model for the station does not change the pseudonym, the prompt or max_tokens
     Given "b1" serves "b" and no station serves "a"
     When a consumer relays with "model": "a" and "models": ["b"]
-    Then "b1"'s job User is the pseudonym for (user, "b1") and the messages and max_tokens are byte-identical to the consumer's
+    Then "b1"'s job User is the pseudonym for (user, "b1"), the messages are byte-identical to the consumer's, and max_tokens is the default output budget
 
   Scenario: a five-model list cannot be used to hold five stations' capacity at once
     Given five models each with one healthy station
@@ -1034,6 +1054,10 @@ Feature: A consumer names the models it accepts, in order - the broker serves th
   # 14. COMPATIBILITY - old clients, headers, the proxy
   # ===========================================================================
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 replaces a non-stream
+  # body's usage member with the billed one (billed counts, cost, rogerai block); every other
+  # byte of the station's completion is still passed through unchanged, and that is what
+  # "exactly" / "byte-for-byte" now checks.
   Scenario: a body without models behaves byte-for-byte as before this feature
     Given "a1" and "a2" serve "a" and "a1" 429s
     When a consumer relays with "model": "a" and no list

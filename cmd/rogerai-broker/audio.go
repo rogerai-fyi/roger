@@ -355,7 +355,7 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			return
 		}
 	}
-	requestID := protocol.NewRequestID()
+	requestID := b.attemptID(protocol.NewRequestID(), 1) // station-facing: the attempt-id shape, never a request id
 	b.mu.Lock()
 	node, offer, ok := b.pickFor(routeModel, false, 0, 0, 0, pinNode, nil, allow, nil,
 		pickReq{modality: spec.modality, rng: seededRand(requestID)})

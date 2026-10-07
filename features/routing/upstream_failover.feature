@@ -1,5 +1,13 @@
 # ROUTING - UPSTREAM FAILOVER AND COOLDOWN ("route around the provider that said no").
 #
+# superseded 2026-10-04 by contract §14 (founder-approved): since §14.2 a 429 cools the
+# (station, payer, model) pair first and the station cools for EVERY payer only once
+# ROGERAI_COOLDOWN_MIN_PAYERS distinct payers got a 429 within the window
+# (features/routing/fairness_and_abuse.feature). The scenarios below pin the station-wide
+# cooldown's own mechanics (duration, cap, sharing, outage fallback, market marking, alerts)
+# with one consumer, so this file runs with that threshold at 1 - one payer is enough, the
+# pre-§14.2 rule - and each "a 429 cools the station" reads "once the threshold is met".
+#
 # THE INCIDENT (verified, prod 2026-09-07 18:02-18:24 UTC): the house Cerebras station
 # house-cb-qwen-3-8-27b forwarded 400K-770K input tokens per minute from ONE consumer to a
 # provider whose pay-as-you-go tier allows 150K uncached / 450K total tokens per minute. Cerebras
@@ -109,26 +117,55 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
       | is unreachable (station posts 502)       | upstream-error     |
       | returns 200 with an empty completion     | empty-output       |
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): a client-caused 4xx is voided as
+  # consumer-rejected and reaches the consumer wrapped (error.code consumer_rejected, the
+  # station's body under error.metadata.raw); still one attempt, still no failover.
   Scenario Outline: client-caused failures do NOT fail over (the next station would fail the same way)
     Given stations "s1" and "s2" serve "m"
     And "s1"'s upstream returns <status> with <body>
     When a funded consumer relays and the pick lands on "s1"
-    Then the response is <status> with the upstream body (one attempt, voided as today)
+    Then the response is <status> with the station's body wrapped as consumer_rejected (one attempt, voided at $0)
     And "s2"'s upstream received nothing
 
     Examples:
       | status | body                                          |
       | 400    | {"error":"invalid request"}                   |
-      | 401    | {"error":"upstream key rejected"}             |
       | 404    | {"error":"model not found"}                   |
       | 413    | {"error":"request too large"}                 |
       | 422    | {"error":"unprocessable"}                     |
 
+  # superseded 2026-10-06 by founder ruling: no raw body on 401/403. The 401 row moved here from
+  # the outline above (whose Then required the station's body under error.metadata.raw) and a
+  # 403 row is added: an upstream credential refusal can echo a fragment of a credential, so the
+  # consumer gets the status, the error code and a plain message, never the station's body.
+  Scenario Outline: an upstream 401 or 403 does not fail over and carries no raw station body
+    Given stations "s1" and "s2" serve "m"
+    And "s1"'s upstream returns <status> with <body>
+    When a funded consumer relays and the pick lands on "s1"
+    Then the response is <status> with error code "<code>", a plain message and no raw station body (one attempt, voided at $0)
+    And "s2"'s upstream received nothing
+
+    Examples:
+      | status | code              | body                                         |
+      | 401    | consumer_rejected | {"error":"upstream key rejected key-abcd1234"} |
+      | 403    | upstream_error    | {"error":"forbidden for key-abcd1234"}         |
+
+  # slice-6 audit 2026-10-06: a station's own error body is wrapped on a stream too, whatever its
+  # shape (a body that looks like the broker's envelope is still the station's)
+  Scenario: A streamed upstream 403 in an envelope-shaped body is wrapped and carries no raw body
+    Given stations "s1" and "s2" serve "m"
+    And "s1"'s upstream returns 403 with {"error":{"code":"forbidden","message":"key-abcd1234 is not allowed"}}
+    When a funded consumer streams and the pick lands on "s1"
+    Then the response is 403 with error code "upstream_error", a plain message and no raw station body (one attempt, voided at $0)
+    And "s2"'s upstream received nothing
+
+  # superseded 2026-10-05 by contract §14 (founder-approved): the final upstream body is no longer
+  # passed through raw; it is wrapped as error.code upstream_error under error.metadata.raw.
   Scenario: at most ROGERAI_RELAY_ATTEMPTS stations are tried
     Given stations "s1", "s2", "s3", "s4" serve "m" and all upstreams return 429
     When a funded consumer relays
     Then exactly 3 stations received the request
-    And the response is 429 with the last upstream body and a Retry-After
+    And the response is 429 with the last upstream body wrapped as upstream_error under error.metadata.raw and a Retry-After
     And three voided receipts exist and the consumer was charged 0
 
   Scenario: a failed station is never re-picked within the same request
@@ -346,7 +383,9 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
   Scenario: the only station cooling returns 503 band cooling with Retry-After and no dispatch
     Given "s1" is the only station for "m" and is cooling for 8 more seconds
     When a funded consumer relays
-    Then the response is 503 {"error":{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after 8s"}}
+    # superseded 2026-10-05 by contract §14 (founder-approved): the envelope adds type and
+    # metadata (request_id, retry_after_s) to the same code and message.
+    Then the response is 503 {"error":{"code":"band_cooling","message":"band cooling - the station serving m was rate limited upstream, retry after 8s","type":"overloaded_error","metadata":{"retry_after_s":8}}}
     # code added 2026-09-30 per the approved routing-expression contract §2 (founder re-approval)
     And Retry-After is 8
     And no hold, no receipt, no upstream call
@@ -375,10 +414,12 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
   # 6. RETRY-AFTER TRAVELS END TO END
   # ===========================================================================
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the upstream body is wrapped as
+  # upstream_error under error.metadata.raw, and metadata.retry_after_s equals the header.
   Scenario: a final upstream 429's Retry-After reaches the consumer
     Given every station for "m" 429s, the last with "Retry-After: 7"
     When a funded consumer relays
-    Then the response is 429 with the upstream body and Retry-After: 7
+    Then the response is 429 with the upstream body wrapped as upstream_error under error.metadata.raw and Retry-After: 7
 
   Scenario: a final upstream 429 without Retry-After gets the default as the hint
     Given every station for "m" 429s with no Retry-After
@@ -444,8 +485,9 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     When a funded consumer relays
     Then one "FAILOVER request=... from=s1 (upstream-throttled) to=s2" line is logged
 
+  # corrected 2026-10-05 (founder-approved): the alert pages on REACHING 10 minutes cumulative
   Scenario: a station that keeps cooling pages the founder once
-    Given "s1" has been cooling for more than 10 minutes cumulative in the last hour with real demand behind it
+    Given "s1" has been cooling for at least 10 minutes cumulative in the last hour with real demand behind it
     Then the founder alert "station_cooling:s1" fired once naming the band and the count
     And it clears after an hour without a cooldown
 
@@ -467,6 +509,10 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     When the same request is replayed on the bus (multi-instance duplicate result)
     Then exactly one spend row exists for the request
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): §14.9 replaces a non-stream
+  # body's usage member with the billed one (billed counts, cost, rogerai block); every other
+  # byte of the station's completion is still passed through unchanged, and that is what
+  # "exactly" / "byte-for-byte" now checks.
   Scenario: failover cannot leak one station's error body into another's success
     Given "s1" 429s with a body naming "s1" and "s2" serves
     When a funded consumer relays

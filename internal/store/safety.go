@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -474,6 +475,34 @@ func (m *Mem) OwnerStrikeStats(accountID string, since int64) (windowed, distinc
 		kinds[s.Kind] = true
 	}
 	return windowed, len(kinds), nil
+}
+
+// OwnerStrikePayers counts an owner's payer-bearing strikes of one kind at or after since and
+// the distinct payers among them (contract §14.1).
+func (m *Mem) OwnerStrikePayers(accountID, kind string, since int64) (total, payerRows, payers int, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	for _, s := range m.strikes {
+		if s.AccountID != accountID || s.Kind != kind || (since > 0 && s.CreatedAt < since) {
+			continue
+		}
+		total++
+		var ev struct {
+			Payer string `json:"payer"`
+		}
+		_ = json.Unmarshal([]byte(s.Evidence), &ev)
+		if ev.Payer == "" {
+			payers++ // a pre-floor row counts as its own payer and is never discounted
+			continue
+		}
+		payerRows++
+		if !seen[ev.Payer] {
+			seen[ev.Payer] = true
+			payers++
+		}
+	}
+	return total, payerRows, payers, nil
 }
 
 // AddAppeal records one owner-filed appeal (state "open"). Owner-scoped by AccountID.
