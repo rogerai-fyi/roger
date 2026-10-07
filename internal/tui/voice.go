@@ -120,6 +120,9 @@ func (m model) startVoicePreview(bd band) (tea.Model, tea.Cmd) {
 	m.previewPath = ""
 	m.previewPlayed = false
 	m.previewCost = sampleVoiceCost(bd)
+	if lanSpeaker() != nil {
+		m.previewCost = 0 // a local voice is free: no confirm gate, nothing to spend
+	}
 	switch {
 	case !bd.online:
 		m.previewStage = previewOffline
@@ -207,6 +210,22 @@ func (m model) synthVoiceSample() tea.Cmd {
 	if play == nil {
 		play = systemAudioPlayer // the real system player when not stubbed
 	}
+	if speak := lanSpeaker(); speak != nil {
+		// LAN mode: a local voice speaks it (this machine, then an Edge member); the network's
+		// /v1/audio/speech is never asked, and nothing is billed.
+		return func() tea.Msg {
+			audio, err := speak(model, sampleVoiceText)
+			if err != nil {
+				return voicePreviewMsg{err: err.Error()}
+			}
+			path, played, perr := play(audio)
+			msg := voicePreviewMsg{played: played, path: path}
+			if perr != nil {
+				msg.err = "playback failed: " + perr.Error()
+			}
+			return msg
+		}
+	}
 	return func() tea.Msg {
 		// Body: {model, input, response_format:"wav"} and DELIBERATELY NO `voice` field. WAV is
 		// requested for the LOCAL preview because it is universally + trivially playable (afplay /
@@ -259,6 +278,8 @@ func (m model) applyVoicePreview(msg voicePreviewMsg) model {
 	}
 	m.previewStage = previewDone
 	switch {
+	case msg.played && lanSpeaker() != nil:
+		m.status = stLive.Render("played a sample") + stDim.Render(" · free · local")
 	case msg.played:
 		m.status = stLive.Render("played a sample") + stDim.Render(" · billed "+dollars(msg.cost))
 	case msg.path != "":
@@ -317,6 +338,8 @@ func (m model) voicePreviewView(w int) string {
 		s.WriteString("  " + stDim.Render("press ") + stKey.Render("r") + stDim.Render(" to try again, ") + stKey.Render("esc") + stDim.Render(" to go back.") + "\n")
 	case previewDone:
 		switch {
+		case m.previewPlayed && lanSpeaker() != nil:
+			s.WriteString("  " + stLive.Render("♪ played a sample") + stDim.Render(" · free · local") + "\n")
 		case m.previewPlayed:
 			s.WriteString("  " + stLive.Render("♪ played a sample") + stDim.Render(" · billed ") + stKey.Render(dollars(m.previewCost)) + "\n")
 		case m.previewPath != "":
@@ -336,6 +359,9 @@ func (m model) voicePreviewView(w int) string {
 func voicePriceLabel(b band) string {
 	if !b.online {
 		return "-"
+	}
+	if lanSpeaker() != nil {
+		return "free · local" // LAN mode: a local voice is never billed
 	}
 	if b.free || b.minIn == 0 {
 		return "free"

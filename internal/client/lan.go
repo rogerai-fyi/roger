@@ -63,6 +63,9 @@ func (s LANSource) Label() string {
 type LANBand struct {
 	Model   string      `json:"model"`
 	Sources []LANSource `json:"sources"`
+	// Voice marks a text-to-speech band a local source serves as a voice (features/lan/voice.feature):
+	// the dial opens its voice preview, never a chat channel.
+	Voice bool `json:"voice,omitempty"`
 }
 
 // SourceLabel joins the row's source labels, this machine first.
@@ -121,6 +124,7 @@ type LANDial struct {
 // LANInputs are the sources to merge.
 type LANInputs struct {
 	Self     []string
+	Voices   []string // the bands above that a local source serves as a voice
 	Edge     []LANEdgeBand
 	Towers   []string
 	Key      ed25519.PrivateKey // nil = this machine's identity key
@@ -171,8 +175,13 @@ func LANDiscover(ctx context.Context, in LANInputs) ([]LANBand, []LANTowerStatus
 			add(m, LANSource{Kind: LANTower, ID: st.Addr, Addr: st.Addr})
 		}
 	}
+	voice := map[string]bool{}
+	for _, v := range in.Voices {
+		voice[v] = true
+	}
 	out := make([]LANBand, 0, len(rows))
 	for _, b := range rows {
+		b.Voice = voice[b.Model]
 		out = append(out, *b)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })

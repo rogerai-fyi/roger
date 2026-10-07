@@ -197,19 +197,28 @@ func TestRegisterInstanceCollisionAndBeat(t *testing.T) {
 	require.NotEqual(t, "workshop", h.reg.Instance().Name, "the second roger took a distinct default")
 
 	// A band goes on air: beat records it, and peerServing resolves its upstream.
-	edgeAttachOnAir(func() []string { return []string{"gpt-oss-20b"} })
+	edgeAttachOnAir(func() []string { return []string{"gpt-oss-20b", "studio-voice"} })
 	edgeAttachUpstream(func(band string) (string, string, bool) {
-		if band == "gpt-oss-20b" {
+		if band == "gpt-oss-20b" || band == "studio-voice" {
 			return "http://127.0.0.1:9/v1/chat/completions", "sk-x", true
 		}
 		return "", "", false
 	})
-	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf = nil, nil })
+	// One of the two is a voice (features/lan/voice.feature): the instance declares it, and the
+	// face serves speech for it and only it.
+	edgeSpeechOf = func(band string) (string, string, bool) {
+		if band == "studio-voice" {
+			return "http://127.0.0.1:9/v1/audio/speech", "sk-v", true
+		}
+		return "", "", false
+	}
+	t.Cleanup(func() { edgeOnAir, edgeUpstreamOf, edgeSpeechOf = nil, nil, nil })
 	h.beatInstance(config{})
 	found := false
 	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
 		if in.Name == h.reg.Instance().Name {
-			require.Equal(t, []string{"gpt-oss-20b"}, in.Bands)
+			require.Equal(t, []string{"gpt-oss-20b", "studio-voice"}, in.Bands)
+			require.Equal(t, []string{"studio-voice"}, in.Voices, "only the voice band is declared a voice")
 			found = true
 		}
 	}
@@ -223,5 +232,12 @@ func TestRegisterInstanceCollisionAndBeat(t *testing.T) {
 	require.Contains(t, u, "127.0.0.1:9")
 	require.Equal(t, "sk-x", k)
 	require.NotEmpty(t, inst)
+	u, k, inst, ok = sv.Speech("studio-voice")
+	require.True(t, ok)
+	require.Equal(t, "http://127.0.0.1:9/v1/audio/speech", u)
+	require.Equal(t, "sk-v", k)
+	require.NotEmpty(t, inst)
+	_, _, _, ok = sv.Speech("gpt-oss-20b")
+	require.False(t, ok, "a chat band is not a voice")
 	h.deregisterInstance()
 }

@@ -911,6 +911,29 @@ func (c *Controller) ServeUpstreamFor(model string) (chatURL, key string, ok boo
 	return NormalizeUpstream(up), pickUpstreamKey(row.Upstream, row.UpstreamKey, c.upstream, c.upstreamKey), true
 }
 
+// ServeSpeechFor is the text-to-speech URL (and key) a VOICE band on air here is served at, so this
+// machine's LAN voice and Edge face can speak through it (features/lan/voice.feature); ok is false for
+// a band that is not on air or is not a voice.
+func (c *Controller) ServeSpeechFor(model string) (speechURL, key string, ok bool) {
+	c.mu.Lock()
+	row, found := c.rowFor(model)
+	c.mu.Unlock()
+	if !found || row.Modality != protocol.ModalityTTS {
+		return "", "", false
+	}
+	chatURL, key, ok := c.ServeUpstreamFor(model)
+	if !ok {
+		return "", "", false
+	}
+	return SpeechURL(chatURL), key, true
+}
+
+// SpeechURL is the text-to-speech URL beside a chat completions URL on the same local server (the
+// path the node relays a voice job to: .../v1/chat/completions -> .../v1/audio/speech).
+func SpeechURL(chatURL string) string {
+	return strings.TrimSuffix(NormalizeUpstream(chatURL), "/chat/completions") + "/audio/speech"
+}
+
 // MaxOnAir is the effective soft on-air cap.
 func (c *Controller) MaxOnAir() int {
 	c.mu.Lock()

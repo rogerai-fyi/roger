@@ -927,6 +927,7 @@ func run(argv []string, cfg config) error {
 		// The peer-serving upstream: a model this process has on air is served to Edge
 		// peers from the same backend the market uses (features/edge/local_inference.feature).
 		edgeAttachUpstream(func(band string) (string, string, bool) { return ctrl.ServeUpstreamFor(band) })
+		edgeSpeechOf = ctrl.ServeSpeechFor
 
 		// The dispatch ladder: the booth tries a peer on this Edge before the market
 		// (features/edge/local_inference.feature), the same wiring `roger use` gets.
@@ -1652,9 +1653,14 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	applyShareVoice(cfg, mdl, &cfgRun)
 
 	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
-	// share serves to the share's own upstream: a local, owner-only record, gone when we stop.
-	if foundModality == "" && up != "" {
-		if stop, err := onair.WriteShare(onair.Share{PID: os.Getpid(), Band: mdl, ChatURL: roggnode.NormalizeUpstream(up), Key: *upKey}); err == nil {
+	// share serves to the share's own upstream, and `roger --lan say` speaks through a voice it
+	// serves: a local, owner-only record, gone when we stop.
+	if (foundModality == "" || foundModality == protocol.ModalityTTS) && up != "" {
+		rec := onair.Share{PID: os.Getpid(), Band: mdl, ChatURL: roggnode.NormalizeUpstream(up), Key: *upKey}
+		if foundModality == protocol.ModalityTTS {
+			rec.Modality, rec.SpeechURL = protocol.ModalityTTS, roggnode.SpeechURL(up)
+		}
+		if stop, err := onair.WriteShare(rec); err == nil {
 			defer stop()
 		}
 	}

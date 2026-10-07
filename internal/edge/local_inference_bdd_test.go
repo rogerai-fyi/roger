@@ -148,14 +148,17 @@ func (s *inferBDD) startFace(servingName, band string) {
 }
 
 // dial is one member (or nobody) asking the face for a turn.
-func (s *inferBDD) dial(as *member, body string) {
+func (s *inferBDD) dial(as *member, body string) { s.dialPath(as, InferPath, body) }
+
+// dialPath is one member (or nobody) posting body to a path on the face.
+func (s *inferBDD) dialPath(as *member, path, body string) {
 	cfg := &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12,
 		VerifyConnection: func(cs tls.ConnectionState) error { s.leaf = cs.PeerCertificates[0]; return nil }}
 	if as != nil {
 		cfg.Certificates = []tls.Certificate{as.cert}
 	}
 	c := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}}
-	req, _ := http.NewRequest(http.MethodPost, s.face.URL+InferPath, strings.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, s.face.URL+path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Roger-Request", "req-peer-1")
 	resp, err := c.Do(req)

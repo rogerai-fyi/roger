@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 var (
@@ -43,6 +44,23 @@ func SetLANDial(fn func() client.LANDial) {
 	lanMu.Lock()
 	defer lanMu.Unlock()
 	lanDial = fn
+}
+
+// lanSpeak speaks a line through a LOCAL voice in LAN mode (features/lan/voice.feature): this
+// machine's, then an Edge member's. nil outside LAN mode, where a preview goes to the network.
+var lanSpeak func(band, text string) ([]byte, error)
+
+// SetLANSpeak installs (or clears, with nil) the LAN voice the preview speaks through.
+func SetLANSpeak(fn func(band, text string) ([]byte, error)) {
+	lanMu.Lock()
+	defer lanMu.Unlock()
+	lanSpeak = fn
+}
+
+func lanSpeaker() func(band, text string) ([]byte, error) {
+	lanMu.RLock()
+	defer lanMu.RUnlock()
+	return lanSpeak
 }
 
 // LANMode reports whether this TUI runs in LAN mode.
@@ -88,8 +106,12 @@ func lanOffers() offersMsg {
 	lanMu.Unlock()
 	out := make([]offer, 0, len(bands))
 	for _, b := range bands {
+		modality := protocol.ModalityChat
+		if b.Voice {
+			modality = protocol.ModalityTTS // a voice band opens the voice preview, never a chat channel
+		}
 		out = append(out, offer{Model: b.Model, NodeID: lanSourceText(b), Online: true, FreeNow: true,
-			Modality: "chat", LANSource: b.SourceLabel(), LANSources: b.Sources})
+			Modality: modality, LANSource: b.SourceLabel(), LANSources: b.Sources})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
 	return offersMsg(out)
