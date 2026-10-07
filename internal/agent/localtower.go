@@ -97,6 +97,10 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 			}
 			continue
 		}
+		if job.Stream {
+			runLocalStream(ctx, execClient, cfg, priv, job)
+			continue
+		}
 		answer := runLocalJob(execClient, cfg, job.Request)
 		completeLocalJob(execClient, cfg.Broker, priv, job.ID, answer)
 	}
@@ -128,16 +132,22 @@ type localJob struct {
 	ID      string          `json:"job_id"`
 	Model   string          `json:"model"`
 	Request json.RawMessage `json:"request"`
+	// Stream is the Tower handing this station a streamed job to deliver as chunks, which it
+	// does only because the poll announced chunk support (localtower_stream.go).
+	Stream bool `json:"stream"`
 }
 
 // pollLocalJob long-polls the Tower for a job. 200 with a job, 204 (no work), anything else is
 // treated as "no job this round".
 func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed25519.PrivateKey) (localJob, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/local/poll", nil)
+	// The poll announces chunk support, so the Tower hands a streamed job over as a stream.
+	body := []byte(`{"streams":true}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/local/poll", bytes.NewReader(body))
 	if err != nil {
 		return localJob{}, false, err
 	}
-	signLocal(req, nil, priv)
+	signLocal(req, body, priv)
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.Do(req)
 	if err != nil {
 		return localJob{}, false, err
