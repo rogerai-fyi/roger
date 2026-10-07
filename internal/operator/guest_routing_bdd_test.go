@@ -7,9 +7,9 @@ package operator_test
 // broker (the approved seam for proxy specs).
 //
 // Scenarios tagged @tui (the plate's profile picker, the desk frame, the return summary, the
-// desk strip) belong to internal/tui's runners. Scenarios tagged @broker assert what the REAL
-// broker plans, logs or forwards to a station; a stand-in cannot observe a plan, so they belong
-// to the broker runners.
+// desk strip) and @broker (what the REAL broker plans, logs or forwards; a stand-in cannot
+// observe a plan) are excluded here, and no other runner loads this file yet: they are listed,
+// as not yet executed, in unexecuted_scenarios_test.go.
 //
 // "The DJ chose profile <p> on the plate" is, at this seam, the model the plate hands the
 // materializer: the spec pins the guest's model as `@profile/<p>` (the plate itself is TUI).
