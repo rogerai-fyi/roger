@@ -7,7 +7,7 @@ package main
 //
 // "A release builds one user binary per platform" is tagged @blocked-on-release-signing-not-built:
 // its last line (a signature bundle, SBOM and provenance) needs a signing pipeline that does not
-// exist yet (features/tower/packaging.feature, unbuilt). TestReleaseBuildsOneUserBinary checks the
+// exist yet (the Tower packaging spec, not built). TestReleaseBuildsOneUserBinary checks the
 // rest of it.
 
 import (
