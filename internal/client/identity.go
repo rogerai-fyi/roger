@@ -10,8 +10,12 @@ import (
 	"sync"
 
 	"net"
+	"net/netip"
 	"net/url"
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"strings"
+	"sync/atomic"
 )
 
 // The consumer's signing identity: an Ed25519 keypair at
@@ -78,10 +82,10 @@ func signRequest(req *http.Request, body []byte) {
 	signWithKey(req, body, LoadOrCreateUserKey())
 }
 
-// signWithKey signs req with priv. When the target is a LAN-bound standalone Tower (plaintext
-// http to an RFC1918 private-LAN address), it binds a fresh per-request NONCE into the signature
-// and sends it in X-Roger-Nonce, so the Tower's replay guard can refuse a captured request
-// resent within the freshness window. Everywhere else it signs the plain way.
+// signWithKey signs req with priv. When the target is a LAN Tower (plaintext http to a local
+// address: see targetsLANTower), it binds a fresh per-request NONCE into the signature and sends
+// it in X-Roger-Nonce, so the Tower's replay guard can refuse a captured request resent within
+// the freshness window. Everywhere else it signs the plain way.
 func signWithKey(req *http.Request, body []byte, priv ed25519.PrivateKey) {
 	if targetsLANTower(req.URL) {
 		nonce := protocol.NewNonce()
@@ -98,29 +102,51 @@ func signWithKey(req *http.Request, body []byte, priv ed25519.PrivateKey) {
 	req.Header.Set(protocol.HeaderSig, sigHex)
 }
 
-// targetsLANTower reports whether a request points at a standalone Tower reachable over a LAN -
-// plaintext http to a LITERAL RFC1918 / IPv6-ULA private IP. Only THAT gets a per-request nonce,
-// and for a precise reason: the nonce is replay defense, and a replay needs a wire to be
-// captured on. LOOPBACK (127.0.0.0/8, ::1) is deliberately excluded - traffic to it never leaves
-// the host, so there is no eavesdropper to defend against, and it is also what in-process test
-// servers use. The public broker (https) and any public host are excluded too, so no nonce ever
-// reaches them and their path is exactly as before.
+// lanTowerHosts lists the Tower addresses the owner added by hand (`roger lan add`); nil = none.
+// The CLI sets it once per process, so a hand-added Tower (a CGNAT address, or a name) gets the
+// nonce like any other LAN Tower.
+var lanTowerHosts atomic.Pointer[func() []string]
+
+// SetLANTowerHosts sets where the hand-added LAN Tower addresses are read from.
+func SetLANTowerHosts(fn func() []string) {
+	if fn == nil {
+		lanTowerHosts.Store(nil)
+		return
+	}
+	lanTowerHosts.Store(&fn)
+}
+
+// targetsLANTower reports whether a request goes to a LAN Tower and so carries a replay nonce:
+// plaintext http to an address the LAN check calls local (lanmode.IsLocalIP: RFC 1918, ULA and
+// link-local, zoned IPv6 included), or to an address the owner added by hand with `roger lan add`
+// (which is how a CGNAT address, or a name, becomes a Tower). It is the same rule `roger lan add`
+// and the LAN dial use, so no Tower they accept goes without the nonce.
 //
-// The address must be a literal private IP: a Tower addressed by HOSTNAME (mDNS, /etc/hosts) or
-// over a range this does not classify as private (e.g. CGNAT 100.64/10) does NOT get a nonce and
-// so relies on the 5-minute freshness window. Operators who want the nonce's replay defense on a
-// LAN should point roger at the Tower by its literal 10./172.16-31./192.168. address. Resolving a
-// name here to reclassify it would add a DNS lookup on every request, which the airgap posture
-// avoids; the literal-IP rule keeps this a pure, offline decision.
+// LOOPBACK is deliberately excluded: traffic to it never leaves the host, so there is no wire to
+// capture a replay on, and it is what in-process test servers use. https (the public broker) and
+// any public host are excluded too, so no nonce ever reaches them.
 func targetsLANTower(u *url.URL) bool {
 	if u == nil || u.Scheme != "http" {
 		return false
 	}
-	ip := net.ParseIP(u.Hostname())
-	if ip == nil {
-		return false // a hostname (not a literal IP) is not treated as a LAN Tower
+	host := u.Hostname()
+	if ip, err := netip.ParseAddr(host); err == nil {
+		ip = ip.Unmap()
+		if ip.IsLoopback() {
+			return false
+		}
+		if lanmode.IsLocalIP(net.IP(ip.WithZone("").AsSlice())) {
+			return true
+		}
 	}
-	return ip.IsPrivate() // RFC1918 / ULA, and NOT loopback (net.IP.IsPrivate excludes 127/8 and ::1)
+	if fn := lanTowerHosts.Load(); fn != nil {
+		for _, a := range (*fn)() {
+			if t, err := lanmode.ParseAddr(a); err == nil && strings.EqualFold(t.Host, host) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // itoa is a tiny helper (avoid importing strconv just for one call site here).

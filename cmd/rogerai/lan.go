@@ -496,6 +496,12 @@ func frontEndLadder(cfg config) func(*client.ProxyOptions) {
 	return func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); applyLAN(cfg, o) }
 }
 
+func init() {
+	// Every request this process signs to a hand-added LAN Tower (`roger lan add`, e.g. a CGNAT
+	// address or a name) carries the replay nonce, like a Tower at any other local address.
+	client.SetLANTowerHosts(func() []string { return loadConfig().LanTowers })
+}
+
 // lanDialFor is the LAN dial for a front end in LAN mode, nil outside it.
 func lanDialFor(cfg config) func() client.LANDial {
 	if !cfg.lan.LAN {
