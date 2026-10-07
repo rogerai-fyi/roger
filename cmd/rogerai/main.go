@@ -576,9 +576,6 @@ func agentSlugStation(s string) string { return agent.SlugStation(s) }
 
 // tuiLimits builds the TUI spend-limit store from the config, with a Save
 // callback that persists edits back to config.json (the TUI owns no I/O).
-// useEndpointPort auto-picks the local endpoint port for `roger use`, starting at the CLI's
-// documented default (the Integrations page shows it).
-func useEndpointPort() (int, error) { return freePort(4141) }
 
 // toTUILimit / fromTUILimit carry EVERY key of a limit across the TUI boundary: a key left
 // out here is erased from config.json by the next [3] CONFIG edit.

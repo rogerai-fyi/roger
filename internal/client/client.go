@@ -1881,7 +1881,11 @@ func Use(broker, user, model string, opt UseOptions) error {
 		break
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	ln, err := useListen(opt.Port) // bound before the plate names it
+	if err != nil {
+		return err
+	}
+	addr := ln.Addr().String()
 	// The staged tune-in: scan -> lock -> lineage handshake -> CHANNEL OPEN, mirroring
 	// the TUI sequence + the website's animation. Plain text (CLI is non-interactive),
 	// ◉ on-air / ◆ verified shared with the band table, so the lock reads the same on
@@ -1918,7 +1922,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
 		}}
 	warnOldBroker(opts)
-	return useServe(addr, newProxyHandler(opts))
+	return useServe(ln, newProxyHandler(opts))
 }
 
 // warnOldBroker says once, at tune time, which of the session's routing flags an old broker
@@ -1962,12 +1966,38 @@ func sugarMark(model string) string {
 // reading the real terminal or binding a forever-blocking port.
 var (
 	useStdin = os.Stdin
-	useServe = http.ListenAndServe
+	// useListen binds the local endpoint ONCE, before the plate names it; useServe serves on
+	// that same listener. (Picking a free port, closing it and binding it again later let
+	// another process take it in between: the plate named a port the session never held.)
+	useListen = listenUse
+	useServe  = http.Serve
 	// newProxyHandler is the seam Use / useOnFreq build the local relay handler through, so a
 	// test can capture the assembled ProxyOptions (e.g. the --raw wiring) without binding a
 	// real listener. Production value is ProxyHandler; the useServe seam still runs it.
 	newProxyHandler = ProxyHandler
 )
+
+// DefaultUsePort is where `roger use` looks for a free local port when --port is not given
+// (the CLI's documented default, shown on the Integrations page).
+const DefaultUsePort = 4141
+
+// listenUse binds the endpoint: the requested port exactly, or with port 0 the first free
+// port from DefaultUsePort up. The listener it returns is the one the relay serves on.
+func listenUse(port int) (net.Listener, error) {
+	if port > 0 {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			return nil, fmt.Errorf("port %d is not available (%v): pass another --port, or none to pick one", port, err)
+		}
+		return ln, nil
+	}
+	for p := DefaultUsePort; p < DefaultUsePort+200; p++ {
+		if ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p)); err == nil {
+			return ln, nil
+		}
+	}
+	return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners or pass --port)", DefaultUsePort, DefaultUsePort+199)
+}
 
 // RawReasoningEnv reports whether ROGERAI_REASONING_RAW asks for raw passthrough (the
 // reasoning->content fallback disabled). A non-empty value other than the usual falsey tokens
@@ -2042,7 +2072,11 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 		}
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	ln, err := useListen(opt.Port) // bound before the plate names it
+	if err != nil {
+		return err
+	}
+	addr := ln.Addr().String()
 	fmt.Printf("\n  %s scanning frequency ... ok\n", glyphOnAir)
 	fmt.Printf("  %s locking @%s · %s · %.2f $/M ... ok\n", glyphOnAir, br.CheapNode, tpsLabel(br.CheapTPS), br.Min)
 	fmt.Printf("  %s CHANNEL OPEN (private) %s via @%s\n", glyphOnAir, model, br.CheapNode)
@@ -2063,7 +2097,7 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
 		}}
 	warnOldBroker(opts)
-	return useServe(addr, newProxyHandler(opts))
+	return useServe(ln, newProxyHandler(opts))
 }
 
 // rangeLabel renders a cross-station spread as "min ~ max" ($/1M out), or a single

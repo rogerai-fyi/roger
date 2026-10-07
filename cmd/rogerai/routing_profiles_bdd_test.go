@@ -498,10 +498,8 @@ func (s *cf4State) startUseCF4(args []string) error {
 			port, _ = strconv.Atoi(args[i+1])
 		}
 	}
-	if port == 0 {
-		port = rfFreePort(s.t)
-		full = append(full, "--port", strconv.Itoa(port))
-	}
+	// No --port given: `roger use` binds a free port itself and names it on the plate (read
+	// below), so there is no window between picking a port here and the child binding it.
 	s.proxyPort = port
 	cmd := exec.Command(rfRogerBin, full...)
 	cmd.Env = s.rogerEnv()
@@ -525,6 +523,13 @@ func (s *cf4State) startUseCF4(args []string) error {
 			s.snapshotUse()
 			return nil
 		default:
+		}
+		if pm := regexp.MustCompile(`BASE URL\s+http://127\.0\.0\.1:(\d+)/v1`).FindStringSubmatch(s.useOut.String()); pm != nil {
+			s.proxyPort, _ = strconv.Atoi(pm[1])
+		}
+		if s.proxyPort == 0 {
+			time.Sleep(50 * time.Millisecond)
+			continue
 		}
 		if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", s.proxyPort), 100*time.Millisecond); err == nil {
 			c.Close()

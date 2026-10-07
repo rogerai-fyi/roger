@@ -662,12 +662,13 @@ func (s *rfState) startUse(args []string) error {
 		return err
 	}
 	s.stopUse()
-	s.proxyPort = rfFreePort(s.t)
+	s.proxyPort = 0
 	full := append([]string{}, args...)
 	if !rfHasFlag(args, "-yes") && !rfHasFlag(args, "--yes") {
 		full = append(full, "--yes")
 	}
-	full = append(full, "--port", strconv.Itoa(s.proxyPort))
+	// No --port: `roger use` binds a free port itself and names it on the plate, so there is
+	// no window between picking a port here and the child binding it.
 	cmd := exec.Command(rfRogerBin, full...)
 	cmd.Env = s.rogerEnv()
 	s.useOut, s.useErr = &rfBuf{}, &rfBuf{}
@@ -690,6 +691,13 @@ func (s *rfState) startUse(args []string) error {
 			s.snapshotUse()
 			return nil
 		default:
+		}
+		if pm := regexp.MustCompile(`BASE URL\s+http://127\.0\.0\.1:(\d+)/v1`).FindStringSubmatch(s.useOut.String()); pm != nil {
+			s.proxyPort, _ = strconv.Atoi(pm[1])
+		}
+		if s.proxyPort == 0 {
+			time.Sleep(50 * time.Millisecond)
+			continue
 		}
 		if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", s.proxyPort), 100*time.Millisecond); err == nil {
 			c.Close()

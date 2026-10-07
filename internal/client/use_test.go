@@ -1,6 +1,7 @@
 package client
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,13 +26,26 @@ func withStdin(t *testing.T, input string) {
 // after. It records the address Use would have served on.
 func captureServe(t *testing.T, gotAddr *string) {
 	t.Helper()
-	old := useServe
-	useServe = func(addr string, _ http.Handler) error {
-		*gotAddr = addr
+	oldServe, oldListen := useServe, useListen
+	useListen = func(port int) (net.Listener, error) { // a listener that only reports the port asked for
+		if port == 0 {
+			port = DefaultUsePort
+		}
+		return addrListener{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}}, nil
+	}
+	useServe = func(ln net.Listener, _ http.Handler) error {
+		*gotAddr = ln.Addr().String()
 		return nil
 	}
-	t.Cleanup(func() { useServe = old })
+	t.Cleanup(func() { useServe, useListen = oldServe, oldListen })
 }
+
+// addrListener is a listener that holds no socket: it only reports an address.
+type addrListener struct{ addr net.Addr }
+
+func (l addrListener) Accept() (net.Conn, error) { return nil, net.ErrClosed }
+func (l addrListener) Close() error              { return nil }
+func (l addrListener) Addr() net.Addr            { return l.addr }
 
 // TestUseNoStation covers the early return when no station is on air for the model.
 func TestUseNoStation(t *testing.T) {

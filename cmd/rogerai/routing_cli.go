@@ -713,15 +713,8 @@ func cmdUse(cfg config, args []string) error {
 		fmt.Printf("  max-out %g is above what any station may charge - capped at the network ceiling $%.0f/1M\n", opt.MaxOut, client.ConsumerCeilingMaxOut)
 	}
 	_, typical := cfg.resolve(bareModelID(t.model))
-	port := f.port
-	if port == 0 {
-		p, err := useEndpointPort() // auto-pick + the endpoint line prints the chosen port
-		if err != nil {
-			return err
-		}
-		port = p
-	}
-	opt.Port, opt.TypicalOut, opt.Yes, opt.Raw = port, typical, f.yes, f.raw
+	// --port 0 (not given): Use binds the first free port from the default and prints that one.
+	opt.Port, opt.TypicalOut, opt.Yes, opt.Raw = f.port, typical, f.yes, f.raw
 	opt.RoutingLine = routingLine(t.r)
 	return client.Use(cfg.Broker, cfg.User, t.model, opt)
 }
