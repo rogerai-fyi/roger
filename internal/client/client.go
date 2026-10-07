@@ -2050,13 +2050,14 @@ func rawReasoningEnv() bool {
 // "no station on that frequency" reply. The code is discovery + routing admission only
 // - spend still uses the signed wallet, self-use stays $0.
 func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typical int, defaultedCap bool, in *os.File) error {
-	offers, display, ok := ResolveBand(broker, opt.Freq, model)
+	// The frequency lists bare models; the variant stays on the session (Model below).
+	offers, display, ok := ResolveBand(broker, opt.Freq, sugarless(model))
 	if !ok {
 		fmt.Println("  no station on that frequency (it may be off air) - check the code.")
 		return nil
 	}
 	// Cheapest matching station on the band (out-price), for the price screen.
-	br, _ := bandRange(offers, model)
+	br, _ := bandRange(offers, sugarless(model))
 	if br.Stations == 0 {
 		// Resolved offers but none match the model exactly (shouldn't happen: resolve
 		// filtered by model) - treat as no station, uniform.

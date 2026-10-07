@@ -237,3 +237,21 @@ func TestMistypedOnlyUnderAPinGoesToTheBroker(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(out), `"only":"n1"`)
 }
+
+// TestUseOnFreqWithAFreeVariantFindsTheStation: `roger use m1:free --freq CODE` resolves the
+// private band by the bare model (the frequency lists m1, not m1:free) and keeps the variant on
+// the session it opens.
+func TestUseOnFreqWithAFreeVariantFindsTheStation(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var got ProxyOptions
+	old := newProxyHandler
+	newProxyHandler = func(o ProxyOptions) http.Handler { got = o; return http.NotFoundHandler() }
+	t.Cleanup(func() { newProxyHandler = old })
+	var addr string
+	captureServe(t, &addr)
+	out := captureOut(t, func() {
+		require.NoError(t, Use(fakeBroker(t), "u_gh_1", "m1:free", UseOptions{Freq: "147.520 MHz 8F3K", Yes: true}))
+	})
+	require.NotEmpty(t, addr, "the channel opened: %s", out)
+	require.Equal(t, "m1:free", got.Model)
+}
