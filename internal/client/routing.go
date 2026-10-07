@@ -257,6 +257,13 @@ func mistyped(obj map[string]any, key string, ok func(any) bool) bool {
 
 func isNumber(v any) bool { _, ok := v.(float64); return ok }
 
+func isBool(v any) bool { _, ok := v.(bool); return ok }
+
+func isNumberPair(v any) bool {
+	pair, ok := v.([]any)
+	return ok && len(pair) == 2 && isNumber(pair[0]) && isNumber(pair[1])
+}
+
 func isTrustValue(v any) bool {
 	s, _ := v.(string)
 	return s == "any" || s == "verified" || s == "confidential"
@@ -291,12 +298,12 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if r.Pref != "" && !guestStatesSort(m, provider) {
 		setDefault(roger, "pref", r.Pref)
 	}
-	if r.MinTPS > 0 {
+	if r.MinTPS > 0 && !mistyped(roger, "min_tps", isNumber) {
 		if f, ok := roger["min_tps"].(float64); !ok || f < r.MinTPS {
 			roger["min_tps"] = r.MinTPS
 		}
 	}
-	if r.Confidential {
+	if r.Confidential && !mistyped(roger, "confidential", isBool) {
 		if v, ok := roger["confidential"].(bool); ok && !v {
 			log.Printf("guest confidential=false ignored: owner requires confidential")
 		}
@@ -321,10 +328,10 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		}
 	}
 	delete(roger, "freq") // the owner's band stands; a guest cannot drop or swap it
-	if r.SelfHostedOnly {
+	if r.SelfHostedOnly && !mistyped(roger, "self_hosted_only", isBool) {
 		roger["self_hosted_only"] = true
 	}
-	if len(r.Quantizations) > 0 {
+	if len(r.Quantizations) > 0 && !mistyped(provider, "quantizations", isStringList) {
 		if got := stringsOf(provider["quantizations"]); len(got) > 0 {
 			for _, q := range got {
 				if !hasFold(r.Quantizations, q) {
@@ -335,7 +342,7 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			provider["quantizations"] = r.Quantizations
 		}
 	}
-	if len(r.Only) > 0 {
+	if len(r.Only) > 0 && !mistyped(provider, "only", isStringList) {
 		guestOnly := len(stringsOf(provider["only"])) > 0
 		if err := capStations(provider, r.Only, "allowed"); err != nil {
 			return nil, err
@@ -399,10 +406,10 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if r.RequireParams {
 		provider["require_parameters"] = true
 	}
-	if len(r.Require) > 0 {
+	if len(r.Require) > 0 && !mistyped(roger, "require", isStringList) {
 		roger["require"] = unionStrings(stringsOf(roger["require"]), r.Require)
 	}
-	if len(r.ParamsB) == 2 {
+	if len(r.ParamsB) == 2 && !mistyped(roger, "params_b", isNumberPair) {
 		lo, hi := r.ParamsB[0], r.ParamsB[1]
 		if g, isArr := roger["params_b"].([]any); isArr && len(g) == 2 {
 			if a, ok := g[0].(float64); ok && a > lo {
@@ -427,7 +434,7 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			roger["max_ttft_ms"] = r.MaxTTFT
 		}
 	}
-	if len(r.Ignore) > 0 {
+	if len(r.Ignore) > 0 && !mistyped(provider, "ignore", isStringList) {
 		provider["ignore"] = unionStrings(stringsOf(provider["ignore"]), r.Ignore)
 	}
 	if r.MaxOut > 0 || r.MaxIn > 0 || r.MaxReq > 0 {

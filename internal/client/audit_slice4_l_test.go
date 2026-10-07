@@ -132,3 +132,23 @@ func TestNonStringModelCannotSmuggleAForeignList(t *testing.T) {
 	}
 	require.False(t, hit, "a refused body never reaches the broker")
 }
+
+// TestEveryMistypedGuestValueGoesToTheBroker: the forward-as-sent rule covers every owner-
+// bounded key the proxy composes, not only four of them.
+func TestEveryMistypedGuestValueGoesToTheBroker(t *testing.T) {
+	owner := Routing{MinTPS: 10, Confidential: true, SelfHostedOnly: true, Quantizations: []string{"Q8_0"},
+		Only: []string{"n1"}, Require: []string{"tools"}, ParamsB: []float64{7, 70}, Ignore: []string{"n9"}}
+	for _, tc := range []struct{ carrier, key, guest string }{
+		{"roger", "min_tps", `"fast"`}, {"roger", "confidential", `"no"`}, {"roger", "self_hosted_only", `1`},
+		{"provider", "quantizations", `"Q8_0"`}, {"provider", "only", `"n1"`}, {"roger", "require", `"tools"`},
+		{"roger", "params_b", `"7-70"`}, {"provider", "ignore", `"n9"`},
+	} {
+		out, err := owner.Apply([]byte(`{"model":"m","` + tc.carrier + `":{"` + tc.key + `":` + tc.guest + `}}`))
+		require.NoError(t, err, tc.key)
+		var top map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(out, &top))
+		var carrier map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(top[tc.carrier], &carrier))
+		require.JSONEq(t, tc.guest, string(carrier[tc.key]), tc.key)
+	}
+}
