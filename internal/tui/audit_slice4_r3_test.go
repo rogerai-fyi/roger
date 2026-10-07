@@ -446,3 +446,16 @@ func TestTabAcrossUntouchedFieldsWritesNothing(t *testing.T) {
 	require.Zero(t, saves)
 	require.Equal(t, g, m.limits.Gen())
 }
+
+// TestOverCapConfirmWithoutAProfileNamesNone: the over-cap line names a profile and offers p
+// only when one is chosen; otherwise it points at r and esc.
+func TestOverCapConfirmWithoutAProfileNamesNone(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.mode = modeConnectConfirm
+	m.confirmProfile = ""
+	m.q = quote{b: band{model: "m", minOut: 3, online: true, cheapest: &offer{Model: "m", PriceOut: 3}}, limit: Limit{MaxOut: 2}, overLimit: true}
+	v := stripANSI(m.View())
+	require.NotContains(t, v, "(profile )")
+	require.NotContains(t, v, "p for another")
+	require.Contains(t, v, "r to re-scan")
+}

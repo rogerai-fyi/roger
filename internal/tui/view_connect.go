@@ -152,8 +152,11 @@ func (m model) confirmView(w int) string {
 				stDim.Render(" (profile "+m.confirmProfile+")")
 		}
 		if q.overLimit {
-			cap = stDim.Render("   ·   ") + stEmber.Render(fmt.Sprintf("over your $%g/1M cap", q.limit.MaxOut)) +
-				stDim.Render(" (profile "+m.confirmProfile+") - p for another, esc back")
+			hint := " - r to re-scan, esc back"
+			if m.confirmProfile != "" {
+				hint = " (profile " + m.confirmProfile + ") - p for another, esc back"
+			}
+			cap = stDim.Render("   ·   ") + stEmber.Render(fmt.Sprintf("over your $%g/1M cap", q.limit.MaxOut)) + stDim.Render(hint)
 		}
 	}
 	if line := m.confirmRoutingLine(); line != "" {
