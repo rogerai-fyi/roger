@@ -6,7 +6,9 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"time"
 )
@@ -20,6 +22,9 @@ func fileLockConfig(path string) (func(), error) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil && !errors.Is(err, fs.ErrExist) {
+			return nil, err // only an existing lock file means another holder
+		}
 		if err == nil {
 			_, werr := f.WriteString(token)
 			f.Close()

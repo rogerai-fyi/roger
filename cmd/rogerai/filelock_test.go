@@ -77,3 +77,13 @@ func TestConfigLockStaleTakeoverIsExclusive(t *testing.T) {
 		require.Zero(t, overlap.Load(), "two waiters held the lock at once (round %d)", round)
 	}
 }
+
+// TestFileLockReturnsAnErrorThatIsNotAHolder: only an existing lock file means another holder;
+// any other failure (here a missing directory) is returned at once, never waited out.
+func TestFileLockReturnsAnErrorThatIsNotAHolder(t *testing.T) {
+	start := time.Now()
+	_, err := fileLockConfig(filepath.Join(t.TempDir(), "no-such-dir", "config.json.lock"))
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "locked by another roger command")
+	require.Less(t, time.Since(start), time.Second)
+}
