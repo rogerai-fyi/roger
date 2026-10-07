@@ -105,6 +105,7 @@
             <li><a href="#sPlay"><span class="man-toc__no">§P</span>Playbox</a></li>
             <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
             <li><a href="#sTower"><span class="man-toc__no">§T</span>Run a Tower</a></li>
+            <li><a href="#sLAN"><span class="man-toc__no">§L</span>LAN mode</a></li>
             <li><a href="#sV"><span class="man-toc__no">§V</span>Voices</a></li>
             <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
             <li><a href="#s6"><span class="man-toc__no">§6</span>Wallet &amp; billing</a></li>
@@ -903,6 +904,51 @@
               pipeline, keyed to your account. Cash out from the same page as any other
               earning, on any sign-in (GitHub, Apple, or email), once you finish Stripe
               Connect onboarding (§7).
+            </div>
+          </section>
+
+          <!-- ============== §L LAN MODE ============== -->
+          <section class="man-sec" id="sLAN">
+            <span class="man-sec__no">§L · LAN mode (local bands only)</span>
+            <h2>LAN mode</h2>
+            <p class="man-lead">LAN mode shows you <b>only bands served on your local network</b>:
+              this machine, your Edge members, and standalone Towers at a local address. Nothing
+              falls back to the open market: if nothing local serves a band, the turn is refused
+              and says so. Turns are free and nothing is billed.</p>
+            <p>It is a filter, <b>not an offline mode</b>. Update checks, sign-in, model
+              downloads and web search still use the internet as usual; only where your turns
+              go changes.</p>
+            <pre><span class="p">$</span> roger --lan                    <span class="c"># the TUI, with the LAN dial</span>
+<span class="p">$</span> ROGER_LAN=1 roger use qwen3-8b   <span class="c"># the same switch from the environment</span>
+<span class="p">$</span> roger config set mode lan      <span class="c"># keep it on; --no-lan turns it off for one run</span>
+<span class="p">$</span> roger --lan search             <span class="c"># every local band and where it is served</span>
+<span class="p">$</span> roger status                   <span class="c"># which mode this run is in, and why</span></pre>
+
+            <h3>What counts as local</h3>
+            <p>Loopback, the private ranges (10/8, 172.16/12, 192.168/16), IPv6 unique-local
+              (fc00::/7) and link-local addresses. A hostname counts only when every address it
+              resolves to is local, and it is checked again on every connection, so a name that
+              starts pointing somewhere public is never dialed. A carrier or overlay address
+              (100.64/10) counts only if you add it by hand.</p>
+
+            <h3>Adding Towers</h3>
+            <p>A standalone Tower (<code>roger-tower-local</code>) joins the LAN dial once you
+              add it. A Tower started with <code>--advertise</code> announces itself on your
+              private network and appears on the dial as a candidate; it is never used until you
+              add it (<b>+</b> on the dial, or the command below).</p>
+            <pre><span class="p">$</span> roger lan add 192.168.1.20:8787   <span class="c"># checks it answers as a standalone Tower</span>
+<span class="p">$</span> roger lan list                    <span class="c"># each Tower, whether it answers, its bands</span>
+<span class="p">$</span> roger lan rm 192.168.1.20:8787</pre>
+
+            <div class="man-note">
+              <span class="man-note__tag">trust</span>
+              Towers are <b>trusted because they are on your LAN</b>. A standalone Tower speaks
+              plain http with no identity of its own, so any device on the same network can pose
+              as it, and a Tower can read what you send to it. Edge members are different: they
+              are <b>verified by certificate</b> under your Edge, exactly as without LAN mode.
+              For sensitive work, keep it on Edge members only: remove every Tower with
+              <code>roger lan rm</code>, and the LAN dial serves from this machine and your Edge
+              alone.
             </div>
           </section>
 
