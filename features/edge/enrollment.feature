@@ -39,10 +39,12 @@
 #   issues certificates to nodes over the LAN. CORE IS NEVER CONTACTED, NOT ONCE. A plant
 #   network that has never had internet forms a complete Edge: enroll, discover, verify, revoke.
 #
-# This is not a new idea in this codebase, which is why it is the right one. `roger-tower-local`
-# is already Core-free BY CONSTRUCTION: its dependency graph links none of towerjoin, towercore
-# or towerhub, and a dependency-graph test enforces it (see cmd/roger-tower-local/main.go and
-# features/tower/standalone_consumer_plane.feature). The local Edge authority earns the same
+# This is not a new idea in this codebase, which is why it is the right one. The standalone
+# serve package (internal/localplane/serve) is Core-free: its dependency graph imports none of
+# towerjoin, towercore or towerhub, a dependency-graph test enforces it, and standalone mode adds
+# a runtime guard that refuses every non-local connection (features/packaging/one_binary.feature
+# section 4).
+# superseded 2026-10-07 by founder ruling (one binary): this was stated as a property of the roger-tower-local binary. The local Edge authority earns the same
 # structural guarantee and the same kind of test, so "no Core" is a property of the build rather
 # than a promise in a comment.
 #

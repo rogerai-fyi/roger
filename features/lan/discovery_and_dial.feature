@@ -7,7 +7,7 @@
 #   2. EDGE MEMBERS    nodes enrolled under this Edge's root, found by mDNS and verified by
 #                      certificate (features/edge/discovery.feature). Rung 2 of the ladder
 #                      (features/edge/local_inference.feature).
-#   3. LAN TOWERS      standalone Towers (cmd/roger-tower-local, internal/localplane) at a LOCAL
+#   3. LAN TOWERS      standalone Towers (`roger tower serve`, internal/localplane) at a LOCAL
 #                      address. Their /discover requires a signed, admitted client
 #                      (features/tower/standalone_consumer_plane.feature).
 #
@@ -35,8 +35,9 @@
 #       fingerprint (today's isLocalTowerBroker probe: /local/poll -> exactly the uniform 401);
 #   (c) mDNS: a standalone Tower may advertise itself on the LAN, and LAN mode lists what it
 #       hears as CANDIDATES the owner adds with one action. It is never used until added.
-#   # RULED 2026-10-06: roger-tower-local may advertise over mDNS, OFF by default on
-#   # the Tower (`roger-tower-local serve --advertise`), private interfaces only, and candidates
+#   # superseded 2026-10-07 by founder ruling (one binary): the command is `roger tower serve --advertise`.
+#   # RULED 2026-10-06: a standalone Tower may advertise over mDNS, OFF by default on
+#   # the Tower (`roger tower serve --advertise`), private interfaces only, and candidates
 #   # are never dialed for inference until the owner adds them (one keystroke in the TUI, one
 #   # command in the CLI). This keeps the approved standalone scenario "the Tower's own
 #   # advertisements never leave the machine" true by default; it would need a superseded marker
@@ -48,7 +49,7 @@
 # fleet, `roger edge bands`), internal/localmodel (serving records).
 #
 # Tags: @client in internal/client, @cli in cmd/rogerai, @tui in internal/tui, @console in
-# internal/webui, @tower in cmd/roger-tower-local + internal/localplane, @edge in internal/edge.
+# internal/webui, @tower in internal/localplane (+ `roger tower serve`), @edge in internal/edge.
 
 Feature: In LAN mode the dial lists only bands served on this machine, by this Edge, or by a Tower at a local address, and every row names its source
 

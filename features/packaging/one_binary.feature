@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-07 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-07 (founder)
 #
 # ONE USER BINARY. Founder rulings 2026-10-07 (memory: one-binary):
 #   - `roger` is the only binary a user downloads. `roger tower ...` replaces both
@@ -14,7 +14,7 @@
 #
 # Every DRY merge below is stated as behavior a user or operator can observe, so each one
 # is testable. A merge that CHANGES behavior is marked `# BEHAVIOR CHANGE:` with a
-# `# DECISION:` and a recommendation.
+# `# RULED 2026-10-07:` line recording the founder's answer (the recommendation, adopted).
 #
 # Plan and order: docs/one-binary-plan.md.
 
@@ -104,8 +104,8 @@ Feature: One user binary with modes
   Scenario: standalone serve now reads the YAML config like every other tower command
     # BEHAVIOR CHANGE: roger-tower-local ignored --config, so its bind could never come
     # from the operator's YAML.
-    # DECISION: honor --config for standalone serve (bind, label, advertise), with flags
-    # winning over the file. Recommended: yes.
+    # RULED 2026-10-07: honor --config for standalone serve (bind, label, advertise), with flags
+    # winning over the file. Ruled (founder, as recommended): yes.
     Given a standalone config file that sets the bind to 192.168.1.10:8787
     When the operator runs "roger tower serve --dir D --config C"
     Then it binds 192.168.1.10:8787
@@ -147,10 +147,10 @@ Feature: One user binary with modes
   # =====================================================================================
   # 2. TOWER LOGIN
   # =====================================================================================
-  # DECISION: `roger tower login` and `roger tower logout` stay as commands but are THIN:
+  # RULED 2026-10-07: `roger tower login` and `roger tower logout` stay as commands but are THIN:
   # login runs the same device flow as `roger login` (it already signs with roger's own
   # user.key) and then writes the data-directory marker; logout removes only the marker and
-  # never signs the machine out of roger. Recommended: keep both commands (operators'
+  # never signs the machine out of roger. Ruled (founder, as recommended): keep both commands (operators'
   # scripts and the approved operator_login spec use them), implemented on roger login.
 
   Scenario: roger tower login is roger login plus the directory marker
@@ -181,10 +181,10 @@ Feature: One user binary with modes
   # =====================================================================================
   # 3. THE OLD NAMES FOR ONE RELEASE
   # =====================================================================================
-  # DECISION: the shims are tiny separate executables (not symlinks) that exec
+  # RULED 2026-10-07: the shims are tiny separate executables (not symlinks) that exec
   # `roger tower ...`. A symlink dispatching on argv[0] would make the shim depend on
   # being installed next to roger under a fixed name, which Windows and some package
-  # managers do not preserve. Recommended: tiny exec shims, built only for the one release.
+  # managers do not preserve. Ruled (founder, as recommended): tiny exec shims, built only for the one release.
 
   Scenario Outline: An old name still works and says what replaced it
     Given roger and the "<old>" shim are installed
@@ -310,8 +310,8 @@ Feature: One user binary with modes
   # =====================================================================================
   # 5. PACKAGING
   # =====================================================================================
-  # DECISION: `roger tower` on macOS and Windows. Tower code now ships in roger on every
-  # platform. Recommended: standalone is SUPPORTED everywhere (it is plain Go and the plane
+  # RULED 2026-10-07: `roger tower` on macOS and Windows. Tower code now ships in roger on every
+  # platform. Ruled (founder, as recommended): standalone is SUPPORTED everywhere (it is plain Go and the plane
   # is local); joined mode refuses on macOS and Windows with "joined Towers run on Linux"
   # until a non-Linux joined build is tested, because the hub, the systemd unit and the
   # non-root runtime were only proven on Linux.
@@ -430,14 +430,14 @@ Feature: One user binary with modes
 
   Scenario: tower doctor's loopback check is no longer a string prefix
     # BEHAVIOR CHANGE: tower/doctor.go:143 matched loopback by string prefix.
-    # DECISION: use the netpriv rule (any 127.0.0.0/8 and ::1, parsed). Recommended: yes.
+    # RULED 2026-10-07: use the netpriv rule (any 127.0.0.0/8 and ::1, parsed). Ruled (founder, as recommended): yes.
     When doctor checks a config whose bind is "127.1.2.3:8787" or "[::1]:8787"
     Then both are reported as loopback
 
   Scenario: The joined serve's advertised-address tiers follow the one rule
     # BEHAVIOR CHANGE: roger-tower serve.go classifyAdvertised used stdlib IsPrivate, which
     # treats link-local differently from lanmode.
-    # DECISION: link-local is "local, not routable" in both. Recommended: yes.
+    # RULED 2026-10-07: link-local is "local, not routable" in both. Ruled (founder, as recommended): yes.
     When joined serve classifies an advertised fe80:: address
     Then it uses the same class as lan add
 
@@ -460,9 +460,9 @@ Feature: One user binary with modes
 
   Scenario: A broker setting that is a local Tower is folded into lan_towers
     # BEHAVIOR CHANGE: "point broker at a Tower" and "lan add" were two ways to name a Tower.
-    # DECISION: on first run after the upgrade, a broker setting that IsTower recognizes is
+    # RULED 2026-10-07: on first run after the upgrade, a broker setting that IsTower recognizes is
     # copied into lan_towers (once, with a one-line note), and the broker setting is left as
-    # is. Thereafter Tower discovery reads lan_towers only. Recommended: yes.
+    # is. Thereafter Tower discovery reads lan_towers only. Ruled (founder, as recommended): yes.
     Given a config whose broker is "http://192.168.1.10:8787", a standalone Tower
     When roger starts after the upgrade
     Then lan_towers contains "192.168.1.10:8787"
@@ -502,9 +502,9 @@ Feature: One user binary with modes
 
   Scenario: The joined hub states its bind posture
     # BEHAVIOR CHANGE: the hub called net.Listen with no posture check at all.
-    # DECISION: the hub keeps binding any address (a joined Tower is public by design), but
+    # RULED 2026-10-07: the hub keeps binding any address (a joined Tower is public by design), but
     # netbind logs "hub listening on <addr> (public|private|loopback)" at start, and refuses
-    # a hostname bind like every other site. Recommended: yes; no refusal of public binds.
+    # a hostname bind like every other site. Ruled: yes; no refusal of public binds.
     When the joined hub starts on "0.0.0.0:8443"
     Then it listens
     And the log states the posture
@@ -547,9 +547,9 @@ Feature: One user binary with modes
   Scenario: Loopback Towers now get a nonce too
     # BEHAVIOR CHANGE: the standalone spec said loopback "needs none" (no wire to eavesdrop),
     # and the station side always sent one.
-    # DECISION: always send a nonce to any standalone Tower, loopback included. It costs
+    # RULED 2026-10-07: always send a nonce to any standalone Tower, loopback included. It costs
     # nothing, the Tower already accepts it, and one rule is simpler than two.
-    # Recommended: yes.
+    # Ruled (founder, as recommended): yes.
     When roger signs a request to 127.0.0.1:8787
     Then it carries a nonce
 
@@ -569,9 +569,9 @@ Feature: One user binary with modes
   # --- 7.9 one live-share registry ----------------------------------------------------
 
   Scenario: lan-shares records live in the onair registry
-    # DECISION: merge the lan-shares pid records into internal/onair (one pid-keyed registry
+    # RULED 2026-10-07: merge the lan-shares pid records into internal/onair (one pid-keyed registry
     # with one staleness rule), with the LAN fields (band, upstream, key, modality) carried
-    # in an owner-only side record the registry owns. Recommended: merge.
+    # in an owner-only side record the registry owns. Ruled (founder, as recommended): merge.
     Given a share on air in another process
     Then the LAN relay, the Edge face and the TUI read it through internal/onair
     And a stale record (dead pid) is ignored and removed by one rule

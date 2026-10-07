@@ -1,3 +1,4 @@
+# superseded 2026-10-07 by founder ruling (one binary): the Tower CLI is now `roger tower` (one user binary).
 # APPROVED SPEC - founder-dictated 2026-08-23 ("I want the roger-tower cli to clearly have
 # in a log displaying the STATE... as admin/approver, i want to do this on the website...
 # i would also like to get an email... once it's approved the tower cli should

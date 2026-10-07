@@ -5,7 +5,7 @@
 # Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
 # references in the code. Changing the status without changing the code fails.
 #
-# Scope: the operator-facing account flow for `roger-tower` — when an account is needed,
+# Scope: the operator-facing account flow for `roger tower` (superseded 2026-10-07 by founder ruling (one binary)) — when an account is needed,
 # when it is not, and what the operator sees. The enrollment PROTOCOL (tokens, CSRs,
 # certificates, lifecycle) is public_enrollment.feature; this is the human half.
 #

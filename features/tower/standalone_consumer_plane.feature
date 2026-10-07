@@ -27,7 +27,8 @@
 #    uniform 401 - while two honest same-second requests carry DIFFERENT nonces and both
 #    succeed (the bug a signature-only guard had). The guard reads time only through the Tower's
 #    clock seam. The roger client sends a nonce when pointed at a LAN standalone Tower (private
-#    http); loopback has no wire to eavesdrop so needs none, and the public https broker never
+#    http); superseded 2026-10-07 by founder ruling (one binary): every standalone Tower gets a nonce, loopback included (one rule);
+#    the public https broker never
 #    sees one. The broker verifies a nonce-bound signature too (central identityOf) but does not
 #    replay-guard - that is the free-local plane's concern.
 # corrected 2026-10-06 (founder-approved): headless `roger share` already serves a standalone
@@ -41,14 +42,16 @@
 Feature: A standalone Tower serves its own network and no one else's
   The airgap plant: model boxes `roger share` to a local Tower, operators point roger at
   it, and nothing - traffic, names, receipts, or money - ever touches the public network.
-  Sealed by CONSTRUCTION, not by a runtime flag: the process that serves consumers does
-  not link a single line that can reach Roger Core.
+  Sealed by a package that imports no Core code plus a runtime guard that refuses every
+  non-local connection (features/packaging/one_binary.feature section 4).
 
   Background:
     Given a standalone Tower serving its consumer endpoint on the local network
 
   # === THE STRUCTURAL GUARANTEE (this is what makes the rest safe) ===========
 
+  # superseded 2026-10-07 by founder ruling (one binary): the guarantee is now package-level plus a runtime guard, pinned by
+  # features/packaging/one_binary.feature section 4. This scenario is RETIRED as worded.
   Scenario: The consumer process cannot reach Roger Core, by linkage not by policy
     Given the binary that serves the standalone consumer plane
     When its full dependency graph is inspected

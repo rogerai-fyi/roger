@@ -1,6 +1,7 @@
 # PROPOSED SPEC — founder approval is required before step definitions or implementation.
 #
-# BROKER-MEDIATED DEVICE LOGIN — `roger login` and `roger-tower login` authenticate through
+# superseded 2026-10-07 by founder ruling (one binary): `roger-tower login` is `roger tower login`.
+# BROKER-MEDIATED DEVICE LOGIN — `roger login` and `roger tower login` authenticate through
 # RogerAI, not through a provider directly.
 #
 # WHY THIS REPLACES THE CURRENT FLOW. Today the CLI runs GitHub's own Device Authorization
@@ -11,7 +12,7 @@
 #      CLI cannot use it, and every new provider means another provider-specific flow
 #      inside the binary.
 #   2. Every CLI reaches a third-party host we do not control. That is worst for
-#      roger-tower, whose whole design story is a bounded, declared egress surface.
+#      a Tower, whose whole design story is a bounded, declared egress surface.
 #   3. A provider change - client-id rotation, an endpoint move, a policy shift - needs a
 #      NEW BINARY and breaks installs that have not updated.
 #

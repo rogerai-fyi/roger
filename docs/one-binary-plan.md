@@ -1,7 +1,7 @@
 # One binary: refactor plan
 
-Status: PROPOSED 2026-10-07, with features/packaging/one_binary.feature (awaiting founder
-approval). Nothing here is built.
+Status: APPROVED 2026-10-07 (founder), with features/packaging/one_binary.feature and all ten
+recommended decisions.
 
 Goal: `roger` is the only user binary (`roger tower ...` replaces `roger-tower` and
 `roger-tower-local`), `rogerai-broker` absorbs the tokenizer sidecar, and every concern has
