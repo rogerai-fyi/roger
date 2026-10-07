@@ -579,3 +579,10 @@ Feature: The local proxy relays the routing body object and folds the owner's li
   Scenario: claude (context-only guest) never relays, so no routing object is built
     Given the claude guest per features/operator (context-only, no proxy relay)
     Then no chat request is relayed and no routing object is built
+
+  # regression 2026-10-07: audit finding, contract §9 (model ids compare exactly, as on the broker)
+  Scenario: The owner's models filter compares model ids exactly, never ignoring case
+    Given the proxy owner tuned with --models qwen3-32b-fp8,llama-3.3-70b
+    When a chat request arrives with "models": ["LLAMA-3.3-70B"]
+    Then the guest receives an OpenAI-shaped 400 "models names no model inside this session's allowed models"
+    And nothing reaches the broker

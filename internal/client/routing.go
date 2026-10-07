@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -392,7 +393,7 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			}
 			kept := []string{}
 			for _, id := range ids {
-				if hasFold(allowed, bareModel(id)) {
+				if slices.Contains(allowed, bareModel(id)) { // exact, as the broker and GuestModelsWithin compare
 					kept = append(kept, id)
 				}
 			}
