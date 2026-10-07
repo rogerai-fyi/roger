@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
@@ -1655,6 +1656,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.applyLocalVoices(msg), nil
+	case rescanMsg:
+		m.confirmRescan = true // this reply answers r: its requote may offer the raise
+		return m.Update(offersMsg(msg))
 	case offersMsg:
 		// A private freq is tuned: ignore the periodic public-market scan so it does not
 		// clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).
@@ -2895,6 +2899,9 @@ func (m *model) bindChannel(o offer) (warm bool, err error) {
 func (m model) openChannel() (tea.Model, tea.Cmd) {
 	q := m.q
 	o := *q.b.cheapest
+	// The bind builds the proxy's options from the tuned profile, so it is set first, and
+	// restored if the bind fails: a profile that bound nothing is never the tuned one.
+	prevProfile := m.tunedProfile
 	m.tunedProfile = m.confirmProfile // the profile accepted on the confirm
 	// WARM RECONNECT: a band we have tuned in to before this session skips the staged
 	// scan/lock/handshake animation and drops straight into the open channel - only a
@@ -2902,6 +2909,7 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	// reconnect is genuinely instant.
 	warm, err := m.bindChannel(o)
 	if err != nil {
+		m.tunedProfile = prevProfile
 		m.mode = modeBrowse
 		m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
 		return m, nil
@@ -3058,7 +3066,9 @@ func (m *model) commitLimitField() bool {
 		m.status = stEmber.Render(err.Error())
 		return false
 	}
-	m.putRowLimit(row, next)
+	if !reflect.DeepEqual(next, cur) { // the same value retyped writes nothing
+		m.putRowLimit(row, next)
+	}
 	return true
 }
 
@@ -5103,6 +5113,22 @@ func pingWorldTick(gen int) tea.Cmd {
 // counts ever exceed a few hundred: add broker-side pagination + load-on-scroll
 // here (a cursor/offset on /discover, fetching the next page as the window nears the
 // bottom) so the client never holds the whole list in memory.
+// rescanMsg is the reply to the operator's own re-scan (r on the connect confirm), told apart
+// from a periodic scan's offersMsg that may already be in flight: only this one may move the
+// confirm to the raise-the-cap screen.
+type rescanMsg []offer
+
+// fetchRescan is fetchOffers whose reply is a rescanMsg.
+func fetchRescan(broker string) tea.Cmd {
+	scan := fetchOffers(broker)
+	return func() tea.Msg {
+		if offers, ok := scan().(offersMsg); ok {
+			return rescanMsg(offers)
+		}
+		return scan()
+	}
+}
+
 func fetchOffers(broker string) tea.Cmd {
 	return func() tea.Msg {
 		resp, err := http.Get(broker + "/discover")

@@ -366,8 +366,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r":
 			m.status = stDim.Render("re-scanning the band…")
-			m.scanErr, m.scanned, m.confirmRescan = false, false, true
-			return m, fetchOffers(m.broker)
+			m.scanErr, m.scanned, m.confirmRescan = false, false, false
+			return m, fetchRescan(m.broker) // its reply, not whichever scan lands first, is explicit
 		case "enter", "y", "Y":
 			if why := m.quantRuleRefusal(m.q.b.model, m.q.b.quant); why != "" {
 				m.status = stEmber.Render(why)
@@ -1942,10 +1942,13 @@ func (m *model) commitBudgetEdit() (tea.Model, tea.Cmd) {
 // onLimitsKey drives the per-model limits view (3.4): up/down move, enter edits
 // (Tab between out-price and min-tps), d clears, esc done.
 func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	gen := m.limits.Gen()
 	out, cmd := m.limitsKey(k)
-	// An edit to the connected band's rule binds the live proxy's next turn at once.
-	if mm, ok := out.(*model); ok {
+	// An edit to the connected band's rule binds the live proxy's next turn at once; a key
+	// that changed no rule (navigation, opening a field) re-points nothing.
+	if mm, ok := out.(*model); ok && mm.limits.Gen() != gen {
 		mm.refreshLiveRouting()
+		mm.limitsGen = mm.limits.Gen() // seen: the tick need not re-point for this edit again
 	}
 	return out, cmd
 }

@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // TestAgentTurnReadsLiveRouting: the F/C toggles flipped AFTER the agent runtime was built
@@ -301,7 +302,8 @@ func TestBackgroundRescanNeverTurnsAcceptIntoARaise(t *testing.T) {
 	require.InDelta(t, 2.0, m.limits.own("m1").MaxOut, 1e-9, "the cap is not raised")
 
 	out, _ = m.Update(keyMsg("r"))
-	out, _ = asModel(out).Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)}))
+	// the reply to r (a rescanMsg, not a periodic offersMsg)
+	out, _ = asModel(out).Update(rescanMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)}))
 	require.Equal(t, modeOverLimit, asModel(out).mode, "an explicit re-scan may offer the raise")
 }
 
@@ -357,7 +359,8 @@ func TestBackgroundScanMissingTheBandKeepsTheConfirm(t *testing.T) {
 	require.Nil(t, asModel(out).connected)
 
 	out, _ = asModel(out).Update(keyMsg("r"))
-	out, _ = asModel(out).Update(offersMsg([]offer{capOffer(other, 32768, false, nil, 1.0, 72)}))
+	// the reply to r (a rescanMsg, not a periodic offersMsg)
+	out, _ = asModel(out).Update(rescanMsg([]offer{capOffer(other, 32768, false, nil, 1.0, 72)}))
 	require.Equal(t, modeBrowse, asModel(out).mode, "an explicit re-scan that still finds nothing goes back")
 }
 
@@ -474,4 +477,66 @@ func TestBandCardLimitEditTypesOverTheSeedAndSaves(t *testing.T) {
 	require.Equal(t, "3", asModel(out).editBuf, "the first digit replaces the seed")
 	out, _ = asModel(out).Update(keyMsg("enter"))
 	require.InDelta(t, 3.0, asModel(out).limits.own("m").MaxOut, 1e-9, "enter saves what was typed")
+}
+
+// TestOnlyTheExplicitRescanReplyMayOfferARaise: after r, a periodic scan that lands first is
+// still periodic (no raise screen); the reply to r itself is what may offer it.
+func TestOnlyTheExplicitRescanReplyMayOfferARaise(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{"m1": {MaxOut: 2}}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 1.0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	m := asModel(tm)
+	out, _ := m.connect()
+	out, _ = asModel(out).Update(keyMsg("r"))
+	pricier := []offer{capOffer("m1", 32768, false, nil, 3.0, 72)}
+	out, _ = asModel(out).Update(offersMsg(pricier)) // a periodic scan, in flight before r
+	require.Equal(t, modeConnectConfirm, asModel(out).mode, "a periodic reply never offers the raise")
+	out, _ = asModel(out).Update(rescanMsg(pricier)) // the reply to r
+	require.Equal(t, modeOverLimit, asModel(out).mode)
+}
+
+// TestCONFIGNavigationDoesNotRepointTheProxy: moving around [3] CONFIG changes no rule, so it
+// re-points nothing; only a key that changed the limit store re-points the live proxy.
+func TestCONFIGNavigationDoesNotRepointTheProxy(t *testing.T) {
+	m := autoTunedModel(t)
+	m.mode = modeLimits
+	m.limModels = []string{m.connected.Model, defaultLimitRow}
+	m.editField = -1
+	m.proxyHolder.SetBand(client.ProxyOptions{Model: "sentinel"}) // marks the last re-point
+	out, _ := m.Update(keyMsg("down"))
+	require.Equal(t, "sentinel", asModel(out).proxyHolder.Get().Model, "a navigation key re-pointed the proxy")
+}
+
+// TestRetypingTheSameValueWritesNothing: an edit that ends on the value already stored (here
+// backspace over the seed, then the same number) writes nothing.
+func TestRetypingTheSameValueWritesNothing(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	saves := 0
+	m.limits.Models = map[string]Limit{"m": {MaxOut: 5}}
+	m.limits.Save = func(map[string]Limit, Limit) { saves++ }
+	m.mode = modeLimits
+	m.limModels = []string{"m", defaultLimitRow}
+	m.limCursor, m.editField = 0, 0
+	m.focusLimitField(lfMaxOut)
+	for _, k := range []string{"backspace", "5", "enter"} {
+		out, _ := m.Update(keyMsg(k))
+		m = asModel(out)
+	}
+	require.Zero(t, saves)
+	require.InDelta(t, 5.0, m.limits.own("m").MaxOut, 1e-9)
+}
+
+// TestFailedBindKeepsThePreviousProfile: accepting under a profile whose bind then fails
+// leaves the booth on the profile it had, never on one that bound nothing.
+func TestFailedBindKeepsThePreviousProfile(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.tunedProfile = "before"
+	m.confirmProfile = "p"
+	m.proxyUp, m.proxyHolder = false, nil
+	m.proxyAddr = "256.0.0.1:1" // cannot bind
+	m.q = quote{b: band{model: "m", online: true, cheapest: &offer{Model: "m", NodeID: "n1"}}}
+	out, _ := m.openChannel()
+	require.Equal(t, "before", asModel(out).tunedProfile)
 }
