@@ -192,3 +192,21 @@ func TestTUISaveKeepsAConcurrentCLIEdit(t *testing.T) {
 	require.InDelta(t, 2.0, c.Limits.Models["cli-model"].MaxOut, 1e-9, "the CLI's edit survived")
 	require.InDelta(t, 3.0, c.Limits.Models["booth-model"].MaxOut, 1e-9, "the booth's edit landed")
 }
+
+// TestRogerUseResolvesLimitsByTheSharedRule: the table the CLI and TUI resolve by is also what
+// `roger use` sends: its merged body equals the body of the table's resolved limit.
+func TestRogerUseResolvesLimitsByTheSharedRule(t *testing.T) {
+	ps := profilesOf(t, `{"profiles":{}}`)
+	for _, tc := range tui.LimitMergeCases() {
+		t.Run(tc.Name, func(t *testing.T) {
+			var c config
+			c.Limits.Default = fromTUILimit(tc.Default)
+			c.Limits.Models = map[string]Limit{"m": fromTUILimit(tc.Model)}
+			f, _, err := parseUseFlags([]string{"m"})
+			require.NoError(t, err)
+			tgt, err := resolveUse(c, f, ps)
+			require.NoError(t, err)
+			require.Equal(t, limitBody(fromTUILimit(tc.Want)), tgt.r.body)
+		})
+	}
+}
