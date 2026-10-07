@@ -94,6 +94,8 @@ const (
 	LANTowerWaiting      LANTowerState = "waiting"
 	LANTowerRefused      LANTowerState = "refused"
 	LANTowerSameAs       LANTowerState = "same Tower"
+	// LANTowerNotStandalone is an address that answered a turn without the local marker.
+	LANTowerNotStandalone LANTowerState = "not a standalone Tower"
 )
 
 // LANTowerStatus is one configured Tower's line.

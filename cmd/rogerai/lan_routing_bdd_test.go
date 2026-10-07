@@ -21,6 +21,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 type lanRouteBDD struct {
@@ -30,6 +31,9 @@ type lanRouteBDD struct {
 	body                string
 	hdr                 http.Header
 	faces               map[string]*edgeFace
+	tweak               func(*client.ProxyOptions) // a scenario's extra proxy options
+	receipts            []protocol.UsageReceipt
+	alerts              []string
 	lastBand, lastTower string
 	before              map[string]int32
 }
@@ -40,6 +44,7 @@ func (s *lanRouteBDD) resetRoute() {
 	s.towerHits.Store(0)
 	s.code, s.body, s.hdr = 0, "", nil
 	s.faces, s.before = map[string]*edgeFace{}, map[string]int32{}
+	s.tweak, s.receipts, s.alerts = nil, nil, nil
 	lanSelfServe = func(string) (string, string) { return "", "" }
 }
 
@@ -86,6 +91,11 @@ func (s *lanRouteBDD) dispatchBody(band, body string) error {
 	opts := client.ProxyOptions{Broker: s.broker.srv.URL, Model: band, SessionKey: "k"}
 	applyEdgeLadder(cfg, &opts)
 	applyLAN(cfg, &opts)
+	opts.OnReceipt = func(r protocol.UsageReceipt) { s.receipts = append(s.receipts, r) }
+	opts.Alert = func(a string) { s.alerts = append(s.alerts, a) }
+	if s.tweak != nil {
+		s.tweak(&opts)
+	}
 	srv := httptest.NewServer(client.ProxyHandler(opts))
 	defer srv.Close()
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", bytes.NewReader([]byte(body)))

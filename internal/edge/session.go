@@ -417,10 +417,12 @@ func (s *Sessions) evictLocked() {
 	}
 }
 
-// The two routes a turn can take. They are a report of where it went, never a promise.
+// The routes a turn can take. They are a report of where it went, never a promise. WhereLAN is
+// a LAN Tower in LAN mode: local and free, but on a Tower that may not be the owner's.
 const (
 	WhereLocal  = "local"
 	WhereMarket = "market"
+	WhereLAN    = "lan"
 )
 
 // whereFromReceipts reads the route out of the evidence: a turn served on a local receipt
@@ -430,7 +432,9 @@ func whereFromReceipts(recs []protocol.UsageReceipt) string {
 	where := WhereMarket
 	for _, rec := range recs {
 		if rec.VoidReason == "" {
-			if rec.Local {
+			if rec.LAN {
+				where = WhereLAN
+			} else if rec.Local {
 				where = WhereLocal
 			} else {
 				where = WhereMarket

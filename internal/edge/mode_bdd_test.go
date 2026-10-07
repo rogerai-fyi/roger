@@ -7,20 +7,26 @@ package edge
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
 
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/harness"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 type modeBDD struct {
-	t    *testing.T
-	st   SelfStatus
-	sess *Sessions
-	last Session
+	requests int32
+	t        *testing.T
+	st       SelfStatus
+	sess     *Sessions
+	last     Session
 }
 
 func (s *modeBDD) reset() {
@@ -161,6 +167,49 @@ func (s *modeBDD) modeSaysSo() error {
 	return nil
 }
 
+// countingTransport counts every HTTP request a path makes, so "cannot reach the broker" is
+// proven by nothing being sent at all, not by the absence of one URL.
+type countingTransport struct{ n atomic.Int32 }
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	return nil, fmt.Errorf("no request may leave under local-only: %s", r.URL)
+}
+
+// structuralNoBroker drives the three paths that carry a turn (the proxy a tune binds, the chat
+// TUI and console send through, the agent's completer) under local-only with the ONE process relay
+// installed and a broker address that is never dialed; each must refuse locally and no request
+// may be made by any of them.
+func (s *modeBDD) structuralNoBroker() error {
+	tr := &countingTransport{}
+	prev := http.DefaultTransport
+	http.DefaultTransport = tr
+	defer func() { http.DefaultTransport = prev }()
+	relay := client.ProxyOptions{Prefer: "local-only"}
+	client.SetLANRelay(&relay)
+	defer client.SetLANRelay(nil)
+	const broker = "http://broker.invalid"
+
+	h := client.ProxyHandler(client.ProxyOptions{Broker: broker, Model: "gpt-oss-120b", SessionKey: "k", Prefer: "local-only"})
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-oss-120b","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer k")
+	req.RemoteAddr = "127.0.0.1:1"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		return fmt.Errorf("proxy: %d %s", rec.Code, rec.Body)
+	}
+	if _, err := client.ChatTurns(broker, "u", "gpt-oss-120b", []client.ChatTurn{{Role: "user", Content: "hi"}}, false, 0, "", nil); err == nil || !strings.Contains(err.Error(), "local-only") {
+		return fmt.Errorf("chat: %v", err)
+	}
+	if _, err := harness.BrokerCompleterRoute(harness.BrokerRoute{Broker: broker, User: "u", Model: "gpt-oss-120b"})(
+		context.Background(), []harness.Message{{Role: "user", Content: "hi"}}, nil); err == nil || !strings.Contains(err.Error(), "local-only") {
+		return fmt.Errorf("agent: %v", err)
+	}
+	s.requests = tr.n.Load()
+	return nil
+}
+
 func TestModeFeature(t *testing.T) {
 	st := &modeBDD{t: t}
 	suite := godog.TestSuite{
@@ -191,6 +240,13 @@ func TestModeFeature(t *testing.T) {
 			sc.Step(`^a machine with no preference set$`, st.noPreferenceSet)
 			sc.Step(`^its preference is local$`, st.preferenceIsLocal)
 			sc.Step(`^the mode says so$`, st.modeSaysSo)
+			sc.Step(`^the dispatch path cannot reach the broker client at all$`, st.structuralNoBroker)
+			sc.Step(`^that is enforced by construction rather than by a check at each call site$`, func() error {
+				if st.requests != 0 {
+					return fmt.Errorf("%d request(s) left under local-only", st.requests)
+				}
+				return nil
+			})
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true, Tags: "@edge && ~@later",

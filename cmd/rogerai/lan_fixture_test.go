@@ -129,3 +129,10 @@ func completionUpstream(t *testing.T, name string) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// lookup is the real listener behind a scenario address ("" when none).
+func (m *lanDialMap) lookup(scenarioAddr string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.to[scenarioAddr]
+}

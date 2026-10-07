@@ -412,12 +412,15 @@ type ProxyOptions struct {
 	// machine's own serve, then an Edge member, then a LAN Tower, or it is refused. The
 	// market is never tried. LANSelf returns this machine's completions URL and its runtime key
 	// for a band ("" = none); LANTowers the Towers serving it, in order; LANHTTP/LANResolve/LANKey are seams.
-	LANMode    bool
-	LANSelf    func(band string) (url, key string)
-	LANTowers  func(band string) []string
-	LANHTTP    *http.Client
-	LANResolve lanmode.Resolver
-	LANKey     ed25519.PrivateKey
+	LANMode   bool
+	LANSelf   func(band string) (url, key string)
+	LANTowers func(band string) []string
+	// LANNotLocal is told when a configured LAN address answered a turn WITHOUT the standalone
+	// Tower's local marker; the CLI stops sending it turns until the owner re-adds it.
+	LANNotLocal func(addr string)
+	LANHTTP     *http.Client
+	LANResolve  lanmode.Resolver
+	LANKey      ed25519.PrivateKey
 
 	Broker, User string
 	Confidential bool

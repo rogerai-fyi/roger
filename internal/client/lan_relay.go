@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // relayLAN serves the turn on the LAN or refuses it; it never returns (false, false).
@@ -65,7 +66,22 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 			}
 			onServed(0)
 			noteLANLeft(w, tried)
-			w.Header().Set("X-RogerAI-Cost", "0") // a LAN turn is free and says so
+			if resp.Header.Get("X-Roger-Local") == "1" {
+				w.Header().Set("X-RogerAI-Cost", "0") // a LAN turn is free and says so
+				if opts.OnReceipt != nil {
+					opts.OnReceipt(protocol.UsageReceipt{RequestID: newRequestID(), NodeID: "tower:" + entry,
+						Model: band, Local: true, LAN: true, TS: time.Now().Unix()})
+				}
+			} else {
+				// Something at a configured address answered, but not as a standalone Tower does:
+				// it is not trusted as free, and no later turn goes to it until the owner re-adds it.
+				if opts.Alert != nil {
+					opts.Alert("this LAN source did not say it is local: " + entry + " answered without X-Roger-Local: 1; it gets no more turns until you re-add it (roger lan add " + entry + ")")
+				}
+				if opts.LANNotLocal != nil {
+					opts.LANNotLocal(entry)
+				}
+			}
 			copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
 			resp.Body.Close()
 			return true, false
@@ -74,6 +90,14 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	msg := "nothing on this LAN serves " + band + ": LAN mode is on and the market was not tried - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market"
 	if len(tried) > 0 {
 		msg = "every local source serving " + band + " failed (" + strings.Join(tried, "; ") + "); LAN mode is on and the market was not tried"
+	}
+	if !opts.LANMode {
+		// edge.prefer local-only without LAN mode: the same one relay, Edge-scoped words
+		// (features/edge/mode.feature).
+		msg = "local-only: no instance on this Edge serves " + band + " - serve it here, or set the preference back to local (roger edge prefer local); this roger will not go to the market"
+		if len(tried) > 0 {
+			msg = "local-only: every peer serving " + band + " failed (" + strings.Join(tried, "; ") + ") and this roger will not go to the market"
+		}
 	}
 	openAIError(w, http.StatusServiceUnavailable, "lan_error", "lan_only", msg)
 	return false, true

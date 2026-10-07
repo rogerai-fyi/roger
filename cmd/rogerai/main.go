@@ -145,6 +145,9 @@ type config struct {
 	Mode string `json:"mode,omitempty"`
 	// LanTowers are the standalone Towers LAN mode uses, as host:port (`roger lan add`).
 	LanTowers []string `json:"lan_towers,omitempty"`
+	// LanNotTower are configured addresses that answered a turn without the standalone Tower's
+	// local marker; LAN mode sends them nothing until `roger lan add` re-adds them.
+	LanNotTower []string `json:"lan_not_tower,omitempty"`
 	// LanTrustNoted records that the plain-http trust note was shown once
 	// (features/lan/trust_and_honesty.feature).
 	LanTrustNoted bool `json:"lan_trust_noted,omitempty"`

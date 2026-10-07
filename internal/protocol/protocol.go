@@ -565,6 +565,10 @@ type UsageReceipt struct {
 	// with the node key and never by the broker. It exists for the Edge view and for
 	// audit, never for settlement - the broker refuses it (no broker signature).
 	Local bool `json:"local,omitempty"`
+	// LAN marks a turn a LAN Tower served in LAN mode (features/lan/ui_visibility.feature): local and
+	// free like an Edge turn, but on a Tower that may not be the owner's, so its route is "lan".
+	// The client writes it on its own record; no broker or peer ever signs it.
+	LAN bool `json:"lan,omitempty"`
 	// Instance names the running roger that served, on a local receipt.
 	Instance string `json:"instance,omitempty"`
 }

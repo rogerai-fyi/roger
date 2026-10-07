@@ -179,3 +179,22 @@ func TestLANSelfServeIncludesThisProcessShare(t *testing.T) {
 	u, _ = lanSelfServe("not-shared")
 	require.Empty(t, u)
 }
+
+// edge.prefer local-only without LAN mode also installs the one relay, so TUI chat, console chat
+// and the agent cannot reach the broker (features/edge/mode.feature, "local-only is structural").
+func TestLocalOnlyInstallsTheRelay(t *testing.T) {
+	useTempConfig(t)
+	t.Cleanup(func() { client.SetLANRelay(nil) })
+	cfg := loadConfig()
+	cfg.EdgePrefer = "local-only"
+	installLANRelay(cfg)
+	_, err := client.ChatTurns("http://broker.invalid", "u", "gpt-oss-120b", []client.ChatTurn{{Role: "user", Content: "hi"}}, false, 0, "", nil)
+	require.ErrorContains(t, err, "local-only")
+
+	client.SetLANRelay(nil)
+	cfg.EdgePrefer = "local"
+	installLANRelay(cfg)
+	_, err = client.ChatTurns("http://127.0.0.1:1", "u", "m", []client.ChatTurn{{Role: "user", Content: "hi"}}, false, 0, "", nil)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "local-only", "a plain local preference keeps the market rung")
+}

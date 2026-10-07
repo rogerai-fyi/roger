@@ -163,15 +163,25 @@ func lanAdd(args []string) error {
 		return fmt.Errorf("%s is not added: %s. LAN mode only uses local addresses (%s)", a, v.Reason, lanmode.LocalRanges)
 	}
 	c := loadConfig()
-	for _, have := range c.LanTowers {
-		if have == a.String() {
-			fmt.Printf("%s is already in the list\n", a)
-			return nil
-		}
+	marked := contains(c.LanNotTower, a.String())
+	if contains(c.LanTowers, a.String()) && !marked {
+		fmt.Printf("%s is already in the list\n", a)
+		return nil
 	}
 	switch lanmode.Probe(ctx, lanProbeHTTP, a.Base()) {
 	case lanmode.ProbeTowerYes:
 		fmt.Printf("added %s: it answered as a standalone Tower\n", a)
+		if marked {
+			// re-added by the owner: it gets turns again
+			var keep []string
+			for _, v := range c.LanNotTower {
+				if v != a.String() {
+					keep = append(keep, v)
+				}
+			}
+			c.LanNotTower = keep
+			return saveConfig(c)
+		}
 	case lanmode.ProbeNotTower:
 		return fmt.Errorf("%s answers, but it is not a standalone Tower (no standalone answer at /local/poll); not added", a)
 	default:
@@ -269,7 +279,12 @@ func lanTowerLine(ctx context.Context, entry string) string {
 // lanTowerAddrs is every Tower LAN mode uses: the configured list, plus the broker setting
 // when it is a local standalone Tower.
 func lanTowerAddrs(cfg config) []string {
-	out := append([]string(nil), cfg.LanTowers...)
+	var out []string
+	for _, a := range cfg.LanTowers {
+		if !contains(cfg.LanNotTower, a) {
+			out = append(out, a)
+		}
+	}
 	if isLocalTowerBroker(cfg.Broker) {
 		if a, err := lanmode.ParseAddr(cfg.Broker); err == nil {
 			out = append(out, a.String())
@@ -324,10 +339,34 @@ func lanSelfBands() []string {
 var lanDial = func(cfg config) ([]client.LANBand, []client.LANTowerStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return client.LANDiscover(ctx, client.LANInputs{
+	bands, status := client.LANDiscover(ctx, client.LANInputs{
 		Self: lanSelfBands(), Edge: lanEdgeBands(), Towers: lanTowerAddrs(cfg),
 		HTTP: lanProbeHTTP, Resolve: lanResolve,
 	})
+	for _, a := range loadConfig().LanNotTower {
+		status = append(status, client.LANTowerStatus{Addr: a, State: client.LANTowerNotStandalone,
+			Detail: "it answered without the local marker; re-add it with roger lan add " + a})
+	}
+	return bands, status
+}
+
+// lanMarkNotTower records that addr answered a turn without the local marker.
+func lanMarkNotTower(addr string) {
+	c := loadConfig()
+	if contains(c.LanNotTower, addr) {
+		return
+	}
+	c.LanNotTower = append(c.LanNotTower, addr)
+	_ = saveConfig(c)
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // cmdLANSearch is `roger --lan search [--json]`: only local bands, each with its sources.
@@ -411,6 +450,7 @@ func applyLAN(cfg config, o *client.ProxyOptions) {
 	o.LANSelf = lanSelfServe
 	o.LANHTTP, o.LANResolve = lanProbeHTTP, lanResolve
 	o.LANTowers = func(band string) []string { return lanTowersServing(cfg, band) }
+	o.LANNotLocal = lanMarkNotTower
 }
 
 // frontEndLadder is the dispatch hook every front-end that tunes a band installs (the TUI,
@@ -424,6 +464,13 @@ func frontEndLadder(cfg config) func(*client.ProxyOptions) {
 // LAN dial `roger --lan search` prints. It does nothing outside LAN mode.
 func installLANRelay(cfg config) {
 	if !cfg.lan.LAN {
+		if cfg.EdgePrefer == "local-only" {
+			// local-only is structural too (features/edge/mode.feature): chat, console and the
+			// agent go through the same one relay as the proxy, which has no market rung.
+			lo := client.ProxyOptions{LANSelf: lanSelfServe}
+			applyEdgeLadder(cfg, &lo)
+			client.SetLANRelay(&lo)
+		}
 		return
 	}
 	tui.SetLANDial(func() ([]client.LANBand, []client.LANTowerStatus) { return lanDial(cfg) })
