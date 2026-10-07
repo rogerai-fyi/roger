@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestStreamedTurnReportsTPSFromTheUsageChunk: a streamed turn's throughput comes from the
@@ -51,7 +52,7 @@ func TestDoneAfterACutToolCallIsNotSuccess(t *testing.T) {
 // A settle-failed void (the reply finished, the ledger refused the charge) is still a reply.
 func TestVoidedStreamIsNotASuccessfulTurn(t *testing.T) {
 	cut := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\n" +
-		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"upstream-5xx\"}}}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"" + protocol.VoidUpstreamError + "\"}}}\n\n" +
 		"data: [DONE]\n\n"))
 	require.ErrorContains(t, cut.streamError(), "not charged")
 	settled := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"all\"},\"finish_reason\":\"stop\"}]}\n\n" +
@@ -61,22 +62,23 @@ func TestVoidedStreamIsNotASuccessfulTurn(t *testing.T) {
 }
 
 // TestVoidAfterAFinishedReplyIsNotCalledCut: a void that arrives after the station finished
-// says the receipt never settled (not charged), not that the reply was cut.
+// says the broker voided it (not charged), not that the reply was cut.
 func TestVoidAfterAFinishedReplyIsNotCalledCut(t *testing.T) {
 	st := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"all\"},\"finish_reason\":\"stop\"}]}\n\n" +
-		"data: {\"choices\":[],\"usage\":{\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"upstream-5xx\"}}}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"" + protocol.VoidUpstreamError + "\"}}}\n\n" +
 		"data: [DONE]\n\n"))
 	err := st.streamError()
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "cut")
-	require.Contains(t, err.Error(), "never settled")
+	require.Contains(t, err.Error(), "voided this reply ("+protocol.VoidUpstreamError+")")
+	require.Contains(t, err.Error(), "not charged")
 }
 
 // TestMidStreamVoidIsCalledCut: a void with no finish_reason before it (the broker's
 // void chunk then [DONE] on a reply that broke off) is a cut reply, worded so.
 func TestMidStreamVoidIsCalledCut(t *testing.T) {
 	st := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\n" +
-		"data: {\"choices\":[],\"usage\":{\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"upstream-5xx\"}}}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"" + protocol.VoidUpstreamError + "\"}}}\n\n" +
 		"data: [DONE]\n\n"))
 	require.ErrorContains(t, st.streamError(), "cut")
 }

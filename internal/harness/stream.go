@@ -202,7 +202,7 @@ func (st streamed) streamError() error {
 	}
 	if st.voidReason != "" && st.voidReason != protocol.VoidSettleFailed {
 		if st.finished { // [DONE] alone does not mean the station finished
-			return fmt.Errorf("the reply's receipt never settled (%s), so you were not charged - try again", st.voidReason)
+			return fmt.Errorf("the broker voided this reply (%s), so you were not charged - try again", st.voidReason)
 		}
 		return fmt.Errorf("the station's reply was cut (%s) and you were not charged - try again", st.voidReason)
 	}

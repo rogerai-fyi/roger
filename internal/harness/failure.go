@@ -114,10 +114,15 @@ func clipFailure(s string) string {
 	return s
 }
 
-// routingConstraintWords are the contract keys (and the broker's phrasing of them) a no_match
-// names when a routing constraint, not an empty market, excluded every station.
-var routingConstraintWords = []string{"self_hosted_only", "quantizations", "capability", "trust_min", "region",
-	"params_b", "min_ctx", "max_ttft", "max_price", "provider.only", "provider.ignore", "confidential node"}
+// NoMatchFilterNames are the filter names the broker lists in a no_match ("no node offers M
+// under F, ..."), a copy of the broker's noMatchFilterOrder (cmd/rogerai-broker; a broker test
+// pins the two equal: the broker's list lives in package main and cannot be imported).
+var NoMatchFilterNames = []string{"quantizations", "params_b", "min_ctx", "min_tps", "max_ttft_ms", "trust_min", "self_hosted_only", "region"}
+
+// routingConstraintWords are what a no_match says when a routing constraint, not an empty
+// market, excluded every station: the filter names, and the broker's capability and
+// confidential phrasings (" with the X capability", " on a confidential node").
+var routingConstraintWords = append([]string{"capability", "confidential node"}, NoMatchFilterNames...)
 
 func namesRoutingConstraint(low string) bool {
 	if !strings.Contains(low, "no node") && !strings.Contains(low, "no station") {
