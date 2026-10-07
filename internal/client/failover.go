@@ -587,7 +587,7 @@ func callerRoutingCriteria(body []byte, c *Criteria) (noRepick bool) {
 	if v, ok := r["min_tps"].(float64); ok && v > c.MinTPS {
 		c.MinTPS = v
 	}
-	if v, ok := r["pref"].(string); ok && v != "" && c.Pref == "" {
+	if v, ok := r["pref"].(string); ok && v != "" { // the guest's pref is what the broker scores with (Apply's setDefault)
 		c.Pref = v
 	}
 	if v, ok := r["min_ctx"].(float64); ok && int(v) > c.MinCtx {

@@ -30,15 +30,18 @@ func TestPickAlternativeMatchesTheBareModelAndKeepsFree(t *testing.T) {
 // would refuse for the window, the first-token ceiling, or an ignored station, whether the
 // owner or the caller stated it. Unmeasured values pass, as on the broker.
 func TestRepickHonorsCtxTTFTAndExclusions(t *testing.T) {
+	// Every filtered offer would out-score "ok" (higher Signal) if its filter were dropped, so
+	// each exclusion is load-bearing: removing any one makes the pick change.
 	offers := []Offer{
-		{NodeID: "small", Model: "m", Online: true, TPS: 300, Ctx: 8192},
-		{NodeID: "slow", Model: "m", Online: true, TPS: 300, Ctx: 65536, TTFTMs: 4000},
-		{NodeID: "banned", Model: "m", Online: true, TPS: 300, Ctx: 65536, TTFTMs: 200},
-		{NodeID: "ok", Model: "m", Online: true, TPS: 50, Ctx: 65536, TTFTMs: 300},
+		{NodeID: "small", Model: "m", Online: true, Signal: 100, Ctx: 8192},
+		{NodeID: "slow", Model: "m", Online: true, Signal: 100, Ctx: 65536, TTFTMs: 4000},
+		{NodeID: "banned", Model: "m", Online: true, Signal: 100, Ctx: 65536, TTFTMs: 200},
+		{NodeID: "ignored", Model: "m", Online: true, Signal: 100, Ctx: 65536, TTFTMs: 200},
+		{NodeID: "ok", Model: "m", Online: true, Signal: 10, Ctx: 65536, TTFTMs: 300},
 	}
 	c := Criteria{Model: "m"}
 	ownerRoutingCriteria(ProxyOptions{MinCtx: 32768, ExcludeNodes: []string{"banned"}}, &c)
-	callerRoutingCriteria([]byte(`{"roger":{"max_ttft_ms":1500},"provider":{"ignore":["nope"]}}`), &c)
+	callerRoutingCriteria([]byte(`{"roger":{"max_ttft_ms":1500},"provider":{"ignore":["ignored"]}}`), &c)
 	got, ok := pickAlternative(offers, c, nil)
 	require.True(t, ok)
 	require.Equal(t, "ok", got)
@@ -70,14 +73,27 @@ func TestFreeOnlySessionRepicksAmongFreeStations(t *testing.T) {
 // TestRepickHonorsTheCallersPriceAndSpeed: a caller's own price caps and min_tps tighten the
 // re-pick like the owner's, so it never hints a station the broker will skip for them.
 func TestRepickHonorsTheCallersPriceAndSpeed(t *testing.T) {
+	// "pricey" and "slow" out-score "ok" on Signal, so only the caller's cap and floor keep
+	// them out: dropping either fold changes the pick.
 	offers := []Offer{
-		{NodeID: "pricey", Model: "m", Online: true, TPS: 300, PriceOut: 5},
-		{NodeID: "slow", Model: "m", Online: true, TPS: 5, PriceOut: 1},
-		{NodeID: "ok", Model: "m", Online: true, TPS: 50, PriceOut: 1},
+		{NodeID: "pricey", Model: "m", Online: true, Signal: 100, TPS: 300, PriceOut: 5},
+		{NodeID: "slow", Model: "m", Online: true, Signal: 100, TPS: 5, PriceOut: 1},
+		{NodeID: "ok", Model: "m", Online: true, Signal: 10, TPS: 50, PriceOut: 1},
 	}
 	c := Criteria{Model: "m"}
 	callerRoutingCriteria([]byte(`{"provider":{"max_price":{"completion":2}},"roger":{"min_tps":20}}`), &c)
 	got, ok := pickAlternative(offers, c, nil)
 	require.True(t, ok)
 	require.Equal(t, "ok", got)
+}
+
+// TestRepickUsesTheCallersPref: the proxy forwards a guest's roger.pref over the owner's
+// (Apply's setDefault), so the re-pick scores with the guest's pref too, not the owner's.
+func TestRepickUsesTheCallersPref(t *testing.T) {
+	c := Criteria{Model: "m", Pref: "cheap"} // seeded from the owner's ProxyOptions.Pref
+	callerRoutingCriteria([]byte(`{"roger":{"pref":"fast"}}`), &c)
+	require.Equal(t, "fast", c.Pref, "the guest's pref is the one the broker scores with")
+	c = Criteria{Model: "m", Pref: "cheap"}
+	callerRoutingCriteria([]byte(`{"roger":{}}`), &c)
+	require.Equal(t, "cheap", c.Pref, "no guest pref keeps the owner's")
 }
