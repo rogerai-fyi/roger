@@ -292,10 +292,10 @@ Feature: One user binary with modes
 
   Scenario: The guard is the process's default transport, not an opt-in
     Given roger tower serve running a standalone directory
-    When code uses http.DefaultClient, http.DefaultTransport or net.Dial directly
-    Then those paths are refused too
-    # The guard replaces the default dialer and transport at startup in standalone mode,
-    # so a forgotten client cannot bypass it.
+    When code uses http.DefaultClient, http.DefaultTransport or the default resolver to reach a public address
+    Then the default HTTP client, the default transport and the default resolver refuse public addresses
+    And a direct net.Dial is forbidden in the serve package by the source gate
+    # corrected 2026-10-07 (founder-approved): Go has no process-wide hook for net.Dial.
 
   Scenario: The guard does not apply to joined mode or to plain roger
     Given roger tower serve running a joined directory

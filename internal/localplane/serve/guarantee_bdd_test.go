@@ -5,11 +5,10 @@ package serve_test
 // shared structural helper, and the standalone runtime guard (internal/egressguard) with the
 // startup assertion (internal/coreclient).
 //
-// NOT EXECUTED HERE: "The guard is the process's default transport, not an opt-in" (line 293).
-// Its "net.Dial directly ... refused too" clause cannot be made true in Go: net.Dial uses a
-// zero net.Dialer and there is no process-wide hook for it (only http.DefaultTransport,
-// http.DefaultClient and net.DefaultResolver can be replaced). It is held for founder
-// re-approval rather than passed by a weaker assertion.
+// "The guard is the process's default transport, not an opt-in" (line 293) runs in the wording
+// the founder approved 2026-10-07: the default client, transport and resolver refuse public
+// addresses, and a direct net.Dial is forbidden in the serve package by the source gate (Go has
+// no process-wide hook for net.Dial).
 
 import (
 	"bytes"
@@ -65,6 +64,7 @@ type guaranteeBDD struct {
 	err       error
 	resp      *http.Response
 	out       bytes.Buffer
+	paths     map[string]error
 }
 
 func (s *guaranteeBDD) reset() {
@@ -315,6 +315,63 @@ func (s *guaranteeBDD) joinedMayReachCore() error {
 	return nil
 }
 
+// defaultPaths drives each process default toward a public address: http.DefaultClient,
+// http.DefaultTransport directly, and the default resolver's own dial to a public DNS server.
+func (s *guaranteeBDD) defaultPaths() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	s.paths = map[string]error{}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://93.184.216.34/", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	s.paths["client"] = err
+	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://93.184.216.34/", nil)
+	resp, err = http.DefaultTransport.RoundTrip(req2)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	s.paths["transport"] = err
+	if net.DefaultResolver.Dial == nil {
+		s.paths["resolver"] = nil
+	} else {
+		conn, err := net.DefaultResolver.Dial(ctx, "udp", "8.8.8.8:53")
+		if conn != nil {
+			conn.Close()
+		}
+		s.paths["resolver"] = err
+	}
+	return nil
+}
+
+func (s *guaranteeBDD) defaultPathsRefused() error {
+	for _, p := range []string{"client", "transport", "resolver"} {
+		if !errors.Is(s.paths[p], egressguard.ErrRefused) {
+			return fmt.Errorf("the default %s was not refused by the guard: %v", p, s.paths[p])
+		}
+	}
+	return nil
+}
+
+// directDialForbidden: the serve package passes the source gate, and the same gate refuses a
+// file that calls net.Dial directly (so the gate is what holds the line, not a convention).
+func (s *guaranteeBDD) directDialForbidden() error {
+	if structural.ScanSource(s.t, ".", structural.NoOutbound) < 1 {
+		return fmt.Errorf("the gate read no serve source")
+	}
+	dir := s.t.TempDir()
+	src := "package x\n\nimport \"net\"\n\nfunc f() { _, _ = net.Dial(\"tcp\", \"93.184.216.34:443\") }\n"
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte(src), 0o600); err != nil {
+		return err
+	}
+	r := &recordT{}
+	if catch(r, func() { structural.ScanSource(r, dir, structural.NoOutbound) }) == "" {
+		return fmt.Errorf("the source gate let a direct net.Dial through")
+	}
+	return nil
+}
+
 func TestCoreFreeGuaranteeBDD(t *testing.T) {
 	s := &guaranteeBDD{t: t}
 	suite := godog.TestSuite{
@@ -353,6 +410,9 @@ func TestCoreFreeGuaranteeBDD(t *testing.T) {
 			sc.Step(`^roger tower serve running a joined directory$`, s.joinedRunning)
 			sc.Step(`^it may connect to Roger Core as before$`, s.joinedMayReachCore)
 			sc.Step(`^"roger use", "roger share" and the TUI are unaffected by the standalone guard$`, s.joinedMayReachCore)
+			sc.Step(`^code uses http\.DefaultClient, http\.DefaultTransport or the default resolver to reach a public address$`, s.defaultPaths)
+			sc.Step(`^the default HTTP client, the default transport and the default resolver refuse public addresses$`, s.defaultPathsRefused)
+			sc.Step(`^a direct net\.Dial is forbidden in the serve package by the source gate$`, s.directDialForbidden)
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
@@ -364,6 +424,7 @@ func TestCoreFreeGuaranteeBDD(t *testing.T) {
 				"../../../features/packaging/one_binary.feature:263",
 				"../../../features/packaging/one_binary.feature:268",
 				"../../../features/packaging/one_binary.feature:287",
+				"../../../features/packaging/one_binary.feature:293",
 				"../../../features/packaging/one_binary.feature:300",
 			},
 		},
