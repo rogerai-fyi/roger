@@ -122,3 +122,12 @@ func TestABesideCandidateThatIsADirectoryIsSkipped(t *testing.T) {
 	require.Equal(t, 127, Main("roger-tower", []string{"status"}))
 	require.Contains(t, errb.String(), "roger is not installed")
 }
+
+// TestMissingRogerWithNoArgumentsNamesTheCommand: `roger-tower` run bare, with roger not
+// installed, names `roger tower` instead of indexing past the end of its arguments.
+func TestMissingRogerWithNoArgumentsNamesTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	errb, _ := seams(t, touch(t, filepath.Join(dir, "roger-tower")), noPath)
+	require.Equal(t, 127, Main("roger-tower", nil))
+	require.Contains(t, errb.String(), "run `roger tower`")
+}

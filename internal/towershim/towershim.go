@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // hopEnv marks a process a shim started. A shim that finds it set was started by a shim: the
@@ -62,7 +63,7 @@ func Main(old string, args []string) int {
 	argv := sh.args(args)
 	roger, ok := findRoger()
 	if !ok {
-		fmt.Fprintf(stderr, "roger is not installed; install roger, then run `roger %s %s`\n", argv[0], argv[1])
+		fmt.Fprintf(stderr, "roger is not installed; install roger, then run `roger %s`\n", strings.Join(argv[:min(len(argv), 2)], " "))
 		return 127
 	}
 	fmt.Fprintf(stderr, "%s is now `%s`; this name is removed in the next release\n", old, sh.now)
