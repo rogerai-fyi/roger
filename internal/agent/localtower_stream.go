@@ -5,6 +5,8 @@ package agent
 // every 50 ms or 16 KiB (whichever first), and each chunk is posted IN to /local/chunk, signed,
 // in sequence. The Tower writes the one [DONE]; a 410 from it means the consumer left or the
 // stream ended, so the upstream is cancelled and the station goes back to polling.
+//
+// Contract: features/tower/standalone_streaming.feature.
 
 import (
 	"bufio"

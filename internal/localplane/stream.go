@@ -6,6 +6,8 @@ package localplane
 // the waiting consumer only after chunk n-1. Once the first byte has reached the consumer the
 // reply is never silently restarted: a broken stream ends with an error event, a zero-cost
 // usage chunk and [DONE].
+//
+// Contract: features/tower/standalone_streaming.feature.
 
 import (
 	"bytes"
