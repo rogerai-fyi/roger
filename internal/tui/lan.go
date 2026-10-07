@@ -30,6 +30,24 @@ func LANMode() bool {
 	return lanDial != nil
 }
 
+// lanBadge is the LAN mark the header carries in place of the balance tag (ruled 2026-10-06): a
+// word, readable with NO_COLOR, in bright ink and never the brand red.
+func lanBadge(compact bool) string {
+	if compact {
+		return stKey.Render("LAN")
+	}
+	return stKey.Render("LAN") + stDim.Render(" · local, free")
+}
+
+// headerTag is the header's right-hand tag: the LAN badge in LAN mode, the account tag otherwise.
+// The account section still shows the balance (accountTag), one keystroke away.
+func (m model) headerTag(compact bool) string {
+	if LANMode() {
+		return lanBadge(compact)
+	}
+	return m.accountTag(compact)
+}
+
 // lanTowerStatus is the last LAN dial's Tower lines, for the empty-LAN status.
 var lanTowerStatus []client.LANTowerStatus
 

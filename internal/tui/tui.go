@@ -3407,7 +3407,7 @@ func (m model) header(w int) string {
 		bar := stGold.Render(channelGlyph(o)) + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
 			stDim.Render(" · ") + stKey.Render(o.Model) +
 			stDim.Render(" · ") + price +
-			stDim.Render(" · ") + m.accountTag(true) +
+			stDim.Render(" · ") + m.headerTag(true) +
 			// CONNECTED header: the in-flight count is the live load on the open channel, so
 			// the meter scans with real throughput while the channel is actively serving.
 			"  " + m.bandSMeter(m.frame, o.Signal, o.TPS, true, o.InFlight, 0, false)
@@ -3460,7 +3460,7 @@ func (m model) header(w int) string {
 		}
 		state = stGold.Render("  "+channelGlyph(m.connected)+" ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
 			stDim.Render(" · ") + stKey.Render(m.connected.Model) +
-			stDim.Render(" · ") + m.accountTag(true) + hint
+			stDim.Render(" · ") + m.headerTag(true) + hint
 	} else {
 		// LLM (chat) stations on air — matches the LLM-only band list; voice stations are counted
 		// in the Booth (the "also on air: N voices" footnote), not the top-level "N on air".
@@ -3473,7 +3473,7 @@ func (m model) header(w int) string {
 		// header (TUI-V2-CRITIQUE C). The account lockup carries login state + balance;
 		// the balance only appears when logged in.
 		state = stDim.Render("  ") + stDim.Render(summary) +
-			stDim.Render(" · ") + m.accountTag(m.narrow())
+			stDim.Render(" · ") + m.headerTag(m.narrow())
 	}
 	return top + "\n" + state + "\n" + rule
 }

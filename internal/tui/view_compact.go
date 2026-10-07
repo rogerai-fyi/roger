@@ -62,7 +62,9 @@ func (m model) compactHeader(w int) string {
 	// is terse - ✓ @login · $bal collapses to just $bal (or /login when anonymous) - so
 	// the dense strip stays short and the m:expand hint never gets crowded out.
 	acct := m.accountTag(true)
-	if m.loggedInState() && m.ghLogin != "" {
+	if LANMode() {
+		acct = lanBadge(true) // the LAN badge holds the balance tag's place (ruled 2026-10-06)
+	} else if m.loggedInState() && m.ghLogin != "" {
 		// Logged in: keep the callsign + balance (the identity is worth the few cols).
 		acct = stGold.Render(glyphLineage) + stDim.Render(" @") + stSelText.Render(m.ghLogin)
 		if m.haveBal {

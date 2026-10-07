@@ -97,6 +97,14 @@ func (m model) confirmView(w int) string {
 			pad(bd.model, 22), pad("@"+st.NodeID, 12), pad(tpsPlain(st.TPS, st.Online), 10), plainBandBadge(bd, m.limits, false)),
 		w-4) + "\n\n")
 
+	if LANMode() {
+		// LAN mode moves no money: no price, balance, estimate or hold - the band, its source,
+		// and that it is free (features/lan/money_and_accounts.feature).
+		b.WriteString("    " + stKey.Render("free") + stDim.Render(" · local, nothing is billed · source ") + stLive.Render(st.NodeID) + "\n\n")
+		b.WriteString("       " + stKey.Render("[enter/y]") + " " + stLive.Render("accept · open channel") + "    " +
+			stKey.Render("[esc/n]") + " " + stDim.Render("deny · back") + "\n")
+		return b.String()
+	}
 	// One glanceable line: what you pay, that it's under your cap, est cost.
 	cap := ""
 	if q.limit.MaxOut > 0 {
