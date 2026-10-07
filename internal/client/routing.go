@@ -129,9 +129,7 @@ func GuestModelsWithin(body []byte, tuned string) error {
 	if json.Unmarshal(body, &top) != nil || top == nil {
 		return nil
 	}
-	if err := mistypedGuestModel(body); err != nil {
-		return err
-	}
+	// (A model that is not a model id was refused by the handler first: mistypedGuestModel.)
 	var m struct {
 		Model  string
 		Models json.RawMessage
@@ -309,7 +307,10 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	// forwarded untouched for the broker's 400 invalid_routing_value, never repaired around.
 	for _, k := range []string{"roger", "provider"} {
 		if raw, ok := m[k]; ok && string(raw) != "null" && (!rawObjectOK(raw) || !decodes(raw)) {
-			return body, nil // includes a value the proxy cannot decode (a number out of range)
+			// Includes a value the proxy cannot decode (a number out of range). No owner rule is
+			// applied to such a body: it is safe because the broker's typed decode refuses it
+			// with a 400 before routing, so nothing the owner bounded can be served.
+			return body, nil
 		}
 	}
 	roger, provider := rawObject(m["roger"]), rawObject(m["provider"])

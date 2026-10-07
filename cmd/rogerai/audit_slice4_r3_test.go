@@ -185,7 +185,7 @@ func TestUseCountsThePositionalModel(t *testing.T) {
 func TestTUISaveKeepsAConcurrentCLIEdit(t *testing.T) {
 	useTempConfig(t)
 	require.NoError(t, cmdSetLimit([]string{"booth-model", "--max-out", "1"}))
-	store := tuiLimits(loadConfig()) // the booth opens
+	store := tuiLimits(loadConfig())                                         // the booth opens
 	require.NoError(t, cmdSetLimit([]string{"cli-model", "--max-out", "2"})) // the CLI, meanwhile
 	store.Set("booth-model", tui.Limit{MaxOut: 3})                           // the booth's own edit
 	c := loadConfig()

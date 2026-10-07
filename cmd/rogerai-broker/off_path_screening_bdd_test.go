@@ -1196,6 +1196,7 @@ func (s *opsState) relaysToolsBody(phrase string) error {
 	s.relay(1, body)
 	return nil
 }
+
 // requestContains: a relay can be screened more than once (its prompt, then its reply), and
 // under load the classifier sees those requests in either order, so the step looks for the
 // phrase in any request the stub recorded rather than only the last.

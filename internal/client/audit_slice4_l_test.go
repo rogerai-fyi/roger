@@ -229,3 +229,11 @@ func TestBandIDKeepsItsOwnVendorPrefix(t *testing.T) {
 	got, ok := pickAlternative([]Offer{{NodeID: "other", Model: "gpt-4o", Online: true, TPS: 300}}, Criteria{Model: band}, nil)
 	require.False(t, ok, "an offer of gpt-4o is not the band openai/gpt-4o (got %q)", got)
 }
+
+// TestMistypedOnlyUnderAPinGoesToTheBroker: with the owner's no-fallback pin, a guest only (or
+// order) of the wrong type is forwarded as sent for the broker's 400, never repaired.
+func TestMistypedOnlyUnderAPinGoesToTheBroker(t *testing.T) {
+	out, err := Routing{NoFallbacks: true, Prefer: []string{"n1"}}.Apply([]byte(`{"model":"m","provider":{"only":"n1"}}`))
+	require.NoError(t, err)
+	require.Contains(t, string(out), `"only":"n1"`)
+}
