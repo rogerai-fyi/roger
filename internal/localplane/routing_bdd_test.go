@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -79,10 +80,11 @@ type tp4Resp struct {
 }
 
 type tp4State struct {
-	t      *testing.T
-	st     *tower.State
-	srv    *Server
-	client ed25519.PrivateKey
+	smokeOut string // the standalone smoke script's output
+	t        *testing.T
+	st       *tower.State
+	srv      *Server
+	client   ed25519.PrivateKey
 
 	stations map[string]*tp4Station
 	order    []string
@@ -550,7 +552,45 @@ func (s *tp4State) everyRoutingKey(client string) error {
 	return s.send()
 }
 
-func (s *tp4State) smokeCheckRuns() error { return nil } // the Thens read the script
+// smokeCheckRuns RUNS the standalone smoke script: it builds roger, roger-tower and
+// roger-tower-local into a temp dir and executes scripts/localplane-routing-smoke.sh against
+// them (a fresh Tower with two stations, loopback only). The Thens read its result lines.
+func (s *tp4State) smokeCheckRuns() error {
+	f, _, err := tp4SmokeScript()
+	if err != nil {
+		return err
+	}
+	bin, err := os.MkdirTemp("", "tp4-smoke-bin-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(bin)
+	for name, pkg := range map[string]string{"roger": "cmd/rogerai", "roger-tower": "cmd/roger-tower", "roger-tower-local": "cmd/roger-tower-local"} {
+		b := exec.Command("go", "build", "-o", filepath.Join(bin, name), "./"+pkg)
+		b.Dir = "../.."
+		if out, err := b.CombinedOutput(); err != nil {
+			return fmt.Errorf("building %s for the smoke check: %v\n%s", name, err, out)
+		}
+	}
+	cmd := exec.Command("bash", f)
+	cmd.Env = append(os.Environ(), "BIN="+bin)
+	out, err := cmd.CombinedOutput()
+	s.smokeOut = string(out)
+	if err != nil {
+		return fmt.Errorf("the smoke check failed: %v\n%s", err, out)
+	}
+	return nil
+}
+
+// smokeSaid checks the run printed each result line.
+func (s *tp4State) smokeSaid(lines ...string) error {
+	for _, l := range lines {
+		if !strings.Contains(s.smokeOut, "ok:   "+l) {
+			return fmt.Errorf("the smoke run did not pass %q:\n%s", l, s.smokeOut)
+		}
+	}
+	return nil
+}
 
 // --- Then: served / headers -------------------------------------------------------------------
 
@@ -1253,7 +1293,7 @@ func (s *tp4State) smokePostsModelsAndOnly() error {
 	if !strings.Contains(src, `"models"`) || !strings.Contains(src, `"only"`) {
 		return fmt.Errorf("%s posts no models[] request and no only request", f)
 	}
-	return nil
+	return s.smokeSaid("models[] request served", "provider.only node2: served by node2 six times")
 }
 
 func (s *tp4State) smokeAssertsHeaders() error {
@@ -1266,7 +1306,7 @@ func (s *tp4State) smokeAssertsHeaders() error {
 			return fmt.Errorf("%s does not assert %s", f, h)
 		}
 	}
-	return nil
+	return s.smokeSaid("X-RogerAI-Model: test-model", "X-Roger-Cost: 0", "X-Roger-Routing-Ignored names roger.min_tps")
 }
 
 func (s *tp4State) smokeFailsOnCarriers() error {
@@ -1277,7 +1317,7 @@ func (s *tp4State) smokeFailsOnCarriers() error {
 	if !strings.Contains(src, "provider") || !strings.Contains(src, "roger") {
 		return fmt.Errorf("%s never checks the station's job body for carriers", f)
 	}
-	return nil
+	return s.smokeSaid("no job body carries provider / roger / models")
 }
 
 // --- helpers ---------------------------------------------------------------------------------

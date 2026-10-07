@@ -154,7 +154,7 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 	}
 
 	if raw, ok := m["models"]; ok && string(raw) != "null" {
-		var list []any
+		var list []json.RawMessage // raw, as the broker reads it: no entry is built before the bound
 		if json.Unmarshal(raw, &list) != nil {
 			return lr, &routeErr{status: 400, msg: "models must be a list of model ids"}
 		}
@@ -162,7 +162,8 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 			return lr, &routeErr{status: 400, msg: fmt.Sprintf("models has more than %d entries", maxModelsEntries)}
 		}
 		for _, e := range list {
-			id, isStr := e.(string)
+			var id string
+			isStr := json.Unmarshal(e, &id) == nil
 			if !isStr || strings.TrimSpace(id) == "" || id != strings.TrimSpace(id) { // padded: refused, as on the broker
 				return lr, &routeErr{status: 400, msg: "models must be a list of model ids"}
 			}
