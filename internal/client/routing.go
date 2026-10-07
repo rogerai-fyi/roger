@@ -123,13 +123,22 @@ func GuestModelsWithin(body []byte, tuned string) error {
 	}
 	// The band may carry a variant suffix (`roger use m:free`); a guest names the bare id.
 	tuned = bareModel(tuned)
-	var m struct {
-		Model  string          `json:"model"`
-		Models json.RawMessage `json:"models"`
-	}
-	if json.Unmarshal(body, &m) != nil {
+	// Decoded key by key: a struct decode that fails on a mistyped model would fill the rest
+	// and look like "nothing to check". A body that is not an object is the rewrite's 400.
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil || top == nil {
 		return nil
 	}
+	var m struct {
+		Model  string
+		Models json.RawMessage
+	}
+	if raw, ok := top["model"]; ok && string(raw) != "null" {
+		if json.Unmarshal(raw, &m.Model) != nil {
+			return &RoutingRefusal{Msg: "model must be a model id"}
+		}
+	}
+	m.Models = top["models"]
 	if guestNamesOtherModel(body, m.Model, tuned) {
 		return &RoutingRefusal{Msg: "model " + m.Model + " is outside this session's band"}
 	}

@@ -113,3 +113,22 @@ func TestMistypedGuestValuesGoToTheBroker(t *testing.T) {
 	require.Contains(t, string(out), `"trust_min":"verified"`)
 	require.Contains(t, string(out), `"min_ctx":32768`)
 }
+
+// TestNonStringModelCannotSmuggleAForeignList: a guest model that is not a string never turns
+// the band check off: the body is refused locally and nothing reaches the broker.
+func TestNonStringModelCannotSmuggleAForeignList(t *testing.T) {
+	hit := false
+	broker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	t.Cleanup(broker.Close)
+	h := ProxyHandler(ProxyOptions{Broker: broker.URL, User: "u", Model: "band"})
+	for _, body := range []string{
+		`{"model":5,"models":["foreign"],"messages":[]}`,
+		`{"model":{"x":1},"models":["foreign"],"messages":[]}`,
+		`{"model":["band"],"messages":[]}`,
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+		require.Equal(t, http.StatusBadRequest, rec.Code, body)
+	}
+	require.False(t, hit, "a refused body never reaches the broker")
+}
