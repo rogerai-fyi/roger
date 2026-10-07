@@ -198,3 +198,12 @@ func TestLocalOnlyInstallsTheRelay(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "local-only", "a plain local preference keeps the market rung")
 }
+
+// TestLANDialForFrontEnds: a front end gets the LAN dial in LAN mode and none outside it, so the
+// console's BROWSE lists the LAN only when roger runs with --lan.
+func TestLANDialForFrontEnds(t *testing.T) {
+	var cfg config
+	require.Nil(t, lanDialFor(cfg), "outside LAN mode a front end has no LAN dial")
+	cfg.lan = lanmode.Mode{LAN: true}
+	require.NotNil(t, lanDialFor(cfg), "in LAN mode a front end reads the LAN dial")
+}

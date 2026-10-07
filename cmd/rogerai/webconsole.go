@@ -103,7 +103,9 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 		Edge: edgeHooksFor(cfg, hooks),
 		// THE SAME `roger model`, from the browser (modelweb.go).
 		Models: modelWebHooks(),
-		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
+		// THE SAME LAN DIAL the TUI reads, in LAN mode; nil otherwise.
+		LANDial: lanDialFor(cfg),
+		Broker:  cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
 		// [4] CONFIG are two views of one setting; two stores would let them disagree
 		// about what the operator is willing to pay, and the loser is whichever wrote

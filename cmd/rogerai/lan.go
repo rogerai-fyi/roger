@@ -496,6 +496,14 @@ func frontEndLadder(cfg config) func(*client.ProxyOptions) {
 	return func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); applyLAN(cfg, o) }
 }
 
+// lanDialFor is the LAN dial for a front end in LAN mode, nil outside it.
+func lanDialFor(cfg config) func() client.LANDial {
+	if !cfg.lan.LAN {
+		return nil
+	}
+	return func() client.LANDial { return lanDial(cfg) }
+}
+
 // installLANRelay puts every path that carries a turn in this process (TUI chat, console chat,
 // the agent) on the same local ladder `roger use` gets, and gives the TUI and the console the
 // LAN dial `roger --lan search` prints. It does nothing outside LAN mode.
@@ -510,7 +518,7 @@ func installLANRelay(cfg config) {
 		}
 		return
 	}
-	tui.SetLANDial(func() client.LANDial { return lanDial(cfg) })
+	tui.SetLANDial(lanDialFor(cfg))
 	var lo client.ProxyOptions
 	frontEndLadder(cfg)(&lo)
 	client.SetLANRelay(&lo)

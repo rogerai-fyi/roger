@@ -248,8 +248,20 @@ func (s *Server) handleGrants(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, rows)
 }
 
-// handleBrowse returns the broker's open-market discover feed (GET).
+// handleBrowse returns the broker's open-market discover feed (GET), or in LAN mode the merged
+// LAN dial: the same bands and sources the TUI's dial shows, and the broker is never asked.
 func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	if s.opts.LANDial != nil {
+		bands := s.opts.LANDial().Bands
+		out := make([]map[string]any, 0, len(bands))
+		for _, b := range bands {
+			// node_id carries the source so the BROWSE table's station column names it as is.
+			out = append(out, map[string]any{"model": b.Model, "node_id": b.SourceLabel(), "source": b.SourceLabel(),
+				"sources": b.Sources, "online": true, "free_now": true, "price_out": 0, "modality": "chat"})
+		}
+		writeJSON(w, out)
+		return
+	}
 	if !s.brokerReady(w) {
 		return
 	}

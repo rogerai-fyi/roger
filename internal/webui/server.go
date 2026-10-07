@@ -52,6 +52,9 @@ type Options struct {
 	Edge EdgeHooks
 	// Models is the MODELS tab (models.go): `roger model` from the browser, through the same code.
 	Models ModelHooks
+	// LANDial is the merged LAN dial in LAN mode (the same function the TUI's dial reads), nil
+	// otherwise. With it set, BROWSE lists the LAN and never asks the broker.
+	LANDial func() client.LANDial
 }
 
 // Server is the node console HTTP server. It is safe for concurrent requests: all live

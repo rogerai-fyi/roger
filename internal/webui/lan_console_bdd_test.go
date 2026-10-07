@@ -21,6 +21,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/node"
 )
 
@@ -29,6 +30,71 @@ type lanConsoleBDD struct {
 	snapshot string
 	badge    string
 	cost     string
+	bands    []client.LANBand
+	list     []map[string]any
+	asked    bool // the recording broker saw a request
+	baseURL  string
+	token    string
+}
+
+// lanThreeBands are the merged-dial scenario's three sources, as the TUI's dial reads them.
+func lanThreeBands() []client.LANBand {
+	return []client.LANBand{
+		{Model: "gpt-oss-20b", Sources: []client.LANSource{{Kind: client.LANEdge, ID: "jetson", Verified: true}}},
+		{Model: "llama-3.3-70b", Sources: []client.LANSource{{Kind: client.LANTower, ID: "192.168.1.20:8787", Addr: "192.168.1.20:8787"}}},
+		{Model: "qwen3-8b", Sources: []client.LANSource{{Kind: client.LANSelf, Verified: true}}},
+	}
+}
+
+// runningWithSources stands up `roger --lan webui` with the LAN dial the TUI reads and a
+// recording broker, so the band list is proven to come from the LAN and never the market.
+func (s *lanConsoleBDD) runningWithSources() error {
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.asked = true
+		_, _ = w.Write([]byte(`[{"model":"market-band","node_id":"n1","online":true}]`))
+	}))
+	s.t.Cleanup(broker.Close)
+	s.bands = lanThreeBands()
+	c := testCtrl()
+	c.SetLAN(func() []string { return nil })
+	srv := New(c, Options{Broker: broker.URL, User: "u", LANDial: func() client.LANDial { return client.LANDial{Bands: s.bands} }})
+	hs := httptest.NewServer(srv.Handler())
+	s.t.Cleanup(hs.Close)
+	s.baseURL, s.token = hs.URL, srv.Token()
+	return nil
+}
+
+func (s *lanConsoleBDD) readBandList() error {
+	resp, err := http.Get(s.baseURL + "/api/browse?t=" + s.token)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("/api/browse answered %d: %s", resp.StatusCode, b)
+	}
+	s.list = nil
+	return json.NewDecoder(resp.Body).Decode(&s.list)
+}
+
+func (s *lanConsoleBDD) sameAsTheDial() error {
+	if s.asked {
+		return fmt.Errorf("the console asked the broker for its band list in LAN mode")
+	}
+	if len(s.list) != len(s.bands) {
+		return fmt.Errorf("the console lists %d bands, the dial %d: %v", len(s.list), len(s.bands), s.list)
+	}
+	for i, b := range s.bands {
+		got := s.list[i]
+		if got["model"] != b.Model || got["source"] != b.SourceLabel() || got["node_id"] != b.SourceLabel() {
+			return fmt.Errorf("row %d is %v, the dial shows %q from %q", i, got, b.Model, b.SourceLabel())
+		}
+		if got["online"] != true || got["free_now"] != true {
+			return fmt.Errorf("row %d is not an on-air free LAN band: %v", i, got)
+		}
+	}
+	return nil
 }
 
 // running stands the console up for a controller in LAN mode, as `roger --lan webui` does.
@@ -116,6 +182,9 @@ func TestLANConsoleBDD(t *testing.T) {
 			})
 			sc.Step(`^LAN mode is on$`, func() error { return nil })
 			sc.Step(`^"roger --lan webui" is running$`, s.running)
+			sc.Step(`^"roger --lan webui" was run with the same three sources$`, s.runningWithSources)
+			sc.Step(`^the console's band list is read$`, s.readBandList)
+			sc.Step(`^it is the same three bands with the same sources the TUI dial shows$`, s.sameAsTheDial)
 			sc.Step(`^the console renders$`, s.renders)
 			sc.Step(`^the top bar contains "([^"]*)"$`, s.topBarHas)
 			sc.Step(`^it passes the design-system checks and the phone-width check$`, s.designChecks)
@@ -135,6 +204,7 @@ func TestLANConsoleBDD(t *testing.T) {
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: []string{
 			"../../features/lan/ui_visibility.feature:97",
 			"../../features/lan/money_and_accounts.feature:109",
+			"../../features/lan/discovery_and_dial.feature:361",
 		}},
 	}
 	if suite.Run() != 0 {
