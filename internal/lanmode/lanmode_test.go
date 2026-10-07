@@ -59,8 +59,9 @@ func TestDecide(t *testing.T) {
 		{in{env: "sometimes", envSet: true}, false, "", true},
 		{in{env: "sometimes", envSet: true, lan: true}, true, SrcFlag, false}, // the flag decides; env is never read
 		{in{cfg: "bogus"}, false, "", true},
+		{in{cfg: "bogus", env: "1", envSet: true}, true, SrcEnv, false}, // the env decides; config is never read
 	} {
-		m, err := Decide(tc.in.lan, tc.in.no, tc.in.env, tc.in.envSet, tc.in.cfg)
+		m, err := Decide(Inputs{FlagLAN: tc.in.lan, FlagNoLAN: tc.in.no, EnvLAN: tc.in.env, EnvLANSet: tc.in.envSet, Config: tc.in.cfg})
 		if tc.fail {
 			require.Error(t, err, "%+v", tc.in)
 			continue
@@ -211,4 +212,57 @@ func TestCheckAndIsTower(t *testing.T) {
 	require.True(t, WantsNonce(tu, nil), "a Tower this process confirmed gets the nonce, loopback included")
 	ResetTowers()
 	require.False(t, WantsNonce(tu, nil), "a loopback address nobody confirmed does not")
+}
+
+// TestDecideEdgeOnly pins the one precedence for LAN mode and edge-only together
+// (features/lan/edge_only.feature section 1): flag, then environment, then config.
+func TestDecideEdgeOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   Inputs
+		want Mode
+		err  string
+	}{
+		{"--edge-only implies LAN", Inputs{FlagEdgeOnly: true}, Mode{LAN: true, EdgeOnly: true, Source: SrcFlag}, ""},
+		{"env edge-only", Inputs{EnvEdgeOnly: "1", EnvEdgeOnlySet: true}, Mode{LAN: true, EdgeOnly: true, Source: SrcEnv}, ""},
+		{"config edge-only", Inputs{Config: "lan-edge-only"}, Mode{LAN: true, EdgeOnly: true, Source: SrcConfig}, ""},
+		{"env 0 over config edge-only keeps LAN", Inputs{Config: "lan-edge-only", EnvEdgeOnly: "0", EnvEdgeOnlySet: true}, Mode{LAN: true, Source: SrcEnv}, ""},
+		{"env 0 with no LAN anywhere", Inputs{EnvEdgeOnly: "0", EnvEdgeOnlySet: true}, Mode{Source: SrcEnv}, ""},
+		{"--lan turns edge-only off", Inputs{FlagLAN: true, Config: "lan-edge-only"}, Mode{LAN: true, Source: SrcFlag}, ""},
+		{"--no-lan turns both off", Inputs{FlagNoLAN: true, Config: "lan-edge-only"}, Mode{Source: SrcFlag}, ""},
+		{"flag beats env", Inputs{FlagEdgeOnly: true, EnvEdgeOnly: "0", EnvEdgeOnlySet: true}, Mode{LAN: true, EdgeOnly: true, Source: SrcFlag}, ""},
+		{"ROGER_LAN=1 is LAN without edge-only", Inputs{EnvLAN: "1", EnvLANSet: true, Config: "lan-edge-only"}, Mode{LAN: true, Source: SrcEnv}, ""},
+		{"--edge-only --no-lan conflict", Inputs{FlagEdgeOnly: true, FlagNoLAN: true}, Mode{}, "--edge-only and --no-lan conflict"},
+		{"--lan --no-lan conflict", Inputs{FlagLAN: true, FlagNoLAN: true}, Mode{}, "--lan and --no-lan conflict"},
+		{"env edge-only on, ROGER_LAN off", Inputs{EnvEdgeOnly: "1", EnvEdgeOnlySet: true, EnvLAN: "0", EnvLANSet: true}, Mode{}, "ROGER_LAN_EDGE_ONLY=1 and ROGER_LAN=0 conflict"},
+		{"unknown edge-only value", Inputs{EnvEdgeOnly: "maybe", EnvEdgeOnlySet: true}, Mode{}, "ROGER_LAN_EDGE_ONLY"},
+		{"unknown ROGER_LAN value", Inputs{EnvLAN: "2", EnvLANSet: true}, Mode{}, "ROGER_LAN"},
+		{"unknown config", Inputs{Config: "lan-only"}, Mode{}, "lan-edge-only"},
+		{"nothing set", Inputs{}, Mode{Source: SrcDefault}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Decide(tc.in)
+			if tc.err != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestConfigModeEdgeOnly(t *testing.T) {
+	m, err := ConfigMode(" LAN-EDGE-ONLY ")
+	require.NoError(t, err)
+	require.Equal(t, "lan-edge-only", m)
+	_, err = ConfigMode("edge")
+	require.ErrorContains(t, err, "lan, lan-edge-only or default")
+}
+
+func TestParseEdgeOnlyEnvNamesAcceptedValues(t *testing.T) {
+	_, err := ParseEdgeOnlyEnv("2")
+	require.ErrorContains(t, err, "ROGER_LAN_EDGE_ONLY")
+	require.ErrorContains(t, err, "1, true, yes or on")
 }

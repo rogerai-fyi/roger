@@ -33,57 +33,118 @@ const (
 	SrcFlag    Source = "flag"
 )
 
-// Mode is the decided mode of one process.
+// Mode is the decided mode of one process. EdgeOnly is LAN mode's strict subset
+// (features/lan/edge_only.feature): Edge members and this machine, never a Tower. It is only
+// ever true with LAN.
 type Mode struct {
-	LAN    bool
-	Source Source
+	LAN      bool
+	EdgeOnly bool
+	Source   Source
 }
 
-// ParseEnv reads ROGER_LAN. Anything it does not recognise is an error, never a guess.
-func ParseEnv(v string) (bool, error) {
+// onOff reads a boolean environment value. Anything it does not recognise is an error, never a
+// guess; name is the variable the error names.
+func onOff(name, v string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "1", "true", "yes", "on":
 		return true, nil
 	case "0", "false", "no", "off":
 		return false, nil
 	}
-	return false, fmt.Errorf("ROGER_LAN=%q is not understood: use 1, true, yes or on to turn LAN mode on, 0, false, no or off to turn it off", v)
+	return false, fmt.Errorf("%s=%q is not understood: use 1, true, yes or on to turn it on, 0, false, no or off to turn it off", name, v)
 }
 
-// ConfigMode validates a `roger config set mode` value: "lan", or "default" (stored as unset).
+// ParseEnv reads ROGER_LAN.
+func ParseEnv(v string) (bool, error) { return onOff("ROGER_LAN", v) }
+
+// ParseEdgeOnlyEnv reads ROGER_LAN_EDGE_ONLY.
+func ParseEdgeOnlyEnv(v string) (bool, error) { return onOff("ROGER_LAN_EDGE_ONLY", v) }
+
+// ConfigMode validates a `roger config set mode` value: "lan", "lan-edge-only", or "default"
+// (stored as unset). One key with three values cannot contradict itself (ruled 2026-10-07).
 func ConfigMode(v string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "lan":
-		return "lan", nil
+	switch m := strings.ToLower(strings.TrimSpace(v)); m {
+	case "lan", "lan-edge-only":
+		return m, nil
 	case "default", "":
 		return "", nil
 	}
-	return "", fmt.Errorf("unknown mode %q: use lan or default", v)
+	return "", fmt.Errorf("unknown mode %q: use lan, lan-edge-only or default", v)
 }
 
-// Decide applies the one precedence: flag, then environment, then config.
-func Decide(flagLAN, flagNoLAN bool, env string, envSet bool, cfgMode string) (Mode, error) {
-	if flagLAN && flagNoLAN {
+// Inputs is everything one process's mode is decided from.
+type Inputs struct {
+	FlagLAN, FlagNoLAN, FlagEdgeOnly bool
+	EnvLAN                           string
+	EnvLANSet                        bool
+	EnvEdgeOnly                      string
+	EnvEdgeOnlySet                   bool
+	Config                           string // the config's "mode"
+}
+
+// Decide applies the one precedence, flag, then environment, then config, to LAN mode and
+// edge-only together. --edge-only implies --lan; --lan alone (or ROGER_LAN=1) is LAN without
+// edge-only; ROGER_LAN_EDGE_ONLY=0 turns edge-only off and leaves LAN as the rest decides it.
+func Decide(in Inputs) (Mode, error) {
+	switch {
+	case in.FlagEdgeOnly && in.FlagNoLAN:
+		return Mode{}, fmt.Errorf("--edge-only and --no-lan conflict: pass one")
+	case in.FlagLAN && in.FlagNoLAN:
 		return Mode{}, fmt.Errorf("--lan and --no-lan conflict: pass one")
-	}
-	if flagLAN {
+	case in.FlagEdgeOnly:
+		return Mode{LAN: true, EdgeOnly: true, Source: SrcFlag}, nil
+	case in.FlagLAN:
 		return Mode{LAN: true, Source: SrcFlag}, nil
+	case in.FlagNoLAN:
+		return Mode{Source: SrcFlag}, nil
 	}
-	if flagNoLAN {
-		return Mode{LAN: false, Source: SrcFlag}, nil
+	// The config is read only when it decides: a flag or the environment never consults it.
+	config := func() (string, error) {
+		m, err := ConfigMode(in.Config)
+		if err != nil {
+			return "", fmt.Errorf("config: %w", err)
+		}
+		return m, nil
 	}
-	if envSet {
-		on, err := ParseEnv(env)
+	var lanEnv, lanEnvOn bool
+	if in.EnvLANSet {
+		on, err := ParseEnv(in.EnvLAN)
 		if err != nil {
 			return Mode{}, err
 		}
-		return Mode{LAN: on, Source: SrcEnv}, nil
+		lanEnv, lanEnvOn = true, on
 	}
-	m, err := ConfigMode(cfgMode)
+	if in.EnvEdgeOnlySet {
+		on, err := ParseEdgeOnlyEnv(in.EnvEdgeOnly)
+		if err != nil {
+			return Mode{}, err
+		}
+		if on {
+			if lanEnv && !lanEnvOn {
+				return Mode{}, fmt.Errorf("ROGER_LAN_EDGE_ONLY=1 and ROGER_LAN=0 conflict: unset one")
+			}
+			return Mode{LAN: true, EdgeOnly: true, Source: SrcEnv}, nil
+		}
+		if lanEnv {
+			return Mode{LAN: lanEnvOn, Source: SrcEnv}, nil
+		}
+		cfg, err := config()
+		if err != nil {
+			return Mode{}, err
+		}
+		return Mode{LAN: cfg != "", Source: SrcEnv}, nil
+	}
+	if lanEnv {
+		return Mode{LAN: lanEnvOn, Source: SrcEnv}, nil
+	}
+	cfg, err := config()
 	if err != nil {
-		return Mode{}, fmt.Errorf("config: %w", err)
+		return Mode{}, err
 	}
-	if m == "lan" {
+	switch cfg {
+	case "lan-edge-only":
+		return Mode{LAN: true, EdgeOnly: true, Source: SrcConfig}, nil
+	case "lan":
 		return Mode{LAN: true, Source: SrcConfig}, nil
 	}
 	return Mode{Source: SrcDefault}, nil
