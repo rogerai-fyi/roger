@@ -142,7 +142,10 @@ test("the install surface matches what the release ships", () => {
   const c = copy();
   assert.match(c, /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/, "the normal roger installer line");
   assert.doesNotMatch(c, /ROGERAI_COMPONENT=tower/, "no separate Tower component");
-  assert.doesNotMatch(c, /roger-tower /, "the commands are roger tower, not roger-tower");
+  // A COMMAND, not the data directory: /var/lib/roger-tower is the real path a Tower keeps,
+  // so only `roger-tower` as the word that starts a command line is the old binary.
+  assert.doesNotMatch(c, /(^|[\s$>])roger-tower\s/m, "the commands are roger tower, not roger-tower");
+  assert.match(c, /\/var\/lib\/roger-tower/, "the real data directory is kept");
   assert.match(c, /roger tower serve/, "and it teaches roger tower");
   assert.match(c, /standalone[^.]*Linux, macOS and Windows/i, "standalone runs everywhere");
   assert.match(c, /joined[^.]*Linux only/i, "joined runs on Linux only");

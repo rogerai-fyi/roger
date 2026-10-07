@@ -93,8 +93,8 @@
   ]
  },
  "broadcasts-run-a-tower.html": {
-  "sha": "7e318bde16b15e7716290fb261ed83a92d502284488e4ba5f7d54f8e3759acef",
-  "length": 12321,
+  "sha": "16976adf30085acfdd3426704587418332664c59384c64e24a6c84dba9f96a72",
+  "length": 12453,
   "hrefs": [
    "/broadcasts.html",
    "/payouts.html",
@@ -226,8 +226,8 @@
   ]
  },
  "research-models.html": {
-  "sha": "b3e870c9e572a7abfcd1a7b47a5dc32b68a60eafce3311c43f665b511f5f0926",
-  "length": 6280,
+  "sha": "9fd35a027c79fe95488e54e05a55892f711e520c7c64ff78939b2a45747c4bda",
+  "length": 8327,
   "hrefs": [
    "/research.html",
    "/research-wave-family.html",
@@ -236,6 +236,8 @@
    "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
    "/broadcasts-deepseek-mtp-gguf.html",
    "/broadcasts.html",
+   "/tower.html",
+   "/tower.html",
    "/research-industry.html#devices",
    "/research-wave-family.html#infinite"
   ]
