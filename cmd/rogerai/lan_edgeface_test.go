@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
@@ -31,6 +32,7 @@ type edgeFace struct {
 	pin       string
 	hits      atomic.Int32
 	mutualTLS atomic.Int32 // turns that arrived with the caller's certificate
+	lastModel atomic.Value // the model the last turn named
 }
 
 func (f *edgeFace) addr() string { return strings.TrimPrefix(f.srv.URL, "https://") }
@@ -48,6 +50,11 @@ func newEdgeFace(t *testing.T, node string, delay time.Duration) *edgeFace {
 			return
 		}
 		f.hits.Add(1)
+		var p struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		f.lastModel.Store(p.Model)
 		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 			f.mutualTLS.Add(1)
 		}

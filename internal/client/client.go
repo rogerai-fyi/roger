@@ -1614,6 +1614,10 @@ func Use(broker, user, model string, opt UseOptions) error {
 	// X-Roger-Freq. A wrong / off-air code returns the SAME uniform "no station" reply
 	// the broker gives (no oracle). The price-safety confirm + default cap still apply.
 	if opt.Freq != "" {
+		if opt.LANMode {
+			// a private band is broker-resolved, so nothing is resolved in LAN mode
+			return fmt.Errorf("private bands are on the network and LAN mode is on: tune a band this LAN serves (roger --lan search), or run without --lan to use the private band")
+		}
 		return useOnFreq(broker, user, model, opt, maxOut, typical, defaultedCap, in)
 	}
 	if opt.LANMode || opt.Pinned != "" {

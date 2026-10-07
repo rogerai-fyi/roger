@@ -6,10 +6,12 @@ package main
 // address. Unmapped addresses refuse the connection, like nothing listening.
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -59,6 +61,11 @@ func (m *lanDialMap) client() *http.Client {
 type realTower struct {
 	st  *tower.State
 	srv *httptest.Server
+	// What the last consumer request to the Tower carried (the LAN relay's side of the wire).
+	mu                sync.Mutex
+	lastAuth, lastSig string
+	lastModel         string
+	chatRequests      int
 }
 
 func newRealTower(t *testing.T) *realTower {
@@ -71,9 +78,25 @@ func newRealTower(t *testing.T) *realTower {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(localplane.New(st).Handler())
-	t.Cleanup(srv.Close)
-	return &realTower{st: st, srv: srv}
+	r := &realTower{st: st}
+	plane := localplane.New(st).Handler()
+	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/v1/chat/completions" {
+			body, _ := io.ReadAll(req.Body)
+			req.Body = io.NopCloser(bytes.NewReader(body))
+			var p struct {
+				Model string `json:"model"`
+			}
+			_ = json.Unmarshal(body, &p)
+			r.mu.Lock()
+			r.lastAuth, r.lastSig, r.lastModel = req.Header.Get("Authorization"), req.Header.Get(protocol.HeaderSig), p.Model
+			r.chatRequests++
+			r.mu.Unlock()
+		}
+		plane.ServeHTTP(w, req)
+	}))
+	t.Cleanup(r.srv.Close)
+	return r
 }
 
 // addr is the listener's host:port.

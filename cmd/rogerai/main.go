@@ -989,7 +989,7 @@ func dispatch(cfg config, args []string) error {
 		return cmdUse(cfg, args[1:])
 	case "say", "speak":
 		return cmdSay(cfg, args[1:])
-	case "remote", "rc":
+	case "remote", "rc", "remote-control":
 		return cmdRemote(cfg, args[1:])
 	case "resume", "continue":
 		return cmdResume(cfg, args[1:])

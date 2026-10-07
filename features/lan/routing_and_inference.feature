@@ -98,7 +98,7 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     Then it is refused, naming "jetson" and the Tower and how each failed
     And no request was made to the public broker
 
-  @client
+  @client @blocked-on-tower-streaming
   Scenario: a mid-stream failure is not retried somewhere the caller cannot see
     Given the LAN Tower at 192.168.1.20:8787 serves "llama-3.3-70b" as a stream
     And the stream breaks after the first tokens
@@ -267,7 +267,7 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
       | qwen3-8b:nitro  | the measured-fastest local source first                   |
       | qwen3-8b:floor  | any local source; there is no price to floor on the LAN   |
 
-  @client
+  @client @blocked-on-routing-slices @needs-slice6-class-aliases
   Scenario: a class alias resolves against local bands only
     Given the local sources serve "qwen3-8b" and "gpt-oss-20b"
     When a turn is dispatched for "@class/<a class both belong to>"
@@ -282,20 +282,20 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     Then it is served
     # Every LAN source prices at 0, so any cap at or above 0 admits it.
 
-  @client
+  @client @blocked-on-routing-slices @needs-slice2-quantizations
   Scenario: routing constraints still filter local sources
     Given the Edge member "jetson" serves "qwen3-8b" quantized "Q4_K_M" and this machine serves it quantized "Q8_0"
     When a turn is dispatched for "qwen3-8b" with provider.quantizations ["Q8_0"]
     Then it is served by this machine
 
-  @client
+  @client @blocked-on-routing-slices @needs-slice2-quantizations
   Scenario: a routing constraint no local source meets is refused, naming the constraint
     Given only the Edge member "jetson" serves "qwen3-8b" quantized "Q4_K_M"
     When a turn is dispatched for "qwen3-8b" with provider.quantizations ["Q8_0"]
     Then it is refused naming provider.quantizations
     And no request was made to the public broker
 
-  @client
+  @client @blocked-on-routing-slices @needs-slice1-provider-order
   Scenario: provider.order naming a market station is refused, not honored
     When a turn is dispatched with provider.order naming a market station id and allow_fallbacks false
     Then it is refused, saying the named station is not on this LAN

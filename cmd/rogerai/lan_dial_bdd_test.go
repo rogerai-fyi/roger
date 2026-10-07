@@ -49,6 +49,13 @@ func newRecordingBroker(t *testing.T) *recordingBroker {
 	return rb
 }
 
+// count is how many requests reached the broker.
+func (rb *recordingBroker) count() int {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	return len(rb.paths)
+}
+
 func (rb *recordingBroker) saw(path string) bool {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()

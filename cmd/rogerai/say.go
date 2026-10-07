@@ -47,6 +47,11 @@ Browse the roster with ` + "`roger voices`" + ` or at rogerai.fm/voices.
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if cfg.lan.LAN {
+		// voice uses the same filter as text (features/lan/routing_and_inference.feature): only a
+		// voice on this LAN, and nothing is asked of the network's /v1/audio/speech
+		return sayLAN(cfg, *voice)
+	}
 	if *voice == "" {
 		return fmt.Errorf("which voice? pass --voice <voice> - list the on-air roster with `roger voices` (or browse rogerai.fm/voices)")
 	}
@@ -138,4 +143,18 @@ func voiceHandle(v client.Voice) string {
 		return v.NamespacedID
 	}
 	return v.ID
+}
+
+// sayLAN is `roger say` in LAN mode: a voice a local source has on air, or a refusal. Nothing is
+// sent to the network's /v1/audio/speech.
+func sayLAN(cfg config, voice string) error {
+	if voice != "" {
+		bands, _ := lanDial(cfg)
+		for _, b := range bands {
+			if b.Model == voice {
+				return fmt.Errorf("LAN mode is on: %s is on air on this LAN, but roger say cannot speak through a LAN voice yet; run without --lan to use the network's voices", voice)
+			}
+		}
+	}
+	return fmt.Errorf("LAN mode is on: no local voice is on air - share a voice on this LAN, or run without --lan to use the network's voices")
 }

@@ -23,6 +23,19 @@ import (
 
 // relayLAN serves the turn on the LAN or refuses it; it never returns (false, false).
 func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) (served, refused bool) {
+	if opts.Freq != "" {
+		// a private band is broker-resolved: it is not a LAN source, and nothing is resolved
+		openAIError(w, http.StatusServiceUnavailable, "lan_error", "lan_only",
+			"private bands are on the network and LAN mode is on: tune a band this LAN serves, or run without --lan to use the private band")
+		return false, true
+	}
+	// A routing variant (:free, :nitro, :floor) names how a turn is routed, never which band: on
+	// the LAN every turn is free and the measured-fastest member is tried first anyway, so the
+	// band is looked up bare and the source is sent the model it serves.
+	band = lanBand(band)
+	if out, _, ok := rewriteModel(body, band); ok {
+		body = out
+	}
 	var tried []string
 	if opts.LANSelf != nil {
 		if up, key := opts.LANSelf(band); up != "" {

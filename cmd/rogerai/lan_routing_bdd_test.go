@@ -21,6 +21,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -36,6 +37,11 @@ type lanRouteBDD struct {
 	alerts              []string
 	lastBand, lastTower string
 	before              map[string]int32
+	off                 bool   // LAN mode is off for this scenario
+	bearer              string // what the caller presents to the loopback proxy
+	asked               string // the model the last turn named
+	cliOut              string
+	cliErr              error
 }
 
 func (s *lanRouteBDD) resetRoute() {
@@ -45,6 +51,7 @@ func (s *lanRouteBDD) resetRoute() {
 	s.code, s.body, s.hdr = 0, "", nil
 	s.faces, s.before = map[string]*edgeFace{}, map[string]int32{}
 	s.tweak, s.receipts, s.alerts = nil, nil, nil
+	s.off, s.bearer, s.cliOut, s.cliErr = false, "", "", nil
 	lanSelfServe = func(string) (string, string) { return "", "" }
 }
 
@@ -91,7 +98,11 @@ func (s *lanRouteBDD) dispatch(band string) error {
 }
 
 func (s *lanRouteBDD) dispatchBody(band, body string) error {
+	s.asked = band
 	cfg := s.cfg()
+	if s.off {
+		cfg.lan = lanmode.Mode{}
+	}
 	opts := client.ProxyOptions{Broker: s.broker.srv.URL, Model: band, SessionKey: "k"}
 	applyEdgeLadder(cfg, &opts)
 	applyLAN(cfg, &opts)
@@ -104,6 +115,9 @@ func (s *lanRouteBDD) dispatchBody(band, body string) error {
 	defer srv.Close()
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", bytes.NewReader([]byte(body)))
 	req.Header.Set("Authorization", "Bearer k")
+	if s.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+s.bearer)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -162,10 +176,16 @@ func (s *lanRouteBDD) refusedNaming(parts ...string) error {
 	return nil
 }
 
+// cli runs a roger command line in-process, capturing what it prints.
+func (s *lanRouteBDD) cli(args ...string) error {
+	s.cliOut, s.cliErr = captureEdgeStdout(func() error { return run(args, loadConfig()) })
+	return nil
+}
+
 func TestLANRoutingBDD(t *testing.T) {
 	s := &lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}
 	var paths []string
-	for _, l := range []int{49, 57, 66, 75, 86, 94, 111, 278} {
+	for _, l := range []int{49, 57, 66, 75, 86, 94, 111, 117, 125, 131, 238, 247, 258, 278, 305, 312} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/routing_and_inference.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -283,6 +303,155 @@ func TestLANRoutingBDD(t *testing.T) {
 				return s.refusedNaming(node, "192.168.1.20:8787", "status 503")
 			})
 			sc.Step(`^the request carries provider\.max_price with prompt 0\.1 and completion 0\.1$`, func() error { return nil })
+			sc.Step(`^edge\.prefer is "([^"]*)"$`, func(v string) error {
+				c := loadConfig()
+				c.EdgePrefer = v
+				return saveConfig(c)
+			})
+			sc.Step("^`roger status` is read$", func() error { return s.cli("--lan", "status") })
+			sc.Step(`^it reports the Edge preference as "(.*)"$`, func(want string) error {
+				if !strings.Contains(s.cliOut, "edge preference: "+want) {
+					return fmt.Errorf("status does not report %q:\n%s", want, s.cliOut)
+				}
+				return nil
+			})
+			sc.Step(`^a turn is dispatched for a band the market serves and nothing local serves$`, func() error {
+				return s.dispatch("llama-3.3-70b")
+			})
+			sc.Step(`^a command runs with --lan and exits$`, func() error { return s.cli("--lan", "status") })
+			sc.Step(`^edge\.prefer is still "([^"]*)"$`, func(want string) error {
+				if got := loadConfig().EdgePrefer; got != want {
+					return fmt.Errorf("edge.prefer is %q, want %q", got, want)
+				}
+				return nil
+			})
+			sc.Step(`^LAN mode is off$`, func() error { s.off = true; return nil })
+			sc.Step(`^only the LAN Tower at ([0-9.:]+) serves "([^"]*)"$`, s.towerServing)
+			sc.Step(`^it is refused as not served on this Edge$`, func() error {
+				if err := s.refusedNaming("local-only: no instance on this Edge serves"); err != nil {
+					return err
+				}
+				if n := s.towerHits.Load(); n != 0 {
+					return fmt.Errorf("the LAN Tower served %d turn(s) without LAN mode", n)
+				}
+				return nil
+			})
+			sc.Step(`^nothing local serves a TTS band$`, func() error { return nil })
+			sc.Step(`^they run "roger ([^"]*)"$`, func(line string) error { return s.cli(strings.Fields(line)...) })
+			sc.Step(`^it is refused, saying no local voice is on air$`, func() error {
+				if s.cliErr == nil || !strings.Contains(s.cliErr.Error(), "no local voice is on air") {
+					return fmt.Errorf("not refused for want of a local voice: err=%v out=%s", s.cliErr, s.cliOut)
+				}
+				return nil
+			})
+			sc.Step(`^no request was made to the public broker's (/\S+)$`, func(path string) error {
+				return brokerNotAsked(s.broker, path)
+			})
+			sc.Step(`^it behaves exactly as without --lan$`, func() error {
+				withLAN, withLANErr, asked := s.cliOut, fmt.Sprint(s.cliErr), s.broker.count()
+				if asked == 0 {
+					return fmt.Errorf("the command asked the broker nothing, so nothing was compared: %s %v", withLAN, s.cliErr)
+				}
+				if err := s.cli("remote-control"); err != nil {
+					return err
+				}
+				if s.cliOut != withLAN || fmt.Sprint(s.cliErr) != withLANErr {
+					return fmt.Errorf("--lan changed it:\nwith:    %s %s\nwithout: %s %v", withLAN, withLANErr, s.cliOut, s.cliErr)
+				}
+				if again := s.broker.count() - asked; again != asked {
+					return fmt.Errorf("with --lan it made %d broker request(s), without %d", asked, again)
+				}
+				return nil
+			})
+			sc.Step(`^two local sources serve "([^"]*)"$`, func(band string) error {
+				if err := s.face("jetson", band, 40*time.Millisecond); err != nil {
+					return err
+				}
+				return s.face("orin", band, 0)
+			})
+			sc.Step(`^it is routed as "([^"]*)"$`, func(meaning string) error {
+				if s.code != http.StatusOK {
+					return fmt.Errorf("status %d: %s", s.code, s.body)
+				}
+				if strings.Contains(meaning, "fastest") {
+					// every member is measured once (an unmeasured one is tried first), then the
+					// measured-faster one is tried first
+					asked := s.asked
+					for i := 0; i < 3 && (s.faces["orin"].hits.Load() == 0 || s.faces["jetson"].hits.Load() == 0); i++ {
+						if err := s.dispatch(asked); err != nil {
+							return err
+						}
+					}
+					before := s.faces["orin"].hits.Load()
+					if err := s.dispatch(asked); err != nil {
+						return err
+					}
+					if s.faces["orin"].hits.Load() != before+1 {
+						return fmt.Errorf("the measured-faster member was not tried first")
+					}
+				}
+				return nil
+			})
+			sc.Step(`^the model the source receives is "([^"]*)"$`, func(want string) error {
+				for name, f := range s.faces {
+					if v, _ := f.lastModel.Load().(string); v != "" && v != want {
+						return fmt.Errorf("%s received model %q, want %q", name, v, want)
+					}
+				}
+				return nil
+			})
+			sc.Step(`^a turn is dispatched with X-Roger-Freq naming a private band$`, func() error {
+				s.tweak = func(o *client.ProxyOptions) { o.Freq = "fm-7q2" }
+				if err := s.dispatch("qwen3-8b"); err != nil {
+					return err
+				}
+				// the same code given to `roger --lan use` is refused before anything is resolved
+				return s.cli("--lan", "use", "qwen3-8b", "--freq", "fm-7q2")
+			})
+			sc.Step(`^it is refused, saying private bands are on the network and LAN mode is on$`, func() error {
+				if err := s.refusedNaming("private bands are on the network and LAN mode is on"); err != nil {
+					return err
+				}
+				if s.cliErr == nil || !strings.Contains(s.cliErr.Error(), "private bands are on the network and LAN mode is on") {
+					return fmt.Errorf("`roger --lan use --freq` was not refused: err=%v out=%s", s.cliErr, s.cliOut)
+				}
+				return nil
+			})
+			sc.Step(`^the caller sends "Authorization: Bearer rog-key_\.\.\." through the loopback proxy$`, func() error {
+				s.bearer = "rog-key_abc123"
+				s.tweak = func(o *client.ProxyOptions) { o.SessionKey = "" }
+				return nil
+			})
+			sc.Step(`^the turn is served by a LAN Tower$`, func() error {
+				if err := s.towerServing("192.168.1.20:8787", "qwen3-8b"); err != nil {
+					return err
+				}
+				if err := s.dispatch("qwen3-8b"); err != nil {
+					return err
+				}
+				return s.servedBy("tower")
+			})
+			sc.Step(`^the request to the Tower does not carry the account key$`, func() error {
+				tw := s.towers["192.168.1.20:8787"]
+				tw.mu.Lock()
+				defer tw.mu.Unlock()
+				if tw.chatRequests == 0 {
+					return fmt.Errorf("no request reached the Tower")
+				}
+				if tw.lastAuth != "" {
+					return fmt.Errorf("the Tower was sent Authorization %q", tw.lastAuth)
+				}
+				return nil
+			})
+			sc.Step(`^it carries this machine's signature instead$`, func() error {
+				tw := s.towers["192.168.1.20:8787"]
+				tw.mu.Lock()
+				defer tw.mu.Unlock()
+				if tw.lastSig == "" {
+					return fmt.Errorf("the Tower request carried no signature")
+				}
+				return nil
+			})
 			sc.Step(`^it is served$`, func() error {
 				// the turn carries the caps the Given names
 				if err := s.dispatchBody("qwen3-8b", `{"model":"qwen3-8b","messages":[{"role":"user","content":"hi"}],"provider":{"max_price":{"prompt":0.1,"completion":0.1}}}`); err != nil {
