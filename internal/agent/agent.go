@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"strconv"
 	"strings"
 	"sync"
@@ -1035,6 +1036,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
 }
 
 func register(broker string, reg protocol.NodeRegistration) (registerResult, error) {
+	coreclient.Note("agent: market registration")
 	b, _ := json.Marshal(reg)
 	req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")

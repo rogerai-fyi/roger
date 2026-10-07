@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"sort"
 	"time"
 )
@@ -418,6 +419,7 @@ func ResolveBand(broker, freq, model string) (offers []Offer, display string, ok
 // request: the signature is added only when a Tower asks for it, never on the public path, so
 // no browse reveals who is looking except where the Tower already requires an admitted client.
 func discover(broker string) ([]Offer, error) {
+	coreclient.Note("client: band discovery")
 	resp, err := http.Get(broker + "/discover")
 	if err != nil {
 		return nil, err

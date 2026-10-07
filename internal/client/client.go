@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"sort"
 	"strconv"
@@ -57,6 +58,7 @@ var ErrBrokerUnreachable = errors.New("couldn't reach the broker")
 // "logged out" / "$0" / "no offers". A decode error on a 2xx body is still ignored (the
 // caller validates fields).
 func getJSON(broker, path, user string, out any) error {
+	coreclient.Note("client: broker read")
 	req, _ := http.NewRequest(http.MethodGet, broker+path, nil)
 	// Wallet/dashboard reads are signed so the broker serves the verified identity
 	// (not whoever sets a header). Public reads (e.g. /discover) pass user="" and are
@@ -735,6 +737,7 @@ func ProxyHandler(opts ProxyOptions) http.Handler {
 // auth, a per-session spend budget, OpenAI-shaped JSON on every originated error, a 413 body
 // cap, Retry-After passthrough, dial/header stream bounds, and a "no band tuned" refusal.
 func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
+	coreclient.Note("client: relay proxy")
 	httpClient := newRelayClient()
 	policy := defaultPolicy()
 	mux := http.NewServeMux()
