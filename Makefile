@@ -16,7 +16,6 @@ build:
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/rogerai-broker ./cmd/rogerai-broker
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roger ./cmd/rogerai
 	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
-	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
 	go build -o bin/roger-tower ./cmd/roger-tower              # one-release shim: hands off to roger
 	go build -o bin/roger-tower-local ./cmd/roger-tower-local  # one-release shim: hands off to roger
 

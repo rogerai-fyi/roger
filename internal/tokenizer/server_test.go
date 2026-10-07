@@ -1,9 +1,8 @@
-package main
+package tokenizer
 
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +10,8 @@ import (
 	"testing"
 )
 
-// newCountHandler returns the REAL routes from main.go (newMux) over a dir-less Counter,
-// so these tests exercise the production handler wiring (not a copy) and count toward
-// cmd/tokenizer-sidecar coverage.
-func newCountHandler() http.Handler { return newMux("") }
+// newCountHandler returns the REAL service routes (Handler) over a dir-less Counter.
+func newCountHandler() http.Handler { return Handler("") }
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -115,7 +112,7 @@ func TestSidecarCountBadJSON(t *testing.T) {
 	}
 }
 
-// TestRunServesAndShutsDown exercises the real server lifecycle: run() binds an
+// TestRunServesAndShutsDown exercises the real server lifecycle: Serve() binds an
 // ephemeral port (port "0"), serves a live /health request over the wire, then returns
 // cleanly when stop is closed. This covers the main() path (env defaults aside) without
 // blocking forever.
@@ -123,7 +120,7 @@ func TestRunServesAndShutsDown(t *testing.T) {
 	ready := make(chan string, 1)
 	stop := make(chan struct{})
 	errc := make(chan error, 1)
-	go func() { errc <- run("0", "", ready, stop) }()
+	go func() { errc <- Serve("0", "", ready, stop) }()
 
 	addr := <-ready // the actual 127.0.0.1:<chosen-port>
 	resp, err := http.Get("http://" + addr + "/health")
@@ -142,15 +139,15 @@ func TestRunServesAndShutsDown(t *testing.T) {
 	}
 }
 
-// TestRunBadPort: an invalid port makes the bind fail and run() returns the error
+// TestRunBadPort: an invalid port makes the bind fail and Serve() returns the error
 // (the path main() turns into log.Fatal).
 func TestRunBadPort(t *testing.T) {
-	if err := run("not-a-port", "", nil, nil); err == nil {
+	if err := Serve("not-a-port", "", nil, nil); err == nil {
 		t.Fatal("run with an invalid port should return a bind error")
 	}
 }
 
-// TestRunWithDir exercises run()'s TOKENIZER_DIR != "" branch (the alternate startup
+// TestRunWithDir exercises Serve()'s TOKENIZER_DIR != "" branch (the alternate startup
 // log line + a dir-backed Counter): it binds an ephemeral port, serves a real /count
 // request whose tiktoken path is independent of the (empty) dir, then shuts down clean.
 func TestRunWithDir(t *testing.T) {
@@ -158,7 +155,7 @@ func TestRunWithDir(t *testing.T) {
 	ready := make(chan string, 1)
 	stop := make(chan struct{})
 	errc := make(chan error, 1)
-	go func() { errc <- run("0", dir, ready, stop) }()
+	go func() { errc <- Serve("0", dir, ready, stop) }()
 
 	addr := <-ready
 	resp, err := http.Post("http://"+addr+"/count", "application/json",
@@ -182,51 +179,5 @@ func TestRunWithDir(t *testing.T) {
 	close(stop)
 	if err := <-errc; err != nil {
 		t.Fatalf("run returned %v, want nil after clean shutdown", err)
-	}
-}
-
-// TestMainSuccess: with the run seam returning nil, main() must NOT invoke fatalFn.
-func TestMainSuccess(t *testing.T) {
-	origRun, origFatal := runFn, fatalFn
-	defer func() { runFn, fatalFn = origRun, origFatal }()
-
-	var gotPort, gotDir string
-	runFn = func(port, dir string, ready chan<- string, stop <-chan struct{}) error {
-		gotPort, gotDir = port, dir
-		return nil
-	}
-	fatalCalled := false
-	fatalFn = func(v ...any) { fatalCalled = true }
-
-	t.Setenv("TOKENIZER_PORT", "12345")
-	t.Setenv("TOKENIZER_DIR", "/some/dir")
-	main()
-
-	if gotPort != "12345" || gotDir != "/some/dir" {
-		t.Fatalf("run got (port=%q dir=%q), want env values", gotPort, gotDir)
-	}
-	if fatalCalled {
-		t.Fatal("fatalFn must NOT be called when run succeeds")
-	}
-}
-
-// TestMainFatalOnError: when the run seam returns an error, main() forwards it to fatalFn.
-func TestMainFatalOnError(t *testing.T) {
-	origRun, origFatal := runFn, fatalFn
-	defer func() { runFn, fatalFn = origRun, origFatal }()
-
-	want := errors.New("bind failed")
-	runFn = func(port, dir string, ready chan<- string, stop <-chan struct{}) error { return want }
-	var got error
-	fatalFn = func(v ...any) {
-		if len(v) == 1 {
-			got, _ = v[0].(error)
-		}
-	}
-
-	main()
-
-	if !errors.Is(got, want) {
-		t.Fatalf("fatalFn got %v, want %v", got, want)
 	}
 }

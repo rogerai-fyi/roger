@@ -16,7 +16,7 @@ import (
 // recount.go is the broker side of L1 - the independent token re-count (see
 // docs-internal/VERIFICATION-DESIGN.md, "L1"). After a response SETTLES, the
 // broker (in a goroutine, OFF the hot path) posts the completion text to the
-// tokenizer-sidecar and reconciles the sidecar's count against the node's
+// tokenizer service (`rogerai-broker tokenizer`) and reconciles the sidecar's count against the node's
 // self-reported completion_tokens. A node that over-reports past a tolerance
 // band (exact re-counts only) accrues a per-node DISCREPANCY against its trust
 // score and is logged. Settlement has already happened, so for now this is a
@@ -77,7 +77,7 @@ func loadRecount() recountConfig {
 		c.strikeTolerance = c.tolerance
 	}
 	if c.url == "" {
-		log.Printf("L1 re-count: DISABLED (set TOKENIZER_URL to the tokenizer-sidecar, e.g. http://127.0.0.1:9099)")
+		log.Printf("L1 re-count: DISABLED (run `rogerai-broker tokenizer` and set TOKENIZER_URL to it, e.g. http://127.0.0.1:9099)")
 	} else {
 		log.Printf("L1 re-count: enabled via %s (billing tolerance=%.0f%%, strike tolerance=%.0f%%)", c.url, c.tolerance*100, c.strikeTolerance*100)
 	}
@@ -96,7 +96,7 @@ func strikeNote(struck bool) string {
 	return " (within strike tolerance - billing capped, owner NOT struck: honest tokenizer variance)"
 }
 
-// sidecarCount asks the tokenizer-sidecar to count text under model. Returns the
+// sidecarCount asks the tokenizer service (`rogerai-broker tokenizer`) to count text under model. Returns the
 // token count and whether the count was exact.
 func (c recountConfig) sidecarCount(model, text string) (tokens int, exact bool, ok bool) {
 	body, _ := json.Marshal(map[string]string{"model": model, "text": text})
