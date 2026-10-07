@@ -31,6 +31,7 @@ type Criteria struct {
 	SelfHostedOnly bool
 	Quantizations  []string
 	Only           []string
+	OnlyNone       bool // the caller's and the owner's only share no station: none is admitted
 	Region         []string
 	TrustMin       string
 	// MinCtx / MaxTTFT are the context-window floor and first-token ceiling (0 = none), and
@@ -518,7 +519,7 @@ func offerMeetsBody(o Offer, c Criteria) bool {
 			return false
 		}
 	}
-	if len(c.Only) > 0 && !slices.Contains(c.Only, o.NodeID) {
+	if c.OnlyNone || (len(c.Only) > 0 && !slices.Contains(c.Only, o.NodeID)) {
 		return false
 	}
 	if len(c.Region) > 0 && !slices.Contains(c.Region, o.Region) {
@@ -622,9 +623,7 @@ func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
 				}
 			}
 			c.Only = both
-			if len(c.Only) == 0 {
-				c.Only = []string{"\x00no-station"} // an empty intersection admits nothing
-			}
+			c.OnlyNone = len(both) == 0 // an empty intersection admits no station
 		}
 	}
 	if opts.SelfHostedOnly {

@@ -39,3 +39,18 @@ func TestPaddedGuestModelsEntryIsRefused(t *testing.T) {
 	require.ErrorAs(t, err, &rr)
 	require.Equal(t, "models must be a list of model ids", rr.Msg)
 }
+
+// TestAnEmptyOnlyIntersectionAdmitsNoStation: when the caller's only and the owner's share no
+// station, the re-pick admits none, by an explicit flag rather than a placeholder id that a
+// station could carry.
+func TestAnEmptyOnlyIntersectionAdmitsNoStation(t *testing.T) {
+	c := Criteria{Model: "m", Only: []string{"n2"}}
+	ownerRoutingCriteria(ProxyOptions{Only: []string{"n1"}}, &c)
+	offers := []Offer{
+		{NodeID: "n1", Model: "m", Online: true},
+		{NodeID: "n2", Model: "m", Online: true},
+		{NodeID: "\x00no-station", Model: "m", Online: true},
+	}
+	_, ok := pickAlternative(offers, c, nil)
+	require.False(t, ok, "an empty intersection admits no station, whatever its id")
+}
