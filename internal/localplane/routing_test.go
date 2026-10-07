@@ -336,3 +336,28 @@ func TestJobBodyWritesADuplicatedKeyOnce(t *testing.T) {
 	require.Equal(t, 1, strings.Count(out, `"temperature"`), out)
 	require.Contains(t, out, `"temperature":0.2`)
 }
+
+// TestLocalVariantSuffixRulesMatchTheBroker: an empty colon segment is a 400 "an empty
+// variant suffix" (not a 404 for an odd model), the 256-character bound is checked before the
+// profile reference, and a station list is bounded before its entries are read.
+func TestLocalVariantSuffixRulesMatchTheBroker(t *testing.T) {
+	for _, id := range []string{"x::free", ":free", "x:free:", "x:"} {
+		_, e := parseLocalRouting([]byte(`{"model":"`+id+`"}`), false)
+		require.NotNil(t, e, id)
+		require.Contains(t, e.msg, "an empty variant suffix", id)
+	}
+	_, e := parseLocalRouting([]byte(`{"model":"a","models":["b::nitro"]}`), false)
+	require.NotNil(t, e)
+	require.Contains(t, e.msg, "an empty variant suffix")
+	_, e = parseLocalRouting([]byte(`{"model":"@profile/`+strings.Repeat("p", 260)+`"}`), false)
+	require.NotNil(t, e)
+	require.Contains(t, e.msg, "256", "length first, as on the broker")
+	ids := make([]string, 33)
+	for i := range ids {
+		ids[i] = `"s"`
+	}
+	ids[0] = `5`
+	_, e = parseLocalRouting([]byte(`{"model":"a","provider":{"only":[`+strings.Join(ids, ",")+`]}}`), false)
+	require.NotNil(t, e)
+	require.Contains(t, e.msg, "32", "bounded before an entry is read")
+}

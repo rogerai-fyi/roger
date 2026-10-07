@@ -112,10 +112,16 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 			return lr, &routeErr{status: 400, msg: "a model is required"}
 		}
 	}
-	if strings.HasPrefix(model, "@profile/") {
-		return lr, &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
-	}
-	add := func(id string) {
+	// add reads one model id the way the broker does (routingreq.go parseModelSugar): length
+	// first, then a profile reference, then the variant suffixes, where an empty colon segment
+	// is malformed; the bare id joins the list once.
+	add := func(id string) *routeErr {
+		if len(id) > maxModelID {
+			return &routeErr{status: 400, msg: fmt.Sprintf("a model id longer than %d characters", maxModelID)}
+		}
+		if strings.HasPrefix(id, "@profile/") {
+			return &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
+		}
 		bare := id
 		for {
 			trimmed := bare
@@ -130,18 +136,21 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 			}
 			bare = trimmed
 		}
+		if strings.Contains(id, ":") && (bare == "" || strings.HasPrefix(bare, ":") || strings.HasSuffix(bare, ":") || strings.Contains(bare, "::")) {
+			return &routeErr{status: 400, msg: "an empty variant suffix"}
+		}
 		for _, x := range lr.models {
 			if x == bare {
-				return
+				return nil
 			}
 		}
 		lr.models = append(lr.models, bare)
-	}
-	if len(model) > maxModelID {
-		return lr, &routeErr{status: 400, msg: fmt.Sprintf("a model id longer than %d characters", maxModelID)}
+		return nil
 	}
 	if model != "" {
-		add(model)
+		if e := add(model); e != nil {
+			return lr, e
+		}
 	}
 
 	if raw, ok := m["models"]; ok && string(raw) != "null" {
@@ -157,13 +166,9 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 			if !isStr || strings.TrimSpace(id) == "" || id != strings.TrimSpace(id) { // padded: refused, as on the broker
 				return lr, &routeErr{status: 400, msg: "models must be a list of model ids"}
 			}
-			if strings.HasPrefix(id, "@profile/") {
-				return lr, &routeErr{status: 400, code: "unknown_profile", msg: "profiles resolve on the client; send the model"}
+			if e := add(id); e != nil {
+				return lr, e
 			}
-			if len(id) > maxModelID {
-				return lr, &routeErr{status: 400, msg: fmt.Sprintf("a model id longer than %d characters", maxModelID)}
-			}
-			add(id)
 			if len(lr.models) > maxLocalModels {
 				return lr, &routeErr{status: 400, msg: fmt.Sprintf("too many models (max %d)", maxLocalModels)}
 			}
@@ -198,6 +203,9 @@ func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeE
 					continue
 				}
 				ids, err := localIDs(v)
+				if err == errTooManyIDs {
+					return lr, &routeErr{status: 400, msg: "provider." + k + " has " + err.Error()}
+				}
 				// An empty ignore is "nothing to deny" (as on the broker); an empty order or only
 				// is a malformed preference.
 				if err != nil || (len(ids) == 0 && k != "ignore") {
@@ -445,10 +453,16 @@ type stationView struct {
 	models []string
 }
 
+// errTooManyIDs is a station list over the contract's 32-entry bound.
+var errTooManyIDs = fmt.Errorf("more than %d entries", maxModelsEntries)
+
 func localIDs(raw json.RawMessage) ([]string, error) {
 	var list []any
 	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, err
+	}
+	if len(list) > maxModelsEntries { // bounded before any entry is read (§1a: 32, as on the broker)
+		return nil, errTooManyIDs
 	}
 	out := make([]string, 0, len(list))
 	for _, e := range list {
