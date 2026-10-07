@@ -251,3 +251,19 @@ func localError(msg string) []byte {
 	b, _ := json.Marshal(map[string]any{"error": map[string]any{"message": msg, "type": "local_station_error"}})
 	return b
 }
+
+// StartLAN is a share in LAN mode: it serves each LAN Tower (a consumer-plane base URL) as a
+// standalone station with ServeLocalTower and registers with nothing. The session is on air at
+// once (no broker acknowledges a LAN share) and Stop ends every Tower's loop.
+func StartLAN(cfg Config, towers []string, priv ed25519.PrivateKey, out io.Writer) *Session {
+	s := &Session{cfg: cfg, stop: make(chan struct{})}
+	s.link.Store(int32(LinkOnAir))
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-s.stop; cancel() }()
+	for _, base := range towers {
+		c := cfg
+		c.Broker = base
+		go func() { _ = ServeLocalTower(ctx, c, priv, out) }()
+	}
+	return s
+}

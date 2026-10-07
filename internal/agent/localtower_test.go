@@ -256,3 +256,39 @@ func TestLocalPollBackoffDoublesToItsCap(t *testing.T) {
 		require.Equal(t, tc.want, localPollBackoff(tc.n), "failure %d", tc.n)
 	}
 }
+
+// StartLAN serves every LAN Tower as a standalone station and registers nowhere; Stop ends it.
+func TestStartLANPollsEveryTowerUntilStopped(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	var mu sync.Mutex
+	polled := map[string]int{}
+	tower := func(name string) *httptest.Server {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			polled[name+r.URL.Path]++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		t.Cleanup(srv.Close)
+		return srv
+	}
+	a, b := tower("a"), tower("b")
+	sess := StartLAN(Config{Model: "m", Upstream: "http://127.0.0.1:1"}, []string{a.URL, b.URL}, priv, io.Discard)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return polled["a/local/poll"] > 0 && polled["b/local/poll"] > 0
+	}, 3*time.Second, 20*time.Millisecond, "both Towers are polled")
+	require.Equal(t, LinkOnAir, sess.Link(), "a LAN share is on air the moment it serves")
+	sess.Stop()
+	mu.Lock()
+	n := polled["a/local/poll"]
+	mu.Unlock()
+	time.Sleep(700 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	require.LessOrEqual(t, polled["a/local/poll"], n+1, "Stop ends the polling")
+	for k := range polled {
+		require.True(t, strings.HasSuffix(k, "/local/poll"), "only the local plane is asked: %s", k)
+	}
+}

@@ -53,6 +53,11 @@ import (
 // REAL actions (not "run it elsewhere") without the tui package importing the
 // host. All are optional; a nil hook degrades that flow to a labeled hint.
 type Hooks struct {
+	// LANTowers is set in LAN mode (features/lan/share_in_lan_mode.feature): the LAN Towers'
+	// consumer-plane base URLs SHARE serves as a standalone station, registering with nothing.
+	// Nil = LAN mode off.
+	LANTowers func() []string
+
 	// Models is `roger model` for the MODELS screen (models.go), filled by cmd/rogerai from the
 	// CLI's own code so this screen cannot judge, fetch or serve differently. Zero = not offered.
 	Models modelview.Hooks
@@ -1426,7 +1431,7 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 	if station == "" {
 		station = agent.GenerateStation()
 	}
-	return node.New(node.Config{
+	ctrl := node.New(node.Config{
 		Broker: broker, HW: hooks.HW, Station: station,
 		ShareModel: hooks.ShareModel, SharePriceI: hooks.SharePriceI, SharePriceO: hooks.SharePriceO,
 		MaxOnAir:    hooks.ShareMaxOnAir,
@@ -1442,6 +1447,10 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 			SaveAutoStart: hooks.SaveAutoStart,
 		},
 	})
+	if hooks.LANTowers != nil {
+		ctrl.SetLAN(hooks.LANTowers)
+	}
+	return ctrl
 }
 
 // NewWithHooks is NewWith plus the host-supplied hooks for the in-TUI provider /

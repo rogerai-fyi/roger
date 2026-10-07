@@ -13,6 +13,7 @@ package node
 
 import (
 	"errors"
+	"io"
 	"sort"
 	"strings"
 	"sync"
@@ -129,6 +130,35 @@ type VoiceConfig struct {
 // production path is agent.Start unchanged.
 var startAgent = agent.Start
 
+// startLANAgent starts a LAN share (agent.StartLAN with this machine's node key); a seam like
+// startAgent.
+var startLANAgent = func(cfg agent.Config, towers []string) *agent.Session {
+	return agent.StartLAN(cfg, towers, agent.NodeKey(), io.Discard)
+}
+
+// SetLAN puts SHARE in LAN mode (features/lan/share_in_lan_mode.feature): towers lists the LAN
+// Towers' consumer-plane base URLs, read each time a model goes on air. Nil leaves LAN mode off.
+func (c *Controller) SetLAN(towers func() []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lanTowers = towers
+}
+
+// lanTowersNow reads the LAN Towers outside c.mu (the host's list may probe the network): nil
+// when LAN mode is off, a non-nil (possibly empty) list when it is on.
+func (c *Controller) lanTowersNow() []string {
+	c.mu.Lock()
+	fn := c.lanTowers
+	c.mu.Unlock()
+	if fn == nil {
+		return nil
+	}
+	if t := fn(); t != nil {
+		return t
+	}
+	return []string{}
+}
+
 // Hooks are the host-supplied persistence closures (disk I/O lives in the CLI, not
 // here). All are nil-safe: a nil hook just skips persistence.
 type Hooks struct {
@@ -174,9 +204,11 @@ type Controller struct {
 
 	rows     []ShareRow
 	sessions map[string]*agent.Session
-	private  map[string]bool
-	prices   map[string]Pricing
-	voices   map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
+	// lanTowers is set in LAN mode: SHARE then serves these Towers and registers nothing.
+	lanTowers func() []string
+	private   map[string]bool
+	prices    map[string]Pricing
+	voices    map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
 	// autostart is TRI-STATE by presence: absent = the operator has never said, true/false
 	// = they have. Absence matters because the default is opt-OUT - putting a model on air
 	// marks it for next launch - and that default must not silently re-arm a model the
@@ -430,7 +462,7 @@ type ToggleResult struct {
 // say) would deadlock against a lock it cannot see it is already holding. res.AutoStartArmed
 // already carries the one bit this needs, so the wrapper reads it and calls out cleanly.
 func (c *Controller) ToggleOnAir(model string) ToggleResult {
-	res := c.toggleOnAir(model)
+	res := c.toggleOnAir(model, c.lanTowersNow())
 	if res.AutoStartArmed {
 		c.mu.Lock()
 		hook := c.hooks.SaveAutoStart
@@ -442,7 +474,7 @@ func (c *Controller) ToggleOnAir(model string) ToggleResult {
 	return res
 }
 
-func (c *Controller) toggleOnAir(model string) ToggleResult {
+func (c *Controller) toggleOnAir(model string, lanTowers []string) ToggleResult {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	res := ToggleResult{Model: model}
@@ -467,6 +499,9 @@ func (c *Controller) toggleOnAir(model string) ToggleResult {
 		return res
 	}
 	p := c.pricingForLocked(model)
+	if lanTowers != nil {
+		p = Pricing{} // LAN sharing is free: a saved price does not apply on the LAN
+	}
 	priced := p.In > 0 || p.Out > 0 || len(p.Windows) > 0
 	// ON AIR MUST RESUME AT THE ROW'S RECORDED VISIBILITY.
 	//
@@ -480,7 +515,7 @@ func (c *Controller) toggleOnAir(model string) ToggleResult {
 	// deliberately hid. Going private is a decision the row REMEMBERS, and every start has
 	// to honour it - the only way to leave a private band is to say so explicitly (h), or
 	// to revoke it.
-	goPrivate := c.private[model]
+	goPrivate := c.private[model] && lanTowers == nil // a private band is a network thing
 	// A private start is login-gated exactly as a priced one is (a private band is an
 	// account-scoped resource, and login state re-locks between sessions). Refusing is the
 	// safe failure: starting PUBLIC because we could not start private is the leak.
@@ -488,7 +523,7 @@ func (c *Controller) toggleOnAir(model string) ToggleResult {
 		res.LoginNeeded = true
 		return res
 	}
-	sess, err := c.startLocked(row, p, goPrivate)
+	sess, err := c.startLocked(row, p, goPrivate, lanTowers)
 	if err != nil {
 		res.Err = err
 		return res
@@ -538,6 +573,10 @@ func (c *Controller) TogglePrivate(model string) PrivateResult {
 	if !ok {
 		return res
 	}
+	if c.lanTowers != nil {
+		res.Err = errors.New("private bands are a network feature and LAN mode is on")
+		return res
+	}
 	if !c.loggedIn {
 		res.LoginNeeded = true
 		return res
@@ -556,7 +595,7 @@ func (c *Controller) TogglePrivate(model string) PrivateResult {
 		c.releaseLockLocked(model)
 	}
 	p := c.pricingForLocked(model)
-	sess, err := c.startLocked(row, p, goPrivate)
+	sess, err := c.startLocked(row, p, goPrivate, nil)
 	if err != nil {
 		// The visibility change is a STOP-then-START, so a rejected start (the broker
 		// refusing a private registration, say) would otherwise leave a model that was
@@ -566,7 +605,7 @@ func (c *Controller) TogglePrivate(model string) PrivateResult {
 		// restore actually succeeded.
 		res.Err = err
 		if wasOn {
-			if back, rerr := c.startLocked(row, p, !goPrivate); rerr == nil {
+			if back, rerr := c.startLocked(row, p, !goPrivate, nil); rerr == nil {
 				c.sessions[model] = back
 				res.Restored = true
 			}
@@ -589,7 +628,7 @@ func (c *Controller) TogglePrivate(model string) PrivateResult {
 // file the headless daemon holds): if another LIVE process is broadcasting this node
 // id the start is refused with the daemon's exact error - the front-ends render it
 // verbatim - instead of double-registering and rotating that process's bridge token.
-func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.Session, error) {
+func (c *Controller) startLocked(row ShareRow, p Pricing, private bool, lanTowers []string) (*agent.Session, error) {
 	up := row.Upstream
 	if up == "" {
 		up = c.upstream
@@ -599,6 +638,12 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 	release, err := onair.Acquire(node, c.station, row.Model)
 	if err != nil {
 		return nil, err
+	}
+	if lanTowers != nil {
+		// LAN mode: serve the LAN Towers as a standalone station; register with nothing.
+		c.locks[row.Model] = release
+		return startLANAgent(agent.Config{Upstream: up, UpstreamKey: upKey, NodeID: node, Station: c.station,
+			Model: row.Model, Modality: row.Modality, Ctx: row.Ctx}, lanTowers), nil
 	}
 	// The SHARE VOICE BOOTH result (if any) rides onto the offer so a voice goes on air as the
 	// operator's named DJ with their picked voice/blend/speed. An unconfigured model has the zero

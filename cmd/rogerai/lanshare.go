@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/lanmode"
@@ -52,19 +53,14 @@ func shareLAN(cfg config, run agent.Config, station, model string, out io.Writer
 	ctx, stop := lanShareContext()
 	defer stop()
 	fmt.Fprintf(out, "LAN mode: sharing %s free on the LAN only; nothing is registered with the network\n", model)
-	towers := lanTowerAddrs(cfg)
+	towers := lanTowerBases(cfg)
 	if len(towers) == 0 {
 		fmt.Fprintln(out, "no LAN Tower is configured: serving this Edge's members only (add a Tower with roger lan add <address>)")
 	}
 	var wg sync.WaitGroup
-	for _, t := range towers {
-		a, err := lanmode.ParseAddr(t)
-		if err != nil {
-			fmt.Fprintf(out, "skipping %s: %v\n", t, err)
-			continue
-		}
+	for _, base := range towers {
 		c := run
-		c.Broker = a.Base()
+		c.Broker = base
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -75,4 +71,32 @@ func shareLAN(cfg config, run agent.Config, station, model string, out io.Writer
 	wg.Wait()
 	fmt.Fprintln(out, "stopped sharing on the LAN.")
 	return nil
+}
+
+// lanTowerBases is the LAN Towers' consumer-plane base URLs, for SHARE in LAN mode.
+func lanTowerBases(cfg config) []string {
+	var out []string
+	for _, t := range lanTowerAddrs(cfg) {
+		if a, err := lanmode.ParseAddr(t); err == nil {
+			out = append(out, a.Base())
+		}
+	}
+	return out
+}
+
+// lanTowerBasesCached is lanTowerBases behind a short cache: the TUI renders SHARE every frame and
+// the list can probe the network (a local broker setting is checked for a Tower), so a render
+// reuses the last list for ttl rather than probing again.
+func lanTowerBasesCached(cfg config, ttl time.Duration) func() []string {
+	var mu sync.Mutex
+	var at time.Time
+	var last []string
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		if at.IsZero() || time.Since(at) > ttl {
+			last, at = lanTowerBases(cfg), time.Now()
+		}
+		return last
+	}
 }

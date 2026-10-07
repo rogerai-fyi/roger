@@ -90,3 +90,16 @@ func TestCmdShareRecordsItsServeForTheLANRelay(t *testing.T) {
 	after, _ := lanSelfServe("m1")
 	require.Empty(t, after, "stopped: the record is gone")
 }
+
+// Every front-end's controller (TUI, console, resume) is built from tuiHooks: in LAN mode the
+// hooks carry the LAN Towers so SHARE serves them; out of LAN mode they carry none.
+func TestTUIHooksCarryTheLANTowersInLANMode(t *testing.T) {
+	useTempConfig(t)
+	cfg := loadConfig()
+	cfg.LanTowers = []string{"192.168.1.20:8787"}
+	require.Nil(t, tuiHooks(cfg).LANTowers, "LAN mode off: no LAN Towers")
+	cfg.lan.LAN = true
+	h := tuiHooks(cfg)
+	require.NotNil(t, h.LANTowers)
+	require.Equal(t, []string{"http://192.168.1.20:8787"}, h.LANTowers())
+}

@@ -747,6 +747,9 @@ func tuiHooks(cfg config) tui.Hooks {
 			h.SavedVoices[mdl] = tui.VoiceConfig{Name: v.Name, Voice: v.Voice, Speed: v.Speed, Language: v.Language, SampleURL: v.SampleURL}
 		}
 	}
+	if cfg.lan.LAN {
+		h.LANTowers = lanTowerBasesCached(cfg, 5*time.Second)
+	}
 	return h
 }
 

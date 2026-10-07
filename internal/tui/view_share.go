@@ -288,6 +288,9 @@ func shareModelCell(r shareRow) string {
 // brand-volt reverse-video bar, with a `>` carat under NO_COLOR), status columns
 // per resource, and a contextual key footer - k9scli.io + github.com/derailed/k9s.
 func (m model) shareView(w int) string {
+	if LANMode() {
+		return m.lanShareView(w)
+	}
 	var b strings.Builder
 	// dense drops the metrics columns (SERVED/OUT TOK/EARNINGS): the full grid is
 	// ~88 cols, so anything narrower uses the 3-column model·status·price layout to

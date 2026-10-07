@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,8 +23,12 @@ import (
 
 	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v6/internal/webui"
 )
 
 // pollTower is a real standalone Tower that records when it was polled.
@@ -65,6 +70,23 @@ type lanShareBDD struct {
 	runFor  time.Duration
 	release func()
 	fabric  bool
+	ctrl    *node.Controller
+	console *webui.Server
+}
+
+// frontEnd builds the node controller the way the TUI, `roger webui` and resume do (tuiHooks, in
+// LAN mode), with this machine's model as a SHARE row; it is taken off air when the scenario ends.
+func (s *lanShareBDD) frontEnd() {
+	cfg := loadConfig()
+	cfg.lan = lanmode.Mode{LAN: true, Source: lanmode.SrcFlag}
+	s.ctrl = tui.NewController(cfg.Broker, tuiHooks(cfg))
+	s.ctrl.SetRows([]node.ShareRow{{Model: s.model, Upstream: loadConfig().Share.Upstream}})
+	ctrl, model := s.ctrl, s.model
+	s.t.Cleanup(func() {
+		if ctrl.Sessions()[model] != nil {
+			ctrl.ToggleOnAir(model)
+		}
+	})
 }
 
 func (s *lanShareBDD) reset() {
@@ -72,7 +94,7 @@ func (s *lanShareBDD) reset() {
 	s.broker = newRecordingBroker(s.t)
 	s.t.Setenv("ROGER_BROKER", s.broker.srv.URL)
 	s.model, s.out, s.err, s.runFor, s.release = "", "", nil, 1500*time.Millisecond, nil
-	s.towers, s.real, s.fabric = map[string]*pollTower{}, map[string]string{}, false
+	s.towers, s.real, s.fabric, s.ctrl, s.console = map[string]*pollTower{}, map[string]string{}, false, nil, nil
 	prev := startRelayFabric
 	startRelayFabric = func(agent.Config) { s.fabric = true }
 	s.t.Cleanup(func() { startRelayFabric = prev })
@@ -150,7 +172,7 @@ func (s *lanShareBDD) onlyTowerProbe() error {
 func TestLANShareBDD(t *testing.T) {
 	s := &lanShareBDD{t: t}
 	var paths []string
-	for _, l := range []int{27, 35, 42, 71, 77, 84} {
+	for _, l := range []int{27, 35, 42, 49, 57, 71, 77, 84} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/share_in_lan_mode.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -168,6 +190,51 @@ func TestLANShareBDD(t *testing.T) {
 			sc.Step(`^lan_towers contains "([^"]*)" and that Tower has not attached this station's key$`, func(a string) error {
 				s.runFor = 4 * time.Second // long enough to see three retries back off
 				return s.addTower(a, false)
+			})
+			sc.Step(`^lan_towers contains "([^"]*)"$`, func(a string) error { return s.addTower(a, true) })
+			sc.Step(`^"roger --lan webui" is running and lan_towers contains "([^"]*)"$`, func(a string) error {
+				if err := s.addTower(a, true); err != nil {
+					return err
+				}
+				s.frontEnd()
+				s.console = webui.New(s.ctrl, webui.Options{Broker: loadConfig().Broker})
+				return nil
+			})
+			sc.Step(`^the owner turns SHARE on in the TUI$`, func() error {
+				s.frontEnd()
+				if res := s.ctrl.ToggleOnAir(s.model); res.Err != nil || res.LoginNeeded {
+					return fmt.Errorf("SHARE did not go on air: %+v", res)
+				}
+				return nil
+			})
+			sc.Step(`^SHARE is turned on from the console$`, func() error {
+				srv := httptest.NewServer(s.console.Handler())
+				defer srv.Close()
+				req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/share/onair?t="+s.console.Token(),
+					strings.NewReader(`{"model":"`+s.model+`"}`))
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return fmt.Errorf("console on-air: %d", resp.StatusCode)
+				}
+				return nil
+			})
+			sc.Step(`^the station polls the Tower at ([0-9.:]+)$`, func(addr string) error {
+				deadline := time.Now().Add(3 * time.Second)
+				for len(s.towers[addr].pollTimes()) == 0 {
+					if time.Now().After(deadline) {
+						return fmt.Errorf("the Tower at %s was never polled", addr)
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				return nil
+			})
+			sc.Step(`^no request is made to the public broker's /nodes/register$`, func() error {
+				return s.brokerUntouched("/nodes/register")
 			})
 			sc.Step(`^lan_towers is empty and the broker setting is not local$`, func() error { return nil })
 			sc.Step(`^they run "([^"]*)"$`, s.runShare)

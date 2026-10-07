@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -57,4 +59,14 @@ func TestFetchOffersInLANModeReadsTheLANDial(t *testing.T) {
 	}
 	require.Equal(t, "tower: 192.168.1.20", got[0].LANSource)
 	require.True(t, LANMode())
+}
+
+// NewController hands the LAN Towers to the controller: SHARE is then in LAN mode.
+func TestNewControllerPutsShareInLANMode(t *testing.T) {
+	ctrl := NewController("http://127.0.0.1:1", Hooks{LANTowers: func() []string { return nil }})
+	ctrl.SetRows([]node.ShareRow{{Model: "m", Upstream: "http://127.0.0.1:1/v1"}})
+	res := ctrl.TogglePrivate("m")
+	if res.Err == nil || !strings.Contains(res.Err.Error(), "LAN mode") {
+		t.Fatalf("a private band in LAN mode: %+v", res)
+	}
 }

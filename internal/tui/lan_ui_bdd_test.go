@@ -17,6 +17,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
 
+	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/client"
 )
 
@@ -72,6 +73,7 @@ func TestLANUIBDD(t *testing.T) {
 	for _, l := range []int{35, 100} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/money_and_accounts.feature:%d", l))
 	}
+	paths = append(paths, "../../features/lan/share_in_lan_mode.feature:64")
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { s.reset(); return ctx, nil })
@@ -220,6 +222,32 @@ func TestLANUIBDD(t *testing.T) {
 				}
 				if head := stripANSI(s.m.header(120)); strings.Contains(head, "$42.17") {
 					return fmt.Errorf("the header still carries the balance tag:\n%s", head)
+				}
+				return nil
+			})
+			sc.Step("^this machine serves \"([^\"]*)\" with `roger model serve`$", func(string) error { return nil })
+			sc.Step(`^SHARE is on in LAN mode, serving the Tower at ([0-9.:]+) and the Edge$`, func(addr string) error {
+				s.m = New("http://127.0.0.1:1", "tester")
+				s.m.hooks.LANTowers = func() []string { return []string{"http://" + addr} }
+				s.m.shareRows = []shareRow{{model: "qwen3-8b"}, {model: "gpt-oss-20b"}}
+				s.m.shares = map[string]*agent.Session{"qwen3-8b": {}}
+				return nil
+			})
+			sc.Step(`^the SHARE section renders$`, func() error { s.out = stripANSI(s.m.shareView(120)); return nil })
+			sc.Step(`^it reads "([^"]*)" and lists "([^"]*)" and "([^"]*)"$`, func(a, b, c string) error {
+				for _, want := range []string{a, b, c} {
+					if !strings.Contains(s.out, want) {
+						return fmt.Errorf("SHARE lacks %q:\n%s", want, s.out)
+					}
+				}
+				return nil
+			})
+			sc.Step(`^it shows no earnings, price or payout text$`, func() error {
+				low := strings.ToLower(s.out)
+				for _, bad := range []string{"earn", "price", "payout", "at list", "$"} {
+					if strings.Contains(low, bad) {
+						return fmt.Errorf("SHARE in LAN mode shows %q:\n%s", bad, s.out)
+					}
 				}
 				return nil
 			})
