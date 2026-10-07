@@ -138,11 +138,14 @@ test("standalone is offered as a private relay, with the trade stated", () => {
 });
 
 test("the install surface matches what the release ships", () => {
+  // features/web/broadcast_tower.feature, superseded 2026-10-07 (one binary).
   const c = copy();
-  assert.match(c, /ROGERAI_COMPONENT=tower/, "the real installer invocation");
-  assert.match(c, /amd64/, "amd64");
-  assert.match(c, /arm64/, "arm64");
-  assert.match(c, /Linux only|Linux on amd64/i, "Linux-only is stated, not implied");
+  assert.match(c, /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/, "the normal roger installer line");
+  assert.doesNotMatch(c, /ROGERAI_COMPONENT=tower/, "no separate Tower component");
+  assert.doesNotMatch(c, /roger-tower /, "the commands are roger tower, not roger-tower");
+  assert.match(c, /roger tower serve/, "and it teaches roger tower");
+  assert.match(c, /standalone[^.]*Linux, macOS and Windows/i, "standalone runs everywhere");
+  assert.match(c, /joined[^.]*Linux only/i, "joined runs on Linux only");
   // A Tower runs no model, so telling anyone to buy a GPU for one would be a lie.
   assert.match(c, /no GPU|runs no model/i, "it says a Tower needs no GPU");
 });

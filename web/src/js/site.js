@@ -222,10 +222,9 @@
     // .install__code at click time, so the copy target follows.
     //
     // [data-os-lock] boxes are skipped: their command only runs on one platform, and
-    // rewriting one would hand a Windows reader a command for the wrong program. The Tower
-    // box is the case - roger-tower is a Linux server process, and the installer refuses
-    // anything else - so offering it a Windows client one-liner would be a lie the page
-    // told itself.
+    // rewriting one would hand a Windows reader a command for the wrong program. (The Tower
+    // page's box is no longer locked: a Tower is part of roger, so it offers the same
+    // install as every other roger box.)
     Array.prototype.forEach.call(
       document.querySelectorAll(".install__box:not([data-os-lock])"), function (btn) {
         var code = btn.querySelector(".install__code");
