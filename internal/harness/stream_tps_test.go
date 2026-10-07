@@ -82,3 +82,12 @@ func TestMidStreamVoidIsCalledCut(t *testing.T) {
 		"data: [DONE]\n\n"))
 	require.ErrorContains(t, st.streamError(), "cut")
 }
+
+// TestWholeToolCallThenDoneIsATurn: a station that never sends finish_reason but closes a tool
+// call whose arguments are complete JSON with [DONE] gave a whole turn; arguments that are not
+// valid JSON are still a cut.
+func TestWholeToolCallThenDoneIsATurn(t *testing.T) {
+	whole := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"p\\\":1}\"}}]},\"finish_reason\":null}]}\n\n" +
+		"data: [DONE]\n\n"))
+	require.NoError(t, whole.streamError())
+}

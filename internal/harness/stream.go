@@ -159,7 +159,15 @@ func readStream(r io.Reader) streamed {
 		}
 	}
 	st.readErr = sc.Err()
-	if sawDone && len(calls) == 0 {
+	// [DONE] completes a reply with no tool call, or one whose every call is whole (a name and
+	// arguments that are complete JSON): only a cut call has arguments that do not parse.
+	whole := true
+	for _, b := range calls {
+		if b.name == "" || !json.Valid([]byte(b.args.String())) {
+			whole = false
+		}
+	}
+	if sawDone && whole {
 		st.complete = true
 	}
 	switch {
