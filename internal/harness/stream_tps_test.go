@@ -59,3 +59,15 @@ func TestVoidedStreamIsNotASuccessfulTurn(t *testing.T) {
 		"data: [DONE]\n\n"))
 	require.NoError(t, settled.streamError())
 }
+
+// TestVoidAfterAFinishedReplyIsNotCalledCut: a void that arrives after the station finished
+// says the receipt never settled (not charged), not that the reply was cut.
+func TestVoidAfterAFinishedReplyIsNotCalledCut(t *testing.T) {
+	st := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"all\"},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"cost\":0,\"rogerai\":{\"node\":\"n\",\"model\":\"m\",\"void_reason\":\"upstream-5xx\"}}}\n\n" +
+		"data: [DONE]\n\n"))
+	err := st.streamError()
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "cut")
+	require.Contains(t, err.Error(), "never settled")
+}

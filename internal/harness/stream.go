@@ -200,6 +200,9 @@ func (st streamed) streamError() error {
 		return fmt.Errorf("the reply stream broke off: %v - try again", st.readErr)
 	}
 	if st.voidReason != "" && st.voidReason != protocol.VoidSettleFailed {
+		if st.complete {
+			return fmt.Errorf("the reply's receipt never settled (%s), so you were not charged - try again", st.voidReason)
+		}
 		return fmt.Errorf("the station's reply was cut (%s) and you were not charged - try again", st.voidReason)
 	}
 	if !st.sawChoice {

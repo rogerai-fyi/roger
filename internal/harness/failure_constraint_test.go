@@ -13,7 +13,7 @@ func TestShortFailureKeepsTheRoutingConstraint(t *testing.T) {
 		"no node offers mistral-large under self_hosted_only (a curated station is available) (status 503)",
 		"no node offers qwen3-32b with the tools capability",
 		"no node offers m within provider.quantizations",
-		"no local station matches: only s9 for m",
+		"no node offers m within provider.only (only s9)", // collapses without the constraint branch
 	} {
 		got := ShortFailure(raw, "m")
 		if strings.Contains(got, NoStationServing("m")) {
