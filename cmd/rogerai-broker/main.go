@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"rogerai.fm/roger/v6/internal/buildinfo"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,10 +42,8 @@ import (
 	"rogerai.fm/roger/v6/internal/store"
 )
 
-// version is the broker's reported version (also in ServiceInfo + logs). Keep a
-// truthful source-build fallback; release builders may override it with
-// -ldflags "-X main.version=<tag>".
-var version = "6.9.0"
+// version is the one build version (internal/buildinfo), stamped by the release pipeline.
+var version = buildinfo.Version
 
 // openapiSpec is the served API contract (see openapi.yaml). Single source of
 // truth for the broker's HTTP surface.

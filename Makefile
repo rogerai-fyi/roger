@@ -2,33 +2,29 @@
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
-# VERSION stamps the client semver into the binary (main.Version) at link time.
-# Default: the source fallback in cmd/rogerai/main.go. Override for a release/beta:
+# VERSION stamps the one build version (internal/buildinfo.Version) at link time, for roger and
+# the broker alike. Default: the release this source is (internal/buildinfo). Override for a
+# release/beta:
 #   make build VERSION=4.8.0
 #   make beta  VERSION=4.8.0-beta.1
+# The linker SILENTLY IGNORES -X for a symbol that does not exist, so this is the only -X any
+# build passes, and a test (one_binary.feature, "one version") pins that.
 VERSION ?=
-VERSION_LDFLAGS := $(if $(VERSION),-X main.Version=$(VERSION),)
-# roger-tower carries its own symbol: `var version` in package main, LOWERCASE, where the
-# client has `var Version`. The distinction is load-bearing rather than cosmetic - the Go
-# linker SILENTLY IGNORES -X for a symbol that does not exist, so stamping the tower with
-# VERSION_LDFLAGS above would look correct in the recipe, exit 0, and ship a binary still
-# reporting "dev". Keep this in step with the tower ldflags in .goreleaser.yaml, which is
-# what stamps the binaries an operator actually downloads.
-TOWER_VERSION_LDFLAGS := $(if $(VERSION),-X main.version=$(VERSION),)
+VERSION_LDFLAGS := $(if $(VERSION),-X rogerai.fm/roger/v6/internal/buildinfo.Version=$(VERSION),)
 
 build:
-	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
+	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/rogerai-broker ./cmd/rogerai-broker
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roger ./cmd/rogerai
 	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
 	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
-	go build -ldflags "$(TOWER_VERSION_LDFLAGS)" -o bin/roger-tower ./cmd/roger-tower
-	go build -ldflags "$(TOWER_VERSION_LDFLAGS)" -o bin/roger-tower-local ./cmd/roger-tower-local
+	go build -o bin/roger-tower ./cmd/roger-tower              # one-release shim: hands off to roger
+	go build -o bin/roger-tower-local ./cmd/roger-tower-local  # one-release shim: hands off to roger
 
 # beta: a single stamped, trimmed binary for the host platform, named by its semver
 # (e.g. bin/roger-4.8.0-beta.1). Requires VERSION, which must be a semver.
 beta:
 	@test -n "$(VERSION)" || { echo "usage: make beta VERSION=4.8.0-beta.1"; exit 1; }
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.Version=$(VERSION)" -o bin/roger-$(VERSION) ./cmd/rogerai
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w $(VERSION_LDFLAGS)" -o bin/roger-$(VERSION) ./cmd/rogerai
 	@echo "built bin/roger-$(VERSION)"
 
 # Build the marketing + account site: resolve the shared chrome partials

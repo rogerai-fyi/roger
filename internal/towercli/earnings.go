@@ -23,7 +23,7 @@ import (
 func cmdEarnings(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("earnings", flag.ContinueOnError)
 	fs.SetOutput(out)
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	e, err := towerjoin.FetchEarnings()

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/buildinfo"
 	"runtime"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ import (
 const envEdgeMachine = "ROGERAI_EDGE_MACHINE"
 
 // edgeReadSoftware is this process's software facts, from the live machine.
-func edgeReadSoftware() *store.EdgeSoftware { return edgeReadSoftwareFrom("/", Version) }
+func edgeReadSoftware() *store.EdgeSoftware { return edgeReadSoftwareFrom("/", buildinfo.Version) }
 
 // edgeReadSoftwareFrom reads the software facts under root: the OS pretty name from etc/os-release,
 // the kernel release, the hardware model from the device tree (a Pi, a Jetson) or the DMI product

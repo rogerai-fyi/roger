@@ -377,6 +377,16 @@ func cmdServe(args []string, out io.Writer) error {
 	if dir == "" {
 		return exitError{2, "--dir is required"}
 	}
+	// A flag neither mode takes is a usage mistake, reported before the directory is touched.
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") || a == "-" || a == "--" {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if _, ok := serveFlagModes[name]; !ok && name != "dir" && name != "config" && name != "h" && name != "help" {
+			return exitError{2, fmt.Sprintf("flag provided but not defined: -%s\nusage: %s", name, commandUsage("serve"))}
+		}
+	}
 	st, err := tower.Open(dir)
 	if err != nil {
 		// No mode to dispatch on. A joined flag means the operator meant the joined serve,
@@ -429,7 +439,7 @@ func cmdServeJoined(args []string, out io.Writer) error {
 	// it both go. It had been documented as "default true" while being settable from nowhere
 	// but a test, which is a claim an operator cannot act on.
 	legacyBearer := fs.Bool("hub-legacy-bearer", true, "accept the pre-signature bearer token from nodes that have not updated yet (a station that has signed to this hub always refuses its own token from then on); -hub-legacy-bearer=false requires a signature from every node")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	// The hub's payload is sealed end-to-end, but the grant metadata and every node's

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/buildinfo"
 	"runtime"
 	"strings"
 	"testing"
@@ -127,7 +128,7 @@ func TestABeatRefreshesTheSoftwareRecord(t *testing.T) {
 			continue
 		}
 		require.NotNil(t, in.Software)
-		require.Equal(t, Version, in.Software.Roger, "the beat wrote what this binary IS")
+		require.Equal(t, buildinfo.Version, in.Software.Roger, "the beat wrote what this binary IS")
 		require.NotEqual(t, "'quoted linux'", in.Software.OS, "a stale record is replaced, not kept")
 		return
 	}

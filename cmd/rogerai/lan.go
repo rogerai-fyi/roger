@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -135,17 +136,38 @@ const lanUsage = "usage: roger lan add <address> [--offline] | roger lan rm <add
 // cmdLAN is `roger lan add|rm|list`: the standalone Towers LAN mode uses.
 func cmdLAN(cfg config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("%s", lanUsage)
+		return usagef("%s", lanUsage)
+	}
+	allowed := map[string][]string{"add": {"--offline"}, "rm": nil, "remove": nil, "list": nil, "ls": nil}
+	known, ok := allowed[args[0]]
+	if !ok {
+		return usagef("unknown lan command %q\n%s", args[0], lanUsage)
+	}
+	if err := lanFlags(args[1:], known); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "add":
 		return lanAdd(args[1:])
 	case "rm", "remove":
 		return lanRemove(args[1:])
-	case "list", "ls":
-		return lanList()
 	}
-	return fmt.Errorf("unknown lan command %q\n%s", args[0], lanUsage)
+	return lanList()
+}
+
+// lanFlags refuses a flag a lan command does not take, in roger's usage style (exit 2), so a
+// typo is never read as an address.
+func lanFlags(args, known []string) error {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(a, "=")
+		if !slices.Contains(known, name) {
+			return usagef("flag provided but not defined: %s\n%s", name, lanUsage)
+		}
+	}
+	return nil
 }
 
 func lanAdd(args []string) error { return lanAddTo(os.Stdout, args) }

@@ -19,11 +19,11 @@ func TestRunExitCodes(t *testing.T) {
 
 	errb.Reset()
 	require.Equal(t, 2, Run([]string{"serve"}, &out, &errb))
-	require.Equal(t, "roger tower: --dir is required\n", errb.String())
+	require.Equal(t, "error: --dir is required\n", errb.String())
 
 	errb.Reset()
 	require.Equal(t, 1, Run([]string{"nosuchcommand"}, &out, &errb))
-	require.True(t, strings.HasPrefix(errb.String(), "roger tower: unknown command"))
+	require.True(t, strings.HasPrefix(errb.String(), "error: unknown command"))
 }
 
 func TestServeDispatchesOnTheDirectorysMode(t *testing.T) {
@@ -92,4 +92,22 @@ func TestJoinedInitRunsOnLinuxOnly(t *testing.T) {
 		require.NoError(t, run([]string{"init", "--dir", filepath.Join(t.TempDir(), "s"), "--mode", "standalone"}, io.Discard),
 			"standalone runs everywhere")
 	}
+}
+
+// A bad flag is a usage error in roger's style (exit 2, the flag and the command's usage line);
+// -h prints the command's flags and stops it with exit 0.
+func TestFlagsInRogersStyle(t *testing.T) {
+	var out, errb bytes.Buffer
+	require.Equal(t, 2, Run([]string{"status", "--bogus"}, &out, &errb))
+	require.Equal(t, "error: flag provided but not defined: -bogus\nusage: roger tower status --dir DIR\n", errb.String())
+
+	out.Reset()
+	errb.Reset()
+	require.Equal(t, 0, Run([]string{"status", "-h"}, &out, &errb))
+	require.Contains(t, out.String(), "usage: roger tower status --dir DIR")
+	require.Contains(t, out.String(), "-dir")
+	require.Empty(t, errb.String())
+
+	require.Equal(t, "roger tower nosuch (see roger tower help)", commandUsage("nosuch"))
+	require.Equal(t, "roger tower version", commandUsage("version"), "a line with no flags")
 }

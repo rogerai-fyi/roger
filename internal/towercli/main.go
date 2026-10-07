@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"rogerai.fm/roger/v6/internal/buildinfo"
 	"runtime"
 	"strings"
 	"time"
@@ -72,18 +73,15 @@ data directory: nothing is copied automatically, because an identity, trust root
 Station registry must never cross that boundary.
 `
 
-// version is set at build time by the release pipeline.
-var version = "dev"
-
 // Run is `roger tower ...`: it runs one tower command and returns the process exit code. An
 // error is printed to stderr as "roger tower: <error>"; a refusal that carries its own code
 // (exitError) exits with it, every other failure exits 1.
 func Run(args []string, stdout, stderr io.Writer) int {
 	err := run(args, stdout)
-	if err == nil {
+	if err == nil || errors.Is(err, errHelpShown) {
 		return 0
 	}
-	fmt.Fprintln(stderr, "roger tower:", err)
+	fmt.Fprintln(stderr, "error:", err) // roger's own style, so a script reads every command alike
 	var ee exitError
 	if errors.As(err, &ee) {
 		return ee.code
@@ -94,6 +92,42 @@ func Run(args []string, stdout, stderr io.Writer) int {
 // Platform is the operating system `roger tower` runs on (runtime.GOOS; a test that runs roger
 // as a subprocess sets it to exercise another platform's refusals).
 var Platform = runtime.GOOS
+
+// parseFlags parses a tower command's flags in roger's house style: a bad flag is a usage
+// error (exit 2) naming the flag and the command's usage line; -h prints the command's flags.
+func parseFlags(fs *flag.FlagSet, args []string, out io.Writer) error {
+	fs.SetOutput(io.Discard)
+	err := fs.Parse(args)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, flag.ErrHelp):
+		fmt.Fprintf(out, "usage: %s\n", commandUsage(fs.Name()))
+		fs.SetOutput(out)
+		fs.PrintDefaults()
+		return errHelpShown
+	}
+	return exitError{2, fmt.Sprintf("%v\nusage: %s", err, commandUsage(fs.Name()))}
+}
+
+// errHelpShown stops a command whose -h already printed its help; Run exits 0 for it.
+var errHelpShown = errors.New("help shown")
+
+// commandUsage is one command's line of the tower usage table: "roger tower <cmd> <flags>".
+func commandUsage(name string) string {
+	first, _, _ := strings.Cut(name, " ")
+	for _, line := range strings.Split(usage, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 || f[0] != first {
+			continue
+		}
+		if _, flags, ok := strings.Cut(line, ": "); ok {
+			return "roger tower " + name + " " + strings.TrimSpace(flags)
+		}
+		return "roger tower " + name
+	}
+	return "roger tower " + name + " (see roger tower help)"
+}
 
 // exitError is a refusal with a specific exit code (2: a usage mistake caught before anything
 // is opened).
@@ -142,7 +176,7 @@ func run(args []string, out io.Writer) error {
 	case "earnings":
 		return cmdEarnings(args[1:], out)
 	case "version":
-		fmt.Fprintln(out, version)
+		fmt.Fprintln(out, buildinfo.Version)
 		return nil
 	case "help", "-h", "--help":
 		fmt.Fprint(out, usage)
@@ -167,7 +201,7 @@ func cmdInit(args []string, out io.Writer) error {
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory (must be empty)")
 	mode := fs.String("mode", "", "joined or standalone")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	if *dir == "" {
@@ -246,7 +280,7 @@ func cmdDoctor(args []string, out io.Writer) error {
 	clockCheck := fs.Bool("clock-check", false, "measure this machine's clock against an NTP server even in standalone mode (standalone otherwise makes no outbound connection at all)")
 	offline := fs.Bool("offline", false, "skip the network clock check entirely; the kernel's own time-sync state is still reported")
 	ntpServer := fs.String("ntp", clockprobe.DefaultServer, "NTP server to measure this machine's clock against")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	c, err := loadConfig(*path)
@@ -279,7 +313,7 @@ func cmdReady(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("ready", flag.ContinueOnError)
 	fs.SetOutput(out)
 	path := fs.String("config", "", "path to the Tower configuration file")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	c, err := loadConfig(*path)
@@ -289,7 +323,7 @@ func cmdReady(args []string, out io.Writer) error {
 	rep := tower.Ready(c)
 	fmt.Fprint(out, rep.String())
 	if !rep.OK {
-		return fmt.Errorf("not ready: %d dependency problem(s)", len(rep.Problems))
+		return fmt.Errorf("not ready: %d dependency problem(s); `roger tower doctor --config %s` checks each with its repair", len(rep.Problems), *path)
 	}
 	return nil
 }
@@ -298,7 +332,7 @@ func cmdStatus(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	if *dir == "" {
@@ -390,7 +424,7 @@ func cmdInvite(args []string, out io.Writer) error {
 	client := fs.String("client", "", "hash of the requesting client's public key")
 	ttl := fs.Duration("ttl", 15*time.Minute, "how long the code stays valid")
 	attempts := fs.Int("attempts", 5, "how many wrong guesses are allowed before lockout")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	st, release, err := openDirWith(*dir, *cfg)
@@ -418,7 +452,7 @@ func cmdAdmit(args []string, out io.Writer) error {
 	client := fs.String("client", "", "hash of the client's public key")
 	id := fs.String("id", "", "invitation id")
 	code := fs.String("code", "", "bootstrap code")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	st, release, err := openDirWith(*dir, *cfg)
@@ -445,7 +479,7 @@ func cmdAttach(args []string, out io.Writer) error {
 	key := fs.String("key", "", "hash of the Station's public key")
 	models := fs.String("models", "", "comma-separated models this Station serves")
 	curated := fs.String("curated", "", "attach as a CURATED proxy of the named commercial provider (e.g. openrouter): the label rides discovery and receipts so a proxy never reads as local hardware; the local plane stays free either way")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	st, release, err := openDirWith(*dir, *cfg)
@@ -484,7 +518,7 @@ func cmdStations(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stations", flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir, cfg := dirAndConfig(fs)
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	// Read-only: a running `serve` holds the exclusive lock, and listing stations must not
@@ -522,7 +556,7 @@ func cmdRoute(args []string, out io.Writer) error {
 	dir, cfg := dirAndConfig(fs)
 	client := fs.String("client", "", "hash of the admitted client's public key")
 	model := fs.String("model", "", "model to route")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	// Read-only: Route computes a receipt and persists nothing locally. A standalone client
@@ -550,7 +584,7 @@ func cmdLogin(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	st, release, err := openDir(*dir)
@@ -592,7 +626,7 @@ func cmdLogout(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	st, release, err := openDir(*dir)
@@ -613,7 +647,7 @@ func cmdRegister(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("register", flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	st, release, err := openDir(*dir)

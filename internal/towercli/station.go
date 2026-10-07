@@ -55,7 +55,7 @@ func cmdStationRevoke(args []string, out io.Writer) error {
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
 	id := fs.String("station-id", "", "the Station to retire")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	// Read-only locally: this only asks Core (a signed POST); it writes no local state, so
@@ -106,7 +106,7 @@ func cmdRevoke(args []string, out io.Writer) error {
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
 	confirm := fs.Bool("yes", false, "confirm: this cannot be undone")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	if !*confirm {
@@ -137,7 +137,7 @@ func setOwnState(args []string, out io.Writer, name, state, note string) error {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	// Read-only locally: this only asks Core (a signed POST); it writes no local state, so

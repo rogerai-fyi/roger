@@ -173,8 +173,8 @@ test("integrations: the two ways in are both described, and the grant limit is s
   assert.match(page, /OpenAI-compatible|OpenAI API/i, "the compatibility claim");
 
   // The example port is the CLI's own default, not a number picked for the screenshot.
-  const dflt = go("cmd", "rogerai", "main.go").match(/freePort\((\d+)\)/)?.[1];
-  assert.ok(dflt, "the local endpoint's default port is declared in cmd/rogerai");
+  const dflt = go("internal", "client", "client.go").match(/const DefaultUsePort = (\d+)/)?.[1];
+  assert.ok(dflt, "the local endpoint's default port is declared in internal/client (DefaultUsePort)");
   assert.match(page, new RegExp(`127\\.0\\.0\\.1:${dflt}`),
     `the example endpoint should use the CLI's default port ${dflt}`);
 });

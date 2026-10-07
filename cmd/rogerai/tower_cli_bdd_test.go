@@ -343,6 +343,14 @@ func (s *towerCLI) startServe(args ...string) error {
 			}
 			s.stdout += l + "\n"
 			if strings.Contains(l, "serving the standalone consumer plane") {
+				// The line after it tells the operator how clients find the plane.
+				select {
+				case next, ok := <-lines:
+					if ok {
+						s.stdout += next + "\n"
+					}
+				case <-time.After(2 * time.Second):
+				}
 				go func() {
 					for range lines {
 					}

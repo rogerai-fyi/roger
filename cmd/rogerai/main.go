@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/buildinfo"
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/keyfile"
@@ -38,16 +39,6 @@ import (
 	"rogerai.fm/roger/v6/internal/tui"
 	"rogerai.fm/roger/v6/internal/update"
 )
-
-// Version is the client version (compared against the latest GitHub release for
-// the update check / `roger upgrade`). It is a var (not a const) so a release/beta
-// build can stamp a semver via the linker without editing source:
-//
-//	go build -ldflags "-X main.Version=4.8.0-beta.1" ./cmd/rogerai
-//
-// The default below is the fallback for a plain `go build`. Keep it in sync with
-// releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "6.9.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -117,7 +108,7 @@ type config struct {
 	// EdgePrefer is where a turn goes first (features/edge/mode.feature): "" or "local"
 	// tries this Edge before the market, "market" goes out first, "local-only" never
 	// leaves. Set by `roger edge prefer`.
-	EdgePrefer string `json:"edge_prefer,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	EdgePrefer string `json:"edge_prefer,omitempty"` // the version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
 	// EdgeAgent is the config ROLE that marks this roger an agent on its Edge (features/edge/
 	// agents.feature): it operates on other nodes and draws as ◆. Set by `roger edge agent on`;
 	// the ROGER_EDGE_AGENT env overrides per-run for a launched agent job.
@@ -852,7 +843,7 @@ func main() {
 // or dispatches a subcommand. It returns an error instead of calling os.Exit so a test
 // can drive every branch; main() owns turning that error into a stderr line + exit 1.
 func run(argv []string, cfg config) error {
-	tui.SetVersion(Version)                // help/about surfaces match `roger version`
+	tui.SetVersion(buildinfo.Version)      // help/about surfaces match `roger version`
 	tui.SetPalette(paletteFromConfig(cfg)) // point the lamp/mono color switch from config+ROGER_PALETTE
 	tui.SetDeck(deckFromConfig(cfg))       // and the painted deck ground from config+ROGER_DECK
 	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
@@ -860,7 +851,7 @@ func run(argv []string, cfg config) error {
 	update.CleanupOld()
 	// A subtle, cached (~daily), non-blocking update banner. Computed once here so
 	// the TUI does no network at startup; the cache refreshes in the background.
-	notice := update.CachedNotice(Version)
+	notice := update.CachedNotice(buildinfo.Version)
 	// Global browser-console flags (--no-webui / --webui / --webui-port=N) are not
 	// subcommands; strip them here so the dispatcher reads the real command, and resolve
 	// whether the console comes up (ON by default; saved config or --no-webui opts out).
@@ -899,9 +890,9 @@ func run(argv []string, cfg config) error {
 		// version - the first-ever run and after an upgrade, never an ordinary re-launch.
 		// tui.PlayBoot self-skips under quiet / NO_COLOR; we stamp last_seen_version either
 		// way so it plays at most once for this build.
-		if bootShouldPlay(cfg.LastSeenVersion, Version) {
+		if bootShouldPlay(cfg.LastSeenVersion, buildinfo.Version) {
 			tui.PlayBoot(os.Stdout, time.Sleep)
-			cfg.LastSeenVersion = Version
+			cfg.LastSeenVersion = buildinfo.Version
 			_ = saveConfig(cfg)
 		}
 		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
@@ -1082,8 +1073,8 @@ func dispatch(cfg config, args []string) error {
 		// animation can be re-watched (and its timing tuned) without touching config.
 		tui.PlayBoot(os.Stdout, time.Sleep)
 		return nil
-	case "version":
-		fmt.Printf("roger %s\n", Version)
+	case "version", "--version":
+		fmt.Printf("roger %s\n", buildinfo.Version)
 		return nil
 	case "-h", "--help", "help":
 		usage()
@@ -1960,7 +1951,7 @@ ROGERAI_NO_UPDATE_CHECK=1.
 	}
 	fs.Parse(args)
 	if *check {
-		res, err := updateCheck(Version)
+		res, err := updateCheck(buildinfo.Version)
 		if err != nil {
 			fmt.Printf("could not check for updates (offline?): %v\n", err)
 			return nil // never fail the command on a network hiccup
@@ -1972,7 +1963,7 @@ ROGERAI_NO_UPDATE_CHECK=1.
 		}
 		return nil
 	}
-	return updateUpgrade(Version, os.Stdout)
+	return updateUpgrade(buildinfo.Version, os.Stdout)
 }
 
 // updateCheck / updateUpgrade are behaviour-preserving seams over the self-update

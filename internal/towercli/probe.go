@@ -33,7 +33,7 @@ func cmdProbe(args []string, out io.Writer) error {
 	broker := fs.String("broker", "", "Roger Core base URL (defaults to $ROGER_BROKER)")
 	model := fs.String("model", "", "the model to ask for")
 	bodyFile := fs.String("body", "", "a file holding the request body (default: a tiny probe body)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
 	if *model == "" {

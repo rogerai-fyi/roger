@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/buildinfo"
 	"rogerai.fm/roger/v6/internal/coreclient"
 	"rogerai.fm/roger/v6/internal/localplane/serve"
 	"rogerai.fm/roger/v6/internal/pgtest"
@@ -88,7 +89,7 @@ func TestUsageAndVersion(t *testing.T) {
 
 	out, err = runCLI(t, "version")
 	require.NoError(t, err)
-	require.Equal(t, "dev\n", out)
+	require.Equal(t, buildinfo.Version+"\n", out, "the one version every roger binary reports")
 }
 
 func TestUnknownCommandFails(t *testing.T) {

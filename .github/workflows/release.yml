@@ -67,7 +67,7 @@ jobs:
 
   # GoReleaser cross-compiles, publishes the GitHub Release + raw binary assets (the exact
   # names web/install.sh fetches), and pushes the Homebrew cask + Scoop manifest to the tap
-  # and bucket repos. The git TAG is still the single source of truth for main.Version - see
+  # and bucket repos. The git TAG is still the single source of truth for internal/buildinfo.Version - see
   # the ldflags in .goreleaser.yaml. (Tag v4.11.0 -> 4.11.0.)
   release:
     needs: gate
