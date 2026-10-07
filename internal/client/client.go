@@ -833,7 +833,9 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			routingRefused(w, err)
 			return
 		}
-		if err := GuestModelsWithin(body, opts.Model); err != nil && !opts.HeaderRouting && !(len(opts.Models) > 0 && !guestNamesOtherModelOf(body, opts.Model)) {
+		// Header mode skips the models[] check (it refuses a models[] itself), never the
+		// foreign-model one: a guest may only tighten against an old broker too.
+		if err := GuestModelsWithin(body, opts.Model); err != nil && (!opts.HeaderRouting || guestNamesOtherModelOf(body, opts.Model)) && !(len(opts.Models) > 0 && !guestNamesOtherModelOf(body, opts.Model)) {
 			routingRefused(w, err)
 			return
 		}

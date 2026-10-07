@@ -255,3 +255,17 @@ func TestUseOnFreqWithAFreeVariantFindsTheStation(t *testing.T) {
 	require.NotEmpty(t, addr, "the channel opened: %s", out)
 	require.Equal(t, "m1:free", got.Model)
 }
+
+// TestHeaderModeStillRefusesAForeignModel: against an old broker (header mode) a guest naming
+// another model with a routing carrier is refused locally, as in body mode, not rewritten.
+func TestHeaderModeStillRefusesAForeignModel(t *testing.T) {
+	hit := false
+	broker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	t.Cleanup(broker.Close)
+	h := ProxyHandler(ProxyOptions{Broker: broker.URL, User: "u", Model: "band", HeaderRouting: true})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","roger":{"pref":"fast"},"messages":[]}`)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.False(t, hit)
+}
