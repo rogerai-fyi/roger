@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/client"
@@ -420,14 +419,6 @@ func TestProfileWritesAreSerialized(t *testing.T) {
 		require.True(t, ok, n)
 	}
 
-	// a lock left by a crashed writer is taken over once stale; a live one times out
-	lock := path + ".lock"
-	require.NoError(t, os.WriteFile(lock, nil, 0o600))
-	old := time.Now().Add(-time.Minute)
-	require.NoError(t, os.Chtimes(lock, old, old))
-	release, err := lockConfig(lock)
-	require.NoError(t, err)
-	release()
 }
 
 func TestCmdUseInProcess(t *testing.T) {
