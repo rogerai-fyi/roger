@@ -513,6 +513,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return nm, cmd
 			}
 		}
+		// LAN mode: + adds a candidate Tower, asked first (features/lan/discovery_and_dial.feature).
+		if nm, cmd, ok := m.lanCandidateKey(k.String()); ok {
+			return nm, cmd
+		}
 		switch k.String() {
 		case "b", "B":
 			// THE BAND CARD: every setting for the band under the cursor, in one place.

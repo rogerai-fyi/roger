@@ -57,6 +57,9 @@ type Hooks struct {
 	// consumer-plane base URLs SHARE serves as a standalone station, registering with nothing.
 	// Nil = LAN mode off.
 	LANTowers func() []string
+	// LANAddTower adds a candidate Tower to lan_towers the way `roger lan add` does, returning the
+	// line to show (features/lan/discovery_and_dial.feature). Nil = adding from the dial is off.
+	LANAddTower func(addr string) (string, error)
 
 	// Models is `roger model` for the MODELS screen (models.go), filled by cmd/rogerai from the
 	// CLI's own code so this screen cannot judge, fetch or serve differently. Zero = not offered.
@@ -786,6 +789,8 @@ type quote struct {
 }
 
 type model struct {
+	// lanAddSel is the candidate Tower the owner is being asked to add ("" = no confirm open).
+	lanAddSel string
 	broker, user string
 	offers       []offer
 	cursor       int
@@ -1770,6 +1775,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.applyLocalVoices(msg), nil
+	case lanAddedMsg:
+		if msg.err != nil {
+			m.status = stEmber.Render("not added: " + msg.err.Error())
+			return m, nil
+		}
+		m.status = stLive.Render(msg.line)
+		return m, fetchOffers(m.broker) // the new Tower's bands come onto the dial
 	case offersMsg:
 		// A private freq is tuned: ignore the periodic public-market scan so it does not
 		// clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).

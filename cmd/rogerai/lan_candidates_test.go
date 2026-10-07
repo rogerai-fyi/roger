@@ -48,3 +48,16 @@ func TestDefaultLANBrowseTowersReturns(t *testing.T) {
 	res, _ := defaultLANBrowseTowers(ctx)
 	require.LessOrEqual(t, len(res.Adverts), lanCandidateCap)
 }
+
+// TestTUIHooksAddTowerLikeLanAdd: in LAN mode the TUI's add-from-the-dial hook is `roger lan add`,
+// with its lines returned instead of printed (a public address is refused the same way).
+func TestTUIHooksAddTowerLikeLanAdd(t *testing.T) {
+	useTempConfig(t)
+	cfg := loadConfig()
+	cfg.lan.LAN = true
+	h := tuiHooks(cfg)
+	require.NotNil(t, h.LANAddTower)
+	_, err := h.LANAddTower("203.0.113.7:8787")
+	require.ErrorContains(t, err, "not added")
+	require.Empty(t, loadConfig().LanTowers)
+}

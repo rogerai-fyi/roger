@@ -375,6 +375,10 @@ func (m model) browseView(w int) string {
 	if m.tuneTab == tabPrivate {
 		return m.privateTabView(w)
 	}
+	if len(m.bands) == 0 && LANMode() && len(m.lanCandidates()) > 0 {
+		// An empty LAN dial that has heard Towers advertising shows them, with how to add one.
+		return "\n  " + stDim.Render("no local band is on air") + "\n" + m.lanCandidateView(w)
+	}
 	if len(m.bands) == 0 {
 		// ASYNC LOADING: the initial /discover (and any r re-scan) runs off the Bubble
 		// Tea event loop, so until the first offers land we show the SAME ((•)) scanning
@@ -608,7 +612,7 @@ func (m model) browseView(w int) string {
 			if sel {
 				off = m.marqueeOff()
 			}
-			plain := fmt.Sprintf("%s  %s  %s%s", padMarquee(bd.model, nameW, off), pad(stationsLbl, 9), rangeStr(bd), free)
+			plain := fmt.Sprintf("%s  %s  %s%s%s", padMarquee(bd.model, nameW, off), pad(stationsLbl, 9), rangeStr(bd), free, lanTrustTag(bd))
 			if connected {
 				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", padMarquee(bd.model, nameW-2, off), pad(stationsLbl, 9), rangeStr(bd))
 			}
@@ -628,7 +632,7 @@ func (m model) browseView(w int) string {
 				freeTag = "  " + stLive.Render("FREE")
 			}
 			b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
-				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + bandTierSuffix(bd) + freeTag + "\n")
+				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + bandTierSuffix(bd) + freeTag + stDim.Render(lanTrustTag(bd)) + "\n")
 			continue
 		}
 		// Signal from the cheapest station: the broker's 0..100 signal drives the
@@ -688,7 +692,7 @@ func (m model) browseView(w int) string {
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := m.bandSMeter(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations, true)
 			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
-				bandNameCellAt(bd, nameW, m.marqueeOff()), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
+				bandNameCellAt(bd, nameW, m.marqueeOff()), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected)+lanTrustTag(bd))
 			b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
@@ -703,7 +707,7 @@ func (m model) browseView(w int) string {
 			statCell = stRed.Render(pad(stationsLbl, 9))
 		}
 		b.WriteString(selCarat(false) + " " + nameCell + "  " +
-			statCell + "  " + rng + ctxRowCell + tpsRowCell + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
+			statCell + "  " + rng + ctxRowCell + tpsRowCell + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + stDim.Render(lanTrustTag(bd)) + "\n")
 	}
 	// Bottom "more" hint: rows scrolled off below.
 	if end < matched {
@@ -737,6 +741,9 @@ func (m model) browseView(w int) string {
 	// screen), so voice is additive and can never rival the LLM bands above it. Absent on a
 	// pure-LLM screen. Not drawn while a name filter is active (the filtered LLM view is the
 	// focus) or in compact (voices fold into the header count, never a deck cell).
+	if LANMode() {
+		b.WriteString(m.lanCandidateView(w))
+	}
 	if !m.compact && !m.filterMode && strings.TrimSpace(m.filterApplied) == "" {
 		if foot := m.voiceFootnote(); foot != "" {
 			b.WriteString(foot + "\n")

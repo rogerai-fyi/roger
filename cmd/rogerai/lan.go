@@ -147,7 +147,11 @@ func cmdLAN(cfg config, args []string) error {
 	return fmt.Errorf("unknown lan command %q\n%s", args[0], lanUsage)
 }
 
-func lanAdd(args []string) error {
+func lanAdd(args []string) error { return lanAddTo(os.Stdout, args) }
+
+// lanAddTo is `roger lan add`, writing its lines to w: the CLI prints them, the TUI's add from
+// the dial shows them in its status line (one function, so both add exactly the same way).
+func lanAddTo(w io.Writer, args []string) error {
 	var addr string
 	offline := false
 	for _, a := range args {
@@ -170,12 +174,12 @@ func lanAdd(args []string) error {
 	c := loadConfig()
 	marked := contains(c.LanNotTower, a.String())
 	if contains(c.LanTowers, a.String()) && !marked {
-		fmt.Printf("%s is already in the list\n", a)
+		fmt.Fprintf(w, "%s is already in the list\n", a)
 		return nil
 	}
 	switch lanmode.Probe(ctx, lanProbeHTTP, a.Base()) {
 	case lanmode.ProbeTowerYes:
-		fmt.Printf("added %s: it answered as a standalone Tower\n", a)
+		fmt.Fprintf(w, "added %s: it answered as a standalone Tower\n", a)
 		if marked {
 			// re-added by the owner: it gets turns again
 			var keep []string
@@ -193,10 +197,10 @@ func lanAdd(args []string) error {
 		if !offline {
 			return fmt.Errorf("%s did not answer; add it anyway with `roger lan add %s --offline`", a, a)
 		}
-		fmt.Printf("added %s: it did not answer and will be tried at each refresh\n", a)
+		fmt.Fprintf(w, "added %s: it did not answer and will be tried at each refresh\n", a)
 	}
 	if v.CGNAT {
-		fmt.Printf("note: %s is in the carrier/overlay range (100.64.0.0/10); LAN mode uses it only because you added it by hand\n", a.Host)
+		fmt.Fprintf(w, "note: %s is in the carrier/overlay range (100.64.0.0/10); LAN mode uses it only because you added it by hand\n", a.Host)
 	}
 	c.LanTowers = append(c.LanTowers, a.String())
 	return saveConfig(c)

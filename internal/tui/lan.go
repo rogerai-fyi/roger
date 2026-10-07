@@ -5,6 +5,7 @@ package tui
 
 import (
 	"fmt"
+	tea "github.com/charmbracelet/bubbletea"
 	"net"
 	"sort"
 	"strings"
@@ -65,7 +66,7 @@ func lanOffers() offersMsg {
 	lanMu.Unlock()
 	out := make([]offer, 0, len(bands))
 	for _, b := range bands {
-		out = append(out, offer{Model: b.Model, NodeID: b.SourceLabel(), Online: true, FreeNow: true,
+		out = append(out, offer{Model: b.Model, NodeID: lanSourceText(b), Online: true, FreeNow: true,
 			Modality: "chat", LANSource: b.SourceLabel(), LANSources: b.Sources})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
@@ -112,4 +113,136 @@ func lanTowerHost(base string) string {
 		return host
 	}
 	return h
+}
+
+// lanSourceText is a dial row's source column: each source, with an Edge member marked verified
+// (its certificate was checked) and a Tower marked unverified (trust-the-LAN, ruled 2026-10-06).
+// Words, so the difference reads with NO_COLOR.
+func lanSourceText(b client.LANBand) string {
+	var out []string
+	for _, src := range b.Sources {
+		label := src.Label()
+		switch src.Kind {
+		case client.LANEdge:
+			if src.Verified {
+				label += " (verified)"
+			}
+		case client.LANTower:
+			label += " (unverified)"
+		}
+		out = append(out, label)
+	}
+	return strings.Join(out, ", ")
+}
+
+// lanAddNote is the add confirm's one sentence on the trust-the-LAN exposure.
+const lanAddNote = "a Tower speaks plain http: any device on this network can pose as it, and it can read what you send to it"
+
+// lanCandidates is the last dial's candidate Tower lines: advertised, not added, never used.
+func (m model) lanCandidates() []client.LANTowerStatus {
+	lanMu.RLock()
+	defer lanMu.RUnlock()
+	var out []client.LANTowerStatus
+	for _, st := range lanTowerStatus {
+		if st.State == client.LANTowerCandidate {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
+// lanCandidateView is the dial's candidate lines and, when the owner pressed +, the add confirm.
+func (m model) lanCandidateView(w int) string {
+	cands := m.lanCandidates()
+	if len(cands) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, c := range cands {
+		if c.Addr == "" { // the flood summary
+			b.WriteString("  " + truncVisible(stDim.Render(c.Detail), w-4) + "\n")
+			continue
+		}
+		mark := "  "
+		if c.Addr == m.lanAddSel {
+			mark = stKey.Render("▸ ")
+		}
+		b.WriteString("  " + truncVisible(mark+stDim.Render("candidate Tower ")+stKey.Render(c.Addr)+
+			stDim.Render(" · "+c.Detail+" · + to add"), w-4) + "\n")
+	}
+	if m.lanAddSel != "" {
+		b.WriteString("\n  " + stKey.Render("add the Tower at "+m.lanAddSel+"?") + "\n")
+		b.WriteString("  " + truncVisible(stDim.Render(lanAddNote+"."), w-4) + "\n")
+		b.WriteString("  " + stKey.Render("y") + stDim.Render(" add · ") + stKey.Render("n") + stDim.Render(" cancel · ") +
+			stKey.Render("+") + stDim.Render(" next candidate") + "\n")
+	}
+	return b.String()
+}
+
+// lanAddedMsg is the result of adding a candidate Tower from the dial.
+type lanAddedMsg struct {
+	line string
+	err  error
+}
+
+// lanCandidateKey handles the dial's add flow in LAN mode; ok=false hands the key back.
+func (m model) lanCandidateKey(key string) (model, tea.Cmd, bool) {
+	if !LANMode() {
+		return m, nil, false
+	}
+	if m.lanAddSel != "" {
+		switch key {
+		case "y", "Y":
+			addr, add := m.lanAddSel, m.hooks.LANAddTower
+			m.lanAddSel = ""
+			if add == nil {
+				m.status = stDim.Render("adding from the dial is not available here: run roger lan add " + addr)
+				return m, nil, true
+			}
+			return m, func() tea.Msg { line, err := add(addr); return lanAddedMsg{line: line, err: err} }, true
+		case "n", "N", "esc":
+			m.lanAddSel = ""
+			return m, nil, true
+		}
+	}
+	if key != "+" {
+		return m, nil, m.lanAddSel != "" // a confirm is open: other keys wait for y or n
+	}
+	var addrs []string
+	for _, c := range m.lanCandidates() {
+		if c.Addr != "" {
+			addrs = append(addrs, c.Addr)
+		}
+	}
+	if len(addrs) == 0 {
+		m.status = stDim.Render("no Tower is advertising on this network")
+		return m, nil, true
+	}
+	next := addrs[0]
+	for i, a := range addrs {
+		if a == m.lanAddSel && i+1 < len(addrs) {
+			next = addrs[i+1]
+		}
+	}
+	m.lanAddSel = next
+	return m, nil, true
+}
+
+// lanTrustTag is a LAN dial row's trust word, after its flags: "unverified" when any source is a
+// Tower (trust-the-LAN), "verified" when it is served by a verified Edge member, nothing for this
+// machine or outside LAN mode. A word, so it reads with NO_COLOR.
+func lanTrustTag(bd band) string {
+	if !LANMode() || bd.cheapest == nil {
+		return ""
+	}
+	tag := ""
+	for _, src := range bd.cheapest.LANSources {
+		switch {
+		case src.Kind == client.LANTower:
+			return "  unverified"
+		case src.Kind == client.LANEdge && src.Verified:
+			tag = "  verified"
+		}
+	}
+	return tag
 }
