@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -655,7 +656,7 @@ func TestAgentPromptBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("agent prompt scenarios failed")
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"testing"
 	"time"
 
@@ -718,7 +719,7 @@ func TestTrustToolCallProbeBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("trust/toolcall_probe behavior scenarios failed (see godog output above)")
 	}
 }

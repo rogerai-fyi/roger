@@ -8,6 +8,7 @@ package tui
 
 import (
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -607,7 +608,7 @@ func TestEdgeAgentsFeatureTUI(t *testing.T) {
 			Paths: []string{"../../features/edge/agents.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the Edge agents @tui scenarios failed")
 	}
 }

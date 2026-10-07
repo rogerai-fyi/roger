@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -167,7 +168,7 @@ func TestCuratedAnonymizationFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_anonymization.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("curated anonymization scenarios failed")
 	}
 }

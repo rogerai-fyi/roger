@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -407,7 +408,7 @@ func TestLANUIBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: paths},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("LAN UI scenarios failed")
 	}
 }

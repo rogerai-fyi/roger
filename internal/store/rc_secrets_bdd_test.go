@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -192,7 +193,7 @@ func TestRCSecretsFeature(t *testing.T) {
 			TestingT: t, Strict: true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("remote/rc_secrets behavior scenarios failed")
 	}
 }

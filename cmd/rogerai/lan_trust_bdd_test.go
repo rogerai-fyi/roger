@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -160,7 +161,7 @@ func TestLANTrustBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: paths},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("trust scenarios failed")
 	}
 }

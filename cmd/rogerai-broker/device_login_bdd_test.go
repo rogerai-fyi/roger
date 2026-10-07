@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -297,7 +298,7 @@ func TestBrokerMediatedLoginBDD(t *testing.T) {
 			Strict:   false, // the prose-only scenarios stay documentation until they earn steps
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("broker-mediated login scenarios failed (see godog output above)")
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -212,7 +213,7 @@ func TestOnboardFeatureCLI(t *testing.T) {
 			Paths: []string{"../../features/edge/onboard.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the onboarding CLI scenarios failed")
 	}
 }

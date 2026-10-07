@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"sync"
 	"testing"
 	"time"
@@ -310,7 +311,7 @@ func TestRoutingDispatchBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing/dispatch behavior scenarios failed (see godog output above)")
 	}
 }

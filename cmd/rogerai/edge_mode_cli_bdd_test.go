@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -156,7 +157,7 @@ func TestModeFeatureCLI(t *testing.T) {
 			Paths: []string{"../../features/edge/mode.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the mode CLI scenarios failed")
 	}
 }

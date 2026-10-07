@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -1313,7 +1314,7 @@ func TestAgentTurnLifecycleFeature(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("agent turn lifecycle scenarios failed")
 	}
 }

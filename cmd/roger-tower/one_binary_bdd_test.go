@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -39,7 +40,7 @@ func TestOneBinaryJoinedServeBDD(t *testing.T) {
 			Paths: []string{"../../features/packaging/one_binary.feature:437"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("one_binary.feature: the joined serve's advertised tiers failed")
 	}
 }

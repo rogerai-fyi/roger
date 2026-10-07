@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -1009,7 +1010,7 @@ func TestNodeIdentityFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/node_identity.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the node identity scenarios failed")
 	}
 }

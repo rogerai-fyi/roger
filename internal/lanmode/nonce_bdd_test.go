@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestOneNonceDecisionBDD(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					body := regexp.MustCompile(`(?s)func `+fn+`\(.*?\n}\n`).FindString(string(src))
+					body := regexp.MustCompile(`(?s)func ` + fn + `\(.*?\n}\n`).FindString(string(src))
 					if !strings.Contains(body, "lanmode.WantsNonce(") {
 						return fmt.Errorf("%s in %s does not ask lanmode.WantsNonce", fn, file)
 					}
@@ -104,7 +105,7 @@ func TestOneNonceDecisionBDD(t *testing.T) {
 			},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("one_binary.feature section 7.6 failed")
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -224,7 +225,7 @@ func TestEdgeLadderFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/local_inference.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the edge ladder client scenarios failed")
 	}
 }

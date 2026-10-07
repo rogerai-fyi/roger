@@ -33,6 +33,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
@@ -3248,7 +3249,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing/upstream_failover scenarios failed (see godog output above)")
 	}
 }

@@ -4,6 +4,7 @@ package tui
 // the actuate ceremony while it is pending, and asks before it acts - exactly as forget does.
 
 import (
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -93,7 +94,7 @@ func TestEdgeActuateCeremonyTUI(t *testing.T) {
 			Paths: []string{"../../features/edge/node_identity.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the actuate ceremony TUI scenario failed")
 	}
 }

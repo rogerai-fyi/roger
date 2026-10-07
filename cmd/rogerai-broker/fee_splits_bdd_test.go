@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"testing"
 
@@ -340,7 +341,7 @@ func TestFeeSplitsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("money/fee_splits behavior scenarios failed (see godog output above)")
 	}
 }

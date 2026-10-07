@@ -8,6 +8,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -185,7 +186,7 @@ func TestLANCandidateTUIBDD(t *testing.T) {
 			"../../features/lan/trust_and_honesty.feature:49",
 		}},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("LAN candidate TUI scenarios failed")
 	}
 }

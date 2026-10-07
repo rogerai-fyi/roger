@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -241,7 +242,7 @@ func TestProxyReceiptCallbackFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/session_attribution.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the proxy receipt callback scenarios failed")
 	}
 }

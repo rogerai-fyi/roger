@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -64,7 +65,7 @@ func TestOneLocalReceiptHelperBDD(t *testing.T) {
 			Paths: []string{"../../features/packaging/one_binary.feature:558"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("one_binary.feature section 7.7 failed")
 	}
 }

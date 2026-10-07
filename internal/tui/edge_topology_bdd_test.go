@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -1429,7 +1430,7 @@ func TestEdgeTopologyViewFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/topology_view.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the Edge topology scenarios failed")
 	}
 }

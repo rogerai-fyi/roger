@@ -8,6 +8,7 @@ package webui
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -53,7 +54,7 @@ func TestOnboardFeatureConsole(t *testing.T) {
 			Paths: []string{"../../features/edge/onboard.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the onboarding console scenario failed")
 	}
 }

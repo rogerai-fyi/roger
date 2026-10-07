@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -310,7 +311,7 @@ func TestOneBinaryTowerAndShareBDD(t *testing.T) {
 			},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("one_binary.feature sections 7.2 and 7.3 failed")
 	}
 }

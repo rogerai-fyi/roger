@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
@@ -1283,7 +1284,7 @@ func TestLivenessChurnBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/liveness_churn scenarios failed (see godog output above)")
 	}
 }
@@ -1306,7 +1307,7 @@ func TestFlagOffRelayBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/flag_off_relay scenarios failed (see godog output above)")
 	}
 }
@@ -1325,7 +1326,7 @@ func TestCrossInstanceRelayBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/cross_instance_relay scenarios failed (see godog output above)")
 	}
 }

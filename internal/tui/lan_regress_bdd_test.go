@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -132,7 +133,7 @@ func TestLANRegressionsTUIBDD(t *testing.T) {
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{"../../features/lan/regressions.feature:14"}},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("regressions.feature:14 failed")
 	}
 }

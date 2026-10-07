@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"testing"
 	"time"
 
@@ -175,7 +176,7 @@ func TestEdgeAttributionFeatureTUI(t *testing.T) {
 			Paths: []string{"../../features/edge/session_attribution.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the TUI attribution scenarios failed")
 	}
 }

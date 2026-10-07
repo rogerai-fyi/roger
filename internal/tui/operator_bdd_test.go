@@ -11,6 +11,7 @@ package tui
 // production paths run for real underneath them, no mocks.
 
 import (
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestGuestOperatorBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/operator"}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("guest-operator scenarios failed (see godog output above)")
 	}
 }

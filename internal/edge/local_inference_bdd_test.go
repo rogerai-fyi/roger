@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -531,7 +532,7 @@ func TestLocalInferenceFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/local_inference.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the local inference scenarios failed")
 	}
 }

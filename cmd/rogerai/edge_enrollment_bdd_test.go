@@ -40,6 +40,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -2522,7 +2523,7 @@ func TestEdgeEnrollmentFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/enrollment.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the Roger Edge enrollment scenarios failed")
 	}
 }

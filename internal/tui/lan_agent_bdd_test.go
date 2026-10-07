@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"sync/atomic"
 	"testing"
 
@@ -79,7 +80,7 @@ func TestLANAgentLocalBDD(t *testing.T) {
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{"../../features/lan/routing_and_inference.feature:203"}},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing_and_inference.feature:203 failed")
 	}
 }

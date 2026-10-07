@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -207,7 +208,7 @@ func TestLANConsoleBDD(t *testing.T) {
 			"../../features/lan/discovery_and_dial.feature:361",
 		}},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("console LAN scenarios failed")
 	}
 }

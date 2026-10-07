@@ -7,6 +7,7 @@ package edge_test
 
 import (
 	"context"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -84,7 +85,7 @@ func TestLANTrustEdgeBDD(t *testing.T) {
 			"../../features/lan/trust_and_honesty.feature:88",
 		}},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("LAN trust (Edge) scenarios failed")
 	}
 }

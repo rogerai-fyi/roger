@@ -28,6 +28,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
@@ -1391,7 +1392,7 @@ func TestEdgeConsoleViewFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/console_view.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the console Edge scenarios failed")
 	}
 }
@@ -1463,7 +1464,7 @@ func TestEmptyEdgeFeatureConsole(t *testing.T) {
 			Paths: []string{"../../features/edge/empty_edge.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the empty-Edge console scenarios failed")
 	}
 }
@@ -1511,7 +1512,7 @@ func TestInstancesFeatureConsole(t *testing.T) {
 			Paths: []string{"../../features/edge/instances.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the instances console scenarios failed")
 	}
 }
@@ -1550,7 +1551,7 @@ func TestModeFeatureConsole(t *testing.T) {
 			Paths: []string{"../../features/edge/mode.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the mode console scenarios failed")
 	}
 }

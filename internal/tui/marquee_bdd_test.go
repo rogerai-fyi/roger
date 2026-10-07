@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"slices"
 	"strconv"
 	"strings"
@@ -747,7 +748,7 @@ func TestMarqueeBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/tui/marquee.feature"}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("marquee scenarios failed (see godog output above)")
 	}
 }

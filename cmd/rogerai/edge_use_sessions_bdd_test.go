@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -167,7 +168,7 @@ func TestEdgeUseSessionsFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/session_attribution.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the roger use session scenarios failed")
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -1526,7 +1527,7 @@ func TestEdgeSessionsFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/sessions.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the Edge sessions scenarios failed")
 	}
 }

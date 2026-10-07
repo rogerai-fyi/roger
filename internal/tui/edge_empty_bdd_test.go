@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -459,7 +460,7 @@ func TestEmptyEdgeFeatureTUI(t *testing.T) {
 			Paths: []string{"../../features/edge/empty_edge.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the empty-Edge TUI scenarios failed")
 	}
 }

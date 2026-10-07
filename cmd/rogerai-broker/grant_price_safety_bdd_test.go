@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
@@ -322,7 +323,7 @@ func TestGrantPriceSafetyBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("grant price-safety scenarios failed (see godog output above)")
 	}
 }

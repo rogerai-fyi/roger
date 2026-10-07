@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -328,7 +329,7 @@ func TestLANShareBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: paths},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("share_in_lan_mode scenarios failed")
 	}
 }
@@ -408,7 +409,7 @@ func TestLANShareRegress87BDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/lan/regressions.feature:87"}, Strict: true, TestingT: t},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("regressions.feature:87 failed")
 	}
 }

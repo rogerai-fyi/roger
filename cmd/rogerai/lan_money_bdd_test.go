@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -228,7 +229,7 @@ func TestLANMoneyBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: paths},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("money_and_accounts.feature failed")
 	}
 }

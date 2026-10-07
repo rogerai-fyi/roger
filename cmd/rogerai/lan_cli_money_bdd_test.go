@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -252,7 +253,7 @@ func TestLANCLIMoneyBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: paths},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("money_and_accounts / ui_visibility CLI scenarios failed")
 	}
 }

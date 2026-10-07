@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -314,7 +315,7 @@ func TestLANAdversarialBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: paths},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("adversarial scenarios failed")
 	}
 }

@@ -27,6 +27,7 @@ import (
 	"net"
 	"net/http/httptest"
 	"net/url"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
@@ -1551,7 +1552,7 @@ func TestDiscoveryFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/discovery.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the LAN discovery scenarios failed")
 	}
 }

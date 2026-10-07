@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -139,7 +140,7 @@ func TestStreamReceiptCommentFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/session_attribution.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the stream receipt comment scenarios failed")
 	}
 }

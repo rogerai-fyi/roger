@@ -12,6 +12,7 @@ import (
 	"crypto/ed25519"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -231,7 +232,7 @@ func TestRelayAllowlistBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("voice/relay_allowlist behavior scenarios failed (see godog output above)")
 	}
 }

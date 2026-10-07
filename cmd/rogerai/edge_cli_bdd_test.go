@@ -29,6 +29,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
@@ -1256,7 +1257,7 @@ func TestEdgeCLIFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/cli.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the roger edge command-surface scenarios failed")
 	}
 }

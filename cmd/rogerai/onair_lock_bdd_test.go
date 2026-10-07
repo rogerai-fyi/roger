@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -407,7 +408,7 @@ func TestOnAirLockBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("on-air lock scenarios failed (see godog output above)")
 	}
 }

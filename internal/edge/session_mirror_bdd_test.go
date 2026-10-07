@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"runtime"
 	"strings"
 	"testing"
@@ -374,7 +375,7 @@ func TestSessionMirrorFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/session_attribution.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the session mirror scenarios failed")
 	}
 }

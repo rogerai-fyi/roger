@@ -13,6 +13,7 @@ package store
 import (
 	"fmt"
 	"math"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"testing"
 	"time"
@@ -410,7 +411,7 @@ func TestLedgerBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("money/ledger behavior scenarios failed (see godog output above)")
 	}
 }

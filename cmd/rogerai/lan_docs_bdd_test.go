@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestLANDocsBDD(t *testing.T) {
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t,
 			Paths: []string{"../../features/lan/trust_and_honesty.feature:57"}},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("LAN docs scenario failed")
 	}
 }

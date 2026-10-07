@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -338,7 +339,7 @@ func TestLANLaunchBDD(t *testing.T) {
 			Paths: []string{"../../features/lan/launch_and_config.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("launch_and_config.feature failed")
 	}
 }

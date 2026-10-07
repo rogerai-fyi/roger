@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -175,7 +176,7 @@ func TestEdgeActuateCeremonyFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/node_identity.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the actuate ceremony scenarios failed")
 	}
 }

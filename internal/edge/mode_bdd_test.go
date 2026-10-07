@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -253,7 +254,7 @@ func TestModeFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/mode.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the mode scenarios failed")
 	}
 }

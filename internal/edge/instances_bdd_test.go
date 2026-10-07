@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -1192,7 +1193,7 @@ func TestInstancesFeature(t *testing.T) {
 			Paths: []string{"../../features/edge/instances.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the instances scenarios failed")
 	}
 }

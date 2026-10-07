@@ -7,6 +7,7 @@ package main
 
 import (
 	"io"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 
 	"rogerai.fm/roger/v6/internal/edge/wire"
@@ -702,7 +703,7 @@ func TestLANDialBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: paths},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("discovery_and_dial.feature (the merged dial) failed")
 	}
 }

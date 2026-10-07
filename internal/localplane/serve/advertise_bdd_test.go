@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -202,7 +203,7 @@ func TestTowerAdvertiseBDD(t *testing.T) {
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: []string{
 			"../../../features/lan/discovery_and_dial.feature:174", "../../../features/lan/adversarial.feature:113"}},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("Tower advertise scenarios failed")
 	}
 }
