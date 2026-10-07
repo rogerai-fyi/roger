@@ -91,6 +91,8 @@ type lanDialBDD struct {
 	took    time.Duration
 	enrolld bool
 	adverts []wire.Advert // what the mDNS browse for Towers hears
+	// edgeOnly runs the scenario under `roger --lan --edge-only` (features/lan/edge_only.feature).
+	edgeOnly bool
 }
 
 func (s *lanDialBDD) reset() {
@@ -114,7 +116,7 @@ func (s *lanDialBDD) reset() {
 		return nil, fmt.Errorf("no such host %s", host)
 	}
 	s.bands, s.status, s.out, s.err, s.enrolld = nil, nil, "", nil, false
-	s.adverts = nil
+	s.adverts, s.edgeOnly = nil, false
 	lanBrowseTowers = func(context.Context) (wire.BrowseResult, error) {
 		return wire.BrowseResult{Adverts: s.adverts, Seen: len(s.adverts)}, nil
 	}
@@ -128,7 +130,7 @@ func (s *lanDialBDD) restore() {
 
 func (s *lanDialBDD) cfg() config {
 	c := loadConfig()
-	c.lan = lanmode.Mode{LAN: true, Source: lanmode.SrcFlag}
+	c.lan = lanmode.Mode{LAN: true, EdgeOnly: s.edgeOnly, Source: lanmode.SrcFlag}
 	return c
 }
 

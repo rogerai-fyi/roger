@@ -748,7 +748,8 @@ func tuiHooks(cfg config) tui.Hooks {
 		}
 	}
 	if cfg.lan.LAN {
-		h.LANTowers = func() []string { return lanTowerBases(cfg) }
+		h.LANTowers = func() []string { return lanTowerBases(cfg) } // none under edge-only
+		h.LANEdgeOnly = cfg.lan.EdgeOnly
 		h.LANAddTower = func(addr string) (string, error) {
 			var out strings.Builder
 			err := lanAddTo(&out, []string{addr})
@@ -863,14 +864,14 @@ func run(argv []string, cfg config) error {
 	if err := checkIdentityKeys(); err != nil {
 		return err
 	}
-	// A broker setting that is a standalone Tower is folded into lan_towers once, so LAN Tower
-	// discovery reads one list.
-	cfg = foldBrokerTower(cfg, os.Stderr)
 	// LAN mode is decided ONCE here, from flag, then environment, then config.
 	rest, cfg, err := decideLAN(rest, cfg)
 	if err != nil {
 		return err
 	}
+	// A broker setting that is a standalone Tower is folded into lan_towers once, so LAN Tower
+	// discovery reads one list. Under edge-only it is not even probed (no Tower is contacted).
+	cfg = foldBrokerTower(cfg, os.Stderr)
 	installLANRelay(cfg)
 	// Global approval-mode flags (--yolo / --perms <mode>) apply to this run only;
 	// with no flag, a persisted `roger perms` default seeds the env the TUI reads.
@@ -1134,6 +1135,10 @@ func cmdUse(cfg config, args []string) error {
 	pinnedPeer, pinned := client.EdgePeer{}, false
 	pinnedTower := ""
 	if t, ok := lanTowerAddress(args[0]); ok && cfg.lan.LAN {
+		if cfg.lan.EdgeOnly {
+			// features/lan/edge_only.feature: a Tower is never dialed under edge-only.
+			return fmt.Errorf("roger use %s: %s; drop --edge-only to use a Tower", t, edgeOnlyNote)
+		}
 		// `roger --lan use <tower-address> [model]`: that Tower and nothing else.
 		pinnedTower = t
 		model = strings.TrimSpace(*onModel)
@@ -1196,7 +1201,7 @@ func cmdUse(cfg config, args []string) error {
 		uo.Pinned = "edge: " + peer.Node
 	}
 	uo.EdgePeers, uo.Prefer, uo.EdgeCert, uo.EdgeVerify = po.EdgePeers, po.Prefer, po.EdgeCert, po.EdgeVerify
-	uo.LANMode, uo.LANSelf, uo.LANTowers, uo.LANHTTP, uo.LANResolve = po.LANMode, po.LANSelf, po.LANTowers, po.LANHTTP, po.LANResolve
+	uo.LANMode, uo.LANEdgeOnly, uo.LANSelf, uo.LANTowers, uo.LANHTTP, uo.LANResolve = po.LANMode, po.LANEdgeOnly, po.LANSelf, po.LANTowers, po.LANHTTP, po.LANResolve
 	if cfg.lan.LAN {
 		uo.LANSources = func(band string) []client.LANSource {
 			src := lanSourcesOf(cfg, band)

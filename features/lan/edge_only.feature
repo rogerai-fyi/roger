@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-07 (founder)
-# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
+# BUILD STATUS: BUILT. Every scenario runs: cmd/rogerai lan_edgeonly_bdd_test.go, internal/tui, internal/webui and internal/edge runners.
 #
 # LAN MODE - EDGE-ONLY: the strict subset for sensitive work. Only your Edge members and this
 # machine; no LAN Tower is ever shown or dialed.

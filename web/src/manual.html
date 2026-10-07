@@ -957,9 +957,10 @@
               plain http with no identity of its own, so any device on the same network can pose
               as it, and a Tower can read what you send to it. Edge members are different: they
               are <b>verified by certificate</b> under your Edge, exactly as without LAN mode.
-              For sensitive work, keep it on Edge members only: remove every Tower with
-              <code>roger lan rm</code>, and the LAN dial serves from this machine and your Edge
-              alone.
+              For sensitive work, keep it on Edge members only: run <code>roger --edge-only</code>
+              (or <code>roger config set mode lan-edge-only</code>), and no Tower is shown, dialed
+              or shared to, while the LAN dial serves from this machine and your Edge alone. Your
+              Tower list is kept; remove a Tower for good with <code>roger lan rm</code>.
             </div>
           </section>
 

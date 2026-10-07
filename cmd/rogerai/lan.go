@@ -34,27 +34,31 @@ var (
 	lanProbeHTTP                  = &http.Client{Timeout: 3 * time.Second}
 )
 
-// stripLANFlags removes --lan and --no-lan from anywhere in argv, so the flag works before or
-// after the subcommand.
-func stripLANFlags(argv []string) (rest []string, lan, noLAN bool) {
+// stripLANFlags removes --lan, --no-lan and --edge-only from anywhere in argv, so the flag works
+// before or after the subcommand.
+func stripLANFlags(argv []string) (rest []string, in lanmode.Inputs) {
 	for _, a := range argv {
 		switch a {
 		case "--lan":
-			lan = true
+			in.FlagLAN = true
 		case "--no-lan":
-			noLAN = true
+			in.FlagNoLAN = true
+		case "--edge-only":
+			in.FlagEdgeOnly = true
 		default:
 			rest = append(rest, a)
 		}
 	}
-	return rest, lan, noLAN
+	return rest, in
 }
 
-// decideLAN strips the flags and decides this process's mode once.
+// decideLAN strips the flags and decides this process's mode once (LAN mode and edge-only).
 func decideLAN(argv []string, cfg config) ([]string, config, error) {
-	rest, lan, noLAN := stripLANFlags(argv)
-	env, envSet := os.LookupEnv("ROGER_LAN")
-	m, err := lanmode.Decide(lan, noLAN, env, envSet, cfg.Mode)
+	rest, in := stripLANFlags(argv)
+	in.EnvLAN, in.EnvLANSet = os.LookupEnv("ROGER_LAN")
+	in.EnvEdgeOnly, in.EnvEdgeOnlySet = os.LookupEnv("ROGER_LAN_EDGE_ONLY")
+	in.Config = cfg.Mode
+	m, err := lanmode.Decide(in)
 	if err != nil {
 		return rest, cfg, err
 	}
@@ -62,13 +66,20 @@ func decideLAN(argv []string, cfg config) ([]string, config, error) {
 	return rest, cfg, nil
 }
 
+// edgeOnlyNote is how edge-only is named wherever LAN Towers would otherwise appear.
+const edgeOnlyNote = "edge-only is on: LAN Towers are not used, only this machine and your Edge members"
+
 // lanOffHint says how to turn LAN mode off, given where it came from.
 func lanOffHint(m lanmode.Mode) string {
-	switch m.Source {
-	case lanmode.SrcConfig:
+	switch {
+	case m.Source == lanmode.SrcConfig:
 		return "turn it off with `roger config unset mode`"
-	case lanmode.SrcEnv:
+	case m.Source == lanmode.SrcEnv && m.EdgeOnly:
+		return "turn it off by unsetting ROGER_LAN_EDGE_ONLY"
+	case m.Source == lanmode.SrcEnv:
 		return "turn it off by unsetting ROGER_LAN"
+	case m.EdgeOnly:
+		return "drop --edge-only to turn it off"
 	default:
 		return "drop --lan to turn it off"
 	}
@@ -83,13 +94,19 @@ func noteLAN(cfg config, cmd string) {
 	case "status", "lan", "config", "version", "help", "-h", "--help", "share":
 		return // these say the mode themselves (share opens with it), or are not about bands
 	}
+	if cfg.lan.EdgeOnly {
+		fmt.Fprintf(lanNoteOut, "LAN mode, edge-only (from %s): only bands on this machine and your Edge members, never a LAN Tower; %s\n", cfg.lan.Source, lanOffHint(cfg.lan))
+		return
+	}
 	fmt.Fprintf(lanNoteOut, "LAN mode (from %s): only bands on this machine, your Edge and LAN Towers; %s\n", cfg.lan.Source, lanOffHint(cfg.lan))
 }
 
 // cmdStatus is `roger status [--json]`: the mode, where it came from, and the local sources.
 func cmdStatus(cfg config, args []string) error {
 	mode := "default"
-	if cfg.lan.LAN {
+	if cfg.lan.EdgeOnly {
+		mode = "lan-edge-only"
+	} else if cfg.lan.LAN {
 		mode = "lan"
 	}
 	src := cfg.lan.Source
@@ -98,13 +115,18 @@ func cmdStatus(cfg config, args []string) error {
 	}
 	if len(args) > 0 && args[0] == "--json" {
 		b, _ := json.MarshalIndent(map[string]any{
-			"mode": mode, "mode_source": src, "broker": cfg.Broker,
+			"mode": mode, "mode_source": src, "broker": cfg.Broker, "lan": cfg.lan.LAN, "edge_only": cfg.lan.EdgeOnly,
 			"lan_towers": nonNilStrings(cfg.LanTowers), "edge_prefer": edgePreferOf(cfg),
 		}, "", "  ")
 		fmt.Println(string(b))
 		return nil
 	}
-	if cfg.lan.LAN {
+	if cfg.lan.EdgeOnly {
+		fmt.Printf("LAN mode: on (edge-only), from %s\n", src)
+		fmt.Println("local sources: this machine and Edge members; LAN Towers are not used")
+		fmt.Printf("edge preference: local-only (from LAN mode; your setting is %s)\n", edgePreferOf(cfg))
+		fmt.Println(lanOffHint(cfg.lan))
+	} else if cfg.lan.LAN {
 		fmt.Printf("mode: LAN (from %s)\n", src)
 		fmt.Printf("local sources: this machine, Edge members, Towers (%d configured)\n", len(cfg.LanTowers))
 		fmt.Printf("edge preference: local-only (from LAN mode; your setting is %s)\n", edgePreferOf(cfg))
@@ -148,11 +170,15 @@ func cmdLAN(cfg config, args []string) error {
 	}
 	switch args[0] {
 	case "add":
-		return lanAdd(args[1:])
+		if err := lanAdd(args[1:]); err != nil || !cfg.lan.EdgeOnly {
+			return err
+		}
+		fmt.Println("it will be used in LAN mode, but not while edge-only is on")
+		return nil
 	case "rm", "remove":
 		return lanRemove(args[1:])
 	}
-	return lanList()
+	return lanList(cfg)
 }
 
 // lanFlags refuses a flag a lan command does not take, in roger's usage style (exit 2), so a
@@ -259,10 +285,17 @@ func lanRemove(args []string) error {
 	return nil
 }
 
-func lanList() error {
+func lanList(cfg config) error {
 	c := loadConfig()
 	if len(c.LanTowers) == 0 {
 		fmt.Println("no LAN Towers: add one with `roger lan add <address>`")
+		return nil
+	}
+	if cfg.lan.EdgeOnly {
+		// Under edge-only no Tower is contacted, not even to say whether it answers.
+		for _, entry := range c.LanTowers {
+			fmt.Printf("%-28s not used (edge-only)\n", entry)
+		}
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -311,6 +344,9 @@ func lanTowerLine(ctx context.Context, entry string) string {
 // lanTowerAddrs is every Tower LAN mode uses: the configured list (a broker setting that is a
 // standalone Tower is folded into it once, foldBrokerTower), less the ones marked not a Tower.
 func lanTowerAddrs(cfg config) []string {
+	if cfg.lan.EdgeOnly {
+		return nil // features/lan/edge_only.feature: no Tower, anywhere
+	}
 	var out []string
 	for _, a := range cfg.LanTowers {
 		if !contains(cfg.LanNotTower, a) {
@@ -371,7 +407,11 @@ var lanDial = func(cfg config) client.LANDial {
 	defer cancel()
 	towers := lanTowerAddrs(cfg)
 	cands := make(chan []client.LANTowerStatus, 1)
-	go func() { cands <- lanCandidates(ctx, towers) }() // the mDNS browse runs beside the Tower reads
+	if cfg.lan.EdgeOnly {
+		cands <- nil // no Tower is offered, so none is browsed for
+	} else {
+		go func() { cands <- lanCandidates(ctx, towers) }() // the mDNS browse runs beside the Tower reads
+	}
 	edgeBands, edgeErr := lanEdgeBands()
 	bands, status := client.LANDiscover(ctx, client.LANInputs{
 		Self: lanSelfBands(), Edge: edgeBands, Towers: towers,
@@ -379,7 +419,7 @@ var lanDial = func(cfg config) client.LANDial {
 	})
 	status = append(status, <-cands...)
 	noteLANServed(bands, status)
-	for _, a := range loadConfig().LanNotTower {
+	for _, a := range lanTowerNotes(cfg) {
 		status = append(status, client.LANTowerStatus{Addr: a, State: client.LANTowerNotStandalone,
 			Detail: "it answered without the local marker; re-add it with roger lan add " + a})
 	}
@@ -393,6 +433,15 @@ var lanDial = func(cfg config) client.LANDial {
 		d.EdgeUnread = edgeErr.Error()
 	}
 	return d
+}
+
+// lanTowerNotes is the configured Towers marked "not a standalone Tower", shown on the dial; none
+// under edge-only, where no Tower is shown at all.
+func lanTowerNotes(cfg config) []string {
+	if cfg.lan.EdgeOnly {
+		return nil
+	}
+	return loadConfig().LanNotTower
 }
 
 // lanMarkNotTower records that addr answered a turn without the local marker.
@@ -507,10 +556,12 @@ func applyLAN(cfg config, o *client.ProxyOptions) {
 	if !cfg.lan.LAN {
 		return
 	}
-	o.LANMode, o.Prefer = true, "local-only"
+	o.LANMode, o.LANEdgeOnly, o.Prefer = true, cfg.lan.EdgeOnly, "local-only"
 	o.LANSelf = lanSelfServe
 	o.LANHTTP, o.LANResolve = lanProbeHTTP, lanResolve
-	o.LANTowers = func(band string) []string { return lanTowersServing(cfg, band) }
+	if !cfg.lan.EdgeOnly {
+		o.LANTowers = func(band string) []string { return lanTowersServing(cfg, band) }
+	}
 	o.LANNotLocal = lanMarkNotTower
 }
 
@@ -551,6 +602,7 @@ func installLANRelay(cfg config) {
 		return
 	}
 	tui.SetLANDial(lanDialFor(cfg))
+	tui.SetLANEdgeOnly(cfg.lan.EdgeOnly)
 	var lo client.ProxyOptions
 	frontEndLadder(cfg)(&lo)
 	client.SetLANRelay(&lo)
