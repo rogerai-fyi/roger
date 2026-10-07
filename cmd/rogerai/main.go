@@ -1615,6 +1615,14 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// does the TUI's, explicit flags winning.
 	applyShareVoice(cfg, mdl, &cfgRun)
 
+	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
+	// share serves to the share's own upstream: a local, owner-only record, gone when we stop.
+	if foundModality == "" && up != "" {
+		if stop, err := writeLANShare(mdl, up, *upKey); err == nil {
+			defer stop()
+		}
+	}
+
 	// A STANDALONE Tower as the broker: serve its own local network directly. A probe of
 	// /local/poll tells a standalone Tower (which answers) apart from the public broker (which
 	// 404s), so `roger share` pointed at a local Tower Just Works - no registration, no relay

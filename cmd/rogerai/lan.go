@@ -331,6 +331,9 @@ func lanSelfBands() []string {
 	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
 		out = append(out, in.Bands...)
 	}
+	for _, rec := range lanShares() {
+		out = append(out, rec.Band)
+	}
 	return out
 }
 
@@ -435,6 +438,11 @@ var lanSelfServe = func(band string) (string, string) {
 	if edgeUpstreamOf != nil {
 		if u, k, ok := edgeUpstreamOf(band); ok && u != "" {
 			return u, k
+		}
+	}
+	for _, rec := range lanShares() { // a separate `roger share` process on this machine
+		if rec.Band == band {
+			return rec.ChatURL, rec.Key
 		}
 	}
 	return "", ""
