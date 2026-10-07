@@ -5,8 +5,7 @@ package main
 // carried over mutual TLS. It answers /edge/infer as the member's serve; a delay makes it slow.
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -33,17 +33,20 @@ type edgeFace struct {
 	hits      atomic.Int32
 	mutualTLS atomic.Int32 // turns that arrived with the caller's certificate
 	lastModel atomic.Value // the model the last turn named
+	pub       ed25519.PublicKey
 }
 
 func (f *edgeFace) addr() string { return strings.TrimPrefix(f.srv.URL, "https://") }
 
 func newEdgeFace(t *testing.T, node string, delay time.Duration) *edgeFace {
 	t.Helper()
-	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	// An ed25519 identity, as a real member's: its local receipt is signed with the same key the
+	// certificate carries, so the caller can check the receipt against the face it dialed.
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: node},
 		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour)}
-	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	f := &edgeFace{pin: fmt.Sprintf("%x", sha256.Sum256(der))}
+	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, key)
+	f := &edgeFace{pin: fmt.Sprintf("%x", sha256.Sum256(der)), pub: pub}
 	f.srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/edge/infer" {
 			http.NotFound(w, r)
@@ -59,6 +62,10 @@ func newEdgeFace(t *testing.T, node string, delay time.Duration) *edgeFace {
 			f.mutualTLS.Add(1)
 		}
 		time.Sleep(delay)
+		rec := protocol.UsageReceipt{RequestID: "edge-" + node + "-" + fmt.Sprint(f.hits.Load()), NodeID: node,
+			Model: p.Model, Local: true, TS: time.Now().Unix()}
+		rec.SignNode(key)
+		w.Header().Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"from `+node+`"}}]}`)
 	}))
 	f.srv.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},

@@ -33,6 +33,7 @@
       <div class="topbar-left">
         <span class="brand-mark">Roger</span>
         <span class="station-callsign mono" id="top-callsign">&mdash;</span>
+        <span class="lan-badge mono" id="top-lan" title="LAN mode: only local bands, nothing billed" hidden></span>
         <span class="slot-meter" id="top-slots" title="slots on air">
           <span class="dot-on">&#9673;</span> <span id="top-slots-text">0/0</span>
         </span>
@@ -682,6 +683,7 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
+  <script src="/assets/console-lan.js" defer></script>
   <script src="/assets/console.js" defer></script>
 </body>
 </html>

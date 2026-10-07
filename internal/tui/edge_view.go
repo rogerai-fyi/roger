@@ -351,6 +351,11 @@ func edgeModeBadge(st edgeState) string {
 	if st.status == nil {
 		return ""
 	}
+	if LANMode() {
+		// LAN mode overrides the stored preference for this process (features/lan/ui_visibility.feature):
+		// the header names the mode, never a preference that is not in force.
+		return st.status.RootBadge() + " · LAN"
+	}
 	return st.status.RootBadge() + " · " + st.status.PreferBadge()
 }
 

@@ -152,6 +152,7 @@
     var slots = (s.on_air || 0) + "/" + (s.max_on_air || 0);
     $("top-slots-text").textContent = slots;
     $("share-slots-text").textContent = slots;
+    window.RogerConsoleLAN.renderLAN(document, s);
 
     var t = s.totals || {};
     var totals = $("share-totals");
@@ -162,7 +163,7 @@
     totals.appendChild(document.createTextNode(" · "));
     totals.appendChild(el("span", null, fmtUSD(t.earnings) + " at list"));
     totals.appendChild(document.createTextNode(" · "));
-    totals.appendChild(el("span", "muted", "settles on the broker"));
+    totals.appendChild(el("span", "muted", window.RogerConsoleLAN.costLine(s)));
     // A PROBE IS NOT TRAFFIC, and the console has to say so in the same words the terminal
     // uses. The requests/tokens above exclude the broker's canaries; reporting them beside
     // rather than not at all is what keeps a busy rig explicable. Shown only when there are

@@ -14,6 +14,8 @@ type Snapshot struct {
 	Upstream string    `json:"upstream"`
 	Rows     []RowView `json:"rows"`
 	Totals   Totals    `json:"totals"`
+	// LAN is set when SHARE runs in LAN mode: the console marks the mode and bills nothing.
+	LAN bool `json:"lan,omitempty"`
 }
 
 // RowView is one model in the share table: its catalog facts plus live counters when
@@ -96,6 +98,7 @@ func (c *Controller) Snapshot() Snapshot {
 		LoggedIn: c.loggedIn,
 		Upstream: c.upstream,
 		Rows:     make([]RowView, 0, len(c.rows)),
+		LAN:      c.lanTowers != nil,
 	}
 	for _, r := range c.rows {
 		p := c.pricingForLocked(r.Model)

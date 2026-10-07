@@ -73,8 +73,8 @@ func noteLAN(cfg config, cmd string) {
 		return
 	}
 	switch cmd {
-	case "status", "lan", "config", "version", "help", "-h", "--help":
-		return // these say the mode themselves, or are not about bands
+	case "status", "lan", "config", "version", "help", "-h", "--help", "share":
+		return // these say the mode themselves (share opens with it), or are not about bands
 	}
 	fmt.Fprintf(lanNoteOut, "LAN mode (from %s): only bands on this machine, your Edge and LAN Towers; %s\n", cfg.lan.Source, lanOffHint(cfg.lan))
 }

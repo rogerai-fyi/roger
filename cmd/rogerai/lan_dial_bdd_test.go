@@ -39,6 +39,10 @@ func newRecordingBroker(t *testing.T) *recordingBroker {
 		rb.mu.Lock()
 		rb.paths = append(rb.paths, r.URL.Path)
 		rb.mu.Unlock()
+		if r.URL.Path == "/balance" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"user": "u_gh_7", "balance": 12.5, "logged_in": true})
+			return
+		}
 		if r.URL.Path == "/discover" {
 			_ = json.NewEncoder(w).Encode(map[string]any{"offers": []client.Offer{{Model: "market-band", Online: true}}})
 			return

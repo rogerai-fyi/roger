@@ -19,6 +19,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/edge"
 )
 
 type lanUIBDD struct {
@@ -67,7 +68,7 @@ func (s *lanUIBDD) headerHas(want string) error {
 func TestLANUIBDD(t *testing.T) {
 	s := &lanUIBDD{t: t}
 	paths := []string{}
-	for _, l := range []int{31, 43, 49, 55, 61, 66} {
+	for _, l := range []int{31, 43, 49, 55, 61, 66, 72} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/ui_visibility.feature:%d", l))
 	}
 	for _, l := range []int{35, 100} {
@@ -82,6 +83,28 @@ func TestLANUIBDD(t *testing.T) {
 				return ctx, nil
 			})
 			sc.Step(`^LAN mode is on$`, func() error { return nil })
+			var edgeStatus *edge.SelfStatus
+			sc.Step(`^edge\.prefer is "([^"]*)"$`, func(v string) error {
+				edgeStatus = &edge.SelfStatus{Enrolled: true, Root: edge.RootLocal, Authority: "shed", AuthorityLocal: true, Prefer: v}
+				return nil
+			})
+			sc.Step(`^the Edge screen renders$`, func() error {
+				s.seed(120, "http://broker.invalid")
+				s.out = edgeModeBadge(edgeState{status: edgeStatus})
+				return nil
+			})
+			sc.Step(`^the header shows the root badge and "LAN"$`, func() error {
+				if !strings.Contains(s.out, edgeStatus.RootBadge()) || !strings.Contains(s.out, "LAN") {
+					return fmt.Errorf("the Edge header is %q, want the root badge %q and LAN", s.out, edgeStatus.RootBadge())
+				}
+				return nil
+			})
+			sc.Step(`^it does not show "LOCAL" as the preference$`, func() error {
+				if strings.Contains(s.out, edgeStatus.PreferBadge()) || strings.Contains(s.out, "LOCAL-ONLY") {
+					return fmt.Errorf("the Edge header still shows the preference: %q", s.out)
+				}
+				return nil
+			})
 			sc.Step(`^the TUI renders at (\d+) columns ?(in the windowshade)?$`, func(w int, shade string) error {
 				s.seed(w, "http://broker.invalid")
 				s.m.compact = shade != ""

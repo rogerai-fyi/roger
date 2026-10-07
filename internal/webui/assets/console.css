@@ -219,6 +219,14 @@ noscript {
   font-variant-numeric: tabular-nums;
 }
 .slot-meter .dot-on { color: var(--live); font-size: 0.7em; line-height: 1; }
+/* LAN mode's mark in the top bar: a word in strong ink, never the brand red, and it wraps with
+   the bar on a phone rather than forcing a width (features/lan/ui_visibility.feature). */
+.lan-badge {
+  color: var(--ink-900);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
 
 /* the big share-header slot reading. */
 .slot-meter.big {

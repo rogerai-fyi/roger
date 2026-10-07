@@ -2210,7 +2210,13 @@ func cmdBalance(cfg config, args []string) error {
 		}
 		return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 	}
-	return client.Balance(cfg.Broker, cfg.User)
+	if err := client.Balance(cfg.Broker, cfg.User); err != nil {
+		return err
+	}
+	if cfg.lan.LAN {
+		fmt.Println("turns in LAN mode are free and do not touch this balance")
+	}
+	return nil
 }
 
 // balanceTopupAlias recognizes the retired-but-still-working topup spellings under
