@@ -384,12 +384,18 @@ func lanStatusText(st client.LANTowerStatus) string {
 	return line
 }
 
-// lanSelfServe is this machine's own serve of a band (`roger model serve`): its completions
-// URL and runtime key, or "" when nothing here serves it.
+// lanSelfServe is this machine's own serve of a band: a `roger model serve` record, or a band
+// this process has on the air through SHARE (the upstream it serves peers from). It returns the
+// completions URL and key, or "" when nothing here serves it.
 var lanSelfServe = func(band string) (string, string) {
 	for _, sv := range modelHome().LiveAll() {
 		if sv.Band == band && sv.BaseURL != "" {
 			return strings.TrimRight(sv.BaseURL, "/") + "/chat/completions", sv.Key
+		}
+	}
+	if edgeUpstreamOf != nil {
+		if u, k, ok := edgeUpstreamOf(band); ok && u != "" {
+			return u, k
 		}
 	}
 	return "", ""

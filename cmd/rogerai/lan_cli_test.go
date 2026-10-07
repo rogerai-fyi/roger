@@ -160,3 +160,22 @@ func TestFrontEndLadderHookCarriesLANMode(t *testing.T) {
 	frontEndLadder(cfg)(&off)
 	require.False(t, off.LANMode)
 }
+
+// A band this process has on the air through SHARE (not `roger model serve`) is this machine's
+// own serve in LAN mode: the self rung reaches the same upstream the share serves.
+func TestLANSelfServeIncludesThisProcessShare(t *testing.T) {
+	useTempConfig(t)
+	prev := edgeUpstreamOf
+	t.Cleanup(func() { edgeUpstreamOf = prev })
+	edgeAttachUpstream(func(band string) (string, string, bool) {
+		if band == "shared-band" {
+			return "http://127.0.0.1:11434/v1/chat/completions", "k", true
+		}
+		return "", "", false
+	})
+	u, k := lanSelfServe("shared-band")
+	require.Equal(t, "http://127.0.0.1:11434/v1/chat/completions", u)
+	require.Equal(t, "k", k)
+	u, _ = lanSelfServe("not-shared")
+	require.Empty(t, u)
+}
