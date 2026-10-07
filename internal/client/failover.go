@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -517,13 +518,13 @@ func offerMeetsBody(o Offer, c Criteria) bool {
 			return false
 		}
 	}
-	if len(c.Only) > 0 && !hasFold(c.Only, o.NodeID) {
+	if len(c.Only) > 0 && !slices.Contains(c.Only, o.NodeID) {
 		return false
 	}
-	if len(c.Region) > 0 && !hasFold(c.Region, o.Region) {
+	if len(c.Region) > 0 && !slices.Contains(c.Region, o.Region) {
 		return false
 	}
-	if hasFold(c.Exclude, o.NodeID) {
+	if slices.Contains(c.Exclude, o.NodeID) {
 		return false
 	}
 	// As on the broker: a context floor needs a DECLARED window at least that large (an
@@ -616,7 +617,7 @@ func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
 		} else {
 			var both []string
 			for _, id := range c.Only {
-				if hasFold(opts.Only, id) {
+				if slices.Contains(opts.Only, id) {
 					both = append(both, id)
 				}
 			}
@@ -646,7 +647,7 @@ func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
 		c.TrustMin = opts.TrustMin
 	}
 	for _, r := range opts.Require {
-		if !hasFold(c.Require, r) {
+		if !slices.Contains(c.Require, r) {
 			c.Require = append(c.Require, r)
 		}
 	}

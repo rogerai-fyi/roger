@@ -346,7 +346,7 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if len(r.Region) > 0 && !mistyped(roger, "region", isStringList) {
 		if got := stringsOf(roger["region"]); len(got) > 0 {
 			for _, x := range got {
-				if !hasFold(r.Region, x) {
+				if !slices.Contains(r.Region, x) {
 					return nil, &RoutingRefusal{Msg: "region " + x + " is outside this session's allowed regions"}
 				}
 			}
@@ -429,7 +429,7 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		if only := stringsOf(provider["only"]); len(only) > 0 {
 			order = nil
 			for _, x := range r.Prefer {
-				if hasFold(only, x) {
+				if slices.Contains(only, x) {
 					order = append(order, x)
 				}
 			}
@@ -602,8 +602,9 @@ func RoutingKeysAdded(orig, sent []byte) []string {
 	return added
 }
 
-// hasFold reports whether list contains s, comparing case-insensitively (quant labels are
-// verbatim but a Q8_0 and a q8_0 are the same weights).
+// hasFold reports whether list contains s, comparing case-insensitively. For quant labels only
+// (a Q8_0 and a q8_0 are the same weights); station ids, regions and capabilities compare
+// exactly, as the broker compares them.
 func hasFold(list []string, s string) bool {
 	for _, v := range list {
 		if strings.EqualFold(strings.TrimSpace(v), strings.TrimSpace(s)) {
@@ -929,7 +930,7 @@ func rawObjectOK(raw json.RawMessage) bool {
 // (and refused when nothing is left, since an empty list would read as no filter).
 func capStations(provider map[string]any, set []string, kind string) *RoutingRefusal {
 	for _, x := range stringsOf(provider["order"]) {
-		if !hasFold(set, x) {
+		if !slices.Contains(set, x) {
 			return &RoutingRefusal{Msg: "order names " + x + ", outside this session's " + kind + " stations"}
 		}
 	}
@@ -939,7 +940,7 @@ func capStations(provider map[string]any, set []string, kind string) *RoutingRef
 	}
 	kept := []string{}
 	for _, x := range got {
-		if hasFold(set, x) {
+		if slices.Contains(set, x) {
 			kept = append(kept, x)
 		}
 	}
