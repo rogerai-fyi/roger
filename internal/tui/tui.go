@@ -790,7 +790,7 @@ type quote struct {
 
 type model struct {
 	// lanAddSel is the candidate Tower the owner is being asked to add ("" = no confirm open).
-	lanAddSel string
+	lanAddSel    string
 	broker, user string
 	offers       []offer
 	cursor       int
