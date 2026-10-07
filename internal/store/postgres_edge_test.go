@@ -1,10 +1,10 @@
 package store
 
 import (
-	"os"
 	"testing"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -13,7 +13,7 @@ import (
 // helpers) that have no Mem equivalent.
 func pgOnly(t *testing.T) *Postgres {
 	t.Helper()
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping Postgres-specific edge test")
 	}

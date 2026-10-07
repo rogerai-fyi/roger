@@ -64,7 +64,11 @@ jobs:
       # Provision the `rogerai` schema (prod provisions it out-of-band; NewPostgres only
       # owns the tables inside it, by design / least privilege).
       - name: create schema
-        run: psql "$ROGERAI_TEST_DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS rogerai;"
+        # The throwaway test database skips durability flushes (same as scripts/cover-gate.sh);
+        # all three settings reload without a restart.
+        run: |
+          psql "$ROGERAI_TEST_DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS rogerai;"
+          psql "$ROGERAI_TEST_DATABASE_URL" -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET synchronous_commit = off" -c "ALTER SYSTEM SET full_page_writes = off" -c "SELECT pg_reload_conf()"
 
       # 1) Tests + coverage profile. Fails the job only if TESTS fail (not on low coverage).
       - name: test + coverage

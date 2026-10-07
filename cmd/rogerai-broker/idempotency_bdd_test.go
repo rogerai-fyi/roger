@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -763,7 +764,7 @@ func TestIdempotencyConcurrencyBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("money/idempotency_concurrency behavior scenarios failed (see godog output above)")
 	}
 }

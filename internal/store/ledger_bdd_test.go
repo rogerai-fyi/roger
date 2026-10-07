@@ -13,12 +13,13 @@ package store
 import (
 	"fmt"
 	"math"
-	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -367,13 +368,10 @@ func (s *lgState) balanceUnchangedRedeliv() error {
 }
 
 func TestLedgerBDD(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ledger.feature requires ROGERAI_TEST_DATABASE_URL (a real Postgres) - skipping")
 	}
-	// Package test binaries run concurrently under `go test ./...`. Never let this
-	// scenario's per-case TRUNCATE erase broker-package fixtures in the shared database.
-	dsn = storePrivateDSN(t, dsn)
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			st := &lgState{dsn: dsn}
@@ -413,7 +411,7 @@ func TestLedgerBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("money/ledger behavior scenarios failed (see godog output above)")
 	}
 }

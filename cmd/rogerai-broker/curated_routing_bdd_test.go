@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -321,7 +322,7 @@ func TestCuratedRoutingFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_routing.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("curated routing scenarios failed")
 	}
 }

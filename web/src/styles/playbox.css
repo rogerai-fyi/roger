@@ -952,8 +952,34 @@
   .pg-deckswitch .pg-mode, .pg-mode__lamp { transition: none; }
 }
 
+/* THE ROUTING DRAWER (playbox_routing.feature): the design system's tinted panel
+   (.tint-panel paints the ground) placed under the J-card; this rule only sets the
+   inset's measure and its stacked label/field rows. No grid, no glow, tokens only. */
+.dk-route {
+  margin: var(--s-3) auto 0; max-width: min(420px, 100%);
+  font-size: var(--t-xs);
+}
+.dk-route__row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--s-2); padding-block: var(--s-1); color: var(--ink-700);
+}
+.dk-route__row input[type="text"], .dk-route__row select { min-width: 0; flex: 1 1 10rem; max-width: 100%; }
+.dk-route__hint, .dk-route__note { color: var(--ink-400); margin: 0; overflow-wrap: anywhere; }
+.dk-route__toggle {
+  display: block; margin: var(--s-2) auto 0; background: none; border: 0;
+  color: var(--ink-500); text-decoration: underline; cursor: pointer;
+  font-size: var(--t-xs); letter-spacing: var(--tracking-label);
+}
+.dk-route__toggle[hidden] { display: none; }
+.dk-route:not([hidden]) { animation: dk-route-open var(--d-1) var(--ease-standard); }
+@keyframes dk-route-open { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .dk-route:not([hidden]) { animation: none; }
+}
+
 /* touch: this sheet's small controls keep their look and grow a --hit tap area
    (the pattern: the touch hit area block in components.css) */
 @media (pointer: coarse) {
   :is(.dk__pos)::before { content: ""; position: absolute; inset: var(--hit-inset); }
+  .dk-route__toggle, .dk-route__row { min-height: var(--hit); }
 }

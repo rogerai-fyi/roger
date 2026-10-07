@@ -1,5 +1,6 @@
-# BUILD STATUS: NOT BUILT. Approved 2026-09-30 as part of the routing-expression set (slice 4); the
-# local plane still reads only `model` today (internal/localplane/completion.go).
+# BUILD STATUS: BUILT. 2026-10-04: models[], provider.only / ignore / order / allow_fallbacks
+# over local station ids, evaluated trust_min / confidential, named ignored keys, messages that
+# name the constraint and never the requested ids, /v1/models, scripts/localplane-routing-smoke.sh.
 # STANDALONE TOWER - the Core-free local plane and the routing body object (CONTRACT §1, §5, §6).
 #
 # PURPOSE: a client on a private network sends the same body object it would send the public
@@ -25,7 +26,8 @@
 #     The console spend setting (v6.2.0 data-loss fix) is unrelated to consumer routing.
 #
 # DECISIONS (state, not ask):
-#   HONORED locally: `models[]` (first model any local station serves, in order), `provider.only`,
+#   HONORED locally: `models[]` (first model with an ELIGIBLE local station, in order), `provider.only`,
+#   # corrected 2026-10-05 (founder ruling): per-model eligibility, as the broker (CONTRACT §3)
 #   `provider.ignore`, `provider.order`, `provider.allow_fallbacks` over LOCAL station ids.
 #   EVALUATED, never ignored (CONTRACT §5a, "a default can never weaken a stated restriction"):
 #   roger.confidential and roger.trust_min. The attach registry records no attestation, so a
@@ -84,6 +86,12 @@ Feature: The standalone Tower honors the routing keys it can evaluate and names 
     Then the job is submitted for "llama-3.3-70b"
     And the response carries X-RogerAI-Model: llama-3.3-70b
 
+  Scenario: models[] skips a model whose only local station the constraints remove
+    # corrected 2026-10-05 (founder ruling): per-model eligibility, as the broker (CONTRACT §3)
+    When "c1" posts {"model": "mistral-7b", "models": ["qwen3-32b"], "provider": {"ignore": ["s3"]}, "messages": [...]}
+    Then the job is submitted for "qwen3-32b"
+    And the response carries X-RogerAI-Model: qwen3-32b
+
   Scenario: The primary model is tried before the list
     When "c1" posts {"model": "qwen3-32b", "models": ["llama-3.3-70b"], "messages": [...]}
     Then the job is submitted for "qwen3-32b"
@@ -120,7 +128,8 @@ Feature: The standalone Tower honors the routing keys it can evaluate and names 
 
   Scenario: PROPOSED - only with no local match is a 503 no_match that names the constraint
     When "c1" posts {"model": "qwen3-32b", "provider": {"only": ["s9"]}, "messages": [...]}
-    Then the response is 503 with error code "no_match" and message "no local station matches: only s9 for qwen3-32b"
+    # corrected 2026-10-04 (founder-approved): messages name the constraint, never the requested ids (no reflection, no probing)
+    Then the response is 503 with error code "no_match" and message "no local station matches: only for qwen3-32b"
     And the response carries no Retry-After (nothing is cooling on a local plane)
     And nothing is queued
 
@@ -313,3 +322,15 @@ Feature: The standalone Tower honors the routing keys it can evaluate and names 
     Then it posts one models[] request and one only request
     And it asserts X-RogerAI-Model, X-Roger-Cost: 0 and X-Roger-Routing-Ignored on an ignored-key request
     And the check fails if the station's job body still carries "provider" or "roger"
+
+  # founder ruling 2026-10-07: a duplicate key inside a routing object is refused, as on the broker
+  Scenario Outline: A duplicate key inside a routing object is a 400 naming the key
+    When "c1" posts {"model": "qwen3-32b", <carrier>, "messages": [...]}
+    Then the response is 400 naming "<key>"
+    And nothing is queued
+
+    Examples:
+      | carrier                                                        | key                           |
+      | "provider": {"only": ["s1"], "only": ["s2"]}                   | provider.only                 |
+      | "roger": {"min_tps": 1, "min_tps": 2}                          | roger.min_tps                 |
+      | "provider": {"max_price": {"completion": 1, "completion": 2}}  | provider.max_price.completion |

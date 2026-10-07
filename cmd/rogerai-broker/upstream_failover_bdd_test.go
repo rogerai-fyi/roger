@@ -33,6 +33,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +43,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -246,7 +248,11 @@ func (s *foState) reset() error {
 	s.jobLog = nil
 	s.jobMu.Unlock()
 	s.nonce = utNonce()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	dsn, err := pgtest.Private()
+	if err != nil {
+		return err
+	}
+	if dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			return fmt.Errorf("postgres: %w", err)
@@ -3287,7 +3293,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("routing/upstream_failover scenarios failed (see godog output above)")
 	}
 }

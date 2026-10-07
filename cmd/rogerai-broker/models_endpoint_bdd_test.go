@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -368,7 +369,7 @@ func TestModelsEndpointSlice0BDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("discovery/models_endpoint @slice0 scenarios failed (see godog output above)")
 	}
 }

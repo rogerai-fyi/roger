@@ -44,6 +44,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -2029,7 +2030,7 @@ func TestGenerationLookupBDD(t *testing.T) {
 				Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@slice5 && ~@web", TestingT: t, Strict: true,
 			},
 		}
-		if suite.Run() != 0 {
+		if bddtest.Run(t, &suite) != 0 {
 			t.Fatal("generation_lookup scenarios failed")
 		}
 	})
@@ -2056,7 +2057,7 @@ func TestGenerationLookupBDD(t *testing.T) {
 				Tags: "@slice3", TestingT: t, Strict: true,
 			},
 		}
-		if suite.Run() != 0 {
+		if bddtest.Run(t, &suite) != 0 {
 			t.Fatal("model_fallback_list @slice3 scenarios failed")
 		}
 	})

@@ -64,7 +64,9 @@ landing hero becomes ink by wrapping it in `.tone-zone` and changing the one rul
 the consistency test.
 
 Known and kept: the signed-in pages keep their own plate, forms and tables
-(account-base.css); the Playbox is a tool, its hero is the deck; the legal pages carry
+(account-base.css); the Playbox is a tool, its hero is the deck (its routing drawer,
+`.dk-route`, is a `.tint-panel` placed under the J-card: page rules set only its
+measure and stacked label rows); the legal pages carry
 no running-head rail (a rail needs its own words, and this pass changes no copy).
 
 ### Before you add a component

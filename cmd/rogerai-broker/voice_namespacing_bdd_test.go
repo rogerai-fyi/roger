@@ -27,11 +27,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -642,7 +644,7 @@ func TestVoiceNamespacingBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/voice/namespacing_attribution.feature"}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("voice/namespacing_attribution behavior scenarios failed (see godog output above)")
 	}
 }
@@ -652,17 +654,18 @@ func TestVoiceNamespacingBDD(t *testing.T) {
 // in-memory reference store. The owner-attribution path this suite exercises
 // (BindOwner/BindNode/AccountOfNode/OwnerByPubkey) is identical across both backends.
 //
-// ISOLATION: the Postgres run happens on a PRIVATE throwaway database forked off the shared
-// server (nsIsolatedDSN), never on the shared test database itself. `go test ./...` runs
-// this package CONCURRENTLY with internal/store against the ONE cover-gate Postgres, and
-// sharing tables raced both ways: the store suite's TRUNCATE reset wiped this suite's bound
-// owners mid-scenario ("0 voices"), and this suite's NewPostgres migrate re-seeded the
+// ISOLATION: the Postgres run happens on a throwaway database of the suite's own
+// (nsIsolatedDSN), created on the same server through the package's private database
+// (internal/pgtest), and dropped when the suite ends. Before per-package databases,
+// `go test ./...` ran this package CONCURRENTLY with internal/store against ONE shared
+// database, and sharing tables raced both ways: the store suite's TRUNCATE reset wiped
+// this suite's bound owners mid-scenario ("0 voices"), and this suite's NewPostgres migrate re-seeded the
 // store's TRUNCATEd seed_counter, re-arming the anonymous $5 free seed under the store's
 // money assertions (balances 13 want 8). Same server, own database: the REAL SQL path stays
 // fully exercised with zero cross-package interference.
 func nsTestStore(t *testing.T) store.Store {
 	t.Helper()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	if dsn := pgtest.DSN(t); dsn != "" {
 		if nsIsoDSN == "" {
 			nsIsoDSN = nsIsolatedDSN(t, dsn)
 		}

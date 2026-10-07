@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -77,7 +79,7 @@ func xiRedisURL(t *testing.T) string {
 // ROGERAI_TEST_DATABASE_URL is set, else the in-memory reference.
 func xiStore(t *testing.T) store.Store {
 	t.Helper()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	if dsn := pgtest.DSN(t); dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			t.Fatalf("postgres: %v", err)
@@ -1317,7 +1319,7 @@ func TestLivenessChurnBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/liveness_churn scenarios failed (see godog output above)")
 	}
 }
@@ -1340,7 +1342,7 @@ func TestFlagOffRelayBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/flag_off_relay scenarios failed (see godog output above)")
 	}
 }
@@ -1359,7 +1361,7 @@ func TestCrossInstanceRelayBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/cross_instance_relay scenarios failed (see godog output above)")
 	}
 }

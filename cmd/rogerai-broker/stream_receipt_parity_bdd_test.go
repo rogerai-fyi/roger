@@ -45,6 +45,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -2395,7 +2396,7 @@ func TestStreamReceiptParityBDD(t *testing.T) {
 			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@slice5", TestingT: t, Strict: true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("stream_receipt_parity scenarios failed")
 	}
 }

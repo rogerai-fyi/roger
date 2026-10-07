@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 
@@ -386,7 +387,7 @@ func TestAgentBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("agent behavior scenarios failed (see godog output above)")
 	}
 }

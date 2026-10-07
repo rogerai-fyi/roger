@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 
@@ -319,7 +320,7 @@ func TestGrantsAppleOwnerBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/grants/apple_owner_management.feature"}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("grants/apple_owner_management behavior scenarios failed (see godog output above)")
 	}
 }

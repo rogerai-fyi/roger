@@ -134,12 +134,16 @@ Feature: Named routing profiles resolve to the body object on every client
       | a              | listed                           |
       | 65-char-name…  | rejected as "invalid name"       |
 
-  Scenario: A profile named like a model id is still a profile only behind @profile/
+  # corrected 2026-10-04 (founder-approved): a profile with no model on the standalone path asks for a model (approved); --profile applies it to a named model
+  Scenario: A profile named like a model id is still a profile only behind @profile/ or --profile
     Given profile "qwen3-32b" sets roger.pref = "fast"
     When the user runs "roger use qwen3-32b --yes"
     Then the tune-time body carries no roger.pref key
-    When the user runs "roger use @profile/qwen3-32b --yes"
+    When the user runs "roger use qwen3-32b --profile qwen3-32b --yes"
     Then the tune-time body carries roger.pref = "fast"
+    When the user runs "roger use @profile/qwen3-32b --yes"
+    Then the exit code is non-zero
+    And stderr is exactly one line saying "profile qwen3-32b names no model: roger use <model> --profile qwen3-32b"
 
   Scenario: A profile referencing another profile is refused (no nesting)
     Given profile "base" sets roger.pref = "fast"
@@ -195,7 +199,6 @@ Feature: Named routing profiles resolve to the body object on every client
 
     Examples:
       | profileKey                    | profileValue        | requestKey                    | requestValue |
-      | models                        | ["a","b"]           | models                        | ["c"]        |
       | provider.only                 | ["n1","n2"]         | provider.only                 | ["n3"]       |
       | provider.order                | ["n1"]              | provider.order                | ["n2","n3"]  |
       | provider.ignore               | ["n9"]              | provider.ignore               | ["n8"]       |
@@ -216,7 +219,25 @@ Feature: Named routing profiles resolve to the body object on every client
       | roger.self_hosted_only        | true                | roger.self_hosted_only        | false        |
       | roger.confidential            | true                | roger.confidential            | false        |
       | roger.region                  | ["eu"]              | roger.region                  | ["us"]       |
-      | roger.freq                    | "147.520 MHz AAAA"  | roger.freq                    | "147.520 MHz BBBB" |
+
+  # corrected 2026-10-04 (founder-approved): the models and roger.freq rows moved out of the outline - a guest may only tighten
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
+  Scenario: A guest request naming a model outside the tuned band is refused even when a profile lists it
+    Given profile "p" sets models = ["a","b"]
+    And the user tunes with "roger use a --profile p --yes"
+    When a guest request with model "@profile/p" and models ["c"] is resolved by the local proxy
+    Then the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
+
+  # corrected 2026-10-04 (founder-approved): a guest's band code is never taken - the owner's band stands
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
+  Scenario: A guest's roger.freq never replaces the profile's or the session's band
+    Given profile "p" sets roger.freq = "147.520 MHz AAAA"
+    And a private band with code "147.520 MHz AAAA" resolves for "qwen3-32b"
+    And the proxy was tuned with --profile p
+    When a guest request with model "@profile/p" and roger.freq "147.520 MHz BBBB" is resolved by the local proxy
+    Then the broker receives the X-Roger-Freq header for "147.520 MHz AAAA"
+    And the body carries no roger.freq
 
   Scenario: max_price merges per sub-key (prompt from the profile, completion from the request)
     Given profile "p" sets provider.max_price = {"prompt": 1, "completion": 2}
@@ -230,8 +251,10 @@ Feature: Named routing profiles resolve to the body object on every client
     When profile "p" is merged with the request
     Then the body object carries no provider.only key
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A request that only names the profile inherits everything
     Given profile "p" sets roger.pref = "fast" and provider.ignore = ["n9"]
+    And the proxy was tuned with --profile p
     And the request is {"model": "@profile/p", "messages": [...]}
     When the request is resolved by the local proxy
     Then the broker receives roger.pref = "fast", provider.ignore = ["n9"], and no "@profile/" anywhere
@@ -245,14 +268,18 @@ Feature: Named routing profiles resolve to the body object on every client
 
   # --- @profile/ references ------------------------------------------------------------
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: @profile/<name> in model is resolved by the client and never sent to the broker
     Given profile "coding" sets models = ["qwen3-32b"]
+    And the proxy was tuned with --profile coding
     And the request body is {"model": "@profile/coding"}
     When the local proxy resolves the request
     Then the broker receives model = "qwen3-32b" and no "@profile/" string in any field
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: roger.profile is the other spelling and means the same
     Given profile "coding" sets roger.pref = "fast"
+    And the proxy was tuned with --profile coding
     And the request body is {"model": "qwen3-32b", "roger": {"profile": "@profile/coding"}}
     When the local proxy resolves the request
     Then the broker receives roger.pref = "fast" and no roger.profile key
@@ -264,11 +291,13 @@ Feature: Named routing profiles resolve to the body object on every client
     Then the guest receives an OpenAI-shaped 400 "two profiles named: @profile/a and @profile/b"
     And nothing reaches the broker
 
-  Scenario: An unknown @profile/ is a local 400 that reaches no broker
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
+  Scenario: An unknown @profile/ is refused like any untuned profile and reaches no broker
+    # an unknown name is never the tuned one; one answer for both keeps the owner's profile names private
     Given no profile named "nope"
     And the request body is {"model": "@profile/nope"}
     When the local proxy resolves the request
-    Then the guest receives an OpenAI-shaped 400 "unknown profile nope"
+    Then the guest receives a 403 with error.code "profile_not_tuned" saying "profile nope is not the profile this session was tuned under"
     And nothing reaches the broker
 
   Scenario: The broker itself rejects an unresolved @profile/ with 400 unknown_profile
@@ -276,14 +305,17 @@ Feature: Named routing profiles resolve to the body object on every client
     Then the broker answers 400 with error.code "unknown_profile"
     And no hold is placed
 
+  # corrected 2026-10-04 (founder-approved): a carrier-less foreign id is rewritten to the band model (approved rewrite rule)
   Scenario: @profile/ is case-sensitive and exact
     Given profile "coding" exists
     When the request names "@Profile/coding"
-    Then the local proxy treats it as a plain model id (which no station serves)
+    Then the local proxy does not resolve it as a profile
+    And the broker receives the tuned band's model, as for any carrier-less foreign id
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A profile with no model or models takes the tuned band's model through the proxy (no local 400)
     Given profile "p" sets only roger.pref = "fast"
-    And the local proxy is tuned to "qwen3-32b-fp8"
+    And the user tunes with "roger use qwen3-32b-fp8 --profile p --yes"
     And the request body is {"model": "@profile/p"}
     When the local proxy resolves the request
     Then the broker receives model "qwen3-32b-fp8" and roger.pref "fast"
@@ -309,9 +341,10 @@ Feature: Named routing profiles resolve to the body object on every client
     And a chat request without a profile reference goes through the endpoint
     Then the broker receives roger.pref = "fast"
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: PROPOSED - a per-request @profile/ reference is re-read on change
     Given profile "coding" sets roger.pref = "fast"
-    And the local proxy is live
+    And the proxy was tuned with --profile coding
     When a guest sends {"model": "@profile/coding"}
     Then the broker receives roger.pref = "fast"
     When config.json changes profile "coding" to roger.pref = "cheap"
@@ -393,24 +426,32 @@ Feature: Named routing profiles resolve to the body object on every client
 
   # --- the proxy resolves profiles for guests ------------------------------------------
 
+  # corrected 2026-10-04 (founder-approved): the broker only routes require tools to a station whose tool calling its own canary verified, so the fixture station is a verified one
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A guest naming @profile/ gets the profile's routing without headers
-    Given profile "coding" sets roger.require = ["tools"] and provider.max_price.completion = 2
-    And a live proxy session with band model "qwen3-32b"
+    Given the broker verifies tool calling on its stations
+    And profile "coding" sets roger.require = ["tools"] and provider.max_price.completion = 2
+    And the proxy was tuned with --profile coding
+    And the band's station has verified tool calling
     When the guest sends {"model": "@profile/coding", "messages": [...]}
     Then the broker receives model = "qwen3-32b", roger.require = ["tools"], provider.max_price.completion = 2
     And the guest's response is unchanged in shape
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: The guest's own body keys beat the profile
     Given profile "coding" sets roger.pref = "fast"
+    And the proxy was tuned with --profile coding
     When the guest sends {"model": "@profile/coding", "roger": {"pref": "cheap"}}
     Then the broker receives roger.pref = "cheap"
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: The proxy owner's caps still bound a guest's profile (see routing_passthrough.feature)
-    Given the proxy was tuned with --max-out 2
-    And profile "loose" sets provider.max_price.completion = 50
+    Given profile "loose" sets provider.max_price.completion = 50
+    And the proxy was tuned with --max-out 2 --profile loose
     When the guest sends {"model": "@profile/loose"}
     Then the broker receives provider.max_price.completion = 2
 
+  @tui
   Scenario: The TUI, CLI and proxy resolve the same profile to the same body object
     Given profile "coding" with every key set
     When the profile is resolved by the CLI, by the TUI's tune, and by the local proxy for a guest
@@ -433,3 +474,46 @@ Feature: Named routing profiles resolve to the body object on every client
     When the user tunes with a profile
     Then no request to /account or /me carries the profile
     And the broker sees only the resolved body object
+
+  # --- a guest may name only the tuned profile ---------------------------------------
+  # founder ruling 2026-10-07: guests may name only the tuned profile. A guest that named any
+  # profile in the owner's config could pick a looser or pricier one than the band was tuned
+  # under; the owner chose one profile for the session, and that is the only one a guest gets.
+
+  # founder ruling 2026-10-07: guests may name only the tuned profile
+  Scenario: A guest naming the profile the session was tuned under is served
+    Given profile "coding" sets roger.pref = "fast"
+    And the proxy was tuned with --profile coding
+    When a guest sends {"model": "@profile/coding", "messages": [...]}
+    Then the broker receives roger.pref = "fast" and no roger.profile key
+
+  # founder ruling 2026-10-07: guests may name only the tuned profile
+  Scenario: A guest naming a profile other than the tuned one is refused with a 403
+    Given profiles "a" and "b" exist
+    And the proxy was tuned with --profile a
+    When a guest sends {"model": "@profile/b", "messages": [...]}
+    Then the guest receives a 403 with error.code "profile_not_tuned" saying "profile b is not the profile this session was tuned under"
+    And nothing reaches the broker
+
+  # founder ruling 2026-10-07: guests may name only the tuned profile
+  Scenario: A guest naming any profile on a session tuned without one is refused with a 403
+    Given profiles "a" and "b" exist
+    And the local proxy is live
+    When a guest sends {"model": "@profile/a", "messages": [...]}
+    Then the guest receives a 403 with error.code "profile_not_tuned" saying "profile a is not the profile this session was tuned under"
+    And nothing reaches the broker
+
+  # founder ruling 2026-10-07: guests may name only the tuned profile
+  Scenario: roger.profile is held to the same rule as a model reference
+    Given profiles "a" and "b" exist
+    And the proxy was tuned with --profile a
+    When a guest sends {"model": "qwen3-32b", "roger": {"profile": "@profile/b"}, "messages": [...]}
+    Then the guest receives a 403 with error.code "profile_not_tuned" saying "profile b is not the profile this session was tuned under"
+    And nothing reaches the broker
+
+  # founder ruling 2026-10-07: guests may name only the tuned profile
+  Scenario: A guest that names no profile is unaffected by the session's profile
+    Given profiles "a" and "b" exist
+    And the proxy was tuned with --profile a
+    When a guest sends {"model": "qwen3-32b", "messages": [...]}
+    Then the guest receives a 200

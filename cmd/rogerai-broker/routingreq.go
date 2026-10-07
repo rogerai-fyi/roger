@@ -189,7 +189,8 @@ var (
 
 // routingObject reads one carrier (or provider.max_price): it must be an object, and every
 // key must be one the contract defines - checked for ALL keys before any value, so an
-// unknown key is never masked by an earlier invalid value. Later duplicates win.
+// unknown key is never masked by an earlier invalid value. A key given twice is refused
+// (founder ruling 2026-10-07), as the proxy and the local plane refuse it.
 func routingObject(path string, raw json.RawMessage, known map[string]bool) (map[string]json.RawMessage, *routingError) {
 	kvs, ok := jsonObject(raw)
 	if !ok {
@@ -200,22 +201,27 @@ func routingObject(path string, raw json.RawMessage, known map[string]bool) (map
 			return nil, &routingError{code: "unknown_routing_key", msg: "unknown routing key " + path + "." + kv.key}
 		}
 	}
+	seen := make(map[string]bool, len(kvs))
+	for _, kv := range kvs {
+		if seen[kv.key] {
+			return nil, invalidRouting(path+"."+kv.key, "duplicate key")
+		}
+		seen[kv.key] = true
+	}
 	m := make(map[string]json.RawMessage, len(kvs))
 	for _, kv := range kvs {
-		if isJSONNull(kv.val) {
-			delete(m, kv.key) // null means absent, and the LAST occurrence of a key wins
-			continue
+		if !isJSONNull(kv.val) { // null means absent
+			m[kv.key] = kv.val
 		}
-		m[kv.key] = kv.val
 	}
 	return m, nil
 }
 
 // routingNum decodes a finite JSON NUMBER (a numeric string like "0.5" or "NaN" is a type
-// error, and an out-of-range literal like 1e400 fails the decode).
+// error, an out-of-range literal like 1e400 fails the decode, and null is not a number).
 func routingNum(raw json.RawMessage) (float64, bool) {
 	var f float64
-	if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] == '"' || json.Unmarshal(raw, &f) != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+	if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] == '"' || isJSONNull(raw) || json.Unmarshal(raw, &f) != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, false
 	}
 	return f, true
@@ -513,8 +519,9 @@ func (rb *routingBody) readRoger(r map[string]json.RawMessage) *routingError {
 		}
 		lo, okLo := routingNum(pair[0])
 		hi, okHi := routingNum(pair[1])
-		if !okLo || !okHi || lo <= 0 || hi <= 0 || lo > hi {
-			return invalidRouting("roger.params_b", "want two positive numbers, min <= max")
+		// min 0 means no floor ([0, 8] = up to 8B); 0 is allowed only as the lower bound.
+		if !okLo || !okHi || lo < 0 || hi <= 0 || lo > hi {
+			return invalidRouting("roger.params_b", "want [min, max] with 0 <= min <= max and max > 0")
 		}
 		rb.Net.paramsLo, rb.Net.paramsHi = lo, hi
 	}

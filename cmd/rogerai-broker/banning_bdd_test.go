@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -230,7 +231,7 @@ func TestBanningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("safety/banning behavior scenarios failed (see godog output above)")
 	}
 }

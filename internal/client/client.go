@@ -430,6 +430,30 @@ type ProxyOptions struct {
 	// to one station, so the first failure is a dead turn, while an exclusion preserves
 	// failover WITHIN the chosen quant.
 	ExcludeNodes []string
+	// The session OWNER's further ceilings (roger use --max-cost --trust --region --only
+	// --models): a guest may only tighten them (Routing.Apply).
+	MaxCost  float64  // provider.max_price.request cap in USD per request (0 = none)
+	TrustMin string   // roger.trust_min floor (any | verified | confidential; "" = any)
+	Region   []string // roger.region allow-list
+	Only     []string // provider.only allow-list
+	Models   []string // the owner's model fallback list (models[]); bounds a guest's list
+	// The owner's remaining routing (Routing.Sort .. RequireParams): roger use --sort --order
+	// --node --no-fallbacks --require --params --min-ctx --max-ttft, or a profile.
+	Sort          string
+	Prefer        []string
+	NoFallbacks   bool
+	Require       []string
+	ParamsB       []float64
+	MinCtx        int
+	MaxTTFT       int
+	RequireParams bool
+	FreeOnly      bool // Routing.FreeOnly: the model carries `:free`
+	// Profiles resolves a guest's "@profile/<name>" against config.json, re-read on change.
+	// nil = the handler builds one for ConfigPath().
+	Profiles *ProfileStore
+	// TunedProfile is the profile the owner tuned this session under ("" = none). A guest may
+	// name only it, never another profile in the owner's config (founder ruling 2026-10-07).
+	TunedProfile string
 	// Model is the TUNED band's model. It is the /v1/models identity AND the rewrite
 	// target: every incoming request's `model` field is rewritten to this before relay,
 	// so an agent's arbitrary default ("gpt-4o", "sonnet") just works. Empty = legacy
@@ -675,7 +699,7 @@ func writeModelsList(w http.ResponseWriter, model string, created int64) {
 // not a JSON object (malformed, empty, an array, null) is rejected: ok=false -> the caller
 // 400s BEFORE any relay/hold so a broken client never spends. When target=="" (legacy
 // single-user) the body is returned unchanged and the body's own model is reported.
-func rewriteModel(body []byte, target string) (out []byte, model string, ok bool) {
+func rewriteModel(body []byte, target string, explicit bool) (out []byte, model string, ok bool) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
 		return nil, "", false
@@ -692,7 +716,9 @@ func rewriteModel(body []byte, target string) (out []byte, model string, ok bool
 	// A guest's provider prefix (operator.ModelPrefixes) is stripped from its model and its
 	// models[] entries before the broker sees them.
 	var own string
-	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == target && hasCarrier(body) {
+	// Bare on both sides: on a band tuned as m:free, a guest's m:nitro still names the band
+	// (its :free is re-applied by the session's free-only routing, Routing.Apply).
+	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == sugarless(target) && (explicit || hasCarrier(body)) {
 		bare := guestModelID(own)
 		models, changed := unprefixedModels(m["models"])
 		if bare == own && !changed {
@@ -755,6 +781,7 @@ func ProxyHandler(opts ProxyOptions) http.Handler {
 func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 	httpClient := newRelayClient()
 	policy := defaultPolicy()
+	defaultProfiles := NewProfileStore("")
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
@@ -797,21 +824,69 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			openAIError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request_too_large", "request body exceeds the 4 MiB limit")
 			return
 		}
+		// A guest may only tighten the owner's routing: a models[] list (or, with a routing
+		// carrier, a model) reaching beyond the tuned band is refused here, before any relay or
+		// hold - checked on the guest's OWN keys, before a profile reference is resolved (a
+		// profile is the owner's config, so its models are the owner's choice). With an owner
+		// --models list the guest's list is filtered to it instead (Routing.Apply). Header mode
+		// refuses every models[] itself - an old broker cannot honour one.
+		// A model that is not a model id is refused in every mode: no owner list or header
+		// mode makes it a valid request.
+		if err := mistypedGuestModel(body); err != nil {
+			routingRefused(w, err)
+			return
+		}
+		// Header mode skips the models[] check (it refuses a models[] itself), never the
+		// foreign-model one: a guest may only tighten against an old broker too.
+		if err := GuestModelsWithin(body, opts.Model); err != nil && (!opts.HeaderRouting || guestNamesOtherModelOf(body, opts.Model)) && !(len(opts.Models) > 0 && !guestNamesOtherModelOf(body, opts.Model)) {
+			routingRefused(w, err)
+			return
+		}
+		// A "@profile/<name>" reference (model or roger.profile) resolves against config.json
+		// (re-read when it changes); the broker never sees "@profile/".
+		profiles := opts.Profiles
+		if profiles == nil {
+			profiles = defaultProfiles
+		}
+		// A guest's own roger.freq is never taken (the owner's band stands), so it is dropped
+		// before the merge; a band code in the OWNER's profile is the owner's choice and
+		// travels as the X-Roger-Freq header for this request, never in the body.
+		// A guest may name only the profile the session was tuned under (founder ruling
+		// 2026-10-07): any other profile in the owner's config could be looser or pricier.
+		if name := guestProfileOf(body); name != "" && name != opts.TunedProfile {
+			openAIError(w, http.StatusForbidden, "permission_error", "profile_not_tuned",
+				"profile "+name+" is not the profile this session was tuned under")
+			return
+		}
+		resolved, fromProfile, perr := ResolveProfileBody(dropGuestFreq(body), profiles.Get())
+		if perr != nil {
+			routingRefused(w, perr)
+			return
+		} else if fromProfile {
+			var freq string
+			body, freq = takeFreq(resolved)
+			if freq != "" && opts.Freq == "" {
+				opts.Freq = freq
+			}
+			// The band rewrite below replaces model; a profile primary that is not the band
+			// is kept as the first fallback so it is still tried (as the CLI sends it).
+			body = keepPrimaryBeforeRewrite(body, opts.Model)
+		}
 		// Model rewrite + malformed-body guard (ruling 2): rewrite `model` to the band's, keep
 		// every other field; a non-object body is a 400 before any relay/hold.
-		rewritten, model, ok := rewriteModel(body, opts.Model)
+		// A resolved profile is the owner's explicit choice, like a carrier: its variant of the
+		// band (`band:free`) is kept rather than rewritten to the bare band.
+		rewritten, model, ok := rewriteModel(body, opts.Model, fromProfile)
 		if !ok {
 			openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")
 			return
 		}
-		// A guest may only tighten the owner's routing: a models[] list reaching beyond the
-		// tuned band is refused here, before any relay or hold. (Header mode refuses every
-		// models[] itself - an old broker cannot honour one - with its own honest message.)
-		if err := GuestModelsWithin(body, opts.Model); err != nil && !opts.HeaderRouting {
-			routingRefused(w, err)
-			return
+		// A profile is the owner's config: its band:free binds every model the request may
+		// reach, as the owner's own free tune does. (A guest's own :free does not.)
+		if fromProfile && hasFreeSugar(model) {
+			opts.FreeOnly = true
 		}
-		crit := Criteria{Model: model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
+		crit := Criteria{Model: repickModel(opts, model), Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
 		// Per-session spend budget (rulings 1/2, the literal ceiling). UNCAPPED sessions
 		// (Budget <= 0: `roger use`, the TUI) skip the admission gate entirely and relay fully
 		// in parallel (review HIGH #3) - costs still accumulate via addSpend for observability.
@@ -848,6 +923,39 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 	return mux
 }
 
+// keepPrimaryBeforeRewrite moves a body's model to the front of its models[] when it is not
+// the band's (by bare id), so rewriting model to band does not drop it. Any other body is
+// returned unchanged.
+func keepPrimaryBeforeRewrite(body []byte, band string) []byte {
+	var m map[string]json.RawMessage
+	var primary string
+	if band == "" || json.Unmarshal(body, &m) != nil || json.Unmarshal(m["model"], &primary) != nil ||
+		primary == "" || sugarless(primary) == sugarless(band) {
+		return body
+	}
+	var list []json.RawMessage
+	if raw, ok := m["models"]; ok && json.Unmarshal(raw, &list) != nil {
+		return body
+	}
+	enc, _ := json.Marshal(primary)
+	m["models"], _ = json.Marshal(append([]json.RawMessage{enc}, list...))
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// repickModel is the model a failover re-pick filters on: a session that binds every model
+// free (opts.FreeOnly, or a tune on m:free) re-picks among free stations only, even when the
+// guest named the bare model (the request itself still carries :free).
+func repickModel(opts ProxyOptions, model string) string {
+	if (opts.FreeOnly || hasFreeSugar(opts.Model)) && !hasFreeSugar(model) {
+		return model + ":free"
+	}
+	return model
+}
+
 // readCappedBody reads up to limit+1 bytes; if the extra byte is present the body EXCEEDED the
 // cap (over=true) so the caller 413s. A body of exactly limit bytes is returned whole.
 func readCappedBody(r io.Reader, limit int64) (body []byte, over bool) {
@@ -880,6 +988,16 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		ctx = context.Background()
 	}
 	failed := map[string]bool{}
+	origBody := body // the caller's body as it arrived (for the defaults header)
+	// The re-pick honors every routing key the caller's body states, not only Criteria's
+	// original fields, and a caller's own allow_fallbacks:false forbids the proxy's re-pick.
+	noRepick := callerRoutingCriteria(body, &crit)
+	// The OWNER's routing bounds the re-pick too: an alternative outside the owner's only set
+	// (or ignoring their quant / region / trust / self-hosted / capability rules) would be
+	// refused by the broker, and an owner --node / --no-fallbacks session is never re-picked.
+	if ownerRoutingCriteria(opts, &crit) {
+		noRepick = true
+	}
 	var order []string // the failover's preferred alternative ("" = let the broker choose)
 	var lastErr error
 	var lastStatus int
@@ -893,13 +1011,13 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	// them is clamped, never honored (the broker composes header and body to the stricter as
 	// well, but an old broker reads only the header).
 	lifted := Routing{MinTPS: opts.MinTPS, Quantizations: opts.Quantizations,
-		MaxOut: effectiveMaxOut(opts.MaxPriceOut), MaxIn: opts.MaxPriceIn}
+		MaxOut: effectiveMaxOut(opts.MaxPriceOut), MaxIn: opts.MaxPriceIn, MaxReq: opts.MaxCost}
 	var dropped []string
 	if !opts.HeaderRouting {
 		// Body mode: fold the caps into the body ONCE, here, so a clamp is logged once per
 		// request however many attempts the failover makes (each attempt re-applies the rest
 		// of the session's routing to this already-capped body).
-		capped, cerr := (Routing{MaxOut: lifted.MaxOut, MaxIn: lifted.MaxIn}).Apply(body)
+		capped, cerr := (Routing{MaxOut: lifted.MaxOut, MaxIn: lifted.MaxIn, MaxReq: lifted.MaxReq}).Apply(body)
 		if cerr != nil {
 			routingRefused(w, cerr)
 			onServed(0)
@@ -934,7 +1052,13 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			Pref: opts.Pref, MinTPS: lifted.MinTPS, Confidential: opts.Confidential || lifted.Confidential,
 			SelfHostedOnly: opts.SelfHostedOnly, Quantizations: opts.Quantizations,
 			Order: order, Ignore: unionStrings(keysOf(failed), opts.ExcludeNodes, lifted.Ignore),
-			HeaderMode: opts.HeaderRouting,
+			TrustMin: opts.TrustMin, Region: opts.Region, Only: opts.Only, Models: opts.Models,
+			Sort: opts.Sort, Prefer: opts.Prefer, NoFallbacks: opts.NoFallbacks, Require: opts.Require,
+			ParamsB: opts.ParamsB, MinCtx: opts.MinCtx, MaxTTFT: opts.MaxTTFT, RequireParams: opts.RequireParams,
+			// `roger use m:free` tunes the variant itself: it binds every fallback, like F. A
+			// guest's own :free stays on its own entry (contract §3: sugar is per entry); a
+			// resolved profile's :free arrives as opts.FreeOnly from the handler.
+			FreeOnly: opts.FreeOnly || hasFreeSugar(opts.Model), HeaderMode: opts.HeaderRouting,
 		}
 		if lifted.Pref != "" {
 			rt.Pref = lifted.Pref
@@ -982,6 +1106,13 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		if d := unionStrings(rt.Dropped(), dropped); rt.HeaderMode && len(d) > 0 {
 			w.Header().Set("X-Roger-Routing-Dropped", strings.Join(d, ", "))
 		}
+		// The keys the proxy added on the caller's behalf (the owner's defaults), so a guest can
+		// see why the broker routed as it did.
+		if attempt == 0 && !rt.HeaderMode {
+			if added := RoutingKeysAdded(origBody, sent); len(added) > 0 {
+				w.Header().Set("X-Roger-Routing-Defaults", strings.Join(added, ","))
+			}
+		}
 
 		resp, err := httpClient.Do(req)
 		if err == nil && !retryable(resp.StatusCode, nil) {
@@ -1017,6 +1148,12 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// with its Retry-After so the caller can decide.
 			raw, wait, cooling := bandCooling(resp)
 			resp.Body.Close()
+			// no_match: nothing on air satisfies the request; a retry changes nothing.
+			if resp.StatusCode == http.StatusServiceUnavailable && errorCodeOf(raw) == "no_match" {
+				onServed(0)
+				passThrough(w, resp, raw)
+				return
+			}
 			if cooling {
 				if waited || wait > bandCoolingWait {
 					onServed(0)
@@ -1043,6 +1180,9 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			failed[o] = true
 		}
 		order = nil
+		if noRepick {
+			break // the caller said allow_fallbacks:false: never re-pick on its behalf
+		}
 		if opts.Freq != "" {
 			continue // a private band has no public alternative; the broker re-picks within it
 		}
@@ -1126,20 +1266,29 @@ const maxTransformBody = 8 << 20
 // body it buffers, applies applyReasoningFallback when enabled, and forwards. reasoningFallbackOn
 // only reshapes body text; status, headers (incl. the billed X-RogerAI-Cost), and the SSE meter
 // pass through untouched.
+// relayHeaderAllow is the deny-by-default allowlist of upstream headers a guest may see: the
+// safe meter headers plus Retry-After (so a 429'd agent can back off - ruling 7). Hop-by-hop /
+// connection-scoped / cookie / server headers are NEVER forwarded (RFC 7230 §6.1); keep it tight.
+var relayHeaderAllow = []string{"X-RogerAI-Provider", "X-RogerAI-Model", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After",
+	// a standalone Tower's free-plane meter and the routing keys it ignored (names only)
+	"X-Roger-Cost", "X-Roger-Local", "X-Roger-Curated", "X-Roger-Routing-Ignored"}
+
+// copyAllowedHeaders copies the allowlisted upstream headers onto w.
+func copyAllowedHeaders(w http.ResponseWriter, resp *http.Response) {
+	for _, h := range relayHeaderAllow {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+}
+
 func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFallbackOn bool) (sseCost float64) {
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
 	}
 	w.Header().Set("Content-Type", ct)
-	// Deny-by-default allowlist: the safe meter headers plus Retry-After (so a 429'd agent can
-	// back off - ruling 7). Hop-by-hop / connection-scoped / cookie / server headers are NEVER
-	// forwarded (RFC 7230 §6.1); keep this list tight.
-	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Model", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After"} {
-		if v := resp.Header.Get(h); v != "" {
-			w.Header().Set(h, v)
-		}
-	}
+	copyAllowedHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 
 	if strings.Contains(ct, "text/event-stream") {
@@ -1607,6 +1756,26 @@ type UseOptions struct {
 	Pref           string
 	SelfHostedOnly bool
 	Quantizations  []string
+	// Owner ceilings a guest may only tighten (contract §10 flags).
+	MaxCost      float64
+	Trust        string
+	Region       []string
+	Only         []string
+	ExcludeNodes []string
+	Models       []string
+	// The rest of the routing body object (ProxyOptions.Sort .. RequireParams).
+	Sort          string
+	Prefer        []string
+	NoFallbacks   bool
+	Require       []string
+	ParamsB       []float64
+	MinCtx        int
+	MaxTTFT       int
+	RequireParams bool
+	// RoutingLine is the one effective-routing line the connect plate prints ("" = none).
+	RoutingLine string
+	// TunedProfile is the profile the session was tuned under (`--profile` or `@profile/`).
+	TunedProfile string
 }
 
 // limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
@@ -1657,6 +1826,12 @@ func Use(broker, user, model string, opt UseOptions) error {
 	in := useStdin
 	var locked BandRange // the station we resolve + confirm (used for the staged lock)
 	_ = defaultedCap
+	// A variant suffix on the positional (`qwen3-32b:free`) rides to the broker in the body;
+	// discovery and the plate read the bare band and name the mark.
+	band, mark := sugarless(model), sugarMark(model)
+	if opt.RoutingLine != "" {
+		fmt.Printf("\n  %s\n", opt.RoutingLine)
+	}
 
 	// Private band tune-in (--freq): resolve the frequency code against the broker's
 	// PUBLIC constant-work resolver (no login), then open the channel routed via
@@ -1667,9 +1842,9 @@ func Use(broker, user, model string, opt UseOptions) error {
 	}
 
 	for {
-		br, ok := BandRangeFor(broker, model)
+		br, ok := BandRangeFor(broker, band)
 		if !ok {
-			fmt.Printf("no station on air for %q right now - try `roger search` or come back.\n", model)
+			fmt.Printf("no station on air for %q right now - try `roger search` or come back.\n", band)
 			return nil
 		}
 		locked = br
@@ -1701,7 +1876,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 			continue // re-check with the new max
 		}
 		// Within limits (or no cap): show the deal and confirm.
-		fmt.Printf("\n  tune in to  %s\n", model)
+		fmt.Printf("\n  tune in to  %s%s\n", band, mark)
 		if br.Stations == 1 {
 			fmt.Printf("    price now      %.2f $/1M out   ·   %.2f $/1M in\n", br.Min, br.CheapIn)
 		} else {
@@ -1749,7 +1924,11 @@ func Use(broker, user, model string, opt UseOptions) error {
 		break
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	ln, err := useListen(opt.Port) // bound before the plate names it
+	if err != nil {
+		return err
+	}
+	addr := ln.Addr().String()
 	// The staged tune-in: scan -> lock -> lineage handshake -> CHANNEL OPEN, mirroring
 	// the TUI sequence + the website's animation. Plain text (CLI is non-interactive),
 	// ◉ on-air / ◆ verified shared with the band table, so the lock reads the same on
@@ -1778,11 +1957,49 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
+		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
+		Sort: opt.Sort, Prefer: opt.Prefer, NoFallbacks: opt.NoFallbacks, Require: opt.Require, ParamsB: opt.ParamsB,
+		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams, TunedProfile: opt.TunedProfile,
 		HeaderRouting:        NegotiateRouting(broker), // tune time: body carriers, or headers for an old broker
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
 		}}
-	return useServe(addr, newProxyHandler(opts))
+	warnOldBroker(opts)
+	return useServe(ln, newProxyHandler(opts))
+}
+
+// warnOldBroker says once, at tune time, which of the session's routing flags an old broker
+// (header mode) cannot carry, so a dropped constraint is never silent.
+func warnOldBroker(o ProxyOptions) {
+	if !o.HeaderRouting {
+		return
+	}
+	r := Routing{SelfHostedOnly: o.SelfHostedOnly, Quantizations: o.Quantizations, Models: o.Models, Only: o.Only,
+		Prefer: o.Prefer, NoFallbacks: o.NoFallbacks, Sort: o.Sort, RequireParams: o.RequireParams, MaxReq: o.MaxCost,
+		Require: o.Require, ParamsB: o.ParamsB, MinCtx: o.MinCtx, MaxTTFT: o.MaxTTFT, TrustMin: o.TrustMin, Region: o.Region}
+	var flags []string
+	for _, k := range r.Dropped() {
+		if f := RoutingFlag(k); f != "" {
+			k = f // a key a profile set with no flag of its own is named as the key
+		}
+		flags = append(flags, k)
+	}
+	if len(flags) > 0 {
+		fmt.Printf("  old broker: routing flags with no header form are dropped: %s\n", strings.Join(flags, " "))
+	}
+}
+
+// sugarMark names a model id's variant suffix for the connect plate ("" when it has none).
+func sugarMark(model string) string {
+	switch {
+	case strings.HasSuffix(model, ":free"):
+		return "  (free only)"
+	case strings.HasSuffix(model, ":floor"):
+		return "  (cheapest first)"
+	case strings.HasSuffix(model, ":nitro"):
+		return "  (fastest first)"
+	}
+	return ""
 }
 
 // useStdin / useServe are seams over the two side effects Use can't run in a test: the
@@ -1792,12 +2009,38 @@ func Use(broker, user, model string, opt UseOptions) error {
 // reading the real terminal or binding a forever-blocking port.
 var (
 	useStdin = os.Stdin
-	useServe = http.ListenAndServe
+	// useListen binds the local endpoint ONCE, before the plate names it; useServe serves on
+	// that same listener. (Picking a free port, closing it and binding it again later let
+	// another process take it in between: the plate named a port the session never held.)
+	useListen = listenUse
+	useServe  = http.Serve
 	// newProxyHandler is the seam Use / useOnFreq build the local relay handler through, so a
 	// test can capture the assembled ProxyOptions (e.g. the --raw wiring) without binding a
 	// real listener. Production value is ProxyHandler; the useServe seam still runs it.
 	newProxyHandler = ProxyHandler
 )
+
+// DefaultUsePort is where `roger use` looks for a free local port when --port is not given
+// (the CLI's documented default, shown on the Integrations page).
+const DefaultUsePort = 4141
+
+// listenUse binds the endpoint: the requested port exactly, or with port 0 the first free
+// port from DefaultUsePort up. The listener it returns is the one the relay serves on.
+func listenUse(port int) (net.Listener, error) {
+	if port > 0 {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			return nil, fmt.Errorf("port %d is not available (%v): pass another --port, or none to pick one", port, err)
+		}
+		return ln, nil
+	}
+	for p := DefaultUsePort; p < DefaultUsePort+200; p++ {
+		if ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p)); err == nil {
+			return ln, nil
+		}
+	}
+	return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners or pass --port)", DefaultUsePort, DefaultUsePort+199)
+}
 
 // RawReasoningEnv reports whether ROGERAI_REASONING_RAW asks for raw passthrough (the
 // reasoning->content fallback disabled). A non-empty value other than the usual falsey tokens
@@ -1821,13 +2064,14 @@ func rawReasoningEnv() bool {
 // "no station on that frequency" reply. The code is discovery + routing admission only
 // - spend still uses the signed wallet, self-use stays $0.
 func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typical int, defaultedCap bool, in *os.File) error {
-	offers, display, ok := ResolveBand(broker, opt.Freq, model)
+	// The frequency lists bare models; the variant stays on the session (Model below).
+	offers, display, ok := ResolveBand(broker, opt.Freq, sugarless(model))
 	if !ok {
 		fmt.Println("  no station on that frequency (it may be off air) - check the code.")
 		return nil
 	}
 	// Cheapest matching station on the band (out-price), for the price screen.
-	br, _ := bandRange(offers, model)
+	br, _ := bandRange(offers, sugarless(model))
 	if br.Stations == 0 {
 		// Resolved offers but none match the model exactly (shouldn't happen: resolve
 		// filtered by model) - treat as no station, uniform.
@@ -1872,7 +2116,11 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 		}
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	ln, err := useListen(opt.Port) // bound before the plate names it
+	if err != nil {
+		return err
+	}
+	addr := ln.Addr().String()
 	fmt.Printf("\n  %s scanning frequency ... ok\n", glyphOnAir)
 	fmt.Printf("  %s locking @%s · %s · %.2f $/M ... ok\n", glyphOnAir, br.CheapNode, tpsLabel(br.CheapTPS), br.Min)
 	fmt.Printf("  %s CHANNEL OPEN (private) %s via @%s\n", glyphOnAir, model, br.CheapNode)
@@ -1883,13 +2131,17 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("  %-9s %s\n", "FREQ", display)
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq,
 		Pref: opt.Pref, SelfHostedOnly: opt.SelfHostedOnly, Quantizations: opt.Quantizations,
+		MaxCost: opt.MaxCost, TrustMin: opt.Trust, Region: opt.Region, Only: opt.Only, ExcludeNodes: opt.ExcludeNodes, Models: opt.Models,
+		Sort: opt.Sort, Prefer: opt.Prefer, NoFallbacks: opt.NoFallbacks, Require: opt.Require, ParamsB: opt.ParamsB,
+		MinCtx: opt.MinCtx, MaxTTFT: opt.MaxTTFT, RequireParams: opt.RequireParams, TunedProfile: opt.TunedProfile,
 		HeaderRouting:        NegotiateRouting(broker),
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
 		}}
-	return useServe(addr, newProxyHandler(opts))
+	warnOldBroker(opts)
+	return useServe(ln, newProxyHandler(opts))
 }
 
 // rangeLabel renders a cross-station spread as "min ~ max" ($/1M out), or a single

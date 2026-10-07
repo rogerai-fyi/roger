@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -2704,7 +2705,7 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			TestingT: t, Strict: true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("alert_delivery.feature: scenarios failed")
 	}
 }

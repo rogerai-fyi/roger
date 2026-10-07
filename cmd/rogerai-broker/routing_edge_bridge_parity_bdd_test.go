@@ -69,6 +69,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -956,7 +957,9 @@ func (s *eb1State) eb1Batch(n int) error {
 	if err := s.eb1Snapshot(); err != nil {
 		return err
 	}
+	refresh := s.keepLive() // a long batch on a loaded machine can outlast nodeTTL
 	for i := 0; i < n; i++ {
+		refresh()
 		s.eb1FireAs(i)
 	}
 	return nil
@@ -3047,7 +3050,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("routing/edge_bridge_parity scenarios failed (see godog output above)")
 	}
 }

@@ -290,13 +290,15 @@ Feature: Routing request shape - the body carriers, their validation, precedence
       | "roger": {"trust_min": 2}                             | roger.trust_min               |
       | "roger": {"trust_min": true}                          | roger.trust_min               |
 
+    # corrected 2026-10-04 (founder-approved): 0 is accepted as the LOWER bound meaning no floor ([0, 8] = up to 8B); 0 anywhere else is refused; [0, 70] moved out of this table
     Examples: roger.params_b / min_ctx / min_tps / max_ttft_ms
       | fragment                                              | path                          |
       | "roger": {"params_b": 7}                              | roger.params_b                |
       | "roger": {"params_b": [7]}                            | roger.params_b                |
       | "roger": {"params_b": [7, 70, 100]}                   | roger.params_b                |
       | "roger": {"params_b": [70, 7]}                        | roger.params_b                |
-      | "roger": {"params_b": [0, 70]}                        | roger.params_b                |
+      | "roger": {"params_b": [0, 0]}                         | roger.params_b                |
+      | "roger": {"params_b": [8, 0]}                         | roger.params_b                |
       | "roger": {"params_b": [-1, 70]}                       | roger.params_b                |
       | "roger": {"params_b": ["7", "70"]}                    | roger.params_b                |
       | "roger": {"params_b": ["NaN", 70]}                    | roger.params_b                |
@@ -1304,3 +1306,23 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {"sort": "x"}`
     Then /admin/live reports routing_body_requests 1 and routing_body_rejects 1
     And /admin/live echoes no node id, price, or band code from either request
+
+  # --- duplicate keys inside a routing object ------------------------------------------
+  # founder ruling 2026-10-07: a duplicate key inside a routing object (provider, roger, or
+  # provider.max_price) is refused with the key named, never resolved last-wins. The proxy and
+  # the standalone Tower's local plane refuse the same bodies.
+
+  # founder ruling 2026-10-07
+  Scenario Outline: A duplicate key inside a routing object is a 400 naming the key
+    When "u-1" posts a chat completion for "qwen3-32b" with raw body `<body>`
+    Then the response is 400
+    And the error code is "invalid_routing_value"
+    And the error message names "<key>"
+    And no hold was placed and no station was dispatched
+
+    Examples:
+      | body                                                                                                                           | key                        |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"provider":{"only":["n-a"],"only":["n-c"]}}                  | provider.only              |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"roger":{"pref":"cheap","pref":"fast"}}                      | roger.pref                 |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"provider":{"max_price":{"request":1,"request":50}}}         | provider.max_price.request |
+      | {"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"provider":{"max_price":{"request":1e400,"request":50}}}     | provider.max_price.request |

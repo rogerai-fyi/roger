@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -1196,11 +1197,19 @@ func (s *opsState) relaysToolsBody(phrase string) error {
 	s.relay(1, body)
 	return nil
 }
+
+// requestContains: a relay can be screened more than once (its prompt, then its reply), and
+// under load the classifier sees those requests in either order, so the step looks for the
+// phrase in any request the stub recorded rather than only the last.
 func (s *opsState) requestContains(phrase string) error {
-	if !strings.Contains(s.stub.lastBody(), phrase) {
-		return fmtErr("classifier request does not contain %q", phrase)
+	s.stub.mu.Lock()
+	defer s.stub.mu.Unlock()
+	for _, b := range s.stub.bodies {
+		if strings.Contains(b, phrase) {
+			return nil
+		}
 	}
-	return nil
+	return fmtErr("no classifier request contains %q (%d recorded)", phrase, len(s.stub.bodies))
 }
 
 // --- §3 bounded work -------------------------------------------------------------------
@@ -2097,7 +2106,7 @@ func TestOffPathScreeningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("off-path screening scenarios failed (see godog output above)")
 	}
 }

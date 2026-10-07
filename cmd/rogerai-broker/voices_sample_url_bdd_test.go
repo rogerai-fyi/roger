@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -159,7 +160,7 @@ func TestVoiceSampleURLPassthroughBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/voice/sample_url_passthrough.feature"}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("voice/sample_url_passthrough behavior scenarios failed (see godog output above)")
 	}
 }

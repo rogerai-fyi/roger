@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"testing"
 	"time"
@@ -350,7 +351,7 @@ func rcSuite(t *testing.T, path string, init func(*godog.ScenarioContext, *rcSes
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{path}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatalf("%s scenarios failed", path)
 	}
 }

@@ -40,20 +40,78 @@ func (m model) quantRuleRefusal(model, rowQuant string) string {
 	if rowQuant == "" || len(lim.Quants) == 0 || lim.acceptsQuant(rowQuant) {
 		return ""
 	}
-	return "the tuned " + rowQuant + " row is outside your quant rule for " + model +
-		" (" + strings.Join(lim.Quants, ", ") + ") - tune an accepted row or change the rule in [3] CONFIG"
+	return rowQuant + " is outside your quant rule (" + strings.Join(lim.Quants, ", ") +
+		") - edit it in [3] CONFIG or pick another row"
 }
 
 // routing is the consumer routing object every in-booth path sends for `model`: the
 // standing pref, the confidential toggle, hidden curated supply, and the quant choice.
+// It carries every key of the band's [3] CONFIG rule and the dial filters that bind: F as
+// `:free`, C as roger.confidential, U as roger.self_hosted_only.
+//
+// The band's limits (the out, in and per-request price caps, the min-tps and context floors,
+// the first-token ceiling) compose with the tuned profile's the STRICTER way
+// (the lower cap, the higher floor), as the broker composes a header with a body. Every other
+// key the profile states (trust, region, require, params, quantizations) replaces
+// the band's: both are the owner's own choices, and the profile was picked on the confirm.
 func (m model) routing(model, rowQuant string) client.Routing {
-	return client.Routing{
-		Pref:           m.limits.resolve(model).Pref,
-		Confidential:   m.confidentialOnly,
-		SelfHostedOnly: m.fNoCurated,
+	lim := m.limits.resolve(model)
+	rt := (client.Routing{
+		Pref:           lim.Pref,
+		Confidential:   m.confidentialOnly || m.fConf,
+		SelfHostedOnly: m.fNoCurated || lim.SelfHosted,
 		Quantizations:  m.quantList(model, rowQuant),
+		MaxReq:         lim.MaxCost,
+		Require:        lim.Require,
+		ParamsB:        lim.ParamsB,
+		MinCtx:         lim.MinCtx,
+		MaxTTFT:        lim.MaxTTFTMs,
+		TrustMin:       lim.TrustMin,
+		Region:         lim.Region,
+		FreeOnly:       m.fFree,
 		HeaderMode:     m.headerRouting,
+	}).Overlay(m.profileFor(model)) // the profile tuned under, for the connected band
+	rt.MaxOut, rt.MaxIn = stricterCap(lim.MaxOut, rt.MaxOut), stricterCap(lim.MaxIn, rt.MaxIn)
+	rt.MaxReq = stricterCap(lim.MaxCost, rt.MaxReq)
+	// The context floor and first-token ceiling are limits too: the higher floor, the lower ceiling.
+	rt.MinCtx = max(lim.MinCtx, rt.MinCtx)
+	if lim.MaxTTFTMs > 0 && (rt.MaxTTFT == 0 || lim.MaxTTFTMs < rt.MaxTTFT) {
+		rt.MaxTTFT = lim.MaxTTFTMs
 	}
+	// The dial row the operator connected to is the quant this turn asks for: a profile's list
+	// never silently replaces it (the confirm refuses a row the profile excludes).
+	if rowQuant != "" {
+		rt.Quantizations = []string{rowQuant}
+	}
+	rt.MinTPS = max(lim.MinTPS, rt.MinTPS)
+	return rt
+}
+
+// profileQuantRefusal is the reason a row at `rowQuant` must not be accepted under a profile
+// whose provider.quantizations excludes it ("" when it may).
+func profileQuantRefusal(body map[string]any, rowQuant string) string {
+	p, _ := body["provider"].(map[string]any)
+	list, _ := p["quantizations"].([]any)
+	if rowQuant == "" || len(list) == 0 {
+		return ""
+	}
+	var names []string
+	for _, q := range list {
+		s, _ := q.(string)
+		if strings.EqualFold(s, rowQuant) {
+			return ""
+		}
+		names = append(names, s)
+	}
+	return rowQuant + " is outside the profile's quant list (" + strings.Join(names, ", ") + ") - pick another row or profile"
+}
+
+// stricterCap is the lower of two price caps, where 0 means "no cap of my own".
+func stricterCap(a, b float64) float64 {
+	if a <= 0 || (b > 0 && b < a) {
+		return b
+	}
+	return a
 }
 
 // tunedQuant is the quant of the row the operator is connected to for `model`, or "" when

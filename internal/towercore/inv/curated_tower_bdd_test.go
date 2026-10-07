@@ -12,6 +12,7 @@ package inv
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -95,7 +96,7 @@ func TestCuratedTowerJoinedFeature(t *testing.T) {
 			Paths: []string{"../../../features/curated/curated_tower.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("the @joined curated tower scenario failed")
 	}
 }

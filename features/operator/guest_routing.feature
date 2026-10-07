@@ -34,6 +34,7 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
 
   # --- via @profile/ -------------------------------------------------------------------
 
+  @tui
   Scenario: PROPOSED - the plate lets the DJ pick a profile before handing the mic
     Given profiles "coding" and "cheap" exist
     When the DJ opens the pre-launch plate for opencode
@@ -45,6 +46,7 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     When the DJ presses r
     Then the plate shows "routing: default"
 
+  @tui
   Scenario: PROPOSED - r is a plate key only, at the ask prompt it just types
     When the DJ is at the plate's ask prompt and presses r
     Then the character "r" is typed and the profile does not cycle
@@ -68,20 +70,32 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     Then the argv pins "--model openai/@profile/coding"
     And no file is created for aider
 
+  # regression 2026-10-05: audit finding, contract §9 (pi's catalog lists the pin it is launched with)
+  Scenario: pi pins the profile and lists it beside the band in its catalog
+    Given the DJ chose profile "coding" on the plate
+    When the pi launch is materialized
+    Then the argv is exactly "pi --provider rogerai --model @profile/coding"
+    And pi's models.json lists "@profile/coding" alongside "qwen3-32b-fp8"
+
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile (the plate's choice)
   Scenario: The proxy resolves the guest's @profile/ per request
     Given profile "coding" sets models = ["qwen3-32b-fp8", "llama-3.3-70b"] and roger.require = ["tools"]
+    And the DJ chose profile "coding" on the plate
     When the guest sends {"model": "@profile/coding", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8", models ["llama-3.3-70b"], roger.require ["tools"]
     And the guest's response is OpenAI-shaped exactly as before
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile (the plate's choice)
   Scenario: A profile that names no model still lands on the band
     Given profile "cheap" sets roger.pref = "cheap" and no model
+    And the DJ chose profile "cheap" on the plate
     When the guest sends {"model": "@profile/cheap", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8" and roger.pref = "cheap"
 
-  Scenario: A profile the guest names that does not exist is a local 400, nothing relayed
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile (the plate's choice)
+  Scenario: A profile the guest names that is not the plate's is refused 403, nothing relayed
     When the guest sends {"model": "@profile/nope", "messages": [...]}
-    Then the guest receives an OpenAI-shaped 400 "unknown profile nope"
+    Then the guest receives a 403 with error.code "profile_not_tuned" saying "profile nope is not the profile this session was tuned under"
     And the plate's call counter does not increase
 
   Scenario: The default plate (no profile chosen) behaves exactly as today
@@ -112,13 +126,15 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     When aider sends {"model": "openai/qwen3-32b-fp8", "provider": {"max_price": {"completion": 1}}, "messages": [...]}
     Then the broker receives provider.max_price.completion = 1
 
-  Scenario: A guest body with a carrier keeps its own model, a guest body without one is rewritten
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - a carrier never lets it switch model
+  Scenario: A guest body without a carrier is rewritten; with a carrier a foreign model is refused locally
     When the guest sends {"model": "gpt-4o", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8"
     When the guest sends {"model": "gpt-4o", "roger": {"pref": "fast"}, "messages": [...]}
-    Then the broker receives model "gpt-4o"
-    And the broker answers 503 no_match if no station serves "gpt-4o", which the guest sees OpenAI-shaped
+    Then the guest receives a local 400 with error.code "routing_outside_session", OpenAI-shaped
+    And that second request never reaches the broker
 
+  @broker
   Scenario: OpenRouter provider slugs in order match no node id and fall back to normal scoring
     When the guest sends {"model": "qwen3-32b-fp8", "provider": {"order": ["Anthropic", "OpenAI"]}, "messages": [...]}
     Then the broker's plan has no listed station (no node id equals "Anthropic" or "OpenAI")
@@ -126,21 +142,25 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     And one broker log line says "order named 2 unknown stations; falling back to scoring"
     And the guest sees 200
 
+  @broker
   Scenario: OpenRouter provider slugs with allow_fallbacks:false is an honest 503 no_match
     When the guest sends {"model": "qwen3-32b-fp8", "provider": {"order": ["Anthropic"], "allow_fallbacks": false}, "messages": [...]}
     Then the guest receives a 503 with error.code "no_match" OpenAI-shaped
     And the message names "Anthropic" as an unknown station
     And no hold is placed
 
+  @broker
   Scenario: OpenRouter's `route: "fallback"` is passed through and refused as unknown by the broker
     When the guest sends {"model": "qwen3-32b-fp8", "route": "fallback", "messages": [...]}
     Then the broker receives route = "fallback" as an ordinary top-level key
     And the broker passes it to the station untouched (it is not a routing carrier)
 
+  @broker
   Scenario: OpenRouter's `transforms` and `plugins` are ordinary passthrough keys
     When the guest sends {"model": "qwen3-32b-fp8", "transforms": ["middle-out"], "plugins": [{"id": "web"}], "messages": [...]}
     Then the broker receives both keys and forwards them to the station untouched
 
+  @broker
   Scenario: An OpenRouter `models` list with slugs no station serves is skipped model by model
     When the guest sends {"model": "qwen3-32b-fp8", "models": ["anthropic/claude-sonnet-4", "openai/gpt-4o"], "messages": [...]}
     Then the broker plans "qwen3-32b-fp8" first and serves it
@@ -170,11 +190,13 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     Then that turn is served (the crossing turn completes)
     And the next turn is refused 402 budget_exceeded before any relay
 
+  @tui
   Scenario: The handoff frame names the served model and node from the chunk, never guest content
     When the guest streams a turn served by "n2" with model "llama-3.3-70b" via fallback
     Then the desk's guest-has-the-mic frame shows "llama-3.3-70b · n2"
     And no guest prompt or completion text appears in the frame
 
+  @tui
   Scenario: The summary on return names the profile the guest ran under
     Given the DJ chose profile "coding" and handed the mic
     When the guest exits cleanly
@@ -198,6 +220,7 @@ Feature: A guest operator can express routing through a profile or an OpenRouter
     When the opencode and hermes launches are materialized
     Then the session key appears in no generated file
 
+  @tui
   Scenario: Detection and the desk strip are unaffected by profiles
     Given profiles exist
     Then the desk strip renders exactly as approved in features/operator/desk_strip.feature

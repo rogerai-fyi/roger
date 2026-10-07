@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
@@ -185,7 +186,7 @@ func TestCuratedProbesFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_probes.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("curated probe-economics scenarios failed")
 	}
 }

@@ -721,6 +721,7 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 			return m, nil
 		}
 		o := *freeSt
+		m.tunedProfile = "" // an auto-tune bypasses the confirm: no profile binds
 		if _, err := m.bindChannel(o); err != nil {
 			// The local endpoint failed to bind: refuse rather than open a plate over an
 			// unbound channel that would hand the guest a wall of 502s.
@@ -899,10 +900,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	if wd == "" {
 		wd = operatorWorkdir() // defensive: a handoff always carries the plate's workdir
 	}
-	sess := operator.Session{
-		BaseURL: m.endpoint, SessionKey: opts.SessionKey, Model: opts.Model,
-		Workdir: wd, ScratchRoot: operatorScratchRoot,
-	}
+	sess := m.operatorSession(opts, wd, bandless)
 	// The context handoff happens BEFORE Materialize: a context-only guest is launched with
 	// an opening prompt that names the brief, so the brief has to exist by then.
 	//
@@ -1494,4 +1492,19 @@ func djBrandArt() operator.BrandArt {
 		Width:  43,
 		Lockup: operator.BrandRow{Text: "ROGER·AI · DJ", Spans: []operator.BrandSpan{{From: 0, To: 8, Ink: brand}, {From: 11, To: 13, Ink: red}}},
 	}
+}
+
+// operatorSession is the guest's launch session: the live band, the confirmed workdir, and
+// the profile the band was tuned under, which the guest pins as "@profile/<name>" so the
+// local proxy resolves the owner's routing on every request (contract §9). A bandless guest
+// routes nothing, so it pins nothing.
+func (m model) operatorSession(opts client.ProxyOptions, wd string, bandless bool) operator.Session {
+	s := operator.Session{
+		BaseURL: m.endpoint, SessionKey: opts.SessionKey, Model: opts.Model,
+		Workdir: wd, ScratchRoot: operatorScratchRoot,
+	}
+	if !bandless && m.connected != nil && m.connected.Model == opts.Model {
+		s.Profile = m.tunedProfile
+	}
+	return s
 }

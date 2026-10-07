@@ -47,6 +47,11 @@ func ShortFailure(raw, model string) string {
 			return "the conversation outgrew " + model + "'s context window"
 		}
 		return "the conversation outgrew this model's context window"
+	// A no_match that names the routing constraint which excluded every station keeps the
+	// broker's words: the fix is the operator's own rule (U, a quant rule, a region), and
+	// "no station is serving X" would send them to the market instead.
+	case namesRoutingConstraint(low):
+		return clipFailure(s)
 	case strings.Contains(low, "no station") || strings.Contains(low, "no node") || strings.Contains(low, "not on air") || strings.Contains(low, "no model is tuned in"):
 		return NoStationServing(model) + StatusSuffix(s)
 	case strings.Contains(low, "no reply") || strings.Contains(low, "within ") && strings.Contains(low, "slow or offline"):
@@ -107,4 +112,26 @@ func clipFailure(s string) string {
 		return s[:max] + "…"
 	}
 	return s
+}
+
+// NoMatchFilterNames are the filter names the broker lists in a no_match ("no node offers M
+// under F, ..."), a copy of the broker's noMatchFilterOrder (cmd/rogerai-broker; a broker test
+// pins the two equal: the broker's list lives in package main and cannot be imported).
+var NoMatchFilterNames = []string{"quantizations", "params_b", "min_ctx", "min_tps", "max_ttft_ms", "trust_min", "self_hosted_only", "region"}
+
+// routingConstraintWords are what a no_match says when a routing constraint, not an empty
+// market, excluded every station: the filter names, and the broker's capability and
+// confidential phrasings (" with the X capability", " on a confidential node").
+var routingConstraintWords = append([]string{"capability", "confidential node"}, NoMatchFilterNames...)
+
+func namesRoutingConstraint(low string) bool {
+	if !strings.Contains(low, "no node") && !strings.Contains(low, "no station") {
+		return false
+	}
+	for _, w := range routingConstraintWords {
+		if strings.Contains(low, w) {
+			return true
+		}
+	}
+	return false
 }

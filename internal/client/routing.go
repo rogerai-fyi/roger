@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,6 +38,34 @@ type Routing struct {
 	// (always the owner's EFFECTIVE out cap on the proxy path, so never 0 there) and
 	// provider.max_price.prompt (0 = the owner set none). A caller may only tighten them.
 	MaxOut, MaxIn float64
+	// MaxReq is the owner's per-request USD cap (provider.max_price.request; 0 = none): a
+	// ceiling a caller may only lower.
+	MaxReq float64
+	// TrustMin / Region / Only / Models are the owner's ceilings (roger use --trust --region
+	// --only --models). A caller may only tighten them: a lower trust is raised to the owner's,
+	// a region or an order outside the owner's set is refused, an only list is intersected, and
+	// a models[] list is filtered to the owner's.
+	TrustMin string
+	Region   []string
+	Only     []string
+	Models   []string
+	// The owner's remaining routing (roger use --sort --order/--node --no-fallbacks --require
+	// --params --min-ctx --max-ttft, or a profile): a guest may restate each only toward
+	// stricter. Sort is a default (set when the guest states neither a sort nor a pref);
+	// Prefer is the owner's provider.order (the failover's Order wins on a re-pick); the
+	// requirement list is unioned, the params range intersected, the context floor raised,
+	// the first-token ceiling lowered, and the two booleans forced.
+	Sort          string
+	Prefer        []string
+	NoFallbacks   bool
+	Require       []string
+	ParamsB       []float64 // [min, max] billions; nil = none
+	MinCtx        int
+	MaxTTFT       int
+	RequireParams bool
+	// FreeOnly is the booth's F filter: the model carries the `:free` variant, so only a
+	// station free right now may serve (re-checked by the broker on every turn).
+	FreeOnly bool
 	// HeaderMode speaks the pre-body wire (X-Roger-* headers) to a broker whose GET
 	// /v1/models answered 404 at tune time. Keys with no header form are dropped (Dropped).
 	HeaderMode bool
@@ -93,13 +123,23 @@ func GuestModelsWithin(body []byte, tuned string) error {
 	if tuned == "" {
 		return nil
 	}
-	var m struct {
-		Model  string          `json:"model"`
-		Models json.RawMessage `json:"models"`
-	}
-	if json.Unmarshal(body, &m) != nil {
+	// The band may carry a variant suffix (`roger use m:free`); a guest names the bare id.
+	tuned = sugarless(tuned) // the band's own id, prefix and all
+	// Decoded key by key: a struct decode that fails on a mistyped model would fill the rest
+	// and look like "nothing to check". A body that is not an object is the rewrite's 400.
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil || top == nil {
 		return nil
 	}
+	// (A model that is not a model id was refused by the handler first: mistypedGuestModel.)
+	var m struct {
+		Model  string
+		Models json.RawMessage
+	}
+	if raw, ok := top["model"]; ok {
+		_ = json.Unmarshal(raw, &m.Model)
+	}
+	m.Models = top["models"]
 	if guestNamesOtherModel(body, m.Model, tuned) {
 		return &RoutingRefusal{Msg: "model " + m.Model + " is outside this session's band"}
 	}
@@ -122,6 +162,22 @@ func GuestModelsWithin(body []byte, tuned string) error {
 	return nil
 }
 
+// mistypedGuestModel refuses a body whose model is present, not null, and not a string. A
+// body that is not a JSON object is left to the rewrite's 400.
+func mistypedGuestModel(body []byte) error {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil || top == nil {
+		return nil
+	}
+	if raw, ok := top["model"]; ok && string(raw) != "null" {
+		var s string
+		if json.Unmarshal(raw, &s) != nil {
+			return &RoutingRefusal{Msg: "model must be a model id"}
+		}
+	}
+	return nil
+}
+
 // guestStatesSort reports whether a caller body already names a strict sort: provider.sort,
 // or a :floor / :nitro suffix on its model or any models[] entry.
 func guestStatesSort(m map[string]json.RawMessage, provider map[string]any) bool {
@@ -139,7 +195,7 @@ func guestStatesSort(m map[string]json.RawMessage, provider map[string]any) bool
 	}
 	for _, id := range ids {
 		id = guestModelID(id)
-		if b := bareModel(id); b != id && (strings.Contains(id[len(b):], ":floor") || strings.Contains(id[len(b):], ":nitro")) {
+		if b := sugarless(id); b != id && (strings.Contains(id[len(b):], ":floor") || strings.Contains(id[len(b):], ":nitro")) {
 			return true
 		}
 	}
@@ -164,7 +220,7 @@ func hasCarrier(body []byte) bool {
 
 // guestNamesOtherModel: a carrier-bearing body names a model outside the tuned band.
 func guestNamesOtherModel(body []byte, model, tuned string) bool {
-	if model == "" || strings.HasPrefix(model, "@profile/") || bareModel(model) == tuned {
+	if model == "" || strings.HasPrefix(guestModelID(model), ProfileRef) || bareModel(model) == sugarless(tuned) {
 		return false
 	}
 	return hasCarrier(body)
@@ -182,9 +238,13 @@ func guestModelID(id string) string {
 	return id
 }
 
-// bareModel is a guest's model id without its guest provider prefix and variant suffixes.
-func bareModel(id string) string {
-	id = guestModelID(id)
+// bareModel is a GUEST's model id without its guest-tool provider prefix and variant
+// suffixes. A band, offer or owner id is never prefix-stripped (a station id may itself start
+// with openai/ or roger/): those go through sugarless.
+func bareModel(id string) string { return sugarless(guestModelID(id)) }
+
+// sugarless is an id without its variant suffixes (:free / :floor / :nitro), nothing else.
+func sugarless(id string) string {
 	for {
 		trimmed := id
 		for _, sfx := range []string{":free", ":floor", ":nitro"} {
@@ -209,10 +269,54 @@ func bareModel(id string) string {
 // below is kept, and the effective cap is always written. The body is always re-encoded
 // (every value's raw JSON is kept byte-identical; top-level key order may change), even for
 // a zero Routing; a body that is not a JSON object is an error.
+// mistyped reports whether obj states key with a value of the wrong type (absent or null is
+// not mistyped: the owner's value applies).
+func mistyped(obj map[string]any, key string, ok func(any) bool) bool {
+	v, present := obj[key]
+	return present && v != nil && !ok(v)
+}
+
+func isNumber(v any) bool { _, ok := v.(float64); return ok }
+
+func isBool(v any) bool { _, ok := v.(bool); return ok }
+
+func isNumberPair(v any) bool {
+	pair, ok := v.([]any)
+	return ok && len(pair) == 2 && isNumber(pair[0]) && isNumber(pair[1])
+}
+
+func isTrustValue(v any) bool {
+	s, _ := v.(string)
+	return s == "any" || s == "verified" || s == "confidential"
+}
+
+func isStringList(v any) bool {
+	list, ok := v.([]any)
+	for _, e := range list {
+		if _, isStr := e.(string); !isStr {
+			return false
+		}
+	}
+	return ok
+}
+
 func (r Routing) Apply(body []byte) ([]byte, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
 		return nil, fmt.Errorf("request body is not a JSON object")
+	}
+	// A carrier that is present but not an object, or that the proxy cannot decode (a number
+	// out of range), is refused here (founder ruling 2026-10-07). Forwarding it would skip
+	// every owner rule, and the broker's reader can accept a body the proxy cannot read (a
+	// duplicate key whose last value decodes), so the broker's 400 is not a guarantee.
+	for _, k := range []string{"provider", "roger"} {
+		if raw, ok := m[k]; ok && string(raw) != "null" && (!rawObjectOK(raw) || !decodes(raw)) {
+			return nil, &RoutingRefusal{Msg: k + ": an undecodable routing object is refused locally"}
+		}
+	}
+	// A key twice inside a routing object is refused, as the broker and the local plane do.
+	if k := protocol.DuplicateRoutingKey(body); k != "" {
+		return nil, &RoutingRefusal{Msg: "invalid routing value for " + k + ": duplicate key"}
 	}
 	roger, provider := rawObject(m["roger"]), rawObject(m["provider"])
 	// The owner's pref is a DEFAULT, and a sort the guest stated (provider.sort, or a :floor /
@@ -221,19 +325,40 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 	if r.Pref != "" && !guestStatesSort(m, provider) {
 		setDefault(roger, "pref", r.Pref)
 	}
-	if r.MinTPS > 0 {
+	if r.MinTPS > 0 && !mistyped(roger, "min_tps", isNumber) {
 		if f, ok := roger["min_tps"].(float64); !ok || f < r.MinTPS {
 			roger["min_tps"] = r.MinTPS
 		}
 	}
-	if r.Confidential {
+	if r.Confidential && !mistyped(roger, "confidential", isBool) {
+		if v, ok := roger["confidential"].(bool); ok && !v {
+			log.Printf("guest confidential=false ignored: owner requires confidential")
+		}
 		roger["confidential"] = true
 	}
+	// A guest value of the wrong type is forwarded as sent, for the broker's 400 (as a
+	// non-object max_price is): replacing it with the owner's would hide the guest's error.
+	if r.TrustMin != "" && !mistyped(roger, "trust_min", isTrustValue) {
+		if g, _ := roger["trust_min"].(string); trustRank(g) < trustRank(r.TrustMin) {
+			roger["trust_min"] = r.TrustMin
+		}
+	}
+	if len(r.Region) > 0 && !mistyped(roger, "region", isStringList) {
+		if got := stringsOf(roger["region"]); len(got) > 0 {
+			for _, x := range got {
+				if !slices.Contains(r.Region, x) {
+					return nil, &RoutingRefusal{Msg: "region " + x + " is outside this session's allowed regions"}
+				}
+			}
+		} else {
+			roger["region"] = r.Region
+		}
+	}
 	delete(roger, "freq") // the owner's band stands; a guest cannot drop or swap it
-	if r.SelfHostedOnly {
+	if r.SelfHostedOnly && !mistyped(roger, "self_hosted_only", isBool) {
 		roger["self_hosted_only"] = true
 	}
-	if len(r.Quantizations) > 0 {
+	if len(r.Quantizations) > 0 && !mistyped(provider, "quantizations", isStringList) {
 		if got := stringsOf(provider["quantizations"]); len(got) > 0 {
 			for _, q := range got {
 				if !hasFold(r.Quantizations, q) {
@@ -244,13 +369,119 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			provider["quantizations"] = r.Quantizations
 		}
 	}
+	if len(r.Only) > 0 && !mistyped(provider, "only", isStringList) {
+		g, stated := provider["only"]
+		guestOnly := stated && g != nil // an explicit [] is the guest's, forwarded for the broker's 400
+		if err := capStations(provider, r.Only, "allowed"); err != nil {
+			return nil, err
+		}
+		if !guestOnly {
+			provider["only"] = r.Only
+		}
+	}
+	if len(r.Models) > 0 {
+		var ids []string
+		if raw, present := m["models"]; present && string(raw) != "null" && json.Unmarshal(raw, &ids) != nil {
+			return nil, &RoutingRefusal{Msg: "models must be a list of model ids"}
+		}
+		if len(ids) > 0 {
+			// The band's own model (the request's model) is always routable, so it counts as
+			// inside the owner's set.
+			// Compared on the bare id: an owner entry written with a variant (a:free) is still a.
+			allowed := make([]string, 0, len(r.Models)+1)
+			for _, id := range r.Models {
+				allowed = append(allowed, sugarless(id)) // an owner's id
+			}
+			var band string
+			if json.Unmarshal(m["model"], &band) == nil && band != "" {
+				allowed = append(allowed, sugarless(band))
+			}
+			kept := []string{}
+			for _, id := range ids {
+				if id == "" || id != strings.TrimSpace(id) { // padded or empty: refused, as on the broker
+					return nil, &RoutingRefusal{Msg: "models must be a list of model ids"}
+				}
+				if slices.Contains(allowed, bareModel(id)) { // exact, as the broker and GuestModelsWithin compare
+					kept = append(kept, id)
+				}
+			}
+			// An empty filtered list would reach the broker as "no list" and route the owner's
+			// whole set: a guest list with no model inside the owner's is refused here.
+			if len(kept) == 0 {
+				return nil, &RoutingRefusal{Msg: "models names no model inside this session's allowed models"}
+			}
+			enc, _ := json.Marshal(kept)
+			m["models"] = enc
+		} else {
+			enc, _ := json.Marshal(r.Models)
+			m["models"] = enc
+		}
+	}
+	if r.NoFallbacks && len(r.Prefer) > 0 {
+		// With no fallbacks the owner's order is the whole routable set: a ceiling like --only.
+		if err := capStations(provider, r.Prefer, "pinned"); err != nil {
+			return nil, err
+		}
+	}
 	if len(r.Order) > 0 {
 		provider["order"] = r.Order
+	} else if len(r.Prefer) > 0 {
+		// A default the guest's only can narrow: an order naming a station outside only is a
+		// broker 400 for what is a legitimate tightening. Nothing left means no order.
+		order := r.Prefer
+		if only := stringsOf(provider["only"]); len(only) > 0 {
+			order = nil
+			for _, x := range r.Prefer {
+				if slices.Contains(only, x) {
+					order = append(order, x)
+				}
+			}
+		}
+		if len(order) > 0 {
+			setDefault(provider, "order", order)
+		}
 	}
-	if len(r.Ignore) > 0 {
+	if r.Sort != "" && !guestStatesSort(m, provider) && roger["pref"] == nil {
+		provider["sort"] = r.Sort
+	}
+	if r.NoFallbacks && !mistyped(provider, "allow_fallbacks", isBool) {
+		provider["allow_fallbacks"] = false
+	}
+	if r.RequireParams && !mistyped(provider, "require_parameters", isBool) {
+		provider["require_parameters"] = true
+	}
+	if len(r.Require) > 0 && !mistyped(roger, "require", isStringList) {
+		roger["require"] = unionStrings(stringsOf(roger["require"]), r.Require)
+	}
+	if len(r.ParamsB) == 2 && !mistyped(roger, "params_b", isNumberPair) {
+		lo, hi := r.ParamsB[0], r.ParamsB[1]
+		if g, isArr := roger["params_b"].([]any); isArr && len(g) == 2 {
+			if a, ok := g[0].(float64); ok && a > lo {
+				lo = a
+			}
+			if b, ok := g[1].(float64); ok && b < hi {
+				hi = b
+			}
+			if lo > hi {
+				return nil, &RoutingRefusal{Msg: "params_b is outside this session's allowed range"}
+			}
+		}
+		roger["params_b"] = []float64{lo, hi}
+	}
+	if r.MinCtx > 0 && !mistyped(roger, "min_ctx", isNumber) {
+		if g, ok := roger["min_ctx"].(float64); !ok || g < float64(r.MinCtx) {
+			roger["min_ctx"] = r.MinCtx
+		}
+	}
+	if r.MaxTTFT > 0 && !mistyped(roger, "max_ttft_ms", isNumber) {
+		if g, ok := roger["max_ttft_ms"].(float64); !ok || g <= 0 || g > float64(r.MaxTTFT) {
+			roger["max_ttft_ms"] = r.MaxTTFT
+		}
+	}
+	if len(r.Ignore) > 0 && !mistyped(provider, "ignore", isStringList) {
 		provider["ignore"] = unionStrings(stringsOf(provider["ignore"]), r.Ignore)
 	}
-	if r.MaxOut > 0 || r.MaxIn > 0 {
+	if r.MaxOut > 0 || r.MaxIn > 0 || r.MaxReq > 0 {
 		// The owner's price caps are the ceiling. A max_price that is not an object is left
 		// for the broker to refuse (never silently repaired).
 		mp, isObj := provider["max_price"].(map[string]any)
@@ -260,7 +491,28 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 		if isObj {
 			capPrice(mp, "completion", r.MaxOut)
 			capPrice(mp, "prompt", r.MaxIn)
+			capPrice(mp, "request", r.MaxReq)
 			provider["max_price"] = mp
+		}
+	}
+	if r.FreeOnly {
+		// The broker applies :free per entry, so every models[] fallback carries it too.
+		free := func(id string) string {
+			if id == "" || hasFreeSugar(id) { // :free anywhere in stacked sugar (m:free:nitro)
+				return id
+			}
+			return id + ":free"
+		}
+		var model string
+		if json.Unmarshal(m["model"], &model) == nil {
+			m["model"], _ = json.Marshal(free(model))
+		}
+		var ids []string
+		if json.Unmarshal(m["models"], &ids) == nil && len(ids) > 0 {
+			for i, id := range ids {
+				ids[i] = free(id)
+			}
+			m["models"], _ = json.Marshal(ids)
 		}
 	}
 	putObject(m, "roger", roger)
@@ -304,8 +556,58 @@ func liftPrice(v any, axis string, owner float64) float64 {
 	return g
 }
 
-// hasFold reports whether list contains s, comparing case-insensitively (quant labels are
-// verbatim but a Q8_0 and a q8_0 are the same weights).
+// trustRank orders roger.trust_min values: any < verified < confidential ("" = any).
+func trustRank(t string) int {
+	switch t {
+	case "verified":
+		return 1
+	case "confidential":
+		return 2
+	}
+	return 0
+}
+
+// RoutingKeysAdded names the routing keys present in sent but absent from orig (the proxy's
+// own defaults), dotted and sorted: "provider.max_price.completion", "roger.min_tps", ... The
+// failover's own provider.order hint is never a default.
+func RoutingKeysAdded(orig, sent []byte) []string {
+	flat := func(b []byte) map[string]bool {
+		out := map[string]bool{}
+		var m map[string]any
+		if json.Unmarshal(b, &m) != nil {
+			return out
+		}
+		if _, ok := m["models"]; ok {
+			out["models"] = true
+		}
+		for _, top := range []string{"provider", "roger"} {
+			obj, _ := m[top].(map[string]any)
+			for k, v := range obj {
+				if mp, isObj := v.(map[string]any); isObj && k == "max_price" {
+					for sk := range mp {
+						out[top+"."+k+"."+sk] = true
+					}
+					continue
+				}
+				out[top+"."+k] = true
+			}
+		}
+		return out
+	}
+	o, s := flat(orig), flat(sent)
+	var added []string
+	for k := range s {
+		if !o[k] && k != "provider.order" {
+			added = append(added, k)
+		}
+	}
+	sort.Strings(added)
+	return added
+}
+
+// hasFold reports whether list contains s, comparing case-insensitively. For quant labels only
+// (a Q8_0 and a q8_0 are the same weights); station ids, regions and capabilities compare
+// exactly, as the broker compares them.
 func hasFold(list []string, s string) bool {
 	for _, v := range list {
 		if strings.EqualFold(strings.TrimSpace(v), strings.TrimSpace(s)) {
@@ -327,7 +629,36 @@ func (r Routing) Dropped() []string {
 	if len(r.Quantizations) > 0 {
 		d = append(d, "provider.quantizations")
 	}
+	for _, k := range []struct {
+		key string
+		on  bool
+	}{
+		{"models", len(r.Models) > 0}, {"provider.only", len(r.Only) > 0}, {"provider.order", len(r.Prefer) > 0},
+		{"provider.allow_fallbacks", r.NoFallbacks}, {"provider.sort", r.Sort != ""},
+		{"provider.require_parameters", r.RequireParams}, {"provider.max_price.request", r.MaxReq > 0},
+		{"roger.require", len(r.Require) > 0}, {"roger.params_b", len(r.ParamsB) == 2},
+		{"roger.min_ctx", r.MinCtx > 0}, {"roger.max_ttft_ms", r.MaxTTFT > 0},
+		{"roger.trust_min", r.TrustMin != ""}, {"roger.region", len(r.Region) > 0}, {"model:free", r.FreeOnly},
+	} {
+		if k.on {
+			d = append(d, k.key)
+		}
+	}
 	return d
+}
+
+// RoutingFlag names the `roger use` flag that sets a routing body key ("" when none does).
+func RoutingFlag(key string) string {
+	return map[string]string{
+		"models": "--models", "provider.only": "--only", "provider.order": "--order",
+		"provider.ignore": "--exclude", "provider.allow_fallbacks": "--no-fallbacks", "provider.sort": "--sort",
+		"provider.quantizations": "--quant", "provider.max_price.prompt": "--max-in",
+		"provider.max_price.completion": "--max-out", "provider.max_price.request": "--max-cost",
+		"roger.pref": "--pref", "roger.require": "--require", "roger.params_b": "--params",
+		"roger.min_ctx": "--min-ctx", "roger.max_ttft_ms": "--max-ttft", "roger.trust_min": "--trust",
+		"roger.self_hosted_only": "--self-hosted", "roger.region": "--region", "roger.min_tps": "--min-tps",
+		"roger.confidential": "--confidential", "roger.freq": "--freq",
+	}[key]
 }
 
 // SetHeaders writes the pre-body wire form onto req (HeaderMode). The failover's preferred
@@ -480,11 +811,12 @@ func bandCooling(resp *http.Response) (raw []byte, wait time.Duration, ok bool) 
 // passThrough replays an upstream response the proxy decided not to retry (its status,
 // headers and the already-read body) to the caller unchanged.
 func passThrough(w http.ResponseWriter, resp *http.Response, raw []byte) {
-	for k, vs := range resp.Header {
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = "application/json"
 	}
+	w.Header().Set("Content-Type", ct)
+	copyAllowedHeaders(w, resp) // the same allowlist as a relayed reply
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, bytes.NewReader(raw))
 }
@@ -571,4 +903,53 @@ func (r *Routing) foldCallerCarriers(body []byte) (out []byte, dropped []string,
 	sort.Strings(dropped)
 	out, err = json.Marshal(m)
 	return out, dropped, hasModels, err
+}
+
+// guestNamesOtherModelOf is guestNamesOtherModel reading the body's own model.
+func guestNamesOtherModelOf(body []byte, tuned string) bool {
+	var m struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(body, &m) != nil {
+		return false
+	}
+	return guestNamesOtherModel(body, m.Model, tuned)
+}
+
+// rawObjectOK reports whether raw JSON is an object.
+// decodes reports whether a carrier decodes in full (a number out of range does not).
+func decodes(raw json.RawMessage) bool {
+	var m map[string]any
+	return json.Unmarshal(raw, &m) == nil
+}
+
+func rawObjectOK(raw json.RawMessage) bool {
+	var m map[string]json.RawMessage
+	return json.Unmarshal(raw, &m) == nil && m != nil
+}
+
+// capStations holds a guest's provider.order and provider.only inside the owner's station
+// set: an order naming a station outside it is refused, an only list is intersected with it
+// (and refused when nothing is left, since an empty list would read as no filter).
+func capStations(provider map[string]any, set []string, kind string) *RoutingRefusal {
+	for _, x := range stringsOf(provider["order"]) {
+		if !slices.Contains(set, x) {
+			return &RoutingRefusal{Msg: "order names " + x + ", outside this session's " + kind + " stations"}
+		}
+	}
+	got := stringsOf(provider["only"])
+	if len(got) == 0 {
+		return nil
+	}
+	kept := []string{}
+	for _, x := range got {
+		if slices.Contains(set, x) {
+			kept = append(kept, x)
+		}
+	}
+	if len(kept) == 0 {
+		return &RoutingRefusal{Msg: "only names no station inside this session's " + kind + " stations"}
+	}
+	provider["only"] = kept
+	return nil
 }

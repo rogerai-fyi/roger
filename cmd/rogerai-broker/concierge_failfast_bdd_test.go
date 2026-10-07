@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -419,7 +420,7 @@ func TestConciergeFailFastBDD(t *testing.T) {
 			TestingT: t,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("concierge fail-fast feature scenarios failed")
 	}
 }

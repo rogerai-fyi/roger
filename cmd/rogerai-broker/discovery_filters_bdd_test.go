@@ -36,6 +36,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -1780,7 +1781,7 @@ func TestDiscoveryFiltersBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("discovery/filters.feature failed (see godog output above)")
 	}
 }
@@ -1799,7 +1800,7 @@ func TestModelsEndpointBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("discovery/models_endpoint.feature (non-@slice0) failed (see godog output above)")
 	}
 }

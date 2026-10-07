@@ -374,6 +374,7 @@ func (m model) openLocalChannel(r privRow) model {
 	node := agent.ShareNodeID(m.ctrl.Station(), r.model, 0)
 	m.connected = &offer{NodeID: node, Model: r.model, Online: true}
 	m.chatLocalChat, m.chatLocalKey = r.chat, r.key
+	m.tunedProfile = ""
 	m.transcript = nil
 	m.chatUnstuck = false // a fresh transcript starts stuck
 	m.sessCost = 0

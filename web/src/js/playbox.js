@@ -143,6 +143,9 @@
       if (o.ctx && !b.ctx) { b.ctx = +o.ctx; b.ctxEstimated = !!o.ctx_estimated; }
       if (o.hw && !b.hw) b.hw = String(o.hw);
       if (o.region && !b.region) b.region = String(o.region);
+      // the routing drawer offers the quant labels and regions the stations actually state
+      if (o.quant) (b.quants || (b.quants = {}))[String(o.quant)] = true;
+      if (o.region) (b.regions || (b.regions = {}))[String(o.region).toLowerCase()] = true;
       if (o.confidential) b.confidential = true;
       if (+o.capacity > 0) b.capacity = (b.capacity || 0) + (+o.capacity);
       if (!isOnline(o)) return;
@@ -494,6 +497,8 @@
       // github_login is the only human-facing name. An Apple-only account has none,
       // and then the plate must read exactly as it does signed out - no placeholder.
       setOperator(STATE.loggedIn ? (me && me.github_login) : "");
+      // signing in enables the drawer's price fields without a reload
+      document.querySelectorAll("#dkRoute [data-money]").forEach(function (f) { f.disabled = !STATE.loggedIn; });
       refreshTransport(); refreshAudioServices();
     }).catch(function () { signedOut(); });
   }
@@ -614,6 +619,7 @@
     setBayState(offAir ? "OFF AIR" : "LOADED");
     rememberDeck();
     renderJCard(t);
+    routeTapeChanged(t);
     if (offAir) logLine("deck", "DECK", t.label + ": " + t.why);
     $("dkTapeName").textContent = t.label;
     $("dkTapeSub").textContent = t.demo ? "certified contracts · recorded" : "on air via the Tower";
@@ -653,6 +659,7 @@
     $("dkTapeSub").textContent = "pick a cassette from the shelf";
     var caps = $("dkTapeCaps"); if (caps) caps.textContent = "";
     renderJCard(null);
+    routeTapeChanged(null);
     rememberDeck();
     var box = $("pgCliBox"); if (box) box.hidden = true;
     document.querySelectorAll(".dk__pos").forEach(function (b) { b.classList.remove("is-dim"); });
@@ -710,7 +717,7 @@
     if (!bay || !cas) return;
     var x0 = 0, dx = 0, dragging = false, pid = null;
     function down(e) {
-      if (STATE.playing) return;
+      if (STATE.playing || window.PlayboxRoute.ownsInput(e.target)) return;
       dragging = true; x0 = e.clientX; dx = 0; pid = e.pointerId;
       cas.classList.add("is-dragging");
       try { bay.setPointerCapture(pid); } catch (err) {}
@@ -741,6 +748,7 @@
     bay.setAttribute("tabindex", "0");
     bay.setAttribute("aria-label", "Cassette bay - arrow keys change tape");
     bay.addEventListener("keydown", function (e) {
+      if (window.PlayboxRoute.ownsInput(e.target)) return;   // the drawer is inside the bay
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       var next = neighbourTape(e.key === "ArrowRight" ? 1 : -1);
       if (next) { e.preventDefault(); loadTape(next, e.key === "ArrowRight" ? "left" : "right"); }
@@ -812,14 +820,16 @@
 
   document.addEventListener("keydown", function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;      // leave browser chords alone
-    if (isTyping(e.target)) return;                       // the composer always wins
-    var k = e.key;
-    if (k === " " || k === "Spacebar") {
-      if (!$("dkPlay").disabled) { e.preventDefault(); play(); }
+    if (window.PlayboxRoute.escapeStops(e)) {            // the drawer's fields included; the composer keeps Escape
+      if (STATE.playing) { e.preventDefault(); stopPlayback(); }
       return;
     }
-    if (k === "Escape") {
-      if (STATE.playing) { e.preventDefault(); stopPlayback(); }
+    if (isTyping(e.target)) return;                       // the composer always wins
+    var k = e.key;
+    if (window.PlayboxRoute.ownsInput(e.target)) return;  // the routing drawer keeps its keys
+    if (window.PlayboxRoute.pressesControl(e)) return;    // a focused button takes Space and Enter itself
+    if (k === " " || k === "Spacebar") {
+      if (!$("dkPlay").disabled) { e.preventDefault(); play(); }
       return;
     }
     if (k === "ArrowLeft" || k === "ArrowRight") {
@@ -1181,8 +1191,22 @@
     return s.length > 14 ? s.slice(0, 13) + "…" : s;
   }
 
-  function relayErrorText(status, data) {
+  function relayErrorText(status, data, headers) {
     var msg = data && data.error && data.error.message;
+    var code = data && data.error && data.error.code;
+    // a routing constraint matched nothing: name it, and do not retry into it
+    if (status === 503 && code === "no_match") {
+      return "no station matches: " + String(msg || "these routing settings").replace(/^no node offers\s*/i, "") + " - loosen a routing setting";
+    }
+    // a cooling band says how long; the deck never retries into it
+    if (status === 503 && code === "band_cooling") {
+      var wait = headers && headers.get && headers.get("Retry-After");
+      return "the band is cooling" + (wait ? " for " + wait + " s" : "") + " - try again then";
+    }
+    // a routing value the contract refused names the drawer field to fix
+    if (status === 400 && msg && /routing/.test(String(code || ""))) {
+      return window.PlayboxRoute.nameFields(msg);
+    }
     // A refused session must not leave a handle on the plate and a paid tape
     // unlocked - the deck stops claiming what it can no longer back.
     if (status === 401 && STATE.loggedIn) signedOut();
@@ -1220,20 +1244,195 @@
     return unreachableText(err);
   }
 
+  /* =====================================================================
+     THE ROUTING DRAWER (features/web/playbox_routing.feature)
+     How a live turn is routed, as the SAME body object every RogerAI client
+     sends: models[], provider{} and roger{} keys, never a header. A field adds
+     its key only when it is set, so an untouched drawer sends today's body.
+     Settings persist per viewer under their own key; blocked storage just
+     makes them session-only.
+     ===================================================================== */
+  var ROUTE_KEY = "roger-playbox-routing-v1";
+  var ROUTE_MAX_FALLBACKS = window.PlayboxRoute.MAX_FALLBACKS;
+  // stored state is untrusted (an old version, a hand edit): PlayboxRoute keeps only
+  // well-formed fields and the values the drawer offers
+  function routeClean(o) { return window.PlayboxRoute.clean(o); }
+  var ROUTE = (function () {
+    try { return routeClean(JSON.parse(localStorage.getItem(ROUTE_KEY) || "null")); }
+    catch (e) { return {}; }
+  })();
+  var routeBad = "";        // a field the contract refuses: the turn waits until it is fixed
+
+  function saveRoute() {
+    try { localStorage.setItem(ROUTE_KEY, JSON.stringify(ROUTE)); }
+    catch (e) { /* private mode: the settings apply for this session only */ }
+  }
+  function routeNote(text) { var n = $("dkRouteMsg"); if (n) n.textContent = text || ""; }
+
+  // a number field: blank is unset, anything else must be a number >= 0
+  function routeNum(id, label) {
+    return window.PlayboxRoute.parseNum(($(id) && $(id).value || ""), label);
+  }
+  function routeSize(v) { return window.PlayboxRoute.parseSize(v); }
+
+  function routeCtx(v) { return window.PlayboxRoute.parseCtx(v); }
+  function routeTtft(v) { return window.PlayboxRoute.parseTtft(v); }
+
+  // read every field into ROUTE (validated); a refusal names the field and holds the turn
+  function readRoute() {
+    try {
+      var models = ($("dkRtModels").value || "").split(",").map(function (x) { return x.trim(); })
+        .filter(function (x) { return x; });
+      var capped = models.length > ROUTE_MAX_FALLBACKS;
+      var r = {
+        models: models.slice(0, ROUTE_MAX_FALLBACKS),
+        out: routeNum("dkRtOut", "max $/1M out"), in: routeNum("dkRtIn", "max $/1M in"),
+        turn: routeNum("dkRtTurn", "max $/turn"), tps: routeNum("dkRtTps", "min t/s"),
+        selfHosted: $("dkRtSelf").checked, confidential: $("dkRtConf").checked,
+        tools: $("dkRtTools").checked, vision: $("dkRtVision").checked,
+        quant: $("dkRtQuant").value, size: routeSize($("dkRtSize").value), region: $("dkRtRegion").value,
+        pref: $("dkRtPref").value, sort: $("dkRtSort").value, trust: $("dkRtTrust").value,
+        ctx: routeCtx($("dkRtCtx").value), ttft: routeTtft($("dkRtTtft").value)
+      };
+      if (capped) $("dkRtModels").value = r.models.join(", ");
+      routeBad = "";
+      ROUTE = r;
+      saveRoute();
+      routeNote(capped ? "kept the first four - up to 4 fallbacks after the tape" : "");
+    } catch (msg) {
+      routeBad = String(msg);
+      routeNote(routeBad);
+    }
+  }
+
+  // write ROUTE back into the fields
+  function paintRoute() {
+    var r = ROUTE;
+    routeBad = ""; // the fields now hold ROUTE, which is valid: a stale refusal no longer applies
+    function set(id, v) { var e = $(id); if (e) e.value = v == null ? "" : v; }
+    function tick(id, v) { var e = $(id); if (e) e.checked = !!v; }
+    set("dkRtModels", (r.models || []).join(", "));
+    set("dkRtOut", r.out); set("dkRtIn", r.in); set("dkRtTurn", r.turn); set("dkRtTps", r.tps);
+    tick("dkRtSelf", r.selfHosted); tick("dkRtConf", r.confidential); tick("dkRtTools", r.tools); tick("dkRtVision", r.vision);
+    set("dkRtQuant", r.quant || ""); set("dkRtRegion", r.region || "");
+    set("dkRtSize", r.size ? r.size[0] + "-" + r.size[1] : "");
+    set("dkRtPref", r.pref || ""); set("dkRtSort", r.sort || ""); set("dkRtTrust", r.trust || "");
+    set("dkRtCtx", r.ctx); set("dkRtTtft", r.ttft);
+  }
+
+  // the money fields do nothing for a signed-out visitor (free stations only): say so
+  function syncRouteMoney() {
+    document.querySelectorAll("#dkRoute [data-money]").forEach(function (f) { f.disabled = !STATE.loggedIn; });
+    var n = $("dkRouteAnon"); if (n) n.hidden = !!STATE.loggedIn;
+  }
+
+  // quant and region choices come from the stations actually on the tape's band
+  function routeChoices(t) {
+    var b = t && t.band;
+    function fill(id, values, saved, emptyNote) {
+      var s = $(id); if (!s) return "";
+      s.textContent = "";
+      var any = el("option", null, "any"); any.value = ""; s.appendChild(any);
+      values.forEach(function (v) { var o = el("option", null, v); o.value = v; s.appendChild(o); });
+      if (saved && values.indexOf(saved) === -1) { s.value = ""; return saved + " is not on this tape right now"; }
+      s.value = saved || "";
+      return values.length ? "" : emptyNote;
+    }
+    var qn = fill("dkRtQuant", b ? Object.keys(b.quants || {}) : [], ROUTE.quant, "no station on this tape states its quant");
+    var rn = fill("dkRtRegion", b ? window.PlayboxRoute.regionChoices(Object.keys(b.regions || {})) : [], ROUTE.region, "");
+    if (qn.indexOf("is not on") !== -1) ROUTE.quant = "";
+    if (rn.indexOf("is not on") !== -1) ROUTE.region = "";
+    if (qn.indexOf("is not on") !== -1 || rn.indexOf("is not on") !== -1) saveRoute();
+    routeNote(qn || rn);
+  }
+
+  // a tape change keeps the generic settings and clears the tape-specific ones
+  var routeTapeModel = null;
+  function routeTapeChanged(t) {
+    var btn = $("dkRouteBtn"), drawer = $("dkRoute");
+    var live = !!(t && t.band && !t.ping && !t.demo && t.band.online);
+    if (btn) btn.hidden = !live;
+    if (!live && drawer) { drawer.hidden = true; if (btn) btn.setAttribute("aria-expanded", "false"); }
+    if (!t || !t.band) return;
+    if (routeTapeModel && routeTapeModel !== t.model && (ROUTE.quant || (ROUTE.models && ROUTE.models.length))) {
+      // quant and also try belong to one tape: clear them on a tape change
+      ROUTE.quant = ""; ROUTE.models = []; saveRoute();
+      routeNote("quant and also try were cleared for this tape");
+    }
+    routeTapeModel = t.model;
+    routeChoices(t);
+    paintRoute();
+  }
+
+  // routingBody adds the drawer's keys to a turn's body - only for fields that are set, and
+  // only on the routed tape's model (another turn, like the own-image vision turn, carries
+  // just the signed-out free rule)
+  function routingBody(model, body) {
+    return window.PlayboxRoute.body(ROUTE, model, body, { loggedIn: STATE.loggedIn, routed: model === routeTapeModel });
+  }
+
+  // the one dim summary line a routed turn shows above its reply (none when nothing is set)
+  function routeSummary() { return window.PlayboxRoute.summary(ROUTE, STATE.loggedIn); }
+
+  (function wireRoute() {
+    var btn = $("dkRouteBtn"), drawer = $("dkRoute");
+    if (!btn || !drawer) return;
+    btn.addEventListener("click", function () {
+      var open = drawer.hidden;
+      drawer.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) { syncRouteMoney(); routeChoices(STATE.tape); paintRoute(); }
+    });
+    drawer.addEventListener("change", function (e) {
+      // prefer and sort by are one choice: setting one resets the other, said in one line
+      if (e.target.id === "dkRtSort" && e.target.value && $("dkRtPref").value) {
+        $("dkRtPref").value = ""; readRoute(); routeNote("sort by replaces prefer"); return;
+      }
+      if (e.target.id === "dkRtPref" && e.target.value && $("dkRtSort").value) {
+        $("dkRtSort").value = ""; readRoute(); routeNote("prefer replaces sort by"); return;
+      }
+      readRoute();
+    });
+    var reset = $("dkRouteReset");
+    if (reset) reset.addEventListener("click", function () {
+      ROUTE = {}; routeBad = "";
+      try { localStorage.removeItem(ROUTE_KEY); } catch (e) { /* nothing stored */ }
+      paintRoute(); routeNote("every routing field is back to unset");
+    });
+    paintRoute();
+  })();
+
+  // the reply's footer: who served, read from the broker's final usage chunk (the one that
+  // carries a rogerai block - a station's own usage object is not the broker's)
+  function servedFooter(msgNode, served, model) {
+    if (!served || !msgNode) return;
+    if (served.void) {   // the broker voided a reply that had started: say so, never "served"
+      msgNode.parentNode.appendChild(el("span", "pg-line__ts mono", window.PlayboxRoute.voidNote(served)));
+      return;
+    }
+    var text = "served by " + served.model + (served.model && served.model !== model ? " (fallback)" : "") +
+      (served.node ? " · " + served.node : "");
+    if (served.cost != null) text += STATE.loggedIn ? " · $" + served.cost : " · free";
+    msgNode.parentNode.appendChild(el("span", "pg-line__ts mono", text));
+  }
+
   /* ---------- LIVE playback: text + voice ------------------------------ */
   function stationSend(model, hist, msgNode) {
+    var served = null, provider = "", servedModel = "";
     abortCtl = ("AbortController" in window) ? new AbortController() : null;
     return fetch(BROKER + "/v1/chat/completions", {
       method: "POST", headers: { "Content-Type": "application/json" },
       credentials: "include", cache: "no-store",
       signal: abortCtl ? abortCtl.signal : undefined,
-      body: JSON.stringify({ model: model, stream: true, max_tokens: 1024, messages: hist.slice(-8) })
+      body: JSON.stringify(routingBody(model, { model: model, stream: true, max_tokens: 1024, messages: hist.slice(-8) }))
     }).then(function (r) {
       if (!r.ok) {
         return r.json().catch(function () { return null; }).then(function (data) {
-          throw relayErrorText(r.status, data);
+          throw relayErrorText(r.status, data, r.headers);
         });
       }
+      provider = r.headers && r.headers.get("X-RogerAI-Provider");
+      servedModel = r.headers && r.headers.get("X-RogerAI-Model");
       if (!r.body || !r.body.getReader) return r.text().then(function (t) { return { whole: t }; });
       return { reader: r.body.getReader() };
     }).then(function (src) {
@@ -1251,6 +1450,8 @@
           if (payload === "[DONE]") return;
           try {
             var d = JSON.parse(payload);
+            // the broker's final chunk: usage with a rogerai block (who served, the cost)
+            if (d.usage && d.usage.rogerai) served = window.PlayboxRoute.servedOf(d.usage);
             var delta = d.choices && d.choices[0] && (d.choices[0].delta || d.choices[0].message);
             var piece = delta && delta.content;
             if (piece) {
@@ -1272,6 +1473,8 @@
     }).then(function () {
       var reply = msgNode.textContent;
       if (reply) hist.push({ role: "assistant", content: reply });
+      // no usage chunk: the headers name the served model and the station, never a guess
+      servedFooter(msgNode, served || (servedModel ? { model: servedModel, node: provider } : null), model);
     });
   }
 
@@ -1514,7 +1717,13 @@
     var key = t.ping ? "ping" : t.model;
     var hist = historyFor(key);
     setOutMode("live");
+    if (!t.ping && routeBad) {
+      logLine("deck", "DECK", "fix the routing drawer first: " + routeBad);
+      return Promise.resolve();
+    }
     logLine("you", spoken ? "MIC" : "YOU", text);
+    var summary = t.ping ? "" : routeSummary();
+    if (summary) logLine("deck", "ROUTE", "routing: " + summary);
     hist.push({ role: "user", content: text });
     var label = t.ping ? "PING" : stationLabel(t.model);
     var thinking = logLine("ping", label, "Patching through the Tower…", true);
