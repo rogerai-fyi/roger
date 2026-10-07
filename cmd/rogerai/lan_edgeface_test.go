@@ -34,6 +34,10 @@ type edgeFace struct {
 	mutualTLS atomic.Int32 // turns that arrived with the caller's certificate
 	lastModel atomic.Value // the model the last turn named
 	pub       ed25519.PublicKey
+	// speech: /edge/speech answers (features/lan/voice.feature). speechMode "" = audio,
+	// "fail" = a 502 before any audio, "cut" = the connection drops partway through the audio.
+	speechHits atomic.Int32
+	speechMode string
 }
 
 func (f *edgeFace) addr() string { return strings.TrimPrefix(f.srv.URL, "https://") }
@@ -48,6 +52,10 @@ func newEdgeFace(t *testing.T, node string, delay time.Duration) *edgeFace {
 	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, key)
 	f := &edgeFace{pin: fmt.Sprintf("%x", sha256.Sum256(der)), pub: pub}
 	f.srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/edge/speech" {
+			f.speech(w, r, node, key)
+			return
+		}
 		if r.URL.Path != "/edge/infer" {
 			http.NotFound(w, r)
 			return
@@ -97,4 +105,43 @@ func (s *lanDialBDD) memberAt(node, band, addr, pin string) error {
 		return err
 	}
 	return st.save()
+}
+
+// speech answers a member's speech request as a voice-serving member's face does.
+func (f *edgeFace) speech(w http.ResponseWriter, r *http.Request, node string, key ed25519.PrivateKey) {
+	f.speechHits.Add(1)
+	var p struct {
+		Model string `json:"model"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&p)
+	f.lastModel.Store(p.Model)
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		f.mutualTLS.Add(1)
+	}
+	switch f.speechMode {
+	case "fail":
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	case "cut":
+		// headers and part of the audio, then the member goes away
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Header().Set("Content-Length", "4096")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "RIFF partial")
+		if fl, ok := w.(http.Flusher); ok {
+			fl.Flush()
+		}
+		if hj, ok := w.(http.Hijacker); ok {
+			if c, _, err := hj.Hijack(); err == nil {
+				_ = c.Close()
+			}
+		}
+		return
+	}
+	rec := protocol.UsageReceipt{RequestID: "edge-" + node + "-speech-" + fmt.Sprint(f.speechHits.Load()), NodeID: node,
+		Model: p.Model, Local: true, TS: time.Now().Unix()}
+	rec.SignNode(key)
+	w.Header().Set("Content-Type", "audio/wav")
+	w.Header().Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
+	_, _ = io.WriteString(w, "RIFF voice of "+node)
 }

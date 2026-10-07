@@ -732,6 +732,7 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 		cp := in
 		cp.Caps = nil
 		cp.Model = CleanModel(in.Model)                                // the member's word, bounded and cleaned before it is stored
+		cp.Voices = voicesWithin(in.Voices, in.Bands)                  // a voice is one of its bands, never more
 		cp.ServeProven = append([]string(nil), prevProven[in.Name]...) // the peer never states this
 		if len(prev[in.Name]) == 0 {
 			cp.ServeProven = nil // an instance we have not seen before has proven nothing
@@ -945,3 +946,18 @@ func (l Located) Serves() bool {
 
 // Address is how the owner writes this instance: node/instance.
 func (l Located) Address() string { return l.Node.Name + "/" + l.Instance.Name }
+
+// voicesWithin keeps only the voices that are also bands the instance has on air: a member's
+// record can never declare a voice it does not serve.
+func voicesWithin(voices, bands []string) []string {
+	var out []string
+	for _, v := range voices {
+		for _, b := range bands {
+			if v == b {
+				out = append(out, v)
+				break
+			}
+		}
+	}
+	return out
+}

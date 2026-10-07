@@ -6,6 +6,7 @@ package edge
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -199,4 +200,59 @@ func TestSpeechAnswerIsReceipted(t *testing.T) {
 		t.Fatal("the receipt does not verify against the face's certificate")
 	}
 	var _ protocol.UsageReceipt = s.rec
+}
+
+// The speech path's other refusals: a GET, a body naming no voice, a voice server that fails or is
+// gone (its body never echoed: it can carry the key this node sent), and a node that serves no
+// speech at all.
+func TestSpeechRefusals(t *testing.T) {
+	s := &speechBDD{inferBDD: inferBDD{t: t}}
+	s.resetSpeech()
+	defer s.closeAll()
+	s.voices["studio-voice"] = true
+	s.node("jetson")
+	m := s.issue(s.auth, "laptop")
+	s.admitted["laptop"] = true
+
+	cfg := &tls.Config{InsecureSkipVerify: true, Certificates: []tls.Certificate{m.cert}}
+	c := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}}
+	resp, err := c.Get(s.face.URL + SpeechPath)
+	if err != nil || resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET: %v %v", err, resp)
+	}
+	resp.Body.Close()
+
+	s.speak(m, `{"input":"hello"}`)
+	if s.status != http.StatusBadRequest {
+		t.Fatalf("no voice named: %d %s", s.status, s.body)
+	}
+
+	// the voice server fails, echoing a key
+	s.voiceUp.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "bad key sk-from-this-node")
+	})
+	s.speak(m, speechBody("studio-voice"))
+	if s.status != http.StatusBadGateway || strings.Contains(s.body, "sk-from-this-node") {
+		t.Fatalf("failing voice: %d %s", s.status, s.body)
+	}
+	s.voiceUp.Close()
+	s.speak(m, speechBody("studio-voice"))
+	if s.status != http.StatusBadGateway || !strings.Contains(s.body, "did not answer") {
+		t.Fatalf("gone voice: %d %s", s.status, s.body)
+	}
+
+	// a node with no Speech serves none: a band it does not have is a 404
+	s.srv.serving.Speech = nil
+	s.speak(m, speechBody("studio-voice"))
+	if s.status != http.StatusBadRequest || !strings.Contains(s.body, "is not a voice") {
+		t.Fatalf("no speech on this node: %d %s", s.status, s.body)
+	}
+}
+
+func TestVoicesNeverWiderThanBands(t *testing.T) {
+	got := voicesWithin([]string{"a", "x", "b"}, []string{"a", "b", "c"})
+	if strings.Join(got, ",") != "a,b" {
+		t.Fatalf("got %v", got)
+	}
 }

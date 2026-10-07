@@ -95,6 +95,7 @@ func cmdResumeWithRuntime(cfg config, args []string, notice string, webuiOn bool
 	// The peer-serving upstream: a model this process has on air is served to Edge
 	// peers from the same backend the market uses (features/edge/local_inference.feature).
 	edgeAttachUpstream(func(band string) (string, string, bool) { return ctrl.ServeUpstreamFor(band) })
+	edgeSpeechOf = ctrl.ServeSpeechFor
 
 	// The dispatch ladder: the booth tries a peer on this Edge before the market
 	// (features/edge/local_inference.feature), the same wiring `roger use` gets.

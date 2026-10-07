@@ -2358,6 +2358,12 @@ func tryEdgePeers(ctx context.Context, w http.ResponseWriter, opts ProxyOptions,
 // presented, the peer's checked against the pin the fleet recorded. It returns the reply
 // and the certificate the peer served, so the local receipt can be checked against it.
 func dialEdgePeer(ctx context.Context, p EdgePeer, body []byte, opts ProxyOptions) (*http.Response, *x509.Certificate, error) {
+	return dialEdgePath(ctx, p, "/edge/infer", body, opts.EdgeCert)
+}
+
+// dialEdgePath posts body to path on a peer's face over mutual TLS, the peer's certificate checked
+// against its pin before any byte is sent.
+func dialEdgePath(ctx context.Context, p EdgePeer, path string, body []byte, edgeCert *tls.Certificate) (*http.Response, *x509.Certificate, error) {
 	var leaf *x509.Certificate
 	tlsCfg := &tls.Config{
 		InsecureSkipVerify: true, // verified below, against the pin, before any byte is sent
@@ -2373,8 +2379,8 @@ func dialEdgePeer(ctx context.Context, p EdgePeer, body []byte, opts ProxyOption
 			return nil
 		},
 	}
-	if opts.EdgeCert != nil {
-		tlsCfg.Certificates = []tls.Certificate{*opts.EdgeCert}
+	if edgeCert != nil {
+		tlsCfg.Certificates = []tls.Certificate{*edgeCert}
 	}
 	// Bound the TCP dial and the TLS handshake, so a dead or black-holed peer fails fast instead of
 	// stalling the whole provider ladder. The earlier code built a timeout context and then dropped
@@ -2384,7 +2390,7 @@ func dialEdgePeer(ctx context.Context, p EdgePeer, body []byte, opts ProxyOption
 		DialContext:           (&net.Dialer{Timeout: proxyDialTimeout}).DialContext,
 		TLSHandshakeTimeout:   proxyDialTimeout}
 	defer tr.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+p.Addr+"/edge/infer", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+p.Addr+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
 	}

@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-07 (founder)
-# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
+# BUILD STATUS: BUILT 2026-10-07; the edge-only scenario waits for edge-only (@blocked-on-edge-only).
 #
 # LAN MODE - VOICE: `roger --lan say` and the TUI voice speak through a LOCAL voice, or refuse.
 #
@@ -217,7 +217,7 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
   # 6. EDGE-ONLY
   # =========================================================================
 
-  @cli
+  @cli @blocked-on-edge-only
   Scenario: voice under edge-only uses this machine and Edge members, exactly as in LAN mode
     Given edge-only is on and the Edge member "jetson" has a voice on air
     When they run "roger say hello"

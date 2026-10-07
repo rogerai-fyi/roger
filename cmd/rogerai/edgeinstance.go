@@ -111,7 +111,7 @@ func (h *edgeHost) registerInstance(cfg config) {
 	}
 	bands := edgeBandsOnAir()
 	inst := edge.Instance{Name: edgeInstanceName(cfg, h.enrolledName(), taken), Caps: edgeInstanceCapsFor(cfg, bands), Model: edgeModelNow(),
-		Bands: bands, Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now), Software: edgeReadSoftware(),
+		Bands: bands, Voices: voicesOf(bands), Agent: edgeIsAgentRole(cfg), Resources: edgeReadResources(now), Software: edgeReadSoftware(),
 		PID:  os.Getpid(),  // its own pid, about itself: what lets the owner stop it from another machine
 		Port: h.facePort()} // its OWN face, so a caller can address this roger rather than the machine
 	reg, err := edge.Register(dir, id.NodeID, inst, now)
@@ -156,6 +156,7 @@ func (h *edgeHost) beatInstance(cfg config) {
 	agent := edgeIsAgentRole(cfg)
 	_ = reg.Update(node, func(i *edge.Instance) {
 		i.Bands, i.Caps, i.Resources = bands, edgeInstanceCapsFor(cfg, bands), edgeReadResources(now)
+		i.Voices = voicesOf(bands)
 		i.Model = edgeModelNow() // what it serves of its own and is fetching, so the fleet can see it
 		i.Agent = agent          // a change via `roger edge agent on` is picked up on the next pass
 		// The software record is refreshed every beat, exactly like the resources: it is what the
@@ -470,6 +471,19 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			if !ok {
 				u, k, ok = lanShareUpstream(band) // a separate headless share on this machine
 			}
+			if !ok {
+				return "", "", "", false
+			}
+			inst := ""
+			h.mu.Lock()
+			if h.reg != nil {
+				inst = h.reg.Instance().Name
+			}
+			h.mu.Unlock()
+			return u, k, inst, true
+		},
+		Speech: func(band string) (string, string, string, bool) {
+			u, k, ok := localSpeechOf(band)
 			if !ok {
 				return "", "", "", false
 			}

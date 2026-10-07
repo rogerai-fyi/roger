@@ -17,6 +17,10 @@ type Share struct {
 	Band    string `json:"band"`
 	ChatURL string `json:"chat_url"`
 	Key     string `json:"key,omitempty"`
+	// Modality is the band's kind ("" = chat, "tts" = a voice), and SpeechURL a voice's
+	// text-to-speech URL, so this machine's `roger --lan say` can speak through it.
+	Modality  string `json:"modality,omitempty"`
+	SpeechURL string `json:"speech_url,omitempty"`
 }
 
 // SharesDir is where share records live, beside the on-air locks. It is the directory the

@@ -44,18 +44,23 @@ Voices are metered per character you speak, billed to your wallet (self/free is 
 Browse the roster with ` + "`roger voices`" + ` or at rogerai.fm/voices.
 `)
 	}
-	if err := fs.Parse(args); err != nil {
+	list := fs.Bool("list", false, "list the voices you can speak through (in LAN mode: only local voices)")
+	words, err := parseInterspersed(fs, args) // `roger say hello --voice x` works as well as the flag first
+	if err != nil {
 		return err
 	}
 	if cfg.lan.LAN {
-		// voice uses the same filter as text (features/lan/routing_and_inference.feature): only a
-		// voice on this LAN, and nothing is asked of the network's /v1/audio/speech
-		return sayLAN(cfg, *voice)
+		// voice uses the same filter as text (features/lan/voice.feature): only a voice on this
+		// machine or an Edge member, and nothing is asked of the network's /v1/audio/speech
+		return sayLAN(cfg, *voice, strings.TrimSpace(strings.Join(words, " ")), *speed, *list)
+	}
+	if *list {
+		return cmdVoices(cfg, nil)
 	}
 	if *voice == "" {
 		return fmt.Errorf("which voice? pass --voice <voice> - list the on-air roster with `roger voices` (or browse rogerai.fm/voices)")
 	}
-	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	text := strings.TrimSpace(strings.Join(words, " "))
 	if text == "" {
 		return fmt.Errorf("nothing to say - usage: roger say --voice %s \"your text\"", *voice)
 	}
@@ -145,16 +150,93 @@ func voiceHandle(v client.Voice) string {
 	return v.ID
 }
 
-// sayLAN is `roger say` in LAN mode: a voice a local source has on air, or a refusal. Nothing is
-// sent to the network's /v1/audio/speech.
-func sayLAN(cfg config, voice string) error {
-	if voice != "" {
-		bands := lanDial(cfg).Bands
-		for _, b := range bands {
-			if b.Model == voice {
-				return fmt.Errorf("LAN mode is on: %s is on air on this LAN, but roger say cannot speak through a LAN voice yet; run without --lan to use the network's voices", voice)
-			}
+// parseInterspersed parses fs over args, allowing flags after positional words, and returns the
+// positional words in order.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var words []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return words, nil
+		}
+		words = append(words, args[0])
+		args = args[1:]
+	}
+}
+
+// sayLAN is `roger say` in LAN mode (features/lan/voice.feature): a voice on this machine, then on
+// an Edge member, or a refusal. Nothing is sent to the network's /v1/audio/speech, and no balance
+// is read: LAN speech is free. A LAN Tower is never asked, because it has no audio route.
+func sayLAN(cfg config, voice, text string, speed float64, list bool) error {
+	voices := lanVoices(voice)
+	if list {
+		if len(voices) == 0 {
+			fmt.Println("no local voice is on air (LAN mode is on, so only voices on this machine or your Edge are listed)")
+			return nil
+		}
+		fmt.Printf("%d local voice(s) - speak with `roger --lan say --voice <voice> \"...\"`:\n\n", len(voices))
+		for _, v := range voices {
+			fmt.Printf("  %-28s %s  · free\n", v.Band, v.Source)
+		}
+		return nil
+	}
+	if len(voices) == 0 {
+		why := "no local voice is on air"
+		if voice != "" {
+			why = voice + " is not on air on this LAN"
+		}
+		msg := "LAN mode is on: " + why + " - share a voice on this machine (roger share) or an Edge member, or run without --lan to use the network's voices"
+		if len(cfg.LanTowers) > 0 {
+			msg += " (LAN Towers do not serve voice)"
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	if text == "" {
+		return fmt.Errorf("nothing to say - usage: roger --lan say \"your text\"")
+	}
+	band := voices[0].Band // this machine first, then Edge members: deterministic
+	var note string
+	if voice == "" && len(lanVoiceBands(voices)) > 1 {
+		note = "using the voice " + band + " on " + voices[0].Source + " - pick another with --voice <voice> (roger --lan say --list)"
+	}
+	var same []client.LANVoice
+	for _, v := range voices {
+		if v.Band == band {
+			same = append(same, v)
 		}
 	}
-	return fmt.Errorf("LAN mode is on: no local voice is on air - share a voice on this LAN, or run without --lan to use the network's voices")
+	res, err := speakLAN(same, text, speed)
+	if err != nil {
+		return err
+	}
+	if note != "" {
+		fmt.Println(note)
+	}
+	for _, l := range res.Left {
+		fmt.Println("moved past " + l)
+	}
+	path, played, perr := sayPlayer(res.Audio)
+	n := len([]rune(text))
+	where := res.Voice.Band + " on " + res.Voice.Source
+	if !played && path != "" {
+		fmt.Printf("no audio player found - saved the clip to %s  (%d chars · spoken locally by %s · free)\n", path, n, where)
+	} else {
+		fmt.Printf("spoke %d chars · spoken locally by %s · free\n", n, where)
+	}
+	if perr != nil && !played && path == "" {
+		return fmt.Errorf("could not play or save the audio: %w", perr)
+	}
+	return nil
+}
+
+// lanVoiceBands is the distinct voice bands among voices.
+func lanVoiceBands(voices []client.LANVoice) map[string]bool {
+	out := map[string]bool{}
+	for _, v := range voices {
+		out[v.Band] = true
+	}
+	return out
 }

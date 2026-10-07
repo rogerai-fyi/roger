@@ -24,6 +24,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edge/wire"
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tui"
 )
 
@@ -374,7 +375,7 @@ var lanDial = func(cfg config) client.LANDial {
 	go func() { cands <- lanCandidates(ctx, towers) }() // the mDNS browse runs beside the Tower reads
 	edgeBands, edgeErr := lanEdgeBands()
 	bands, status := client.LANDiscover(ctx, client.LANInputs{
-		Self: lanSelfBands(), Edge: edgeBands, Towers: towers,
+		Self: lanSelfBands(), Voices: lanVoiceNames(), Edge: edgeBands, Towers: towers,
 		HTTP: lanProbeHTTP, Resolve: lanResolve,
 	})
 	status = append(status, <-cands...)
@@ -494,7 +495,7 @@ var lanSelfServe = func(band string) (string, string) {
 		}
 	}
 	for _, rec := range onair.Shares() { // a separate `roger share` process on this machine
-		if rec.Band == band {
+		if rec.Band == band && rec.Modality != protocol.ModalityTTS { // a voice is not a chat turn's source
 			return rec.ChatURL, rec.Key
 		}
 	}
@@ -551,6 +552,7 @@ func installLANRelay(cfg config) {
 		return
 	}
 	tui.SetLANDial(lanDialFor(cfg))
+	tui.SetLANSpeak(lanSpeakLine)
 	var lo client.ProxyOptions
 	frontEndLadder(cfg)(&lo)
 	client.SetLANRelay(&lo)
