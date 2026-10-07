@@ -100,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 		_ = json.NewEncoder(w).Encode(s.describe())
 	})
 	mux.HandleFunc(InferPath, s.handleInfer)
+	mux.HandleFunc(SpeechPath, s.handleSpeech)
 	mux.HandleFunc(InvokePath, s.handleInvoke)
 	mux.HandleFunc(ProbePath, s.handleProbe)
 	mux.HandleFunc(TroublePath, s.handleTrouble)

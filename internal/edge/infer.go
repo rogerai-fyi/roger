@@ -57,9 +57,12 @@ type Serving struct {
 	TrustNow func() *cert.Authority
 	Member   func(nodeID string) bool // is that node on THIS Edge (account scope)
 	Upstream Upstream
-	NodeID   string
-	Key      ed25519.PrivateKey // the node key that signs local receipts
-	Now      func() time.Time
+	// Speech is where a VOICE band is served on this node (its text-to-speech URL); ok is false for
+	// a band that is not a voice here. nil means this node serves no speech (features/lan/voice.feature).
+	Speech Upstream
+	NodeID string
+	Key    ed25519.PrivateKey // the node key that signs local receipts
+	Now    func() time.Time
 	// Authorize is the callee-side gate for /edge/invoke (features/edge/control.feature): it verifies
 	// the grant's signature under this Edge's root, matches the caller, and AuthorizeInvoke's the
 	// capability on THIS node. Composed at the host; nil means this node accepts no invocations.
