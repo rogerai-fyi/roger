@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -191,14 +192,32 @@ func (h *edgeHost) household() ([]edge.Instance, bool) {
 }
 
 func edgeBandsOnAir() []string {
-	if edgeOnAir == nil {
-		return nil
+	var out []string
+	if edgeOnAir != nil {
+		out = append(out, edgeOnAir()...)
+	}
+	// A band a SEPARATE headless share on this machine has on air is this machine's too: the face
+	// serves it to members from the share's local record (lanShareUpstream).
+	for _, rec := range lanShares() {
+		if !slices.Contains(out, rec.Band) {
+			out = append(out, rec.Band)
+		}
 	}
 	// SORTED: the order a process happens to list its models in is not a fact about the Edge, and an
 	// unstable order rewrote the registration and the fleet record on every pass.
-	out := append([]string(nil), edgeOnAir()...)
 	sort.Strings(out)
 	return out
+}
+
+// lanShareUpstream resolves band to a separate headless share's upstream on this machine, from its
+// owner-only record. The upstream and its key never leave this machine: only the band is advertised.
+func lanShareUpstream(band string) (chatURL, key string, ok bool) {
+	for _, rec := range lanShares() {
+		if rec.Band == band {
+			return rec.ChatURL, rec.Key, true
+		}
+	}
+	return "", "", false
 }
 
 // edgeReadResources reads what it can and invents nothing: RAM from the kernel on Linux, a
@@ -442,10 +461,14 @@ func (h *edgeHost) peerServing(key ed25519.PrivateKey, nodeID string) (edge.Serv
 			return err == nil && ok
 		},
 		Upstream: func(band string) (string, string, string, bool) {
-			if edgeUpstreamOf == nil {
-				return "", "", "", false
+			var u, k string
+			ok := false
+			if edgeUpstreamOf != nil {
+				u, k, ok = edgeUpstreamOf(band)
 			}
-			u, k, ok := edgeUpstreamOf(band)
+			if !ok {
+				u, k, ok = lanShareUpstream(band) // a separate headless share on this machine
+			}
 			if !ok {
 				return "", "", "", false
 			}
