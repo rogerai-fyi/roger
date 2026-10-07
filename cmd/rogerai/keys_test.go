@@ -201,3 +201,28 @@ func TestUseKeyNoteAndTransport(t *testing.T) {
 	err := cmdUse(config{Broker: "http://broker.example", User: "u"}, []string{"m1", "--key", "rog-key_abc"})
 	require.ErrorContains(t, err, "only over https")
 }
+
+func TestSaveKeyOnlyAfterTransportAndForgetWording(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	err := cmdUse(config{Broker: "http://broker.example", User: "u"}, []string{"m1", "--key", "rog-key_abc", "--save-key"})
+	require.ErrorContains(t, err, "only over https")
+	require.Empty(t, loadConfig().UseKey, "a key refused for its transport is never saved")
+
+	stdout := func(f func()) string {
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		prev := os.Stdout
+		os.Stdout = w
+		f()
+		os.Stdout = prev
+		w.Close()
+		b, _ := io.ReadAll(r)
+		return string(b)
+	}
+	cfg := config{Broker: fakeBrokerEmpty(t), User: "u"}
+	out := stdout(func() { require.NoError(t, cmdUse(cfg, []string{"--forget-key"})) })
+	require.Contains(t, out, "no key was saved")
+	require.NoError(t, cmdUse(cfg, []string{"m1", "--key", "rog-key_abc", "--save-key"}))
+	out = stdout(func() { require.NoError(t, cmdUse(loadConfig(), []string{"--forget-key"})) })
+	require.Contains(t, out, "forgot the saved key")
+}

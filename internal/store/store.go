@@ -445,7 +445,7 @@ type Store interface {
 	// AppendKeyEvent writes a $0 key_event audit row on wallet.
 	AppendKeyEvent(wallet, ref string, ts int64) error
 	// RetireAccountKeys revokes every key of a deleted account and re-keys its key_event rows
-	// to anon (de-identified like the rest of the account).
+	// to anon (they carry key names and ids, so they are de-identified).
 	RetireAccountKeys(account, anon string) error
 
 	// --- Idempotency-Key claims (contract §14.B2; idem.go) --------------------

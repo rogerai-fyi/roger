@@ -62,7 +62,7 @@ const (
 	acctKeyNearRatio   = 0.8
 )
 
-// acctKeyCached is one locally cached lookup (found=false caches a miss).
+// acctKeyCached is one locally cached lookup of a key that exists (a miss is never cached).
 type acctKeyCached struct {
 	k     store.AccountKey
 	found bool

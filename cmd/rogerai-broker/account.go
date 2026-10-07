@@ -144,8 +144,8 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, _ = b.db.RevokeRCSessions(wallet)
-	// Account keys: every key is revoked at once (on every instance) and its audit rows are
-	// de-identified with the rest of the account.
+	// Account keys: every key is revoked at once (on every instance) and its audit rows, which
+	// carry key names and ids, are de-identified.
 	if err := b.db.RetireAccountKeys(wallet, "deleted_"+acctKeyHash(wallet)[:12]); err != nil {
 		log.Printf("account delete: retiring the account's keys failed - they stay live until retried: %v", err)
 	} else {

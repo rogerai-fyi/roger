@@ -660,10 +660,11 @@ Feature: Account keys - guardrailed credentials an account mints for itself
     Then the export lists the key ids, names, and key_event rows, and no secrets or hashes
 
   # corrected 2026-10-02 (founder-approved): approved account deletion refuses a positive balance, so the account starts at $0
+  # corrected 2026-10-06 (founder-approved): key audit rows are anonymized because they carry key names and ids
   Scenario: Account deletion revokes every key and anonymizes their audit rows
     Given "acct-a" has balance $0.00 and monthly cap $0.00
     When "acct-a" POSTs /account/delete
-    Then every key of "acct-a" is revoked immediately and its key_event rows are anonymized like the rest of the account
+    Then every key of "acct-a" is revoked immediately and its key_event rows are anonymized, because they carry key names and ids
 
   # --- privacy and logging ----------------------------------------------------------
   Scenario: Logs name key ids, never secrets or hashes
