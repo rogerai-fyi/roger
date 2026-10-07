@@ -199,3 +199,9 @@ test("the drawer reads min ctx and max first token through the module", () => {
   assert.match(js, /function routeCtx\(v\) \{ return window\.PlayboxRoute\.parseCtx\(v\); \}/);
   assert.match(js, /function routeTtft\(v\) \{ return window\.PlayboxRoute\.parseTtft\(v\); \}/);
 });
+
+test("a first-token ceiling under a millisecond is refused, not rounded to no ceiling", () => {
+  assert.throws(() => R.parseTtft("0.4"));
+  assert.throws(() => R.parseTtft("0.0004s"));
+  assert.equal(R.parseTtft("0.6"), 1);
+});

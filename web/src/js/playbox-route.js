@@ -166,7 +166,7 @@
     var m = v.match(/^(\d*\.?\d+)\s*(ms|s)?$/);
     if (!m || +m[1] <= 0) throw "max first token: like 1500ms or 1.5s";
     var n = Math.round(finite(+m[1] * (m[2] === "s" ? 1000 : 1), "max first token: like 1500ms or 1.5s"));
-    if (n > 2147483647) throw "max first token: like 1500ms or 1.5s";
+    if (n <= 0 || n > 2147483647) throw "max first token: like 1500ms or 1.5s";   // under 1ms rounds to 0
     return n;
   }
 
