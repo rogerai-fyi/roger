@@ -36,6 +36,7 @@ type pollTower struct {
 	*realTower
 	mu    sync.Mutex
 	polls []time.Time
+	paths []string
 }
 
 func newPollTower(t *testing.T) *pollTower {
@@ -43,11 +44,12 @@ func newPollTower(t *testing.T) *pollTower {
 	pt := &pollTower{realTower: rt}
 	h := localplane.New(rt.st).Handler()
 	rt.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pt.mu.Lock()
+		pt.paths = append(pt.paths, r.URL.Path)
 		if r.URL.Path == "/local/poll" {
-			pt.mu.Lock()
 			pt.polls = append(pt.polls, time.Now())
-			pt.mu.Unlock()
 		}
+		pt.mu.Unlock()
 		h.ServeHTTP(w, r)
 	})
 	return pt
@@ -328,5 +330,85 @@ func TestLANShareBDD(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("share_in_lan_mode scenarios failed")
+	}
+}
+
+// TestLANShareRegress87BDD runs features/lan/regressions.feature's scenario 87: with LAN mode OFF
+// and the broker setting a standalone Tower at a local address, the TUI's SHARE serves that Tower
+// the way headless `roger share` does (poll /local/poll, never /nodes/register).
+func TestLANShareRegress87BDD(t *testing.T) {
+	s := &lanShareBDD{t: t}
+	var tw *pollTower
+	suite := godog.TestSuite{
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+				s.reset()
+				t.Setenv("ROGER_LAN", "")
+				return ctx, s.machineServes("qwen3-8b")
+			})
+			sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
+				s.after()
+				return ctx, nil
+			})
+			sc.Step(`^LAN mode is off$`, func() error {
+				if loadConfig().lan.LAN {
+					return fmt.Errorf("LAN mode is on")
+				}
+				return nil
+			})
+			sc.Step(`^the broker setting is a standalone Tower at a local address$`, func() error {
+				tw = newPollTower(t)
+				pub, _ := newKey(t)
+				if err := tw.admit(pub); err != nil {
+					return err
+				}
+				if err := tw.attach(agent.NodeID(), s.model); err != nil {
+					return err
+				}
+				t.Setenv("ROGER_BROKER", "http://"+tw.addr())
+				return nil
+			})
+			sc.Step(`^SHARE is turned on from the TUI$`, func() error {
+				cfg := loadConfig()
+				s.ctrl = tui.NewController(cfg.Broker, tuiHooks(cfg))
+				s.ctrl.SetRows([]node.ShareRow{{Model: s.model, Upstream: cfg.Share.Upstream}})
+				ctrl, model := s.ctrl, s.model
+				t.Cleanup(func() {
+					if ctrl.Sessions()[model] != nil {
+						ctrl.ToggleOnAir(model)
+					}
+				})
+				if res := s.ctrl.ToggleOnAir(s.model); res.Err != nil || res.LoginNeeded {
+					return fmt.Errorf("SHARE did not go on air: %+v", res)
+				}
+				return nil
+			})
+			sc.Step(`^the station polls the Tower's /local/poll$`, func() error {
+				deadline := time.Now().Add(3 * time.Second)
+				for len(tw.pollTimes()) == 0 {
+					if time.Now().After(deadline) {
+						tw.mu.Lock()
+						defer tw.mu.Unlock()
+						return fmt.Errorf("the Tower was never polled; it saw %v", tw.paths)
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				return nil
+			})
+			sc.Step(`^no /nodes/register is attempted against it$`, func() error {
+				tw.mu.Lock()
+				defer tw.mu.Unlock()
+				for _, p := range tw.paths {
+					if strings.HasPrefix(p, "/nodes/") {
+						return fmt.Errorf("the Tower was asked %s: %v", p, tw.paths)
+					}
+				}
+				return nil
+			})
+		},
+		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/lan/regressions.feature:87"}, Strict: true, TestingT: t},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("regressions.feature:87 failed")
 	}
 }

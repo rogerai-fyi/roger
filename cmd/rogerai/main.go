@@ -749,6 +749,13 @@ func tuiHooks(cfg config) tui.Hooks {
 	}
 	if cfg.lan.LAN {
 		h.LANTowers = lanTowerBasesCached(cfg, 5*time.Second)
+	} else if isLocalTowerBroker(cfg.Broker) {
+		// A broker setting that is a standalone Tower is served the way headless `roger share`
+		// serves it (features/lan/regressions.feature): poll it, never register with it.
+		if a, err := lanmode.ParseAddr(cfg.Broker); err == nil {
+			base := a.Base()
+			h.LANTowers = func() []string { return []string{base} }
+		}
 	}
 	return h
 }
