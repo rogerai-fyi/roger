@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
@@ -106,4 +107,20 @@ func TestLANDialNotesAnUnreadEdgeUnderItsBands(t *testing.T) {
 	out := stripANSI(s.m.browseView(100))
 	require.Contains(t, out, "the Edge could not be read: open edge.json: permission denied")
 	require.NotEmpty(t, lanRow(out, "qwen3-8b"))
+}
+
+// TestPingWorldSaysNothingLocal: an empty LAN Ping World draws no seeded towers (they would not
+// exist) and says nothing local is on air, and it never asks the broker.
+func TestPingWorldSaysNothingLocal(t *testing.T) {
+	SetLANDial(func() client.LANDial { return client.LANDial{} })
+	defer SetLANDial(nil)
+	msg, ok := worldFetch("http://broker.invalid")().(worldDataMsg)
+	require.True(t, ok)
+	require.True(t, msg.lan)
+	require.Nil(t, msg.data)
+	var pm tea.Model = pingWorldModel{w: 80, h: 24, seed: 3}
+	pm, _ = pm.Update(msg)
+	out := stripANSI(pm.View())
+	require.Contains(t, out, "LAN · nothing local on air")
+	require.Equal(t, 24, len(strings.Split(out, "\n")), "the caption replaces a line, it does not add one")
 }

@@ -29,6 +29,7 @@ type lanUIBDD struct {
 	bands      []client.LANBand
 	edgeUnread string
 	asked      bool // the recording broker saw a request
+	world      pingWorldModel
 }
 
 func (s *lanUIBDD) reset() {
@@ -78,7 +79,7 @@ func TestLANUIBDD(t *testing.T) {
 		paths = append(paths, fmt.Sprintf("../../features/lan/money_and_accounts.feature:%d", l))
 	}
 	paths = append(paths, "../../features/lan/share_in_lan_mode.feature:64")
-	for _, l := range []int{220, 228, 330, 341} {
+	for _, l := range []int{220, 228, 330, 341, 367} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/discovery_and_dial.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -256,6 +257,44 @@ func TestLANUIBDD(t *testing.T) {
 			sc.Step(`^it does not claim the Edge serves nothing$`, func() error {
 				if line := lanLineWith(s.out, "checked"); strings.Contains(line, "Edge") {
 					return fmt.Errorf("an unread Edge is listed as checked: %q", line)
+				}
+				return nil
+			})
+			// discovery_and_dial:367 - the standalone Ping World (`roger --lan --ping`) in LAN mode.
+			sc.Step(`^the Ping World screen opens$`, func() error {
+				broker := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+					s.asked = true
+					_, _ = rw.Write([]byte(`{"offers":[{"model":"market-band","node_id":"n1","online":true}]}`))
+				}))
+				s.t.Cleanup(broker.Close)
+				var pm tea.Model = pingWorldModel{w: 100, h: 30, seed: 7, broker: broker.URL}
+				pm, _ = pm.Update(worldFetch(broker.URL)())
+				s.world = pm.(pingWorldModel)
+				s.out = stripANSI(pm.View())
+				return nil
+			})
+			sc.Step(`^no request is made to the public broker's /discover$`, func() error {
+				if s.asked {
+					return fmt.Errorf("Ping World asked the broker's /discover in LAN mode")
+				}
+				return nil
+			})
+			sc.Step(`^it draws the local sources only, or says it has nothing local to draw$`, func() error {
+				if len(s.bands) == 0 {
+					return s.outHas("nothing local on air")
+				}
+				// What the world draws its towers from: exactly the LAN bands, no market band.
+				want := map[string]bool{}
+				for _, b := range s.bands {
+					want[b.Model] = true
+				}
+				if s.world.data == nil || len(s.world.data.stations) != len(want) {
+					return fmt.Errorf("Ping World draws %+v, want the %d LAN bands", s.world.data, len(want))
+				}
+				for _, st := range s.world.data.stations {
+					if !want[st.model] {
+						return fmt.Errorf("Ping World draws a band that is not local: %q", st.model)
+					}
 				}
 				return nil
 			})

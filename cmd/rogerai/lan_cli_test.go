@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 func TestCmdLANUsageAndRemove(t *testing.T) {
@@ -206,4 +208,17 @@ func TestLANDialForFrontEnds(t *testing.T) {
 	require.Nil(t, lanDialFor(cfg), "outside LAN mode a front end has no LAN dial")
 	cfg.lan = lanmode.Mode{LAN: true}
 	require.NotNil(t, lanDialFor(cfg), "in LAN mode a front end reads the LAN dial")
+}
+
+// TestKnownTowersCarryTheNonce: a Tower this process identified (the broker setting probed as a
+// standalone Tower) is in the signing hook's list, so its requests carry the replay nonce.
+func TestKnownTowersCarryTheNonce(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	tw := newRealTower(t)
+	broker := "http://" + tw.addr()
+	require.True(t, isLocalTowerBroker(broker))
+	u, _ := url.Parse(broker + "/v1/chat/completions")
+	req := &http.Request{Method: http.MethodPost, URL: u, Header: http.Header{}}
+	client.SignRequestWith(req, nil, client.LoadOrCreateUserKey())
+	require.NotEmpty(t, req.Header.Get(protocol.HeaderNonce), "an identified loopback Tower gets the nonce")
 }

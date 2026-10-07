@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -147,7 +148,7 @@ func (s *lanDialBDD) tower(addr string) *realTower {
 	_ = tw.admit(client.LoadOrCreateUserKey().Public().(ed25519.PublicKey))
 	s.towers[addr] = tw
 	host, _, _ := net.SplitHostPort(addr)
-	if ip := net.ParseIP(host); ip != nil {
+	if _, err := netip.ParseAddr(host); err == nil { // a literal IP, zoned IPv6 included
 		s.dial.set(addr, tw.addr())
 	}
 	return tw

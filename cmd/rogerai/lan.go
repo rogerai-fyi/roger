@@ -365,6 +365,11 @@ var lanDial = func(cfg config) client.LANDial {
 		status = append(status, client.LANTowerStatus{Addr: a, State: client.LANTowerNotStandalone,
 			Detail: "it answered without the local marker; re-add it with roger lan add " + a})
 	}
+	for _, st := range status {
+		if st.State == client.LANTowerAnswering {
+			noteKnownTower(st.Addr)
+		}
+	}
 	d := client.LANDial{Bands: bands, Towers: status}
 	if edgeErr != nil {
 		d.EdgeUnread = edgeErr.Error()
@@ -495,6 +500,24 @@ func applyLAN(cfg config, o *client.ProxyOptions) {
 func frontEndLadder(cfg config) func(*client.ProxyOptions) {
 	return func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); applyLAN(cfg, o) }
 }
+
+func init() {
+	// Every request this process signs to a standalone Tower it knows by address carries the
+	// replay nonce (ruled 2026-10-07, loopback included): the Towers added with `roger lan add`
+	// (a CGNAT, loopback or named one too) and every Tower this process has already identified.
+	client.SetLANTowerHosts(func() []string {
+		hosts := append([]string(nil), loadConfig().LanTowers...)
+		knownTowers.Range(func(k, _ any) bool { hosts = append(hosts, k.(string)); return true })
+		return hosts
+	})
+}
+
+// knownTowers are the standalone Towers this process has identified (the broker setting probed
+// as one, a LAN dial Tower that answered), by address. Signing reads it, so a request is never
+// held up by a probe.
+var knownTowers sync.Map // address -> struct{}
+
+func noteKnownTower(addr string) { knownTowers.Store(addr, struct{}{}) }
 
 // lanDialFor is the LAN dial for a front end in LAN mode, nil outside it.
 func lanDialFor(cfg config) func() client.LANDial {

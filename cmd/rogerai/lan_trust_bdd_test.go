@@ -24,6 +24,8 @@ func TestLANTrustBDD(t *testing.T) {
 	for _, l := range []int{29, 38, 67, 94} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/trust_and_honesty.feature:%d", l))
 	}
+	paths = append(paths, "../../features/lan/regressions.feature:102")
+	var nonceAddr string // the Tower address the nonce regression sends its turn to
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -111,23 +113,35 @@ func TestLANTrustBDD(t *testing.T) {
 				}
 				return nil
 			})
-			sc.Step(`^a captured copy replayed to the Tower is refused by the Tower$`, func() error {
-				tw := s.tower("192.168.1.20:8787")
-				tw.mu.Lock()
-				hdr, body := tw.lastHeader.Clone(), append([]byte(nil), tw.lastBody...)
-				tw.mu.Unlock()
-				req, _ := http.NewRequest(http.MethodPost, tw.srv.URL+"/v1/chat/completions", bytes.NewReader(body))
-				req.Header = hdr
-				resp, err := http.DefaultClient.Do(req)
-				if err != nil {
+			// regressions.feature:102 (2026-10-07): every LAN Tower address gets the replay nonce.
+			sc.Step(`^a LAN Tower at (\S+) serving "([^"]*)", added with roger lan add$`, func(addr, model string) error {
+				nonceAddr = addr
+				if err := s.towerRuns(addr, model); err != nil {
 					return err
 				}
-				defer resp.Body.Close()
-				b, _ := io.ReadAll(resp.Body)
-				if resp.StatusCode == http.StatusOK {
-					return fmt.Errorf("the replay was served: %s", b)
+				if _, err := captureEdgeStdout(func() error { return cmdLAN(loadConfig(), []string{"add", addr}) }); err != nil {
+					return fmt.Errorf("roger lan add %s refused it: %v", addr, err)
 				}
 				return nil
+			})
+			sc.Step(`^a turn is sent to that Tower$`, func() error { return s.dispatch("llama-3.3-70b") })
+			sc.Step(`^the request the Tower received carries a fresh X-Roger-Nonce$`, func() error {
+				tw := s.tower(nonceAddr)
+				tw.mu.Lock()
+				defer tw.mu.Unlock()
+				if tw.chatRequests == 0 {
+					return fmt.Errorf("no turn reached the Tower at %s", nonceAddr)
+				}
+				if tw.lastHeader.Get(protocol.HeaderNonce) == "" {
+					return fmt.Errorf("the Tower at %s saw no nonce: %v", nonceAddr, tw.lastHeader)
+				}
+				return nil
+			})
+			sc.Step(`^a captured copy replayed to that Tower is refused by the Tower$`, func() error {
+				return s.replayRefused(s.tower(nonceAddr))
+			})
+			sc.Step(`^a captured copy replayed to the Tower is refused by the Tower$`, func() error {
+				return s.replayRefused(s.tower("192.168.1.20:8787"))
 			})
 			sc.Step(`^nothing local serves "([^"]*)"$`, func(string) error { return nil })
 			sc.Step(`^a turn is dispatched for "([^"]*)"$`, s.dispatch)
@@ -152,3 +166,23 @@ func TestLANTrustBDD(t *testing.T) {
 }
 
 var _ = client.LANTower
+
+// replayRefused resends the Tower's last completion request, headers and body exactly, and
+// requires the Tower to refuse it.
+func (s *lanUseBDD) replayRefused(tw *realTower) error {
+	tw.mu.Lock()
+	hdr, body := tw.lastHeader.Clone(), append([]byte(nil), tw.lastBody...)
+	tw.mu.Unlock()
+	req, _ := http.NewRequest(http.MethodPost, tw.srv.URL+"/v1/chat/completions", bytes.NewReader(body))
+	req.Header = hdr
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusOK {
+		return fmt.Errorf("the replay was served: %s", b)
+	}
+	return nil
+}
