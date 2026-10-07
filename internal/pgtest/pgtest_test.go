@@ -154,3 +154,16 @@ type recordingTB struct {
 }
 
 func (r *recordingTB) Fatalf(format string, args ...any) { r.fatal = fmt.Sprintf(format, args...) }
+
+// TestARemoteServerIsRefusedWithoutOptIn: the helper creates databases, so it refuses a server
+// that is not on this machine unless the run opts in; it never connects to find out.
+func TestARemoteServerIsRefusedWithoutOptIn(t *testing.T) {
+	t.Setenv(AllowRemoteEnv, "")
+	_, err := privateFor("postgres://u:p@db.example.com:5432/rogerai", "/tmp/pkg")
+	require.ErrorContains(t, err, AllowRemoteEnv)
+	for _, local := range []string{"postgres://u@127.0.0.1:1/x", "postgres://u@localhost:1/x", "postgres://u@[::1]:1/x"} {
+		require.NoError(t, refuseRemote(local), local)
+	}
+	t.Setenv(AllowRemoteEnv, "1")
+	require.NoError(t, refuseRemote("postgres://u@db.example.com/x"))
+}

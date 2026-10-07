@@ -20,6 +20,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -33,6 +34,30 @@ import (
 // Env names the shared test server. Unset means "no Postgres": callers skip their durable
 // half or fall back to the in-memory store, exactly as before.
 const Env = "ROGERAI_TEST_DATABASE_URL"
+
+// AllowRemoteEnv opts a run into a test server that is not on this machine. The helper creates
+// (and on failure drops) databases, so by default it refuses anything but a local server.
+const AllowRemoteEnv = "ROGERAI_TEST_DATABASE_ALLOW_REMOTE"
+
+// refuseRemote returns an error for a server that is not local (loopback, localhost or a unix
+// socket), unless AllowRemoteEnv is set. It never connects.
+func refuseRemote(shared string) error {
+	if os.Getenv(AllowRemoteEnv) != "" {
+		return nil
+	}
+	u, err := url.Parse(shared)
+	if err != nil {
+		return fmt.Errorf("%s is not a URL: %w", Env, err)
+	}
+	host := u.Hostname()
+	if host == "" || host == "localhost" || strings.HasPrefix(host, "/") {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("%s names %s, not this machine: the test helper creates databases there; set %s=1 to allow it", Env, host, AllowRemoteEnv)
+}
 
 // maxIdent is Postgres's identifier limit (NAMEDATALEN-1). A longer name is not an error to
 // Postgres - it is silently TRUNCATED, and what it would cut is the random suffix, so two
@@ -98,6 +123,9 @@ func privateFor(shared, key string) (string, error) {
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || strings.Trim(u.Path, "/") == "" {
 		return "", fmt.Errorf("%s must be a postgres:// URL that names a database", Env)
 	}
+	if err := refuseRemote(shared); err != nil {
+		return "", err
+	}
 	name := fmt.Sprintf("%s_%s_%s", strings.Trim(u.Path, "/"), label(filepath.Base(key)), strings.ToLower(rand.Text()[:8]))
 	if len(name) > maxIdent {
 		return "", fmt.Errorf("private database name %q exceeds %d bytes; use a shorter database name in %s", name, maxIdent, Env)
@@ -111,6 +139,7 @@ func privateFor(shared, key string) (string, error) {
 	// Production provisions the schema out of band; the test server's shared database gets
 	// it from the gate script, so the private one has to be given it here.
 	if err := run(private, `CREATE SCHEMA rogerai`); err != nil {
+		_ = run(shared, `DROP DATABASE IF EXISTS `+quoted) // never leave a half-made database behind
 		return "", fmt.Errorf("provision the rogerai schema in %s: %w", name, err)
 	}
 	created[cacheKey] = private
