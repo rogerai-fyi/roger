@@ -526,8 +526,9 @@ func offerMeetsBody(o Offer, c Criteria) bool {
 	if hasFold(c.Exclude, o.NodeID) {
 		return false
 	}
-	// Measured and outside the bound is out; unmeasured passes, as on the broker.
-	if c.MinCtx > 0 && o.Ctx > 0 && o.Ctx < c.MinCtx {
+	// As on the broker: a context floor needs a DECLARED window at least that large (an
+	// estimated or unknown one is no match); an unmeasured first token passes the ceiling.
+	if c.MinCtx > 0 && (o.Ctx <= 0 || o.CtxEstimated || o.Ctx < c.MinCtx) {
 		return false
 	}
 	if c.MaxTTFT > 0 && o.TTFTMs > 0 && o.TTFTMs > float64(c.MaxTTFT) {

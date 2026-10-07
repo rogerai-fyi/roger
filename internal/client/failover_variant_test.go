@@ -43,3 +43,16 @@ func TestRepickHonorsCtxTTFTAndExclusions(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "ok", got)
 }
+
+// TestRepickCtxFloorNeedsADeclaredWindow: as on the broker, a context floor admits only a
+// declared window at least that large; an estimated or unknown one is not a match.
+func TestRepickCtxFloorNeedsADeclaredWindow(t *testing.T) {
+	offers := []Offer{
+		{NodeID: "estimated", Model: "m", Online: true, TPS: 300, Ctx: 131072, CtxEstimated: true},
+		{NodeID: "unknown", Model: "m", Online: true, TPS: 300},
+		{NodeID: "declared", Model: "m", Online: true, TPS: 10, Ctx: 65536},
+	}
+	got, ok := pickAlternative(offers, Criteria{Model: "m", MinCtx: 32768}, nil)
+	require.True(t, ok)
+	require.Equal(t, "declared", got)
+}
