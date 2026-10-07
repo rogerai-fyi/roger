@@ -18,7 +18,9 @@
 #     - IPv6 ULA          fc00::/7
 #     - link-local        169.254.0.0/16, fe80::/10 (with its zone)
 #   It is the SAME classification internal/localplane already uses for bind and adverts
-#   (IsPrivateAddr), extended with loopback; one predicate, not a second copy.
+#   (IsPrivateAddr), plus link-local; one predicate, not a second copy.
+#   # corrected 2026-10-06 (founder-approved): IsPrivateAddr already covers loopback; the
+#   # client's addition is link-local, which the plane deliberately does not bind to.
 #   A HOSTNAME is local when EVERY address it resolves to is local, checked again at EVERY
 #   connection (a name that resolved local yesterday and public today is public today).
 #   CGNAT 100.64.0.0/10 is NOT local by default.
@@ -96,10 +98,11 @@ Feature: In LAN mode the dial lists only bands served on this machine, by this E
     Then "tower.lan" is not dialed
     And its row is shown as refused, naming "resolves to a public address"
 
+  # corrected 2026-10-06 (founder-approved): the client's check is the private-address check
+  # (localplane.IsPrivateAddr) plus link-local.
   @client
   Scenario: the predicate is the one the plane already uses, not a second copy
-    Then the client's local-address check and localplane.IsPrivateAddr agree on every address in the classification table
-    And loopback is the only addition the client makes
+    Then the client's check is the private-address check (localplane.IsPrivateAddr) plus link-local, for every address in the classification table
 
   # =========================================================================
   # 2. FINDING TOWERS

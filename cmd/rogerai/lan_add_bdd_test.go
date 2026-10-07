@@ -17,6 +17,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/localplane"
 )
 
 type lanAddBDD struct {
@@ -187,6 +188,17 @@ func TestLANAddBDD(t *testing.T) {
 				return ctx, nil
 			})
 			sc.Step(`^LAN mode is on$`, func() error { return nil }) // classification and `roger lan` are mode-independent
+			sc.Step(`^the client's check is the private-address check \(localplane\.IsPrivateAddr\) plus link-local, for every address in the classification table$`, func() error {
+				for _, a := range []string{"127.0.0.1", "::1", "10.0.0.5", "172.16.0.9", "172.31.255.254", "172.32.0.1", "192.168.1.69",
+					"fd12:3456::1", "169.254.10.10", "fe80::1", "100.64.0.1", "8.8.8.8", "0.0.0.0", "::", "255.255.255.255", "224.0.0.251"} {
+					ip := net.ParseIP(a)
+					want := localplane.IsPrivateAddr(ip) || ip.IsLinkLocalUnicast()
+					if got := lanmode.IsLocalIP(ip); got != want {
+						return fmt.Errorf("%s: client check %v, IsPrivateAddr plus link-local %v", a, got, want)
+					}
+				}
+				return nil
+			})
 			sc.Step(`^the address "([^"]*)" is classified$`, s.classify)
 			sc.Step(`^it is "([^"]*)"$`, s.itIs)
 			sc.Step(`^"([^"]*)" resolves to ([0-9.]+) and ([0-9.]+)$`, s.resolvesTo)
@@ -229,14 +241,15 @@ func TestLANAddBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{
-				"../../features/lan/discovery_and_dial.feature:61",
-				"../../features/lan/discovery_and_dial.feature:85",
-				"../../features/lan/discovery_and_dial.feature:109",
-				"../../features/lan/discovery_and_dial.feature:115",
-				"../../features/lan/discovery_and_dial.feature:122",
-				"../../features/lan/discovery_and_dial.feature:128",
-				"../../features/lan/discovery_and_dial.feature:135",
-				"../../features/lan/discovery_and_dial.feature:150",
+				"../../features/lan/discovery_and_dial.feature:63",
+				"../../features/lan/discovery_and_dial.feature:87",
+				"../../features/lan/discovery_and_dial.feature:104",
+				"../../features/lan/discovery_and_dial.feature:112",
+				"../../features/lan/discovery_and_dial.feature:118",
+				"../../features/lan/discovery_and_dial.feature:125",
+				"../../features/lan/discovery_and_dial.feature:131",
+				"../../features/lan/discovery_and_dial.feature:138",
+				"../../features/lan/discovery_and_dial.feature:153",
 			},
 		},
 	}

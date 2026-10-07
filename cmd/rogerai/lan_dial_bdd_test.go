@@ -313,7 +313,7 @@ func (s *lanDialBDD) towerLine(addr string) client.LANTowerStatus {
 
 func TestLANDialBDD(t *testing.T) {
 	s := &lanDialBDD{t: t}
-	lines := []int{92, 142, 156, 164, 207, 231, 238, 246, 253, 261, 267, 278, 286, 294, 302, 308, 315, 346, 353}
+	lines := []int{94, 145, 159, 167, 210, 234, 241, 249, 256, 264, 270, 281, 289, 297, 305, 311, 318, 349, 356}
 	var paths []string
 	for _, l := range lines {
 		paths = append(paths, fmt.Sprintf("../../features/lan/discovery_and_dial.feature:%d", l))
