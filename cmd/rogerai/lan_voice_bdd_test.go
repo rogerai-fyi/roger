@@ -171,7 +171,7 @@ func (s *lanVoiceBDD) noBroker() error {
 func TestLANVoiceBDD(t *testing.T) {
 	s := &lanVoiceBDD{lanDialBDD: lanDialBDD{t: t}}
 	var paths []string
-	for _, l := range []int{43, 52, 58, 67, 76, 87, 129, 139, 148, 155, 166, 174, 183, 195} {
+	for _, l := range []int{43, 52, 58, 67, 76, 87, 129, 139, 148, 155, 166, 174, 183, 195, 221} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/voice.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -326,6 +326,11 @@ func TestLANVoiceBDD(t *testing.T) {
 			})
 			sc.Step(`^this machine's voice upstream refuses the request before any audio$`, func() error { s.selfMode = "refuse"; return nil })
 			sc.Step(`^"([^"]*)" speaks it$`, func(n string) error { return s.spoke(n) })
+			// Edge-only through the environment alone (no --lan): it implies LAN mode.
+			sc.Step(`^edge-only is on and the Edge member "([^"]*)" has a voice on air$`, func(n string) error {
+				s.t.Setenv("ROGER_LAN_EDGE_ONLY", "1")
+				return s.memberVoice(n, "roggentoo-voice")
+			})
 			sc.Step(`^the output names that it moved past this machine's voice and why$`, func() error {
 				if !strings.Contains(s.out, "moved past this machine") || !strings.Contains(s.out, "500") {
 					return fmt.Errorf("output does not name the move: %s", s.out)

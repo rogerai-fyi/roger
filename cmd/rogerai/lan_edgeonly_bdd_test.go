@@ -340,6 +340,9 @@ func TestLANEdgeOnlyBDD(t *testing.T) {
 			sc.Step(`^nothing else local serves "([^"]*)"$`, func(string) error { return nil })
 			sc.Step(`^a turn is dispatched for "([^"]*)"$`, s.dispatch)
 			sc.Step(`^a turn for "([^"]*)" is dispatched$`, s.dispatch)
+			sc.Step(`^a streamed turn for "([^"]*)" is dispatched$`, func(band string) error {
+				return s.dispatchBody(band, `{"model":"`+band+`","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+			})
 			sc.Step(`^no request of any kind was made to ([0-9.:]+)$`, s.untouched)
 			sc.Step(`^no request was made to ([0-9.:]+)$`, s.untouched)
 			sc.Step(`^no request was made to it$`, func() error { return s.untouched("192.168.1.20:8787") })
@@ -501,7 +504,7 @@ func TestLANEdgeOnlyBDD(t *testing.T) {
 			sc.Step(`^no request was made to the public broker$`, s.noMarketInference)
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
-			Paths: edgeOnlyPaths(111, 120, 127, 134, 143, 150, 157, 164, 230, 241, 258)},
+			Paths: edgeOnlyPaths(111, 120, 127, 134, 143, 150, 157, 164, 230, 241, 258, 270)},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("edge_only.feature (Towers absent) failed")

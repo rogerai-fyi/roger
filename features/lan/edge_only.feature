@@ -263,3 +263,15 @@ Feature: `roger --lan --edge-only` uses only Edge members and this machine, neve
     Then it is refused, naming "jetson" and how it failed
     And the Tower was never contacted
     And no request was made to the public broker
+
+  # founder ruling 2026-10-07 (edge-only covers streaming): edge-only's rule holds for a
+  # streamed request too; a LAN Tower that can stream is still never asked.
+  @client
+  Scenario: a streamed turn under edge-only never reaches a Tower
+    Given edge-only is on
+    And the Edge member "jetson" and a LAN Tower both serve "qwen3-8b"
+    And "jetson" fails
+    When a streamed turn for "qwen3-8b" is dispatched
+    Then it is refused, naming "jetson" and how it failed
+    And the Tower was never contacted
+    And no request was made to the public broker

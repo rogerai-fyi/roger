@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-07 (founder)
-# BUILD STATUS: BUILT 2026-10-07; the edge-only scenario waits for edge-only (@blocked-on-edge-only).
+# BUILD STATUS: BUILT 2026-10-07.
 #
 # LAN MODE - VOICE: `roger --lan say` and the TUI voice speak through a LOCAL voice, or refuse.
 #
@@ -217,9 +217,9 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
   # 6. EDGE-ONLY
   # =========================================================================
 
-  @cli @blocked-on-edge-only
+  @cli
   Scenario: voice under edge-only uses this machine and Edge members, exactly as in LAN mode
     Given edge-only is on and the Edge member "jetson" has a voice on air
     When they run "roger say hello"
     Then "jetson" speaks it
-    # Voice never uses a Tower, so edge-only changes nothing for voice beyond the badge.
+    # Voice never uses a Tower, so edge-only changes nothing for voice beyond the badge. # unblocked 2026-10-07 by features/lan/edge_only.feature
