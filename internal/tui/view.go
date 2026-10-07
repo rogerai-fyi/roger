@@ -454,7 +454,7 @@ func (m model) browseView(w int) string {
 	switch {
 	case LANMode():
 		// The LAN dial: only local bands, so the title says which dial this is at every width.
-		freqTag = stDim.Render(" · ") + stKey.Render("LAN DIAL")
+		freqTag = stDim.Render(" · ") + stKey.Render(lanModeName()+" DIAL")
 	case m.tuneFreq != "" && (m.narrow() || m.compact):
 		// Narrow: the "PRIVATE FREQ <code>" label would overflow the slim heading - show a
 		// bare accented ◉ marker. The red glyph alone still signals "off the open market"

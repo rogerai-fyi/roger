@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -57,7 +58,7 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	} else {
 		tried = append(tried, peerTried...)
 	}
-	if opts.LANTowers != nil {
+	if opts.LANTowers != nil && !opts.LANEdgeOnly {
 		for _, entry := range opts.LANTowers(band) {
 			base, why := lanTowerBase(ctx, opts, entry)
 			if why != "" {
@@ -98,9 +99,12 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 			return true, false
 		}
 	}
-	msg := "nothing on this LAN serves " + band + ": LAN mode is on and the market was not tried - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market"
+	msg := lanNothingServes(band, opts.LANEdgeOnly)
 	if len(tried) > 0 {
 		msg = "every local source serving " + band + " failed (" + strings.Join(tried, "; ") + "); LAN mode is on and the market was not tried"
+		if opts.LANEdgeOnly {
+			msg += "; edge-only is on, so LAN Towers are not used"
+		}
 	}
 	if !opts.LANMode {
 		// edge.prefer local-only without LAN mode: the same one relay, Edge-scoped words
@@ -135,7 +139,7 @@ func lanServes(opts ProxyOptions, band string) bool {
 	if opts.EdgePeers != nil && len(opts.EdgePeers(band)) > 0 {
 		return true
 	}
-	return opts.LANTowers != nil && len(opts.LANTowers(band)) > 0
+	return opts.LANTowers != nil && !opts.LANEdgeOnly && len(opts.LANTowers(band)) > 0
 }
 
 // lanRefuseForeign refuses, on the LAN, a guest's turn naming a model that is not the tuned band
@@ -155,9 +159,17 @@ func lanRefuseForeign(w http.ResponseWriter, opts ProxyOptions, body []byte) boo
 	if asked == lanBand(opts.Model) || lanServes(opts, asked) {
 		return false
 	}
-	openAIError(w, http.StatusServiceUnavailable, "lan_error", "lan_only",
-		"nothing on this LAN serves "+asked+": LAN mode is on and the market was not tried - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market")
+	openAIError(w, http.StatusServiceUnavailable, "lan_error", "lan_only", lanNothingServes(asked, opts.LANEdgeOnly))
 	return true
+}
+
+// lanNothingServes is the one refusal for a band nothing local serves: what LAN mode tried, how to
+// get it here, and that the market was not tried. Under edge-only it says LAN Towers are not used.
+func lanNothingServes(band string, edgeOnly bool) string {
+	if edgeOnly {
+		return "nothing on this LAN serves " + band + ": checked this machine and your Edge; edge-only is on, so LAN Towers are not used, and the market was not tried - serve it here (roger model serve) or add an Edge member (roger edge adopt); drop --edge-only to use LAN Towers"
+	}
+	return "nothing on this LAN serves " + band + ": checked this machine, your Edge and your LAN Towers; LAN mode is on and the market was not tried - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market"
 }
 
 // noteLANLeft names, on the answer, the local sources a turn failed over from, so the caller can
@@ -263,7 +275,7 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 		sources = opt.LANSources(model)
 	}
 	if len(sources) == 0 && opt.Pinned == "" {
-		return fmt.Errorf("nothing on this LAN serves %q: checked this machine, your Edge and your LAN Towers - serve it here (roger model serve), add an Edge member, or add a Tower (roger lan add); turning LAN mode off would use the market", model)
+		return errors.New(lanNothingServes(model, opt.LANEdgeOnly))
 	}
 	label := opt.Pinned
 	if label == "" {
@@ -296,7 +308,7 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), OnReceipt: opt.OnReceipt,
 		Alert:     func(s string) { fmt.Fprintln(os.Stderr, "rogerai: "+s) },
 		EdgePeers: opt.EdgePeers, Prefer: "local-only", EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify,
-		LANMode: opt.LANMode, LANSelf: opt.LANSelf, LANTowers: opt.LANTowers, LANHTTP: opt.LANHTTP, LANResolve: opt.LANResolve}
+		LANMode: opt.LANMode, LANEdgeOnly: opt.LANEdgeOnly, LANSelf: opt.LANSelf, LANTowers: opt.LANTowers, LANHTTP: opt.LANHTTP, LANResolve: opt.LANResolve}
 	return useServe(ln, newProxyHandler(opts))
 }
 

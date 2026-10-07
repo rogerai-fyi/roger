@@ -9,13 +9,14 @@
     return snap && snap.lan ? "local, nothing billed" : "settles on the broker";
   }
 
-  // renderLAN shows or hides the top bar's LAN badge for snap.
+  // renderLAN shows or hides the top bar's LAN badge for snap: "LAN", or "LAN EDGE-ONLY" when the
+  // share serves Edge members only (features/lan/edge_only.feature).
   function renderLAN(doc, snap) {
     var badge = doc.getElementById("top-lan");
     if (!badge) return;
     var on = !!(snap && snap.lan);
     badge.hidden = !on;
-    badge.textContent = on ? "LAN" : "";
+    badge.textContent = on ? (snap.edge_only ? "LAN EDGE-ONLY" : "LAN") : "";
   }
 
   var api = { costLine: costLine, renderLAN: renderLAN };

@@ -50,7 +50,9 @@ func shareLAN(cfg config, run agent.Config, station, model string, out io.Writer
 	defer release()
 	fmt.Fprintf(out, "LAN mode: sharing %s free on the LAN only; nothing is registered with the network\n", model)
 	towers := lanTowerBases(cfg)
-	if len(towers) == 0 {
+	if cfg.lan.EdgeOnly {
+		fmt.Fprintf(out, "%s: serving Edge members only\n", edgeOnlyNote)
+	} else if len(towers) == 0 {
 		fmt.Fprintln(out, "no LAN Tower is configured: serving this Edge's members only (add a Tower with roger lan add <address>)")
 	}
 	shareToTowers(run, towers, out)
@@ -87,7 +89,7 @@ func brokerTower(cfg config) (string, bool) {
 // broker value (features/packaging/one_binary.feature section 7.2, ruled 2026-10-07), so LAN
 // Tower discovery reads one list. The broker setting itself is left as it is.
 func foldBrokerTower(cfg config, note io.Writer) config {
-	if cfg.Broker == "" || cfg.Broker == cfg.LanBrokerChecked {
+	if cfg.lan.EdgeOnly || cfg.Broker == "" || cfg.Broker == cfg.LanBrokerChecked {
 		return cfg
 	}
 	cfg.LanBrokerChecked = cfg.Broker

@@ -55,7 +55,7 @@ func TestLANDocsBDD(t *testing.T) {
 			})
 			sc.Step(`^it says Edge members are verified by certificate$`, func() error { return has("verified by certificate") })
 			sc.Step(`^it says how to keep sensitive work on Edge members only$`, func() error {
-				return has("sensitive", "roger lan rm")
+				return has("sensitive", "roger --edge-only", "lan-edge-only", "roger lan rm")
 			})
 		},
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t,

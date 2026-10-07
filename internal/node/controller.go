@@ -144,6 +144,14 @@ func (c *Controller) SetLAN(towers func() []string) {
 	c.lanTowers = towers
 }
 
+// SetLANEdgeOnly marks a LAN share as edge-only (features/lan/edge_only.feature): it serves Edge
+// members only, and the snapshot says so for the console.
+func (c *Controller) SetLANEdgeOnly(on bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lanEdgeOnly = on
+}
+
 // lanTowersNow reads the LAN Towers outside c.mu (the host's list may probe the network): nil
 // when LAN mode is off, a non-nil (possibly empty) list when it is on.
 func (c *Controller) lanTowersNow() []string {
@@ -205,10 +213,11 @@ type Controller struct {
 	rows     []ShareRow
 	sessions map[string]*agent.Session
 	// lanTowers is set in LAN mode: SHARE then serves these Towers and registers nothing.
-	lanTowers func() []string
-	private   map[string]bool
-	prices    map[string]Pricing
-	voices    map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
+	lanTowers   func() []string
+	lanEdgeOnly bool // the LAN share is edge-only (SetLANEdgeOnly)
+	private     map[string]bool
+	prices      map[string]Pricing
+	voices      map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
 	// autostart is TRI-STATE by presence: absent = the operator has never said, true/false
 	// = they have. Absence matters because the default is opt-OUT - putting a model on air
 	// marks it for next launch - and that default must not silently re-arm a model the

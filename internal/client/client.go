@@ -415,9 +415,12 @@ type ProxyOptions struct {
 	// machine's own serve, then an Edge member, then a LAN Tower, or it is refused. The
 	// market is never tried. LANSelf returns this machine's completions URL and its runtime key
 	// for a band ("" = none); LANTowers the Towers serving it, in order; LANHTTP/LANResolve/LANKey are seams.
-	LANMode   bool
-	LANSelf   func(band string) (url, key string)
-	LANTowers func(band string) []string
+	LANMode bool
+	// LANEdgeOnly is `roger --lan --edge-only` (features/lan/edge_only.feature): the Tower rung is
+	// gone, whatever LANTowers says, and refusals say so.
+	LANEdgeOnly bool
+	LANSelf     func(band string) (url, key string)
+	LANTowers   func(band string) []string
 	// LANNotLocal is told when a configured LAN address answered a turn WITHOUT the standalone
 	// Tower's local marker; the CLI stops sending it turns until the owner re-adds it.
 	LANNotLocal func(addr string)
@@ -1551,13 +1554,14 @@ type UseOptions struct {
 	// opens on local sources only, with no market lookup, no balance and no price text.
 	// LANSources names what serves a band locally (empty = nothing does). Pinned is the
 	// label of an addressed node or Tower; its turns never consult the market either.
-	LANMode    bool
-	LANSelf    func(band string) (url, key string)
-	LANTowers  func(band string) []string
-	LANSources func(band string) []LANSource
-	LANHTTP    *http.Client
-	LANResolve lanmode.Resolver
-	Pinned     string
+	LANMode     bool
+	LANEdgeOnly bool
+	LANSelf     func(band string) (url, key string)
+	LANTowers   func(band string) []string
+	LANSources  func(band string) []LANSource
+	LANHTTP     *http.Client
+	LANResolve  lanmode.Resolver
+	Pinned      string
 
 	Port         int
 	Confidential bool

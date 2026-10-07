@@ -15,9 +15,27 @@ import (
 )
 
 var (
-	lanMu   sync.RWMutex
-	lanDial func() client.LANDial
+	lanMu       sync.RWMutex
+	lanDial     func() client.LANDial
+	lanEdgeOnly bool // `roger --lan --edge-only`: the badge and the dial say so
 )
+
+// SetLANEdgeOnly marks LAN mode as edge-only for this process (features/lan/edge_only.feature).
+func SetLANEdgeOnly(on bool) {
+	lanMu.Lock()
+	defer lanMu.Unlock()
+	lanEdgeOnly = on
+}
+
+// lanModeName is the mode's name on the badge and the dial: "LAN", or "LAN EDGE-ONLY".
+func lanModeName() string {
+	lanMu.RLock()
+	defer lanMu.RUnlock()
+	if lanEdgeOnly {
+		return "LAN EDGE-ONLY"
+	}
+	return "LAN"
+}
 
 // SetLANDial puts the TUI in LAN mode for this process (fn non-nil) with the shared dial, or
 // back in the default mode (nil). The mode is decided once per process by the CLI.
@@ -38,9 +56,9 @@ func LANMode() bool {
 // word, readable with NO_COLOR, in bright ink and never the brand red.
 func lanBadge(compact bool) string {
 	if compact {
-		return stKey.Render("LAN")
+		return stKey.Render(lanModeName())
 	}
-	return stKey.Render("LAN") + stDim.Render(" · local, free")
+	return stKey.Render(lanModeName()) + stDim.Render(" · local, free")
 }
 
 // headerTag is the header's right-hand tag: the LAN badge in LAN mode, the account tag otherwise.

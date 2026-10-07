@@ -34,3 +34,13 @@ test("outside LAN mode: no badge, and the share settles on the broker", () => {
 test("a page without the badge element is left alone", () => {
   assert.doesNotThrow(() => api.renderLAN({ getElementById: () => null }, { lan: true }));
 });
+
+test("edge-only: the top bar shows LAN EDGE-ONLY, and edge_only alone never turns the badge on", () => {
+  const { badge, d } = doc();
+  api.renderLAN(d, { lan: true, edge_only: true });
+  assert.equal(badge.hidden, false);
+  assert.equal(badge.textContent, "LAN EDGE-ONLY");
+  api.renderLAN(d, { edge_only: true });
+  assert.equal(badge.hidden, true);
+  assert.equal(badge.textContent, "");
+});

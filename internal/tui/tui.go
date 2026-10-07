@@ -57,6 +57,9 @@ type Hooks struct {
 	// consumer-plane base URLs SHARE serves as a standalone station, registering with nothing.
 	// Nil = LAN mode off.
 	LANTowers func() []string
+	// LANEdgeOnly is `roger --lan --edge-only` (features/lan/edge_only.feature): SHARE serves Edge
+	// members only (LANTowers lists none) and the console marks the mode.
+	LANEdgeOnly bool
 	// LANAddTower adds a candidate Tower to lan_towers the way `roger lan add` does, returning the
 	// line to show (features/lan/discovery_and_dial.feature). Nil = adding from the dial is off.
 	LANAddTower func(addr string) (string, error)
@@ -1465,6 +1468,7 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 	})
 	if hooks.LANTowers != nil {
 		ctrl.SetLAN(hooks.LANTowers)
+		ctrl.SetLANEdgeOnly(hooks.LANEdgeOnly)
 	}
 	return ctrl
 }
