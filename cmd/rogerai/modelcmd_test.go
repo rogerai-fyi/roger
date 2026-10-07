@@ -1,6 +1,8 @@
 package main
 
 import (
+	"rogerai.fm/roger/v6/internal/edge/wire"
+
 	"bufio"
 	"bytes"
 	"cmp"
@@ -41,6 +43,9 @@ func TestMain(m *testing.M) {
 		modelFakeLlama(os.Args[1:])
 		return
 	}
+	// No test hears the real LAN: a Tower advertising on the developer's network must never
+	// show up as a candidate in a test. Runners that test candidates set the seam themselves.
+	lanBrowseTowers = func(context.Context) (wire.BrowseResult, error) { return wire.BrowseResult{}, nil }
 	os.Exit(m.Run())
 }
 

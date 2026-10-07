@@ -94,6 +94,9 @@ const (
 	LANTowerWaiting      LANTowerState = "waiting"
 	LANTowerRefused      LANTowerState = "refused"
 	LANTowerSameAs       LANTowerState = "same Tower"
+	// LANTowerCandidate is a Tower heard advertising on the LAN that is not in lan_towers: shown
+	// with how to add it, and never used until it is added.
+	LANTowerCandidate LANTowerState = "candidate"
 	// LANTowerNotStandalone is an address that answered a turn without the local marker.
 	LANTowerNotStandalone LANTowerState = "not a standalone Tower"
 )

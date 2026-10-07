@@ -9,13 +9,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/edge/wire"
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/tui"
 )
@@ -342,10 +346,14 @@ func lanSelfBands() []string {
 var lanDial = func(cfg config) ([]client.LANBand, []client.LANTowerStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	towers := lanTowerAddrs(cfg)
+	cands := make(chan []client.LANTowerStatus, 1)
+	go func() { cands <- lanCandidates(ctx, towers) }() // the mDNS browse runs beside the Tower reads
 	bands, status := client.LANDiscover(ctx, client.LANInputs{
-		Self: lanSelfBands(), Edge: lanEdgeBands(), Towers: lanTowerAddrs(cfg),
+		Self: lanSelfBands(), Edge: lanEdgeBands(), Towers: towers,
 		HTTP: lanProbeHTTP, Resolve: lanResolve,
 	})
+	status = append(status, <-cands...)
 	for _, a := range loadConfig().LanNotTower {
 		status = append(status, client.LANTowerStatus{Addr: a, State: client.LANTowerNotStandalone,
 			Detail: "it answered without the local marker; re-add it with roger lan add " + a})
@@ -407,7 +415,13 @@ func nonNilBands(b []client.LANBand) []client.LANBand {
 func lanEmptyText(status []client.LANTowerStatus) string {
 	var b strings.Builder
 	b.WriteString("no local band is on air.\n")
-	fmt.Fprintf(&b, "checked: this machine, your Edge, and %d Tower(s)\n", len(status))
+	checked := 0
+	for _, st := range status {
+		if st.State != client.LANTowerCandidate {
+			checked++
+		}
+	}
+	fmt.Fprintf(&b, "checked: this machine, your Edge, and %d Tower(s)\n", checked)
 	for _, st := range status {
 		b.WriteString("  " + lanStatusText(st) + "\n")
 	}
@@ -416,6 +430,9 @@ func lanEmptyText(status []client.LANTowerStatus) string {
 }
 
 func lanStatusText(st client.LANTowerStatus) string {
+	if st.Addr == "" { // a summary line (more candidates heard than shown)
+		return st.Detail
+	}
 	line := fmt.Sprintf("tower %s: %s", st.Addr, st.State)
 	if st.Detail != "" {
 		line += " (" + st.Detail + ")"
@@ -530,4 +547,70 @@ func lanTowerAddress(arg string) (string, bool) {
 		return "", false
 	}
 	return a.String(), true
+}
+
+// lanCandidateCap bounds how many advertised Towers one browse keeps (and the dial shows); a
+// flood past it is counted, never stored (features/lan/adversarial.feature).
+const lanCandidateCap = 8
+
+// lanBrowseWindow is how long one dial refresh listens for Tower advertisements.
+const lanBrowseWindow = 800 * time.Millisecond
+
+// defaultLANBrowseTowers browses the LAN for standalone Towers started with --advertise.
+func defaultLANBrowseTowers(ctx context.Context) (wire.BrowseResult, error) {
+	tp, err := wire.NewRejoiningMulticastTransport(func() []net.Interface {
+		ifaces, _ := net.Interfaces()
+		return ifaces
+	})
+	if err != nil {
+		return wire.BrowseResult{}, err
+	}
+	defer tp.Close()
+	return wire.Browse(ctx, tp, wire.TowerService, lanBrowseWindow, lanCandidateCap)
+}
+
+// lanBrowseTowers is the browse, as a seam: a test hears scripted advertisements, never the LAN.
+var lanBrowseTowers = defaultLANBrowseTowers
+
+// lanCandidates turns what the browse heard into candidate lines (features/lan/discovery_and_dial
+// .feature): a Tower advertising a LOCAL address that is not already in lan_towers, named with how
+// to add it. A candidate is only a line; nothing is ever read from or sent to it until the owner
+// adds it. An advert naming a public address is not offered at all.
+func lanCandidates(ctx context.Context, towers []string) []client.LANTowerStatus {
+	res, err := lanBrowseTowers(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []client.LANTowerStatus
+	for _, ad := range res.Adverts {
+		if ad.Kind != wire.TowerKind || ad.IP == nil || ad.Port <= 0 || ad.Port > 65535 {
+			continue
+		}
+		a, err := lanmode.ParseAddr(net.JoinHostPort(ad.IP.String(), strconv.Itoa(ad.Port)))
+		if err != nil || !lanmode.ClassifyLiteral(a.String()).Local || contains(towers, a.String()) {
+			continue
+		}
+		out = append(out, client.LANTowerStatus{Addr: a.String(), State: client.LANTowerCandidate,
+			Detail: fmt.Sprintf("advertised as %q; add it with roger lan add %s", cleanLabel(ad.Name), a)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Addr < out[j].Addr })
+	if more := res.Seen - len(res.Adverts); more > 0 {
+		out = append(out, client.LANTowerStatus{State: client.LANTowerCandidate,
+			Detail: fmt.Sprintf("%d more Tower advertisement(s) heard and not shown", more)})
+	}
+	return out
+}
+
+// cleanLabel keeps an advertised label printable and short: it is whatever a LAN device said.
+func cleanLabel(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	if len(s) > 40 {
+		s = s[:40]
+	}
+	return s
 }

@@ -29,8 +29,21 @@ import (
 
 // lanDialMap maps a scenario address to the real listener behind it.
 type lanDialMap struct {
-	mu sync.Mutex
-	to map[string]string
+	mu     sync.Mutex
+	to     map[string]string
+	dialed []string // every scenario address a connection was attempted to
+}
+
+// wasDialed reports whether any connection was attempted to the scenario address.
+func (m *lanDialMap) wasDialed(addr string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.dialed {
+		if a == addr {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *lanDialMap) set(scenarioAddr, real string) {
@@ -44,6 +57,7 @@ func (m *lanDialMap) set(scenarioAddr, real string) {
 
 func (m *lanDialMap) dial(ctx context.Context, network, addr string) (net.Conn, error) {
 	m.mu.Lock()
+	m.dialed = append(m.dialed, addr)
 	real, ok := m.to[addr]
 	m.mu.Unlock()
 	if !ok {

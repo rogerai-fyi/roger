@@ -6,6 +6,10 @@ package main
 // read" is lanDial, the one function every surface shows.
 
 import (
+	"strconv"
+
+	"rogerai.fm/roger/v6/internal/edge/wire"
+
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
@@ -83,6 +87,7 @@ type lanDialBDD struct {
 	err     error
 	took    time.Duration
 	enrolld bool
+	adverts []wire.Advert // what the mDNS browse for Towers hears
 }
 
 func (s *lanDialBDD) reset() {
@@ -102,9 +107,14 @@ func (s *lanDialBDD) reset() {
 		return nil, fmt.Errorf("no such host %s", host)
 	}
 	s.bands, s.status, s.out, s.err, s.enrolld = nil, nil, "", nil, false
+	s.adverts = nil
+	lanBrowseTowers = func(context.Context) (wire.BrowseResult, error) {
+		return wire.BrowseResult{Adverts: s.adverts, Seen: len(s.adverts)}, nil
+	}
 }
 
 func (s *lanDialBDD) restore() {
+	lanBrowseTowers = defaultLANBrowseTowers
 	lanProbeHTTP = &http.Client{}
 	lanResolve = lanmode.DefaultResolver
 }
@@ -328,7 +338,7 @@ func (s *lanDialBDD) towerLine(addr string) client.LANTowerStatus {
 
 func TestLANDialBDD(t *testing.T) {
 	s := &lanDialBDD{t: t}
-	lines := []int{94, 145, 159, 167, 210, 234, 241, 249, 256, 264, 270, 281, 289, 297, 305, 311, 318, 349, 356}
+	lines := []int{94, 145, 159, 167, 182, 200, 210, 234, 241, 249, 256, 264, 270, 281, 289, 297, 305, 311, 318, 349, 356}
 	var paths []string
 	for _, l := range lines {
 		paths = append(paths, fmt.Sprintf("../../features/lan/discovery_and_dial.feature:%d", l))
@@ -349,6 +359,44 @@ func TestLANDialBDD(t *testing.T) {
 			})
 			sc.Step(`^"([^"]*)" now resolves to ([0-9.]+)$`, func(host, ip string) error { s.dns[host] = []net.IP{net.ParseIP(ip)}; return nil })
 			sc.Step(`^the dial refreshes$`, s.read)
+			sc.Step(`^a standalone Tower at ([0-9.]+):(\d+) advertises on the LAN$`, func(ip string, port int) error {
+				s.adverts = append(s.adverts, wire.Advert{NodeID: "tower-" + ip, Name: "tower-" + ip, Kind: wire.TowerKind,
+					IP: net.ParseIP(ip), Port: port})
+				return s.towerRuns(net.JoinHostPort(ip, strconv.Itoa(port)), "candidate-band")
+			})
+			sc.Step(`^an mDNS advertisement names a Tower at ([0-9.]+):(\d+)$`, func(ip string, port int) error {
+				s.adverts = append(s.adverts, wire.Advert{NodeID: "tower-" + ip, Name: "tower-" + ip, Kind: wire.TowerKind,
+					IP: net.ParseIP(ip), Port: port})
+				return nil
+			})
+			sc.Step(`^it is not in lan_towers$`, func() error { return nil })
+			sc.Step(`^its bands are not listed as usable$`, func() error { return s.notListed("candidate-band") })
+			sc.Step(`^the dial shows one candidate line naming it and how to add it$`, func() error {
+				var c []client.LANTowerStatus
+				for _, st := range s.status {
+					if st.State == client.LANTowerCandidate {
+						c = append(c, st)
+					}
+				}
+				if len(c) != 1 || c[0].Addr != "192.168.1.50:8787" || !strings.Contains(c[0].Detail, "roger lan add 192.168.1.50:8787") {
+					return fmt.Errorf("candidate lines = %+v, want one naming 192.168.1.50:8787 and how to add it", c)
+				}
+				return nil
+			})
+			sc.Step(`^no inference is ever sent to ([0-9.:]+)$`, func(addr string) error {
+				if s.dial.wasDialed(addr) {
+					return fmt.Errorf("%s was contacted, but a candidate is never used", addr)
+				}
+				return nil
+			})
+			sc.Step(`^no candidate is shown for it$`, func() error {
+				for _, st := range s.status {
+					if st.State == client.LANTowerCandidate {
+						return fmt.Errorf("a candidate was shown: %+v", st)
+					}
+				}
+				return nil
+			})
 			sc.Step(`^the dial is read$`, s.read)
 			sc.Step(`^"([^"]*)" is not dialed$`, func(host string) error {
 				st := s.towerLine(host + ":8787")
