@@ -66,3 +66,18 @@ func TestFreeOnlySessionRepicksAmongFreeStations(t *testing.T) {
 	require.Equal(t, "m:free:nitro", repickModel(ProxyOptions{FreeOnly: true}, "m:free:nitro"))
 	require.Equal(t, "m", repickModel(ProxyOptions{}, "m"))
 }
+
+// TestRepickHonorsTheCallersPriceAndSpeed: a caller's own price caps and min_tps tighten the
+// re-pick like the owner's, so it never hints a station the broker will skip for them.
+func TestRepickHonorsTheCallersPriceAndSpeed(t *testing.T) {
+	offers := []Offer{
+		{NodeID: "pricey", Model: "m", Online: true, TPS: 300, PriceOut: 5},
+		{NodeID: "slow", Model: "m", Online: true, TPS: 5, PriceOut: 1},
+		{NodeID: "ok", Model: "m", Online: true, TPS: 50, PriceOut: 1},
+	}
+	c := Criteria{Model: "m"}
+	callerRoutingCriteria([]byte(`{"provider":{"max_price":{"completion":2}},"roger":{"min_tps":20}}`), &c)
+	got, ok := pickAlternative(offers, c, nil)
+	require.True(t, ok)
+	require.Equal(t, "ok", got)
+}

@@ -575,6 +575,21 @@ func callerRoutingCriteria(body []byte, c *Criteria) (noRepick bool) {
 	if t, ok := r["trust_min"].(string); ok {
 		c.TrustMin = t
 	}
+	// A caller's caps and floor only tighten (the lower cap, the higher floor), as the owner's.
+	if mp, ok := p["max_price"].(map[string]any); ok {
+		if v, ok := mp["completion"].(float64); ok && v > 0 && (c.MaxPriceOut == 0 || v < c.MaxPriceOut) {
+			c.MaxPriceOut = v
+		}
+		if v, ok := mp["prompt"].(float64); ok && v > 0 && (c.MaxPriceIn == 0 || v < c.MaxPriceIn) {
+			c.MaxPriceIn = v
+		}
+	}
+	if v, ok := r["min_tps"].(float64); ok && v > c.MinTPS {
+		c.MinTPS = v
+	}
+	if v, ok := r["pref"].(string); ok && v != "" && c.Pref == "" {
+		c.Pref = v
+	}
 	if v, ok := r["min_ctx"].(float64); ok && int(v) > c.MinCtx {
 		c.MinCtx = int(v)
 	}
