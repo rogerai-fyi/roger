@@ -122,7 +122,7 @@ func GuestModelsWithin(body []byte, tuned string) error {
 		return nil
 	}
 	// The band may carry a variant suffix (`roger use m:free`); a guest names the bare id.
-	tuned = bareModel(tuned)
+	tuned = sugarless(tuned) // the band's own id, prefix and all
 	// Decoded key by key: a struct decode that fails on a mistyped model would fill the rest
 	// and look like "nothing to check". A body that is not an object is the rewrite's 400.
 	var top map[string]json.RawMessage
@@ -195,7 +195,7 @@ func guestStatesSort(m map[string]json.RawMessage, provider map[string]any) bool
 	}
 	for _, id := range ids {
 		id = guestModelID(id)
-		if b := bareModel(id); b != id && (strings.Contains(id[len(b):], ":floor") || strings.Contains(id[len(b):], ":nitro")) {
+		if b := sugarless(id); b != id && (strings.Contains(id[len(b):], ":floor") || strings.Contains(id[len(b):], ":nitro")) {
 			return true
 		}
 	}
@@ -220,7 +220,7 @@ func hasCarrier(body []byte) bool {
 
 // guestNamesOtherModel: a carrier-bearing body names a model outside the tuned band.
 func guestNamesOtherModel(body []byte, model, tuned string) bool {
-	if model == "" || strings.HasPrefix(guestModelID(model), ProfileRef) || bareModel(model) == bareModel(tuned) {
+	if model == "" || strings.HasPrefix(guestModelID(model), ProfileRef) || bareModel(model) == sugarless(tuned) {
 		return false
 	}
 	return hasCarrier(body)
@@ -238,9 +238,13 @@ func guestModelID(id string) string {
 	return id
 }
 
-// bareModel is a guest's model id without its guest provider prefix and variant suffixes.
-func bareModel(id string) string {
-	id = guestModelID(id)
+// bareModel is a GUEST's model id without its guest-tool provider prefix and variant
+// suffixes. A band, offer or owner id is never prefix-stripped (a station id may itself start
+// with openai/ or roger/): those go through sugarless.
+func bareModel(id string) string { return sugarless(guestModelID(id)) }
+
+// sugarless is an id without its variant suffixes (:free / :floor / :nitro), nothing else.
+func sugarless(id string) string {
 	for {
 		trimmed := id
 		for _, sfx := range []string{":free", ":floor", ":nitro"} {
@@ -379,11 +383,11 @@ func (r Routing) Apply(body []byte) ([]byte, error) {
 			// Compared on the bare id: an owner entry written with a variant (a:free) is still a.
 			allowed := make([]string, 0, len(r.Models)+1)
 			for _, id := range r.Models {
-				allowed = append(allowed, bareModel(id))
+				allowed = append(allowed, sugarless(id)) // an owner's id
 			}
 			var band string
 			if json.Unmarshal(m["model"], &band) == nil && band != "" {
-				allowed = append(allowed, bareModel(band))
+				allowed = append(allowed, sugarless(band))
 			}
 			kept := []string{}
 			for _, id := range ids {

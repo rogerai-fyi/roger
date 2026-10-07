@@ -715,7 +715,7 @@ func rewriteModel(body []byte, target string, explicit bool) (out []byte, model 
 	var own string
 	// Bare on both sides: on a band tuned as m:free, a guest's m:nitro still names the band
 	// (its :free is re-applied by the session's free-only routing, Routing.Apply).
-	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == bareModel(target) && (explicit || hasCarrier(body)) {
+	if json.Unmarshal(m["model"], &own) == nil && own != target && bareModel(own) == sugarless(target) && (explicit || hasCarrier(body)) {
 		bare := guestModelID(own)
 		models, changed := unprefixedModels(m["models"])
 		if bare == own && !changed {
@@ -918,7 +918,7 @@ func keepPrimaryBeforeRewrite(body []byte, band string) []byte {
 	var m map[string]json.RawMessage
 	var primary string
 	if band == "" || json.Unmarshal(body, &m) != nil || json.Unmarshal(m["model"], &primary) != nil ||
-		primary == "" || bareModel(primary) == bareModel(band) {
+		primary == "" || sugarless(primary) == sugarless(band) {
 		return body
 	}
 	var list []json.RawMessage
@@ -1814,7 +1814,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 	_ = defaultedCap
 	// A variant suffix on the positional (`qwen3-32b:free`) rides to the broker in the body;
 	// discovery and the plate read the bare band and name the mark.
-	band, mark := bareModel(model), sugarMark(model)
+	band, mark := sugarless(model), sugarMark(model)
 	if opt.RoutingLine != "" {
 		fmt.Printf("\n  %s\n", opt.RoutingLine)
 	}

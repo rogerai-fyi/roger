@@ -157,10 +157,10 @@ func hasFreeSugar(id string) bool {
 func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (string, bool) {
 	// The session model may carry a variant (`roger use m:free`); /discover lists bare ids.
 	// :free is a filter (only what costs the caller nothing now); :floor/:nitro are sorts.
-	want, freeOnly := bareModel(c.Model), hasFreeSugar(c.Model)
+	want, freeOnly := sugarless(c.Model), hasFreeSugar(c.Model) // the band's id, never prefix-stripped
 	var eligible []Offer
 	for _, o := range offers {
-		if !o.Online || bareModel(o.Model) != want {
+		if !o.Online || sugarless(o.Model) != want {
 			continue
 		}
 		if freeOnly && !o.FreeNow && (o.PriceIn > 0 || o.PriceOut > 0) {

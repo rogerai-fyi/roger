@@ -204,7 +204,7 @@ func ValidateRoutingBody(b map[string]any) error {
 		// The effective list is [model] ++ models (contract §3): the model counts too.
 		seen := map[string]bool{}
 		if m, ok := b["model"].(string); ok && strings.TrimSpace(m) != "" {
-			seen[bareModel(m)] = true
+			seen[sugarless(m)] = true
 		}
 		for _, e := range arr {
 			s, isStr := e.(string)
@@ -214,7 +214,7 @@ func ValidateRoutingBody(b map[string]any) error {
 			if len(s) > ModelIDMax {
 				return fmt.Errorf("models: a model id longer than %d characters", ModelIDMax)
 			}
-			seen[bareModel(s)] = true
+			seen[sugarless(s)] = true
 		}
 		if len(seen) > ModelsMax {
 			return fmt.Errorf("models has more than %d distinct models", ModelsMax)
@@ -567,8 +567,8 @@ func profileRefOf(m map[string]any) (name string, fromModel bool, err error) {
 		}
 	}
 	for _, n := range []string{a, b} {
-		if n != "" && bareModel(n) != n {
-			return "", false, &RoutingRefusal{Msg: "sugar on a profile reference; put " + n[len(bareModel(n)):] + " on the profile's models"}
+		if n != "" && sugarless(n) != n {
+			return "", false, &RoutingRefusal{Msg: "sugar on a profile reference; put " + n[len(sugarless(n)):] + " on the profile's models"}
 		}
 	}
 	switch {

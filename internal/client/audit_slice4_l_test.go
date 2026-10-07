@@ -217,3 +217,15 @@ func TestPassThroughForwardsOnlyAllowedHeaders(t *testing.T) {
 	require.Equal(t, "3", rec.Header().Get("Retry-After"))
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
+
+// TestBandIDKeepsItsOwnVendorPrefix: a band whose id itself starts with a vendor-looking
+// prefix (openai/gpt-4o) is not the bare id: a guest naming gpt-4o names another model. A
+// guest tool's own prefix in front of the band id (aider's openai/<band>) still names the band.
+func TestBandIDKeepsItsOwnVendorPrefix(t *testing.T) {
+	band := "openai/gpt-4o"
+	require.Error(t, GuestModelsWithin([]byte(`{"model":"openai/gpt-4o","models":["gpt-4o"]}`), band))
+	require.NoError(t, GuestModelsWithin([]byte(`{"model":"openai/openai/gpt-4o","models":["openai/openai/gpt-4o"]}`), band))
+	require.Error(t, GuestModelsWithin([]byte(`{"model":"gpt-4o","roger":{"pref":"fast"}}`), band))
+	got, ok := pickAlternative([]Offer{{NodeID: "other", Model: "gpt-4o", Online: true, TPS: 300}}, Criteria{Model: band}, nil)
+	require.False(t, ok, "an offer of gpt-4o is not the band openai/gpt-4o (got %q)", got)
+}
