@@ -87,7 +87,7 @@ func TestWorldFetchSeededFallback(t *testing.T) {
 		t.Error("worldFetch(unreachable) should yield nil data (graceful seeded fallback)")
 	}
 	d := &worldData{stations: []worldStation{{model: "m", signal: 50}}}
-	if m2, _ := (pingWorldModel{}).Update(worldDataMsg{d}); m2.(pingWorldModel).data != d {
+	if m2, _ := (pingWorldModel{}).Update(worldDataMsg{data: d}); m2.(pingWorldModel).data != d {
 		t.Error("worldDataMsg should set the model's live data")
 	}
 	if (pingWorldModel{broker: "http://x"}).Init() == nil {

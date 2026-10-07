@@ -138,11 +138,15 @@ type pingWorldModel struct {
 	debut  bool       // in-TUI z entry only; standalone --ping opens directly on the world
 	data   *worldData // LIVE on-air snapshot (nil = the seeded world); set by the host
 	broker string     // standalone only: the broker to /discover for live towers ("" = seeded)
+	lanNil bool       // LAN mode with nothing local on air: say so instead of the seeded towers
 }
 
 // worldDataMsg carries a fresh LIVE snapshot to the standalone screensaver (nil data on any
 // fetch error => the calm seeded world).
-type worldDataMsg struct{ data *worldData }
+type worldDataMsg struct {
+	data *worldData
+	lan  bool // the snapshot is the LAN dial: an empty one means nothing local, not offline
+}
 
 type worldTickMsg struct{}
 
@@ -166,6 +170,7 @@ func (m pingWorldModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit // any key wakes (standalone)
 	case worldDataMsg:
 		m.data = msg.data // refresh the live towers (nil => seeded fallback)
+		m.lanNil = msg.lan && msg.data == nil
 		return m, nil
 	case worldTickMsg:
 		m.frame++
@@ -183,27 +188,40 @@ func (m pingWorldModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // world. It's always a Cmd (never blocks the render) and never crashes the screensaver.
 func worldFetch(broker string) tea.Cmd {
 	return func() tea.Msg {
+		if LANMode() {
+			// LAN mode filters what is discovered (ruled 2026-10-06): the LAN dial, never the
+			// broker's /discover. An empty LAN is drawn as empty, never as the seeded towers.
+			return worldDataMsg{data: buildWorldData(groupBands([]offer(lanOffers()), nil)), lan: true}
+		}
 		if broker == "" {
-			return worldDataMsg{nil}
+			return worldDataMsg{}
 		}
 		resp, err := http.Get(broker + "/discover")
 		if err != nil {
-			return worldDataMsg{nil}
+			return worldDataMsg{}
 		}
 		defer resp.Body.Close()
 		var d struct {
 			Offers []offer `json:"offers"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&d); err != nil && !errors.Is(err, io.EOF) {
-			return worldDataMsg{nil}
+			return worldDataMsg{}
 		}
-		return worldDataMsg{buildWorldData(groupBands(d.Offers, nil))}
+		return worldDataMsg{data: buildWorldData(groupBands(d.Offers, nil))}
 	}
 }
 
 func (m pingWorldModel) View() string {
 	if m.debut && m.frame < tubePingDebutFrames {
 		return tubePingTitle(m.w, m.h, m.frame)
+	}
+	if m.lanNil {
+		// LAN mode with nothing local on air: an empty sky (no seeded towers that do not
+		// exist), and the bottom line says why.
+		out := strings.Split(renderWorldData(m.w, m.h, m.frame, m.seed, &worldData{}), "\n")
+		caption := lipgloss.NewStyle().Foreground(cDim).Render(lipgloss.PlaceHorizontal(m.w, lipgloss.Center, "LAN · nothing local on air"))
+		out[len(out)-1] = caption
+		return strings.Join(out, "\n")
 	}
 	return renderWorldData(m.w, m.h, m.frame, m.seed, m.data)
 }
