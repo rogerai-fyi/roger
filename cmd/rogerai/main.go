@@ -1189,7 +1189,11 @@ func cmdUse(cfg config, args []string) error {
 	uo.EdgePeers, uo.Prefer, uo.EdgeCert, uo.EdgeVerify = po.EdgePeers, po.Prefer, po.EdgeCert, po.EdgeVerify
 	uo.LANMode, uo.LANSelf, uo.LANTowers, uo.LANHTTP, uo.LANResolve = po.LANMode, po.LANSelf, po.LANTowers, po.LANHTTP, po.LANResolve
 	if cfg.lan.LAN {
-		uo.LANSources = func(band string) []client.LANSource { return lanSourcesOf(cfg, band) }
+		uo.LANSources = func(band string) []client.LANSource {
+			src := lanSourcesOf(cfg, band)
+			lanTrustNoteOnce(src, pinnedTower != "")
+			return src
+		}
 	}
 	return client.Use(cfg.Broker, cfg.User, model, uo)
 }

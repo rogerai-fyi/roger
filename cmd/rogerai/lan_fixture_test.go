@@ -79,6 +79,8 @@ type realTower struct {
 	mu                sync.Mutex
 	lastAuth, lastSig string
 	lastModel         string
+	lastHeader        http.Header // the last completion request, whole, so a test can replay it
+	lastBody          []byte
 	chatRequests      int
 }
 
@@ -104,6 +106,7 @@ func newRealTower(t *testing.T) *realTower {
 			_ = json.Unmarshal(body, &p)
 			r.mu.Lock()
 			r.lastAuth, r.lastSig, r.lastModel = req.Header.Get("Authorization"), req.Header.Get(protocol.HeaderSig), p.Model
+			r.lastHeader, r.lastBody = req.Header.Clone(), body
 			r.chatRequests++
 			r.mu.Unlock()
 		}

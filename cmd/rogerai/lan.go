@@ -654,3 +654,28 @@ func cleanLabel(s string) string {
 	}
 	return s
 }
+
+// lanTrustNote is the plain-words statement of the trust-the-LAN ruling (2026-10-06), shown once
+// per machine, the first time a Tower would serve a turn (features/lan/trust_and_honesty.feature).
+const lanTrustNote = "note: a LAN Tower speaks plain http with no identity of its own, so any device on this network " +
+	"can pose as it, and it can read what you send to it. Edge members are verified by certificate and are not affected. " +
+	"(shown once)"
+
+// lanTrustNoteOnce prints the trust note the first time a Tower is among a turn's sources (or one
+// is addressed directly), and records that it was shown so it is not repeated on every command.
+func lanTrustNoteOnce(sources []client.LANSource, towerAddressed bool) {
+	c := loadConfig()
+	if c.LanTrustNoted {
+		return
+	}
+	tower := towerAddressed
+	for _, s := range sources {
+		tower = tower || s.Kind == client.LANTower
+	}
+	if !tower {
+		return
+	}
+	fmt.Println(lanTrustNote)
+	c.LanTrustNoted = true
+	_ = saveConfig(c)
+}
