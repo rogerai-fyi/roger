@@ -289,7 +289,9 @@ func (s *obD) noOldNames() error {
 
 func (s *obD) notAdmittedTower() error { return nil }
 
-func (s *obD) lanUseAgainstIt() error { return s.situation("a LAN Tower refuses this machine (not admitted)") }
+func (s *obD) lanUseAgainstIt() error {
+	return s.situation("a LAN Tower refuses this machine (not admitted)")
+}
 
 func (s *obD) ownerRunsInvite() error {
 	want := "the Tower's owner runs `roger tower invite --client "

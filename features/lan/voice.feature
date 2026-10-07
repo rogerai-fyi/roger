@@ -1,4 +1,5 @@
-# STATUS: PROPOSED 2026-10-07 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-07 (founder)
+# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
 #
 # LAN MODE - VOICE: `roger --lan say` and the TUI voice speak through a LOCAL voice, or refuse.
 #
@@ -59,7 +60,7 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
     When they run "roger --lan say hello"
     Then this machine's voice speaks
     And the output names the voice used and how to pick another with --voice
-    # DECISION: the same order as text (this machine, then Edge members), rather than refusing as
+    # RULED 2026-10-07 (founder approved the recommendation): the same order as text (this machine, then Edge members), rather than refusing as
     # ambiguous. Recommend yes.
 
   @cli
@@ -97,7 +98,7 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
     Given the Edge member "jetson" serves a TTS band
     When a request for speech reaches "jetson"'s face without a member certificate
     Then it is refused, as a chat turn would be
-    # DECISION: speech gets its own path on the Edge face, "/edge/speech", gated by the same
+    # RULED 2026-10-07 (founder approved the recommendation): speech gets its own path on the Edge face, "/edge/speech", gated by the same
     # caller() check as "/edge/infer", rather than overloading /edge/infer with an audio body.
     # Recommend the separate path: the request and response shapes differ (text in, audio out),
     # and one handler per shape keeps each body limit honest.
@@ -112,7 +113,7 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
   Scenario: an Edge face refuses a speech body over the limit
     When a member sends "jetson" a speech request larger than 64 KiB
     Then it is refused with 413
-    # DECISION: 64 KiB of text per request. Recommend yes: `roger say` speaks a line, not a book.
+    # RULED 2026-10-07 (founder approved the recommendation): 64 KiB of text per request. Recommend yes: `roger say` speaks a line, not a book.
 
   @edge
   Scenario: an Edge face refuses a chat band asked for speech

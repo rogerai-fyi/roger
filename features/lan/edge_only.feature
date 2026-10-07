@@ -1,4 +1,5 @@
-# STATUS: PROPOSED 2026-10-07 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-07 (founder)
+# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
 #
 # LAN MODE - EDGE-ONLY: the strict subset for sensitive work. Only your Edge members and this
 # machine; no LAN Tower is ever shown or dialed.
@@ -33,7 +34,7 @@ Feature: `roger --lan --edge-only` uses only Edge members and this machine, neve
   Scenario: --edge-only implies LAN mode
     When they run "roger --edge-only use qwen3-8b"
     Then the command runs in LAN mode, edge-only
-    # DECISION: --edge-only implies --lan rather than being an error without it. Recommend
+    # RULED 2026-10-07 (founder approved the recommendation): --edge-only implies --lan rather than being an error without it. Recommend
     # implies: the flag has no meaning outside LAN mode, and requiring both adds a way to get
     # it wrong. `roger status` still reports both.
 
@@ -48,7 +49,7 @@ Feature: `roger --lan --edge-only` uses only Edge members and this machine, neve
       | the command line carries --edge-only             | flag   |
       | ROGER_LAN_EDGE_ONLY is set to "1"                | env    |
       | config "mode" is "lan-edge-only"                 | config |
-    # DECISION: config value "lan-edge-only" (one key, three values: default, lan,
+    # RULED 2026-10-07 (founder approved the recommendation): config value "lan-edge-only" (one key, three values: default, lan,
     # lan-edge-only) rather than a second key. Recommend yes: one key cannot contradict itself.
 
   @cli

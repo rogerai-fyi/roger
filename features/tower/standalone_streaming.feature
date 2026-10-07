@@ -1,10 +1,11 @@
-# STATUS: PROPOSED 2026-10-07 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-07 (founder)
+# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
 #
 # STANDALONE TOWER STREAMING: a streamed request through a LAN Tower arrives as a stream.
 #
 # WHY THIS EXISTS
 #
-# FOUNDER RULING 2026-10-06: "build it" - streaming for roger-tower-local. Today the Tower path
+# FOUNDER RULING 2026-10-06: "build it" - streaming for the standalone Tower (now `roger tower serve`; corrected 2026-10-07, founder-approved, one binary). Today the Tower path
 # is one-shot: localplane queues the job (internal/localplane/completion.go chatCompletions),
 # the station long-polls /local/poll, agent/localtower.go runLocalJob FORCES "stream":false
 # (unstreamLocal) and posts the whole answer to /local/complete, and writeAnswer writes it
@@ -263,7 +264,7 @@ Feature: A standalone Tower relays a station's streamed reply to the consumer as
     When the station posts a chunk larger than 256 KiB
     Then it is refused with 413
     And the consumer receives an error event, a zero-cost usage chunk and "data: [DONE]"
-    # DECISION: chunk cap 256 KiB. Recommend yes: a token batch is a few KiB; the cap only has
+    # RULED 2026-10-07 (founder approved the recommendation): chunk cap 256 KiB. Recommend yes: a token batch is a few KiB; the cap only has
     # to stop a station using one chunk as an unbounded buffer.
 
   @tower
@@ -271,13 +272,13 @@ Feature: A standalone Tower relays a station's streamed reply to the consumer as
     When the station's chunks for one job exceed 8 MiB in total
     Then the stream is ended with an error event saying the reply exceeded the size limit
     And further chunks are refused
-    # DECISION: total cap 8 MiB, the same as maxPromptBody. Recommend yes.
+    # RULED 2026-10-07 (founder approved the recommendation): total cap 8 MiB, the same as maxPromptBody. Recommend yes.
 
   @tower
   Scenario: a stream longer than the stream duration cap is ended
     When a streamed job is still sending after 10 minutes
     Then the stream is ended with an error event saying the reply ran too long
-    # DECISION: duration cap 10 minutes, with a 60 second idle timeout between chunks.
+    # RULED 2026-10-07 (founder approved the recommendation): duration cap 10 minutes, with a 60 second idle timeout between chunks.
     # Recommend yes: long enough for a slow local model on a long answer, finite so a stuck
     # station cannot hold a concurrency slot forever.
 
@@ -292,7 +293,7 @@ Feature: A standalone Tower relays a station's streamed reply to the consumer as
   Scenario: chunk posts count against the station rate limit only above a real stream's pace
     When a station streams a normal reply of 500 chunks
     Then no chunk is refused by the station rate limit
-    # DECISION: chunk posts get their own station bucket (e.g. 200/s, burst 400) rather than
+    # RULED 2026-10-07 (founder approved the recommendation): chunk posts get their own station bucket (e.g. 200/s, burst 400) rather than
     # sharing the poll bucket (20/s). Recommend yes: a real stream must never be throttled by
     # the rate limit meant to stop a flooding key.
 
@@ -300,7 +301,7 @@ Feature: A standalone Tower relays a station's streamed reply to the consumer as
   Scenario: the station batches tokens so it does not post one request per token
     When the upstream produces 1000 tokens in one second
     Then the station posts at most 20 chunks for that second
-    # DECISION: the station coalesces upstream events into a chunk every 50 ms or 16 KiB,
+    # RULED 2026-10-07 (founder approved the recommendation): the station coalesces upstream events into a chunk every 50 ms or 16 KiB,
     # whichever first. Recommend yes: one signed POST per token would cost a signature and a
     # nonce per token.
 
@@ -310,7 +311,8 @@ Feature: A standalone Tower relays a station's streamed reply to the consumer as
 
   @structural
   Scenario: the Core-free guarantee still holds with streaming
-    When the dependency graph of cmd/roger-tower-local is checked
+    # corrected 2026-10-07 (founder-approved, one binary): the guarded unit is the standalone serve package
+    When the dependency graph of the standalone serve package (internal/localplane/serve) is checked
     Then it links none of towerjoin, towercore or towerhub
     And the source-scan gate finds no outbound call in internal/localplane
 
@@ -320,7 +322,7 @@ Feature: A standalone Tower relays a station's streamed reply to the consumer as
     When the client posts a streamed request and that station takes it
     Then the station returns the whole answer to "/local/complete"
     And the consumer receives it as a single-chunk SSE stream ending with "data: [DONE]"
-    # DECISION: the Tower accepts a whole answer for a streamed job from an old station and
+    # RULED 2026-10-07 (founder approved the recommendation): the Tower accepts a whole answer for a streamed job from an old station and
     # wraps it, instead of refusing. Recommend yes for one release. The refusal scenario above
     # applies only to stations that announced chunk support on /local/poll. The poll request gains
     # "streams": true for that. The old station's upstream request stays "stream": false.
