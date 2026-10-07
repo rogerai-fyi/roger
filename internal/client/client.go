@@ -942,6 +942,16 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// it as the `: rogerai-receipt=` comment at its end (beside the cost). One or the
 			// other hands it to OnReceipt, never both.
 			onReceipt := opts.OnReceipt
+			if resp.Header.Get("X-Roger-Local") == "1" {
+				// A standalone Tower as the broker setting answers as local and free: the turn is
+				// recorded that way, whether or not LAN mode is on (features/lan/regressions.feature).
+				w.Header().Set("X-RogerAI-Cost", "0")
+				if onReceipt != nil {
+					onReceipt(protocol.UsageReceipt{RequestID: newRequestID(), NodeID: "tower:" + opts.Broker,
+						Model: crit.Model, Local: true, TS: time.Now().Unix()})
+					onReceipt = nil
+				}
+			}
 			if onReceipt != nil {
 				if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil && rec.RequestID != "" {
 					onReceipt(rec)
