@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -58,7 +59,7 @@ func TestLoggedInStatesBDD(t *testing.T) {
 			TestingT: t, Output: os.Stdout,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("logged-in-states scenarios failed (see godog output above)")
 	}
 }

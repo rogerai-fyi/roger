@@ -24,6 +24,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -786,7 +787,7 @@ func TestNodeAckBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/node_ack scenarios failed (see godog output above)")
 	}
 }
