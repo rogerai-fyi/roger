@@ -365,9 +365,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "r":
+			if m.tuneFreq != "" { // a private band is not in the open-market scan r would read
+				m.status = stDim.Render("r re-scans the open market - esc, then re-tune the frequency to refresh it")
+				return m, nil
+			}
 			m.status = stDim.Render("re-scanning the band…")
 			m.scanErr, m.scanned, m.confirmRescan = false, false, false
-			return m, fetchRescan(m.broker) // its reply, not whichever scan lands first, is explicit
+			return m, fetchRescan(m.broker, m.confirmSeq) // its reply, not whichever scan lands first, is explicit
 		case "enter", "y", "Y":
 			if why := m.quantRuleRefusal(m.q.b.model, m.q.b.quant); why != "" {
 				m.status = stEmber.Render(why)
@@ -1948,7 +1952,6 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// that changed no rule (navigation, opening a field) re-points nothing.
 	if mm, ok := out.(*model); ok && mm.limits.Gen() != gen {
 		mm.refreshLiveRouting()
-		mm.limitsGen = mm.limits.Gen() // seen: the tick need not re-point for this edit again
 	}
 	return out, cmd
 }

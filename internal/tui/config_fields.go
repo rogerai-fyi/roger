@@ -86,6 +86,7 @@ func (m model) putRowLimit(row string, l Limit) {
 		m.limits.mu.Lock()
 		defer m.limits.mu.Unlock()
 		m.limits.Default = l
+		m.limits.gen++ // every band inherits the default: an edit to it is an edit
 		if m.limits.Save != nil {
 			m.limits.Save(m.limits.Models, m.limits.Default)
 		}

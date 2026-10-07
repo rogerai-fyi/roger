@@ -303,7 +303,7 @@ func TestBackgroundRescanNeverTurnsAcceptIntoARaise(t *testing.T) {
 
 	out, _ = m.Update(keyMsg("r"))
 	// the reply to r (a rescanMsg, not a periodic offersMsg)
-	out, _ = asModel(out).Update(rescanMsg([]offer{capOffer("m1", 32768, false, nil, 3.0, 72)}))
+	out, _ = asModel(out).Update(rescanMsg{offers: []offer{capOffer("m1", 32768, false, nil, 3.0, 72)}, seq: asModel(out).confirmSeq})
 	require.Equal(t, modeOverLimit, asModel(out).mode, "an explicit re-scan may offer the raise")
 }
 
@@ -360,7 +360,7 @@ func TestBackgroundScanMissingTheBandKeepsTheConfirm(t *testing.T) {
 
 	out, _ = asModel(out).Update(keyMsg("r"))
 	// the reply to r (a rescanMsg, not a periodic offersMsg)
-	out, _ = asModel(out).Update(rescanMsg([]offer{capOffer(other, 32768, false, nil, 1.0, 72)}))
+	out, _ = asModel(out).Update(rescanMsg{offers: []offer{capOffer(other, 32768, false, nil, 1.0, 72)}, seq: asModel(out).confirmSeq})
 	require.Equal(t, modeBrowse, asModel(out).mode, "an explicit re-scan that still finds nothing goes back")
 }
 
@@ -493,7 +493,7 @@ func TestOnlyTheExplicitRescanReplyMayOfferARaise(t *testing.T) {
 	pricier := []offer{capOffer("m1", 32768, false, nil, 3.0, 72)}
 	out, _ = asModel(out).Update(offersMsg(pricier)) // a periodic scan, in flight before r
 	require.Equal(t, modeConnectConfirm, asModel(out).mode, "a periodic reply never offers the raise")
-	out, _ = asModel(out).Update(rescanMsg(pricier)) // the reply to r
+	out, _ = asModel(out).Update(rescanMsg{offers: pricier, seq: asModel(out).confirmSeq}) // the reply to r
 	require.Equal(t, modeOverLimit, asModel(out).mode)
 }
 
@@ -539,4 +539,42 @@ func TestFailedBindKeepsThePreviousProfile(t *testing.T) {
 	m.q = quote{b: band{model: "m", online: true, cheapest: &offer{Model: "m", NodeID: "n1"}}}
 	out, _ := m.openChannel()
 	require.Equal(t, "before", asModel(out).tunedProfile)
+}
+
+// TestDefaultRowEditCountsAsAnEdit: editing the default row changes what every band resolves,
+// so it counts as a store write (the live proxy re-points on it like on a band edit).
+func TestDefaultRowEditCountsAsAnEdit(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	g := m.limits.Gen()
+	m.putRowLimit(defaultLimitRow, Limit{MaxOut: 4})
+	require.NotEqual(t, g, m.limits.Gen())
+}
+
+// TestALateRescanReplyNeverReachesANewConfirm: the reply to an r pressed on an earlier
+// confirm is a periodic scan to the confirm now open: it never offers a raise there.
+func TestALateRescanReplyNeverReachesANewConfirm(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var tm tea.Model = NewWith("http://broker.local", "tester", &LimitStore{Models: map[string]Limit{"m1": {MaxOut: 2}}})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 96, Height: 30})
+	tm, _ = tm.Update(offersMsg([]offer{capOffer("m1", 32768, false, nil, 1.0, 72)}))
+	tm, _ = tm.Update(balanceMsg{loggedIn: true, balance: 12.50})
+	m := asModel(tm)
+	out, _ := m.connect()
+	old := asModel(out).confirmSeq
+	out, _ = asModel(out).Update(keyMsg("r"))
+	out, _ = asModel(out).Update(keyMsg("esc"))
+	out, _ = asModel(out).connect() // a new confirm
+	out, _ = asModel(out).Update(rescanMsg{offers: []offer{capOffer("m1", 32768, false, nil, 3.0, 72)}, seq: old})
+	require.Equal(t, modeConnectConfirm, asModel(out).mode, "the earlier confirm's reply offers nothing here")
+}
+
+// TestRescanOnAPrivateFrequencyIsRefused: r re-scans the open market, which a private
+// frequency confirm never reads; it says so instead of waiting on a scan that cannot answer.
+func TestRescanOnAPrivateFrequencyIsRefused(t *testing.T) {
+	m := auditProfileModel(t, map[string]any{})
+	m.mode, m.tuneFreq = modeConnectConfirm, "CODE"
+	m.q = quote{b: band{model: "m"}}
+	out, cmd := m.Update(keyMsg("r"))
+	require.Nil(t, cmd, "no scan is started")
+	require.NotContains(t, stripANSI(asModel(out).status), "re-scanning")
 }

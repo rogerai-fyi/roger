@@ -52,6 +52,7 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 	}
 	m.confirmProfile = ""   // every confirm starts on the default; p cycles
 	m.confirmRescan = false // a re-scan asked for on an earlier confirm is not this one's
+	m.confirmSeq++
 	lim := m.confirmLimit(bd.model)
 	typ := m.limits.typical()
 	q := quote{b: bd, limit: lim, typical: typ, estReply: bd.minOut * float64(typ) / 1e6}

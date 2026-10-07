@@ -1183,7 +1183,10 @@ type model struct {
 	// confirmRescan: the operator pressed r on the connect confirm, so the next scan's requote
 	// may offer the raise-the-cap screen (a periodic scan never does).
 	confirmRescan bool
-	tuneFreq      string
+	// confirmSeq numbers each connect confirm (connect increments it), so a re-scan reply is
+	// matched to the confirm whose r asked for it.
+	confirmSeq int
+	tuneFreq   string
 	// headerRouting is the routing wire negotiated at TUNE time (client.NegotiateRouting):
 	// false = the broker reads the body carriers; true = an OLD broker, speak X-Roger-*
 	// headers on every in-booth path (live proxy, chat, agent). Per session, never saved.
@@ -1536,7 +1539,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if err := m.limits.TakeSaveErr(); err != nil {
 			m.status = stEmber.Render("limits not saved to config.json: " + err.Error())
-			m.statusFrame = m.frame + 1 // stamped: the toast dismiss below must not erase it this tick
+			// Stamped here: the toast dismiss runs later in this same tick, before any stamp
+			// outside the handler (TestAFailedConfigSaveIsShown fails without this line).
+			m.statusFrame = m.frame + 1
 		}
 		// FRAME CLOCK + native-selection freeze: advance the animation clock ONLY when something is
 		// actually animating (a turn in flight, a staged tune-in, share-detect, the screensaver, or
@@ -1657,8 +1662,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.applyLocalVoices(msg), nil
 	case rescanMsg:
-		m.confirmRescan = true // this reply answers r: its requote may offer the raise
-		return m.Update(offersMsg(msg))
+		// The reply to r on the confirm still open: its requote may offer the raise. A reply to
+		// an earlier confirm's r is just a scan to this one.
+		m.confirmRescan = m.mode == modeConnectConfirm && msg.seq == m.confirmSeq
+		return m.Update(offersMsg(msg.offers))
 	case offersMsg:
 		// A private freq is tuned: ignore the periodic public-market scan so it does not
 		// clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).
@@ -3082,6 +3089,7 @@ func (m *model) refreshLiveRouting() {
 		return
 	}
 	m.proxyHolder.SetBand(m.liveProxyOpts(*m.connected, m.alert))
+	m.limitsGen = m.limits.Gen() // this re-point covers every store write so far
 }
 
 // focusLimitField moves the CONFIG cursor to field f (wrapping) and, while editing, starts its
@@ -5113,19 +5121,23 @@ func pingWorldTick(gen int) tea.Cmd {
 // counts ever exceed a few hundred: add broker-side pagination + load-on-scroll
 // here (a cursor/offset on /discover, fetching the next page as the window nears the
 // bottom) so the client never holds the whole list in memory.
-// rescanMsg is the reply to the operator's own re-scan (r on the connect confirm), told apart
-// from a periodic scan's offersMsg that may already be in flight: only this one may move the
-// confirm to the raise-the-cap screen.
-type rescanMsg []offer
+// rescanMsg is the reply to the operator's own re-scan (r on the connect confirm numbered
+// seq), told apart from a periodic scan's offersMsg that may already be in flight: only the
+// reply to THIS confirm's r may move it to the raise-the-cap screen.
+type rescanMsg struct {
+	offers []offer
+	seq    int
+}
 
-// fetchRescan is fetchOffers whose reply is a rescanMsg.
-func fetchRescan(broker string) tea.Cmd {
+// fetchRescan is fetchOffers whose reply is a rescanMsg for confirm seq.
+func fetchRescan(broker string, seq int) tea.Cmd {
 	scan := fetchOffers(broker)
 	return func() tea.Msg {
-		if offers, ok := scan().(offersMsg); ok {
-			return rescanMsg(offers)
+		msg := scan()
+		if offers, ok := msg.(offersMsg); ok {
+			return rescanMsg{offers: offers, seq: seq}
 		}
-		return scan()
+		return msg
 	}
 }
 
