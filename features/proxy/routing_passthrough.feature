@@ -174,6 +174,11 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with "models": ["llama-3.3-70b"]
     Then the broker receives model "qwen3-32b-fp8:free" and models ["llama-3.3-70b:free"]
 
+  # regression 2026-10-06: audit finding, contract §3 (variant sugar is per entry: a guest's own :free binds only its model)
+  Scenario: A guest's own :free on the band does not turn its other models free
+    When a chat request arrives with model "qwen3-32b-fp8:free" and "models": ["qwen3-32b-fp8"]
+    Then the broker receives model "qwen3-32b-fp8:free" and models ["qwen3-32b-fp8"]
+
   # regression 2026-10-06: audit finding, contract §2 + §9 (a profile's :free binds its fallbacks too)
   Scenario: A profile naming the band's free variant asks for free on its fallbacks too
     Given profile "freebie" sets model = "qwen3-32b-fp8:free" and models = ["llama-3.3-70b"]

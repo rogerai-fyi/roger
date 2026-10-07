@@ -863,6 +863,11 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")
 			return
 		}
+		// A profile is the owner's config: its band:free binds every model the request may
+		// reach, as the owner's own free tune does. (A guest's own :free does not.)
+		if fromProfile && hasFreeSugar(model) {
+			opts.FreeOnly = true
+		}
 		crit := Criteria{Model: model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
 		// Per-session spend budget (rulings 1/2, the literal ceiling). UNCAPPED sessions
 		// (Budget <= 0: `roger use`, the TUI) skip the admission gate entirely and relay fully
@@ -1022,9 +1027,10 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			TrustMin: opts.TrustMin, Region: opts.Region, Only: opts.Only, Models: opts.Models,
 			Sort: opts.Sort, Prefer: opts.Prefer, NoFallbacks: opts.NoFallbacks, Require: opts.Require,
 			ParamsB: opts.ParamsB, MinCtx: opts.MinCtx, MaxTTFT: opts.MaxTTFT, RequireParams: opts.RequireParams,
-			// `roger use m:free` tunes the variant itself, and a resolved profile can name it
-			// (crit.Model is the model after the band rewrite): either binds every fallback.
-			FreeOnly: opts.FreeOnly || hasFreeSugar(opts.Model) || hasFreeSugar(crit.Model), HeaderMode: opts.HeaderRouting,
+			// `roger use m:free` tunes the variant itself: it binds every fallback, like F. A
+			// guest's own :free stays on its own entry (contract §3: sugar is per entry); a
+			// resolved profile's :free arrives as opts.FreeOnly from the handler.
+			FreeOnly: opts.FreeOnly || hasFreeSugar(opts.Model), HeaderMode: opts.HeaderRouting,
 		}
 		if lifted.Pref != "" {
 			rt.Pref = lifted.Pref
