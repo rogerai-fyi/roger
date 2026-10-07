@@ -1423,7 +1423,7 @@
   function servedFooter(msgNode, served, model) {
     if (!served || !msgNode) return;
     if (served.void) {   // the broker voided a reply that had started: say so, never "served"
-      msgNode.parentNode.appendChild(el("span", "pg-line__ts mono", "the reply was cut (" + served.void + ") - not charged"));
+      msgNode.parentNode.appendChild(el("span", "pg-line__ts mono", window.PlayboxRoute.voidNote(served)));
       return;
     }
     var text = "served by " + served.model + (served.model && served.model !== model ? " (fallback)" : "") +

@@ -75,7 +75,9 @@
   function summary(r, loggedIn) {
     var parts = [];
     r = r || {};
-    if (r.sort) parts.push(r.sort); else if (r.pref) parts.push(r.pref);
+    // the same rule body() applies: a signed-out visitor's price sort is not sent, so not shown
+    var sort = r.sort && (loggedIn || r.sort !== "price") ? r.sort : "";
+    if (sort) parts.push(sort); else if (r.pref) parts.push(r.pref);
     if (r.models && r.models.length) parts.push("also " + r.models.join(","));
     if (r.tools || r.vision) parts.push("needs " + [r.tools && "tools", r.vision && "vision"].filter(Boolean).join(","));
     if (r.size) parts.push(r.size[0] + "-" + r.size[1] + "B");
@@ -166,9 +168,14 @@
     return { model: r.model, node: r.node, cost: u.cost };
   }
 
+  // voidNote is the line under a reply the broker voided after it started ("" otherwise)
+  function voidNote(served) {
+    return served && served.void ? "the reply was cut (" + served.void + ") - not charged" : "";
+  }
+
   var api = { MAX_FALLBACKS: MAX_FALLBACKS, clean: clean, body: body, summary: summary, ownsInput: ownsInput,
     regionChoices: regionChoices, LABELS: LABELS, nameFields: nameFields, isControl: isControl,
-    pressesControl: pressesControl, parseSize: parseSize, servedOf: servedOf };
+    pressesControl: pressesControl, parseSize: parseSize, servedOf: servedOf, voidNote: voidNote };
   if (typeof window !== "undefined") window.PlayboxRoute = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api; // node test
 })();

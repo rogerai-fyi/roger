@@ -165,3 +165,15 @@ test("the stream reads served through the module, and clearing stale choices is 
   assert.match(js, /served = window\.PlayboxRoute\.servedOf\(d\.usage\)/);
   assert.match(js, /if \(qn\.indexOf\("is not on"\) !== -1 \|\| rn\.indexOf\("is not on"\) !== -1\) saveRoute\(\);/);
 });
+
+test("the summary says only what the body sends: a signed-out visitor's price sort is dropped from both", () => {
+  const r = R.clean({ sort: "price", quant: "Q8_0" });
+  assert.equal(R.body(r, "m", { model: "m" }, { loggedIn: false, routed: true }).provider.sort, undefined);
+  assert.equal(R.summary(r, false), "quant Q8_0", "the summary never shows a sort the body did not send");
+  assert.equal(R.summary(r, true), "price · quant Q8_0");
+});
+
+test("a voided reply's note names the void and says it was not charged", () => {
+  assert.equal(R.voidNote({ void: "upstream-5xx" }), "the reply was cut (upstream-5xx) - not charged");
+  assert.equal(R.voidNote({ model: "m" }), "");
+});
