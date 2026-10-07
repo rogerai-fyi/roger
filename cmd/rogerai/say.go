@@ -103,6 +103,11 @@ func sayResultLine(text string, res client.SpeakResult, played bool, path string
 // cmdVoices: roger voices - list the on-air voice roster (GET /voices), cheapest first, as
 // `Name · by @operator · language · $price/1k chars` (or FREE), with the id to pass to --voice.
 func cmdVoices(cfg config, _ []string) error {
+	if cfg.lan.LAN {
+		// the roster follows the LAN filter like every band list: only voices on this machine
+		// or an Edge member, and the network's /voices is never asked (features/lan/voice.feature)
+		return sayLAN(cfg, "", "", 0, true)
+	}
 	voices, err := client.Voices(cfg.Broker)
 	if err != nil {
 		return err

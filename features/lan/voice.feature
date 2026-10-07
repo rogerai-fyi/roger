@@ -223,3 +223,13 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
     When they run "roger say hello"
     Then "jetson" speaks it
     # Voice never uses a Tower, so edge-only changes nothing for voice beyond the badge. # unblocked 2026-10-07 by features/lan/edge_only.feature
+
+  # review 2026-10-07 (founder ruling 2026-10-06: LAN mode is a band filter, and voice uses the
+  # same filter as text): the voice roster follows it too, so the hint `roger say` gives points
+  # at voices this machine can actually use.
+  @cli
+  Scenario: roger voices in LAN mode lists only local voices and never asks the network
+    Given LAN mode is on and exactly one local TTS band is on air
+    When they run "roger --lan voices"
+    Then the output lists that local voice
+    And no request was made to the public broker, including its voices list
