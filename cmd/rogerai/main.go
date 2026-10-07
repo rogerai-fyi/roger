@@ -605,6 +605,19 @@ func fromTUILimit(l tui.Limit) Limit {
 		TrustMin: l.TrustMin, SelfHosted: l.SelfHosted, Region: l.Region}
 }
 
+// mergeLimitFields applies to fresh (the row as config.json holds it now) only the fields the
+// booth changed since base, so a concurrent roger set-limit on another field of the same row
+// is kept.
+func mergeLimitFields(fresh, base, booth tui.Limit) tui.Limit {
+	f, b, n := reflect.ValueOf(&fresh).Elem(), reflect.ValueOf(base), reflect.ValueOf(booth)
+	for i := 0; i < n.NumField(); i++ {
+		if !reflect.DeepEqual(b.Field(i).Interface(), n.Field(i).Interface()) {
+			f.Field(i).Set(n.Field(i))
+		}
+	}
+	return fresh
+}
+
 func tuiLimits(cfg config) *tui.LimitStore {
 	models := map[string]tui.Limit{}
 	for m, l := range cfg.Limits.Models {
@@ -628,7 +641,7 @@ func tuiLimits(cfg config) *tui.LimitStore {
 		baseModels[m] = l
 	}
 	baseDef := toTUILimit(cfg.Limits.Default)
-	ls.Save = func(tm map[string]tui.Limit, def tui.Limit) {
+	ls.Save = func(tm map[string]tui.Limit, def tui.Limit) { // runs with ls's lock held
 		release, err := acquireConfigLock() // held across load, edit and save
 		if err != nil {
 			ls.ReportSaveErr(err)
@@ -639,9 +652,11 @@ func tuiLimits(cfg config) *tui.LimitStore {
 		if c.Limits.Models == nil {
 			c.Limits.Models = map[string]Limit{}
 		}
-		for m, l := range tm { // added or changed in the booth
+		for m, l := range tm { // added or changed in the booth: only the changed fields
 			if b, had := baseModels[m]; !had || !reflect.DeepEqual(b, l) {
-				c.Limits.Models[m] = fromTUILimit(l)
+				merged := mergeLimitFields(toTUILimit(c.Limits.Models[m]), baseModels[m], l)
+				c.Limits.Models[m] = fromTUILimit(merged)
+				tm[m] = merged // the booth routes on what was saved
 			}
 		}
 		for m := range baseModels { // cleared in the booth
@@ -650,7 +665,9 @@ func tuiLimits(cfg config) *tui.LimitStore {
 			}
 		}
 		if !reflect.DeepEqual(def, baseDef) {
+			def = mergeLimitFields(toTUILimit(c.Limits.Default), baseDef, def)
 			c.Limits.Default = fromTUILimit(def)
+			ls.Default = def
 		}
 		if err := saveConfigLocked(c); err != nil {
 			ls.ReportSaveErr(err) // the booth says so on its next tick
