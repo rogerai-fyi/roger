@@ -144,13 +144,15 @@ Feature: A retried request with the same Idempotency-Key is answered once and ch
     Then the response is a fresh relay
     And the retry placed exactly 1 hold
 
-  # slice-6 review 2026-10-06
-  Scenario: A retry after a stream that ended before its first byte is served fresh with exactly one hold
+  # corrected 2026-10-06 (founder-approved): a stream disconnect still bills its prompt (§14.10),
+  # so the key is kept and the retry is not a second charge. Old title: "... is served fresh with
+  # exactly one hold"; old Then: the response is a fresh relay, and the retry placed exactly 1 hold.
+  Scenario: A retry after a stream that ended before its first byte is a 409 response_unavailable and the consumer was charged once
     Given "s1" takes 2 seconds to answer
     And "u-1" streams for "m" with Idempotency-Key "k-sgone" and disconnects before the first byte
     When "u-1" sends the identical stream request with Idempotency-Key "k-sgone"
-    Then the response is a fresh relay
-    And the retry placed exactly 1 hold
+    Then the response is 409 with error code "response_unavailable"
+    And the wallet of "u-1" was debited once
 
   Scenario: A retry while the first is still running is a 409 with Retry-After
     Given "s1" takes 5 seconds to answer

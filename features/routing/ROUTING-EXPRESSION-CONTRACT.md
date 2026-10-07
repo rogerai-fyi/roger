@@ -629,6 +629,10 @@ Rulings on the slice-6 review (founder, 2026-10-06):
     with its status, its error code and a plain message, never `error.metadata.raw` (a commercial
     upstream's refusal can echo a fragment of a credential). Every other status keeps the capped
     raw body for diagnosis. A 403's classification is unchanged (upstream_error, no failover).
+32. Idempotency after a stream that died before its first byte (§14.B2, §14.10): the stream still
+    bills its prompt, so its key is kept; a retry gets 409 `response_unavailable` and the consumer
+    is charged exactly once. A non-stream disconnect bills $0, releases its key, and its retry is
+    served fresh. Generally a key is released only when nothing was charged.
 
 ---
 
