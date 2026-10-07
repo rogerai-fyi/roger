@@ -182,6 +182,18 @@ test("gpu-isolation: no inbound listener exists in the share/node code path", ()
     `expected only the Roger Edge listener in the sharing path, found: ${files.join(", ") || "(none)"}`);
 });
 
+// Founder ruling 2026-10-07: Roger Edge is the one opt-in exception to "your machine never
+// listens", so the page says so plainly, scoped to members over mutual TLS, and says the Edge
+// delegate runner acts only on grants the owner signs. Sharing never turns it on.
+test("gpu-isolation: the Roger Edge exception is stated, opt-in, members only, signed grants", () => {
+  const visible = read(PAGE).replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(visible, /set up Roger Edge/i, "the exception is named and is opt-in");
+  assert.match(visible, /mutual TLS/i, "Edge devices connect over mutual TLS");
+  assert.match(visible, /only devices that are members of your Edge can connect/i, "members only");
+  assert.match(visible, /acts only on grants you sign/i, "the delegate runner needs a grant the owner signs");
+  assert.match(visible, /Sharing a model never turns any of that on/i, "sharing does not start it");
+});
+
 test("gpu-isolation: no em dashes in the copy", () => {
   assert.doesNotMatch(read(PAGE), /—/, "founder style: spaced hyphens, never em dashes");
 });
