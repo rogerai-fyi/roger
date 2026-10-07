@@ -181,7 +181,7 @@ func ForwardAuditTranscript(st *tower.State, attemptID string, available bool, s
 func CoreTowerID(st *tower.State) (string, error) {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
-		return "", errors.New("this Tower is not registered with Roger Core yet - run `roger-tower register` first")
+		return "", errors.New("this Tower is not registered with Roger Core yet - run `roger tower register` first")
 	}
 	return adm.TowerID, nil
 }

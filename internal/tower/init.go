@@ -132,7 +132,7 @@ func cleanupOnError(dir string, err error) error {
 func Open(dir string) (*State, error) {
 	b, err := os.ReadFile(filepath.Join(dir, stateFile))
 	if err != nil {
-		return nil, fmt.Errorf("%s is not an initialized Tower data directory: %w", dir, err)
+		return nil, fmt.Errorf("%s is not an initialized Tower data directory (create one with `roger tower init --dir %s --mode standalone|joined`): %w", dir, dir, err)
 	}
 	var st State
 	if err := json.Unmarshal(b, &st); err != nil {
@@ -172,7 +172,7 @@ func (s *State) Lock() (release func() error, err error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("another Tower process already owns %s (stop the running `serve` / `roger-tower-local` to make changes; read-only commands like status/stations/route run fine alongside it)", s.dir)
+		return nil, fmt.Errorf("another Tower process already owns %s (stop the running `roger tower serve` to make changes; read-only commands like status/stations/route run fine alongside it)", s.dir)
 	}
 	return func() error {
 		defer f.Close()

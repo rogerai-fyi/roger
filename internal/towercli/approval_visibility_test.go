@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // features/tower/approval_visibility.feature, CLI half: the operator can always tell
 // where they stand, and the advertised endpoint is honest.

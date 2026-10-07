@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // serve.go holds the joined relay link open.
 //
@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/localplane/serve"
 	"rogerai.fm/roger/v6/internal/netpriv"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towercore/link"
@@ -135,9 +136,9 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOpti
 // errStandaloneCannotServeJoined is the one refusal both doors give, so the two cannot drift
 // into saying different things about the same rule.
 var errStandaloneCannotServeJoined = errors.New(
-	"this Tower is standalone: serve its own local network with `roger-tower-local --dir DIR` " +
-		"(a separate, Core-free binary; loopback by default). `serve` here is for a JOINED " +
-		"Tower - initialize a new data directory with --mode joined to join the public network")
+	"this Tower is standalone: `roger tower serve --dir DIR` serves its consumer plane on its own " +
+		"network (loopback by default). The link and the hub are for a JOINED Tower - initialize a " +
+		"new data directory with --mode joined to join the public network")
 
 func realTicker(d time.Duration) (<-chan time.Time, func()) {
 	t := time.NewTicker(d)
@@ -342,7 +343,78 @@ func localOffers(st *tower.State, out io.Writer) ([]json.RawMessage, error) {
 }
 
 // cmdServe is the `roger-tower serve` entry point.
+// serveFlagModes names the serve flags that belong to only one mode, and whether each takes a
+// value (so a refusal can repeat what the operator typed).
+var serveFlagModes = map[string]struct {
+	mode  tower.Mode
+	value bool
+}{
+	"bind": {tower.ModeStandalone, true}, "allow-public": {tower.ModeStandalone, false},
+	"advertise": {tower.ModeStandalone, false}, "label": {tower.ModeStandalone, true},
+	"check": {tower.ModeStandalone, false},
+	"hub":   {tower.ModeJoined, true}, "relay-public": {tower.ModeJoined, true},
+	"hub-tls": {tower.ModeJoined, false}, "hub-tls-cert": {tower.ModeJoined, true},
+	"hub-tls-key": {tower.ModeJoined, true}, "hub-legacy-bearer": {tower.ModeJoined, false},
+}
+
+// cmdServe is `roger tower serve`: the data directory's recorded mode decides what is served.
+// A standalone directory runs the Core-free consumer plane (internal/localplane/serve); a joined
+// one runs the link and the hub. A flag of the other mode is refused (exit 2) before anything is
+// opened, naming the flag as typed and the directory's mode.
 func cmdServe(args []string, out io.Writer) error {
+	dir := ""
+	for i, a := range args {
+		name, val, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if !strings.HasPrefix(a, "-") || name != "dir" {
+			continue
+		}
+		if hasVal {
+			dir = val
+		} else if i+1 < len(args) {
+			dir = args[i+1]
+		}
+	}
+	if dir == "" {
+		return exitError{2, "--dir is required"}
+	}
+	st, err := tower.Open(dir)
+	if err != nil {
+		// No mode to dispatch on. A joined flag means the operator meant the joined serve,
+		// whose flag checks come before the directory (a flag mistake is reported as one).
+		for _, a := range args {
+			name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+			if f, ok := serveFlagModes[name]; ok && strings.HasPrefix(a, "-") && f.mode == tower.ModeJoined {
+				return cmdServeJoined(args, out)
+			}
+		}
+		return err
+	}
+	for i, a := range args {
+		if !strings.HasPrefix(a, "-") || a == "-" || a == "--" {
+			continue
+		}
+		name, _, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		f, ok := serveFlagModes[name]
+		if !ok || f.mode == st.Mode {
+			continue
+		}
+		typed := a
+		if f.value && !hasVal && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			typed = a + " " + args[i+1]
+		}
+		return exitError{2, fmt.Sprintf("%s is a %s flag; this directory is %s", typed, f.mode, st.Mode)}
+	}
+	if st.Mode == tower.ModeStandalone {
+		return serveStandalone(args, out)
+	}
+	return cmdServeJoined(args, out)
+}
+
+// serveStandalone is the standalone consumer plane (a seam: a test stands in for the blocking
+// serve).
+var serveStandalone = serve.Run
+
+func cmdServeJoined(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	dir, cfg := dirAndConfig(fs)
 	relayPublic := fs.String("relay-public", "", "the PUBLIC host:port consumers reach this tower's data plane (the hub) at, advertised to Roger Core")
@@ -482,7 +554,7 @@ func announceState(out io.Writer, last *string, state string) {
 		fmt.Fprint(out, "state: QUARANTINE - pending approval by the network admin.\n"+
 			"  Nothing is broken: every new Tower waits here, and approval flips this\n"+
 			"  automatically - this terminal will announce it. Meanwhile the link stays up\n"+
-			"  and `roger-tower status` shows the same answer. Learn more: https://rogerai.fm/tower\n")
+			"  and `roger tower status` shows the same answer. Learn more: https://rogerai.fm/tower\n")
 	case "active":
 		fmt.Fprint(out, "state: ACTIVE - approved and ready to carry traffic.\n"+
 			"  Stations can now attach, and every carried job will print here as it settles.\n")

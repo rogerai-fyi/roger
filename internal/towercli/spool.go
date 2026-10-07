@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // spool.go is the settle courier's CRASH INSURANCE. The in-memory queue and retry backlog
 // die with the process, and a receipt is the node's pay: a tower restarted (deploy, crash,

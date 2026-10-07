@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // serve_test.go drives the relay link loop against a stub Roger Core.
 //
@@ -736,33 +736,43 @@ func TestAFailedRefreshIsReportedAndTheLinkSurvives(t *testing.T) {
 //
 // The reaches-the-hub half is TestTheBearerToleranceSwitchReachesTheHub, below, which builds a
 // real hub through the real function and asks it.
+// serveJoinedCLI drives the joined serve's own flag parsing directly. `roger tower serve` on a
+// standalone directory never reaches it (the dispatch sends a standalone directory to the
+// consumer plane and refuses joined flags first), so a test of the hub flags calls it here.
+func serveJoinedCLI(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	var b bytes.Buffer
+	err := cmdServeJoined(args, &b)
+	return b.String(), err
+}
+
 func TestTheLegacyBearerToleranceIsParsedFromFlagAndConfig(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "tw")
 	var b bytes.Buffer
 	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "standalone"}, &b))
 
 	// The default is ON: an already-released node keeps earning while its operator updates.
-	out, err := runCLI(t, "serve", "--dir", dir, "--hub", "127.0.0.1:0")
+	out, err := serveJoinedCLI(t, "--dir", dir, "--hub", "127.0.0.1:0")
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
 	require.NotContains(t, out, "REFUSED", "the transition tolerance is on unless an operator says otherwise")
 
 	// The flag turns it off, and says so - an operator who does this is choosing to stop
 	// serving some of their own fleet, and should see that they did.
-	out, err = runCLI(t, "serve", "--dir", dir, "--hub", "127.0.0.1:0", "--hub-legacy-bearer=false")
+	out, err = serveJoinedCLI(t, "--dir", dir, "--hub", "127.0.0.1:0", "--hub-legacy-bearer=false")
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
 	require.Contains(t, out, "bearer tokens are REFUSED",
 		"-hub-legacy-bearer=false was not parsed")
 
 	// And so does the config file, for an operator who does not hand-write the command line.
 	cfg := writeConfig(t, standaloneYAML+"hub:\n  address: 127.0.0.1:0\n  allowLegacyBearer: false\n")
-	out, err = runCLI(t, "serve", "--dir", dir, "--config", cfg)
+	out, err = serveJoinedCLI(t, "--dir", dir, "--config", cfg)
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
 	require.Contains(t, out, "bearer tokens are REFUSED", "hub.allowLegacyBearer was not parsed")
 
 	// The flag is the more deliberate of the two and wins, which is the rule the rest of
 	// cmdServe follows for every other hub setting.
 	cfgOff := writeConfig(t, standaloneYAML+"hub:\n  address: 127.0.0.1:0\n  allowLegacyBearer: false\n")
-	out, err = runCLI(t, "serve", "--dir", dir, "--config", cfgOff, "--hub-legacy-bearer=true")
+	out, err = serveJoinedCLI(t, "--dir", dir, "--config", cfgOff, "--hub-legacy-bearer=true")
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
 	require.NotContains(t, out, "REFUSED", "the config file overrode an explicit flag")
 }

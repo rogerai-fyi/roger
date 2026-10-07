@@ -28,7 +28,7 @@ var listenerFiles = map[string]string{
 	"standalone serve": "internal/localplane/serve/serve.go",
 	"edge face":        "cmd/rogerai/edgebind.go",
 	"web console":      "internal/webui/server.go",
-	"joined hub":       "cmd/roger-tower/hub.go",
+	"joined hub":       "internal/towercli/hub.go",
 	"tui proxy":        "internal/tui/tui.go",
 }
 

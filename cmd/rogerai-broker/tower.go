@@ -598,7 +598,7 @@ func (b *broker) towerToken(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	owner, ok := b.towerOperator(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "running a Tower requires a signed-in account - try `roger-tower login`")
+		jsonErr(w, http.StatusUnauthorized, "running a Tower requires a signed-in account - try `roger tower login`")
 		return
 	}
 	ts := b.towerAvailable(w)

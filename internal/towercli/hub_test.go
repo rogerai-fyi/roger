@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // hub_test.go covers the ONE PRODUCTION PATH from Roger Core's JSON to a hub registration.
 //

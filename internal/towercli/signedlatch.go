@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // signedlatch.go persists the hub's "this Station's node SIGNS" latch across restarts.
 //

@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // hubtls_test.go is the tower's half of the change: a hub that actually serves TLS, and a
 // fingerprint that actually describes the certificate it serves.

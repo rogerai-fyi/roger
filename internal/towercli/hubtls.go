@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // hubtls.go gets a certificate onto the hub listener for an operator who has no way of
 // getting one.

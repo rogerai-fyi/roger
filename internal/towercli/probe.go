@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // probe.go is the edge path, exercised as a CONSUMER: authorize with Roger Core, submit a
 // SEALED request through a Tower's hub, open the answer, and acknowledge what came back.

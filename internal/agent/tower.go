@@ -224,7 +224,7 @@ var ErrHubChannelPlaintext = errors.New(
 // an operator can only act on that if someone tells them.
 var ErrHubRefusedThisNode = errors.New(
 	"this node's relay hub refuses its identity (401): it is not serving any work through this " +
-		"relay. The usual cause is a relay running a roger-tower older than signed hub polls; a " +
+		"relay. The usual cause is a relay running a Tower older than signed hub polls; a " +
 		"revoked attachment and a badly wrong system clock look the same from here")
 
 // Notice is how the relay plane reports something the operator must not miss.

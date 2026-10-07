@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // earnings.go is `roger-tower earnings`: what this account has earned, read from Core.
 //

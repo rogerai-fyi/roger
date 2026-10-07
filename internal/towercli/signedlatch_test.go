@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // signedlatch_test.go is the spec for the durable half of the bearer-kill latch, which had NO
 // tests at all: Add and path measured 0.0%, Load 38.5%. That distribution is exactly backwards

@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // earnings_test.go: `roger-tower earnings` shows the operator the SAME money the website
 // does - credits, held/payable/paid, relaying told apart from serving - because both read

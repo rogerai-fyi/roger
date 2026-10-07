@@ -35,7 +35,7 @@ var siteFiles = map[string]string{
 	"edge advert":                  "internal/edge/wire/advert.go",
 	"edge listener":                "cmd/rogerai/edgebind.go",
 	"tower advertise":              "internal/localplane/serve/advertise.go",
-	"joined serve advertised addr": "cmd/roger-tower/serve.go",
+	"joined serve advertised addr": "internal/towercli/serve.go",
 	"tower doctor":                 "internal/tower/doctor.go",
 }
 

@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // hub.go mounts the Tower's DATA-PLANE HUB (Option C, Topology 2): the HTTP surface where
 // consumers submit sealed jobs and this Tower's self-attached `roger share` nodes poll for

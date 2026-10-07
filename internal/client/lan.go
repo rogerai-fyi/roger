@@ -276,7 +276,7 @@ func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, s
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
 		pub := key.Public().(ed25519.PublicKey)
-		return LANTowerNotAdmitted, fmt.Sprintf("the Tower's owner admits this machine with `roger-tower admit --client %s`",
+		return LANTowerNotAdmitted, fmt.Sprintf("the Tower's owner admits this machine: `roger tower invite --client %s`, then `roger tower admit` with the invitation it prints",
 			protocol.UserIDFromPubkey(fmt.Sprintf("%x", []byte(pub)))), nil, false
 	}
 	if resp.StatusCode != http.StatusOK {

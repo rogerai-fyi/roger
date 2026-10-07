@@ -188,7 +188,8 @@ func refusedTowerFlag(args []string) error {
 				"reaching the fabric was never a mode to pick. Which relay carries a request - one of\n" +
 				"ours or an operator's - is decided when a consumer tunes in, not by the provider hours\n" +
 				"earlier. Drop the flag and the share is the same share, plus that reach.\n\n" +
-				"To RUN a Tower (the relay itself) you want the separate roger-tower binary.")
+				"To RUN a Tower (the relay itself) use `roger tower`; a Tower operator attaches your node with\n" +
+				"`roger tower attach`.")
 		}
 	}
 	return nil

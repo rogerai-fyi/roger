@@ -8,8 +8,11 @@
 package tower
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -105,6 +108,11 @@ type LocalConfig struct {
 	OfflineRootFile      string `yaml:"offlineRootFile,omitempty"`
 	TrustPublicationFile string `yaml:"trustPublicationFile,omitempty"`
 	SettlementSignerFile string `yaml:"settlementSignerFile,omitempty"`
+	// Bind, Label and Advertise configure `roger tower serve` on a standalone directory, the
+	// same settings as its --bind, --label and --advertise flags (a flag wins over the file).
+	Bind      string `yaml:"bind,omitempty"`
+	Label     string `yaml:"label,omitempty"`
+	Advertise bool   `yaml:"advertise,omitempty"`
 }
 
 type ListenerConfig struct {
@@ -340,7 +348,7 @@ func (c *Config) Unenforced() []string {
 	if c.Payout != nil {
 		add(c.Payout.Wallet != "", "payout.wallet",
 			"not used by this build; earnings are paid to the ACCOUNT that enrolled the Tower "+
-				"(cash out on the Payouts page or with `roger-tower earnings`), not to a wallet named here")
+				"(cash out on the Payouts page or with `roger tower earnings`), not to a wallet named here")
 	}
 	if c.Standalone != nil {
 		add(c.Standalone.OfflineRootFile != "", "standalone.offlineRootFile", "not read by this build")
@@ -405,4 +413,51 @@ func (c *Config) PrintRedacted() string {
 		fmt.Fprintf(&b, "storage.urlFile: %s (contents not read)\n", c.Storage.URLFile)
 	}
 	return b.String()
+}
+
+// LoadConfig reads and validates an operator configuration file, refusing the data
+// directory's state file by name (the mistake --dir and --config invite).
+func LoadConfig(path string) (*Config, error) {
+	if path == "" {
+		return nil, fmt.Errorf("--config is required")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := refuseStateFile(path, b); err != nil {
+		return nil, err
+	}
+	return ParseConfig(b)
+}
+
+// refuseStateFile catches the ONE mistake this CLI's two-argument shape invites.
+//
+// `init --dir DIR` writes DIR/tower.json and prints the directory it wrote it to, so the
+// operator's very next command reaches for the file init just made them - and --config
+// wants an entirely different document. What they got for it was the strict decoder's
+// answer, "field tower_id not found in type tower.Config", which names a field they never
+// typed, in a type they have never heard of, and says nothing about the fix.
+//
+// The two arguments are not interchangeable and are not meant to be: --dir is what a Tower
+// KNOWS (its identity, whom it admitted, which Stations attached), --config is what an
+// operator DECIDED (listeners, limits, durability). Keeping them apart is deliberate; the
+// cost is this confusion, so the confusion is answered here by name.
+func refuseStateFile(path string, b []byte) error {
+	var probe struct {
+		TowerID string `json:"tower_id"`
+	}
+	// Only a well-formed JSON object carrying tower_id qualifies. A real config is YAML
+	// with apiVersion and kind, and nothing about it decodes into this shape - so this
+	// cannot swallow a genuine configuration error and report the wrong repair.
+	if json.Unmarshal(b, &probe) != nil || probe.TowerID == "" {
+		return nil
+	}
+	return fmt.Errorf("%s is a Tower DATA DIRECTORY state file, not a configuration file.\n"+
+		"It records what this Tower is (its id, its network); a configuration file records "+
+		"what you want it to do (listeners, limits, durability).\n"+
+		"  --dir %s        state: init, invite, admit, attach, stations, route, status\n"+
+		"  --config FILE   settings: doctor, config, and durable storage\n"+
+		"An example configuration ships in packaging/tower/ (tower.standalone.example.yaml, "+
+		"tower.joined.example.yaml).", path, filepath.Dir(path))
 }

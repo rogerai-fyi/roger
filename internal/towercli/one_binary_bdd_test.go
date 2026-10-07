@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // Executable spec: features/packaging/one_binary.feature section 7.1, the joined serve's
 // advertised-address tiers. The joined serve and `roger lan add` classify a link-local

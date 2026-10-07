@@ -34,6 +34,7 @@ import (
 	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/session"
+	"rogerai.fm/roger/v6/internal/towercli"
 	"rogerai.fm/roger/v6/internal/tui"
 	"rogerai.fm/roger/v6/internal/update"
 )
@@ -820,6 +821,13 @@ var (
 )
 
 func main() {
+	// `roger tower ...` is the Tower operator's command set (internal/towercli). It runs before
+	// anything of roger's own starts - config, keys, update checks - because a Tower host may
+	// never have run roger, and a standalone serve must construct nothing it does not need.
+	if len(os.Args) > 1 && os.Args[1] == "tower" {
+		towercli.Platform = towerPlatform()
+		os.Exit(towercli.Run(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	err := run(os.Args[1:], loadConfig())
 	if errors.Is(err, tui.ErrRestart) {
 		// The in-TUI upgrade finished and the user chose "restart now": re-exec the
@@ -1074,20 +1082,6 @@ func dispatch(cfg config, args []string) error {
 		// animation can be re-watched (and its timing tuned) without touching config.
 		tui.PlayBoot(os.Stdout, time.Sleep)
 		return nil
-	case "tower", "roger-tower":
-		// "unknown command" is a useless answer to a word this product uses for a real
-		// thing. Running a Tower is a different binary; being CARRIED by one needs no
-		// command at all any more, which is the part worth saying out loud.
-		return fmt.Errorf(`%w %q.
-
-To RUN a Tower (the relay itself) use the separate roger-tower binary:
-    curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh
-    roger-tower init --dir /var/lib/roger-tower --mode joined
-    roger-tower register && roger-tower serve --hub :8444
-
-To SERVE YOUR MODEL THROUGH a Tower (you are a station, not the relay):
-    roger share          # nothing extra - a share reaches the relay fabric on its own`,
-			errUnknownCommand, args[0])
 	case "version":
 		fmt.Printf("roger %s\n", Version)
 		return nil
@@ -2350,7 +2344,7 @@ func cmdAccount(cfg config, args []string) error {
 			return err
 		}
 		fmt.Printf("  node id: %s\n", agent.NodeID())
-		fmt.Printf("    (serving a standalone Tower? its operator attaches this node: `roger-tower attach --key <node id>`)\n")
+		fmt.Printf("    (serving a standalone Tower? its operator attaches this node: `roger tower attach --key <node id>`)\n")
 		return nil
 	}
 	if len(args) == 0 {
@@ -2663,11 +2657,14 @@ func usage() {
   roger model                 serve a model yourself, no other software: search · files · get · serve · stop
   roger edge                  your fleet: the machines you own (list · describe · name · forget · adopt · scan)
   roger remote                your private remote sessions: list · attach <code> · off · link
-  roger resume [session-id]   resume a saved local AGENT session  (alias: continue)
+  roger resume [session-id]   re-open your last roger session (a saved local AGENT session; alias: continue)
+  roger status                this machine's roger mode and connection
+  roger doctor                this machine's roger health (clock vs broker)
+  roger tower <command>       run a self-hosted relay (a Tower): roger tower help
 
 providers (share a local model):
   roger share <model>         go on air - FREE by default, no login (auto-detects your model)
-  roger login                 link GitHub - only needed to EARN
+  roger login                 sign this machine in to RogerAI (only needed to EARN)
   roger payout                cash out your earnings (status · onboard · request · history)
   roger bands                 your private bands: list · move · new-code · revoke
   roger grant create --name my-bots   a free private key for your bots/family
@@ -2682,3 +2679,7 @@ roger share --advanced, roger grant create --advanced).
 env: ROGER_BROKER, ROGER_USER override config (%s)
 `, configPath())
 }
+
+// towerPlatform is the platform `roger tower` judges itself by (a seam: the tower runner sets it
+// to exercise another platform's refusals from a Linux test process).
+var towerPlatform = func() string { return towercli.Platform }

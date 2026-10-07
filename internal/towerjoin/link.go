@@ -85,7 +85,7 @@ type Head struct {
 func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, error) {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
-		return Session{}, errors.New("this Tower is not registered yet - run `roger-tower register` first")
+		return Session{}, errors.New("this Tower is not registered yet - run `roger tower register` first")
 	}
 	body, err := json.Marshal(link.Hello{
 		Network:  link.PublicNetwork,

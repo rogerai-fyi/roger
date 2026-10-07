@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // features/curated/curated_tower.feature, operator side: attaching a curated station is
 // one flag, the label rides listing and routing receipts, and everything stays free.

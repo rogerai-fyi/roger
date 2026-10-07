@@ -35,6 +35,15 @@ import (
 // TestMain lets this test binary stand in for the inference runtime, reading the same command line
 // the real one is given.
 func TestMain(m *testing.M) {
+	// The tower runner (tower_cli_bdd_test.go) re-execs this test binary as roger itself, so
+	// `roger tower ...` is exercised through the shipped main: args, streams and exit code.
+	if os.Getenv("ROGER_TEST_AS_ROGER") == "1" {
+		if g := os.Getenv("ROGER_TEST_GOOS"); g != "" {
+			towerPlatform = func() string { return g }
+		}
+		main()
+		os.Exit(0)
+	}
 	if mode := os.Getenv("FAKE_FIT"); mode != "" && !slices.Contains(os.Args[1:], "--port") {
 		modelFakeFit(mode, os.Args[1:])
 		return

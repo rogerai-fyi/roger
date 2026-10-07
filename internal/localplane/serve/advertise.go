@@ -37,7 +37,7 @@ func advertiser(bindHost string, port int, label string, out io.Writer) func(con
 	ip := net.ParseIP(bindHost)
 	switch {
 	case ip == nil:
-		fmt.Fprintln(out, "roger-tower-local: not advertising: the bind host is not an address")
+		fmt.Fprintln(out, "roger tower serve: not advertising: the bind host is not an address")
 		return nil
 	case ip.IsUnspecified():
 		ips = func() []net.IP {
@@ -51,10 +51,10 @@ func advertiser(bindHost string, port int, label string, out io.Writer) func(con
 			return wire.AdvertiseAddrs(addrs)
 		}
 	case ip.IsLoopback():
-		fmt.Fprintln(out, "roger-tower-local: not advertising: bound to loopback, which no other machine can reach; bind a LAN address")
+		fmt.Fprintln(out, "roger tower serve: not advertising: bound to loopback, which no other machine can reach; bind a LAN address")
 		return nil
 	case !netpriv.IsHome(ip):
-		fmt.Fprintln(out, "roger-tower-local: not advertising: advertisements go on private networks only")
+		fmt.Fprintln(out, "roger tower serve: not advertising: advertisements go on private networks only")
 		return nil
 	default:
 		ips = func() []net.IP { return []net.IP{ip} }
@@ -66,11 +66,11 @@ func advertiser(bindHost string, port int, label string, out io.Writer) func(con
 	return func(ctx context.Context) {
 		tp, err := towerPlane(ifaces)
 		if err != nil {
-			fmt.Fprintf(out, "roger-tower-local: not advertising: %v\n", err)
+			fmt.Fprintf(out, "roger tower serve: not advertising: %v\n", err)
 			return
 		}
 		defer tp.Close()
-		fmt.Fprintf(out, "roger-tower-local: advertising %q on the private network (mDNS %s)\n", label, wire.TowerService)
+		fmt.Fprintf(out, "roger tower serve: advertising %q on the private network (mDNS %s)\n", label, wire.TowerService)
 		_ = wire.NewLiveResponder(tp, wire.TowerService, ad, ips).Serve(ctx)
 	}
 }

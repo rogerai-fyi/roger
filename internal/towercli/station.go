@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // station.go is the JOINED Station lifecycle: authorizing a Station onto the public network
 // and redeeming that authorization.
@@ -25,9 +25,9 @@ import (
 	"rogerai.fm/roger/v6/internal/towerjoin"
 )
 
-const stationUsage = `roger-tower station - Stations on the public network
+const stationUsage = `roger tower station - Stations on the public network
 
-  roger-tower station revoke --dir DIR --station-id ID
+  roger tower station revoke --dir DIR --station-id ID
 
 Nodes attach themselves now: a provider runs ` + "`roger share`" + ` and Roger Core
 records the attachment (the invite-file ceremony died with the roger-station binary).
@@ -88,7 +88,7 @@ func cmdDrain(args []string, out io.Writer) error {
 	return setOwnState(args, out, "drain", "draining",
 		"draining: Roger Core will send no new work.\n"+
 			"In-flight work finishes on its own deadlines, and the link stays up.\n"+
-			"Run `roger-tower resume --dir DIR` to take work again.\n")
+			"Run `roger tower resume --dir DIR` to take work again.\n")
 }
 
 // cmdResume puts a drained Tower back into service.

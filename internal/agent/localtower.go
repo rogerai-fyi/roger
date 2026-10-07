@@ -25,7 +25,7 @@ func idFromPriv(priv ed25519.PrivateKey) string {
 
 // NodeID is this machine's standalone-Tower station identity: the tower client id derived from the
 // node key (a DIFFERENT key from the consumer's user key). The operator attaches this node with
-// `roger-tower attach --key <NodeID>`. Calling it mints the node key if none exists yet, exactly as
+// `roger tower attach --key <NodeID>`. Calling it mints the node key if none exists yet, exactly as
 // serving would - so the id it returns is stable and is the one a share will authenticate with.
 func NodeID() string { return idFromPriv(NodeKey()) }
 
@@ -39,7 +39,7 @@ func NodeID() string { return idFromPriv(NodeKey()) }
 // The node signs every poll and completion with its node key AND a per-request nonce, so the
 // Tower's replay guard can refuse a captured poll resent on the LAN (which would otherwise be
 // handed a pending consumer prompt). The node must already be an ATTACHED station of the Tower
-// (roger-tower attach --key <the node's tower client id>); an unattached key is refused.
+// (roger tower attach --key <the node's tower client id>); an unattached key is refused.
 //
 // It loops until the context is cancelled. Poll and per-job errors are transient - the node
 // simply re-polls - because a standalone plant should keep serving across a Tower blip.
@@ -51,7 +51,7 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 	// cannot see. (`roger account` shows it too, so the id is learnable before the plane is up.)
 	nodeID := idFromPriv(priv)
 	fmt.Fprintf(out, "this node's id: %s\n", nodeID)
-	fmt.Fprintf(out, "  the Tower operator attaches it with: roger-tower attach --station <name> --key %s --models <models>\n", nodeID)
+	fmt.Fprintf(out, "  the Tower operator attaches it with: roger tower attach --station <name> --key %s --models <models>\n", nodeID)
 	fmt.Fprintf(out, "serving the local network's stations at %s (polling for work)\n", cfg.Broker)
 	var lastPollErrLog time.Time
 	failures, toldUnattached := 0, false
@@ -69,7 +69,7 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 			// The Tower is reachable but has not attached this station: say so ONCE, with the
 			// exact command that fixes it, instead of a generic poll error every minute.
 			if !toldUnattached {
-				fmt.Fprintf(out, "the Tower at %s has not attached this station: its operator runs roger-tower attach --station <name> --key %s --models %s\n",
+				fmt.Fprintf(out, "the Tower at %s has not attached this station: its operator runs roger tower attach --station <name> --key %s --models %s\n",
 					cfg.Broker, nodeID, cfg.Model)
 				toldUnattached = true
 			}

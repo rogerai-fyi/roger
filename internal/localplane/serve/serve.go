@@ -27,6 +27,7 @@ import (
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/towerstore"
 )
 
 // Prepared is a consumer plane wired and bound, ready to serve. Splitting preparation from
@@ -37,15 +38,18 @@ type Prepared struct {
 	ln        net.Listener
 	release   func() error
 	advertise func(context.Context) // nil unless --advertise and the bind is a private address
+	checked   bool                  // --check: everything resolved, nothing bound
 }
 
 // Prepare validates flags and the bind posture, opens the standalone Tower, takes its lock,
 // and binds the listener. It returns everything the serve loop needs, or an error that names
 // exactly what was wrong - before anything is half up.
 func Prepare(args []string, out io.Writer) (*Prepared, error) {
-	fs := flag.NewFlagSet("roger-tower-local", flag.ContinueOnError)
+	fs := flag.NewFlagSet("roger tower serve", flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "standalone Tower data directory")
+	cfgPath := fs.String("config", "", "operator configuration file (standalone.bind, standalone.label and standalone.advertise; a flag wins over the file)")
+	check := fs.Bool("check", false, "resolve the directory, configuration and bind, say what would be served, and exit without listening")
 	bind := fs.String("bind", localplane.DefaultBind, "address to listen on (host:port); loopback by default")
 	allowPublic := fs.Bool("allow-public", false, "acknowledge binding a public or all-interfaces address (a broker lookalike risk)")
 	advertise := fs.Bool("advertise", false, "announce this Tower by mDNS on private networks, so LAN-mode clients list it as a candidate")
@@ -55,6 +59,30 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 	}
 	if *dir == "" {
 		return nil, fmt.Errorf("--dir is required")
+	}
+	var cfg *tower.Config
+	if *cfgPath != "" {
+		c, err := tower.LoadConfig(*cfgPath)
+		if err != nil {
+			return nil, err
+		}
+		if c.Mode != tower.ModeStandalone {
+			return nil, fmt.Errorf("%s is a %s configuration; this command serves a standalone directory", *cfgPath, c.Mode)
+		}
+		cfg = c
+		set := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+		if sc := c.Standalone; sc != nil {
+			if !set["bind"] && sc.Bind != "" {
+				*bind = sc.Bind
+			}
+			if !set["label"] && sc.Label != "" {
+				*label = sc.Label
+			}
+			if !set["advertise"] && sc.Advertise {
+				*advertise = true
+			}
+		}
 	}
 	// Fail closed: in standalone mode no Core client may exist. One that does is a bug, and the
 	// plane does not open its listener beside it.
@@ -81,11 +109,31 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 	if err := st.RequireMode(tower.ModeStandalone); err != nil {
 		return nil, err
 	}
-	// The consumer plane reads admission and (as it grows) records receipts, so it takes the
-	// identity-directory lock: two planes on one directory would race the local state.
-	release, err := st.Lock()
+	// A configured database is the store admit and attach wrote to, so the plane reads it too
+	// (fail closed: an unreadable or non-local database refuses, never falls back to the files).
+	st, closeStore, err := towerstore.ForConfig(cfg, st)
 	if err != nil {
 		return nil, err
+	}
+	if *check {
+		_ = closeStore()
+		fmt.Fprintf(out, "roger tower serve: %s\n", note)
+		fmt.Fprintf(out, "would serve the standalone consumer plane on %s\n", addr)
+		return &Prepared{checked: true}, nil
+	}
+	// The consumer plane reads admission and (as it grows) records receipts, so it takes the
+	// identity-directory lock: two planes on one directory would race the local state.
+	unlock, err := st.Lock()
+	if err != nil {
+		_ = closeStore()
+		return nil, err
+	}
+	release := func() error {
+		err := unlock()
+		if cerr := closeStore(); err == nil {
+			err = cerr
+		}
+		return err
 	}
 
 	ln, err := towerListen("tcp", addr)
@@ -93,9 +141,9 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 		_ = release()
 		return nil, fmt.Errorf("cannot listen on %s: %w", addr, err)
 	}
-	fmt.Fprintf(out, "roger-tower-local: %s\n", note)
+	fmt.Fprintf(out, "roger tower serve: %s\n", note)
 	fmt.Fprintf(out, "serving the standalone consumer plane on http://%s\n", ln.Addr())
-	fmt.Fprintf(out, "point a client at it with: roger config set broker http://%s\n", ln.Addr())
+	fmt.Fprintf(out, "point a client at it with: roger lan add %s\n", ln.Addr())
 
 	var adv func(context.Context)
 	if *advertise {
@@ -121,6 +169,9 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 
 // Serve runs the bound plane until the server is closed, then releases the directory lock.
 func (p *Prepared) Serve() error {
+	if p.checked {
+		return nil
+	}
 	defer func() { _ = p.release() }()
 	if p.advertise != nil {
 		ctx, cancel := context.WithCancel(context.Background())

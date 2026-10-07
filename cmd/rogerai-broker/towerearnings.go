@@ -47,7 +47,7 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 
 	_, ok := b.towerOperator(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "reading earnings requires a signed-in account - run `roger-tower login`")
+		jsonErr(w, http.StatusUnauthorized, "reading earnings requires a signed-in account - run `roger tower login`")
 		return
 	}
 	// The balance is summed for the pubkey that signed, taken from the authenticated request
@@ -56,7 +56,7 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 	signedBy := r.Header.Get("X-Roger-Pubkey")
 	signer, found, oerr := b.db.OwnerByPubkey(signedBy)
 	if oerr != nil || !found {
-		jsonErr(w, http.StatusUnauthorized, "reading earnings requires a signed-in account - run `roger-tower login`")
+		jsonErr(w, http.StatusUnauthorized, "reading earnings requires a signed-in account - run `roger tower login`")
 		return
 	}
 	// THE ACCOUNT'S key, not this device's: an operator who enrolled their Tower from one

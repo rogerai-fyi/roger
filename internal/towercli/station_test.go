@@ -1,4 +1,4 @@
-package main
+package towercli
 
 // station_test.go covers the JOINED Station lifecycle commands.
 //
@@ -113,7 +113,7 @@ func TestStatusTellsAnUnregisteredTowerToRegister(t *testing.T) {
 	out, err := runCLI(t, "status", "--dir", dir)
 	require.NoError(t, err)
 	require.Contains(t, out, "not registered yet")
-	require.Contains(t, out, "roger-tower register")
+	require.Contains(t, out, "roger tower register")
 }
 
 // A standalone Tower asks Core nothing at all - it has no account and no Core to ask.
