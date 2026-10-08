@@ -159,6 +159,10 @@
   --d-4: 560ms;
   --d-5: 820ms;
 
+  /* ---- FOCUS: the one keyboard ring (base.css applies it to every control) ---- */
+  --focus-ring:   2px solid var(--live);
+  --focus-offset: 2px;
+
   /* ---- CARRIER: one shared transmit rhythm the whole page breathes on. */
   --carrier:    2.2s;
   --carrier-2x: 4.4s;
