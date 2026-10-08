@@ -105,15 +105,4 @@ func TestFreeBandAcceptsTheGuestsBareModel(t *testing.T) {
 	require.False(t, guestNamesOtherModelOf([]byte(`{"model":"qwen3","roger":{}}`), "qwen3:free"))
 }
 
-// Finding 6: params_b accepts 0 as the lower bound ("no floor"), as the broker does.
-func TestProfileParamsBAcceptsAZeroFloor(t *testing.T) {
-	var r map[string]any
-	require.NoError(t, json.Unmarshal([]byte(`{"params_b":[0,8]}`), &r))
-	require.NoError(t, validateRoger(r))
-	require.NoError(t, json.Unmarshal([]byte(`{"params_b":[0,0]}`), &r))
-	require.Error(t, validateRoger(r))
-	require.NoError(t, json.Unmarshal([]byte(`{"params_b":[8,0]}`), &r))
-	require.Error(t, validateRoger(r))
-	require.NoError(t, json.Unmarshal([]byte(`{"params_b":[-1,8]}`), &r))
-	require.Error(t, validateRoger(r))
-}
+// Finding 6 (params_b accepts a zero floor) moved with the rules to internal/routingrules.
