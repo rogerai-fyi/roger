@@ -149,7 +149,7 @@ func TestLANUseHelpers(t *testing.T) {
 	require.False(t, o.LANMode, "default mode leaves the ladder alone")
 	applyLAN(cfg, &o)
 	require.True(t, o.LANMode)
-	require.Equal(t, "local-only", o.Prefer)
+	require.Equal(t, "local-only", o.EdgePrefer)
 	require.Equal(t, []string{"192.168.1.20:8787"}, o.LANTowers("llama-3.3-70b"))
 }
 
@@ -163,7 +163,7 @@ func TestFrontEndLadderHookCarriesLANMode(t *testing.T) {
 	var o client.ProxyOptions
 	frontEndLadder(cfg)(&o)
 	require.True(t, o.LANMode, "a LAN-mode front end's proxy must be on the LAN ladder")
-	require.Equal(t, "local-only", o.Prefer)
+	require.Equal(t, "local-only", o.EdgePrefer)
 	require.NotNil(t, o.LANTowers)
 
 	cfg.lan = lanmode.Mode{}

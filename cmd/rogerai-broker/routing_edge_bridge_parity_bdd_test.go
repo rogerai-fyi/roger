@@ -69,6 +69,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"sort"
 	"strconv"
 	"strings"
@@ -3039,7 +3040,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing/edge_bridge_parity scenarios failed (see godog output above)")
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
@@ -1508,7 +1509,7 @@ func TestRoutingSlice0BDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("slice-0 node preference / request shape scenarios failed")
 	}
 }

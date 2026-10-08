@@ -186,12 +186,12 @@ func (s *modeBDD) structuralNoBroker() error {
 	prev := http.DefaultTransport
 	http.DefaultTransport = tr
 	defer func() { http.DefaultTransport = prev }()
-	relay := client.ProxyOptions{Prefer: "local-only"}
+	relay := client.ProxyOptions{EdgePrefer: "local-only"}
 	client.SetLANRelay(&relay)
 	defer client.SetLANRelay(nil)
 	const broker = "http://broker.invalid"
 
-	h := client.ProxyHandler(client.ProxyOptions{Broker: broker, Model: "gpt-oss-120b", SessionKey: "k", Prefer: "local-only"})
+	h := client.ProxyHandler(client.ProxyOptions{Broker: broker, Model: "gpt-oss-120b", SessionKey: "k", EdgePrefer: "local-only"})
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-oss-120b","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Authorization", "Bearer k")
 	req.RemoteAddr = "127.0.0.1:1"

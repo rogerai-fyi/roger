@@ -327,7 +327,7 @@ func (s *edgeBDD) anyScreenRendersAHint() error {
 				s.outs[key] = stripANSI(mm.View())
 			}
 			// The BAND CARD names the screens its sections came from, in words - the
-			// one place outside the preset bar that spells "[3] CONFIG".
+			// one place outside the preset bar that spells "[4] CONFIG".
 			mm := browseSeed(w)
 			mm.compact = compact
 			card, _ := mm.openBandConfig("gpt-oss-20b", modeShare)

@@ -47,10 +47,10 @@ Feature: The Edge screen draws the owner's fleet, animates its liveness, and nev
     And pressing "3" opens the Edge screen
     And pressing "4" opens the spend-limit config screen that "3" used to open
 
-  Scenario: every hint that said [3] CONFIG now says [4] CONFIG
+  Scenario: every hint that said [4] CONFIG now says [4] CONFIG
     When any screen renders a hint naming the config screen
     Then it says "[4]"
-    And no rendered hint anywhere still says "[3] CONFIG"
+    And no rendered hint anywhere still says "[4] CONFIG"
 
   Scenario: the Edge screen is reachable and leavable like the other numbered screens
     When the Edge screen is open

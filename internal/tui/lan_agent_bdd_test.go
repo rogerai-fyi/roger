@@ -40,7 +40,7 @@ func (s *lanAgentBDD) running(band string) error {
 	local := s.answering("local", &s.localHits)
 	relayed := s.answering("relay", &s.relayHits)
 	// LAN mode's one relay for this process: a turn that went through it would land here.
-	client.SetLANRelay(&client.ProxyOptions{LANMode: true, Prefer: "local-only",
+	client.SetLANRelay(&client.ProxyOptions{LANMode: true, EdgePrefer: "local-only",
 		LANSelf: func(string) (string, string) { return relayed.URL + "/v1/chat/completions", "" }})
 	s.t.Cleanup(func() { client.SetLANRelay(nil) })
 	m := agentWithLocals(s.t)

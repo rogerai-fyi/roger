@@ -1,0 +1,212 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/tui"
+)
+
+// TestResolveUseValidatesStoredLimits: a hand-edited limits value that is not a contract
+// value is refused at use, never shown as applied while setting nothing.
+func TestResolveUseValidatesStoredLimits(t *testing.T) {
+	ps := profilesOf(t, `{"profiles":{}}`)
+	cfg := config{}
+	cfg.Limits.Default = Limit{TrustMin: "Verified"}
+	f, _, err := parseUseFlags([]string{"m"})
+	require.NoError(t, err)
+	_, err = resolveUse(cfg, f, ps)
+	require.ErrorContains(t, err, "trust_min")
+}
+
+// TestUseOrderOutsideOnlyIsRefused: --order naming a station outside --only is refused.
+func TestUseOrderOutsideOnlyIsRefused(t *testing.T) {
+	ps := profilesOf(t, `{"profiles":{}}`)
+	f, _, err := parseUseFlags([]string{"m", "--only", "n1", "--order", "n2"})
+	if err == nil {
+		_, err = resolveUse(config{}, f, ps)
+	}
+	require.ErrorContains(t, err, "outside provider.only")
+}
+
+// TestProfileSetRefusesUnknownSubKeys: a typo'd sub-key is refused, the file unchanged.
+func TestProfileSetRefusesUnknownSubKeys(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdProfile([]string{"set", "p", "roger.pref", "fast"}))
+	before, _ := os.ReadFile(configPath())
+	require.Error(t, cmdProfile([]string{"set", "p", "roger.trust_mn", "verified"}))
+	require.Error(t, cmdProfile([]string{"set", "p", "provider.max_price.complete", "2"}))
+	after, _ := os.ReadFile(configPath())
+	require.Equal(t, string(before), string(after))
+}
+
+// TestSaveConfigTakesTheConfigLock: saveConfig waits for a live config lock, so it never
+// merges over a concurrent profile write.
+func TestSaveConfigTakesTheConfigLock(t *testing.T) {
+	useTempConfig(t)
+	c := loadConfig()
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath()), 0o700))
+	release, err := lockConfig(configPath() + ".lock")
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- saveConfig(c) }()
+	select {
+	case <-done:
+		t.Fatal("saveConfig wrote while another writer held the config lock")
+	case <-time.After(300 * time.Millisecond):
+	}
+	release()
+	require.NoError(t, <-done)
+}
+
+// TestSaveConfigNeverOverwritesAnUnreadableConfig: a config.json this process could not read
+// (not missing, unreadable) is refused rather than replaced with defaults.
+func TestSaveConfigNeverOverwritesAnUnreadableConfig(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
+	}
+	useTempConfig(t)
+	path := configPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real","broker":"https://keep.example"}`), 0o600))
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	c := loadConfig()
+	require.Error(t, saveConfig(c), "an unreadable config is not overwritten")
+	require.NoError(t, os.Chmod(path, 0o600))
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(b), "keep.example")
+}
+
+// TestSaveConfigChecksTheFileItIsAboutToReplace: the read saveConfig makes under the lock is
+// the one that decides; a config.json that turned unreadable after load is not overwritten.
+func TestSaveConfigChecksTheFileItIsAboutToReplace(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
+	}
+	useTempConfig(t)
+	path := configPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real","broker":"https://keep.example"}`), 0o600))
+	c := loadConfig() // readable now
+	c.User = "changed"
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	require.Error(t, saveConfig(c))
+	require.NoError(t, os.Chmod(path, 0o600))
+	b, _ := os.ReadFile(path)
+	require.Contains(t, string(b), "keep.example")
+}
+
+// TestProfileSetNullIsRefused: `profile set <key> null` is not a value; unset removes a key.
+func TestProfileSetNullIsRefused(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdProfile([]string{"set", "p", "roger.pref", "fast"}))
+	err := cmdProfile([]string{"set", "p", "roger.pref", "null"})
+	require.ErrorContains(t, err, "roger profile unset")
+	b, _ := os.ReadFile(configPath())
+	require.NotContains(t, string(b), "null")
+}
+
+// TestSaveConfigRefusesAFileCorruptedSinceLoad: a config.json that became unparseable after
+// load is refused under the lock (as editConfigRaw refuses it), never merged as empty.
+func TestSaveConfigRefusesAFileCorruptedSinceLoad(t *testing.T) {
+	useTempConfig(t)
+	path := configPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real"}`), 0o600))
+	c := loadConfig()
+	require.NoError(t, os.WriteFile(path, []byte(`{"user":"real", "broker":`), 0o600)) // half-written by another writer
+	require.Error(t, saveConfig(c))
+	b, _ := os.ReadFile(path)
+	require.Equal(t, `{"user":"real", "broker":`, string(b), "the file is left for the user to fix")
+}
+
+// TestProfileUnsetChecksTheKey: unset refuses a key that is not a routing key, and writes
+// nothing when the profile did not hold the key.
+func TestProfileUnsetChecksTheKey(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdProfile([]string{"set", "p", "roger.pref", "fast"}))
+	require.Error(t, cmdProfile([]string{"unset", "p", "roger.prefx"}))
+	fi, _ := os.Stat(configPath())
+	before := fi.ModTime()
+	time.Sleep(20 * time.Millisecond)
+	out := captureStdout(t, func() { require.NoError(t, cmdProfile([]string{"unset", "p", "roger.region"})) })
+	fi, _ = os.Stat(configPath())
+	require.Equal(t, before, fi.ModTime(), "nothing removed: config.json is not rewritten")
+	require.Contains(t, out, "not set")
+}
+
+// TestClearLimitDefaultClearsTheDefault: `roger config clear-limit default` (where `profile
+// rm default` points) clears limits.default, not a model entry named "default".
+func TestClearLimitDefaultClearsTheDefault(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdSetLimit([]string{"default", "--pref", "cheap", "--max-out", "3"}))
+	require.NoError(t, cmdConfig([]string{"clear-limit", "default"}))
+	c := loadConfig()
+	require.Equal(t, Limit{}, c.Limits.Default)
+}
+
+// TestUseModelsCountsDistinctModels: the 5-model limit counts distinct bare models (a variant
+// of one counts once), and a port outside 0..65535 is refused rather than auto-picked.
+func TestUseModelsCountsDistinctModels(t *testing.T) {
+	_, _, err := parseUseFlags([]string{"m", "--models", "m:free,a,b,c,d"})
+	require.NoError(t, err, "m:free is the positional's own variant: five distinct models")
+	_, _, err = parseUseFlags([]string{"m", "--models", "a,a:free,b,c,d"})
+	require.NoError(t, err, "a and a:free are one model")
+	_, _, err = parseUseFlags([]string{"m", "--models", "a,b,c,d,e"})
+	require.Error(t, err, "six distinct models")
+	for _, p := range []string{"-1", "65536"} {
+		_, _, err = parseUseFlags([]string{"m", "--port", p})
+		require.Error(t, err, p)
+	}
+}
+
+// TestUseCountsThePositionalModel: the 5-model limit counts the positional model with the
+// profile's list, so a sixth model is refused before the broker sees it.
+func TestUseCountsThePositionalModel(t *testing.T) {
+	ps := profilesOf(t, `{"profiles":{"five":{"models":["a","b","c","d","e"]}}}`)
+	f, _, err := parseUseFlags([]string{"x", "--profile", "five"})
+	require.NoError(t, err)
+	_, err = resolveUse(config{}, f, ps)
+	require.ErrorContains(t, err, "more than 5")
+	f, _, err = parseUseFlags([]string{"a", "--profile", "five"})
+	require.NoError(t, err)
+	_, err = resolveUse(config{}, f, ps)
+	require.NoError(t, err, "the positional is one of the five")
+}
+
+// TestTUISaveKeepsAConcurrentCLIEdit: a limit set from the CLI while the booth is open (on
+// another model) survives the booth's next save, which applies only what the booth changed.
+func TestTUISaveKeepsAConcurrentCLIEdit(t *testing.T) {
+	useTempConfig(t)
+	require.NoError(t, cmdSetLimit([]string{"booth-model", "--max-out", "1"}))
+	store := tuiLimits(loadConfig())                                         // the booth opens
+	require.NoError(t, cmdSetLimit([]string{"cli-model", "--max-out", "2"})) // the CLI, meanwhile
+	store.Set("booth-model", tui.Limit{MaxOut: 3})                           // the booth's own edit
+	c := loadConfig()
+	require.InDelta(t, 2.0, c.Limits.Models["cli-model"].MaxOut, 1e-9, "the CLI's edit survived")
+	require.InDelta(t, 3.0, c.Limits.Models["booth-model"].MaxOut, 1e-9, "the booth's edit landed")
+}
+
+// TestRogerUseResolvesLimitsByTheSharedRule: the table the CLI and TUI resolve by is also what
+// `roger use` sends: its merged body equals the body of the table's resolved limit.
+func TestRogerUseResolvesLimitsByTheSharedRule(t *testing.T) {
+	ps := profilesOf(t, `{"profiles":{}}`)
+	for _, tc := range tui.LimitMergeCases() {
+		t.Run(tc.Name, func(t *testing.T) {
+			var c config
+			c.Limits.Default = fromTUILimit(tc.Default)
+			c.Limits.Models = map[string]Limit{"m": fromTUILimit(tc.Model)}
+			f, _, err := parseUseFlags([]string{"m"})
+			require.NoError(t, err)
+			tgt, err := resolveUse(c, f, ps)
+			require.NoError(t, err)
+			require.Equal(t, limitBody(fromTUILimit(tc.Want)), tgt.r.body)
+		})
+	}
+}

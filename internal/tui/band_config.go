@@ -379,7 +379,9 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// The STANDING quant rule for this band. It lives on the card because the card is
 		// where everything about a band lives - and beside the spend caps because it is
 		// the same kind of statement: what this operator will accept being routed to.
-		rule := m.limits.resolve(m.cfgModel).Quants
+		// The band's OWN rule: seeding from the merged one would save the default's quants
+		// into the band when the picker is saved untouched (the card-edit freeze, 1b43c15e).
+		rule := m.limits.own(m.cfgModel).Quants
 		// The picker's rows: the sorted union of the rule in force (each checked)
 		// and every quant the dial knows. A rule can name a quant the dial has
 		// lost, so the union, not just the air.
@@ -564,9 +566,14 @@ func (m model) cfgEditLimit(field int) (tea.Model, tea.Cmd) {
 			continue
 		}
 		m.limCursor = i
-		m.editField = field
+		m.editField, m.limField = field, field
+		// As on the plate: the field shows the stored value, the first keystroke replaces it,
+		// and enter saves what was typed (an untouched value is left as it is).
+		m.editTyped, m.editDraft = false, false
 		m.editBuf = ""
-		if lim := m.limits.resolve(m.cfgModel); field == 0 && lim.MaxOut > 0 {
+		// The band's OWN entry: seeding from the merged rule would save the default's cap
+		// into the band on enter, so a later default edit no longer reached it.
+		if lim := m.limits.own(m.cfgModel); field == 0 && lim.MaxOut > 0 {
 			m.editBuf = trimZero(lim.MaxOut)
 		} else if field == 1 && lim.MinTPS > 0 {
 			m.editBuf = trimZero(lim.MinTPS)
@@ -683,9 +690,10 @@ func (m model) checkedQuants() []string {
 // the picker and the typed path, so the status copy can never drift apart.
 func (m model) saveQuantRule(qs []string) (tea.Model, tea.Cmd) {
 	m.mode = modeBandConfig
-	lim := m.limits.resolve(m.cfgModel)
+	lim := m.limits.own(m.cfgModel)
 	lim.Quants = qs
 	m.limits.Set(m.cfgModel, lim)
+	(&m).refreshLiveRouting() // a rule on the connected band binds its next turn at once
 	if len(qs) == 0 {
 		m.status = stDim.Render("any quant accepted for ") + stKey.Render(m.cfgModel)
 		return m, nil

@@ -33,7 +33,7 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	// the LAN every turn is free and the measured-fastest member is tried first anyway, so the
 	// band is looked up bare and the source is sent the model it serves.
 	band = lanBand(band)
-	if out, _, ok := rewriteModel(body, band); ok {
+	if out, _, ok := rewriteModel(body, band, false); ok {
 		body = out
 	}
 	var tried []string
@@ -307,7 +307,7 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey,
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), OnReceipt: opt.OnReceipt,
 		Alert:     func(s string) { fmt.Fprintln(os.Stderr, "rogerai: "+s) },
-		EdgePeers: opt.EdgePeers, Prefer: "local-only", EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify,
+		EdgePeers: opt.EdgePeers, EdgePrefer: "local-only", EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify,
 		LANMode: opt.LANMode, LANEdgeOnly: opt.LANEdgeOnly, LANSelf: opt.LANSelf, LANTowers: opt.LANTowers, LANHTTP: opt.LANHTTP, LANResolve: opt.LANResolve}
 	return useServe(ln, newProxyHandler(opts))
 }

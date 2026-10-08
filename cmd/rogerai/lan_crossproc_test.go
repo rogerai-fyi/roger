@@ -97,7 +97,7 @@ func TestASeparateLANShareIsServedToTheEdgeThroughThisFace(t *testing.T) {
 	// A member's turn, over mutual TLS to this face, reaches the separate share's upstream.
 	faceAddr := h.faceLn.Addr().(*net.TCPAddr)
 	pin := fmt.Sprintf("%x", sha256.Sum256(id.Cert.Raw))
-	opts := client.ProxyOptions{Model: "qwen", SessionKey: "k", Prefer: "local-only"}
+	opts := client.ProxyOptions{Model: "qwen", SessionKey: "k", EdgePrefer: "local-only"}
 	applyEdgeLadder(h.cfg, &opts)
 	opts.EdgePeers = func(string) []client.EdgePeer {
 		return []client.EdgePeer{{Addr: faceAddr.String(), Pin: pin, Node: "workshop", Instance: "serve"}}

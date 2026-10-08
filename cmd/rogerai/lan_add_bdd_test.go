@@ -259,3 +259,9 @@ func TestLANAddBDD(t *testing.T) {
 		t.Fatal("discovery_and_dial.feature (increment a) failed")
 	}
 }
+
+// readRawConfig is the raw config map for an assertion (a read error reads as empty).
+func readRawConfig(path string) map[string]json.RawMessage {
+	m, _ := readRawConfigErr(path)
+	return m
+}

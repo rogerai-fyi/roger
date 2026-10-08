@@ -31,7 +31,7 @@ func captureUse(t *testing.T, model string, opt UseOptions) (string, *ProxyOptio
 	useServe = func(ln net.Listener, _ http.Handler) error { return ln.Close() }
 	newProxyHandler = func(o ProxyOptions) http.Handler { got = &o; return http.NotFoundHandler() }
 	defer func() { useServe, newProxyHandler = oldServe, oldHandler }()
-	out := captureOut(t, func() error { return Use(broker.URL, "u", model, opt) })
+	out := captureUseOut(t, func() error { return Use(broker.URL, "u", model, opt) })
 	mu.Lock()
 	defer mu.Unlock()
 	return out.out, got, append([]string(nil), paths...), out.err
@@ -42,7 +42,7 @@ type useOut struct {
 	err error
 }
 
-func captureOut(t *testing.T, fn func() error) useOut {
+func captureUseOut(t *testing.T, fn func() error) useOut {
 	var err error
 	out := captureStdoutT(t, func() { err = fn() })
 	return useOut{out, err}
@@ -56,7 +56,7 @@ func TestUseInLANModeOpensOnALocalSourceAndNeverAsksTheBroker(t *testing.T) {
 	require.Empty(t, paths, "the broker was asked for %v", paths)
 	require.NotNil(t, opts)
 	require.True(t, opts.LANMode)
-	require.Equal(t, "local-only", opts.Prefer)
+	require.Equal(t, "local-only", opts.EdgePrefer)
 	require.Contains(t, out, "tower: 192.168.1.20")
 	require.Contains(t, out, "free")
 	require.Contains(t, out, "local")
@@ -78,12 +78,12 @@ func TestUseInLANModeRefusesABandNothingLocalServes(t *testing.T) {
 func TestUsePinnedNodeNeverConsultsTheMarket(t *testing.T) {
 	peer := EdgePeer{Node: "jetson", Addr: "192.168.1.77:1", Pin: strings.Repeat("ab", 32)}
 	out, opts, paths, err := captureUse(t, "gpt-oss-20b", UseOptions{Pinned: "edge: jetson",
-		EdgePeers: func(string) []EdgePeer { return []EdgePeer{peer} }, Prefer: "local-only"})
+		EdgePeers: func(string) []EdgePeer { return []EdgePeer{peer} }, EdgePrefer: "local-only"})
 	require.NoError(t, err)
 	require.Empty(t, paths, "a pinned node consulted the broker: %v", paths)
 	require.NotContains(t, out, "no station on air")
 	require.Contains(t, out, "edge: jetson")
-	require.Equal(t, "local-only", opts.Prefer)
+	require.Equal(t, "local-only", opts.EdgePrefer)
 	require.False(t, opts.LANMode)
 }
 

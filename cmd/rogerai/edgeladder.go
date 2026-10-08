@@ -69,7 +69,7 @@ func edgeCallerCert() *tls.Certificate {
 // certificate, the receipt check, and the owner's preference. A machine that has not
 // enrolled gets no peers and behaves exactly as before.
 func applyEdgeLadder(cfg config, o *client.ProxyOptions) {
-	o.Prefer = cfg.EdgePrefer
+	o.EdgePrefer = cfg.EdgePrefer
 	if _, _, ok, err := edgeIdentityStore().LoadIdentity(); err != nil || !ok {
 		if cfg.EdgePrefer == "" {
 			return // not enrolled and no preference: nothing changes

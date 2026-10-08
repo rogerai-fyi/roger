@@ -93,7 +93,7 @@ guest proxy, Tower bridge) accepts three routing carriers. All are optional.
   No silent drop. Top-level OpenAI keys the broker does not understand keep passing through to
   the station untouched, as today.
 - **Type and range errors are a 400** with `code:"invalid_routing_value"` naming the key:
-  negative or non-finite prices, `params_b` not a 2-array of positive numbers with min ≤ max,
+  negative or non-finite prices, `params_b` not a 2-array [min, max] with min ≤ max, max > 0 and min ≥ 0 (min 0 means no floor: [0, 8] = up to 8B; founder ruling 2026-10-04),
   `min_ctx` ≤ 0, `max_ttft_ms` ≤ 0, empty strings in node lists, more than 32 entries in any
   list, an unknown `sort` / `pref` / `trust_min` / `require` value, `region` entries that are
   not lowercase 2-8 char tokens.
@@ -298,7 +298,7 @@ limit counts bare ids after de-dup of suffixed spellings.
   earn row, receipt voided with `settle-failed`, no strike.
 - `region` → node.region (self-declared) ∈ set; nodes with no region are ineligible under the
   filter.
-- `params_b` → offer.params_b within [min, max]; an ESTIMATED params_b (broker-filled from the
+- `params_b` → offer.params_b within [min, max] (min 0 = no floor); an ESTIMATED params_b (broker-filled from the
   known-model table, flagged `params_estimated`) is a value and counts; only an offer with no
   params_b and no table match is ineligible. A station-declared params_b that contradicts the
   table is ineligible and flagged (anti-spoof). `min_ctx` → offer.ctx ≥ min AND ctx is

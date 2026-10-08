@@ -557,7 +557,7 @@ func applyLAN(cfg config, o *client.ProxyOptions) {
 	if !cfg.lan.LAN {
 		return
 	}
-	o.LANMode, o.LANEdgeOnly, o.Prefer = true, cfg.lan.EdgeOnly, "local-only"
+	o.LANMode, o.LANEdgeOnly, o.EdgePrefer = true, cfg.lan.EdgeOnly, "local-only"
 	o.LANSelf = lanSelfServe
 	o.LANHTTP, o.LANResolve = lanProbeHTTP, lanResolve
 	if !cfg.lan.EdgeOnly {

@@ -21,6 +21,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -52,6 +53,7 @@ type rpNegState struct {
 
 	// seams restored after each scenario
 	prevServe   func(net.Listener, http.Handler) error
+	prevListen  func(int) (net.Listener, error)
 	prevHandler func(ProxyOptions) http.Handler
 	prevStdin   *os.File
 }
@@ -59,7 +61,7 @@ type rpNegState struct {
 func (s *rpNegState) reset() {
 	s.cleanup()
 	*s = rpNegState{t: s.t, modelsStatus: http.StatusOK, model: "qwen3-32b-fp8", sessionKey: "sk-test-0123", prevLog: log.Writer(),
-		prevServe: useServe, prevHandler: newProxyHandler, prevStdin: useStdin}
+		prevServe: useServe, prevListen: useListen, prevHandler: newProxyHandler, prevStdin: useStdin}
 	s.srv = httptest.NewServer(http.HandlerFunc(s.serve))
 	log.SetOutput(&s.logBuf)
 	// Use's seams: capture the assembled options + handler, never bind a port or read a tty.
@@ -70,7 +72,10 @@ func (s *rpNegState) reset() {
 		s.handler = ProxyHandlerLive(s.holder)
 		return s.handler
 	}
-	useServe = func(ln net.Listener, _ http.Handler) error { return ln.Close() }
+	useListen = func(port int) (net.Listener, error) {
+		return addrListener{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}}, nil
+	}
+	useServe = func(net.Listener, http.Handler) error { return nil }
 }
 
 func (s *rpNegState) cleanup() {
@@ -82,7 +87,7 @@ func (s *rpNegState) cleanup() {
 		log.SetOutput(s.prevLog)
 	}
 	if s.prevServe != nil {
-		useServe, newProxyHandler, useStdin = s.prevServe, s.prevHandler, s.prevStdin
+		useServe, useListen, newProxyHandler, useStdin = s.prevServe, s.prevListen, s.prevHandler, s.prevStdin
 	}
 }
 
@@ -508,7 +513,7 @@ func TestRoutingPassthroughNegotiation(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing passthrough negotiation scenarios failed (see godog output above)")
 	}
 }

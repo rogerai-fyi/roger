@@ -100,7 +100,7 @@ func (s *ladderBDD) startPeer(node, band, mode string) EdgePeer {
 
 func (s *ladderBDD) build() {
 	s.startBroker()
-	opts := ProxyOptions{Broker: s.broker.URL, User: "u", Model: "qwen-3.8-27b", SessionKey: NewSessionKey(), Prefer: s.prefer}
+	opts := ProxyOptions{Broker: s.broker.URL, User: "u", Model: "qwen-3.8-27b", SessionKey: NewSessionKey(), EdgePrefer: s.prefer}
 	if s.peers != nil {
 		peers := s.peers
 		opts.EdgePeers = func(band string) []EdgePeer { return peers }

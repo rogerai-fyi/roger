@@ -368,7 +368,7 @@ func jsonErr402(w http.ResponseWriter, code, msg, source, hint string) {
 }
 
 const (
-	remedyMonthly = "raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month"
+	remedyMonthly = "raise it with `roger limit --monthly` (or [4] CONFIG), or wait until next month"
 	remedyCredits = "top up at /billing"
 )
 

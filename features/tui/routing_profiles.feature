@@ -1,4 +1,4 @@
-# TUI - routing profiles, the [3] CONFIG editor and the dial filters that BIND (CONTRACT §1, §5,
+# TUI - routing profiles, the [4] CONFIG editor and the dial filters that BIND (CONTRACT §1, §5, [corrected 2026-10-07 (founder-approved Edge ruling): CONFIG is [4]]
 # §9; defects 3 and 6 from features/routing/regression_pins.feature).
 #
 # PURPOSE: the booth exposes every routing knob a person would set interactively, every dial
@@ -7,7 +7,7 @@
 # and none of it touches the brand or the key map.
 #
 # GROUND TRUTH at origin/main 518c698b (internal/tui):
-#   - [3] CONFIG is modeLimits, the spend-limits editor (view_money.go:155-262): a virtualized
+#   - [4] CONFIG is modeLimits, the spend-limits editor (view_money.go:155-262): a virtualized
 #     table of band / max $/1M out / min t/s, editField 0=out 1=tps (tui.go:866-867), the wallet
 #     panel with the editable monthly budget on top, `a` adds a row, enter edits, esc cancels.
 #     Limit.Quants is edited elsewhere (the band detail) and persisted as limits.models.<m>.quants.
@@ -37,15 +37,15 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     Given the TUI is running against a broker that accepts the routing body object
     And the dial shows bands "qwen3-32b" (Q8_0 on n1, Q4_K_M on n2, curated on n3) and "llama-3.3-70b" (BF16 on n4)
 
-  # --- [3] CONFIG becomes the profile editor -------------------------------------------
+  # --- [4] CONFIG becomes the profile editor -------------------------------------------
 
   Scenario: PROPOSED - the CONFIG table keeps its two headline columns and gains a detail plate
-    When the operator opens [3] CONFIG
+    When the operator opens [4] CONFIG
     Then the table still shows band / max $/1M out / min t/s exactly as today
     And the selected row's plate below the table lists the remaining routing fields for that band
 
   Scenario Outline: PROPOSED - tab walks every routing field of the selected band in this order
-    Given the operator is on the row for "qwen3-32b" in [3] CONFIG
+    Given the operator is on the row for "qwen3-32b" in [4] CONFIG
     When the operator presses tab <n> times
     Then the focused field is "<field>"
 
@@ -128,11 +128,11 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     And esc returns to the table
 
   Scenario: The default row edits limits.default with the same fields
-    Given the operator is on the "default" row in [3] CONFIG
+    Given the operator is on the "default" row in [4] CONFIG
     When the operator sets pref to "cheap"
     Then config limits.default.pref equals "cheap"
 
-  Scenario: PROPOSED - p in [3] CONFIG cycles the selected band's pref directly
+  Scenario: PROPOSED - p in [4] CONFIG cycles the selected band's pref directly
     Given the operator is on the row for "qwen3-32b" and no field is being edited
     When the operator presses p
     Then config limits.models.qwen3-32b.pref equals "cheap"
@@ -144,22 +144,23 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     Then the character "p" is appended to the edit buffer
 
   Scenario: The monthly budget row and wallet panel are unchanged
-    When the operator opens [3] CONFIG
+    When the operator opens [4] CONFIG
     Then the wallet panel and the editable monthly budget render exactly as approved
 
   Scenario: The table still virtualizes and clamps on a 24-row terminal
     Given 34 bands with limits and a 24-row terminal
-    When the operator opens [3] CONFIG
+    When the operator opens [4] CONFIG
     Then the "more above / more below" hints appear and nothing scrolls the alt buffer
     And the detail plate is dropped before any table row when height is short
 
+  # corrected 2026-10-04 (founder-approved): the value being typed is never clipped (TestEditBoxKeepsTheValueAtEveryWidth); the key hints drop first
   Scenario: The plate fits a 60-column terminal without breaking its border
     Given a 60-column terminal
     When the operator focuses "region" with value "eu,us,apac,latam"
-    Then the plate's right border is on screen and the value is truncated with "…" before the keys are dropped
+    Then the plate's right border is on screen, the value is shown whole, and the key hints are dropped before the value is clipped
 
   Scenario: The editor stays mono + red: no new colors, no grids, no glows
-    When the operator opens [3] CONFIG with every field set
+    When the operator opens [4] CONFIG with every field set
     Then only the existing styles (dim, ink, ember, live, brand, selection bar) are used
     And NO_COLOR renders every field legibly
 
@@ -172,7 +173,7 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
 
   Scenario: PROPOSED - the CONFIG screen lists named profiles under the bands table
     Given profiles "coding" and "cheap" exist
-    When the operator opens [3] CONFIG
+    When the operator opens [4] CONFIG
     Then a "profiles" section lists "default", "cheap", "coding" with one-line summaries
 
   Scenario: PROPOSED - enter on a profile shows its resolved body object read-only
@@ -233,7 +234,7 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
   Scenario: A tuned row outside the standing rule is refused at the confirm, not silently routed
     Given limits.models.qwen3-32b.quants is ["BF16"]
     When the operator tunes the "qwen3-32b · Q4_K_M" row
-    Then the confirm shows "Q4_K_M is outside your quant rule (BF16) - edit it in [3] CONFIG or pick another row"
+    Then the confirm shows "Q4_K_M is outside your quant rule (BF16) - edit it in [4] CONFIG or pick another row"
     And accepting is not offered
 
   Scenario: A station that registers after the scan is bound by the quant rule (closes the in-code gap)
@@ -266,9 +267,11 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     Given the operator toggled O on and tuned "qwen3-32b"
     Then the tune-time body carries no key derived from O
 
-  Scenario: ~ private freq tunes with roger.freq and the code is never on screen after entry
+  # corrected 2026-10-04 (founder-approved): the band code travels only as the X-Roger-Freq header, never in the body
+  Scenario: ~ private freq tunes with the X-Roger-Freq header and the code is never on screen after entry
     When the operator enters a valid code at ~ and tunes
-    Then the tune-time body carries roger.freq = the code
+    Then the tune-time request carries the X-Roger-Freq header = the code
+    And the tune-time body carries no roger.freq
     And the header reads PRIVATE FREQ without the code
 
   Scenario: Filters bound pickAutoBand exactly as approved (auto_tune.feature), unchanged
@@ -321,7 +324,7 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
 
   Scenario: Changing pref in CONFIG re-tunes the live proxy options without a re-tune
     Given the operator is connected to "qwen3-32b"
-    When the operator sets pref to "fast" in [3] CONFIG
+    When the operator sets pref to "fast" in [4] CONFIG
     Then the next turn's body carries roger.pref = "fast"
     And the endpoint URL and bearer key are unchanged (features/proxy/live_options.feature)
 
@@ -348,7 +351,7 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
 
   # --- key map: no collisions ---------------------------------------------------------------
 
-  Scenario Outline: New keys live only inside [3] CONFIG and never shadow a global
+  Scenario Outline: New keys live only inside [4] CONFIG and never shadow a global
     Given the operator is on <screen>
     When the operator presses <key>
     Then the approved binding for <screen> fires and nothing routing-related happens
@@ -365,18 +368,18 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
       | any screen      | m      |
       | any screen      | alt+m  |
 
-  Scenario: ctrl+p is perms everywhere, including inside [3] CONFIG
+  Scenario: ctrl+p is perms everywhere, including inside [4] CONFIG
     Given the operator is editing a routing field
     When the operator presses ctrl+p
     Then the perms screen opens as approved
 
   Scenario: m / alt+m minimize from inside the profile editor
-    Given the operator is on [3] CONFIG with the detail plate open
+    Given the operator is on [4] CONFIG with the detail plate open
     When the operator presses alt+m
     Then the windowshade collapses as approved and the edit buffer is discarded
 
-  Scenario: The footer hint for [3] CONFIG lists the new keys in the existing hint style
-    When the operator opens [3] CONFIG
+  Scenario: The footer hint for [4] CONFIG lists the new keys in the existing hint style
+    When the operator opens [4] CONFIG
     Then the footer reads "tab field · enter edit · space cycle · p pref · a add · esc back"
 
   Scenario: help (?) documents the new keys under CONFIG only

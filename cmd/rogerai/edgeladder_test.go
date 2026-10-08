@@ -76,7 +76,7 @@ func TestEdgeCallerCertAndVerify(t *testing.T) {
 
 	var po client.ProxyOptions
 	applyEdgeLadder(config{EdgePrefer: "local"}, &po)
-	require.Equal(t, "local", po.Prefer)
+	require.Equal(t, "local", po.EdgePrefer)
 	require.NotNil(t, po.EdgePeers)
 	require.NotNil(t, po.EdgeCert)
 	require.NotNil(t, po.EdgeVerify)
@@ -90,7 +90,7 @@ func TestApplyEdgeLadderLeavesAnUnenrolledMachineAlone(t *testing.T) {
 	var po client.ProxyOptions
 	applyEdgeLadder(config{}, &po) // not enrolled, no preference
 	require.Nil(t, po.EdgePeers, "an unenrolled machine with no preference gets no ladder")
-	require.Empty(t, po.Prefer)
+	require.Empty(t, po.EdgePrefer)
 }
 
 func TestPeerServingIsWiredWhenEnrolled(t *testing.T) {

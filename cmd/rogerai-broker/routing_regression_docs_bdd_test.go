@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -439,7 +440,7 @@ func TestRoutingRegressionDocsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing/regression_pins @docs scenarios failed (see godog output above)")
 	}
 }

@@ -23,7 +23,7 @@ func TestEdgeOnlyRelayNeverUsesATowerItIsHanded(t *testing.T) {
 	defer tower.Close()
 	addr := strings.TrimPrefix(tower.URL, "http://")
 	opts := ProxyOptions{Model: "qwen3-8b", SessionKey: "k", LANMode: true, LANEdgeOnly: true,
-		Prefer: "local-only", LANTowers: func(string) []string { return []string{addr} }}
+		EdgePrefer: "local-only", LANTowers: func(string) []string { return []string{addr} }}
 	require.False(t, lanServes(opts, "qwen3-8b"), "an edge-only relay counts no Tower as a source")
 	srv := httptest.NewServer(ProxyHandler(opts))
 	defer srv.Close()

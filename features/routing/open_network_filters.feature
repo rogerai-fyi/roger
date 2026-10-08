@@ -294,6 +294,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     And nothing on the feed claims params_b was measured or verified
 
   # --- params_b as a filter ---
+  # corrected 2026-10-04 (founder-approved): 0 is accepted as the LOWER bound meaning no floor ([0, 8] = up to 8B); 0 anywhere else is refused
   Scenario Outline: params_b range boundaries are inclusive on both ends
     Given node "n-p" is on air for "some-model" with params_b <declared>
     When a request for "some-model" carries roger.params_b [<min>, <max>]
@@ -308,6 +309,9 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
       | 32       | 32  | 32  | is      |
       | 32.1     | 32  | 32  | is NOT  |
       | 0.5      | 0.1 | 1   | is      |
+      | 5        | 0   | 8   | is      |
+      | 0.3      | 0   | 8   | is      |
+      | 8.5      | 0   | 8   | is NOT  |
 
   Scenario: An estimated params_b counts for the filter (it is a value, marked estimated)
     Given node "n-guess" registers "llama-3.3-70b" with no params_b
@@ -325,6 +329,7 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     When a request for "my-custom-finetune" carries no routing object
     Then "n-odd" is a candidate
 
+  # corrected 2026-10-04 (founder-approved): 0 is accepted as the LOWER bound meaning no floor ([0, 8] = up to 8B); 0 anywhere else is refused
   Scenario Outline: params_b request validation
     Given node "n-p" is on air for "qwen3-32b" with params_b 32
     When a request for "qwen3-32b" carries roger.params_b <value>
@@ -335,7 +340,8 @@ Feature: Open-network filters - quant, size, window, speed, trust, self-hosted a
     Examples:
       | value        |
       | [70, 7]      |
-      | [0, 70]      |
+      | [0, 0]       |
+      | [8, 0]       |
       | [-1, 70]     |
       | [7]          |
       | [7, 70, 100] |

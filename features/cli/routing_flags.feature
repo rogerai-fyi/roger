@@ -74,7 +74,13 @@ Feature: roger use exposes every routing knob as a flag that maps to one body ke
       | --max-out       | 0.60             | provider.max_price.completion  | 0.6                              |
       | --min-tps       | 20               | roger.min_tps                  | 20                               |
       | --confidential  |                  | roger.confidential             | true                             |
-      | --freq          | 147.520 MHz 8F3K | roger.freq                     | "147.520 MHz 8F3K"               |
+
+  # corrected 2026-10-04 (founder-approved): the band code travels only as the X-Roger-Freq header, never in the body; the value is quoted so it is one argument
+  Scenario: --freq sends the band code as the X-Roger-Freq header only
+    Given a private band with code "147.520 MHz 8F3K" resolves for "qwen3-32b"
+    When the user runs "roger use qwen3-32b --freq '147.520 MHz 8F3K' --yes"
+    Then the tune-time request carries the X-Roger-Freq header "147.520 MHz 8F3K"
+    And the tune-time body carries no roger.freq key
 
   Scenario: --node is the pin shorthand
     When the user runs "roger use qwen3-32b --node n1 --yes"
