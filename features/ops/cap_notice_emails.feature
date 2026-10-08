@@ -197,14 +197,14 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
     When the account relays a paid request that brings its spend to at least $8.00
     Then exactly one "Monthly spend at 80%" message is sent to "typed@example.com"
 
-  # added 2026-10-04 (founder ruling)
-  Scenario: Changing a proven address to a new one withdraws the proof until the new one is proven
+  # superseded 2026-10-07 by founder ruling: a verified sign-in address is not changed by a profile edit
+  Scenario: A profile edit cannot change a proven sign-in address, which stays mailable
     Given a GitHub-linked with a separate verified email account "both@example.com" with a monthly cap of $10.00
     And the account has spent $7.90 this month
-    And the account changes its profile email to "typed@example.com"
+    And the account's profile email change to "typed@example.com" is refused 409 "Sign in with email too" and its address is unchanged
     When the account relays a paid request that brings its spend to at least $8.00
     Then no cap notice is sent to "typed@example.com"
-    And no cap notice is sent to "both@example.com"
+    And exactly one "Monthly spend at 80%" message is sent to "both@example.com"
 
   # added 2026-10-04 (founder ruling)
   Scenario: Re-typing the proven address, in any letter case, keeps it mailable

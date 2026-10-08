@@ -180,6 +180,7 @@ func (s *emailAcctState) linkSucceeds() error {
 
 func (s *cnState) registerNoticeRulingSteps(sc *godog.ScenarioContext) {
 	sc.Step(`^the account changes its profile email to "([^"]+)"$`, s.changesProfileEmail)
+	sc.Step(`^the account's profile email change to "([^"]+)" is refused (\d+) "([^"]+)" and its address is unchanged$`, s.profileEmailRefused)
 	sc.Step(`^the account changes its profile email to its proven address in upper case$`, s.changesToUpper)
 	sc.Step(`^the account proves "([^"]+)" with an emailed code$`, s.provesWithCode)
 	sc.Step(`^no cap notice is sent to "([^"]+)"$`, s.noCapNoticeTo)
@@ -191,7 +192,7 @@ func (s *cnState) noCapNoticeTo(addr string) error {
 	addr = s.u(addr)
 	s.settled()
 	for _, m := range s.sent() {
-		if strings.EqualFold(m.to, addr) && strings.HasPrefix(m.subject, "Monthly spend") {
+		if strings.EqualFold(m.to, addr) && (strings.HasPrefix(m.subject, "Monthly spend") || strings.Contains(m.subject, "monthly spend limit")) {
 			return fmt.Errorf("a cap notice was sent to %s: %q", m.to, m.subject)
 		}
 	}
@@ -214,6 +215,28 @@ func (s *cnState) patchEmail(email string) error {
 }
 
 func (s *cnState) changesProfileEmail(addr string) error { return s.patchEmail(s.u(addr)) }
+
+// profileEmailRefused drives the real PATCH /account for a proven sign-in address and checks
+// the refusal (founder ruling 2026-10-07) left the stored address as it was.
+func (s *cnState) profileEmailRefused(addr string, code int, msg string) error {
+	before, ok, err := s.db.OwnerByPubkey(s.acctOwner.Pubkey)
+	if err != nil || !ok {
+		return fmt.Errorf("owner row: found=%v err=%v", ok, err)
+	}
+	err = s.patchEmail(s.u(addr))
+	if err == nil {
+		return fmt.Errorf("PATCH /account changed a proven sign-in address; want %d", code)
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("= %d ", code)) || !strings.Contains(err.Error(), msg) {
+		return fmt.Errorf("want %d naming %q, got %v", code, msg, err)
+	}
+	after, _, _ := s.db.OwnerByPubkey(s.acctOwner.Pubkey)
+	if after.Email != before.Email || after.EmailVerifiedAt != before.EmailVerifiedAt || after.EmailUnproven != before.EmailUnproven {
+		return fmt.Errorf("the refused edit changed the address: %q verified=%d unproven=%v, want %q verified=%d unproven=%v",
+			after.Email, after.EmailVerifiedAt, after.EmailUnproven, before.Email, before.EmailVerifiedAt, before.EmailUnproven)
+	}
+	return nil
+}
 
 func (s *cnState) changesToUpper() error { return s.patchEmail(strings.ToUpper(s.acctAddr)) }
 
