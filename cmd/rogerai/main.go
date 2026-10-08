@@ -1748,7 +1748,11 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	if cfg.lan.LAN {
 		return shareLAN(cfg, cfgRun, station, mdl, os.Stdout)
 	}
-	if base, ok := brokerTower(cfg); ok {
+	// The broker this share runs against is --broker's when given (cfgRun.Broker), not only the
+	// config's: `roger share --broker http://<tower>` serves that Tower.
+	shareCfg := cfg
+	shareCfg.Broker = cfgRun.Broker
+	if base, ok := brokerTower(shareCfg); ok {
 		fmt.Fprintf(os.Stdout, "this broker is a standalone Tower - serving its local network directly (free, no login).\n")
 		if cfgRun.Upstream == "" {
 			return fmt.Errorf("no local model found to serve: pass --upstream http://127.0.0.1:PORT/v1/chat/completions")
