@@ -372,19 +372,23 @@ func TestMultiInstanceInflightMerges(t *testing.T) {
 // instance B (the 24h price-lock is shared), so an owner cannot raise a user's price by
 // landing them on a different instance.
 func TestMultiInstancePriceLockHolds(t *testing.T) {
+	// The station's price here is posted the moment the fixture stands it up; this test is
+	// about the lock's hike protection, so the §14.12 promo-lock window is off (pinned in
+	// features/money/routing_money_hardening.feature).
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
 	mr := miniredis.RunT(t)
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)
 	a := newMIBroker(t, brokerPriv, store.NewMem(), mr)
 	bInst := newMIBroker(t, brokerPriv, store.NewMem(), mr)
 
 	// User first sees price out=1.0 on instance A -> locked.
-	inA, outA, _ := a.lockedPrice("u1", "n1", "m", 1.0, 1.0)
+	inA, outA, _ := a.quotedPrice("u1", "n1", "m", 1.0, 1.0, true)
 	if outA != 1.0 || inA != 1.0 {
 		t.Fatalf("first quote on A = in %.2f/out %.2f, want 1.0/1.0", inA, outA)
 	}
 	// The owner RAISES the price to 5.0. On instance B the SAME user must still be billed
 	// the locked 1.0, not the new 5.0.
-	inB, outB, _ := bInst.lockedPrice("u1", "n1", "m", 5.0, 5.0)
+	inB, outB, _ := bInst.quotedPrice("u1", "n1", "m", 5.0, 5.0, true)
 	if outB != 1.0 || inB != 1.0 {
 		t.Errorf("locked price on B = in %.2f/out %.2f, want the cross-instance lock 1.0/1.0", inB, outB)
 	}

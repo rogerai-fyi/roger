@@ -85,9 +85,11 @@ type broker struct {
 	// OFFLINE on the peer (the residual multi-instance /discover flicker after the registry
 	// union). Guarded by b.mu. See enrichOffersForNode + features/multinode/discover_liveness.
 	localPollAt map[string]time.Time
-	attest      *attestRegistry    // TEE attestation policy + backends + nonce store
-	tps         map[string]float64 // EWMA output tokens/sec per node (measured)
-	quotes      map[string]priceQuote
+	// cancels is the job-cancel fallback used ONLY without a shared store (jobcancel.go).
+	cancels cancelLocal
+	attest  *attestRegistry    // TEE attestation policy + backends + nonce store
+	tps     map[string]float64 // EWMA output tokens/sec per node (measured)
+	quotes  map[string]priceQuote
 	// refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
 	// model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
 	// Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a
@@ -164,6 +166,38 @@ type broker struct {
 	// a peer reads the cross-instance union via toolsMerged. It is the emission source only
 	// single-instance. See probe.go / toolcall.go and features/trust/toolcall_probe.feature.
 	toolsOK map[string]bool
+	// modelFirstSeen is when this broker first listed a model id on /v1/models (unix
+	// seconds, the OpenAI `created` field). Lazily built under mu; slice 2 moves it to the
+	// shared store so every instance answers alike.
+	modelFirstSeen map[string]int64
+	// affLocal is the session-affinity fallback when the shared store is absent or down
+	// (affinity.go): bounded, best effort; the shared store is the source of truth.
+	affLocal affinityLocal
+	// organic is the recent request SHAPES per model (shadowcanary.go): a sampling hint for
+	// shadow canaries, guarded by metricsMu.
+	organic map[string][]organicShape
+	// canaryStreamDebt carries each model's running gap between the organic stream share and
+	// the canaries sent as streams (shadowcanary.go), guarded by metricsMu.
+	canaryStreamDebt map[string]float64
+	// totalLat is each node's total-latency EWMA in ms (totallatency.go), guarded by metricsMu;
+	// merged from the shared store on the sync loop when one is wired.
+	totalLat map[string]float64
+	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.
+	// netTableErr is why a configured table was refused ("" = none).
+	netTable    *netTable
+	netTableErr string
+	// secrets caches deriveSecret per label (cooling.go).
+	secrets sync.Map
+	// idemLocal holds replayable outcomes when the shared store is down (idempotency.go);
+	// the claim itself always lives in the store.
+	idemLocal idemLocal
+	idemRL    *rateLimiter // the Idempotency-Key lookup bucket, per scope (nil = unlimited)
+	// dryRL is the route-explain dry runs' own bucket (explain.go), built on first use.
+	dryOnce sync.Once
+	// genRL is /generation's own bucket (genrecord.go), built on first use.
+	genRLOnce sync.Once
+	genRL     *rateLimiter
+	dryRL     *rateLimiter
 	// toolProbeAt is when the tool-call canary last RAN for a (node,model), used to throttle
 	// RE-verification of a model that already holds the bit. It is deliberately separate from
 	// the verdict itself: the verdict says what we believe, this says when we last checked.
@@ -229,6 +263,7 @@ type broker struct {
 	mod          moderation
 	scr          *screener             // off-path content screening (async mode); nil-safe no-op
 	mail         *mailer               // flag-gated (RESEND_API_KEY) transactional email; nil-safe no-op when disabled
+	ak           acctKeyState          // account keys: lookup cache, locks, management limiter (acctkeys.go)
 	towerPending *towerPendingNotifier // admin email on a Tower entering quarantine; nil-safe
 	// canaryVet is the may-Core-dial-this predicate (vetPublicIP in production). A FIELD
 	// so the canary tests - whose hubs rightly live on loopback - can relax it without
@@ -300,6 +335,8 @@ type broker struct {
 	// admin overview. Bumped with a single atomic add on the relay path; see instmetrics.go.
 	// Pure telemetry - they change no request behavior and are invisible to clients.
 	stats instStats
+	// gens holds /generation records in flight and, with no shared store, this instance's copy.
+	gens genRegistry
 
 	// peerInflight is the merged SUM of OTHER instances' in-flight counts per node
 	// (cross-instance capacity), refreshed on the same background loop as liveness via
@@ -513,6 +550,17 @@ type broker struct {
 	coolEvents       map[string][]coolEvent
 	sessRefused      []time.Time // valid sessions refused as logged-out (guarded by metricsMu)
 	coolFallbackOnce sync.Once
+	// Pair cooldowns + the station payer window (paircool.go): the SINGLE-INSTANCE fallback
+	// only, used when no shared store is configured; with one, the shared store is the only
+	// source of truth. Guarded by metricsMu.
+	pairCoolLocal   map[string]map[string]time.Time // payer -> node|model -> expiry
+	coolPayersLocal map[string]map[string]time.Time // node -> payer -> last 429
+	// freeRL: the free-traffic limiters (freelimit.go), built on first use over b.shared.
+	freeRL freeLimiters
+	// lateLocal: late-receipt expectations when the shared store is absent (latereceipt.go).
+	lateLocal lateLocal
+	// postedLocal: posted-since times when no shared store is configured (pricelock.go).
+	postedLocal postedLocal
 }
 
 // now is the broker's clock for cooldown/alert windows (nowFn when set, else time.Now).
@@ -528,6 +576,13 @@ func (b *broker) now() time.Time {
 type priceQuote struct {
 	in, out float64
 	until   time.Time
+	promo   bool // minted under a price posted < ROGERAI_LOCK_MIN_POSTED: ends with that price (§14.12)
+}
+
+// live reports whether the lock still applies at now against the current price: inside its
+// window, and - for a promo lock - only while the price it was minted under is in effect.
+func (q priceQuote) live(now time.Time, curIn, curOut float64) bool {
+	return now.Before(q.until) && (!q.promo || (q.in == curIn && q.out == curOut))
 }
 
 // brokerMode runs a mode named by the first argument instead of the broker, and reports whether
@@ -800,7 +855,8 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		}
 	})
 	b.rl = loadRateLimiter()
-	b.grantRL = loadRateLimiter() // independent bucket map keyed by grant id
+	b.grantRL = loadRateLimiter()                               // independent bucket map keyed by grant id
+	b.idemRL = &rateLimiter{buckets: map[string]*tokenBucket{}} // the Idempotency-Key lookup bucket (idempotency.go)
 	b.anonRL = loadAnonRateLimiter()
 	b.recount = loadRecount()
 	b.probe = loadProbe()
@@ -852,6 +908,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
 		b.rl.name, b.rl.shared = "id", b.shared
 		b.grantRL.name, b.grantRL.shared = "grant", b.shared
+		b.idemRL.name, b.idemRL.shared = "idem", b.shared // the Idempotency-Key lookup bound, fleet-wide
 		go b.syncLiveness(nil)
 		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
 		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
@@ -904,6 +961,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	b.concierge.dogfoodFn = b.dogfoodRelay
 	b.concierge.groqFn = b.groqCall
 	log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
+	b.netTable, b.netTableErr = loadNetTableFromEnv()
 	return b
 }
 
@@ -915,12 +973,15 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/nodes/register", b.register)
 	mux.HandleFunc("/nodes/challenge", b.attestChallenge) // TEE attestation nonce (anti-replay binding)
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
-	mux.HandleFunc("/agent/poll", b.agentPoll)     // node dials out, long-polls for jobs
-	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
-	mux.HandleFunc("/agent/ack", b.agentAck)       // node confirms it received a job (node_ack.feature)
-	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
+	mux.HandleFunc("/agent/cancels", b.agentCancels) // cancel-capable nodes long-poll for jobs to stop
+	mux.HandleFunc("/agent/poll", b.agentPoll)       // node dials out, long-polls for jobs
+	mux.HandleFunc("/agent/result", b.agentResult)   // node posts the served result
+	mux.HandleFunc("/agent/ack", b.agentAck)         // node confirms it received a job (node_ack.feature)
+	mux.HandleFunc("/agent/stream", b.agentStream)   // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
-	mux.HandleFunc("/voices", b.voices) // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
+	mux.HandleFunc("/v1/models", b.models)  // PUBLIC: OpenAI-shaped catalog of models on air
+	mux.HandleFunc("/v1/models/", b.models) // one entry by id, 404 when not on air
+	mux.HandleFunc("/voices", b.voices)     // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
 	mux.HandleFunc("/balance", b.balance)
 	mux.HandleFunc("/me", b.me)                                        // consumer dashboard: balance, spend, recent
 	mux.HandleFunc("/earnings", b.earnings)                            // owner dashboard: accrued earnings, recent
@@ -946,6 +1007,8 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/auth/logout", b.authLogout)                 // web: clear the session cookie
 	mux.HandleFunc("/account", b.account)                        // web: account hub (GET profile+balances, PATCH email)
 	mux.HandleFunc("/account/limit", b.accountLimit)             // GET/PATCH the per-account monthly spend cap (budget limit)
+	mux.HandleFunc("/account/keys", b.accountKeys)               // account keys: mint + list (acctkeys.go)
+	mux.HandleFunc("/account/keys/", b.accountKeys)              // account keys: read / patch / delete by id
 	mux.HandleFunc("/account/export", b.accountExport)           // GDPR/CCPA data dump
 	mux.HandleFunc("/account/delete", b.accountDelete)           // soft-delete + anonymize (retention-safe)
 	mux.HandleFunc("/billing", b.billing)                        // money-in view: balance + top-up history
@@ -963,6 +1026,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/metrics/provider", b.metricsProvider)       // per-model SERVE metrics (free/paid + earnings)
 	mux.HandleFunc("/metrics/usage", b.metricsUsage)             // per-model CONSUME metrics (free/paid + spend)
 	mux.HandleFunc("/metrics/series", b.metricsSeries)           // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)
+	mux.HandleFunc("/generation", b.generation)                  // one request's routing + billing history (owner-scoped)
 	mux.HandleFunc("/console", b.console)                        // recent lineage feed + live counters (Console page)
 	mux.HandleFunc("/activity", b.console)                       // alias for /console
 	mux.HandleFunc("/provider/models", b.providerModels)         // owner: per-model price + time-of-use schedule (Console pricing manager)
@@ -972,6 +1036,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/bands/", b.bandsByID)                       // /bands/{id} revoke; /bands/resolve = public freq lookup
 	mux.HandleFunc("/bands/resolve", b.bandResolve)              // PUBLIC: resolve a frequency code -> offers (constant-work)
 	mux.HandleFunc("/v1/chat/completions", b.relay)
+	mux.HandleFunc("/v1/route/explain", b.relay)                                                      // a dry run of the same body (explain.go, §14.B3)
 	mux.HandleFunc("/v1/audio/speech", b.audioRelay)                                                  // TTS relay: metered by input chars; tts nodes only
 	mux.HandleFunc("/v1/audio/transcriptions", b.transcribeRelay)                                     // STT relay: metered by uploaded bytes; stt nodes only
 	mux.HandleFunc("/concierge", b.conciergeHandler)                                                  // "Ping" homepage chatbot (public)
@@ -1028,6 +1093,7 @@ func (b *broker) routes() *http.ServeMux {
 // Every OTHER route is non-streaming and gets bounded by http.TimeoutHandler.
 var streamRoutes = map[string]bool{
 	"/agent/poll":              true,
+	"/agent/cancels":           true,
 	"/agent/stream":            true,
 	"/agent/result":            true,
 	"/v1/chat/completions":     true,
@@ -1072,12 +1138,20 @@ func isStreamRoute(p string) bool {
 	return strings.HasPrefix(p, "/rc/") && (strings.HasSuffix(p, "/stream") || strings.HasSuffix(p, "/poll"))
 }
 
-// lockedPrice returns the price to BILL for this user+node+model. The first time
+// quotedPrice returns the price to BILL for this user+node+model. The first time
 // a user hits an offer, the current price is quoted and pinned for lockWin (24h).
 // Within that window an owner cannot charge MORE than the quoted price; if they
 // LOWER it, the user gets the lower price (we bill min(quoted, current)). Fair to
 // both: stable/predictable for users, and owners can always cut prices to compete.
-func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time) {
+// mint makes the lock explicit: a SERVED attempt passes true; a VOIDED attempt (false)
+// is priced under an existing lock when one is running, else at the current price, and
+// neither creates nor renews a lock: only a served (model, station) pair starts its 24h
+// window, so a station that failed over never leaves a lock behind.
+func (b *broker) quotedPrice(user, node, model string, curIn, curOut float64, mint bool) (in, out float64, until time.Time) {
+	promo := false
+	if mint {
+		promo = b.promoLock(node, model, curIn, curOut) // shared-store I/O: before the lock
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	key := user + "|" + node + "|" + model
@@ -1090,15 +1164,18 @@ func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (i
 	// request). The in-memory b.quotes stays the authoritative path when the flag is off
 	// (b.shared==nil), so the single-instance behavior is byte-for-byte unchanged.
 	if b.multiInstance && b.shared != nil {
-		if sq, ok := b.sharedQuoteGet(key); ok && now.Before(sq.until) {
+		if sq, ok := b.sharedQuoteGet(key); ok && sq.live(now, curIn, curOut) {
 			b.quotes[key] = sq // mirror locally so a later bus outage still honors it
 			return min(sq.in, curIn), min(sq.out, curOut), sq.until
 		}
 	}
 
 	q, ok := b.quotes[key]
-	if !ok || now.After(q.until) {
-		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin)}
+	if (!ok || !q.live(now, curIn, curOut)) && !mint {
+		return curIn, curOut, time.Time{}
+	}
+	if !ok || !q.live(now, curIn, curOut) {
+		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin), promo: promo}
 		b.quotes[key] = q
 		// Write the new lock through to the shared store so peers honor it. Best-effort:
 		// a failure just means a peer mints its own (equal) quote until the next write.
@@ -1123,11 +1200,12 @@ func (b *broker) sharedQuoteGet(key string) (priceQuote, bool) {
 	var w struct {
 		In, Out float64
 		Until   int64
+		Promo   bool
 	}
 	if json.Unmarshal(val, &w) != nil {
 		return priceQuote{}, false
 	}
-	return priceQuote{in: w.In, out: w.Out, until: time.Unix(w.Until, 0)}, true
+	return priceQuote{in: w.In, out: w.Out, until: time.Unix(w.Until, 0), promo: w.Promo}, true
 }
 
 // sharedQuoteSet write-throughs a price-lock with a TTL == the remaining lock window, so
@@ -1140,7 +1218,8 @@ func (b *broker) sharedQuoteSet(key string, q priceQuote) {
 	w := struct {
 		In, Out float64
 		Until   int64
-	}{q.in, q.out, q.until.Unix()}
+		Promo   bool
+	}{q.in, q.out, q.until.Unix(), q.promo}
 	if body, err := json.Marshal(w); err == nil {
 		_ = b.shared.cacheSet(sharedQuoteKey(key), body, ttl)
 	}
@@ -1219,7 +1298,11 @@ func resolveBrokerKey(h string, requireKey bool) (ed25519.PrivateKey, error) {
 // Stable for repeat-customer stats; not reversible to the real user and not the
 // same across nodes (so providers can't collude to re-identify someone).
 func (b *broker) pseudonym(user, node string) string {
-	h := sha256.Sum256(append(b.priv.Seed(), []byte(user+"|"+node)...))
+	var seed []byte
+	if len(b.priv) == ed25519.PrivateKeySize {
+		seed = b.priv.Seed()
+	} // a broker built without a key (some unit fixtures): same shape, unkeyed
+	h := sha256.Sum256(append(seed, []byte(user+"|"+node)...))
 	return "u_" + hex.EncodeToString(h[:8])
 }
 

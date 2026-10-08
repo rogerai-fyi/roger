@@ -14,7 +14,8 @@ import "strings"
 // spelling seen in the wild. Apple's on-device foundation model says "Exceeded model
 // context window size"; llama.cpp / vLLM / OpenAI-compatible servers phrase it as
 // "context length exceeded", "maximum context length", "too many tokens", a full
-// "kv cache", or llama-server's "exceeds the available context size".
+// "kv cache", or llama-server's "exceeds the available context size"; Anthropic says
+// "prompt is too long: N tokens > M maximum".
 func IsOverflow(raw string) bool {
 	low := strings.ToLower(raw)
 	return strings.Contains(low, "context window") ||
@@ -23,6 +24,7 @@ func IsOverflow(raw string) bool {
 		strings.Contains(low, "context_length_exceeded") ||
 		strings.Contains(low, "maximum context") ||
 		strings.Contains(low, "too many tokens") ||
+		strings.Contains(low, "prompt is too long") ||
 		strings.Contains(low, "kv cache") ||
 		IsRequestTooLarge(low)
 }

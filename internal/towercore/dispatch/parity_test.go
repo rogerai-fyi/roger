@@ -379,3 +379,17 @@ func TestADeadDatabaseIsReportedRatherThanReadAsEmpty(t *testing.T) {
 	_, err = s.Reap(now)
 	require.Error(t, err)
 }
+
+// The consumer-facing request id a relayed attempt belongs to survives the round trip, so the
+// instance that settles it (any instance) can tie the consumer's ledger row back to it.
+func TestParityRelayRequestIDRoundTrip(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		rec := parityRecord(t, "att-relayreq", "tw-1", time.Now().Add(time.Minute))
+		rec.RelayRequestID = "0123456789abcdef"
+		require.NoError(t, s.Put(rec))
+		got, ok, err := s.Get("att-relayreq")
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, "0123456789abcdef", got.RelayRequestID)
+	})
+}

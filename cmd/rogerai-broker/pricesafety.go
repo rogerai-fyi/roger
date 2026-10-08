@@ -36,11 +36,30 @@ func consumerDefaultMaxOut() float64 {
 // relay request: the consumer's explicit cap when set (>0), else the server-side default
 // backstop (consumerDefaultMaxOut). Returns 0 only when the caller sent no cap AND the
 // backstop is disabled, which means "no cap" (the operator ceiling is the sole bound).
+// A cap above the register ceiling is CLAMPED to the ceiling, never an error: no offer
+// can exist above it, so "unlimited" means the ceiling (regression_pins defect 2).
 func effectiveRelayMaxOut(reqMaxOut float64) float64 {
 	if reqMaxOut > 0 {
-		return reqMaxOut
+		return math.Min(reqMaxOut, maxPriceOutCeiling())
 	}
 	return consumerDefaultMaxOut()
+}
+
+// consumerDefaultMaxIn is the broker-side DEFAULT consumer input-price cap (per 1M tokens),
+// ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN (default $5/1M, contract §14.7): the input twin of
+// consumerDefaultMaxOut, so a request that states no input cap cannot bind to a station with
+// a near-zero output price and an outsized input price. <=0 disables the backstop.
+func consumerDefaultMaxIn() float64 {
+	return envFloat("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", 5)
+}
+
+// effectiveRelayMaxIn is effectiveRelayMaxOut for the input axis: the consumer's cap when set
+// (>0), clamped to the register ceiling, else the default backstop.
+func effectiveRelayMaxIn(reqMaxIn float64) float64 {
+	if reqMaxIn > 0 {
+		return math.Min(reqMaxIn, maxPriceInCeiling())
+	}
+	return consumerDefaultMaxIn()
 }
 
 // clampSettleCost bounds a computed settle cost on BOTH sides before it is captured. The

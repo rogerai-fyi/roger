@@ -57,7 +57,8 @@ Feature: Local proxy serves the live tuned band, not stale bind-time options
     Given the proxy is bound while tuned to band A (confidential off)
     When the user re-tunes to band B (confidential on)
     And a chat request is made
-    Then the relay carries X-Roger-Confidential "1"
+    Then the relay carries the confidential constraint (body roger.confidential true, or the X-Roger-Confidential header in header mode)
+    # reworded 2026-09-30: first-party clients send the body carrier (routing-expression contract §1a); founder re-approval
 
   Scenario: The endpoint URL and bearer key are stable across the re-point
     Given the proxy is bound while tuned to band A

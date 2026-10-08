@@ -125,7 +125,7 @@ test("(c) a page's own scripts keep their order relative to each other and to th
   assert.deepEqual(order("login.html"), ["theme-init", "fmt", "auth", "site", "login-next", "email-login"]);
   assert.deepEqual(order("account.html"), ["theme-init", "fmt", "account", "site"]);
   assert.deepEqual(order("billing.html"), ["theme-init", "fmt", "billing", "billing-help", "site"]);
-  assert.deepEqual(order("keys.html"), ["theme-init", "keys", "site"]);
+  assert.deepEqual(order("keys.html"), ["theme-init", "account-keys", "keys", "site"]);
   assert.deepEqual(order("private.html"), ["theme-init", "site", "private"]);
   assert.deepEqual(order("r.html"), ["theme-init", "site", "r"]);
   assert.deepEqual(order("device.html"), ["theme-init", "auth", "device", "site"]);

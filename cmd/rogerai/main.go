@@ -12,11 +12,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -66,15 +68,19 @@ type Limit struct {
 	MinTPS float64 `json:"min_tps,omitempty"`
 	// Quants is the operator's accepted compression labels for this band (empty = any).
 	// Persisted like the price caps because it is the same kind of statement: what this
-	// operator is willing to be routed to.
+	// operator is willing to be routed to. On the wire it is provider.quantizations plus
+	// "unknown" (a standing RULE lets an unlabeled station pass; client.RuleQuantizations).
 	Quants []string `json:"quants,omitempty"`
+	// Pref is the routing profile the broker scores with (cheap / balanced / fast /
+	// reliable; empty = balanced). Sent as roger.pref; a scoring knob, never a filter.
+	Pref string `json:"pref,omitempty"`
 }
 
 // unset reports whether nothing at all is configured. It replaces a `== Limit{}` compare,
 // which stopped compiling once the struct held a slice - and a hand-written check is the
 // honest fix, because equality on a slice field was never going to mean what it read like.
 func (l Limit) unset() bool {
-	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0
+	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0 && l.Pref == ""
 }
 
 // Limits is the optional, backward-compatible spend-limits section of the config:
@@ -121,6 +127,9 @@ type config struct {
 	// EdgeServeControl lets a member holding a serve-control grant change WHICH MODEL this machine
 	// serves (features/edge/remote_model.feature). Off unless the owner turns it on HERE.
 	EdgeServeControl bool `json:"edge_serve_control,omitempty"`
+	// UseKey is an account key (`rog-key_...`) `roger use` relays with instead of the device
+	// signature. Written ONLY by `roger use --key ... --save-key`; never stored otherwise.
+	UseKey string `json:"use_key,omitempty"`
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -251,10 +260,54 @@ func (c config) resolve(m string) (Limit, int) {
 		typ = 800
 	}
 	if l, ok := c.Limits.Models[m]; ok {
+		if l.Pref == "" {
+			l.Pref = c.Limits.Default.Pref // the pref knob falls through to the default
+		}
 		return l, typ
 	}
 	return c.Limits.Default, typ
 }
+
+// prefFlag is the --pref flag value: one of client.RoutingPrefs, refused at parse time with
+// a message naming the four accepted values (before any request is made).
+type prefFlag struct{ v string }
+
+func (p *prefFlag) String() string { return p.v }
+func (p *prefFlag) Set(v string) error {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if !client.ValidPref(v) {
+		return fmt.Errorf("%q is not a routing pref: use one of %s", v, strings.Join(client.RoutingPrefs, ", "))
+	}
+	p.v = v
+	return nil
+}
+
+// maxOutFlag is the --max-out flag value: a $/1M output price (0 = the default $10/1M cap,
+// which the relay applies when no cap is set) or the word "unlimited" (= the network's
+// register ceiling, above which nothing is offered). set tells "passed at all" apart from
+// "passed 0", replacing the old -1 sentinel that made a negative price unrefusable.
+type maxOutFlag struct {
+	v   float64
+	set bool
+}
+
+func (m *maxOutFlag) String() string { return fmt.Sprintf("%g", m.v) }
+func (m *maxOutFlag) Set(raw string) error {
+	t := strings.ToLower(strings.TrimSpace(raw))
+	if t == "unlimited" {
+		m.v, m.set = client.ConsumerCeilingMaxOut, true
+		return nil
+	}
+	f, err := strconv.ParseFloat(t, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 0 {
+		return fmt.Errorf("%q is not a $/1M price or the word unlimited", raw)
+	}
+	m.v, m.set = f, true
+	return nil
+}
+
+// maxOutHelp is the one description both `roger use` and `roger config set-limit` print.
+const maxOutHelp = "--max-out: skip stations above this $/1M OUTPUT price (the headline cap); 0 = the default $10/1M cap; unlimited = the network ceiling"
 
 func configPath() string {
 	d, _ := os.UserConfigDir()
@@ -1054,6 +1107,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdModel(cfg, args[1:])
 	case "edge":
 		return cmdEdge(cfg, args[1:])
+	case "keys":
+		return cmdKeys(cfg, args[1:])
 	case "context":
 		return cmdContext(cfg, args[1:])
 	case "onboard", "setup":
@@ -1109,11 +1164,21 @@ func cmdUse(cfg config, args []string) error {
 		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
 	}
 	// The model is the first positional; flags follow it. (Go's flag package stops
-	// at the first non-flag arg, so we pull the model out before parsing.)
-	model := args[0]
+	// at the first non-flag arg, so we pull the model out before parsing.) A leading flag
+	// (`roger use -h`, `roger use --pref turbo`) is parsed as flags with no model, so the
+	// help and the flag refusals work without a model name.
+	model, rest := "", args
+	if !strings.HasPrefix(args[0], "-") {
+		model, rest = args[0], args[1:]
+	}
 	fs := flag.NewFlagSet("use", flag.ExitOnError)
 	// The headline cap, in everyone's face.
-	maxOut := fs.Float64("max-out", -1, "cap: skip stations above this $/1M OUTPUT price (the headline cap); 0 = no cap")
+	var maxOut maxOutFlag
+	fs.Var(&maxOut, "max-out", maxOutHelp)
+	var pref prefFlag
+	fs.Var(&pref, "pref", "routing profile: cheap, balanced, fast or reliable (a scoring knob, never a filter)")
+	selfHosted := fs.Bool("self-hosted", false, "route only to self-hosted stations (never a curated commercial proxy)")
+	quant := fs.String("quant", "", "accept only these quant labels this session, comma-separated (e.g. Q8_0,BF16); overrides the stored rule")
 	// Advanced - defaulted and tucked away (CLI-SIMPLICITY-AUDIT C7). --port 0 =
 	// auto-pick a free port; --max-in is the rare input-heavy cap (C1 drops the
 	// --max-price alias entirely).
@@ -1129,13 +1194,33 @@ func cmdUse(cfg config, args []string) error {
 	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
 	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
 	onModel := fs.String("model", "", "when the first argument is a NODE on your Edge, the model on it to use (addressed inference)")
-	fs.Parse(args[1:])
+	key := fs.String("key", "", "relay with this account key (rog-key_...) instead of this device's signature; - reads it from stdin (or set ROGER_KEY)")
+	saveKey := fs.Bool("save-key", false, "remember the key in the config file for later `roger use` runs")
+	forgetKey := fs.Bool("forget-key", false, "remove a saved key from the config file")
+	fs.Parse(rest)
+	if *forgetKey {
+		if cfg.UseKey == "" {
+			fmt.Println("no key was saved - nothing to forget")
+		} else {
+			cfg.UseKey = ""
+			if err := saveConfig(cfg); err != nil {
+				return err
+			}
+			fmt.Println("forgot the saved key - `roger use` signs with this device again")
+		}
+		if model == "" {
+			return nil
+		}
+	}
+	if model == "" {
+		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
+	}
 	// ADDRESSED INFERENCE (features/edge/addressed_inference.feature): if the first argument names a
 	// NODE on this Edge, pin the turn to that node's model instead of letting the band ladder pick a
 	// peer. A plain model falls through unchanged.
 	pinnedPeer, pinned := client.EdgePeer{}, false
 	pinnedTower := ""
-	if t, ok := lanTowerAddress(args[0]); ok && cfg.lan.LAN {
+	if t, ok := lanTowerAddress(model); ok && cfg.lan.LAN {
 		if cfg.lan.EdgeOnly {
 			// features/lan/edge_only.feature: a Tower is never dialed under edge-only.
 			return fmt.Errorf("roger use %s: %s; drop --edge-only to use a Tower", t, edgeOnlyNote)
@@ -1149,7 +1234,7 @@ func cmdUse(cfg config, args []string) error {
 		if model == "" {
 			return fmt.Errorf("usage: roger --lan use %s <model>", t)
 		}
-	} else if peer, band, isNode, err := edgeResolveAddressed(args[0], strings.TrimSpace(*onModel)); isNode {
+	} else if peer, band, isNode, err := edgeResolveAddressed(model, strings.TrimSpace(*onModel)); isNode {
 		if err != nil {
 			return err // a node address that cannot carry a turn - the typed refusal
 		}
@@ -1164,19 +1249,71 @@ func cmdUse(cfg config, args []string) error {
 	if *maxIn >= 0 {
 		lim.MaxIn = *maxIn
 	}
-	if *maxOut >= 0 {
-		lim.MaxOut = *maxOut
+	if maxOut.set {
+		lim.MaxOut = maxOut.v
+		if maxOut.v > client.ConsumerCeilingMaxOut {
+			// Sent as given (the broker clamps it); said once so the number on screen is honest.
+			fmt.Printf("  max-out %g is above what any station may charge - capped at the network ceiling $%.0f/1M\n", maxOut.v, client.ConsumerCeilingMaxOut)
+		}
 	}
 	if *minTPS >= 0 {
 		lim.MinTPS = *minTPS
 	}
+	if pref.v != "" {
+		lim.Pref = pref.v
+	}
+	// The quant label set for this session: --quant names its labels only; the standing
+	// rule (config) names its labels plus "unknown" so an unlabeled station keeps passing.
+	quants := client.RuleQuantizations(lim.Quants)
+	if *quant != "" {
+		quants = splitCSV(*quant)
+	}
 	// 0 = auto: client.Use binds the first free port at or above client.DefaultUsePort, and the
 	// endpoint line prints the port it holds.
 	useport := *port
+	// The key is --key's (- reads it from stdin), else ROGER_KEY's, else the one saved with
+	// --save-key. Neither stdin nor the environment puts it in shell history or ps.
+	useKey, keyNote := strings.TrimSpace(*key), ""
+	if useKey == "-" {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if useKey = strings.TrimSpace(line); useKey == "" {
+			return fmt.Errorf("--key - read no key from stdin")
+		}
+	}
+	if useKey == "" {
+		useKey = strings.TrimSpace(os.Getenv("ROGER_KEY"))
+	}
+	if useKey != "" && !client.IsAccountKey(useKey) {
+		return fmt.Errorf("--key takes an account key (rog-key_...) - mint one with `roger keys mint`")
+	}
+	if useKey != "" {
+		if err := client.KeyTransportOK(cfg.Broker); err != nil {
+			return err // checked before --save-key, so a refused key is never written
+		}
+	}
+	if *saveKey {
+		if useKey == "" {
+			return fmt.Errorf("--save-key needs --key rog-key_... (or ROGER_KEY)")
+		}
+		cfg.UseKey = useKey
+		if err := saveConfig(cfg); err != nil {
+			return err
+		}
+	}
+	if useKey == "" && cfg.UseKey != "" {
+		useKey = cfg.UseKey // a key saved earlier with --save-key
+	}
+	if useKey != "" {
+		if err := client.KeyTransportOK(cfg.Broker); err != nil {
+			return err // a saved key, checked against this run's broker
+		}
+		keyNote = useKeyNote(useKey, cfg.UseKey, strings.TrimSpace(*key) != "")
+	}
 	uo := client.UseOptions{
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
 		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
+		Pref: lim.Pref, SelfHostedOnly: *selfHosted, Quantizations: quants, Key: useKey, KeyNote: keyNote,
 		// Every turn through this endpoint is a `roger use` session on this machine's
 		// Edge, visible from the TUI and the console in their own processes.
 		OnReceipt: edgeUseRecorder(),
@@ -1211,6 +1348,19 @@ func cmdUse(cfg config, args []string) error {
 		}
 	}
 	return client.Use(cfg.Broker, cfg.User, model, uo)
+}
+
+// useKeyNote is the connect plate's KEY line for the account key a session relays with: its
+// hint (never the key) and where it came from.
+func useKeyNote(useKey, saved string, fromFlag bool) string {
+	hint := "..." + useKey[len(useKey)-4:]
+	switch {
+	case useKey == saved:
+		return "saved key " + hint + " in use (roger use --forget-key to clear)"
+	case fromFlag:
+		return "account key " + hint + " from --key"
+	}
+	return "account key " + hint + " from ROGER_KEY"
 }
 
 // shareModelArg pulls an optional LEADING positional model token out of `share`'s
@@ -2500,12 +2650,21 @@ func cmdSetLimit(args []string) error {
 	}
 	// The model is the first positional; flags follow it. (Go's flag package stops
 	// at the first non-flag arg, so we pull the model out before parsing.)
-	model := args[0]
+	model, rest := "", args
+	if !strings.HasPrefix(args[0], "-") {
+		model, rest = args[0], args[1:]
+	}
 	fs := flag.NewFlagSet("set-limit", flag.ExitOnError)
 	maxIn := fs.Float64("max-in", -1, "$/1M input price cap (0 = no cap)")
-	maxOut := fs.Float64("max-out", -1, "$/1M output price cap (the headline cap; 0 = no cap)")
+	var maxOut maxOutFlag
+	fs.Var(&maxOut, "max-out", maxOutHelp)
 	minTPS := fs.Float64("min-tps", -1, "min throughput floor in tok/s (0 = no floor)")
-	fs.Parse(args[1:])
+	var pref prefFlag
+	fs.Var(&pref, "pref", "routing profile: cheap, balanced, fast or reliable")
+	fs.Parse(rest)
+	if model == "" {
+		return fmt.Errorf("usage: roger config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N] [--pref P]")
+	}
 	c := loadConfig()
 	var cur Limit
 	if model == "default" {
@@ -2516,11 +2675,14 @@ func cmdSetLimit(args []string) error {
 	if *maxIn >= 0 {
 		cur.MaxIn = *maxIn
 	}
-	if *maxOut >= 0 {
-		cur.MaxOut = *maxOut
+	if maxOut.set {
+		cur.MaxOut = maxOut.v
 	}
 	if *minTPS >= 0 {
 		cur.MinTPS = *minTPS
+	}
+	if pref.v != "" {
+		cur.Pref = pref.v
 	}
 	if model == "default" {
 		c.Limits.Default = cur
@@ -2540,7 +2702,9 @@ func cmdSetLimit(args []string) error {
 // limitStr renders a Limit as a compact human line.
 func limitStr(l Limit) string {
 	parts := []string{}
-	if l.MaxOut > 0 {
+	if l.MaxOut >= client.ConsumerCeilingMaxOut {
+		parts = append(parts, fmt.Sprintf("max-out=$%.0f/1M (network ceiling)", client.ConsumerCeilingMaxOut))
+	} else if l.MaxOut > 0 {
 		parts = append(parts, fmt.Sprintf("max-out=%g", l.MaxOut))
 	}
 	if l.MaxIn > 0 {
@@ -2548,6 +2712,9 @@ func limitStr(l Limit) string {
 	}
 	if l.MinTPS > 0 {
 		parts = append(parts, fmt.Sprintf("min-tps=%g", l.MinTPS))
+	}
+	if l.Pref != "" {
+		parts = append(parts, "pref="+l.Pref)
 	}
 	if len(parts) == 0 {
 		return "no caps"
@@ -2656,6 +2823,7 @@ func usage() {
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
+  roger keys                  account API keys for scripts and CI: list · mint · set · rm
   roger perms <mode>          agent tool approvals default: confirm | edits | all
   roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
   roger model                 serve a model yourself, no other software: search · files · get · serve · stop

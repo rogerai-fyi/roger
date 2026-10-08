@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/ctxsig"
@@ -230,7 +231,25 @@ func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string,
 		log.Printf("strike: OwnerStrikeStats(%s) failed: %v - using conservative single-class count", acct, statErr)
 		windowed, distinctKinds = 1, 1 // fail SOFT: never escalate to a ban on a read error
 	}
-	corroborated := distinctKinds >= b.strikeCorroborateKinds
+	// The distinct-payer floor (contract §14.1): empty-output strikes (2xx-empty, 5xx) weigh on
+	// the ladder only once enough DISTINCT payers produced them in the window, so one consumer
+	// (or one client minting keypairs) cannot push an honest operator to a payout hold by
+	// repeating a request the station cannot serve. The rows stay as evidence either way. The
+	// count reads the strike rows themselves (the store), so it holds across instances.
+	counted, countedKinds := windowed, distinctKinds
+	if minP := strikeMinPayers(); minP > 1 && statErr == nil {
+		if total, payerRows, payers, err := b.db.OwnerStrikePayers(acct, store.StrikeEmptyOutput, since); err == nil && payerRows > 0 && payers < minP {
+			counted -= payerRows
+			if counted < 0 {
+				counted = 0
+			}
+			if payerRows == total && countedKinds > 0 {
+				countedKinds-- // every empty-output row was discounted: that class corroborates nothing
+			}
+			log.Printf("STRIKE owner=%s empty-output strikes=%d from %d/%d distinct payers - below the payer floor, not counted toward warn", acct, payerRows, payers, minP)
+		}
+	}
+	corroborated := countedKinds >= b.strikeCorroborateKinds
 	log.Printf("STRIKE owner=%s %s=%s kind=%s windowed=%d kinds=%d (warn=%d ban=%d corroborate=%d decayDays=%d zeroDoubt=%v)",
 		acct, subjectKind, subject, kind, windowed, distinctKinds, b.strikeWarnAt, b.strikeBanAt, b.strikeCorroborateKinds, b.strikeDecayDays, zeroDoubt)
 	switch {
@@ -239,7 +258,7 @@ func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string,
 		hold()
 		b.banOwner(acct, kind, string(ev))
 		b.emailAccountBanned(b.emailOf(acct), kind, string(ev))
-	case windowed >= b.strikeBanAt && corroborated:
+	case counted >= b.strikeBanAt && corroborated:
 		// Accumulating ban: enough RECENT strikes AND corroborated across signal classes.
 		hold()
 		b.banOwner(acct, kind, string(ev))
@@ -247,7 +266,7 @@ func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string,
 		// account was suspended, with the evidence that tripped it. No-op when
 		// RESEND_API_KEY is unset or the owner has no email on file.
 		b.emailAccountBanned(b.emailOf(acct), kind, string(ev))
-	case windowed >= b.strikeBanAt && !corroborated:
+	case counted >= b.strikeBanAt && !corroborated:
 		// At the count threshold but only ONE signal class: do NOT ban (corroboration
 		// guard). The earnings are held pending review; a second distinct signal class -
 		// or admin review - is required to escalate to a durable ban.
@@ -255,7 +274,7 @@ func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string,
 		log.Printf("STRIKE owner=%s kind=%s windowed=%d/%d but only %d/%d distinct signal class(es) - HELD (earnings frozen) but NOT banned (corroboration guard); needs a second signal class or admin review",
 			acct, kind, windowed, b.strikeBanAt, distinctKinds, b.strikeCorroborateKinds)
 		b.emailAccountWarning(b.emailOf(acct), kind, string(ev), windowed, b.strikeBanAt)
-	case windowed >= b.strikeWarnAt:
+	case counted >= b.strikeWarnAt:
 		hold()
 		log.Printf("STRIKE WARNING owner=%s kind=%s windowed=%d/%d - earnings held; more violations across another signal class will ban this account",
 			acct, kind, windowed, b.strikeBanAt)
@@ -386,13 +405,18 @@ func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen 
 // prompt tokens), at ~chars/4. Approximate on purpose; both consumers treat it as
 // a coarse gate, never a billing number.
 func approxPromptTokens(body []byte) int {
-	if t := promptText(body); t != "" {
-		return len(t)/4 + 1
+	return promptTokensFrom(promptText(body), len(body))
+}
+
+// promptTokensFrom is approxPromptTokens from an already-extracted prompt text.
+func promptTokensFrom(text string, bodyLen int) int {
+	if text != "" {
+		return len(text)/4 + 1
 	}
 	// promptText parses chat-shaped bodies; a legacy completions {"prompt": ...} or
 	// any other shape yielded 1 and starved speedFit of its size signal (audit).
 	// Those shapes carry no base64 image parts, so raw length is safe for them.
-	return len(body)/4 + 1
+	return bodyLen/4 + 1
 }
 
 // oversizedForNode reports whether a request of approxTokens (approxPromptTokens)
@@ -451,7 +475,7 @@ func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 // cannot under-count away (code/CJK prompts measure low - the audit's catch).
 // model comes from the CALLER's picked offer, never rec.Model - the node-stamped
 // field is empty on a transport-failure receipt and the guard would no-op.
-func (b *broker) maybeFlagEmptyOutput(nodeID, model string, rec protocol.UsageReceipt, status, approxTokens int, upstreamErr string) bool {
+func (b *broker) maybeFlagEmptyOutput(nodeID, model string, rec protocol.UsageReceipt, status, approxTokens int, upstreamErr, payerKey string) bool {
 	if status == http.StatusTooManyRequests {
 		return false // an upstream throttle is not operator misconduct (the void path logs THROTTLED)
 	}
@@ -469,16 +493,17 @@ func (b *broker) maybeFlagEmptyOutput(nodeID, model string, rec protocol.UsageRe
 			nodeID, model, approxTokens)
 		return false
 	}
-	b.flagEmptyOutput(nodeID, rec, status)
+	b.flagEmptyOutput(nodeID, rec, status, payerKey)
 	return true
 }
 
 // flagEmptyOutput is the no-usable-output signal: the node billed input but produced no
 // usable completion (errored, empty, or claimed-without-text). Accumulates toward the
 // warn/ban thresholds (tolerant of one-off noise).
-func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status int) {
+func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status int, payerKey string) {
 	b.strike(nodeID, store.StrikeEmptyOutput, "empty:"+rec.RequestID, false, map[string]any{
 		"request_id":         rec.RequestID,
+		"payer":              payerKey, // the distinct-payer floor counts these (§14.1)
 		"axis":               "output",
 		"status":             status,
 		"claimed_prompt":     rec.PromptTokens,
@@ -490,6 +515,7 @@ func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, statu
 // flagRecountOver is the recount over-report signal: the node's claimed token count
 // materially exceeded the broker's independent re-count past tolerance. Accumulates.
 func (b *broker) flagRecountOver(nodeID, requestID, axis string, claimed, recounted int) {
+	b.noteOrganicStrike(nodeID)
 	b.strike(nodeID, store.StrikeRecountDiscrepancy, "recount:"+axis+":"+requestID, false, map[string]any{
 		"request_id":     requestID,
 		"axis":           axis,
@@ -497,4 +523,28 @@ func (b *broker) flagRecountOver(nodeID, requestID, axis string, claimed, recoun
 		"broker_recount": recounted,
 		"note":           "node over-reported tokens past the recount tolerance",
 	})
+}
+
+// strikePayerKey names the payer for the empty-output distinct-payer floor (contract §14.1):
+// a grant by its id, a logged-in caller by its account wallet, and an anonymous or unbound
+// caller by its client IP, so one client minting keypairs counts as one payer.
+func strikePayerKey(gok bool, gc grantContext, authed bool, wallet, ip string) string {
+	switch {
+	case gok:
+		return "grant:" + gc.grant.ID
+	case authed && walletLoggedIn(wallet):
+		return wallet
+	default:
+		return "ip:" + ip
+	}
+}
+
+// strikeMinPayers is ROGERAI_STRIKE_MIN_PAYERS (default 3): empty-output strikes count toward
+// the warn step only once this many distinct payers produced them within the decay window.
+// 1 restores the old behavior. Read per call so an operator change applies without a restart.
+func strikeMinPayers() int {
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("ROGERAI_STRIKE_MIN_PAYERS"))); err == nil && v >= 1 {
+		return v
+	}
+	return 3
 }
