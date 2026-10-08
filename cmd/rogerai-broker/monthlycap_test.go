@@ -285,7 +285,7 @@ func TestCapRefusalInProgressOnlyWhenHoldsAreTheReason(t *testing.T) {
 			require.True(t, open.OK, "the in-flight hold fits")
 
 			w := httptest.NewRecorder()
-			held, status, msg, err := b.holdUnderCap(w, wallet, "next", tc.amount, now)
+			held, status, msg, err := b.holdUnderCap(w, nil, wallet, "next", tc.amount, now)
 			require.NoError(t, err)
 			require.False(t, held)
 			require.Equal(t, http.StatusPaymentRequired, status)

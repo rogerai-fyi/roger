@@ -277,6 +277,10 @@ func (b *broker) authApple(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "could not bind owner")
 		return
 	}
+	// Re-check a stored address against the one the provider reports (founder ruling
+	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
+	// Best-effort: a failure never fails the sign-in.
+	_ = b.db.ReconcileProviderEmail(0, claims.Sub, claims.Email)
 	b.invalidateOwnerWallet(pubkey)
 	// Seed the Apple ACCOUNT wallet once (idempotent per sub across every device that binds it).
 	wallet := walletForAppleSub(claims.Sub)

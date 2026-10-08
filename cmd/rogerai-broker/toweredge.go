@@ -423,7 +423,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		maxCost = tc
 	}
 	if maxCost > 0 {
-		ok, capStatus, capMsg, herr := b.holdUnderCap(w, consumerWallet, g.AttemptID, maxCost, time.Now())
+		ok, capStatus, capMsg, herr := b.holdUnderCap(w, r, consumerWallet, g.AttemptID, maxCost, time.Now())
 		if capStatus != 0 {
 			jsonErr(w, capStatus, capMsg)
 			return

@@ -80,12 +80,38 @@ ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS apple_sub TEXT;
 -- resolving a login against it would let anyone who can type an address claim the account
 -- it belongs to. Additive + NULLable, so every existing owner is unaffected.
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
--- One VERIFIED address belongs to at most one live account. Partial, so the unlimited
--- unverified/NULL emails and the anonymized rows of deleted accounts are untouched - a
--- deleted account's address must be reusable by a new one, not held hostage forever.
-CREATE UNIQUE INDEX IF NOT EXISTS owners_verified_email_uniq
+-- One VERIFIED address belongs to at most one live PROVIDER account (GitHub- or Apple-linked).
+-- Partial, so the unlimited unverified/NULL emails and the anonymized rows of deleted accounts
+-- are untouched - a deleted account's address must be reusable by a new one, not held hostage
+-- forever. Provider-less rows are left out on purpose (founder ruling 2026-10-04): they ARE an
+-- email account, one row per approved device, all sharing the verified address that defines
+-- the account, so a second device must not collide with the first.
+--
+-- Migration: the first version of this index (owners_verified_email_uniq) covered every row and
+-- refused an email account's second device. Dropped by name, then the scoped index is created
+-- under a new name; both statements are idempotent, so this runs safely on every start.
+--
+-- ROLLBACK HAZARD: a broker binary from BEFORE this change re-runs its own startup DDL, which
+-- recreates owners_verified_email_uniq over EVERY row. Once any email account has approved a
+-- second device (two live rows sharing one verified address), that CREATE UNIQUE INDEX fails
+-- and the old binary cannot start (dropping the index by hand does not help: the old binary
+-- recreates it on every start). Do not roll back past this change. A rollback is only possible
+-- after making the old index creatable again, i.e. no two live verified rows share an address.
+DROP INDEX IF EXISTS rogerai.owners_verified_email_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS owners_verified_provider_email_uniq
     ON rogerai.owners (lower(email))
-    WHERE email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false);
+    WHERE email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)
+      AND (github_id <> 0 OR COALESCE(apple_sub,'') <> '');
+-- A profile address the account TYPED (PATCH /account) is not proven: a provider-reported
+-- address (filled from GitHub/Apple at bind) or a code-proven one is. Cap notices are mailed only
+-- to a proven or provider-reported address (founder ruling 2026-10-04). Additive, default false,
+-- so every existing address keeps its current standing.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email_unproven BOOLEAN NOT NULL DEFAULT false;
+-- The address each provider reported at its last sign-in (NULL = not reported since tracking
+-- began), so an account linked to BOTH GitHub and Apple is judged against both reports and an
+-- Apple relay address never withdraws the GitHub one (audit fix 2026-10-05). Additive.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS github_reported_email TEXT;
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS apple_reported_email TEXT;
 -- node -> operator account (owner pubkey) binding, so a node's earnings attribute
 -- to an account at payout/Connect time. TOFU: first account to bind a node wins.
 CREATE TABLE IF NOT EXISTS rogerai.node_owner (
@@ -1630,29 +1656,35 @@ func (p *Postgres) BindOwner(o Owner) error {
 				WHEN rogerai.owners.email_verified_at IS NOT NULL THEN rogerai.owners.email
 				WHEN EXCLUDED.email_verified_at IS NOT NULL THEN EXCLUDED.email
 				ELSE COALESCE(NULLIF(rogerai.owners.email,''), $6) END,
-			email_verified_at=COALESCE(EXCLUDED.email_verified_at, rogerai.owners.email_verified_at)`,
+			email_verified_at=COALESCE(EXCLUDED.email_verified_at, rogerai.owners.email_verified_at),
+			-- a proof landing on a row that held none takes the proven address, so the row is no
+			-- longer carrying a typed, unproven one
+			email_unproven=CASE
+				WHEN rogerai.owners.email_verified_at IS NULL AND EXCLUDED.email_verified_at IS NOT NULL THEN false
+				ELSE rogerai.owners.email_unproven END`,
 		o.Pubkey, o.GitHubID, o.Login, o.AppleSub, o.Name, o.Email, verified)
 	return err
 }
 
 func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE pubkey=$1`, pubkey)
 }
 
 func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
-// LinkVerifiedEmail: the partial unique index owners_verified_email_uniq is the arbiter of
-// "one live account per verified address", so a concurrent pair of links cannot both win.
+// LinkVerifiedEmail: the partial unique index owners_verified_provider_email_uniq is the arbiter
+// of "one live provider-linked account per verified address", so a concurrent pair of links
+// cannot both win. A proven address is no longer unproven.
 func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
-	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3, email_unproven=false
 		WHERE pubkey=$1 AND NOT COALESCE(anonymized,false)`, pubkey, email, time.Unix(at, 0).UTC())
 	if err != nil {
-		if strings.Contains(err.Error(), "owners_verified_email_uniq") {
+		if strings.Contains(err.Error(), "owners_verified_provider_email_uniq") {
 			return ErrEmailTaken
 		}
 		return err
@@ -1670,9 +1702,46 @@ func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
 // claim the account it belongs to. lower() matches the partial unique index, so the
 // lookup uses it rather than scanning.
 func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, email)
+}
+
+// ReconcileProviderEmail records the address a provider reported at sign-in on every live row
+// of that identity, then re-judges each row whose address was not proven by code against the
+// last report of every provider the row is linked to (see the Store interface): mailable on
+// any match, unproven when all linked providers have reported and none matches, otherwise left
+// as it was. One statement, so the record and the judgement can never disagree.
+func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error {
+	if (reported == "" && len(verified) == 0) || (githubID == 0 && appleSub == "") {
+		return nil
+	}
+	// rep is this row's report: the verified address matching its stored address (as the
+	// provider spells it), else the primary report; NULL (keep the last report) when neither.
+	_, err := p.db.Exec(`WITH r0 AS (
+		  SELECT pubkey, github_id, apple_sub, github_reported_email, apple_reported_email,
+		         COALESCE((SELECT v FROM unnest($4::text[]) v WHERE lower(v) = lower(email) LIMIT 1), NULLIF($3,'')) AS rep
+		  FROM rogerai.owners
+		  WHERE ((github_id = $1 AND $1 <> 0) OR apple_sub = NULLIF($2,''))
+		    AND NOT COALESCE(anonymized,false)),
+		r AS (
+		  SELECT pubkey, rep,
+		         CASE WHEN github_id = $1 AND $1 <> 0 AND rep IS NOT NULL THEN rep ELSE github_reported_email END AS gh,
+		         CASE WHEN apple_sub = NULLIF($2,'') AND rep IS NOT NULL THEN rep ELSE apple_reported_email END AS ap
+		  FROM r0
+		)
+		UPDATE rogerai.owners o SET
+		  github_reported_email = r.gh,
+		  apple_reported_email = r.ap,
+		  email_unproven = CASE
+		    WHEN r.rep IS NULL OR o.email_verified_at IS NOT NULL OR COALESCE(o.email,'') = '' THEN o.email_unproven
+		    WHEN (r.gh IS NOT NULL AND lower(o.email) = lower(r.gh))
+		      OR (r.ap IS NOT NULL AND lower(o.email) = lower(r.ap)) THEN false
+		    WHEN (o.github_id = 0 OR r.gh IS NOT NULL)
+		     AND (COALESCE(o.apple_sub,'') = '' OR r.ap IS NOT NULL) THEN true
+		    ELSE o.email_unproven END
+		FROM r WHERE o.pubkey = r.pubkey`, githubID, appleSub, reported, verified)
+	return err
 }
 
 // OwnerByAppleSub resolves the account linked to this Apple identity. apple_sub is
@@ -1682,7 +1751,7 @@ func (p *Postgres) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	if sub == "" {
 		return Owner{}, false, nil
 	}
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE apple_sub=$1 AND NOT COALESCE(anonymized,false)
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, sub)
 }
@@ -1694,7 +1763,7 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	var email, connectID, connectStatus, name, appleSub sql.NullString
 	var anon sql.NullBool
 	err := p.db.QueryRow(query, arg).Scan(
-		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed, &appleSub, &emailVerified)
+		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed, &appleSub, &emailVerified, &o.EmailUnproven)
 	if err == sql.ErrNoRows {
 		return Owner{}, false, nil
 	}
@@ -1723,11 +1792,14 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 }
 
 func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
-	// A changed address drops the verified stamp (the proof was for the old one); SET
-	// expressions read the OLD row, so the comparison sees the previous email.
-	res, err := p.db.Exec(`UPDATE rogerai.owners
-		SET email_verified_at = CASE WHEN lower(email) IS NOT DISTINCT FROM lower($2) THEN email_verified_at ELSE NULL END,
-		    email=$2
+	// A typed address is unproven, and it replaces the proof the previous address carried: an
+	// account that changes its address must prove the new one before it is an identity or is
+	// mailed. Re-typing the SAME address (any letter case) changes nothing, so a proven address
+	// stays proven and keeps its stored spelling.
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET
+		email_verified_at = CASE WHEN lower(COALESCE(email,''))=lower($2) THEN email_verified_at ELSE NULL END,
+		email_unproven    = CASE WHEN lower(COALESCE(email,''))=lower($2) THEN email_unproven ELSE ($2 <> '') END,
+		email             = CASE WHEN lower(COALESCE(email,''))=lower($2) THEN email ELSE $2 END
 		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
 	if err != nil {
 		return Owner{}, false, err
@@ -1769,7 +1841,7 @@ func (p *Postgres) DeleteAccount(login string) (bool, error) {
 	// not a lookup key at all here, apple_sub and the verified email are, and both are
 	// gated on NOT anonymized. github_id is NOT NULL, hence 0 rather than NULL.
 	res, err := p.db.Exec(`UPDATE rogerai.owners
-		SET email=NULL, email_verified_at=NULL, name=NULL, github_id=0, apple_sub=NULL,
+		SET email=NULL, email_verified_at=NULL, email_unproven=false, github_reported_email=NULL, apple_reported_email=NULL, name=NULL, github_id=0, apple_sub=NULL,
 		    login='deleted_'||left(md5(pubkey),8), anonymized=true, deleted_at=now()
 		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
 	if err != nil {

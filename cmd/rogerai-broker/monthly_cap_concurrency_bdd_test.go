@@ -18,6 +18,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -837,8 +838,22 @@ func (s *mcState) recordNotices() error {
 // mailbox routes "acct"'s cap notices through the real mailer (its once-a-month dedupe
 // included) to a counting transport, with an owner on file for the account's address.
 func (s *mcState) mailbox() error {
-	if err := s.db.BindOwner(store.Owner{GitHubID: time.Now().UnixNano(), Login: "cap-mailbox",
-		Pubkey: s.acctWallet, Email: "acct@example.com"}); err != nil {
+	// The notice address is resolved from the request's authenticated identity (the signing
+	// key's owner row, which must resolve to the charged wallet) and must be proven
+	// (features/ops/cap_notice_emails.feature), so the address goes on THAT owner.
+	pub := hex.EncodeToString(s.acctPriv.Public().(ed25519.PublicKey))
+	o, ok, err := s.db.OwnerByPubkey(pub)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no owner bound to %q's signing key", "acct")
+	}
+	if w, wok := accountWalletForOwner(o); !wok || w != s.acctWallet {
+		return fmt.Errorf("the signing key's owner resolves to %q, not the charged wallet %q", w, s.acctWallet)
+	}
+	o.Email, o.EmailVerifiedAt, o.EmailUnproven = "acct-"+s.nonce+"@example.com", time.Now().Unix(), false
+	if err := s.db.BindOwner(o); err != nil {
 		return err
 	}
 	var mu sync.Mutex

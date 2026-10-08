@@ -454,18 +454,11 @@ var capNoticeHookForTest func(holder, threshold string)
 // ("80" near, "100" at limit). De-duped per (holder, threshold, month) so the hot
 // relay path emits at most one email per threshold per month. No-op when disabled or
 // no email.
-func (b *broker) emailCapNotice(holder string, threshold string, spend, cap float64, now time.Time) {
-	if capNoticeHookForTest != nil {
-		capNoticeHookForTest(holder, threshold)
+func (b *broker) emailCapNotice(email, holder string, threshold string, spend, cap float64, now time.Time) {
+	if !b.mail.enabled() || email == "" {
+		return // no verified address on file: nothing to send, and the once-per-month claim is NOT spent
 	}
-	if !b.mail.enabled() {
-		return
-	}
-	email := b.emailOf(holder)
-	if email == "" {
-		return
-	}
-	if !b.mail.capNoticeOnce(holder, threshold, now) {
+	if !b.capNoticeClaim(holder, threshold, now) {
 		return
 	}
 

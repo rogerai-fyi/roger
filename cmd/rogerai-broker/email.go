@@ -270,6 +270,14 @@ func maskAddr(to string) string {
 	return to[:1] + "***" + to[at:]
 }
 
+// capNoticeSeen reports, without recording, whether capNoticeOnce already fired for the key.
+func (m *mailer) capNoticeSeen(holder, threshold string, now time.Time) bool {
+	key := holder + "|" + threshold + "|" + now.UTC().Format("2006-01")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sentCaps[key]
+}
+
 // capNoticeOnce reports whether a monthly-cap notice for this (holder, threshold,
 // month) has NOT yet been sent, marking it sent when it returns true. This collapses
 // the per-request hot-path cap crossings into at most one email per threshold per
@@ -279,7 +287,7 @@ func (m *mailer) capNoticeOnce(holder, threshold string, now time.Time) bool {
 	if !m.enabled() {
 		return false
 	}
-	key := holder + "|" + threshold + "|" + now.Format("2006-01")
+	key := holder + "|" + threshold + "|" + now.UTC().Format("2006-01")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sentCaps[key] {

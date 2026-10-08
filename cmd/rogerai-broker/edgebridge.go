@@ -302,7 +302,7 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 				res, herr = b.db.HoldForCapped(consumerWallet, g.AttemptID, ownHold, monthlyCap, time.Now())
 				hok = res.OK
 			} else {
-				hok, capStatus, capMsg, herr = b.holdUnderCap(sink, consumerWallet, g.AttemptID, ownHold, time.Now())
+				hok, capStatus, capMsg, herr = b.holdUnderCap(sink, r, consumerWallet, g.AttemptID, ownHold, time.Now())
 			}
 			if herr != nil || !hok {
 				if capStatus != 0 {

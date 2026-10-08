@@ -3262,6 +3262,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
+	// knownCap is the monthly cap the pre-hold check read, reused by the settle-time notice so a
+	// paid request reads the cap once (capUnknown when the check did not run).
+	knownCap := capUnknown
 	if maxCost > 0 {
 		unlockKey := func() {}
 		var keyState keyLimitState
@@ -3307,11 +3310,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// the whole block, so they are never blocked. Sets near/at-cap notice headers.
 		// A floor-only hold (a $0 offer) is never refused by the cap: free stations bypass it.
 		if maxCost > freeFloorHold {
-			if st, msg := b.monthlyCapCheck(w, payer, maxCost, now); st != 0 {
+			st, msg, capRead := b.monthlyCapCheckCap(w, r, payer, maxCost, now)
+			if st != 0 {
 				unlockKey()
 				jsonErr402(w, "monthly_cap_reached", msg, "monthly_cap", remedyMonthly)
 				return
 			}
+			knownCap = capRead
 		}
 		// Seed new users so the hold can land (W4: skip the upsert tx for an already-
 		// seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT stays the real
@@ -3326,6 +3331,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		if keyLimited && keyHoldGapForTest != nil {
 			keyHoldGapForTest(b)
+		}
+		// The monthly-cap twin of the key seam: tests run another instance's whole request between
+		// this request's cap pre-check and its hold (the hold transaction still decides).
+		if maxCost > freeFloorHold && capHoldGapForTest != nil {
+			capHoldGapForTest()
 		}
 		var keyLim store.KeyLimit
 		if keyLimited && keyHold {
@@ -3444,7 +3454,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// refusal (its headers, and the 100% notice when the request is too large), never a
 			// balance message.
 			unlockKey()
-			_, msg := b.capRefusal(w, payer, headCap.Spend, headCap.Pending, maxCost, monthlyCap, now)
+			_, msg := b.capRefusal(w, r, payer, headCap.Spend, headCap.Pending, maxCost, monthlyCap, now)
 			jsonErr402(w, "monthly_cap_reached", msg, "monthly_cap", remedyMonthly)
 			return
 		}
@@ -3463,7 +3473,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream {
 		bill := streamBill{payerKey: payerKey, prompt: promptStr, privateBand: len(privateAllow) > 0, user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening, requested: requestedList(cands),
-			pubHex: r.Header.Get(protocol.HeaderPubkey), req: r}
+			pubHex: r.Header.Get(protocol.HeaderPubkey), req: r, cap: knownCap}
 		if kok {
 			bill.keyFields = func() map[string]any { return b.keyChunkFields(akey, keyStart) }
 		}
@@ -3743,6 +3753,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			settled = !pricing.free || maxCost == 0
 			if !pricing.free && cost > 0 {
 				noteCharged(w) // a real charge was captured (a free plan or a $0 settle captures nothing)
+				b.capNoticeAfterSettle(w, r, payer, knownCap, time.Now())
 			}
 			// THE CAPACITY SIGNAL IS MEASURED ON THE COUNT THE BROKER VERIFIED, NOT ON THE
 			// NODE'S CLAIM - and the clamp it uses is the one computed three lines above
@@ -4985,6 +4996,8 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 			*settled = !pricing.free || maxCost == 0
 			if !pricing.free && cost > 0 {
 				noteCharged(lw.w) // a real charge was captured (a free plan or a $0 settle captures nothing)
+				// headers are committed on a stream: notify only
+				b.capNoticeAfterSettle(nil, bill.req, user, bill.cap, time.Now())
 			}
 		}
 		// THE SAME CLAMP AS THE RELAY PATH, for the same reason and off the same
