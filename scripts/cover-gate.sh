@@ -135,7 +135,9 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
 fi
 
 echo "[cover] running full suite with coverage…" >&2
-if ! out="$(go test -timeout 20m -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
+# 35m per package: with every line merged the broker package runs past 20 minutes when it shares
+# the CPUs with the rest of the suite (no test hangs; the package is simply large).
+if ! out="$(go test -timeout 35m -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
   echo "$out"
   echo "[cover] FAIL: the test suite did not pass"
   exit 1
