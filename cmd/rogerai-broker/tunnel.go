@@ -3361,7 +3361,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// the cap.
 		monthlyCap := 0.0
 		if maxCost > freeFloorHold {
-			monthlyCap, _ = b.db.MonthlyCapOf(payer)
+			// The pre-check above already read it (knownCap); a paid request reads the cap once.
+			if knownCap != capUnknown {
+				monthlyCap = knownCap
+			} else {
+				monthlyCap, _ = b.db.MonthlyCapOf(payer)
+			}
 		}
 		hold := func(amount float64) (store.CappedHold, error) {
 			g := store.HoldGuard{Now: now}

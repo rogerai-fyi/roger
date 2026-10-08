@@ -59,7 +59,13 @@ func TestMain(m *testing.M) {
 	// tests run would change what every command does. Runners that test the variables set them.
 	os.Unsetenv("ROGER_LAN")
 	os.Unsetenv("ROGER_LAN_EDGE_ONLY")
-	os.Exit(m.Run())
+	code := m.Run()
+	// The routing-flags runner builds roger and the broker once into a temp dir; remove it, or
+	// every run leaves ~65 MB behind in the temp filesystem.
+	if rfBrokerBin != "" {
+		_ = os.RemoveAll(filepath.Dir(rfBrokerBin))
+	}
+	os.Exit(code)
 }
 
 func modelFakeLlama(args []string) {

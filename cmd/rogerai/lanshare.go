@@ -92,14 +92,16 @@ func foldBrokerTower(cfg config, note io.Writer) config {
 	if cfg.lan.EdgeOnly || cfg.Broker == "" || cfg.Broker == cfg.LanBrokerChecked {
 		return cfg
 	}
-	cfg.LanBrokerChecked = cfg.Broker
+	cfg.LanBrokerChecked = cfg.Broker // remembered for this process; written only with a fold
 	if base, ok := brokerTower(cfg); ok {
 		if a, err := lanmode.ParseAddr(base); err == nil && !contains(cfg.LanTowers, a.String()) && !contains(cfg.LanNotTower, a.String()) {
 			cfg.LanTowers = append(cfg.LanTowers, a.String())
 			fmt.Fprintf(note, "added %s to your LAN Towers (from your broker setting)\n", a)
+			// Only a real fold changes the file: a command that finds no Tower behind the
+			// broker setting leaves config.json exactly as it was (routing_flags.feature).
+			_ = saveConfig(cfg)
 		}
 	}
-	_ = saveConfig(cfg)
 	return cfg
 }
 
