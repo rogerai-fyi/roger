@@ -8,7 +8,7 @@ package store
 // Postgres when ROGERAI_TEST_DATABASE_URL is set - no mocks.
 
 import (
-	"os"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"sync"
 	"testing"
 
@@ -190,7 +190,7 @@ func TestZeroSettleConcurrentNewWalletParity(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			handles := []Store{db, db}
 			if pg, ok := db.(*Postgres); ok {
-				second, err := NewPostgres(storePrivateDSN(t, os.Getenv("ROGERAI_TEST_DATABASE_URL")))
+				second, err := NewPostgres(pgtest.DSN(t))
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = second.Close() })
 				handles = []Store{pg, second}

@@ -436,12 +436,12 @@ func (s *rx6State) classifierNotCalled() error {
 }
 
 func (s *rx6State) noLock(_, model string) error {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	for k := range s.b.quotes {
-		if strings.HasSuffix(k, "|"+model) {
-			return fmt.Errorf("a price lock %q exists", k)
-		}
+	qs, err := s.b.db.PriceQuotes("", model)
+	if err != nil {
+		return err
+	}
+	if len(qs) > 0 {
+		return fmt.Errorf("a price lock exists: %s on %s for %s", qs[0].User, qs[0].Node, qs[0].Model)
 	}
 	return nil
 }

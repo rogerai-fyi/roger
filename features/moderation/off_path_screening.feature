@@ -150,8 +150,14 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
     Then it completes within 2 seconds of the station's response time
     And at most 2 classifier connections are open at any time (the worker count)
 
-  Scenario: a Valkey outage has no effect on screening or serving
-    Given the broker runs multi-instance and the shared store is unreachable
+  # corrected 2026-10-04 (founder ruling): a multi-instance broker keeps serving through a
+  # RUNTIME shared-store outage on the stations that long-poll it; the old premise (a broker that
+  # boots with the store unreachable and runs on per-instance state) no longer exists: a boot-time
+  # outage is NOT READY (features/ops/shared_store_readiness.feature). See also
+  # features/multinode/runtime_store_outage.feature.
+  Scenario: a runtime Valkey outage has no effect on screening, and the relay is served by a station polling this instance
+    Given the broker runs multi-instance, became ready, and the shared store then stopped answering
+    And station "n1" long-polls this instance
     When a funded consumer relays a prompt
     Then the response is 200
     And the screening job was enqueued in-process and screened

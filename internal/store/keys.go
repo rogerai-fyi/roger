@@ -213,16 +213,8 @@ func (l KeyLimit) fits(spend, reserved, amount float64) bool {
 // amount is the sum of its pending holds, so the reservation is released, captured and swept on
 // exactly the wallet hold's paths. keyTS dates the eventual key spend (the request's start).
 func (m *Mem) HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64, lim KeyLimit) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if lim.USD > 0 && !lim.fits(m.keySpendLocked(keyID, lim.From, lim.To), m.keyReservedLocked(keyID, requestID), amount) {
-		return false, ErrKeyLimit
-	}
-	if !m.holdRefLocked(user, amount, requestID) {
-		return false, nil
-	}
-	m.pendingHolds[requestID] = pendingHold{user: user, amount: amount, placedAt: time.Now().Unix(), keyID: keyID, keyTS: keyTS}
-	return true, nil
+	res, err := m.HoldGuarded(user, requestID, amount, HoldGuard{KeyID: keyID, KeyTS: keyTS, Key: lim})
+	return res.OK, err
 }
 
 func (m *Mem) KeyReserved(keyID string) (float64, error) {

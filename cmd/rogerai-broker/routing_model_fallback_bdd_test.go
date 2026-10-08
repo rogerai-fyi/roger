@@ -1031,16 +1031,12 @@ func (s *mf1State) hasCounter(m map[string]any, key string) bool {
 	return ok
 }
 
-func (s *mf1State) quoteFor(name, model string) (priceQuote, bool) {
-	suffix := "|" + s.st(name).id + "|" + model
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	for k, q := range s.b.quotes {
-		if strings.HasSuffix(k, suffix) {
-			return q, true
-		}
+func (s *mf1State) quoteFor(name, model string) (store.PriceQuote, bool) {
+	qs, err := s.b.db.PriceQuotes(s.st(name).id, model)
+	if err != nil || len(qs) == 0 {
+		return store.PriceQuote{}, false
 	}
-	return priceQuote{}, false
+	return qs[0].PriceQuote, true
 }
 
 func (s *mf1State) newLogs() string {
@@ -1485,7 +1481,7 @@ func aArrivals(want ...string) mf1A {
 func aNoLock(name, model string) mf1A {
 	return func(s *mf1State) error {
 		if q, ok := s.quoteFor(name, model); ok {
-			return fmt.Errorf("a price lock exists for (%s, %s) until %s", name, model, q.until.Format(time.RFC3339))
+			return fmt.Errorf("a price lock exists for (%s, %s) until %s", name, model, q.Until.Format(time.RFC3339))
 		}
 		return nil
 	}
@@ -2220,9 +2216,10 @@ func mf1Givens() []mf1Step {
 		{`the consumer has a 24 h lock on ("b1", "b") at 1.00/1.00 from yesterday`, func(s *mf1State) error {
 			b1 := s.stn("b1", mf1StOpt{})
 			s.lockUntil = time.Now().Add(2 * time.Hour).Truncate(time.Second)
-			s.b.mu.Lock()
-			s.b.quotes[s.consumerUser()+"|"+b1.id+"|b"] = priceQuote{in: 1, out: 1, until: s.lockUntil}
-			s.b.mu.Unlock()
+			// Minted window/2-ago-relative so it is still running for the scenario: lockUntil.
+			if _, err := s.db.QuotePrice(s.consumerUser(), b1.id, "b", 1, 1, s.lockUntil.Add(-24*time.Hour), 24*time.Hour); err != nil {
+				return err
+			}
 			return nil
 		}},
 		{`two broker instances share a store and instance 1 locked ("b1", "b") at 1.00/1.00`, func(s *mf1State) error {
@@ -2230,7 +2227,7 @@ func mf1Givens() []mf1Step {
 			s.behave("a1", mf1429(""))
 			b1 := s.stn("b1", mf1StOpt{})
 			s.b.multiInstance = true
-			s.b.quotedPrice(s.consumerUser(), b1.id, "b", 1, 1, true) // instance 1 mints the shared quote
+			_, _, _, _ = s.b.quotedPrice(s.consumerUser(), b1.id, "b", 1, 1, true) // instance 1 mints the shared quote
 			s.b.multiInstance = false                                 // ...and keeps delivering station results to local waiters
 			s.offers("b1", func(o *protocol.ModelOffer) { o.PriceIn, o.PriceOut = 2, 2 })
 			b1.priceIn, b1.priceOut = 2, 2
@@ -2711,7 +2708,7 @@ func mf1Thens() []mf1Step {
 			if !ok {
 				return fmt.Errorf("no lock exists for (b1, b)")
 			}
-			want := fmt.Sprintf("in=2.0000;out=2.0000;locked_until=%d", q.until.Unix())
+			want := fmt.Sprintf("in=2.0000;out=2.0000;locked_until=%d", q.Until.Unix())
 			return aHdr("X-RogerAI-Price", want)(s)
 		}),
 
@@ -2910,7 +2907,7 @@ func mf1Thens() []mf1Step {
 			if !ok {
 				return fmt.Errorf("no lock exists for (b1, b) (response %d %.160s)", s.lastCode, s.lastBody)
 			}
-			if d := time.Until(q.until); d < 23*time.Hour+50*time.Minute || d > 24*time.Hour+time.Minute {
+			if d := time.Until(q.Until); d < 23*time.Hour+50*time.Minute || d > 24*time.Hour+time.Minute {
 				return fmt.Errorf("the lock runs for %s, want ~24 h", d)
 			}
 			return nil

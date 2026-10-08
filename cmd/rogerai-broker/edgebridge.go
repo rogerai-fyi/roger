@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/fleet"
@@ -136,17 +137,30 @@ type edgeMetric struct {
 // hard mode writes it, soft mode lets the direct fabric answer instead.
 type edgeRefusal struct {
 	status     int
+	code       string // the error code, when the message alone does not name it
 	msg        string
 	retryAfter string
+	header     http.Header // headers the refusal carries (the monthly cap's X-RogerAI-Monthly-*)
 }
 
 func (e *edgeRefusal) write(w http.ResponseWriter) {
+	for k, v := range e.header {
+		w.Header()[k] = v
+	}
 	if e.retryAfter != "" {
 		w.Header().Set("Retry-After", e.retryAfter)
 	}
 	w.Header().Set("X-RogerAI-Cost", "0")
-	jsonErr(w, e.status, e.msg)
+	jsonErrCode(w, e.status, e.code, e.msg)
 }
+
+// headerSink is a ResponseWriter that only collects headers: how a decision that sets headers
+// (the monthly cap's refusal) is computed where nothing is written to the consumer yet.
+type headerSink struct{ h http.Header }
+
+func (s *headerSink) Header() http.Header         { return s.h }
+func (s *headerSink) Write(p []byte) (int, error) { return len(p), nil }
+func (s *headerSink) WriteHeader(int)             {}
 
 // edgeCallerFor resolves, ONCE per request, whether the consumer the relay authenticated may
 // ride the edge at all and which wallet is billed. These are the gates that do not depend on
@@ -221,7 +235,12 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 		return nil, none, edgeOutcome{refusal: &edgeRefusal{status: http.StatusTooManyRequests,
 			msg: "rate limit exceeded - slow down", retryAfter: fmt.Sprintf("%d", retry)}}
 	}
-	if !b.edgeAccountReserve(consumerWallet) {
+	if ok, rerr := b.edgeAccountReserveErr(consumerWallet); !ok {
+		if rerr != nil {
+			// The cap cannot be checked: fail closed (features/tower/edge_attempt_cap_shared.feature).
+			return nil, none, edgeOutcome{refusal: &edgeRefusal{status: http.StatusServiceUnavailable,
+				code: "shared_store_unavailable", msg: "the shared store is unavailable - retry shortly", retryAfter: "5"}}
+		}
 		return nil, none, edgeOutcome{refusal: &edgeRefusal{status: http.StatusTooManyRequests,
 			msg: "too many edge attempts open on this account at once - finish or abandon some before opening more", retryAfter: "5"}}
 	}
@@ -266,7 +285,29 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 	if hold.key == nil {
 		ownHold = edgeGrantCeiling(row.PriceIn, row.PriceOut)
 		if ownHold > 0 {
-			if hok, herr := b.db.HoldFor(consumerWallet, g.AttemptID, ownHold); herr != nil || !hok {
+			// Under the monthly cap like every paid path, decided in the hold transaction. In
+			// soft mode a refusal hands the request back to the direct path (which applies the
+			// same cap itself), so its headers and notice are not produced here.
+			sink := &headerSink{h: http.Header{}}
+			var hok bool
+			var capStatus int
+			var capMsg string
+			var herr error
+			if soft {
+				monthlyCap := 0.0
+				if ownHold > freeFloorHold {
+					monthlyCap, _ = b.db.MonthlyCapOf(consumerWallet)
+				}
+				var res store.CappedHold
+				res, herr = b.db.HoldForCapped(consumerWallet, g.AttemptID, ownHold, monthlyCap, time.Now())
+				hok = res.OK
+			} else {
+				hok, capStatus, capMsg, herr = b.holdUnderCap(sink, consumerWallet, g.AttemptID, ownHold, time.Now())
+			}
+			if herr != nil || !hok {
+				if capStatus != 0 {
+					return nil, none, edgeOutcome{refusal: &edgeRefusal{status: capStatus, msg: capMsg, header: sink.h}}
+				}
 				return nil, none, edgeOutcome{refusal: &edgeRefusal{status: http.StatusPaymentRequired, msg: "insufficient balance for this request"}}
 			}
 		}

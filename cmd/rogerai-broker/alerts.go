@@ -561,9 +561,22 @@ func (b *broker) checkHealthAlerts() {
 		b.alertClear("db_down")
 	}
 
-	// Optional shared state layer (Valkey): only a dependency when wired.
-	if b.shared != nil {
-		if b.shared.healthy() {
+	// Optional shared state layer (Valkey): only a dependency when wired - or when configured
+	// but not yet answering at boot, which refuses every request (readinessGate) and so is an
+	// outage in its own right.
+	switch b.sharedPhase.Load() {
+	case sharedConnecting, sharedNotConfigured:
+		status := "configured but not answering at boot"
+		if b.sharedPhase.Load() == sharedNotConfigured {
+			status = "multi-instance enabled with no shared-store address"
+		}
+		b.adminAlert("valkey_down", "shared state (Valkey) unreachable", "Shared state layer (Valkey) is unreachable",
+			[][2]string{{"Component", "Valkey / shared store"}, {"Status", status}},
+			"This broker is NOT READY: it refuses every request until the shared store answers.")
+		return
+	}
+	if ss := b.sharedLive(); ss != nil {
+		if ss.healthy() {
 			b.alertClear("valkey_down")
 		} else {
 			b.adminAlert("valkey_down", "shared state (Valkey) unreachable", "Shared state layer (Valkey) is unreachable",

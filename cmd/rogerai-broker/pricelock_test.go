@@ -6,6 +6,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // pricelock_test.go - promo locks (contract §14.12): the posted-since time is shared
@@ -27,11 +28,20 @@ func TestPostedSinceSharedAndPromoLock(t *testing.T) {
 	require.False(t, b.promoLock("n1", "m", 0.1, 0.6), "posted 2 h: a full lock")
 	require.True(t, b.promoLock("n1", "m", 0.1, 0.1), "a price first seen now: a promo lock")
 
-	q := priceQuote{in: 0.1, out: 0.1, until: time.Now().Add(time.Hour), promo: true}
-	require.True(t, q.live(time.Now(), 0.1, 0.1))
-	require.False(t, q.live(time.Now(), 0.1, 0.6), "a promo lock ends when its price does")
-	q.promo = false
-	require.True(t, q.live(time.Now(), 0.1, 0.6), "a full lock protects against the hike")
+	// The durable lock keeps the promo rule (store.LockPrice): a promo lock ends with its price,
+	// a full lock protects against the hike.
+	db, at := store.NewMem(), time.Now()
+	_, ok, err := db.LockPrice("u", "n1", "m", 0.1, 0.1, at, time.Hour, store.LockOpts{Mint: true, Promo: true})
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, ok, _ = db.LockPrice("u", "n1", "m", 0.1, 0.1, at, time.Hour, store.LockOpts{})
+	require.True(t, ok, "a promo lock lives while its price does")
+	_, ok, _ = db.LockPrice("u", "n1", "m", 0.1, 0.6, at, time.Hour, store.LockOpts{})
+	require.False(t, ok, "a promo lock ends when its price does")
+	_, _, _ = db.LockPrice("u", "n2", "m", 0.1, 0.1, at, time.Hour, store.LockOpts{Mint: true})
+	q, ok, _ := db.LockPrice("u", "n2", "m", 0.1, 0.6, at, time.Hour, store.LockOpts{})
+	require.True(t, ok, "a full lock protects against the hike")
+	require.Equal(t, 0.1, q.Out)
 
 	mr.SetError("ERR down")
 	require.False(t, a.promoLock("n1", "m", 0.2, 0.2), "unknown posted-since: the full lock")
