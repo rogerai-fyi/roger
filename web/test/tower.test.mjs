@@ -156,7 +156,10 @@ test("the manual and the tower page reconcile the same two names", () => {
 test("the page offers the Tower it describes", () => {
   // features/web/tower.feature, superseded 2026-10-07 (one binary): a Tower is part of roger.
   const p = page();
-  assert.match(p, /<code class="install__code">curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh<\/code>/,
+  const box = p.match(/<code class="install__code">([\s\S]*?)<\/code>/);
+  assert.ok(box, "the page has an install box");
+  // the visible command, read through the unbreakable-token spans (qa-polish4)
+  assert.equal(box[1].replace(/<[^>]+>/g, ""), "curl -fsSL https://rogerai.fm/install.sh | sh",
     "the normal roger install command is offered");
   assert.doesNotMatch(p, /ROGERAI_COMPONENT=tower/, "not a separate Tower component");
   assert.doesNotMatch(p, /data-os-lock="linux"/,
