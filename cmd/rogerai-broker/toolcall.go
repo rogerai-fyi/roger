@@ -354,9 +354,11 @@ func (b *broker) syncToolsVerified() {
 // and a peer never surfaces a verdict the host retracted. Caller holds metricsMu.
 func (b *broker) toolsVerifiedForLocked(nodeID, model string) bool {
 	if b.shared != nil {
-		return b.toolsMerged[toolKey(nodeID, model)]
+		return b.toolsMerged[toolKey(nodeID, model)] // the shared field carries its own TTL
 	}
-	return b.toolsOK[toolKey(nodeID, model)]
+	// Single-instance has no shared TTL, so a node on the declared probe-minimum lane gets
+	// the same toolsVerifiedTTL clock here: the verdict is never extended to cover the gap.
+	return b.toolsOK[toolKey(nodeID, model)] && !b.probeMinLapsedLocked(nodeID, time.Now(), toolsVerifiedTTL)
 }
 
 // authoritativeFor reports whether THIS instance hosts the node's live poll and may therefore

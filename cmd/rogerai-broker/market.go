@@ -180,7 +180,8 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	quality := tq.score()
 	ttft := tq.ttftMs
 	// verified means what routing's trust_min=verified means: a passed canary within the
-	// measurement freshness window (verifiedFreshLocked), so the feed and the pick agree.
+	// measurement freshness window (verifiedFreshLocked), so the feed and the pick agree. A
+	// declared probe minimum never extends the mark (verifiedFreshLocked checks it too).
 	verified := b.verifiedFreshLocked(n.NodeID, tq, now)
 	staleness := b.measurementStalenessLocked(n.NodeID, now)
 	capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
@@ -516,7 +517,7 @@ func (b *broker) computeMarketKeep(keep func(node, model string) bool) any {
 		tq := b.trust[n.NodeID]
 		ttft := tq.ttftMs
 		quality := tq.score()
-		verified := tq.verifiedServing()
+		verified := b.verifiedFreshLocked(n.NodeID, tq, now)
 		// Per-node time-decayed success evidence (organic EWMA, else probe-verified or
 		// neutral) - NOT the old constant 1.0, so an unproven idle node doesn't inflate
 		// the channel's reliability.
