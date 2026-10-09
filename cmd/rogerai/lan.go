@@ -551,6 +551,17 @@ var lanSelfServe = func(band string) (string, string) {
 	return "", ""
 }
 
+// lanSelfQuant is the quant label of this machine's own serve of a band: the `roger model serve`
+// record names its weights' quant; a SHARE upstream carries no label ("" = unlabeled).
+var lanSelfQuant = func(band string) string {
+	for _, sv := range modelHome().LiveAll() {
+		if sv.Band == band && sv.BaseURL != "" {
+			return sv.Quant
+		}
+	}
+	return ""
+}
+
 // applyLAN puts the ladder in LAN mode: this machine, then Edge members, then the LAN
 // Towers serving the band, from the one LAN dial; the market is never a rung.
 func applyLAN(cfg config, o *client.ProxyOptions) {
@@ -559,6 +570,21 @@ func applyLAN(cfg config, o *client.ProxyOptions) {
 	}
 	o.LANMode, o.LANEdgeOnly, o.EdgePrefer = true, cfg.lan.EdgeOnly, "local-only"
 	o.LANSelf = lanSelfServe
+	// provider.quantizations, provider.order and @class/ on the ladder: this machine's quant and
+	// name, and the bands every local source serves (the one LAN dial) for a class to expand over.
+	o.LANSelfQuant = func(b string) string { return lanSelfQuant(b) }
+	if id, _, ok, _ := edgeIdentityStore().LoadIdentity(); ok {
+		o.LANSelfName = id.NodeID
+	}
+	o.LANBands = func() []string {
+		var out []string
+		for _, b := range lanDial(cfg).Bands {
+			if !b.Voice {
+				out = append(out, b.Model)
+			}
+		}
+		return out
+	}
 	o.LANHTTP, o.LANResolve = lanProbeHTTP, lanResolve
 	if !cfg.lan.EdgeOnly {
 		o.LANTowers = func(band string) []string { return lanTowersServing(cfg, band) }

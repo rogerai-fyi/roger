@@ -84,7 +84,8 @@ func newEdgeFace(t *testing.T, node string, delay time.Duration) *edgeFace {
 }
 
 // memberAt records a VERIFIED Edge member serving band whose LAN face is at addr, pinned to pin.
-func (s *lanDialBDD) memberAt(node, band, addr, pin string) error {
+// A quant, when given, is the label the member's own serve record carries for band.
+func (s *lanDialBDD) memberAt(node, band, addr, pin string, quant ...string) error {
 	if err := s.enroll(); err != nil {
 		return err
 	}
@@ -95,6 +96,9 @@ func (s *lanDialBDD) memberAt(node, band, addr, pin string) error {
 	id := "n_" + node + strings.Repeat("0", 24-len(node))
 	obs := edge.Observation{Name: node, Kind: "host", Addr: addr, Fingerprint: pin, Instances: []edge.Instance{{Name: "serve",
 		Caps: []store.EdgeCap{{Name: string(edge.Serve), State: string(edge.Claimed)}}, Bands: []string{band}}}}
+	if len(quant) > 0 {
+		obs.Instances[0].Model = &store.EdgeModel{Band: band, Quant: quant[0]}
+	}
 	if _, err := st.fleet.Observe(id, obs); err != nil {
 		return err
 	}

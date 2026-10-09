@@ -828,6 +828,7 @@ func cmdUse(cfg config, args []string) error {
 	}
 	opt.EdgePeers, opt.EdgePrefer, opt.EdgeCert, opt.EdgeVerify = po.EdgePeers, po.EdgePrefer, po.EdgeCert, po.EdgeVerify
 	opt.LANMode, opt.LANEdgeOnly, opt.LANSelf, opt.LANTowers, opt.LANHTTP, opt.LANResolve = po.LANMode, po.LANEdgeOnly, po.LANSelf, po.LANTowers, po.LANHTTP, po.LANResolve
+	opt.LANSelfQuant, opt.LANSelfName, opt.LANBands = po.LANSelfQuant, po.LANSelfName, po.LANBands
 	if cfg.lan.LAN {
 		opt.LANSources = func(band string) []client.LANSource {
 			src := lanSourcesOf(cfg, band)
