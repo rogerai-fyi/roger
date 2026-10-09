@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/routingrules"
 )
 
 // relayLAN serves the turn on the LAN or refuses it; it never returns (false, false).
@@ -33,8 +34,26 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	// the LAN every turn is free and the measured-fastest member is tried first anyway, so the
 	// band is looked up bare and the source is sent the model it serves.
 	band = lanBand(band)
+	if strings.HasPrefix(band, routingrules.ClassPrefix) {
+		resolved, status, msg := lanResolveClass(opts, band)
+		if resolved == "" {
+			code := "lan_only"
+			if status == http.StatusBadRequest {
+				code = "unknown_model_class" // the market's code for the same refusal
+			}
+			openAIError(w, status, "lan_error", code, msg)
+			return false, true
+		}
+		band = resolved
+	}
 	if out, _, ok := rewriteModel(body, band, false); ok {
 		body = out
+	}
+	var refusal string
+	opts, refusal = lanConstrain(opts, band, body)
+	if refusal != "" {
+		openAIError(w, http.StatusServiceUnavailable, "lan_error", "lan_only", refusal)
+		return false, true
 	}
 	var tried []string
 	if opts.LANSelf != nil {
@@ -308,7 +327,8 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), OnReceipt: opt.OnReceipt,
 		Alert:     func(s string) { fmt.Fprintln(os.Stderr, "rogerai: "+s) },
 		EdgePeers: opt.EdgePeers, EdgePrefer: "local-only", EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify,
-		LANMode: opt.LANMode, LANEdgeOnly: opt.LANEdgeOnly, LANSelf: opt.LANSelf, LANTowers: opt.LANTowers, LANHTTP: opt.LANHTTP, LANResolve: opt.LANResolve}
+		LANMode: opt.LANMode, LANEdgeOnly: opt.LANEdgeOnly, LANSelf: opt.LANSelf, LANTowers: opt.LANTowers, LANHTTP: opt.LANHTTP, LANResolve: opt.LANResolve,
+		LANSelfQuant: opt.LANSelfQuant, LANSelfName: opt.LANSelfName, LANBands: opt.LANBands}
 	return useServe(ln, newProxyHandler(opts))
 }
 

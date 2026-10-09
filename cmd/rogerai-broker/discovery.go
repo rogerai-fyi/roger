@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/routingrules"
 )
 
 // discoverCacheKey is the ONE shared cache entry for the public offer feed.
@@ -213,8 +214,5 @@ func readFilter(w http.ResponseWriter, r *http.Request) (offerFilter, bool) {
 // quantOK applies the quant filter the way the relay applies provider.quantizations: labels
 // match case-insensitively, and "unknown" admits an offer that carries no quant label.
 func (f offerFilter) quantOK(quant string) bool {
-	if quant == "" {
-		return f.quants[protocol.QuantUnknown]
-	}
-	return f.quants[strings.ToLower(quant)]
+	return routingrules.QuantAdmits(f.quants, quant)
 }

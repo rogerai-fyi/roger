@@ -54,6 +54,7 @@ func (s *lanRouteBDD) resetRoute() {
 	s.tweak, s.receipts, s.alerts = nil, nil, nil
 	s.off, s.bearer, s.cliOut, s.cliErr = false, "", "", nil
 	lanSelfServe = func(string) (string, string) { return "", "" }
+	lanSelfQuant = func(string) string { return "" }
 }
 
 // prodLANSelfServe is the production self rung, put back after every scenario so a runner's
@@ -63,6 +64,17 @@ var prodLANSelfServe = lanSelfServe
 func (s *lanRouteBDD) restoreRoute() {
 	s.lanDialBDD.restore()
 	lanSelfServe = prodLANSelfServe
+	lanSelfQuant = prodLANSelfQuant
+}
+
+// prodLANSelfQuant is the production self-rung quant label, put back after every scenario.
+var prodLANSelfQuant = lanSelfQuant
+
+// faceQuant stands an Edge member's face serving band, its instance record labelled quant.
+func (s *lanRouteBDD) faceQuant(node, band, quant string) error {
+	f := newEdgeFace(s.t, node, 0)
+	s.faces[node] = f
+	return s.memberAt(node, band, f.addr(), f.pin, quant)
 }
 
 func (s *lanRouteBDD) counting(name string, hits *atomic.Int32) *httptest.Server {
@@ -186,7 +198,7 @@ func (s *lanRouteBDD) cli(args ...string) error {
 func TestLANRoutingBDD(t *testing.T) {
 	s := &lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}
 	var paths []string
-	for _, l := range []int{49, 57, 66, 75, 86, 94, 111, 117, 125, 131, 238, 247, 258, 278, 305, 312} {
+	for _, l := range []int{49, 57, 66, 75, 86, 94, 111, 117, 125, 131, 238, 247, 258, 271, 278, 286, 292, 299, 305, 312, 321} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/routing_and_inference.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -205,7 +217,7 @@ func TestLANRoutingBDD(t *testing.T) {
 				}
 				return s.towerServing(addr, band)
 			})
-			sc.Step(`^a turn is dispatched for "([^"]*)"$`, s.dispatch)
+			sc.Step(`^a turn is dispatched for "([^"<]*)"$`, s.dispatch)
 			sc.Step(`^it is served by this machine$`, func() error { return s.servedBy("self") })
 			sc.Step(`^no peer, no Tower and no broker was contacted for inference$`, func() error {
 				if s.towerHits.Load() != 0 {
@@ -452,6 +464,85 @@ func TestLANRoutingBDD(t *testing.T) {
 					return fmt.Errorf("the Tower request carried no signature")
 				}
 				return nil
+			})
+			// routing constraints on the LAN ladder (class aliases, quantizations, provider.order)
+			sc.Step(`^the local sources serve "([^"]*)" and "([^"]*)"$`, func(a, b string) error {
+				if err := s.face("atlas", a, 0); err != nil {
+					return err
+				}
+				return s.face("zephyr", b, 0)
+			})
+			sc.Step(`^a turn is dispatched for "@class/<a class both belong to>"$`, func() error {
+				// @class/medium (7B to 24B, founder ruling 2026-10-09) holds both the 8B and the 20B band.
+				return s.dispatch("@class/medium")
+			})
+			sc.Step(`^it resolves to one of the local bands$`, func() error {
+				if s.code != http.StatusOK {
+					return fmt.Errorf("status %d: %s", s.code, s.body)
+				}
+				for _, f := range s.faces {
+					if v, _ := f.lastModel.Load().(string); v == "qwen3-8b" || v == "gpt-oss-20b" {
+						return nil
+					}
+				}
+				return fmt.Errorf("no local source received the class's local band: %s", s.body)
+			})
+			sc.Step(`^never to a market band of that class$`, func() error {
+				if s.broker.count() != 0 {
+					return fmt.Errorf("the broker was asked: %v", s.broker.paths)
+				}
+				return nil
+			})
+			sc.Step(`^the Edge member "([^"]*)" serves "([^"]*)" quantized "([^"]*)" and this machine serves it quantized "([^"]*)"$`, func(node, band, q, selfQ string) error {
+				if err := s.faceQuant(node, band, q); err != nil {
+					return err
+				}
+				if err := s.machineServesRoute(band); err != nil {
+					return err
+				}
+				lanSelfQuant = func(b string) string {
+					if b == band {
+						return selfQ
+					}
+					return ""
+				}
+				return nil
+			})
+			sc.Step(`^only the Edge member "([^"]*)" serves "([^"]*)" quantized "([^"]*)"$`, func(node, band, q string) error {
+				return s.faceQuant(node, band, q)
+			})
+			sc.Step(`^a turn is dispatched for "([^"]*)" with provider\.quantizations \["([^"]*)"\]$`, func(band, q string) error {
+				return s.dispatchBody(band, `{"model":"`+band+`","messages":[{"role":"user","content":"hi"}],"provider":{"quantizations":["`+q+`"]}}`)
+			})
+			sc.Step(`^it is refused naming provider\.quantizations$`, func() error {
+				if err := s.refusedNaming("provider.quantizations"); err != nil {
+					return err
+				}
+				for n, f := range s.faces {
+					if f.hits.Load() != 0 {
+						return fmt.Errorf("%s served a turn it does not meet the constraint for", n)
+					}
+				}
+				return nil
+			})
+			sc.Step(`^a turn is dispatched with provider\.order naming a market station id and allow_fallbacks false$`, func() error {
+				// something local serves the band, so only the order can be why it is refused
+				if err := s.machineServesRoute("qwen3-8b"); err != nil {
+					return err
+				}
+				return s.dispatchBody("qwen3-8b", `{"model":"qwen3-8b","messages":[{"role":"user","content":"hi"}],"provider":{"order":["st-9f2c41d0a7b3"],"allow_fallbacks":false}}`)
+			})
+			sc.Step(`^it is refused, saying the named station is not on this LAN$`, func() error {
+				if err := s.refusedNaming("st-9f2c41d0a7b3", "not on this LAN"); err != nil {
+					return err
+				}
+				if n := s.selfHits.Load(); n != 0 {
+					return fmt.Errorf("this machine served %d turn(s) the order excluded", n)
+				}
+				return nil
+			})
+			sc.Step(`^a guest turn for "([^"]*)" carries provider\.order naming the LAN Tower at ([0-9.:]+) first$`, func(band, addr string) error {
+				return s.dispatchBody(band, `{"model":"`+band+`","messages":[{"role":"user","content":"hi"}],"provider":{"order":["`+addr+`"]}}`)
 			})
 			sc.Step(`^it is served$`, func() error {
 				// the turn carries the caps the Given names

@@ -51,7 +51,7 @@ func edgePeersFor(band string) []client.EdgePeer {
 		if addr == "" || pin == "" {
 			continue
 		}
-		out = append(out, client.EdgePeer{Addr: addr, Pin: pin, Node: l.Node.Name, Instance: l.Instance.Name})
+		out = append(out, client.EdgePeer{Addr: addr, Pin: pin, Node: l.Node.Name, Instance: l.Instance.Name, Quant: instanceQuant(l.Instance, band)})
 	}
 	return out
 }
@@ -108,4 +108,21 @@ func edgeResolveAddressed(addr, model string) (peer client.EdgePeer, band string
 		}
 	}
 	return client.EdgePeer{Addr: a, Pin: pin, Node: loc.Node.Name, Instance: loc.Instance.Name}, b, true, nil
+}
+
+// instanceQuant is the quant label an instance's own serve record carries for band ("" when it
+// serves the band some other way, or says nothing about its weights).
+func instanceQuant(in edge.Instance, band string) string {
+	if in.Model == nil {
+		return ""
+	}
+	if in.Model.Band == band {
+		return in.Model.Quant
+	}
+	for _, a := range in.Model.Also {
+		if a.Band == band {
+			return a.Quant
+		}
+	}
+	return ""
 }

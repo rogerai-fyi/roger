@@ -17,6 +17,7 @@
 #       @class/coding-30b : chat models with params_b in [24, 40] and at least one tools-VERIFIED
 #                           eligible offer
 #       @class/small      : chat models with params_b <= 9
+#       @class/medium     : chat models with params_b in [7, 24] (founder ruling 2026-10-09)
 #       @class/large      : chat models with params_b >= 60
 #     params_b = the model's declared value or its id estimate; a model with neither is never in
 #     a size class.
@@ -220,3 +221,25 @@ Feature: A model class expands to a transparent models[] list
   Scenario: There is no hidden classifier: the same request and market always give the same list
     When "u-1" relays for "@class/coding-30b" with two very different prompts
     Then both requests had the same effective models
+
+  # founder ruling 2026-10-09: @class/medium covers the models of 7B to 24B
+  Scenario: @class/medium expands to models between 7B and 24B
+    Given a chat model "gpt-oss-20b" with declared params_b 20 and verified tools is on air
+    When "u-1" relays for "@class/medium"
+    Then "llama-3.1-8b" is among the effective models
+    And "gpt-oss-20b" is among the effective models
+    And "phi-4-mini" is not among the effective models
+    And "gemma-3-27b" is not among the effective models
+
+  # founder ruling 2026-10-09
+  Scenario Outline: @class/medium boundaries are inclusive
+    Given a chat model "<model>" with declared params_b <size> and verified tools is on air
+    When "u-1" relays for "@class/medium"
+    Then "<model>" <is> among the effective models
+
+    Examples:
+      | model   | size | is     |
+      | edge-7  | 7    | is     |
+      | edge-6  | 6    | is not |
+      | edge-24 | 24   | is     |
+      | edge-25 | 25   | is not |

@@ -422,12 +422,22 @@ type ProxyOptions struct {
 	LANEdgeOnly bool
 	LANSelf     func(band string) (url, key string)
 	LANTowers   func(band string) []string
+	// Routing constraints on the LAN ladder (features/lan/routing_and_inference.feature):
+	// LANSelfQuant is the quant label of this machine's own serve of a band ("" = unlabeled),
+	// LANSelfName the id provider.order may use for this machine (its Edge node id), and
+	// LANBands every band some local source serves, which a @class/ alias expands over.
+	LANSelfQuant func(band string) string
+	LANSelfName  string
+	LANBands     func() []string
 	// LANNotLocal is told when a configured LAN address answered a turn WITHOUT the standalone
 	// Tower's local marker; the CLI stops sending it turns until the owner re-adds it.
 	LANNotLocal func(addr string)
-	LANHTTP     *http.Client
-	LANResolve  lanmode.Resolver
-	LANKey      ed25519.PrivateKey
+	// lanOrdered: the Edge rung's peers are already in provider.order's order (relayLAN set
+	// it), so the measured-pace order does not replace it.
+	lanOrdered bool
+	LANHTTP    *http.Client
+	LANResolve lanmode.Resolver
+	LANKey     ed25519.PrivateKey
 
 	Broker, User string
 	Confidential bool
@@ -1869,9 +1879,13 @@ type UseOptions struct {
 	LANSelf     func(band string) (url, key string)
 	LANTowers   func(band string) []string
 	LANSources  func(band string) []LANSource
-	LANHTTP     *http.Client
-	LANResolve  lanmode.Resolver
-	Pinned      string
+	// See ProxyOptions: the LAN ladder's routing-constraint seams.
+	LANSelfQuant func(band string) string
+	LANSelfName  string
+	LANBands     func() []string
+	LANHTTP      *http.Client
+	LANResolve   lanmode.Resolver
+	Pinned       string
 
 	Port         int
 	Confidential bool
@@ -2698,6 +2712,7 @@ type EdgePeer struct {
 	Pin      string // SHA-256 of the certificate it must present
 	Node     string
 	Instance string
+	Quant    string // the quant label its own serve record carries for the band ("" = unlabeled)
 }
 
 // preferOf is the effective preference: local unless the owner said otherwise.
@@ -2746,7 +2761,7 @@ func tryEdgePeers(ctx context.Context, w http.ResponseWriter, opts ProxyOptions,
 		return false, nil
 	}
 	peers := opts.EdgePeers(band)
-	if opts.LANMode {
+	if opts.LANMode && !opts.lanOrdered {
 		peers = lanOrderPeers(peers) // within the rung, the member measured faster here goes first
 	}
 	var tried []string

@@ -853,19 +853,6 @@ func rewriteBodyDrop(body []byte, drop map[string]bool, set map[string]json.RawM
 	return encodeKVs(rebuildKVs(kvs, drop, set))
 }
 
-// quantSet lowercases a provider.quantizations list into the case-insensitive set pickFor
-// matches an offer's verbatim quant label against. "unknown" admits an unlabeled offer.
-func quantSet(labels []string) map[string]bool {
-	if len(labels) == 0 {
-		return nil
-	}
-	set := make(map[string]bool, len(labels))
-	for _, l := range labels {
-		set[strings.ToLower(strings.TrimSpace(l))] = true
-	}
-	return set
-}
-
 // stringSet turns a node-id list into a lookup set (nil for an absent list).
 func stringSet(l []string) map[string]bool {
 	if l == nil {

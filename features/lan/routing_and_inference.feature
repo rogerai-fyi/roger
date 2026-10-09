@@ -266,8 +266,8 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
       | qwen3-8b:free   | any local source, every LAN turn is already free          |
       | qwen3-8b:nitro  | the measured-fastest local source first                   |
       | qwen3-8b:floor  | any local source; there is no price to floor on the LAN   |
-
-  @client @blocked-on-lan-routing-constraints @needs-class-catalog-in-client
+  # unblocked 2026-10-08: the class table is shared with the broker (internal/routingrules), resolved over local bands only
+  @client
   Scenario: a class alias resolves against local bands only
     Given the local sources serve "qwen3-8b" and "gpt-oss-20b"
     When a turn is dispatched for "@class/<a class both belong to>"
@@ -281,21 +281,21 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     When a turn is dispatched for "qwen3-8b"
     Then it is served
     # Every LAN source prices at 0, so any cap at or above 0 admits it.
-
-  @client @blocked-on-lan-routing-constraints @needs-quant-on-lan-sources
+  # unblocked 2026-10-08: local sources carry their quant label (the serve record, the Edge instance record; a Tower is unlabeled)
+  @client
   Scenario: routing constraints still filter local sources
     Given the Edge member "jetson" serves "qwen3-8b" quantized "Q4_K_M" and this machine serves it quantized "Q8_0"
     When a turn is dispatched for "qwen3-8b" with provider.quantizations ["Q8_0"]
     Then it is served by this machine
-
-  @client @blocked-on-lan-routing-constraints @needs-quant-on-lan-sources
+  # unblocked 2026-10-08: the market's quant rule (routingrules.QuantAdmits) filters the LAN ladder
+  @client
   Scenario: a routing constraint no local source meets is refused, naming the constraint
     Given only the Edge member "jetson" serves "qwen3-8b" quantized "Q4_K_M"
     When a turn is dispatched for "qwen3-8b" with provider.quantizations ["Q8_0"]
     Then it is refused naming provider.quantizations
     And no request was made to the public broker
-
-  @client @blocked-on-lan-routing-constraints @needs-lan-provider-order
+  # unblocked 2026-10-08: the LAN ladder reads provider.order and allow_fallbacks
+  @client
   Scenario: provider.order naming a market station is refused, not honored
     When a turn is dispatched with provider.order naming a market station id and allow_fallbacks false
     Then it is refused, saying the named station is not on this LAN
@@ -315,3 +315,17 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     Then the request to the Tower does not carry the account key
     And it carries this machine's signature instead
     # A LAN Tower is plain http; the existing rule refuses account keys over plain http.
+
+  # RULED 2026-10-09: provider.order sorts within a rung; your own hardware always precedes Towers
+  @client
+  Scenario Outline: a provider.order naming a LAN Tower first does not lift it above your own hardware
+    Given <own>
+    And the LAN Tower at 192.168.1.20:8787 also serves "qwen3-8b"
+    When a guest turn for "qwen3-8b" carries provider.order naming the LAN Tower at 192.168.1.20:8787 first
+    Then it is served by <server>
+    And the Tower was not contacted for inference
+
+    Examples:
+      | own                                                             | server                         |
+      | this machine serves "qwen3-8b"                                  | this machine                   |
+      | the Edge member "atlas" serves "qwen3-8b", VERIFIED, LAN-direct | "atlas" over mTLS              |
