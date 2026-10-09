@@ -23,6 +23,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/ctxsig"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/routingrules"
 	"rogerai.fm/roger/v6/internal/store"
 
 	"rogerai.fm/roger/v6/internal/netpriv"
@@ -2293,7 +2294,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// ctx re-pick, failover plan); only the seed differs per attempt.
 	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, outTokens: lim.stated(), sort: routeSort,
 		needTools: doc.needsTools(), needVision: bodyVision,
-		quants: quantSet(routing.Quantizations), netFilters: routing.Net, budget: newPickBudget(),
+		quants: routingrules.QuantSet(routing.Quantizations), netFilters: routing.Net, budget: newPickBudget(),
 		pairCool: b.payerCooling(payerKey)}
 	// The work this relay did, one line per request (§14.B #12's observation point).
 	defer func() {
@@ -5779,7 +5780,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			}
 			// provider.quantizations: the verbatim label, case-insensitive, never bucketed;
 			// an unlabeled offer matches only the reserved value "unknown".
-			if req.quants != nil && !req.quants[strings.ToLower(o.Quant)] && !(o.Quant == "" && req.quants["unknown"]) {
+			if !routingrules.QuantAdmits(req.quants, o.Quant) {
 				continue
 			}
 			// IMPLICIT capability gating (defect 5): tools only on the probe-VERIFIED

@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/routingrules"
 	"rogerai.fm/roger/v6/internal/towercore/admit"
 	"rogerai.fm/roger/v6/internal/towercore/attempt"
 	"rogerai.fm/roger/v6/internal/towercore/comp"
@@ -990,7 +991,7 @@ func (b *broker) edgeEligibleM(rows []fleet.Station, bannedNode map[string]bool,
 			c.note("self_hosted_only", row.TowerID)
 			continue
 		}
-		if c.quants != nil && !c.quants[strings.ToLower(offer.Quant)] && !(offer.Quant == "" && c.quants["unknown"]) {
+		if !routingrules.QuantAdmits(c.quants, offer.Quant) {
 			c.note("quantizations", row.TowerID)
 			continue
 		}
