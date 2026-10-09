@@ -11,44 +11,74 @@
 #   edgesim roger <name> <args...>   run roger there
 #   edgesim seed <pi> [<models dir>]   copy the CPU llama.cpp runtime and models into a Pi,
 #                         for when the simulated network has no internet
+#   edgesim desk [name]   add a member you drive by hand (default "desk"), joined like a Pi
+#   edgesim tui [name]    open roger's screen on that member; it is on the Edge while the screen is open
 #   edgesim down          stop and remove everything (volumes too)
+#
+#   EDGESIM_ROGER=/path/to/roger   run that prebuilt roger in every machine instead of building one
+#   EDGESIM_PREFIX=<word>          name the network, machines and volumes <word>-* (default edgesim),
+#                                  so a second simulated Edge never touches the first
+#   EDGESIM_PUBLISH=1              publish the hub's authority port (39009) on this host, so a phone
+#                                  on your network can join at http://<this host's address>:39009
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-NET=edgesim
-IMAGE=localhost/edgesim:latest
-HUB=edgesim-hub
+P="${EDGESIM_PREFIX:-edgesim}"
+NET="$P"
+IMAGE="localhost/$P:latest"
+HUB="$P-hub"
 MODEL="${EDGESIM_MODEL:-Raspberry Pi 5 Model B Rev 1.0}"
 
 say() { printf 'edgesim: %s\n' "$*"; }
 
 build() {
-	say "building roger and the simulated-Pi image"
-	(cd "$REPO" && CGO_ENABLED=0 GOTMPDIR="${GOTMPDIR:-$HOME/.cache/gotmp}" TMPDIR="${TMPDIR:-$HOME/.cache/gotmp}" \
-		go build -ldflags "-X main.Version=$(cd "$REPO" && git describe --always --dirty)-edgesim" -o "$HERE/roger" ./cmd/rogerai)
+	if [ -n "${EDGESIM_ROGER:-}" ]; then
+		[ -x "$EDGESIM_ROGER" ] || { say "EDGESIM_ROGER=$EDGESIM_ROGER is not an executable roger"; exit 1; }
+		say "using $EDGESIM_ROGER ($("$EDGESIM_ROGER" --version 2>/dev/null | tail -1)) in every simulated machine"
+		cp "$EDGESIM_ROGER" "$HERE/roger"
+	else
+		say "building roger and the simulated-Pi image"
+		(cd "$REPO" && CGO_ENABLED=0 GOTMPDIR="${GOTMPDIR:-$HOME/.cache/gotmp}" TMPDIR="${TMPDIR:-$HOME/.cache/gotmp}" \
+			go build -ldflags "-X rogerai.fm/roger/v6/internal/buildinfo.Version=$(cd "$REPO" && git describe --always --dirty)-edgesim" -o "$HERE/roger" ./cmd/rogerai)
+	fi
 	podman build -q -t "$IMAGE" "$HERE" >/dev/null
 	rm -f "$HERE/roger"
 }
 
-run_node() { # name role model
+run_node() { # name role model [extra podman args...]
 	# A Pi 5's resources (EDGESIM_MEMORY / EDGESIM_CPUS), and none of the host's GPUs: a simulated
-	# Pi must not see the cards of the machine it runs on.
-	podman run -d --name "edgesim-$1" --hostname "$1" --network "$NET" \
+	# Pi must not see the cards of the machine it runs on. The test build must never offer to
+	# replace itself, so the update check is off in every simulated machine.
+	local name="$1" role="$2" model="$3"; shift 3
+	podman run -d --name "$P-$name" --hostname "$name" --network "$NET" \
 		--memory "${EDGESIM_MEMORY:-8g}" --cpus "${EDGESIM_CPUS:-4}" \
 		--security-opt mask=/sys/class/drm \
-		-v "edgesim-$1:/root/.config" \
-		-e ROGERAI_EDGE_MACHINE="$3" -e EDGESIM_NAME="$1" \
+		-v "$P-$name:/root/.config" \
+		-e ROGERAI_EDGE_MACHINE="$model" -e EDGESIM_NAME="$name" -e ROGERAI_NO_UPDATE_CHECK=1 \
 		-e ROGERAI_EDGE_BIND=:44100 -e ROGERAI_EDGE_AUTHORITY_BIND=:39009 \
-		"$IMAGE" "$2" >/dev/null
+		"$@" "$IMAGE" "$role" >/dev/null
 }
 
-r() { local n="$1"; shift; podman exec "edgesim-$n" roger "$@"; }
+r() { local n="$1"; shift; podman exec "$P-$n" roger "$@"; }
+
+# join <name>: allow the member's key on the hub, then enroll it with the one-time code that allow
+# prints. A first join must prove the root it is given (features/edge/enrollment_root_trust.feature),
+# so the code travels from the hub's answer to the member's command, exactly as an owner copies it.
+join() {
+	local name="$1" key out code
+	key="$(podman exec "$P-$name" roger edge setup </dev/null 2>/dev/null | awk '/authority allow/ {print $NF}')"
+	[ -n "$key" ] || { say "$name printed no key to allow"; return 1; }
+	out="$(r hub edge authority allow "$key" 2>&1)"
+	code="$(printf '%s\n' "$out" | awk '/enrollment code:/ {print $3; exit}')"
+	[ -n "$code" ] || { say "the hub printed no enrollment code for $name:"; printf '%s\n' "$out"; return 1; }
+	r "$name" edge enroll "$name" --authority "http://$HUB:39009" --code "$code" | grep -v 'update available' || true
+}
 
 up() {
 	local n="${1:-3}"
 	build
 	if ! podman network exists "$NET"; then
-		# The network's own DNS answers container names (edgesim-hub); its upstream for everything
+		# The network's own DNS answers container names (<prefix>-hub); its upstream for everything
 		# else is the host's own resolver, so a simulated Pi can reach the internet the way the host does.
 		local dns=()
 		for ns in $(awk '$1 == "nameserver" && $2 !~ /^127\./ && $2 !~ /:/ {print $2}' /etc/resolv.conf); do dns+=(--dns "$ns"); done
@@ -56,30 +86,40 @@ up() {
 	fi
 	if ! podman container exists "$HUB"; then
 		say "starting the hub (the authority)"
-		run_node hub hub "$MODEL"
+		local pub=()
+		[ "${EDGESIM_PUBLISH:-}" = 1 ] && pub=(-p 39009:39009)
+		run_node hub hub "$MODEL" "${pub[@]}"
 	fi
 	for _ in $(seq 1 30); do r hub edge >/dev/null 2>&1 && break; sleep 1; done
 	for i in $(seq 1 "$n"); do
 		local pi="pi-$i"
-		if podman container exists "edgesim-$pi"; then say "$pi is already up"; continue; fi
+		if podman container exists "$P-$pi"; then say "$pi is already up"; continue; fi
 		say "starting $pi"
 		run_node "$pi" member "$MODEL"
-		local key
-		key="$(podman exec "edgesim-$pi" roger edge setup </dev/null 2>/dev/null | awk '/authority allow/ {print $NF}')"
-		r hub edge authority allow "$key" >/dev/null
-		r "$pi" edge enroll "$pi" --authority http://edgesim-hub:39009 | grep -v 'update available' || true
+		join "$pi"
 	done
 	say "up. watch it with: $0 status   (or: $0 fleet)"
+}
+
+desk() { # a member a person drives: joined like a Pi, but it runs no Edge of its own until roger's screen opens
+	local name="${1:-desk}"
+	podman container exists "$HUB" || { say "no hub yet: run $0 up first"; exit 1; }
+	if podman container exists "$P-$name"; then say "$name is already up"; return; fi
+	say "starting $name (a member you drive with: $0 tui $name)"
+	run_node "$name" desk "${EDGESIM_DESK_MODEL:-a desktop}"
+	join "$name"
 }
 
 case "${1:-}" in
 up) shift; up "$@" ;;
 status) r hub edge 2>&1 | grep -v 'update available' ;;
 fleet) podman exec -it "$HUB" roger edge fleet ;;
-reboot) podman restart "edgesim-$2" >/dev/null && say "$2 restarted" ;;
-cut) podman network disconnect "$NET" "edgesim-$2" && say "$2 is off the network" ;;
-heal) podman network connect "$NET" "edgesim-$2" && say "$2 is back on the network" ;;
-sh) podman exec -it "edgesim-$2" bash ;;
+desk) shift; desk "$@" ;;
+tui) podman exec -it -e TERM="${TERM:-xterm-256color}" "$P-${2:-desk}" roger ;;
+reboot) podman restart "$P-$2" >/dev/null && say "$2 restarted" ;;
+cut) podman network disconnect "$NET" "$P-$2" && say "$2 is off the network" ;;
+heal) podman network connect "$NET" "$P-$2" && say "$2 is back on the network" ;;
+sh) podman exec -it "$P-$2" bash ;;
 roger) n="$2"; shift 2; r "$n" "$@" ;;
 seed)
 	pi="$2"; LOCAL="${EDGESIM_SEED_FROM:-$HOME/.cache/gotmp/modeltry/rogerai/local}"
@@ -88,16 +128,16 @@ seed)
 	cpu="$(ls -d "$LOCAL"/runtime/*/ubuntu-x64 2>/dev/null | head -1)"
 	[ -n "$cpu" ] || { say "no CPU runtime under $LOCAL/runtime - serve a model there once to fetch it"; exit 1; }
 	tag="$(basename "$(dirname "$cpu")")"
-	podman exec "edgesim-$pi" mkdir -p "/root/.config/rogerai/local/runtime/$tag"
-	podman cp "$cpu" "edgesim-$pi:/root/.config/rogerai/local/runtime/$tag/ubuntu-x64"
-	podman cp "$models" "edgesim-$pi:/root/.config/rogerai/local/models"
+	podman exec "$P-$pi" mkdir -p "/root/.config/rogerai/local/runtime/$tag"
+	podman cp "$cpu" "$P-$pi:/root/.config/rogerai/local/runtime/$tag/ubuntu-x64"
+	podman cp "$models" "$P-$pi:/root/.config/rogerai/local/models"
 	say "$pi has the runtime and models from $LOCAL"
 	;;
 down)
-	for c in $(podman ps -a --format '{{.Names}}' | grep '^edgesim-' || true); do podman rm -f "$c" >/dev/null; done
-	for v in $(podman volume ls --format '{{.Name}}' | grep '^edgesim-' || true); do podman volume rm -f "$v" >/dev/null; done
+	for c in $(podman ps -a --format '{{.Names}}' | grep "^$P-" || true); do podman rm -f "$c" >/dev/null; done
+	for v in $(podman volume ls --format '{{.Name}}' | grep "^$P-" || true); do podman volume rm -f "$v" >/dev/null; done
 	podman network exists "$NET" && podman network rm "$NET" >/dev/null || true
 	say "down"
 	;;
-*) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+*) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 2 ;;
 esac
