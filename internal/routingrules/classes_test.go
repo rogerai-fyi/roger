@@ -22,7 +22,7 @@ func TestClassName(t *testing.T) {
 		require.Equal(t, tc.ok, ok, tc.id)
 		require.Equal(t, tc.want, got, tc.id)
 	}
-	require.Equal(t, []string{"coding-30b", "large", "small"}, ClassNames())
+	require.Equal(t, []string{"coding-30b", "large", "medium", "small"}, ClassNames())
 }
 
 func TestExpandClass(t *testing.T) {
@@ -39,6 +39,8 @@ func TestExpandClass(t *testing.T) {
 	require.Equal(t, []string{"llama-3b"}, ExpandClass("small", src, 1), "max caps the expansion")
 	require.Equal(t, []string{"devstral-24b"}, ExpandClass("coding-30b", src, 0), "a tools class takes only tools-verified models")
 	require.Empty(t, ExpandClass("large", src, 0))
+	require.Equal(t, []string{"devstral-24b", "gpt-oss-20b", "qwen3-8b"}, ExpandClass("medium", src, 0),
+		"medium is 7B to 24B inclusive, with no tools requirement")
 	require.Nil(t, ExpandClass("nope", src, 0))
 }
 

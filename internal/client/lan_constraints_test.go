@@ -1,7 +1,9 @@
 package client
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -94,9 +96,17 @@ func TestLANResolveClass(t *testing.T) {
 
 	_, status, msg := lanResolveClass(o, "@class/huge")
 	require.Equal(t, http.StatusBadRequest, status)
-	require.Contains(t, msg, "unknown model class @class/huge (known: @class/coding-30b, @class/large, @class/small)")
+	require.Contains(t, msg, "unknown model class @class/huge (known: @class/coding-30b, @class/large, @class/medium, @class/small)")
 
 	_, status, msg = lanResolveClass(o, "@class/large")
 	require.Equal(t, http.StatusServiceUnavailable, status)
 	require.Contains(t, msg, "no band on this LAN is in @class/large")
+}
+
+func TestLANUnknownClassCarriesTheMarketsCode(t *testing.T) {
+	rec := httptest.NewRecorder()
+	_, refused := relayLAN(context.Background(), rec, ProxyOptions{LANMode: true}, "@class/huge", []byte(`{"model":"@class/huge"}`), func(float64) {})
+	require.True(t, refused)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), `"code":"unknown_model_class"`)
 }

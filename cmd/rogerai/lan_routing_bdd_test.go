@@ -473,16 +473,15 @@ func TestLANRoutingBDD(t *testing.T) {
 				return s.face("zephyr", b, 0)
 			})
 			sc.Step(`^a turn is dispatched for "@class/<a class both belong to>"$`, func() error {
-				// No built-in class holds both an 8B and a 20B model; "small" holds the 8B one, which
-				// is the local band the class must resolve to.
-				return s.dispatch("@class/small")
+				// @class/medium (7B to 24B, founder ruling 2026-10-09) holds both the 8B and the 20B band.
+				return s.dispatch("@class/medium")
 			})
 			sc.Step(`^it resolves to one of the local bands$`, func() error {
 				if s.code != http.StatusOK {
 					return fmt.Errorf("status %d: %s", s.code, s.body)
 				}
 				for _, f := range s.faces {
-					if v, _ := f.lastModel.Load().(string); v == "qwen3-8b" {
+					if v, _ := f.lastModel.Load().(string); v == "qwen3-8b" || v == "gpt-oss-20b" {
 						return nil
 					}
 				}

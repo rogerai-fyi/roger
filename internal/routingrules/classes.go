@@ -27,6 +27,7 @@ type classRule struct {
 var classes = map[string]classRule{
 	"coding-30b": {24, 40, true},
 	"small":      {0, 9, false},
+	"medium":     {7, 24, false}, // founder ruling 2026-10-09 (contract §13 ruling 33)
 	"large":      {60, math.Inf(1), false},
 }
 

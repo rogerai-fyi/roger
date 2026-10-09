@@ -633,6 +633,15 @@ Rulings on the slice-6 review (founder, 2026-10-06):
     bills its prompt, so its key is kept; a retry gets 409 `response_unavailable` and the consumer
     is charged exactly once. A non-stream disconnect bills $0, releases its key, and its retry is
     served fresh. Generally a key is released only when nothing was charged.
+33. Class table (§14.B5, founder ruling 2026-10-09): a fourth class, `medium` = chat models with
+    params_b in [7, 24] inclusive (declared or id estimate), no tools requirement. It overlaps
+    `small` at 7B to 9B and `coding-30b` at 24B; each class is an independent filter. The table
+    lives in internal/routingrules and is shared by the market relay, /v1/models and the LAN
+    ladder.
+34. provider.order on the LAN (founder ruling 2026-10-09): it sorts sources WITHIN a rung (this
+    machine, then Edge members, then LAN Towers); the owner's own hardware always precedes Towers.
+    With allow_fallbacks false only the named sources are used, and an order naming nothing on
+    the LAN is refused as not on this LAN.
 
 ---
 
@@ -888,8 +897,8 @@ by the feature file named beside it.
 ## §14.B5 Class aliases (features/routing/class_aliases.feature)
 
 - Data table: coding-30b = params_b in [24, 40] and some tools-verified offer; small = params_b
-  <= 9; large = params_b >= 60. params_b = declared or id estimate; neither = never in a size
-  class.
+  <= 9; medium = params_b in [7, 24] (§13 ruling 33); large = params_b >= 60. params_b = declared
+  or id estimate; neither = never in a size class.
 - Expansion: matching on-air public chat models under the caller's visibility, ordered by
   cheapest coherent blended cost, ties by bare id, max 5; then exactly a models[] request.
 - Errors: unknown class 400 unknown_model_class (names are exact lowercase); class + models →

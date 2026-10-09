@@ -37,7 +37,11 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	if strings.HasPrefix(band, routingrules.ClassPrefix) {
 		resolved, status, msg := lanResolveClass(opts, band)
 		if resolved == "" {
-			openAIError(w, status, "lan_error", "lan_only", msg)
+			code := "lan_only"
+			if status == http.StatusBadRequest {
+				code = "unknown_model_class" // the market's code for the same refusal
+			}
+			openAIError(w, status, "lan_error", code, msg)
 			return false, true
 		}
 		band = resolved
