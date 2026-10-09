@@ -315,3 +315,17 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     Then the request to the Tower does not carry the account key
     And it carries this machine's signature instead
     # A LAN Tower is plain http; the existing rule refuses account keys over plain http.
+
+  # RULED 2026-10-09: provider.order sorts within a rung; your own hardware always precedes Towers
+  @client
+  Scenario Outline: a provider.order naming a LAN Tower first does not lift it above your own hardware
+    Given <own>
+    And the LAN Tower at 192.168.1.20:8787 also serves "qwen3-8b"
+    When a guest turn for "qwen3-8b" carries provider.order naming the LAN Tower at 192.168.1.20:8787 first
+    Then it is served by <server>
+    And the Tower was not contacted for inference
+
+    Examples:
+      | own                                                             | server                         |
+      | this machine serves "qwen3-8b"                                  | this machine                   |
+      | the Edge member "atlas" serves "qwen3-8b", VERIFIED, LAN-direct | "atlas" over mTLS              |

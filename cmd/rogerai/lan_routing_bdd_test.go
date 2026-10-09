@@ -198,7 +198,7 @@ func (s *lanRouteBDD) cli(args ...string) error {
 func TestLANRoutingBDD(t *testing.T) {
 	s := &lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}
 	var paths []string
-	for _, l := range []int{49, 57, 66, 75, 86, 94, 111, 117, 125, 131, 238, 247, 258, 271, 278, 286, 292, 299, 305, 312} {
+	for _, l := range []int{49, 57, 66, 75, 86, 94, 111, 117, 125, 131, 238, 247, 258, 271, 278, 286, 292, 299, 305, 312, 321} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/routing_and_inference.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -541,6 +541,9 @@ func TestLANRoutingBDD(t *testing.T) {
 					return fmt.Errorf("this machine served %d turn(s) the order excluded", n)
 				}
 				return nil
+			})
+			sc.Step(`^a guest turn for "([^"]*)" carries provider\.order naming the LAN Tower at ([0-9.:]+) first$`, func(band, addr string) error {
+				return s.dispatchBody(band, `{"model":"`+band+`","messages":[{"role":"user","content":"hi"}],"provider":{"order":["`+addr+`"]}}`)
 			})
 			sc.Step(`^it is served$`, func() error {
 				// the turn carries the caps the Given names
