@@ -111,3 +111,20 @@ func TestTUIHooksCarryTheLANTowersInLANMode(t *testing.T) {
 	require.NotNil(t, h.LANTowers)
 	require.Equal(t, []string{"http://192.168.1.20:8787"}, h.LANTowers())
 }
+
+// A chat band whose modality was detected (or stated) as "chat" is still a chat band: its record
+// is written like one with no modality, so the LAN relay and the Edge face can reach it. Detection
+// names a local llama.cpp server's model "chat", and the record was skipped for exactly that.
+func TestCmdShareRecordsAChatModalityServe(t *testing.T) {
+	useTempConfig(t)
+	origStart, origBlock := agentStart, shareBlock
+	t.Cleanup(func() { agentStart, shareBlock = origStart, origBlock })
+	var during string
+	agentStart = func(agent.Config) (*agent.Session, error) {
+		during, _ = lanSelfServe("m1")
+		return nil, fmt.Errorf("stop here")
+	}
+	shareBlock = func() {}
+	_ = cmdShare(config{Broker: "https://b", User: "u"}, []string{"m1", "--upstream", "http://127.0.0.1:5555/v1", "--modality", "chat"})
+	require.Equal(t, "http://127.0.0.1:5555/v1/chat/completions", during, "a chat-modality share is this machine's serve too")
+}

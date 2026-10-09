@@ -1782,7 +1782,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
 	// share serves to the share's own upstream, and `roger --lan say` speaks through a voice it
 	// serves: a local, owner-only record, gone when we stop.
-	if (foundModality == "" || foundModality == protocol.ModalityTTS) && up != "" {
+	if (foundModality == "" || foundModality == protocol.ModalityChat || foundModality == protocol.ModalityTTS) && up != "" {
 		rec := onair.Share{PID: os.Getpid(), Band: mdl, ChatURL: roggnode.NormalizeUpstream(up), Key: *upKey}
 		if foundModality == protocol.ModalityTTS {
 			rec.Modality, rec.SpeechURL = protocol.ModalityTTS, roggnode.SpeechURL(up)
