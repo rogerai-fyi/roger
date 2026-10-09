@@ -13,6 +13,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/netpriv"
 )
@@ -145,11 +146,18 @@ func SuggestPort(start int) (int, error) {
 	return port, nil
 }
 
+// RescanEvery is how often a wildcard listener from ListenEach rereads this machine's interface
+// addresses. It is the multicast transport's rejoin period: an address that appears (a DHCP renewal,
+// a cable moved) starts answering, and one that left stops, without restarting anything. Tests
+// shorten it.
+var RescanEvery = 10 * time.Second
+
 // ListenEach opens a listener for bind. An explicit host is bound as given. A wildcard
 // (":port") listens on each interface address that home accepts, all on one port, so a
-// listener meant for this machine and its LAN never answers on a public interface.
-// Link-local addresses are skipped: they need a zone. addrs lists the interface addresses
-// (nil = the system's); home decides which ones qualify (nil = netpriv.IsHome).
+// listener meant for this machine and its LAN never answers on a public interface. It keeps
+// following the addresses: every RescanEvery it binds a qualifying address that appeared and
+// closes one that left. Link-local addresses are skipped: they need a zone. addrs lists the
+// interface addresses (nil = the system's); home decides which ones qualify (nil = netpriv.IsHome).
 func ListenEach(bind string, addrs func() ([]net.Addr, error), home func(net.IP) bool) (net.Listener, error) {
 	host, port, err := net.SplitHostPort(bind)
 	if err != nil {
@@ -164,37 +172,23 @@ func ListenEach(bind string, addrs func() ([]net.Addr, error), home func(net.IP)
 	if home == nil {
 		home = netpriv.IsHome
 	}
-	list, err := addrs()
-	if err != nil {
+	m := &multiListener{port: port, addrs: addrs, home: home,
+		lns: map[string]net.Listener{}, conns: make(chan net.Conn), done: make(chan struct{})}
+	if err := m.rescan(); err != nil {
 		return nil, err
-	}
-	m := &multiListener{conns: make(chan net.Conn), done: make(chan struct{})}
-	for _, a := range list {
-		ipn, ok := a.(*net.IPNet)
-		if !ok || netpriv.Classify(ipn.IP) == netpriv.LinkLocal || !home(ipn.IP) {
-			continue
-		}
-		ln, err := net.Listen("tcp", net.JoinHostPort(ipn.IP.String(), port))
-		if err != nil {
-			continue // that address cannot take the port: the others still serve
-		}
-		if len(m.lns) == 0 {
-			port = strconv.Itoa(ln.Addr().(*net.TCPAddr).Port) // every address shares the first port
-		}
-		m.lns = append(m.lns, ln)
 	}
 	if len(m.lns) == 0 {
 		return nil, errors.New("no loopback or private interface could be bound on port " + port)
 	}
-	for _, ln := range m.lns {
-		go m.accept(ln)
-	}
+	go m.follow()
 	return m, nil
 }
 
 // Addrs lists every address a listener from ListenEach is bound to (one for a single listener).
 func Addrs(ln net.Listener) []net.Addr {
 	if m, ok := ln.(*multiListener); ok {
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		out := make([]net.Addr, 0, len(m.lns))
 		for _, l := range m.lns {
 			out = append(out, l.Addr())
@@ -204,12 +198,76 @@ func Addrs(ln net.Listener) []net.Addr {
 	return []net.Addr{ln.Addr()}
 }
 
-// multiListener is one listener over several addresses on the same port.
+// multiListener is one listener over several addresses on the same port, following the
+// machine's addresses as they change.
 type multiListener struct {
-	lns   []net.Listener
+	mu    sync.Mutex
+	port  string // "0" until the first address is bound; then every address shares it
+	first net.Addr
+	lns   map[string]net.Listener // keyed by the address's IP
+	addrs func() ([]net.Addr, error)
+	home  func(net.IP) bool
 	conns chan net.Conn
 	done  chan struct{}
 	once  sync.Once
+}
+
+// rescan binds every qualifying address not yet bound and closes every listener whose address
+// left. An error reading the addresses changes nothing.
+func (m *multiListener) rescan() error {
+	list, err := m.addrs()
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	select {
+	case <-m.done:
+		return nil
+	default:
+	}
+	want := map[string]bool{}
+	for _, a := range list {
+		ipn, ok := a.(*net.IPNet)
+		if !ok || netpriv.Classify(ipn.IP) == netpriv.LinkLocal || !m.home(ipn.IP) {
+			continue
+		}
+		key := ipn.IP.String()
+		want[key] = true
+		if _, bound := m.lns[key]; bound {
+			continue
+		}
+		ln, err := net.Listen("tcp", net.JoinHostPort(key, m.port))
+		if err != nil {
+			continue // that address cannot take the port: the others still serve
+		}
+		if m.first == nil {
+			m.first = ln.Addr()
+			m.port = strconv.Itoa(ln.Addr().(*net.TCPAddr).Port) // every address shares the first port
+		}
+		m.lns[key] = ln
+		go m.accept(ln)
+	}
+	for key, ln := range m.lns {
+		if !want[key] {
+			_ = ln.Close()
+			delete(m.lns, key)
+		}
+	}
+	return nil
+}
+
+func (m *multiListener) follow() {
+	for {
+		t := time.NewTimer(RescanEvery)
+		select {
+		case <-m.done:
+			t.Stop()
+			return
+		case <-t.C:
+			_ = m.rescan()
+		}
+	}
 }
 
 func (m *multiListener) accept(ln net.Listener) {
@@ -238,12 +296,17 @@ func (m *multiListener) Accept() (net.Conn, error) {
 
 func (m *multiListener) Close() error {
 	m.once.Do(func() {
+		m.mu.Lock()
 		close(m.done)
-		for _, ln := range m.lns {
+		for key, ln := range m.lns {
 			_ = ln.Close()
+			delete(m.lns, key)
 		}
+		m.mu.Unlock()
 	})
 	return nil
 }
 
-func (m *multiListener) Addr() net.Addr { return m.lns[0].Addr() }
+// Addr is the first address bound; every address shares its port, so a caller that reads the
+// port from it is right for all of them, even after that address itself has left.
+func (m *multiListener) Addr() net.Addr { return m.first }

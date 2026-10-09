@@ -14,12 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/harness"
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/netbind"
 )
 
 type lanRegressBDD struct {
@@ -46,12 +48,15 @@ func (s *lanRegressBDD) offCfg() config {
 func TestLANRegressionsBDD(t *testing.T) {
 	s := &lanRegressBDD{lanUseBDD: lanUseBDD{lanRouteBDD: lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}}}
 	var paths []string
-	for _, l := range []int{32, 41, 49, 57, 67, 74, 80} {
+	for _, l := range []int{32, 41, 49, 57, 67, 74, 80, 122} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/regressions.feature:%d", l))
 	}
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+				prevRescan := netbind.RescanEvery
+				netbind.RescanEvery = 50 * time.Millisecond // one rescan, not ten seconds of waiting
+				t.Cleanup(func() { netbind.RescanEvery = prevRescan })
 				s.resetUse()
 				s.reply = ""
 				client.SetLANRelay(nil)
@@ -65,6 +70,9 @@ func TestLANRegressionsBDD(t *testing.T) {
 				return err
 			}
 			sc.Step(`^a machine with a public and a private interface$`, func() error {
+				// The default (wildcard) face bind: an earlier scenario's explicit bind is set on the
+				// whole test and would otherwise carry over.
+				t.Setenv(envFaceBind, "")
 				loop, private, public = fakeInterfaces(t)
 				return nil
 			})
@@ -103,6 +111,40 @@ func TestLANRegressionsBDD(t *testing.T) {
 				}
 				if dialOK(net.JoinHostPort(public, port)) {
 					return fmt.Errorf("the public interface %s answers on %s", public, port)
+				}
+				return nil
+			})
+			var moved string
+			sc.Step(`^the private interface's address changes$`, func() error {
+				old := private
+				moved = "127.0.0.4"
+				prevAddrs, prevPriv := edgeInterfaceAddrs, edgeIsPrivate
+				edgeInterfaceAddrs = func() ([]net.Addr, error) {
+					var out []net.Addr
+					for _, a := range []string{loop, moved, public} {
+						out = append(out, &net.IPNet{IP: net.ParseIP(a), Mask: net.CIDRMask(8, 32)})
+					}
+					return out, nil
+				}
+				edgeIsPrivate = func(ip net.IP) bool { return ip.Equal(net.ParseIP(moved)) }
+				t.Cleanup(func() { edgeInterfaceAddrs, edgeIsPrivate = prevAddrs, prevPriv })
+				private = old
+				return nil
+			})
+			sc.Step(`^within one rescan the new private address answers on the same port$`, func() error {
+				addr := net.JoinHostPort(moved, strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))
+				deadline := time.Now().Add(2 * time.Second)
+				for time.Now().Before(deadline) {
+					if dialOK(addr) {
+						return nil
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				return fmt.Errorf("the new private address %s never answered: the face still listens only where it started", addr)
+			})
+			sc.Step(`^the old private address no longer answers$`, func() error {
+				if dialOK(net.JoinHostPort(private, strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))) {
+					return fmt.Errorf("the old private address %s still answers after it left this machine", private)
 				}
 				return nil
 			})

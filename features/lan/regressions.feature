@@ -114,3 +114,15 @@ Feature: The paths that ignored local sources or local answers now honour them
       | 100.64.10.20:8787    | CGNAT, added by hand  |
       | 127.0.0.1:8787       | loopback IPv4         |
       | [::1]:8787           | loopback IPv6         |
+
+  # regression 2026-10-09: the Edge face follows a changed private address. A member whose address
+  # changed (a DHCP renewal, a cable moved, a simulated Pi healed) kept listening only on its old
+  # address while it advertised the new one, so nothing could reach it.
+  @edge
+  Scenario: the Edge face listener follows a private address that changes
+    Given a machine with a public and a private interface
+    When the Edge host starts its face listener
+    And the private interface's address changes
+    Then within one rescan the new private address answers on the same port
+    And the old private address no longer answers
+    And a connection to the public interface's address is refused

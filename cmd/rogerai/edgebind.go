@@ -18,9 +18,10 @@ var (
 // edgeListen opens an Edge listener (the face or the authority) through netbind. An explicit
 // host in bind is honoured as given. A wildcard bind (":port") listens on loopback and each
 // private interface address only, all on one port, so an Edge never answers on a public
-// interface (features/lan/regressions.feature).
+// interface (features/lan/regressions.feature). It keeps following this machine's addresses, so a
+// member whose address changed answers at the address it now advertises.
 func edgeListen(bind string) (net.Listener, error) {
-	return netbind.ListenEach(bind, edgeInterfaceAddrs, func(ip net.IP) bool {
+	return netbind.ListenEach(bind, func() ([]net.Addr, error) { return edgeInterfaceAddrs() }, func(ip net.IP) bool {
 		return edgeIsLoopback(ip) || edgeIsPrivate(ip)
 	})
 }
