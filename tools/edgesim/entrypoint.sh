@@ -18,7 +18,8 @@ member)
 desk)
 	# A machine a person drives: joined like any member, but its Edge runs inside roger's screen
 	# (edgesim tui), the way a laptop's does - not as a boot service.
-	exec sleep infinity
+	trap 'exit 0' TERM INT
+	while :; do sleep 3600 & wait $!; done
 	;;
 *)
 	exec "$@"
