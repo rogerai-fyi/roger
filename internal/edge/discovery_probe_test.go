@@ -152,3 +152,26 @@ func TestDiscoveryRequiresEveryBandToAnswer(t *testing.T) {
 	both.verifyServe(context.Background(), "10.0.0.2:44121", "ab12", n)
 	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
 }
+
+// A peer seen a second time while its serve is still CLAIMED has proven nothing: its advertised bands
+// must not be filed as proven, or verifyServe skips it on every later pass and its serve is never
+// verified (found 2026-10-09: a member that joined after a peer was already serving saw that peer's
+// serve stay claimed forever). Only an earlier VERIFIED serve with no recorded band set may stand on
+// its band list, the shape of a record written before bands were recorded.
+// Pins features/edge/serving_probe.feature "a claimed serve seen again is still probed".
+func TestASecondSightingOfAClaimedServeIsStillProbed(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	observedDesk(t, f)
+	n := observedDesk(t, f) // the next pass: same instances, serve never probed yet
+	for _, in := range n.Instances {
+		require.Empty(t, in.ServeProven, "%s: a claimed serve has proven no band", in.Name)
+	}
+	calls := 0
+	d := New(Options{Fleet: f, CallerCert: &tls.Certificate{}, Probe: func(context.Context, string, string, *tls.Certificate, string) (string, error) {
+		calls++
+		return "serve", nil
+	}})
+	d.verifyServe(context.Background(), "10.0.0.2:44121", "ab12", n)
+	require.Equal(t, 2, calls, "both claimed instances are probed on the second sighting")
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
+}

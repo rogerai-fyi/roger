@@ -168,3 +168,12 @@ Feature: the serving probe
     Given a household instance claims serve for "mistral" but this face's upstream map has no "mistral"
     When the host observes itself
     Then serve on that instance is still CLAIMED
+
+  # regression 2026-10-09: a member that joined after a peer was already serving saw that peer's serve
+  # stay CLAIMED forever, because a second sighting filed the advertised bands as proven.
+  @edge
+  Scenario: a claimed serve seen again is still probed
+    Given "desk" was observed with serve CLAIMED for "qwen" and has not been probed
+    When "desk" is observed again with the same instances
+    Then no band is recorded as proven for it
+    And the next discovery pass probes it and serve becomes VERIFIED

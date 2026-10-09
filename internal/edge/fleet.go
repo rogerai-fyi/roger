@@ -715,11 +715,13 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 			m[c.Name] = c
 		}
 		prev[in.Name] = m
-		// What the probe actually answered for. An older record carries none, so its band list stands
-		// in for it and the behaviour is what it always was.
+		// What the probe actually answered for. An older record carries none, so for a serve that
+		// was VERIFIED its band list stands in for it and the behaviour is what it always was. A
+		// serve still CLAIMED proved nothing: filing its bands as proven would let verifyServe skip
+		// it on every later pass, so it would never be probed.
 		if len(in.ServeProven) > 0 {
 			prevProven[in.Name] = in.ServeProven
-		} else {
+		} else if m[string(Serve)].State == string(Verified) {
 			prevProven[in.Name] = in.Bands
 		}
 	}
