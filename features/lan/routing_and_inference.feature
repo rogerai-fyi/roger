@@ -329,3 +329,23 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
       | own                                                             | server                         |
       | this machine serves "qwen3-8b"                                  | this machine                   |
       | the Edge member "atlas" serves "qwen3-8b", VERIFIED, LAN-direct | "atlas" over mTLS              |
+
+  # 2026-10-09 rough edge: the CLI names an unknown class the way the proxy and the market do
+  @cli
+  Scenario: `roger --lan use` names an unknown class instead of saying nothing serves it
+    Given nothing local serves "@class/bogus"
+    When they run "roger --lan use @class/bogus"
+    Then it exits non-zero
+    And the message says "unknown model class @class/bogus" and lists every known class
+    And the message does not say "nothing on this LAN serves"
+    And no proxy port was opened
+
+  # 2026-10-09 rough edge
+  @cli
+  Scenario: `roger --lan use` on a known class nothing local serves keeps the nothing-serves refusal
+    Given nothing local serves "@class/medium"
+    When they run "roger --lan use @class/medium"
+    Then it exits non-zero
+    And the message says "nothing on this LAN serves @class/medium"
+    And the message does not say "unknown model class"
+    And no proxy port was opened

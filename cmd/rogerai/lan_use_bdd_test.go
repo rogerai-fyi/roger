@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v6/internal/routingrules"
 	"strings"
 	"testing"
 
@@ -88,7 +89,7 @@ func brokerNotAsked(rb *recordingBroker, paths ...string) error {
 func TestLANUseBDD(t *testing.T) {
 	s := &lanUseBDD{lanRouteBDD: lanRouteBDD{lanDialBDD: lanDialBDD{t: t}}}
 	var paths []string
-	for _, l := range []int{144, 152, 160, 170} {
+	for _, l := range []int{144, 152, 160, 170, 335, 345} {
 		paths = append(paths, fmt.Sprintf("../../features/lan/routing_and_inference.feature:%d", l))
 	}
 	suite := godog.TestSuite{
@@ -141,6 +142,30 @@ func TestLANUseBDD(t *testing.T) {
 					if !strings.Contains(msg, want) {
 						return fmt.Errorf("the message lacks %q: %s", want, msg)
 					}
+				}
+				return nil
+			})
+			sc.Step(`^the message says "([^"]*)" and lists every known class$`, func(want string) error {
+				msg := s.err.Error()
+				if !strings.Contains(msg, want) {
+					return fmt.Errorf("the message lacks %q: %s", want, msg)
+				}
+				for _, n := range routingrules.ClassNames() {
+					if !strings.Contains(msg, routingrules.ClassPrefix+n) {
+						return fmt.Errorf("the message does not list %s%s: %s", routingrules.ClassPrefix, n, msg)
+					}
+				}
+				return nil
+			})
+			sc.Step(`^the message says "([^"]*)"$`, func(want string) error {
+				if s.err == nil || !strings.Contains(s.err.Error(), want) {
+					return fmt.Errorf("the message lacks %q: %v", want, s.err)
+				}
+				return nil
+			})
+			sc.Step(`^the message does not say "([^"]*)"$`, func(not string) error {
+				if s.err != nil && strings.Contains(s.err.Error(), not) {
+					return fmt.Errorf("the message says %q: %s", not, s.err)
 				}
 				return nil
 			})

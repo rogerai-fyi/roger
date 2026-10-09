@@ -16,16 +16,22 @@ import (
 	"rogerai.fm/roger/v6/internal/routingrules"
 )
 
+// lanUnknownClass is the one refusal for a @class/ alias the class table does not know, the same
+// words the proxy answers with (code unknown_model_class) and the market uses.
+func lanUnknownClass(alias string) string {
+	known := make([]string, 0, 4)
+	for _, n := range routingrules.ClassNames() {
+		known = append(known, routingrules.ClassPrefix+n)
+	}
+	return "unknown model class " + alias + " (known: " + strings.Join(known, ", ") + ")"
+}
+
 // lanResolveClass resolves a @class/ alias to the first band in its expansion over the bands
 // local sources serve right now. It returns "" and the refusal (status, message) otherwise.
 func lanResolveClass(opts ProxyOptions, alias string) (string, int, string) {
 	name, ok := routingrules.ClassName(alias)
 	if !ok {
-		known := make([]string, 0, 3)
-		for _, n := range routingrules.ClassNames() {
-			known = append(known, routingrules.ClassPrefix+n)
-		}
-		return "", http.StatusBadRequest, "unknown model class " + alias + " (known: " + strings.Join(known, ", ") + ")"
+		return "", http.StatusBadRequest, lanUnknownClass(alias)
 	}
 	var cands []routingrules.ClassCandidate
 	if opts.LANBands != nil {

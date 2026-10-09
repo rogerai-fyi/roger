@@ -293,6 +293,11 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 	if opt.LANSources != nil {
 		sources = opt.LANSources(model)
 	}
+	if strings.HasPrefix(model, routingrules.ClassPrefix) {
+		if _, ok := routingrules.ClassName(model); !ok {
+			return errors.New(lanUnknownClass(model))
+		}
+	}
 	if len(sources) == 0 && opt.Pinned == "" {
 		return errors.New(lanNothingServes(model, opt.LANEdgeOnly))
 	}
