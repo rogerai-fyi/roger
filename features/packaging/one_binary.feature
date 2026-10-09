@@ -617,3 +617,8 @@ Feature: One user binary with modes
     When a structural test scans for "roger-tower", "roger-tower-local", "roger-tower release audit" and "roger-tower station invite"
     Then only this file and the one-release shim scenarios mention the old names
     And every scenario that names a tower command names one that "roger tower help" lists
+
+  # 2026-10-09 rough edge: --version is accepted by roger tower
+  Scenario: roger tower and the shims accept --version and -v as the version command
+    Given a release is built
+    Then "roger tower --version", "roger tower -v", "roger-tower --version" and "roger-tower-local -v" each report the stamped version and exit 0

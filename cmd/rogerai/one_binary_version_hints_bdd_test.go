@@ -127,6 +127,27 @@ func (s *obD) sameEverywhere() error {
 	return nil
 }
 
+// versionFlagsAccepted: `roger tower` takes --version and -v as its version command, so the
+// one-release shims pass them straight through (2026-10-09 rough edge).
+func (s *obD) versionFlagsAccepted() error {
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"roger", []string{"tower", "--version"}}, {"roger", []string{"tower", "-v"}},
+		{"roger-tower", []string{"--version"}}, {"roger-tower-local", []string{"-v"}},
+	} {
+		cmd := exec.Command(filepath.Join(s.bin, c.name), c.args...)
+		cmd.Env = pkgEnv(s.t)
+		var o, e bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &o, &e
+		if err := cmd.Run(); err != nil || strings.TrimSpace(o.String()) != s.stamp {
+			return fmt.Errorf("%s %v: stdout %q stderr %q (%v), want %q and exit 0", c.name, c.args, o.String(), e.String(), err, s.stamp)
+		}
+	}
+	return nil
+}
+
 func (s *obD) brokerNotHardcoded() error {
 	return noVersionLiteral(filepath.Join(repoRoot(), "cmd", "rogerai-broker"))
 }
@@ -423,6 +444,7 @@ func TestOneBinaryVersionHintsBDD(t *testing.T) {
 			sc.Step(`^"roger version", "roger tower version", "roger --version" and each shim's version report the same string$`, s.sameEverywhere)
 			sc.Step(`^roger and rogerai-broker stamp their version from one build-time variable each, set by the release pipeline$`, s.bothStampOneVariable)
 			sc.Step(`^the broker no longer hardcodes its version in source$`, s.brokerNotHardcoded)
+			sc.Step(`^"roger tower --version", "roger tower -v", "roger-tower --version" and "roger-tower-local -v" each report the stamped version and exit 0$`, s.versionFlagsAccepted)
 			sc.Step(`^"([^"]*)"$`, s.situation)
 			sc.Step(`^the hint names "([^"]*)"$`, s.hintNames)
 			sc.Step(`^no output names roger-tower or roger-tower-local except the one-release shims' notice$`, s.noOldNames)
@@ -445,6 +467,7 @@ func TestOneBinaryVersionHintsBDD(t *testing.T) {
 				"../../features/packaging/one_binary.feature:600",
 				"../../features/packaging/one_binary.feature:607",
 				"../../features/packaging/one_binary.feature:615",
+				"../../features/packaging/one_binary.feature:622",
 			},
 		},
 	}

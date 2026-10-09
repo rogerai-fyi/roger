@@ -29,7 +29,7 @@ var shims = map[string]shim{
 		return append([]string{"tower"}, a...)
 	}},
 	"roger-tower-local": {now: "roger tower serve", args: func(a []string) []string {
-		if len(a) == 1 && (a[0] == "version" || a[0] == "--version") {
+		if len(a) == 1 && (a[0] == "version" || a[0] == "--version" || a[0] == "-v") {
 			return []string{"tower", "version"}
 		}
 		return append([]string{"tower", "serve"}, a...)

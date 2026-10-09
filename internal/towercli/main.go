@@ -58,7 +58,7 @@ usage: roger tower <command> [flags]
   drain     stop taking new work, keep the link: --dir DIR
   resume    lift a drain on a joined Tower: --dir DIR
   revoke    retire this Tower for good: --dir DIR --yes
-  version   print the version
+  version   print the version (also --version, -v)
 
 invite, admit, attach, stations, route and serve also take --config FILE. Pass it
 whenever the configuration selects durable storage: without it the command keeps state
@@ -175,7 +175,7 @@ func run(args []string, out io.Writer) error {
 		return cmdStatus(args[1:], out)
 	case "earnings":
 		return cmdEarnings(args[1:], out)
-	case "version":
+	case "version", "--version", "-v":
 		fmt.Fprintln(out, buildinfo.Version)
 		return nil
 	case "help", "-h", "--help":
