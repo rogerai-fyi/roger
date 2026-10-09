@@ -6,7 +6,7 @@ package pgmigrate
 import (
 	"database/sql"
 	"fmt"
-	"os"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +17,7 @@ import (
 )
 
 func TestInstancesMigratingTogetherAllStart(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping the concurrent-migration test")
 	}

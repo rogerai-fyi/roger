@@ -135,9 +135,10 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
 fi
 
 echo "[cover] running full suite with coverage…" >&2
-# 35m per package: with every line merged the broker package runs past 20 minutes when it shares
-# the CPUs with the rest of the suite (no test hangs; the package is simply large).
-if ! out="$(go test -timeout 35m -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
+# 45m per package (founder-approved 2026-10-08): the broker package grew with routing slices 0-6
+# and the two-instance persistent-state suites, and in the gate it shares the CPUs with every
+# other package, so it runs past 20 minutes. No test hangs; the package is simply large.
+if ! out="$(go test -timeout 45m -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
   echo "$out"
   echo "[cover] FAIL: the test suite did not pass"
   exit 1

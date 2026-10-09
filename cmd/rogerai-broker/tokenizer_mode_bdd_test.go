@@ -31,6 +31,9 @@ func TestMain(m *testing.M) {
 		main()
 		os.Exit(0)
 	}
+	// One dial try per shared call: outage scenarios fail every call against a closed server,
+	// and go-redis's default 5 tries x 100ms made each of those calls cost half a second.
+	valkeyDialerRetries = 1
 	os.Exit(m.Run())
 }
 

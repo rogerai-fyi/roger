@@ -1,7 +1,7 @@
 package store
 
 import (
-	"os"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"testing"
 	"time"
 )
@@ -10,7 +10,7 @@ import (
 // bounded batches; a live quote is never touched. Both stores.
 func TestPruneExpiredPriceQuotes(t *testing.T) {
 	stores := map[string]Store{"mem": NewMem()}
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	if dsn := pgtest.DSN(t); dsn != "" {
 		stores["postgres"] = freshPostgres(t, dsn)
 	}
 	for name, s := range stores {
@@ -50,7 +50,7 @@ func TestPruneExpiredPriceQuotes(t *testing.T) {
 // no-rows read-back (which would fail safe to a no-charge request). Postgres only: the
 // in-memory store decides under one mutex and has no gap.
 func TestQuotePriceReadBackSurvivesAPruneInBetween(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set")
 	}

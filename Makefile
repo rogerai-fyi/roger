@@ -110,8 +110,10 @@ test-db:
 
 # ---- spec-first TDD / coverage (see TDD-WORKFLOW.md) -------------------------
 # cover: full self-coverage profile across the module + the total line.
+# 45m per package: the broker package (routing slices 0-6 + two-instance state suites) is large
+# and shares the CPUs with every other package (founder-approved 2026-10-08).
 cover:
-	go test -timeout 35m -covermode=atomic -coverprofile=cover.out ./...
+	go test -timeout 45m -covermode=atomic -coverprofile=cover.out ./...
 	@go tool cover -func=cover.out | tail -1
 
 # cover-html: per-file green/red drill-down (also what we publish to GitHub Pages).

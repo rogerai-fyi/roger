@@ -5,14 +5,14 @@ package store
 // Postgres only (the in-memory store has no query planner).
 
 import (
-	"os"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestPriceQuotesHaveALockedUntilIndex(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL unset")
 	}
