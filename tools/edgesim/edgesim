@@ -18,8 +18,9 @@
 #   EDGESIM_ROGER=/path/to/roger   run that prebuilt roger in every machine instead of building one
 #   EDGESIM_PREFIX=<word>          name the network, machines and volumes <word>-* (default edgesim),
 #                                  so a second simulated Edge never touches the first
-#   EDGESIM_PUBLISH=1              publish the hub's authority port (39009) on this host, so a phone
-#                                  on your network can join at http://<this host's address>:39009
+#   EDGESIM_PUBLISH=1              publish the hub's authority on this host at EDGESIM_PUBLISH_PORT
+#                                  (default 39019, clear of a roger authority's own 39009), so a phone
+#                                  on your network can join at http://<this host's address>:<that port>
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -87,7 +88,7 @@ up() {
 	if ! podman container exists "$HUB"; then
 		say "starting the hub (the authority)"
 		local pub=()
-		[ "${EDGESIM_PUBLISH:-}" = 1 ] && pub=(-p 39009:39009)
+		[ "${EDGESIM_PUBLISH:-}" = 1 ] && pub=(-p "${EDGESIM_PUBLISH_PORT:-39019}:39009")
 		run_node hub hub "$MODEL" "${pub[@]}"
 	fi
 	for _ in $(seq 1 30); do r hub edge >/dev/null 2>&1 && break; sleep 1; done
