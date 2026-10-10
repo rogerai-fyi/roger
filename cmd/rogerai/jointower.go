@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/joininvite"
@@ -44,6 +45,9 @@ func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
 	if in.Kind == joininvite.TowerStation {
 		kind = "station"
 		models = joinStationModels()
+		// A Station polls the Tower with this machine's node key (agent.ServeLocalTower), so that
+		// is the key it joins with: the Tower attaches exactly the key that will poll.
+		key = agent.NodeKey()
 	}
 	pubHex := hex.EncodeToString(key.Public().(ed25519.PublicKey))
 	var lastErr error
@@ -138,10 +142,14 @@ func joinRecord(addr string, in joininvite.Invite, ans localplane.JoinAnswer, na
 		}
 		return nil
 	}
+	where := "the Tower at " + addr
+	if ans.Tower != "" {
+		where = "the Tower " + ans.Tower + " at " + addr
+	}
 	if ans.AlreadyMember {
-		fmt.Printf("already a member of the Tower at %s; the invite was not used\n", addr)
+		fmt.Printf("already a member of %s; the invite was not used\n", where)
 	} else {
-		fmt.Printf("joined the Tower at %s\n", addr)
+		fmt.Printf("joined %s\n", where)
 	}
 	if len(ans.Models) > 0 {
 		fmt.Printf("bands it serves: %s\n", strings.Join(ans.Models, ", "))
@@ -163,4 +171,47 @@ func joinStationModels() []string {
 		}
 	}
 	return out
+}
+
+// shareTowerInvite is `roger share --tower <invite>` (features/join/invite.feature): the same join
+// as `roger join <station invite>`, then the share, which serves the Tower on the LAN. A bare
+// --tower (the old relay-fabric mode flag) is left in args for its explanation. It returns the
+// args without the invite.
+func shareTowerInvite(cfg *config, args []string) ([]string, error) {
+	var rest []string
+	var raw string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			rest = append(rest, args[i:]...)
+			break
+		}
+		if v, ok := strings.CutPrefix(a, "--tower="); ok && strings.HasPrefix(v, "roger://") {
+			raw = v
+			continue
+		}
+		if (a == "--tower" || a == "-tower") && i+1 < len(args) && strings.HasPrefix(args[i+1], "roger://") {
+			raw = args[i+1]
+			i++
+			continue
+		}
+		rest = append(rest, a)
+	}
+	if raw == "" {
+		return args, nil
+	}
+	in, err := joininvite.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if in.Kind != joininvite.TowerStation {
+		return nil, fmt.Errorf("share needs a station invite: ask the Tower's owner for one (roger tower invite --station)")
+	}
+	if err := joinTower(*cfg, in, nil, nil); err != nil {
+		return nil, err
+	}
+	saved := loadConfig() // the join recorded the Tower and its pin
+	cfg.LanTowers, cfg.LanTowerPins = saved.LanTowers, saved.LanTowerPins
+	cfg.lan.LAN, cfg.lan.Source = true, lanmode.SrcFlag
+	return rest, nil
 }

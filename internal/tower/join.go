@@ -315,3 +315,31 @@ func (s *State) RotateTLSKey() (fingerprint string, voided int, err error) {
 	fingerprint, err = s.JoinFingerprint()
 	return fingerprint, voided, err
 }
+
+// ErrUnknownClient is a name or key hash no admitted client has.
+var ErrUnknownClient = errors.New("no admitted client has that name or key")
+
+// RevokeClientNamed revokes the admitted client with this name (the one it joined under) or key
+// hash, and returns its key hash. Unlike RevokeClient it refuses a name it does not know, so a
+// typo never reads as success.
+func (s *State) RevokeClientNamed(nameOrHash string) (string, error) {
+	bootstrapMu.Lock()
+	bs, err := s.loadBootstrap()
+	bootstrapMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	target := ""
+	if clientAdmitted(bs, nameOrHash) {
+		target = nameOrHash
+	}
+	for kh, c := range bs.Clients {
+		if target == "" && c.Name != "" && c.Name == nameOrHash {
+			target = kh
+		}
+	}
+	if target == "" {
+		return "", ErrUnknownClient
+	}
+	return target, s.RevokeClient(target)
+}

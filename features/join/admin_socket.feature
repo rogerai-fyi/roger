@@ -23,7 +23,7 @@ Feature: Owner commands reach a running Tower through a local admin socket
     And clients keep being served while it runs
 
     # split 2026-10-10 (structural, no change in meaning): the rows built so far run; the rest wait
-    # on request-and-approve (requests, approve, revoke-client) and on the Station kill switch
+    # on request-and-approve (requests, approve) and on the Station kill switch
     # reaching a standalone Tower through the socket (station revoke).
     Examples:
       | command                                   |
@@ -32,13 +32,13 @@ Feature: Owner commands reach a running Tower through a local admin socket
       | roger tower invite --list                 |
       | roger tower stations                      |
       | roger tower attach --station s --key K --models m |
+      | roger tower revoke-client laptop-x        |
 
     @blocked-on-request-approve
     Examples:
       | command                                   |
       | roger tower requests                      |
       | roger tower approve <id>                  |
-      | roger tower revoke-client laptop-x        |
       | roger tower station revoke --station-id x |
 
   Scenario: With no serve running, the same commands use the directory directly

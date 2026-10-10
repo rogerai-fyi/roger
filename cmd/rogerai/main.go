@@ -1382,6 +1382,11 @@ func cmdShare(cfg config, args []string) error {
 	// `--tower` parsed until the relay fabric stopped being a mode. Answer it with the reason
 	// rather than with flag.ExitOnError's "flag provided but not defined: -tower", which reads
 	// as a broken binary to anybody running a script written a month ago.
+	// `roger share --tower <invite>` joins the Tower as a Station first, then shares to it.
+	args, err := shareTowerInvite(&cfg, args)
+	if err != nil {
+		return err
+	}
 	if err := refusedTowerFlag(args); err != nil {
 		return err
 	}

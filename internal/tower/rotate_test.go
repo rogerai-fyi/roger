@@ -54,3 +54,28 @@ func admitByJoin(t *testing.T, st *State, name string) string {
 	require.NoError(t, err)
 	return kh
 }
+
+func TestRevokeClientNamedByNameOrHash(t *testing.T) {
+	st, err := Init(t.TempDir()+"/lab", ModeStandalone)
+	require.NoError(t, err)
+	a := admitByJoin(t, st, "laptop-x")
+	b := admitByJoin(t, st, "desk")
+	_, err = st.RevokeClientNamed("nobody")
+	require.ErrorIs(t, err, ErrUnknownClient)
+	got, err := st.RevokeClientNamed("laptop-x")
+	require.NoError(t, err)
+	require.Equal(t, a, got)
+	require.False(t, st.IsAdmitted(a))
+	_, err = st.RevokeClientNamed(b) // by key hash
+	require.NoError(t, err)
+	require.False(t, st.IsAdmitted(b))
+	_, err = st.RevokeClientNamed("laptop-x")
+	require.ErrorIs(t, err, ErrUnknownClient, "a revoked client is no longer known")
+}
+
+func TestRotateRefusesAJoinedTower(t *testing.T) {
+	st, err := Init(t.TempDir()+"/j", ModeJoined)
+	require.NoError(t, err)
+	_, _, err = st.RotateTLSKey()
+	require.ErrorIs(t, err, ErrNotStandalone)
+}

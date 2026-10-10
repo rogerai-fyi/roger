@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,8 +22,21 @@ import (
 func TestThePlaneLogsAPlainHTTPClientOnce(t *testing.T) {
 	st := standaloneState(t)
 	srv := New(st)
+	var mu sync.Mutex
 	var logged []string
-	srv.logf = func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }
+	srv.logf = func(f string, a ...any) {
+		if line := fmt.Sprintf(f, a...); strings.Contains(line, "plain http") {
+			mu.Lock()
+			logged = append(logged, line)
+			mu.Unlock()
+		}
+	}
+	lines := func() []string {
+		time.Sleep(100 * time.Millisecond) // the log line is written off the request path
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), logged...)
+	}
 
 	_, code, err := st.CreateJoinInvitation(tower.JoinClient, "", nil, 15*time.Minute)
 	require.NoError(t, err)
@@ -39,8 +54,8 @@ func TestThePlaneLogsAPlainHTTPClientOnce(t *testing.T) {
 		return rec.Code
 	}
 	require.Equal(t, http.StatusOK, discover(true))
-	require.Empty(t, logged, "a TLS client is not logged")
+	require.Empty(t, lines(), "a TLS client is not logged")
 	require.Equal(t, http.StatusOK, discover(false))
 	require.Equal(t, http.StatusOK, discover(false))
-	require.Equal(t, []string{"laptop-x used plain http; upgrade it"}, logged, "logged once, by name")
+	require.Equal(t, []string{"laptop-x used plain http; upgrade it"}, lines(), "logged once, by name")
 }

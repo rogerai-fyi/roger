@@ -63,6 +63,7 @@ type Server struct {
 	// still on plain http, so each is named once.
 	logf      func(format string, args ...any)
 	plainSeen sync.Map
+	label     string // the Tower's name in join answers
 }
 
 // New builds a consumer plane over a standalone Tower's state.
@@ -96,16 +97,20 @@ func (s *Server) notePlain(r *http.Request, keyHash, name string) {
 	if _, seen := s.plainSeen.LoadOrStore(keyHash, true); seen {
 		return
 	}
-	if name == "" {
-		name = s.st.ClientName(keyHash)
-	}
-	if name == "" {
-		name = keyHash
-		if len(name) > 12 {
-			name = name[:12]
+	// The name lookup reads the admission store; it runs off the request path so a slow store
+	// never delays the request it is logging.
+	go func() {
+		if name == "" {
+			name = s.st.ClientName(keyHash)
 		}
-	}
-	s.logf("%s used plain http; upgrade it", name)
+		if name == "" {
+			name = keyHash
+			if len(name) > 12 {
+				name = name[:12]
+			}
+		}
+		s.logf("%s used plain http; upgrade it", name)
+	}()
 }
 
 // verifiedIdentity verifies a request signature the nonce-aware way and returns the derived id

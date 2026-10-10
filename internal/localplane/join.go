@@ -33,6 +33,7 @@ type JoinAnswer struct {
 	Models        []string `json:"models,omitempty"`  // a Station's accepted models, or a client's bands
 	Refused       []string `json:"refused,omitempty"` // a Station's models the invite did not allow
 	AlreadyMember bool     `json:"already_member,omitempty"`
+	Tower         string   `json:"tower,omitempty"` // the Tower's name ("lab"), so the joiner can say which it joined
 }
 
 func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
@@ -73,11 +74,14 @@ func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w)
 		return
 	}
-	ans := JoinAnswer{Joined: string(res.Kind), AlreadyMember: res.AlreadyMember}
+	ans := JoinAnswer{Joined: string(res.Kind), AlreadyMember: res.AlreadyMember, Tower: s.label}
 	if res.Kind == tower.JoinStation {
 		ans.Models, ans.Refused, ans.Network = res.Station.Models, res.Refused, res.Station.NetworkID
 	} else {
 		ans.Network, ans.Role, ans.Models = res.Credential.NetworkID, res.Credential.Role, s.bands()
+	}
+	if !res.AlreadyMember {
+		s.noteJoin(req.Name, id, res.Kind)
 	}
 	writeJSON(w, http.StatusOK, ans)
 }
@@ -98,4 +102,24 @@ func (s *Server) bands() []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// SetLabel names the Tower in join answers (the name its owner gave it, or the machine's).
+func (s *Server) SetLabel(label string) { s.label = label }
+
+// noteJoin tells the owner, as it happens, who joined and how to undo it
+// (features/join/invite.feature, "The owner sees the join as it happens").
+func (s *Server) noteJoin(name, keyHash string, kind tower.JoinKind) {
+	short := keyHash
+	if len(short) > 6 {
+		short = short[:4] + "..." + short[len(short)-2:]
+	}
+	if name == "" {
+		name = short
+	}
+	if kind == tower.JoinStation {
+		s.logf("station %s joined (key %s)", name, short)
+		return
+	}
+	s.logf("%s joined (key %s); undo with: roger tower revoke-client %s", name, short, name)
 }

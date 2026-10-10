@@ -54,6 +54,20 @@ type countingTower struct {
 	tlsReqs   atomic.Int64
 	plainReqs atomic.Int64
 	polls     atomic.Int64
+	polls401  atomic.Int64 // polls the plane refused: the station's key is not the attached one
+}
+
+// statusRecorder notes the status a handler wrote.
+type statusRecorder struct {
+	http.ResponseWriter
+	code int
+}
+
+func (r *statusRecorder) WriteHeader(c int) { r.code = c; r.ResponseWriter.WriteHeader(c) }
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func startCountingTower(t *testing.T, st *tower.State, addr string) *countingTower {
@@ -82,9 +96,13 @@ func startCountingTower(t *testing.T, st *tower.State, addr string) *countingTow
 			ct.plainReqs.Add(1)
 		}
 		if r.URL.Path == "/local/poll" {
-			ct.polls.Add(1)
+			ct.polls.Add(1) // counted on arrival: an accepted poll is a long-poll
 		}
-		plane.ServeHTTP(w, r)
+		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
+		plane.ServeHTTP(rec, r)
+		if r.URL.Path == "/local/poll" && rec.code == http.StatusUnauthorized {
+			ct.polls401.Add(1)
+		}
 	})}
 	go func() { _ = ct.srv.Serve(towerpin.Sniff(ln, cfg)) }()
 	t.Cleanup(func() { _ = ct.srv.Close() })
@@ -402,6 +420,9 @@ func TestJoinTowerIdentityBDD(t *testing.T) {
 				}
 				if poll() == 0 || s.tw.plainReqs.Load() != 0 {
 					return fmt.Errorf("the pinned station did not poll over TLS (plain %d)", s.tw.plainReqs.Load())
+				}
+				if n := s.tw.polls401.Load(); n != 0 {
+					return fmt.Errorf("the Tower refused %d of the joined station's polls: it attached a key the station does not poll with", n)
 				}
 				lanmode.SetPins(map[string]string{s.tw.addr: strings.Repeat("ab", 32)})
 				if n := poll(); n != 0 {

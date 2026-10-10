@@ -20,6 +20,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"rogerai.fm/roger/v6/internal/towerpin"
 	"strconv"
 	"strings"
@@ -183,6 +184,14 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 		adv = advertiser(host, port, *label, out)
 	}
 
+	// The plane names the Tower in join answers: the --label (or config) name, else this machine's.
+	plane := localplane.New(st)
+	name := *label
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	plane.SetLabel(name)
+
 	// The owner's administration commands reach this running Tower through an owner-only socket in
 	// the data directory (features/join/admin_socket.feature), since serve holds the lock.
 	adminLn, aerr := toweradmin.Listen(*dir)
@@ -198,7 +207,7 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 		advertise: adv,
 		// MaxHeaderBytes well below the 1 MiB default: the plane's signing headers are small, and a
 		// tight cap stops an unauthenticated caller from making the Tower buffer a large header.
-		srv:     &http.Server{Handler: localplane.New(st).Handler(), ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10},
+		srv:     &http.Server{Handler: plane.Handler(), ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10},
 		ln:      ln,
 		release: release,
 	}, nil

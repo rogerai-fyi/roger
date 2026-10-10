@@ -135,3 +135,9 @@ func TestAnUnreadableRequestIsAnsweredWithARefusal(t *testing.T) {
 	n, _ := conn.Read(buf)
 	require.Contains(t, string(buf[:n]), "not an administration request")
 }
+
+func TestRevokeClientThroughTheSocket(t *testing.T) {
+	_, dir, _ := serving(t)
+	_, err := Client{Dir: dir}.RevokeClientNamed("nobody")
+	require.ErrorContains(t, err, "no admitted client")
+}

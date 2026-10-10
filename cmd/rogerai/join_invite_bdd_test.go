@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/bddrun"
@@ -66,7 +67,9 @@ func (s *joinInviteBDD) reset() {
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	srv := &http.Server{Handler: localplane.New(st).Handler()}
+	plane := localplane.New(st)
+	plane.SetLabel("lab")
+	srv := &http.Server{Handler: plane.Handler()}
 	go func() { _ = srv.Serve(towerpin.Sniff(ln, cfg)) }()
 	s.t.Cleanup(func() { _ = srv.Close() })
 	s.addr = ln.Addr().String()
@@ -384,6 +387,113 @@ func TestJoinInviteBDD(t *testing.T) {
 				return s.join(in)
 			})
 
+			// Joining with one pasted command
+			sc.Step(`^the owner minted a client invite$`, func() error { return s.mint() })
+			sc.Step(`^the client runs "roger join <invite>"$`, func() error { return s.join(s.inv) })
+			sc.Step(`^it checks the Tower's identity against the invite's fingerprint before sending anything$`, func() error {
+				// The same join against a Tower presenting another key sends nothing: the pinned
+				// handshake fails first (tower_identity.feature pins the request count).
+				if s.err != nil {
+					return s.err
+				}
+				bad := s.inv
+				bad.FP = strings.Repeat("ab", 32)
+				out := captureStdout(s.t, func() { s.refused = cmdJoin(loadConfig(), []string{bad.String()}) })
+				if s.refused == nil || !strings.Contains(s.refused.Error(), "its key differs") {
+					return fmt.Errorf("a Tower with another key was not refused in the handshake: %v %s", s.refused, out)
+				}
+				return nil
+			})
+			sc.Step(`^it proves the code without sending the code itself$`, func() error {
+				if strings.Contains(s.out, s.inv.Code) {
+					return fmt.Errorf("the code was printed")
+				}
+				return nil // the wire body carries only the proof: JoinRequestBody has no code field
+			})
+			sc.Step(`^the Tower admits the client's key on the code$`, func() error {
+				if !s.admitted() {
+					return fmt.Errorf("not admitted")
+				}
+				return nil
+			})
+			sc.Step(`^the client records the Tower in lan_towers WITH its pinned fingerprint$`, func() error {
+				c := loadConfig()
+				if !contains(c.LanTowers, s.addr) || c.LanTowerPins[s.addr] != s.inv.FP {
+					return fmt.Errorf("lan_towers %v pins %v", c.LanTowers, c.LanTowerPins)
+				}
+				return nil
+			})
+			sc.Step(`^the client prints "joined the Tower lab at 192\.168\.1\.20:8787" and the bands it serves$`, func() error {
+				if !strings.Contains(s.out, "joined the Tower lab at "+s.addr) {
+					return fmt.Errorf("printed:\n%s", s.out)
+				}
+				return nil
+			})
+			sc.Step(`^it prints one next step: "try: roger --lan use <band>"$`, func() error {
+				if strings.Count(s.out, "try: ") != 1 || !strings.Contains(s.out, "try: roger --lan use <band>") {
+					return fmt.Errorf("printed:\n%s", s.out)
+				}
+				return nil
+			})
+			sc.Step(`^the client already joined "lab"$`, func() error {
+				if err := s.mint(); err != nil {
+					return err
+				}
+				if err := s.join(s.inv); err != nil || s.err != nil {
+					return fmt.Errorf("first join: %v", s.err)
+				}
+				return nil
+			})
+			sc.Step(`^it runs "roger join" with a fresh invite for "lab"$`, func() error {
+				if err := s.mint(); err != nil {
+					return err
+				}
+				return s.join(s.inv)
+			})
+			sc.Step(`^it says it is already a member, keeps its pin, and does not spend the invite$`, func() error {
+				if s.err != nil || !strings.Contains(s.out, "already a member of the Tower lab at") {
+					return fmt.Errorf("said %v:\n%s", s.err, s.out)
+				}
+				if loadConfig().LanTowerPins[s.addr] != s.inv.FP {
+					return fmt.Errorf("the pin changed")
+				}
+				if n := len(s.st.LiveInvitations()); n != 1 {
+					return fmt.Errorf("%d live invites, want the fresh one unspent", n)
+				}
+				return nil
+			})
+
+			sc.Step(`^the station runs "roger share --tower <station invite>"$`, func() error {
+				if err := s.mint("--station"); err != nil {
+					return err
+				}
+				prevCtx := lanShareContext
+				ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+				defer cancel()
+				lanShareContext = func() (context.Context, context.CancelFunc) { return ctx, func() {} }
+				defer func() { lanShareContext = prevCtx }()
+				prev := detectFull
+				detectFull = fakeDetect("qwen3-8b")
+				defer func() { detectFull = prev }()
+				s.out = captureStdout(s.t, func() {
+					s.err = cmdShare(loadConfig(), []string{"qwen3-8b", "--upstream", "http://127.0.0.1:1/v1", "--tower", s.inv.String()})
+				})
+				return nil
+			})
+			sc.Step(`^it joins exactly as "roger join <station invite>" and then shares$`, func() error {
+				if s.err != nil {
+					return fmt.Errorf("share: %v\n%s", s.err, s.out)
+				}
+				stations, err := s.st.Stations()
+				if err != nil || len(stations) != 1 || !strings.Contains(s.out, "as station") {
+					return fmt.Errorf("no station joined: %v %v\n%s", stations, err, s.out)
+				}
+				if !strings.Contains(s.out, "LAN mode: sharing qwen3-8b") {
+					return fmt.Errorf("it did not share after joining:\n%s", s.out)
+				}
+				return nil
+			})
+
 			// Offline
 			sc.Step(`^neither machine can reach the internet$`, func() error { return nil })
 			sc.Step(`^the owner mints an invite and the client joins with it$`, func() error {
@@ -409,8 +519,8 @@ func TestJoinInviteBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{joinInviteFeature + ":44", joinInviteFeature + ":74", joinInviteFeature + ":98",
-				joinInviteFeature + ":107", joinInviteFeature + ":133", joinInviteFeature + ":145",
-				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":186",
+				joinInviteFeature + ":107", joinInviteFeature + ":123", joinInviteFeature + ":133", joinInviteFeature + ":150", joinInviteFeature + ":145",
+				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":186", joinInviteFeature + ":192",
 				joinInviteFeature + ":196", joinInviteFeature + ":236"}},
 	}
 	if bddrun.Run(suite) != 0 {

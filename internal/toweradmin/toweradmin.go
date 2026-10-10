@@ -43,6 +43,7 @@ type Ops interface {
 	ConsumeInvitation(id, code, clientKeyHash string) (tower.Credential, error)
 	AttachStation(id, keyHash string, models []string) (tower.Station, error)
 	AttachCuratedStation(id, keyHash string, models []string, provider string) (tower.Station, error)
+	RevokeClientNamed(nameOrHash string) (string, error)
 }
 
 var _ Ops = (*tower.State)(nil)
@@ -102,6 +103,8 @@ func Do(st *tower.State, req Request) Response {
 		} else {
 			resp.Station, err = st.AttachStation(req.ID, req.Key, req.Models)
 		}
+	case "revoke-client":
+		resp.Code, err = st.RevokeClientNamed(req.ID)
 	default:
 		err = fmt.Errorf("unknown administration request %q", req.Op)
 	}
@@ -146,7 +149,7 @@ func handle(c net.Conn, st *tower.State, logf func(string, ...any)) {
 
 func known(op string) bool {
 	switch op {
-	case "fingerprint", "join-invite", "invite", "invites", "void", "admit", "attach":
+	case "fingerprint", "join-invite", "invite", "invites", "void", "admit", "attach", "revoke-client":
 		return true
 	}
 	return false
@@ -230,4 +233,9 @@ func (c Client) AttachStation(id, keyHash string, models []string) (tower.Statio
 func (c Client) AttachCuratedStation(id, keyHash string, models []string, provider string) (tower.Station, error) {
 	r, err := c.call(Request{Op: "attach", ID: id, Key: keyHash, Models: models, Provider: provider, Curated: true})
 	return r.Station, err
+}
+
+func (c Client) RevokeClientNamed(nameOrHash string) (string, error) {
+	r, err := c.call(Request{Op: "revoke-client", ID: nameOrHash})
+	return r.Code, err
 }

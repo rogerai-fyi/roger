@@ -6,11 +6,14 @@ package main
 // a length limit), and the user "rt" is whoever runs the test.
 //
 // Not run here yet: the outline rows tagged @blocked-on-request-approve (requests, approve,
-// revoke-client, station revoke) and Windows.
+// station revoke) and Windows.
 
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -21,7 +24,9 @@ import (
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/localplane/serve"
+	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/toweradmin"
 	"rogerai.fm/roger/v6/internal/towercli"
@@ -163,6 +168,24 @@ func TestJoinAdminSocketBDD(t *testing.T) {
 						return s.err
 					}
 					cmd = strings.Replace(cmd, " K ", " "+strings.Repeat("ab", 8)+" ", 1)
+				}
+				if strings.Contains(cmd, "revoke-client") {
+					// a client named laptop-x joined through a real bearer invite
+					st, err := tower.Open(s.dir)
+					if err != nil {
+						return err
+					}
+					_, code, err := toweradmin.Client{Dir: s.dir}.CreateJoinInvitation(tower.JoinClient, "", nil, time.Minute)
+					if err != nil {
+						return err
+					}
+					pub, _, _ := ed25519.GenerateKey(rand.Reader)
+					ph := hex.EncodeToString(pub)
+					fp, _ := st.JoinFingerprint()
+					if _, err := st.ConsumeJoin(tower.JoinRequest{Proof: joincode.Tower.Proof(code, "n", ph, fp), Nonce: "n",
+						PubHex: ph, KeyHash: protocol.UserIDFromPubkey(ph), Name: "laptop-x"}); err != nil {
+						return err
+					}
 				}
 				if strings.Contains(cmd, "invite") && !strings.Contains(cmd, "--list") {
 					cmd += " --at 127.0.0.1:8787"

@@ -43,6 +43,7 @@ usage: roger tower <command> [flags]
   doctor    a Tower's readiness and clock (NTP): --config FILE [--clock-check] [--offline] [--ntp HOST:PORT]
   ready     durable startup preflight: --config FILE
   status    a Tower data directory's state and fingerprint: --dir DIR [--full]
+  revoke-client  stop one client using this Tower, by the name it joined under: --dir DIR NAME
   rotate-key  a new TLS key: the Tower serves under a new fingerprint and every client re-joins: --dir DIR
   invite    print one roger join line for a client (or --station): --dir DIR [--for NAME] [--ttl 15m] [--list] [--void ID]
   admit     admit an invited client: --dir DIR --client KEYHASH --id ID --code CODE
@@ -178,6 +179,8 @@ func run(args []string, out io.Writer) error {
 		return cmdStatus(args[1:], out)
 	case "rotate-key":
 		return cmdRotateKey(args[1:], out)
+	case "revoke-client":
+		return cmdRevokeClient(args[1:], out)
 	case "earnings":
 		return cmdEarnings(args[1:], out)
 	case "version", "--version", "-v":
