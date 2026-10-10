@@ -16,6 +16,9 @@ import (
 
 const joinUsage = "usage: roger join <invite> [name] [--yes]  (the owner prints the invite with roger tower invite or roger edge invite)\n   or: roger join <address> [name] [--station]  (ask the Tower to let you in; the owner approves)"
 
+// joinResolve resolves an invite's hostnames (nil: the system resolver); a test replaces it.
+var joinResolve lanmode.Resolver
+
 func cmdJoin(cfg config, args []string) error {
 	var pos, rest []string
 	for _, a := range args {
@@ -51,14 +54,19 @@ func cmdJoin(cfg config, args []string) error {
 		return joinPairAt(os.Stdout, pos[0], name, station)
 	}
 	// An invite whose addresses are not local is refused before any connection.
+	// A name is resolved ONCE and the join connects to the address that lookup approved, never to
+	// the name again (features/join/adversarial.feature).
 	var local []string
 	for _, a := range in.Addrs {
 		addr, perr := lanmode.ParseAddr(a)
 		if perr != nil {
 			continue
 		}
-		if v := lanmode.Classify(context.Background(), addr, nil); v.Local {
-			local = append(local, a)
+		if dial, v := lanmode.Resolve(context.Background(), addr, joinResolve); v.Local {
+			if addr.Literal() {
+				dial = a
+			}
+			local = append(local, dial)
 		}
 	}
 	if len(local) == 0 {

@@ -214,14 +214,13 @@ func lanTowers(ctx context.Context, in LANInputs) []towerResult {
 			out[i].State, out[i].Detail = LANTowerRefused, err.Error()
 			continue
 		}
-		v := lanmode.Classify(ctx, a, in.Resolve)
+		// One lookup decides both: the connection goes to the address the check approved, never to
+		// the name again, so a name cannot flip to a public address in between.
+		key, v := lanmode.Resolve(ctx, a, in.Resolve)
 		if !v.Local && !(v.CGNAT && a.Literal()) {
 			out[i].State, out[i].Detail = LANTowerRefused, v.Reason
 			continue
 		}
-		// The connection goes to the address the check just approved, never to the name again:
-		// a second lookup is a window in which a name could flip to a public address.
-		key := resolvedKey(ctx, a, in.Resolve)
 		if first, dup := seen[key]; dup {
 			out[i].State, out[i].Detail = LANTowerSameAs, "the same Tower as "+in.Towers[first]
 			continue
@@ -240,21 +239,6 @@ func lanTowers(ctx context.Context, in LANInputs) []towerResult {
 	}
 	wg.Wait()
 	return out
-}
-
-// resolvedKey names a Tower by the address it reaches, so two spellings are one source.
-func resolvedKey(ctx context.Context, a lanmode.Addr, resolve lanmode.Resolver) string {
-	if a.Literal() {
-		return a.String()
-	}
-	if resolve == nil {
-		resolve = lanmode.DefaultResolver
-	}
-	ips, err := resolve(ctx, a.Host)
-	if err != nil || len(ips) == 0 {
-		return a.String()
-	}
-	return net.JoinHostPort(ips[0].String(), a.Port)
 }
 
 // readTower reads one Tower's /discover, signed (the plane admits signed clients only).

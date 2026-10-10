@@ -248,14 +248,14 @@ func lanTowerBase(ctx context.Context, opts ProxyOptions, entry string) (string,
 	if err != nil {
 		return "", err.Error()
 	}
-	v := lanmode.Classify(ctx, a, opts.LANResolve)
+	dial, v := lanmode.Resolve(ctx, a, opts.LANResolve)
 	if !v.Local && !(v.CGNAT && a.Literal()) {
 		return "", v.Reason
 	}
 	if a.Literal() {
 		return a.Base(), ""
 	}
-	return "http://" + resolvedKey(ctx, a, opts.LANResolve), ""
+	return "http://" + dial, ""
 }
 
 // lanPost sends one turn to a local endpoint (hc nil = a plain client, for this machine's own

@@ -295,26 +295,39 @@ func DefaultResolver(ctx context.Context, host string) ([]net.IP, error) {
 // Classify classifies an address; a hostname is local only when EVERY address it resolves to
 // is local. Callers classify again at every connection: a name is never cached as local.
 func Classify(ctx context.Context, a Addr, resolve Resolver) Verdict {
+	_, v := Resolve(ctx, a, resolve)
+	return v
+}
+
+// Resolve classifies a with ONE lookup and returns the host:port to connect to: the literal
+// itself, or the first address that lookup returned (every one of them judged local). A caller
+// connects to what Resolve returns and never to the name again, so a name cannot flip to a
+// public address between the check and the connection. dial is "" when a is not local.
+func Resolve(ctx context.Context, a Addr, resolve Resolver) (dial string, v Verdict) {
 	if a.Literal() {
-		return classifyIP(a.ip)
+		v = classifyIP(a.ip)
+		if v.Local || v.CGNAT {
+			dial = a.String()
+		}
+		return dial, v
 	}
 	if resolve == nil {
 		resolve = DefaultResolver
 	}
 	ips, err := resolve(ctx, a.Host)
 	if err != nil {
-		return Verdict{Reason: fmt.Sprintf("%s does not resolve: %v", a.Host, err)}
+		return "", Verdict{Reason: fmt.Sprintf("%s does not resolve: %v", a.Host, err)}
 	}
 	if len(ips) == 0 {
-		return Verdict{Reason: a.Host + " resolves to no address"}
+		return "", Verdict{Reason: a.Host + " resolves to no address"}
 	}
 	for _, ip := range ips {
 		na, ok := netip.AddrFromSlice(ip)
 		if !ok || !classifyIP(na).Local {
-			return Verdict{Reason: a.Host + " resolves to a public address (" + ip.String() + ")"}
+			return "", Verdict{Reason: a.Host + " resolves to a public address (" + ip.String() + ")"}
 		}
 	}
-	return Verdict{Local: true}
+	return net.JoinHostPort(ips[0].String(), a.Port), Verdict{Local: true}
 }
 
 // ProbeResult is what an address is, as far as /local/poll can tell.
