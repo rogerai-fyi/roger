@@ -5,6 +5,8 @@ package edgeauth
 // independently of this package (Python hashlib) and are shared with the phone.
 
 import (
+	"rogerai.fm/roger/v6/internal/joincode"
+
 	"encoding/json"
 	"errors"
 	"os"
@@ -188,14 +190,14 @@ func TestNewCodeIsUniformAndUnique(t *testing.T) {
 		require.False(t, seen[c], "a repeated code after %d draws", i)
 		seen[c] = true
 		for pos, r := range c {
-			counts[pos][strings.IndexRune(codeAlphabet, r)]++
+			counts[pos][strings.IndexRune(joincode.Alphabet, r)]++
 		}
 	}
 	// Each symbol is expected n/32 = 312.5 times per position; a uniform draw stays well inside
 	// +/- 35% at this n (about 7 standard deviations), a biased one does not.
 	for pos := range counts {
 		for sym, got := range counts[pos] {
-			require.InDelta(t, n/32, got, n/32*0.35, "position %d symbol %c", pos, codeAlphabet[sym])
+			require.InDelta(t, n/32, got, n/32*0.35, "position %d symbol %c", pos, joincode.Alphabet[sym])
 		}
 	}
 }

@@ -17,20 +17,17 @@ package edgeauth
 // The derivation is pinned by testdata/root_proof_vectors.json, which the phone shares.
 
 import (
-	"crypto/hmac"
-	"crypto/pbkdf2"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/joincode"
 )
 
 const (
 	// ProofDomain separates this derivation from everything else that hashes these fields.
-	ProofDomain = "rogerai-edge-root-proof/v1"
+	ProofDomain = "rogerai-edge-root-proof/v1" // joincode.Edge.Name
 	// ProofVersion prefixes a proof on the wire, so a joiner can refuse one it does not know.
 	ProofVersion = "v1"
 	// ProofIterations is the PBKDF2 work factor (ruling D3).
@@ -44,11 +41,6 @@ const (
 	// (ruling D5).
 	CodeAttempts = 5
 )
-
-// codeAlphabet is Crockford's base32. It is the alphabet internal/protocol's band codes use; it
-// is repeated here, not imported, because that package links net/http and this one must not
-// (structural_test.go).
-const codeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 var (
 	// ErrBadCode is input that is not an enrollment code.
@@ -66,73 +58,28 @@ var (
 	ErrPinMismatch = errors.New("the root that answered does not match the fingerprint you gave")
 )
 
-// NewCode draws a fresh code from the operating system's secure random source, in canonical form.
-// One symbol per byte, masked to five bits, so every symbol is exactly uniform.
-func NewCode() string {
-	raw := make([]byte, CodeLen)
-	if _, err := rand.Read(raw); err != nil {
-		panic("edgeauth: the system random source failed: " + err.Error())
-	}
-	b := make([]byte, CodeLen)
-	for i, r := range raw {
-		b[i] = codeAlphabet[r&0x1f]
-	}
-	return string(b)
-}
+// NewCode draws a fresh code from the operating system's secure random source, in canonical form
+// (internal/joincode, the Edge domain).
+func NewCode() string { return joincode.Edge.NewCode() }
 
 // FormatCode shows a canonical code the way the owner reads it: two groups of five.
-func FormatCode(code string) string {
-	if len(code) != CodeLen {
-		return code
-	}
-	return code[:5] + "-" + code[5:]
-}
+func FormatCode(code string) string { return joincode.Edge.Format(code) }
 
 // CanonicalCode reads a code however it was transcribed: case-folded, with Crockford's
 // confusables (I and L read as 1, O as 0), hyphens and spaces dropped. Anything else is refused,
 // and so is anything that is not exactly CodeLen symbols.
 func CanonicalCode(typed string) (string, error) {
-	var sb strings.Builder
-	for _, r := range strings.ToUpper(strings.TrimSpace(typed)) {
-		switch r {
-		case '-', ' ':
-			continue
-		case 'I', 'L':
-			r = '1'
-		case 'O':
-			r = '0'
-		}
-		if !strings.ContainsRune(codeAlphabet, r) {
-			return "", fmt.Errorf("%w: %q is not a code symbol (a code is %d symbols, shown XXXXX-XXXXX)",
-				ErrBadCode, r, CodeLen)
-		}
-		sb.WriteRune(r)
-	}
-	if sb.Len() != CodeLen {
-		return "", fmt.Errorf("%w: a code is %d symbols, shown XXXXX-XXXXX", ErrBadCode, CodeLen)
-	}
-	return sb.String(), nil
-}
-
-// proofKey stretches a canonical code, salted with the request's own nonce.
-func proofKey(code, nonce string) []byte {
-	k, err := pbkdf2.Key(sha256.New, code, []byte(ProofDomain+"\n"+nonce), ProofIterations, 32)
+	c, err := joincode.Edge.Canonical(typed)
 	if err != nil {
-		panic("edgeauth: pbkdf2: " + err.Error()) // only for impossible parameters
+		return "", fmt.Errorf("%w: a code is %d symbols, shown XXXXX-XXXXX (%v)", ErrBadCode, CodeLen, err)
 	}
-	return k
-}
-
-func proofMAC(code, rootFP, account, nodeID, nonce string) []byte {
-	m := hmac.New(sha256.New, proofKey(code, nonce))
-	m.Write([]byte(strings.Join([]string{ProofDomain, rootFP, account, nodeID, nonce}, "\n")))
-	return m.Sum(nil)
+	return c, nil
 }
 
 // RootProof is what an authority attaches to its answer: proof that whoever minted code also
 // holds this root, for this account, this node and this request. code must be canonical.
 func RootProof(code, rootFP, account, nodeID, nonce string) string {
-	return ProofVersion + ":" + hex.EncodeToString(proofMAC(code, rootFP, account, nodeID, nonce))
+	return joincode.Edge.Proof(code, nonce, rootFP, account, nodeID)
 }
 
 // VerifyRootProof checks an answer's proof against the code the owner typed (any transcription
@@ -143,18 +90,16 @@ func VerifyRootProof(typedCode, proof, rootFP, account, nodeID, nonce string) er
 	if err != nil {
 		return err
 	}
-	if proof == "" {
+	switch err := joincode.Edge.Check(code, proof, nonce, rootFP, account, nodeID); {
+	case err == nil:
+		return nil
+	case errors.Is(err, joincode.ErrNoProof):
 		return ErrNoRootProof
-	}
-	ver, mac, ok := strings.Cut(proof, ":")
-	if !ok || ver != ProofVersion {
+	case errors.Is(err, joincode.ErrProofVersion):
 		return ErrProofVersion
-	}
-	got, err := hex.DecodeString(mac)
-	if err != nil || !hmac.Equal(got, proofMAC(code, rootFP, account, nodeID, nonce)) {
+	default:
 		return ErrRootProofMismatch
 	}
-	return nil
 }
 
 // ParsePin reads a full root fingerprint however it was pasted - with or without "sha256:", in
