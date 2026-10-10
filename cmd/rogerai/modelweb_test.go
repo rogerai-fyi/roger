@@ -211,7 +211,8 @@ func TestConsoleViewCarriesEveryServeAndRefusesASecondUnderOneBand(t *testing.T)
 	require.NoError(t, err)
 	_, err = r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
 	require.NoError(t, err)
-	t0 := time.Now().Add(-time.Hour)
+	// A record is written after its supervisor started (an older Started would read as a reused pid).
+	t0 := time.Now()
 	for i, s := range []localmodel.Serving{
 		{Supervisor: os.Getppid(), Port: 5001, Band: "older", ID: "x/older:Q4", File: "older.gguf", Started: t0},
 		{Supervisor: os.Getppid(), Port: 5002, Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", File: "Tiny-Q4_K_M.gguf", Started: t0.Add(time.Minute)},
