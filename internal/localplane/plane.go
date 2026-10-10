@@ -122,6 +122,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/local/poll", s.localPoll)
 	mux.HandleFunc("/local/complete", s.localComplete)
 	mux.HandleFunc("/local/chunk", s.localChunk)
+	mux.HandleFunc("/local/join", s.localJoin)
 	return mux
 }
 

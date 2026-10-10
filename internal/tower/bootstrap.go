@@ -72,6 +72,16 @@ type Invitation struct {
 	// code presented by a DIFFERENT client is refused without consuming the
 	// invitation, so learning a code does not let an attacker burn it.
 	ClientKeyHash string `json:"client_key_hash"`
+	// A BEARER invite (features/join/invite.feature) names no client at mint: whoever proves the
+	// code is admitted, and ClientKeyHash records that key once it is used. JoinVerifier is the
+	// joincode Tower verifier (never the code). Kind is client or station, For limits it to one
+	// joiner name, Models limits what a Station may serve, Voided means the owner withdrew it.
+	Bearer       bool     `json:"bearer,omitempty"`
+	Kind         JoinKind `json:"kind,omitempty"`
+	For          string   `json:"for,omitempty"`
+	Models       []string `json:"models,omitempty"`
+	JoinVerifier string   `json:"join_verifier,omitempty"`
+	Voided       bool     `json:"voided,omitempty"`
 }
 
 // String renders the invitation for display. It exists so that printing a record can
@@ -252,53 +262,18 @@ func (s *State) ConsumeInvitation(id, code, clientKeyHash string) (Credential, e
 	}
 	// Once the operator has been RETIRED (revoked), the network admits no new client until it
 	// is re-initialized - otherwise an outstanding invitation would become a silent path to
-	// re-appoint an admin. The one nil-operator case that still admits is a FRESH network,
-	// one that has never bootstrapped; Bootstrapped tells the two apart (an empty Clients map
-	// does not persist, so it cannot).
-	if bs.Operator == nil && bs.Bootstrapped {
+	// re-appoint an admin (admitLocked refuses that). The first admitted client is the operator;
+	// one atomic write marks the invitation consumed AND admits the client, so a crash cannot
+	// leave a reusable code beside an issued credential.
+	cred := admitLocked(bs, s, clientKeyHash)
+	if cred == nil {
 		return Credential{}, errBootstrapRejected
 	}
-
-	// Role is decided HERE, not by the invitation: the first admitted client is the operator
-	// (the admin), every subsequent one a plain local client with no admin authority.
-	role := RoleLocalClient
-	if bs.Operator == nil {
-		role = RoleLocalOperator
-	}
-
-	fp, err := s.rootFingerprint()
-	if err != nil {
-		return Credential{}, errBootstrapRejected
-	}
-	cred := Credential{
-		ClientKeyHash:   clientKeyHash,
-		NetworkID:       s.LocalNetworkID,
-		RootFingerprint: fp,
-		Role:            role,
-		IssuedAt:        time.Now().Unix(),
-	}
-	// One atomic write marks the invitation consumed AND admits the client, so a crash
-	// cannot leave a reusable code beside an issued credential. The FIRST admitted client is
-	// also recorded as the operator (the admin role); every client, operator included, lives
-	// in the Clients set that admission and routing check.
 	inv.Consumed = true
-	if bs.Clients == nil {
-		bs.Clients = map[string]*Credential{}
-		// Migrate a pre-multi-client operator into the set on first multi-client write, so the
-		// map is the single source of truth from here and no client lives only in Operator.
-		if bs.Operator != nil {
-			bs.Clients[bs.Operator.ClientKeyHash] = bs.Operator
-		}
-	}
-	bs.Clients[clientKeyHash] = &cred
-	bs.Bootstrapped = true // never cleared: marks that this network has admitted a client
-	if bs.Operator == nil {
-		bs.Operator = &cred
-	}
 	if err := s.saveBootstrap(bs); err != nil {
 		return Credential{}, errBootstrapRejected
 	}
-	return cred, nil
+	return *cred, nil
 }
 
 // clientAdmitted reports whether a client-key hash is in the admitted set. It counts the

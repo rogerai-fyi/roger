@@ -98,6 +98,22 @@ func (s *State) attachStation(id, keyHash string, models []string, curatedProvid
 	if bs.Operator == nil {
 		return Station{}, errors.New("this network has no local operator yet: consume a bootstrap invitation before attaching Stations")
 	}
+	st, err := s.attachLocked(bs, id, keyHash, models, curatedProvider)
+	if err != nil {
+		return Station{}, err
+	}
+	if err := s.saveBootstrap(bs); err != nil {
+		return Station{}, err
+	}
+	return st, nil
+}
+
+// attachLocked records a Station in bs; the caller holds bootstrapMu and saves. A Station
+// joining with the owner's invite needs no operator: the invite is the owner's authority.
+func (s *State) attachLocked(bs *Snapshot, id, keyHash string, models []string, curatedProvider string) (Station, error) {
+	if id == "" || keyHash == "" || len(models) == 0 {
+		return Station{}, errors.New("a Station needs an id, a key hash, and at least one offered model")
+	}
 	if bs.Stations == nil {
 		bs.Stations = map[string]*Station{}
 	}
@@ -123,9 +139,6 @@ func (s *State) attachStation(id, keyHash string, models []string, curatedProvid
 		CuratedProvider: curatedProvider,
 	}
 	bs.Stations[id] = st
-	if err := s.saveBootstrap(bs); err != nil {
-		return Station{}, err
-	}
 	return *st, nil
 }
 
