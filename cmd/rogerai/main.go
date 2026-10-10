@@ -1535,8 +1535,9 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// A saved upstream key belongs to the SAVED endpoint: reuse it on a bare re-share
 	// (or an explicit --upstream pointing at that same endpoint), but NEVER default it
 	// onto a DIFFERENT --upstream - that would send a stale bearer to another server.
+	savedKeyUsed := false // the key came from config, not from the user's --upstream-key
 	if *upKey == "" && savedKey != "" && (up == "" || sameEndpoint(up, savedUp)) {
-		*upKey = savedKey
+		*upKey, savedKeyUsed = savedKey, true
 	}
 	// osaurusBrand records that DETECTION already fingerprinted the resolved upstream as Osaurus
 	// (a real GET / banner match during the scan). It is authoritative and, unlike a fresh probe at
@@ -1583,6 +1584,11 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		}
 		up = pick.Chat
 		osaurusBrand = pick.Name == "osaurus" // detection's authoritative fingerprint (see above)
+		// The saved key belongs to the saved endpoint. When detection landed somewhere else (the
+		// saved one is gone, say after a restart), that endpoint's own key is the one to send.
+		if savedKeyUsed && !sameEndpoint(pick.BaseURL, savedUp) {
+			*upKey = pick.Key
+		}
 		// A key-protected upstream the detector authenticated to (from env or the guided
 		// paste) carries its working key on the Found; adopt it unless --upstream-key was
 		// given explicitly, so the agent forwards jobs with the same Bearer.
