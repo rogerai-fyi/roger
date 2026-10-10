@@ -457,7 +457,7 @@ func TestAllowPrintsTheCodeTheCommandTheInviteAndTheWarning(t *testing.T) {
 	require.Contains(t, out, "15 minutes")
 	require.Contains(t, out, "one join")
 	require.Contains(t, out, "--code "+m)
-	require.Contains(t, out, "roger join roger://join?kind=edge")  // features/join/invite.feature: one scheme, one verb
+	require.Contains(t, out, "roger join roger://join?kind=edge") // features/join/invite.feature: one scheme, one verb
 	require.Contains(t, out, "before root proofs")
 	d := edgeDescriptor()
 	require.Contains(t, out, edgeauth.ShortFingerprint(d.Fingerprint))
