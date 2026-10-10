@@ -582,6 +582,11 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 			next = append(next, store.EdgeCap{Name: string(c), State: string(initialState(c))})
 		}
 		n.Caps = next
+		// A record this machine never named (its name is still the id) takes the name the member
+		// stated it enrolled under; discovery has already checked the name is free here.
+		if LooksLikeID(n.Name) && obs.Name != "" && !LooksLikeID(obs.Name) && ValidName(obs.Name) == nil {
+			n.Name = obs.Name
+		}
 		applyInstances(n, obs)
 		if obs.Phone != nil {
 			n.Phone = obs.Phone
@@ -769,6 +774,12 @@ func applyInstances(n *store.EdgeNode, obs Observation) {
 				}
 			}
 			cp.Caps = append(cp.Caps, store.EdgeCap{Name: c.Name, State: state})
+		}
+		// The proven bands belong to a VERIFIED serve. When the serve is gone or back to claimed (a
+		// restart, a serve stopped and started again) its old proof lapsed with it: carrying the list
+		// would let verifyServe skip the returning serve on every pass, so it never verified again.
+		if !hasVerifiedServe(cp.Caps) {
+			cp.ServeProven = nil
 		}
 		next = append(next, cp)
 	}
@@ -962,4 +973,14 @@ func voicesWithin(voices, bands []string) []string {
 		}
 	}
 	return out
+}
+
+// hasVerifiedServe reports whether caps hold a serve the fleet verified here.
+func hasVerifiedServe(caps []store.EdgeCap) bool {
+	for _, c := range caps {
+		if c.Name == string(Serve) {
+			return c.State == string(Verified)
+		}
+	}
+	return false
 }

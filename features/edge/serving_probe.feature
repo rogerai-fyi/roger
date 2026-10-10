@@ -177,3 +177,13 @@ Feature: the serving probe
     When "desk" is observed again with the same instances
     Then no band is recorded as proven for it
     And the next discovery pass probes it and serve becomes VERIFIED
+
+  # regression 2026-10-10: after a peer restarted and served the same band again, every member kept
+  # its serve CLAIMED forever, because the bands proven before the restart were carried on.
+  @edge
+  Scenario: a serve that comes back after a restart is probed again
+    Given "pi-1" serves "smollm" and its serve was VERIFIED by a probe
+    When "pi-1" restarts and is observed operating but serving nothing
+    And "pi-1" is observed serving "smollm" again
+    Then its serve is CLAIMED and no band is recorded as proven for it
+    And the next discovery pass probes it and serve becomes VERIFIED

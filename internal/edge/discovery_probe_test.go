@@ -175,3 +175,38 @@ func TestASecondSightingOfAClaimedServeIsStillProbed(t *testing.T) {
 	require.Equal(t, 2, calls, "both claimed instances are probed on the second sighting")
 	require.Equal(t, string(Verified), serveStateOf(t, f, "n_desk", "serve"))
 }
+
+// Pins features/edge/serving_probe.feature "a serve that comes back after a restart is probed again".
+// A peer that reboots stops serving for a while and then serves the same band again. Its earlier
+// probe verdict lapsed with the serve, so the returning serve is claimed and must be probed again:
+// a proven-band list left over from before the reboot must not let verifyServe skip it.
+func TestAServeThatComesBackAfterARestartIsProbedAgain(t *testing.T) {
+	f := NewFleet(store.NewMem(), "acct-1")
+	obs := func(in Instance) store.EdgeNode {
+		t.Helper()
+		n, err := f.Observe("n_pi", Observation{Name: "pi-1", Kind: string(Host), Caps: []Capability{Serve},
+			Addr: "10.0.0.5:44100", Fingerprint: "cd34", Instances: []Instance{in}})
+		require.NoError(t, err)
+		return n
+	}
+	n := obs(claimServe("pi-1", "smollm"))
+	calls := 0
+	d := New(Options{Fleet: f, CallerCert: &tls.Certificate{}, Probe: func(context.Context, string, string, *tls.Certificate, string) (string, error) {
+		calls++
+		return "pi-1", nil
+	}})
+	d.verifyServe(context.Background(), "10.0.0.5:44100", "cd34", n)
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_pi", "pi-1"))
+
+	// the reboot: the instance is back, still operating, but serves nothing yet
+	obs(Instance{Name: "pi-1", Caps: []store.EdgeCap{{Name: string(Operate), State: string(Claimed)}}})
+	// it serves the same band again
+	n = obs(claimServe("pi-1", "smollm"))
+	require.Equal(t, string(Claimed), serveStateOf(t, f, "n_pi", "pi-1"), "the returning serve starts claimed")
+	for _, in := range n.Instances {
+		require.Empty(t, in.ServeProven, "the proof lapsed with the restart")
+	}
+	d.verifyServe(context.Background(), "10.0.0.5:44100", "cd34", n)
+	require.Equal(t, 2, calls, "the returning serve is probed again")
+	require.Equal(t, string(Verified), serveStateOf(t, f, "n_pi", "pi-1"))
+}
