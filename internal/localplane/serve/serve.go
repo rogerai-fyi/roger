@@ -13,11 +13,13 @@ package serve
 
 import (
 	"context"
+	"crypto/ed25519"
 	"flag"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/towerpin"
 	"strconv"
 	"strings"
 	"time"
@@ -141,9 +143,27 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 		_ = release()
 		return nil, fmt.Errorf("cannot listen on %s: %w", addr, err)
 	}
+	// TLS under the Tower's own key, on the same port as plain http for one release
+	// (features/join/tower_identity.feature): a client pinned to this fingerprint trusts exactly it.
+	tlsKey, err := st.TLSKey()
+	if err != nil {
+		_ = ln.Close()
+		_ = release()
+		return nil, err
+	}
+	tlsCfg, err := towerpin.ServerTLS(tlsKey)
+	if err != nil {
+		_ = ln.Close()
+		_ = release()
+		return nil, err
+	}
+	fp := towerpin.Fingerprint(tlsKey.Public().(ed25519.PublicKey))
+	served := ln
+	ln = towerpin.Sniff(ln, tlsCfg)
 	fmt.Fprintf(out, "roger tower serve: %s\n", note)
-	fmt.Fprintf(out, "serving the standalone consumer plane on http://%s\n", ln.Addr())
-	fmt.Fprintf(out, "point a client at it with: roger lan add %s\n", ln.Addr())
+	fmt.Fprintf(out, "serving the standalone consumer plane on %s (TLS, and plain http for one more release)\n", served.Addr())
+	fmt.Fprintf(out, "identity sha256:%s (%s)\n", fp, towerpin.Short(fp))
+	fmt.Fprintf(out, "let a machine in with: roger tower invite --dir %s (it prints one roger join line)\n", *dir)
 
 	var adv func(context.Context)
 	if *advertise {

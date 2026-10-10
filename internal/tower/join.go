@@ -11,7 +11,6 @@ package tower
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"slices"
@@ -19,6 +18,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towerpin"
 )
 
 // JoinKind is what a bearer invite lets its holder do.
@@ -60,8 +60,7 @@ func (s *State) JoinFingerprint() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(k.Public().(ed25519.PublicKey))
-	return hex.EncodeToString(sum[:]), nil
+	return towerpin.Fingerprint(k.Public().(ed25519.PublicKey)), nil
 }
 
 // CreateJoinInvitation mints a bearer invite of kind. forName limits it to a joiner of that name;

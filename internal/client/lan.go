@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"rogerai.fm/roger/v6/internal/towerpin"
 	"sort"
 	"strings"
 	"sync"
@@ -268,13 +269,21 @@ func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, s
 	if key == nil {
 		key = LoadOrCreateUserKey()
 	}
-	signWithKey(req, nil, key)
 	hc := in.HTTP
 	if hc == nil {
 		hc = &http.Client{}
 	}
+	// A pinned Tower is read over TLS, trusting exactly its key (features/join/tower_identity.feature).
+	if routed, phc, pinned := lanmode.Route(base, hc); pinned {
+		req.URL, _ = url.Parse(routed + "/discover")
+		hc = phc
+	}
+	signWithKey(req, nil, key)
 	hc = noRedirects(hc)
 	resp, err := hc.Do(req)
+	if errors.Is(err, towerpin.ErrPinMismatch) {
+		return LANTowerRefused, TowerKeyChanged(req.URL.Host), nil, false
+	}
 	if err != nil {
 		var ue *url.Error
 		if ctx.Err() != nil || (errors.As(err, &ue) && ue.Timeout()) {
@@ -369,4 +378,10 @@ func cleanModelName(s string) string {
 		s = s[:lanMaxModelName]
 	}
 	return s
+}
+
+// TowerKeyChanged is the refusal for a pinned Tower answering with another key
+// (features/join/tower_identity.feature).
+func TowerKeyChanged(addr string) string {
+	return "the Tower at " + addr + " is not the one you joined (its key changed). If the owner reset it, re-join with a new invite: roger join <invite>"
 }

@@ -45,7 +45,15 @@ func NodeID() string { return idFromPriv(NodeKey()) }
 // simply re-polls - because a standalone plant should keep serving across a Tower blip.
 func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, out io.Writer) error {
 	pollClient := &http.Client{Timeout: 40 * time.Second} // longer than the plane's poll window
-	execClient := &http.Client{Timeout: 10 * time.Minute} // a real prompt is real work
+	execClient := &http.Client{Timeout: 10 * time.Minute} // a real prompt is real work (upstream)
+	towerClient := execClient                             // completions and chunks posted to the Tower
+	// A Tower this station joined by invite is pinned: every poll, completion and chunk goes over
+	// TLS to exactly its key (features/join/tower_identity.feature). The upstream client is never
+	// pinned: the station's own model server is not the Tower.
+	if routed, pc, pinned := lanmode.Route(cfg.Broker, pollClient); pinned {
+		_, tc, _ := lanmode.Route(cfg.Broker, execClient)
+		cfg.Broker, pollClient, towerClient = routed, pc, tc
+	}
 	// The node's own tower client id is derivable ONLY from its node key - so print it, with the
 	// exact command that consumes it. An operator cannot attach a station whose key hash they
 	// cannot see. (`roger account` shows it too, so the id is learnable before the plane is up.)
@@ -98,11 +106,11 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 			continue
 		}
 		if job.Stream {
-			runLocalStream(ctx, execClient, cfg, priv, job)
+			runLocalStream(ctx, execClient, towerClient, cfg, priv, job)
 			continue
 		}
 		answer := runLocalJob(execClient, cfg, job.Request)
-		completeLocalJob(execClient, cfg.Broker, priv, job.ID, answer)
+		completeLocalJob(towerClient, cfg.Broker, priv, job.ID, answer)
 	}
 }
 

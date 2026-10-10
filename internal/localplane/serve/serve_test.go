@@ -9,7 +9,10 @@ package serve
 import (
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/towerpin"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,4 +126,36 @@ func TestRunInstallsTheGuardFirst(t *testing.T) {
 	err := Run([]string{}, io.Discard)
 	require.ErrorContains(t, err, "--dir is required")
 	require.True(t, installed, "the guard goes in before setup")
+}
+
+// features/join/tower_identity.feature: the Tower serves TLS with a certificate self-signed by its
+// own tls.key on the same port, prints the fingerprint it serves under, and a client pinned to that
+// fingerprint reaches every route over TLS.
+func TestServeAnswersTLSUnderTheTowersOwnKey(t *testing.T) {
+	dir := standaloneDir(t)
+	var out strings.Builder
+	p, err := Prepare([]string{"--dir", dir, "--bind", "127.0.0.1:0"}, &out)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- p.Serve() }()
+	t.Cleanup(func() { _ = p.srv.Close(); <-done })
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+	fp, err := st.JoinFingerprint()
+	require.NoError(t, err)
+	require.Contains(t, out.String(), "sha256:"+fp, "serve prints the fingerprint it serves under")
+
+	resp, err := towerpin.Client(fp, 5*time.Second).Get("https://" + p.ln.Addr().String() + "/discover")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the plane answers over TLS")
+	require.NotNil(t, resp.TLS)
+}
+
+// A directory whose TLS key is unreadable does not serve at all: never plain-only by accident.
+func TestServeRefusesWithoutItsTLSKey(t *testing.T) {
+	dir := standaloneDir(t)
+	require.NoError(t, os.Remove(filepath.Join(dir, "tls.key")))
+	_, err := Prepare([]string{"--dir", dir, "--bind", "127.0.0.1:0"}, io.Discard)
+	require.Error(t, err)
 }

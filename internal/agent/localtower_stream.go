@@ -35,10 +35,10 @@ const chunkBusyRetries = 40
 
 // runLocalStream serves one streamed job: it runs the request against the node's upstream with
 // the stream flag kept, and posts the reply to the Tower as sequenced chunks.
-func runLocalStream(ctx context.Context, c *http.Client, cfg Config, priv ed25519.PrivateKey, job localJob) {
+func runLocalStream(ctx context.Context, c, tower *http.Client, cfg Config, priv ed25519.PrivateKey, job localJob) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	post := &chunkPoster{ctx: ctx, c: c, broker: cfg.Broker, priv: priv, jobID: job.ID}
+	post := &chunkPoster{ctx: ctx, c: tower, broker: cfg.Broker, priv: priv, jobID: job.ID}
 
 	body := []byte(job.Request)
 	if cfg.Osaurus {

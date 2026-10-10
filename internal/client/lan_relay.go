@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/towerpin"
 	"sort"
 	"strings"
 	"sync"
@@ -84,7 +85,12 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 				tried = append(tried, entry+": "+why)
 				continue
 			}
-			resp, err := lanPost(ctx, opts, opts.LANHTTP, base+"/v1/chat/completions", body, true, "")
+			routed, hc, _ := lanmode.Route(base, opts.LANHTTP)
+			resp, err := lanPost(ctx, opts, hc, routed+"/v1/chat/completions", body, true, "")
+			if errors.Is(err, towerpin.ErrPinMismatch) {
+				tried = append(tried, entry+": "+TowerKeyChanged(entry))
+				continue
+			}
 			if err != nil {
 				tried = append(tried, entry+": "+err.Error())
 				continue

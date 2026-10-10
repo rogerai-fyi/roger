@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
-	"net/http/httptest"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -12,9 +14,11 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/joininvite"
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/towerpin"
 )
 
 const joinTestFP = "9f3c0000000000000000000000000000000000000000000000000000000000e1"
@@ -71,9 +75,16 @@ func joinTowerFixture(t *testing.T) (*tower.State, string) {
 	require.NoError(t, err)
 	st, err := tower.Open(dir)
 	require.NoError(t, err)
-	srv := httptest.NewServer(localplane.New(st).Handler())
-	t.Cleanup(srv.Close)
-	return st, strings.TrimPrefix(srv.URL, "http://")
+	key, err := st.TLSKey()
+	require.NoError(t, err)
+	cfg, err := towerpin.ServerTLS(key)
+	require.NoError(t, err)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := &http.Server{Handler: localplane.New(st).Handler()}
+	go func() { _ = srv.Serve(towerpin.Sniff(ln, cfg)) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return st, ln.Addr().String()
 }
 
 func towerInvite(t *testing.T, st *tower.State, addr string, kind tower.JoinKind) joininvite.Invite {
@@ -130,4 +141,43 @@ func TestJoinTriesTheAddressesInOrder(t *testing.T) {
 	inv.Addrs = append([]string{"127.0.0.1:1"}, inv.Addrs...) // nothing answers there
 	captureStdout(t, func() { require.NoError(t, cmdJoin(loadConfig(), []string{inv.String()})) })
 	require.Equal(t, []string{addr}, loadConfig().LanTowers)
+}
+
+// features/join/invite.feature: the client checks the Tower's identity against the invite's
+// fingerprint BEFORE sending anything; a device at that address with another key gets nothing.
+func TestJoinChecksTheTowersKeyBeforeSendingAnything(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	st, addr := joinTowerFixture(t)
+	inv := towerInvite(t, st, addr, tower.JoinClient)
+	other, _ := joinTowerFixture(t)
+	inv.FP, _ = other.JoinFingerprint() // the invite pins a different Tower's key
+	err := cmdJoin(loadConfig(), []string{inv.String()})
+	require.ErrorContains(t, err, "is not the one in the invite")
+	require.Len(t, st.LiveInvitations(), 1, "nothing reached the Tower: the invite is unspent")
+	require.Empty(t, loadConfig().LanTowers)
+}
+
+// features/join/tower_identity.feature: after joining, every request checks the pin; a device
+// answering with another key is refused before any prompt is sent, with the recovery hint, and
+// the pin is not changed.
+func TestAJoinedTowerIsReadOverItsPinAndAChangedKeyIsRefused(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Cleanup(func() { lanmode.SetPins(nil) })
+	st, addr := joinTowerFixture(t)
+	inv := towerInvite(t, st, addr, tower.JoinClient)
+	captureStdout(t, func() { require.NoError(t, cmdJoin(loadConfig(), []string{inv.String()})) })
+
+	_, status := client.LANDiscover(context.Background(), client.LANInputs{Towers: []string{addr}})
+	require.Len(t, status, 1)
+	require.NotEqual(t, client.LANTowerRefused, status[0].State, status[0].Detail)
+	require.NotEqual(t, client.LANTowerNotAdmitted, status[0].State, "the joined key is admitted, over TLS")
+
+	other, _ := joinTowerFixture(t)
+	wrong, _ := other.JoinFingerprint()
+	lanmode.SetPins(map[string]string{addr: wrong}) // the device at addr no longer matches the pin
+	_, status = client.LANDiscover(context.Background(), client.LANInputs{Towers: []string{addr}})
+	require.Equal(t, client.LANTowerRefused, status[0].State)
+	require.Contains(t, status[0].Detail, "is not the one you joined (its key changed)")
+	require.Contains(t, status[0].Detail, "roger join <invite>")
+	require.Equal(t, inv.FP, loadConfig().LanTowerPins[addr], "the stored pin is not changed")
 }

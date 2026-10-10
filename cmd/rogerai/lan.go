@@ -64,6 +64,9 @@ func decideLAN(argv []string, cfg config) ([]string, config, error) {
 		return rest, cfg, err
 	}
 	cfg.lan = m
+	// The Towers this machine joined are pinned to their keys for the life of the process
+	// (features/join/tower_identity.feature).
+	lanmode.SetPins(cfg.LanTowerPins)
 	return rest, cfg, nil
 }
 

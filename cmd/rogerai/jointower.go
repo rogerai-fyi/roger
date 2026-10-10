@@ -22,16 +22,14 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/joininvite"
+	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towerpin"
 )
 
-// joinHTTP is the client a join posts with. Redirects are never followed: an invite names the
-// exact address.
-var joinHTTP = &http.Client{
-	Timeout:       10 * time.Second,
-	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-}
+// joinTimeout bounds one join attempt at one address.
+const joinTimeout = 10 * time.Second
 
 func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
 	key := client.LoadOrCreateUserKey()
@@ -74,7 +72,9 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 		Kind: kind, Proof: joincode.Tower.Proof(in.Code, nonce, pubHex, in.FP), Name: name, Models: models,
 	})
 	_, ts, sig := protocol.SignRequestNonce(key, http.MethodPost, "/local/join", body, nonce)
-	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/local/join", bytes.NewReader(body))
+	// Over TLS, pinned to the invite's fingerprint: the Tower's identity is checked in the
+	// handshake, before the request (and its proof) is sent. Never plain http, never a redirect.
+	req, err := http.NewRequest(http.MethodPost, "https://"+addr+"/local/join", bytes.NewReader(body))
 	if err != nil {
 		return localplane.JoinAnswer{}, err
 	}
@@ -83,7 +83,10 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 	req.Header.Set(protocol.HeaderSig, sig)
 	req.Header.Set(protocol.HeaderNonce, nonce)
-	resp, err := joinHTTP.Do(req)
+	resp, err := towerpin.Client(in.FP, joinTimeout).Do(req)
+	if errors.Is(err, towerpin.ErrPinMismatch) {
+		return localplane.JoinAnswer{}, &joinRefusal{msg: "the Tower at " + addr + " is not the one in the invite (its key differs). Nothing was sent. Check you are on the right network, or ask the owner for a fresh invite"}
+	}
 	if err != nil {
 		return localplane.JoinAnswer{}, err
 	}
@@ -127,6 +130,7 @@ func joinRecord(addr string, in joininvite.Invite, ans localplane.JoinAnswer, na
 	if err != nil {
 		return err
 	}
+	lanmode.SetPins(c.LanTowerPins)
 	if ans.Joined == "station" {
 		fmt.Printf("joined the Tower at %s as station %s, serving: %s\n", addr, name, strings.Join(ans.Models, ", "))
 		if len(ans.Refused) > 0 {
