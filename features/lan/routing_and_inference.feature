@@ -233,12 +233,12 @@ Feature: In LAN mode every turn, by every path, is served by this machine, an Ed
     When a chat message is sent from the console
     Then it is served by this machine
     And no request was made to the public broker
-
+  # corrected 2026-10-09 (founder-approved): name the TTS model, not "voice"
   @cli
   Scenario: `roger say` and voice in LAN mode use a local voice or refuse
     Given nothing local serves a TTS band
     When they run "roger --lan say hello"
-    Then it is refused, saying no local voice is on air
+    Then it is refused, saying no local text-to-speech (TTS) model is on air
     And no request was made to the public broker's /v1/audio/speech
     # RULED 2026-10-06: voice uses the same filter as text; a local TTS station is
     # a band like any other.

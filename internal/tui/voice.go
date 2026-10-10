@@ -126,7 +126,7 @@ func (m model) startVoicePreview(bd band) (tea.Model, tea.Cmd) {
 	switch {
 	case !bd.online:
 		m.previewStage = previewOffline
-		m.status = stEmber.Render(noStationServing(bd.model)) + stDim.Render(" - no voice to preview right now")
+		m.status = stEmber.Render(noStationServing(bd.model)) + stDim.Render(" - no text-to-speech (TTS) model to preview right now")
 		return m, nil
 	case bd.isSTT():
 		m.previewStage = previewInfoSTT
@@ -324,7 +324,7 @@ func (m model) voicePreviewView(w int) string {
 
 	switch m.previewStage {
 	case previewOffline:
-		s.WriteString("  " + stEmber.Render("off air") + stDim.Render(" - no station is serving this voice right now. esc goes back; r re-checks.") + "\n")
+		s.WriteString("  " + stEmber.Render("off air") + stDim.Render(" - no station is serving this text-to-speech (TTS) model right now. esc goes back; r re-checks.") + "\n")
 	case previewInfoSTT:
 		s.WriteString("  " + stDim.Render("This is a LISTEN (speech-to-text) station: it transcribes audio you send.") + "\n")
 		s.WriteString("  " + stDim.Render("There is no chat preview - send audio via the RogerAI app or the ") + stKey.Render("/v1/audio/transcriptions") + stDim.Render(" API.") + "\n")

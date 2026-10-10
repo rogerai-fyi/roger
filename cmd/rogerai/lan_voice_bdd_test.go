@@ -263,10 +263,10 @@ func TestLANVoiceBDD(t *testing.T) {
 				}
 				return nil
 			})
-			sc.Step(`^no local voice is on air$`, func() error { return nil })
+			sc.Step(`^no local text-to-speech \(TTS\) model is on air$`, func() error { return nil })
 			sc.Step(`^the LAN Tower at ([0-9.:]+) is configured$`, func(a string) error { s.addTower(a); return nil })
-			sc.Step(`^it is refused, saying no local voice is on air and LAN Towers do not serve voice$`, func() error {
-				return s.refused("no local voice is on air", "LAN Towers do not serve voice")
+			sc.Step(`^it is refused, saying no local text-to-speech \(TTS\) model is on air and LAN Towers do not serve text-to-speech$`, func() error {
+				return s.refused("no local text-to-speech (TTS) model is on air", "LAN Towers do not serve text-to-speech")
 			})
 			sc.Step(`^no request was made to ([0-9.:]+)$`, func(string) error {
 				if n := s.dialRead.Load(); n != 0 {
@@ -276,9 +276,9 @@ func TestLANVoiceBDD(t *testing.T) {
 			})
 			sc.Step(`^no request was made to the public broker's (/\S+)$`, func(p string) error { return brokerNotAsked(s.broker, p) })
 			sc.Step(`^LAN mode is on and no voice is on air on this machine or any Edge member$`, func() error { return nil })
-			sc.Step(`^it is refused, saying no local voice is on air$`, func() error { return s.refused("no local voice is on air") })
-			sc.Step(`^it says how to put one on air or how to use the network's voices without --lan$`, func() error {
-				return s.refused("roger share", "run without --lan to use the network's voices")
+			sc.Step(`^it is refused, saying no local text-to-speech \(TTS\) model is on air$`, func() error { return s.refused("no local text-to-speech (TTS) model is on air") })
+			sc.Step(`^it says how to put one on air or how to use the network's TTS models without --lan$`, func() error {
+				return s.refused("roger model serve", "roger share", "run without --lan to use the network's TTS models")
 			})
 			sc.Step(`^LAN mode is on and "([^"]*)" is on the public market but not on this LAN$`, func(string) error { return nil })
 			sc.Step(`^it is refused, saying "([^"]*)" is not on air on this LAN$`, func(v string) error { return s.refused(v + " is not on air on this LAN") })
@@ -327,8 +327,8 @@ func TestLANVoiceBDD(t *testing.T) {
 			sc.Step(`^this machine's voice upstream refuses the request before any audio$`, func() error { s.selfMode = "refuse"; return nil })
 			sc.Step(`^"([^"]*)" speaks it$`, func(n string) error { return s.spoke(n) })
 			sc.Step(`^the output lists that local voice$`, func() error {
-				if s.err != nil || !strings.Contains(s.out, "roggentoo-voice") || !strings.Contains(s.out, "local voice") {
-					return fmt.Errorf("the roster did not list the local voice: %q (%v)", s.out, s.err)
+				if s.err != nil || !strings.Contains(s.out, "roggentoo-voice") || !strings.Contains(s.out, "local text-to-speech (TTS) model") {
+					return fmt.Errorf("the roster did not list the local TTS model: %q (%v)", s.out, s.err)
 				}
 				return nil
 			})

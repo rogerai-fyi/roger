@@ -124,23 +124,23 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
   # =========================================================================
   # 3. TOWERS AND THE MARKET ARE NEVER ASKED FOR VOICE
   # =========================================================================
-
+  # corrected 2026-10-09 (founder-approved): name the TTS model, not "voice"
   @cli
   Scenario: a LAN Tower is never asked for speech, and the refusal says why
     Given LAN mode is on
-    And no local voice is on air
+    And no local text-to-speech (TTS) model is on air
     And the LAN Tower at 192.168.1.20:8787 is configured
     When they run "roger --lan say hello"
-    Then it is refused, saying no local voice is on air and LAN Towers do not serve voice
+    Then it is refused, saying no local text-to-speech (TTS) model is on air and LAN Towers do not serve text-to-speech
     And no request was made to 192.168.1.20:8787
     And no request was made to the public broker's /v1/audio/speech
-
+  # corrected 2026-10-09 (founder-approved): name the TTS model, not "voice"
   @cli
   Scenario: nothing local on air is a clear refusal
     Given LAN mode is on and no voice is on air on this machine or any Edge member
     When they run "roger --lan say hello"
-    Then it is refused, saying no local voice is on air
-    And it says how to put one on air or how to use the network's voices without --lan
+    Then it is refused, saying no local text-to-speech (TTS) model is on air
+    And it says how to put one on air or how to use the network's TTS models without --lan
     And no request was made to the public broker
     # This keeps routing_and_inference.feature scenario 238's refusal exactly as approved.
 
@@ -205,12 +205,12 @@ Feature: In LAN mode, voice speaks through a voice on this machine or an Edge me
     Then the sample is synthesized by that local voice
     And no request was made to the public broker
     And no price or sample cost is shown
-
+  # corrected 2026-10-09 (founder-approved): name the TTS model, not "voice"
   @tui
   Scenario: the TUI voice preview refuses honestly when the local voice is gone
     Given LAN mode is on and the TUI dial showed a local TTS band that has since gone off air
     When the voice preview is started on that band
-    Then the preview says the local voice is no longer on air
+    Then the preview says the local text-to-speech (TTS) model is no longer on air
     And no request was made to the public broker
 
   # =========================================================================

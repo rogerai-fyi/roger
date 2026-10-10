@@ -351,9 +351,9 @@ func TestLANRoutingBDD(t *testing.T) {
 			})
 			sc.Step(`^nothing local serves a TTS band$`, func() error { return nil })
 			sc.Step(`^they run "roger ([^"]*)"$`, func(line string) error { return s.cli(strings.Fields(line)...) })
-			sc.Step(`^it is refused, saying no local voice is on air$`, func() error {
-				if s.cliErr == nil || !strings.Contains(s.cliErr.Error(), "no local voice is on air") {
-					return fmt.Errorf("not refused for want of a local voice: err=%v out=%s", s.cliErr, s.cliOut)
+			sc.Step(`^it is refused, saying no local text-to-speech \(TTS\) model is on air$`, func() error {
+				if s.cliErr == nil || !strings.Contains(s.cliErr.Error(), "no local text-to-speech (TTS) model is on air") {
+					return fmt.Errorf("not refused for want of a local text-to-speech (TTS) model: err=%v out=%s", s.cliErr, s.cliOut)
 				}
 				return nil
 			})

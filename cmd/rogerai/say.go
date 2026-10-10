@@ -29,22 +29,22 @@ var sayPlayer audio.PlayerFn = audio.SystemPlayer
 // gates, or a graceful "broker unreachable"), and nothing plays on an error.
 func cmdSay(cfg config, args []string) error {
 	fs := flag.NewFlagSet("say", flag.ContinueOnError)
-	voice := fs.String("voice", "", "the voice to speak in: a model id, or the @station/name from `roger voices`")
-	speed := fs.Float64("voice-speed", 0, "playback speed (0.5-2.0; 0 = the voice's default)")
+	voice := fs.String("voice", "", "the text-to-speech (TTS) model to speak with: a model id, or the @station/name from `roger voices`")
+	speed := fs.Float64("voice-speed", 0, "playback speed (0.5-2.0; 0 = the TTS model's default)")
 	fs.Usage = func() {
-		fmt.Print(`roger say - speak a line through a shared voice and play it locally
+		fmt.Print(`roger say - speak a line through a shared text-to-speech (TTS) model and play it locally
 
   roger say --voice <voice> "roger that"     synthesize + play
-  roger voices                               list on-air voices (cheapest first)
+  roger voices                               list on-air text-to-speech (TTS) models (cheapest first)
 
-  --voice <voice>       REQUIRED: a voice model id, or the @station/name from ` + "`roger voices`" + `
-  --voice-speed <n>     playback speed (0.5-2.0; default: the voice's own)
+  --voice <voice>       REQUIRED: a TTS model id, or the @station/name from ` + "`roger voices`" + `
+  --voice-speed <n>     playback speed (0.5-2.0; default: the TTS model's own)
 
-Voices are metered per character you speak, billed to your wallet (self/free is $0).
+Text-to-speech is metered per character you speak, billed to your wallet (self/free is $0).
 Browse the roster with ` + "`roger voices`" + ` or at rogerai.fm/voices.
 `)
 	}
-	list := fs.Bool("list", false, "list the voices you can speak through (in LAN mode: only local voices)")
+	list := fs.Bool("list", false, "list the text-to-speech (TTS) models you can speak through (in LAN mode: only local ones)")
 	words, err := parseInterspersed(fs, args) // `roger say hello --voice x` works as well as the flag first
 	if err != nil {
 		return err
@@ -113,10 +113,10 @@ func cmdVoices(cfg config, _ []string) error {
 		return err
 	}
 	if len(voices) == 0 {
-		fmt.Println("no voices on air right now - run `roger share` on a box with a local voice server, or check rogerai.fm/voices.")
+		fmt.Println("no text-to-speech (TTS) models on air right now - run `roger share` on a box with a local TTS server, or check rogerai.fm/voices.")
 		return nil
 	}
-	fmt.Printf("%d voice(s) on air (cheapest first) - speak with `roger say --voice <voice> \"...\"`:\n\n", len(voices))
+	fmt.Printf("%d text-to-speech (TTS) model(s) on air (cheapest first) - speak with `roger say --voice <model> \"...\"`:\n\n", len(voices))
 	for _, v := range voices {
 		fmt.Println(voiceRosterLine(v))
 	}
@@ -172,6 +172,9 @@ func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
+// lanTTSStartHint says how to put a local text-to-speech model on air.
+const lanTTSStartHint = "start one with `roger model serve <tts model>`, or `roger share` on a machine running a TTS server"
+
 // sayLAN is `roger say` in LAN mode (features/lan/voice.feature): a voice on this machine, then on
 // an Edge member, or a refusal. Nothing is sent to the network's /v1/audio/speech, and no balance
 // is read: LAN speech is free. A LAN Tower is never asked, because it has no audio route.
@@ -179,23 +182,23 @@ func sayLAN(cfg config, voice, text string, speed float64, list bool) error {
 	voices := lanVoices(voice)
 	if list {
 		if len(voices) == 0 {
-			fmt.Println("no local voice is on air (LAN mode is on, so only voices on this machine or your Edge are listed)")
+			fmt.Println("no local text-to-speech (TTS) model is on air (LAN mode is on, so only TTS models on this machine or your Edge are listed) - " + lanTTSStartHint)
 			return nil
 		}
-		fmt.Printf("%d local voice(s) - speak with `roger --lan say --voice <voice> \"...\"`:\n\n", len(voices))
+		fmt.Printf("%d local text-to-speech (TTS) model(s) - speak with `roger --lan say --voice <model> \"...\"`:\n\n", len(voices))
 		for _, v := range voices {
 			fmt.Printf("  %-28s %s  · free\n", v.Band, v.Source)
 		}
 		return nil
 	}
 	if len(voices) == 0 {
-		why := "no local voice is on air"
+		why := "no local text-to-speech (TTS) model is on air"
 		if voice != "" {
 			why = voice + " is not on air on this LAN"
 		}
-		msg := "LAN mode is on: " + why + " - share a voice on this machine (roger share) or an Edge member, or run without --lan to use the network's voices"
+		msg := "LAN mode is on: " + why + " - " + lanTTSStartHint + " (this machine or an Edge member), or run without --lan to use the network's TTS models"
 		if len(cfg.LanTowers) > 0 {
-			msg += " (LAN Towers do not serve voice)"
+			msg += " (LAN Towers do not serve text-to-speech)"
 		}
 		return fmt.Errorf("%s", msg)
 	}
@@ -205,7 +208,7 @@ func sayLAN(cfg config, voice, text string, speed float64, list bool) error {
 	band := voices[0].Band // this machine first, then Edge members: deterministic
 	var note string
 	if voice == "" && len(lanVoiceBands(voices)) > 1 {
-		note = "using the voice " + band + " on " + voices[0].Source + " - pick another with --voice <voice> (roger --lan say --list)"
+		note = "using the text-to-speech (TTS) model " + band + " on " + voices[0].Source + " - pick another with --voice <model> (roger --lan say --list)"
 	}
 	var same []client.LANVoice
 	for _, v := range voices {

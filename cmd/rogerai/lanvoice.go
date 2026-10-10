@@ -140,7 +140,7 @@ func lanVoiceNames() []string {
 func lanSpeakLine(band, text string) ([]byte, error) {
 	voices := lanVoices(band)
 	if len(voices) == 0 {
-		return nil, fmt.Errorf("the local voice %s is no longer on air", band)
+		return nil, fmt.Errorf("the local text-to-speech (TTS) model %s is no longer on air", band)
 	}
 	res, err := speakLAN(voices, text, 0)
 	return res.Audio, err

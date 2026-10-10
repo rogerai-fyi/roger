@@ -2704,8 +2704,8 @@ func usage() {
   roger --ping                full-screen "Ping World" screensaver (or press z in the app)
   roger search                list models, cheapest first
   roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
-  roger voices                list on-air voices, cheapest first
-  roger say --voice <v> "..." speak a line through a voice and play it
+  roger voices                list on-air text-to-speech (TTS) models, cheapest first
+  roger say --voice <v> "..." speak a line through a TTS model and play it
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)

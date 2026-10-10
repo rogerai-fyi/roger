@@ -35,7 +35,7 @@ func voiceRecord(t *testing.T, band string) *httptest.Server {
 func TestLANSpeakLineSpeaksOrSaysGone(t *testing.T) {
 	useTempConfig(t)
 	_, err := lanSpeakLine("studio-voice", "hi")
-	require.ErrorContains(t, err, "the local voice studio-voice is no longer on air")
+	require.ErrorContains(t, err, "the local text-to-speech (TTS) model studio-voice is no longer on air")
 
 	voiceRecord(t, "studio-voice")
 	audio, err := lanSpeakLine("studio-voice", "hi")
@@ -101,7 +101,7 @@ func TestSayLANBranches(t *testing.T) {
 	useTempConfig(t)
 	out, err := captureEdgeStdout(func() error { return run([]string{"--lan", "say", "--list"}, loadConfig()) })
 	require.NoError(t, err)
-	require.Contains(t, out, "no local voice is on air")
+	require.Contains(t, out, "no local text-to-speech (TTS) model is on air")
 
 	voiceRecord(t, "studio-voice")
 	_, err = captureEdgeStdout(func() error { return run([]string{"--lan", "say"}, loadConfig()) })

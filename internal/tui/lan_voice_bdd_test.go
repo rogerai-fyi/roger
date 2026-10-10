@@ -54,7 +54,7 @@ func (s *lanVoiceTUI) reset() {
 	// The CLI installs the same shape: this machine's voice while it is on air, else a refusal.
 	SetLANSpeak(func(band, text string) ([]byte, error) {
 		if !s.onAir {
-			return nil, fmt.Errorf("the local voice %s is no longer on air", band)
+			return nil, fmt.Errorf("the local text-to-speech (TTS) model %s is no longer on air", band)
 		}
 		res, err := client.SpeakLAN(context.Background(), []client.LANVoice{{Band: band, Source: "this machine",
 			URL: s.voice.URL + "/v1/audio/speech"}}, text, client.LANSpeechOptions{})
@@ -140,8 +140,8 @@ func TestLANVoiceTUI(t *testing.T) {
 				}
 				return nil
 			})
-			sc.Step(`^the preview says the local voice is no longer on air$`, func() error {
-				if !strings.Contains(s.view, "no longer on air") || s.played != 0 {
+			sc.Step(`^the preview says the local text-to-speech \(TTS\) model is no longer on air$`, func() error {
+				if !strings.Contains(s.view, "text-to-speech (TTS) model") && strings.Contains(s.view, "no longer on air") || s.played != 0 {
 					return fmt.Errorf("preview: %s (played %d)", s.view, s.played)
 				}
 				return nil

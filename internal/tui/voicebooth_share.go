@@ -394,8 +394,8 @@ func (m *model) playVoiceBoothPreview() tea.Cmd {
 		play = systemAudioPlayer
 	}
 	if url == "" {
-		m.vbErr = "no local voice server on this row"
-		m.status = stEmber.Render("! local voice server not found for this row")
+		m.vbErr = "no local text-to-speech (TTS) server on this row"
+		m.status = stEmber.Render("! local text-to-speech (TTS) server not found for this row")
 		return nil
 	}
 	return func() tea.Msg {
@@ -431,12 +431,12 @@ func synthLocalSpeech(url, voice string, speed float64, text string, play audioP
 	hc := &http.Client{Timeout: 30 * time.Second}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return boothPreviewMsg{err: "local voice server didn't answer - is it running?"}
+		return boothPreviewMsg{err: "local text-to-speech (TTS) server didn't answer - is it running?"}
 	}
 	defer resp.Body.Close()
 	audio, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode != http.StatusOK {
-		return boothPreviewMsg{err: fmt.Sprintf("local voice server error (%d)", resp.StatusCode)}
+		return boothPreviewMsg{err: fmt.Sprintf("local text-to-speech (TTS) server error (%d)", resp.StatusCode)}
 	}
 	path, played, perr := play(audio)
 	msg := boothPreviewMsg{played: played, path: path}
@@ -521,7 +521,7 @@ func (m model) fetchLocalVoicesCmd() tea.Cmd {
 		hc := &http.Client{Timeout: 10 * time.Second}
 		resp, err := hc.Get(url)
 		if err != nil {
-			return localVoicesMsg{err: "local voice server didn't answer"}
+			return localVoicesMsg{err: "local text-to-speech (TTS) server didn't answer"}
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
@@ -652,8 +652,8 @@ func (m *model) auditionPickerVoice() tea.Cmd {
 		play = systemAudioPlayer
 	}
 	if url == "" {
-		m.vbErr = "no local voice server on this row"
-		m.status = stEmber.Render("! local voice server not found for this row")
+		m.vbErr = "no local text-to-speech (TTS) server on this row"
+		m.status = stEmber.Render("! local text-to-speech (TTS) server not found for this row")
 		return nil
 	}
 	return func() tea.Msg {
