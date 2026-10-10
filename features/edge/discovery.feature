@@ -201,3 +201,19 @@ Feature: A roger instance finds the owner's other instances on the LAN, and trus
     When "alpha" starts
     Then discovery reports unavailable once
     And startup is not delayed
+
+  # regression 2026-10-10: a member listed the other machines by their hardware word ("Pi 5 b4a3")
+  # while the authority called them by the names they enrolled under. A member now states the name it
+  # enrolled under in its describe answer; it is a hint an owner's own rename here outranks.
+  Scenario: a member is listed under the name it enrolled under
+    Given a peer "beta" enrolled to account "acct-1" as "pi-1" advertising a truthful record
+    When "alpha" browses
+    Then "beta" appears as a VERIFIED node of the fleet
+    And the fleet lists "beta" as "pi-1"
+
+  Scenario: the owner's own name for a member wins over the name it enrolled under
+    Given a peer "beta" enrolled to account "acct-1" as "pi-1" advertising a truthful record
+    And "alpha" browses
+    And the owner renames "beta" here to "garage"
+    When "alpha" browses
+    Then the fleet lists "beta" as "garage"

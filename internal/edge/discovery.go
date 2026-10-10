@@ -447,6 +447,9 @@ func (d *Discovery) consider(ctx context.Context, ad Advert, rep *Report) {
 		}
 	}
 	name := ad.NodeID
+	if hint := peerNameHint(f, ad.NodeID, peer.Describe.Name); hint != "" {
+		name = hint
+	}
 	if peer.Describe.Kind == "" {
 		peer.Describe.Kind = ad.Kind
 	}
@@ -604,4 +607,16 @@ func (d *Discovery) log(line string) {
 	if d.opts.Log != nil {
 		d.opts.Log(line)
 	}
+}
+
+// peerNameHint is the name a peer stated it enrolled under, when this machine may call it that: a
+// valid name, not shaped like an id, and not held by another node here. Else "".
+func peerNameHint(f *Fleet, id, name string) string {
+	if name == "" || LooksLikeID(name) || ValidName(name) != nil {
+		return ""
+	}
+	if other, taken, err := f.ByName(name); err != nil || (taken && other.ID != id) {
+		return ""
+	}
+	return name
 }

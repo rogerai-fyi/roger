@@ -629,6 +629,15 @@ func (h *edgeHost) enrolledName() string {
 	return id.NodeID
 }
 
+// statedName is the name this machine states to other members in its describe answer: the name it
+// enrolled under, never its id (a member never named reads as unnamed, "").
+func (h *edgeHost) statedName() string {
+	if name := h.enrolledName(); !edge.LooksLikeID(name) {
+		return name
+	}
+	return ""
+}
+
 // arm builds the discovery engine from the environment's knobs, and reports whether there
 // is one. ROGERAI_EDGE_DISCOVERY=0 builds NOTHING: no engine, no socket, no goroutine.
 // edge.New touches no network, so this is safe on the launch path.
@@ -681,7 +690,7 @@ func (h *edgeHost) startFace() (edge.Advert, bool) {
 		return edge.Advert{}, false
 	}
 	srv := edge.NewServer(edge.Describe{
-		NodeID: id.NodeID, Account: id.Account, Kind: string(edge.Host),
+		NodeID: id.NodeID, Name: h.statedName(), Account: id.Account, Kind: string(edge.Host),
 	}, tls.Certificate{Certificate: [][]byte{id.Cert.Raw}, PrivateKey: key})
 	ln, err := edgeListen(edgeFaceBind())
 	if err != nil {

@@ -635,6 +635,37 @@ func (s *discState) truthfulPeerEnrolled(name, account string) error {
 	return nil
 }
 
+// truthfulPeerEnrolledAs is a truthful peer that states the name it enrolled under in its describe.
+func (s *discState) truthfulPeerEnrolledAs(name, account, enrolled string) error {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	id := edge.NodeID(pub)
+	leaf := s.certFor(s.ca, id, pub)
+	p := s.newPeer(name, account, []string{"sense"}, leaf, priv, id)
+	p.pub = pub
+	// the rig's server stated no name; stand it up again with one, on the same listener
+	p.srv = edge.NewServer(edge.Describe{NodeID: id, Name: enrolled, Account: account, Kind: "host",
+		Caps: []string{"sense"}}, tls.Certificate{Certificate: [][]byte{leaf.Raw}, PrivateKey: priv})
+	p.ts.Config.Handler = p.srv.Handler()
+	s.advertise(p)
+	s.subject = name
+	return nil
+}
+
+func (s *discState) fleetListsAs(name, want string) error {
+	n, ok := s.node(s.peers[name].id)
+	if !ok {
+		return fmt.Errorf("%q is not in the fleet", name)
+	}
+	if n.Name != want {
+		return fmt.Errorf("the fleet lists %q as %q, want %q", name, n.Name, want)
+	}
+	return nil
+}
+
+func (s *discState) ownerRenamesHere(name, to string) error {
+	return s.fleet.Rename(s.peers[name].id, to)
+}
+
 func (s *discState) alphaBrowses(string) error {
 	s.browseOnce()
 	return nil
@@ -1482,6 +1513,9 @@ func TestDiscoveryFeature(t *testing.T) {
 			sc.Step(`^it never advertises on a link-local 169\.254 address$`, st.neverOnLinkLocal)
 			sc.Step(`^a peer "([^"]*)" enrolled to account "([^"]*)" advertising a truthful record$`, st.truthfulPeerEnrolled)
 			sc.Step(`^"([^"]*)" browses$`, st.alphaBrowses)
+			sc.Step(`^a peer "([^"]*)" enrolled to account "([^"]*)" as "([^"]*)" advertising a truthful record$`, st.truthfulPeerEnrolledAs)
+			sc.Step(`^the fleet lists "([^"]*)" as "([^"]*)"$`, st.fleetListsAs)
+			sc.Step(`^the owner renames "([^"]*)" here to "([^"]*)"$`, st.ownerRenamesHere)
 			sc.Step(`^"([^"]*)" appears as a VERIFIED node of the fleet$`, st.appearsVerified)
 			sc.Step(`^its capabilities are the ones its certificate-backed describe reported, not the ones the advertisement claimed$`, st.capsAreFromDescribe)
 			sc.Step(`^a peer advertising a fingerprint that does not match its certificate$`, st.peerAdvertisingWrongFingerprint)

@@ -16,7 +16,10 @@ import (
 // The advertisement carries a copy of some of this, and that copy is never believed:
 // after a dial, the capabilities the fleet records are the ones that came back here.
 type Describe struct {
-	NodeID  string   `json:"node_id"`
+	NodeID string `json:"node_id"`
+	// Name is the name this node was enrolled under: a hint other members use to call it what its
+	// authority does. A member's own rename of it wins (discovery only applies it to an unnamed record).
+	Name    string   `json:"name,omitempty"`
 	Account string   `json:"account"`
 	Kind    string   `json:"kind"`
 	Caps    []string `json:"caps"`
