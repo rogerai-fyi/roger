@@ -1,6 +1,6 @@
 //go:build linux
 
-package localmodel
+package onair
 
 import (
 	"os"
@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// readProcStart reads a process's start time and zombie state from /proc. The kernel counts start
+// ProcessStart reads a process's start time and zombie state from /proc. The kernel counts start
 // in clock ticks since boot (USER_HZ, 100 on Linux), added to the boot time /proc/stat records.
-func readProcStart(pid int) (time.Time, bool, bool) {
+func ProcessStart(pid int) (time.Time, bool, bool) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return time.Time{}, false, false

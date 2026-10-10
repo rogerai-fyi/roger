@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,7 @@ func TestAcquireBlocksAnotherLiveProcess(t *testing.T) {
 	if other == os.Getpid() || !ProcessAlive(other) {
 		t.Skip("no distinct live parent PID to simulate another daemon")
 	}
-	held := Info{PID: other, Station: "other-daemon", Model: "qwen3", Started: 1}
+	held := Info{PID: other, Station: "other-daemon", Model: "qwen3", Started: time.Now().Unix()} // written after its holder started, as a real lock is
 	b, _ := json.Marshal(held)
 	if err := os.MkdirAll(filepath.Dir(LockPath("brave-otter-qwen3")), 0700); err != nil {
 		t.Fatal(err)
@@ -201,7 +202,7 @@ func TestAcquireStationlessHolderNamesThisMachine(t *testing.T) {
 	if other == os.Getpid() || !ProcessAlive(other) {
 		t.Skip("no distinct live parent PID to simulate another daemon")
 	}
-	held := Info{PID: other, Model: "m1", Started: 1} // no station recorded
+	held := Info{PID: other, Model: "m1", Started: time.Now().Unix()} // no station recorded
 	b, _ := json.Marshal(held)
 	if err := os.MkdirAll(filepath.Dir(LockPath("brave-otter-m1")), 0700); err != nil {
 		t.Fatal(err)

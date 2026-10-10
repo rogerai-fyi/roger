@@ -77,7 +77,7 @@ func Acquire(nodeID, station, model string) (release func(), err error) {
 	path := LockPath(nodeID)
 	if b, rerr := os.ReadFile(path); rerr == nil {
 		var prev Info
-		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && prev.PID != os.Getpid() && ProcessAlive(prev.PID) {
+		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && prev.PID != os.Getpid() && StillTheProcess(prev.PID, unixOrZero(prev.Started)) {
 			where := prev.Station
 			if where == "" {
 				where = "this machine"
@@ -110,4 +110,32 @@ func Acquire(nodeID, station, model string) (release func(), err error) {
 		})
 	}
 	return release, nil
+}
+
+// processStart is the seam for ProcessStart.
+var processStart = ProcessStart
+
+// StillTheProcess reports whether pid is still the process that wrote a record at writtenAt. After
+// a restart pids are reused, so a pid that answers can be a different, newer process: one that
+// started after the record was written is not its writer, and a zombie runs nothing. Where start
+// times can't be read, a live pid is believed.
+func StillTheProcess(pid int, writtenAt time.Time) bool {
+	if !ProcessAlive(pid) {
+		return false
+	}
+	started, zombie, ok := processStart(pid)
+	if !ok {
+		return true
+	}
+	if zombie {
+		return false
+	}
+	return writtenAt.IsZero() || !started.After(writtenAt.Add(2*time.Second))
+}
+
+func unixOrZero(sec int64) time.Time {
+	if sec <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(sec, 0)
 }

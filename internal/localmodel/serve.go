@@ -58,7 +58,7 @@ var alive = onair.ProcessAlive
 
 // procStart is the seam for when a pid's process started and whether it is a zombie; ok is false
 // where that can't be read (then a live pid is believed, as before).
-var procStart = readProcStart
+var procStart = onair.ProcessStart
 
 // sameProcess reports whether the record's supervisor pid is still the process that wrote it. After
 // a restart pids are reused: a process that started after the record was written, or a zombie, is
