@@ -7,6 +7,7 @@ package localplane
 // no oracle) and does not spend the invite.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net"
@@ -46,6 +47,7 @@ func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
 	// guesses costs the sender, not the Tower.
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if !s.stationRL.allow("join:" + ip) {
+		w.Header().Set("Retry-After", "60")
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many join attempts - wait a minute"})
 		return
 	}
@@ -55,8 +57,12 @@ func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w)
 		return
 	}
+	// Malformed, oversized (cut short, so it no longer verifies above) or carrying unknown fields:
+	// refused here, before any proof is computed.
 	var req JoinRequestBody
-	if err := json.Unmarshal(body, &req); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
 		unauthorized(w)
 		return
 	}
@@ -68,6 +74,15 @@ func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{
 			"error": "this invite is for a " + string(res.Kind) + ", not a " + req.Kind,
 		})
+		return
+	}
+	if errors.Is(err, tower.ErrInviteSpent) {
+		s.logf("a used invite was presented again from %s", ip)
+		writeJSON(w, http.StatusGone, map[string]any{"error": "invite_spent"})
+		return
+	}
+	if errors.Is(err, tower.ErrInviteExpired) {
+		writeJSON(w, http.StatusGone, map[string]any{"error": "invite_expired"})
 		return
 	}
 	if err != nil {

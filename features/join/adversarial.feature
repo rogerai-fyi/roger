@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT (TestJoinAdversarialBDD, all 23 scenarios).
 #
 # Every way the simple join could be abused, each a permanent scenario. Grounded in the existing
 # guards this change reuses: the Edge proof (internal/edgeauth/code.go), the durable attempt

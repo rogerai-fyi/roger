@@ -36,6 +36,33 @@ const (
 // the joiner is told which kind it holds (the code was right, so this is no oracle).
 var ErrWrongInviteKind = errors.New("this invite is for the other kind of join")
 
+// ErrInviteSpent and ErrInviteExpired answer a proof made with a real invite that is no longer
+// live: it was already used, or its time ran out. Only a holder of the code can make such a proof.
+var (
+	ErrInviteSpent   = errors.New("that invite was already used")
+	ErrInviteExpired = errors.New("that invite has expired")
+)
+
+// JoinGuessBudget is how many wrong proofs a live bearer invite survives (features/join/
+// adversarial.feature): a wrong guess cannot be pinned on one invite, so it counts against every
+// live one, as the Edge bearer budget does. GlobalJoinGuessBudget is the durable limit across all
+// invites within the attempt window.
+const (
+	JoinGuessBudget       = 10
+	GlobalJoinGuessBudget = globalAttemptBudget
+)
+
+// JoinGuesses is how many wrong join proofs the durable global limiter has counted in its window.
+func (s *State) JoinGuesses() int {
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil || bs.GlobalSince == 0 || time.Since(time.Unix(bs.GlobalSince, 0)) > globalAttemptWindow {
+		return 0
+	}
+	return bs.GlobalAttempt
+}
+
 // JoinRequest is one presentation of an invite's code.
 type JoinRequest struct {
 	Kind    JoinKind // what the joiner is joining as; empty means a client
@@ -188,23 +215,42 @@ func (s *State) ConsumeJoin(r JoinRequest) (JoinResult, error) {
 	if bs.GlobalAttempt >= globalAttemptBudget {
 		return JoinResult{}, errBootstrapRejected
 	}
+	proves := func(inv *Invitation) bool {
+		ver, derr := hex.DecodeString(inv.JoinVerifier)
+		return derr == nil && joincode.Tower.CheckWithVerifier(ver, r.Proof, r.Nonce, r.PubHex, fp) == nil
+	}
 	var match *Invitation
 	for _, inv := range bs.Invitations {
-		if !inv.Bearer || inv.Consumed || inv.Voided || now.UnixNano() > inv.ExpiresAt {
+		if !inv.Bearer || inv.Consumed || inv.Voided || now.UnixNano() > inv.ExpiresAt || inv.Attempts >= JoinGuessBudget {
 			continue
 		}
-		ver, derr := hex.DecodeString(inv.JoinVerifier)
-		if derr != nil {
-			continue
-		}
-		if joincode.Tower.CheckWithVerifier(ver, r.Proof, r.Nonce, r.PubHex, fp) == nil {
+		if proves(inv) {
 			match = inv
 			break
 		}
 	}
 	if match == nil {
-		// A wrong guess is not free: it spends the global budget, durably.
+		// A proof for an invite that WAS live (used, or past its time) is told so: only a holder of
+		// that invite's code can make one, so the answer is no oracle, and it is not a guess.
+		for _, inv := range bs.Invitations {
+			if !inv.Bearer || inv.Voided || inv.Attempts >= JoinGuessBudget || !proves(inv) {
+				continue
+			}
+			if inv.Consumed {
+				return JoinResult{}, ErrInviteSpent
+			}
+			if now.UnixNano() > inv.ExpiresAt {
+				return JoinResult{}, ErrInviteExpired
+			}
+		}
+		// A wrong guess is not free: it spends the global budget, durably, and every live bearer
+		// invite's own budget (a guess cannot be pinned on one invite).
 		bs.GlobalAttempt++
+		for _, inv := range bs.Invitations {
+			if inv.Bearer && !inv.Consumed && !inv.Voided && now.UnixNano() <= inv.ExpiresAt {
+				inv.Attempts++
+			}
+		}
 		_ = s.saveBootstrap(bs)
 		return JoinResult{}, errBootstrapRejected
 	}

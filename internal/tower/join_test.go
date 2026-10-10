@@ -47,8 +47,9 @@ func TestABearerInviteAdmitsOnTheCodeAndWorksOnce(t *testing.T) {
 	// The same invite never admits a second key.
 	pub2, kh2 := joinClient(t)
 	_, err = st.ConsumeJoin(JoinRequest{Proof: joinProof(st, code, "n2", pub2), Nonce: "n2", PubHex: pub2, KeyHash: kh2})
-	require.ErrorIs(t, err, errBootstrapRejected)
+	require.ErrorIs(t, err, ErrInviteSpent, "a holder of the used invite's code is told it was used (adversarial.feature)")
 	require.False(t, st.IsAdmitted(kh2))
+	require.Zero(t, st.JoinGuesses(), "presenting a used invite is not a guess")
 }
 
 // The proof binds the code to the presenting key: a proof made for one key admits no other.
@@ -70,7 +71,8 @@ func TestExpiredAndVoidedInvitesAdmitNobody(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	pub, kh := joinClient(t)
 	_, err = st.ConsumeJoin(JoinRequest{Proof: joinProof(st, code, "n", pub), Nonce: "n", PubHex: pub, KeyHash: kh})
-	require.ErrorIs(t, err, errBootstrapRejected)
+	require.ErrorIs(t, err, ErrInviteExpired, "a holder of the expired invite's code is told it expired (adversarial.feature)")
+	require.False(t, st.IsAdmitted(kh))
 
 	inv, code2, err := st.CreateJoinInvitation(JoinClient, "", nil, 15*time.Minute)
 	require.NoError(t, err)
@@ -217,4 +219,21 @@ func TestAStationJoinWithNoModelIsRefused(t *testing.T) {
 	require.Error(t, err)
 	_, err = st.ConsumeJoin(JoinRequest{Kind: JoinStation, Proof: joinProof(st, code, "n2", pub), Nonce: "n2", PubHex: pub, KeyHash: kh, Name: "pi", Models: []string{"m"}})
 	require.NoError(t, err)
+}
+
+// A wrong guess counts against every live bearer invite; after JoinGuessBudget even the right code
+// admits nobody (features/join/adversarial.feature).
+func TestWrongGuessesExhaustALiveInvite(t *testing.T) {
+	st, _ := Init(t.TempDir(), ModeStandalone)
+	_, code, err := st.CreateJoinInvitation(JoinClient, "", nil, 15*time.Minute)
+	require.NoError(t, err)
+	pub, kh := joinClient(t)
+	for i := 0; i < JoinGuessBudget; i++ {
+		_, err = st.ConsumeJoin(JoinRequest{Proof: joinProof(st, joincode.Tower.NewCode(), "g", pub), Nonce: "g", PubHex: pub, KeyHash: kh})
+		require.ErrorIs(t, err, errBootstrapRejected)
+	}
+	require.Equal(t, JoinGuessBudget, st.JoinGuesses())
+	_, err = st.ConsumeJoin(JoinRequest{Proof: joinProof(st, code, "n", pub), Nonce: "n", PubHex: pub, KeyHash: kh})
+	require.ErrorIs(t, err, errBootstrapRejected, "an exhausted invite is dead, even for the right code")
+	require.False(t, st.IsAdmitted(kh))
 }

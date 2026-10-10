@@ -91,6 +91,11 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 		return ans, nil
 	case http.StatusForbidden, http.StatusTooManyRequests:
 		return localplane.JoinAnswer{}, &joinRefusal{msg: towerError(raw)}
+	case http.StatusGone:
+		if strings.Contains(string(raw), "invite_expired") {
+			return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite has expired. Ask the owner for a new one (roger tower invite)"}
+		}
+		return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite was already used. Ask the owner for a new one (roger tower invite)"}
 	case http.StatusUnauthorized:
 		return localplane.JoinAnswer{}, &joinRefusal{msg: "the Tower refused the invite: it was already used, it expired, it was voided, or it is not this Tower's. Ask the owner for a fresh one (roger tower invite)"}
 	}
