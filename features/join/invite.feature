@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Built: minting, client and Station joins over pinned TLS, wrong-kind, list/void (TestJoinInviteBDD).
 #
 # ONE INVITE, ONE PASTE: joining a Tower (as a client or a Station) or an Edge (as a device) takes
 # one owner action and one pasted command. Founder rulings 2026-10-10:
