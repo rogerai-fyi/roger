@@ -1187,6 +1187,8 @@ func dispatch(cfg config, args []string) error {
 		return client.Search(cfg.Broker)
 	case "lan":
 		return cmdLAN(cfg, args[1:])
+	case "join":
+		return cmdJoin(cfg, args[1:])
 	case "status":
 		return cmdStatus(cfg, args[1:])
 	case "balance":

@@ -850,7 +850,7 @@ func edgeAllow(userKey string) error {
 		fmt.Println("  start roger on this machine so the authority answers on your network; then, on that machine:")
 		fmt.Println("  roger edge enroll <name> --authority http://<this machine's address>:<port in " + edgeAuthorityPortFile() + "> --code " + shown)
 		fmt.Println("  or paste one invite:")
-		fmt.Println("  roger edge enroll <name> --invite " + edgeInvite("<this machine's address>:<port>", fp, code))
+		fmt.Println("  roger join " + edgeInvite("<this machine's address>:<port>", fp, code))
 		return nil
 	}
 	fmt.Println("  on it, run (with roger running here, so the authority answers):")
@@ -858,7 +858,7 @@ func edgeAllow(userKey string) error {
 		fmt.Printf("    roger edge enroll <name> --authority http://%s --code %s\n", net.JoinHostPort(ip, port), shown)
 	}
 	fmt.Println("  or paste one invite:")
-	fmt.Printf("    roger edge enroll <name> --invite %s\n", edgeInvite(net.JoinHostPort(ips[0], port), fp, code))
+	fmt.Printf("    roger join %s\n", edgeInvite(net.JoinHostPort(ips[0], port), fp, code))
 	return nil
 }
 

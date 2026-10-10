@@ -154,7 +154,7 @@ func nonNilStrings(s []string) []string {
 	return s
 }
 
-const lanUsage = "usage: roger lan add <address> [--offline] | roger lan rm <address> | roger lan list"
+const lanUsage = "usage: roger lan add <address> [--offline] | roger lan rm <address> | roger lan list | roger lan join <invite>"
 
 // cmdLAN is `roger lan add|rm|list`: the standalone Towers LAN mode uses.
 func cmdLAN(cfg config, args []string) error {
@@ -166,6 +166,9 @@ func cmdLAN(cfg config, args []string) error {
 			fmt.Println(lanUsage)
 			return nil
 		}
+	}
+	if args[0] == "join" {
+		return cmdJoin(cfg, args[1:]) // features/join/invite.feature: an alias of roger join
 	}
 	allowed := map[string][]string{"add": {"--offline"}, "rm": nil, "remove": nil, "list": nil, "ls": nil}
 	known, ok := allowed[args[0]]

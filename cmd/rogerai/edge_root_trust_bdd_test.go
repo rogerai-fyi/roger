@@ -1202,7 +1202,7 @@ func (s *rtBDD) rootHashesToPinOf(fp string) error {
 	return nil
 }
 
-var inviteRE = regexp.MustCompile(`rogerai-edge://join\?\S+`)
+var inviteRE = regexp.MustCompile(`roger://join\?kind=edge\S+`)
 
 func (s *rtBDD) allowPrintsInvite() error {
 	if err := s.allowOnShed(); err != nil {

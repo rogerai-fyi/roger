@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"rogerai.fm/roger/v6/internal/joininvite"
 	"strings"
 	"time"
 
@@ -202,41 +203,24 @@ func edgeBrokerAuthenticated(broker string) bool {
 	return false
 }
 
-// edgeInviteScheme is the scheme of a pasteable invite: the authority's address, its root's full
-// fingerprint, and the one-time code, in one string.
-const edgeInviteScheme = "rogerai-edge"
-
-// edgeInvite renders an invite.
+// edgeInvite renders an Edge invite in the one join scheme (internal/joininvite): the
+// authority's address, its root's full fingerprint and the one-time code, in one string.
 func edgeInvite(at, fingerprint, code string) string {
-	v := url.Values{}
-	v.Set("at", at)
-	v.Set("root", fingerprint)
-	if code != "" {
-		v.Set("code", strings.ReplaceAll(code, "-", ""))
-	}
-	return edgeInviteScheme + "://join?" + v.Encode()
+	return joininvite.Invite{Kind: joininvite.Edge, Addrs: []string{at},
+		FP: strings.TrimPrefix(fingerprint, "sha256:"), Code: strings.ReplaceAll(code, "-", "")}.String()
 }
 
-// edgeParseInvite reads an invite back into an address, a pin and a code.
+// edgeParseInvite reads an Edge invite (or one from before the one scheme) back into an address,
+// a pin and a code. A Tower invite is refused with the command that takes it.
 func edgeParseInvite(s string) (endpoint, pin, code string, err error) {
-	u, perr := url.Parse(strings.TrimSpace(s))
-	if perr != nil || u.Scheme != edgeInviteScheme || u.Host != "join" {
-		return "", "", "", usagef("that is not an Edge invite (it starts %s://join?)", edgeInviteScheme)
+	in, perr := joininvite.Parse(s)
+	if perr != nil {
+		return "", "", "", usagef("%v", perr)
 	}
-	q := u.Query()
-	at := q.Get("at")
-	if _, _, serr := net.SplitHostPort(at); serr != nil {
-		return "", "", "", usagef("that invite names no authority address")
+	if in.Kind != joininvite.Edge {
+		return "", "", "", usagef("that invite is for a Tower, not an Edge: run roger join <invite>")
 	}
-	if pin, err = edgeauth.ParsePin(q.Get("root")); err != nil {
-		return "", "", "", usagef("that invite's root fingerprint is unusable: %v", err)
-	}
-	if c := q.Get("code"); c != "" {
-		if code, err = edgeauth.CanonicalCode(c); err != nil {
-			return "", "", "", usagef("%v", err)
-		}
-	}
-	return "http://" + at, pin, code, nil
+	return "http://" + in.Addrs[0], in.FP, in.Code, nil
 }
 
 // edgeTrustFromArgs reads --code, --root, --invite, --replace-root and --yes. Every malformed value
