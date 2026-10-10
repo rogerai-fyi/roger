@@ -56,6 +56,24 @@ func (h Home) recordPath(port int) string {
 // alive is the seam a test uses for "is that supervisor still running".
 var alive = onair.ProcessAlive
 
+// procStart is the seam for when a pid's process started and whether it is a zombie; ok is false
+// where that can't be read (then a live pid is believed, as before).
+var procStart = onair.ProcessStart
+
+// sameProcess reports whether the record's supervisor pid is still the process that wrote it. After
+// a restart pids are reused: a process that started after the record was written, or a zombie, is
+// not that serve's supervisor, and the record is stale.
+func sameProcess(s Serving) bool {
+	started, zombie, ok := procStart(s.Supervisor)
+	if !ok {
+		return true
+	}
+	if zombie {
+		return false
+	}
+	return s.Started.IsZero() || !started.After(s.Started.Add(2*time.Second))
+}
+
 // LiveAll is everything this machine is serving, in the order it went on the air. A record whose
 // supervisor has gone is stale: the runtime died with it (the kernel was asked to see to that), so
 // believing the record would announce a band nobody answers.
@@ -69,7 +87,7 @@ func (h Home) LiveAll() []Serving {
 			continue
 		}
 		var s Serving
-		if json.Unmarshal(b, &s) != nil || s.Supervisor <= 0 || !alive(s.Supervisor) {
+		if json.Unmarshal(b, &s) != nil || s.Supervisor <= 0 || !alive(s.Supervisor) || !sameProcess(s) {
 			continue
 		}
 		out = append(out, s)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Share is a live share's local record: the band a share process has on air and where it
@@ -69,7 +70,11 @@ func Shares() []Share {
 		if json.Unmarshal(b, &s) != nil || s.PID <= 0 || s.Band == "" || s.ChatURL == "" {
 			continue
 		}
-		if !ProcessAlive(s.PID) {
+		written := time.Time{}
+		if fi, err := os.Stat(f); err == nil {
+			written = fi.ModTime()
+		}
+		if !StillTheProcess(s.PID, written) {
 			_ = os.Remove(f)
 			continue
 		}
