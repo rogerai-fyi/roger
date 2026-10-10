@@ -1,4 +1,4 @@
-//go:build windows
+//go:build unix || windows
 
 package main
 
@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestConfigLockIgnoresAFileLeftByACrash: on Windows the config lock is an OS lock (LockFileEx), so
+// TestConfigLockIgnoresAFileLeftByACrash: the config lock is an OS lock (flock or LockFileEx), so
 // a lock file a crashed writer left behind, however fresh, never blocks the next writer; the
 // OS released the lock when the process died.
 func TestConfigLockIgnoresAFileLeftByACrash(t *testing.T) {
