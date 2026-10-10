@@ -11,7 +11,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mattn/go-isatty"
+
 	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v6/internal/qr"
 )
 
 func cmdEdgeInvite(cfg config, args []string) error {
@@ -47,7 +50,11 @@ func cmdEdgeInvite(cfg config, args []string) error {
 		return nil
 	}
 	fmt.Println("on the device you are adding, run:")
-	fmt.Printf("  roger join %s\n", edgeInvite(at, fp, code))
+	line := "roger join " + edgeInvite(at, fp, code)
+	fmt.Printf("  %s\n", line)
+	if argv.has("qr") || isatty.IsTerminal(os.Stdout.Fd()) {
+		qr.Show(os.Stdout, line)
+	}
 	fmt.Printf("works once, for the next %d minutes. root %s - the device shows the same when it has joined.\n",
 		int(edgeauth.CodeLifetime.Minutes()), edgeauth.ShortFingerprint(fp))
 	return nil

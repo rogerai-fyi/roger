@@ -108,7 +108,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"model", "<agent> <model> [use|share|use,share]", "bind a model to an agent, to use or share on the Edge", 2, 3},
 	{"job", "<agent> <serve|watch|relay|none> [targets...]", "give an agent a job, or clear it", 2, 16},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
-	{"invite", "[--at <address>:<port>]", "print one `roger join` line that adds a device to this Edge, once", 0, 0},
+	{"invite", "[--at <address>:<port>] [--qr]", "print one `roger join` line that adds a device to this Edge, once", 0, 0},
 	{"grant", "[<caller> <cap> <callee> --for 7d | revoke <id>]", "issue, list or revoke an authority-signed grant", 0, 16},
 	{"invoke", "<callee> <prompt...> [--cap operate] [--model <band>]", "ask another node to act, under a grant", 1, 32},
 }
@@ -272,7 +272,7 @@ func edgeWantsHelp(args []string) bool {
 // edgeFlags is what one leaf's flags may be: the name, and whether it takes a value.
 var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
-	"force": false, "clear": false, "replace-root": false,
+	"force": false, "clear": false, "replace-root": false, "qr": false,
 	"code": true, "root": true, "invite": true, "at": true,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
 	"node": true, "limit": true, "lines": true, "every": true, "once": false, "select": true, "health": false,

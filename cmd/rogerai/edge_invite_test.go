@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -18,6 +19,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
 	"rogerai.fm/roger/v6/internal/joininvite"
+	"rogerai.fm/roger/v6/internal/qr"
 )
 
 // ownerEdgeInvite designates a local authority in a fresh config, serves it, and mints an invite
@@ -77,4 +79,29 @@ func TestAnEdgeInviteWorksOnce(t *testing.T) {
 	asSecondMachine(t)
 	out, code := edgeRun(t, "join", invite, "bench")
 	require.NotEqual(t, 0, code, "a spent invite admits nobody else:\n%s", out)
+}
+
+// The invite is also drawn as a QR code of the same `roger join` line (--qr; the default in a
+// terminal), and with NO_COLOR the owner is told to paste the line instead.
+func TestEdgeInviteDrawsTheSameInviteAsAQRCode(t *testing.T) {
+	t.Setenv("NO_COLOR", "restored after the test")
+	os.Unsetenv("NO_COLOR")
+	offline(t)
+	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	require.Equal(t, 0, code)
+
+	out, code := edgeRun(t, "edge", "invite", "--at", "192.168.1.20:4181", "--qr")
+	require.Equal(t, 0, code, out)
+	m := joinLineRE.FindStringSubmatch(out)
+	require.NotNil(t, m, out)
+	require.Contains(t, out, qr.ForTerminal("roger join "+m[1], 80, false), "the code is the printed line")
+
+	out, code = edgeRun(t, "edge", "invite", "--at", "192.168.1.20:4181")
+	require.Equal(t, 0, code, out)
+	require.NotContains(t, out, "▀", "not a terminal and no --qr: no code")
+
+	t.Setenv("NO_COLOR", "1")
+	out, code = edgeRun(t, "edge", "invite", "--at", "192.168.1.20:4181", "--qr")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, qr.TooSmall)
 }

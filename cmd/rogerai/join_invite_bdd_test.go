@@ -30,6 +30,7 @@ import (
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/qr"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towercli"
 	"rogerai.fm/roger/v6/internal/towerpin"
@@ -78,6 +79,8 @@ func (s *joinInviteBDD) reset() {
 	go func() { _ = srv.Serve(towerpin.Sniff(ln, cfg)) }()
 	s.t.Cleanup(func() { _ = srv.Close() })
 	s.addr = ln.Addr().String()
+	s.t.Setenv("NO_COLOR", "restored after the test")
+	os.Unsetenv("NO_COLOR")
 	s.out, s.err, s.invites, s.ids, s.refused, s.stationM = "", nil, nil, nil, nil, nil
 }
 
@@ -139,7 +142,55 @@ func TestJoinInviteBDD(t *testing.T) {
 			sc.Step(`^the owner is signed in to nothing \(no Roger Core account is needed\)$`, func() error { return nil })
 
 			// Minting
-			sc.Step(`^the owner runs "roger tower invite"$`, func() error { return s.mint() })
+			// --qr: in a terminal the code is drawn by default; the runner's output is a buffer.
+			sc.Step(`^the owner runs "roger tower invite"$`, func() error { return s.mint("--qr") })
+			sc.Step(`^it prints one line starting "roger join " followed by the invite$`, func() error {
+				n := 0
+				for _, l := range strings.Split(s.out, "\n") {
+					if strings.HasPrefix(l, "roger join ") {
+						n++
+						if l != "roger join "+s.inv.String() {
+							return fmt.Errorf("join line %q, want the invite %q", l, s.inv)
+						}
+					}
+				}
+				if n != 1 {
+					return fmt.Errorf("%d lines start with roger join:\n%s", n, s.out)
+				}
+				return nil
+			})
+			sc.Step(`^it prints a terminal QR code of the same invite$`, func() error {
+				if !strings.Contains(s.out, qr.ForTerminal("roger join "+s.inv.String(), 80, false)) {
+					return fmt.Errorf("no QR code of the invite in:\n%s", s.out)
+				}
+				return nil
+			})
+			sc.Step(`^it says the invite is valid for 15 minutes and works once$`, func() error {
+				if !strings.Contains(s.out, "valid for 15 minutes and works once") {
+					return fmt.Errorf("no validity line in:\n%s", s.out)
+				}
+				return nil
+			})
+			sc.Step("^`roger tower serve` is still running and still answering clients$", func() error {
+				resp, err := towerpin.Client(mustFP(s.st), 0).Get("https://" + s.addr + "/discover")
+				if err != nil {
+					return err
+				}
+				resp.Body.Close()
+				// An unsigned caller gets the uniform 401: the pinned Tower is up and answering.
+				if resp.StatusCode != http.StatusUnauthorized {
+					return fmt.Errorf("/discover answered %d after the mint", resp.StatusCode)
+				}
+				return nil
+			})
+			sc.Step(`^no restart and no client id were needed$`, func() error {
+				for _, w := range []string{"restart", "--client", "client id", "key hash"} {
+					if strings.Contains(strings.ToLower(s.out), w) {
+						return fmt.Errorf("the mint mentions %q:\n%s", w, s.out)
+					}
+				}
+				return nil
+			})
 			sc.Step(`^the invite decodes to kind "([^"]*)"$`, func(k string) error {
 				if string(s.inv.Kind) != k {
 					return fmt.Errorf("kind %q, want %q", s.inv.Kind, k)
@@ -554,7 +605,7 @@ func TestJoinInviteBDD(t *testing.T) {
 			})
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
-			Paths: []string{joinInviteFeature + ":44", joinInviteFeature + ":74", joinInviteFeature + ":98",
+			Paths: []string{joinInviteFeature + ":36", joinInviteFeature + ":44", joinInviteFeature + ":74", joinInviteFeature + ":98",
 				joinInviteFeature + ":107", joinInviteFeature + ":123", joinInviteFeature + ":133", joinInviteFeature + ":150", joinInviteFeature + ":145",
 				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":186", joinInviteFeature + ":192",
 				joinInviteFeature + ":196", joinInviteFeature + ":208", joinInviteFeature + ":236"}},

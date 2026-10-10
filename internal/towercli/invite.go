@@ -17,6 +17,7 @@ import (
 	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v6/internal/qr"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/toweradmin"
 )
@@ -43,6 +44,7 @@ func cmdInvite(args []string, out io.Writer) error {
 	list := fs.Bool("list", false, "list outstanding invites (never their codes)")
 	void := fs.String("void", "", "stop the outstanding invite with this id")
 	wait := fs.Bool("wait", isTerminal(out), "stay on screen until the invite is used, then say who joined (default when run in a terminal)")
+	showQR := fs.Bool("qr", isTerminal(out), "also draw the invite as a QR code (default when run in a terminal)")
 	var at addrList
 	fs.Var(&at, "at", "an address the invite names (host:port; repeatable). Default: where the Tower serves")
 	if err := parseFlags(fs, args, out); err != nil {
@@ -102,6 +104,10 @@ func cmdInvite(args []string, out io.Writer) error {
 	}
 	inv := joininvite.Invite{Kind: jkind, Addrs: addrs, FP: fp, Code: code, For: *forName}
 	fmt.Fprintf(out, "roger join %s\n\n", inv)
+	if *showQR {
+		qr.Show(out, "roger join "+inv.String())
+		fmt.Fprintln(out)
+	}
 	who := "a client"
 	if *station {
 		who = "a Station"
