@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: PARTIAL. Built: the owner-only admin socket, invite, attach, admit and reads while serving, stale and second-serve handling (TestJoinAdminSocketBDD). Not yet: the request-and-approve rows, station revoke, the Windows named pipe.
+# BUILD STATUS: BUILT (TestJoinAdminSocketBDD: every row incl. requests, approve and station revoke). The Windows named pipe (internal/toweradmin/socket_windows.go) is built and cross-compiled by make cross; its scenario is not run here (no Windows host).
 #
 # OWNER COMMANDS WORK WHILE THE TOWER SERVES. Founder ruling 2026-10-10: invite, attach, admit,
 # approve and the other administration commands reach a running `roger tower serve` through an
@@ -34,7 +34,7 @@ Feature: Owner commands reach a running Tower through a local admin socket
       | roger tower attach --station s --key K --models m |
       | roger tower revoke-client laptop-x        |
 
-    @blocked-on-request-approve
+    # unblocked 2026-10-10: request-and-approve and the standalone station revoke are built
     Examples:
       | command                                   |
       | roger tower requests                      |

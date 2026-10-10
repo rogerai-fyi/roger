@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"rogerai.fm/roger/v6/internal/tower"
 
 	"rogerai.fm/roger/v6/internal/towerjoin"
 )
@@ -58,7 +59,21 @@ func cmdStationRevoke(args []string, out io.Writer) error {
 	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
-	// Read-only locally: this only asks Core (a signed POST); it writes no local state, so
+	// A standalone Tower revokes its own Station locally: directly under the lock, or through
+	// the running serve's admin socket (features/join/admin_socket.feature).
+	if peek, err := tower.Open(*dir); err == nil && peek.Mode == tower.ModeStandalone {
+		ops, release, err := openOps(*dir, "")
+		if err != nil {
+			return err
+		}
+		defer release()
+		if err := ops.RevokeStation(*id); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "revoked station %s: its next request to this Tower is refused\n", *id)
+		return nil
+	}
+	// A joined Tower only asks Core (a signed POST); it writes no local state, so
 	// it must run while a serving Tower holds the exclusive lock - draining or retiring a
 	// Tower that has gone wrong is exactly when the relay may be unavailable.
 	st, release, err := openDirReadOnly(*dir, "")

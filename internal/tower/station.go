@@ -142,6 +142,30 @@ func (s *State) attachLocked(bs *Snapshot, id, keyHash string, models []string, 
 	return *st, nil
 }
 
+// RevokeStation is a standalone Tower's kill switch for one of its own Stations: it is removed
+// from the registry, so its next poll, completion or chunk is refused (the plane reads the
+// registry on every station request). A joined Tower's Stations are revoked through Roger Core.
+func (s *State) RevokeStation(id string) error {
+	if s.Mode != ModeStandalone {
+		return ErrNotStandalone
+	}
+	if id == "" {
+		return errors.New("revoking needs the Station id")
+	}
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return err
+	}
+	if _, ok := bs.Stations[id]; !ok {
+		return fmt.Errorf("no Station %q is attached to this Tower", id)
+	}
+	delete(bs.Stations, id)
+	return s.saveBootstrap(bs)
+}
+
 // Stations lists the attached Stations, ordered by id so output is stable.
 func (s *State) Stations() ([]Station, error) {
 	if s.Mode != ModeStandalone {

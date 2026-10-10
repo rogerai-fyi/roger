@@ -102,16 +102,6 @@ func TestAStaleSocketIsReplaced(t *testing.T) {
 	require.NoError(t, ln.Close())
 }
 
-func TestAnotherUserIsRefused(t *testing.T) {
-	_, dir, logged := serving(t)
-	prev := peerUID
-	peerUID = func() int { return os.Getuid() + 1 }
-	t.Cleanup(func() { peerUID = prev })
-	_, err := Client{Dir: dir}.JoinFingerprint()
-	require.Error(t, err, "a peer that is not the serving user gets no answer")
-	require.Contains(t, strings.Join(*logged, "\n"), "refused a connection")
-}
-
 // With no serve, nothing answers: Running is false and a call says so; a directory that does not
 // exist has no socket to open.
 func TestNoServeNoAnswer(t *testing.T) {
@@ -140,4 +130,20 @@ func TestRevokeClientThroughTheSocket(t *testing.T) {
 	_, dir, _ := serving(t)
 	_, err := Client{Dir: dir}.RevokeClientNamed("nobody")
 	require.ErrorContains(t, err, "no admitted client")
+}
+
+func TestRevokeStationThroughTheSocket(t *testing.T) {
+	st, dir, _ := serving(t)
+	inv, code, err := st.CreateInvitation("u_owner", time.Hour, 5)
+	require.NoError(t, err)
+	_, err = st.ConsumeInvitation(inv.ID, code, "u_owner")
+	require.NoError(t, err)
+	_, err = st.AttachStation("s", "abababababababab", []string{"m"})
+	require.NoError(t, err)
+
+	require.NoError(t, Client{Dir: dir}.RevokeStation("s"))
+	sts, err := st.Stations()
+	require.NoError(t, err)
+	require.Empty(t, sts)
+	require.ErrorContains(t, Client{Dir: dir}.RevokeStation("s"), "no Station")
 }

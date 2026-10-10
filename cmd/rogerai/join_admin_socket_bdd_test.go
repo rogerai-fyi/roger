@@ -96,6 +96,15 @@ func (s *adminSocketBDD) rogerTower(cmdline string) error {
 	return nil
 }
 
+// stationsNow reads the attached Stations without the lock (serve holds it).
+func (s *adminSocketBDD) stationsNow() ([]tower.Station, error) {
+	st, err := tower.Open(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	return st.Stations()
+}
+
 // stopServe stops the running serve and waits for it to let go of the directory.
 func (s *adminSocketBDD) stopServe() error {
 	if s.p == nil {
@@ -196,6 +205,43 @@ func TestJoinAdminSocketBDD(t *testing.T) {
 						PubHex: ph, KeyHash: protocol.UserIDFromPubkey(ph), Name: "laptop-x"}); err != nil {
 						return err
 					}
+				}
+				if strings.Contains(cmd, "approve <id>") || cmd == "roger tower requests" {
+					// a device is really asking: the client half of request-and-approve, against this serve
+					go func() { _ = joinPairAt(io.Discard, s.p.Addr(), "laptop-x", false) }()
+					var reqs []tower.PairRequest
+					for i := 0; i < 200 && len(reqs) == 0; i++ {
+						reqs, _ = toweradmin.Client{Dir: s.dir}.PairRequests()
+						time.Sleep(10 * time.Millisecond)
+					}
+					if len(reqs) == 0 {
+						return fmt.Errorf("no join request reached the serving Tower")
+					}
+					cmd = strings.Replace(cmd, "<id>", reqs[0].ID, 1)
+				}
+				if strings.Contains(cmd, "station revoke") {
+					// a Station is attached first, so there is one to revoke
+					if err := s.rogerTower("roger tower invite --client u_owner"); err != nil || s.err != nil {
+						return s.err
+					}
+					id := between(s.out, "invitation: ", "\n")
+					code := between(s.out, "code: ", "\n")
+					if err := s.rogerTower("roger tower admit --client u_owner --id " + id + " --code " + code); err != nil || s.err != nil {
+						return s.err
+					}
+					if err := s.rogerTower("roger tower attach --station x --key " + strings.Repeat("cd", 8) + " --models m"); err != nil || s.err != nil {
+						return s.err
+					}
+					var b strings.Builder
+					code2 := towercli.Run([]string{"station", "revoke", "--dir", s.dir, "--station-id", "x"}, &b, &b)
+					s.out = b.String()
+					s.err = nil
+					if code2 != 0 {
+						s.err = fmt.Errorf("roger tower station revoke exited %d:\n%s", code2, s.out)
+					} else if sts, err := s.stationsNow(); err != nil || len(sts) != 0 {
+						s.err = fmt.Errorf("the Station is still attached (%v): %+v", err, sts)
+					}
+					return nil
 				}
 				if strings.Contains(cmd, "invite") && !strings.Contains(cmd, "--list") {
 					cmd += " --at 127.0.0.1:8787"
@@ -314,7 +360,6 @@ func TestJoinAdminSocketBDD(t *testing.T) {
 			sc.Step(`^it succeeds$`, func() error { return s.err })
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
-			Tags: "~@blocked-on-request-approve",
 			Paths: []string{adminSocketFeature + ":15", adminSocketFeature + ":20", adminSocketFeature + ":44",
 				adminSocketFeature + ":49", adminSocketFeature + ":54", adminSocketFeature + ":59",
 				adminSocketFeature + ":63", adminSocketFeature + ":73"}},

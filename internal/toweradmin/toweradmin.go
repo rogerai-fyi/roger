@@ -44,6 +44,7 @@ type Ops interface {
 	AttachStation(id, keyHash string, models []string) (tower.Station, error)
 	AttachCuratedStation(id, keyHash string, models []string, provider string) (tower.Station, error)
 	RevokeClientNamed(nameOrHash string) (string, error)
+	RevokeStation(id string) error
 }
 
 var _ Ops = (*tower.State)(nil)
@@ -132,6 +133,8 @@ func do(st *tower.State, pr Pairer, req Request) Response {
 		}
 	case "revoke-client":
 		resp.Code, err = st.RevokeClientNamed(req.ID)
+	case "station-revoke":
+		err = st.RevokeStation(req.ID)
 	default:
 		err = fmt.Errorf("unknown administration request %q", req.Op)
 	}
@@ -182,7 +185,7 @@ func handle(c net.Conn, st *tower.State, pr Pairer, logf func(string, ...any)) {
 func known(op string) bool {
 	switch op {
 	case "fingerprint", "join-invite", "invite", "invites", "void", "admit", "attach", "revoke-client",
-		"requests", "approve", "refuse":
+		"station-revoke", "requests", "approve", "refuse":
 		return true
 	}
 	return false
@@ -289,4 +292,10 @@ func (c Client) RefusePair(id string) error {
 func (c Client) RevokeClientNamed(nameOrHash string) (string, error) {
 	r, err := c.call(Request{Op: "revoke-client", ID: nameOrHash})
 	return r.Code, err
+}
+
+// RevokeStation revokes one of the running standalone Tower's Stations.
+func (c Client) RevokeStation(id string) error {
+	_, err := c.call(Request{Op: "station-revoke", ID: id})
+	return err
 }

@@ -265,3 +265,22 @@ func TestDrainTakesABufferedResultOnce(t *testing.T) {
 	_, ok2 := drain(j)
 	require.False(t, ok2, "a second drain finds nothing")
 }
+
+// A Station its owner revoked is refused on its very next request, with the uniform 401: the
+// plane reads the registry on every station request (features/join/admin_socket.feature).
+func TestARevokedStationIsRefusedOnItsNextRequest(t *testing.T) {
+	st := standaloneState(t)
+	_ = admitClient(t, st) // the operator, so Stations may attach
+	station := attachKeyedStation(t, st, "s", []string{"m"})
+	srv := New(st)
+	poll := func() int {
+		rec := httptest.NewRecorder()
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		srv.Handler().ServeHTTP(rec, signedBody(t, station, http.MethodPost, "/local/poll", nil).WithContext(ctx))
+		return rec.Code
+	}
+	require.NotEqual(t, http.StatusUnauthorized, poll(), "an attached Station is let in")
+	require.NoError(t, st.RevokeStation("s"))
+	require.Equal(t, http.StatusUnauthorized, poll(), "a revoked Station is refused")
+}
