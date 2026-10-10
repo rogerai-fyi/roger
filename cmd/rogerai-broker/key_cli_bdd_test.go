@@ -88,8 +88,9 @@ type kg5CLI struct {
 type kg5Unknown struct {
 	rvRetryAfter int
 	rvLookups    int
-	rvFirstUsed  any   // the last_used a key showed after its first relay
-	rvCodes      []int // the touch scenario's relay statuses
+	rvElapsed    time.Duration // how long the unknown-key loop ran: the bucket refills meanwhile
+	rvFirstUsed  any           // the last_used a key showed after its first relay
+	rvCodes      []int         // the touch scenario's relay statuses
 }
 
 func (c *kg5CLI) recorded() []kg5Hop {

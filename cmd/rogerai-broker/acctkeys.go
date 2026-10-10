@@ -228,26 +228,29 @@ type keyRefusal struct {
 // resolveRelayKey authenticates a `Bearer rog-key_...` relay. ok=false with a nil refusal means
 // the request carries no key.
 // An address that keeps presenting keys that do not resolve is rate limited BEFORE the lookup
-// (keyMissLimiter), so it costs neither a store read nor memory; only a refused key draws from that
-// budget, so a working key is never slowed by it. The caller records the use (TouchAccountKey)
-// once the relay is admitted.
+// (keyMissLimiter), so it costs neither a store read nor memory. The budget is drawn atomically
+// before the read, so concurrent requests cannot all pass one check and then all reach the store;
+// a key that turns out live gets its token back, so a working key is never slowed by the budget.
+// The caller records the use (TouchAccountKey) once the relay is admitted.
 func (b *broker) resolveRelayKey(r *http.Request) (store.AccountKey, bool, *keyRefusal) {
 	tok := acctKeyToken(r)
 	if tok == "" {
 		return store.AccountKey{}, false, nil
 	}
 	ip := clientIP(r)
-	if blocked, retry := b.keyMissLimiter().blocked(ip); blocked {
+	miss := b.keyMissLimiter()
+	if ok, retry := miss.allow(ip); !ok {
 		return store.AccountKey{}, false, &keyRefusal{status: http.StatusTooManyRequests, code: "rate_limited", msg: "too many requests with keys that do not work - slow down", retry: retry}
 	}
 	k, found, err := b.keyLookup(true, acctKeyHash(tok))
 	if err != nil {
+		miss.refund(ip) // an outage is not this address's miss
 		return store.AccountKey{}, false, &keyRefusal{status: http.StatusServiceUnavailable, code: "key_lookup_failed", msg: "key lookup failed - try again shortly"}
 	}
 	if ref := keyStateRefusal(k, found, b.now()); ref != nil {
-		b.keyMissLimiter().allow(ip)
 		return store.AccountKey{}, false, ref
 	}
+	miss.refund(ip)
 	return k, true, nil
 }
 
