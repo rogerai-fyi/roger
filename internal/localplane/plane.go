@@ -18,8 +18,10 @@ package localplane
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/protocol"
@@ -57,6 +59,10 @@ type Server struct {
 	// stream limits (stream.go)
 	chunkMax, streamTotal int
 	streamIdle, streamMax time.Duration
+	// logf is where the plane logs (log.Printf); plainSeen holds the callers already logged as
+	// still on plain http, so each is named once.
+	logf      func(format string, args ...any)
+	plainSeen sync.Map
 }
 
 // New builds a consumer plane over a standalone Tower's state.
@@ -76,7 +82,30 @@ func New(st *tower.State) *Server {
 		replay:            newReplayGuard(time.Now, replayWindow),
 		completionTimeout: defaultCompletionTimeout,
 		pollTimeout:       defaultPollTimeout,
+		logf:              log.Printf,
 	}
+}
+
+// notePlain logs, once per caller, an authenticated request that came over plain http rather than
+// TLS (features/join/tower_identity.feature): plain http works for one more release, and the
+// owner should know which machines still need upgrading. A TLS request logs nothing.
+func (s *Server) notePlain(r *http.Request, keyHash, name string) {
+	if r.TLS != nil || keyHash == "" {
+		return
+	}
+	if _, seen := s.plainSeen.LoadOrStore(keyHash, true); seen {
+		return
+	}
+	if name == "" {
+		name = s.st.ClientName(keyHash)
+	}
+	if name == "" {
+		name = keyHash
+		if len(name) > 12 {
+			name = name[:12]
+		}
+	}
+	s.logf("%s used plain http; upgrade it", name)
 }
 
 // verifiedIdentity verifies a request signature the nonce-aware way and returns the derived id
@@ -171,6 +200,7 @@ func (s *Server) authClient(r *http.Request, body []byte) (clientKeyHash string,
 	if nonce != "" && s.replay.used(userID+":"+nonce) {
 		return "", authDenied
 	}
+	s.notePlain(r, userID, "")
 	return userID, authOK
 }
 

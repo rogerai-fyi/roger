@@ -159,3 +159,22 @@ func TestServeRefusesWithoutItsTLSKey(t *testing.T) {
 	_, err := Prepare([]string{"--dir", dir, "--bind", "127.0.0.1:0"}, io.Discard)
 	require.Error(t, err)
 }
+
+// Addr names the bound address; Close stops Serve, which then releases the directory lock so a
+// second serve of the same directory can start.
+func TestPreparedAddrAndClose(t *testing.T) {
+	require.Equal(t, "", (&Prepared{}).Addr())
+	require.NoError(t, (&Prepared{}).Close())
+	dir := standaloneDir(t)
+	p, err := Prepare([]string{"--dir", dir, "--bind", "127.0.0.1:0"}, io.Discard)
+	require.NoError(t, err)
+	require.Contains(t, p.Addr(), "127.0.0.1:")
+	done := make(chan error, 1)
+	go func() { done <- p.Serve() }()
+	require.NoError(t, p.Close())
+	require.NoError(t, <-done)
+	again, err := Prepare([]string{"--dir", dir, "--bind", "127.0.0.1:0"}, io.Discard)
+	require.NoError(t, err, "the lock was released")
+	require.NoError(t, again.Close())
+	_ = again.release()
+}

@@ -76,6 +76,7 @@ type streamUpstream struct {
 	holdAfter int           // tokens sent before holding (0 = never hold)
 	release   chan struct{} // closed to let a held stream finish
 	echoKey   string        // a token that carries the upstream key, to prove redaction
+	started   time.Time     // when the streamed tokens began
 	ended     time.Time
 }
 
@@ -112,6 +113,9 @@ func (u *streamUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	if key != "" {
 		send("my key is " + key)
 	}
+	u.mu.Lock()
+	u.started = time.Now()
+	u.mu.Unlock()
 	for i, tok := range tokens {
 		if hold > 0 && i == hold {
 			select {
@@ -675,8 +679,22 @@ func (s *stationStreamState) atMost20() error {
 			data++
 		}
 	}
-	if data > 20 {
-		return fmt.Errorf("the station posted %d chunks for one second of tokens, want at most 20", data)
+	// "1000 tokens in one second" is the fixture's aim, but each 1 ms gap can run long on a busy
+	// machine, so the stream may span a little more than a second. The rule is the batch window:
+	// at most one chunk per 50 ms of stream (20 for a second), plus one for the window the stream
+	// ends in. A station posting per token posts about 1000 and is caught either way.
+	s.up.mu.Lock()
+	dur := s.up.ended.Sub(s.up.started)
+	s.up.mu.Unlock()
+	if dur <= 0 { // the stream has not ended (a station that posts per token is still going)
+		dur = time.Second
+	}
+	allowed := 20
+	if w := int((dur+streamBatchEvery-1)/streamBatchEvery) + 1; w > allowed {
+		allowed = w
+	}
+	if data > allowed {
+		return fmt.Errorf("the station posted %d chunks for %s of tokens, want at most %d (one per 50 ms window)", data, dur.Round(time.Millisecond), allowed)
 	}
 	if s.batchWait != nil {
 		return s.batchWait

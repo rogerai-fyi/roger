@@ -36,8 +36,9 @@ const (
 	LANTower LANSourceKind = "tower"
 )
 
-// LANSource is one place a band is served. Verified is true for this machine and for Edge
-// members (certificate-verified); a Tower is trusted only because it is on the LAN.
+// LANSource is one place a band is served. Verified is true for this machine, for Edge members
+// (certificate-verified) and for a Tower pinned to its TLS key; an unpinned Tower is plain http,
+// trusted only because it is on the LAN.
 type LANSource struct {
 	Kind     LANSourceKind `json:"kind"`
 	ID       string        `json:"id"`             // node name, or the Tower's host:port; "" for this machine
@@ -172,8 +173,11 @@ func LANDiscover(ctx context.Context, in LANInputs) ([]LANBand, []LANTowerStatus
 	}
 	status := lanTowers(ctx, in)
 	for _, st := range status {
+		// A pinned Tower was read over TLS to exactly its key (features/join/tower_identity.feature),
+		// so its rows are verified, like an Edge member's. An unpinned one is plain http, unverified.
+		_, pinned := lanmode.PinFor(st.Addr)
 		for _, m := range st.models {
-			add(m, LANSource{Kind: LANTower, ID: st.Addr, Addr: st.Addr})
+			add(m, LANSource{Kind: LANTower, ID: st.Addr, Addr: st.Addr, Verified: pinned})
 		}
 	}
 	voice := map[string]bool{}

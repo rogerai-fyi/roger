@@ -832,7 +832,7 @@ func cmdUse(cfg config, args []string) error {
 	if cfg.lan.LAN {
 		opt.LANSources = func(band string) []client.LANSource {
 			src := lanSourcesOf(cfg, band)
-			lanTrustNoteOnce(src, pinnedTower != "")
+			lanTrustNoteOnce(src, pinnedTower)
 			return src
 		}
 	}

@@ -25,6 +25,7 @@ import (
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towerpin"
 	"rogerai.fm/roger/v6/internal/tui"
 )
 
@@ -265,7 +266,36 @@ func lanAddTo(w io.Writer, args []string) error {
 		fmt.Fprintf(w, "note: %s is in the carrier/overlay range (100.64.0.0/10); LAN mode uses it only because you added it by hand\n", a.Host)
 	}
 	c.LanTowers = append(c.LanTowers, a.String())
-	return saveConfig(c)
+	lanCarryPin(w, &c, a.String())
+	if err := saveConfig(c); err != nil {
+		return err
+	}
+	lanmode.SetPins(c.LanTowerPins)
+	return nil
+}
+
+// lanFetchFP is a seam: the fingerprint of the key a Tower at addr presents over TLS.
+var lanFetchFP = func(addr string) (string, error) { return towerpin.Fetch(addr, 3*time.Second) }
+
+// lanCarryPin keeps a Tower's pin when it moved (features/join/tower_identity.feature, "The pin
+// follows the Tower, not its address"): a Tower at a new address presenting a key this machine
+// already pinned is pinned again at that address. Nothing new is trusted: a key not already
+// pinned is not pinned here.
+func lanCarryPin(w io.Writer, c *config, addr string) {
+	fp, err := lanFetchFP(addr)
+	if err != nil {
+		return
+	}
+	for _, have := range c.LanTowerPins {
+		if have == fp {
+			if c.LanTowerPins == nil {
+				c.LanTowerPins = map[string]string{}
+			}
+			c.LanTowerPins[addr] = fp
+			fmt.Fprintf(w, "it is a Tower you joined (same key %s): it stays verified at %s\n", towerpin.Short(fp), addr)
+			return
+		}
+	}
 }
 
 func lanRemove(args []string) error {
@@ -807,18 +837,29 @@ const lanTrustNote = "note: a LAN Tower speaks plain http with no identity of it
 	"can pose as it, and it can read what you send to it. Edge members are verified by certificate and are not affected. " +
 	"(shown once)"
 
-// lanTrustNoteOnce prints the trust note the first time a Tower is among a turn's sources (or one
-// is addressed directly), and records that it was shown so it is not repeated on every command.
-func lanTrustNoteOnce(sources []client.LANSource, towerAddressed bool) {
-	c := loadConfig()
-	if c.LanTrustNoted {
+// lanPlainTowerLine asks for the upgrade a plain-http Tower needs before it can be verified
+// (features/join/tower_identity.feature section 4). It is shown each time such a Tower is used.
+const lanPlainTowerLine = "this Tower uses plain http; ask its owner to upgrade roger so it can be verified"
+
+// lanTrustNoteOnce speaks when a turn may go to a plain-http Tower (one not pinned to its TLS key;
+// addressed is a Tower named directly with `roger use <tower-address>`, "" when none). It prints
+// the upgrade line every time, and the trust note once per machine, recorded so it is not
+// repeated on every command. A pinned Tower is verified, so it gets neither.
+func lanTrustNoteOnce(sources []client.LANSource, addressed string) {
+	plain := false
+	if addressed != "" {
+		_, pinned := lanmode.PinFor(addressed)
+		plain = !pinned
+	}
+	for _, s := range sources {
+		plain = plain || (s.Kind == client.LANTower && !s.Verified)
+	}
+	if !plain {
 		return
 	}
-	tower := towerAddressed
-	for _, s := range sources {
-		tower = tower || s.Kind == client.LANTower
-	}
-	if !tower {
+	fmt.Println(lanPlainTowerLine)
+	c := loadConfig()
+	if c.LanTrustNoted {
 		return
 	}
 	fmt.Println(lanTrustNote)

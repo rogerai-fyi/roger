@@ -107,6 +107,9 @@ type Credential struct {
 	RootFingerprint string `json:"root_fingerprint"`
 	Role            string `json:"role"`
 	IssuedAt        int64  `json:"issued_at"`
+	// Name is what the client called itself when it joined by invite ("laptop-x"); empty for a
+	// client admitted the older way. The Tower's logs use it so the owner recognizes the machine.
+	Name string `json:"name,omitempty"`
 }
 
 // bootstrapMu serialises local-admission transitions within a process. Cross-process

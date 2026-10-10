@@ -159,8 +159,8 @@ func lanTowerHost(base string) string {
 	return h
 }
 
-// lanSourceText is a dial row's source column: each source, with an Edge member marked verified
-// (its certificate was checked) and a Tower marked unverified (trust-the-LAN, ruled 2026-10-06).
+// lanSourceText is a dial row's source column: each source, with an Edge member or a Tower pinned
+// to its TLS key marked verified (its key was checked), and a plain-http Tower marked unverified.
 // Words, so the difference reads with NO_COLOR.
 func lanSourceText(b client.LANBand) string {
 	var out []string
@@ -172,7 +172,11 @@ func lanSourceText(b client.LANBand) string {
 				label += " (verified)"
 			}
 		case client.LANTower:
-			label += " (unverified)"
+			if src.Verified {
+				label += " (verified)"
+			} else {
+				label += " (unverified)"
+			}
 		}
 		out = append(out, label)
 	}
@@ -273,8 +277,8 @@ func (m model) lanCandidateKey(key string) (model, tea.Cmd, bool) {
 }
 
 // lanTrustTag is a LAN dial row's trust word, after its flags: "unverified" when any source is a
-// Tower (trust-the-LAN), "verified" when it is served by a verified Edge member, nothing for this
-// machine or outside LAN mode. A word, so it reads with NO_COLOR.
+// plain-http Tower, "verified" when it is served by a verified Edge member or a pinned Tower,
+// nothing for this machine or outside LAN mode. A word, so it reads with NO_COLOR.
 func lanTrustTag(bd band) string {
 	if !LANMode() || bd.cheapest == nil {
 		return ""
@@ -282,9 +286,9 @@ func lanTrustTag(bd band) string {
 	tag := ""
 	for _, src := range bd.cheapest.LANSources {
 		switch {
-		case src.Kind == client.LANTower:
+		case src.Kind == client.LANTower && !src.Verified:
 			return "  unverified"
-		case src.Kind == client.LANEdge && src.Verified:
+		case (src.Kind == client.LANEdge || src.Kind == client.LANTower) && src.Verified:
 			tag = "  verified"
 		}
 	}

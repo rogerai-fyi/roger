@@ -13,6 +13,8 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -203,6 +205,7 @@ func (s *State) ConsumeJoin(r JoinRequest) (JoinResult, error) {
 		if cred == nil {
 			return JoinResult{}, errBootstrapRejected
 		}
+		cred.Name = r.Name
 		match.Consumed, match.ClientKeyHash = true, r.KeyHash
 		if err := s.saveBootstrap(bs); err != nil {
 			return JoinResult{}, errBootstrapRejected
@@ -258,4 +261,57 @@ func admitLocked(bs *Snapshot, s *State, keyHash string) *Credential {
 		bs.Operator = cred
 	}
 	return cred
+}
+
+// ClientName is the name an admitted client joined under, or "" when it gave none (or is unknown).
+func (s *State) ClientName(keyHash string) string {
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil || bs.Clients == nil {
+		return ""
+	}
+	if c, ok := bs.Clients[keyHash]; ok {
+		return c.Name
+	}
+	return ""
+}
+
+// RotateTLSKey replaces the Tower's TLS key (features/join/tower_identity.feature, a reset Tower):
+// the Tower then serves under a new fingerprint, and every outstanding invite, which names the old
+// one, stops working. Clients and Stations pinned to the old key are refused until they re-join.
+// The identity key is untouched. It returns the new fingerprint and how many invites it voided.
+func (s *State) RotateTLSKey() (fingerprint string, voided int, err error) {
+	if s.Mode != ModeStandalone {
+		return "", 0, ErrNotStandalone
+	}
+	tmp := filepath.Join(s.dir, tlsKey+".new")
+	if _, err := newKeyFile(tmp); err != nil {
+		_ = os.Remove(tmp)
+		return "", 0, err
+	}
+	if err := os.Rename(tmp, filepath.Join(s.dir, tlsKey)); err != nil {
+		_ = os.Remove(tmp)
+		return "", 0, err
+	}
+	bootstrapMu.Lock()
+	bs, err := s.loadBootstrap()
+	if err == nil {
+		now := time.Now().UnixNano()
+		for _, inv := range bs.Invitations {
+			if inv.Bearer && !inv.Consumed && !inv.Voided && now <= inv.ExpiresAt {
+				inv.Voided = true
+				voided++
+			}
+		}
+		if voided > 0 {
+			err = s.saveBootstrap(bs)
+		}
+	}
+	bootstrapMu.Unlock()
+	if err != nil {
+		return "", voided, err
+	}
+	fingerprint, err = s.JoinFingerprint()
+	return fingerprint, voided, err
 }

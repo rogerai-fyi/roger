@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Built: TLS serving, pins and refusals, the moved Tower, verified rows, Station pins, rotate-key, plain http (TestJoinTowerIdentityBDD). Not yet: the owner TUI and console fingerprint, the approval pin.
 #
 # A CLIENT KNOWS IT IS TALKING TO ITS TOWER. Founder ruling 2026-10-10: the Tower serves TLS with
 # its own key; the client pins that key's fingerprint from the invite or from an approved pairing;

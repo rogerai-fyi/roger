@@ -99,12 +99,12 @@ func TestJoinedInitRunsOnLinuxOnly(t *testing.T) {
 func TestFlagsInRogersStyle(t *testing.T) {
 	var out, errb bytes.Buffer
 	require.Equal(t, 2, Run([]string{"status", "--bogus"}, &out, &errb))
-	require.Equal(t, "error: flag provided but not defined: -bogus\nusage: roger tower status --dir DIR\n", errb.String())
+	require.Equal(t, "error: flag provided but not defined: -bogus\nusage: roger tower status --dir DIR [--full]\n", errb.String())
 
 	out.Reset()
 	errb.Reset()
 	require.Equal(t, 0, Run([]string{"status", "-h"}, &out, &errb))
-	require.Contains(t, out.String(), "usage: roger tower status --dir DIR")
+	require.Contains(t, out.String(), "usage: roger tower status --dir DIR [--full]")
 	require.Contains(t, out.String(), "-dir")
 	require.Empty(t, errb.String())
 

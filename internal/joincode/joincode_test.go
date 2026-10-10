@@ -92,5 +92,5 @@ func TestFormatAndVerifierEdges(t *testing.T) {
 	require.Equal(t, "ABCDEFGHJK", got)
 	got, err = Edge.Canonical("0OIL1-23456")
 	require.NoError(t, err)
-	require.Equal(t, "00111" + "23456", got)
+	require.Equal(t, "00111"+"23456", got)
 }

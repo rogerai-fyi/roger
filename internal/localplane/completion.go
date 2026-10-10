@@ -91,6 +91,7 @@ func (s *Server) authStationWith(r *http.Request, body []byte, rl *rateLimiter) 
 	if nonce != "" && s.replay.used(nonceKey) {
 		return tower.Station{}, false
 	}
+	s.notePlain(r, "station:"+keyHash, "station "+found.ID)
 	return found, true
 }
 

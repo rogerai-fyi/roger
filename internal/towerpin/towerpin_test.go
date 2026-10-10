@@ -130,3 +130,29 @@ func TestShortAndParseEdges(t *testing.T) {
 	cfg := ClientTLS("00")
 	require.ErrorIs(t, cfg.VerifyConnection(tls.ConnectionState{}), ErrPinMismatch)
 }
+
+// Fetch reads the key a TLS listener presents without trusting it (so a caller can compare it to
+// a pin it already holds); a plain-http listener has no key.
+func TestFetchReadsTheKeyAListenerPresents(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	cfg, err := ServerTLS(priv)
+	require.NoError(t, err)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := &http.Server{Handler: http.NotFoundHandler()}
+	go func() { _ = srv.Serve(Sniff(ln, cfg)) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	fp, err := Fetch(ln.Addr().String(), 2*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, Fingerprint(pub), fp)
+
+	plain, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ps := &http.Server{Handler: http.NotFoundHandler()}
+	go func() { _ = ps.Serve(plain) }()
+	t.Cleanup(func() { _ = ps.Close() })
+	_, err = Fetch(plain.Addr().String(), 2*time.Second)
+	require.Error(t, err, "plain http presents no key")
+}

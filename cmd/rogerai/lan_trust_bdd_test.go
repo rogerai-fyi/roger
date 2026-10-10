@@ -85,7 +85,9 @@ func TestLANTrustBDD(t *testing.T) {
 			})
 			sc.Step(`^they run "roger --lan use ([^"]*)"$`, func(band string) error { return s.runUse("roger --lan use " + band + " --yes") })
 			sc.Step(`^the trust note is not printed$`, func() error {
-				if strings.Contains(s.out, "plain http") {
+				// The one-time trust note itself; the plain-http upgrade line (tower_identity.feature)
+				// is a different line and is shown on every use.
+				if strings.Contains(s.out, lanTrustNote) {
 					return fmt.Errorf("the note was printed again:\n%s", s.out)
 				}
 				return nil

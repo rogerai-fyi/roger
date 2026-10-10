@@ -188,6 +188,22 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 	}, nil
 }
 
+// Addr is the address the plane is bound to.
+func (p *Prepared) Addr() string {
+	if p.ln == nil {
+		return ""
+	}
+	return p.ln.Addr().String()
+}
+
+// Close stops the server; Serve then returns and releases the directory lock.
+func (p *Prepared) Close() error {
+	if p.srv == nil {
+		return nil
+	}
+	return p.srv.Close()
+}
+
 // Serve runs the bound plane until the server is closed, then releases the directory lock.
 func (p *Prepared) Serve() error {
 	if p.checked {

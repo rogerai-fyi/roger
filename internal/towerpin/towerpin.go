@@ -96,6 +96,35 @@ func ClientTLS(pin string) *tls.Config {
 	}
 }
 
+// Fetch reads the fingerprint of the key a TLS listener at addr presents, WITHOUT trusting it: a
+// caller compares it to a pin it already holds (a Tower that moved address keeps its pin, and
+// nothing new is trusted). A listener that does not speak TLS returns an error.
+func Fetch(addr string, timeout time.Duration) (string, error) {
+	d := &net.Dialer{Timeout: timeout}
+	var got string
+	cfg := &tls.Config{
+		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: true, //nolint:gosec // read only: the caller compares the key to a pin
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
+				return ErrPinMismatch
+			}
+			pub, ok := cs.PeerCertificates[0].PublicKey.(ed25519.PublicKey)
+			if !ok {
+				return ErrPinMismatch
+			}
+			got = Fingerprint(pub)
+			return nil
+		},
+	}
+	conn, err := tls.DialWithDialer(d, "tcp", addr, cfg)
+	if err != nil {
+		return "", err
+	}
+	_ = conn.Close()
+	return got, nil
+}
+
 // Client is an HTTP client pinned to one Tower key. It never follows a redirect and never falls
 // back to plain http.
 func Client(pin string, timeout time.Duration) *http.Client {

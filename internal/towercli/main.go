@@ -29,6 +29,7 @@ import (
 	"rogerai.fm/roger/v6/internal/clockprobe"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towerjoin"
+	"rogerai.fm/roger/v6/internal/towerpin"
 	"rogerai.fm/roger/v6/internal/towerstore"
 )
 
@@ -40,8 +41,9 @@ usage: roger tower <command> [flags]
   config    validate or print an operator configuration: validate|print --config FILE [--redact]
   doctor    a Tower's readiness and clock (NTP): --config FILE [--clock-check] [--offline] [--ntp HOST:PORT]
   ready     durable startup preflight: --config FILE
-  status    a Tower data directory's state: --dir DIR
-  invite    invite a client: --dir DIR --client KEYHASH [--ttl 15m] [--attempts 5]
+  status    a Tower data directory's state and fingerprint: --dir DIR [--full]
+  rotate-key  a new TLS key: the Tower serves under a new fingerprint and every client re-joins: --dir DIR
+  invite    print one roger join line for a client (or --station): --dir DIR [--for NAME] [--ttl 15m] [--list] [--void ID]
   admit     admit an invited client: --dir DIR --client KEYHASH --id ID --code CODE
   attach    attach a Station: --dir DIR --station ID --key KEYHASH --models a,b
   stations  list attached Stations: --dir DIR
@@ -173,6 +175,8 @@ func run(args []string, out io.Writer) error {
 		return cmdProbe(args[1:], out)
 	case "status":
 		return cmdStatus(args[1:], out)
+	case "rotate-key":
+		return cmdRotateKey(args[1:], out)
 	case "earnings":
 		return cmdEarnings(args[1:], out)
 	case "version", "--version", "-v":
@@ -332,6 +336,7 @@ func cmdStatus(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(out)
 	dir := fs.String("dir", "", "Tower data directory")
+	full := fs.Bool("full", false, "show the whole fingerprint, not its short form")
 	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
@@ -346,6 +351,13 @@ func cmdStatus(args []string, out io.Writer) error {
 	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
 	if st.LocalNetworkID != "" {
 		fmt.Fprintf(out, "local network: %s\n", st.LocalNetworkID)
+		if fp, err := st.JoinFingerprint(); err == nil {
+			shown := towerpin.Short(fp)
+			if *full {
+				shown = "sha256:" + fp
+			}
+			fmt.Fprintf(out, "fingerprint: %s\n", shown)
+		}
 		return nil
 	}
 	fmt.Fprintf(out, "network: RogerAI public\n")
