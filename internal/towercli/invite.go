@@ -16,7 +16,6 @@ import (
 
 	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/netpriv"
 	"rogerai.fm/roger/v6/internal/qr"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/toweradmin"
@@ -135,27 +134,7 @@ func inviteAddrs(cfgPath string) (addrs []string, loopbackOnly bool, err error) 
 			bind = c.Standalone.Bind
 		}
 	}
-	host, port, err := net.SplitHostPort(bind)
-	if err != nil {
-		return nil, false, fmt.Errorf("the serve bind %q is not host:port", bind)
-	}
-	ip := net.ParseIP(host)
-	if host != "" && (ip == nil || !ip.IsUnspecified()) {
-		return []string{bind}, ip != nil && ip.IsLoopback(), nil
-	}
-	ifs, err := inviteInterfaceAddrs()
-	if err != nil {
-		return nil, false, err
-	}
-	for _, a := range ifs {
-		if n, ok := a.(*net.IPNet); ok && netpriv.IsHome(n.IP) && !n.IP.IsLoopback() {
-			addrs = append(addrs, net.JoinHostPort(n.IP.String(), port))
-		}
-	}
-	if len(addrs) == 0 {
-		return []string{net.JoinHostPort("127.0.0.1", port)}, true, nil
-	}
-	return addrs, false, nil
+	return localplane.InviteAddrs(bind, inviteInterfaceAddrs)
 }
 
 func inviteList(st toweradmin.Ops, out io.Writer) error {
