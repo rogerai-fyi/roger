@@ -350,3 +350,76 @@ Roughly 3 to 5 focused agent-days with tests:
    phone-friendly, and Edge's D12 wants it later]; or text invite only.
 7. **Old commands.** Keep `invite --client`/`admit`/`attach --key` for one release as advanced
    [recommended]; or remove them now.
+
+---
+
+## 5. Proposed spec (2026-10-10, awaiting founder approval)
+
+Founder rulings 2026-10-10:
+- **Both flows now.** The one-paste invite and request-and-approve are both built in this slice.
+- **TLS with the pinned key.**
+- **Bearer invites.** An invite is single use and valid for 15 minutes, and works for whoever holds it.
+- **One `roger join`** for Edge devices and Towers alike.
+
+The spec lives in `features/join/`:
+
+| File | Scenarios | Covers |
+|---|---|---|
+| `invite.feature` | 27 | minting while serving, the invite scheme, code entropy, client/station/Edge joins, aliases, offline |
+| `approve.feature` | 18 | request and approve, the SAS construction, timeouts, one pending per client, caps, headless approve |
+| `tower_identity.feature` | 14 | Tower TLS from `tls.key`, pinning, refusing a changed key, rotation, the plain-http transition |
+| `admin_socket.feature` | 9 | the owner-only socket, admin while serving, Windows named pipe, stale socket |
+| `migration.feature` | 8 | pin on first use after upgrade (once), old commands with deprecation notes |
+| `adversarial.feature` | 23 | impostor Tower and client, replay, cross-domain proofs, brute force, stolen and expired invites, approve MITM, flood, downgrade, addresses |
+| `surfaces.feature` | 8 | one-line copy per situation, the not-admitted hint, TUI/console panels, QR |
+
+### Decisions marked in the files (recommendations)
+
+1. **Invite scheme:** one `roger://join?kind=...&at=...&fp=...&code=...`. The existing `rogerai-edge://join?...` invites stay accepted.
+2. **Code length:** Tower invite codes are 128-bit, keeping the approved `modes.feature:194`, since invites are pasted or scanned. Edge codes stay 50-bit, since people type them. Both use one proof package with distinct domain strings.
+3. **TUI key:** `i` on the Tower row and on [3], or `+` if `i` is already bound there.
+4. **Older unused invites:** they stay independent. `invite --list` and `--void <id>` manage them.
+5. **Bearer Edge invite:** the Edge code admits the joiner's key on use, which supersedes enrollment D15. `edge authority allow <key>` stays as an option.
+6. **SAS phrase:** three words from a fixed 2048-word list plus two digits, about 40 bits.
+7. **Request lifetime:** 2 minutes.
+8. **Pending cap:** 8 per Tower, and 5 requests per source address per minute.
+9. **Plain http:** served for one release with a warning and marked "unverified". The release after, it's refused unless the owner passes `--allow-plain-http`.
+10. **Windows admin:** a named pipe whose ACL grants only the serving user.
+11. **`roger lan add` after the transition:** it stays for Towers you're already admitted to. For a TLS Tower it asks "pin this Tower? [y/N]".
+12. **QR encoder:** vendor a small pure-Go encoder under `internal/` with a golden test, adding no new module dependency.
+
+### Approved scenarios this supersedes (proposed text; not edited here)
+
+- **`features/packaging/one_binary.feature:600`** ("The not-admitted hint names the command the owner actually runs").
+  - **Then:** "the hint says this Tower hasn't let you in yet: ask its owner for an invite (roger tower invite), then run roger join <invite>".
+- **`features/lan/trust_and_honesty.feature`:**
+  - **:29 and :38, the trust note:** it applies only to plain-http Towers during the transition release.
+  - **:44, TUI add confirm:** the confirm shows the Tower's short fingerprint and asks to pin it.
+  - **:49, row marking:** a pinned Tower row carries "verified", and only an unpinned plain-http Tower carries "unverified".
+- **`features/lan/discovery_and_dial.feature`:**
+  - **:112, :118, :125, :131, :138, :153 (`roger lan add`):** unchanged as behavior, but `lan add` becomes the path for Towers you're already admitted to. For a TLS Tower it asks to pin.
+  - **:182, :191 (candidates):** adding a candidate becomes "join it". The dial's add key runs request and approve against the candidate.
+- **`features/tower/modes.feature`:**
+  - **:232, consumption:** consistent. The invitation is consumed remotely by the client, binding K at consume time instead of at mint. Its Given drops "bound to ... client public key K" at mint and gains "bound to the K that presents the proof".
+  - **:245, binding mismatch:** the "another client public key" row moves to `--for <name>` invites only.
+  - **:260, root pin:** consistent. The client pins the Tower identity: the TLS key here, and the offline root where that exists.
+- **`features/tower/station_attachment.feature:49`** (explicit Station invitation, marked unbuilt as worded).
+  - **Text:** becomes "the operator runs roger tower invite --station; the station joins with roger join <invite> and reports its models".
+- **`features/edge/enrollment_root_trust.feature`:**
+  - **D15:** a bearer `roger edge invite` admits the joiner's key on use.
+  - **:328, invite carries address, pin and code:** consistent. It gains the unified scheme, with the old scheme accepted.
+- **`features/tower/standalone_consumer_plane.feature`:** its routes gain TLS from the Tower key and the join routes.
+
+### Implementation map
+
+| Area | Files | Change |
+|---|---|---|
+| Shared code and proof | `internal/edgeauth/code.go` → a domain-parameterized package (for example `internal/joincode`) | Keep the Edge golden vectors byte-identical. Add the `tower-join` domain and 128-bit codes. |
+| Invite scheme and `roger join` | `cmd/rogerai/edgeenrolltrust.go` (`edgeInvite`, `edgeParseInvite`), new `cmd/rogerai/join.go` | One parser for `roger://join` plus the old Edge scheme. `roger join` dispatches on kind. `lan join` and `edge enroll --invite` become aliases. |
+| Tower admission on the code | `internal/tower/bootstrap.go` (`CreateInvitation`, `ConsumeInvitation`, `IsAdmitted`), `internal/localplane` | Bearer invitations bind K at consume. A `/local/join` route behind the uniform 401, with budgets and the global limiter reused. Station kind attaches with self-reported models. |
+| Tower TLS identity | `internal/localplane/serve`, `internal/tower` (`State.TLSKey`) | Serve TLS with a cert self-signed by `tls.key`. Plain http alongside for one release. |
+| Client pin | `cmd/rogerai/main.go` (`LanTowers` gains a pin), `internal/lanmode` (`Check`/`IsTower`), `internal/client` LAN transport | Pinned TLS dial on every Tower call (dial, relay, chat, stream, poll). No http fallback once pinned. TOFU once on upgrade. |
+| Request and approve | new join-request handler in localplane plus a SAS package; `internal/towercli` (`requests`, `approve`); `internal/tui`, `internal/webui` | Commit-reveal X25519 exchange and the transcript-hash phrase. Pending cap and rate limits. |
+| Admin socket | `internal/towercli` (`serve.go`, `main.go`) | A 0600 Unix socket in the data dir, with a peer-uid check. Admin commands go through the running serve, or the direct lock when serve isn't running. |
+| Surfaces | `internal/client/lan.go:288` hint, `internal/tui` (Tower row and [3] invite and request panels), `internal/webui` (invite panel and request card), QR encoder under `internal/` | One-line copy per `surfaces.feature`. |
+| Edge bearer invite | `internal/edgeauth/local.go`, `cmd/rogerai/edgeenroll.go`, `cmd/rogerai/edge.go` | `roger edge invite` mints a key-less code that admits on use. |
