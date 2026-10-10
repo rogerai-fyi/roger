@@ -57,12 +57,12 @@ Feature: LAN mode trusts the local network for Towers, says so once where it mat
   Scenario: the manual's LAN section states the trust model in plain words
     When the manual's LAN mode section is read
     Then it says LAN mode filters bands to local sources and is not an offline mode
-    And it says Towers are trusted because they are on the LAN, with the plain-http exposure
+    And it says Towers are verified by their key, that a plain-http Tower is unverified, and that a Tower can read what you send
     And it says Edge members are verified by certificate
     And it says how to keep sensitive work on Edge members only
     # RULED 2026-10-06: yes, offer `roger --lan --edge-only` (Edge members and this machine, no Towers) for
     # sensitive work. It is the strict subset that needs no trust in the LAN.
-
+    # superseded 2026-10-10 by founder ruling (simple join, decision 4): Towers are pinned by their key, no longer trusted for being on the LAN.
   @client
   Scenario: the client still signs and nonces every request to a LAN Tower
     When a turn is sent to the LAN Tower at 192.168.1.20:8787

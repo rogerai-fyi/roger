@@ -50,8 +50,8 @@ func TestLANDocsBDD(t *testing.T) {
 			sc.Step(`^it says LAN mode filters bands to local sources and is not an offline mode$`, func() error {
 				return has("only bands served on your local network", "not an offline mode")
 			})
-			sc.Step(`^it says Towers are trusted because they are on the LAN, with the plain-http exposure$`, func() error {
-				return has("trusted because", "plain http", "any device on the same network", "read what you send")
+			sc.Step(`^it says Towers are verified by their key, that a plain-http Tower is unverified, and that a Tower can read what you send$`, func() error {
+				return has("verified by their key", "plain http", "unverified", "read what you send")
 			})
 			sc.Step(`^it says Edge members are verified by certificate$`, func() error { return has("verified by certificate") })
 			sc.Step(`^it says how to keep sensitive work on Edge members only$`, func() error {
