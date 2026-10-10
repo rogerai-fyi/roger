@@ -673,9 +673,21 @@ func audioRouteLive(url, key string) bool {
 	}
 	defer resp.Body.Close()
 	code := resp.StatusCode
+	if code == http.StatusBadRequest && plainHTTPToTLS(resp.Body) {
+		return false // an HTTPS-only port refusing a plain-http request: no route was reached
+	}
 	// Implemented + POST-handling: below 500 (not a server-side stub/5xx), and neither 404
 	// (route absent) nor 405 (route exists but rejects POST - a stub or a GET-only handler).
 	return code < 500 && code != http.StatusNotFound && code != http.StatusMethodNotAllowed
+}
+
+// plainHTTPToTLS reports whether a 400 body is a TLS server refusing a plain-http request (Go's
+// net/http and nginx answer every path that way), which says nothing about any route behind it.
+func plainHTTPToTLS(body io.Reader) bool {
+	b, _ := io.ReadAll(io.LimitReader(body, 512))
+	s := string(b)
+	return strings.Contains(s, "Client sent an HTTP request to an HTTPS server") ||
+		strings.Contains(s, "plain HTTP request was sent to HTTPS port")
 }
 
 // probeVoice classifies a BARE voice server - one with no usable GET /v1/models to enumerate
