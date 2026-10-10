@@ -161,6 +161,12 @@ func cmdLAN(cfg config, args []string) error {
 	if len(args) == 0 {
 		return usagef("%s", lanUsage)
 	}
+	for _, a := range args {
+		if a == "-h" || a == "--help" || (a == "help" && a == args[0]) {
+			fmt.Println(lanUsage)
+			return nil
+		}
+	}
 	allowed := map[string][]string{"add": {"--offline"}, "rm": nil, "remove": nil, "list": nil, "ls": nil}
 	known, ok := allowed[args[0]]
 	if !ok {
