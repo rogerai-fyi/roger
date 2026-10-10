@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // Config isolation uses the shared cross-platform useTempConfig (config_isolation_test.go):
@@ -21,7 +22,7 @@ func TestOnAirLock_BlocksAnotherLiveProcess(t *testing.T) {
 	if other == os.Getpid() || !processAlive(other) {
 		t.Skip("no distinct live parent PID to simulate another daemon")
 	}
-	held := onAirInfo{PID: other, Station: "other-daemon", Model: "qwen3", Started: 1}
+	held := onAirInfo{PID: other, Station: "other-daemon", Model: "qwen3", Started: time.Now().Unix()} // dated after its holder started, as a real lock is
 	b, _ := json.Marshal(held)
 	if err := os.MkdirAll(filepath.Dir(onAirLockPath("brave-otter-qwen3")), 0700); err != nil {
 		t.Fatal(err)
