@@ -32,6 +32,9 @@ func cmdJoin(cfg config, args []string) error {
 		return usagef("%s", joinUsage)
 	}
 	in, err := joininvite.Parse(pos[0])
+	if err != nil && strings.Contains(pos[0], "://") {
+		return usagef("%v\n%s", err, joinUsage) // an invite that does not parse, never an address
+	}
 	if err != nil {
 		// Not an invite: an address to ask (request-and-approve).
 		addr, aerr := lanmode.ParseAddr(pos[0])

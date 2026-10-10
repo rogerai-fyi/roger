@@ -118,7 +118,7 @@ func TestJoinATowerWithOnePastedInvite(t *testing.T) {
 	// The invite works once: a second machine is refused, and nothing is recorded for it.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	err := cmdJoin(loadConfig(), []string{inv.String()})
-	require.ErrorContains(t, err, "refused the invite")
+	require.ErrorContains(t, err, "that invite was already used. Ask the owner for a new one")
 	require.Empty(t, loadConfig().LanTowers)
 }
 
