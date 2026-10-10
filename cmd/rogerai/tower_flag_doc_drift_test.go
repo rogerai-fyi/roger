@@ -32,6 +32,9 @@ var historicalAccounts = map[string]bool{
 	"docs/relay-selection-design.md": true,
 	// Pins the refusal: "roger share --tower keeps its current explanation".
 	"features/packaging/one_binary.feature": true,
+	// A design PROPOSAL (2026-10-10, awaiting founder approval) for a simpler LAN join; its
+	// `roger share --tower <invite>` is a proposed future form, not an instruction for today's build.
+	"docs/simple-lan-join-design.md": true,
 }
 
 func TestNoDocTeachesTheRemovedTowerFlag(t *testing.T) {
