@@ -50,7 +50,7 @@
 #
 # WHAT DOES NOT CHANGE
 #   - Authorization. The allow-list and the adopt grant still decide WHO may join. The code decides
-#     only WHICH ROOT the joiner may believe. (RULED D15.)
+#     only WHICH ROOT the joiner may believe. (RULED D15; superseded 2026-10-10 by founder ruling (simple join): a key-less roger edge invite admits the key that proves its code.)
 #   - The certificate shape, the verification path, VerifyPeer, the Core-free structural guarantee.
 #   - Renewal: a member renewing already holds its root and is checked against it, as today.
 #
@@ -93,7 +93,7 @@
 #       expired; never in a log, an event, the trouble feed or an advertisement.  RULED: yes.
 #   D14 Order: hold the answer, THEN ask for the code (a typo never burns the code), rather than a
 #       separate pre-flight endpoint.  RULED: hold-then-verify.
-#   D15 The code does NOT replace the allow-list in this slice.  RULED: separate slice if wanted.
+#   D15 The code does NOT replace the allow-list in this slice.  RULED: separate slice if wanted. # superseded 2026-10-10 by founder ruling (simple join): roger edge invite mints a bearer code that admits on use; allow still works.
 #
 # SCENARIOS THIS SUPERSEDES OR AMENDS (each marked "# superseded 2026-10-06 by founder ruling
 # (enrollment root trust)" in its own file):

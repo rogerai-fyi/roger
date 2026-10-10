@@ -24,6 +24,7 @@ import (
 	"rogerai.fm/roger/v6/internal/bddrun"
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/lanmode"
@@ -48,6 +49,10 @@ type joinInviteBDD struct {
 	ids      []string
 	refused  error
 	stationM []string
+	edgeInv  string
+	edgeAuth *edgeauth.Local
+	edgeOut  string
+	edgeCode int
 }
 
 var joinLineRE = regexp.MustCompile(`roger join (roger://join\?\S+)`)
@@ -502,6 +507,37 @@ func TestJoinInviteBDD(t *testing.T) {
 				}
 				return s.join(s.inv)
 			})
+			// 4. Joining an Edge with the same verb: a real local authority served over HTTP, and a
+			// second machine (its own config and user key) that was never allowed.
+			sc.Step(`^the Edge authority's owner ran "roger edge invite"$`, func() error {
+				s.edgeInv, s.edgeAuth = ownerEdgeInvite(s.t)
+				return nil
+			})
+			sc.Step(`^the device runs "roger join <invite>"$`, func() error {
+				asSecondMachine(s.t)
+				s.edgeOut, s.edgeCode = edgeRun(s.t, "join", s.edgeInv, "workshop")
+				return nil
+			})
+			sc.Step(`^it enrolls exactly as "roger edge enroll --invite <invite>" does today$`, func() error {
+				if s.edgeCode != 0 {
+					return fmt.Errorf("roger join exited %d:\n%s", s.edgeCode, s.edgeOut)
+				}
+				id, _, ok, err := edgeIdentityStore().LoadIdentity()
+				if err != nil || !ok || id == nil {
+					return fmt.Errorf("no Edge identity was kept (%v):\n%s", err, s.edgeOut)
+				}
+				return nil
+			})
+			sc.Step(`^it verifies the root through the code's proof before keeping anything \(enrollment_root_trust\.feature\)$`, func() error {
+				id, _, _, err := edgeIdentityStore().LoadIdentity()
+				if err != nil {
+					return err
+				}
+				if got, want := edgeauth.RootFingerprint(id.Root), s.edgeAuth.Descriptor().Fingerprint; got != want {
+					return fmt.Errorf("kept root %s, the invite's authority is %s", got, want)
+				}
+				return nil
+			})
 			sc.Step(`^the join succeeds$`, func() error {
 				if s.err != nil || !s.admitted() {
 					return fmt.Errorf("join: %v", s.err)
@@ -521,7 +557,7 @@ func TestJoinInviteBDD(t *testing.T) {
 			Paths: []string{joinInviteFeature + ":44", joinInviteFeature + ":74", joinInviteFeature + ":98",
 				joinInviteFeature + ":107", joinInviteFeature + ":123", joinInviteFeature + ":133", joinInviteFeature + ":150", joinInviteFeature + ":145",
 				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":186", joinInviteFeature + ":192",
-				joinInviteFeature + ":196", joinInviteFeature + ":236"}},
+				joinInviteFeature + ":196", joinInviteFeature + ":208", joinInviteFeature + ":236"}},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/join/invite.feature failed")

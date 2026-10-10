@@ -53,6 +53,15 @@ var Edge = Domain{
 	Lifetime: 15 * time.Minute, Iterations: 200000, SaltWithNonce: true,
 }
 
+// EdgeJoin is the proof a device sends WITH a key-less ("bearer") Edge invite's code, so the
+// authority can admit the key that holds it (features/join/invite.feature, ruling 2026-10-10). It
+// keeps the Edge code's format and stretch; its own name keeps it from ever verifying as the
+// authority's root proof, or the reverse.
+var EdgeJoin = Domain{
+	Name: "rogerai-edge-join/v1", CodeLen: 10, Group: 5,
+	Lifetime: 15 * time.Minute, Iterations: 200000, SaltWithNonce: true,
+}
+
 // Tower is the Tower join code: at least 128 bits (modes.feature:194), pasted or scanned rather
 // than typed, so it carries no grouping requirement beyond readability.
 var Tower = Domain{

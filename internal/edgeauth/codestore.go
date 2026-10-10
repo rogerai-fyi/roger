@@ -20,6 +20,8 @@ type enrollCode struct {
 	Join string `json:"join"` // "key:<user key hex>" or "node:<node id>"
 	Code string `json:"code"` // canonical
 	At   int64  `json:"at"`   // minted, unix seconds, on this authority's clock
+	// Fails counts wrong guesses at a bearer code (bearer.go); a bearer code is void at the budget.
+	Fails int `json:"fails,omitempty"`
 }
 
 func keyJoin(userKeyHex string) string { return "key:" + userKeyHex }

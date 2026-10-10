@@ -193,9 +193,32 @@ func (l *Local) Issue(r Request) (Response, error) {
 		// revocation oracle for a stranger and every refusal below is the SAME ErrUnknownMachine. Log
 		// each REFUSED attempt so the owner's request log answers "did that machine even ask" (a
 		// successful enrol is logged by iss.Issue itself) (audit 2026-09-24).
+		bearerJoin := ""
 		if _, ok := l.registry()(r.UserKey); !ok {
-			l.iss.record(r)
-			return ErrUnknownMachine
+			// A key the owner never allowed may still hold a key-less invite's code (bearer.go).
+			if r.JoinProof == "" {
+				l.iss.record(r)
+				return ErrUnknownMachine
+			}
+			j, matched, err := l.bearerMatch(r)
+			if err != nil {
+				return err
+			}
+			if !matched {
+				l.iss.record(r)
+				return ErrUnknownMachine
+			}
+			bearerJoin = j
+			// The invite admits this key: onto the allow-list now (the issuer checks it), and off it
+			// again if nothing is issued, so a failed issuance admits nobody.
+			if err := l.allowLocked(r.UserKey); err != nil {
+				return fmt.Errorf("that machine could not be admitted, so no certificate was issued: %w", err)
+			}
+			defer func() {
+				if resp.Cert == "" {
+					_ = l.disallow(r.UserKey)
+				}
+			}()
 		}
 		// Bind the node id to the key it presents BEFORE reading the revocation list, so an
 		// allowed-key holder cannot probe an arbitrary node id's revocation status (a mismatch is
@@ -262,7 +285,13 @@ func (l *Local) Issue(r Request) (Response, error) {
 		}
 		// The owner's code for this machine, if one is live, vouches for the root in this answer
 		// and is spent here, under the same lock, so one code proves exactly one issuance.
-		if r.UserKey != "" {
+		if bearerJoin != "" {
+			// The invite's code proves the root in this answer and is spent with it; the key stays
+			// on the allow-list, so the device may renew.
+			if err := l.prove(&r2, bearerJoin, r.Nonce); err != nil {
+				return err
+			}
+		} else if r.UserKey != "" {
 			if err := l.prove(&r2, keyJoin(r.UserKey), r.Nonce); err != nil {
 				return err
 			}

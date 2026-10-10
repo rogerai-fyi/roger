@@ -298,6 +298,12 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 	}
 	req := edgeauth.NewRequest(claim, name, string(edge.Host), pub, now)
 	req.Sign(edgeUserKey())
+	// With the invite's code and the root's fingerprint in hand, prove the code to the authority, so
+	// a key-less invite (roger edge invite) admits this device's key (bearer.go). An allowed key's
+	// join ignores the proof.
+	if tr.Code != "" && tr.Pin != "" {
+		req.JoinProof = edgeauth.JoinProof(tr.Code, tr.Pin, req)
+	}
 
 	var resp edgeauth.Response
 	switch {

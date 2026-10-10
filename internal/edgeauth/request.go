@@ -40,6 +40,9 @@ type Request struct {
 	TS      int64  `json:"ts"`
 	UserKey string `json:"user_key"` // hex ed25519 public half of this machine's user key
 	Sig     string `json:"sig"`
+	// JoinProof proves the device holds a key-less invite's code (bearer.go). It binds the user
+	// key, the node and the nonce the signature covers, so it is not signed itself.
+	JoinProof string `json:"join_proof,omitempty"`
 }
 
 // ErrBadSignature is a request whose signature does not check out - the wrong key, or a
