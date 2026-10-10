@@ -642,11 +642,14 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then it is checked exactly once
     And the command exits non-zero, keeping nothing
 
+  # superseded 2026-10-10 by founder ruling (simple join, decision 5): a key-less "roger edge invite"
+  # admits the key that proves its code, so that one proof is sent and checked, against a guess
+  # budget. A code minted for an allowed key (allow, adopt, readmit) is still never sent or compared.
   @security
-  Scenario: nothing the authority accepts from a caller is checked against the code
-    Then no request field carries the code or anything derived from it
-    And the authority never compares a caller's input to a code
-    And so there is no online guessing of the code at the authority to rate-limit
+  Scenario: nothing the authority accepts from a caller is checked against an allowed key's code
+    Then no request field carries the code or anything derived from it, apart from a bearer invite's join proof
+    And the authority never compares a caller's input to a code minted for an allowed key
+    And a bearer invite's proof is checked against its own guess budget, then the invite is void
 
   @security
   Scenario: the authority produces at most one proof per code

@@ -2389,11 +2389,53 @@ func (s *rtBDD) exitsNonZeroKeepingNothing() error {
 func (s *rtBDD) noRequestFieldCarriesCode() error {
 	for _, typ := range []reflect.Type{reflect.TypeOf(edgeauth.Request{}), reflect.TypeOf(edgeauth.ClaimRequest{})} {
 		for i := 0; i < typ.NumField(); i++ {
-			n := strings.ToLower(typ.Field(i).Name)
+			name := typ.Field(i).Name
+			if typ == reflect.TypeOf(edgeauth.Request{}) && name == "JoinProof" {
+				continue // the bearer invite's proof (simple join, decision 5); allowed keys never send it
+			}
+			n := strings.ToLower(name)
 			if strings.Contains(n, "code") || strings.Contains(n, "proof") {
-				return fmt.Errorf("%s carries a field %s", typ.Name(), typ.Field(i).Name)
+				return fmt.Errorf("%s carries a field %s", typ.Name(), name)
 			}
 		}
+	}
+	return nil
+}
+
+// bearerBudgeted: a key-less invite's proof is the one thing compared, and only against its own
+// guess budget - after BearerGuessBudget wrong proofs even the right code admits nobody.
+func (s *rtBDD) bearerBudgeted() error {
+	local, err := edgeauth.Designate(s.t.TempDir(), "budget")
+	if err != nil {
+		return err
+	}
+	code, err := local.MintBearerCode()
+	if err != nil {
+		return err
+	}
+	req := func(c string) edgeauth.Request {
+		pub, _, _ := ed25519.GenerateKey(rand.Reader)
+		_, user, _ := ed25519.GenerateKey(rand.Reader)
+		r := edgeauth.NewRequest("", "bench", "host", pub, time.Now())
+		r.Sign(user) // as edgeEnrollCore does: sign, then prove the code over the signed request
+		r.JoinProof = edgeauth.JoinProof(c, local.Descriptor().Fingerprint, r)
+		return r
+	}
+	// The positive control: the right proof admits a device on a fresh invite.
+	fresh, err := local.MintBearerCode()
+	if err != nil {
+		return err
+	}
+	if _, err := local.Issue(req(fresh)); err != nil {
+		return fmt.Errorf("the right proof on a fresh invite was refused: %v", err)
+	}
+	for i := 0; i < edgeauth.BearerGuessBudget; i++ {
+		if _, err := local.Issue(req(edgeauth.NewCode())); !errors.Is(err, edgeauth.ErrUnknownMachine) {
+			return fmt.Errorf("wrong proof %d: %v, want the uniform refusal", i+1, err)
+		}
+	}
+	if _, err := local.Issue(req(code)); !errors.Is(err, edgeauth.ErrUnknownMachine) {
+		return fmt.Errorf("the right code after the guess budget was answered %v, want the invite void", err)
 	}
 	return nil
 }
@@ -2410,6 +2452,7 @@ func (s *rtBDD) neverCompares() error {
 		var m map[string]any
 		_ = json.Unmarshal(raw, &m)
 		m["code"] = sent
+		m["join_proof"] = edgeauth.JoinProof(sent, "sha256:"+strings.Repeat("0", 64), req) // ignored for an allowed key
 		body, _ := json.Marshal(m)
 		resp, err := http.Post(s.shed().url+enrollhttp.Path, "application/json", bytes.NewReader(body))
 		if err != nil {
@@ -2419,17 +2462,6 @@ func (s *rtBDD) neverCompares() error {
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("a request carrying a %q code was answered %d", sent, resp.StatusCode)
 		}
-	}
-	return nil
-}
-
-// nothingToRateLimit: what a caller sends never decides whether a proof comes back - the first of
-// the two requests above carried the code's proof whatever "code" it sent, and the second (the code
-// now spent) carried none, again whatever it sent. There is nothing at the authority to guess at.
-func (s *rtBDD) nothingToRateLimit() error {
-	_, resp, ok := s.lastExchange(s.shed())
-	if !ok || resp.RootProof != "" {
-		return fmt.Errorf("a request's own content decided a proof")
 	}
 	return nil
 }
@@ -3742,9 +3774,9 @@ func TestEnrollmentRootTrustFeature(t *testing.T) {
 			sc.Step(`^the owner runs enroll with a --code that does not verify$`, st.runsCodeThatFails)
 			sc.Step(`^it is checked exactly once$`, st.checkedOnce)
 			sc.Step(`^the command exits non-zero, keeping nothing$`, st.exitsNonZeroKeepingNothing)
-			sc.Step(`^no request field carries the code or anything derived from it$`, st.noRequestFieldCarriesCode)
-			sc.Step(`^the authority never compares a caller's input to a code$`, st.neverCompares)
-			sc.Step(`^so there is no online guessing of the code at the authority to rate-limit$`, st.nothingToRateLimit)
+			sc.Step(`^no request field carries the code or anything derived from it, apart from a bearer invite's join proof$`, st.noRequestFieldCarriesCode)
+			sc.Step(`^the authority never compares a caller's input to a code minted for an allowed key$`, st.neverCompares)
+			sc.Step(`^a bearer invite's proof is checked against its own guess budget, then the invite is void$`, st.bearerBudgeted)
 			sc.Step(`^one live code for a join$`, st.oneLiveCode)
 			sc.Step(`^the authorized joiner's requests are answered$`, st.authorizedAnswered)
 			sc.Step(`^only the answer that issues a certificate carries a proof$`, st.onlyIssuingCarries)
