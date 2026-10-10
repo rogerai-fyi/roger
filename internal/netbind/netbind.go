@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -184,7 +185,8 @@ func ListenEach(bind string, addrs func() ([]net.Addr, error), home func(net.IP)
 	return m, nil
 }
 
-// Addrs lists every address a listener from ListenEach is bound to (one for a single listener).
+// Addrs lists every address a listener from ListenEach is bound to (one for a single listener),
+// in a stable order: the listener's own Addr first, then the rest sorted.
 func Addrs(ln net.Listener) []net.Addr {
 	if m, ok := ln.(*multiListener); ok {
 		m.mu.Lock()
@@ -193,6 +195,14 @@ func Addrs(ln net.Listener) []net.Addr {
 		for _, l := range m.lns {
 			out = append(out, l.Addr())
 		}
+		first := m.first.String()
+		sort.Slice(out, func(i, j int) bool {
+			a, b := out[i].String(), out[j].String()
+			if a == first || b == first {
+				return a == first && b != first
+			}
+			return a < b
+		})
 		return out
 	}
 	return []net.Addr{ln.Addr()}
