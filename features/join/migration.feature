@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Built: the one-time first-use pin after upgrade (logged), lan add asking before it pins, the deprecation lines (TestFirstUsePinsAnAddedTowerOnce, TestLanAddAsksBeforePinning, internal/towercli TestTheOldCommandsNameTheNewWay). Not yet: a runner for this file, the station first-TLS-poll pin, release-after removal.
 #
 # NOTHING BREAKS ON UPGRADE. Founder ruling 2026-10-10: clients already admitted keep working and
 # pin the Tower the first time they talk to it after upgrading (trust on first use, ONCE, logged).

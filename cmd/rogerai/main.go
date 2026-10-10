@@ -162,6 +162,9 @@ type config struct {
 	// LanTowerPins is each joined Tower's identity fingerprint (SHA-256 of its TLS key, 64 hex),
 	// keyed by its lan_towers address (features/join/tower_identity.feature).
 	LanTowerPins map[string]string `json:"lan_tower_pins,omitempty"`
+	// LanTowerPinFirstUse marks the pins taken on first contact after the upgrade (a Tower added
+	// before joins were by invite), so the record says where each pin came from.
+	LanTowerPinFirstUse map[string]bool `json:"lan_tower_pins_first_use,omitempty"`
 	// LanNotTower are configured addresses that answered a turn without the standalone Tower's
 	// local marker; LAN mode sends them nothing until `roger lan add` re-adds them.
 	LanNotTower []string `json:"lan_not_tower,omitempty"`

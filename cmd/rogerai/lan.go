@@ -68,7 +68,68 @@ func decideLAN(argv []string, cfg config) ([]string, config, error) {
 	// The Towers this machine joined are pinned to their keys for the life of the process
 	// (features/join/tower_identity.feature).
 	lanmode.SetPins(cfg.LanTowerPins)
+	if m.LAN && !m.EdgeOnly {
+		lanFirstUsePins(&cfg)
+	}
 	return rest, cfg, nil
+}
+
+// lanFirstUsePins pins, once, each Tower this machine added before joins were by invite
+// (features/join/migration.feature): an entry in lan_towers with no pin is asked for its key over
+// TLS, and a Tower that answers is pinned to the key it presented, logged, and recorded as a
+// first-use pin. A Tower that answers only plain http (an older roger) is left as it was. Nothing
+// outside lan_towers is ever pinned this way, and a pinned Tower is never re-pinned.
+func lanFirstUsePins(cfg *config) {
+	found := map[string]string{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, addr := range cfg.LanTowers {
+		if _, pinned := cfg.LanTowerPins[addr]; pinned || contains(cfg.LanNotTower, addr) {
+			continue
+		}
+		wg.Add(1)
+		go func(addr string) { // every Tower at once, each bounded: a Tower that is down costs one second
+			defer wg.Done()
+			if fp, err := lanFirstUseFetch(addr); err == nil {
+				mu.Lock()
+				found[addr] = fp
+				mu.Unlock()
+			}
+		}(addr)
+	}
+	wg.Wait()
+	if len(found) == 0 {
+		return
+	}
+	release, err := acquireConfigLock()
+	if err != nil {
+		return
+	}
+	c := loadConfig()
+	if c.LanTowerPins == nil {
+		c.LanTowerPins = map[string]string{}
+	}
+	if c.LanTowerPinFirstUse == nil {
+		c.LanTowerPinFirstUse = map[string]bool{}
+	}
+	var pinned []string
+	for addr, fp := range found {
+		if _, have := c.LanTowerPins[addr]; have {
+			continue // pinned meanwhile: never re-pinned
+		}
+		c.LanTowerPins[addr], c.LanTowerPinFirstUse[addr] = fp, true
+		pinned = append(pinned, addr)
+	}
+	err = saveConfigLocked(c)
+	release()
+	if err != nil {
+		return
+	}
+	cfg.LanTowerPins, cfg.LanTowerPinFirstUse = c.LanTowerPins, c.LanTowerPinFirstUse
+	lanmode.SetPins(cfg.LanTowerPins)
+	for _, addr := range pinned {
+		fmt.Printf("pinned the Tower at %s now (first use after upgrade): sha256:%s\n", addr, found[addr])
+	}
 }
 
 // edgeOnlyNote is how edge-only is named wherever LAN Towers would otherwise appear.
@@ -266,13 +327,19 @@ func lanAddTo(w io.Writer, args []string) error {
 		fmt.Fprintf(w, "note: %s is in the carrier/overlay range (100.64.0.0/10); LAN mode uses it only because you added it by hand\n", a.Host)
 	}
 	c.LanTowers = append(c.LanTowers, a.String())
-	lanCarryPin(w, &c, a.String())
+	if !lanCarryPin(w, &c, a.String()) {
+		lanAskPin(w, &c, a.String())
+	}
+	fmt.Fprintf(w, "to join a Tower you are not admitted to yet, the new way: roger join <invite>\n")
 	if err := saveConfig(c); err != nil {
 		return err
 	}
 	lanmode.SetPins(c.LanTowerPins)
 	return nil
 }
+
+// lanFirstUseFetch is a seam: the first-use key read, kept short since it runs as LAN mode starts.
+var lanFirstUseFetch = func(addr string) (string, error) { return towerpin.Fetch(addr, time.Second) }
 
 // lanFetchFP is a seam: the fingerprint of the key a Tower at addr presents over TLS.
 var lanFetchFP = func(addr string) (string, error) { return towerpin.Fetch(addr, 3*time.Second) }
@@ -281,10 +348,10 @@ var lanFetchFP = func(addr string) (string, error) { return towerpin.Fetch(addr,
 // follows the Tower, not its address"): a Tower at a new address presenting a key this machine
 // already pinned is pinned again at that address. Nothing new is trusted: a key not already
 // pinned is not pinned here.
-func lanCarryPin(w io.Writer, c *config, addr string) {
+func lanCarryPin(w io.Writer, c *config, addr string) bool {
 	fp, err := lanFetchFP(addr)
 	if err != nil {
-		return
+		return false
 	}
 	for _, have := range c.LanTowerPins {
 		if have == fp {
@@ -293,9 +360,36 @@ func lanCarryPin(w io.Writer, c *config, addr string) {
 			}
 			c.LanTowerPins[addr] = fp
 			fmt.Fprintf(w, "it is a Tower you joined (same key %s): it stays verified at %s\n", towerpin.Short(fp), addr)
-			return
+			return true
 		}
 	}
+	return false
+}
+
+// lanAddConfirm is a seam: the owner's answer to "pin this Tower? [y/N]" (y on standard input).
+var lanAddConfirm = func() bool {
+	var answer string
+	_, _ = fmt.Scanln(&answer)
+	return strings.EqualFold(strings.TrimSpace(answer), "y")
+}
+
+// lanAskPin shows a TLS Tower's short fingerprint and pins it only on y (features/join/migration.feature,
+// ruled 2026-10-10): the owner compares it with what `roger tower status` shows on the Tower.
+func lanAskPin(w io.Writer, c *config, addr string) {
+	fp, err := lanFetchFP(addr)
+	if err != nil {
+		return // a plain-http Tower has no key to pin
+	}
+	fmt.Fprintf(w, "it serves TLS under %s; pin this Tower? [y/N] ", towerpin.Short(fp))
+	if !lanAddConfirm() {
+		fmt.Fprintln(w, "\nnot pinned: it stays unverified until you join it with an invite")
+		return
+	}
+	if c.LanTowerPins == nil {
+		c.LanTowerPins = map[string]string{}
+	}
+	c.LanTowerPins[addr] = fp
+	fmt.Fprintf(w, "\npinned %s: it is verified from now on\n", addr)
 }
 
 func lanRemove(args []string) error {

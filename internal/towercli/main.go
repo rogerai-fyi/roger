@@ -457,6 +457,7 @@ func cmdAdmit(args []string, out io.Writer) error {
 	fmt.Fprintf(out, "admitted as %s\n", cred.Role)
 	fmt.Fprintf(out, "network: %s\n", cred.NetworkID)
 	fmt.Fprintf(out, "pinned offline-root fingerprint: %s\n", cred.RootFingerprint)
+	fmt.Fprintf(out, "admit goes away next release; the new way: roger tower invite, then roger join\n")
 	return nil
 }
 
@@ -501,6 +502,7 @@ func cmdAttach(args []string, out io.Writer) error {
 	if s.Curated {
 		fmt.Fprintf(out, "curated via %s - a labeled pass-through; the local plane stays free\n", s.CuratedProvider)
 	}
+	fmt.Fprintf(out, "attach by key goes away next release; the new way: roger tower invite --station\n")
 	return nil
 }
 

@@ -70,7 +70,7 @@ func cmdInvite(args []string, out io.Writer) error {
 		fmt.Fprintf(out, "code: %s\n", code)
 		fmt.Fprintf(out, "expires in %s, %d attempts\n", *ttl, *attempts)
 		fmt.Fprintf(out, "\nThis code is shown once. It is not stored and cannot be printed again.\n")
-		fmt.Fprintf(out, "(this is the older two-step flow; plain `roger tower invite` prints one roger join line)\n")
+		fmt.Fprintf(out, "this older two-step flow goes away next release; the new way: roger tower invite (one paste: roger join)\n")
 		return nil
 	}
 	kind, jkind := tower.JoinClient, joininvite.TowerClient
