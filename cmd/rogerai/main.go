@@ -1750,7 +1750,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// advertised class and the operator's own report from ever describing two different
 	// machines, and it saves shelling out to nvidia-smi a second time.
 	pre := sharePreflight()
-	if line := shareAdvisory(pre); line != "" {
+	if line := shareAdvisoryFor(cfg.lan.LAN, pre); line != "" {
 		fmt.Println(line)
 	}
 	// Osaurus shares Jan's :1337 and needs two relay hardenings (X-Persist + model-pin). Decide

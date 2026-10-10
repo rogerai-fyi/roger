@@ -71,3 +71,12 @@ func runSharePreflight(out io.Writer, p detect.Preflight) error {
 // the bar, or "" when there is nothing worth saying. It exists as its own function so the
 // wording is pinned by a test rather than buried in cmdShare's body.
 func shareAdvisory(p detect.Preflight) string { return p.AdvisoryLine() }
+
+// shareAdvisoryFor is the advisory a share prints before going on air. A LAN share serves this
+// network for free and is never placed by the market, so the market's speed advisory says nothing.
+func shareAdvisoryFor(lan bool, p detect.Preflight) string {
+	if lan {
+		return ""
+	}
+	return shareAdvisory(p)
+}
