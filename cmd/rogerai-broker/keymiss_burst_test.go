@@ -75,3 +75,40 @@ func TestALiveKeyNeverSpendsTheMissBudget(t *testing.T) {
 		}
 	}
 }
+
+// TestAConcurrentLiveKeyBurstIsNeverRefused pins the slice-5 rule under concurrency: a burst of
+// requests bearing a live key, all in flight at once, is never refused by the unknown-key budget,
+// even when the burst is far larger than that budget.
+func TestAConcurrentLiveKeyBurstIsNeverRefused(t *testing.T) {
+	db := &slowHashCounter{Store: store.NewMem()}
+	const secret = "rog-key_burst00000000000000000000000000000000000000000000000000000"
+	if _, err := db.CreateAccountKey(store.AccountKey{ID: "key_burst", SecretHash: acctKeyHash(secret), Account: "acct-burst", Reset: "none", CreatedAt: time.Now().UnixNano()}, store.MintKeyRules{}); err != nil {
+		t.Fatal(err)
+	}
+	b := newBroker(db)
+	const n = 100
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	refused := 0
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			r.Header.Set("Authorization", "Bearer "+secret)
+			r.Header.Set("CF-Connecting-IP", "203.0.113.11")
+			<-start
+			if _, ok, ref := b.resolveRelayKey(r); !ok || ref != nil {
+				mu.Lock()
+				refused++
+				mu.Unlock()
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if refused > 0 {
+		t.Fatalf("%d of %d concurrent live-key requests were refused by the unknown-key budget", refused, n)
+	}
+}
