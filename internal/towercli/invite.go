@@ -93,15 +93,10 @@ func cmdInvite(args []string, out io.Writer) error {
 			return err
 		}
 	}
-	fp, err := st.JoinFingerprint()
+	minted, inv, err := mintJoin(st, kind, jkind, *forName, allow, *ttl, addrs)
 	if err != nil {
 		return err
 	}
-	minted, code, err := st.CreateJoinInvitation(kind, *forName, allow, *ttl)
-	if err != nil {
-		return err
-	}
-	inv := joininvite.Invite{Kind: jkind, Addrs: addrs, FP: fp, Code: code, For: *forName}
 	// What it is, then the one next step and the line to run (features/join/surfaces.feature).
 	fmt.Fprintln(out, tower.InviteHeading(kind, *ttl))
 	fmt.Fprintln(out, tower.InviteNext(kind))
@@ -152,4 +147,18 @@ func inviteList(st toweradmin.Ops, out io.Writer) error {
 		fmt.Fprintf(out, "%s  %s  %s left%s\n", inv.ID, inv.Kind, left, extra)
 	}
 	return nil
+}
+
+// mintJoin mints a one-paste invite on the Tower: its addresses, the Tower's identity fingerprint
+// and a one-time code. The CLI and the owner's screens both mint through it.
+func mintJoin(st toweradmin.Ops, kind tower.JoinKind, jkind joininvite.Kind, forName string, allow []string, ttl time.Duration, addrs []string) (tower.Invitation, joininvite.Invite, error) {
+	fp, err := st.JoinFingerprint()
+	if err != nil {
+		return tower.Invitation{}, joininvite.Invite{}, err
+	}
+	minted, code, err := st.CreateJoinInvitation(kind, forName, allow, ttl)
+	if err != nil {
+		return tower.Invitation{}, joininvite.Invite{}, err
+	}
+	return minted, joininvite.Invite{Kind: jkind, Addrs: addrs, FP: fp, Code: code, For: forName}, nil
 }

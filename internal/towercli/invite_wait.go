@@ -23,22 +23,38 @@ func isTerminal(out io.Writer) bool {
 
 // waitForJoin polls the invite until it is used, voided or expired (or until deadline).
 func waitForJoin(dir, id string, out io.Writer, poll time.Duration, deadline time.Time) {
-	st, err := tower.Open(dir)
-	if err != nil {
-		return
-	}
 	for {
-		inv, err := st.Invitation(id)
-		switch {
-		case err != nil:
-			return
-		case inv.Consumed:
-			fmt.Fprintln(out, tower.JoinedLine(inv.JoinedName, inv.ClientKeyHash, inv.Kind))
-			return
-		case inv.Voided || time.Now().UnixNano() > inv.ExpiresAt || time.Now().After(deadline):
-			fmt.Fprintln(out, "no one used this invite; mint another with: roger tower invite")
+		line, over := inviteOutcome(dir, id)
+		if over || time.Now().After(deadline) {
+			if !over || line == "" {
+				line = inviteUnused
+			}
+			fmt.Fprintln(out, line)
 			return
 		}
 		time.Sleep(poll)
 	}
+}
+
+// inviteUnused is what an invite that ran out unused says.
+const inviteUnused = "no one used this invite; mint another with: roger tower invite"
+
+// inviteOutcome is one look at an invite: once it is used, who joined and how to undo it; once it
+// can no longer be used, the unused line; otherwise not over yet. It reads the data directory
+// without the lock, so it works while serve holds it. An unreadable directory ends the wait quietly.
+func inviteOutcome(dir, id string) (line string, over bool) {
+	st, err := tower.Open(dir)
+	if err != nil {
+		return "", true
+	}
+	inv, err := st.Invitation(id)
+	switch {
+	case err != nil:
+		return "", true
+	case inv.Consumed:
+		return tower.JoinedLine(inv.JoinedName, inv.ClientKeyHash, inv.Kind), true
+	case inv.Voided || time.Now().UnixNano() > inv.ExpiresAt:
+		return inviteUnused, true
+	}
+	return "", false
 }
