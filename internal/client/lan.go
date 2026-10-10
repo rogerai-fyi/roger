@@ -24,7 +24,6 @@ import (
 	"unicode"
 
 	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // LANSourceKind is where a band is served on the LAN.
@@ -87,6 +86,10 @@ type LANEdgeBand struct {
 	LANDirect bool // reachable on the LAN, not only through a relay
 	Dark      bool
 }
+
+// NotAdmittedHint is what a Tower that has not let this machine in yet means, and the simple way in
+// (features/join/surfaces.feature): no key hash or id to carry between machines.
+const NotAdmittedHint = "this Tower hasn't let you in yet. Ask its owner for an invite (roger tower invite), then run: roger join <invite>"
 
 // LANTowerState is what a configured Tower is right now.
 type LANTowerState string
@@ -281,9 +284,7 @@ func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, s
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		pub := key.Public().(ed25519.PublicKey)
-		return LANTowerNotAdmitted, fmt.Sprintf("the Tower's owner runs `roger tower invite --client %s` and gives the code to this machine",
-			protocol.UserIDFromPubkey(fmt.Sprintf("%x", []byte(pub)))), nil, false
+		return LANTowerNotAdmitted, NotAdmittedHint, nil, false
 	}
 	if resp.StatusCode != http.StatusOK {
 		return LANTowerBadAnswer, fmt.Sprintf("status %d", resp.StatusCode), nil, false

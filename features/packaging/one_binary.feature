@@ -591,18 +591,18 @@ Feature: One user binary with modes
 
     Examples:
       | situation                                         | command                                             |
-      | a LAN Tower refuses this machine (not admitted)   | roger tower invite --client <keyhash> on the Tower  |
+      | a LAN Tower refuses this machine (not admitted)   | roger join <invite>                                 |
       | a station's poll gets the uniform 401             | roger tower attach --station ... --key ...          |
       | a joined login needs an invite                    | roger tower invite                                  |
       | the standalone serve starts                       | roger lan add <addr> on each client                 |
       | tower readiness fails                             | roger tower doctor                                  |
 
   Scenario: The not-admitted hint names the command the owner actually runs
-    # Fixes internal/client/lan.go's "roger-tower admit --client" (admit also needs --id and
-    # --code; the owner first runs invite).
+    # SUPERSEDED 2026-10-10 by features/join/surfaces.feature ("The not-admitted hint names the simple
+    # flow"), which also replaces the not-admitted row above: one invite, then roger join, no key hash.
     Given a LAN Tower that answers this machine with the uniform 401
     When the user runs roger --lan use against it
-    Then the hint says the Tower's owner runs "roger tower invite --client <keyhash>" and gives the code to this machine
+    Then the hint says "this Tower hasn't let you in yet. Ask its owner for an invite (roger tower invite), then run: roger join <invite>"
 
   Scenario: Shared usage helpers print the house style
     When any tower or lan command is given a bad flag

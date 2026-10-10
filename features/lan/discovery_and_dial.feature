@@ -290,7 +290,7 @@ Feature: In LAN mode the dial lists only bands served on this machine, by this E
     Given the LAN Tower at 192.168.1.20:8787 does not admit this machine's key
     When the dial refreshes
     Then the Tower's line reads "not admitted"
-    And it names the command the Tower's owner runs to admit this key, with this machine's key hash
+    And it names the simple way in, an invite then roger join, with no key hash (superseded 2026-10-10 by features/join/surfaces.feature)
     And it is not drawn as "0 on air"
 
   @client

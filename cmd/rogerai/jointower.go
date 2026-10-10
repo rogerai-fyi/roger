@@ -62,7 +62,7 @@ func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
 		}
 		lastErr = err
 	}
-	return fmt.Errorf("no address in the invite answered (%v): is the Tower serving, and is this machine on its network?", lastErr)
+	return fmt.Errorf("can't reach %s (%v)\nis roger tower serve running there, and is this machine on its network?", strings.Join(in.Addrs, " or "), lastErr)
 }
 
 // joinRefusal is the Tower's own answer refusing the join.
@@ -77,7 +77,7 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 	})
 	status, raw, err := towerPost(key, pubHex, addr, in.FP, "/local/join", body, nonce, joinTimeout)
 	if errors.Is(err, towerpin.ErrPinMismatch) {
-		return localplane.JoinAnswer{}, &joinRefusal{msg: "the Tower at " + addr + " is not the one in the invite (its key differs). Nothing was sent. Check you are on the right network, or ask the owner for a fresh invite"}
+		return localplane.JoinAnswer{}, &joinRefusal{msg: "this is not the Tower your invite names: the Tower at " + addr + " is not the one in the invite (its key differs), so nothing was sent\ncheck you are on the right network, or ask the owner for a fresh invite"}
 	}
 	if err != nil {
 		return localplane.JoinAnswer{}, err
@@ -93,11 +93,11 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 		return localplane.JoinAnswer{}, &joinRefusal{msg: towerError(raw)}
 	case http.StatusGone:
 		if strings.Contains(string(raw), "invite_expired") {
-			return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite has expired. Ask the owner for a new one (roger tower invite)"}
+			return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite has expired. Ask the owner for a new one: roger tower invite"}
 		}
-		return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite was already used. Ask the owner for a new one (roger tower invite)"}
+		return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite was already used. Ask the owner for a new one: roger tower invite"}
 	case http.StatusUnauthorized:
-		return localplane.JoinAnswer{}, &joinRefusal{msg: "the Tower refused the invite: it was already used, it expired, it was voided, or it is not this Tower's. Ask the owner for a fresh one (roger tower invite)"}
+		return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite has expired, was already used, was voided, or is not this Tower's. Ask the owner for a new one: roger tower invite"}
 	}
 	return localplane.JoinAnswer{}, fmt.Errorf("%s answered status %d", addr, status)
 }
@@ -155,10 +155,15 @@ func joinRecord(out io.Writer, addr string, in joininvite.Invite, ans localplane
 	}
 	lanmode.SetPins(c.LanTowerPins)
 	if ans.Joined == "station" {
-		fmt.Fprintf(out, "joined the Tower at %s as station %s, serving: %s\n", addr, name, strings.Join(ans.Models, ", "))
+		tower := ans.Tower
+		if tower == "" {
+			tower = "the Tower at " + addr
+		}
+		fmt.Fprintf(out, "joined %s as a station, serving: %s\n", tower, strings.Join(ans.Models, ", "))
 		if len(ans.Refused) > 0 {
 			fmt.Fprintf(out, "the Tower does not accept: %s\n", strings.Join(ans.Refused, ", "))
 		}
+		fmt.Fprintln(out, "nothing else to do; it is serving")
 		return nil
 	}
 	where := "the Tower at " + addr

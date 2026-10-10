@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -14,7 +15,9 @@ import (
 	"rogerai.fm/roger/v6/internal/lanmode"
 )
 
-const joinUsage = "usage: roger join <invite> [name] [--yes]  (the owner prints the invite with roger tower invite or roger edge invite)\n   or: roger join <address> [name] [--station]  (ask the Tower to let you in; the owner approves)"
+const joinUsage = "usage: roger join <invite>    join with the invite the owner printed (roger tower invite, roger edge invite)\n" +
+	"   or: roger join <address>   ask the Tower there to let you in; the owner approves on their screen\n" +
+	"       [name] names this machine; --station joins it as a station"
 
 // joinResolve resolves an invite's hostnames (nil: the system resolver); a test replaces it.
 var joinResolve lanmode.Resolver
@@ -26,6 +29,12 @@ func cmdJoin(cfg config, args []string) error {
 			rest = append(rest, a)
 		} else {
 			pos = append(pos, a)
+		}
+	}
+	for _, f := range rest {
+		if f == "-h" || f == "--help" || f == "-help" {
+			fmt.Println(joinUsage)
+			return nil
 		}
 	}
 	if len(pos) == 0 {
@@ -83,7 +92,7 @@ func cmdJoin(cfg config, args []string) error {
 			ea = append(ea, pos[1])
 		}
 		ea = append(ea, "--invite", in.String())
-		return cmdEdgeEnroll(cfg, append(ea, rest...))
+		return edgeEnrollCmd(cfg, append(ea, rest...), true)
 	}
 	return joinTower(cfg, in, pos[1:], rest)
 }

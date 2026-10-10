@@ -6,6 +6,8 @@
 # jargon (no "keyhash", "credential", "bootstrap"). The CLI, TUI and console say the same thing.
 Feature: What each screen says during a join
 
+  # Edited 2026-10-10: "expired or was used" is now two rows, because the Tower tells the two apart
+  # (features/join/adversarial.feature, "A stolen invite used first..." and "An expired invite is refused").
   Scenario Outline: The CLI says what happened and the next step in one line each
     When "<situation>"
     Then the CLI prints "<says>"
@@ -18,7 +20,8 @@ Feature: What each screen says during a join
       | a client joins                     | joined the Tower lab                                    | try: roger --lan use <band>                       |
       | a station joins                    | joined lab as a station, serving: <bands>               | nothing else to do; it is serving                 |
       | a device joins an Edge             | joined the Edge home as <name>                          | open roger and press 3 to see it                  |
-      | the invite expired or was used     | that invite has expired or was already used             | ask the owner for a new one: roger tower invite   |
+      | the invite expired                 | that invite has expired                                 | ask the owner for a new one: roger tower invite   |
+      | the invite was already used        | that invite was already used                            | ask the owner for a new one: roger tower invite   |
       | the Tower's key does not match     | this is not the Tower your invite names                 | check you are on the right network                |
       | the Tower can't be reached         | can't reach 192.168.1.20:8787                           | is roger tower serve running there?               |
       | the owner refused a request        | lab refused the request                                 | ask the owner, or use an invite                   |

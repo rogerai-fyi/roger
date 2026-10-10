@@ -266,14 +266,14 @@ func Whoami() error {
 		fmt.Printf("  wallet:  your account wallet (one wallet: CLI + web)\n")
 		fmt.Printf("  pubkey:  %s\n", UserPubHex())
 		fmt.Printf("  tower client id: %s\n", protocol.UserIDFromPubkey(UserPubHex()))
-		fmt.Printf("    (give this to a standalone Tower operator: `roger tower invite --client <id>`)\n")
+		fmt.Printf("    (to join a standalone Tower, ask its owner for an invite (roger tower invite), then run: roger join <invite>)\n")
 		return nil
 	}
 	fmt.Println("anonymous - not logged in")
 	fmt.Println("  free models and grant keys work; run `roger login` to use your wallet + earn")
 	fmt.Printf("  pubkey:  %s\n", UserPubHex())
 	fmt.Printf("  tower client id: %s\n", protocol.UserIDFromPubkey(UserPubHex()))
-	fmt.Printf("    (give this to a standalone Tower operator: `roger tower invite --client <id>`)\n")
+	fmt.Printf("    (to join a standalone Tower, ask its owner for an invite (roger tower invite), then run: roger join <invite>)\n")
 	return nil
 }
 

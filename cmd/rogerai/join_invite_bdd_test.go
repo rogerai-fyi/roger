@@ -541,7 +541,7 @@ func TestJoinInviteBDD(t *testing.T) {
 					return fmt.Errorf("share: %v\n%s", s.err, s.out)
 				}
 				stations, err := s.st.Stations()
-				if err != nil || len(stations) != 1 || !strings.Contains(s.out, "as station") {
+				if err != nil || len(stations) != 1 || !strings.Contains(s.out, "as a station") {
 					return fmt.Errorf("no station joined: %v %v\n%s", stations, err, s.out)
 				}
 				if !strings.Contains(s.out, "LAN mode: sharing qwen3-8b") {

@@ -56,7 +56,7 @@ func TestShareTowerInviteJoinsThenShares(t *testing.T) {
 	require.NoError(t, err, out)
 	require.Equal(t, []string{"qwen3-8b"}, rest)
 	require.True(t, c.lan.LAN, "the share serves the LAN")
-	require.Contains(t, out, "as station")
+	require.Contains(t, out, "as a station")
 	require.Contains(t, loadConfig().LanTowers, ln.Addr().String())
 	stations, _ := st.Stations()
 	require.Len(t, stations, 1)

@@ -68,7 +68,12 @@ func edgeDescriptor() edgeauth.Descriptor {
 
 // --- enroll ---------------------------------------------------------------
 
-func cmdEdgeEnroll(cfg config, args []string) error {
+func cmdEdgeEnroll(cfg config, args []string) error { return edgeEnrollCmd(cfg, args, false) }
+
+// edgeEnrollCmd is `roger edge enroll`, or (joined) the same enrollment run by `roger join <invite>`,
+// which says it the way every join says it: what happened, then one next step
+// (features/join/surfaces.feature).
+func edgeEnrollCmd(cfg config, args []string, joined bool) error {
 	leaf, _ := edgeLeaf("enroll")
 	argv, err := parseEdgeArgv(leaf, args)
 	if err != nil {
@@ -110,7 +115,11 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 			res.NotAfter.UTC().Format(time.RFC3339))
 		return nil
 	}
-	fmt.Println(edgeEnrolledLine(res, edgeStationName()))
+	if joined {
+		fmt.Printf("joined the Edge %s as %s\n", res.Authority, edge.SelfLabel(res.Name, edgeStationName()))
+	} else {
+		fmt.Println(edgeEnrolledLine(res, edgeStationName()))
+	}
 	if res.ReplacedRoot != "" {
 		fmt.Printf("  this machine left the Edge rooted at %s and joined the one rooted at %s.\n",
 			edgeauth.ShortFingerprint(res.ReplacedRoot), edgeauth.ShortFingerprint(res.RootFingerprint))
@@ -125,6 +134,9 @@ func cmdEdgeEnroll(cfg config, args []string) error {
 	fmt.Printf("  this machine now advertises itself, so your other machines can see it.\n")
 	if res.TrustWarning != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", res.TrustWarning)
+	}
+	if joined {
+		fmt.Println("open roger and press 3 to see it")
 	}
 	return nil
 }

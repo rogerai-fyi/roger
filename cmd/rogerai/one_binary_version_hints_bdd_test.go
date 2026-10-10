@@ -314,10 +314,9 @@ func (s *obD) lanUseAgainstIt() error {
 	return s.situation("a LAN Tower refuses this machine (not admitted)")
 }
 
-func (s *obD) ownerRunsInvite() error {
-	want := "the Tower's owner runs `roger tower invite --client "
-	if !strings.Contains(s.hint, want) || !strings.Contains(s.hint, "gives the code to this machine") {
-		return fmt.Errorf("hint %q", s.hint)
+func (s *obD) ownerRunsInvite(want string) error {
+	if s.hint != want {
+		return fmt.Errorf("hint %q, want %q", s.hint, want)
 	}
 	return nil
 }
@@ -450,7 +449,7 @@ func TestOneBinaryVersionHintsBDD(t *testing.T) {
 			sc.Step(`^no output names roger-tower or roger-tower-local except the one-release shims' notice$`, s.noOldNames)
 			sc.Step(`^a LAN Tower that answers this machine with the uniform 401$`, s.notAdmittedTower)
 			sc.Step(`^the user runs roger --lan use against it$`, s.lanUseAgainstIt)
-			sc.Step(`^the hint says the Tower's owner runs "roger tower invite --client <keyhash>" and gives the code to this machine$`, s.ownerRunsInvite)
+			sc.Step(`^the hint says "([^"]*)"$`, s.ownerRunsInvite)
 			sc.Step(`^any tower or lan command is given a bad flag$`, s.badFlag)
 			sc.Step(`^it prints the same usage format as other roger commands and exits 2$`, s.houseStyle)
 			sc.Step(`^every features/ file$`, s.everyFeature)

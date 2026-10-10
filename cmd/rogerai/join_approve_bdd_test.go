@@ -356,7 +356,7 @@ func TestJoinApproveBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^the client prints "lab refused the request"$`, func() error {
-				if r := s.last(); r.err == nil || r.err.Error() != "lab refused the request" {
+				if r := s.last(); r.err == nil || strings.SplitN(r.err.Error(), "\n", 2)[0] != "lab refused the request" {
 					return fmt.Errorf("the client said %v", r.err)
 				}
 				return nil

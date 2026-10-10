@@ -46,36 +46,18 @@ func cmdRequests(args []string, out io.Writer) error {
 	}
 	for _, r := range reqs {
 		fmt.Fprintln(out, RequestLine(r, time.Now()))
-		fmt.Fprintf(out, "    approve only if %s shows the same phrase: roger tower approve %s (or refuse %s)\n", r.Name, r.ID, r.ID)
+		fmt.Fprintf(out, "    %s: roger tower approve %s (or refuse %s)\n", tower.ApproveHint(r.Name), r.ID, r.ID)
 	}
 	return nil
 }
 
 // RequestLine is how one waiting request reads on every owner screen.
 func RequestLine(r tower.PairRequest, now time.Time) string {
-	who := r.Name
-	if r.Kind == tower.JoinStation {
-		who += " (a station)"
-	}
-	line := fmt.Sprintf("%s  %s wants to join · %s", r.ID, who, r.Phrase)
-	if len(r.Models) > 0 {
-		line += " · serving: " + joinList(r.Models)
-	}
+	line := r.ID + "  " + tower.AskLine(r)
 	if left := r.ExpiresAt.Sub(now).Round(time.Second); left > 0 {
 		line += fmt.Sprintf(" · %s left", left)
 	}
 	return line
-}
-
-func joinList(xs []string) string {
-	s := ""
-	for i, x := range xs {
-		if i > 0 {
-			s += ", "
-		}
-		s += x
-	}
-	return s
 }
 
 func cmdDecide(op string, args []string, out io.Writer) error {

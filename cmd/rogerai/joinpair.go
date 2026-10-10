@@ -35,7 +35,7 @@ var pairWaitFor = localplane.PairLifetime
 func joinPairAt(out io.Writer, addr, name string, station bool) error {
 	fp, err := towerpin.Fetch(addr, joinTimeout)
 	if err != nil {
-		return fmt.Errorf("nothing at %s answered as a Tower over TLS (%v): check the address, or ask the owner for an invite", addr, err)
+		return fmt.Errorf("can't reach %s (nothing answered as a Tower over TLS: %v)\nis roger tower serve running there? Check the address, or ask the owner for an invite", addr, err)
 	}
 	key, kind, models := client.LoadOrCreateUserKey(), "client", []string(nil)
 	if station {
@@ -58,7 +58,7 @@ func joinPairAt(out io.Writer, addr, name string, station bool) error {
 		if msg := towerError(raw); msg != "" && status != http.StatusUnauthorized {
 			return &joinRefusal{msg: msg}
 		}
-		return &joinRefusal{msg: addr + " refused the request"}
+		return &joinRefusal{msg: addr + " refused the request\nask the owner, or use an invite"}
 	}
 	var start localplane.PairStartAnswer
 	if err := json.Unmarshal(raw, &start); err != nil {
@@ -77,7 +77,7 @@ func joinPairAt(out io.Writer, addr, name string, station bool) error {
 		return err
 	}
 	if status != http.StatusOK {
-		return &joinRefusal{msg: tower + " refused the request"}
+		return &joinRefusal{msg: tower + " refused the request\nask the owner, or use an invite"}
 	}
 	fmt.Fprintf(out, "asking %s to let you in. Check this phrase matches the owner's screen: %s\n", tower, phrase)
 	fmt.Fprintln(out, "the owner should see the same phrase; if it differs, someone is in the middle: do not continue")
@@ -91,13 +91,13 @@ func joinPairAt(out io.Writer, addr, name string, station bool) error {
 		}
 		var got localplane.PairWaitAnswer
 		if status != http.StatusOK || json.Unmarshal(raw, &got) != nil {
-			return &joinRefusal{msg: tower + " refused the request"}
+			return &joinRefusal{msg: tower + " refused the request\nask the owner, or use an invite"}
 		}
 		switch got.Status {
 		case "approved":
 			return joinRecord(out, addr, joininvite.Invite{FP: fp}, got.Answer, name)
 		case "refused":
-			return &joinRefusal{msg: start.Tower + " refused the request"}
+			return &joinRefusal{msg: start.Tower + " refused the request\nask the owner, or use an invite"}
 		case "expired":
 			return errPairUnanswered(start.Tower)
 		}

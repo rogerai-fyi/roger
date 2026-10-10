@@ -552,8 +552,8 @@ func TestLANDialBDD(t *testing.T) {
 				}
 				return nil
 			})
-			sc.Step(`^it names the command the Tower's owner runs to admit this key, with this machine's key hash$`, func() error {
-				if st := s.towerLine("192.168.1.20:8787"); !strings.Contains(st.Detail, "roger tower invite --client u_") {
+			sc.Step(`^it names the simple way in, an invite then roger join, with no key hash \(superseded 2026-10-10 by features/join/surfaces\.feature\)$`, func() error {
+				if st := s.towerLine("192.168.1.20:8787"); st.Detail != client.NotAdmittedHint || strings.Contains(st.Detail, "u_") {
 					return fmt.Errorf("detail %q", st.Detail)
 				}
 				return nil

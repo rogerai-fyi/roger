@@ -103,16 +103,15 @@ func cmdInvite(args []string, out io.Writer) error {
 		return err
 	}
 	inv := joininvite.Invite{Kind: jkind, Addrs: addrs, FP: fp, Code: code, For: *forName}
+	// What it is, then the one next step and the line to run (features/join/surfaces.feature).
+	fmt.Fprintln(out, tower.InviteHeading(kind, *ttl))
+	fmt.Fprintln(out, tower.InviteNext(kind))
 	fmt.Fprintf(out, "roger join %s\n\n", inv)
 	if *showQR {
 		qr.Show(out, "roger join "+inv.String())
 		fmt.Fprintln(out)
 	}
-	who := "a client"
-	if *station {
-		who = "a Station"
-	}
-	fmt.Fprintf(out, "paste that line on %s. It is valid for %d minutes and works once.\n", who, int(ttl.Minutes()))
+	fmt.Fprintf(out, "it is valid for %d minutes and works once.\n", int(ttl.Minutes()))
 	if loopbackOnly {
 		fmt.Fprintf(out, "this Tower serves on loopback, so only this machine can use it: serve on a LAN address (--bind) to invite other machines.\n")
 	}
