@@ -76,12 +76,15 @@ type Invitation struct {
 	// code is admitted, and ClientKeyHash records that key once it is used. JoinVerifier is the
 	// joincode Tower verifier (never the code). Kind is client or station, For limits it to one
 	// joiner name, Models limits what a Station may serve, Voided means the owner withdrew it.
-	Bearer       bool     `json:"bearer,omitempty"`
-	Kind         JoinKind `json:"kind,omitempty"`
-	For          string   `json:"for,omitempty"`
-	Models       []string `json:"models,omitempty"`
-	JoinVerifier string   `json:"join_verifier,omitempty"`
-	Voided       bool     `json:"voided,omitempty"`
+	Bearer bool     `json:"bearer,omitempty"`
+	Kind   JoinKind `json:"kind,omitempty"`
+	For    string   `json:"for,omitempty"`
+	Models []string `json:"models,omitempty"`
+	// JoinedName is the name the joiner gave when it used a bearer invite, so a waiting invite can
+	// say who joined.
+	JoinedName   string `json:"joined_name,omitempty"`
+	JoinVerifier string `json:"join_verifier,omitempty"`
+	Voided       bool   `json:"voided,omitempty"`
 }
 
 // String renders the invitation for display. It exists so that printing a record can
@@ -200,7 +203,7 @@ func (s *State) Invitation(id string) (Invitation, error) {
 		return Invitation{}, errBootstrapRejected
 	}
 	out := *inv
-	out.Verifier = "" // the verifier is secret; String() is careful not to show it either
+	out.Verifier, out.JoinVerifier = "", "" // the verifiers are secret; String() is careful not to show them either
 	return out, nil
 }
 

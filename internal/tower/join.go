@@ -13,6 +13,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -126,6 +127,23 @@ func (s *State) LiveInvitations() []Invitation {
 	return out
 }
 
+// JoinedLine is how the owner is told, as it happens, who joined and how to undo it
+// (features/join/invite.feature, "The owner sees the join as it happens"). The Tower's log, a
+// waiting invite, the TUI and the console all say it the same way.
+func JoinedLine(name, keyHash string, kind JoinKind) string {
+	short := keyHash
+	if len(short) > 6 {
+		short = short[:4] + "..." + short[len(short)-2:]
+	}
+	if name == "" {
+		name = short
+	}
+	if kind == JoinStation {
+		return fmt.Sprintf("station %s joined (key %s)", name, short)
+	}
+	return fmt.Sprintf("%s joined (key %s); undo with: roger tower revoke-client %s", name, short, name)
+}
+
 // VoidInvitation stops an invite from ever working.
 func (s *State) VoidInvitation(id string) error {
 	bootstrapMu.Lock()
@@ -206,7 +224,7 @@ func (s *State) ConsumeJoin(r JoinRequest) (JoinResult, error) {
 			return JoinResult{}, errBootstrapRejected
 		}
 		cred.Name = r.Name
-		match.Consumed, match.ClientKeyHash = true, r.KeyHash
+		match.Consumed, match.ClientKeyHash, match.JoinedName = true, r.KeyHash, r.Name
 		if err := s.saveBootstrap(bs); err != nil {
 			return JoinResult{}, errBootstrapRejected
 		}
@@ -227,7 +245,7 @@ func (s *State) ConsumeJoin(r JoinRequest) (JoinResult, error) {
 	if err != nil {
 		return JoinResult{}, err
 	}
-	match.Consumed, match.ClientKeyHash = true, r.KeyHash
+	match.Consumed, match.ClientKeyHash, match.JoinedName = true, r.KeyHash, r.Name
 	if err := s.saveBootstrap(bs); err != nil {
 		return JoinResult{}, errBootstrapRejected
 	}

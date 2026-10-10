@@ -42,6 +42,7 @@ func cmdInvite(args []string, out io.Writer) error {
 	models := fs.String("models", "", "a Station may serve only these (comma-separated)")
 	list := fs.Bool("list", false, "list outstanding invites (never their codes)")
 	void := fs.String("void", "", "stop the outstanding invite with this id")
+	wait := fs.Bool("wait", isTerminal(out), "stay on screen until the invite is used, then say who joined (default when run in a terminal)")
 	var at addrList
 	fs.Var(&at, "at", "an address the invite names (host:port; repeatable). Default: where the Tower serves")
 	if err := parseFlags(fs, args, out); err != nil {
@@ -95,7 +96,7 @@ func cmdInvite(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, code, err := st.CreateJoinInvitation(kind, *forName, allow, *ttl)
+	minted, code, err := st.CreateJoinInvitation(kind, *forName, allow, *ttl)
 	if err != nil {
 		return err
 	}
@@ -108,6 +109,10 @@ func cmdInvite(args []string, out io.Writer) error {
 	fmt.Fprintf(out, "paste that line on %s. It is valid for %d minutes and works once.\n", who, int(ttl.Minutes()))
 	if loopbackOnly {
 		fmt.Fprintf(out, "this Tower serves on loopback, so only this machine can use it: serve on a LAN address (--bind) to invite other machines.\n")
+	}
+	if *wait {
+		fmt.Fprintf(out, "waiting for it to be used (Ctrl+C stops waiting; the invite still works)...\n")
+		waitForJoin(*dir, minted.ID, out, time.Second, time.Now().Add(*ttl))
 	}
 	return nil
 }

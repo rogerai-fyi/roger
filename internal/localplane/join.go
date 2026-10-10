@@ -110,16 +110,5 @@ func (s *Server) SetLabel(label string) { s.label = label }
 // noteJoin tells the owner, as it happens, who joined and how to undo it
 // (features/join/invite.feature, "The owner sees the join as it happens").
 func (s *Server) noteJoin(name, keyHash string, kind tower.JoinKind) {
-	short := keyHash
-	if len(short) > 6 {
-		short = short[:4] + "..." + short[len(short)-2:]
-	}
-	if name == "" {
-		name = short
-	}
-	if kind == tower.JoinStation {
-		s.logf("station %s joined (key %s)", name, short)
-		return
-	}
-	s.logf("%s joined (key %s); undo with: roger tower revoke-client %s", name, short, name)
+	s.logf("%s", tower.JoinedLine(name, keyHash, kind))
 }
