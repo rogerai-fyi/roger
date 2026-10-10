@@ -43,9 +43,17 @@ var edgeProcIsRoger = func(pid int) (bool, bool) {
 	if err != nil {
 		return false, false // cannot tell: not Linux, or the process is gone
 	}
-	cmd := strings.ToLower(strings.ReplaceAll(string(b), "\x00", " "))
-	base := strings.ToLower(filepath.Base(strings.Fields(cmd + " ")[0]))
-	return strings.Contains(base, "roger"), true
+	return cmdlineIsRoger(b), true
+}
+
+// cmdlineIsRoger reports whether a /proc cmdline names a roger. An empty one (a zombie, a kernel
+// thread) names nothing, so it is not a roger.
+func cmdlineIsRoger(b []byte) bool {
+	fields := strings.Fields(strings.ReplaceAll(string(b), "\x00", " "))
+	if len(fields) == 0 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(filepath.Base(fields[0])), "roger")
 }
 
 // edgeStopTarget finds the LIVE registration for an agent and says whether it may be signalled. It
