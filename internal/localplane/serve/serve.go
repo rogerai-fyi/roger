@@ -161,9 +161,10 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 	served := ln
 	ln = towerpin.Sniff(ln, tlsCfg)
 	fmt.Fprintf(out, "roger tower serve: %s\n", note)
-	fmt.Fprintf(out, "serving the standalone consumer plane on %s (TLS, and plain http for one more release)\n", served.Addr())
+	// The serving line comes last: a caller waiting for it has read everything above.
 	fmt.Fprintf(out, "identity sha256:%s (%s)\n", fp, towerpin.Short(fp))
-	fmt.Fprintf(out, "let a machine in with: roger tower invite --dir %s (it prints one roger join line)\n", *dir)
+	fmt.Fprintf(out, "point a client at it with: roger lan add %s on each client, or let one in with: roger tower invite --dir %s (one roger join line)\n", served.Addr(), *dir)
+	fmt.Fprintf(out, "serving the standalone consumer plane on %s (TLS, and plain http for one more release)\n", served.Addr())
 
 	var adv func(context.Context)
 	if *advertise {

@@ -21,7 +21,7 @@
 # ConsumeInvitation, IsAdmitted, the per-invitation and global attempt budgets) with the client
 # key bound at consume time instead of at mint time.
 #
-# Design: /home/luis/rogerai-wt/test-all/docs/simple-lan-join-design.md
+# Design: docs/simple-lan-join-design.md
 Feature: One invite, one paste, for Towers and Edge devices
 
   Background:

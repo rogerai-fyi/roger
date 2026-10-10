@@ -35,6 +35,8 @@ var historicalAccounts = map[string]bool{
 	// A design PROPOSAL (2026-10-10, awaiting founder approval) for a simpler LAN join; its
 	// `roger share --tower <invite>` is a proposed future form, not an instruction for today's build.
 	"docs/simple-lan-join-design.md": true,
+	// approved 2026-10-10: `roger share --tower <invite>` returns as the Station join (built later)
+	"features/join/invite.feature": true,
 }
 
 func TestNoDocTeachesTheRemovedTowerFlag(t *testing.T) {
