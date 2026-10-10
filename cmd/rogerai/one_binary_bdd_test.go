@@ -185,10 +185,12 @@ func (s *oneBinaryBDD) probedOnce() error {
 }
 
 func (s *oneBinaryBDD) allRunStartLAN() error {
-	for f, pat := range map[string]string{
-		"lanshare.go": `agent\.StartLAN\(`,
-		"main.go":     `shareToTowers\(`,
+	for _, c := range []struct{ f, pat string }{
+		{"lanshare.go", `agent\.StartLAN\(`},
+		{"main.go", `serveBrokerTower\(|shareToTowers\(`},
+		{"lanshare.go", `func serveBrokerTower[\s\S]*?shareToTowers\(`}, // the broker-setting share is the same loop
 	} {
+		f, pat := c.f, c.pat
 		src, err := sourceOf(f)
 		if err != nil {
 			return err
@@ -209,7 +211,7 @@ func (s *oneBinaryBDD) allRunStartLAN() error {
 }
 
 func (s *oneBinaryBDD) singleIsStartLANWithOne() error {
-	src, err := sourceOf("main.go")
+	src, err := sourceOf("lanshare.go") // main.go's single-Tower share is serveBrokerTower
 	if err != nil {
 		return err
 	}

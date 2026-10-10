@@ -34,7 +34,7 @@ func pipeName(path string) string {
 		abs = filepath.Dir(path)
 	}
 	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(abs))))
-	return `\\.\pipe\roger-tower-` + hex.EncodeToString(sum[:8])
+	return `\\.\pipe\rogerai-tower-admin-` + hex.EncodeToString(sum[:8])
 }
 
 // ownerOnly is a security descriptor that lets only the current user open the pipe.
