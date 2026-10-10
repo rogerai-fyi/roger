@@ -1,12 +1,20 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/joininvite"
+	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/tower"
 )
 
 const joinTestFP = "9f3c0000000000000000000000000000000000000000000000000000000000e1"
@@ -52,4 +60,74 @@ func TestEdgeInvitesUseTheOneScheme(t *testing.T) {
 func TestLANJoinIsAnAlias(t *testing.T) {
 	err := cmdLAN(config{}, []string{"join", "roger://join?kind=toaster"})
 	require.ErrorContains(t, err, "unknown kind")
+}
+
+// joinTowerFixture serves a real standalone Tower's plane on loopback and returns its state and
+// address.
+func joinTowerFixture(t *testing.T) (*tower.State, string) {
+	t.Helper()
+	dir := t.TempDir()
+	_, err := tower.Init(dir, tower.ModeStandalone)
+	require.NoError(t, err)
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+	srv := httptest.NewServer(localplane.New(st).Handler())
+	t.Cleanup(srv.Close)
+	return st, strings.TrimPrefix(srv.URL, "http://")
+}
+
+func towerInvite(t *testing.T, st *tower.State, addr string, kind tower.JoinKind) joininvite.Invite {
+	t.Helper()
+	_, code, err := st.CreateJoinInvitation(kind, "", nil, 15*time.Minute)
+	require.NoError(t, err)
+	fp, err := st.JoinFingerprint()
+	require.NoError(t, err)
+	k := joininvite.TowerClient
+	if kind == tower.JoinStation {
+		k = joininvite.TowerStation
+	}
+	return joininvite.Invite{Kind: k, Addrs: []string{addr}, FP: fp, Code: code}
+}
+
+// features/join/invite.feature: a client joins a Tower with one pasted command; the Tower admits
+// its key, and the client records the Tower with its pinned fingerprint and says what to do next.
+func TestJoinATowerWithOnePastedInvite(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	st, addr := joinTowerFixture(t)
+	inv := towerInvite(t, st, addr, tower.JoinClient)
+	out := captureStdout(t, func() { require.NoError(t, cmdJoin(loadConfig(), []string{inv.String()})) })
+	require.Contains(t, out, "joined the Tower at "+addr)
+	require.Contains(t, out, "try: roger --lan use <band>")
+	c := loadConfig()
+	require.Contains(t, c.LanTowers, addr)
+	require.Equal(t, inv.FP, c.LanTowerPins[addr], "the Tower is recorded WITH its pinned fingerprint")
+	key := client.LoadOrCreateUserKey()
+	require.True(t, st.IsAdmitted(protocol.UserIDFromPubkey(hex.EncodeToString(key.Public().(ed25519.PublicKey)))))
+
+	// The invite works once: a second machine is refused, and nothing is recorded for it.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	err := cmdJoin(loadConfig(), []string{inv.String()})
+	require.ErrorContains(t, err, "refused the invite")
+	require.Empty(t, loadConfig().LanTowers)
+}
+
+// A station invite names the kind when a client uses it, and does not spend it.
+func TestJoinWithTheWrongKindSaysSo(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	st, addr := joinTowerFixture(t)
+	inv := towerInvite(t, st, addr, tower.JoinStation)
+	inv.Kind = joininvite.TowerClient // a client presenting a station's code
+	err := cmdJoin(loadConfig(), []string{inv.String()})
+	require.ErrorContains(t, err, "this invite is for a station, not a client")
+	require.Len(t, st.LiveInvitations(), 1, "the invite was not spent")
+}
+
+// The client tries the invite's addresses in order and records the one that worked.
+func TestJoinTriesTheAddressesInOrder(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	st, addr := joinTowerFixture(t)
+	inv := towerInvite(t, st, addr, tower.JoinClient)
+	inv.Addrs = append([]string{"127.0.0.1:1"}, inv.Addrs...) // nothing answers there
+	captureStdout(t, func() { require.NoError(t, cmdJoin(loadConfig(), []string{inv.String()})) })
+	require.Equal(t, []string{addr}, loadConfig().LanTowers)
 }

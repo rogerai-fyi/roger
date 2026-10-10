@@ -417,32 +417,6 @@ func printCoreStatus(st *tower.State, out io.Writer) error {
 // cmdInvite mints the one-time bootstrap code that turns the first local client into
 // this network's operator. The plaintext is printed ONCE, here, and never again: it is
 // not stored, not logged, and not retrievable from the invitation record.
-func cmdInvite(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
-	fs.SetOutput(out)
-	dir, cfg := dirAndConfig(fs)
-	client := fs.String("client", "", "hash of the requesting client's public key")
-	ttl := fs.Duration("ttl", 15*time.Minute, "how long the code stays valid")
-	attempts := fs.Int("attempts", 5, "how many wrong guesses are allowed before lockout")
-	if err := parseFlags(fs, args, out); err != nil {
-		return err
-	}
-	st, release, err := openDirWith(*dir, *cfg)
-	if err != nil {
-		return err
-	}
-	defer release()
-	inv, code, err := st.CreateInvitation(*client, *ttl, *attempts)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "invitation: %s\n", inv.ID)
-	fmt.Fprintf(out, "code: %s\n", code)
-	fmt.Fprintf(out, "expires in %s, %d attempts\n", *ttl, *attempts)
-	fmt.Fprintf(out, "\nThis code is shown once. It is not stored and cannot be printed again.\n")
-	return nil
-}
-
 // cmdAdmit consumes a bootstrap code. Every failure reports the same thing, because a
 // distinguishable error would tell an attacker which part they got right.
 func cmdAdmit(args []string, out io.Writer) error {
