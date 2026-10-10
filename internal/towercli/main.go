@@ -45,6 +45,9 @@ usage: roger tower <command> [flags]
   status    a Tower data directory's state and fingerprint: --dir DIR [--full]
   revoke-client  stop one client using this Tower, by the name it joined under: --dir DIR NAME
   rotate-key  a new TLS key: the Tower serves under a new fingerprint and every client re-joins: --dir DIR
+  requests  the join requests waiting for this serving Tower, each with its matching phrase: --dir DIR
+  approve   let a waiting request join (only if the device shows the same phrase): --dir DIR ID
+  refuse    turn a waiting request down: --dir DIR ID
   invite    print one roger join line for a client (or --station): --dir DIR [--for NAME] [--ttl 15m] [--list] [--void ID]
   admit     admit an invited client: --dir DIR --client KEYHASH --id ID --code CODE
   attach    attach a Station: --dir DIR --station ID --key KEYHASH --models a,b
@@ -181,6 +184,10 @@ func run(args []string, out io.Writer) error {
 		return cmdRotateKey(args[1:], out)
 	case "revoke-client":
 		return cmdRevokeClient(args[1:], out)
+	case "requests":
+		return cmdRequests(args[1:], out)
+	case "approve", "refuse":
+		return cmdDecide(args[0], args[1:], out)
 	case "earnings":
 		return cmdEarnings(args[1:], out)
 	case "version", "--version", "-v":

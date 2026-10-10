@@ -63,15 +63,24 @@ type Request struct {
 	Curated  bool           `json:"curated,omitempty"` // a curated attach, even with a blank provider (refused, as directly)
 }
 
+// Pairer is the serving plane's request-and-approve (features/join/approve.feature): the owner
+// lists the waiting join requests and approves or refuses one, from any of its screens.
+type Pairer interface {
+	PairRequests() []tower.PairRequest
+	ApprovePair(id string) error
+	RefusePair(id string) error
+}
+
 // Response is the operation's result, or its error in words.
 type Response struct {
-	Error       string             `json:"error,omitempty"`
-	Fingerprint string             `json:"fingerprint,omitempty"`
-	Invitation  tower.Invitation   `json:"invitation,omitempty"`
-	Invitations []tower.Invitation `json:"invitations,omitempty"`
-	Code        string             `json:"code,omitempty"`
-	Credential  tower.Credential   `json:"credential,omitempty"`
-	Station     tower.Station      `json:"station,omitempty"`
+	Error       string              `json:"error,omitempty"`
+	Fingerprint string              `json:"fingerprint,omitempty"`
+	Invitation  tower.Invitation    `json:"invitation,omitempty"`
+	Invitations []tower.Invitation  `json:"invitations,omitempty"`
+	Code        string              `json:"code,omitempty"`
+	Credential  tower.Credential    `json:"credential,omitempty"`
+	Station     tower.Station       `json:"station,omitempty"`
+	Requests    []tower.PairRequest `json:"requests,omitempty"`
 }
 
 // maxRequest bounds a request: an operation is a few short fields.
@@ -81,10 +90,28 @@ const maxRequest = 64 << 10
 var ioDeadline = 10 * time.Second
 
 // Do runs one request against a Tower's state.
-func Do(st *tower.State, req Request) Response {
+func Do(st *tower.State, req Request) Response { return do(st, nil, req) }
+
+// errNoPairing is a pairing request to a Tower that is not taking join requests.
+var errNoPairing = errors.New("this Tower is not taking join requests")
+
+func do(st *tower.State, pr Pairer, req Request) Response {
 	var resp Response
 	var err error
 	switch req.Op {
+	case "requests", "approve", "refuse":
+		if pr == nil {
+			err = errNoPairing
+			break
+		}
+		switch req.Op {
+		case "requests":
+			resp.Requests = pr.PairRequests()
+		case "approve":
+			err = pr.ApprovePair(req.ID)
+		default:
+			err = pr.RefusePair(req.ID)
+		}
 	case "fingerprint":
 		resp.Fingerprint, err = st.JoinFingerprint()
 	case "join-invite":
@@ -118,16 +145,21 @@ func Do(st *tower.State, req Request) Response {
 // request; a peer that is not the serving user (checked on Linux), an oversized or unreadable
 // request, or an unknown operation is refused and logged, and the socket stays up.
 func Serve(ln net.Listener, st *tower.State, logf func(string, ...any)) error {
+	return ServeWith(ln, st, nil, logf)
+}
+
+// ServeWith is Serve with the plane's request-and-approve, so the owner can decide join requests.
+func ServeWith(ln net.Listener, st *tower.State, pr Pairer, logf func(string, ...any)) error {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			return err
 		}
-		go handle(c, st, logf)
+		go handle(c, st, pr, logf)
 	}
 }
 
-func handle(c net.Conn, st *tower.State, logf func(string, ...any)) {
+func handle(c net.Conn, st *tower.State, pr Pairer, logf func(string, ...any)) {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(ioDeadline))
 	if err := checkPeer(c); err != nil {
@@ -140,7 +172,7 @@ func handle(c net.Conn, st *tower.State, logf func(string, ...any)) {
 		_ = json.NewEncoder(c).Encode(Response{Error: "not an administration request"})
 		return
 	}
-	resp := Do(st, req)
+	resp := do(st, pr, req)
 	if resp.Error != "" && req.Op != "" && !known(req.Op) {
 		logf("admin socket: refused the unknown request %q", req.Op)
 	}
@@ -149,7 +181,8 @@ func handle(c net.Conn, st *tower.State, logf func(string, ...any)) {
 
 func known(op string) bool {
 	switch op {
-	case "fingerprint", "join-invite", "invite", "invites", "void", "admit", "attach", "revoke-client":
+	case "fingerprint", "join-invite", "invite", "invites", "void", "admit", "attach", "revoke-client",
+		"requests", "approve", "refuse":
 		return true
 	}
 	return false
@@ -233,6 +266,24 @@ func (c Client) AttachStation(id, keyHash string, models []string) (tower.Statio
 func (c Client) AttachCuratedStation(id, keyHash string, models []string, provider string) (tower.Station, error) {
 	r, err := c.call(Request{Op: "attach", ID: id, Key: keyHash, Models: models, Provider: provider, Curated: true})
 	return r.Station, err
+}
+
+// PairRequests lists the join requests waiting for the owner.
+func (c Client) PairRequests() ([]tower.PairRequest, error) {
+	r, err := c.call(Request{Op: "requests"})
+	return r.Requests, err
+}
+
+// ApprovePair approves a waiting join request.
+func (c Client) ApprovePair(id string) error {
+	_, err := c.call(Request{Op: "approve", ID: id})
+	return err
+}
+
+// RefusePair refuses a waiting join request.
+func (c Client) RefusePair(id string) error {
+	_, err := c.call(Request{Op: "refuse", ID: id})
+	return err
 }
 
 func (c Client) RevokeClientNamed(nameOrHash string) (string, error) {

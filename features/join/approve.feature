@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Built: request-and-approve on a Tower over TLS with the matching phrase, the CLI owner (roger tower requests, approve, refuse), stations, a middle party, the commitment, limits and expiry (TestJoinApproveBDD). Not yet: the TUI and console panels (27, 36), an Edge authority approving (49).
 #
 # REQUEST AND APPROVE: no copy-paste at all. The client asks to join by address; the owner's TUI or
 # console shows "laptop-x wants to join" with a short phrase; the client shows the same phrase; the

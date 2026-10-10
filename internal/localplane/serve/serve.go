@@ -43,6 +43,7 @@ type Prepared struct {
 	dir       string
 	admin     net.Listener // the owner-only admin socket; nil where it is not available
 	srv       *http.Server
+	plane     *localplane.Server
 	ln        net.Listener
 	release   func() error
 	advertise func(context.Context) // nil unless --advertise and the bind is a private address
@@ -207,6 +208,7 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 		advertise: adv,
 		// MaxHeaderBytes well below the 1 MiB default: the plane's signing headers are small, and a
 		// tight cap stops an unauthenticated caller from making the Tower buffer a large header.
+		plane:   plane,
 		srv:     &http.Server{Handler: plane.Handler(), ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10},
 		ln:      ln,
 		release: release,
@@ -234,6 +236,9 @@ func (p *Prepared) Close() error {
 	return p.srv.Close()
 }
 
+// Plane is the serving consumer plane (its join requests, for the owner's screens).
+func (p *Prepared) Plane() *localplane.Server { return p.plane }
+
 // Serve runs the bound plane until the server is closed, then releases the directory lock.
 func (p *Prepared) Serve() error {
 	if p.checked {
@@ -241,7 +246,7 @@ func (p *Prepared) Serve() error {
 	}
 	defer func() { _ = p.release() }()
 	if p.admin != nil {
-		go func() { _ = toweradmin.Serve(p.admin, p.st, log.Printf) }()
+		go func() { _ = toweradmin.ServeWith(p.admin, p.st, p.plane, log.Printf) }()
 		defer func() { _ = p.admin.Close(); toweradmin.Remove(p.dir) }()
 	}
 	if p.advertise != nil {

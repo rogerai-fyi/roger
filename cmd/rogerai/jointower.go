@@ -54,7 +54,7 @@ func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
 	for _, addr := range in.Addrs {
 		ans, err := joinPost(key, pubHex, addr, in, kind, name, models)
 		if err == nil {
-			return joinRecord(addr, in, ans, name)
+			return joinRecord(os.Stdout, addr, in, ans, name)
 		}
 		var refused *joinRefusal
 		if errors.As(err, &refused) {
@@ -75,28 +75,14 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 	body, _ := json.Marshal(localplane.JoinRequestBody{
 		Kind: kind, Proof: joincode.Tower.Proof(in.Code, nonce, pubHex, in.FP), Name: name, Models: models,
 	})
-	_, ts, sig := protocol.SignRequestNonce(key, http.MethodPost, "/local/join", body, nonce)
-	// Over TLS, pinned to the invite's fingerprint: the Tower's identity is checked in the
-	// handshake, before the request (and its proof) is sent. Never plain http, never a redirect.
-	req, err := http.NewRequest(http.MethodPost, "https://"+addr+"/local/join", bytes.NewReader(body))
-	if err != nil {
-		return localplane.JoinAnswer{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(protocol.HeaderPubkey, pubHex)
-	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
-	req.Header.Set(protocol.HeaderSig, sig)
-	req.Header.Set(protocol.HeaderNonce, nonce)
-	resp, err := towerpin.Client(in.FP, joinTimeout).Do(req)
+	status, raw, err := towerPost(key, pubHex, addr, in.FP, "/local/join", body, nonce, joinTimeout)
 	if errors.Is(err, towerpin.ErrPinMismatch) {
 		return localplane.JoinAnswer{}, &joinRefusal{msg: "the Tower at " + addr + " is not the one in the invite (its key differs). Nothing was sent. Check you are on the right network, or ask the owner for a fresh invite"}
 	}
 	if err != nil {
 		return localplane.JoinAnswer{}, err
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	switch resp.StatusCode {
+	switch status {
 	case http.StatusOK:
 		var ans localplane.JoinAnswer
 		if err := json.Unmarshal(raw, &ans); err != nil {
@@ -104,19 +90,47 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 		}
 		return ans, nil
 	case http.StatusForbidden, http.StatusTooManyRequests:
-		var e struct {
-			Error string `json:"error"`
-		}
-		_ = json.Unmarshal(raw, &e)
-		return localplane.JoinAnswer{}, &joinRefusal{msg: e.Error}
+		return localplane.JoinAnswer{}, &joinRefusal{msg: towerError(raw)}
 	case http.StatusUnauthorized:
 		return localplane.JoinAnswer{}, &joinRefusal{msg: "the Tower refused the invite: it was already used, it expired, it was voided, or it is not this Tower's. Ask the owner for a fresh one (roger tower invite)"}
 	}
-	return localplane.JoinAnswer{}, fmt.Errorf("%s answered %s", addr, resp.Status)
+	return localplane.JoinAnswer{}, fmt.Errorf("%s answered status %d", addr, status)
+}
+
+// towerPost signs body with key (and the nonce) and posts it to the Tower at addr over TLS pinned
+// to fp: the Tower's identity is checked in the handshake, before the request is sent. Never plain
+// http, never a redirect.
+func towerPost(key ed25519.PrivateKey, pubHex, addr, fp, path string, body []byte, nonce string, timeout time.Duration) (int, []byte, error) {
+	_, ts, sig := protocol.SignRequestNonce(key, http.MethodPost, path, body, nonce)
+	req, err := http.NewRequest(http.MethodPost, "https://"+addr+path, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(protocol.HeaderPubkey, pubHex)
+	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+	req.Header.Set(protocol.HeaderSig, sig)
+	req.Header.Set(protocol.HeaderNonce, nonce)
+	resp, err := towerpin.Client(fp, timeout).Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	return resp.StatusCode, raw, nil
+}
+
+// towerError is the error a Tower put in words.
+func towerError(raw []byte) string {
+	var e struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &e)
+	return e.Error
 }
 
 // joinRecord saves the joined Tower with its pin and says what happened and what to do next.
-func joinRecord(addr string, in joininvite.Invite, ans localplane.JoinAnswer, name string) error {
+func joinRecord(out io.Writer, addr string, in joininvite.Invite, ans localplane.JoinAnswer, name string) error {
 	release, err := acquireConfigLock()
 	if err != nil {
 		return err
@@ -136,9 +150,9 @@ func joinRecord(addr string, in joininvite.Invite, ans localplane.JoinAnswer, na
 	}
 	lanmode.SetPins(c.LanTowerPins)
 	if ans.Joined == "station" {
-		fmt.Printf("joined the Tower at %s as station %s, serving: %s\n", addr, name, strings.Join(ans.Models, ", "))
+		fmt.Fprintf(out, "joined the Tower at %s as station %s, serving: %s\n", addr, name, strings.Join(ans.Models, ", "))
 		if len(ans.Refused) > 0 {
-			fmt.Printf("the Tower does not accept: %s\n", strings.Join(ans.Refused, ", "))
+			fmt.Fprintf(out, "the Tower does not accept: %s\n", strings.Join(ans.Refused, ", "))
 		}
 		return nil
 	}
@@ -147,14 +161,14 @@ func joinRecord(addr string, in joininvite.Invite, ans localplane.JoinAnswer, na
 		where = "the Tower " + ans.Tower + " at " + addr
 	}
 	if ans.AlreadyMember {
-		fmt.Printf("already a member of %s; the invite was not used\n", where)
+		fmt.Fprintf(out, "already a member of %s; the invite was not used\n", where)
 	} else {
-		fmt.Printf("joined %s\n", where)
+		fmt.Fprintf(out, "joined %s\n", where)
 	}
 	if len(ans.Models) > 0 {
-		fmt.Printf("bands it serves: %s\n", strings.Join(ans.Models, ", "))
+		fmt.Fprintf(out, "bands it serves: %s\n", strings.Join(ans.Models, ", "))
 	}
-	fmt.Println("try: roger --lan use <band>")
+	fmt.Fprintln(out, "try: roger --lan use <band>")
 	return nil
 }
 

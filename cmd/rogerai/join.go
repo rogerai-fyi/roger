@@ -7,13 +7,14 @@ package main
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/lanmode"
 )
 
-const joinUsage = "usage: roger join <invite> [name] [--yes]  (the owner prints the invite with roger tower invite or roger edge invite)"
+const joinUsage = "usage: roger join <invite> [name] [--yes]  (the owner prints the invite with roger tower invite or roger edge invite)\n   or: roger join <address> [name] [--station]  (ask the Tower to let you in; the owner approves)"
 
 func cmdJoin(cfg config, args []string) error {
 	var pos, rest []string
@@ -29,7 +30,25 @@ func cmdJoin(cfg config, args []string) error {
 	}
 	in, err := joininvite.Parse(pos[0])
 	if err != nil {
-		return usagef("%v\n%s", err, joinUsage)
+		// Not an invite: an address to ask (request-and-approve).
+		addr, aerr := lanmode.ParseAddr(pos[0])
+		if aerr != nil {
+			return usagef("%v\n%s", err, joinUsage)
+		}
+		if v := lanmode.Classify(context.Background(), addr, nil); !v.Local {
+			return usagef("%s is not a local address (%s): a local join only reaches machines on your network", pos[0], lanmode.LocalRanges)
+		}
+		name := ""
+		if len(pos) > 1 {
+			name = pos[1]
+		} else if h, herr := os.Hostname(); herr == nil {
+			name = h
+		}
+		station := false
+		for _, f := range rest {
+			station = station || f == "--station"
+		}
+		return joinPairAt(os.Stdout, pos[0], name, station)
 	}
 	// An invite whose addresses are not local is refused before any connection.
 	var local []string

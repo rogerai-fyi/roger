@@ -153,11 +153,12 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request) {
 	_, _ = rand.Read(rid[:])
 	pr := &pairReq{
 		view: tower.PairRequest{ID: hex.EncodeToString(rid[:]), Name: req.Name, Kind: tower.JoinKind(req.Kind),
-			Models: req.Models, ExpiresAt: s.pairNow().Add(PairLifetime)},
+			Models: req.Models},
 		keyHash: id, pubHex: r.Header.Get(protocol.HeaderPubkey), commit: req.Commit,
 		clientEph: req.ClientEph, towerEph: eph, towerNonce: nonceT, status: "pending", done: make(chan struct{}),
 	}
 	p.mu.Lock()
+	pr.view.ExpiresAt = s.pairNow().Add(PairLifetime)
 	s.prune(p)
 	// One pending request per client: a new one replaces the old.
 	if old, ok := p.byKey[id]; ok {
@@ -235,11 +236,11 @@ func (s *Server) pairWaitHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, PairWaitAnswer{Status: "expired"})
 		return
 	}
-	done := pr.done
+	done, hold := pr.done, s.pairWait
 	p.mu.Unlock()
 	select {
 	case <-done:
-	case <-time.After(s.pairWait):
+	case <-time.After(hold):
 	case <-r.Context().Done():
 		return
 	}
@@ -253,6 +254,23 @@ func (s *Server) pairWaitHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, PairWaitAnswer{Status: "pending"})
 	}
+}
+
+// SetPairClock sets the clock request lifetimes are measured on (production keeps time.Now; a
+// test says "two minutes later").
+func (s *Server) SetPairClock(now func() time.Time) {
+	s.pairs()
+	s.pair.mu.Lock()
+	s.pairNow = now
+	s.pair.mu.Unlock()
+}
+
+// SetPairPoll sets how long a client's wait for the owner's answer is held open per request.
+func (s *Server) SetPairPoll(d time.Duration) {
+	s.pairs()
+	s.pair.mu.Lock()
+	s.pairWait = d
+	s.pair.mu.Unlock()
 }
 
 // PairRequests are the requests waiting for the owner: revealed, live and undecided, oldest first.
