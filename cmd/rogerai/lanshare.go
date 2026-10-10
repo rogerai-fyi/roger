@@ -72,6 +72,15 @@ func shareToTowers(run agent.Config, towers []string, out io.Writer) {
 	s.Wait()
 }
 
+// serveBrokerTower is `roger share` against a broker setting that is a standalone Tower. A Tower
+// in lan_towers with no pin yet (a station attached before one-invite joins) is pinned to the key
+// it shows on this first TLS contact, once, logged, before the first poll
+// (features/join/migration.feature); an older plain-http Tower is served as before.
+func serveBrokerTower(cfg config, run agent.Config, base string, out io.Writer) {
+	lanFirstUsePins(&cfg)
+	shareToTowers(run, []string{base}, out)
+}
+
 // brokerTower reports the broker setting's consumer-plane base when it is a standalone Tower
 // (lanmode.IsTower, the one Tower check): `roger share` and the TUI and console SHARE serve it.
 func brokerTower(cfg config) (string, bool) {

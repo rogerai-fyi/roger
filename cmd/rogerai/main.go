@@ -1828,7 +1828,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		if cfgRun.Upstream == "" {
 			return fmt.Errorf("no local model found to serve: pass --upstream http://127.0.0.1:PORT/v1/chat/completions")
 		}
-		shareToTowers(cfgRun, []string{base}, os.Stdout)
+		serveBrokerTower(cfg, cfgRun, base, os.Stdout)
 		fmt.Fprintln(os.Stdout, "\nstopped serving the local network.")
 		return nil
 	}

@@ -1005,20 +1005,26 @@
               starts pointing somewhere public is never dialed. A carrier or overlay address
               (100.64/10) counts only if you add it by hand.</p>
 
-            <h3>Adding Towers</h3>
-            <p>A standalone Tower (<code>roger tower serve</code> on a standalone directory) joins the LAN dial once you
-              add it. A Tower started with <code>--advertise</code> announces itself on your
-              private network and appears on the dial as a candidate; it is never used until you
-              add it (<b>+</b> on the dial, or the command below).</p>
-            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger lan add 192.168.1.20:8787   <span class="code-block__comment"># checks it answers as a standalone Tower</span>
+            <h3>Joining Towers</h3>
+            <p>Towers are now joined with <code>roger join</code>. The Tower&rsquo;s owner runs
+              <code>roger tower invite</code> and gets one line; you paste it on your machine. The
+              invite carries the Tower&rsquo;s key, so your machine talks to that Tower and no
+              other: Towers are <b>verified by their key</b>, and a Tower whose key changed is
+              refused with how to re-join. No invite? <code>roger join 192.168.1.20:8787</code>
+              asks the owner, and both screens show the same phrase to approve.</p>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger join roger://join?...         <span class="code-block__comment"># the line the owner's invite printed</span>
 <span class="code-block__prompt" aria-hidden="true">$</span> roger lan list                    <span class="code-block__comment"># each Tower, whether it answers, its bands</span>
 <span class="code-block__prompt" aria-hidden="true">$</span> roger lan rm 192.168.1.20:8787</pre></div>
+            <p>A Tower started with <code>--advertise</code> announces itself on your private
+              network and appears on the dial as a candidate; it is never used until you join it.
+              Older clients pin their Tower on first contact after upgrading: a Tower you added
+              before this release is pinned to the key it shows the first time it answers over
+              TLS, once, and roger says so. <code>roger lan add</code> still works for a Tower
+              you are already admitted to, and asks before it pins one.</p>
 
             <div class="man-note">
               <span class="man-note__tag">trust</span>
-              Towers are <b>trusted because they are on your LAN</b>. A standalone Tower speaks
-              plain http with no identity of its own, so any device on the same network can pose
-              as it, and a Tower can read what you send to it. Edge members are different: they
+              A Tower can read what you send to it, so join only Towers you trust. Edge members
               are <b>verified by certificate</b> under your Edge, exactly as without LAN mode.
               For sensitive work, keep it on Edge members only: run <code>roger --edge-only</code>
               (or <code>roger config set mode lan-edge-only</code>), and no Tower is shown, dialed
