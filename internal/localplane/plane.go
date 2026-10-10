@@ -64,6 +64,12 @@ type Server struct {
 	logf      func(format string, args ...any)
 	plainSeen sync.Map
 	label     string // the Tower's name in join answers
+	// request-and-approve (pair.go)
+	pairOnce sync.Once
+	pair     *pairing
+	pairRL   *rateLimiter
+	pairNow  func() time.Time
+	pairWait time.Duration
 }
 
 // New builds a consumer plane over a standalone Tower's state.
@@ -157,6 +163,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/local/complete", s.localComplete)
 	mux.HandleFunc("/local/chunk", s.localChunk)
 	mux.HandleFunc("/local/join", s.localJoin)
+	mux.HandleFunc("/local/pair/start", s.pairStart)
+	mux.HandleFunc("/local/pair/reveal", s.pairReveal)
+	mux.HandleFunc("/local/pair/wait", s.pairWaitHandler)
 	return mux
 }
 

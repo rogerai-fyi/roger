@@ -361,3 +361,54 @@ func (s *State) RevokeClientNamed(nameOrHash string) (string, error) {
 	}
 	return target, s.RevokeClient(target)
 }
+
+// AdmitPaired admits the client (or attaches the Station) whose join request the owner approved
+// (features/join/approve.feature). The approval is the authority, so no code is checked; the key
+// the request was signed with is the key admitted.
+func (s *State) AdmitPaired(kind JoinKind, name, keyHash string, models []string) (JoinResult, error) {
+	if s.Mode != ModeStandalone {
+		return JoinResult{}, ErrNotStandalone
+	}
+	if keyHash == "" {
+		return JoinResult{}, errors.New("an approved request names no key")
+	}
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return JoinResult{}, err
+	}
+	if kind == JoinStation {
+		st, err := s.attachLocked(bs, name, keyHash, models, "")
+		if err != nil {
+			return JoinResult{}, err
+		}
+		if err := s.saveBootstrap(bs); err != nil {
+			return JoinResult{}, err
+		}
+		return JoinResult{Kind: JoinStation, Station: st}, nil
+	}
+	if clientAdmitted(bs, keyHash) {
+		return JoinResult{Kind: JoinClient, AlreadyMember: true}, nil
+	}
+	cred := admitLocked(bs, s, keyHash)
+	if cred == nil {
+		return JoinResult{}, errors.New("this Tower admits no one now (its operator was retired)")
+	}
+	cred.Name = name
+	if err := s.saveBootstrap(bs); err != nil {
+		return JoinResult{}, err
+	}
+	return JoinResult{Kind: JoinClient, Credential: *cred}, nil
+}
+
+// PairRequest is one join request waiting for the owner (features/join/approve.feature), as the
+// owner's screens show it: who asks, as what, the matching phrase, and when it expires.
+type PairRequest struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Kind      JoinKind  `json:"kind"`
+	Models    []string  `json:"models,omitempty"`
+	Phrase    string    `json:"phrase"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
