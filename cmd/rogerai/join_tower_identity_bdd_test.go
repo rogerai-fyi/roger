@@ -36,7 +36,6 @@ import (
 	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/localplane/serve"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towercli"
@@ -196,7 +195,7 @@ func TestJoinTowerIdentityBDD(t *testing.T) {
 			// 1. The Tower serves TLS
 			sc.Step("^`roger tower serve` starts in a standalone directory$", func() error {
 				var b bytes.Buffer
-				p, err := serve.Prepare([]string{"--dir", s.dir + "-serve", "--bind", "127.0.0.1:0"}, &b)
+				p, err := prepareServe([]string{"--dir", s.dir + "-serve", "--bind", "127.0.0.1:0"}, &b)
 				if err == nil {
 					return fmt.Errorf("serve opened a directory that was never initialized")
 				}
@@ -204,7 +203,7 @@ func TestJoinTowerIdentityBDD(t *testing.T) {
 					return err
 				}
 				b.Reset()
-				p, err = serve.Prepare([]string{"--dir", s.dir + "-serve", "--bind", "127.0.0.1:0"}, &b)
+				p, err = prepareServe([]string{"--dir", s.dir + "-serve", "--bind", "127.0.0.1:0"}, &b)
 				if err != nil {
 					return err
 				}

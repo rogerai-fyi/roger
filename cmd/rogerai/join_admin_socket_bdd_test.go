@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v6/internal/coreclient"
 	"rogerai.fm/roger/v6/internal/joincode"
 	"rogerai.fm/roger/v6/internal/localplane/serve"
 	"rogerai.fm/roger/v6/internal/protocol"
@@ -58,8 +60,16 @@ func (s *adminSocketBDD) reset() {
 	s.p, s.done, s.out, s.err, s.served = nil, nil, "", nil, 0
 }
 
+// prepareServe runs the real serve.Prepare in this test process. Other tests in the binary
+// construct Core clients on purpose, and serve's fail-closed guard counts them process-wide, so the
+// note is cleared first: the guard itself is proven in internal/localplane/serve.
+func prepareServe(args []string, w io.Writer) (*serve.Prepared, error) {
+	coreclient.Reset()
+	return serve.Prepare(args, w)
+}
+
 func (s *adminSocketBDD) startServe() error {
-	p, err := serve.Prepare([]string{"--dir", s.dir, "--bind", "127.0.0.1:0"}, &bytes.Buffer{})
+	p, err := prepareServe([]string{"--dir", s.dir, "--bind", "127.0.0.1:0"}, &bytes.Buffer{})
 	if err != nil {
 		return err
 	}
@@ -268,7 +278,7 @@ func TestJoinAdminSocketBDD(t *testing.T) {
 			})
 
 			sc.Step(`^a second "roger tower serve" starts on the same directory$`, func() error {
-				_, s.err = serve.Prepare([]string{"--dir", s.dir, "--bind", "127.0.0.1:0"}, &bytes.Buffer{})
+				_, s.err = prepareServe([]string{"--dir", s.dir, "--bind", "127.0.0.1:0"}, &bytes.Buffer{})
 				return nil
 			})
 			sc.Step(`^it is refused because the first holds the lock, exactly as today$`, func() error {
