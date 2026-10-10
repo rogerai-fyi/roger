@@ -28,6 +28,7 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/clockprobe"
 	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/toweradmin"
 	"rogerai.fm/roger/v6/internal/towerjoin"
 	"rogerai.fm/roger/v6/internal/towerpin"
 	"rogerai.fm/roger/v6/internal/towerstore"
@@ -441,7 +442,7 @@ func cmdAdmit(args []string, out io.Writer) error {
 	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
-	st, release, err := openDirWith(*dir, *cfg)
+	st, release, err := openOps(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -468,7 +469,7 @@ func cmdAttach(args []string, out io.Writer) error {
 	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
-	st, release, err := openDirWith(*dir, *cfg)
+	st, release, err := openOps(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -678,6 +679,20 @@ func openDir(dir string) (*tower.State, func() error, error) { return openDirWit
 // command stops. Falling back to the file store is what caused the problem in the first place.
 func openDirWith(dir, configPath string) (*tower.State, func() error, error) {
 	return openDirMode(dir, configPath, true)
+}
+
+// openOps opens a data directory for an administration command. With no serve running it takes
+// the directory lock as before; while a serve holds the lock, the command goes to that running
+// Tower through its owner-only admin socket (features/join/admin_socket.feature).
+func openOps(dir, configPath string) (toweradmin.Ops, func() error, error) {
+	st, release, err := openDirWith(dir, configPath)
+	if err == nil {
+		return st, release, nil
+	}
+	if errors.Is(err, tower.ErrLocked) && toweradmin.Running(dir) {
+		return toweradmin.Client{Dir: dir}, func() error { return nil }, nil
+	}
+	return nil, nil, err
 }
 
 // openDirReadOnly opens a data directory for a command that only READS state, WITHOUT

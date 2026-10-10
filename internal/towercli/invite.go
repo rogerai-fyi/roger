@@ -18,6 +18,7 @@ import (
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/netpriv"
 	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/toweradmin"
 )
 
 // addrList is a repeatable --at.
@@ -46,7 +47,7 @@ func cmdInvite(args []string, out io.Writer) error {
 	if err := parseFlags(fs, args, out); err != nil {
 		return err
 	}
-	st, release, err := openDirWith(*dir, *cfg)
+	st, release, err := openOps(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -147,7 +148,7 @@ func inviteAddrs(cfgPath string) (addrs []string, loopbackOnly bool, err error) 
 	return addrs, false, nil
 }
 
-func inviteList(st *tower.State, out io.Writer) error {
+func inviteList(st toweradmin.Ops, out io.Writer) error {
 	live := st.LiveInvitations()
 	if len(live) == 0 {
 		fmt.Fprintln(out, "no outstanding invites")

@@ -17,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"rogerai.fm/roger/v6/internal/towerpin"
@@ -29,6 +30,7 @@ import (
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/toweradmin"
 	"rogerai.fm/roger/v6/internal/towerstore"
 )
 
@@ -36,6 +38,9 @@ import (
 // the serve loop keeps every decision that can fail - flags, bind posture, mode, lock, bind -
 // testable without standing up a blocking server.
 type Prepared struct {
+	st        *tower.State
+	dir       string
+	admin     net.Listener // the owner-only admin socket; nil where it is not available
 	srv       *http.Server
 	ln        net.Listener
 	release   func() error
@@ -178,7 +183,18 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 		adv = advertiser(host, port, *label, out)
 	}
 
+	// The owner's administration commands reach this running Tower through an owner-only socket in
+	// the data directory (features/join/admin_socket.feature), since serve holds the lock.
+	adminLn, aerr := toweradmin.Listen(*dir)
+	if aerr != nil {
+		fmt.Fprintf(out, "admin socket not open (%v): stop serve to run administration commands\n", aerr)
+		adminLn = nil
+	}
+
 	return &Prepared{
+		st:        st,
+		dir:       *dir,
+		admin:     adminLn,
 		advertise: adv,
 		// MaxHeaderBytes well below the 1 MiB default: the plane's signing headers are small, and a
 		// tight cap stops an unauthenticated caller from making the Tower buffer a large header.
@@ -196,8 +212,13 @@ func (p *Prepared) Addr() string {
 	return p.ln.Addr().String()
 }
 
-// Close stops the server; Serve then returns and releases the directory lock.
+// Close stops the server; Serve then returns, closes the admin socket and releases the directory
+// lock.
 func (p *Prepared) Close() error {
+	if p.admin != nil {
+		_ = p.admin.Close()
+		toweradmin.Remove(p.dir)
+	}
 	if p.srv == nil {
 		return nil
 	}
@@ -210,6 +231,10 @@ func (p *Prepared) Serve() error {
 		return nil
 	}
 	defer func() { _ = p.release() }()
+	if p.admin != nil {
+		go func() { _ = toweradmin.Serve(p.admin, p.st, log.Printf) }()
+		defer func() { _ = p.admin.Close(); toweradmin.Remove(p.dir) }()
+	}
 	if p.advertise != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

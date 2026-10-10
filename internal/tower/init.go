@@ -167,6 +167,9 @@ func (s *State) RequireMode(want Mode) error {
 // The lock is an OS file lock (internal/filelock: flock on Unix, LockFileEx on Windows) on a
 // file in the directory, so it is released by the OS if the process dies - a crash must not
 // wedge the directory.
+// ErrLocked is a data directory another Tower process (a running serve) already holds.
+var ErrLocked = errors.New("the Tower directory is in use")
+
 func (s *State) Lock() (release func() error, err error) {
 	f, err := os.OpenFile(filepath.Join(s.dir, lockFile), os.O_CREATE|os.O_RDWR, keyPerm)
 	if err != nil {
@@ -179,7 +182,7 @@ func (s *State) Lock() (release func() error, err error) {
 	}
 	if !held {
 		f.Close()
-		return nil, fmt.Errorf("another Tower process already owns %s (stop the running `roger tower serve` to make changes; read-only commands like status/stations/route run fine alongside it)", s.dir)
+		return nil, fmt.Errorf("%w: another Tower process already owns %s (stop the running `roger tower serve` to make changes; read-only commands like status/stations/route run fine alongside it)", ErrLocked, s.dir)
 	}
 	return func() error {
 		defer f.Close()

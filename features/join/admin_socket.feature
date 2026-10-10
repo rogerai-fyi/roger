@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Built: the owner-only admin socket, invite, attach, admit and reads while serving, stale and second-serve handling (TestJoinAdminSocketBDD). Not yet: the request-and-approve rows, station revoke, the Windows named pipe.
 #
 # OWNER COMMANDS WORK WHILE THE TOWER SERVES. Founder ruling 2026-10-10: invite, attach, admit,
 # approve and the other administration commands reach a running `roger tower serve` through an
@@ -22,17 +22,24 @@ Feature: Owner commands reach a running Tower through a local admin socket
     Then it succeeds through the admin socket without stopping serve
     And clients keep being served while it runs
 
+    # split 2026-10-10 (structural, no change in meaning): the rows built so far run; the rest wait
+    # on request-and-approve (requests, approve, revoke-client) and on the Station kill switch
+    # reaching a standalone Tower through the socket (station revoke).
     Examples:
       | command                                   |
       | roger tower invite                        |
       | roger tower invite --station              |
       | roger tower invite --list                 |
+      | roger tower stations                      |
+      | roger tower attach --station s --key K --models m |
+
+    @blocked-on-request-approve
+    Examples:
+      | command                                   |
       | roger tower requests                      |
       | roger tower approve <id>                  |
       | roger tower revoke-client laptop-x        |
-      | roger tower stations                      |
       | roger tower station revoke --station-id x |
-      | roger tower attach --station s --key K --models m |
 
   Scenario: With no serve running, the same commands use the directory directly
     Given serve is not running
