@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-10 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-10 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # A CLIENT KNOWS IT IS TALKING TO ITS TOWER. Founder ruling 2026-10-10: the Tower serves TLS with
@@ -83,7 +83,7 @@ Feature: The client pins the Tower's TLS key
   # 4. PLAIN HTTP FOR ONE RELEASE
   # =====================================================================================
 
-  # DECISION: plain http during the transition. Recommend: for ONE release `roger tower serve`
+  # RULED 2026-10-10 (the recommendation below was adopted): plain http during the transition. Recommend: for ONE release `roger tower serve`
   # also answers plain http on the old port, with a warning logged per client that uses it; a
   # client that reaches a Tower over plain http shows "unverified" and the existing trust note.
   # The release after, plain http is refused unless the owner passes --allow-plain-http.

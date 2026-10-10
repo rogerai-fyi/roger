@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-10 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-10 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # NOTHING BREAKS ON UPGRADE. Founder ruling 2026-10-10: clients already admitted keep working and
@@ -43,7 +43,7 @@ Feature: Upgrading to one-invite joins
       | roger tower attach --station s --key K --models m     | roger tower invite --station              |
       | roger lan add 192.168.1.20:8787                       | roger join <invite>                       |
 
-  # DECISION: `roger lan add` after the release. Recommend it stays for adding a Tower you are
+  # RULED 2026-10-10 (the recommendation below was adopted): `roger lan add` after the release. Recommend it stays for adding a Tower you are
   # already admitted to; for a TLS Tower it shows the fingerprint and asks "pin this Tower? [y/N]".
   Scenario: `roger lan add` of a TLS Tower asks before pinning
     Given the client is already admitted to a TLS Tower but has no pin for it

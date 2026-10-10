@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-10 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-10 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # OWNER COMMANDS WORK WHILE THE TOWER SERVES. Founder ruling 2026-10-10: invite, attach, admit,
@@ -57,7 +57,7 @@ Feature: Owner commands reach a running Tower through a local admin socket
     When anything other than a known administration request arrives on the socket
     Then it is refused and logged, and the socket stays up
 
-  # DECISION: Windows. Recommend a named pipe whose ACL grants only the serving user; same
+  # RULED 2026-10-10 (the recommendation below was adopted): Windows. Recommend a named pipe whose ACL grants only the serving user; same
   # commands. Joined Towers stay Linux-only (one_binary ruling), so this applies to standalone.
   Scenario: Windows uses an owner-only named pipe
     Given a standalone Tower serving on Windows

@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-10 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-10 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # ONE INVITE, ONE PASTE: joining a Tower (as a client or a Station) or an Edge (as a device) takes
@@ -48,7 +48,7 @@ Feature: One invite, one paste, for Towers and Edge devices
     And it carries the full identity fingerprint "sha256:9f3c...e1", never the short form
     And it carries a one-time code
 
-  # DECISION: the invite scheme. Recommend one scheme for every kind:
+  # RULED 2026-10-10 (the recommendation below was adopted): the invite scheme. Recommend one scheme for every kind:
   #   roger://join?kind=<tower-client|tower-station|edge>&at=<host:port>[&at=...]&fp=sha256:<hex>&code=<code>
   # with the existing "rogerai-edge://join?..." Edge invites still accepted as an alias.
   Scenario Outline: Every invite kind uses one scheme
@@ -67,7 +67,7 @@ Feature: One invite, one paste, for Towers and Edge devices
     When a device runs "roger join" with it
     Then it is read as kind "edge" and the join proceeds as an Edge enrollment
 
-  # DECISION: code length for Tower invites. The approved modes.feature:194 requires a Tower
+  # RULED 2026-10-10 (the recommendation below was adopted): code length for Tower invites. The approved modes.feature:194 requires a Tower
   # bootstrap code to carry at least 128 bits. Edge codes are 50 bits because people TYPE them.
   # A Tower invite is pasted or scanned, never typed. Recommend: Tower invite codes are 128-bit
   # (26 Crockford base32 symbols), Edge codes stay 50-bit, and both use the same proof package.
@@ -87,7 +87,7 @@ Feature: One invite, one paste, for Towers and Edge devices
     Then the TUI shows the same "roger join ..." line and the QR
     And the line can be copied with the TUI's existing copy action
 
-  # DECISION: the TUI key. Recommend "i" on the Tower row and on [3] EDGE, unless the existing
+  # RULED 2026-10-10 (the recommendation below was adopted): the TUI key. Recommend "i" on the Tower row and on [3] EDGE, unless the existing
   # keymap already binds "i" on that screen; then "+".
 
   Scenario: The console mints the same invite with one button
@@ -100,7 +100,7 @@ Feature: One invite, one paste, for Towers and Edge devices
     When the owner mints another client invite
     Then both work until each is used once or expires
 
-  # DECISION: whether a fresh invite voids older unused ones. Edge's D6 voids the previous code
+  # RULED 2026-10-10 (the recommendation below was adopted): whether a fresh invite voids older unused ones. Edge's D6 voids the previous code
   # for the SAME key; a bearer invite has no key. Recommend: invites are independent, and
   # `roger tower invite --list` / `--void <id>` manage them.
 
@@ -211,7 +211,7 @@ Feature: One invite, one paste, for Towers and Edge devices
     Then it enrolls exactly as "roger edge enroll --invite <invite>" does today
     And it verifies the root through the code's proof before keeping anything (enrollment_root_trust.feature)
 
-  # DECISION: a bearer Edge invite. enrollment_root_trust.feature D15 says the code does not
+  # RULED 2026-10-10 (the recommendation below was adopted): a bearer Edge invite. enrollment_root_trust.feature D15 says the code does not
   # replace the allow-list. A key-less "roger edge invite" needs the code to admit the joiner's key
   # on use. Recommend: the Edge code admits on use exactly like the Tower (the allow step becomes
   # optional), superseding D15. Keep "roger edge authority allow <key>" for owners who want it.

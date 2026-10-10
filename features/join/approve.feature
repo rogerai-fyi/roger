@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-10 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-10 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # REQUEST AND APPROVE: no copy-paste at all. The client asks to join by address; the owner's TUI or
@@ -67,7 +67,7 @@ Feature: Request and approve, with a matching phrase
     Then the phrase is derived from a hash of the transcript (domain "join-sas/v1", K, T, both ephemeral X25519 public keys, the client's committed nonce, the Tower's nonce)
     And the client's nonce commitment is sent before the Tower's nonce is received
 
-  # DECISION: phrase size. Recommend three words from a fixed 2048-word list plus two digits
+  # RULED 2026-10-10 (the recommendation below was adopted): phrase size. Recommend three words from a fixed 2048-word list plus two digits
   # (about 40 bits), shown the same on both screens. A middle party gets one guess per pairing.
   Scenario: The phrase has a fixed, readable form
     When a pairing runs
@@ -93,7 +93,7 @@ Feature: Request and approve, with a matching phrase
   # 3. LIMITS: TIMEOUTS, ONE PENDING, RATE LIMITS, NO OWNER
   # =====================================================================================
 
-  # DECISION: request lifetime. Recommend 2 minutes.
+  # RULED 2026-10-10 (the recommendation below was adopted): request lifetime. Recommend 2 minutes.
   Scenario: An unanswered request expires
     When a client asks to join and nobody answers for 2 minutes
     Then the client prints "lab did not answer in 2 minutes. Ask the owner to open roger, or use an invite"
@@ -112,7 +112,7 @@ Feature: Request and approve, with a matching phrase
     When laptop-x asks again
     Then the earlier request is replaced, not added, and the new one gets a new phrase
 
-  # DECISION: pending cap and rate. Recommend at most 8 pending requests per Tower and at most
+  # RULED 2026-10-10 (the recommendation below was adopted): pending cap and rate. Recommend at most 8 pending requests per Tower and at most
   # 5 requests per source address per minute.
   Scenario: The Tower caps how many requests can wait
     Given 8 requests are already pending

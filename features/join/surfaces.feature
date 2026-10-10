@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-10 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-10 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # SUPER SIMPLE COPY. Founder 2026-10-10: "make this tool super stupid simple to use". Every
@@ -51,7 +51,7 @@ Feature: What each screen says during a join
     Then the QR fits without wrapping, drawn with half-block characters
     And with NO_COLOR or a narrow terminal it says "terminal too small for the QR; paste the line instead"
 
-  # DECISION: the QR encoder. Recommend vendoring a small pure-Go QR encoder (no network, no cgo)
+  # RULED 2026-10-10 (the recommendation below was adopted): the QR encoder. Recommend vendoring a small pure-Go QR encoder (no network, no cgo)
   # under internal/, with a golden test; no new module dependency.
 
   Scenario: Help text for "roger join" is three lines
