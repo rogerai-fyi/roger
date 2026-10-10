@@ -40,45 +40,65 @@ func ShareFile(pid int) string {
 // the remover the share runs when it stops. A crashed share leaves a record its dead pid marks
 // stale, by the same rule that reclaims a stale on-air lock.
 func WriteShare(s Share) (release func(), err error) {
-	b, _ := json.Marshal(s) // a struct of strings and an int always marshals
-	if err := os.MkdirAll(SharesDir(), 0o700); err != nil {
+	return writeRecord(SharesDir(), ShareFile(s.PID), s)
+}
+
+// writeRecord writes v whole to path, 0600 in a 0700 dir: under a temporary name, then renamed, so
+// a reader never sees half a record. The remover is what the process runs when it stops.
+func writeRecord(dir, path string, v any) (release func(), err error) {
+	b, err := json.Marshal(v)
+	if err != nil {
 		return func() {}, err
 	}
-	// Written whole under a temporary name, then renamed: a reader never sees half a record.
-	tmp := ShareFile(s.PID) + ".tmp"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return func() {}, err
+	}
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return func() {}, err
 	}
-	if err := os.Rename(tmp, ShareFile(s.PID)); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return func() {}, err
 	}
-	return func() { _ = os.Remove(ShareFile(s.PID)) }, nil
+	return func() { _ = os.Remove(path) }, nil
 }
 
 // Shares lists the live shares on this machine. A record whose process is gone is removed (the
 // one staleness rule, ProcessAlive); a damaged one is skipped.
 func Shares() []Share {
-	files, _ := filepath.Glob(filepath.Join(SharesDir(), "share-*.json"))
-	var out []Share
+	return liveRecords(filepath.Join(SharesDir(), "share-*.json"), func(s Share) (int, bool) {
+		return s.PID, s.PID > 0 && s.Band != "" && s.ChatURL != ""
+	})
+}
+
+// liveRecords reads every record matching glob, skips a damaged one (valid says which are whole),
+// and removes one whose process is gone (the one staleness rule, StillTheProcess).
+func liveRecords[T any](glob string, valid func(T) (pid int, ok bool)) []T {
+	files, _ := filepath.Glob(glob)
+	var out []T
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			continue
 		}
-		var s Share
-		if json.Unmarshal(b, &s) != nil || s.PID <= 0 || s.Band == "" || s.ChatURL == "" {
+		var v T
+		if json.Unmarshal(b, &v) != nil {
+			continue
+		}
+		pid, ok := valid(v)
+		if !ok {
 			continue
 		}
 		written := time.Time{}
 		if fi, err := os.Stat(f); err == nil {
 			written = fi.ModTime()
 		}
-		if !StillTheProcess(s.PID, written) {
+		if !StillTheProcess(pid, written) {
 			_ = os.Remove(f)
 			continue
 		}
-		out = append(out, s)
+		out = append(out, v)
 	}
 	return out
 }

@@ -30,6 +30,7 @@ import (
 	"rogerai.fm/roger/v6/internal/egressguard"
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/netbind"
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/toweradmin"
 	"rogerai.fm/roger/v6/internal/towerstore"
@@ -41,6 +42,7 @@ import (
 type Prepared struct {
 	st        *tower.State
 	dir       string
+	label     string       // the Tower's name in join answers and on its owner's screens
 	admin     net.Listener // the owner-only admin socket; nil where it is not available
 	srv       *http.Server
 	plane     *localplane.Server
@@ -204,6 +206,7 @@ func Prepare(args []string, out io.Writer) (*Prepared, error) {
 	return &Prepared{
 		st:        st,
 		dir:       *dir,
+		label:     name,
 		admin:     adminLn,
 		advertise: adv,
 		// MaxHeaderBytes well below the 1 MiB default: the plane's signing headers are small, and a
@@ -248,6 +251,10 @@ func (p *Prepared) Serve() error {
 	if p.admin != nil {
 		go func() { _ = toweradmin.ServeWith(p.admin, p.st, p.plane, log.Printf) }()
 		defer func() { _ = p.admin.Close(); toweradmin.Remove(p.dir) }()
+	}
+	// This user's TUI and console list the Towers they run from this record (one per serve).
+	if unlist, err := onair.WriteTower(onair.Tower{PID: os.Getpid(), Dir: p.dir, Label: p.label, Addr: p.Addr()}); err == nil {
+		defer unlist()
 	}
 	if p.advertise != nil {
 		ctx, cancel := context.WithCancel(context.Background())
