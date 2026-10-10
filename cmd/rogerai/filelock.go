@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// The O_EXCL lock file, for platforms without flock(2) (configlock_unix.go is the OS lock).
+// The O_EXCL lock file, for platforms without flock(2) (configlock_os.go is the OS lock).
 //
 // fileLockConfig takes an exclusive lock file (O_EXCL, portable), waiting up to 5 s; a lock
 // older than lockStale is a crashed writer's and is taken over.

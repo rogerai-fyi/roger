@@ -10,7 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
+
+	"rogerai.fm/roger/v6/internal/filelock"
 )
 
 // PublicNetworkID names the RogerAI public network. A standalone Tower mints its own
@@ -163,20 +164,26 @@ func (s *State) RequireMode(want Mode) error {
 // sharing one identity would reuse each other's session and sequence state, so the
 // second must fail before it connects or listens.
 //
-// The lock is an advisory flock on a file in the directory, so it is released by the OS
-// if the process dies - a crash must not wedge the directory.
+// The lock is an OS file lock (internal/filelock: flock on Unix, LockFileEx on Windows) on a
+// file in the directory, so it is released by the OS if the process dies - a crash must not
+// wedge the directory.
 func (s *State) Lock() (release func() error, err error) {
 	f, err := os.OpenFile(filepath.Join(s.dir, lockFile), os.O_CREATE|os.O_RDWR, keyPerm)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	held, err := filelock.TryLock(f)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !held {
 		f.Close()
 		return nil, fmt.Errorf("another Tower process already owns %s (stop the running `roger tower serve` to make changes; read-only commands like status/stations/route run fine alongside it)", s.dir)
 	}
 	return func() error {
 		defer f.Close()
-		return syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		return filelock.Unlock(f)
 	}, nil
 }
 

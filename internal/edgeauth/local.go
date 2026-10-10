@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/filelock"
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
 
@@ -133,8 +134,9 @@ const lockFile = ".authlock"
 // internal/store, and this package is Core-free BY CONSTRUCTION: an authority has to be able to root
 // an Edge with no Core behind it at all, so it imports nothing that reaches the store. Sharing the
 // helper would buy twenty lines and spend the boundary. The two copies say the same thing, and both
-// say why the pair of locks is needed: the flock queues processes, the mutex queues goroutines, and
-// on Windows the flock is a no-op so without the mutex there is nothing.
+// say why the pair of locks is needed: the OS file lock (internal/filelock, a leaf package both may
+// import) queues processes, and the mutex queues goroutines, which on a platform with no OS lock is
+// the only serialisation there is.
 func (l *Local) withLock(fn func() error) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -143,10 +145,10 @@ func (l *Local) withLock(fn func() error) error {
 		return err
 	}
 	defer f.Close()
-	if err := flockExclusive(f); err != nil {
+	if err := filelock.Lock(f); err != nil {
 		return err
 	}
-	defer func() { _ = flockUnlock(f) }()
+	defer func() { _ = filelock.Unlock(f) }()
 	return fn()
 }
 

@@ -53,6 +53,11 @@ type goreleaser struct {
 		Binary string   `yaml:"binary"`
 		GOOS   []string `yaml:"goos"`
 		GOARCH []string `yaml:"goarch"`
+		GOARM  []string `yaml:"goarm"`
+		Ignore []struct {
+			GOOS   string `yaml:"goos"`
+			GOARCH string `yaml:"goarch"`
+		} `yaml:"ignore"`
 	} `yaml:"builds"`
 	Archives []struct {
 		ID  string   `yaml:"id"`

@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill test test-db check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast tdd reach
+.PHONY: build demo clean kill test test-db check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast cross tdd reach
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -255,3 +255,10 @@ kill:
 
 clean: kill
 	rm -rf bin
+
+# cross: build every binary for every GOOS/GOARCH .goreleaser.yaml releases (CGO off), so a
+# platform break (a Unix-only call reaching Windows) fails here, not at release time. The same
+# test runs inside `make cover-gate`, so the gate already enforces it; this is the quick local run.
+cross:
+	@go test ./cmd/rogerai -run '^TestEveryReleaseTargetCompiles$$' -count=1
+

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"rogerai.fm/roger/v6/internal/filelock"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -159,13 +160,13 @@ func (s *GrantStore) flock() (func(), error) { return FileLock(s.Path) }
 //
 // internal/edgeauth carries its own copy of this, on purpose: it is Core-free by construction and
 // cannot import this package, which reaches the store. That duplicate is the price of the boundary
-// and is not to be folded in here.
+// and is not to be folded in here. The OS lock underneath is shared: internal/filelock.
 func FileLock(path string) (func(), error) {
-	// TWO LOCKS, and both are needed. The flock queues PROCESSES. The mutex queues GOROUTINES
-	// inside this one, and it is not belt-and-braces: on Windows flockExclusive is a no-op, so
-	// without the mutex there would be no serialisation there at all and the file would tear
-	// exactly as state.json did (audit 2026-09-27). The alert log learned this the hard way and
-	// carries the same pair.
+	// TWO LOCKS, and both are needed. The OS file lock (internal/filelock: flock on Unix,
+	// LockFileEx on Windows) queues PROCESSES. The mutex queues GOROUTINES inside this one, and on
+	// a platform with no OS lock it is the only serialisation there is; without it the file would
+	// tear exactly as state.json did (audit 2026-09-27). The alert log learned this the hard way
+	// and carries the same pair.
 	key := filepath.Clean(path)
 	mu, _ := fileLockMu.LoadOrStore(key, &sync.Mutex{})
 	mu.(*sync.Mutex).Lock()
@@ -179,12 +180,12 @@ func FileLock(path string) (func(), error) {
 		release()
 		return nil, err
 	}
-	if err := flockExclusive(f); err != nil {
+	if err := filelock.Lock(f); err != nil {
 		f.Close()
 		release()
 		return nil, err
 	}
-	return func() { _ = flockUnlock(f); f.Close(); release() }, nil
+	return func() { _ = filelock.Unlock(f); f.Close(); release() }, nil
 }
 
 // fileLockMu is one mutex per locked path, for this process's own goroutines.
