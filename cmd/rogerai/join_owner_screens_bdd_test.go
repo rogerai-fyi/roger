@@ -30,11 +30,7 @@ import (
 	"rogerai.fm/roger/v6/internal/tui"
 )
 
-const (
-	inviteFeature   = "../../features/join/invite.feature"
-	surfacesFeature = "../../features/join/surfaces.feature"
-	identityFeature = "../../features/join/tower_identity.feature"
-)
+const surfacesFeature = "../../features/join/surfaces.feature"
 
 // liveBuf is a writer the test can read while the join still runs.
 type liveBuf struct {
@@ -378,8 +374,8 @@ func TestJoinOwnerScreensBDD(t *testing.T) {
 			})
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
-			Paths: []string{approveFeature + ":27", approveFeature + ":36", inviteFeature + ":84", inviteFeature + ":93",
-				surfacesFeature + ":39", surfacesFeature + ":44", surfacesFeature + ":49", identityFeature + ":26"}},
+			Paths: []string{approveFeature + ":27", approveFeature + ":36", joinInviteFeature + ":84", joinInviteFeature + ":93",
+				surfacesFeature + ":39", surfacesFeature + ":44", surfacesFeature + ":49", towerIdentityFeature + ":26"}},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("the owner's join screens failed")
