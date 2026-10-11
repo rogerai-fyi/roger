@@ -20,6 +20,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -50,6 +51,10 @@ func writeAuthError(w http.ResponseWriter, what string, err error) {
 
 // Path is where an authority answers an enrollment request.
 const Path = "/edge/enroll"
+
+// EdgeHeader carries the Edge's name (query-escaped) beside an enroll or claim answer, so a joiner
+// can say which Edge it joined while the answer's body stays exactly what an old joiner knows.
+const EdgeHeader = "Roger-Edge"
 
 // RevocationsPath is where a node refreshes what this authority has revoked.
 const RevocationsPath = "/edge/revocations"
@@ -139,6 +144,7 @@ func Handler(iss Issuer) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(EdgeHeader, url.QueryEscape(resp.Edge))
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc(RootPath, func(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +210,7 @@ func Handler(iss Issuer) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(EdgeHeader, url.QueryEscape(resp.Edge))
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 	return mux
@@ -216,7 +223,7 @@ func Claim(ctx context.Context, endpoint string, req edgeauth.ClaimRequest) (edg
 	if err != nil {
 		return edgeauth.Response{}, err
 	}
-	raw, err := post(ctx, endpoint, ClaimPath, body)
+	raw, h, err := postH(ctx, endpoint, ClaimPath, body)
 	if err != nil {
 		return edgeauth.Response{}, err
 	}
@@ -225,6 +232,7 @@ func Claim(ctx context.Context, endpoint string, req edgeauth.ClaimRequest) (edg
 		return edgeauth.Response{}, fmt.Errorf("%w: the authority's answer could not be read",
 			edgeauth.ErrMalformed)
 	}
+	resp.Edge = edgeName(h)
 	return resp, nil
 }
 
@@ -238,7 +246,7 @@ func Enroll(ctx context.Context, endpoint string, req edgeauth.Request) (edgeaut
 	if err != nil {
 		return edgeauth.Response{}, err
 	}
-	raw, err := post(ctx, endpoint, Path, body)
+	raw, h, err := postH(ctx, endpoint, Path, body)
 	if err != nil {
 		return edgeauth.Response{}, err
 	}
@@ -247,6 +255,7 @@ func Enroll(ctx context.Context, endpoint string, req edgeauth.Request) (edgeaut
 		return edgeauth.Response{}, fmt.Errorf("%w: the authority's answer could not be read",
 			edgeauth.ErrMalformed)
 	}
+	resp.Edge = edgeName(h)
 	return resp, nil
 }
 
@@ -298,13 +307,28 @@ func Root(ctx context.Context, endpoint string) (string, error) {
 }
 
 func post(ctx context.Context, endpoint, path string, body []byte) ([]byte, error) {
+	raw, _, err := postH(ctx, endpoint, path, body)
+	return raw, err
+}
+
+// postH is post that also returns the answer's headers.
+func postH(ctx context.Context, endpoint, path string, body []byte) ([]byte, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, join(endpoint, path),
 		bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return do(req)
+	return doH(req)
+}
+
+// edgeName is the Edge's name an answer's headers carry, or "".
+func edgeName(h http.Header) string {
+	name, err := url.QueryUnescape(h.Get(EdgeHeader))
+	if err != nil {
+		return ""
+	}
+	return edgeauth.EdgeLabel(name)
 }
 
 func get(ctx context.Context, endpoint, path string) ([]byte, error) {
@@ -316,21 +340,26 @@ func get(ctx context.Context, endpoint, path string) ([]byte, error) {
 }
 
 func do(req *http.Request) ([]byte, error) {
+	raw, _, err := doH(req)
+	return raw, err
+}
+
+func doH(req *http.Request) ([]byte, http.Header, error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	resp, err := Client.Do(req.WithContext(ctx))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("the authority refused: %s", strings.TrimSpace(string(raw)))
+		return nil, nil, fmt.Errorf("the authority refused: %s", strings.TrimSpace(string(raw)))
 	}
-	return raw, nil
+	return raw, resp.Header, nil
 }
 
 // join puts a path on a base address without caring how the caller spelled it.

@@ -83,8 +83,10 @@ type Response struct {
 	// hint for the message only: a missing proof is refused whatever it says.
 	ProofStatus string `json:"root_proof_status,omitempty"`
 	// Edge is the name the owner gave this Edge's authority, so a joiner can say which Edge it
-	// joined. It is for display only (EdgeLabel); nothing is decided on it.
-	Edge string `json:"edge,omitempty"`
+	// joined. It is for display only (EdgeLabel); nothing is decided on it. It is never part of the
+	// answer's body, which stays exactly what an old joiner knows: the wire carries it in a header
+	// (enrollhttp.EdgeHeader).
+	Edge string `json:"-"`
 }
 
 // EdgeLabel is an answer's Edge name as a joiner may show it: up to 64 printable characters, or
