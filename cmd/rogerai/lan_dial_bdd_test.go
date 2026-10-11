@@ -348,9 +348,19 @@ func (s *lanDialBDD) towerLine(addr string) client.LANTowerStatus {
 	return client.LANTowerStatus{}
 }
 
+// lanListRow is the `roger lan list` output row for addr.
+func lanListRow(out, addr string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), addr) {
+			return l
+		}
+	}
+	return ""
+}
+
 func TestLANDialBDD(t *testing.T) {
 	s := &lanDialBDD{t: t}
-	lines := []int{94, 145, 159, 167, 182, 200, 210, 234, 241, 249, 256, 264, 270, 281, 289, 297, 305, 311, 318, 349, 356}
+	lines := []int{94, 145, 159, 167, 182, 200, 210, 234, 241, 249, 256, 264, 270, 281, 289, 297, 305, 311, 318, 349, 356, 378}
 	var paths []string
 	for _, l := range lines {
 		paths = append(paths, fmt.Sprintf("../../features/lan/discovery_and_dial.feature:%d", l))
@@ -452,6 +462,28 @@ func TestLANDialBDD(t *testing.T) {
 				if !strings.Contains(s.out, "192.168.1.20:8787") || !strings.Contains(s.out, "answering, 1 band(s)") ||
 					!strings.Contains(s.out, "192.168.1.40:8787") || !strings.Contains(s.out, "not answering") {
 					return fmt.Errorf("list output:\n%s", s.out)
+				}
+				return nil
+			})
+			sc.Step(`^lan_towers holds "([^"]*)" pinned to "([^"]*)" and "([^"]*)" with no pin$`, func(a, fp, b string) error {
+				c := loadConfig()
+				c.LanTowers = append(c.LanTowers, a, b)
+				if c.LanTowerPins == nil {
+					c.LanTowerPins = map[string]string{}
+				}
+				c.LanTowerPins[a] = fp
+				return saveConfig(c)
+			})
+			sc.Step(`^the "([^"]*)" row says it is pinned and shows "([^"]*)"$`, func(addr, short string) error {
+				row := lanListRow(s.out, addr)
+				if !strings.Contains(row, "pinned") || !strings.Contains(row, short) {
+					return fmt.Errorf("row for %s = %q, want pinned and %s", addr, row, short)
+				}
+				return nil
+			})
+			sc.Step(`^the "([^"]*)" row says "([^"]*)"$`, func(addr, want string) error {
+				if row := lanListRow(s.out, addr); !strings.Contains(row, want) {
+					return fmt.Errorf("row for %s = %q, want %q", addr, row, want)
 				}
 				return nil
 			})

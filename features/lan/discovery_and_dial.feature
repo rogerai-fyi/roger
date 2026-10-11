@@ -371,3 +371,12 @@ Feature: In LAN mode the dial lists only bands served on this machine, by this E
     And it draws the local sources only, or says it has nothing local to draw
     # RULED 2026-10-06: Ping World in LAN mode draws only local sources; it is a
     # discovery view and the ruling is that LAN mode filters what is discovered.
+
+  # founder request 2026-10-11 (simple join runbook): `roger lan list` shows whether each Tower
+  # is pinned, so the owner can check the fingerprint without opening the config.
+  @cli
+  Scenario: `roger lan list` shows each Tower's pin
+    Given lan_towers holds "192.168.1.20:8787" pinned to "sha256:9f3c1a2b3c4d5e6f9f3c1a2b3c4d5e6f9f3c1a2b3c4d5e6f9f3c1a2b3c4d5e6f" and "192.168.1.40:8787" with no pin
+    When they run "roger lan list"
+    Then the "192.168.1.20:8787" row says it is pinned and shows "9f3c-1a2b-3c4d-5e6f"
+    And the "192.168.1.40:8787" row says "unverified (plain http)"

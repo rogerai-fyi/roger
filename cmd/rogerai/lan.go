@@ -436,7 +436,7 @@ func lanList(cfg config) error {
 	if cfg.lan.EdgeOnly {
 		// Under edge-only no Tower is contacted, not even to say whether it answers.
 		for _, entry := range c.LanTowers {
-			fmt.Printf("%-28s not used (edge-only)\n", entry)
+			fmt.Printf("%-28s not used (edge-only)%s\n", entry, lanPinNote(c, entry))
 		}
 		return nil
 	}
@@ -444,9 +444,21 @@ func lanList(cfg config) error {
 	defer cancel()
 	_, status := client.LANDiscover(ctx, client.LANInputs{Towers: c.LanTowers, HTTP: lanProbeHTTP, Resolve: lanResolve})
 	for i, entry := range c.LanTowers {
-		fmt.Println(lanListLine(ctx, entry, status[i]))
+		fmt.Println(lanListLine(ctx, entry, status[i]) + lanPinNote(c, entry))
 	}
 	return nil
+}
+
+// lanPinNote says whether a listed Tower is pinned, with the read-aloud form of its fingerprint,
+// so the owner can compare it with the Tower's own screen without opening the config.
+func lanPinNote(c config, entry string) string {
+	if fp, ok := c.LanTowerPins[entry]; ok {
+		if hex, ok := towerpin.Parse(fp); ok {
+			return " · pinned " + towerpin.Short(hex)
+		}
+		return " · pinned"
+	}
+	return " · unverified (plain http)"
 }
 
 // lanListLine is one `roger lan list` row: the address, whether it answered, and its bands.
