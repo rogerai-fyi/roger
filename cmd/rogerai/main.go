@@ -165,6 +165,9 @@ type config struct {
 	// LanTowerPinFirstUse marks the pins taken on first contact after the upgrade (a Tower added
 	// before joins were by invite), so the record says where each pin came from.
 	LanTowerPinFirstUse map[string]bool `json:"lan_tower_pins_first_use,omitempty"`
+	// LanTowerPinDeclined are Towers the owner chose not to pin at `roger lan add`: they stay
+	// unverified until joined with an invite, and the first-use migration never pins them.
+	LanTowerPinDeclined map[string]bool `json:"lan_tower_pins_declined,omitempty"`
 	// LanNotTower are configured addresses that answered a turn without the standalone Tower's
 	// local marker; LAN mode sends them nothing until `roger lan add` re-adds them.
 	LanNotTower []string `json:"lan_not_tower,omitempty"`

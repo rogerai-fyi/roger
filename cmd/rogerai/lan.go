@@ -84,7 +84,7 @@ func lanFirstUsePins(cfg *config) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, addr := range cfg.LanTowers {
-		if _, pinned := cfg.LanTowerPins[addr]; pinned || contains(cfg.LanNotTower, addr) {
+		if _, pinned := cfg.LanTowerPins[addr]; pinned || cfg.LanTowerPinDeclined[addr] || contains(cfg.LanNotTower, addr) {
 			continue
 		}
 		wg.Add(1)
@@ -382,12 +382,17 @@ func lanAskPin(w io.Writer, c *config, addr string) {
 	}
 	fmt.Fprintf(w, "it serves TLS under %s; pin this Tower? [y/N] ", towerpin.Short(fp))
 	if !lanAddConfirm() {
+		if c.LanTowerPinDeclined == nil {
+			c.LanTowerPinDeclined = map[string]bool{}
+		}
+		c.LanTowerPinDeclined[addr] = true
 		fmt.Fprintln(w, "\nnot pinned: it stays unverified until you join it with an invite")
 		return
 	}
 	if c.LanTowerPins == nil {
 		c.LanTowerPins = map[string]string{}
 	}
+	delete(c.LanTowerPinDeclined, addr)
 	c.LanTowerPins[addr] = fp
 	fmt.Fprintf(w, "\npinned %s: it is verified from now on\n", addr)
 }

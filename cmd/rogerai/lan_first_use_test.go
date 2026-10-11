@@ -79,3 +79,32 @@ func TestLanAddAsksBeforePinning(t *testing.T) {
 		})
 	}
 }
+
+// features/join/migration.feature: a Tower the owner declined to pin at `roger lan add` stays
+// unverified, as the decline says, until it is joined with an invite. The first-use migration is
+// for Towers added before joins were by invite; it never overrides an answer the owner gave.
+func TestADeclinedPinIsNeverTakenOnFirstUse(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	st, err := tower.Init(t.TempDir()+"/lab", tower.ModeStandalone)
+	require.NoError(t, err)
+	key, _ := st.TLSKey()
+	cfg, _ := towerpin.ServerTLS(key)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := &http.Server{Handler: localplane.New(st).Handler()}
+	go func() { _ = srv.Serve(towerpin.Sniff(ln, cfg)) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	prev := lanAddConfirm
+	lanAddConfirm = func() bool { return false }
+	t.Cleanup(func() { lanAddConfirm = prev })
+
+	var b strings.Builder
+	require.NoError(t, lanAddTo(&b, []string{ln.Addr().String()}))
+	require.Contains(t, b.String(), "not pinned")
+
+	c := loadConfig()
+	out := captureStdout(t, func() { lanFirstUsePins(&c) })
+	require.NotContains(t, out, "pinned the Tower", "a declined pin is not taken on first use")
+	_, pinned := loadConfig().LanTowerPins[ln.Addr().String()]
+	require.False(t, pinned, "the owner's no stands")
+}
