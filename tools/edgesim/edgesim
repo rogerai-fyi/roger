@@ -62,10 +62,21 @@ run_node() { # name role model [extra podman args...]
 
 r() { local n="$1"; shift; podman exec "$P-$n" roger "$@"; }
 
-# join <name>: allow the member's key on the hub, then enroll it with the one-time code that allow
-# prints. A first join must prove the root it is given (features/edge/enrollment_root_trust.feature),
-# so the code travels from the hub's answer to the member's command, exactly as an owner copies it.
+# join <name>: the hub prints one invite (roger edge invite) and the member runs the join line,
+# exactly as an owner pastes it: the invite carries the hub's address, the Edge root's fingerprint and
+# a one-time code, so no key is allowed first and the root is proved before it is kept
+# (features/join/invite.feature, features/edge/enrollment_root_trust.feature).
+# EDGESIM_JOIN=allow keeps the older two-step flow: allow the member's key, then enroll with the code.
 join() {
+	if [ "${EDGESIM_JOIN:-invite}" = allow ]; then join_allow "$@"; return; fi
+	local name="$1" out inv
+	out="$(r hub edge invite --at "$HUB:39009" 2>&1)"
+	inv="$(printf '%s\n' "$out" | sed -n "s/^ *roger join '\(roger:[^']*\)'.*/\1/p" | head -1)"
+	[ -n "$inv" ] || { say "the hub printed no invite for $name:"; printf '%s\n' "$out"; return 1; }
+	r "$name" join "$inv" "$name" | grep -v 'update available' || true
+}
+
+join_allow() {
 	local name="$1" key out code
 	key="$(podman exec "$P-$name" roger edge setup </dev/null 2>/dev/null | awk '/authority allow/ {print $NF}')"
 	[ -n "$key" ] || { say "$name printed no key to allow"; return 1; }

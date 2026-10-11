@@ -99,6 +99,11 @@ func edgeEnrollCmd(cfg config, args []string, joined bool) error {
 	}
 	res, err := edgeEnrollJoin(cfg, name, endpoint, account, tr)
 	if err != nil {
+		if joined && errors.Is(err, edgeauth.ErrUnknownMachine) {
+			// An invite admits its holder's key when its code is used; refused as unknown, the code
+			// was already used or has expired. The fix is a new invite, not the allow steps.
+			return fmt.Errorf("that invite was already used or has expired. Ask the owner for a new one: roger edge invite")
+		}
 		return edgeEnrollErr(err, name, endpoint)
 	}
 	if res.LeftAlone {
@@ -281,7 +286,8 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 	}
 	if needProof && tr.Code == "" && tr.Pin == "" && tr.Ask == nil && !tr.Hold {
 		return res, nil, usagef("the root of the Edge you are joining has to be confirmed before this machine keeps it.\n"+
-			"  pass --code <code>: the authority prints it when you allow or adopt this machine there\n"+
+			"  easiest: ask the owner for an invite (roger edge invite on the authority), then run: roger join <invite>\n"+
+			"  or pass --code <code>: the authority prints it when you allow or adopt this machine there\n"+
 			"    (roger edge authority allow %s)\n"+
 			"  or pass --root sha256:<fingerprint>: the full fingerprint `roger edge authority` prints there.\n"+
 			"  nothing was sent and nothing was kept", edgeUserPubHex())

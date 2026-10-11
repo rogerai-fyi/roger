@@ -85,6 +85,10 @@ func TestAnEdgeInviteWorksOnce(t *testing.T) {
 	asSecondMachine(t)
 	out, code := edgeRun(t, "join", invite, "bench")
 	require.NotEqual(t, 0, code, "a spent invite admits nobody else:\n%s", out)
+	// The person holding it is told what happened and the one next step, as a Tower's spent invite
+	// says (features/join/adversarial.feature), not the older allow-then-enroll instructions.
+	require.Contains(t, out, "that invite was already used or has expired. Ask the owner for a new one: roger edge invite", out)
+	require.NotContains(t, out, "authority allow", out)
 }
 
 // The invite is also drawn as a QR code of the same `roger join` line (--qr; the default in a
@@ -110,4 +114,15 @@ func TestEdgeInviteDrawsTheSameInviteAsAQRCode(t *testing.T) {
 	out, code = edgeRun(t, "edge", "invite", "--at", "192.168.1.20:4181", "--qr")
 	require.Equal(t, 0, code, out)
 	require.Contains(t, out, qr.TooSmall)
+}
+
+// A first join with no code and no pin is refused before anything is sent, and the refusal leads
+// with the one-paste way in: ask the owner for an invite and run roger join with it.
+func TestAJoinWithNoCodePointsAtTheInvite(t *testing.T) {
+	asSecondMachine(t)
+	out, code := edgeRun(t, "edge", "enroll", "bench", "--authority", "http://127.0.0.1:1")
+	require.NotEqual(t, 0, code, out)
+	require.Contains(t, out, "has to be confirmed before this machine keeps it", out)
+	require.Contains(t, out, "easiest: ask the owner for an invite (roger edge invite on the authority), then run: roger join <invite>", out)
+	require.Contains(t, out, "nothing was sent and nothing was kept", out)
 }
