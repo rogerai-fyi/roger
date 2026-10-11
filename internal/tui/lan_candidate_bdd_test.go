@@ -65,7 +65,7 @@ func (s *lanCandBDD) key(k string) {
 
 func (s *lanCandBDD) candidate(addr string) {
 	s.status = append(s.status, client.LANTowerStatus{Addr: addr, State: client.LANTowerCandidate,
-		Detail: `advertised as "garage"; add it with roger lan add ` + addr})
+		Detail: `advertised as "garage"; ask to join with roger join ` + addr})
 }
 
 func TestLANCandidateTUIBDD(t *testing.T) {

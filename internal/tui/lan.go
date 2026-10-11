@@ -244,7 +244,7 @@ func (m model) lanCandidateKey(key string) (model, tea.Cmd, bool) {
 			addr, add := m.lanAddSel, m.hooks.LANAddTower
 			m.lanAddSel = ""
 			if add == nil {
-				m.status = stDim.Render("adding from the dial is not available here: run roger lan add " + addr)
+				m.status = stDim.Render("adding from the dial is not available here: run roger join " + addr)
 				return m, nil, true
 			}
 			return m, func() tea.Msg { line, err := add(addr); return lanAddedMsg{line: line, err: err} }, true
@@ -404,8 +404,8 @@ func (m model) lanEmptyView(w int) string {
 	b.WriteString(line(stDim.Render("to get one:")))
 	for _, way := range [][2]string{
 		{"serve a model here", "roger model serve"},
-		{"add an Edge member", "roger edge adopt"},
-		{"add a Tower", "roger lan add <addr>"},
+		{"add an Edge member", "roger edge invite, then roger join on the device"},
+		{"add a Tower", "roger join with its owner's invite"},
 	} {
 		b.WriteString(line(stDim.Render("  · ") + stKey.Render(way[0]) + stDim.Render("  "+way[1])))
 	}

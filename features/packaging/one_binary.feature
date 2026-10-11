@@ -582,7 +582,7 @@ Feature: One user binary with modes
     When roger starts
     Then a live one is read; a stale one is removed
 
-  # --- 7.10 every hint names the new commands -----------------------------------------
+  # --- 7.10 every hint names the new commands --- (serve-start row superseded 2026-10-11 by founder ruling (simple join): a client is let in with an invite)
 
   Scenario Outline: Hints name roger tower
     When "<situation>"
@@ -594,7 +594,7 @@ Feature: One user binary with modes
       | a LAN Tower refuses this machine (not admitted)   | roger join <invite>                                 |
       | a station's poll gets the uniform 401             | roger tower invite --station                        |
       | a joined login needs an invite                    | roger tower invite                                  |
-      | the standalone serve starts                       | roger lan add <addr> on each client                 |
+      | the standalone serve starts                       | roger tower invite <dir> roger join                 |
       | tower readiness fails                             | roger tower doctor                                  |
 
   Scenario: The not-admitted hint names the command the owner actually runs

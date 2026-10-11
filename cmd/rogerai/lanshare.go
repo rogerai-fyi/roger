@@ -53,7 +53,7 @@ func shareLAN(cfg config, run agent.Config, station, model string, out io.Writer
 	if cfg.lan.EdgeOnly {
 		fmt.Fprintf(out, "%s: serving Edge members only\n", edgeOnlyNote)
 	} else if len(towers) == 0 {
-		fmt.Fprintln(out, "no LAN Tower is configured: serving this Edge's members only (add a Tower with roger lan add <address>)")
+		fmt.Fprintln(out, "no LAN Tower is configured: serving this Edge's members only (serve a Tower too with roger join and its owner's station invite)")
 	}
 	shareToTowers(run, towers, out)
 	fmt.Fprintln(out, "stopped sharing on the LAN.")

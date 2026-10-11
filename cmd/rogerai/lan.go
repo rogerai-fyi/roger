@@ -430,7 +430,7 @@ func lanRemove(args []string) error {
 func lanList(cfg config) error {
 	c := loadConfig()
 	if len(c.LanTowers) == 0 {
-		fmt.Println("no LAN Towers: add one with `roger lan add <address>`")
+		fmt.Println("no LAN Towers: ask a Tower's owner for an invite (roger tower invite), then run the roger join line it prints")
 		return nil
 	}
 	if cfg.lan.EdgeOnly {
@@ -664,7 +664,7 @@ func lanEmptyText(status []client.LANTowerStatus) string {
 	for _, st := range status {
 		b.WriteString("  " + lanStatusText(st) + "\n")
 	}
-	b.WriteString("to get one: serve a model here (roger model serve), add an Edge member (roger edge adopt), or add a Tower (roger lan add <address>)")
+	b.WriteString("to get one: serve a model here (roger model serve), add an Edge member (roger edge invite on your Edge authority, then roger join on the device), or add a Tower (roger join with its owner's invite)")
 	return b.String()
 }
 
@@ -918,7 +918,7 @@ func lanCandidates(ctx context.Context, towers []string) []client.LANTowerStatus
 			continue
 		}
 		out = append(out, client.LANTowerStatus{Addr: a.String(), State: client.LANTowerCandidate,
-			Detail: fmt.Sprintf("advertised as %q; add it with roger lan add %s", cleanLabel(ad.Name), a)})
+			Detail: fmt.Sprintf("advertised as %q; ask to join with roger join %s", cleanLabel(ad.Name), a)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Addr < out[j].Addr })
 	if more := res.Seen - len(res.Adverts); more > 0 {
