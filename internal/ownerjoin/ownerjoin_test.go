@@ -37,3 +37,15 @@ func TestTowersAndPinsAreListedWithTheirFingerprints(t *testing.T) {
 	require.Equal(t, "Tower lab · 192.168.1.20:8787 · 9f3c-0000-1111-2222", TowerLine(lab))
 	require.Equal(t, "192.168.1.30:8787 · pinned 1234-5678", PinnedLine(Pinned{Addr: "192.168.1.30:8787", FP: "1234-5678"}))
 }
+
+func TestRequestsAreAnsweredOnTheTowersThenTheEdge(t *testing.T) {
+	edge := Tower{Dir: "edge:authority", Label: "shed"}
+	h := &Hooks{}
+	require.Equal(t, []Tower{lab}, h.Answering([]Tower{lab}))
+	h.Edge = func() (Tower, bool) { return Tower{}, false }
+	require.Equal(t, []Tower{lab}, h.Answering([]Tower{lab}), "an Edge that is not serving adds nothing")
+	h.Edge = func() (Tower, bool) { return edge, true }
+	towers := []Tower{lab}
+	require.Equal(t, []Tower{lab, edge}, h.Answering(towers))
+	require.Equal(t, []Tower{lab}, towers, "the served list itself is left alone")
+}

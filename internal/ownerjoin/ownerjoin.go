@@ -59,6 +59,19 @@ type Hooks struct {
 	Invite   func(t Tower) (Invite, error)
 	Outcome  func(dir, id string) (line string, over bool) // who joined, or that it ran out unused
 	Pinned   func() []Pinned
+	// Edge is this machine's Edge authority while it answers join requests too (ok=false when not):
+	// its requests are answered beside the Towers' (approve.feature), through Requests and Decide.
+	Edge func() (Tower, bool)
+}
+
+// Answering is everywhere a join request may wait: the Towers served, then the Edge authority.
+func (h *Hooks) Answering(towers []Tower) []Tower {
+	if h.Edge != nil {
+		if e, ok := h.Edge(); ok {
+			return append(append([]Tower(nil), towers...), e)
+		}
+	}
+	return towers
 }
 
 // RequestFor is the request as both screens show it.

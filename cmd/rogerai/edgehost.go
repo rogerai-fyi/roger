@@ -35,6 +35,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 	"rogerai.fm/roger/v6/internal/tui"
@@ -87,6 +88,10 @@ type edgeHost struct {
 	auth    *http.Server
 	authLn  net.Listener
 	issuer  *edgeauth.Issuer
+	// pair answers `roger join <authority address>`: a device asks, the owner approves on their
+	// screen with the matching phrase (features/join/approve.feature).
+	pair     *localplane.Server
+	pairDesc edgeauth.Descriptor
 
 	// The last discovery pass, for the empty screen's DISCOVERY fact: when it ran and
 	// what it found. Guarded by mu like the candidates it produced.
@@ -122,6 +127,9 @@ func newEdgeHost(self string) (*edgeHost, error) {
 
 // wire fills the Edge seams on the hooks the TUI is built from.
 func (h *edgeHost) wire(hooks *tui.Hooks) {
+	if hooks.Owner != nil {
+		hooks.Owner = h.ownerJoin(hooks.Owner)
+	}
 	if h.self != "" {
 		hooks.EdgeSelf = h.self
 	}
@@ -787,6 +795,8 @@ func (h *edgeHost) startAuthority() {
 		return fresh.Authority()
 	}, nil))
 	authMux.Handle("/", enrollhttp.Handler(local))
+	pair := edgePairing(local)
+	authMux.Handle("/local/pair/", pair.Handler())
 	// Access log for the authority (claim/enroll/present), gated on ROGERAI_EDGE_AUTHLOG=1. It records
 	// each request's method, path and remote address so a device that cannot join can be diagnosed:
 	// a claim that never arrives (a reachability problem) looks different from one that arrives and is
@@ -797,7 +807,7 @@ func (h *edgeHost) startAuthority() {
 	}
 	auth := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	h.mu.Lock()
-	h.authLn, h.issuer, h.auth = ln, local.Issuer(), auth
+	h.authLn, h.issuer, h.auth, h.pair, h.pairDesc = ln, local.Issuer(), auth, pair, local.Descriptor()
 	h.mu.Unlock()
 	go func() { _ = auth.Serve(ln) }()
 }

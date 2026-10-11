@@ -106,8 +106,13 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 // to fp: the Tower's identity is checked in the handshake, before the request is sent. Never plain
 // http, never a redirect.
 func towerPost(key ed25519.PrivateKey, pubHex, addr, fp, path string, body []byte, nonce string, timeout time.Duration) (int, []byte, error) {
+	return signedPost(towerpin.Client(fp, timeout), "https://"+addr, key, pubHex, path, body, nonce)
+}
+
+// signedPost sends one request signed by key, with its nonce bound in, to base+path.
+func signedPost(c *http.Client, base string, key ed25519.PrivateKey, pubHex, path string, body []byte, nonce string) (int, []byte, error) {
 	_, ts, sig := protocol.SignRequestNonce(key, http.MethodPost, path, body, nonce)
-	req, err := http.NewRequest(http.MethodPost, "https://"+addr+path, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, base+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
@@ -116,7 +121,7 @@ func towerPost(key ed25519.PrivateKey, pubHex, addr, fp, path string, body []byt
 	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 	req.Header.Set(protocol.HeaderSig, sig)
 	req.Header.Set(protocol.HeaderNonce, nonce)
-	resp, err := towerpin.Client(fp, timeout).Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return 0, nil, err
 	}

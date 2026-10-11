@@ -127,3 +127,32 @@ func TestTheConsoleShowsNoTowersWithoutTheOwnerHooks(t *testing.T) {
 	r2 := post(t, hs, srv.Token(), "/api/towers/invite", map[string]string{"dir": "/srv/lab"})
 	require.Equal(t, http.StatusNotFound, r2.StatusCode)
 }
+
+func TestTheConsoleAnswersTheEdgeAuthoritysRequestsToo(t *testing.T) {
+	var reached []string
+	shed := ownerjoin.Tower{Dir: "edge:authority", Label: "shed"}
+	h := &ownerjoin.Hooks{
+		Requests: func(t ownerjoin.Tower) ([]tower.PairRequest, error) {
+			return []tower.PairRequest{{ID: "e1", Name: "workshop", Phrase: "a-b-c-01"}}, nil
+		},
+		Decide: func(dir, id string, approve bool) error { reached = append(reached, dir+" "+id); return nil },
+		Edge:   func() (ownerjoin.Tower, bool) { return shed, true },
+	}
+	srv := New(testCtrl(), Options{Owner: h})
+	hs := httptest.NewServer(srv.Handler())
+	defer hs.Close()
+	resp, err := http.Get(hs.URL + "/api/towers?t=" + srv.Token())
+	require.NoError(t, err)
+	var v towersView
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&v))
+	resp.Body.Close()
+	require.Empty(t, v.Towers, "the Edge is not listed as a Tower")
+	require.Equal(t, "workshop wants to join · a-b-c-01", v.Requests[0].Ask)
+	require.Equal(t, "shed", v.Requests[0].Tower)
+
+	require.Equal(t, http.StatusOK, post(t, hs, srv.Token(), "/api/towers/decide", map[string]any{"dir": "edge:authority", "id": "e1", "approve": true}).StatusCode)
+	require.Equal(t, http.StatusNotFound, post(t, hs, srv.Token(), "/api/towers/decide", map[string]any{"dir": "/etc", "id": "e1", "approve": true}).StatusCode)
+	require.Equal(t, http.StatusNotFound, post(t, hs, srv.Token(), "/api/towers/invite", map[string]string{"dir": "edge:authority"}).StatusCode,
+		"answering a request there is not serving a Tower there")
+	require.Equal(t, []string{"edge:authority e1"}, reached)
+}

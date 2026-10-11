@@ -70,6 +70,9 @@ type Server struct {
 	pairRL   *rateLimiter
 	pairNow  func() time.Time
 	pairWait time.Duration
+	// A host that is not a Tower (NewPairing): the key its phrase covers and what an approval does.
+	pairKey   func() (string, error)
+	pairAdmit PairAdmit
 }
 
 // New builds a consumer plane over a standalone Tower's state.
@@ -156,6 +159,13 @@ const (
 // for nothing.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if s.st == nil {
+		// A pairing-only host (an Edge authority) serves the pairing and nothing a Tower serves.
+		mux.HandleFunc("/local/pair/start", s.pairStart)
+		mux.HandleFunc("/local/pair/reveal", s.pairReveal)
+		mux.HandleFunc("/local/pair/wait", s.pairWaitHandler)
+		return mux
+	}
 	mux.HandleFunc("/discover", s.discover)
 	mux.HandleFunc("/v1/models", s.models)
 	mux.HandleFunc("/v1/chat/completions", s.chatCompletions)

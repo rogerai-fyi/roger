@@ -75,7 +75,7 @@ func (m model) ownerPoll() tea.Cmd {
 			got.towers = h.Towers()
 		}
 		if h.Requests != nil {
-			for _, t := range got.towers {
+			for _, t := range h.Answering(got.towers) {
 				reqs, err := h.Requests(t)
 				if err != nil {
 					continue // a Tower that stopped between the two reads

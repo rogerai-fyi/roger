@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -24,6 +25,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/towercli"
 	"rogerai.fm/roger/v6/internal/towerpin"
@@ -60,6 +62,8 @@ type ownerScreens struct {
 	inv     joininvite.Invite
 	line    string
 	copied  tea.Cmd
+	edge    *edgeHost
+	root    string // the authority's root fingerprint
 }
 
 // screen is the TUI the owner has open, on [3] EDGE.
@@ -92,6 +96,39 @@ func (s *ownerScreens) press(key string) {
 	if cmd != nil {
 		s.m, _ = s.m.Update(cmd())
 	}
+}
+
+// edgeScreen is an Edge authority serving on this machine, with its TUI open on [3] EDGE: the TUI's
+// hooks wired to the authority the way the launch wires them (startEdge).
+func (s *ownerScreens) edgeScreen() error {
+	if out, code := edgeRun(s.t, "edge", "authority", "local", "shed"); code != 0 {
+		return fmt.Errorf("roger edge authority local said %s", out)
+	}
+	h, err := newEdgeHost("shed")
+	if err != nil {
+		return err
+	}
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil {
+		return err
+	}
+	s.root = local.Descriptor().Fingerprint
+	h.startAuthority()
+	s.t.Cleanup(h.closeListeners)
+	s.edge = h
+	hooks := tuiHooks(loadConfig())
+	h.wire(&hooks)
+	s.m = tui.NewWithHooks(loadConfig().Broker, "", nil, hooks)
+	s.m, _ = s.m.Update(tea.WindowSizeMsg{Width: 120, Height: 60})
+	s.m, _ = s.m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	s.refresh()
+	return nil
+}
+
+// edgeAddr is where the authority answers, on loopback.
+func (s *ownerScreens) edgeAddr() string {
+	_, port, _ := net.SplitHostPort(s.edge.authorityAddr())
+	return "127.0.0.1:" + port
 }
 
 func (s *ownerScreens) view() string { return ansi.Strip(s.m.View()) }
@@ -220,6 +257,42 @@ func TestJoinOwnerScreensBDD(t *testing.T) {
 			sc.Step(`^the client prints "joined the Tower lab" and one next step$`, func() error {
 				if out := s.out.String(); !strings.Contains(out, "joined the Tower lab") || !strings.Contains(out, "try: ") {
 					return fmt.Errorf("the client printed %q", out)
+				}
+				return nil
+			})
+
+			// --- an Edge authority approves -----------------------------------------------------
+			sc.Step(`^an Edge authority with its TUI open$`, s.edgeScreen)
+			sc.Step(`^a device runs "roger join <authority address>"$`, func() error {
+				asSecondMachine(s.t)
+				s.out, s.done = &liveBuf{}, make(chan error, 1)
+				go func() { s.done <- joinPairAt(s.out, s.edgeAddr(), "workshop", false) }()
+				for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+					if s.phrase() != "" {
+						return nil
+					}
+					select {
+					case err := <-s.done:
+						return fmt.Errorf("roger join <authority> ended before asking (%v): %s", err, s.out.String())
+					default:
+					}
+				}
+				return fmt.Errorf("the device never showed a phrase: %q", s.out.String())
+			})
+			sc.Step(`^the authority shows the device's request with a phrase$`, func() error {
+				s.refresh()
+				return s.has("workshop wants to join · " + s.phrase() + " · y approves, n refuses")
+			})
+			sc.Step(`^the device enrolls, and its root is the one the phrase covered$`, func() error {
+				id, _, ok, err := edgeIdentityStore().LoadIdentity()
+				if err != nil || !ok || id == nil {
+					return fmt.Errorf("no Edge identity was kept (%v): %s", err, s.out.String())
+				}
+				if got, want := edgeauth.RootFingerprint(id.Root), s.root; got != want {
+					return fmt.Errorf("kept root %s, the authority's is %s", got, want)
+				}
+				if !strings.Contains(s.out.String(), "asking shed to let you in") {
+					return fmt.Errorf("the device did not name the Edge it asked: %q", s.out.String())
 				}
 				return nil
 			})
@@ -374,7 +447,7 @@ func TestJoinOwnerScreensBDD(t *testing.T) {
 			})
 		},
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
-			Paths: []string{approveFeature + ":27", approveFeature + ":36", joinInviteFeature + ":84", joinInviteFeature + ":93",
+			Paths: []string{approveFeature + ":27", approveFeature + ":36", approveFeature + ":49", joinInviteFeature + ":84", joinInviteFeature + ":93",
 				surfacesFeature + ":39", surfacesFeature + ":44", surfacesFeature + ":49", towerIdentityFeature + ":26"}},
 	}
 	if bddrun.Run(suite) != 0 {

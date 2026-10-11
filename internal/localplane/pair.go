@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"slices"
@@ -69,6 +70,18 @@ type PairWaitBody struct {
 type PairWaitAnswer struct {
 	Status string     `json:"status"`
 	Answer JoinAnswer `json:"answer,omitempty"`
+}
+
+// PairAdmit is what approving a request does on a host that is not a Tower: the request (who
+// asked, as what), its key hash and its public key (hex). An error leaves the request waiting.
+type PairAdmit func(r tower.PairRequest, keyHash, pubHex string) (JoinAnswer, error)
+
+// NewPairing is request-and-approve alone, for a host that is not a Tower (an Edge authority,
+// approve.feature): label is its name in answers, key is the key the phrase covers (the one it
+// presents to a device), admit is what an approval does. Its Handler serves only the pairing.
+func NewPairing(label string, key func() (string, error), admit PairAdmit) *Server {
+	return &Server{label: label, pairKey: key, pairAdmit: admit,
+		replay: newReplayGuard(time.Now, replayWindow), logf: log.Printf}
 }
 
 type pairReq struct {
@@ -194,7 +207,11 @@ func (s *Server) pairReveal(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w)
 		return
 	}
-	fp, err := s.st.JoinFingerprint()
+	key := s.pairKey
+	if key == nil {
+		key = s.st.JoinFingerprint
+	}
+	fp, err := key()
 	if err != nil {
 		unauthorized(w)
 		return
@@ -303,6 +320,15 @@ func (s *Server) decide(id string, approve bool) error {
 		pr.status = "refused"
 		close(pr.done)
 		s.logf("refused the join request from %s", pr.view.Name)
+		return nil
+	}
+	if s.pairAdmit != nil {
+		ans, err := s.pairAdmit(pr.view, pr.keyHash, pr.pubHex)
+		if err != nil {
+			return err
+		}
+		pr.status, pr.answer = "approved", ans
+		close(pr.done)
 		return nil
 	}
 	res, err := s.st.AdmitPaired(pr.view.Kind, pr.view.Name, pr.keyHash, pr.view.Models)

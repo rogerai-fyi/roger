@@ -51,6 +51,20 @@ func (s *Server) servedTower(dir string) (ownerjoin.Tower, bool) {
 	return ownerjoin.Tower{}, false
 }
 
+// answering reports whether dir is a place this user answers join requests: a served Tower, or this
+// machine's Edge authority.
+func (s *Server) answering(dir string) bool {
+	if s.opts.Owner == nil {
+		return false
+	}
+	for _, t := range s.opts.Owner.Answering(s.ownerTowers()) {
+		if t.Dir == dir {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleTowers(w http.ResponseWriter, r *http.Request) {
 	v := towersView{Towers: []shownTower{}, Requests: []ownerjoin.Request{}, Pinned: []shownPinned{}}
 	h := s.opts.Owner
@@ -60,7 +74,7 @@ func (s *Server) handleTowers(w http.ResponseWriter, r *http.Request) {
 			v.Towers = append(v.Towers, shownTower{Tower: t, Line: ownerjoin.TowerLine(t)})
 		}
 		if h.Requests != nil {
-			for _, t := range towers {
+			for _, t := range h.Answering(towers) {
 				reqs, err := h.Requests(t)
 				if err != nil {
 					continue
@@ -140,7 +154,7 @@ func (s *Server) handleTowerDecide(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name the request to answer", http.StatusBadRequest)
 		return
 	}
-	if _, ok := s.servedTower(req.Dir); !ok || s.opts.Owner.Decide == nil {
+	if !s.answering(req.Dir) || s.opts.Owner.Decide == nil {
 		http.Error(w, "you are not serving that Tower", http.StatusNotFound)
 		return
 	}

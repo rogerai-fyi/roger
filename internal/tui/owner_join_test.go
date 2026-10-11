@@ -201,3 +201,25 @@ func TestARefreshWhilePollingDoesNotStartAnother(t *testing.T) {
 	_, cmd = tm.(model).Update(OwnerJoinRefresh{})
 	require.Nil(t, cmd, "one poll at a time")
 }
+
+func TestTheEdgeAuthoritysRequestIsACardLikeATowers(t *testing.T) {
+	f := &ownerFake{}
+	h := f.hooks()
+	h.Requests = func(t ownerjoin.Tower) ([]towerpkg.PairRequest, error) {
+		if t.Dir == "edge:authority" {
+			return []towerpkg.PairRequest{{ID: "e1", Name: "workshop", Phrase: "a-b-c-01"}}, nil
+		}
+		return nil, nil
+	}
+	h.Edge = func() (ownerjoin.Tower, bool) { return ownerjoin.Tower{Dir: "edge:authority", Label: "shed"}, true }
+	m := NewWithHooks("", "", nil, Hooks{Owner: h})
+	tm, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 60})
+	tm, cmd := tm.(model).Update(OwnerJoinRefresh{})
+	m = drive(t, tm.(model), cmd)
+	m.mode = modeEdge
+	require.Contains(t, stripANSI(m.View()), "workshop wants to join · a-b-c-01 · y approves, n refuses")
+	require.NotContains(t, stripANSI(m.ownerEdgeView(120)), "Tower shed", "the Edge is not listed among the Towers")
+	m, cmd = ownerKey(m, "y")
+	_ = drive(t, m, cmd)
+	require.Equal(t, []string{"edge:authority/e1/y"}, f.decided)
+}
