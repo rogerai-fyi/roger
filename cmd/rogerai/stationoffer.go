@@ -149,11 +149,20 @@ func stationChoose(found []detect.Found, explicit []string, out io.Writer) (offe
 			}
 		}
 	}
+	// One entry per model: several servers can list the same id, and it counts as an account
+	// proxy's if any of them is one.
 	var dropped []cand
+	at := map[string]int{}
 	for _, c := range others {
-		if !contains(offer, c.model) {
-			dropped = append(dropped, c)
+		if contains(offer, c.model) {
+			continue
 		}
+		if i, seen := at[c.model]; seen {
+			dropped[i].proxy = dropped[i].proxy || c.proxy
+			continue
+		}
+		at[c.model] = len(dropped)
+		dropped = append(dropped, c)
 	}
 	others = dropped
 	if len(others) == 0 {
