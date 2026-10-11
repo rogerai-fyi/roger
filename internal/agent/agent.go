@@ -65,6 +65,9 @@ type Config struct {
 	// StationModels says what this station serves right now, for a standalone Tower's poll (nil:
 	// the poll names nothing and the Tower keeps the list it attached).
 	StationModels func() []string
+	// StationUpstream routes a standalone Tower job's model to the local server that serves it, for
+	// a station that offers models from more than one server (nil or not ok: Upstream).
+	StationUpstream func(model string) (url, key string, ok bool)
 	// Station is the owner's persisted broadcast CALLSIGN (e.g. `brave-otter-37`) — the SAME one
 	// NodeID's first segment is derived from (ShareNodeID). Carried on the registration as the
 	// AUTHORITATIVE station the broker namespaces this node's public voices by, since the id's

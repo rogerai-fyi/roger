@@ -238,3 +238,60 @@ Feature: One invite, one paste, for Towers and Edge devices
     When the owner mints an invite and the client joins with it
     Then the join succeeds
     And no request goes to Roger Core or any public address
+
+  # =====================================================================================
+  # 6. WHAT A STATION OFFERS BY DEFAULT
+  # =====================================================================================
+  # founder ruling 2026-10-11: a station offers only roger-served models by default. Another
+  # detected local server is offered only when the station's owner picks it at a terminal or names
+  # it with --models. A local proxy to a paid or third-party account (a server listing hosted
+  # models such as claude, codex, grok or gemini) is offered ONLY when named with --models, never
+  # by default and never by a pick.
+
+  Scenario: By default a station offers only the models roger serves itself
+    Given this machine serves "smollm2-135m-instruct" with "roger model serve"
+    And another local server on this machine has "qwen3-8b" on air
+    When the station joins with a station invite, not at a terminal, without --models
+    Then the Tower attaches it serving only "smollm2-135m-instruct"
+    And the station prints "skipped 1 other model on this machine; name one with --models to offer it"
+    And the station does not print "qwen3-8b"
+
+  Scenario: At a terminal the station's owner picks other local servers to add
+    Given this machine serves "smollm2-135m-instruct" with "roger model serve"
+    And another local server on this machine has "qwen3-8b" on air
+    When the station joins with a station invite at a terminal and answers "1"
+    Then the station lists "1) qwen3-8b" before asking, with nothing selected
+    And the Tower attaches it serving "smollm2-135m-instruct" and "qwen3-8b"
+
+  Scenario: At a terminal, Enter adds nothing
+    Given this machine serves "smollm2-135m-instruct" with "roger model serve"
+    And another local server on this machine has "qwen3-8b" on air
+    When the station joins with a station invite at a terminal and answers ""
+    Then the Tower attaches it serving only "smollm2-135m-instruct"
+
+  Scenario: An account proxy is never offered by default or by a pick
+    Given this machine serves "smollm2-135m-instruct" with "roger model serve"
+    And a local proxy to hosted accounts on this machine has "claude" and "grok-4.5" on air
+    When the station joins with a station invite at a terminal and answers "1 2"
+    Then the station lists "claude (account proxy: name it with --models to offer)"
+    And the Tower attaches it serving only "smollm2-135m-instruct"
+
+  Scenario: --models is the explicit list, account proxies included, bounded by what is on air
+    Given this machine serves "smollm2-135m-instruct" with "roger model serve"
+    And a local proxy to hosted accounts on this machine has "claude" and "grok-4.5" on air
+    When the station joins with a station invite and --models "claude,not-here"
+    Then the Tower attaches it serving only "claude"
+    And the station prints "not on air here, not offered: not-here"
+
+  Scenario: A server named like a roger model is not roger-served
+    Given roger serves nothing on this machine
+    And another local server on this machine has "smollm2-135m-instruct" on air
+    When the station joins with a station invite, not at a terminal, without --models
+    Then the station prints "skipped 1 other model on this machine; name one with --models to offer it"
+    And the join stops with "nothing to offer this Tower" before contacting it, and the invite is not spent
+
+  Scenario: A station's later polls never add a model it did not choose
+    Given a station joined offering only "smollm2-135m-instruct"
+    And the server it shares from also lists "qwen3-8b" and "claude"
+    When the station's next poll reaches the Tower
+    Then the poll reports only "smollm2-135m-instruct"

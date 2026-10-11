@@ -35,7 +35,7 @@ import (
 // joinTimeout bounds one join attempt at one address.
 const joinTimeout = 10 * time.Second
 
-func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
+func joinTower(cfg config, in joininvite.Invite, pos, flags []string) ([]string, error) {
 	key := client.LoadOrCreateUserKey()
 	name := ""
 	if len(pos) > 0 {
@@ -47,7 +47,11 @@ func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
 	var models []string
 	if in.Kind == joininvite.TowerStation {
 		kind = "station"
-		models = joinStationModels()
+		explicit, _ := parseModelsFlag(flags)
+		var err error
+		if models, err = joinStationModels(explicit); err != nil {
+			return nil, err
+		}
 		// A Station polls the Tower with this machine's node key (agent.ServeLocalTower), so that
 		// is the key it joins with: the Tower attaches exactly the key that will poll.
 		key = agent.NodeKey()
@@ -57,15 +61,15 @@ func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
 	for _, addr := range in.Addrs {
 		ans, err := joinPost(key, pubHex, addr, in, kind, name, models)
 		if err == nil {
-			return joinRecord(os.Stdout, addr, in, ans, name)
+			return ans.Models, joinRecord(os.Stdout, addr, in, ans, name)
 		}
 		var refused *joinRefusal
 		if errors.As(err, &refused) {
-			return err // the Tower answered: another address would answer the same
+			return nil, err // the Tower answered: another address would answer the same
 		}
 		lastErr = err
 	}
-	return fmt.Errorf("can't reach %s (%v)\nis roger tower serve running there? Check this machine is on its network", strings.Join(in.Addrs, " or "), lastErr)
+	return nil, fmt.Errorf("can't reach %s (%v)\nis roger tower serve running there? Check this machine is on its network", strings.Join(in.Addrs, " or "), lastErr)
 }
 
 // joinRefusal is the Tower's own answer refusing the join.
@@ -169,7 +173,7 @@ func joinRecord(out io.Writer, addr string, in joininvite.Invite, ans localplane
 		}
 		fmt.Fprintf(out, "joined %s as a station, serving: %s\n", tower, strings.Join(ans.Models, ", "))
 		if len(ans.Refused) > 0 {
-			fmt.Fprintf(out, "the Tower does not accept: %s\n", strings.Join(ans.Refused, ", "))
+			fmt.Fprintln(out, refusedLine(ans.Refused))
 		}
 		fmt.Fprintln(out, "nothing else to do; it is serving")
 		return nil
@@ -190,19 +194,29 @@ func joinRecord(out io.Writer, addr string, in joininvite.Invite, ans localplane
 	return nil
 }
 
-// joinStationModels are the models this machine serves right now, from the same detection share
-// uses, so a Station never types its list by hand.
-func joinStationModels() []string {
+// joinStationModels are the models this machine offers as a station (stationoffer.go: roger's own
+// models by default, others only when picked at a terminal or named with --models), from the same
+// detection share uses, so a station never types its list by hand. The choice is saved, so the
+// station's later polls stay inside it. Nothing to offer stops the join before the Tower is
+// contacted, so the invite is not spent.
+func joinStationModels(explicit []string) ([]string, error) {
 	found, _ := detectFull()
-	var out []string
-	for _, f := range found {
-		for _, m := range f.Models {
-			if !contains(out, m) {
-				out = append(out, m)
-			}
-		}
+	offer, saved := stationChoose(found, explicit, os.Stdout)
+	if len(offer) == 0 {
+		return nil, fmt.Errorf("nothing to offer this Tower: roger serves no model here (start one with roger model serve, or name one with --models)")
 	}
-	return out
+	release, err := acquireConfigLock()
+	if err != nil {
+		return nil, err
+	}
+	c := loadConfig()
+	c.StationOffer = &saved
+	err = saveConfigLocked(c)
+	release()
+	if err != nil {
+		return nil, err
+	}
+	return offer, nil
 }
 
 // stationServingTTL is how long a station's view of what it serves is kept before it is read again.
@@ -213,10 +227,10 @@ var stationServingTTL = 30 * time.Second
 // starts from what the share already knew (picked: the detected server's models) and is refreshed
 // in the background from that one upstream at most every stationServingTTL, so a poll never waits
 // on a probe.
-func stationServing(upstream, key, model string, picked []string) func() []string {
+func stationServing(upstream, key, model string, picked []string, offer StationOffer) func() []string {
 	var mu sync.Mutex
 	at, refreshing := time.Now(), false
-	serving := withModel(model, picked)
+	serving := stationKeep(offer, upstream, withModel(model, picked))
 	base := strings.TrimSuffix(roggnode.NormalizeUpstream(upstream), "/chat/completions")
 	return func() []string {
 		mu.Lock()
@@ -228,7 +242,7 @@ func stationServing(upstream, key, model string, picked []string) func() []strin
 				mu.Lock()
 				defer mu.Unlock()
 				if st == detect.Reachable && len(f.Models) > 0 {
-					serving = withModel(model, f.Models)
+					serving = stationKeep(offer, upstream, withModel(model, f.Models))
 				}
 				at, refreshing = time.Now(), false
 			}()
@@ -254,10 +268,14 @@ func withModel(model string, others []string) []string {
 // joinThenShare starts this machine's share right after it joined a Tower as a station
 // (features/join/invite.feature, "the station starts serving the Tower right away"): the same LAN
 // share `roger share --tower <invite>` runs, until the operator stops it.
-func joinThenShare() error {
+func joinThenShare(models []string) error {
 	c := loadConfig() // the join recorded the Tower and its pin
 	c.lan.LAN, c.lan.Source = true, lanmode.SrcFlag
-	return cmdShare(c, nil)
+	var args []string
+	if len(models) > 0 {
+		args = []string{models[0]} // share the server that serves what this station offers
+	}
+	return cmdShare(c, args)
 }
 
 // shareTowerInvite is `roger share --tower <invite>` (features/join/invite.feature): the same join
@@ -294,7 +312,7 @@ func shareTowerInvite(cfg *config, args []string) ([]string, error) {
 	if in.Kind != joininvite.TowerStation {
 		return nil, fmt.Errorf("share needs a station invite: ask the Tower's owner for one (roger tower invite --station)")
 	}
-	if err := joinTower(*cfg, in, nil, nil); err != nil {
+	if _, err := joinTower(*cfg, in, nil, nil); err != nil {
 		return nil, err
 	}
 	saved := loadConfig() // the join recorded the Tower and its pin

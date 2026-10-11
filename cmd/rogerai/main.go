@@ -162,6 +162,9 @@ type config struct {
 	// LanTowerPins is each joined Tower's identity fingerprint (SHA-256 of its TLS key, 64 hex),
 	// keyed by its lan_towers address (features/join/tower_identity.feature).
 	LanTowerPins map[string]string `json:"lan_tower_pins,omitempty"`
+	// StationOffer is what this machine chose to offer Towers as a station (stationoffer.go):
+	// models roger serves are always offered; others only when picked or named with --models.
+	StationOffer *StationOffer `json:"station_offer,omitempty"`
 	// LanTowerPinFirstUse marks the pins taken on first contact after the upgrade (a Tower added
 	// before joins were by invite), so the record says where each pin came from.
 	LanTowerPinFirstUse map[string]bool `json:"lan_tower_pins_first_use,omitempty"`
@@ -1805,7 +1808,10 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// does the TUI's, explicit flags winning.
 	applyShareVoice(cfg, mdl, &cfgRun)
 	// A standalone Tower's poll says what this station serves now (features/join/invite.feature).
-	cfgRun.StationModels = stationServing(up, *upKey, mdl, pickedModels)
+	cfgRun.StationModels = stationServing(up, *upKey, mdl, pickedModels, cfg.StationOffer.orZero())
+	if cfg.lan.LAN && cfg.StationOffer != nil {
+		withStationRoutes(&cfgRun, stationRoutes(*cfg.StationOffer, up))
+	}
 
 	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
 	// share serves to the share's own upstream, and `roger --lan say` speaks through a voice it

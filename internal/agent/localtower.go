@@ -102,13 +102,32 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 			}
 			continue
 		}
+		jcfg := cfg.forJob([]byte(job.Request))
 		if job.Stream {
-			runLocalStream(ctx, execClient, towerClient, cfg, priv, job)
+			runLocalStream(ctx, execClient, towerClient, jcfg, priv, job)
 			continue
 		}
-		answer := runLocalJob(execClient, cfg, job.Request)
+		answer := runLocalJob(execClient, jcfg, job.Request)
 		completeLocalJob(towerClient, cfg.Broker, priv, job.ID, answer)
 	}
+}
+
+// forJob is cfg aimed at the local server that serves the job's model, when the station routes
+// that model elsewhere (StationUpstream); otherwise cfg unchanged.
+func (cfg Config) forJob(request []byte) Config {
+	if cfg.StationUpstream == nil {
+		return cfg
+	}
+	var head struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(request, &head) != nil || head.Model == "" {
+		return cfg
+	}
+	if url, key, ok := cfg.StationUpstream(head.Model); ok {
+		cfg.Upstream, cfg.UpstreamKey, cfg.Osaurus = url, key, false
+	}
+	return cfg
 }
 
 // errNotAttached is a poll the Tower refused: it has not attached this station's key.

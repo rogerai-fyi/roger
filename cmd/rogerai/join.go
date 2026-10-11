@@ -17,12 +17,14 @@ import (
 
 const joinUsage = "usage: roger join <invite>    join with the invite the owner printed (roger tower invite, roger edge invite)\n" +
 	"   or: roger join <address>   ask the Tower there to let you in; the owner approves on their screen\n" +
-	"       [name] names this machine; --station joins it as a station"
+	"       [name] names this machine; --station joins it as a station; --models a,b is what a station offers\n" +
+	"       (default: the models roger serves here; at a terminal you can pick others)"
 
 // joinResolve resolves an invite's hostnames (nil: the system resolver); a test replaces it.
 var joinResolve lanmode.Resolver
 
 func cmdJoin(cfg config, args []string) error {
+	explicit, args := parseModelsFlag(args)
 	var pos, rest []string
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
@@ -63,7 +65,7 @@ func cmdJoin(cfg config, args []string) error {
 		for _, f := range rest {
 			station = station || f == "--station"
 		}
-		return joinPairAt(os.Stdout, pos[0], name, station)
+		return joinPairAt(os.Stdout, pos[0], name, station, explicit...)
 	}
 	// An invite whose addresses are not local is refused before any connection.
 	// A name is resolved ONCE and the join connects to the address that lookup approved, never to
@@ -94,11 +96,15 @@ func cmdJoin(cfg config, args []string) error {
 		ea = append(ea, "--invite", in.String())
 		return edgeEnrollCmd(cfg, append(ea, rest...), true)
 	}
-	if err := joinTower(cfg, in, pos[1:], rest); err != nil {
+	if len(explicit) > 0 {
+		rest = append(rest, "--models", strings.Join(explicit, ","))
+	}
+	offered, err := joinTower(cfg, in, pos[1:], rest)
+	if err != nil {
 		return err
 	}
 	if in.Kind == joininvite.TowerStation {
-		return joinThenShare()
+		return joinThenShare(offered)
 	}
 	return nil
 }

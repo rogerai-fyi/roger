@@ -324,7 +324,7 @@ func TestJoinOwnerScreensBDD(t *testing.T) {
 			})
 			sc.Step(`^when the invite is used it shows "<name> joined" in place$`, func() error {
 				in, _ := joininvite.Parse(joininvite.FromLine(s.line))
-				if err := joinTower(loadConfig(), in, []string{"laptop-x"}, nil); err != nil {
+				if _, err := joinTower(loadConfig(), in, []string{"laptop-x"}, nil); err != nil {
 					return err
 				}
 				s.refresh()

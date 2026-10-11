@@ -43,7 +43,7 @@ type pairPeer struct {
 
 // joinPairAt asks the Tower at addr to let this machine in, as a client or (station) a Station; an
 // Edge authority at addr enrolls this machine instead.
-func joinPairAt(out io.Writer, addr, name string, station bool) error {
+func joinPairAt(out io.Writer, addr, name string, station bool, explicit ...string) error {
 	fp, err := towerpin.Fetch(addr, joinTimeout)
 	if err != nil {
 		if root := edgeRootAt("http://" + addr); root != nil {
@@ -56,7 +56,10 @@ func joinPairAt(out io.Writer, addr, name string, station bool) error {
 	}
 	key, kind, models := client.LoadOrCreateUserKey(), "client", []string(nil)
 	if station {
-		key, kind, models = agent.NodeKey(), "station", joinStationModels()
+		key, kind = agent.NodeKey(), "station"
+		if models, err = joinStationModels(explicit); err != nil {
+			return err
+		}
 	}
 	pubHex := hex.EncodeToString(key.Public().(ed25519.PublicKey))
 	peer := pairPeer{called: "the Tower at " + addr, key: fp,

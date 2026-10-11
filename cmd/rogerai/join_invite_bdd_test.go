@@ -87,6 +87,13 @@ func (s *joinInviteBDD) reset() {
 	os.Unsetenv("NO_COLOR")
 	s.out, s.err, s.invites, s.ids, s.refused, s.stationM = "", nil, nil, nil, nil, nil
 	s.edgeInv, s.edgeOut, s.edgeCode = "", "", 0
+	// The fixture's models (fakeDetect, fakeDetectAt) are ones roger serves itself, which a
+	// station offers by default (founder ruling 2026-10-11, stationoffer.go), and the join never
+	// runs at a terminal here.
+	prevServed, prevTTY := rogerServedBases, stationInteractive
+	rogerServedBases = func() []string { return []string{"http://127.0.0.1:1/v1"} }
+	stationInteractive = func() bool { return false }
+	s.t.Cleanup(func() { rogerServedBases, stationInteractive = prevServed, prevTTY })
 }
 
 // towerCLI runs `roger tower <args>` against the fixture's data directory.
@@ -942,7 +949,7 @@ func mustFP(st *tower.State) string {
 // fakeDetect stands in for this machine's model servers: it reports the given models.
 func fakeDetect(models ...string) func(...string) ([]detect.Found, []string) {
 	return func(...string) ([]detect.Found, []string) {
-		return []detect.Found{{Name: "fixture", Models: models}}, nil
+		return []detect.Found{{Name: "fixture", BaseURL: "http://127.0.0.1:1/v1", Models: models}}, nil
 	}
 }
 
