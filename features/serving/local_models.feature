@@ -577,11 +577,13 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     Then it is a row of the SHARE list with its bytes, rate and time left
     And it becomes an on-disk row when it is fetched and checked
 
+  # superseded 2026-10-11 by founder ruling (short names nearby): choosing the row opens what is
+  # served nearby that fits, or the search when nothing nearby fits (models/short_names_nearby.feature).
   @tui @web
   Scenario: getting a model is always the last row of SHARE, and visibly so
     Then the SHARE list always ends with a row to get a model that fits this machine, stating the
       machine's memory
-    And choosing it opens the search and the fit view inside SHARE, not a separate tab
+    And choosing it opens the bands served nearby that fit this machine, each with its source, or the search when nothing nearby fits; the search is one keystroke away inside SHARE, not a separate tab
     And when nothing at all was detected, getting a model is the first option offered
 
   @web

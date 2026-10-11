@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-11 (revised: nearby, awaiting founder approval)
+# STATUS: APPROVED 2026-10-11 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # SHORT NAMES COME FROM WHAT IS SERVED NEARBY, AND FALL BACK TO THE MODEL HUB - slice 1 of the
@@ -52,7 +52,7 @@
 # DECISIONS FOR THE FOUNDER
 # =============================================================================================
 #
-# DECISION 1 (which sources may DEFINE a name-to-file mapping). A mapping decides which bytes get
+# RULED 2026-10-11, DECISION 1 (as recommended) (which sources may DEFINE a name-to-file mapping). A mapping decides which bytes get
 #   fetched, so it is a trust question:
 #     - this machine's own serve records: yes, they are the owner's;
 #     - Edge members: yes, they are proven the owner's (member certificates under the owner's root);
@@ -63,31 +63,31 @@
 #   SHOWN for discovery ("also on the market") but NEVER used to pick a file. A Tower-sourced
 #   mapping is labelled as that station's word, never as the owner's.
 #
-# DECISION 2 (do market bands count as "nearby" names at all). RECOMMEND: they appear in suggestions
+# RULED 2026-10-11, DECISION 2 (as recommended) (do market bands count as "nearby" names at all). RECOMMEND: they appear in suggestions
 #   only as names, marked "on the market", and choosing one goes to the hub fallback (section 6) to
 #   find the file, never to the market station's claim.
 #
-# DECISION 3 (the order when a name is both nearby and on the hub). RECOMMEND: nearby first (it is
+# RULED 2026-10-11, DECISION 3 (as recommended) (the order when a name is both nearby and on the hub). RECOMMEND: nearby first (it is
 #   what the owner's own machines already run), the hub only when nothing nearby serves the name or
 #   the owner asks for it (`--hub`).
 #
-# DECISION 4 (the hub fallback's ranking, for a name and for no name). RECOMMEND: GGUF repositories
+# RULED 2026-10-11, DECISION 4 (as recommended) (the hub fallback's ranking, for a name and for no name). RECOMMEND: GGUF repositories
 #   matching the words, that have a file which fits this machine by the existing rule, ordered by the
 #   hub's own download count, top 3 shown. The rule is stated in the output. For no name: the 3
 #   most-downloaded chat GGUFs with a file that fits comfortably.
 #
-# DECISION 5 (an Edge member handing the file over directly, LATER slice). Today every fetch goes to
+# RULED 2026-10-11, DECISION 5 (as recommended) (an Edge member handing the file over directly, LATER slice). Today every fetch goes to
 #   the hub, so an airgapped LAN can discover a name but not fetch the file. A member could serve its
 #   verified file to another member over the existing mTLS face. RECOMMEND a later slice: digest-
 #   verified, members only, never from a Tower or the market.
 #
-# DECISION 6 (the run verb, LATER slice, noted only): `roger run <name>` recommended; nothing here
+# RULED 2026-10-11, DECISION 6 (as recommended) (the run verb, LATER slice, noted only): `roger run <name>` recommended; nothing here
 #   depends on it.
 #
-# DECISION 7 (quiet output, NEXT slice, noted only): four lines with the total kept, full sum behind
+# RULED 2026-10-11, DECISION 7 (as recommended) (quiet output, NEXT slice, noted only): four lines with the total kept, full sum behind
 #   --verbose, re-approving local_models.feature:363. This file asserts FACTS, never line counts.
 #
-# DECISION 8 (station invite names the model, LATER slice, noted only): `--serve <name>` recommended.
+# RULED 2026-10-11, DECISION 8 (as recommended) (station invite names the model, LATER slice, noted only): `--serve <name>` recommended.
 #
 # =============================================================================================
 # APPROVED SCENARIOS THIS WOULD SUPERSEDE (not edited here; proposed text in brackets)
