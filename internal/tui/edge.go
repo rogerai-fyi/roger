@@ -723,12 +723,11 @@ func (m *model) edgeAddAgent() tea.Cmd {
 // edgeShowAddDevice puts the exact command another machine runs to join on the status line - the
 // "Add Device" button. Adding a device is the other machine's action, so this is what to hand it.
 func (m *model) edgeShowAddDevice() {
-	line := "roger edge setup"
+	line, next := "roger edge setup", "  (it joins interactively)"
 	if st := m.edge.status; st != nil {
-		line = st.EnrollAgainstLine()
+		line, next = st.JoinAgainstLine(), "  then approve it here with y"
 	}
-	m.status = stKey.Render("on the other machine, run: ") + stEmber.Render(line) +
-		stDim.Render("  (or roger edge setup to join interactively)")
+	m.status = stKey.Render("on the other machine, run: ") + stEmber.Render(line) + stDim.Render(next)
 }
 
 // edgeStartRename opens the inline rename prompt for the SELECTED node - a member device (EdgeName)

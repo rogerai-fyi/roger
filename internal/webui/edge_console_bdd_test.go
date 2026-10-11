@@ -753,7 +753,7 @@ func (s *consoleEdgeBDD) panelSaysDrawsOnlySeen() error {
 	return s.htmlHas("empty state", "draws only what it has seen")
 }
 func (s *consoleEdgeBDD) panelSaysHowToAdd() error {
-	return s.htmlHas("empty state", "run RogerAI on another machine on this network", "adopt")
+	return s.htmlHas("empty state", "roger edge invite", "roger join &lt;invite&gt;", "roger join &lt;address&gt;", "approve its request")
 }
 
 func (s *consoleEdgeBDD) labelClipped() error { return s.jsHas("clipped label", `edgeClip\(`) }
@@ -1291,7 +1291,7 @@ func (st *consoleEdgeBDD) init(sc *godog.ScenarioContext) {
 	sc.Step(`^this instance is the only node$`, st.onlyNode)
 	sc.Step(`^the panel says this instance is the only node on the Edge$`, st.panelSaysOnlyNode)
 	sc.Step(`^it says the screen draws only what it has seen$`, st.panelSaysDrawsOnlySeen)
-	sc.Step(`^it says how to add a node: run RogerAI on another machine on this network, and adopt it$`, st.panelSaysHowToAdd)
+	sc.Step(`^it says how to add a node: roger edge invite and roger join, or roger join <address> and approve$`, st.panelSaysHowToAdd)
 	sc.Step(`^a node label is clipped to its cell$`, st.labelClipped)
 	sc.Step(`^the full name is still available on the node$`, st.fullNameAvailable)
 	// 4. the animation
@@ -1431,7 +1431,7 @@ func (s *consoleEdgeBDD) fillsFromStatus() error {
 }
 
 func (s *consoleEdgeBDD) bothWays() error {
-	if err := s.htmlHas("both ways", "run RogerAI on another machine on this network", "adopt"); err != nil {
+	if err := s.htmlHas("both ways", "roger edge invite", "roger join &lt;invite&gt;", "approve its request"); err != nil {
 		return err
 	}
 	return s.jsHas("enroll-against line", `edge-fact-enroll`, `enroll_against`)

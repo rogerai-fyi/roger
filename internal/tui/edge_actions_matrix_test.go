@@ -174,7 +174,8 @@ func TestEdgeAgentRoleToggleAndAdd(t *testing.T) {
 func TestEdgeAddDeviceHandsOverTheJoinCommand(t *testing.T) {
 	m := edgeActionsRig(t)
 	got := edgePress(m, "s")
-	require.Contains(t, statusOf(got), "on the other machine, run: roger edge enroll <name> --authority http://192.168.1.9:8791")
+	require.Contains(t, statusOf(got), "on the other machine, run: roger join http://192.168.1.9:8791")
+	require.Contains(t, statusOf(got), "approve it here with y")
 }
 
 func TestEdgeAllowMachineShowsThisMachinesKey(t *testing.T) {

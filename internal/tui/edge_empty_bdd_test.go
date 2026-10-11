@@ -330,20 +330,23 @@ func (s *emptyEdgeBDD) noAgeShown() error {
 	return nil
 }
 
-func (s *emptyEdgeBDD) addNodeLAN() error {
+func (s *emptyEdgeBDD) addNodeInvite(mint, paste string) error {
 	f, err := s.factLine("ADD A NODE")
 	if err != nil {
 		return err
 	}
-	return contains(f, "run RogerAI on another machine on this network", "CANDIDATE", "a adopts it")
+	if strings.Contains(f, "roger edge enroll") || strings.Contains(f, "adopts") {
+		return fmt.Errorf("ADD A NODE still names the old flow: %q", f)
+	}
+	return contains(f, mint, paste)
 }
 
-func (s *emptyEdgeBDD) addNodeEnroll() error {
+func (s *emptyEdgeBDD) addNodeAsk(join string) error {
 	f, err := s.factLine("ADD A NODE")
 	if err != nil {
 		return err
 	}
-	return contains(f, "enroll", "--authority")
+	return contains(f, strings.TrimSuffix(join, " <address>"), "approve", " y")
 }
 
 func (s *emptyEdgeBDD) notOnlyNode() error {
@@ -460,8 +463,8 @@ func TestEmptyEdgeFeatureTUI(t *testing.T) {
 			sc.Step(`^it does not claim to be scanning$`, st.notScanning)
 			sc.Step(`^under DISCOVERY it says it is scanning and that no pass has completed yet$`, st.noPassYet)
 			sc.Step(`^no age is shown for a pass that never happened$`, st.noAgeShown)
-			sc.Step(`^under ADD A NODE it names running RogerAI on another machine on this network, adopted with a$`, st.addNodeLAN)
-			sc.Step(`^it names enrolling another machine against this Edge's authority$`, st.addNodeEnroll)
+			sc.Step(`^under ADD A NODE it names an invite from "([^"]*)" pasted on the other machine as "([^"]*)"$`, st.addNodeInvite)
+			sc.Step(`^it names the other machine running "([^"]*)" and the owner approving with y$`, st.addNodeAsk)
 			sc.Step(`^it does not say this machine is the only node$`, st.notOnlyNode)
 			sc.Step(`^it says the Edge host did not start this run and that the log says why$`, st.hostNotStartedSaid)
 			sc.Step(`^it says the status could not be read, with the reason$`, st.statusUnread)

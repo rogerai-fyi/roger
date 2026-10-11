@@ -1002,7 +1002,7 @@ func cmdEdgeList(cfg config, args []string) error {
 		fmt.Println("  find the others on this network:  roger edge scan")
 		fmt.Println("  then take one into the fleet:     roger edge adopt <node>")
 		fmt.Println("  or enroll another machine against this Edge's authority:")
-		fmt.Println("                                    " + self.EnrollAgainstLine())
+		fmt.Println("                                    " + self.JoinAgainstLine())
 		// The interactive way in - the same wizard the TUI opens on `e` (onboard.feature).
 		// It points here rather than replacing the named commands above, which stay for
 		// scripts and for anyone who prefers them.

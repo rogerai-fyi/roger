@@ -12,7 +12,6 @@ package edge
 // Spec: features/edge/empty_edge.feature.
 
 import (
-	"fmt"
 	"strconv"
 	"time"
 )
@@ -208,14 +207,15 @@ func (s SelfStatus) DiscoveryLine(now time.Time) string {
 	return out
 }
 
-// EnrollAgainstLine is the second way to add a node: another machine enrolling against
-// this Edge's authority. It carries this machine's own address when it is the authority.
-func (s SelfStatus) EnrollAgainstLine() string {
+// JoinAgainstLine is the second way to add a node: another machine asking this Edge's authority
+// to join (roger join <address>), approved there. It carries this machine's own address when it
+// is the authority.
+func (s SelfStatus) JoinAgainstLine() string {
 	addr := "<address>"
 	if s.AuthorityHere && s.AuthorityAddr != "" {
 		addr = s.AuthorityAddr
 	}
-	return fmt.Sprintf("roger edge enroll <name> --authority %s", addr)
+	return "roger join " + addr
 }
 
 // SetupConsoleLine is what the console says about the interactive wizard: it is a terminal
@@ -225,12 +225,16 @@ func (s SelfStatus) SetupConsoleLine() string {
 	return "Setting up the Edge is done from the terminal for now: run roger edge setup there."
 }
 
-// AddNodeLines names BOTH ways to add a node, in the terminal's voice (the console words
-// the first line itself, since its adopt is a button rather than a key).
+// AddNodeLines names BOTH ways to add a node, in the terminal's voice: the one-paste invite,
+// and asking to join and being approved here (features/join, simple join 2026-10-11).
 func (s SelfStatus) AddNodeLines() []string {
+	where := "on this Edge's authority"
+	if s.AuthorityHere {
+		where = "here"
+	}
 	return []string{
-		"run RogerAI on another machine on this network; it appears here as a CANDIDATE, and a adopts it onto your Edge",
-		"or enroll it against this Edge's authority: " + s.EnrollAgainstLine(),
+		"run roger edge invite " + where + ", then paste the line it prints on the other machine: roger join <invite>",
+		"or on the other machine run " + s.JoinAgainstLine() + " and approve its request here with y",
 	}
 }
 

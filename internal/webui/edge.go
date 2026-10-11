@@ -666,7 +666,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		snap.SelfStatus = &st
 		if st.Err == "" {
 			snap.Facts = &edgeFacts{Root: st.RootBadge(), Prefer: st.PreferBadge(), Machine: st.MachineLine(), Authority: st.AuthorityLines(),
-				Discovery: st.DiscoveryLine(now), EnrollAgainst: st.EnrollAgainstLine()}
+				Discovery: st.DiscoveryLine(now), EnrollAgainst: st.JoinAgainstLine()}
 			if !st.Enrolled {
 				snap.Facts.Setup = st.SetupConsoleLine()
 			}

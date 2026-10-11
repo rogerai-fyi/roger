@@ -107,7 +107,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		Authority: "authority · " + edgeAuthorityWord(self), AuthorityLines: self.AuthorityLines(), Machine: self.MachineLine(),
 		Discovery: self.DiscoveryLine(now), Enrolled: self.Enrolled}}
 	if self.AuthorityHere && self.AuthorityAddr != "" {
-		snap.Self.Join = self.EnrollAgainstLine()
+		snap.Self.Join = self.JoinAgainstLine()
 	}
 	// The same name the TUI map gives this box, never the id it enrolled under.
 	snap.Self.Name = edge.SelfLabel(self.Name, edgeStationName())

@@ -103,14 +103,16 @@ func TestSelfStatusDiscoveryLine(t *testing.T) {
 func TestSelfStatusAddNode(t *testing.T) {
 	fresh := SelfStatus{Authority: "Core"}
 	lines := strings.Join(fresh.AddNodeLines(), "\n")
-	require.Contains(t, lines, "run RogerAI on another machine on this network")
-	require.Contains(t, lines, "CANDIDATE")
-	require.Contains(t, lines, "a adopts it")
-	require.Contains(t, lines, "roger edge enroll <name> --authority <address>")
+	require.Contains(t, lines, "run roger edge invite on this Edge's authority")
+	require.Contains(t, lines, "roger join <invite>")
+	require.Contains(t, lines, "roger join <address> and approve its request here with y")
+	require.NotContains(t, lines, "roger edge enroll")
 
 	here := SelfStatus{Authority: "shed", AuthorityLocal: true, AuthorityHere: true, AuthorityAddr: "http://192.168.1.10:8791"}
-	require.Equal(t, "roger edge enroll <name> --authority http://192.168.1.10:8791", here.EnrollAgainstLine())
-	require.Contains(t, strings.Join(here.AddNodeLines(), "\n"), "--authority http://192.168.1.10:8791")
+	require.Equal(t, "roger join http://192.168.1.10:8791", here.JoinAgainstLine())
+	hereLines := strings.Join(here.AddNodeLines(), "\n")
+	require.Contains(t, hereLines, "run roger edge invite here")
+	require.Contains(t, hereLines, "roger join http://192.168.1.10:8791")
 }
 
 func TestPassSummary(t *testing.T) {

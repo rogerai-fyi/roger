@@ -742,7 +742,7 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 			wrap("AUTHORITY", ln)
 		}
 		if st.AuthorityHere && st.AuthorityAddr != "" {
-			wrap("JOIN", "another machine runs  "+st.EnrollAgainstLine())
+			wrap("JOIN", "another machine runs  "+st.JoinAgainstLine())
 		}
 		wrap("DISCOVERY", st.DiscoveryLine(m.edge.at))
 		edgeAlertLabels(it, label)

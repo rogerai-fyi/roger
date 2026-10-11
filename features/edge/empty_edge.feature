@@ -108,18 +108,21 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
   # 2. TWO WAYS TO ADD A NODE
   # =========================================================================
 
+  # superseded 2026-10-11 by founder ruling (simple join): ADD A NODE names the one-paste
+  # invite and the ask-and-approve join, not adopt and `roger edge enroll`.
   @tui
   Scenario: both ways to add a node are named
     Given a machine that is not enrolled, not logged in, rooted at Core, scanning its network
     When the Edge screen renders at 100 columns
-    Then under ADD A NODE it names running RogerAI on another machine on this network, adopted with a
-    And it names enrolling another machine against this Edge's authority
+    Then under ADD A NODE it names an invite from "roger edge invite" pasted on the other machine as "roger join <invite>"
+    And it names the other machine running "roger join <address>" and the owner approving with y
 
+  # superseded 2026-10-11 by founder ruling (simple join): the hint is `roger join <address>`.
   @tui
   Scenario: the enroll-against hint carries this machine's address when it is the authority
     Given a machine that is the local authority "shed" reachable at "http://192.168.1.10:8791"
     When the Edge screen renders at 100 columns
-    Then it names "roger edge enroll <name> --authority http://192.168.1.10:8791"
+    Then it names "roger join http://192.168.1.10:8791"
 
   # =========================================================================
   # 3. AN UNREAD EDGE IS NOT AN EMPTY ONE

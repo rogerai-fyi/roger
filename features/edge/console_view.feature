@@ -166,7 +166,9 @@ Feature: The console's EDGE tab draws the owner's fleet and its live sessions, a
     When the console shell is served
     Then the panel says this instance is the only node on the Edge
     And it says the screen draws only what it has seen
-    And it says how to add a node: run RogerAI on another machine on this network, and adopt it
+    # superseded 2026-10-11 by founder ruling (simple join): a node is added with an invite or by
+    # asking to join and being approved, not by adopting a candidate.
+    And it says how to add a node: roger edge invite and roger join, or roger join <address> and approve
 
   Scenario: a long node name never breaks the drawing
     When the console shell is served

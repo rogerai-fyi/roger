@@ -511,7 +511,7 @@ func (m model) edgeNetworkMap(w, cw int, line func(string)) {
 	}
 	// Onboarding: the enroll command another MACHINE runs, then the three facts in full.
 	if st.AuthorityHere && st.AuthorityAddr != "" {
-		line("  " + edgeSetupCenter(stDim.Render("another machine joins with  ")+stEmber.Render(st.EnrollAgainstLine()), cw))
+		line("  " + edgeSetupCenter(stDim.Render("another machine joins with  ")+stEmber.Render(st.JoinAgainstLine()), cw))
 		line("")
 	}
 	fact := func(label string, lines ...string) {

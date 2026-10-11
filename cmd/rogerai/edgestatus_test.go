@@ -68,7 +68,7 @@ func TestEdgeSelfStatusLocalAuthorityHereAndEnrolled(t *testing.T) {
 	require.Equal(t, "shed", st.Authority)
 	require.Equal(t, "http://192.168.1.10:8791", st.AuthorityAddr)
 	require.Equal(t, 1, st.Allowed, "designating admits this machine's own user key")
-	require.Equal(t, "roger edge enroll <name> --authority http://192.168.1.10:8791", st.EnrollAgainstLine())
+	require.Equal(t, "roger join http://192.168.1.10:8791", st.JoinAgainstLine())
 
 	runEdgeCLI(t, "edge", "authority", "allow", strings.Repeat("ab", 32))
 	require.Equal(t, 2, edgeSelfStatus(nil, edgeDiscoveryFacts{Enabled: true}).Allowed)
