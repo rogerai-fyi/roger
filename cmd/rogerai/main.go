@@ -1570,6 +1570,9 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// public market (marketconsent.go). autoFrom is the server it came from.
 	var autoPicked bool
 	var autoFrom detect.Found
+	// persistUpstream remembers the detected server for next launch. It runs only once the share is
+	// going ahead: a model the operator declined to put on the market leaves nothing behind.
+	persistUpstream := func() {}
 	if up == "" {
 		// Saved keyed upstream: try it WITH its key first (the broad DetectFull scan does
 		// not carry the saved key), so a custom keyed endpoint is reused without a re-prompt.
@@ -1648,15 +1651,18 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		// guided-fallback / key-protected endpoint is not re-hunted or re-prompted next
 		// launch (the (e) saved-config source).
 		if shouldPersistShareUpstream(foundModality, pick.BaseURL, savedUp, *upKey, cfg.Share) {
-			c := loadConfig()
-			if c.Share == nil {
-				c.Share = &Share{}
+			base, key := pick.BaseURL, *upKey
+			persistUpstream = func() {
+				c := loadConfig()
+				if c.Share == nil {
+					c.Share = &Share{}
+				}
+				if base != "" {
+					c.Share.Upstream = base
+				}
+				c.Share.UpstreamKey = key
+				_ = saveConfig(c)
 			}
-			if pick.BaseURL != "" {
-				c.Share.Upstream = pick.BaseURL
-			}
-			c.Share.UpstreamKey = *upKey
-			_ = saveConfig(c)
 		}
 	} else if *upKey == "" {
 		// Explicit --upstream with no key resolved: best-effort harvest a working key
@@ -1839,6 +1845,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// fabric, no on-air lock, no login. The node polls the Tower and serves its stations for
 	// free, and returns here only when the operator stops it.
 	if cfg.lan.LAN {
+		persistUpstream() // not the public market: nothing here waits on a market yes
 		return shareLAN(cfg, cfgRun, station, mdl, os.Stdout)
 	}
 	// The broker this share runs against is --broker's when given (cfgRun.Broker), not only the
@@ -1850,6 +1857,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		if cfgRun.Upstream == "" {
 			return fmt.Errorf("no local model found to serve: pass --upstream http://127.0.0.1:PORT/v1/chat/completions")
 		}
+		persistUpstream()
 		serveBrokerTower(cfg, cfgRun, base, os.Stdout)
 		fmt.Fprintln(os.Stdout, "\nstopped serving the local network.")
 		return nil
@@ -1864,6 +1872,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 			return err
 		}
 	}
+	persistUpstream()
 
 	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`
 	// already on air for THIS node id and bow out, rather than double-registering it

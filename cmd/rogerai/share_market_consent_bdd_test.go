@@ -138,6 +138,12 @@ func TestShareMarketConsentBDD(t *testing.T) {
 				}
 				return nil
 			})
+			sc.Step(`^the server it found was not saved as the one to share$`, func() error {
+				if c := loadConfig(); c.Share != nil && c.Share.Upstream != "" {
+					return fmt.Errorf("the declined server was saved as %q", c.Share.Upstream)
+				}
+				return nil
+			})
 			sc.Step(`^roger did not ask anything$`, func() error {
 				if strings.Contains(s.out, "[y/N]") {
 					return fmt.Errorf("roger asked:\n%s", s.out)

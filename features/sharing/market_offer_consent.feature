@@ -72,3 +72,10 @@ Feature: Nothing auto-detected goes on the public market without a yes
     Given a local server on this machine has "qwen3-8b" on air
     When the operator runs "roger share --private" with no terminal
     Then roger did not ask anything
+
+  # founder ruling 2026-10-11: confirm before offering on the market (nothing is kept before a yes)
+  Scenario: Answering no keeps nothing, not even the server it found
+    Given a local server on this machine has "qwen3-8b" on air
+    When the operator runs "roger share" at a terminal and answers "n"
+    Then nothing went on air
+    And the server it found was not saved as the one to share
