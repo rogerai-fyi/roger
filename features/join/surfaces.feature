@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT. Every scenario runs: TestJoinSurfacesBDD (the CLI table, the not-admitted hint, no key or id to carry, the QR, join --help) and TestJoinOwnerScreensBDD (the TUI invite and request panels, the console wording).
 #
 # SUPER SIMPLE COPY. Founder 2026-10-10: "make this tool super stupid simple to use". Every
 # screen in the join flow says what happened and what to do next in ONE line. No ids to copy, no

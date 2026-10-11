@@ -1,5 +1,5 @@
 # STATUS: APPROVED 2026-10-10 (founder)
-# BUILD STATUS: PARTIAL. Built: minting, client and Station joins over pinned TLS, the joined Tower named, already-a-member, wrong-kind, list/void, share --tower, roger edge invite and joining an Edge with roger join, the terminal QR (TestJoinInviteBDD), the CLI watching the join (roger tower invite --wait). Not yet: the TUI and console invite and the joined line there.
+# BUILD STATUS: BUILT. Every scenario runs: TestJoinInviteBDD (minting, client and station joins over pinned TLS, stations serving and reporting their models, list/void, share --tower, Edge invites, the QR) and TestJoinOwnerScreensBDD (the TUI and console invite and the joined line).
 #
 # ONE INVITE, ONE PASTE: joining a Tower (as a client or a Station) or an Edge (as a device) takes
 # one owner action and one pasted command. Founder rulings 2026-10-10:
