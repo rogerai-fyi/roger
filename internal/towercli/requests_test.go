@@ -82,7 +82,16 @@ func TestRequestsListsWhoIsAskingWithThePhrase(t *testing.T) {
 	out, err = runCLI(t, "requests", "--dir", dir)
 	require.NoError(t, err)
 	require.Contains(t, out, id+"  laptop-x wants to join · ")
-	require.Contains(t, out, "approve only if laptop-x shows the same phrase: roger tower approve "+id)
+	require.Contains(t, out, "approve only if laptop-x shows the same phrase: roger tower approve --dir "+dir+" "+id)
+
+	// The hint is the command itself: run it exactly as printed and the device is admitted.
+	hint := out[strings.Index(out, "roger tower approve "):]
+	hint = hint[:strings.Index(hint, " (or ")]
+	_, err = runCLI(t, strings.Fields(strings.TrimPrefix(hint, "roger tower "))...)
+	require.NoError(t, err, "the printed approve command runs as is: %s", hint)
+	out, err = runCLI(t, "requests", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "no one is asking to join", "the printed command approved the request")
 }
 
 func TestApproveAdmitsAndRefuseAdmitsNothing(t *testing.T) {

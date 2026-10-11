@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/tower"
@@ -46,7 +47,8 @@ func cmdRequests(args []string, out io.Writer) error {
 	}
 	for _, r := range reqs {
 		fmt.Fprintln(out, RequestLine(r, time.Now()))
-		fmt.Fprintf(out, "    %s: roger tower approve %s (or refuse %s)\n", tower.ApproveHint(r.Name), r.ID, r.ID)
+		d := shellArg(*dir)
+		fmt.Fprintf(out, "    %s: roger tower approve --dir %s %s (or roger tower refuse --dir %s %s)\n", tower.ApproveHint(r.Name), d, r.ID, d, r.ID)
 	}
 	return nil
 }
@@ -87,4 +89,13 @@ func cmdDecide(op string, args []string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "refused %s; nothing was admitted\n", id)
 	return nil
+}
+
+// shellArg is s as one shell argument: as is when it is plainly safe, else single-quoted, so a
+// printed command runs exactly as shown.
+func shellArg(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:@%+=,-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
