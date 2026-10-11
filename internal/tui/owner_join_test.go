@@ -31,7 +31,7 @@ func (f *ownerFake) hooks() *ownerjoin.Hooks {
 	lab := ownerjoin.Tower{Dir: "/srv/lab", Label: "lab", Addr: "192.168.1.20:8787", FP: "9f3c-0000-1111-2222"}
 	kit := ownerjoin.Tower{Dir: "/srv/kit", Label: "kit", Addr: "192.168.1.21:8787", FP: "aaaa-bbbb-cccc-dddd"}
 	return &ownerjoin.Hooks{
-		Towers:   func() []ownerjoin.Tower { return []ownerjoin.Tower{lab, kit} },
+		Towers: func() []ownerjoin.Tower { return []ownerjoin.Tower{lab, kit} },
 		Requests: func(t ownerjoin.Tower) ([]towerpkg.PairRequest, error) {
 			if t.Dir == "/srv/kit" {
 				return nil, errors.New("stopped")

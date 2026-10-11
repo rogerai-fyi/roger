@@ -58,12 +58,12 @@ type ownerScreens struct {
 	*approveBDD
 	console string
 	shown   consoleView
-	m      tea.Model
-	out    *liveBuf
-	done   chan error
-	inv    joininvite.Invite
-	line   string
-	copied tea.Cmd
+	m       tea.Model
+	out     *liveBuf
+	done    chan error
+	inv     joininvite.Invite
+	line    string
+	copied  tea.Cmd
 }
 
 // screen is the TUI the owner has open, on [3] EDGE.
@@ -357,7 +357,7 @@ func TestJoinOwnerScreensBDD(t *testing.T) {
 			})
 
 			// --- the fingerprint where the owner looks ------------------------------------------
-			sc.Step(`^` + "`roger tower status`" + `, the Tower row in the TUI and the console all show the short fingerprint$`, func() error {
+			sc.Step(`^`+"`roger tower status`"+`, the Tower row in the TUI and the console all show the short fingerprint$`, func() error {
 				short := towerpin.Short(s.fp)
 				var b strings.Builder
 				if code := runTowerCLI(&b, "status", "--dir", s.dir); code != 0 || !strings.Contains(b.String(), short) {
@@ -369,7 +369,7 @@ func TestJoinOwnerScreensBDD(t *testing.T) {
 				}
 				return s.consoleShowsFingerprint(short)
 			})
-			sc.Step(`^` + "`roger tower status --full`" + ` shows the full fingerprint$`, func() error {
+			sc.Step(`^`+"`roger tower status --full`"+` shows the full fingerprint$`, func() error {
 				var b strings.Builder
 				if code := runTowerCLI(&b, "status", "--dir", s.dir, "--full"); code != 0 || !strings.Contains(b.String(), "sha256:"+s.fp) {
 					return fmt.Errorf("roger tower status --full said %q", b.String())
