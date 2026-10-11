@@ -94,5 +94,11 @@ func cmdJoin(cfg config, args []string) error {
 		ea = append(ea, "--invite", in.String())
 		return edgeEnrollCmd(cfg, append(ea, rest...), true)
 	}
-	return joinTower(cfg, in, pos[1:], rest)
+	if err := joinTower(cfg, in, pos[1:], rest); err != nil {
+		return err
+	}
+	if in.Kind == joininvite.TowerStation {
+		return joinThenShare()
+	}
+	return nil
 }

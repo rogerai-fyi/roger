@@ -62,6 +62,9 @@ type Config struct {
 
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
+	// StationModels says what this station serves right now, for a standalone Tower's poll (nil:
+	// the poll names nothing and the Tower keeps the list it attached).
+	StationModels func() []string
 	// Station is the owner's persisted broadcast CALLSIGN (e.g. `brave-otter-37`) — the SAME one
 	// NodeID's first segment is derived from (ShareNodeID). Carried on the registration as the
 	// AUTHORITATIVE station the broker namespaces this node's public voices by, since the id's

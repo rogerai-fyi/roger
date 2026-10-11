@@ -43,8 +43,11 @@ func TestMinutesLeftRoundsUpAndSaysExpired(t *testing.T) {
 // is hex, not the id's "u_" prefix.
 func TestTheJoinedLineShortensTheKeyNotItsPrefix(t *testing.T) {
 	require.Equal(t, "laptop-x joined (key 4be1...a9); undo with: roger tower revoke-client laptop-x",
-		JoinedLine("laptop-x", "u_4be1c0ffee00a9", JoinClient))
-	require.Equal(t, "station kitchen-pi joined (key 4be1...a9)", JoinedLine("kitchen-pi", "u_4be1c0ffee00a9", JoinStation))
+		JoinedLine("laptop-x", "u_4be1c0ffee00a9", JoinClient, nil))
+	require.Equal(t, "station kitchen-pi joined (key 4be1...a9)", JoinedLine("kitchen-pi", "u_4be1c0ffee00a9", JoinStation, nil))
+	// features/join/invite.feature: a station's line names what it serves.
+	require.Equal(t, "station kitchen-pi joined, serving: qwen3-8b, smollm2-135m-instruct",
+		JoinedLine("kitchen-pi", "u_4be1c0ffee00a9", JoinStation, []string{"qwen3-8b", "smollm2-135m-instruct"}))
 	require.Equal(t, "4be1...a9 joined (key 4be1...a9); undo with: roger tower revoke-client 4be1...a9",
-		JoinedLine("", "u_4be1c0ffee00a9", JoinClient))
+		JoinedLine("", "u_4be1c0ffee00a9", JoinClient, nil))
 }

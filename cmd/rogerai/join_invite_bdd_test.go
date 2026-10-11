@@ -54,6 +54,8 @@ type joinInviteBDD struct {
 	edgeAuth *edgeauth.Local
 	edgeOut  string
 	edgeCode int
+	// stationInvID is the station invite a station joined with, to read its outcome.
+	stationInvID string
 }
 
 var joinLineRE = regexp.MustCompile(`roger join (roger://join\?\S+)`)
@@ -114,6 +116,41 @@ func (s *joinInviteBDD) mint(extra ...string) error {
 
 func (s *joinInviteBDD) join(in joininvite.Invite) error {
 	s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), []string{in.String()}) })
+	return nil
+}
+
+// stationJoin runs `roger join <station invite> <name>` on a station machine serving s.stationM.
+// The join starts the station's share; it runs until the LAN share's context ends (shortly).
+func (s *joinInviteBDD) stationJoin(name string) error {
+	if live := s.st.LiveInvitations(); len(live) > 0 {
+		s.stationInvID = live[len(live)-1].ID
+	}
+	prev, prevCtx := detectFull, lanShareContext
+	detectFull = fakeDetectAt("http://127.0.0.1:1/v1", s.stationM...)
+	lanShareContext = func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	}
+	defer func() { detectFull, lanShareContext = prev, prevCtx }()
+	s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), []string{s.inv.String(), name}) })
+	return nil
+}
+
+// runShare runs this machine's LAN share of model for a moment: long enough for its polls to
+// reach every configured Tower.
+func (s *joinInviteBDD) runShare(model string) error {
+	prev, prevCtx := detectFull, lanShareContext
+	detectFull = fakeDetectAt("http://127.0.0.1:1/v1", model)
+	lanShareContext = func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	}
+	defer func() { detectFull, lanShareContext = prev, prevCtx }()
+	c := loadConfig()
+	c.lan.LAN, c.lan.Source = true, lanmode.SrcFlag
+	var err error
+	out := captureStdout(s.t, func() { err = cmdShare(c, []string{model, "--upstream", "http://127.0.0.1:1/v1"}) })
+	if err != nil {
+		return fmt.Errorf("share: %v\n%s", err, out)
+	}
 	return nil
 }
 
@@ -398,6 +435,71 @@ func TestJoinInviteBDD(t *testing.T) {
 			})
 
 			// Stations
+			// --- a station joins with its own models and serves right away ---------------------
+			sc.Step(`^the owner ran "roger tower invite --station"$`, func() error { return s.mint("--station") })
+			sc.Step(`^the station machine has "qwen3-8b" and "smollm2-135m-instruct" on air$`, func() error {
+				s.stationM = []string{"qwen3-8b", "smollm2-135m-instruct"}
+				return nil
+			})
+			sc.Step(`^the station runs "roger join <invite>"$`, func() error { return s.stationJoin("kitchen-pi") })
+			sc.Step(`^the Tower attaches it under the station's own name$`, func() error {
+				sts, err := s.st.Stations()
+				if err != nil || len(sts) != 1 || sts[0].ID != "kitchen-pi" {
+					return fmt.Errorf("stations %+v (%v)", sts, err)
+				}
+				return nil
+			})
+			sc.Step(`^the station's models are taken from its live offers, not typed by hand$`, func() error {
+				sts, _ := s.st.Stations()
+				if len(sts) != 1 || strings.Join(sts[0].Models, ",") != strings.Join(s.stationM, ",") {
+					return fmt.Errorf("stations %+v, the station has %v on air", sts, s.stationM)
+				}
+				return nil
+			})
+			sc.Step(`^the station starts serving the Tower right away$`, func() error {
+				if s.err != nil {
+					return fmt.Errorf("roger join: %v\n%s", s.err, s.out)
+				}
+				if !strings.Contains(s.out, "LAN mode: sharing") || !strings.Contains(s.out, "serving the local network's stations at") {
+					return fmt.Errorf("roger join did not start serving the Tower:\n%s", s.out)
+				}
+				if strings.Contains(s.out, "has not attached this station") {
+					return fmt.Errorf("the Tower refused the station's polls:\n%s", s.out)
+				}
+				return nil
+			})
+			sc.Step(`^the owner sees "station kitchen-pi joined, serving: qwen3-8b, smollm2-135m-instruct"$`, func() error {
+				line, over := towercli.OwnerInviteOutcome(s.dir, s.stationInvID)
+				if !over || line != "station kitchen-pi joined, serving: qwen3-8b, smollm2-135m-instruct" {
+					return fmt.Errorf("the owner's screens show %q (over=%v)", line, over)
+				}
+				return nil
+			})
+			sc.Step(`^a joined station that later stops "qwen3-8b" and starts "gpt-oss-20b"$`, func() error {
+				if err := s.mint("--station"); err != nil {
+					return err
+				}
+				s.stationM = []string{"qwen3-8b"}
+				if err := s.stationJoin("kitchen-pi"); err != nil {
+					return err
+				}
+				if s.err != nil {
+					return fmt.Errorf("roger join: %v\n%s", s.err, s.out)
+				}
+				s.stationM = []string{"gpt-oss-20b"}
+				return nil
+			})
+			sc.Step(`^the station's next poll reaches the Tower$`, func() error {
+				// The station machine now shares gpt-oss-20b: a real LAN share, polling the Tower.
+				return s.runShare("gpt-oss-20b")
+			})
+			sc.Step(`^the Tower routes "gpt-oss-20b" to it and no longer routes "qwen3-8b" to it$`, func() error {
+				sts, _ := s.st.Stations()
+				if len(sts) != 1 || strings.Join(sts[0].Models, ",") != "gpt-oss-20b" {
+					return fmt.Errorf("after the poll the Tower routes %+v", sts)
+				}
+				return nil
+			})
 			sc.Step(`^the owner ran "roger tower invite --station --models qwen3-8b"$`, func() error {
 				return s.mint("--station", "--models", "qwen3-8b")
 			})
@@ -819,7 +921,7 @@ func TestJoinInviteBDD(t *testing.T) {
 		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true,
 			Paths: []string{joinInviteFeature + ":36", joinInviteFeature + ":44", joinInviteFeature + ":74", joinInviteFeature + ":98",
 				joinInviteFeature + ":107", joinInviteFeature + ":123", joinInviteFeature + ":133", joinInviteFeature + ":150", joinInviteFeature + ":145",
-				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":186", joinInviteFeature + ":192",
+				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":172", joinInviteFeature + ":181", joinInviteFeature + ":186", joinInviteFeature + ":192",
 				joinInviteFeature + ":196", joinInviteFeature + ":208", joinInviteFeature + ":236",
 				joinInviteFeature + ":54", joinInviteFeature + ":65", joinInviteFeature + ":80", joinInviteFeature + ":114", joinInviteFeature + ":138",
 				joinInviteFeature + ":218", joinInviteFeature + ":223"}},
@@ -838,6 +940,13 @@ func mustFP(st *tower.State) string {
 func fakeDetect(models ...string) func(...string) ([]detect.Found, []string) {
 	return func(...string) ([]detect.Found, []string) {
 		return []detect.Found{{Name: "fixture", Models: models}}, nil
+	}
+}
+
+// fakeDetectAt is fakeDetect with the server's base URL, for a share that needs an upstream.
+func fakeDetectAt(base string, models ...string) func(...string) ([]detect.Found, []string) {
+	return func(...string) ([]detect.Found, []string) {
+		return []detect.Found{{Name: "fixture", BaseURL: base, Chat: base + "/chat/completions", Models: models}}, nil
 	}
 }
 

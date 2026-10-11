@@ -59,6 +59,11 @@ func TestMain(m *testing.M) {
 	// tests run would change what every command does. Runners that test the variables set them.
 	os.Unsetenv("ROGER_LAN")
 	os.Unsetenv("ROGER_LAN_EDGE_ONLY")
+	// No test's LAN share runs until a signal: a station that joins (and so starts sharing) in a
+	// test stops on its own after a moment. Runners that need longer set the seam themselves.
+	lanShareContext = func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), time.Second)
+	}
 	code := m.Run()
 	// The routing-flags runner builds roger and the broker once into a temp dir; remove it, or
 	// every run leaves ~65 MB behind in the temp filesystem.

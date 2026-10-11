@@ -158,7 +158,7 @@ func (s *State) LiveInvitations() []Invitation {
 // JoinedLine is how the owner is told, as it happens, who joined and how to undo it
 // (features/join/invite.feature, "The owner sees the join as it happens"). The Tower's log, a
 // waiting invite, the TUI and the console all say it the same way.
-func JoinedLine(name, keyHash string, kind JoinKind) string {
+func JoinedLine(name, keyHash string, kind JoinKind, models []string) string {
 	short := strings.TrimPrefix(keyHash, "u_") // the hex the owner reads, not the id's prefix
 	if len(short) > 6 {
 		short = short[:4] + "..." + short[len(short)-2:]
@@ -167,6 +167,9 @@ func JoinedLine(name, keyHash string, kind JoinKind) string {
 		name = short
 	}
 	if kind == JoinStation {
+		if len(models) > 0 {
+			return fmt.Sprintf("station %s joined, serving: %s", name, strings.Join(models, ", "))
+		}
 		return fmt.Sprintf("station %s joined (key %s)", name, short)
 	}
 	return fmt.Sprintf("%s joined (key %s); undo with: roger tower revoke-client %s", name, short, name)
@@ -277,6 +280,9 @@ func (s *State) ConsumeJoin(r JoinRequest) (JoinResult, error) {
 		}
 		return JoinResult{Kind: JoinClient, Credential: *cred}, nil
 	}
+	if checkStationModels(r.Models) != nil {
+		return JoinResult{}, errBootstrapRejected
+	}
 	allowed, refused := r.Models, []string(nil)
 	if len(match.Models) > 0 {
 		allowed = nil
@@ -292,6 +298,11 @@ func (s *State) ConsumeJoin(r JoinRequest) (JoinResult, error) {
 	if err != nil {
 		return JoinResult{}, err
 	}
+	// The invite's --models is this Station's limit for good; an invite without one lets it serve
+	// whatever it reports (SetStationModels).
+	bs.Stations[st.ID].Limit = append([]string(nil), match.Models...)
+	bs.Stations[st.ID].AnyModel = len(match.Models) == 0
+	st = *bs.Stations[st.ID]
 	match.Consumed, match.ClientKeyHash, match.JoinedName = true, r.KeyHash, r.Name
 	if err := s.saveBootstrap(bs); err != nil {
 		return JoinResult{}, errBootstrapRejected

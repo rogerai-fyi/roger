@@ -4,8 +4,11 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"rogerai.fm/roger/v6/internal/protocol"
 )
@@ -32,6 +35,12 @@ type Station struct {
 	// local network. Mirrors the public broker's curated identity rule.
 	Curated         bool   `json:"curated,omitempty"`
 	CuratedProvider string `json:"curated_provider,omitempty"`
+	// Limit is what the owner allowed this Station to serve: the models typed when attaching it
+	// by hand, or an invite's --models. AnyModel marks a Station that joined with an unlimited
+	// invite. A record with neither (from before reports existed) is held to its current models,
+	// so a report never widens what the owner set (SetStationModels).
+	Limit    []string `json:"limit,omitempty"`
+	AnyModel bool     `json:"any_model,omitempty"`
 }
 
 // LocalReceipt records one locally routed request. It is NOT a RogerAI settlement
@@ -102,6 +111,9 @@ func (s *State) attachStation(id, keyHash string, models []string, curatedProvid
 	if err != nil {
 		return Station{}, err
 	}
+	// The models the owner typed are what this Station may ever serve.
+	bs.Stations[id].Limit = append([]string(nil), models...)
+	st.Limit = bs.Stations[id].Limit
 	if err := s.saveBootstrap(bs); err != nil {
 		return Station{}, err
 	}
@@ -241,4 +253,70 @@ func (s *State) Route(clientKeyHash, model string) (LocalReceipt, error) {
 		Curated:         chosen.Curated,
 		CuratedProvider: chosen.CuratedProvider,
 	}, nil
+}
+
+// SetStationModels records what a Station reports it serves now, kept within what the owner allowed
+// it (features/join/invite.feature, "A station's model list follows what it actually serves"). It
+// returns the Station as the Tower now routes it, and whether that changed (an unchanged report
+// writes nothing).
+func (s *State) SetStationModels(id string, reported []string) (Station, bool, error) {
+	if err := checkStationModels(reported); err != nil {
+		return Station{}, false, err
+	}
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return Station{}, false, err
+	}
+	st, ok := bs.Stations[id]
+	if !ok {
+		return Station{}, false, errors.New("no attached Station has that id")
+	}
+	allowed := st.Limit
+	if len(allowed) == 0 && !st.AnyModel {
+		allowed = st.Models // a record from before reports: held to what it serves today
+	}
+	var now []string
+	for _, m := range reported {
+		if m == "" || slices.Contains(now, m) || (!st.AnyModel && !slices.Contains(allowed, m)) {
+			continue
+		}
+		now = append(now, m)
+	}
+	slices.Sort(now)
+	cur := append([]string(nil), st.Models...)
+	slices.Sort(cur)
+	if slices.Equal(now, cur) {
+		return *st, false, nil
+	}
+	if !st.AnyModel && len(st.Limit) == 0 {
+		st.Limit = append([]string(nil), st.Models...) // remember the original limit before narrowing
+	}
+	st.Models = now
+	if err := s.saveBootstrap(bs); err != nil {
+		return Station{}, false, err
+	}
+	return *st, true, nil
+}
+
+// MaxStationModels bounds what one Station may report it serves (at a join and on every poll).
+const MaxStationModels = 64
+
+// maxStationModelID bounds one reported model id, as the routing contract bounds a model id.
+const maxStationModelID = 256
+
+// checkStationModels refuses a report that is too long or carries an id that is empty, padded,
+// overlong or has control characters: a Station cannot grow the registry without limit.
+func checkStationModels(models []string) error {
+	if len(models) > MaxStationModels {
+		return fmt.Errorf("a Station may report at most %d models", MaxStationModels)
+	}
+	for _, m := range models {
+		if m == "" || m != strings.TrimSpace(m) || len(m) > maxStationModelID ||
+			strings.IndexFunc(m, unicode.IsControl) >= 0 {
+			return fmt.Errorf("%q is not a model id", m)
+		}
+	}
+	return nil
 }

@@ -15,8 +15,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"rogerai.fm/roger/v6/internal/detect"
+	roggnode "rogerai.fm/roger/v6/internal/node"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/agent"
@@ -200,6 +203,61 @@ func joinStationModels() []string {
 		}
 	}
 	return out
+}
+
+// stationServingTTL is how long a station's view of what it serves is kept before it is read again.
+var stationServingTTL = 30 * time.Second
+
+// stationServing is what this station serves now, for each poll of a standalone Tower
+// (features/join/invite.feature): the shared model plus the models its upstream server lists. It
+// starts from what the share already knew (picked: the detected server's models) and is refreshed
+// in the background from that one upstream at most every stationServingTTL, so a poll never waits
+// on a probe.
+func stationServing(upstream, key, model string, picked []string) func() []string {
+	var mu sync.Mutex
+	at, refreshing := time.Now(), false
+	serving := withModel(model, picked)
+	base := strings.TrimSuffix(roggnode.NormalizeUpstream(upstream), "/chat/completions")
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		if upstream != "" && !refreshing && time.Since(at) >= stationServingTTL {
+			refreshing = true
+			go func() {
+				f, st := detectProbeKey(base, key)
+				mu.Lock()
+				defer mu.Unlock()
+				if st == detect.Reachable && len(f.Models) > 0 {
+					serving = withModel(model, f.Models)
+				}
+				at, refreshing = time.Now(), false
+			}()
+		}
+		return append([]string(nil), serving...)
+	}
+}
+
+// withModel is model followed by the others, without repeats.
+func withModel(model string, others []string) []string {
+	out := []string{}
+	if model != "" {
+		out = append(out, model)
+	}
+	for _, m := range others {
+		if m != "" && !contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// joinThenShare starts this machine's share right after it joined a Tower as a station
+// (features/join/invite.feature, "the station starts serving the Tower right away"): the same LAN
+// share `roger share --tower <invite>` runs, until the operator stops it.
+func joinThenShare() error {
+	c := loadConfig() // the join recorded the Tower and its pin
+	c.lan.LAN, c.lan.Source = true, lanmode.SrcFlag
+	return cmdShare(c, nil)
 }
 
 // shareTowerInvite is `roger share --tower <invite>` (features/join/invite.feature): the same join

@@ -52,9 +52,20 @@ func inviteOutcome(dir, id string) (line string, over bool) {
 	case err != nil:
 		return "", true
 	case inv.Consumed:
-		return tower.JoinedLine(inv.JoinedName, inv.ClientKeyHash, inv.Kind), true
+		return tower.JoinedLine(inv.JoinedName, inv.ClientKeyHash, inv.Kind, stationModels(st, inv.ClientKeyHash)), true
 	case inv.Voided || time.Now().UnixNano() > inv.ExpiresAt:
 		return inviteUnused, true
 	}
 	return "", false
+}
+
+// stationModels is what the Station attached under keyHash serves, for the joined line.
+func stationModels(st *tower.State, keyHash string) []string {
+	sts, _ := st.Stations()
+	for _, s := range sts {
+		if s.KeyHash == keyHash {
+			return s.Models
+		}
+	}
+	return nil
 }

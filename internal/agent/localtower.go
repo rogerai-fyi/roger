@@ -67,7 +67,7 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv)
+		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv, cfg.StationModels)
 		switch {
 		case err == nil:
 			failures, toldUnattached = 0, false
@@ -147,9 +147,17 @@ type localJob struct {
 
 // pollLocalJob long-polls the Tower for a job. 200 with a job, 204 (no work), anything else is
 // treated as "no job this round".
-func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed25519.PrivateKey) (localJob, bool, error) {
-	// The poll announces chunk support, so the Tower hands a streamed job over as a stream.
-	body := []byte(`{"streams":true}`)
+func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed25519.PrivateKey, serving func() []string) (localJob, bool, error) {
+	// The poll announces chunk support, so the Tower hands a streamed job over as a stream, and
+	// says what this station serves now, so the Tower routes exactly that (features/join).
+	announce := struct {
+		Streams bool     `json:"streams"`
+		Models  []string `json:"models,omitempty"`
+	}{Streams: true}
+	if serving != nil {
+		announce.Models = serving()
+	}
+	body, _ := json.Marshal(announce)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/local/poll", bytes.NewReader(body))
 	if err != nil {
 		return localJob{}, false, err

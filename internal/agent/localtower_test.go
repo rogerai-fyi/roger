@@ -113,21 +113,21 @@ func TestPollLocalJobHandlesNonOKAndNoContent(t *testing.T) {
 	// 204: no work, no error.
 	no := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer no.Close()
-	_, got, err := pollLocalJob(context.Background(), no.Client(), no.URL, priv)
+	_, got, err := pollLocalJob(context.Background(), no.Client(), no.URL, priv, nil)
 	require.NoError(t, err)
 	require.False(t, got)
 
 	// 500: treated as no job, with an error.
 	boom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }))
 	defer boom.Close()
-	_, got, err = pollLocalJob(context.Background(), boom.Client(), boom.URL, priv)
+	_, got, err = pollLocalJob(context.Background(), boom.Client(), boom.URL, priv, nil)
 	require.Error(t, err)
 	require.False(t, got)
 
 	// 200 with a job missing its id is rejected.
 	noid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, `{"model":"m"}`) }))
 	defer noid.Close()
-	_, got, err = pollLocalJob(context.Background(), noid.Client(), noid.URL, priv)
+	_, got, err = pollLocalJob(context.Background(), noid.Client(), noid.URL, priv, nil)
 	require.Error(t, err)
 	require.False(t, got)
 }

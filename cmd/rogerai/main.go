@@ -1559,6 +1559,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// Config time, cannot fail open if the local server is momentarily slow - so the Osaurus-only
 	// hardenings (X-Persist + model-pin) never silently drop out under load. OR-ed with the probe below.
 	osaurusBrand := false
+	var pickedModels []string // the detected server's models, when the share picked one
 	if up == "" {
 		// Saved keyed upstream: try it WITH its key first (the broad DetectFull scan does
 		// not carry the saved key), so a custom keyed endpoint is reused without a re-prompt.
@@ -1598,6 +1599,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 			}
 		}
 		up = pick.Chat
+		pickedModels = pick.Models
 		osaurusBrand = pick.Name == "osaurus" // detection's authoritative fingerprint (see above)
 		// The saved key belongs to the saved endpoint. When detection landed somewhere else (the
 		// saved one is gone, say after a restart), that endpoint's own key is the one to send.
@@ -1799,6 +1801,8 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// language / sample_url + default voice/speed) rides the headless offer exactly as it
 	// does the TUI's, explicit flags winning.
 	applyShareVoice(cfg, mdl, &cfgRun)
+	// A standalone Tower's poll says what this station serves now (features/join/invite.feature).
+	cfgRun.StationModels = stationServing(up, *upKey, mdl, pickedModels)
 
 	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
 	// share serves to the share's own upstream, and `roger --lan say` speaks through a voice it

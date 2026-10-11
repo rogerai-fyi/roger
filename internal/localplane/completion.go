@@ -286,10 +286,21 @@ func (s *Server) localPoll(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	// A current station announces chunk support in its poll ("streams": true) and is handed
 	// streamed jobs as streams; an older one sends no body and gets them to return whole.
+	// It also says what it serves now, and the Tower routes that from this poll on, within what the
+	// owner allowed it (features/join/invite.feature); an older station sends no list.
 	var announce struct {
-		Streams bool `json:"streams"`
+		Streams bool     `json:"streams"`
+		Models  []string `json:"models"`
 	}
 	_ = json.Unmarshal(body, &announce)
+	if len(announce.Models) > 0 { // bounded and checked by SetStationModels
+		if now, changed, err := s.st.SetStationModels(station.ID, announce.Models); err == nil {
+			station = now
+			if changed {
+				s.logf("station %s now serves: %s", station.ID, strings.Join(station.Models, ", "))
+			}
+		}
+	}
 	j, got := s.q.poll(ctx, station.ID, station.Models, announce.Streams)
 	if !got {
 		w.WriteHeader(http.StatusNoContent)

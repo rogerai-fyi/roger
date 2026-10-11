@@ -344,7 +344,7 @@ func (s *Server) decide(id string, approve bool) error {
 	pr.status, pr.answer = "approved", ans
 	close(pr.done)
 	if !res.AlreadyMember {
-		s.noteJoin(pr.view.Name, pr.keyHash, res.Kind)
+		s.noteJoin(pr.view.Name, pr.keyHash, res.Kind, res.Station.Models)
 	}
 	return nil
 }

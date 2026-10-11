@@ -96,7 +96,7 @@ func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
 		ans.Network, ans.Role, ans.Models = res.Credential.NetworkID, res.Credential.Role, s.bands()
 	}
 	if !res.AlreadyMember {
-		s.noteJoin(req.Name, id, res.Kind)
+		s.noteJoin(req.Name, id, res.Kind, res.Station.Models)
 	}
 	writeJSON(w, http.StatusOK, ans)
 }
@@ -124,6 +124,6 @@ func (s *Server) SetLabel(label string) { s.label = label }
 
 // noteJoin tells the owner, as it happens, who joined and how to undo it
 // (features/join/invite.feature, "The owner sees the join as it happens").
-func (s *Server) noteJoin(name, keyHash string, kind tower.JoinKind) {
-	s.logf("%s", tower.JoinedLine(name, keyHash, kind))
+func (s *Server) noteJoin(name, keyHash string, kind tower.JoinKind, models []string) {
+	s.logf("%s", tower.JoinedLine(name, keyHash, kind, models))
 }
