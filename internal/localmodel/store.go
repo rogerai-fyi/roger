@@ -55,8 +55,17 @@ const recordExt = ".roger.json"
 // List is every servable model on this disk, fetched or dropped in by hand.
 func (h Home) List() ([]Model, error) {
 	root := h.Models()
+	// A models directory that is itself a symlink (a shared cache linked in) is walked through its
+	// target; paths are still reported under root, so records and budgets see one stable path.
+	walk := root
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		walk = real
+	}
 	var out []Model
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(walk, func(p string, d fs.DirEntry, err error) error {
+		if rel, rerr := filepath.Rel(walk, p); rerr == nil {
+			p = filepath.Join(root, rel)
+		}
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return filepath.SkipDir
