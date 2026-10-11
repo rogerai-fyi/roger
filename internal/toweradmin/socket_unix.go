@@ -6,10 +6,21 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 )
 
 func listen(path string) (net.Listener, error) {
+	// The directory's mode closes the moment between creating the socket and making it 0600, and
+	// is the only guard where the peer's user is not read from the socket (off Linux).
+	dir := filepath.Dir(path)
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("the Tower's data directory %s can be entered by other users (mode %o); run: chmod 700 %s", dir, fi.Mode().Perm(), dir)
+	}
 	if _, err := os.Lstat(path); err == nil {
 		if c, derr := net.DialTimeout("unix", path, time.Second); derr == nil {
 			_ = c.Close()
