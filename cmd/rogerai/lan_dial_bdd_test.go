@@ -400,7 +400,7 @@ func TestLANDialBDD(t *testing.T) {
 						c = append(c, st)
 					}
 				}
-				if len(c) != 1 || c[0].Addr != "192.168.1.50:8787" || !strings.Contains(c[0].Detail, "roger lan add 192.168.1.50:8787") {
+				if len(c) != 1 || c[0].Addr != "192.168.1.50:8787" || !strings.Contains(c[0].Detail, "roger join 192.168.1.50:8787") {
 					return fmt.Errorf("candidate lines = %+v, want one naming 192.168.1.50:8787 and how to add it", c)
 				}
 				return nil
