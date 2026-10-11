@@ -48,3 +48,31 @@ func TestAdmitPairedNeedsAStandaloneTowerAndAKey(t *testing.T) {
 	_, err = st.AdmitPaired(JoinClient, "x", "", nil)
 	require.Error(t, err)
 }
+
+// An approval on a Tower that is not standalone, or naming no key, admits nothing.
+func TestAdmitPairedRefusesWhatItCannotAdmit(t *testing.T) {
+	joined, err := Init(t.TempDir()+"/hub", ModeJoined)
+	require.NoError(t, err)
+	_, err = joined.AdmitPaired(JoinClient, "laptop-x", pairedKey(t), nil)
+	require.ErrorIs(t, err, ErrNotStandalone)
+
+	st, err := Init(t.TempDir()+"/lab", ModeStandalone)
+	require.NoError(t, err)
+	_, err = st.AdmitPaired(JoinClient, "laptop-x", "", nil)
+	require.Error(t, err)
+	any, err := st.HasAnyAdmittedClient()
+	require.NoError(t, err)
+	require.False(t, any)
+}
+
+// A second approval for an admitted key says it is already a member and changes nothing.
+func TestAdmitPairedTwiceIsAlreadyAMember(t *testing.T) {
+	st, err := Init(t.TempDir()+"/lab", ModeStandalone)
+	require.NoError(t, err)
+	kh := pairedKey(t)
+	_, err = st.AdmitPaired(JoinClient, "laptop-x", kh, nil)
+	require.NoError(t, err)
+	res, err := st.AdmitPaired(JoinClient, "laptop-x", kh, nil)
+	require.NoError(t, err)
+	require.True(t, res.AlreadyMember)
+}
