@@ -61,7 +61,6 @@ func (k Kind) IsTower() bool { return k == TowerClient || k == TowerStation }
 // String encodes the invite in the one scheme.
 func (in Invite) String() string {
 	v := url.Values{}
-	v.Set("kind", string(in.Kind))
 	for _, a := range in.Addrs {
 		v.Add("at", a)
 	}
@@ -72,8 +71,8 @@ func (in Invite) String() string {
 	if in.For != "" {
 		v.Set("for", in.For)
 	}
-	// Keep kind first so an invite reads as what it is.
-	return Scheme + "://join?kind=" + url.QueryEscape(string(in.Kind)) + "&" + strings.TrimPrefix(v.Encode(), "kind="+url.QueryEscape(string(in.Kind))+"&")
+	// kind goes first, and only there, so an invite reads as what it is (Encode sorts the rest).
+	return Scheme + "://join?kind=" + url.QueryEscape(string(in.Kind)) + "&" + v.Encode()
 }
 
 // Parse reads an invite in the one scheme, or a legacy Edge invite, and validates every field.

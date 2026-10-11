@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/joininvite"
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
@@ -88,23 +89,23 @@ func TestInviteAddrsFollowTheServeBind(t *testing.T) {
 			&net.IPNet{IP: net.ParseIP("203.0.113.9")}, &net.IPNet{IP: net.ParseIP("fd00::5")},
 		}, nil
 	}
-	got, lo, err := inviteAddrs(inviteYAML(t, "0.0.0.0:9000"))
+	got, lo, err := inviteAddrs(inviteYAML(t, "0.0.0.0:9000"), "")
 	require.NoError(t, err)
 	require.False(t, lo)
 	require.Equal(t, []string{"192.168.1.20:9000", "[fd00::5]:9000"}, got)
 
-	got, lo, err = inviteAddrs(inviteYAML(t, "192.168.1.20:9000"))
+	got, lo, err = inviteAddrs(inviteYAML(t, "192.168.1.20:9000"), "")
 	require.NoError(t, err)
 	require.False(t, lo)
 	require.Equal(t, []string{"192.168.1.20:9000"}, got)
 
 	inviteInterfaceAddrs = func() ([]net.Addr, error) { return []net.Addr{&net.IPNet{IP: net.ParseIP("203.0.113.9")}}, nil }
-	got, lo, err = inviteAddrs(inviteYAML(t, ":9000"))
+	got, lo, err = inviteAddrs(inviteYAML(t, ":9000"), "")
 	require.NoError(t, err)
 	require.True(t, lo)
 	require.Equal(t, []string{"127.0.0.1:9000"}, got)
 
-	_, _, err = inviteAddrs(inviteYAML(t, "nonsense"))
+	_, _, err = inviteAddrs(inviteYAML(t, "nonsense"), "")
 	require.Error(t, err)
 }
 
@@ -125,4 +126,31 @@ func TestInviteForANameListsItAndTheOldFlowStillWorks(t *testing.T) {
 	old, err := runCLI(t, "invite", "--dir", dir, "--client", "k1")
 	require.NoError(t, err)
 	require.Contains(t, old, "older two-step flow")
+}
+
+// A Tower serving now is invited at the address it is actually bound to (its live serve record),
+// not the config's or the default bind: `serve --bind` on another port must not mint an invite
+// that dials the wrong place.
+func TestInviteAddrsFollowTheLiveServe(t *testing.T) {
+	dir := initStandalone(t)
+	prev := servingTowers
+	t.Cleanup(func() { servingTowers = prev })
+	servingTowers = func() []onair.Tower {
+		return []onair.Tower{
+			{PID: 1, Dir: "/elsewhere", Addr: "127.0.0.1:9999"},
+			{PID: 2, Dir: dir, Addr: "127.0.0.1:18787"},
+		}
+	}
+	out, err := runCLI(t, "invite", "--dir", dir)
+	require.NoError(t, err)
+	in, err := joininvite.Parse(joinLine.FindStringSubmatch(out)[1])
+	require.NoError(t, err)
+	require.Equal(t, []string{"127.0.0.1:18787"}, in.Addrs, "the live serve's address, not the default 8787")
+
+	servingTowers = func() []onair.Tower { return nil }
+	out, err = runCLI(t, "invite", "--dir", dir)
+	require.NoError(t, err)
+	in, err = joininvite.Parse(joinLine.FindStringSubmatch(out)[1])
+	require.NoError(t, err)
+	require.Equal(t, []string{"127.0.0.1:8787"}, in.Addrs, "not serving: the configured or default bind")
 }

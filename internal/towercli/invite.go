@@ -11,11 +11,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/localplane"
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/qr"
 	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/toweradmin"
@@ -88,7 +90,7 @@ func cmdInvite(args []string, out io.Writer) error {
 	addrs := []string(at)
 	loopbackOnly := false
 	if len(addrs) == 0 {
-		addrs, loopbackOnly, err = inviteAddrs(*cfg)
+		addrs, loopbackOnly, err = inviteAddrs(*cfg, *dir)
 		if err != nil {
 			return err
 		}
@@ -116,9 +118,20 @@ func cmdInvite(args []string, out io.Writer) error {
 	return nil
 }
 
-// inviteAddrs is where the Tower serves: its configured bind (or the default), with an
-// all-interfaces bind expanded to this machine's home addresses.
-func inviteAddrs(cfgPath string) (addrs []string, loopbackOnly bool, err error) {
+// servingTowers lists the Towers this user is serving now (a seam for tests).
+var servingTowers = onair.Towers
+
+// inviteAddrs is where the Tower serves: the address its running serve is bound to when it is
+// serving (a `serve --bind` the config does not name), else its configured bind (or the
+// default), with an all-interfaces bind expanded to this machine's home addresses.
+func inviteAddrs(cfgPath, dir string) (addrs []string, loopbackOnly bool, err error) {
+	if abs, aerr := filepath.Abs(dir); aerr == nil && dir != "" {
+		for _, t := range servingTowers() {
+			if filepath.Clean(t.Dir) == abs && t.Addr != "" {
+				return localplane.InviteAddrs(t.Addr, inviteInterfaceAddrs)
+			}
+		}
+	}
 	bind := localplane.DefaultBind
 	if cfgPath != "" {
 		c, err := loadConfig(cfgPath)

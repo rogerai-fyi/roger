@@ -76,3 +76,17 @@ func TestTheCodeIsCanonicalized(t *testing.T) {
 	require.Equal(t, joincode.Edge, got.Kind.Domain())
 	require.Equal(t, joincode.Tower, TowerStation.Domain())
 }
+
+// An invite names its kind exactly once, first, so it reads as what it is and never carries two
+// kinds a parser could disagree on.
+func TestAnInviteNamesItsKindOnce(t *testing.T) {
+	for _, k := range []Kind{TowerClient, TowerStation, Edge} {
+		code := joincode.Tower.NewCode()
+		if k == Edge {
+			code = joincode.Edge.NewCode()
+		}
+		s := Invite{Kind: k, Addrs: []string{"192.168.1.20:8787"}, FP: fp, Code: code, For: "laptop-x"}.String()
+		require.Equal(t, 1, strings.Count(s, "kind="), s)
+		require.True(t, strings.HasPrefix(s, "roger://join?kind="+string(k)+"&"), s)
+	}
+}
