@@ -62,7 +62,7 @@ func TestAWaitingInvitePrintsTheJoinAsItHappens(t *testing.T) {
 		t.Fatal("the waiting invite never noticed the join")
 	}
 	got := out.String()
-	require.Contains(t, got, "laptop-x joined (key "+kh[:4]+"..."+kh[len(kh)-2:]+")")
+	require.Contains(t, got, "laptop-x joined (key "+strings.TrimPrefix(kh, "u_")[:4]+"..."+kh[len(kh)-2:]+")")
 	require.Contains(t, got, "revoke-client laptop-x")
 }
 

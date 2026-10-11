@@ -35,6 +35,6 @@ func TestAJoinNamesTheTowerAndTheOwnerSeesIt(t *testing.T) {
 
 	kh := protocol.UserIDFromPubkey(hexPub(priv.Public().(ed25519.PublicKey)))
 	out := strings.Join(logged, "\n")
-	require.Contains(t, out, "laptop-x joined (key "+kh[:4]+"..."+kh[len(kh)-2:]+")")
+	require.Contains(t, out, "laptop-x joined (key "+strings.TrimPrefix(kh, "u_")[:4]+"..."+kh[len(kh)-2:]+")")
 	require.Contains(t, out, "undo with: roger tower revoke-client laptop-x")
 }

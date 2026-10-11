@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/joincode"
@@ -158,7 +159,7 @@ func (s *State) LiveInvitations() []Invitation {
 // (features/join/invite.feature, "The owner sees the join as it happens"). The Tower's log, a
 // waiting invite, the TUI and the console all say it the same way.
 func JoinedLine(name, keyHash string, kind JoinKind) string {
-	short := keyHash
+	short := strings.TrimPrefix(keyHash, "u_") // the hex the owner reads, not the id's prefix
 	if len(short) > 6 {
 		short = short[:4] + "..." + short[len(short)-2:]
 	}

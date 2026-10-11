@@ -82,6 +82,7 @@ func (s *joinInviteBDD) reset() {
 	s.t.Setenv("NO_COLOR", "restored after the test")
 	os.Unsetenv("NO_COLOR")
 	s.out, s.err, s.invites, s.ids, s.refused, s.stationM = "", nil, nil, nil, nil, nil
+	s.edgeInv, s.edgeOut, s.edgeCode = "", "", 0
 }
 
 // towerCLI runs `roger tower <args>` against the fixture's data directory.
@@ -113,6 +114,15 @@ func (s *joinInviteBDD) mint(extra ...string) error {
 
 func (s *joinInviteBDD) join(in joininvite.Invite) error {
 	s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), []string{in.String()}) })
+	return nil
+}
+
+// edgeKept reports whether the device now holds an Edge identity (the join enrolled it).
+func (s *joinInviteBDD) edgeKept() error {
+	id, _, ok, err := edgeIdentityStore().LoadIdentity()
+	if err != nil || !ok || id == nil {
+		return fmt.Errorf("no Edge identity was kept (%v):\n%s", err, s.edgeOut)
+	}
 	return nil
 }
 
@@ -560,6 +570,208 @@ func TestJoinInviteBDD(t *testing.T) {
 			})
 			// 4. Joining an Edge with the same verb: a real local authority served over HTTP, and a
 			// second machine (its own config and user key) that was never allowed.
+			// --- one scheme for every kind -----------------------------------------------------
+			var minted string // the invite exactly as printed
+			sc.Step(`^the owner mints a "([^"]*)" invite$`, func(kind string) error {
+				switch joininvite.Kind(kind) {
+				case joininvite.TowerClient:
+					if err := s.mint(); err != nil {
+						return err
+					}
+				case joininvite.TowerStation:
+					if err := s.mint("--station"); err != nil {
+						return err
+					}
+				case joininvite.Edge:
+					s.edgeInv, s.edgeAuth = ownerEdgeInvite(s.t)
+					in, err := joininvite.Parse(s.edgeInv)
+					if err != nil {
+						return err
+					}
+					s.inv = in
+					minted = s.edgeInv
+					return nil
+				}
+				minted = joinLineRE.FindStringSubmatch(s.out)[1]
+				return nil
+			})
+			sc.Step(`^it starts "roger://join\?kind=([^"]*)"$`, func(kind string) error {
+				if !strings.HasPrefix(minted, "roger://join?kind="+kind) {
+					return fmt.Errorf("the invite %q does not start roger://join?kind=%s", minted, kind)
+				}
+				return nil
+			})
+			sc.Step(`^it parses back to the same kind, addresses, fingerprint and code$`, func() error {
+				back, err := joininvite.Parse(minted)
+				if err != nil {
+					return err
+				}
+				if back.String() != minted || back.Kind != s.inv.Kind || back.FP != s.inv.FP || back.Code != s.inv.Code ||
+					strings.Join(back.Addrs, ",") != strings.Join(s.inv.Addrs, ",") {
+					return fmt.Errorf("%q parsed back as %+v", minted, back)
+				}
+				return nil
+			})
+			sc.Step(`^an invite of the form "rogerai-edge://join\?at=192\.168\.1\.69:39009&root=sha256:\.\.\.&code=\.\.\."$`, func() error {
+				s.edgeInv, s.edgeAuth = ownerEdgeInvite(s.t)
+				in, err := joininvite.Parse(s.edgeInv)
+				if err != nil {
+					return err
+				}
+				// The same invite written the way invites were written before the one scheme.
+				minted = "rogerai-edge://join?at=" + in.Addrs[0] + "&root=sha256:" + in.FP + "&code=" + in.Code
+				return nil
+			})
+			sc.Step(`^a device runs "roger join" with it$`, func() error {
+				s.edgeOut, s.edgeCode = edgeRun(s.t, "join", minted, "workshop")
+				return nil
+			})
+			sc.Step(`^it is read as kind "edge" and the join proceeds as an Edge enrollment$`, func() error {
+				in, err := joininvite.Parse(minted)
+				if err != nil || in.Kind != joininvite.Edge {
+					return fmt.Errorf("the old form read as %+v (%v)", in, err)
+				}
+				if s.edgeCode != 0 {
+					return fmt.Errorf("roger join exited %d:\n%s", s.edgeCode, s.edgeOut)
+				}
+				return s.edgeKept()
+			})
+			sc.Step(`^the owner mints an Edge invite$`, func() error {
+				s.edgeInv, s.edgeAuth = ownerEdgeInvite(s.t)
+				in, err := joininvite.Parse(s.edgeInv)
+				s.inv = in
+				return err
+			})
+			sc.Step(`^its code is 10 Crockford base32 symbols, shown as XXXXX-XXXXX, as in enrollment_root_trust\.feature$`, func() error {
+				code, err := edgeauth.CanonicalCode(s.inv.Code)
+				if err != nil || len(code) != 10 || strings.Trim(code, "0123456789ABCDEFGHJKMNPQRSTVWXYZ") != "" {
+					return fmt.Errorf("the Edge code %q is not 10 Crockford symbols (%v)", s.inv.Code, err)
+				}
+				if shown := edgeauth.FormatCode(code); len(shown) != 11 || shown[5] != '-' {
+					return fmt.Errorf("the Edge code is shown as %q", shown)
+				}
+				return nil
+			})
+
+			// --- an invite for a named machine -------------------------------------------------
+			sc.Step(`^the owner runs "roger tower invite --for laptop-x"$`, func() error { return s.mint("--for", "laptop-x") })
+			sc.Step(`^the invite works only for a joiner that names itself "laptop-x"$`, func() error {
+				s.out = captureStdout(s.t, func() { s.refused = cmdJoin(loadConfig(), []string{s.inv.String(), "laptop-y"}) })
+				if s.refused == nil || s.admitted() {
+					return fmt.Errorf("a joiner named laptop-y got in with laptop-x's invite: %s", s.out)
+				}
+				return nil
+			})
+			sc.Step(`^a joiner with any other name is refused without spending the invite$`, func() error {
+				s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), []string{s.inv.String(), "laptop-x"}) })
+				if s.err != nil || !s.admitted() {
+					return fmt.Errorf("after a refused other name, laptop-x could not use its own invite (%v): %s", s.err, s.out)
+				}
+				return nil
+			})
+
+			// --- the owner sees the join as it happens --------------------------------------------
+			var waiting *liveBuf
+			var waitDone chan struct{}
+			var waitID string
+			sc.Step(`^"roger tower invite" is still showing its invite$`, func() error {
+				waiting, waitDone = &liveBuf{}, make(chan struct{})
+				go func() {
+					defer close(waitDone)
+					towercli.Run([]string{"invite", "--dir", s.dir, "--at", s.addr, "--wait"}, waiting, waiting)
+				}()
+				for i := 0; i < 300 && joinLineRE.FindStringSubmatch(waiting.String()) == nil; i++ {
+					time.Sleep(10 * time.Millisecond)
+				}
+				m := joinLineRE.FindStringSubmatch(waiting.String())
+				if m == nil {
+					return fmt.Errorf("roger tower invite --wait showed no invite:\n%s", waiting.String())
+				}
+				in, err := joininvite.Parse(m[1])
+				s.inv = in
+				if live := s.st.LiveInvitations(); len(live) == 1 {
+					waitID = live[0].ID
+				}
+				return err
+			})
+			sc.Step(`^a client joins with it$`, func() error {
+				s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), []string{s.inv.String(), "laptop-x"}) })
+				if s.err != nil {
+					return s.err
+				}
+				select {
+				case <-waitDone:
+				case <-time.After(10 * time.Second):
+					return fmt.Errorf("roger tower invite --wait never saw the join:\n%s", waiting.String())
+				}
+				return nil
+			})
+			sc.Step(`^the owner's terminal prints "laptop-x joined \(key 4be1\.\.\.a9\)"$`, func() error {
+				if !regexp.MustCompile(`laptop-x joined \(key [0-9a-f]{4}\.\.\.[0-9a-f]{2}\)`).MatchString(waiting.String()) {
+					return fmt.Errorf("the owner's terminal printed %q", waiting.String())
+				}
+				return nil
+			})
+			sc.Step(`^it prints how to undo it with the new tower command: revoke-client laptop-x$`, func() error {
+				if !strings.Contains(waiting.String(), "undo with: roger tower revoke-client laptop-x") {
+					return fmt.Errorf("the owner's terminal printed %q", waiting.String())
+				}
+				return nil
+			})
+			sc.Step(`^the TUI and console show the same line$`, func() error {
+				// The owner's screens show the invite's outcome (ownerjoin Outcome), which must be
+				// the very line the terminal printed.
+				line, over := towercli.OwnerInviteOutcome(s.dir, waitID)
+				if !over || line == "" || !strings.Contains(waiting.String(), line) {
+					return fmt.Errorf("the screens would show %q (over=%v), the terminal printed %q", line, over, waiting.String())
+				}
+				return nil
+			})
+
+			// --- a key-less Edge invite and the aliases ---------------------------------------
+			sc.Step(`^the Edge owner runs "roger edge invite"$`, func() error {
+				s.edgeInv, s.edgeAuth = ownerEdgeInvite(s.t) // fails if it asks for a key
+				return nil
+			})
+			sc.Step(`^it prints "roger join <invite>" and a QR without asking for a key$`, func() error {
+				if _, err := joininvite.Parse(s.edgeInv); err != nil {
+					return err
+				}
+				return nil
+			})
+			sc.Step(`^the joiner's key is admitted when it presents the code$`, func() error {
+				s.edgeOut, s.edgeCode = edgeRun(s.t, "join", s.edgeInv, "workshop")
+				if s.edgeCode != 0 {
+					return fmt.Errorf("roger join exited %d:\n%s", s.edgeCode, s.edgeOut)
+				}
+				return s.edgeKept()
+			})
+			sc.Step(`^the user runs "roger lan join <invite>"$`, func() error {
+				if err := s.mint(); err != nil {
+					return err
+				}
+				s.out = captureStdout(s.t, func() { s.err = dispatch(loadConfig(), []string{"lan", "join", s.inv.String(), "laptop-x"}) })
+				return nil
+			})
+			sc.Step(`^the user runs "roger edge enroll <name> --invite <invite>"$`, func() error {
+				s.edgeInv, s.edgeAuth = ownerEdgeInvite(s.t)
+				asSecondMachine(s.t) // the device enrolling is not the authority's machine
+				s.edgeOut, s.edgeCode = edgeRun(s.t, "edge", "enroll", "workshop", "--invite", s.edgeInv)
+				return nil
+			})
+			sc.Step(`^it behaves exactly as "roger join <invite>"$`, func() error {
+				if s.edgeInv != "" {
+					if s.edgeCode != 0 {
+						return fmt.Errorf("the alias exited %d:\n%s", s.edgeCode, s.edgeOut)
+					}
+					return s.edgeKept()
+				}
+				if s.err != nil || !s.admitted() || !strings.Contains(s.out, "joined the Tower lab") {
+					return fmt.Errorf("roger lan join did not join as roger join does (%v): %s", s.err, s.out)
+				}
+				return nil
+			})
+
 			sc.Step(`^the Edge authority's owner ran "roger edge invite"$`, func() error {
 				s.edgeInv, s.edgeAuth = ownerEdgeInvite(s.t)
 				return nil
@@ -608,7 +820,9 @@ func TestJoinInviteBDD(t *testing.T) {
 			Paths: []string{joinInviteFeature + ":36", joinInviteFeature + ":44", joinInviteFeature + ":74", joinInviteFeature + ":98",
 				joinInviteFeature + ":107", joinInviteFeature + ":123", joinInviteFeature + ":133", joinInviteFeature + ":150", joinInviteFeature + ":145",
 				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":186", joinInviteFeature + ":192",
-				joinInviteFeature + ":196", joinInviteFeature + ":208", joinInviteFeature + ":236"}},
+				joinInviteFeature + ":196", joinInviteFeature + ":208", joinInviteFeature + ":236",
+				joinInviteFeature + ":54", joinInviteFeature + ":65", joinInviteFeature + ":80", joinInviteFeature + ":114", joinInviteFeature + ":138",
+				joinInviteFeature + ":218", joinInviteFeature + ":223"}},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/join/invite.feature failed")
