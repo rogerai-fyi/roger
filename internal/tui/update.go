@@ -111,6 +111,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (the 2000s-MP3-player feel) from ANY mode - including chat / AGENT / the command palette
 	// / numeric editors, where plain m is a literal character. Plain m still toggles compact on
 	// the nav screens via presetForKey; alt+m (and /compact) make it reachable "from anywhere".
+	if nm, cmd, ok := m.onOwnerJoinKey(k); ok {
+		return nm, cmd
+	}
 	if k.String() == "alt+m" {
 		if m.mode == modeLimits {
 			// Collapsing mid-edit discards the draft: nothing half-typed is ever saved.

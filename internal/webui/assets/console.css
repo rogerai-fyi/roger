@@ -1583,3 +1583,12 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   .share-settings .set-item { justify-content: flex-start; }
 }
 /* end share-settings */
+
+/* The owner's Towers on the Edge tab (console-towers.js). */
+.edge-towers, .edge-invite { margin: 12px 0; }
+.edge-towers h3 { margin: 12px 0 4px; font-size: 12px; letter-spacing: 0.08em; }
+.tower-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.join-request { border: 1px solid var(--hairline-2); padding: 8px 12px; margin: 8px 0; }
+.join-request .btn { margin-right: 8px; }
+.join-line { display: block; overflow-wrap: anywhere; margin: 6px 0; }
+.join-qr { line-height: 1; font-size: 8px; background: var(--white); color: var(--ink-900); display: inline-block; padding: 8px; }

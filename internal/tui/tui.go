@@ -44,6 +44,7 @@ import (
 	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/node"
 	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v6/internal/ownerjoin"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/session"
 	"rogerai.fm/roger/v6/internal/store"
@@ -58,6 +59,9 @@ type Hooks struct {
 	// consumer-plane base URLs SHARE serves as a standalone station, registering with nothing.
 	// Nil = LAN mode off.
 	LANTowers func() []string
+	// Owner is the owner's side of joining (owner_join.go): the Towers this user serves, their
+	// waiting join requests, invites and the Towers this machine joined. Nil = not offered.
+	Owner *ownerjoin.Hooks
 	// LANEdgeOnly is `roger --lan --edge-only` (features/lan/edge_only.feature): SHARE serves Edge
 	// members only (LANTowers lists none) and the console marks the mode.
 	LANEdgeOnly bool
@@ -1228,7 +1232,8 @@ type model struct {
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	upg        upgState
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
-	hooks Hooks // host-supplied platform/auth bits (nil-safe)
+	hooks Hooks     // host-supplied platform/auth bits (nil-safe)
+	own   ownerJoin // the owner's view of joins on the Towers this user serves (owner_join.go)
 	// scanEnds closes each on-request scan this model opened, by kind (scan.go).
 	scanEnds  map[string]func()
 	share     *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
@@ -1633,6 +1638,7 @@ func (m model) Init() tea.Cmd {
 	// The host's Edge heartbeats, drained from launch: a node heard from before the
 	// operator ever opens [3] EDGE still pulses when they get there.
 	cmds = append(cmds, waitEdgeHeartbeat(m.hooks.EdgeHeartbeats))
+	cmds = append(cmds, m.ownerJoinCmd())
 	return tea.Batch(cmds...)
 }
 
@@ -1674,6 +1680,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// re-syncs locally, so this never fights an in-flight keystroke.
 	m.syncShareCache()
 	if nm, cmd, ok := m.onModelsMsg(msg); ok {
+		return nm, cmd
+	}
+	if nm, cmd, ok := m.onOwnerJoinMsg(msg); ok {
 		return nm, cmd
 	}
 	if sm, ok := msg.(edgeServeModelMsg); ok {

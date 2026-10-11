@@ -448,14 +448,27 @@ const Quiet = 4
 // Terminal draws the code with half blocks, two module rows per text line, black on white with
 // explicit colours (so it scans the same in a dark terminal and a light one), inside a quiet zone.
 func (c *Code) Terminal() string {
+	var b strings.Builder
+	for _, row := range c.halfBlockRows() {
+		b.WriteString("\x1b[30;107m" + row + "\x1b[0m\n") // black on bright white
+	}
+	return b.String()
+}
+
+// Blocks is the code as plain half-block rows inside its quiet zone, with no colour codes: for a
+// screen that gives it a white ground itself (the web console).
+func (c *Code) Blocks() string { return strings.Join(c.halfBlockRows(), "\n") + "\n" }
+
+// halfBlockRows draws two module rows per text row with half blocks, quiet zone included.
+func (c *Code) halfBlockRows() []string {
 	n := c.Size + 2*Quiet
 	dark := func(x, y int) bool {
 		x, y = x-Quiet, y-Quiet
 		return x >= 0 && y >= 0 && x < c.Size && y < c.Size && c.Modules[y][x]
 	}
-	var b strings.Builder
+	var rows []string
 	for y := 0; y < n; y += 2 {
-		b.WriteString("\x1b[30;107m") // black on bright white
+		var b strings.Builder
 		for x := 0; x < n; x++ {
 			top, bot := dark(x, y), y+1 < n && dark(x, y+1)
 			switch {
@@ -469,7 +482,7 @@ func (c *Code) Terminal() string {
 				b.WriteString(" ")
 			}
 		}
-		b.WriteString("\x1b[0m\n")
+		rows = append(rows, b.String())
 	}
-	return b.String()
+	return rows
 }

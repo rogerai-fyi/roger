@@ -1608,7 +1608,37 @@
     loadEdge();
   }
 
+  // THE OWNER'S TOWERS (console-towers.js): read with the Edge, on the same tick.
+  var towerInvite = null, towerOutcome = null;
+  var towerOn = {
+    invite: function (t) {
+      apiPost("/api/towers/invite", { dir: t.dir }).then(function (inv) {
+        towerInvite = inv; towerOutcome = null;
+        window.RogerConsoleTowers.renderInvite(document, towerInvite, towerOutcome, towerOn);
+      }).catch(toastErr);
+    },
+    decide: function (r, approve) {
+      apiPost("/api/towers/decide", { dir: r.dir, id: r.id, approve: approve }).then(function (v) {
+        toast(approve ? r.name + " can join " + r.tower : "refused " + r.name, "ok");
+        window.RogerConsoleTowers.render(document, v, towerOn);
+      }).catch(toastErr);
+    },
+    copy: function (line) { copyText(line); }
+  };
+  function loadTowers() {
+    if (!window.RogerConsoleTowers) return;
+    apiGet("/api/towers").then(function (v) { window.RogerConsoleTowers.render(document, v, towerOn); }).catch(function () {});
+    if (towerInvite && !(towerOutcome && towerOutcome.over)) {
+      apiGet("/api/towers/invite/outcome?dir=" + encodeURIComponent(towerInvite.dir) + "&id=" + encodeURIComponent(towerInvite.id) +
+        "&expires_at=" + encodeURIComponent(towerInvite.expires_at)).then(function (o) {
+        towerOutcome = o;
+        window.RogerConsoleTowers.renderInvite(document, towerInvite, towerOutcome, towerOn);
+      }).catch(function () {});
+    }
+  }
+
   function loadEdge() {
+    loadTowers();
     apiGet("/api/edge").then(function (d) {
       show($("edge-error"), false);
       edgeRender(d);

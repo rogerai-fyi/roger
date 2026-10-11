@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/ownerjoin"
 	"strings"
 	"sync"
 
@@ -55,6 +56,9 @@ type Options struct {
 	// LANDial is the merged LAN dial in LAN mode (the same function the TUI's dial reads), nil
 	// otherwise. With it set, BROWSE lists the LAN and never asks the broker.
 	LANDial func() client.LANDial
+	// Owner is the owner's side of joining (towers.go), the same hooks the TUI uses. Nil = the
+	// console shows no Towers.
+	Owner *ownerjoin.Hooks
 }
 
 // Server is the node console HTTP server. It is safe for concurrent requests: all live
@@ -131,6 +135,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/grants", s.auth(s.handleGrants)) // GET lists, POST creates
 	// EDGE: the fleet snapshot (read, GET only) and the owner's adopt (POST only).
 	s.modelRoutes()
+	s.mux.HandleFunc("/api/towers", s.auth(s.handleTowers))
+	s.mux.HandleFunc("/api/towers/invite", s.action(s.handleTowerInvite))
+	s.mux.HandleFunc("/api/towers/invite/outcome", s.auth(s.handleTowerInviteOutcome))
+	s.mux.HandleFunc("/api/towers/decide", s.action(s.handleTowerDecide))
 	s.mux.HandleFunc("/api/edge", s.auth(s.handleEdge))
 	s.mux.HandleFunc("/api/edge/adopt", s.action(s.handleEdgeAdopt))
 	s.mux.HandleFunc("/api/edge/join", s.action(s.handleEdgeJoin))

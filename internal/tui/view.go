@@ -96,6 +96,7 @@ func (m model) View() string {
 		b.WriteString(m.presetBar(w) + "\n\n")
 		b.WriteString(m.header(w) + "\n")
 	}
+	b.WriteString(m.ownerJoinBanner(w))
 	switch m.mode {
 	case modeHelp:
 		content := m.helpView()
@@ -128,6 +129,7 @@ func (m model) View() string {
 	case modeLimits:
 		b.WriteString(m.limitsView(w))
 	case modeEdge:
+		b.WriteString(m.ownerEdgeView(w))
 		b.WriteString(m.edgeView(w))
 	case modeShare:
 		b.WriteString(m.shareView(w))

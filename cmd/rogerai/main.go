@@ -741,6 +741,8 @@ func tuiHooks(cfg config) tui.Hooks {
 		EdgeScan: func(kind string) func() { return edgeScans.Begin(scanKind(kind)) },
 		// ...and the same request carried to a member (edgeservecontrol.go).
 		EdgeServeModel: edgeServeModelHook,
+		// The owner's side of joining, from the same code the CLI runs (ownerjoin.go).
+		Owner: ownerJoinHooks(),
 		// Station is the PUBLIC, NON-SENSITIVE callsign the TUI derives every band's node
 		// id from (`<station>-<model>`). It is the saved/auto-generated station, NEVER the
 		// hostname, so going on air in the TUI leaks no machine name or port. SaveStation

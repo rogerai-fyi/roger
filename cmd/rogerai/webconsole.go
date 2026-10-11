@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"rogerai.fm/roger/v6/internal/ownerjoin"
 	"strings"
 	"time"
 
@@ -106,7 +107,9 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 		Models: modelWebHooks(),
 		// THE SAME LAN DIAL the TUI reads, in LAN mode; nil otherwise.
 		LANDial: consoleLANDial(cfg),
-		Broker:  cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
+		// THE SAME owner's join view the TUI's [3] EDGE shows (ownerjoin.go).
+		Owner:  consoleOwner(hooks),
+		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
 		// [4] CONFIG are two views of one setting; two stores would let them disagree
 		// about what the operator is willing to pay, and the loser is whichever wrote
@@ -300,4 +303,12 @@ func consoleLANDial(cfg config) func() client.LANDial {
 		edgeScans.Lease(scanLAN, edgeConsoleLease)
 		return dial()
 	}
+}
+
+// consoleOwner is the TUI's owner join hooks for the console; nil hooks show no Towers.
+func consoleOwner(hooks *tui.Hooks) *ownerjoin.Hooks {
+	if hooks == nil {
+		return nil
+	}
+	return hooks.Owner
 }

@@ -173,3 +173,19 @@ func stripANSI(s string) string {
 		s = s[:i] + s[i+j+1:]
 	}
 }
+
+// TestBlocksAreTheTerminalRowsWithoutColour: the console's plain rows are exactly the terminal's
+// rows with the colour codes taken off, so both screens show the same code.
+func TestBlocksAreTheTerminalRowsWithoutColour(t *testing.T) {
+	c, err := Encode([]byte("roger join roger://join?kind=tower-client"), L)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := strings.NewReplacer("\x1b[30;107m", "", "\x1b[0m", "").Replace(c.Terminal())
+	if got := c.Blocks(); got != plain {
+		t.Fatalf("Blocks differs from the terminal rows:\n%q\n%q", got, plain)
+	}
+	if strings.Contains(c.Blocks(), "\x1b") {
+		t.Fatal("Blocks carries colour codes")
+	}
+}
