@@ -592,14 +592,14 @@ Feature: One user binary with modes
     Examples:
       | situation                                         | command                                             |
       | a LAN Tower refuses this machine (not admitted)   | roger join <invite>                                 |
-      | a station's poll gets the uniform 401             | roger tower attach --station ... --key ...          |
+      | a station's poll gets the uniform 401             | roger tower invite --station                        |
       | a joined login needs an invite                    | roger tower invite                                  |
       | the standalone serve starts                       | roger lan add <addr> on each client                 |
       | tower readiness fails                             | roger tower doctor                                  |
 
   Scenario: The not-admitted hint names the command the owner actually runs
     # SUPERSEDED 2026-10-10 by features/join/surfaces.feature ("The not-admitted hint names the simple
-    # flow"), which also replaces the not-admitted row above: one invite, then roger join, no key hash.
+    # flow"), which also replaces the not-admitted and station rows above: one invite, then roger join.
     Given a LAN Tower that answers this machine with the uniform 401
     When the user runs roger --lan use against it
     Then the hint says "this Tower hasn't let you in yet. Ask its owner for an invite (roger tower invite), then run: roger join <invite>"
