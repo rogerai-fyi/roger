@@ -15,6 +15,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/servedfile"
 )
 
 // idFromPriv is the one canonical rule mapping a signing key to its tower client id, so the id a
@@ -64,7 +65,7 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv, cfg.StationModels)
+		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv, cfg)
 		switch {
 		case err == nil:
 			failures, toldUnattached = 0, false
@@ -163,15 +164,29 @@ type localJob struct {
 
 // pollLocalJob long-polls the Tower for a job. 200 with a job, 204 (no work), anything else is
 // treated as "no job this round".
-func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed25519.PrivateKey, serving func() []string) (localJob, bool, error) {
-	// The poll announces chunk support, so the Tower hands a streamed job over as a stream, and
-	// says what this station serves now, so the Tower routes exactly that (features/join).
+func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed25519.PrivateKey, cfg Config) (localJob, bool, error) {
+	// The poll announces chunk support, so the Tower hands a streamed job over as a stream, says
+	// what this station serves now, so the Tower routes exactly that (features/join), and names the
+	// file behind each model it knows (features/models/short_names_nearby.feature).
+	type namedFile struct {
+		Model string `json:"model"`
+		servedfile.File
+	}
 	announce := struct {
-		Streams bool     `json:"streams"`
-		Models  []string `json:"models,omitempty"`
+		Streams bool        `json:"streams"`
+		Models  []string    `json:"models,omitempty"`
+		Files   []namedFile `json:"files,omitempty"`
 	}{Streams: true}
-	if serving != nil {
-		announce.Models = serving()
+	if cfg.StationModels != nil {
+		announce.Models = cfg.StationModels()
+	}
+	if cfg.StationFiles != nil {
+		files := cfg.StationFiles()
+		for _, m := range announce.Models {
+			if f, ok := files[m]; ok {
+				announce.Files = append(announce.Files, namedFile{Model: m, File: f})
+			}
+		}
 	}
 	body, _ := json.Marshal(announce)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/local/poll", bytes.NewReader(body))

@@ -25,6 +25,8 @@ import (
 	"rogerai.fm/roger/v6/internal/lanmode"
 	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towerpin"
 	"rogerai.fm/roger/v6/internal/tui"
 )
@@ -535,7 +537,8 @@ func lanEdgeBands() ([]client.LANEdgeBand, error) {
 			loc := edge.Located{Node: n, Instance: in}
 			for _, b := range in.Bands {
 				out = append(out, client.LANEdgeBand{Node: n.Name, Band: b, Verified: loc.ServesBand(b),
-					LANDirect: edge.HasLANTransport(n), Dark: n.Presence == string(edge.PresenceDark)})
+					LANDirect: edge.HasLANTransport(n), Dark: n.Presence == string(edge.PresenceDark),
+					File: edgeBandFile(in.Model, b)})
 			}
 		}
 	}
@@ -976,4 +979,21 @@ func lanTrustNoteOnce(sources []client.LANSource, addressed string) {
 	fmt.Println(lanTrustNote)
 	c.LanTrustNoted = true
 	_ = saveConfig(c)
+}
+
+// edgeBandFile is which file a member's own report says band is (features/models/
+// short_names_nearby.feature), or nil when its record names none.
+func edgeBandFile(m *store.EdgeModel, band string) *servedfile.File {
+	if m == nil {
+		return nil
+	}
+	if m.Band == band {
+		return servedfile.FromID(m.ID, m.File, m.Quant, m.SHA256, 0)
+	}
+	for _, a := range m.Also {
+		if a.Band == band {
+			return servedfile.FromID(a.ID, a.File, a.Quant, a.SHA256, 0)
+		}
+	}
+	return nil
 }

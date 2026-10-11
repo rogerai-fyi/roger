@@ -70,11 +70,15 @@ type EdgeInstance struct {
 
 // EdgeModel is a roger's own serving, in full, and the fetch in flight.
 type EdgeModel struct {
-	Band        string     `json:"band,omitempty"` // empty: nothing served
-	ID          string     `json:"id,omitempty"`
-	Quant       string     `json:"quant,omitempty"`
-	Ctx         int        `json:"ctx,omitempty"`
-	Since       int64      `json:"since,omitempty"`
+	Band  string `json:"band,omitempty"` // empty: nothing served
+	ID    string `json:"id,omitempty"`
+	Quant string `json:"quant,omitempty"`
+	Ctx   int    `json:"ctx,omitempty"`
+	Since int64  `json:"since,omitempty"`
+	// File and SHA256 are which exact file the band is, as the member says it serves it
+	// (features/models/short_names_nearby.feature). Empty on an older member: no mapping from it.
+	File        string     `json:"file,omitempty"`
+	SHA256      string     `json:"sha256,omitempty"`
 	Fetch       *EdgeFetch `json:"fetch,omitempty"`
 	CannotServe string     `json:"cannot_serve,omitempty"` // why this machine has no runtime, in one sentence
 	ServeFailed string     `json:"serve_failed,omitempty"` // the last serve's own last words, when it never came on the air
@@ -91,11 +95,13 @@ type EdgeModel struct {
 
 // EdgeServed is one more model a member serves beside its latest.
 type EdgeServed struct {
-	Band  string `json:"band"`
-	ID    string `json:"id,omitempty"`
-	Quant string `json:"quant,omitempty"`
-	Ctx   int    `json:"ctx,omitempty"`
-	Since int64  `json:"since,omitempty"`
+	Band   string `json:"band"`
+	ID     string `json:"id,omitempty"`
+	Quant  string `json:"quant,omitempty"`
+	Ctx    int    `json:"ctx,omitempty"`
+	Since  int64  `json:"since,omitempty"`
+	File   string `json:"file,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // EdgeFetch is a fetch on a member, as it last reported it.

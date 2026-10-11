@@ -29,14 +29,14 @@ func TestAStationPollSaysWhatItServesNow(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 
 	serving := []string{"gpt-oss-20b"}
-	_, _, err := pollLocalJob(context.Background(), tw.Client(), tw.URL, priv, func() []string { return serving })
+	_, _, err := pollLocalJob(context.Background(), tw.Client(), tw.URL, priv, Config{StationModels: func() []string { return serving }})
 	require.NoError(t, err)
 	require.True(t, got.Streams)
 	require.Equal(t, []string{"gpt-oss-20b"}, got.Models)
 
 	// With no way to know (an older caller), the poll names nothing and the Tower keeps its list.
 	got.Models = nil
-	_, _, err = pollLocalJob(context.Background(), tw.Client(), tw.URL, priv, nil)
+	_, _, err = pollLocalJob(context.Background(), tw.Client(), tw.URL, priv, Config{})
 	require.NoError(t, err)
 	require.Nil(t, got.Models)
 }

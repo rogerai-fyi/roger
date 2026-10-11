@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/servedfile"
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
@@ -266,6 +267,10 @@ type localOffer struct {
 	// must never read as local hardware. Free either way - the label is honesty, not price.
 	Curated         bool   `json:"curated,omitempty"`
 	CuratedProvider string `json:"curated_provider,omitempty"`
+	// File is which exact file the model is, as the station reported it; FileBy says whose word that
+	// is ("station"), never the Tower's (features/models/short_names_nearby.feature).
+	File   *servedfile.File `json:"file,omitempty"`
+	FileBy string           `json:"file_by,omitempty"`
 }
 
 // discover answers GET /discover with THIS Tower's own attached stations and nothing else -
@@ -292,11 +297,15 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
 	offers := make([]localOffer, 0)
 	for _, st := range stations {
 		for _, m := range st.Models {
-			offers = append(offers, localOffer{
+			o := localOffer{
 				NodeID: st.ID, Model: m, Modality: "chat",
 				PriceIn: 0, PriceOut: 0, Online: true, FreeNow: true, Local: true,
 				Curated: st.Curated, CuratedProvider: st.CuratedProvider,
-			})
+			}
+			if f, ok := st.Files[m]; ok {
+				o.File, o.FileBy = &f, "station"
+			}
+			offers = append(offers, o)
 		}
 	}
 	sort.Slice(offers, func(i, j int) bool {

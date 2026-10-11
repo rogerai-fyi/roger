@@ -24,6 +24,7 @@ import (
 	"unicode"
 
 	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v6/internal/servedfile"
 )
 
 // LANSourceKind is where a band is served on the LAN.
@@ -43,6 +44,10 @@ type LANSource struct {
 	ID       string        `json:"id"`             // node name, or the Tower's host:port; "" for this machine
 	Addr     string        `json:"addr,omitempty"` // a Tower's host:port
 	Verified bool          `json:"verified"`
+	// File is which exact file this source serves the band from, as it says
+	// (features/models/short_names_nearby.feature): this machine's and an Edge member's own record,
+	// or a pinned Tower's station report. nil: this source names no file.
+	File *servedfile.File `json:"file,omitempty"`
 }
 
 // Label is the dial's source text: "this machine", "edge: jetson", "tower: 192.168.1.20".
@@ -85,6 +90,7 @@ type LANEdgeBand struct {
 	Verified  bool // the serving probe answered (a CLAIM is not a source)
 	LANDirect bool // reachable on the LAN, not only through a relay
 	Dark      bool
+	File      *servedfile.File // which file the member says the band is; nil on an older member
 }
 
 // NotAdmittedHint is what a Tower that has not let this machine in yet means, and the simple way in
@@ -171,7 +177,7 @@ func LANDiscover(ctx context.Context, in LANInputs) ([]LANBand, []LANTowerStatus
 	}
 	for _, e := range in.Edge {
 		if e.Verified && e.LANDirect && !e.Dark {
-			add(e.Band, LANSource{Kind: LANEdge, ID: e.Node, Verified: true})
+			add(e.Band, LANSource{Kind: LANEdge, ID: e.Node, Verified: true, File: e.File})
 		}
 	}
 	status := lanTowers(ctx, in)
@@ -180,7 +186,11 @@ func LANDiscover(ctx context.Context, in LANInputs) ([]LANBand, []LANTowerStatus
 		// so its rows are verified, like an Edge member's. An unpinned one is plain http, unverified.
 		_, pinned := lanmode.PinFor(st.Addr)
 		for _, m := range st.models {
-			add(m, LANSource{Kind: LANTower, ID: st.Addr, Addr: st.Addr, Verified: pinned})
+			src := LANSource{Kind: LANTower, ID: st.Addr, Addr: st.Addr, Verified: pinned}
+			if f, ok := st.files[m]; ok && pinned { // an unpinned Tower's report never defines a file
+				src.File = &f
+			}
+			add(m, src)
 		}
 	}
 	voice := map[string]bool{}
@@ -203,6 +213,7 @@ func LANDiscover(ctx context.Context, in LANInputs) ([]LANBand, []LANTowerStatus
 type towerResult struct {
 	LANTowerStatus
 	models []string
+	files  map[string]servedfile.File // a station's report of which file a model is
 }
 
 // lanTowers reads every configured Tower in parallel, each bounded by its own timeout.
@@ -236,7 +247,7 @@ func lanTowers(ctx context.Context, in LANInputs) []towerResult {
 		wg.Add(1)
 		go func(i int, base string) {
 			defer wg.Done()
-			out[i].State, out[i].Detail, out[i].models, out[i].More = readTower(ctx, in, base)
+			out[i].State, out[i].Detail, out[i].models, out[i].files, out[i].More = readTower(ctx, in, base)
 			out[i].Bands = len(out[i].models)
 		}(i, base)
 	}
@@ -245,7 +256,7 @@ func lanTowers(ctx context.Context, in LANInputs) []towerResult {
 }
 
 // readTower reads one Tower's /discover, signed (the plane admits signed clients only).
-func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, string, []string, bool) {
+func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, string, []string, map[string]servedfile.File, bool) {
 	timeout := in.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
@@ -254,7 +265,7 @@ func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, s
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/discover", nil)
 	if err != nil {
-		return LANTowerRefused, err.Error(), nil, false
+		return LANTowerRefused, err.Error(), nil, nil, false
 	}
 	key := in.Key
 	if key == nil {
@@ -273,76 +284,82 @@ func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, s
 	hc = noRedirects(hc)
 	resp, err := hc.Do(req)
 	if errors.Is(err, towerpin.ErrPinMismatch) {
-		return LANTowerRefused, TowerKeyChanged(req.URL.Host), nil, false
+		return LANTowerRefused, TowerKeyChanged(req.URL.Host), nil, nil, false
 	}
 	if err != nil {
 		var ue *url.Error
 		if ctx.Err() != nil || (errors.As(err, &ue) && ue.Timeout()) {
-			return LANTowerWaiting, "did not answer in time", nil, false
+			return LANTowerWaiting, "did not answer in time", nil, nil, false
 		}
-		return LANTowerNotAnswering, err.Error(), nil, false
+		return LANTowerNotAnswering, err.Error(), nil, nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return LANTowerNotAdmitted, NotAdmittedHint, nil, false
+		return LANTowerNotAdmitted, NotAdmittedHint, nil, nil, false
 	}
 	if resp.StatusCode != http.StatusOK {
-		return LANTowerBadAnswer, fmt.Sprintf("status %d", resp.StatusCode), nil, false
+		return LANTowerBadAnswer, fmt.Sprintf("status %d", resp.StatusCode), nil, nil, false
 	}
 	limit := in.MaxBands
 	if limit == 0 {
 		limit = lanDefaultMaxBands
 	}
-	models, more, err := streamOffers(io.LimitReader(resp.Body, lanMaxBody), limit)
+	models, files, more, err := streamOffers(io.LimitReader(resp.Body, lanMaxBody), limit)
 	if err != nil && len(models) == 0 {
-		return LANTowerBadAnswer, "not a /discover answer", nil, false
+		return LANTowerBadAnswer, "not a /discover answer", nil, nil, false
 	}
-	return LANTowerAnswering, "", models, more
+	return LANTowerAnswering, "", models, files, more
 }
 
 // streamOffers reads {"offers":[...]} one offer at a time and stops once limit distinct online
 // models are read, so a Tower listing a hundred thousand offers costs a bounded read. A body
 // cut off by the size cap after the limit was reached is not an error.
-func streamOffers(r io.Reader, limit int) ([]string, bool, error) {
+func streamOffers(r io.Reader, limit int) ([]string, map[string]servedfile.File, bool, error) {
 	dec := json.NewDecoder(r)
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return nil, false, fmt.Errorf("not an object")
+		return nil, nil, false, fmt.Errorf("not an object")
 	}
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 		if key != "offers" {
 			var skip json.RawMessage
 			if err := dec.Decode(&skip); err != nil {
-				return nil, false, err
+				return nil, nil, false, err
 			}
 			continue
 		}
 		if t, err := dec.Token(); err != nil || t != json.Delim('[') {
-			return nil, false, fmt.Errorf("offers is not a list")
+			return nil, nil, false, fmt.Errorf("offers is not a list")
 		}
 		var models []string
+		files := map[string]servedfile.File{}
 		seen := map[string]bool{}
 		for dec.More() {
 			var o Offer
 			if err := dec.Decode(&o); err != nil {
-				return models, false, err
+				return models, files, false, err
 			}
 			m := cleanModelName(o.Model)
 			if m == "" || seen[m] || !o.Online {
 				continue
 			}
 			if len(models) == limit {
-				return models, true, nil
+				return models, files, true, nil
 			}
 			seen[m] = true
 			models = append(models, m)
+			if o.File != nil && o.FileBy == "station" {
+				if c := servedfile.Clean(*o.File); c != nil {
+					files[m] = *c
+				}
+			}
 		}
-		return models, false, nil
+		return models, files, false, nil
 	}
-	return nil, false, nil
+	return nil, nil, false, nil
 }
 
 // noRedirects returns a copy of hc that never follows a redirect: a LAN source is an address

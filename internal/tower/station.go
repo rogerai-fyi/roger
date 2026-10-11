@@ -4,11 +4,14 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
+
+	"rogerai.fm/roger/v6/internal/servedfile"
 
 	"rogerai.fm/roger/v6/internal/protocol"
 )
@@ -35,6 +38,10 @@ type Station struct {
 	// local network. Mirrors the public broker's curated identity rule.
 	Curated         bool   `json:"curated,omitempty"`
 	CuratedProvider string `json:"curated_provider,omitempty"`
+	// Files is which exact file each routed model is, as the Station reported on its last poll
+	// (features/models/short_names_nearby.feature): the Station's word, never the Tower's. Empty
+	// for a Station that reports none, so nothing maps a name to a file from it.
+	Files map[string]servedfile.File `json:"files,omitempty"`
 	// Limit is what the owner allowed this Station to serve: the models typed when attaching it
 	// by hand, or an invite's --models. AnyModel marks a Station that joined with an unlimited
 	// invite. A record with neither (from before reports existed) is held to its current models,
@@ -319,4 +326,37 @@ func checkStationModels(models []string) error {
 		}
 	}
 	return nil
+}
+
+// SetStationFiles records the files a Station reports behind the models it serves. Only a report for
+// a model the Tower routes it, and that names exactly one file, is kept; everything else is dropped.
+// It replaces the last report, so a Station that stops reporting a file maps nothing.
+func (s *State) SetStationFiles(id string, reported map[string]servedfile.File) (Station, error) {
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return Station{}, err
+	}
+	st, ok := bs.Stations[id]
+	if !ok {
+		return Station{}, errors.New("no attached Station has that id")
+	}
+	var keep map[string]servedfile.File
+	for model, f := range reported {
+		if !slices.Contains(st.Models, model) {
+			continue
+		}
+		if c := servedfile.Clean(f); c != nil {
+			if keep == nil {
+				keep = map[string]servedfile.File{}
+			}
+			keep[model] = *c
+		}
+	}
+	if maps.Equal(keep, st.Files) {
+		return *st, nil
+	}
+	st.Files = keep
+	return *st, s.saveBootstrap(bs)
 }

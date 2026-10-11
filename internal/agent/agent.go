@@ -32,6 +32,7 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/keyfile"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/servedfile"
 )
 
 // shareFeeRate is the platform take used only to ESTIMATE the session's live
@@ -65,6 +66,10 @@ type Config struct {
 	// StationModels says what this station serves right now, for a standalone Tower's poll (nil:
 	// the poll names nothing and the Tower keeps the list it attached).
 	StationModels func() []string
+	// StationFiles says which exact file each of those models is, where this station knows (the
+	// models roger serves itself), so a Tower's clients can serve the same file by its name
+	// (features/models/short_names_nearby.feature). nil: no files are reported.
+	StationFiles func() map[string]servedfile.File
 	// StationUpstream routes a standalone Tower job's model to the local server that serves it, for
 	// a station that offers models from more than one server (nil or not ok: Upstream).
 	StationUpstream func(model string) (url, key string, ok bool)

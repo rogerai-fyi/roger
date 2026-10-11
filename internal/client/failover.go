@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"rogerai.fm/roger/v6/internal/coreclient"
+	"rogerai.fm/roger/v6/internal/servedfile"
 	"slices"
 	"sort"
 	"strings"
@@ -74,6 +75,10 @@ type Offer struct {
 	Capabilities []string `json:"capabilities,omitempty"`
 	Curated      bool     `json:"curated,omitempty"`
 	Quant        string   `json:"quant,omitempty"`
+	// File is which exact file the model is, as a standalone Tower's station reported it, and
+	// FileBy whose word that is (features/models/short_names_nearby.feature). The market sends none.
+	File   *servedfile.File `json:"file,omitempty"`
+	FileBy string           `json:"file_by,omitempty"`
 	// Smart-router v2 selection fields surfaced from /discover so failover mirrors the
 	// broker's capacity-aware load factor (0 = unset, treated as neutral). InFlight is
 	// the node's current load; Capacity is its concurrency capacity (under-load TPS or

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/servedfile"
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
@@ -291,10 +292,25 @@ func (s *Server) localPoll(w http.ResponseWriter, r *http.Request) {
 	var announce struct {
 		Streams bool     `json:"streams"`
 		Models  []string `json:"models"`
+		// Files is which exact file each model is, as this station says (short_names_nearby.feature).
+		Files []struct {
+			Model string `json:"model"`
+			servedfile.File
+		} `json:"files"`
 	}
 	_ = json.Unmarshal(body, &announce)
 	if len(announce.Models) > 0 { // bounded and checked by SetStationModels
 		if now, changed, err := s.st.SetStationModels(station.ID, announce.Models); err == nil {
+			files := map[string]servedfile.File{}
+			for i, f := range announce.Files {
+				if i == tower.MaxStationModels {
+					break
+				}
+				files[f.Model] = f.File
+			}
+			if withFiles, err := s.st.SetStationFiles(station.ID, files); err == nil {
+				now = withFiles
+			}
 			station = now
 			if changed {
 				s.logf("station %s now serves: %s", station.ID, strings.Join(station.Models, ", "))

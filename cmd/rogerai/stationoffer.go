@@ -18,6 +18,8 @@ import (
 
 	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/detect"
+
+	"rogerai.fm/roger/v6/internal/servedfile"
 )
 
 // StationOffer is what this machine chose to offer Towers as a station: the explicit --models
@@ -306,4 +308,17 @@ func withStationRoutes(run *agent.Config, routes map[string]stationRoute) {
 		r, ok := routes[model]
 		return r.url, r.key, ok
 	}
+}
+
+// stationFiles is which exact file each band roger serves on this machine is, for a standalone
+// Tower's poll (features/models/short_names_nearby.feature): a model roger fetched names its
+// repository, file and digest; one placed by hand names none, so it maps nothing.
+func stationFiles() map[string]servedfile.File {
+	out := map[string]servedfile.File{}
+	for _, s := range modelHome().LiveAll() {
+		if f := servedfile.FromID(s.ID, s.File, s.Quant, s.SHA256, 0); f != nil {
+			out[s.Band] = *f
+		}
+	}
+	return out
 }

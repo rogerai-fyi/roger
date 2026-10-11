@@ -1822,6 +1822,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	applyShareVoice(cfg, mdl, &cfgRun)
 	// A standalone Tower's poll says what this station serves now (features/join/invite.feature).
 	cfgRun.StationModels = stationServing(up, *upKey, mdl, pickedModels, cfg.StationOffer.orZero())
+	cfgRun.StationFiles = stationFiles
 	if cfg.lan.LAN && cfg.StationOffer != nil {
 		withStationRoutes(&cfgRun, stationRoutes(*cfg.StationOffer, up))
 	}
