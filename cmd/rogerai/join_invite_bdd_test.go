@@ -60,7 +60,7 @@ type joinInviteBDD struct {
 	lastShare string
 }
 
-var joinLineRE = regexp.MustCompile(`roger join (roger://join\?\S+)`)
+var joinLineRE = regexp.MustCompile(`roger join '?(roger://join\?[^'\s]+)'?`)
 
 func (s *joinInviteBDD) reset() {
 	s.t.Setenv("XDG_CONFIG_HOME", s.t.TempDir())
@@ -199,7 +199,7 @@ func TestJoinInviteBDD(t *testing.T) {
 				for _, l := range strings.Split(s.out, "\n") {
 					if strings.HasPrefix(l, "roger join ") {
 						n++
-						if l != "roger join "+s.inv.String() {
+						if l != joininvite.JoinLine(s.inv.String()) {
 							return fmt.Errorf("join line %q, want the invite %q", l, s.inv)
 						}
 					}
@@ -210,7 +210,7 @@ func TestJoinInviteBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^it prints a terminal QR code of the same invite$`, func() error {
-				if !strings.Contains(s.out, qr.ForTerminal("roger join "+s.inv.String(), 80, false)) {
+				if !strings.Contains(s.out, qr.ForTerminal(joininvite.JoinLine(s.inv.String()), 80, false)) {
 					return fmt.Errorf("no QR code of the invite in:\n%s", s.out)
 				}
 				return nil

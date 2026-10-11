@@ -100,7 +100,7 @@ func TestEdgeInviteDrawsTheSameInviteAsAQRCode(t *testing.T) {
 	require.Equal(t, 0, code, out)
 	m := joinLineRE.FindStringSubmatch(out)
 	require.NotNil(t, m, out)
-	require.Contains(t, out, qr.ForTerminal("roger join "+m[1], 80, false), "the code is the printed line")
+	require.Contains(t, out, qr.ForTerminal(joininvite.JoinLine(m[1]), 80, false), "the code is the printed line")
 
 	out, code = edgeRun(t, "edge", "invite", "--at", "192.168.1.20:4181")
 	require.Equal(t, 0, code, out)

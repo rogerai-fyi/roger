@@ -1,6 +1,7 @@
 package joininvite
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -89,4 +90,28 @@ func TestAnInviteNamesItsKindOnce(t *testing.T) {
 		require.Equal(t, 1, strings.Count(s, "kind="), s)
 		require.True(t, strings.HasPrefix(s, "roger://join?kind="+string(k)+"&"), s)
 	}
+}
+
+// The printed join line pastes into a shell as is: the whole invite reaches roger as ONE argument
+// in sh, bash and zsh (an unquoted ? and & would glob in zsh and background in sh).
+func TestTheJoinLinePastesIntoAShell(t *testing.T) {
+	inv := Invite{Kind: TowerClient, Addrs: []string{"192.168.1.20:8787", "[fe80::1%en0]:8787"}, FP: fp, Code: joincode.Tower.NewCode(), For: "laptop-x"}.String()
+	line := JoinLine(inv)
+	require.True(t, strings.HasPrefix(line, "roger join "), line)
+	for _, sh := range []string{"sh", "bash", "zsh"} {
+		path, err := exec.LookPath(sh)
+		if err != nil {
+			continue
+		}
+		// roger is a shell function here that prints its arguments one per line.
+		out, err := exec.Command(path, "-c", `roger() { for a in "$@"; do printf '%s\n' "$a"; done; }; `+line).CombinedOutput()
+		require.NoError(t, err, "%s: %s", sh, out)
+		require.Equal(t, "join\n"+inv+"\n", string(out), sh)
+	}
+	require.Equal(t, inv, FromLine(line))
+	require.Equal(t, inv, FromLine("roger join "+inv), "an unquoted line still reads back")
+	got, err := Parse("'" + inv + "'")
+	require.NoError(t, err, "a pasted invite that kept its quotes still parses")
+	want, _ := Parse(inv)
+	require.Equal(t, want, got)
 }

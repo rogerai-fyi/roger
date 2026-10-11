@@ -156,7 +156,7 @@ func (s *ownerScreens) joined() error {
 // hint, and read together they must be the whole line.
 func (s *ownerScreens) shownLine() string {
 	v := s.view()
-	start := strings.Index(v, "roger join roger://")
+	start := strings.Index(v, "roger join 'roger://")
 	end := strings.Index(v, "c copies the line")
 	if start < 0 || end < start {
 		return ""
@@ -166,7 +166,7 @@ func (s *ownerScreens) shownLine() string {
 
 func (s *ownerScreens) openInvite() error {
 	s.press("I")
-	line := "roger join " + strings.ReplaceAll(strings.TrimPrefix(s.shownLine(), "roger join "), " ", "")
+	line := joininvite.JoinLine(strings.ReplaceAll(joininvite.FromLine(s.shownLine()), " ", ""))
 	m := joinLineRE.FindStringSubmatch(line)
 	if m == nil {
 		return fmt.Errorf("the TUI shows no whole join line after the invite key: %q\n%s", line, s.view())
@@ -323,7 +323,7 @@ func TestJoinOwnerScreensBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^when the invite is used it shows "<name> joined" in place$`, func() error {
-				in, _ := joininvite.Parse(strings.TrimPrefix(s.line, "roger join "))
+				in, _ := joininvite.Parse(joininvite.FromLine(s.line))
 				if err := joinTower(loadConfig(), in, []string{"laptop-x"}, nil); err != nil {
 					return err
 				}

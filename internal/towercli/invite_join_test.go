@@ -14,7 +14,7 @@ import (
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
-var joinLine = regexp.MustCompile(`roger join (roger://join\?\S+)`)
+var joinLine = regexp.MustCompile(`roger join '?(roger://join\?[^'\s]+)'?`)
 
 // features/join/invite.feature: the owner mints a client invite with one command; it prints one
 // "roger join <invite>" line, says how long it lasts, and names no client.

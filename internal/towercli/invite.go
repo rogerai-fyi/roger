@@ -102,9 +102,9 @@ func cmdInvite(args []string, out io.Writer) error {
 	// What it is, then the one next step and the line to run (features/join/surfaces.feature).
 	fmt.Fprintln(out, tower.InviteHeading(kind, *ttl))
 	fmt.Fprintln(out, tower.InviteNext(kind))
-	fmt.Fprintf(out, "roger join %s\n\n", inv)
+	fmt.Fprintf(out, "%s\n\n", joininvite.JoinLine(inv.String()))
 	if *showQR {
-		qr.Show(out, "roger join "+inv.String())
+		qr.Show(out, joininvite.JoinLine(inv.String()))
 		fmt.Fprintln(out)
 	}
 	fmt.Fprintf(out, "it is valid for %d minutes and works once.\n", int(ttl.Minutes()))

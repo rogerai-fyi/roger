@@ -56,7 +56,7 @@ func (s *surfacesBDD) say(out string, err error) {
 func placeholderRE(text, addr string) *regexp.Regexp {
 	q := regexp.QuoteMeta(text)
 	q = strings.ReplaceAll(q, regexp.QuoteMeta("192.168.1.20:8787"), regexp.QuoteMeta(addr))
-	for ph, re := range map[string]string{"<invite>": `roger://join\?\S+`, "<band>": `<band>`, "<bands>": `\S.*`, "<name>": `\S+`} {
+	for ph, re := range map[string]string{"<invite>": `'?roger://join\?[^'\s]+'?`, "<band>": `<band>`, "<bands>": `\S.*`, "<name>": `\S+`} {
 		q = strings.ReplaceAll(q, regexp.QuoteMeta(ph), re)
 	}
 	return regexp.MustCompile(`(?i)` + q)
@@ -284,7 +284,7 @@ func TestJoinSurfacesBDD(t *testing.T) {
 				return s.inv.mint()
 			})
 			sc.Step(`^the QR fits without wrapping, drawn with half-block characters$`, func() error {
-				code := qr.ForTerminal("roger join "+s.inv.inv.String(), 80, false)
+				code := qr.ForTerminal(joininvite.JoinLine(s.inv.inv.String()), 80, false)
 				if code == qr.TooSmall+"\n" {
 					return fmt.Errorf("an 80-column terminal got %q", code)
 				}
@@ -299,7 +299,7 @@ func TestJoinSurfacesBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^with NO_COLOR or a narrow terminal it says "([^"]*)"$`, func(want string) error {
-				line := "roger join " + s.inv.inv.String()
+				line := joininvite.JoinLine(s.inv.inv.String())
 				for name, got := range map[string]string{
 					"NO_COLOR":        qr.ForTerminal(line, 80, true),
 					"a narrow screen": qr.ForTerminal(line, 30, false),

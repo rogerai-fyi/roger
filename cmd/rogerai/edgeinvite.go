@@ -14,6 +14,7 @@ import (
 	"github.com/mattn/go-isatty"
 
 	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/qr"
 )
 
@@ -50,7 +51,7 @@ func cmdEdgeInvite(cfg config, args []string) error {
 		return nil
 	}
 	fmt.Println("on the device you are adding, run:")
-	line := "roger join " + edgeInvite(at, fp, code)
+	line := joininvite.JoinLine(edgeInvite(at, fp, code))
 	fmt.Printf("  %s\n", line)
 	if argv.has("qr") || isatty.IsTerminal(os.Stdout.Fd()) {
 		qr.Show(os.Stdout, line)

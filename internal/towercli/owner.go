@@ -41,7 +41,7 @@ func MintOwnerInvite(dir, servingAddr string) (OwnerInvite, error) {
 		ID:        minted.ID,
 		Heading:   tower.InviteHeading(tower.JoinClient, OwnerInviteTTL),
 		Next:      tower.InviteNext(tower.JoinClient),
-		Line:      "roger join " + inv.String(),
+		Line:      joininvite.JoinLine(inv.String()),
 		ExpiresAt: minted.ExpiresAt,
 	}, nil
 }

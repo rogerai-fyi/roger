@@ -77,7 +77,7 @@ func (in Invite) String() string {
 
 // Parse reads an invite in the one scheme, or a legacy Edge invite, and validates every field.
 func Parse(s string) (Invite, error) {
-	u, err := url.Parse(strings.TrimSpace(s))
+	u, err := url.Parse(strings.Trim(strings.TrimSpace(s), `'"`))
 	if err != nil || u.Host != "join" {
 		return Invite{}, fmt.Errorf("%w: an invite starts %s://join?", ErrBadInvite, Scheme)
 	}
@@ -134,4 +134,15 @@ func parseFP(s string) (string, error) {
 		return "", fmt.Errorf("%w: it does not carry a full fingerprint (64 hex characters)", ErrBadInvite)
 	}
 	return s, nil
+}
+
+// JoinLine is the command the other machine runs: roger join with the invite single-quoted, so it
+// pastes into sh, bash and zsh as ONE argument (unquoted, its ? globs in zsh and its & backgrounds
+// the command in sh). An invite never contains a single quote: every value is query-escaped.
+func JoinLine(invite string) string { return "roger join '" + invite + "'" }
+
+// FromLine is the invite in a join line as printed, quoted or not.
+func FromLine(line string) string {
+	s := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "roger join "))
+	return strings.Trim(s, `'"`)
 }

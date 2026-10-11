@@ -36,6 +36,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v6/internal/joininvite"
 )
 
 // edgeAuthDir is where this machine keeps its Edge identity - and, on the one machine
@@ -885,7 +886,7 @@ func edgeAllow(userKey string) error {
 		fmt.Printf("    roger edge enroll <name> --authority http://%s --code %s\n", net.JoinHostPort(ip, port), shown)
 	}
 	fmt.Println("  or paste one invite:")
-	fmt.Printf("    roger join %s\n", edgeInvite(net.JoinHostPort(ips[0], port), fp, code))
+	fmt.Printf("    %s\n", joininvite.JoinLine(edgeInvite(net.JoinHostPort(ips[0], port), fp, code)))
 	return nil
 }
 
