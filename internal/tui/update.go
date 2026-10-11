@@ -37,6 +37,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m = m.syncComposerGeometry()
 	prevStatus := m.status
 	tm, cmd := m.update(msg)
+	// Some handlers have pointer receivers and return the *model. The post-update steps below
+	// (the scan scopes above all) must run for those too, or leaving a screen that way keeps
+	// its scan open after the owner has left (features/edge/scan_on_request.feature).
+	if pm, ok := tm.(*model); ok {
+		tm = *pm
+	}
 	if mm, ok := tm.(model); ok {
 		// Stamp the frame whenever the status line CHANGES, so the tick can auto-dismiss it as
 		// a transient toast (A.6.6) - this central stamp avoids touching the ~50 assignment

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/bddrun"
@@ -151,6 +152,7 @@ type scanBDD struct {
 	stopHost  func()
 	hooks     tui.Hooks
 	endScope  func()
+	screen    tea.Model // the real TUI, when a scenario opens [3] the way the owner does
 	prevOpts  func(*edge.Fleet) edge.Options
 	prevLAN   func(context.Context) (wire.BrowseResult, error)
 	prevLease time.Duration
@@ -166,7 +168,7 @@ func (s *scanBDD) reset(t *testing.T) {
 	edgeScans = newScanScopes()
 	s.plane = &planeRecorder{}
 	s.lanBrowse = 0
-	s.stopHost, s.endScope = nil, nil
+	s.stopHost, s.endScope, s.screen = nil, nil, nil
 	s.hooks = tui.Hooks{Station: "gentle-mongoose-93"}
 	s.prevOpts, s.prevLAN, s.prevLease = edgeDiscoveryOptions, lanBrowseTowers, edgeConsoleLease
 	edgeConsoleLease = 400 * time.Millisecond
@@ -290,20 +292,28 @@ func (s *scanBDD) stopsWithin() error {
 	return s.nothingOn5353()
 }
 
+// openEdgeScreen opens [3] in the REAL TUI, wired with the same EdgeScan hook main.go gives it,
+// so the scope opens when (and only when) the TUI itself opens it.
 func (s *scanBDD) openEdgeScreen() error {
 	if err := s.startHost(); err != nil {
 		return err
 	}
-	s.endScope = edgeScans.Begin(scanEdge) // what the TUI's hook does on [3]
+	s.hooks.EdgeScan = func(kind string) func() { return edgeScans.Begin(scanKind(kind)) }
+	var m tea.Model = tui.NewWithHooks("http://127.0.0.1:1", "u", nil, s.hooks)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 220, Height: 60})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	s.screen = m
+	if !edgeScans.Active(scanEdge) {
+		return fmt.Errorf("opening [3] in the TUI opened no Edge scan")
+	}
 	return nil
 }
 
 func (s *scanBDD) leaveEdgeScreen() error {
-	if s.endScope == nil {
+	if s.screen == nil {
 		return fmt.Errorf("the [3] screen was never opened")
 	}
-	s.endScope()
-	s.endScope = nil
+	s.screen, _ = s.screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	return nil
 }
 
@@ -333,19 +343,21 @@ func (s *scanBDD) browsedDuringRun() error {
 	return nil
 }
 
+// discoveryFact reads the DISCOVERY line off the frame the owner sees the moment [3] opens: no
+// waiting, no re-read, because the TUI does not re-read it either.
 func (s *scanBDD) discoveryFact() error {
-	if s.hooks.EdgeStatus == nil {
-		return fmt.Errorf("the host wired no status")
+	if s.screen == nil {
+		return fmt.Errorf("the [3] screen was never opened")
 	}
-	var line string
-	err := s.eventually("the status reading the open scope", func() bool {
-		line = s.hooks.EdgeStatus().DiscoveryLine(time.Now())
-		return strings.Contains(line, "while this screen is open")
-	})
-	if err != nil {
-		return fmt.Errorf("DISCOVERY says %q", line)
+	for _, line := range strings.Split(s.screen.View(), "\n") {
+		if strings.Contains(line, "DISCOVERY") {
+			if strings.Contains(line, "while this screen is open") {
+				return nil
+			}
+			return fmt.Errorf("DISCOVERY on the screen says %q", strings.TrimSpace(line))
+		}
 	}
-	return nil
+	return fmt.Errorf("the [3] frame shows no DISCOVERY fact")
 }
 
 func (s *scanBDD) lanOn() error {

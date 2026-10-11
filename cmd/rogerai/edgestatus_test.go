@@ -122,6 +122,8 @@ func TestEdgeAuthorityURL(t *testing.T) {
 
 func TestEdgeHostStatusReportsTheEngineNotTheKnob(t *testing.T) {
 	useTempConfig(t)
+	edgeScans = newScanScopes() // a scope another test left open would read as a scan asked for
+	t.Cleanup(func() { edgeScans = newScanScopes() })
 	h, err := newEdgeHost("gentle-mongoose-93")
 	require.NoError(t, err)
 	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
@@ -166,4 +168,31 @@ func TestEdgeHostStatusIsCachedUnderAPollingViewer(t *testing.T) {
 	require.Equal(t, first, h.status(), "within the TTL the cached status is served")
 	now = now.Add(edgeStatusTTL)
 	require.True(t, h.status().AuthorityHere, "past the TTL the status is really read again")
+}
+
+// TestEdgeHostStatusReadsAnOpenScanBeforeTheBrowseStarts pins scan_on_request.feature:100 at
+// the host: the frame [3] draws the moment it opens its scan must say it scans while the screen
+// is open, even though the browse itself starts on the host's next wake. A status cached before
+// the scope opened is never served after it.
+func TestEdgeHostStatusReadsAnOpenScanBeforeTheBrowseStarts(t *testing.T) {
+	useTempConfig(t)
+	edgeScans = newScanScopes()
+	t.Cleanup(func() { edgeScans = newScanScopes() })
+	h, err := newEdgeHost("gentle-mongoose-93")
+	require.NoError(t, err)
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	h.statusNow = func() time.Time { return now }
+	h.mu.Lock()
+	h.armed, h.every = true, 30*time.Second
+	h.mu.Unlock()
+	require.Equal(t, edge.DiscoveryIdle, h.status().Discovery, "nobody asked: not scanning")
+
+	end := edgeScans.Begin(scanEdge) // [3] opens; the host has not woken yet (browsing is false)
+	st := h.status()                 // same instant: within the TTL of the idle reading
+	require.Equal(t, edge.DiscoveryScanning, st.Discovery, "an open scope is never reported as idle")
+	require.True(t, st.ScansOnRequest)
+	require.Contains(t, st.DiscoveryLine(now), "while this screen is open")
+
+	end()
+	require.Equal(t, edge.DiscoveryIdle, h.status().Discovery, "the scope closed: the idle reading returns")
 }

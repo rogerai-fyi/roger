@@ -108,7 +108,10 @@ type edgeHost struct {
 	// per second. statusNow is a clock seam for the cache's test.
 	statusVal edge.SelfStatus
 	statusAt  time.Time
-	statusNow func() time.Time
+	// statusAsked is whether an Edge scan was asked for when statusVal was read: a cached
+	// status read before a screen opened its scan is never served after.
+	statusAsked bool
+	statusNow   func() time.Time
 
 	// mu guards the candidate list and the state-file write: the discovery goroutine
 	// refreshes both while the UI goroutine reads them for a frame.
@@ -219,8 +222,11 @@ func (h *edgeHost) status() edge.SelfStatus {
 	if h.statusNow != nil {
 		now = h.statusNow
 	}
+	// A screen that just opened its scan reads the scan as running: the browse starts on the
+	// host's next wake, but the frame drawn now must not say "not scanning" over an open scope.
+	asked := edgeScans.Active(scanEdge)
 	h.mu.Lock()
-	if !h.statusAt.IsZero() && now().Sub(h.statusAt) < edgeStatusTTL {
+	if !h.statusAt.IsZero() && now().Sub(h.statusAt) < edgeStatusTTL && h.statusAsked == asked {
 		v := h.statusVal
 		h.mu.Unlock()
 		return v
@@ -231,7 +237,7 @@ func (h *edgeHost) status() edge.SelfStatus {
 	facts := edgeDiscoveryFacts{
 		Enabled: h.armed, Unavailable: h.unavailable, Interval: h.every,
 		LastPass: h.lastPass, Found: h.lastFound, AuthorityAddr: edgeAuthorityURL(h.authLn),
-		NoEngine: h.armed && !h.browsing, OnRequest: h.onRequest,
+		NoEngine: h.armed && !h.browsing && !asked, OnRequest: h.onRequest || (asked && !h.browsing),
 	}
 	h.mu.Unlock()
 	// Enabled is whether the ENGINE exists (arm built one), not what the environment
@@ -241,7 +247,7 @@ func (h *edgeHost) status() edge.SelfStatus {
 	}
 	v := edgeSelfStatus(st.fleet, facts)
 	h.mu.Lock()
-	h.statusVal, h.statusAt = v, now()
+	h.statusVal, h.statusAt, h.statusAsked = v, now(), asked
 	h.mu.Unlock()
 	return v
 }

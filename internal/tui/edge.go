@@ -146,6 +146,9 @@ func (m *model) enterEdge() {
 	m.edge.detail = false
 	m.edge.netDetail = false
 	m.edge.actionFocused = false
+	// Open the screen's scan before the snapshot: the frame is drawn from this one read, and it
+	// must already say the scan this screen asked for is running.
+	m.syncScans()
 	m.refreshEdge()
 	m.status = stDim.Render("EDGE - your fleet, and how it is connected")
 }
