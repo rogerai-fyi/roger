@@ -304,6 +304,29 @@ func TestJoinApproveBDD(t *testing.T) {
 				return s.finish(s.last())
 			}
 			sc.Step(`^a pairing runs$`, pairing)
+			// tower_identity.feature: the key a pairing pins is the one its phrase covered.
+			sc.Step(`^a standalone Tower "lab" serves at 192\.168\.1\.20:8787 over TLS with key fingerprint "sha256:9f3c\.\.\.e1"$`, func() error { return nil })
+			sc.Step(`^the client joins by request and approve$`, pairing)
+			sc.Step(`^lan_towers records the TLS fingerprint the SAS covered$`, func() error {
+				if err := s.last().err; err != nil {
+					return fmt.Errorf("the pairing failed: %v\n%s", err, s.last().out)
+				}
+				c := loadConfig()
+				if !slices.Contains(c.LanTowers, s.addr) {
+					return fmt.Errorf("lan_towers %v does not list the Tower at %s", c.LanTowers, s.addr)
+				}
+				// The fingerprint the phrase covered is the Tower's TLS key: the one this runner's
+				// Tower serves, and the one a direct pinned dial to it accepts.
+				if pin := c.LanTowerPins[s.addr]; pin != s.fp {
+					return fmt.Errorf("pinned %q, the Tower's TLS key is %q", pin, s.fp)
+				}
+				resp, err := towerpin.Client(s.fp, 2*time.Second).Get("https://" + s.addr + "/discover")
+				if err != nil {
+					return fmt.Errorf("a dial pinned to the recorded fingerprint failed: %v", err)
+				}
+				resp.Body.Close()
+				return nil
+			})
 			sc.Step(`^a client asks and the owner approves$`, pairing)
 			sc.Step(`^the same client asks to join twice$`, func() error {
 				for i := 0; i < 2; i++ {
@@ -644,7 +667,8 @@ func TestJoinApproveBDD(t *testing.T) {
 			Paths: []string{approveFeature + ":43", approveFeature + ":56", approveFeature + ":65", approveFeature + ":72",
 				approveFeature + ":77", approveFeature + ":83", approveFeature + ":88", approveFeature + ":97",
 				approveFeature + ":102", approveFeature + ":110", approveFeature + ":117", approveFeature + ":123",
-				approveFeature + ":128", approveFeature + ":137", approveFeature + ":142"}},
+				approveFeature + ":128", approveFeature + ":137", approveFeature + ":142",
+				towerIdentityFeature + ":41"}},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/join/approve.feature failed")
