@@ -406,6 +406,7 @@ func TestJoinTowerIdentityBDD(t *testing.T) {
 				prev := detectFull
 				detectFull = fakeDetect("qwen3-8b")
 				defer func() { detectFull = prev }()
+				fixtureIsRogerServed(s.t) // the fixture's model is one roger serves, which a station offers
 				s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), []string{in.String(), "st-1"}) })
 				return s.err
 			})

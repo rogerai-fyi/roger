@@ -87,6 +87,7 @@ func TestShareModalityFlagOverridesUpstreamPath(t *testing.T) {
 func TestShareModalityFlagDoesNotOverrideAutoDetection(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	got := captureShareConfig(t)
+	answerShareYes(t) // an auto-picked model needs a yes before the market
 	// Auto-detect returns a normal chat server.
 	stubDetectFull(t, []detect.Found{{
 		Name: "ollama", BaseURL: "http://127.0.0.1:11434/v1", Chat: "http://127.0.0.1:11434/v1/chat/completions",

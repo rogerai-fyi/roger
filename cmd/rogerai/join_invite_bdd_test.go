@@ -946,6 +946,16 @@ func mustFP(st *tower.State) string {
 	return fp
 }
 
+// fixtureIsRogerServed makes fakeDetect's server one roger serves itself, and the join run without
+// a terminal: a station offers roger's own models by default (founder ruling 2026-10-11).
+func fixtureIsRogerServed(t *testing.T) {
+	t.Helper()
+	prevServed, prevTTY := rogerServedBases, stationInteractive
+	rogerServedBases = func() []string { return []string{"http://127.0.0.1:1/v1"} }
+	stationInteractive = func() bool { return false }
+	t.Cleanup(func() { rogerServedBases, stationInteractive = prevServed, prevTTY })
+}
+
 // fakeDetect stands in for this machine's model servers: it reports the given models.
 func fakeDetect(models ...string) func(...string) ([]detect.Found, []string) {
 	return func(...string) ([]detect.Found, []string) {

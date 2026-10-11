@@ -187,6 +187,7 @@ func captureStdout(t *testing.T, fn func()) string {
 func TestCmdShareDetectionPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubShareSeams(t)
+	answerShareYes(t) // an auto-picked model needs a yes before the market (marketconsent.go)
 	stubDetectFull(t, []detect.Found{{
 		Name:    "ollama",
 		BaseURL: "http://127.0.0.1:11434/v1",
@@ -230,6 +231,7 @@ func TestCmdShareDetectionPicksRequestedModel(t *testing.T) {
 func TestCmdShareSavedKeyedUpstream(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubShareSeams(t)
+	answerShareYes(t) // the model is still auto-picked from the saved server
 	stubDetectProbeKey(t, func(url, key string) (detect.Found, detect.Status) {
 		return detect.Found{
 			BaseURL: "http://127.0.0.1:9000/v1",
@@ -676,4 +678,14 @@ func TestCmdAppealListRows(t *testing.T) {
 	if err := cmdAppeal(cfg, []string{"status"}); err != nil {
 		t.Fatalf("cmdAppeal(status, rows) = %v", err)
 	}
+}
+
+// answerShareYes is an operator at a terminal answering y to the market confirmation that an
+// auto-picked model needs (features/sharing/market_offer_consent.feature).
+func answerShareYes(t *testing.T) {
+	t.Helper()
+	prevTTY, prevIn := shareInteractive, shareStdin
+	shareInteractive = func() bool { return true }
+	shareStdin = strings.NewReader("y\n")
+	t.Cleanup(func() { shareInteractive, shareStdin = prevTTY, prevIn })
 }

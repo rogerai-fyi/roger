@@ -37,6 +37,7 @@ func TestShareTowerInviteJoinsThenShares(t *testing.T) {
 	prev := detectFull
 	detectFull = fakeDetect("qwen3-8b")
 	t.Cleanup(func() { detectFull = prev })
+	fixtureIsRogerServed(t) // the fixture's model is one roger serves, which a station offers
 
 	// A bare --tower is left for the explanation.
 	c := config{}

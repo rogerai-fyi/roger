@@ -285,6 +285,7 @@ func TestJoinApproveBDD(t *testing.T) {
 			})
 			sc.Step(`^a station runs "roger join 192\.168\.1\.20:8787 --station"$`, func() error {
 				detectFull = fakeDetect("qwen3-8b")
+				fixtureIsRogerServed(t) // the fixture's model is one roger serves, which a station offers
 				s.ask(s.addr, "kitchen-pi", true)
 				_, err := s.waiting(1)
 				return err

@@ -1566,11 +1566,16 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// hardenings (X-Persist + model-pin) never silently drop out under load. OR-ed with the probe below.
 	osaurusBrand := false
 	var pickedModels []string // the detected server's models, when the share picked one
+	// autoPicked: the model was chosen by detection, not named; it needs a yes before the
+	// public market (marketconsent.go). autoFrom is the server it came from.
+	var autoPicked bool
+	var autoFrom detect.Found
 	if up == "" {
 		// Saved keyed upstream: try it WITH its key first (the broad DetectFull scan does
 		// not carry the saved key), so a custom keyed endpoint is reused without a re-prompt.
 		var found []detect.Found
 		var needKey []string
+		guided := false // the operator picked the server in the guided setup
 		if savedUp != "" && *upKey != "" {
 			if f, st := detectProbeKey(savedUp, *upKey); st == detect.Reachable {
 				found = []detect.Found{f}
@@ -1592,6 +1597,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 				return fmt.Errorf("no local LLM detected (tried common hosts including Ollama, LM Studio, Unsloth, llama.cpp, vLLM, Jan, LiteLLM, plus your open ports). Start one, then `roger share`; any other OpenAI-compatible host works with --upstream <url>")
 			}
 			found = []detect.Found{picked}
+			guided = true
 		}
 		// prefer one that serves the requested model; else the first
 		pick := found[0]
@@ -1620,6 +1626,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		}
 		if mdl == "" && len(pick.Models) > 0 {
 			mdl = pick.Models[0]
+			autoPicked, autoFrom = !guided, pick
 		}
 		// tts/stt/chat for the model we're about to share. A BARE voice server (Kokoro/Whisper,
 		// no /v1/models) synthesizes one offer under a default id; if the operator renamed it with
@@ -1846,6 +1853,16 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		serveBrokerTower(cfg, cfgRun, base, os.Stdout)
 		fmt.Fprintln(os.Stdout, "\nstopped serving the local network.")
 		return nil
+	}
+
+	// Nothing auto-detected goes on the public market without a yes (founder ruling 2026-10-11).
+	if autoPicked && !*private {
+		if err := confirmMarketOffer(os.Stdout, mdl, autoFrom); err != nil {
+			if errors.Is(err, errNotOffered) {
+				return nil
+			}
+			return err
+		}
 	}
 
 	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`

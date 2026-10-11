@@ -17,8 +17,7 @@ import (
 
 const joinUsage = "usage: roger join <invite>    join with the invite the owner printed (roger tower invite, roger edge invite)\n" +
 	"   or: roger join <address>   ask the Tower there to let you in; the owner approves on their screen\n" +
-	"       [name] names this machine; --station joins it as a station; --models a,b is what a station offers\n" +
-	"       (default: the models roger serves here; at a terminal you can pick others)"
+	"       [name] names this machine; --station joins as a station (offers roger's own models; --models a,b names others)"
 
 // joinResolve resolves an invite's hostnames (nil: the system resolver); a test replaces it.
 var joinResolve lanmode.Resolver
